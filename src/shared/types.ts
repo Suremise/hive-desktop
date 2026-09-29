@@ -630,7 +630,7 @@ export type HiveEvent =
   | { type: 'usage-changed'; projectPath: string; sessionId: string }
   | { type: 'notes-changed' }
   /** Quitting needs the user's decision: the renderer shows the quit dialog and answers with app:quitDecision. */
-  | { type: 'quit-request'; sessions: QuitSession[] }
+  | { type: 'quit-request'; sessions: QuitSession[]; unsaved: string[] }
   /** Hive is waiting for working agents to finish before quitting (or stopped waiting). */
   | { type: 'quit-pending'; pending: boolean; working: number }
   /** Files changed in a project that has a Files or Images tab open. dirs are relative, '' is the root. */

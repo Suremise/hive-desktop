@@ -64,7 +64,10 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
     def.worktree = { path: found.path, branch: found.branch, base: (await wt.currentBranch(projectPath)) ?? found.branch }
   }
 
-  await workspace.updateProjectConfig(projectPath, { agents: [...(cfg.agents ?? []), def] })
+  await workspace.mutateProjectConfig(projectPath, (now) => {
+    if (projectAgents(now).length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
+    return { agents: [...(now.agents ?? []), def] }
+  })
   await workspace.refresh()
   return def
 }
@@ -95,7 +98,7 @@ export async function removeAgent(projectPath: string, agentId: string, opts: { 
   const def = cfg.agents.find((a) => a.id === agentId)
   if (!def) return
   if (def.worktree && opts.deleteWorktree) await wt.removeWorktree(projectPath, def.worktree, true)
-  await workspace.updateProjectConfig(projectPath, { agents: cfg.agents.filter((a) => a.id !== agentId) })
+  await workspace.mutateProjectConfig(projectPath, (now) => ({ agents: now.agents.filter((a) => a.id !== agentId) }))
   await workspace.refresh()
 }
 
@@ -121,8 +124,7 @@ export async function merge(projectPath: string, agentId: string, opts: { squash
   }
   try {
     await wt.removeWorktree(projectPath, worktree, true)
-    const cfg = await workspace.projectConfig(projectPath)
-    await workspace.updateProjectConfig(projectPath, { agents: cfg.agents.filter((a) => a.id !== agentId) })
+    await workspace.mutateProjectConfig(projectPath, (now) => ({ agents: now.agents.filter((a) => a.id !== agentId) }))
     await workspace.refresh()
     return { ...result, cleanedUp: true }
   } catch (e) {

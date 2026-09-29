@@ -7,6 +7,7 @@ import { cacheState, useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
 import { UpdateStatusRow } from './Updates'
+import { discardDrafts, saveAllDrafts } from './FileView'
 import type { QuitChoice, SessionStatus } from '@shared/types'
 import { Icon, IconButton, Modal, STATUS_TEXT } from './ui'
 
@@ -538,48 +539,101 @@ export function ClaudeSetupDialog() {
 
 const BUSY: SessionStatus[] = ['working', 'waiting']
 
-/** Asks what to do with running sessions when Hive quits. Main waits for app:quitDecision. */
+/**
+ * Asks what to do with running sessions and unsaved files when Hive quits. Main waits for
+ * app:quitDecision; unsaved files are saved (or discarded) here first.
+ */
 export function QuitDialog() {
   const sessions = useStore((s) => s.quitRequest)
+  const unsaved = useStore((s) => s.quitUnsaved)
   const [dontAsk, setDontAsk] = useState(false)
-  useEffect(() => setDontAsk(false), [sessions])
+  const [keep, setKeep] = useState<'save' | 'discard'>('save')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    setDontAsk(false)
+    setKeep('save')
+  }, [sessions])
   if (!sessions) return null
-  const decide = (choice: QuitChoice): void => {
-    set({ quitRequest: null })
+  const decide = async (choice: QuitChoice): Promise<void> => {
+    if (choice !== 'cancel' && unsaved.length) {
+      if (keep === 'discard') discardDrafts()
+      else {
+        setSaving(true)
+        const r = await saveAllDrafts()
+        setSaving(false)
+        // Something couldn't be saved: stay open, so nothing is lost.
+        if (r.failed.length) {
+          notify('error', `Couldn't save ${r.failed.length === 1 ? 'a file' : `${r.failed.length} files`}, so Hive is still open`, r.failed.map((f) => f.message).join('\n'))
+          set({ quitUnsaved: r.failed.map((f) => f.abs) })
+          return
+        }
+      }
+    }
+    set({ quitRequest: null, quitUnsaved: [] })
     void call('app:quitDecision', choice, dontAsk)
   }
   const working = sessions.filter((s) => s.status === 'working').length
   const busy = sessions.filter((s) => BUSY.includes(s.status)).length
+  const verb = unsaved.length && keep === 'save' ? 'Save and quit' : 'Quit'
+  const parts = (p: string): string[] => p.split(/[\\/]/)
   return (
     <Modal
       title="Quit Hive?"
-      icon={busy ? 'warning' : 'sign-out'}
-      onClose={() => decide('cancel')}
+      icon={busy || unsaved.length ? 'warning' : 'sign-out'}
+      onClose={() => void decide('cancel')}
       footer={
         <>
-          <label className="quit-dontask">
-            <input type="checkbox" className="checkbox" checked={dontAsk} onChange={(e) => setDontAsk(e.target.checked)} /> Don't ask again
-          </label>
-          <button className="btn subtle" onClick={() => decide('cancel')}>
+          {sessions.length > 0 && (
+            <label className="quit-dontask" title={unsaved.length ? 'Hive always asks about unsaved files.' : undefined}>
+              <input type="checkbox" className="checkbox" checked={dontAsk} onChange={(e) => setDontAsk(e.target.checked)} /> Don't ask again about sessions
+            </label>
+          )}
+          <button className="btn subtle" onClick={() => void decide('cancel')} disabled={saving}>
             Cancel
           </button>
           {working > 0 && (
-            <button className="btn subtle" onClick={() => decide('wait')} title="Hide Hive and quit as soon as no agent is working">
-              <Icon name="watch" /> Quit when {working === 1 ? 'the agent finishes' : 'agents finish'}
+            <button className="btn subtle" onClick={() => void decide('wait')} disabled={saving} title="Hide Hive and quit as soon as no agent is working">
+              <Icon name="watch" /> {verb} when {working === 1 ? 'the agent finishes' : 'agents finish'}
             </button>
           )}
-          <button className={cx('btn', busy ? 'danger' : 'primary')} autoFocus onClick={() => decide('now')}>
-            Quit now
+          <button className={cx('btn', busy || (unsaved.length > 0 && keep === 'discard') ? 'danger' : 'primary')} autoFocus onClick={() => void decide('now')} disabled={saving}>
+            {saving ? 'Saving…' : sessions.length ? `${verb} now` : verb}
           </button>
         </>
       }
     >
-      <p style={{ marginTop: 0 }}>
-        {busy
-          ? `${busy === 1 ? 'An agent is' : `${busy} agents are`} in the middle of something. Quitting stops ${sessions.length === 1 ? 'the session' : `all ${sessions.length} sessions`}.`
-          : `Quitting stops ${sessions.length === 1 ? 'the running session' : `${sessions.length} running sessions`}.`}
-      </p>
-      <div className="quit-list">
+      {unsaved.length > 0 && (
+        <div className="quit-unsaved">
+          <p style={{ marginTop: 0 }}>
+            <strong>{unsaved.length === 1 ? '1 file has' : `${unsaved.length} files have`} unsaved changes.</strong>
+          </p>
+          <div className="quit-list">
+            {unsaved.map((p) => (
+              <div key={p} className="quit-row" title={p}>
+                <Icon name="file" />
+                <strong>{parts(p).pop()}</strong>
+                <span className="faint">{parts(p).slice(-3, -1).join('/')}</span>
+              </div>
+            ))}
+          </div>
+          <div className="segmented quit-unsaved-choice">
+            <button className={cx(keep === 'save' && 'active')} onClick={() => setKeep('save')}>
+              <Icon name="save" /> Save them
+            </button>
+            <button className={cx(keep === 'discard' && 'active')} onClick={() => setKeep('discard')}>
+              <Icon name="discard" /> Discard the changes
+            </button>
+          </div>
+        </div>
+      )}
+      {sessions.length > 0 && (
+        <p style={{ marginTop: unsaved.length ? undefined : 0 }}>
+          {busy
+            ? `${busy === 1 ? 'An agent is' : `${busy} agents are`} in the middle of something. Quitting stops ${sessions.length === 1 ? 'the session' : `all ${sessions.length} sessions`}.`
+            : `Quitting stops ${sessions.length === 1 ? 'the running session' : `${sessions.length} running sessions`}.`}
+        </p>
+      )}
+      <div className="quit-list" hidden={!sessions.length}>
         {sessions.map((s) => (
           <div key={`${s.projectPath}:${s.agent ?? ''}`} className="quit-row">
             <span className={cx('dot', s.status)} />
@@ -590,7 +644,7 @@ export function QuitDialog() {
           </div>
         ))}
       </div>
-      <div className="detail">Conversations are kept. Resume them from the project or its Sessions tab next time.</div>
+      {sessions.length > 0 && <div className="detail">Conversations are kept. Resume them from the project or its Sessions tab next time.</div>}
     </Modal>
   )
 }

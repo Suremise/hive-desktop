@@ -15,12 +15,37 @@ export async function attempt<T>(title: string, fn: () => Promise<T>): Promise<T
   }
 }
 
+/**
+ * Before something that drops unsaved edits (reloading the window, switching or closing the
+ * workspace): offers to save them. False means stay (cancelled, or a file couldn't be saved).
+ */
+export async function saveUnsavedFirst(action: string): Promise<boolean> {
+  const { saveAllDrafts, unsavedFiles } = await import('./components/FileView')
+  const files = unsavedFiles()
+  if (!files.length) return true
+  const ok = await confirm({
+    title: 'Save your changes?',
+    message: `${files.length === 1 ? `${files[0].rel} has` : `${files.length} files have`} unsaved changes. Save ${files.length === 1 ? 'it' : 'them'} before you ${action}?`,
+    detail: files.length > 1 ? files.map((f) => f.rel).join('\n') : undefined,
+    confirmLabel: 'Save All'
+  })
+  if (!ok) return false
+  const r = await saveAllDrafts()
+  if (r.failed.length) {
+    notify('error', `Couldn't save ${r.failed.length === 1 ? 'a file' : `${r.failed.length} files`}`, r.failed.map((f) => f.message).join('\n'))
+    return false
+  }
+  return true
+}
+
 export async function refreshWorkspace(): Promise<void> {
   const ws = await call('workspace:refresh')
   set({ workspace: ws })
 }
 
 export async function openWorkspace(path?: string): Promise<void> {
+  const current = get().workspace?.path
+  if (current && path?.toLowerCase() !== current.toLowerCase() && !(await saveUnsavedFirst('switch workspace'))) return
   const ws = await attempt('Could not open workspace', () => call('workspace:open', path))
   if (ws === undefined) return
   set({ workspace: ws, recent: await call('workspace:recent') })
@@ -32,6 +57,7 @@ export async function openWorkspace(path?: string): Promise<void> {
 }
 
 export async function createWorkspace(): Promise<void> {
+  if (get().workspace && !(await saveUnsavedFirst('switch workspace'))) return
   const ws = await attempt('Could not create workspace', () => call('workspace:create'))
   if (ws === undefined) return
   set({ workspace: ws, recent: await call('workspace:recent'), selectedProject: ws?.projects[0]?.path ?? null })
@@ -39,6 +65,7 @@ export async function createWorkspace(): Promise<void> {
 }
 
 export async function closeWorkspace(): Promise<void> {
+  if (!(await saveUnsavedFirst('close the workspace'))) return
   const ok = await attempt('Could not close workspace', () => call('workspace:close').then(() => true))
   if (ok) set({ workspace: null, selectedProject: null })
 }
@@ -144,13 +171,10 @@ export async function newSession(path: string | null = get().selectedProject, ag
 }
 
 /**
- * The agent to resume a session with. A session runs in the folder it started in, so one from a
- * worktree goes back to the agent working there, and one from the project folder to the chosen (or
- * focused) agent if that one works in the project folder, else Agent 1. Null if no agent works there.
- */
-/**
- * Which agent resumes a session: the one asked for, else one that isn't running — the agent that
- * last ran it, the focused one, any other in the session's folder — else the agent that ran it.
+ * Which agent resumes a session. A session runs in the folder it started in, so one from a worktree
+ * goes back to the agent working there (null if none does). For the project folder: the agent asked
+ * for, else one that isn't running — the agent that last ran it, the focused one, any other in the
+ * folder — else the agent that ran it.
  */
 export function resumeTarget(p: ProjectInfo | undefined, item: Pick<SessionListItem, 'agentId' | 'cwd'>, preferred?: string): string | null {
   if (!p) return preferred ?? MAIN_AGENT
@@ -273,8 +297,8 @@ export async function archiveCurrent(path: string | null = get().selectedProject
     await call('session:stop', path, id)
     await waitForStop(path, id)
   }
-  await attempt('Could not archive session', () => call('session:archive', path, target.id, true))
-  await newSession(path, id)
+  const archived = await attempt('Could not archive session', () => call('session:archive', path, target.id, true).then(() => true))
+  if (archived) await newSession(path, id)
 }
 
 /** Removes an agent; for a worktree agent, asks whether to keep its worktree and branch. */

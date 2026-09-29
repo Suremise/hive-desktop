@@ -55,10 +55,80 @@ type Mode = 'edit' | 'preview' | 'split'
 interface Draft {
   text: string
   base: FileContent
+  /** The folder the file was opened from (project or worktree) and its path in it, for saving and renames. */
+  root: string
+  rel: string
 }
 const drafts = new Map<string, Draft>()
 const draftListeners = new Set<() => void>()
+/** Open editors reload after saveAllDrafts, so they don't keep showing the saved text as unsaved. */
+const savedListeners = new Set<() => void>()
+const absOf = (root: string, rel: string): string => `${root}\\${rel.replace(/\//g, '\\')}`
 export const hasDraft = (abs: string): boolean => drafts.has(abs.toLowerCase())
+
+// The main process is told which files have unsaved edits, so quitting can ask about them.
+draftListeners.add(() => void call('files:setUnsaved', unsavedFiles().map((f) => f.abs)))
+
+/** Files with unsaved edits. */
+export function unsavedFiles(): { root: string; rel: string; abs: string }[] {
+  return [...drafts.values()].map((d) => ({ root: d.root, rel: d.rel, abs: absOf(d.root, d.rel) }))
+}
+
+/** Unsaved files at rel or inside it (a folder), in root. */
+export function draftsUnder(root: string, rels: string[]): string[] {
+  const r = root.toLowerCase()
+  return [...drafts.values()]
+    .filter((d) => d.root.toLowerCase() === r && rels.some((x) => d.rel.toLowerCase() === x.toLowerCase() || d.rel.toLowerCase().startsWith(x.toLowerCase() + '/')))
+    .map((d) => d.rel)
+}
+
+/** After a rename or move in the Files tab: the unsaved edits of from (a file, or files in a folder) follow it to to. */
+export function moveDrafts(root: string, from: string, to: string): void {
+  if (from === to) return
+  const f = from.toLowerCase()
+  for (const [key, d] of [...drafts]) {
+    if (d.root.toLowerCase() !== root.toLowerCase()) continue
+    const rel = d.rel.toLowerCase()
+    if (rel !== f && !rel.startsWith(f + '/')) continue
+    drafts.delete(key)
+    const moved = { ...d, rel: to + d.rel.slice(from.length) }
+    drafts.set(absOf(root, moved.rel).toLowerCase(), moved)
+  }
+  draftListeners.forEach((l) => l())
+}
+
+/** Drops unsaved edits: all of them, or those of the given files in root (e.g. after deleting them). */
+export function discardDrafts(root?: string, rels?: string[]): void {
+  const under = root && rels ? new Set(draftsUnder(root, rels).map((r) => absOf(root, r).toLowerCase())) : null
+  let changed = false
+  for (const key of [...drafts.keys()]) {
+    if (under && !under.has(key)) continue
+    drafts.delete(key)
+    changed = true
+  }
+  if (changed) draftListeners.forEach((l) => l())
+}
+
+/**
+ * Saves every unsaved file. A file changed on disk since it was opened is not overwritten: it is
+ * returned with the other failures, and its edits are kept.
+ */
+export async function saveAllDrafts(): Promise<{ saved: number; failed: { abs: string; message: string }[] }> {
+  const failed: { abs: string; message: string }[] = []
+  let saved = 0
+  for (const [key, d] of [...drafts]) {
+    try {
+      await call('files:write', d.root, d.rel, d.text, d.base.modified || null, d.base.bom)
+      drafts.delete(key)
+      saved++
+    } catch (e) {
+      failed.push({ abs: absOf(d.root, d.rel), message: `${d.rel}: ${errorMessage(e).includes('CONFLICT') ? 'changed on disk since you opened it' : errorMessage(e)}` })
+    }
+  }
+  draftListeners.forEach((l) => l())
+  savedListeners.forEach((l) => l())
+  return { saved, failed }
+}
 export function useDraftVersion(): number {
   const [v, setV] = useState(0)
   useEffect(() => {
@@ -153,8 +223,17 @@ export function FileView({
   // Keep the draft in step with the editor so it survives unmounting.
   useEffect(() => {
     if (!content || content.kind !== 'text') return
-    setDraft(abs, text !== content.text ? { text, base: content } : null)
-  }, [text, content, abs])
+    setDraft(abs, text !== content.text ? { text, base: content, root: project.path, rel } : null)
+  }, [text, content, abs, project.path, rel])
+
+  // Saved or discarded from elsewhere (the quit dialog, Save All): pick up what's on disk now.
+  useEffect(() => {
+    const onSaved = (): void => {
+      if (!drafts.has(abs.toLowerCase()) && contentRef.current?.kind === 'text' && textRef.current !== contentRef.current.text) void load(false)
+    }
+    savedListeners.add(onSaved)
+    return () => void savedListeners.delete(onSaved)
+  }, [abs, load])
 
   // Changes on disk: reload silently when there are no edits, otherwise offer a choice.
   const firstTick = useRef(changeTick)
@@ -318,6 +397,15 @@ export function FileView({
 
 const MD_LANG: Record<string, string> = { ts: 'x.ts', typescript: 'x.ts', js: 'x.js', javascript: 'x.js', py: 'x.py', python: 'x.py', sh: 'x.sh', bash: 'x.sh', shell: 'x.sh', ps1: 'x.ps1', powershell: 'x.ps1', yml: 'x.yml' }
 
+/** decodeURIComponent, but a path such as "50%.png" (not valid percent-encoding) is kept as written instead of throwing. */
+function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s)
+  } catch {
+    return s
+  }
+}
+
 function MarkdownPreview({ text, root, rel, onOpenRel }: PreviewProps) {
   const ref = useRef<HTMLDivElement>(null)
   const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
@@ -330,7 +418,7 @@ function MarkdownPreview({ text, root, rel, onOpenRel }: PreviewProps) {
     for (const img of el.querySelectorAll('img')) {
       const src = img.getAttribute('src') ?? ''
       if (!src || /^(https?:|data:|hive-img:)/i.test(src)) continue
-      const target = joinRel(dir, decodeURIComponent(src.split(/[?#]/)[0]))
+      const target = joinRel(dir, safeDecode(src.split(/[?#]/)[0]))
       img.setAttribute('src', imageUrl(`${root}\\${target.replace(/\//g, '\\')}`))
     }
     const blocks = [...el.querySelectorAll('pre > code')] as HTMLElement[]
@@ -357,7 +445,7 @@ function MarkdownPreview({ text, root, rel, onOpenRel }: PreviewProps) {
           source={source}
           onLink={(href) => {
             if (/^(https?:|mailto:|#)/i.test(href)) return false
-            onOpenRel(joinRel(dir, decodeURIComponent(href.split('#')[0])))
+            onOpenRel(joinRel(dir, safeDecode(href.split('#')[0])))
             return true
           }}
         />

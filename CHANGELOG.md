@@ -1,5 +1,24 @@
 # Release Notes
 
+## 0.1.1 — 29 September 2026
+
+### Fixes
+- Hive's project and session files could be corrupted, and session records or agents lost, when two agents finished or started at the same moment. Writes are now atomic per write and changes to the same file are made one at a time.
+- A Markdown file with a `%` in an image or link path (such as `50%.png`) blanked the whole window. Such paths now work, and a problem in one tab now shows a message in that tab (**Try Again**, **Open Logs**) instead of blanking Hive; sessions keep running.
+- An agent could be told about another project's handover when one project's name begins another's (`hive` and `hive-website`).
+- Starting the same agent twice at once (a double click, or the UI and the Agent API together) could leave a Claude Code process Hive no longer tracked. The second start is now refused.
+- Archiving a session could keep an older copy of its transcript instead of the latest.
+- The Agent API refuses session IDs that aren't IDs, and reports conflicts (agent already running, conversation open elsewhere) as 409 instead of 500.
+- Hive only opens the Claude Code files it shows (your `CLAUDE.md`, auto memory and skills), never credentials or settings.
+- Session names containing `"`, `%` or `&` no longer break launching when Claude Code was installed with npm.
+- MCP servers imported from a project no longer record the project's full local path in the committed definition.
+- The Sessions tab could show messages twice when a running session's transcript was read by two things at once (the live update and a search, say).
+- **Archive & New** no longer starts a new session when archiving failed.
+- Plan usage warnings respect **Settings → Notifications → Desktop notifications**.
+- A new Hive skill whose description contains `:` or `#` no longer breaks its front matter, and copying a skill to the workspace checks its folder name.
+- Unsaved changes in the Files tab are no longer lost without warning: quitting lists the files and saves or discards them as you choose, reloading or switching workspace offers to save first, deleting warns, and renaming or moving a file keeps its changes.
+- Far fewer disk writes while agents work: plan usage is saved only when it changes (at most once a minute), and transcript backups are copied at most once a minute during a turn, plus at the end of each turn.
+
 ## 0.1.0 — 29 September 2026
 
 The first public release of Hive. Everything below is what this version does; later releases list what changed.

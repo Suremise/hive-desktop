@@ -1840,6 +1840,26 @@ p.hint {
   margin: 0 auto 10px;
   color: var(--fg-faint);
 }
+.quit-unsaved-choice {
+  margin: 8px 0 14px;
+}
+.error-boundary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-top: 14vh;
+  flex: 1;
+}
+.error-boundary > .codicon {
+  color: var(--warning);
+}
+.error-boundary-message {
+  max-width: 640px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
 .kbd-table td {
   padding: 5px 10px;
   border-bottom: 1px solid var(--border-subtle);

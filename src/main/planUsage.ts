@@ -64,11 +64,37 @@ function resetText(iso: string | null): string {
   return ` It resets ${sameDay ? 'at' : 'on'} ${d.toLocaleString([], sameDay ? { hour: '2-digit', minute: '2-digit' } : { weekday: 'short', hour: '2-digit', minute: '2-digit' })}.`
 }
 
+/** At most one save of plan usage per minute; the numbers are only shown, so a late save loses nothing that matters. */
+const SAVE_INTERVAL_MS = 60_000
+let lastSave = 0
+let saveTimer: NodeJS.Timeout | null = null
+
+function saveSoon(): void {
+  if (saveTimer) return
+  saveTimer = setTimeout(() => {
+    saveTimer = null
+    lastSave = Date.now()
+    config.update(() => undefined)
+  }, Math.max(0, lastSave + SAVE_INTERVAL_MS - Date.now()))
+}
+
+/** What the user sees: whole percentages and the reset times. Anything else (the report time) isn't a change. */
+const shownValues = (u: PlanUsage | null): string =>
+  JSON.stringify([u?.fiveHour && [Math.round(u.fiveHour.usedPercent), u.fiveHour.resetsAt], u?.sevenDay && [Math.round(u.sevenDay.usedPercent), u.sevenDay.resetsAt]])
+
+/**
+ * Claude Code reports plan usage with every status-line update, many times a minute while agents work.
+ * The latest report is kept in memory (saved with the config on quit and with any other change); it is
+ * only written to disk when a shown value changes, and then at most once a minute.
+ */
 export function reportPlanUsage(usage: PlanUsage): void {
   const prev = config.get().planUsage
-  const changed = !prev || JSON.stringify({ ...prev, updatedAt: '' }) !== JSON.stringify({ ...usage, updatedAt: '' })
-  config.update((c) => (c.planUsage = usage))
-  if (changed) emit({ type: 'plan-usage', usage })
+  const changed = shownValues(prev) !== shownValues(usage)
+  config.get().planUsage = usage
+  if (changed) {
+    emit({ type: 'plan-usage', usage })
+    saveSoon()
+  }
 
   for (const key of ['fiveHour', 'sevenDay'] as const) {
     const l = usage[key]
@@ -79,7 +105,7 @@ export function reportPlanUsage(usage: PlanUsage): void {
     const title = `${Math.round(l.usedPercent)}% of your ${LIMIT_NAMES[key]} limit used`
     const body = `${level >= 95 ? 'Sessions will pause when it runs out.' : 'You are getting close to the limit.'}${resetText(l.resetsAt)}`
     toast(level >= 95 ? 'error' : 'warning', title, body)
-    if (Notification.isSupported()) {
+    if (config.settings.notifications.desktopNotifications && Notification.isSupported()) {
       const n = new Notification({ title, body, icon: notificationIcon() })
       shown.add(n)
       n.on('close', () => shown.delete(n))

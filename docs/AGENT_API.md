@@ -24,7 +24,9 @@ Sessions started from Hive receive these environment variables, so an agent can 
 |---|---|
 | `HIVE_API_URL` | Base URL of the API |
 | `HIVE_API_TOKEN` | Bearer token |
+| `HIVE_API_TOKEN_FILE` | Path of the file holding the token (`agent-api.json`), which stays current if the token is regenerated |
 | `HIVE_PROJECT` | Name of the project the session belongs to |
+| `HIVE_AGENT` | Name of the agent running the session (e.g. `Agent 1`) |
 | `HIVE_PROJECT_PATH` | Full path of the project |
 | `HIVE_WORKSPACE` | Full path of the workspace |
 | `HIVE_SESSION_ID` | Claude Code session ID |
@@ -48,11 +50,12 @@ Errors return a non-2xx status and `{ "error": "message" }`.
 
 | Status | Meaning |
 |---|---|
-| 400 | Invalid request (missing field, bad JSON) |
+| 400 | Invalid request (missing field, bad JSON, invalid session ID) |
 | 401 | Missing or wrong token |
 | 403 | Blocked (cross-origin request, or a disabled feature such as session input) |
 | 404 | Unknown route, project or file |
-| 409 | Conflict with the current state (no workspace open, session already running…) |
+| 409 | Conflict with the current state (no workspace open, agent already running or starting, conversation open in another agent, session archived…) |
+| 500 | Unexpected error; details are in Hive's log |
 | 413 | Body larger than 2 MB |
 
 ---
@@ -124,7 +127,7 @@ Errors return a non-2xx status and `{ "error": "message" }`.
 { "resumeId": "6f1c…", "name": "Fix login bug", "agent": "Reviewer" }
 ```
 
-Omit `resumeId` to start a new session. Returns the live session state (which includes `agentId` and `cwd`, the folder it runs in). Resuming fails if that conversation is already open in another agent, or if it ran in a different folder than the agent works in.
+Omit `resumeId` to start a new session. Returns the live session state (which includes `agentId` and `cwd`, the folder it runs in). Fails with 409 if the agent is already running or starting, if that conversation is already open in another agent, or if it ran in a different folder than the agent works in; with 400 if `resumeId` isn't a session ID.
 
 `POST /v1/projects/{name}/stop[?agent=…]` — stop one agent's session, or every running agent of the project when `agent` is omitted.
 
@@ -224,12 +227,14 @@ When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP se
 | `hive_list_shared_notes` | `GET /v1/shared` |
 | `hive_read_shared_note` | `GET /v1/shared/file` |
 | `hive_write_shared_note` | `PUT /v1/shared/file` |
-| `hive_read_latest_handover` | `GET /v1/shared`, then `GET /v1/shared/file` for the newest `handovers/<date>-<project>-*.md` |
+| `hive_read_latest_handover` | `GET /v1/shared`, then `GET /v1/shared/file` for the project's newest handover (see below) |
 | `hive_create_handover` | `POST /v1/shared/handovers` |
 | `hive_notify` | `POST /v1/notify` |
 | `hive_list_skills` | `GET /v1/skills` |
 
 Tools default to the session's own project, so an agent can simply say *"create a handover"*.
+
+A handover belongs to a project when its file name is `handovers/<date>-<project>-<title>.md`, as `hive_create_handover` writes it. When another project's name begins the same way (`hive` and `hive-website`), the `**Project:**` line at the top of the handover decides.
 
 The server's instructions tell the agent that handovers and shared notes live in the workspace and should be read with these tools rather than by searching the file system. When the project has a handover, the instructions also name the latest one, so a new session knows it is there from the start.
 

@@ -10,7 +10,7 @@ import { claudeCode, claudeHome } from './agents/claude-code'
 import { agentService } from './agentService'
 import { config } from './config'
 import { emit } from './events'
-import { writeTextAtomic } from './fsutil'
+import { claudeFileAllowed, writeTextAtomic } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { logsDir } from './logger'
 import * as files from './files'
@@ -37,16 +37,18 @@ function spawnDetached(file: string, args: string[], cwd?: string): boolean {
   }
 }
 
-function guardFile(path: string): string {
-  if (!workspace.isAllowedPath(path, [claudeHome()])) throw new Error('Hive can only read and write files inside the workspace or the Claude Code config folder.')
-  return path
+function guardFile(path: string, write = false): string {
+  if (workspace.isAllowedPath(path) || claudeFileAllowed(path, write, claudeHome())) return path
+  throw new Error('Hive can only read and write files inside the workspace, and Claude Code instruction, memory and skill files.')
 }
+
 
 export interface QuitControl {
   quit: () => void
   decide: (choice: QuitChoice, dontAskAgain: boolean) => void
   cancelPending: () => void
   state: () => ReturnType<HiveRequests['app:quitState']>
+  setUnsaved: (paths: string[]) => void
 }
 
 export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: () => ReturnType<HiveRequests['app:info']>, quitControl: QuitControl): void {
@@ -202,6 +204,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
     },
     'files:reveal': (p, rel) => shell.showItemInFolder(files.absPath(p, rel)),
     'files:watch': (p) => files.watchProject(p),
+    'files:setUnsaved': (paths) => quitControl.setUnsaved(Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : []),
     'files:unwatch': (p) => files.unwatchProject(p),
 
     'images:list': (p) => files.listImages(p),
@@ -298,7 +301,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
     'notes:rename': (p, n) => notes.renameNote(p, n),
 
     'file:read': async (p) => readFile(guardFile(p), 'utf8').catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? '' : Promise.reject(e))),
-    'file:write': (p, content) => writeTextAtomic(guardFile(p), content),
+    'file:write': (p, content) => writeTextAtomic(guardFile(p, true), content),
 
     'memory:list': (p) => claudeCode.memorySources(workspace.assertProject(p)),
 

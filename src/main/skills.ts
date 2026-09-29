@@ -21,7 +21,9 @@ export function parseSkillFrontmatter(text: string): { name?: string; descriptio
       while (i + 1 < lines.length && /^\s+/.test(lines[i + 1])) block.push(lines[++i].trim())
       value = block.join(value.startsWith('|') ? '\n' : ' ')
     }
-    out[kv[1]] = value.replace(/^["']|["']$/g, '')
+    if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1).replace(/\\(["\\])/g, '$1')
+    else if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1).replace(/''/g, "'")
+    out[kv[1]] = value
   }
   return { name: out.name, description: out.description }
 }
@@ -131,11 +133,12 @@ export async function setSkillGlobal(name: string, enabled: boolean): Promise<vo
 }
 
 export async function setSkillProject(projectPath: string, name: string, enabled: boolean): Promise<void> {
-  const cfg = await workspace.projectConfig(projectPath)
-  const set = new Set(cfg.skills.disabled)
-  if (enabled) set.delete(name)
-  else set.add(name)
-  await workspace.updateProjectConfig(projectPath, { skills: { disabled: [...set].sort() } })
+  await workspace.mutateProjectConfig(projectPath, (cfg) => {
+    const set = new Set(cfg.skills.disabled)
+    if (enabled) set.delete(name)
+    else set.add(name)
+    return { skills: { ...cfg.skills, disabled: [...set].sort() } }
+  })
 }
 
 export function validSkillName(name: string): boolean {
@@ -147,7 +150,9 @@ export async function createSkill(name: string, description: string): Promise<Sk
   const dir = join(workspace.skillsDir, name)
   if (existsSync(dir)) throw new Error(`A skill named "${name}" already exists`)
   await mkdir(dir, { recursive: true })
-  const desc = description.trim().replace(/\n/g, ' ') || 'Describe when the agent should use this skill.'
+  const plain = description.trim().replace(/\s*\n\s*/g, ' ') || 'Describe when the agent should use this skill.'
+  // Quoted when YAML would read it as something else ("Use for: x", "# notes", a leading quote…).
+  const desc = /[:#]|^[\s'"&*!|>%@`{[\]-]/.test(plain) ? `"${plain.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : plain
   await writeFile(
     join(dir, 'SKILL.md'),
     `---\nname: ${name}\ndescription: ${desc}\n---\n\n# ${name}\n\nWrite the instructions the agent should follow when this skill applies.\n`
@@ -161,6 +166,7 @@ export async function createSkill(name: string, description: string): Promise<Sk
 /** Deploys a Local or Machine skill into the workspace so Hive can manage it. */
 export async function copySkillToWorkspace(skillPath: string): Promise<SkillInfo> {
   const name = basename(skillPath)
+  if (!validSkillName(name)) throw new Error(`"${name}" can't be a Hive skill name: use letters, numbers, "-" and "_" (rename the folder first).`)
   const dest = join(workspace.skillsDir, name)
   if (existsSync(dest)) throw new Error(`The workspace already has a skill named "${name}"`)
   if (!(await isFile(join(skillPath, 'SKILL.md')))) throw new Error('Not a skill folder (no SKILL.md)')

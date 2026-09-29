@@ -2,6 +2,15 @@ import type { AgentDef, AppConfig, AppSettings, KeybindingOverrides, EffortLevel
 
 export const APP_NAME = 'Hive'
 export const HIVE_DIR = '.hive'
+
+/** Claude Code session ids are UUIDs; this also accepts other plain ids but never anything that could be a path. */
+export const isSessionId = (id: unknown): id is string => typeof id === 'string' && /^[\w-]{1,100}$/.test(id)
+
+/** Throws unless id is a valid session id (see isSessionId). Session ids end up in file names. */
+export function assertSessionId(id: unknown): string {
+  if (!isSessionId(id)) throw new Error('Invalid session id')
+  return id
+}
 export const DEFAULT_API_PORT = 47821
 
 export const DEFAULT_SETTINGS: AppSettings = {

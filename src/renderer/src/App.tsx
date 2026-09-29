@@ -15,6 +15,7 @@ import { applyLiveState, filesListeners, get, projectKey, projectState, pushToas
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
 import { ProjectView } from './views/ProjectView'
 import { SettingsView } from './views/SettingsView'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 function applyTheme(): void {
   const s = get().settings
@@ -93,7 +94,7 @@ function handleEvent(e: HiveEvent): void {
       runCommand(e.command, ...(e.args ?? []))
       break
     case 'quit-request':
-      set({ quitRequest: e.sessions })
+      set({ quitRequest: e.sessions, quitUnsaved: e.unsaved })
       break
     case 'quit-pending':
       set({ quitPending: e.pending ? { working: e.working } : null })
@@ -153,7 +154,7 @@ export function App() {
       // A reloaded window picks up a quit dialog or pending quit that was already in progress.
       set({ planUsage: await call('app:planUsage'), update: await call('update:state') })
       const q = await call('app:quitState')
-      set({ quitRequest: q.request, quitPending: q.pending ? { working: q.working } : null })
+      set({ quitRequest: q.request, quitUnsaved: q.unsaved, quitPending: q.pending ? { working: q.working } : null })
       applyTheme()
       noticeUnmanagedMcp()
     })()
@@ -226,7 +227,13 @@ export function App() {
         <div className="main-area">
           <QuitPendingBanner />
           {workspace && <ProjectView visible={activity === 'projects'} />}
-          {main && <div className="tab-body">{main}</div>}
+          {main && (
+            <div className="tab-body">
+              <ErrorBoundary label="This view" resetKey={activity}>
+                {main}
+              </ErrorBoundary>
+            </div>
+          )}
         </div>
       </div>
       <StatusBar />

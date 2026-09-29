@@ -1,4 +1,4 @@
-import { join } from 'path'
+import { basename, join } from 'path'
 import { readdir, readFile, rm, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import type { McpServerDef, McpServerInfo } from '../shared/types'
@@ -80,11 +80,12 @@ export async function setMcpGlobal(name: string, enabled: boolean): Promise<void
 }
 
 export async function setMcpProject(projectPath: string, name: string, enabled: boolean): Promise<void> {
-  const cfg = await workspace.projectConfig(projectPath)
-  const set = new Set(cfg.mcp.disabled)
-  if (enabled) set.delete(name)
-  else set.add(name)
-  await workspace.updateProjectConfig(projectPath, { mcp: { disabled: [...set].sort() } })
+  await workspace.mutateProjectConfig(projectPath, (cfg) => {
+    const set = new Set(cfg.mcp.disabled)
+    if (enabled) set.delete(name)
+    else set.add(name)
+    return { mcp: { ...cfg.mcp, disabled: [...set].sort() } }
+  })
 }
 
 export function validMcpName(name: string): boolean {
@@ -132,7 +133,7 @@ export async function importFromProject(projectPath: string, names: string[]): P
     if (!def || !validMcpName(n)) continue
     const path = join(workspace.mcpDir, `${n}.json`)
     if (existsSync(path)) continue
-    await writeFile(path, JSON.stringify({ description: `Imported from project ${projectPath}`, ...def }, null, 2) + '\n')
+    await writeFile(path, JSON.stringify({ description: `Imported from project ${basename(projectPath)}`, ...def }, null, 2) + '\n')
     imported.push(n)
   }
   return imported

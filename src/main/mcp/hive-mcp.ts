@@ -62,13 +62,47 @@ interface NoteFile {
 
 const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
-/** Handovers, newest first. Files are named <date>-<project>-<title>.md, so the project is matched on the name. */
+/**
+ * Handovers, newest first. Files are named <date>-<project>-<title>.md, so the project is matched on
+ * the name. One project's name can begin another's ("hive" and "hive-website"), so a file belongs to
+ * the longest project name it starts with.
+ */
 async function handovers(project?: string): Promise<NoteFile[]> {
   const tree = (await api('GET', '/v1/shared')) as NoteFile[]
   const files = tree.find((n) => n.isDir && n.name === 'handovers')?.children?.filter((f) => !f.isDir && f.name.endsWith('.md') && f.name !== 'README.md') ?? []
   const p = project ? slug(project) : ''
-  return files
-    .filter((f) => !p || f.name.replace(/^\d{4}-\d{2}-\d{2}-/, '').startsWith(p + '-'))
+  // Other projects whose names overlap this one's ("hive" / "hive-website"): their handovers can look like ours.
+  let overlapping: string[] = []
+  if (p) {
+    try {
+      const all = (await api('GET', '/v1/projects')) as { name: string }[]
+      overlapping = all.map((x) => slug(x.name)).filter((s) => s !== p && (s.startsWith(p + '-') || p.startsWith(s + '-')))
+    } catch {
+      // Without the project list, fall back to the prefix alone.
+    }
+  }
+  const mine: NoteFile[] = []
+  for (const f of files) {
+    if (!p) {
+      mine.push(f)
+      continue
+    }
+    const rest = f.name.replace(/^\d{4}-\d{2}-\d{2}-/, '')
+    if (!rest.startsWith(p + '-')) continue
+    if (!overlapping.some((s) => rest.startsWith(s + '-'))) {
+      mine.push(f)
+      continue
+    }
+    // "hive-website-plan" could be hive-website's "Plan", or hive's "Website plan": the header says which.
+    try {
+      const { content } = (await api('GET', `/v1/shared/file?path=${enc(f.relPath)}`)) as { content: string }
+      const owner = /^- \*\*Project:\*\* (.+)$/m.exec(content)?.[1]?.trim()
+      if (owner && slug(owner) === p) mine.push(f)
+    } catch {
+      // Unreadable: leave it out.
+    }
+  }
+  return mine
     .sort((a, b) => b.name.slice(0, 10).localeCompare(a.name.slice(0, 10)) || (b.modified ?? '').localeCompare(a.modified ?? ''))
 }
 

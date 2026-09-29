@@ -57,10 +57,12 @@ export function TitleBar() {
     }
     window.addEventListener('mousedown', onDown, true)
     window.addEventListener('keydown', onKey, true)
-    window.addEventListener('blur', () => setOpen(null))
+    const onBlur = (): void => setOpen(null)
+    window.addEventListener('blur', onBlur)
     return () => {
       window.removeEventListener('mousedown', onDown, true)
       window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('blur', onBlur)
     }
   }, [open])
 

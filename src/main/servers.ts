@@ -334,10 +334,19 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
     const result = await r.handler({ params, query: url.searchParams, body })
     send(res, 200, result ?? null)
   } catch (e) {
-    const status = e instanceof HttpError ? e.status : 500
+    const status = e instanceof HttpError ? e.status : statusFor(e as Error)
     if (status === 500) log.error(`API ${req.method} ${url.pathname}`, e)
     send(res, status, { error: (e as Error).message })
   }
+}
+
+/** The HTTP status for an error thrown by the session and workspace services, which don't know about HTTP. */
+function statusFor(e: Error): number {
+  const m = String(e?.message ?? '')
+  if (/Invalid session id|URI malformed/i.test(m)) return 400
+  if (/already running|already open|already being opened|is starting|Stop it first|Stop the|archived|No session is running|ran in .* Resume it|CLI is required|No workspace/i.test(m)) return 409
+  if (/Not a project|Unknown (project|agent)|no longer exists/i.test(m)) return 404
+  return 500
 }
 
 function broadcast(event: HiveEvent): void {

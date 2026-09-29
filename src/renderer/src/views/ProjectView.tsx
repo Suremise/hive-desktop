@@ -13,6 +13,7 @@ import { carriesFiles, cx, formatKeybinding, formatTokens } from '../util'
 import { FilesTab, ImagesTab } from './FilesTab'
 import { ChangesTab, MemoryTab, OverviewTab, ProjectMcpTab, ProjectSettingsTab, ProjectSkillsTab } from './ProjectTabs'
 import { SessionsTab } from './SessionsTab'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 
 const TABS: { id: ProjectTab; label: string; icon: string }[] = [
   { id: 'session', label: 'Session', icon: 'terminal' },
@@ -271,15 +272,17 @@ export function ProjectView({ visible }: { visible: boolean }) {
           {tab === 'session' && <PaneChrome project={project} panes={panes} />}
           {tab === 'session' && panes.length === 1 && !live && <SessionEmpty project={project} />}
         </div>
-        {tab === 'overview' && <OverviewTab project={project} />}
-        {tab === 'sessions' && <SessionsTab project={project} />}
-        {tab === 'files' && <FilesTab project={project} />}
-        {tab === 'images' && <ImagesTab project={project} />}
-        {tab === 'changes' && <ChangesTab project={project} />}
-        {tab === 'memory' && <MemoryTab project={project} />}
-        {tab === 'skills' && <ProjectSkillsTab project={project} />}
-        {tab === 'mcp' && <ProjectMcpTab project={project} />}
-        {tab === 'settings' && <ProjectSettingsTab project={project} />}
+        <ErrorBoundary label="This tab" resetKey={`${project.path}|${tab}`}>
+          {tab === 'overview' && <OverviewTab project={project} />}
+          {tab === 'sessions' && <SessionsTab project={project} />}
+          {tab === 'files' && <FilesTab project={project} />}
+          {tab === 'images' && <ImagesTab project={project} />}
+          {tab === 'changes' && <ChangesTab project={project} />}
+          {tab === 'memory' && <MemoryTab project={project} />}
+          {tab === 'skills' && <ProjectSkillsTab project={project} />}
+          {tab === 'mcp' && <ProjectMcpTab project={project} />}
+          {tab === 'settings' && <ProjectSettingsTab project={project} />}
+        </ErrorBoundary>
       </div>
       {menu.element}
     </div>

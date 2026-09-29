@@ -49,7 +49,7 @@ export interface HiveRequests {
   'app:quitDecision': (choice: QuitChoice, dontAskAgain: boolean) => void
   'app:cancelPendingQuit': () => void
   /** Current quit state, for a window that reloads while a quit dialog or pending quit is open. */
-  'app:quitState': () => { request: QuitSession[] | null; pending: boolean; working: number }
+  'app:quitState': () => { request: QuitSession[] | null; unsaved: string[]; pending: boolean; working: number }
   'app:openExternal': (url: string) => void
   'app:openPath': (path: string) => void
   'app:showInFolder': (path: string) => void
@@ -187,6 +187,8 @@ export interface HiveRequests {
   'files:reveal': (projectPath: string, rel: string) => void
   /** Starts/stops live 'files-changed' events for a project (reference counted). */
   'files:watch': (projectPath: string) => void
+  /** The files with unsaved edits in the renderer (absolute paths), so quitting can ask about them. */
+  'files:setUnsaved': (paths: string[]) => void
   'files:unwatch': (projectPath: string) => void
 
   'images:list': (projectPath: string) => SessionImageGroup[]

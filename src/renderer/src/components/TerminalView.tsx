@@ -204,15 +204,18 @@ export function TerminalView({
       }
       return !isAppShortcut(e)
     })
-    host.current!.addEventListener('focusin', () => onFocusRef.current?.())
-    host.current!.addEventListener('mousedown', () => onFocusRef.current?.())
+    // Removed with the terminal: the host element can outlive it (a new ptyKey in the same view).
+    const listeners = new AbortController()
+    const { signal } = listeners
+    host.current!.addEventListener('focusin', () => onFocusRef.current?.(), { signal })
+    host.current!.addEventListener('mousedown', () => onFocusRef.current?.(), { signal })
     host.current!.addEventListener('contextmenu', (e) => {
       e.preventDefault()
       if (term.hasSelection()) {
         void navigator.clipboard.writeText(term.getSelection())
         term.clearSelection()
       } else void navigator.clipboard.readText().then((t) => t && term.paste(t))
-    })
+    }, { signal })
 
     // Files dropped from Explorer or Hive's Files/Images tabs are pasted as paths. Images are first
     // copied into .hive/images, unless they are already there.
@@ -220,7 +223,7 @@ export function TerminalView({
       if (!carriesFiles(e.dataTransfer)) return
       e.preventDefault()
       e.dataTransfer!.dropEffect = 'copy'
-    })
+    }, { signal })
     host.current!.addEventListener('drop', (e) => {
       const dt = e.dataTransfer
       if (!carriesFiles(dt)) return
@@ -238,7 +241,7 @@ export function TerminalView({
         if (paths.length) term.paste(paths.join(' ') + ' ')
         term.focus()
       })()
-    })
+    }, { signal })
 
     const disposeInput = term.onData((d) => void call('pty:write', ptyKey, d))
     // IPC keeps event order, so anything received before the buffer reply is already in the buffer.
@@ -277,6 +280,7 @@ export function TerminalView({
       if (dropWebgl.current) clearTimeout(dropWebgl.current)
       webglHolders.delete(ptyKey)
       webglRef.current = null
+      listeners.abort()
       ro.disconnect()
       disposeInput.dispose()
       unsubData()

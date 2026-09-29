@@ -4,10 +4,11 @@ Hive is a desktop workspace for coding with AI agents. It runs a Claude Code ses
 
 ## Getting started
 
-1. **Install the Claude Code CLI.** Hive runs the standalone Claude Code command-line tool in each project; it is required and not included with Hive. The copy inside the VS Code (or Cursor) extension is not used. On first launch Hive looks for the CLI and offers a one-click install with Anthropic's official installer if it's missing (**Help → Claude Code Setup**). In your first session, choose a theme, sign in, and press Enter at "Login successful" so the sign-in is saved.
-2. **Open or create a workspace** (**File → Open Workspace…** or **New Workspace…**). A workspace is any folder whose subfolders are your projects.
-3. **Mark the projects you're working on** with the toggle next to each project.
-4. **Start a session** with **New Session** (Ctrl+Shift+N). Claude Code opens in the Session tab. Switch to another project and start another — sessions keep running in the background.
+1. **Install Hive.** Download `Hive-Setup-<version>.exe` from the [latest release](https://github.com/Suremise/hive-desktop/releases/latest) and run it. The installer isn't code-signed yet, so Windows SmartScreen may warn you; choose **More info → Run anyway**. From then on Hive keeps itself up to date (see [Updating Hive](#updating-hive)).
+2. **Install the Claude Code CLI.** Hive runs the standalone Claude Code command-line tool in each project; it is required and not included with Hive. The copy inside the VS Code (or Cursor) extension is not used. On first launch Hive looks for the CLI and offers a one-click install with Anthropic's official installer if it's missing (**Help → Claude Code Setup**). In your first session, choose a theme, sign in, and press Enter at "Login successful" so the sign-in is saved.
+3. **Open or create a workspace** (**File → Open Workspace…** or **New Workspace…**). A workspace is any folder whose subfolders are your projects.
+4. **Mark the projects you're working on** with the toggle next to each project.
+5. **Start a session** with **New Session** (Ctrl+Shift+N). Claude Code opens in the Session tab. Switch to another project and start another — sessions keep running in the background.
 
 ## Workspaces and projects
 
@@ -151,7 +152,11 @@ MCP servers give agents extra tools. Each server is a JSON file in `Workspace/.h
 
 Enable servers in the MCP view, and turn them off per project in the project's **MCP** tab. Sessions use **only** the servers Hive enables. If a project has its own `.mcp.json`, Hive tells you which of its servers aren't in the workspace and offers to copy them there; until then they stay disabled.
 
-Reference secrets with environment variables (`${NAME}`), never literal values — Hive warns when a definition looks like it contains one.
+Reference secrets with environment variables (`${NAME}`), never literal values — Hive warns when a definition looks like it contains one. Sessions get the environment Hive was started with, so after setting a variable (for example in Windows' *Edit environment variables for your account*), quit Hive completely, including from the tray, and open it again.
+
+A server can be a program Hive starts (`command`, `args`, `env`, as above) or one reached over HTTP (`"type": "http"`, `"url"` and optional `"headers"`), the same fields as in Claude Code's `.mcp.json`. To keep a server's own code with the workspace, put it in a folder next to its definition, for example `.hive/mcp/notes/server.js`, and refer to it as `${HIVE_MCP_DIR}`, which Hive replaces with the path of the `.hive/mcp` folder: `"args": ["${HIVE_MCP_DIR}/notes/server.js"]`. Keep build output and `node_modules` out of git there.
+
+A server you add or change is used by sessions started afterwards; restart a running session to give it the change.
 
 ### The built-in `hive` server
 
@@ -159,7 +164,7 @@ Every session also gets Hive's own MCP server, which lets agents list projects, 
 
 ## Shared notes and handovers
 
-The **Shared Notes** view edits the markdown files in `.hive/shared`. Use it for team conventions, instructions every agent should follow, and **handovers** — notes a session writes before it ends so the next session (or another project) can continue. Handovers go in `shared/handovers`, named by date and project.
+The **Shared Notes** view edits the markdown files in `.hive/shared`. Use it for team conventions, instructions every agent should follow, and **handovers** — notes a session writes before it ends so the next session (or another project) can continue. Handovers go in `shared/handovers`, named by date and project (`2026-09-29-api-auth-refactor.md`), with the project on a `**Project:**` line at the top. When project names overlap, such as `hive` and `hive-website`, that line decides whose handover it is.
 
 ## Memory
 
@@ -198,7 +203,7 @@ Select a file and it opens on the right, ready to edit, with syntax highlighting
 | SVG | **Image** (default) · **Edit** |
 | Images, PDF | Viewer (click an image to toggle actual size) |
 
-Files with unsaved changes get a ● in the tree. The edits are kept while you look at other files or tabs, until you save them or Hive closes. If a file changes on disk while you have unsaved edits, for example because the agent edited it, Hive tells you and lets you **Reload** it or **Overwrite with mine**. A file without edits simply updates. Binary files and files over 5 MB aren't opened; use **Open in Default App** for those.
+Files with unsaved changes get a ● in the tree. The edits are kept while you look at other files or tabs, and follow a file you rename or move in the Files tab. Deleting a file with unsaved changes warns you first. When you quit, Hive lists the files with unsaved changes and saves them or discards them, as you choose; reloading the window or switching workspace offers to save them first. Unsaved changes are not kept if Hive crashes, so save often. If a file changes on disk while you have unsaved edits, for example because the agent edited it, Hive tells you and lets you **Reload** it or **Overwrite with mine**. A file without edits simply updates. Binary files and files over 5 MB aren't opened; use **Open in Default App** for those.
 
 ## Images
 
@@ -210,17 +215,20 @@ The **Changes** tab lists files changed in the project's git working tree and sh
 
 ## Project settings
 
-Each project can override the global defaults in its **Settings** tab:
+Each project can override the global defaults in its **Settings** tab, which has the same categories and search as Settings:
 
-| Setting | What it does |
-|---|---|
-| Model | **Latest** (Fable, Opus, Sonnet, Haiku — always the newest in that family), a **pinned version** such as Opus 5.5 (Show older versions lists the 4.x models too), or a custom model ID. **1M context** uses the larger context window where the model has one. The same choice is in Settings → Claude Code → Default model. |
-| Effort | Reasoning effort: low → max |
-| Permission mode | How much the agent asks before acting (below) |
-| Completion chime | On, off or inherit |
-| Extra arguments | Additional Claude Code command-line arguments |
+| Category | Setting | What it does |
+|---|---|---|
+| Claude Code | Model | **Latest** (Fable, Opus, Sonnet, Haiku — always the newest in that family), a **pinned version** such as Opus 5.5 (Show older versions lists the 4.x models too), or a custom model ID. **1M context** uses the larger context window where the model has one. The same choice is in Settings → Claude Code → Default model. |
+| | Effort | Reasoning effort: low → max |
+| | Permission mode | How much the agent asks before acting (below) |
+| | Extra arguments | Additional Claude Code command-line arguments |
+| Sessions | Suggest compacting above | When the Compact button turns orange (see [Sessions](#sessions)) |
+| | Completion chime | On, off or inherit |
+| Agents & Worktrees | Agents, file locks, copy into new worktrees, setup command | See [Several agents in one project](#several-agents-in-one-project) |
+| Keyboard Shortcuts | | Shortcuts for project and session commands in this project (see [Keyboard shortcuts](#keyboard-shortcuts)) |
 
-Changes apply to new sessions. If you change something while a session is running, Hive shows **Restart session**, which restarts it with the new settings and continues the same conversation.
+Changes apply to new sessions. If you change something while a session is running, Hive shows **Restart session**, which restarts it with the new settings and continues the same conversation. The permission mode is the exception: it can be switched in a running session (below).
 
 ### Permission modes
 
@@ -267,7 +275,9 @@ When it asks, you see each session and what it's doing, and can choose:
 - **Quit when agents finish**: Hive hides and quits by itself once no agent is working. Until then the tray menu has **Quit Now** and **Cancel Pending Quit**, and opening the window shows a banner with the same choices.
 - **Cancel**: keep working.
 
-Tick **Don't ask again** to stop the question, or change it any time in **Settings → General → Confirm before quitting** (*When an agent is working*, *Whenever sessions are running*, or *Never*).
+If files in the Files tab have unsaved changes, Hive always asks, lists them at the top, and saves them (**Save and quit**) or discards them, as you choose. A file that changed on disk since you opened it isn't overwritten: Hive stays open so you can decide.
+
+Tick **Don't ask again** to stop the question about sessions, or change it any time in **Settings → General → Confirm before quitting** (*When an agent is working*, *Whenever sessions are running*, or *Never*).
 
 ## Keyboard shortcuts
 
@@ -302,6 +312,7 @@ In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts th
 - **"Claude Code CLI required"** — install the CLI from **Help → Claude Code Setup**, or set its path in Settings → Claude Code. Having the VS Code extension isn't enough; Hive needs the standalone CLI.
 - **Status dots don't change** — status comes from Claude Code hooks. Restart the session; if it persists, check **Help → Open Logs Folder**.
 - **Agent API port in use** — change the port in Settings → Agent API.
+- **"This tab ran into a problem"** — something in that view failed, for example on an unusual file. Your sessions keep running. Click **Try Again** or switch to another tab; if it keeps happening, **Open Logs** has the details for a bug report.
 - **Where is my data?** — app settings in `%APPDATA%\Hive`, workspace data in `Workspace/.hive`, project data in `Project/.hive`.
 - **How many sessions can run?** — as many as your machine can handle, across any number of projects. Each is a Claude Code process; Hive only draws the terminals you can see with the graphics card, so dozens of background sessions don't slow the window down.
 

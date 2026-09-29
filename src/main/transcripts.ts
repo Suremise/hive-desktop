@@ -1,5 +1,6 @@
 import { open, stat } from 'fs/promises'
 import type { Transcript, TranscriptItem, TranscriptSearchResult, TranscriptTool } from '../shared/types'
+import { assertSessionId } from '../shared/defaults'
 import { ConversationParser, searchItems, transcriptMarkdown } from './agents/conversation'
 import { sessions } from './sessions'
 import { workspace } from './workspace'
@@ -32,13 +33,32 @@ async function readRange(path: string, from: number, to: number): Promise<Buffer
   }
 }
 
+const pending = new Map<string, Promise<unknown>>()
+
+/**
+ * One read at a time per transcript: two overlapping reads (the 2-second poll and a search, say) would
+ * otherwise both feed the same new bytes to the parser and duplicate messages.
+ */
 async function parsed(projectPath: string, sessionId: string): Promise<Entry> {
   projectPath = workspace.assertProject(projectPath)
   // The id becomes part of a file name, so only accept what Claude Code uses (UUIDs).
-  if (!/^[\w-]{1,100}$/.test(sessionId)) throw new Error('Invalid session id')
+  assertSessionId(sessionId)
+  const key = `${projectPath.toLowerCase()}|${sessionId}`
+  const run = (pending.get(key) ?? Promise.resolve()).then(
+    () => parseNow(projectPath, sessionId, key),
+    () => parseNow(projectPath, sessionId, key)
+  )
+  const tail = run.catch(() => undefined)
+  pending.set(key, tail)
+  void tail.then(() => {
+    if (pending.get(key) === tail) pending.delete(key)
+  })
+  return run
+}
+
+async function parseNow(projectPath: string, sessionId: string, key: string): Promise<Entry> {
   const path = await sessions.anyTranscript(projectPath, sessionId)
   if (!path) throw new Error('This session has no transcript yet.')
-  const key = `${projectPath.toLowerCase()}|${sessionId}`
   const size = (await stat(path)).size
   let e = cache.get(key)
   // A different file (Claude Code deleted it and Hive's backup is used) or a shorter one means start again.

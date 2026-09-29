@@ -45,6 +45,8 @@ npm 11 blocks install scripts by default; esbuild and electron-winstaller are ap
 - **zustand selectors** must not return fresh objects/arrays (`?? []`) — that loops forever (React error #185). Use a stable constant such as `NO_PROJECTS`.
 - **`setActivity(view)` toggles** the sidebar when that view is already shown (it's the activity bar's click). To just show a view (from a command or action), use `showView(view)`.
 - **Shortcuts**: never read `Command.keybinding` directly for display or matching; use `commandKeybinding(id)`, which applies the user's and the project's overrides.
+- **project.json / sessions.json**: change them with `workspace.mutateProjectConfig()`/`updateAgent()` and `workspace.mutateSessions()`/`upsertSession()`, which lock the file; computing a new value outside the lock and writing it loses concurrent changes (two agents finishing at once).
+- **Renderer errors**: a throw while rendering is caught by the nearest `ErrorBoundary`; don't rely on it — guard parsing of file content (e.g. `decodeURIComponent` on paths from Markdown) where it happens.
 - **Monaco 0.57** deep imports drop the `esm/vs/` prefix: `monaco-editor/editor/editor.worker?worker`.
 - **Claude Code login**: never automate key presses on Claude Code's login screens in test sessions; warn the user before any test that may open a browser sign-in.
 - Hive must only use the **standalone Claude Code CLI**. Copies bundled in editor extensions are deliberately rejected (SPEC §11).

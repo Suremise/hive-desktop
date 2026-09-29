@@ -175,6 +175,8 @@ function createWindow(): BrowserWindow {
 // ---------------------------------------------------------------------------
 
 let quitRequest: QuitSession[] | null = null
+/** Files with unsaved edits in the window (reported by the renderer): quitting always asks about them. */
+let unsavedFiles: string[] = []
 let answerQuit: ((choice: QuitChoice) => void) | null = null
 let pendingQuit = false
 /** Restart and Update was chosen: install the downloaded update instead of just quitting. */
@@ -201,13 +203,13 @@ async function requestQuit(opts: { force?: boolean } = {}): Promise<void> {
   installOnQuit = false
   const live = sessions.liveStates()
   const mode = config.settings.general.confirmOnQuit
-  const ask = !opts.force && live.length > 0 && (mode === 'always' || (mode === 'working' && sessions.busyStates().length > 0))
+  const ask = !opts.force && ((live.length > 0 && (mode === 'always' || (mode === 'working' && sessions.busyStates().length > 0))) || unsavedFiles.length > 0)
   if (ask && mainWindow) {
     showWindow(mainWindow)
     quitRequest = quitSessions()
     const choice = await new Promise<QuitChoice>((resolve) => {
       answerQuit = resolve
-      emit({ type: 'quit-request', sessions: quitRequest! })
+      emit({ type: 'quit-request', sessions: quitRequest!, unsaved: unsavedFiles })
     })
     answerQuit = null
     quitRequest = null
@@ -341,7 +343,10 @@ app.whenReady().then(async () => {
       answerQuit?.(choice)
     },
     cancelPending: cancelPendingQuit,
-    state: () => ({ request: quitRequest, pending: pendingQuit, working: pendingQuit ? workingCount() : 0 })
+    state: () => ({ request: quitRequest, unsaved: quitRequest ? unsavedFiles : [], pending: pendingQuit, working: pendingQuit ? workingCount() : 0 }),
+    setUnsaved: (paths) => {
+      unsavedFiles = paths
+    }
   })
   mainWindow = createWindow()
   setEventWindow(mainWindow)

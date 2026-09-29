@@ -178,7 +178,7 @@ export const commands: Command[] = [
   { id: 'view.zoomReset', label: 'Reset Zoom', category: 'View', keybinding: 'Mod+0', run: () => call('window:zoom', 'reset') },
   { id: 'view.fullScreen', label: 'Toggle Full Screen', category: 'View', keybinding: 'F11', run: () => call('window:toggleFullScreen') },
   { id: 'view.devTools', label: 'Toggle Developer Tools', category: 'Developer', keybinding: 'Mod+Shift+I', run: () => call('window:toggleDevTools') },
-  { id: 'view.reload', label: 'Reload Window', category: 'Developer', run: () => location.reload() },
+  { id: 'view.reload', label: 'Reload Window', category: 'Developer', run: () => void actions.saveUnsavedFirst('reload the window').then((ok) => ok && location.reload()) },
   { id: 'notes.open', label: 'Open Shared Note', category: 'Notes', internal: true, run: (path: string) => { showView('notes'); set({ selectedNote: path }) } },
   { id: 'mcp.import', label: 'Copy Project MCP Servers to Workspace', category: 'MCP', internal: true, run: (path: string, names: string[]) => actions.importProjectMcp(path, names) },
   { id: 'claude.setup', label: 'Claude Code Setup…', category: 'Help', run: () => set({ setupOpen: true }) },

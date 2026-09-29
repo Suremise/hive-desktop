@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { encodeProjectPath, parseTranscript, recacheEstimate } from '../src/main/agents/transcript'
 import { parseSkillFrontmatter } from '../src/main/skills'
 import { findSecretWarnings, toLaunchDef } from '../src/main/mcp'
-import { splitArgs } from '../src/main/fsutil'
-import { compactThreshold, DEFAULT_APP_CONFIG, DEFAULT_SETTINGS, effectiveModelLabel, mergeDefaults, migrateConfig, modelLabel } from '../src/shared/defaults'
+import { claudeFileAllowed, splitArgs, withFileLock, writeJsonAtomic } from '../src/main/fsutil'
+import { mkdtemp, readFile, readdir } from 'fs/promises'
+import { tmpdir } from 'os'
+import { assertSessionId, isSessionId, compactThreshold, DEFAULT_APP_CONFIG, DEFAULT_SETTINGS, effectiveModelLabel, mergeDefaults, migrateConfig, modelLabel } from '../src/shared/defaults'
 
 const line = (o: unknown): string => JSON.stringify(o)
 
@@ -93,6 +95,10 @@ describe('parseSkillFrontmatter', () => {
     expect(parseSkillFrontmatter('---\nname: my-skill\ndescription: "Does things"\n---\nbody')).toEqual({ name: 'my-skill', description: 'Does things' })
     expect(parseSkillFrontmatter('---\r\nname: x\r\ndescription: >\r\n  line one\r\n  line two\r\n---\r\n')).toEqual({ name: 'x', description: 'line one line two' })
     expect(parseSkillFrontmatter('# no frontmatter')).toEqual({})
+  })
+  it('unescapes quoted values', () => {
+    expect(parseSkillFrontmatter('---\ndescription: "Use for: \\"deploys\\" and C:\\\\temp"\n---\n').description).toBe('Use for: "deploys" and C:\\temp')
+    expect(parseSkillFrontmatter("---\ndescription: 'It''s here'\n---\n").description).toBe("It's here")
   })
 })
 
@@ -438,5 +444,69 @@ describe('keyboard shortcuts', () => {
     expect(keybindingProblem('Mod+Alt+M')).toBeNull()
     expect(keybindingProblem('Mod+K Mod+S')).toBeNull()
     expect(keybindingProblem('Mod+K S')).not.toBeNull()
+  })
+})
+
+describe('writeJsonAtomic and withFileLock', () => {
+  it('never leaves a corrupt file when writes overlap', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'hive-test-'))
+    const file = join(dir, 'sessions.json')
+    const big = { sessions: Array.from({ length: 400 }, (_, k) => ({ id: `a${k}` })) }
+    for (let i = 0; i < 50; i++) {
+      await Promise.all([writeJsonAtomic(file, big), writeJsonAtomic(file, { sessions: [{ id: 'b' }] })])
+      const text = await readFile(file, 'utf8')
+      expect(() => JSON.parse(text)).not.toThrow()
+    }
+    expect((await readdir(dir)).filter((f) => f.endsWith('.tmp'))).toEqual([])
+  })
+
+  it('keeps every change when read-modify-writes overlap', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'hive-test-'))
+    const file = join(dir, 'list.json')
+    await writeJsonAtomic(file, { ids: [] })
+    const add = (id: number) =>
+      withFileLock(file, async () => {
+        const cur = JSON.parse(await readFile(file, 'utf8')) as { ids: number[] }
+        await new Promise((r) => setTimeout(r, 2))
+        cur.ids.push(id)
+        await writeJsonAtomic(file, cur)
+      })
+    await Promise.all(Array.from({ length: 20 }, (_, i) => add(i)))
+    expect((JSON.parse(await readFile(file, 'utf8')) as { ids: number[] }).ids.sort((a, b) => a - b)).toEqual(Array.from({ length: 20 }, (_, i) => i))
+  })
+
+  it('carries on after a failed change', async () => {
+    const file = join(tmpdir(), 'hive-lock-fail.json')
+    await expect(withFileLock(file, async () => Promise.reject(new Error('boom')))).rejects.toThrow('boom')
+    await expect(withFileLock(file, async () => 'next')).resolves.toBe('next')
+  })
+})
+
+describe('session ids', () => {
+  it('accepts Claude Code ids and refuses paths', () => {
+    expect(isSessionId('3f2b1c9e-8a7d-4e6f-9b0a-1c2d3e4f5a6b')).toBe(true)
+    expect(isSessionId('agent-abc_123')).toBe(true)
+    for (const bad of ['../../x', '..\\x', 'a/b', 'a.b', '', 'x'.repeat(101), 42, undefined]) expect(isSessionId(bad)).toBe(false)
+    expect(() => assertSessionId('../evil')).toThrow('Invalid session id')
+  })
+})
+
+describe('claudeFileAllowed', () => {
+  const home = join('C:\\', 'Users', 'u', '.claude')
+  const at = (...p: string[]): string => join(home, ...p)
+  it('allows instructions and memory, read-only skills', () => {
+    expect(claudeFileAllowed(at('CLAUDE.md'), true, home)).toBe(true)
+    expect(claudeFileAllowed(at('projects', 'D--x', 'memory', 'MEMORY.md'), true, home)).toBe(true)
+    expect(claudeFileAllowed(at('skills', 'pdf', 'SKILL.md'), false, home)).toBe(true)
+    expect(claudeFileAllowed(at('skills', 'pdf', 'SKILL.md'), true, home)).toBe(false)
+    expect(claudeFileAllowed(at('plugins', 'cache', 'p', 'skills', 's', 'SKILL.md'), false, home)).toBe(true)
+  })
+  it('refuses credentials, settings and anything outside', () => {
+    expect(claudeFileAllowed(at('.credentials.json'), false, home)).toBe(false)
+    expect(claudeFileAllowed(at('settings.json'), false, home)).toBe(false)
+    expect(claudeFileAllowed(at('projects', 'D--x', 'abc.jsonl'), false, home)).toBe(false)
+    expect(claudeFileAllowed(at('projects', 'D--x', 'notes.md'), true, home)).toBe(false)
+    expect(claudeFileAllowed(`${home}/../secret.md`, false, home)).toBe(false)
+    expect(claudeFileAllowed(home, false, home)).toBe(false)
   })
 })

@@ -4,7 +4,7 @@ import { join, basename } from 'path'
 import { mkdir, readdir, stat, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import type { AgentInstallInfo, MemorySource } from '../../shared/types'
-import { HIVE_DIR, MAIN_AGENT } from '../../shared/defaults'
+import { HIVE_DIR, MAIN_AGENT, assertSessionId, isSessionId } from '../../shared/defaults'
 import { config } from '../config'
 import { copyDir, isDir, removePath, writeJsonAtomic, hashDir } from '../fsutil'
 import { createLogger } from '../logger'
@@ -236,7 +236,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     const args: string[] = []
     if (ctx.resume) args.push('--resume', ctx.sessionId)
     else args.push('--session-id', ctx.sessionId)
-    if (ctx.name) args.push('--name', ctx.name)
+    if (ctx.name) args.push('--name', /\.(cmd|bat)$/i.test(executable) ? ctx.name.replace(/["%^&|<>!]/g, ' ').replace(/\s+/g, ' ').trim() : ctx.name)
     args.push('--plugin-dir', join(dir, 'plugin'))
     args.push('--mcp-config', join(dir, 'mcp.json'), '--strict-mcp-config')
     args.push('--settings', join(dir, 'settings.json'))
@@ -262,13 +262,13 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   async transcriptPath(projectPath: string, sessionId: string): Promise<string | null> {
     const dir = await this.transcriptDir(projectPath)
     if (!dir) return null
-    const p = join(dir, `${sessionId}.jsonl`)
+    const p = join(dir, `${assertSessionId(sessionId)}.jsonl`)
     return existsSync(p) ? p : null
   }
 
   /** Where a transcript would be written for a project that has none yet. */
   defaultTranscriptPath(projectPath: string, sessionId: string): string {
-    return join(claudeHome(), 'projects', encodeProjectPath(projectPath), `${sessionId}.jsonl`)
+    return join(claudeHome(), 'projects', encodeProjectPath(projectPath), `${assertSessionId(sessionId)}.jsonl`)
   }
 
   async listSessions(projectPath: string): Promise<ExternalSession[]> {
@@ -276,7 +276,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     if (!dir) return []
     const out: ExternalSession[] = []
     for (const f of await readdir(dir)) {
-      if (!f.endsWith('.jsonl')) continue
+      if (!f.endsWith('.jsonl') || !isSessionId(basename(f, '.jsonl'))) continue
       const p = join(dir, f)
       try {
         const s = await stat(p)

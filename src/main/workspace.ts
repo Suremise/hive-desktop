@@ -6,7 +6,7 @@ import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, MAIN_AGENT,
 import type { AgentDef, AgentInfo, LiveSessionState, ProjectConfig, ProjectInfo, SessionRecord, WorkspaceConfig, WorkspaceInfo } from '../shared/types'
 import { config } from './config'
 import { emit } from './events'
-import { isDir, readJson, writeJsonAtomic } from './fsutil'
+import { isDir, readJson, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger } from './logger'
 import { worktreesRoot } from './worktrees'
 
@@ -195,14 +195,16 @@ class WorkspaceService {
 
   /** Changes one agent's definition (adding Agent 1's entry when it is first changed). */
   async updateAgent(projectPath: string, agentId: string, patch: Partial<AgentDef>): Promise<AgentDef> {
-    const cfg = await this.projectConfig(projectPath)
-    const agents = projectAgents(cfg)
-    const current = agents.find((a) => a.id === agentId)
-    if (!current) throw new Error('That agent no longer exists.')
-    const next = { ...current, ...patch, id: agentId }
-    const list = (cfg.agents ?? []).some((a) => a.id === agentId) ? cfg.agents.map((a) => (a.id === agentId ? next : a)) : agentId === MAIN_AGENT ? [next, ...(cfg.agents ?? [])] : [...(cfg.agents ?? []), next]
-    await this.updateProjectConfig(projectPath, { agents: list })
-    return next
+    let next: AgentDef | undefined
+    await this.mutateProjectConfig(projectPath, (cfg) => {
+      const current = projectAgents(cfg).find((a) => a.id === agentId)
+      if (!current) throw new Error('That agent no longer exists.')
+      const def: AgentDef = { ...current, ...patch, id: agentId }
+      next = def
+      const list = (cfg.agents ?? []).some((a) => a.id === agentId) ? cfg.agents.map((a) => (a.id === agentId ? def : a)) : agentId === MAIN_AGENT ? [def, ...(cfg.agents ?? [])] : [...(cfg.agents ?? []), def]
+      return { agents: list }
+    })
+    return next!
   }
 
   /** Creates <project>/.hive with defaults and excludes it from git. Idempotent. */
@@ -272,9 +274,22 @@ class WorkspaceService {
   }
 
   async updateProjectConfig(projectPath: string, patch: Partial<ProjectConfig>): Promise<ProjectConfig> {
+    return this.mutateProjectConfig(projectPath, () => patch)
+  }
+
+  /**
+   * Changes project.json from its current content: fn gets the config as it is now and returns the
+   * fields to change. Changes to one project's config never overlap, so none is lost.
+   */
+  async mutateProjectConfig(projectPath: string, fn: (cfg: ProjectConfig) => Partial<ProjectConfig>): Promise<ProjectConfig> {
     await this.ensureProject(projectPath)
-    const next = { ...(await this.projectConfig(projectPath)), ...patch }
-    await writeJsonAtomic(join(projectPath, HIVE_DIR, 'project.json'), next)
+    const file = join(projectPath, HIVE_DIR, 'project.json')
+    const next = await withFileLock(file, async () => {
+      const cfg = await this.projectConfig(projectPath)
+      const updated = { ...cfg, ...fn(cfg) }
+      await writeJsonAtomic(file, updated)
+      return updated
+    })
     this.registerRoots(projectPath, next)
     this.scheduleRefresh()
     return next
@@ -284,21 +299,28 @@ class WorkspaceService {
     return readJson<SessionsFile>(join(projectPath, HIVE_DIR, 'sessions.json'), { version: 1, sessions: [] })
   }
 
-  async saveSessionsFile(projectPath: string, data: SessionsFile): Promise<void> {
-    await writeJsonAtomic(join(projectPath, HIVE_DIR, 'sessions.json'), data)
+  /** Changes sessions.json from its current content, one change at a time. */
+  async mutateSessions<T>(projectPath: string, fn: (f: SessionsFile) => T): Promise<T> {
+    const file = join(projectPath, HIVE_DIR, 'sessions.json')
+    return withFileLock(file, async () => {
+      const f = await this.sessionsFile(projectPath)
+      const result = fn(f)
+      await writeJsonAtomic(file, f)
+      return result
+    })
   }
 
   async upsertSession(projectPath: string, rec: Partial<SessionRecord> & { id: string }): Promise<SessionRecord> {
-    const f = await this.sessionsFile(projectPath)
-    let existing = f.sessions.find((s) => s.id === rec.id)
-    if (existing) Object.assign(existing, rec)
-    else {
-      const now = new Date().toISOString()
-      existing = { agent: 'claude-code', name: '', createdAt: now, lastActiveAt: now, archived: false, ...rec }
-      f.sessions.push(existing)
-    }
-    await this.saveSessionsFile(projectPath, f)
-    return existing
+    return this.mutateSessions(projectPath, (f) => {
+      let existing = f.sessions.find((s) => s.id === rec.id)
+      if (existing) Object.assign(existing, rec)
+      else {
+        const now = new Date().toISOString()
+        existing = { agent: 'claude-code', name: '', createdAt: now, lastActiveAt: now, archived: false, ...rec }
+        f.sessions.push(existing)
+      }
+      return existing
+    })
   }
 
   activeNames(): string[] {

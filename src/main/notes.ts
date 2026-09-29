@@ -74,7 +74,9 @@ export async function createHandover(project: string, title: string, content: st
   const slug = `${title}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'handover'
   const dir = join(workspace.sharedDir, 'handovers')
   await mkdir(dir, { recursive: true })
-  let file = join(dir, `${date}-${project ? project.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' : ''}${slug}.md`)
+  // The same slug as hive-mcp's, which finds a project's handovers by this prefix.
+  const projectSlug = project.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  let file = join(dir, `${date}-${projectSlug ? projectSlug + '-' : ''}${slug}.md`)
   let n = 2
   while (existsSync(file)) file = file.replace(/(-\d+)?\.md$/, `-${n++}.md`)
   const header = `# ${title}\n\n- **Project:** ${project || '(workspace)'}\n- **Date:** ${new Date().toISOString()}\n\n`

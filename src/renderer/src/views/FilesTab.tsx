@@ -3,7 +3,7 @@ import type { FileEntry, ProjectInfo, SessionImage, SessionImageGroup } from '@s
 import { MAIN_AGENT } from '@shared/defaults'
 import * as actions from '../actions'
 import { call } from '../api'
-import { FileView, hasDraft, useDraftVersion } from '../components/FileView'
+import { discardDrafts, draftsUnder, FileView, hasDraft, moveDrafts, useDraftVersion } from '../components/FileView'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { pasteIntoTerminal } from '../components/TerminalView'
 import { Icon, IconButton, InfoTip, Modal, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
@@ -284,6 +284,7 @@ function FilesBrowser({ project, selector }: { project: ProjectInfo; selector: R
       if (!old || value.trim() === old.name) return
       const rel = await actions.attempt('Could not rename', () => call('files:rename', project.path, ed.rel, value))
       if (rel) {
+        moveDrafts(project.path, ed.rel, rel)
         await loadDir(parentOf(ed.rel))
         if (old.isDir) {
           // Carry expanded state over to the new name.
@@ -314,9 +315,13 @@ function FilesBrowser({ project, selector }: { project: ProjectInfo; selector: R
   const trashSelected = async (items = selEntries): Promise<void> => {
     if (!items.length) return
     const what = items.length === 1 ? `"${items[0].name}"${items[0].isDir ? ' and everything in it' : ''}` : `${items.length} items`
-    const ok = await confirm({ title: 'Move to Recycle Bin?', message: `Move ${what} to the Recycle Bin?`, detail: 'You can restore it from the Recycle Bin.', confirmLabel: 'Move to Recycle Bin', danger: true })
+    const rels = items.map((i) => i.relPath)
+    const dirty = draftsUnder(project.path, rels)
+    const lost = dirty.length ? ` Unsaved changes to ${dirty.length === 1 ? dirty[0] : `${dirty.length} files`} will be lost.` : ''
+    const ok = await confirm({ title: 'Move to Recycle Bin?', message: `Move ${what} to the Recycle Bin?`, detail: `You can restore it from the Recycle Bin.${lost}`, confirmLabel: 'Move to Recycle Bin', danger: true })
     if (!ok) return
-    await actions.attempt('Could not delete', () => call('files:trash', project.path, items.map((i) => i.relPath)))
+    const done = await actions.attempt('Could not delete', () => call('files:trash', project.path, rels).then(() => true))
+    if (done) discardDrafts(project.path, rels)
     setSelected([])
     for (const d of new Set(items.map((i) => parentOf(i.relPath)))) void loadDir(d)
     loadGit()
@@ -337,7 +342,10 @@ function FilesBrowser({ project, selector }: { project: ProjectInfo; selector: R
       out = await actions.attempt('Could not paste', () => call('files:import', project.path, sources, dest))
     } else if (clip.mode === 'cut') {
       out = await actions.attempt('Could not move', () => call('files:move', project.path, clip.rels, dest))
-      if (out) for (const d of new Set(clip.rels.map(parentOf))) void loadDir(d)
+      if (out) {
+        clip.rels.forEach((r, i) => moveDrafts(project.path, r, out![i]))
+        for (const d of new Set(clip.rels.map(parentOf))) void loadDir(d)
+      }
     } else {
       out = await actions.attempt('Could not copy', () => call('files:copy', project.path, clip.rels, dest))
     }
@@ -487,7 +495,10 @@ function FilesBrowser({ project, selector }: { project: ProjectInfo; selector: R
       const data = JSON.parse(internal) as { project: string; rels?: string[]; paths: string[] }
       if (data.project === project.path && data.rels && !ev.ctrlKey) {
         out = await actions.attempt('Could not move', () => call('files:move', project.path, data.rels!, dir))
-        if (out) for (const d of new Set(data.rels.map(parentOf))) void loadDir(d)
+        if (out) {
+          data.rels.forEach((r, i) => moveDrafts(project.path, r, out![i]))
+          for (const d of new Set(data.rels.map(parentOf))) void loadDir(d)
+        }
       } else if (data.project === project.path && data.rels) {
         out = await actions.attempt('Could not copy', () => call('files:copy', project.path, data.rels!, dir))
       } else out = await actions.attempt('Could not copy', () => call('files:import', project.path, data.paths, dir))

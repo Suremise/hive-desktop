@@ -1,10 +1,10 @@
 import { randomUUID, randomBytes } from 'crypto'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'path'
-import { copyFile, mkdir, rename, stat, writeFile } from 'fs/promises'
+import { copyFile, mkdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { BrowserWindow, Notification, clipboard } from 'electron'
-import { HIVE_DIR, MAIN_AGENT, agentPtyKey, canSwitchLive, footerMode, hookMode, permissionLabel, projectAgents, resumeRecord } from '../shared/defaults'
+import { HIVE_DIR, MAIN_AGENT, agentPtyKey, assertSessionId, canSwitchLive, footerMode, hookMode, permissionLabel, projectAgents, resumeRecord } from '../shared/defaults'
 import type {
   AgentDef,
   AgentInfo,
@@ -39,10 +39,15 @@ export interface HiveMcpProvider {
   (projectPath: string): McpServerDef | null
 }
 
+/** Minimum time between transcript backups while a turn is running. */
+const BACKUP_INTERVAL_MS = 60_000
+
 interface LiveSession {
   state: LiveSessionState
   transcriptMtime: number
   backupTimer?: NodeJS.Timeout
+  /** When the transcript was last copied to .hive/sessions (see BACKUP_INTERVAL_MS). */
+  lastBackupAt?: number
   /** Launched without --model, so its transcript shows Claude Code's default model. */
   defaultModel: boolean
   /** Set while a Hive-requested /compact runs: compactions in the transcript before it, and a safety timer. */
@@ -110,6 +115,8 @@ class SessionManager {
   apiEnv: () => Record<string, string> = () => ({})
   hiveMcp: HiveMcpProvider = () => null
   private exitWaiters = new Map<string, () => void>()
+  /** Agents being started (liveId → the session being resumed), so two starts at once can't both get through. */
+  private starting = new Map<string, string | undefined>()
   private getWindow: () => BrowserWindow | null = () => null
 
   setWindowProvider(fn: () => BrowserWindow | null): void {
@@ -209,7 +216,7 @@ class SessionManager {
   }
 
   private backupPath(projectPath: string, sessionId: string, archived = false): string {
-    return join(projectPath, HIVE_DIR, archived ? 'archive' : 'sessions', `${sessionId}.jsonl`)
+    return join(projectPath, HIVE_DIR, archived ? 'archive' : 'sessions', `${assertSessionId(sessionId)}.jsonl`)
   }
 
   /**
@@ -234,11 +241,25 @@ class SessionManager {
 
   async start(projectPath: string, opts: { resumeId?: string; name?: string; agentId?: string; skipSetup?: boolean; permissionMode?: PermissionMode }): Promise<LiveSessionState> {
     projectPath = workspace.assertProject(projectPath)
+    if (opts.resumeId !== undefined) assertSessionId(opts.resumeId)
     const agentId = opts.agentId || MAIN_AGENT
-    const { agent, cfg, count } = await this.agentDef(projectPath, agentId)
     const id = liveId(projectPath, agentId)
-    if (this.live.has(id)) throw new Error(count > 1 ? `${agent.name} is already running. Stop it first.` : 'A session is already running for this project. Stop it first.')
+    // Checked and reserved before anything is awaited: a double click, or the UI and the Agent API at
+    // once, must not start the agent twice (the second start would orphan the first process).
+    if (this.live.has(id) || this.starting.has(id)) throw new Error('This agent is already running or starting. Stop it first.')
     // Two terminals on one conversation would both append to its transcript.
+    if (opts.resumeId && [...this.starting.values()].includes(opts.resumeId)) throw new Error('This conversation is already being opened in another agent.')
+    this.starting.set(id, opts.resumeId)
+    try {
+      return await this.startReserved(projectPath, agentId, id, opts)
+    } finally {
+      this.starting.delete(id)
+    }
+  }
+
+  private async startReserved(projectPath: string, agentId: string, id: string, opts: { resumeId?: string; name?: string; skipSetup?: boolean; permissionMode?: PermissionMode }): Promise<LiveSessionState> {
+    const { agent, cfg, count } = await this.agentDef(projectPath, agentId)
+    if (this.live.has(id)) throw new Error(count > 1 ? `${agent.name} is already running. Stop it first.` : 'A session is already running for this project. Stop it first.')
     const holder = opts.resumeId ? this.projectStates(projectPath).find((s) => s.sessionId === opts.resumeId) : undefined
     if (holder) throw new Error(`This conversation is already open in ${holder.agentName ?? 'another agent'}. An agent can only resume a session no other agent is running.`)
     const info = agentService.info
@@ -649,9 +670,11 @@ class SessionManager {
       await workspace.upsertSession(projectPath, { id: sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
     } else {
       // Nothing was ever said (e.g. closed at the login screen) — there is nothing to resume.
-      const f = await workspace.sessionsFile(projectPath)
-      f.sessions = f.sessions.filter((s) => s.id !== sessionId)
-      await workspace.saveSessionsFile(projectPath, f).catch(() => undefined)
+      await workspace
+        .mutateSessions(projectPath, (f) => {
+          f.sessions = f.sessions.filter((s) => s.id !== sessionId)
+        })
+        .catch(() => undefined)
     }
     emit({ type: 'session-exit', projectPath, agentId, sessionId, exitCode: code })
     this.exitWaiters.get(id)?.()
@@ -690,6 +713,10 @@ class SessionManager {
       if (usage?.model) agentService.observeDefaultModel(usage.model)
     }
     if (!config.settings.sessions.backupTranscripts) return
+    // A transcript can be many MB: while the agent works, copy it at most once a minute. The end of
+    // each turn (Stop) and the session's exit force a copy, so nothing is left out.
+    if (!force && l?.lastBackupAt && Date.now() - l.lastBackupAt < BACKUP_INTERVAL_MS) return
+    if (l) l.lastBackupAt = Date.now()
     const dest = this.backupPath(projectPath, sessionId)
     await mkdir(dirname(dest), { recursive: true })
     await copyFile(src, dest).catch((e) => log.warn('backup failed', e))
@@ -878,9 +905,11 @@ class SessionManager {
 
   private notify(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting'): void {
     const n = config.settings.notifications
-    void this.effective(projectPath).then((eff) => {
-      if (eff.chime) emit({ type: 'chime', projectPath })
-    })
+    void this.effective(projectPath)
+      .then((eff) => {
+        if (eff.chime) emit({ type: 'chime', projectPath })
+      })
+      .catch((e) => log.warn('chime: settings unavailable', e))
     if (!n.desktopNotifications) return
     if (kind === 'finished' && !n.notifyOnFinished) return
     if (kind === 'waiting' && !n.notifyOnWaiting) return
@@ -966,6 +995,7 @@ class SessionManager {
   }
 
   async usage(projectPath: string, sessionId: string): Promise<SessionUsage | null> {
+    assertSessionId(sessionId)
     const p = await this.anyTranscript(projectPath, sessionId)
     return p ? this.usageFor(p, sessionId) : null
   }
@@ -1020,9 +1050,11 @@ class SessionManager {
     if (archived) {
       // Always take a fresh copy from Claude Code so the archive is complete.
       const src = await this.claudeTranscript(projectPath, sessionId)
-      if (src) await copyFile(src, arch)
-      else if (existsSync(active)) await rename(active, arch)
-      if (existsSync(active)) await rename(active, arch).catch(() => undefined)
+      if (src) {
+        await copyFile(src, arch)
+        // The fresh copy is the archive; the older backup would only overwrite it.
+        await rm(active, { force: true })
+      } else if (existsSync(active)) await rename(active, arch)
     } else if (existsSync(arch)) {
       await rename(arch, active)
     }
@@ -1031,6 +1063,7 @@ class SessionManager {
 
   async rename(projectPath: string, sessionId: string, name: string): Promise<void> {
     projectPath = workspace.assertProject(projectPath)
+    assertSessionId(sessionId)
     await workspace.upsertSession(projectPath, { id: sessionId, name: name.trim() })
     const live = this.projectStates(projectPath).find((s) => s.sessionId === sessionId)
     if (live) {
@@ -1041,6 +1074,7 @@ class SessionManager {
 
   async adopt(projectPath: string, sessionId: string): Promise<void> {
     projectPath = workspace.assertProject(projectPath)
+    assertSessionId(sessionId)
     const usage = await this.usage(projectPath, sessionId)
     await workspace.upsertSession(projectPath, {
       id: sessionId,
