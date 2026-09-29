@@ -1,0 +1,313 @@
+import { watch, existsSync, type FSWatcher } from 'fs'
+import { cp, mkdir, readdir, readFile, rename, stat, writeFile } from 'fs/promises'
+import { basename, dirname, extname, join, relative, resolve, sep } from 'path'
+import { shell } from 'electron'
+import { HIVE_DIR } from '../shared/defaults'
+import type { FileContent, FileEntry, SessionImage, SessionImageGroup } from '../shared/types'
+import { emit } from './events'
+import { git } from './git'
+import { createLogger } from './logger'
+import { workspace } from './workspace'
+
+const log = createLogger('files')
+
+const HIDDEN = new Set(['.git'])
+export const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp)$/i
+/** Files the hive-img: protocol may serve to the renderer (image and PDF previews). */
+export const SERVABLE_EXT = /\.(png|jpe?g|gif|webp|bmp|ico|pdf)$/i
+
+const toRel = (root: string, abs: string): string => relative(root, abs).split(sep).join('/')
+
+/** Resolves a project-relative path, refusing anything outside the project. '' is the project root. */
+function inProject(projectPath: string, rel: string, allowRoot = false): string {
+  const root = resolve(projectPath)
+  const abs = resolve(root, rel || '.')
+  if (abs === root) {
+    if (allowRoot) return abs
+    throw new Error('This action needs a file or folder inside the project')
+  }
+  if (!abs.toLowerCase().startsWith(root.toLowerCase() + sep)) throw new Error('Path is outside the project')
+  return abs
+}
+
+function validName(name: string): string {
+  const n = name.trim()
+  if (!n || n === '.' || n === '..' || /[\\/:*?"<>|]/.test(n)) throw new Error(`"${name}" is not a valid name`)
+  return n
+}
+
+/** "name.ext", "name copy.ext", "name copy 2.ext", … — the first that does not exist in dir. */
+function uniqueName(dir: string, name: string): string {
+  if (!existsSync(join(dir, name))) return name
+  const ext = extname(name)
+  const stem = ext && ext !== name ? name.slice(0, -ext.length) : name
+  for (let i = 1; ; i++) {
+    const candidate = `${stem} copy${i > 1 ? ` ${i}` : ''}${ext && ext !== name ? ext : ''}`
+    if (!existsSync(join(dir, candidate))) return candidate
+  }
+}
+
+async function ignoredSet(projectPath: string, rels: string[]): Promise<Set<string>> {
+  const out = new Set<string>()
+  // Chunked to stay under the Windows command-line limit.
+  for (let i = 0; i < rels.length; i += 200) {
+    // -z needs --stdin, which the helper does not support, so read one path per line.
+    const r = await git(projectPath, ['check-ignore', '--', ...rels.slice(i, i + 200)])
+    for (const p of r.out.split(/\r?\n/)) if (p) out.add(p.replace(/\/$/, ''))
+  }
+  return out
+}
+
+export async function listDir(projectPath: string, rel: string): Promise<FileEntry[]> {
+  projectPath = workspace.assertRoot(projectPath)
+  const dir = inProject(projectPath, rel, true)
+  const entries = await readdir(dir, { withFileTypes: true })
+  const out: FileEntry[] = []
+  for (const e of entries) {
+    if (HIDDEN.has(e.name)) continue
+    const abs = join(dir, e.name)
+    const s = await stat(abs).catch(() => null)
+    if (!s) continue
+    out.push({ name: e.name, relPath: toRel(projectPath, abs), isDir: s.isDirectory(), size: s.size, modified: s.mtime.toISOString(), ignored: false })
+  }
+  const ignored = await ignoredSet(
+    projectPath,
+    out.map((f) => (f.isDir ? `${f.relPath}/` : f.relPath))
+  )
+  for (const f of out) f.ignored = ignored.has(f.relPath) || f.relPath === HIVE_DIR || f.relPath.startsWith(`${HIVE_DIR}/`)
+  return out.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }) : a.isDir ? -1 : 1))
+}
+
+export async function create(projectPath: string, parentRel: string, name: string, isDir: boolean): Promise<string> {
+  projectPath = workspace.assertRoot(projectPath)
+  const parent = inProject(projectPath, parentRel, true)
+  // Allow "sub/dir/file.txt" to create intermediate folders, like VS Code.
+  const parts = name.split(/[\\/]/).filter(Boolean).map(validName)
+  if (!parts.length) throw new Error('A name is required')
+  const abs = inProject(projectPath, toRel(projectPath, join(parent, ...parts)))
+  if (existsSync(abs)) throw new Error(`"${parts.join('/')}" already exists`)
+  if (isDir) await mkdir(abs, { recursive: true })
+  else {
+    await mkdir(dirname(abs), { recursive: true })
+    await writeFile(abs, '', { flag: 'wx' })
+  }
+  return toRel(projectPath, abs)
+}
+
+export async function renameEntry(projectPath: string, rel: string, newName: string): Promise<string> {
+  projectPath = workspace.assertRoot(projectPath)
+  const abs = inProject(projectPath, rel)
+  const dest = join(dirname(abs), validName(newName))
+  if (dest === abs) return rel
+  // A case-only rename on Windows is the same file, so existsSync would be true.
+  if (existsSync(dest) && dest.toLowerCase() !== abs.toLowerCase()) throw new Error(`"${newName}" already exists`)
+  await rename(abs, dest)
+  return toRel(projectPath, dest)
+}
+
+function assertNotInside(src: string, destDir: string): void {
+  const s = src.toLowerCase()
+  const d = destDir.toLowerCase()
+  if (d === s || d.startsWith(s + sep)) throw new Error(`Cannot put "${basename(src)}" inside itself`)
+}
+
+/** Moves entries into destRel. Returns their new relative paths. */
+export async function move(projectPath: string, rels: string[], destRel: string): Promise<string[]> {
+  projectPath = workspace.assertRoot(projectPath)
+  const destDir = inProject(projectPath, destRel, true)
+  const out: string[] = []
+  for (const rel of rels) {
+    const src = inProject(projectPath, rel)
+    if (dirname(src).toLowerCase() === destDir.toLowerCase()) {
+      out.push(rel)
+      continue
+    }
+    assertNotInside(src, destDir)
+    const dest = join(destDir, basename(src))
+    if (existsSync(dest)) throw new Error(`"${basename(src)}" already exists in ${destRel || 'the project root'}`)
+    await rename(src, dest)
+    out.push(toRel(projectPath, dest))
+  }
+  return out
+}
+
+/** Copies entries into destRel (also used for Duplicate). Name clashes get a " copy" suffix. */
+export async function copy(projectPath: string, rels: string[], destRel: string): Promise<string[]> {
+  projectPath = workspace.assertRoot(projectPath)
+  return copyInto(projectPath, rels.map((r) => inProject(projectPath, r)), inProject(projectPath, destRel, true))
+}
+
+/** Copies files from anywhere (e.g. dropped from Explorer) into destRel. */
+export async function importPaths(projectPath: string, sources: string[], destRel: string): Promise<string[]> {
+  projectPath = workspace.assertRoot(projectPath)
+  return copyInto(projectPath, sources.map((s) => resolve(s)), inProject(projectPath, destRel, true))
+}
+
+async function copyInto(projectPath: string, sources: string[], destDir: string): Promise<string[]> {
+  const out: string[] = []
+  for (const src of sources) {
+    assertNotInside(src, destDir)
+    const dest = join(destDir, uniqueName(destDir, basename(src)))
+    await cp(src, dest, { recursive: true, errorOnExist: true, force: false })
+    out.push(toRel(projectPath, dest))
+  }
+  return out
+}
+
+/** Moves entries to the Recycle Bin. */
+export async function trash(projectPath: string, rels: string[]): Promise<void> {
+  projectPath = workspace.assertRoot(projectPath)
+  for (const rel of rels) await shell.trashItem(inProject(projectPath, rel))
+}
+
+/** Absolute path of a project entry, for opening, revealing and pasting into the terminal. */
+export function absPath(projectPath: string, rel: string): string {
+  return inProject(workspace.assertRoot(projectPath), rel, true)
+}
+
+const MAX_EDIT_BYTES = 5 * 1024 * 1024
+
+export async function readText(projectPath: string, rel: string): Promise<FileContent> {
+  projectPath = workspace.assertRoot(projectPath)
+  const abs = inProject(projectPath, rel)
+  const s = await stat(abs)
+  const meta = { size: s.size, modified: s.mtime.toISOString() }
+  if (s.size > MAX_EDIT_BYTES) return { kind: 'too-large', text: '', bom: false, ...meta }
+  const buf = await readFile(abs)
+  const n = Math.min(buf.length, 8000)
+  for (let i = 0; i < n; i++) if (buf[i] === 0) return { kind: 'binary', text: '', bom: false, ...meta }
+  const bom = buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf
+  return { kind: 'text', text: buf.toString('utf8', bom ? 3 : 0), bom, ...meta }
+}
+
+export async function writeText(projectPath: string, rel: string, text: string, expectedModified: string | null, bom: boolean): Promise<{ modified: string; size: number }> {
+  projectPath = workspace.assertRoot(projectPath)
+  const abs = inProject(projectPath, rel)
+  if (expectedModified) {
+    const cur = await stat(abs).catch(() => null)
+    // A file deleted on disk is simply recreated; one changed since it was opened is a conflict.
+    if (cur && Math.abs(cur.mtime.getTime() - Date.parse(expectedModified)) > 1) throw new Error('CONFLICT')
+  }
+  await writeFile(abs, bom ? '\uFEFF' + text : text, 'utf8')
+  const s = await stat(abs)
+  return { modified: s.mtime.toISOString(), size: s.size }
+}
+
+const SKIP_WALK = new Set(['.git', 'node_modules'])
+
+/** Files whose path contains every word of the query. Uses git's file list (respects .gitignore) when it can. */
+export async function find(projectPath: string, query: string, limit = 500): Promise<FileEntry[]> {
+  projectPath = workspace.assertRoot(projectPath)
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return []
+  let paths: string[] = []
+  const r = await git(projectPath, ['ls-files', '-z', '--cached', '--others', '--exclude-standard'])
+  if (r.ok) paths = r.out.split('\0').filter(Boolean)
+  else {
+    const walk = async (dir: string, depth: number): Promise<void> => {
+      if (depth > 12 || paths.length > 50000) return
+      for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+        if (SKIP_WALK.has(e.name)) continue
+        const abs = join(dir, e.name)
+        if (e.isDirectory()) await walk(abs, depth + 1)
+        else paths.push(toRel(projectPath, abs))
+      }
+    }
+    await walk(projectPath, 0)
+  }
+  const out: FileEntry[] = []
+  for (const p of paths) {
+    const lower = p.toLowerCase()
+    if (!words.every((w) => lower.includes(w))) continue
+    if (p.startsWith(`${HIVE_DIR}/`)) continue
+    out.push({ name: p.split('/').pop()!, relPath: p, isDir: false, size: 0, modified: '', ignored: false })
+    if (out.length >= limit) break
+  }
+  // Matches in the file name first, then shorter paths.
+  const last = words[words.length - 1]
+  return out.sort((a, b) => Number(!a.name.toLowerCase().includes(last)) - Number(!b.name.toLowerCase().includes(last)) || a.relPath.length - b.relPath.length)
+}
+
+// ---------------------------------------------------------------------------
+// Live updates: one recursive watcher per project while a Files or Images tab is open.
+// ---------------------------------------------------------------------------
+
+const watchers = new Map<string, { w: FSWatcher; refs: number; dirs: Set<string>; timer?: NodeJS.Timeout }>()
+
+export function watchProject(projectPath: string): void {
+  projectPath = workspace.assertRoot(projectPath)
+  const key = projectPath.toLowerCase()
+  const existing = watchers.get(key)
+  if (existing) {
+    existing.refs++
+    return
+  }
+  try {
+    const entry = { w: null as unknown as FSWatcher, refs: 1, dirs: new Set<string>(), timer: undefined as NodeJS.Timeout | undefined }
+    entry.w = watch(projectPath, { recursive: true }, (_evt, file) => {
+      if (!file) return
+      const rel = String(file).split(sep).join('/')
+      if (rel === '.git' || rel.startsWith('.git/')) return
+      entry.dirs.add(rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '')
+      clearTimeout(entry.timer)
+      entry.timer = setTimeout(() => {
+        emit({ type: 'files-changed', projectPath, dirs: [...entry.dirs] })
+        entry.dirs.clear()
+      }, 250)
+    })
+    entry.w.on('error', (e) => log.warn('watch error', e))
+    watchers.set(key, entry)
+  } catch (e) {
+    log.warn(`Could not watch ${projectPath}`, e)
+  }
+}
+
+export function unwatchProject(projectPath: string): void {
+  const key = projectPath.toLowerCase()
+  const entry = watchers.get(key)
+  if (!entry || --entry.refs > 0) return
+  clearTimeout(entry.timer)
+  entry.w.close()
+  watchers.delete(key)
+}
+
+export function unwatchAll(): void {
+  for (const e of watchers.values()) e.w.close()
+  watchers.clear()
+}
+
+// ---------------------------------------------------------------------------
+// Session images
+// ---------------------------------------------------------------------------
+
+export async function listImages(projectPath: string): Promise<SessionImageGroup[]> {
+  projectPath = workspace.assertProject(projectPath)
+  const root = join(projectPath, HIVE_DIR, 'images')
+  const records = new Map((await workspace.sessionsFile(projectPath)).sessions.map((s) => [s.id, s]))
+  const groups: SessionImageGroup[] = []
+  for (const d of await readdir(root, { withFileTypes: true }).catch(() => [])) {
+    if (!d.isDirectory()) continue
+    const images: SessionImage[] = []
+    for (const f of await readdir(join(root, d.name), { withFileTypes: true }).catch(() => [])) {
+      if (!f.isFile() || !IMAGE_EXT.test(f.name)) continue
+      const p = join(root, d.name, f.name)
+      const s = await stat(p).catch(() => null)
+      if (s) images.push({ path: p, name: f.name, size: s.size, modified: s.mtime.toISOString() })
+    }
+    if (!images.length) continue
+    // Names are timestamps (see sessions.saveImage), so they order reliably even after copying.
+    images.sort((a, b) => b.name.localeCompare(a.name) || b.modified.localeCompare(a.modified))
+    const rec = records.get(d.name)
+    groups.push({ sessionId: d.name, name: rec?.name ?? null, archived: rec?.archived ?? false, images })
+  }
+  return groups.sort((a, b) => b.images[0].name.localeCompare(a.images[0].name))
+}
+
+/** Moves a session image to the Recycle Bin. */
+export async function trashImage(projectPath: string, path: string): Promise<void> {
+  projectPath = workspace.assertProject(projectPath)
+  const root = resolve(projectPath, HIVE_DIR, 'images').toLowerCase()
+  const abs = resolve(path)
+  if (!abs.toLowerCase().startsWith(root + sep) || !IMAGE_EXT.test(abs)) throw new Error('Not a session image')
+  await shell.trashItem(abs)
+}

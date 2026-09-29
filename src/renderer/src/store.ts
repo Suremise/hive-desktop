@@ -1,0 +1,321 @@
+import { create } from 'zustand'
+import { MAIN_AGENT, agentPtyKey, layoutPanes, mostUrgent } from '@shared/defaults'
+import type {
+  AgentApiInfo,
+  AgentInfo,
+  AgentInstallInfo,
+  AppInfo,
+  AppSettings,
+  LiveSessionState,
+  PlanUsage,
+  ProjectInfo,
+  QuitSession,
+  ToastMessage,
+  WorkspaceInfo
+} from '@shared/types'
+
+export type Activity = 'projects' | 'notes' | 'skills' | 'mcp' | 'docs' | 'settings'
+export type ProjectTab = 'session' | 'overview' | 'sessions' | 'files' | 'images' | 'changes' | 'memory' | 'skills' | 'mcp' | 'settings'
+
+export interface ConfirmRequest {
+  kind: 'confirm'
+  title: string
+  message: string
+  detail?: string
+  confirmLabel?: string
+  cancelLabel?: string
+  danger?: boolean
+  resolve: (ok: boolean) => void
+}
+
+export interface PromptRequest {
+  kind: 'prompt'
+  title: string
+  message?: string
+  placeholder?: string
+  initial?: string
+  confirmLabel?: string
+  validate?: (value: string) => string | null
+  resolve: (value: string | null) => void
+}
+
+export type DialogRequest = ConfirmRequest | PromptRequest
+
+interface State {
+  settings: AppSettings | null
+  workspace: WorkspaceInfo | null
+  recent: string[]
+  agent: AgentInstallInfo | null
+  /** Subscription limits last reported by Claude Code (account-wide). */
+  planUsage: PlanUsage | null
+  api: AgentApiInfo | null
+  appInfo: AppInfo | null
+
+  activity: Activity
+  lastSideActivity: Exclude<Activity, 'docs' | 'settings'>
+  sidebarVisible: boolean
+  sidebarWidth: number
+  /** Projects sidebar collapsed to a rail of status dots. */
+  sidebarCompact: boolean
+  /** Set to select a session in its project's Sessions tab. */
+  sessionsJump: { project: string; id: string; nonce: number } | null
+  /** Resizable pane sizes, saved with the window layout. */
+  panes: Record<string, number>
+  selectedProject: string | null
+  projectTabs: Record<string, ProjectTab>
+  selectedNote: string | null
+  selectedSkill: string | null
+  selectedMcp: string | null
+  docsPage: string
+  settingsSection: string
+  settingsQuery: string
+
+  toasts: ToastMessage[]
+  notifications: ToastMessage[]
+  unread: number
+  showNotifications: boolean
+  paletteOpen: boolean
+  aboutOpen: boolean
+  setupOpen: boolean
+  shortcutsOpen: boolean
+  dialog: DialogRequest | null
+  /** Sessions listed in the quit dialog while main waits for a decision. */
+  quitRequest: QuitSession[] | null
+  /** Hive will quit once no agent is working. */
+  quitPending: { working: number } | null
+  /** The agent whose Compact dialog is open. */
+  compactFor: AgentRef | null
+  /** Project whose Add Agent dialog is open. */
+  addAgentFor: string | null
+  /** Agent whose settings dialog (name, model, effort, permission mode) is open. */
+  agentSettingsFor: AgentRef | null
+  /** Worktree agent whose Merge dialog is open. */
+  mergeFor: AgentRef | null
+  /** Per project: the agent that session commands (header buttons, shortcuts, Insert into Session) act on. */
+  focusedAgent: Record<string, string>
+  /** Per project: which agent each pane of a multi-pane layout shows. */
+  paneAgents: Record<string, string[]>
+  /** Per project: whose folder the Changes and Files tabs show (an agent id; Agent 1 = the project folder). */
+  changesRoot: Record<string, string>
+  filesRoot: Record<string, string>
+
+  windowFocused: boolean
+  maximized: boolean
+  notesVersion: number
+  skillsVersion: number
+  usageVersion: Record<string, number>
+  /** Incremented per agent terminal (pty key) whenever a new session starts, so its terminal is recreated. */
+  sessionEpoch: Record<string, number>
+}
+
+export const useStore = create<State>(() => ({
+  settings: null,
+  workspace: null,
+  recent: [],
+  agent: null,
+  planUsage: null,
+  api: null,
+  appInfo: null,
+
+  activity: 'projects',
+  lastSideActivity: 'projects',
+  sidebarVisible: true,
+  sidebarWidth: 280,
+  sidebarCompact: false,
+  sessionsJump: null,
+  panes: {},
+  selectedProject: null,
+  projectTabs: {},
+  selectedNote: null,
+  selectedSkill: null,
+  selectedMcp: null,
+  docsPage: 'guide',
+  settingsSection: 'general',
+  settingsQuery: '',
+
+  toasts: [],
+  notifications: [],
+  unread: 0,
+  showNotifications: false,
+  paletteOpen: false,
+  aboutOpen: false,
+  setupOpen: false,
+  shortcutsOpen: false,
+  dialog: null,
+  quitRequest: null,
+  quitPending: null,
+  compactFor: null,
+  addAgentFor: null,
+  agentSettingsFor: null,
+  mergeFor: null,
+  focusedAgent: {},
+  paneAgents: {},
+  changesRoot: {},
+  filesRoot: {},
+
+  windowFocused: true,
+  maximized: false,
+  notesVersion: 0,
+  skillsVersion: 0,
+  usageVersion: {},
+  sessionEpoch: {}
+}))
+
+export const set = useStore.setState
+export const get = useStore.getState
+
+export interface AgentRef {
+  project: string
+  agentId: string
+}
+
+/** Terminal key of an agent's session (Agent 1 by default). */
+export function projectKey(path: string, agentId: string = MAIN_AGENT): string {
+  return agentPtyKey(path, agentId)
+}
+
+/** The agent session commands act on in this project: the focused one, else Agent 1. */
+export function focusedAgentId(p: ProjectInfo | null | undefined): string {
+  if (!p) return MAIN_AGENT
+  const id = get().focusedAgent[p.path]
+  return id && p.agents.some((a) => a.id === id) ? id : MAIN_AGENT
+}
+
+export function agentOf(p: ProjectInfo | null | undefined, agentId: string): AgentInfo | null {
+  return p?.agents.find((a) => a.id === agentId) ?? null
+}
+
+/** The focused agent, re-rendering when focus changes. */
+export function useFocusedAgent(p: ProjectInfo | null | undefined): AgentInfo | null {
+  const id = useStore((s) => (p ? s.focusedAgent[p.path] : undefined))
+  if (!p) return null
+  return p.agents.find((a) => a.id === id) ?? p.agents[0] ?? null
+}
+
+/** The combined state shown by a project's single status dot: its most urgent agent. */
+export function projectState(p: ProjectInfo | null | undefined) {
+  return p ? mostUrgent(p.agents.map((a) => a.live)) : null
+}
+
+export function focusAgent(path: string, agentId: string): void {
+  set((s) => ({ focusedAgent: { ...s.focusedAgent, [path]: agentId } }))
+}
+
+/**
+ * Which agent each pane shows. One pane shows the focused agent; with more, the panes keep the
+ * agents placed in them and fill up in agent order. Null is an empty pane.
+ */
+export function paneAssignment(p: ProjectInfo, focused: string, stored: string[] | undefined): (string | null)[] {
+  const n = layoutPanes(p.config.sessionLayout)
+  if (n === 1) return [focused]
+  const ids = p.agents.map((a) => a.id)
+  const out: string[] = []
+  for (const id of stored ?? []) if (ids.includes(id) && !out.includes(id) && out.length < n) out.push(id)
+  for (const id of ids) if (out.length < n && !out.includes(id)) out.push(id)
+  return [...out, ...Array<null>(n - out.length).fill(null)]
+}
+
+/** Shows an agent: focuses its pane, or puts it in the focused agent's pane when it isn't on screen. */
+export function showAgent(p: ProjectInfo, agentId: string): void {
+  const s = get()
+  const focused = focusedAgentId(p)
+  const panes = paneAssignment(p, focused, s.paneAgents[p.path])
+  if (panes.length > 1 && !panes.includes(agentId)) {
+    const i = Math.max(0, panes.indexOf(focused))
+    const next = panes.map((id, j) => (j === i ? agentId : id)).filter((id): id is string => !!id)
+    set({ paneAgents: { ...s.paneAgents, [p.path]: next } })
+  }
+  focusAgent(p.path, agentId)
+}
+
+export function selectedProjectInfo() {
+  const s = get()
+  return s.workspace?.projects.find((p) => p.path === s.selectedProject) ?? null
+}
+
+export function setActivity(a: Activity): void {
+  set((s) => ({
+    activity: a,
+    lastSideActivity: a === 'docs' || a === 'settings' ? s.lastSideActivity : a,
+    sidebarVisible: a === s.activity && a !== 'docs' && a !== 'settings' ? !s.sidebarVisible : true
+  }))
+}
+
+/** Collapses the Projects sidebar to a rail of status dots, or expands it again. Either way the Projects list is shown. */
+export function toggleCompactSidebar(compact = !get().sidebarCompact): void {
+  set((s) => ({
+    sidebarCompact: compact,
+    sidebarVisible: true,
+    lastSideActivity: 'projects',
+    activity: s.activity === 'docs' || s.activity === 'settings' ? s.activity : 'projects'
+  }))
+}
+
+/** Opens the Sessions tab on one session. */
+export function openInSessionsTab(path: string, id: string): void {
+  set({ sessionsJump: { project: path, id, nonce: Date.now() } })
+  setProjectTab(path, 'sessions')
+}
+
+/** Shows an agent's pane on the Session tab and focuses it. */
+export function revealAgent(p: ProjectInfo, agentId: string): void {
+  showAgent(p, agentId)
+  setProjectTab(p.path, 'session')
+}
+
+export function setProjectTab(path: string, tab: ProjectTab): void {
+  set((s) => ({ projectTabs: { ...s.projectTabs, [path]: tab } }))
+}
+
+export function applyLiveState(state: LiveSessionState): void {
+  set((s) => {
+    if (!s.workspace) return {}
+    const agentId = state.agentId ?? MAIN_AGENT
+    const live = state.status === 'stopped' ? null : state
+    const projects = s.workspace.projects.map((p) => {
+      if (p.path.toLowerCase() !== state.projectPath.toLowerCase()) return p
+      const known = p.agents.some((a) => a.id === agentId)
+      const agents = known
+        ? p.agents.map((a) => (a.id === agentId ? { ...a, live, restartNeeded: live ? a.restartNeeded : false } : a))
+        : live
+          ? [...p.agents, { id: agentId, name: state.agentName ?? 'Agent', live, restartNeeded: false, resume: null }]
+          : p.agents
+      const primary = agents.find((a) => a.id === MAIN_AGENT && a.live) ?? agents.find((a) => a.live)
+      return { ...p, agents, live: primary?.live ?? null, restartNeeded: primary?.restartNeeded ?? false, active: live ? true : p.active }
+    })
+    return { workspace: { ...s.workspace, projects } }
+  })
+}
+
+export function pushToast(t: ToastMessage): void {
+  set((s) => ({
+    toasts: [...s.toasts.filter((x) => x.id !== t.id), t].slice(-5),
+    notifications: [t, ...s.notifications].slice(0, 100),
+    unread: s.showNotifications ? s.unread : s.unread + 1
+  }))
+  const timeout = t.level === 'error' ? 12000 : t.actions?.length ? 15000 : 6000
+  setTimeout(() => dismissToast(t.id), timeout)
+}
+
+export function dismissToast(id: string): void {
+  set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+}
+
+let toastSeq = 0
+export function notify(level: ToastMessage['level'], title: string, message?: string, actions?: ToastMessage['actions']): void {
+  pushToast({ id: `local-${++toastSeq}-${Date.now()}`, level, title, message, actions, timestamp: new Date().toISOString() })
+}
+
+export function confirm(opts: Omit<ConfirmRequest, 'kind' | 'resolve'>): Promise<boolean> {
+  return new Promise((resolve) => set({ dialog: { kind: 'confirm', ...opts, resolve } }))
+}
+
+export function prompt(opts: Omit<PromptRequest, 'kind' | 'resolve'>): Promise<string | null> {
+  return new Promise((resolve) => set({ dialog: { kind: 'prompt', ...opts, resolve } }))
+}
+
+/** Listeners for 'files-changed' events (Files and Images tabs). */
+export const filesListeners = new Set<(projectPath: string, dirs: string[]) => void>()
+
+/** Stable empty list for selectors — a fresh [] on every call makes zustand re-render forever. */
+export const NO_PROJECTS: ProjectInfo[] = []

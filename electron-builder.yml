@@ -1,0 +1,34 @@
+appId: com.hive.desktop
+productName: Hive
+copyright: Copyright © 2026 Darren Marshall
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+extraResources:
+  - from: resources
+    to: resources
+asarUnpack:
+  - '**/node_modules/@lydell/node-pty*/**'
+  - out/main/hive-mcp.js
+npmRebuild: false
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  executableName: Hive
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Hive
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  artifactName: Hive-Setup-${version}.${ext}
+  deleteAppDataOnUninstall: false

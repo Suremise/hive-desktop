@@ -1,0 +1,383 @@
+import { basename, join, resolve, sep } from 'path'
+import { mkdir, readdir, readFile, writeFile, appendFile } from 'fs/promises'
+import { existsSync, statSync } from 'fs'
+import chokidar, { type FSWatcher } from 'chokidar'
+import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, MAIN_AGENT, mergeDefaults, projectAgents } from '../shared/defaults'
+import type { AgentDef, AgentInfo, LiveSessionState, ProjectConfig, ProjectInfo, SessionRecord, WorkspaceConfig, WorkspaceInfo } from '../shared/types'
+import { config } from './config'
+import { emit } from './events'
+import { isDir, readJson, writeJsonAtomic } from './fsutil'
+import { createLogger } from './logger'
+import { worktreesRoot } from './worktrees'
+
+const log = createLogger('workspace')
+
+const WORKSPACE_README = `# .hive
+
+This folder is managed by [Hive](https://github.com/) and is meant to be committed.
+
+- \`shared/\` — notes, instructions and handovers shared across AI sessions and projects.
+- \`skills/\` — Hive skills (one folder per skill, each with a \`SKILL.md\`). Enable them in Hive.
+- \`mcp/\` — MCP server definitions (one \`<name>.json\` per server). Enable them in Hive.
+- \`workspace.json\` — which skills and MCP servers are enabled for all projects.
+
+MCP definitions must not contain secrets. Reference environment variables instead, e.g. \`"\${GITHUB_TOKEN}"\`.
+`
+
+const HANDOVER_README = `# Handovers
+
+Notes written at the end of a session so the next session (or another project) can pick up where it left off.
+Agents can create these with the Hive MCP tool \`hive_create_handover\`.
+`
+
+export interface SessionsFile {
+  version: 1
+  sessions: SessionRecord[]
+}
+
+type LiveProvider = (projectPath: string, cfg: ProjectConfig) => Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }>
+
+class WorkspaceService {
+  path: string | null = null
+  private wsConfig: WorkspaceConfig = structuredClone(DEFAULT_WORKSPACE_CONFIG)
+  private watcher: FSWatcher | null = null
+  private refreshTimer: NodeJS.Timeout | null = null
+  private liveProvider: LiveProvider = async (_p, cfg) => ({ live: null, restartNeeded: false, agents: projectAgents(cfg).map((a) => ({ ...a, live: null, restartNeeded: false, resume: null })) })
+  /** Agents' worktree folders (lower-cased) and the project each belongs to. */
+  private roots = new Map<string, string>()
+  private cached: WorkspaceInfo | null = null
+
+  setLiveProvider(p: LiveProvider): void {
+    this.liveProvider = p
+  }
+
+  get hiveDir(): string {
+    if (!this.path) throw new Error('No workspace is open')
+    return join(this.path, HIVE_DIR)
+  }
+
+  get skillsDir(): string {
+    return join(this.hiveDir, 'skills')
+  }
+
+  get mcpDir(): string {
+    return join(this.hiveDir, 'mcp')
+  }
+
+  get sharedDir(): string {
+    return join(this.hiveDir, 'shared')
+  }
+
+  /** Where new worktrees are created, next to the workspace folder. */
+  get worktreesRoot(): string {
+    if (!this.path) throw new Error('No workspace is open')
+    return worktreesRoot(this.path)
+  }
+
+  get config(): WorkspaceConfig {
+    return this.wsConfig
+  }
+
+  async open(path: string): Promise<WorkspaceInfo> {
+    const abs = resolve(path)
+    if (!(await isDir(abs))) throw new Error(`Folder not found: ${abs}`)
+    await this.close()
+    this.path = abs
+    await this.ensureWorkspaceStructure()
+    this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), await readJson(join(this.hiveDir, 'workspace.json'), {}))
+    config.update((c) => {
+      c.lastWorkspace = abs
+      c.recentWorkspaces = [abs, ...c.recentWorkspaces.filter((p) => p.toLowerCase() !== abs.toLowerCase())].slice(0, 12)
+      c.activeProjects[abs] ??= []
+    })
+    for (const p of await this.listProjectPaths()) await this.ensureProject(p).catch((e) => log.warn(`ensureProject ${p}`, e))
+    this.startWatching()
+    log.info(`Opened workspace ${abs}`)
+    return this.refresh()
+  }
+
+  async close(): Promise<void> {
+    await this.watcher?.close()
+    this.watcher = null
+    this.path = null
+    this.cached = null
+  }
+
+  private async ensureWorkspaceStructure(): Promise<void> {
+    const h = this.hiveDir
+    for (const d of [h, join(h, 'shared'), join(h, 'shared', 'handovers'), join(h, 'skills'), join(h, 'mcp')]) {
+      await mkdir(d, { recursive: true })
+    }
+    if (!existsSync(join(h, 'workspace.json'))) await writeJsonAtomic(join(h, 'workspace.json'), DEFAULT_WORKSPACE_CONFIG)
+    if (!existsSync(join(h, 'README.md'))) await writeFile(join(h, 'README.md'), WORKSPACE_README)
+    const hr = join(h, 'shared', 'handovers', 'README.md')
+    if (!existsSync(hr)) await writeFile(hr, HANDOVER_README)
+  }
+
+  async saveWorkspaceConfig(): Promise<void> {
+    await writeJsonAtomic(join(this.hiveDir, 'workspace.json'), this.wsConfig)
+  }
+
+  private startWatching(): void {
+    if (!this.path) return
+    // Watch only the workspace root (projects appearing/disappearing) and the .hive folder.
+    this.watcher = chokidar.watch(this.path, {
+      depth: 6,
+      ignoreInitial: true,
+      ignored: (p: string) => {
+        if (!this.path) return true
+        const rel = p.slice(this.path.length + 1)
+        if (!rel) return false
+        const parts = rel.split(/[\\/]/)
+        if (parts[0] === HIVE_DIR) return false
+        return parts.length > 1 // project internals are not our business
+      }
+    })
+    this.watcher.on('all', (evt, p) => {
+      const rel = this.path ? p.slice(this.path.length + 1).replace(/\\/g, '/') : ''
+      if (rel.startsWith(`${HIVE_DIR}/shared`)) emit({ type: 'notes-changed' })
+      else if (rel.startsWith(`${HIVE_DIR}/skills`) || rel.startsWith(`${HIVE_DIR}/mcp`)) emit({ type: 'skills-changed' })
+      else if (rel === `${HIVE_DIR}/workspace.json`) void this.reloadConfig()
+      else if (evt === 'addDir' || evt === 'unlinkDir') this.scheduleRefresh()
+    })
+    this.watcher.on('error', (e) => log.warn('watcher error', e))
+  }
+
+  private async reloadConfig(): Promise<void> {
+    if (!this.path) return
+    this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), await readJson(join(this.hiveDir, 'workspace.json'), {}))
+    emit({ type: 'skills-changed' })
+    this.scheduleRefresh()
+  }
+
+  scheduleRefresh(): void {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer)
+    this.refreshTimer = setTimeout(() => void this.refresh().catch((e) => log.warn('refresh failed', e)), 250)
+  }
+
+  async listProjectPaths(): Promise<string[]> {
+    if (!this.path) return []
+    const entries = await readdir(this.path, { withFileTypes: true })
+    return entries
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !e.name.startsWith('$'))
+      .map((e) => join(this.path!, e.name))
+      .sort((a, b) => basename(a).localeCompare(basename(b), undefined, { sensitivity: 'base' }))
+  }
+
+  isProjectPath(p: string): boolean {
+    if (!this.path) return false
+    const abs = resolve(p)
+    return abs.toLowerCase().startsWith(this.path.toLowerCase() + sep) && !basename(abs).startsWith('.') && abs.split(sep).length === this.path.split(sep).length + 1
+  }
+
+  assertProject(p: string): string {
+    if (!this.isProjectPath(p)) throw new Error(`Not a project in the open workspace: ${p}`)
+    return resolve(p)
+  }
+
+  /** A project folder, or the worktree of one of a project's agents (for the Files and Changes tabs). */
+  assertRoot(p: string): string {
+    if (this.isProjectPath(p)) return resolve(p)
+    if (this.roots.has(resolve(p).toLowerCase())) return resolve(p)
+    throw new Error(`Not a project or agent worktree in the open workspace: ${p}`)
+  }
+
+  /** The project a worktree belongs to, or the project itself. */
+  projectForRoot(p: string): string | null {
+    if (this.isProjectPath(p)) return resolve(p)
+    return this.roots.get(resolve(p).toLowerCase()) ?? null
+  }
+
+  private registerRoots(projectPath: string, cfg: ProjectConfig): void {
+    for (const [k, v] of this.roots) if (v.toLowerCase() === projectPath.toLowerCase()) this.roots.delete(k)
+    for (const a of cfg.agents ?? []) if (a.worktree?.path) this.roots.set(resolve(a.worktree.path).toLowerCase(), projectPath)
+  }
+
+  /** Changes one agent's definition (adding Agent 1's entry when it is first changed). */
+  async updateAgent(projectPath: string, agentId: string, patch: Partial<AgentDef>): Promise<AgentDef> {
+    const cfg = await this.projectConfig(projectPath)
+    const agents = projectAgents(cfg)
+    const current = agents.find((a) => a.id === agentId)
+    if (!current) throw new Error('That agent no longer exists.')
+    const next = { ...current, ...patch, id: agentId }
+    const list = (cfg.agents ?? []).some((a) => a.id === agentId) ? cfg.agents.map((a) => (a.id === agentId ? next : a)) : agentId === MAIN_AGENT ? [next, ...(cfg.agents ?? [])] : [...(cfg.agents ?? []), next]
+    await this.updateProjectConfig(projectPath, { agents: list })
+    return next
+  }
+
+  /** Creates <project>/.hive with defaults and excludes it from git. Idempotent. */
+  async ensureProject(projectPath: string): Promise<void> {
+    const h = join(projectPath, HIVE_DIR)
+    await mkdir(join(h, 'sessions'), { recursive: true })
+    await mkdir(join(h, 'archive'), { recursive: true })
+    if (!existsSync(join(h, 'project.json'))) await writeJsonAtomic(join(h, 'project.json'), DEFAULT_PROJECT_CONFIG)
+    if (!existsSync(join(h, 'sessions.json'))) await writeJsonAtomic(join(h, 'sessions.json'), { version: 1, sessions: [] })
+    await this.ensureGitExclude(projectPath)
+  }
+
+  private async gitDir(projectPath: string): Promise<string | null> {
+    const g = join(projectPath, '.git')
+    if (!existsSync(g)) return null
+    try {
+      if (statSync(g).isDirectory()) return g
+      const m = (await readFile(g, 'utf8')).match(/gitdir:\s*(.+)/)
+      if (!m) return null
+      const gd = resolve(projectPath, m[1].trim())
+      // Worktrees keep info/exclude in the common dir.
+      const common = join(gd, 'commondir')
+      if (existsSync(common)) return resolve(gd, (await readFile(common, 'utf8')).trim())
+      return gd
+    } catch {
+      return null
+    }
+  }
+
+  async ensureGitExclude(projectPath: string): Promise<void> {
+    const gd = await this.gitDir(projectPath)
+    if (!gd) return
+    const f = join(gd, 'info', 'exclude')
+    let text = ''
+    try {
+      text = await readFile(f, 'utf8')
+    } catch {
+      await mkdir(join(gd, 'info'), { recursive: true })
+    }
+    if (text.split(/\r?\n/).some((l) => l.trim() === `${HIVE_DIR}/` || l.trim() === `/${HIVE_DIR}/`)) return
+    const prefix = text && !text.endsWith('\n') ? '\n' : ''
+    await appendFile(f, `${prefix}# Hive project metadata (added by Hive)\n/${HIVE_DIR}/\n`)
+    log.info(`Excluded .hive from git in ${projectPath}`)
+  }
+
+  async branch(projectPath: string): Promise<string | null> {
+    const gd = await this.gitDir(projectPath)
+    if (!gd) return null
+    try {
+      // For worktrees HEAD lives in the worktree gitdir, not the common dir.
+      const gfile = join(projectPath, '.git')
+      let headDir = gd
+      if (statSync(gfile).isFile()) {
+        const m = (await readFile(gfile, 'utf8')).match(/gitdir:\s*(.+)/)
+        if (m) headDir = resolve(projectPath, m[1].trim())
+      }
+      const head = (await readFile(join(headDir, 'HEAD'), 'utf8')).trim()
+      const m = head.match(/^ref: refs\/heads\/(.+)$/)
+      return m ? m[1] : head.slice(0, 8)
+    } catch {
+      return null
+    }
+  }
+
+  async projectConfig(projectPath: string): Promise<ProjectConfig> {
+    return mergeDefaults(structuredClone(DEFAULT_PROJECT_CONFIG), await readJson(join(projectPath, HIVE_DIR, 'project.json'), {}))
+  }
+
+  async updateProjectConfig(projectPath: string, patch: Partial<ProjectConfig>): Promise<ProjectConfig> {
+    await this.ensureProject(projectPath)
+    const next = { ...(await this.projectConfig(projectPath)), ...patch }
+    await writeJsonAtomic(join(projectPath, HIVE_DIR, 'project.json'), next)
+    this.registerRoots(projectPath, next)
+    this.scheduleRefresh()
+    return next
+  }
+
+  async sessionsFile(projectPath: string): Promise<SessionsFile> {
+    return readJson<SessionsFile>(join(projectPath, HIVE_DIR, 'sessions.json'), { version: 1, sessions: [] })
+  }
+
+  async saveSessionsFile(projectPath: string, data: SessionsFile): Promise<void> {
+    await writeJsonAtomic(join(projectPath, HIVE_DIR, 'sessions.json'), data)
+  }
+
+  async upsertSession(projectPath: string, rec: Partial<SessionRecord> & { id: string }): Promise<SessionRecord> {
+    const f = await this.sessionsFile(projectPath)
+    let existing = f.sessions.find((s) => s.id === rec.id)
+    if (existing) Object.assign(existing, rec)
+    else {
+      const now = new Date().toISOString()
+      existing = { agent: 'claude-code', name: '', createdAt: now, lastActiveAt: now, archived: false, ...rec }
+      f.sessions.push(existing)
+    }
+    await this.saveSessionsFile(projectPath, f)
+    return existing
+  }
+
+  activeNames(): string[] {
+    if (!this.path) return []
+    return config.get().activeProjects[this.path] ?? []
+  }
+
+  setActive(projectPath: string, active: boolean): void {
+    if (!this.path) return
+    const name = basename(projectPath)
+    config.update((c) => {
+      const list = new Set(c.activeProjects[this.path!] ?? [])
+      if (active) list.add(name)
+      else list.delete(name)
+      c.activeProjects[this.path!] = [...list]
+    })
+  }
+
+  async unmanagedMcp(projectPath: string): Promise<string[]> {
+    const j = await readJson<{ mcpServers?: Record<string, unknown> }>(join(projectPath, '.mcp.json'), {})
+    const names = Object.keys(j.mcpServers ?? {})
+    if (!names.length || !this.path) return []
+    const deployed = new Set(
+      (await readdir(this.mcpDir).catch(() => [] as string[])).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5))
+    )
+    return names.filter((n) => !deployed.has(n))
+  }
+
+  async projectInfo(projectPath: string): Promise<ProjectInfo> {
+    const active = new Set(this.activeNames())
+    const cfg = await this.projectConfig(projectPath)
+    this.registerRoots(projectPath, cfg)
+    const { live, restartNeeded, agents } = await this.liveProvider(projectPath, cfg)
+    return {
+      name: basename(projectPath),
+      path: projectPath,
+      active: active.has(basename(projectPath)),
+      isGitRepo: existsSync(join(projectPath, '.git')),
+      branch: await this.branch(projectPath),
+      config: cfg,
+      live,
+      restartNeeded,
+      agents,
+      unmanagedMcp: await this.unmanagedMcp(projectPath)
+    }
+  }
+
+  async refresh(): Promise<WorkspaceInfo> {
+    if (!this.path) throw new Error('No workspace is open')
+    const projects: ProjectInfo[] = []
+    for (const p of await this.listProjectPaths()) projects.push(await this.projectInfo(p))
+    this.cached = { path: this.path, name: basename(this.path), config: this.wsConfig, projects }
+    emit({ type: 'workspace-changed', workspace: this.cached })
+    return this.cached
+  }
+
+  info(): WorkspaceInfo | null {
+    return this.cached
+  }
+
+  async createProject(name: string): Promise<WorkspaceInfo> {
+    if (!this.path) throw new Error('No workspace is open')
+    const clean = name.trim()
+    if (!clean || /[<>:"/\\|?*\x00-\x1f]/.test(clean) || clean.startsWith('.') || /[. ]$/.test(clean)) {
+      throw new Error('Project names cannot start with "." or contain < > : " / \\ | ? *')
+    }
+    const p = join(this.path, clean)
+    if (existsSync(p)) throw new Error(`A folder named "${clean}" already exists`)
+    await mkdir(p)
+    await this.ensureProject(p)
+    return this.refresh()
+  }
+
+  /** True if the path is inside the open workspace or Claude Code's config folder — used to guard file IPC. */
+  isAllowedPath(p: string, extraRoots: string[] = []): boolean {
+    const abs = resolve(p).toLowerCase()
+    const roots = [this.path, this.path ? worktreesRoot(this.path) : null, ...this.roots.keys(), ...extraRoots].filter(Boolean).map((r) => resolve(r!).toLowerCase())
+    return roots.some((r) => abs === r || abs.startsWith(r + sep))
+  }
+}
+
+export const workspace = new WorkspaceService()
