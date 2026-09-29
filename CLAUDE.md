@@ -10,7 +10,7 @@ Hive is a Windows desktop app (Electron + TypeScript + React) for running Claude
 
 - Design is settled before code: when asked to discuss or plan, don't change code; list the open questions and confirm when they're answered. Once a build is agreed, go end to end (code, tests, docs, installer).
 - User-visible behaviour changes go into SPEC.md and the user guide in the same change.
-- Hive is unreleased (0.1.0 in development; the GitHub repository is private until the first release). Until then `CHANGELOG.md` is a feature summary of 0.1.0, not a change log: keep it current when a feature is added or changes, but don't list fixes or bump the version. Proper release notes and version bumps start with the first public release. Don't create GitHub releases or tags unless asked.
+- Hive is released: 0.1.0 was the first public release (29 Sep 2026) on the public repository `Suremise/hive-desktop`, and installed copies update themselves from its GitHub Releases. Add an **Unreleased** section at the top of `CHANGELOG.md` for user-visible changes (features and notable fixes) as they're made; it becomes the next version's notes. Versions follow semver while in 0.x: 0.1.x for fixes, 0.x.0 for features, 1.0 once settings formats and the Agent API are stable. Don't bump the version, create GitHub releases or tags unless asked; releasing is in [RELEASING.md](RELEASING.md).
 - Personal, machine-specific notes belong in `CLAUDE.local.md` (git-ignored), not here.
 
 ## Commands

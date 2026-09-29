@@ -32,7 +32,9 @@ Hive looks and feels like a streamlined VS Code, but it is built around **agent 
 
 ## Install
 
-Run `Hive-Setup-<version>.exe` from `dist/`. The installer is not code-signed, so Windows SmartScreen may warn you; choose **More info → Run anyway**.
+Download `Hive-Setup-<version>.exe` from the [latest release](https://github.com/Suremise/hive-desktop/releases/latest) and run it. The installer is not code-signed, so Windows SmartScreen may warn you; choose **More info → Run anyway**. After that Hive keeps itself up to date.
+
+To build the installer yourself, run `npm run dist`; it's written to `dist/`.
 
 ## Development
 

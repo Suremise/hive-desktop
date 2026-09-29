@@ -1,8 +1,8 @@
 # Release Notes
 
-## 0.1.0 — in development
+## 0.1.0 — 29 September 2026
 
-Hive's first version, not yet released. Until then this page describes what Hive does rather than listing each change; release notes start with the first public release.
+The first public release of Hive. Everything below is what this version does; later releases list what changed.
 
 ### Workspaces and projects
 - Open or create a workspace; every subfolder is a project.
