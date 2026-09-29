@@ -7,6 +7,7 @@ import * as actions from '../actions'
 import { call } from '../api'
 import { playChime } from '../chime'
 import { Icon, IconButton, InfoTip, Switch, Tooltip } from '../components/ui'
+import { UpdateStatusRow } from '../components/Updates'
 import { confirm, notify, set, useStore } from '../store'
 import { cx } from '../util'
 
@@ -31,6 +32,7 @@ interface SettingDef {
 
 const SECTIONS: { id: Section; label: string; icon: string; desc: string }[] = [
   { id: 'general', label: 'General', icon: 'settings-gear', desc: 'Startup, window and tray behaviour.' },
+  { id: 'updates', label: 'Updates', icon: 'cloud-download', desc: "Keeping Hive itself up to date. New versions come from Hive's GitHub releases and are verified before they install." },
   { id: 'appearance', label: 'Appearance', icon: 'symbol-color', desc: 'Theme, fonts and terminal look.' },
   { id: 'claude', label: 'Claude Code', icon: 'hubot', desc: 'The Claude Code CLI (required — the VS Code extension is not used) and the defaults every project inherits.' },
   { id: 'notifications', label: 'Notifications', icon: 'bell', desc: 'Chimes and desktop notifications when agents finish or need you.' },
@@ -48,6 +50,12 @@ const SETTINGS: SettingDef[] = [
   { section: 'general', key: 'launchAtLogin', title: 'Launch at login', desc: 'Start Hive automatically when you sign in to Windows.', tip: 'Hive starts hidden in the tray when launched at login.', type: 'boolean' },
   { section: 'general', key: 'reopenLastWorkspace', title: 'Reopen last workspace', desc: 'Open the workspace you used last when Hive starts.', tip: 'Sessions are never resumed automatically — only the workspace is reopened.', type: 'boolean' },
   { section: 'general', key: 'confirmOnQuit', title: 'Confirm before quitting', desc: 'When to ask before quitting stops running sessions.', tip: 'Quitting stops every running session. Their conversations are kept and can be resumed, so by default Hive only asks when an agent is in the middle of something (working, or waiting for your answer).', type: 'select', options: [{ value: 'working', label: 'When an agent is working' }, { value: 'always', label: 'Whenever sessions are running' }, { value: 'never', label: 'Never' }] },
+  // Updates
+  { section: 'updates', key: 'status', title: 'Hive version', desc: '', tip: 'The version you are running and the result of the last check.', type: 'custom', render: () => <UpdateStatusRow /> },
+  { section: 'updates', key: 'checkAutomatically', title: 'Check for updates automatically', desc: 'Look for a new version of Hive shortly after it starts and every 6 hours.', tip: 'When off, Hive only checks when you choose Help → Check for Updates. Development builds never update.', type: 'boolean' },
+  { section: 'updates', key: 'downloadAutomatically', title: 'Download updates automatically', desc: 'Download a new version in the background as soon as it is found.', tip: 'When off, the status bar says a new version is available and you choose when to download it. Downloads are checked against the release checksum.', type: 'boolean' },
+  { section: 'updates', key: 'install', title: 'Install updates', desc: 'When a downloaded update is installed.', tip: 'Automatically: the update installs when you next quit Hive (never while it is running, so your sessions are not interrupted); Restart and Update installs it straight away. Manually: it installs only when you choose Restart and Update. Either way, Hive asks before stopping agents that are working.', type: 'select', options: [{ value: 'auto', label: 'Automatically, when Hive quits' }, { value: 'manual', label: 'Manually, with Restart and Update' }] },
+  { section: 'updates', key: 'prerelease', title: 'Include pre-releases', desc: 'Also offer beta versions published before a full release.', tip: 'Pre-releases get new features first and may have rough edges. Turning this off again waits for the next full release rather than going back.', type: 'boolean' },
   // Appearance
   { section: 'appearance', key: 'theme', title: 'Theme', desc: 'Colour theme for Hive.', tip: 'System follows your Windows light/dark setting.', type: 'select', options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }, { value: 'system', label: 'System' }] },
   { section: 'appearance', key: 'uiFontSize', title: 'Interface font size', desc: 'Font size for menus, lists and panels, in pixels.', tip: 'Use View → Zoom to scale everything, including the terminal.', type: 'number', min: 11, max: 18 },

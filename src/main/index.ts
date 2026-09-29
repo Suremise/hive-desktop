@@ -15,6 +15,7 @@ import { apiEnv, startApiServer, startHookServer } from './servers'
 import { sessions } from './sessions'
 import { notificationIcon } from './paths'
 import { createTray, destroyTray, resourcesDir, setTrayPendingQuit, showWindow } from './tray'
+import { initUpdater, installNow } from './updater'
 import { workspace } from './workspace'
 
 const log = createLogger('main')
@@ -176,6 +177,8 @@ function createWindow(): BrowserWindow {
 let quitRequest: QuitSession[] | null = null
 let answerQuit: ((choice: QuitChoice) => void) | null = null
 let pendingQuit = false
+/** Restart and Update was chosen: install the downloaded update instead of just quitting. */
+let installOnQuit = false
 
 const quitSessions = (): QuitSession[] =>
   sessions.liveStates().map((s) => {
@@ -193,6 +196,9 @@ async function requestQuit(opts: { force?: boolean } = {}): Promise<void> {
     if (mainWindow) showWindow(mainWindow)
     return
   }
+  // Only a quit that goes ahead from here on installs the update; a cancelled one forgets it.
+  const forUpdate = installOnQuit
+  installOnQuit = false
   const live = sessions.liveStates()
   const mode = config.settings.general.confirmOnQuit
   const ask = !opts.force && live.length > 0 && (mode === 'always' || (mode === 'working' && sessions.busyStates().length > 0))
@@ -206,9 +212,11 @@ async function requestQuit(opts: { force?: boolean } = {}): Promise<void> {
     answerQuit = null
     quitRequest = null
     if (choice === 'cancel') return
+    installOnQuit = forUpdate
     if (choice === 'wait') return startPendingQuit()
     return quitNow(false)
   }
+  installOnQuit = forUpdate
   return quitNow(live.length > 0)
 }
 
@@ -223,6 +231,7 @@ function startPendingQuit(): void {
 function cancelPendingQuit(): void {
   if (!pendingQuit) return
   pendingQuit = false
+  installOnQuit = false
   setTrayPendingQuit(false)
   emit({ type: 'quit-pending', pending: false, working: 0 })
 }
@@ -249,7 +258,8 @@ async function quitNow(tellUser: boolean): Promise<void> {
   }
   await sessions.stopAllAndWait(3000)
   await config.flush()
-  app.quit()
+  if (installOnQuit) installNow()
+  else app.quit()
 }
 
 function wireSettingsEffects(): void {
@@ -340,6 +350,12 @@ app.whenReady().then(async () => {
   })
   onHiveEvent((e) => {
     if (e.type === 'session-status' || e.type === 'session-exit') checkPendingQuit()
+  })
+  initUpdater({
+    restart: () => {
+      installOnQuit = true
+      void requestQuit()
+    }
   })
 
   const last = config.get().lastWorkspace

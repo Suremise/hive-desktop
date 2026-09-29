@@ -21,6 +21,7 @@ Hive looks and feels like a streamlined VS Code, but it is built around **agent 
 - **Session lifecycle** — new, resume (the agent's last session, or pick one), stop, archive (never deleted), adopt sessions started elsewhere.
 - **Per-project settings** — model (including pinned versions and 1M context), effort, permission mode, chime and extra CLI arguments.
 - **Agent API** — a local REST API and a built-in `hive` MCP server so agents can read shared notes, write handovers, check other projects and notify you.
+- **Keeps itself up to date** — updates download in the background and install when you quit or restart, never mid-session; or check, download and install manually.
 - **Stays out of the way** — system tray, completion chime, Windows notifications, a project list that collapses to status dots, resizable panes, command palette and keyboard shortcuts.
 
 ## Requirements
@@ -43,6 +44,7 @@ npm test           # unit tests
 npm run icons      # regenerate icons from build/*.svg
 npm run licenses   # regenerate THIRD_PARTY_NOTICES.md (also run by build)
 npm run dist       # build the Windows installer into dist/
+npm run release    # build and upload a draft GitHub release (see RELEASING.md)
 ```
 
 | Path | Contents |
@@ -66,6 +68,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it fits together and [d
 - [Specification](docs/SPEC.md)
 - [Release Notes](CHANGELOG.md)
 - [Third-Party Notices](THIRD_PARTY_NOTICES.md)
+- [Releasing](RELEASING.md)
 
 ## License
 

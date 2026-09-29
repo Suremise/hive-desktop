@@ -312,6 +312,16 @@ v0.1 ships `ClaudeCodeAdapter` only. Skills and MCP are stored in a Hive-neutral
 - On launch (if enabled): read `claude --version`, compare with the latest published version, offer **Update** (`claude update`) in a visible terminal. Never updates while sessions are live.
 - Auth is handled by Claude Code itself. Hive never touches credentials.
 
+### 11.1 Hive's own updates
+
+- **electron-updater** against GitHub Releases of `Suremise/hive-desktop` (`publish:` in `electron-builder.yml`). It reads `latest.yml`, downloads the NSIS installer (differentially when a `.blockmap` is available) and checks its SHA-512 before installing. Only published releases of a public repository are seen; no token ships with the app, so while the repository is private checks report "No release of Hive has been published yet".
+- **Settings → Updates**: *Check for updates automatically* (on: 30 s after start, then every 6 hours), *Download updates automatically* (on), *Install updates* — **Automatically, when Hive quits** (default) or **Manually, with Restart and Update** — and *Include pre-releases* (off). Hive never installs while it is running: sessions are never cut off by an update.
+- **Restart and Update** goes through the normal quit flow (the quit dialog when agents are working, including *wait for them*), then installs silently and reopens Hive. Cancelling the quit cancels the update.
+- **Where it shows**: the status bar's version item becomes *Hive X available*, *Downloading Hive X… N%* or *Restart to update to X* (click: update dialog); a notification when a download is ready; the update dialog (version, date, size, progress, release notes from the GitHub release, **Download**, **Skip This Version**, **Later**, **Restart and Update**, **On GitHub**); **Help → Check for Updates…** (always shows the result: up to date, available, or the error); the About panel and Settings → Updates (status and **Check Now**); the tray menu (*Restart to Update*). After an update, a notification links to the release notes.
+- **Skip This Version** stops automatic checks offering that version; a manual check still shows it.
+- Development builds never check (the status bar says so); tests point `HIVE_UPDATE_FEED` at a local feed, with their own download cache, and never run what they download.
+- Releasing: `npm run release` uploads a draft release (installer, `latest.yml`, blockmap) with the `gh` login; it is published by hand on GitHub. See `RELEASING.md`.
+
 ---
 
 ## 12. Agent API
@@ -337,7 +347,7 @@ Local HTTP API on `127.0.0.1:<port>` (default 47821), bearer-token auth, token i
 - **Files and Changes tabs** get a selector (Project folder / each worktree agent) when agents work in worktrees. For a worktree, Changes lists everything that differs from where its branch left the base branch (its commits and uncommitted edits, `git diff <merge-base>` plus untracked files), diffs against that point, and offers Merge.
 - **Command palette** (Ctrl+Shift+P), keyboard shortcuts, toasts and notification centre.
 - **Status bar**: workspace, branch, session counts, plan usage (5-hour and weekly %, reset times on hover; darker at 80%, red at 95%), model and effort / permission of current project (effort as the running session reports it, else the configured one; model shown by name: a project override plainly, an inherited one as "Opus (default)"; Claude Code's own default is named from its settings' `model` or the model last seen in a session started without `--model`, else "Claude Code default"), context size, Claude Code version, Agent API state, Hive's own version (opens About; dev builds show "Hive Dev"), notifications.
-- **About** dialog (versions, data folder, licence links: Hive's MIT License and the third-party notices open in the Docs view, the Chromium licences file opens from the install folder), **Docs** view (user guide, Agent API reference, release notes, licence, third-party notices, shortcuts), first-run Claude Code setup.
+- **About** dialog (versions, data folder, update status with Check Now, licence links: Hive's MIT License and the third-party notices open in the Docs view, the Chromium licences file opens from the install folder), **Docs** view (user guide, Agent API reference, release notes, licence, third-party notices, shortcuts), first-run Claude Code setup.
 
 ### 13.1 Colour scheme
 
@@ -381,4 +391,5 @@ A light theme uses the same accent with VS Code Light neutrals.
 10. Up to four agents per project, each in the project folder or its own Hive-managed git worktree (Hive creates, merges and removes worktrees itself rather than using Claude Code's `--worktree`, because the worktree must outlive sessions).
 11. Agents sharing a folder are protected by Hive-enforced per-file locks (Block by default). Concurrent changes to shared config and memory are a documented risk, not prevented.
 12. Worktrees live next to the workspace (`<Workspace>.worktrees/<Project>/<agent>`). New worktrees get `.env*` copied by default and an optional per-project setup command. Merging defaults to squash; after a merge the worktree and branch are removed unless unticked.
-13. Hive is open source under the **MIT License** (`LICENSE`, © 2026 Darren Marshall). Everything it ships is under permissive licences (MIT; DOMPurify MPL-2.0 or Apache-2.0; codicons CC-BY-4.0); `THIRD_PARTY_NOTICES.md` lists them with full texts and is regenerated by `scripts/licenses.mjs` on every build. Electron's and Chromium's licences ship in the install folder (electron-builder adds `LICENSE.electron.txt` and `LICENSES.chromium.html`).
+13. Hive is open source under the **MIT License** (`LICENSE`, © 2026 Darren Marshall). Everything it ships is under permissive licences (mostly MIT and ISC; DOMPurify MPL-2.0 or Apache-2.0; codicons CC-BY-4.0; sax BlueOak-1.0.0; argparse Python-2.0); `THIRD_PARTY_NOTICES.md` lists them with full texts and is regenerated by `scripts/licenses.mjs` on every build. Electron's and Chromium's licences ship in the install folder (electron-builder adds `LICENSE.electron.txt` and `LICENSES.chromium.html`).
+14. Hive updates itself from GitHub Releases with electron-updater: checked and downloaded automatically by default, installed only when Hive quits or with Restart and Update (or only manually, by setting), never while it runs.

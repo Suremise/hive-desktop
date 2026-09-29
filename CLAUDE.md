@@ -24,6 +24,7 @@ npm run build          # typecheck + production bundles into out/
 npm run dist           # build + NSIS installer → dist/Hive-Setup-<version>.exe
 npm run icons          # regenerate PNG/ICO from build/*.svg
 npm run licenses       # regenerate THIRD_PARTY_NOTICES.md (also part of build)
+npm run release        # build + upload a DRAFT GitHub release — only when asked (RELEASING.md)
 ```
 
 Hive is MIT-licensed (`LICENSE`). `THIRD_PARTY_NOTICES.md` is generated from what ships: the main process's `dependencies` plus the renderer libraries listed in `scripts/licenses.mjs` (`RENDERER`). When a new library is bundled into the renderer, add it there; commit the regenerated file. Only add dependencies with permissive licences (MIT, BSD, ISC, Apache-2.0 and similar) unless the maintainer agrees otherwise.
@@ -48,7 +49,7 @@ npm 11 blocks install scripts by default; esbuild and electron-winstaller are ap
 
 ## Driving the app for verification
 
-Build with `npx electron-vite build`, then drive `node_modules/electron/dist/electron.exe .` with Playwright's `_electron` (`playwright-core` is a dev dependency). Pass `HIVE_USER_DATA=<temp dir>` so tests never touch real profiles, delete `ELECTRON_RUN_AS_NODE` from the child env, and use a throwaway workspace folder. Take screenshots and look at them. `window.hive.invoke(channel, ...)` in the page calls any IPC channel from `src/shared/api.ts`.
+Build with `npx electron-vite build`, then drive `node_modules/electron/dist/electron.exe .` with Playwright's `_electron` (`playwright-core` is a dev dependency). Pass `HIVE_USER_DATA=<temp dir>` so tests never touch real profiles, delete `ELECTRON_RUN_AS_NODE` from the child env, and use a throwaway workspace folder. Take screenshots and look at them. To test updates, set `HIVE_UPDATE_FEED` to a local HTTP server serving a `latest.yml` (generic provider); unpackaged builds then check it, cache downloads in `%LOCALAPPDATA%\hive-test-updater`, and never install what they download. `window.hive.invoke(channel, ...)` in the page calls any IPC channel from `src/shared/api.ts`.
 
 ## Code map
 
@@ -59,6 +60,7 @@ Build with `npx electron-vite build`, then drive `node_modules/electron/dist/ele
 | `src/main/projectAgents.ts`, `src/main/worktrees.ts` | A project's agents (up to 4): add/update/remove/merge; git worktree operations |
 | `src/main/agents/` | `AgentAdapter` interface, `ClaudeCodeAdapter`, transcript parser |
 | `src/main/servers.ts` | Hook server (random port) and Agent API |
+| `src/main/updater.ts`, `src/renderer/src/components/Updates.tsx` | Hive's own updates (electron-updater, GitHub Releases): state, status bar item, update dialog |
 | `src/main/mcp/hive-mcp.ts` | Built-in `hive` MCP server (Node built-ins only) |
 | `src/main/workspace.ts` | Workspace/project discovery, `.hive` folders, git exclude |
 | `src/main/files.ts` | Files/Images tab back end: project file operations, find, live watch, session images |

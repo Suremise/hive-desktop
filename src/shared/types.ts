@@ -23,7 +23,16 @@ export interface QuitSession {
   agent?: string
 }
 
+export type UpdateInstallMode = 'auto' | 'manual'
+
 export interface AppSettings {
+  updates: {
+    checkAutomatically: boolean
+    downloadAutomatically: boolean
+    /** auto: a downloaded update installs when Hive quits. manual: only with Restart and Update. */
+    install: UpdateInstallMode
+    prerelease: boolean
+  }
   general: {
     closeToTray: boolean
     minimizeToTray: boolean
@@ -106,6 +115,10 @@ export interface AppConfig {
   planUsage: PlanUsage | null
   /** Highest warning shown per limit, and for which reset period. */
   planWarnings: Record<string, { resetsAt: string | null; level: number }>
+  /** A version the user chose to skip; automatic checks don't offer it. */
+  skippedUpdate?: string
+  /** Version that last ran, to say "Hive updated" once after an update. */
+  lastRunVersion?: string
 }
 
 export interface PlanLimit {
@@ -539,6 +552,30 @@ export interface ToastAction {
   args?: unknown[]
 }
 
+export type UpdateStatus = 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'up-to-date' | 'error'
+
+/** Hive's own updates (electron-updater, GitHub Releases). */
+export interface UpdateState {
+  status: UpdateStatus
+  /** The running version. */
+  current: string
+  /** The newer version found. */
+  version?: string
+  releaseName?: string
+  /** From the GitHub release (HTML or Markdown). */
+  releaseNotes?: string
+  releaseDate?: string
+  /** Installer size in bytes. */
+  size?: number
+  progress?: { percent: number; transferred: number; total: number; bytesPerSecond: number }
+  error?: string
+  checkedAt?: string
+  /** The last check was started by the user. */
+  manual?: boolean
+  /** The version found is one the user skipped. */
+  skipped?: boolean
+}
+
 export interface ToastMessage {
   id: string
   level: ToastLevel
@@ -592,3 +629,4 @@ export type HiveEvent =
   | { type: 'skills-changed' }
   | { type: 'plan-usage'; usage: PlanUsage }
   | { type: 'window-state'; maximized: boolean; focused: boolean }
+  | { type: 'update-state'; state: UpdateState }

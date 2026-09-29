@@ -1,4 +1,5 @@
 import type {
+  UpdateState,
   AddAgentOptions,
   AgentApiInfo,
   AgentBranchStatus,
@@ -52,6 +53,13 @@ export interface HiveRequests {
   'app:openPath': (path: string) => void
   'app:showInFolder': (path: string) => void
   'app:openLogs': () => void
+  'update:state': () => UpdateState
+  /** A check started by the user; resolves with the result. */
+  'update:check': () => UpdateState
+  'update:download': () => void
+  /** Restart and Update: quits (asking if agents are working), installs and restarts. */
+  'update:install': () => void
+  'update:skip': (version: string) => void
   /** Opens the Chromium/Electron licences that ship next to the app's executable. */
   'app:openChromiumLicenses': () => boolean
 

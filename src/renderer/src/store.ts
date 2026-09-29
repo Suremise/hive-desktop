@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { MAIN_AGENT, agentPtyKey, layoutPanes, mostUrgent } from '@shared/defaults'
+import type { UpdateState } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
@@ -76,6 +77,9 @@ interface State {
   showNotifications: boolean
   paletteOpen: boolean
   aboutOpen: boolean
+  /** Hive's own update state, and whether its dialog is open. */
+  update: UpdateState | null
+  updateOpen: boolean
   setupOpen: boolean
   shortcutsOpen: boolean
   dialog: DialogRequest | null
@@ -139,6 +143,8 @@ export const useStore = create<State>(() => ({
   showNotifications: false,
   paletteOpen: false,
   aboutOpen: false,
+  update: null,
+  updateOpen: false,
   setupOpen: false,
   shortcutsOpen: false,
   dialog: null,

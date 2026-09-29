@@ -235,6 +235,18 @@ Changes apply to new sessions. If you change something while a session is runnin
 
 **Bypass permissions** only appears after you tick **Settings → Claude Code → Enable bypass permissions option**. Projects using it show a red warning. Use it only for disposable work.
 
+## Updating Hive
+
+Hive keeps itself up to date from its GitHub releases. By default it checks shortly after starting and every six hours, downloads a new version in the background, and installs it the next time you quit Hive — it never restarts on its own, so your agents are never interrupted.
+
+- While a new version downloads, the status bar shows the progress; when it's ready it says **Restart to update to X.Y.Z**. Click it to see what's new.
+- **Restart and Update** (in that dialog, the notification or the tray menu) closes Hive, installs the update and opens Hive again. If agents are working, Hive asks first, and you can let them finish. Stopped sessions can be resumed as usual.
+- **Skip This Version** stops Hive offering that version; the next one is offered as normal.
+- **Help → Check for Updates…** checks straight away and tells you the result.
+- **Settings → Updates** turns automatic checks and downloads off, chooses whether updates install **automatically when Hive quits** or **only when you choose Restart and Update**, and can include pre-release (beta) versions.
+
+Updates are checked against their published checksum before they install.
+
 ## Notifications
 
 When an agent finishes or needs input, Hive can play a chime and show a Windows notification (click it to jump to the project). Configure both in **Settings → Notifications**; each project can override the chime.

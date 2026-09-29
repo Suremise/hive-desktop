@@ -5,6 +5,7 @@ import type { SessionStatus } from '../shared/types'
 import { emit, onHiveEvent } from './events'
 import { resourcesDir } from './paths'
 import { sessions } from './sessions'
+import { restartAndInstall, updateState } from './updater'
 import { workspace } from './workspace'
 
 let tray: Tray | null = null
@@ -86,6 +87,7 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
         ...projectItems,
         { type: 'separator' },
         { label: 'Settings', click: () => { const w = getWindow(); if (w) showWindow(w); emit({ type: 'menu-command', command: 'settings.open' }) } },
+        ...(updateState().status === 'ready' ? [{ label: `Restart to Update (${updateState().version})`, click: restartAndInstall }] : []),
         ...(pendingQuit
           ? [
               { label: `Quitting when ${working === 1 ? 'the agent finishes' : `${working} agents finish`}`, enabled: false },
@@ -104,7 +106,7 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
     else showWindow(w)
   })
   onHiveEvent((e) => {
-    if (e.type === 'session-status' || e.type === 'session-exit' || e.type === 'workspace-changed') rebuild()
+    if (e.type === 'session-status' || e.type === 'session-exit' || e.type === 'workspace-changed' || e.type === 'update-state') rebuild()
   })
   rebuild()
   return tray

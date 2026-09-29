@@ -1,4 +1,5 @@
 import { call } from './api'
+import { checkForUpdates, openReleaseNotes } from './components/Updates'
 import * as actions from './actions'
 import { focusedAgentId, get, set, setActivity, setProjectTab, showAgent, toggleCompactSidebar, type ProjectTab } from './store'
 
@@ -107,6 +108,10 @@ export const commands: Command[] = [
   { id: 'help.releaseNotes', label: 'Release Notes', category: 'Help', run: () => { set({ docsPage: 'changelog' }); setActivity('docs') } },
   { id: 'help.logs', label: 'Open Logs Folder', category: 'Help', run: () => call('app:openLogs') },
   { id: 'help.about', label: 'About Hive', category: 'Help', run: () => set({ aboutOpen: true }) },
+  { id: 'help.checkUpdates', label: 'Check for Updates…', category: 'Help', run: () => checkForUpdates() },
+  { id: 'update.show', label: 'Show Hive Update', category: 'Help', when: () => ['available', 'downloading', 'ready'].includes(get().update?.status ?? ''), run: () => set({ updateOpen: true }) },
+  { id: 'update.install', label: 'Restart and Update Hive', category: 'Help', when: () => get().update?.status === 'ready', run: () => call('update:install') },
+  { id: 'update.releaseNotes', label: "What's New in Hive", category: 'Help', run: (version?: unknown) => openReleaseNotes(typeof version === 'string' ? version : get().appInfo?.version) },
   { id: 'app.quit', label: 'Exit', category: 'File', keybinding: 'Mod+Q', run: () => call('app:quit') }
 ]
 

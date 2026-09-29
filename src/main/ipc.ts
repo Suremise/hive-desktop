@@ -4,6 +4,7 @@ import { existsSync } from 'fs'
 import { dirname, join } from 'path'
 import { readFile } from 'fs/promises'
 import type { HiveChannel, HiveRequests } from '../shared/api'
+import * as updater from './updater'
 import type { QuitChoice } from '../shared/types'
 import { claudeCode, claudeHome } from './agents/claude-code'
 import { agentService } from './agentService'
@@ -68,6 +69,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
     'app:openPath': (p) => void shell.openPath(guardFile(p)),
     'app:showInFolder': (p) => shell.showItemInFolder(guardFile(p)),
     'app:openLogs': () => void shell.openPath(logsDir()),
+    'update:state': () => updater.updateState(),
+    'update:check': () => updater.check(true),
+    'update:download': () => updater.download(),
+    'update:install': () => updater.restartAndInstall(),
+    'update:skip': (version) => updater.skip(version),
     'app:openChromiumLicenses': () => {
       const file = join(dirname(process.execPath), 'LICENSES.chromium.html')
       if (!existsSync(file)) return false

@@ -14,6 +14,7 @@ This document explains how Hive is put together, for anyone changing the code. P
 │ servers.ts      hook server (random port) + Agent API (configured port)      │
 │ skills.ts mcp.ts notes.ts git.ts files.ts   feature services                 │
 │ ipc.ts          typed IPC handlers        tray.ts   system tray              │
+│ updater.ts      Hive's own updates (electron-updater, GitHub Releases)       │
 └──────────────┬───────────────────────────────────────────────▲──────────────┘
                │ IPC (preload bridge: window.hive)              │ HTTP hooks
 ┌──────────────▼───────────────┐                  ┌────────────┴─────────────┐
@@ -105,6 +106,8 @@ Terminals for every project that has had a session stay mounted (hidden) so swit
 
 The installed app uses the app user model ID `com.hive.desktop` (the Start menu and desktop shortcuts carry it, and each window sets it with `setAppDetails`), which gives the taskbar button and notifications the Hive name and icon. Dev and test builds run as `electron.exe` and use `com.hive.desktop.dev`, registered under `HKCU\Software\Classes\AppUserModelId` as "Hive Dev". Sharing one ID made Windows show Electron's name and icon for the installed Hive.
 
-## Packaging
+## Packaging and updates
 
 `electron-builder.yml` builds an NSIS installer. `@lydell/node-pty` ships prebuilt N-API binaries (no native rebuild), unpacked from the asar archive together with `out/main/hive-mcp.js`, which Claude Code runs through Hive's executable with `ELECTRON_RUN_AS_NODE=1`.
+
+`updater.ts` wraps electron-updater. It turns off electron-updater's own auto-download and starts downloads itself, so *Download automatically* and skipped versions are honoured; `autoInstallOnAppQuit` follows *Install updates*. State changes go to the renderer as `update-state` events (`UpdateState`); the status bar item, update dialog, About and Settings (`components/Updates.tsx`) all render from that one state. **Restart and Update** sets a flag and calls the normal `requestQuit()`; `quitNow()` ends with `installNow()` (`quitAndInstall(silent, runAfter)`) instead of `app.quit()`, so the quit dialog, *wait for agents* and transcript backups all still apply. With `HIVE_UPDATE_FEED` (unpackaged builds only) the updater uses a generic feed from a config file in the profile, a separate download cache (`hive-test-updater`), and never installs. Releases are published by `scripts/release.mjs` — see `RELEASING.md`.

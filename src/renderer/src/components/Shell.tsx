@@ -1,4 +1,3 @@
-import hexUrl from '../assets/icon.svg'
 import { compactThreshold, effectiveModelLabel, effortLabel, permissionLabel } from '@shared/defaults'
 import type { PlanLimit } from '@shared/types'
 import { useLiveUsage, useNow } from '../usage'
@@ -7,6 +6,7 @@ import { NO_PROJECTS, setActivity, set, useFocusedAgent, useStore, type Activity
 import { cx, formatKeybinding, formatTokens, resetsIn, timeAgo } from '../util'
 import { commandKeybinding } from '../commands'
 import { Icon, Tooltip } from './ui'
+import { UpdateStatusItem } from './Updates'
 
 const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }[] = [
   { id: 'projects', icon: 'files', label: 'Projects', command: 'view.projects' },
@@ -67,7 +67,7 @@ export function StatusBar() {
         </div>
         <div className="status-spacer" />
         <AgentStatus />
-        <HiveVersion />
+        <UpdateStatusItem />
       </div>
     )
   }
@@ -142,7 +142,7 @@ export function StatusBar() {
         </div>
       </Tooltip>
       <AgentStatus />
-      <HiveVersion />
+      <UpdateStatusItem />
     </div>
   )
 }
@@ -162,19 +162,6 @@ function PlanUsageStatus() {
         {usage.fiveHour && <span>5h {Math.round(usage.fiveHour.usedPercent)}%</span>}
         {usage.fiveHour && usage.sevenDay && <span className="status-sub">·</span>}
         {usage.sevenDay && <span>Week {Math.round(usage.sevenDay.usedPercent)}%</span>}
-      </div>
-    </Tooltip>
-  )
-}
-
-/** Hive's own version; opens About. Dev builds say so, since they run beside the installed app. */
-function HiveVersion() {
-  const info = useStore((s) => s.appInfo)
-  if (!info) return null
-  return (
-    <Tooltip content={`Hive ${info.version}${info.isPackaged ? '' : ' (development build)'} · Electron ${info.electron}`}>
-      <div className="status-item" onClick={() => set({ aboutOpen: true })}>
-        <img src={hexUrl} className="status-hex" alt="" /> {info.isPackaged ? `Hive ${info.version}` : `Hive Dev ${info.version}`}
       </div>
     </Tooltip>
   )

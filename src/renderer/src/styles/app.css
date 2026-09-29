@@ -3127,3 +3127,72 @@ body.pane-resizing .monaco-editor {
 .about-licence a:hover {
   text-decoration: underline;
 }
+
+/* ---------- Hive updates ---------- */
+.statusbar .status-item.update-item {
+  background: rgba(0, 0, 0, 0.18);
+  font-weight: 600;
+}
+.statusbar .status-item.update-item.ready {
+  background: var(--bg-elevated);
+  color: var(--accent);
+}
+.update-dialog {
+  min-width: 380px;
+}
+.update-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.update-line .ok {
+  color: var(--success);
+}
+.update-line .warn {
+  color: var(--warning);
+}
+.update-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.update-head > .codicon {
+  font-size: 28px;
+  color: var(--accent);
+}
+.update-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.update-progress .bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+.update-progress .bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+.update-notes {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 4px 14px;
+  background: var(--bg-sidebar);
+}
+.update-note {
+  margin-top: 10px;
+}
+.about-update {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}

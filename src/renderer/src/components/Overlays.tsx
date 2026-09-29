@@ -6,6 +6,7 @@ import { dismissToast, NO_PROJECTS, notify, set, setActivity, useStore } from '.
 import { cacheState, useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
+import { UpdateStatusRow } from './Updates'
 import type { QuitChoice, SessionStatus } from '@shared/types'
 import { Icon, IconButton, Modal, STATUS_TEXT } from './ui'
 
@@ -317,6 +318,9 @@ export function AboutDialog() {
             ))}
           </tbody>
         </table>
+        <div className="about-update">
+          <UpdateStatusRow />
+        </div>
         <p className="about-licence">
           Open source under the <a onClick={() => showDoc('license')}>MIT License</a>. Includes <a onClick={() => showDoc('notices')}>third-party software</a>
           {' '}and <a onClick={() => void call('app:openChromiumLicenses').then((ok) => ok || notify('info', 'Licences not found', 'The Chromium licence file is in the folder Hive is installed in.'))}>Chromium</a>.

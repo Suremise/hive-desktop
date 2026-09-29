@@ -15,6 +15,13 @@ asarUnpack:
   - '**/node_modules/@lydell/node-pty*/**'
   - out/main/hive-mcp.js
 npmRebuild: false
+# Releases (and electron-updater's feed) are on GitHub. npm run dist never publishes; npm run release
+# uploads a draft release. See RELEASING.md.
+publish:
+  provider: github
+  owner: Suremise
+  repo: hive-desktop
+  releaseType: draft
 win:
   target:
     - target: nsis

@@ -51,5 +51,6 @@ Hive's first version, not yet released. Until then this page describes what Hive
 - Completion chime, Windows notifications and system tray with attention badge.
 - A quit dialog that lists running sessions and can wait for agents to finish.
 - Claude Code setup: detection, one-click install, update and sign-in. The standalone Claude Code CLI is required; editor-extension copies are not used.
+- **Automatic updates** from GitHub releases: checked and downloaded in the background, installed when Hive quits or with **Restart and Update**, never mid-session. The status bar shows progress; Help → Check for Updates; Settings → Updates to check, download and install manually instead, or to get pre-releases.
 - Any number of sessions across projects; only the terminals on screen use the graphics card.
 - Open source under the MIT License; the licence and third-party notices are in the Docs view and linked from About.

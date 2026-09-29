@@ -5,6 +5,12 @@ export const HIVE_DIR = '.hive'
 export const DEFAULT_API_PORT = 47821
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  updates: {
+    checkAutomatically: true,
+    downloadAutomatically: true,
+    install: 'auto',
+    prerelease: false
+  },
   general: {
     closeToTray: true,
     minimizeToTray: false,
@@ -314,3 +320,6 @@ export function sessionLabel(s: { id: string; name?: string | null; title?: stri
   const auto = !s.name || (s.name.startsWith(`${projectName} · `) && /\d{1,4}[/.-]\d{1,2}/.test(s.name))
   return (auto ? s.title || s.name : s.name) || `Session ${s.id.slice(0, 8)}`
 }
+
+/** Where Hive's releases (and its update feed) are published. */
+export const RELEASES_URL = 'https://github.com/Suremise/hive-desktop/releases'

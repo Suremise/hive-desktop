@@ -5,6 +5,7 @@ import { playChime } from './chime'
 import { matchKeybinding, runCommand } from './commands'
 import { AboutDialog, ClaudeSetupDialog, CommandPalette, CompactDialog, Dialogs, NotificationCenter, QuitDialog, QuitPendingBanner, ShortcutsDialog, Toasts } from './components/Overlays'
 import { AddAgentDialog, AgentSettingsDialog, MergeDialog } from './components/AgentDialogs'
+import { UpdateDialog } from './components/Updates'
 import { ActivityBar, StatusBar } from './components/Shell'
 import { Sidebar } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
@@ -102,6 +103,9 @@ function handleEvent(e: HiveEvent): void {
     case 'plan-usage':
       set({ planUsage: e.usage })
       break
+    case 'update-state':
+      set({ update: e.state })
+      break
     case 'notes-changed':
       set((s) => ({ notesVersion: s.notesVersion + 1 }))
       break
@@ -146,7 +150,7 @@ export function App() {
       if (ws) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
       for (const l of live) applyLiveState(l)
       // A reloaded window picks up a quit dialog or pending quit that was already in progress.
-      set({ planUsage: await call('app:planUsage') })
+      set({ planUsage: await call('app:planUsage'), update: await call('update:state') })
       const q = await call('app:quitState')
       set({ quitRequest: q.request, quitPending: q.pending ? { working: q.working } : null })
       applyTheme()
@@ -235,6 +239,7 @@ export function App() {
       <AgentSettingsDialog />
       <MergeDialog />
       <AboutDialog />
+      <UpdateDialog />
       <ShortcutsDialog />
       <ClaudeSetupDialog />
     </div>
