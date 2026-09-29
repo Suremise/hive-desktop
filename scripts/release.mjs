@@ -25,5 +25,10 @@ const run = (cmd, args) => {
   if (r.status !== 0) process.exit(r.status ?? 1)
 }
 run('npm', ['run', 'build'])
+// Create the draft first: electron-builder uploads the files in parallel and, with no release yet,
+// each upload creates its own draft (you end up with two drafts, the files split between them).
+const tag = `v${pkg.version}`
+const exists = spawnSync('gh', ['release', 'view', tag], { stdio: 'ignore', shell: true, env: { ...process.env, GH_TOKEN: token } }).status === 0
+if (!exists) run('gh', ['release', 'create', tag, '--draft', '--title', pkg.version, '--notes', '""'])
 run('npx', ['electron-builder', '--win', '--publish', 'always'])
 console.log(`\nDraft release v${pkg.version} uploaded. Review it at https://github.com/Suremise/hive-desktop/releases and publish it there.`)
