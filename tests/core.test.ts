@@ -396,3 +396,47 @@ describe('sessionLabel', () => {
     expect(sessionLabel({ id: 'abc12345x' }, 'hive')).toBe('Session abc12345')
   })
 })
+
+describe('permission modes in a running session', () => {
+  it('reads the mode from Claude Code footer output', async () => {
+    const { footerMode } = await import('../src/shared/defaults')
+    expect(footerMode(' ⏵⏵ accept edits on (shift+tab to cycle) · ← for agents ')).toBe('acceptEdits')
+    expect(footerMode('⏸ plan mode on (shift+tab o cycle) · ←foragents')).toBe('plan')
+    expect(footerMode('x ⏵⏵ auto mode on (shift+tab to cycle) y ⏸ manual mode on · ← for agents')).toBe('manual')
+    expect(footerMode("⏵⏵ don't ask on (shift+tab to cycle)")).toBe('dontAsk')
+    expect(footerMode('⏵⏵ bypass permissions on (shift+tab to cycle)')).toBe('bypassPermissions')
+    expect(footerMode('Claude said: turn plan mode on and then')).toBeNull()
+  })
+  it('maps hook modes and knows what Shift+Tab can reach', async () => {
+    const { hookMode, canSwitchLive } = await import('../src/shared/defaults')
+    expect(hookMode('default')).toBe('manual')
+    expect(hookMode('acceptEdits')).toBe('acceptEdits')
+    expect(hookMode('nonsense')).toBeNull()
+    expect(canSwitchLive('auto', 'manual', 'manual')).toBe(true)
+    expect(canSwitchLive('dontAsk', 'manual', 'dontAsk')).toBe(false)
+    expect(canSwitchLive('bypassPermissions', 'auto', 'manual')).toBe(false)
+    expect(canSwitchLive('bypassPermissions', 'auto', 'bypassPermissions')).toBe(true)
+  })
+})
+
+describe('keyboard shortcuts', () => {
+  it('resolves project over global over default, and null removes', async () => {
+    const { resolveKeybinding } = await import('../src/shared/defaults')
+    expect(resolveKeybinding('a', 'Mod+A', undefined, undefined)).toBe('Mod+A')
+    expect(resolveKeybinding('a', 'Mod+A', { a: 'Mod+B' }, undefined)).toBe('Mod+B')
+    expect(resolveKeybinding('a', 'Mod+A', { a: 'Mod+B' }, { a: 'Alt+C' })).toBe('Alt+C')
+    expect(resolveKeybinding('a', 'Mod+A', { a: null }, undefined)).toBeUndefined()
+    expect(resolveKeybinding('a', 'Mod+A', { a: 'Mod+B' }, { a: null })).toBeUndefined()
+  })
+  it('refuses keys that would break typing or editing', async () => {
+    const { keybindingProblem } = await import('../src/shared/defaults')
+    expect(keybindingProblem('A')).not.toBeNull()
+    expect(keybindingProblem('Shift+A')).not.toBeNull()
+    expect(keybindingProblem('Mod+C')).not.toBeNull()
+    expect(keybindingProblem('Shift+Tab')).not.toBeNull()
+    expect(keybindingProblem('F5')).toBeNull()
+    expect(keybindingProblem('Mod+Alt+M')).toBeNull()
+    expect(keybindingProblem('Mod+K Mod+S')).toBeNull()
+    expect(keybindingProblem('Mod+K S')).not.toBeNull()
+  })
+})

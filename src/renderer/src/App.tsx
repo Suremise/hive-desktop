@@ -6,6 +6,7 @@ import { matchKeybinding, runCommand } from './commands'
 import { AboutDialog, ClaudeSetupDialog, CommandPalette, CompactDialog, Dialogs, NotificationCenter, QuitDialog, QuitPendingBanner, ShortcutsDialog, Toasts } from './components/Overlays'
 import { AddAgentDialog, AgentSettingsDialog, MergeDialog } from './components/AgentDialogs'
 import { UpdateDialog } from './components/Updates'
+import { ModeMenuHost } from './components/PermissionMode'
 import { ActivityBar, StatusBar } from './components/Shell'
 import { Sidebar } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
@@ -174,7 +175,7 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (get().dialog || get().paletteOpen) return
+      if (get().dialog || get().paletteOpen || get().recordingKeys) return
       const cmd = matchKeybinding(e)
       if (!cmd) return
       e.preventDefault()
@@ -240,6 +241,7 @@ export function App() {
       <MergeDialog />
       <AboutDialog />
       <UpdateDialog />
+      <ModeMenuHost />
       <ShortcutsDialog />
       <ClaudeSetupDialog />
     </div>

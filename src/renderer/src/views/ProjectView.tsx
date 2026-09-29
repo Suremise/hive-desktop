@@ -1,11 +1,12 @@
 import type { ProjectInfo } from '@shared/types'
-import { compactThreshold, effectiveModelLabel, effortLabel, permissionLabel } from '@shared/defaults'
+import { compactThreshold, effectiveModelLabel, effortLabel } from '@shared/defaults'
 import { useLiveUsage } from '../usage'
 import hexUrl from '../assets/icon.svg'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { AgentStrip, PaneChrome, ResumeButton, SessionTag, TerminalLayer, usePanes } from '../components/AgentPanes'
+import { ModeBadge } from '../components/PermissionMode'
 import { Icon, IconButton, STATUS_TEXT, Switch, Tooltip, useContextMenu } from '../components/ui'
 import { projectKey, projectState, set, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
 import { carriesFiles, cx, formatKeybinding, formatTokens } from '../util'
@@ -124,7 +125,6 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const running = project.agents.filter((a) => a.live).length
   const agentId = focusedAgent?.id
   const bypass = project.config.permissionMode === 'bypassPermissions' && settings?.claude.enableBypassOption
-  const effPerm = project.config.permissionMode !== 'inherit' && (project.config.permissionMode !== 'bypassPermissions' || settings?.claude.enableBypassOption) ? project.config.permissionMode : settings?.claude.defaultPermissionMode ?? 'manual'
   const model = effectiveModelLabel(project.config.model, settings?.claude.defaultModel ?? '', claudeDefaultModel)
   const effort = effortLabel(live?.effort, project.config.effort, settings?.claude.defaultEffort)
 
@@ -174,11 +174,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
                 {effort && <span className="faint"> · {effort}</span>}
               </span>
             </Tooltip>
-            <Tooltip content="Permission mode new sessions start in (Project Settings)">
-              <span className={cx('badge', bypass && 'error')}>
-                <Icon name={bypass ? 'warning' : 'shield'} /> {permissionLabel(effPerm)}
-              </span>
-            </Tooltip>
+            <ModeBadge project={project} a={focusedAgent} variant="header" />
             {focusedAgent && <SessionTag project={project} a={focusedAgent} badge />}
           </div>
         </div>

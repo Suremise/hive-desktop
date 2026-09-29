@@ -25,7 +25,12 @@ export interface QuitSession {
 
 export type UpdateInstallMode = 'auto' | 'manual'
 
+/** Command id → key combination ("Mod+Shift+P", chords as "Mod+K Mod+S"); null removes the default. */
+export type KeybindingOverrides = Record<string, string | null>
+
 export interface AppSettings {
+  /** The user's changes to the default keyboard shortcuts. */
+  keybindings: KeybindingOverrides
   updates: {
     checkAutomatically: boolean
     downloadAutomatically: boolean
@@ -143,6 +148,8 @@ export type Inherit<T> = 'inherit' | T
 
 export interface ProjectConfig {
   version: 1
+  /** Project-scoped shortcut overrides (project, session and agent commands), over the global ones. */
+  keybindings?: KeybindingOverrides
   skills: { disabled: string[] }
   mcp: { disabled: string[] }
   chime: 'inherit' | 'on' | 'off'
@@ -266,6 +273,8 @@ export interface LiveSessionState {
   /** Folder the session runs in: the project folder or the agent's worktree. */
   cwd: string
   sessionId: string
+  /** The mode the session is actually in: from launch, Hive's live switches, Shift+Tab in the terminal (its footer) and hooks. */
+  permissionMode?: PermissionMode
   /** The session's name in Hive (renamable in the Sessions tab). */
   sessionName?: string
   status: SessionStatus

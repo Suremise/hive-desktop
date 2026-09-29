@@ -277,6 +277,8 @@ function wireSettingsEffects(): void {
       }
     }
     if (JSON.stringify(s.agentApi) !== JSON.stringify(prev.agentApi)) void startApiServer().then(() => workspace.path && workspace.scheduleRefresh())
+    // Session settings changed: refresh "restart to apply", and offer to switch running agents to a new permission mode.
+    else if (JSON.stringify(s.claude) !== JSON.stringify(prev.claude) && workspace.path) workspace.scheduleRefresh()
     if (prev.claude.enableBypassOption && !s.claude.enableBypassOption) void revertBypassProjects()
     if (s.claude.executablePath !== prev.claude.executablePath) void agentService.refresh(false)
   })

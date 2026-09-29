@@ -76,6 +76,12 @@ interface State {
   unread: number
   showNotifications: boolean
   paletteOpen: boolean
+  /** What the palette lists: every command and project, or projects only (Go to Project). */
+  paletteMode: 'commands' | 'projects'
+  /** The permission mode menu, open for an agent at a point. */
+  modeMenu: { project: string; agentId: string; x: number; y: number } | null
+  /** A shortcut is being recorded in the keyboard shortcuts editor: app shortcuts are paused. */
+  recordingKeys: boolean
   aboutOpen: boolean
   /** Hive's own update state, and whether its dialog is open. */
   update: UpdateState | null
@@ -142,6 +148,9 @@ export const useStore = create<State>(() => ({
   unread: 0,
   showNotifications: false,
   paletteOpen: false,
+  paletteMode: 'commands',
+  modeMenu: null,
+  recordingKeys: false,
   aboutOpen: false,
   update: null,
   updateOpen: false,
@@ -267,6 +276,11 @@ export function openInSessionsTab(path: string, id: string): void {
 export function revealAgent(p: ProjectInfo, agentId: string): void {
   showAgent(p, agentId)
   setProjectTab(p.path, 'session')
+}
+
+/** Shows a sidebar view without toggling it (setActivity hides the sidebar when that view is already shown). */
+export function showView(a: Exclude<Activity, 'docs' | 'settings'>): void {
+  set({ activity: a, lastSideActivity: a, sidebarVisible: true })
 }
 
 export function setProjectTab(path: string, tab: ProjectTab): void {

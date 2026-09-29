@@ -1,4 +1,4 @@
-import { compactThreshold, effectiveModelLabel, effortLabel, permissionLabel } from '@shared/defaults'
+import { compactThreshold, effectiveModelLabel, effortLabel } from '@shared/defaults'
 import type { PlanLimit } from '@shared/types'
 import { useLiveUsage, useNow } from '../usage'
 import { runCommand } from '../commands'
@@ -7,6 +7,7 @@ import { cx, formatKeybinding, formatTokens, resetsIn, timeAgo } from '../util'
 import { commandKeybinding } from '../commands'
 import { Icon, Tooltip } from './ui'
 import { UpdateStatusItem } from './Updates'
+import { ModeBadge } from './PermissionMode'
 
 const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }[] = [
   { id: 'projects', icon: 'files', label: 'Projects', command: 'view.projects' },
@@ -80,8 +81,6 @@ export function StatusBar() {
   const overThreshold = !!usage && threshold > 0 && usage.contextTokens >= threshold
   const model = effectiveModelLabel(focused?.model || (cfg?.model ?? 'inherit'), settings?.claude.defaultModel ?? '', agent?.defaultModel ?? null)
   const effort = effortLabel(focused?.live?.effort, focused?.effort ?? cfg?.effort, settings?.claude.defaultEffort)
-  let perm = focused?.permissionMode ?? (cfg && cfg.permissionMode !== 'inherit' ? cfg.permissionMode : settings?.claude.defaultPermissionMode ?? 'manual')
-  if (perm === 'bypassPermissions' && !settings?.claude.enableBypassOption) perm = settings?.claude.defaultPermissionMode ?? 'manual'
 
   return (
     <div className="statusbar">
@@ -126,11 +125,7 @@ export function StatusBar() {
               {effort && <span className="status-sub">· {effort}</span>}
             </div>
           </Tooltip>
-          <Tooltip content="Permission mode new sessions start in. Change it in Project Settings.">
-            <div className={cx('status-item', perm === 'bypassPermissions' && 'warn')} onClick={() => runCommand('project.tab.settings')}>
-              <Icon name={perm === 'bypassPermissions' ? 'warning' : 'shield'} /> {permissionLabel(perm)}
-            </div>
-          </Tooltip>
+          <ModeBadge project={project} a={focused} variant="status" />
         </>
       )}
       <Tooltip content={api?.running ? `Agent API listening on ${api.url}` : api?.error ? `Agent API: ${api.error}` : 'Agent API is off'}>

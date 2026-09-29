@@ -3196,3 +3196,109 @@ body.pane-resizing .monaco-editor {
   justify-content: center;
   margin-top: 12px;
 }
+
+/* ---------- Permission mode badge ---------- */
+.mode-badge {
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+button.mode-badge.badge {
+  border: 1px solid transparent;
+}
+button.mode-badge.badge:hover {
+  border-color: var(--border);
+}
+.mode-badge .mode-caret {
+  font-size: 10px;
+  opacity: 0.6;
+}
+.mode-chip {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+.mode-chip:hover {
+  color: var(--fg-strong);
+  border-color: var(--border);
+}
+.mode-chip.error {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+/* ---------- Keyboard shortcuts editor ---------- */
+.kb-editor {
+  margin-top: 10px;
+}
+.kb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.kb-toolbar .input {
+  flex: 1;
+  max-width: 420px;
+}
+.kb-note {
+  margin: 0 0 8px;
+}
+.kb-table {
+  width: 100%;
+}
+.kb-table td {
+  padding: 4px 8px;
+  vertical-align: middle;
+}
+.kb-table tr.kb-cat td {
+  padding-top: 14px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+.kb-table tr:not(.kb-cat):hover td {
+  background: var(--bg-hover);
+}
+.kb-table tr.recording td {
+  background: var(--accent-soft);
+}
+.kb-label {
+  width: 45%;
+}
+.kb-id {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+}
+.kb-key {
+  width: 30%;
+  cursor: default;
+}
+.kb-key .codicon {
+  margin-left: 6px;
+}
+.kb-warn {
+  color: var(--warning);
+}
+.kb-source {
+  width: 12%;
+  font-size: 12px;
+}
+.kb-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.kbd-seq kbd + kbd {
+  margin-left: 4px;
+}
+.kbd-recorder {
+  color: var(--accent);
+  font-size: 12px;
+}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import iconUrl from '../assets/icon.svg'
 import { call, errorMessage } from '../api'
-import { commands, runCommand } from '../commands'
+import { commandKeybinding, commands, runCommand } from '../commands'
 import { dismissToast, NO_PROJECTS, notify, set, setActivity, useStore } from '../store'
 import { cacheState, useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, timeAgo } from '../util'
@@ -110,6 +110,7 @@ function score(text: string, q: string): number {
 
 export function CommandPalette() {
   const open = useStore((s) => s.paletteOpen)
+  const mode = useStore((s) => s.paletteMode)
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
@@ -123,12 +124,12 @@ export function CommandPalette() {
   }, [open])
 
   const items = useMemo(() => {
-    const cmdItems = commands
-      .filter((c) => !['project.focus', 'notes.open', 'mcp.import'].includes(c.id) && (!c.when || c.when()))
-      .map((c) => ({ id: c.id, label: `${c.category}: ${c.label}`, keybinding: c.keybinding, run: () => runCommand(c.id), icon: 'symbol-event' }))
+    const cmdItems = mode === 'projects' ? [] : commands
+      .filter((c) => !c.internal && (!c.when || c.when()))
+      .map((c) => ({ id: c.id, label: `${c.category}: ${c.label}`, keybinding: commandKeybinding(c.id), run: () => runCommand(c.id), icon: 'symbol-event' }))
     const projectItems = projects.map((p) => ({
       id: `project:${p.path}`,
-      label: `Go to Project: ${p.name}`,
+      label: mode === 'projects' ? p.name : `Go to Project: ${p.name}`,
       keybinding: undefined as string | undefined,
       run: () => runCommand('project.focus', p.path),
       icon: 'folder'
@@ -138,7 +139,7 @@ export function CommandPalette() {
       .filter((i) => i.s > 0)
       .sort((a, b) => b.s - a.s)
       .slice(0, 60)
-  }, [q, projects, open])
+  }, [q, projects, open, mode])
 
   useEffect(() => {
     listRef.current?.querySelector('.active')?.scrollIntoView({ block: 'nearest' })
@@ -158,7 +159,7 @@ export function CommandPalette() {
         <input
           autoFocus
           className="input"
-          placeholder="Type a command or project name"
+          placeholder={mode === 'projects' ? 'Go to project' : 'Type a command or project name'}
           value={q}
           onChange={(e) => {
             setQ(e.target.value)
@@ -336,9 +337,27 @@ export function AboutDialog() {
 export function ShortcutsDialog() {
   const open = useStore((s) => s.shortcutsOpen)
   if (!open) return null
-  const withKeys = commands.filter((c) => c.keybinding)
+  const withKeys = commands.map((c) => ({ ...c, keybinding: commandKeybinding(c.id) })).filter((c) => c.keybinding)
   return (
-    <Modal title="Keyboard Shortcuts" icon="keyboard" wide onClose={() => set({ shortcutsOpen: false })}>
+    <Modal
+      title="Keyboard Shortcuts"
+      icon="keyboard"
+      wide
+      onClose={() => set({ shortcutsOpen: false })}
+      footer={
+        <>
+          <button className="btn subtle" onClick={() => {
+              set({ shortcutsOpen: false })
+              runCommand('settings.keybindings')
+            }}>
+            <Icon name="settings" /> Customise…
+          </button>
+          <button className="btn primary" onClick={() => set({ shortcutsOpen: false })}>
+            OK
+          </button>
+        </>
+      }
+    >
       <table className="table kbd-table">
         <tbody>
           {withKeys.map((c) => (
@@ -354,6 +373,13 @@ export function ShortcutsDialog() {
               </td>
             </tr>
           ))}
+          <tr>
+            <td className="muted">Terminal</td>
+            <td>Switch permission mode (Claude Code)</td>
+            <td>
+              <kbd>Shift+Tab</kbd>
+            </td>
+          </tr>
           <tr>
             <td className="muted">Terminal</td>
             <td>Copy selection / paste</td>

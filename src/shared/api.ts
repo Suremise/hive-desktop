@@ -1,5 +1,6 @@
 import type {
   UpdateState,
+  PermissionMode,
   AddAgentOptions,
   AgentApiInfo,
   AgentBranchStatus,
@@ -75,6 +76,8 @@ export interface HiveRequests {
   'settings:get': () => AppSettings
   'settings:update': (patch: SettingsPatch) => AppSettings
   'settings:reset': (section?: keyof AppSettings) => AppSettings
+  /** Sets (string), removes (null) or resets to the default (undefined) one command's shortcut. */
+  'settings:setKeybinding': (commandId: string, key: string | null | undefined) => AppSettings
   'ui:get': () => AppConfig['ui']
   'ui:set': (ui: Partial<AppConfig['ui']>) => void
 
@@ -104,6 +107,12 @@ export interface HiveRequests {
   'session:live': () => LiveSessionState[]
   /** Runs Claude Code's /compact in the project's session (only while the agent is idle). */
   'session:compact': (projectPath: string, focus?: string, agentId?: string) => void
+  /** Switches a running agent's permission mode with Shift+Tab. ok false: not possible live (restart instead) or it didn't take. */
+  'session:setMode': (projectPath: string, agentId: string, mode: PermissionMode) => { ok: boolean; restart?: boolean; message?: string }
+  /** Stops the agent and resumes the same conversation in the given mode. */
+  'session:restartInMode': (projectPath: string, agentId: string, mode: PermissionMode) => void
+  /** Switches running agents whose settings now say a different mode (after "Switch now"). */
+  'session:applyModes': () => { switched: string[]; skipped: string[] }
   /** Saves the clipboard image (or copies sourceFile) into .hive/images/<sessionId>; null if the clipboard has no image. */
   'session:saveImage': (projectPath: string, sourceFile?: string, agentId?: string) => string | null
 

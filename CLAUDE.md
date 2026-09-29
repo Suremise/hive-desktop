@@ -43,6 +43,8 @@ npm 11 blocks install scripts by default; esbuild and electron-winstaller are ap
 - **ELECTRON_RUN_AS_NODE**: shells started by the Claude Code VS Code extension inherit `ELECTRON_RUN_AS_NODE=1`, which makes `electron.exe` run as plain Node (`app` is undefined). Hive strips it from session environments, but if you see "Cannot read properties of undefined (reading 'setPath')", clear it.
 - **PowerShell 5.1 encoding**: `Get-Content`/`Set-Content` read UTF-8 without a BOM as ANSI and corrupt characters like `—` and `·`. Edit files with the Edit/Write tools (or Python with `encoding='utf-8'`), never round-trip them through PowerShell text cmdlets.
 - **zustand selectors** must not return fresh objects/arrays (`?? []`) — that loops forever (React error #185). Use a stable constant such as `NO_PROJECTS`.
+- **`setActivity(view)` toggles** the sidebar when that view is already shown (it's the activity bar's click). To just show a view (from a command or action), use `showView(view)`.
+- **Shortcuts**: never read `Command.keybinding` directly for display or matching; use `commandKeybinding(id)`, which applies the user's and the project's overrides.
 - **Monaco 0.57** deep imports drop the `esm/vs/` prefix: `monaco-editor/editor/editor.worker?worker`.
 - **Claude Code login**: never automate key presses on Claude Code's login screens in test sessions; warn the user before any test that may open a browser sign-in.
 - Hive must only use the **standalone Claude Code CLI**. Copies bundled in editor extensions are deliberately rejected (SPEC §11).

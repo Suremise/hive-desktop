@@ -104,6 +104,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
 
     'settings:get': () => config.settings,
     'settings:update': (patch) => config.updateSettings(patch),
+    'settings:setKeybinding': (id, key) => config.setKeybinding(id, key),
     'settings:reset': (section) => config.resetSettings(section),
     'ui:get': () => config.get().ui,
     'ui:set': (ui) => config.update((c) => Object.assign(c.ui, ui)),
@@ -172,6 +173,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
     'session:usage': (p, id) => sessions.usage(workspace.assertProject(p), id),
     'session:markSeen': (p) => sessions.markSeen(p),
     'session:live': () => sessions.liveStates(),
+    'session:setMode': (p, agentId, mode) => sessions.setPermissionMode(p, agentId, mode),
+    'session:restartInMode': (p, agentId, mode) => sessions.restartInMode(p, agentId, mode),
+    'session:applyModes': () => sessions.applyModeSettings(),
     'session:compact': (p, focus, agentId) => sessions.compact(p, focus, agentId),
     'session:saveImage': (p, sourceFile, agentId) => sessions.saveImage(p, sourceFile, agentId),
 

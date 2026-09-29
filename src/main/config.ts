@@ -49,6 +49,18 @@ class ConfigStore {
     return this.data.settings
   }
 
+  /** Sets, removes (null) or resets (undefined) one shortcut; the deep merge in updateSettings can't delete a key. */
+  setKeybinding(commandId: string, key: string | null | undefined): AppSettings {
+    const prev = structuredClone(this.data.settings)
+    const next = { ...this.data.settings.keybindings }
+    if (key === undefined) delete next[commandId]
+    else next[commandId] = key
+    this.data.settings = { ...this.data.settings, keybindings: next }
+    this.scheduleSave()
+    for (const l of this.listeners) l(this.data.settings, prev)
+    return this.data.settings
+  }
+
   resetSettings(section?: keyof AppSettings): AppSettings {
     const prev = structuredClone(this.data.settings)
     if (section) (this.data.settings as unknown as Record<string, unknown>)[section] = structuredClone(DEFAULT_APP_CONFIG.settings[section])

@@ -1,6 +1,6 @@
 import { basename } from './util'
 import { call, errorMessage } from './api'
-import { agentOf, confirm, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent } from './store'
+import { agentOf, confirm, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
 import { MAIN_AGENT, sessionInAgentFolder } from '@shared/defaults'
 import type { ProjectInfo, SessionLayout, SessionListItem } from '@shared/types'
 import { formatTokens } from './util'
@@ -28,14 +28,14 @@ export async function openWorkspace(path?: string): Promise<void> {
     const first = ws.projects.find((p) => p.active) ?? ws.projects[0]
     set({ selectedProject: first?.path ?? null })
   }
-  setActivity('projects')
+  showView('projects')
 }
 
 export async function createWorkspace(): Promise<void> {
   const ws = await attempt('Could not create workspace', () => call('workspace:create'))
   if (ws === undefined) return
   set({ workspace: ws, recent: await call('workspace:recent'), selectedProject: ws?.projects[0]?.path ?? null })
-  setActivity('projects')
+  showView('projects')
 }
 
 export async function closeWorkspace(): Promise<void> {
@@ -57,7 +57,7 @@ export async function createProject(): Promise<void> {
   if (!ws) return
   const created = ws.projects.find((p) => p.name === name.trim())
   set({ workspace: ws, selectedProject: created?.path ?? get().selectedProject })
-  setActivity('projects')
+  showView('projects')
   notify('success', `Project "${name.trim()}" created`)
 }
 

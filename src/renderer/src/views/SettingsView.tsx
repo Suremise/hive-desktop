@@ -8,6 +8,7 @@ import { call } from '../api'
 import { playChime } from '../chime'
 import { Icon, IconButton, InfoTip, Switch, Tooltip } from '../components/ui'
 import { UpdateStatusRow } from '../components/Updates'
+import { KeybindingsEditor } from '../components/Keybindings'
 import { confirm, notify, set, useStore } from '../store'
 import { cx } from '../util'
 
@@ -27,6 +28,8 @@ interface SettingDef {
   placeholder?: string
   danger?: boolean
   render?: () => React.ReactNode
+  /** Takes the full width under its title (e.g. a table). */
+  wide?: boolean
   confirmOn?: { title: string; message: string; detail?: string }
 }
 
@@ -38,6 +41,7 @@ const SECTIONS: { id: Section; label: string; icon: string; desc: string }[] = [
   { id: 'notifications', label: 'Notifications', icon: 'bell', desc: 'Chimes and desktop notifications when agents finish or need you.' },
   { id: 'sessions', label: 'Sessions', icon: 'history', desc: 'Transcript backups, cache estimates and session behaviour.' },
   { id: 'agents', label: 'Agents & Worktrees', icon: 'organization', desc: 'Defaults for projects running several agents: file locks, new worktrees and merging. Projects can override them.' },
+  { id: 'keybindings', label: 'Keyboard Shortcuts', icon: 'keyboard', desc: 'Change, remove or add shortcuts for any command. Projects can set their own for project and session commands (Project Settings → Keyboard Shortcuts).' },
   { id: 'agentApi', label: 'Agent API', icon: 'broadcast', desc: 'Local API and built-in MCP server that let agents interact with Hive.' },
   { id: 'advanced', label: 'Advanced', icon: 'tools', desc: 'Logs, data and resetting Hive.' }
 ]
@@ -56,6 +60,8 @@ const SETTINGS: SettingDef[] = [
   { section: 'updates', key: 'downloadAutomatically', title: 'Download updates automatically', desc: 'Download a new version in the background as soon as it is found.', tip: 'When off, the status bar says a new version is available and you choose when to download it. Downloads are checked against the release checksum.', type: 'boolean' },
   { section: 'updates', key: 'install', title: 'Install updates', desc: 'When a downloaded update is installed.', tip: 'Automatically: the update installs when you next quit Hive (never while it is running, so your sessions are not interrupted); Restart and Update installs it straight away. Manually: it installs only when you choose Restart and Update. Either way, Hive asks before stopping agents that are working.', type: 'select', options: [{ value: 'auto', label: 'Automatically, when Hive quits' }, { value: 'manual', label: 'Manually, with Restart and Update' }] },
   { section: 'updates', key: 'prerelease', title: 'Include pre-releases', desc: 'Also offer beta versions published before a full release.', tip: 'Pre-releases get new features first and may have rough edges. Turning this off again waits for the next full release rather than going back.', type: 'boolean' },
+  // Keyboard shortcuts
+  { section: 'keybindings', key: 'editor', title: 'Shortcuts', desc: 'Click the pencil (or double-click a shortcut), then press the new keys. Wait a moment after the first combination, or press a second one for a chord such as Ctrl+K Ctrl+S.', tip: "Shortcuts need Ctrl or Alt (or are F-keys). Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A, Ctrl+Z, Ctrl+Y and Shift+Tab stay with editing and Claude Code's terminal. Ctrl+B, Ctrl+K, Ctrl+O, Ctrl+R, Ctrl+T and Ctrl+G go to Claude Code while its terminal has focus.", type: 'custom', wide: true, render: () => <KeybindingsEditor /> },
   // Appearance
   { section: 'appearance', key: 'theme', title: 'Theme', desc: 'Colour theme for Hive.', tip: 'System follows your Windows light/dark setting.', type: 'select', options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }, { value: 'system', label: 'System' }] },
   { section: 'appearance', key: 'uiFontSize', title: 'Interface font size', desc: 'Font size for menus, lists and panels, in pixels.', tip: 'Use View → Zoom to scale everything, including the terminal.', type: 'number', min: 11, max: 18 },
@@ -389,6 +395,17 @@ export function SettingsView() {
               {g.items.map((d) => {
                 const modified = (d.type !== 'custom' || d.key === 'defaultModel') && getValue(settings, d) !== defaultValue(d)
                 return (
+                  d.wide ? (
+                    <div key={`${d.section}.${d.key}`} className="setting wide">
+                      <div className="s-text">
+                        <div className="s-title">
+                          {d.title} <InfoTip text={<span style={{ whiteSpace: 'pre-line' }}>{d.tip}</span>} />
+                        </div>
+                        {d.desc && <div className="s-desc">{d.desc}</div>}
+                        {d.render?.()}
+                      </div>
+                    </div>
+                  ) : (
                   <div key={`${d.section}.${d.key}`} className={cx('setting', d.danger && 'danger')}>
                     <div className="s-text">
                       <div className="s-title">
@@ -408,6 +425,7 @@ export function SettingsView() {
                       <Control def={d} settings={settings} />
                     </div>
                   </div>
+                  )
                 )
               })}
             </div>

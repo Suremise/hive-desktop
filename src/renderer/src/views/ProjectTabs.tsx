@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { KeybindingsEditor } from '../components/Keybindings'
 import type { GitDiff, GitStatus, McpServerInfo, MemorySource, PermissionMode, PlanLimit, ProjectConfig, ProjectInfo, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
 import { EFFORT_LEVELS, FILE_LOCK_MODES, MAIN_AGENT, MAX_AGENTS, PERMISSION_MODES, effectiveModelLabel, modelLabel, permissionLabel } from '@shared/defaults'
 import { ModelPicker } from '../components/ModelPicker'
@@ -589,12 +590,13 @@ function SettingRow({ title, desc, tip, children, modified }: { title: string; d
   )
 }
 
-type ProjectSection = 'claude' | 'sessions' | 'agents' | 'advanced'
+type ProjectSection = 'claude' | 'sessions' | 'agents' | 'keys' | 'advanced'
 
 const PROJECT_SECTIONS: { id: ProjectSection; label: string; icon: string; desc: string }[] = [
   { id: 'claude', label: 'Claude Code', icon: 'hubot', desc: 'Model, effort and permissions for this project’s sessions. Agents can override these for themselves.' },
   { id: 'sessions', label: 'Sessions', icon: 'history', desc: 'Compacting and notifications for this project.' },
   { id: 'agents', label: 'Agents & Worktrees', icon: 'organization', desc: 'The project’s agents, file locks between them, and how new worktrees are set up.' },
+  { id: 'keys', label: 'Keyboard Shortcuts', icon: 'keyboard', desc: 'Shortcuts for project and session commands while this project is selected, over the global ones.' },
   { id: 'advanced', label: 'Advanced', icon: 'tools', desc: 'Where the settings are stored, and resetting them.' }
 ]
 
@@ -783,6 +785,14 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
           <option value="off">Off</option>
         </select>
       )
+    },
+    {
+      section: 'keys',
+      key: 'keybindings',
+      title: 'Shortcuts',
+      desc: 'Change one to give this project its own; Reset returns it to the global shortcut. Stored in the project’s .hive folder, which is not committed.',
+      wide: true,
+      render: () => <KeybindingsEditor project={project} />
     },
     {
       section: 'agents',

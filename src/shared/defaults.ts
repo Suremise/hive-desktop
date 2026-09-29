@@ -1,10 +1,11 @@
-import type { AgentDef, AppConfig, AppSettings, EffortLevel, FileLockMode, PermissionMode, ProjectConfig, SessionLayout, SessionRecord, WorkspaceConfig } from './types'
+import type { AgentDef, AppConfig, AppSettings, KeybindingOverrides, EffortLevel, FileLockMode, PermissionMode, ProjectConfig, SessionLayout, SessionRecord, WorkspaceConfig } from './types'
 
 export const APP_NAME = 'Hive'
 export const HIVE_DIR = '.hive'
 export const DEFAULT_API_PORT = 47821
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  keybindings: {},
   updates: {
     checkAutomatically: true,
     downloadAutomatically: true,
@@ -31,7 +32,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     executablePath: '',
     defaultModel: '',
     defaultEffort: '',
-    defaultPermissionMode: 'manual',
+    defaultPermissionMode: 'auto',
     enableBypassOption: false,
     extraArgs: '',
     checkUpdatesOnLaunch: true
@@ -323,3 +324,77 @@ export function sessionLabel(s: { id: string; name?: string | null; title?: stri
 
 /** Where Hive's releases (and its update feed) are published. */
 export const RELEASES_URL = 'https://github.com/Suremise/hive-desktop/releases'
+
+// ---------------------------------------------------------------------------
+// Permission modes in a running session
+// ---------------------------------------------------------------------------
+
+/** The modes Claude Code's Shift+Tab cycles through, in order (checked with Claude Code 2.1.284). */
+export const MODE_CYCLE: PermissionMode[] = ['manual', 'acceptEdits', 'plan', 'auto']
+
+const FOOTER_MODE = /(manual\s*mode|accept\s*edits|plan\s*mode|auto\s*mode|bypass\s*permissions|don['’]?t\s*ask)\s*on\s*(?:\(|·)/gi
+
+/**
+ * The permission mode in Claude Code's footer ("⏵⏵ auto mode on (shift+tab to cycle)"), from terminal
+ * output with control sequences already replaced by spaces. The last one wins; null when there is none.
+ */
+export function footerMode(text: string): PermissionMode | null {
+  let last: string | null = null
+  for (const m of text.matchAll(FOOTER_MODE)) last = m[1].toLowerCase().replace(/\s+/g, '')
+  if (!last) return null
+  if (last.startsWith('manual')) return 'manual'
+  if (last.startsWith('accept')) return 'acceptEdits'
+  if (last.startsWith('plan')) return 'plan'
+  if (last.startsWith('auto')) return 'auto'
+  if (last.startsWith('bypass')) return 'bypassPermissions'
+  return 'dontAsk'
+}
+
+/** The permission_mode Claude Code sends with hooks ("default" is Manual). */
+export function hookMode(v: unknown): PermissionMode | null {
+  if (v === 'default' || v === 'manual') return 'manual'
+  return PERMISSION_MODES.some((m) => m.value === v) ? (v as PermissionMode) : null
+}
+
+/**
+ * Whether a running session can switch to a mode with Shift+Tab. Don't ask leaves the cycle once left;
+ * Bypass is only in it for a session launched in Bypass. Anything else needs a restart.
+ */
+export function canSwitchLive(target: PermissionMode, current: PermissionMode | undefined, launched: PermissionMode | null | undefined): boolean {
+  if (target === current) return true
+  if (MODE_CYCLE.includes(target)) return true
+  return target === 'bypassPermissions' && launched === 'bypassPermissions'
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard shortcuts
+// ---------------------------------------------------------------------------
+
+/** Command categories whose shortcuts a project can override. */
+export const PROJECT_KEYBINDING_CATEGORIES = ['Project', 'Session']
+
+/**
+ * The shortcut a command uses: the project's override, else the user's, else the default. An override
+ * of null (or empty) means "no shortcut".
+ */
+export function resolveKeybinding(id: string, fallback: string | undefined, global: KeybindingOverrides | undefined, project: KeybindingOverrides | undefined): string | undefined {
+  if (project && id in project) return project[id] || undefined
+  if (global && id in global) return global[id] || undefined
+  return fallback
+}
+
+/** Keys Hive never lets a shortcut take: typing, clipboard and undo, and the terminal's own mode switch. */
+export function keybindingProblem(key: string): string | null {
+  const parts = key.split(' ')
+  for (const p of parts) {
+    const mods = p.split('+').slice(0, -1)
+    const k = p.split('+').pop() ?? ''
+    const fn = /^F\d{1,2}$/.test(k)
+    if (!mods.length && !fn && k !== 'Escape') return 'Add Ctrl or Alt: a single key would stop you typing it.'
+    if (mods.length === 1 && mods[0] === 'Shift' && !fn) return 'Add Ctrl or Alt: Shift alone types a character.'
+    if (mods.join('+') === 'Mod' && ['C', 'V', 'X', 'A', 'Z', 'Y'].includes(k)) return `Ctrl+${k} is kept for copy, paste and undo.`
+    if (mods.join('+') === 'Shift' && k === 'Tab') return "Shift+Tab switches the permission mode inside Claude Code's terminal."
+    if (!mods.length && k === 'Escape') return 'Escape closes dialogs and interrupts the agent.'
+  }
+  return null
+}

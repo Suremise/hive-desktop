@@ -226,14 +226,16 @@ Changes apply to new sessions. If you change something while a session is runnin
 
 | Mode | Behaviour |
 |---|---|
-| Manual | Asks before edits and commands (default) |
+| Manual | Asks before edits and commands |
 | Accept edits | Edits files without asking; asks before commands |
 | Plan | Read-only planning until you approve |
-| Auto | A safety classifier approves low-risk actions and asks about risky ones |
+| Auto | A safety classifier approves low-risk actions and asks about risky ones (default) |
 | Don't ask | Never asks; anything not pre-approved is refused |
 | Bypass permissions | Never asks; allows everything |
 
 **Bypass permissions** only appears after you tick **Settings → Claude Code → Enable bypass permissions option**. Projects using it show a red warning. Use it only for disposable work.
+
+**Switching mode while an agent runs.** The mode badge next to the model in the project header (and in each pane header, and the status bar) shows the mode the session is really in. Click it, or press **Ctrl+Alt+M**, and choose another: Hive switches it straight away, without a restart, the same way pressing **Shift+Tab** in the terminal does (which Hive also notices). Don't ask and Bypass permissions can't be reached that way, so choosing them restarts the session in that mode and carries on the same conversation. The switch applies to that session only; the settings decide what new sessions start in. When you change the setting while agents are running, Hive offers to **Switch Now**.
 
 ## Updating Hive
 
@@ -272,15 +274,26 @@ Tick **Don't ask again** to stop the question, or change it any time in **Settin
 | Action | Shortcut |
 |---|---|
 | Command palette | Ctrl+Shift+P |
+| Go to project | Ctrl+P |
 | Settings | Ctrl+, |
 | New session / resume / stop | Ctrl+Shift+N / Ctrl+Shift+R / Ctrl+Shift+X |
+| Compact the conversation | Ctrl+Alt+C |
+| Switch permission mode | Ctrl+Alt+M (Shift+Tab inside the terminal) |
+| Add agent | Ctrl+Alt+Shift+N |
+| Focus agent 1–4 / next / previous | Ctrl+1 … Ctrl+4 / Ctrl+Alt+] / Ctrl+Alt+[ |
+| Layout: one at a time, two columns, three columns, grid | Ctrl+Alt+1 … Ctrl+Alt+4 |
+| Focus the session terminal | Ctrl+` |
 | Next / previous project | Ctrl+PageDown / Ctrl+PageUp |
-| Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Images, Changes, Memory, Skills, MCP, Settings) |
+| Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Images, Changes, Memory, Skills, MCP, Settings); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |
 | Toggle sidebar | Ctrl+B (outside the terminal) |
 | Compact / expand the project list | Ctrl+Alt+B |
+| Notifications | Ctrl+Alt+U |
+| External terminal in the project | Ctrl+Shift+` |
 | Documentation | F1 |
 
 In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts the agent) and Ctrl+V pastes. Right-click copies or pastes text. See **Help → Keyboard Shortcuts** for the full list.
+
+**Changing shortcuts.** **Settings → Keyboard Shortcuts** lists every command. Click the pencil (or double-click a shortcut) and press the keys you want; press a second combination straight after for a chord such as Ctrl+K Ctrl+S. You can remove a shortcut, reset one, or reset them all. Hive warns when a shortcut is already used, and won't take keys you need for typing and editing (a key without Ctrl or Alt, Ctrl+C/V/X/A/Z/Y, Shift+Tab). A project can have its own shortcuts for project and session commands in **Project Settings → Keyboard Shortcuts**; they apply while that project is selected.
 
 **Screenshots and files.** With a screenshot on the clipboard (for example from Win+Shift+S), press **Ctrl+V** in a session: Hive saves the image in the project's `.hive/images` folder and pastes its path, and Claude Code attaches it as `[Image #1]`. You can also **drag files** from Explorer onto the terminal to paste their paths; images are copied into `.hive/images` first. The images are kept per session, so you can always see what was sent (see [Images](#images)).
 

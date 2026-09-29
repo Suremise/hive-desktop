@@ -4,7 +4,7 @@ import { copyFile, mkdir, rename, stat, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { BrowserWindow, Notification, clipboard } from 'electron'
-import { HIVE_DIR, MAIN_AGENT, agentPtyKey, projectAgents, resumeRecord } from '../shared/defaults'
+import { HIVE_DIR, MAIN_AGENT, agentPtyKey, canSwitchLive, footerMode, hookMode, permissionLabel, projectAgents, resumeRecord } from '../shared/defaults'
 import type {
   AgentDef,
   AgentInfo,
@@ -49,6 +49,16 @@ interface LiveSession {
   compacting?: { before: number; timer: NodeJS.Timeout; started: boolean; output: string }
   /** The user stopped it (e.g. during its worktree setup), so an early exit isn't reported as a failure. */
   stopRequested?: boolean
+  /** Terminal output tail, to read the permission mode from Claude Code's footer. */
+  modeTail: string
+  /** The mode it was launched in (--permission-mode). */
+  launchMode: PermissionMode | null
+  /** The mode the settings asked for when it launched, or when the user last applied a settings change to it. */
+  configuredMode: PermissionMode | null
+  /** A settings change already offered to it, so the offer isn't repeated on every refresh. */
+  offeredMode?: PermissionMode | null
+  /** Launch in this mode instead of the configured one (Restart in mode). */
+  modeOverride?: PermissionMode
 }
 
 export interface EffectiveSettings {
@@ -169,7 +179,8 @@ class SessionManager {
   }
 
   signature(e: EffectiveSettings): string {
-    const { chime: _c, skills: _s, ...rest } = e
+    // The permission mode can be switched live (setPermissionMode), so it doesn't ask for a restart.
+    const { chime: _c, skills: _s, permissionMode: _p, ...rest } = e
     return hashText(JSON.stringify(rest))
   }
 
@@ -183,7 +194,9 @@ class SessionManager {
       let restartNeeded = false
       if (l && !l.state.settingUp) {
         try {
-          restartNeeded = this.signature(await this.effective(projectPath, a)) !== l.state.launchSignature
+          const eff = await this.effective(projectPath, a)
+          restartNeeded = this.signature(eff) !== l.state.launchSignature
+          this.noticeModeSetting(l, eff.permissionMode)
         } catch {
           // Settings can't be read right now; don't nag.
         }
@@ -219,7 +232,7 @@ class SessionManager {
     return null
   }
 
-  async start(projectPath: string, opts: { resumeId?: string; name?: string; agentId?: string; skipSetup?: boolean }): Promise<LiveSessionState> {
+  async start(projectPath: string, opts: { resumeId?: string; name?: string; agentId?: string; skipSetup?: boolean; permissionMode?: PermissionMode }): Promise<LiveSessionState> {
     projectPath = workspace.assertProject(projectPath)
     const agentId = opts.agentId || MAIN_AGENT
     const { agent, cfg, count } = await this.agentDef(projectPath, agentId)
@@ -255,7 +268,7 @@ class SessionManager {
       launchSignature: '',
       unseen: false
     }
-    this.live.set(id, { state, transcriptMtime: 0, defaultModel: false })
+    this.live.set(id, { state, transcriptMtime: 0, defaultModel: false, modeTail: '', launchMode: null, configuredMode: null, modeOverride: opts.permissionMode })
 
     const setup = cfg.worktreeSetup.trim()
     if (agent.worktree && agent.needsSetup && setup && !opts.skipSetup) {
@@ -344,6 +357,11 @@ class SessionManager {
     if (opts.resume && !resume) log.info(`No transcript for ${sessionId}; starting it fresh instead of resuming`)
 
     const eff = await this.effective(projectPath, agent)
+    l.configuredMode = eff.permissionMode
+    let mode = eff.permissionMode
+    if (l.modeOverride && (l.modeOverride !== 'bypassPermissions' || config.settings.claude.enableBypassOption)) mode = l.modeOverride
+    l.launchMode = mode
+    state.permissionMode = mode ?? undefined
     const ctx = {
       projectPath,
       agentId: agent.id,
@@ -355,7 +373,7 @@ class SessionManager {
       mcpServers: eff.mcpServers,
       model: eff.model,
       effort: eff.effort,
-      permissionMode: eff.permissionMode,
+      permissionMode: mode,
       extraArgs: eff.extraArgs,
       hookUrl: this.hookUrl,
       env: childEnv({
@@ -380,7 +398,10 @@ class SessionManager {
       env: cmd.env ?? ctx.env,
       // After a worktree's setup command, its output stays at the top of the terminal.
       continueBuffer: true,
-      onData: (data) => this.watchCompactOutput(id, data),
+      onData: (data) => {
+        this.watchCompactOutput(id, data)
+        this.watchModeOutput(id, data)
+      },
       onExit: (code) => void this.onExit(projectPath, agent.id, sessionId, code)
     })
     state.pid = proc.pid
@@ -491,6 +512,122 @@ class SessionManager {
       l.state.statusMessage = undefined
       this.emitState(l.state)
     }
+  }
+
+  /** Reads the mode from Claude Code's footer as it redraws, so Shift+Tab in the terminal shows in Hive at once. */
+  private watchModeOutput(id: string, data: string): void {
+    const l = this.live.get(id)
+    if (!l) return
+    l.modeTail = (l.modeTail + data.replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g, ' ').replace(/\x1b\][^\x07]*\x07/g, ' ')).slice(-600)
+    const mode = footerMode(l.modeTail)
+    if (mode && mode !== l.state.permissionMode) {
+      l.state.permissionMode = mode
+      this.emitState(l.state)
+    }
+  }
+
+  /**
+   * Switches a running agent's permission mode the way you would by hand: Shift+Tab in its terminal
+   * until the footer shows the mode. Not while it is asking a question (Shift+Tab could change the
+   * answer). Modes outside Claude Code's Shift+Tab cycle need a restart (restartInMode).
+   */
+  async setPermissionMode(projectPath: string, agentId: string, mode: PermissionMode): Promise<{ ok: boolean; restart?: boolean; message?: string }> {
+    projectPath = workspace.assertProject(projectPath)
+    const id = liveId(projectPath, agentId)
+    const l = this.live.get(id)
+    if (!l || l.state.settingUp) throw new Error('No session is running for this agent.')
+    const st = l.state
+    if (st.permissionMode === mode) return { ok: true }
+    if (mode === 'bypassPermissions' && !config.settings.claude.enableBypassOption) throw new Error('Bypass permissions is turned off in Settings → Claude Code.')
+    if (!canSwitchLive(mode, st.permissionMode, l.launchMode)) {
+      return { ok: false, restart: true, message: `${permissionLabel(mode)} can't be switched to inside a running session. Restart the session in that mode; the conversation continues.` }
+    }
+    if (st.status === 'waiting') throw new Error('The agent is asking you something. Answer it first, then switch the mode.')
+    if (st.status === 'starting') throw new Error('The session is still starting. Try again in a moment.')
+    const key = this.key(projectPath, agentId)
+    const seen = new Set<PermissionMode>()
+    for (let i = 0; i < 8; i++) {
+      const before = st.permissionMode
+      if (before) seen.add(before)
+      writePty(key, '\x1b[Z')
+      const t = Date.now()
+      while (Date.now() - t < 1500 && st.permissionMode === before) await new Promise((r) => setTimeout(r, 50))
+      if (st.permissionMode === mode) {
+        log.info(`${this.label(st)}: switched to ${mode}`)
+        return { ok: true }
+      }
+      if (st.permissionMode === before) break
+      // Back round to a mode already seen: the target isn't in this session's cycle.
+      if (st.permissionMode && seen.has(st.permissionMode)) break
+    }
+    return { ok: false, restart: true, message: `Claude Code didn't offer ${permissionLabel(mode)} with Shift+Tab (it is now in ${st.permissionMode ? permissionLabel(st.permissionMode) : 'an unknown mode'}). Restart the session in that mode instead.` }
+  }
+
+  /** Stops the agent and resumes the same conversation in another permission mode. */
+  async restartInMode(projectPath: string, agentId: string, mode: PermissionMode): Promise<void> {
+    projectPath = workspace.assertProject(projectPath)
+    const id = liveId(projectPath, agentId)
+    const l = this.live.get(id)
+    if (!l) throw new Error('No session is running for this agent.')
+    const { sessionId, sessionName } = l.state
+    const exited = new Promise<void>((res) => this.exitWaiters.set(id, res))
+    this.stop(projectPath, agentId)
+    await Promise.race([exited, new Promise((r) => setTimeout(r, 8000))])
+    await this.start(projectPath, { resumeId: sessionId, name: sessionName, agentId, permissionMode: mode })
+  }
+
+  // A changed mode setting applies to new sessions; for running ones, Hive offers to switch them now.
+  private modeOffers = new Map<string, { label: string; mode: PermissionMode }>()
+  private modeOfferTimer: NodeJS.Timeout | null = null
+
+  private noticeModeSetting(l: LiveSession, mode: PermissionMode | null): void {
+    if (!mode || mode === l.configuredMode || mode === l.offeredMode) return
+    if (mode === l.state.permissionMode) {
+      // Already in it (switched by hand): nothing to offer.
+      l.configuredMode = mode
+      return
+    }
+    l.offeredMode = mode
+    this.modeOffers.set(liveId(l.state.projectPath, l.state.agentId), { label: this.label(l.state), mode })
+    if (this.modeOfferTimer) clearTimeout(this.modeOfferTimer)
+    this.modeOfferTimer = setTimeout(() => {
+      this.modeOfferTimer = null
+      const offers = [...this.modeOffers.values()]
+      this.modeOffers.clear()
+      if (!offers.length) return
+      const modes = [...new Set(offers.map((o) => permissionLabel(o.mode)))]
+      const who = offers.length === 1 ? offers[0].label : `${offers.length} running agents (${offers.map((o) => o.label).join(', ')})`
+      toast(
+        'info',
+        `Permission mode changed to ${modes.join(' / ')}`,
+        `Switch ${who} now? Otherwise the new mode applies from ${offers.length === 1 ? 'its' : 'their'} next session.`,
+        [{ label: 'Switch Now', command: 'session.applyPermissionModes' }]
+      )
+    }, 400)
+  }
+
+  /** "Switch Now": moves every running agent whose settings now say another mode into that mode. */
+  async applyModeSettings(): Promise<{ switched: string[]; skipped: string[] }> {
+    const switched: string[] = []
+    const skipped: string[] = []
+    for (const l of [...this.live.values()]) {
+      const st = l.state
+      if (st.settingUp) continue
+      const { agent } = await this.agentDef(st.projectPath, st.agentId).catch(() => ({ agent: null }))
+      if (!agent) continue
+      const mode = (await this.effective(st.projectPath, agent)).permissionMode
+      if (!mode || mode === l.configuredMode) continue
+      l.configuredMode = mode
+      if (mode === st.permissionMode) continue
+      try {
+        const r = await this.setPermissionMode(st.projectPath, st.agentId, mode)
+        if (r.ok) switched.push(`${this.label(st)} → ${permissionLabel(mode)}`)
+        else skipped.push(`${this.label(st)}: ${r.message}`)
+      } catch (e) {
+        skipped.push(`${this.label(st)}: ${(e as Error).message}`)
+      }
+    }
+    return { switched, skipped }
   }
 
   /** Sessions that would be interrupted by quitting: an agent is working or waiting on a prompt. */
@@ -671,6 +808,11 @@ class SessionManager {
     const [id, l] = found
     const st = l.state
     const label = this.label(st)
+    const reported = hookMode(body.permission_mode)
+    if (reported && reported !== st.permissionMode) {
+      st.permissionMode = reported
+      this.emitState(st)
+    }
     let next: SessionStatus | null = null
     switch (event) {
       case 'SessionStart':

@@ -18,6 +18,7 @@ Hive's first version, not yet released. Until then this page describes what Hive
 - **Up to four agents per project**, each in the project folder or in its own git worktree on its own branch, with their own name and optionally their own model, effort and permission mode. Show them one at a time, in two or three columns, or in a grid; one status dot per project in the sidebar.
 - **File locks** between agents sharing a folder: an agent that tries to edit a file another agent is editing is told to wait or work on something else (or you're asked, or it's warned — your choice).
 - **Worktrees**: Hive creates them next to the workspace, copies `.env` files and runs an optional setup command; review a worktree agent's changes in the Changes and Files tabs and **Merge** them back (squash or merge, conflicts detected before anything changes).
+- **Switch permission mode without restarting**: click the mode badge (or Ctrl+Alt+M) and pick one; Hive switches the running session live, and shows the real mode even when you press Shift+Tab in the terminal. Changing the setting offers to switch running agents.
 - **Compact** button next to Stop: summarises the conversation so later messages are cheaper, with an optional focus for what to keep. It turns orange, as does the context count in the status bar, when the context passes *Suggest compacting above* (200,000 tokens by default).
 - Paste screenshots into a session with Ctrl+V, or drag files from Explorer onto the terminal to paste their paths. Images are kept in the project's `.hive/images` folder.
 - Transcript backups so sessions survive Claude Code's cleanup; archived sessions are never deleted.
@@ -31,7 +32,7 @@ Hive's first version, not yet released. Until then this page describes what Hive
 
 ### Models and usage
 - Model setting (global and per project) with the latest of each family, pinned versions, older versions, a custom model ID and **1M context** where the model has one.
-- Effort, permission mode, chime and extra arguments per project, each inheriting global defaults. Bypass permissions sits behind an explicit opt-in. Project Settings has categories and search, like Settings.
+- Effort, permission mode, chime and extra arguments per project, each inheriting global defaults. Sessions start in **Auto** permission mode by default. Bypass permissions sits behind an explicit opt-in. Project Settings has categories and search, like Settings.
 - Token use, cache state, re-cache estimate, compaction history and API-equivalent cost per session.
 - **Plan usage**: the status bar and Overview show how much of your subscription's 5-hour and weekly limits is used, with a notification at 80% and 95% of each. The numbers come from Claude Code; Hive doesn't use your credentials.
 
@@ -47,7 +48,8 @@ Hive's first version, not yet released. Until then this page describes what Hive
 
 ### App
 - VS Code-style interface with honey-orange accents, dark and light themes.
-- Command palette, keyboard shortcuts (Alt+1 … Alt+0 for project tabs), notification centre, searchable settings with tooltips.
+- Command palette and Go to Project (Ctrl+P), notification centre, searchable settings with tooltips.
+- **Configurable keyboard shortcuts** for every command (Settings → Keyboard Shortcuts), with per-project shortcuts for project and session commands, and new defaults for agents, layouts, tabs, compacting and the permission mode.
 - Completion chime, Windows notifications and system tray with attention badge.
 - A quit dialog that lists running sessions and can wait for agents to finish.
 - Claude Code setup: detection, one-click install, update and sign-in. The standalone Claude Code CLI is required; editor-extension copies are not used.

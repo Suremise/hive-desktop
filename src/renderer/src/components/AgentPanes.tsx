@@ -7,6 +7,7 @@ import { NO_PROJECTS, focusAgent, focusedAgentId, openInSessionsTab, paneAssignm
 import { useLiveUsage } from '../usage'
 import { cx, formatTokens, sessionLabel, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
+import { ModeBadge } from './PermissionMode'
 import { Icon, IconButton, STATUS_TEXT, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
 /** Height of a pane's header when several agents show at once. */
@@ -301,6 +302,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         </Tooltip>
       )}
       <span className="faint pane-status">{live ? live.statusMessage ?? STATUS_TEXT[live.status] : 'Not running'}</span>
+      <ModeBadge project={project} a={a} variant="pane" />
       <SessionTag project={project} a={a} />
       <Locks a={a} />
       <div className="grow" />
