@@ -139,7 +139,8 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const live = focusedAgent?.live ?? null
   const many = project.agents.length > 1
   const combined = projectState(project)
-  const running = project.agents.filter((a) => a.live).length
+  // How many agents are in the status the badge shows (e.g. Working · 1 of 2 agents), not just running.
+  const inStatus = combined ? project.agents.filter((a) => a.live?.status === combined.status).length : 0
   const agentId = focusedAgent?.id
   // The header shows the focused agent's provider, model and effort (its own, else the project's).
   const provider = agentProviderOf(project, focusedAgent)
@@ -181,10 +182,10 @@ export function ProjectView({ visible }: { visible: boolean }) {
             >
               <span className={cx('badge', combined?.status === 'working' && 'accent', combined?.status === 'waiting' && 'warn', combined?.status === 'finished' && 'success')}>
                 <span className={cx('dot', combined?.status ?? 'idle')} /> {combined ? STATUS_TEXT[combined.status] : 'No session'}
-                {many && running > 0 && (
+                {many && inStatus > 0 && (
                   <span className="faint">
                     {' '}
-                    · {running} of {project.agents.length} agents
+                    · {inStatus} of {project.agents.length} agents
                   </span>
                 )}
               </span>
