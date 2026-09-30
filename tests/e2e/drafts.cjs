@@ -81,8 +81,22 @@ const read = (f) => fs.readFileSync(f, 'utf8')
   check('note: Overwrite saves my version', read(note).includes('DRAFT-1'))
   await typeAtEnd('DRAFT-2 ')
 
-  // An MCP server's edits are kept the same way.
+  // An MCP server saved without its final newline (Hive adds one) saves again without a false conflict.
   await openServer()
+  await page.locator('.split-main .monaco').first().click({ position: { x: 200, y: 10 } })
+  await page.keyboard.press('Control+End')
+  await page.keyboard.press('Backspace')
+  await sleep(300)
+  check('mcp: removing the final newline is an edit', (await toolbar.innerText()).includes('●'))
+  await toolbar.locator('.btn', { hasText: 'Save' }).click()
+  await sleep(600)
+  check('mcp: saved with a final newline', read(server) === '{ "command": "node", "args": [] }\n', JSON.stringify(read(server)))
+  await typeAtEnd(' ')
+  await toolbar.locator('.btn', { hasText: 'Save' }).click()
+  await sleep(600)
+  check('mcp: saving again is no conflict', (await page.locator('.dialog').count()) === 0 && read(server).trimEnd() === '{ "command": "node", "args": [] }' && read(server) !== '{ "command": "node", "args": [] }\n', JSON.stringify(read(server)))
+
+  // An MCP server's edits are kept the same way.
   await typeAtEnd(' ')
   await openNote()
   await openServer()

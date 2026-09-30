@@ -80,6 +80,16 @@ function workspaceLive(ws: WorkspaceService): boolean {
   return [...sessions.liveStates().map((s) => s.projectPath), ...sessions.pendingStarts()].some((p) => workspaceFor(p) === ws)
 }
 
+/** Opens a workspace in this window. Its old workspace's agents were stopped for it: starts are allowed again either way. */
+async function openHere(path: string): ReturnType<WorkspaceService['open']> {
+  const ws = contextWorkspace()!
+  try {
+    return await workspace.open(path)
+  } finally {
+    ws.closing = false
+  }
+}
+
 export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info']>, quitControl: QuitControl): void {
   // A new workspace starts with the skills that ship with Hive.
   WorkspaceService.onCreated = () => skills.addBundledSkills()
@@ -170,7 +180,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (workspace.path && target.toLowerCase() !== workspace.path.toLowerCase() && workspaceLive(contextWorkspace()!)) {
         if (!(await quitControl.stopWorkspaceAgents(win(), 'switch'))) return workspace.info()
       }
-      return workspace.open(target)
+      return openHere(target)
     },
     'workspace:create': async () => {
       const r = await dialog.showOpenDialog(win(), {
@@ -185,11 +195,16 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       }
       const { mkdir } = await import('fs/promises')
       await mkdir(r.filePaths[0], { recursive: true })
-      return workspace.open(r.filePaths[0])
+      return openHere(r.filePaths[0])
     },
     'workspace:close': async () => {
       if (workspaceLive(contextWorkspace()!) && !(await quitControl.stopWorkspaceAgents(win(), 'workspace'))) return false
-      await workspace.close()
+      const ws = contextWorkspace()!
+      try {
+        await workspace.close()
+      } finally {
+        ws.closing = false
+      }
       emitTo(win(), { type: 'workspace-changed', workspace: null })
       return true
     },

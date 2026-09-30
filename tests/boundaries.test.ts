@@ -52,6 +52,43 @@ describe('workspace boundaries', () => {
     expect(w.isAllowedPath(join(custom, 'a.txt'))).toBe(false)
   })
 
+  it('lets only one of two windows opening nested folders at once have its workspace', async () => {
+    const outer = dir('race', 'outer')
+    const inner = dir('race', 'outer', 'client')
+    const [a, b] = [createWorkspaceService(), createWorkspaceService()]
+    made.push(a, b)
+    // Closing the old workspace takes a moment: the other window's check must still see this one's claim.
+    for (const w of [a, b]) {
+      const close = w.close.bind(w)
+      w.close = async () => (await new Promise((r) => setTimeout(r, 30)), close())
+    }
+    const results = await Promise.allSettled([a.open(outer), b.open(inner)])
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    expect(results.find((r) => r.status === 'rejected')?.reason?.message).toMatch(/inside/)
+  })
+
+  it("doesn't take back a closed workspace's worktrees from a refresh still reading them", async () => {
+    const ws = dir('stale', 'ws')
+    const proj = dir('stale', 'ws', 'proj')
+    const worktree = dir('stale', 'ws.worktrees', 'proj-a')
+    dir('stale', 'ws', 'proj', '.hive')
+    writeFileSync(join(proj, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [{ id: 'a', name: 'A', worktree: { path: worktree, branch: 'a', base: 'main' } }] }))
+    const w = showing(ws)
+    const reading = w.projectInfo(proj).catch(() => undefined)
+    await w.close()
+    w.path = dir('stale', 'next')
+    await reading
+    expect(() => w.assertRoot(worktree)).toThrow(/Not a project/)
+  })
+
+  it("won't start an agent in a workspace whose agents are being stopped to close it", async () => {
+    const { sessions } = await import('../src/main/sessions')
+    const ws = dir('closing-start', 'ws')
+    const w = showing(ws)
+    w.closing = true
+    await expect(sessions.start(dir('closing-start', 'ws', 'proj'), { agentId: 'a' })).rejects.toThrow(/stopping this workspace's agents/)
+  })
+
   it('refuses an Agent API workspace name two open workspaces share', async () => {
     const { findWorkspace } = await import('../src/main/servers')
     const a = showing(dir('dupes', 'C', 'foo'))
@@ -94,6 +131,20 @@ describe('writes that keep other changes', () => {
     await writeTextUnlessChanged(join(dir('conflict'), 'new.md'), 'hi', '')
     await writeTextUnlessChanged(f, 'overwrite')
     expect(readFileSync(f, 'utf8')).toBe('overwrite')
+  })
+
+  it('keeps edits made to a draft while Save All was saving it', async () => {
+    const { editorDraft, saveEditorDrafts, setEditorDraft } = await import('../src/renderer/src/editorDrafts')
+    let release = (): void => undefined
+    const saving = new Promise<void>((r) => (release = r))
+    const draft = { key: 'mcp:x', label: 'x.json', abs: 'x.json', base: '{}\n', save: async (t: string) => (await saving, t + '\n') }
+    setEditorDraft({ ...draft, text: '{"a":1}' })
+    const run = saveEditorDrafts()
+    setEditorDraft({ ...draft, text: '{"a":2}' })
+    release()
+    expect((await run).saved).toBe(1)
+    expect(editorDraft('mcp:x')?.text).toBe('{"a":2}')
+    expect(editorDraft('mcp:x')?.base).toBe('{"a":1}\n')
   })
 
   it('keeps both of two appends made at once when each holds the lock from read to write', async () => {

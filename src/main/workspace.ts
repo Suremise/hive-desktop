@@ -55,6 +55,8 @@ export class WorkspaceService {
   private cached: WorkspaceInfo | null = null
   /** Goes up each time a workspace opens or closes, so work started for an earlier one doesn't touch this one. */
   private generation = 0
+  /** Its agents are being stopped to close or switch it (or close its window): no new agent starts meanwhile. */
+  closing = false
 
   setLiveProvider(p: LiveProvider): void {
     WorkspaceService.liveProvider = p
@@ -90,16 +92,21 @@ export class WorkspaceService {
   async open(path: string): Promise<WorkspaceInfo> {
     const abs = resolve(path)
     if (!(await isDir(abs))) throw new Error(`Folder not found: ${abs}`)
-    // One workspace inside another would make its projects belong to both.
-    const inside = (a: string, b: string): boolean => a.toLowerCase().startsWith(b.toLowerCase() + sep)
-    for (const w of services) {
-      if (w === this || !w.path) continue
-      if (inside(abs, w.path)) throw new Error(`${abs} is inside the workspace ${w.path}, which is open in another window. Close that workspace first, or open this folder's projects from there.`)
-      if (inside(w.path, abs)) throw new Error(`The workspace ${w.path}, open in another window, is inside ${abs}. Close it first to open ${basename(abs)} as a workspace.`)
-    }
-    await this.close()
-    this.generation++
-    this.path = abs
+    // One workspace inside another would make its projects belong to both. Windows claim their folders one
+    // at a time, so two opening at once can't both pass the check before either has claimed its own.
+    const admit = admission.then(async () => {
+      const inside = (a: string, b: string): boolean => a.toLowerCase().startsWith(b.toLowerCase() + sep)
+      for (const w of services) {
+        if (w === this || !w.path) continue
+        if (inside(abs, w.path)) throw new Error(`${abs} is inside the workspace ${w.path}, which is open in another window. Close that workspace first, or open this folder's projects from there.`)
+        if (inside(w.path, abs)) throw new Error(`The workspace ${w.path}, open in another window, is inside ${abs}. Close it first to open ${basename(abs)} as a workspace.`)
+      }
+      await this.close()
+      this.generation++
+      this.path = abs
+    })
+    admission = admit.catch(() => undefined)
+    await admit
     const isNew = !existsSync(join(abs, HIVE_DIR))
     await this.ensureWorkspaceStructure()
     if (isNew) await inWorkspace(this, async () => WorkspaceService.onCreated?.()).catch((e) => log.warn('setting up the new workspace', e))
@@ -226,7 +233,9 @@ export class WorkspaceService {
     return this.roots.get(resolve(p).toLowerCase()) ?? null
   }
 
-  private registerRoots(projectPath: string, cfg: ProjectConfig): void {
+  /** Records a project's agent worktrees, from a config read in generation `gen` (none once the workspace has closed or switched since). */
+  private registerRoots(projectPath: string, cfg: ProjectConfig, gen: number): void {
+    if (gen !== this.generation) return
     for (const [k, v] of this.roots) if (v.toLowerCase() === projectPath.toLowerCase()) this.roots.delete(k)
     for (const a of cfg.agents ?? []) if (a.worktree?.path) this.roots.set(resolve(a.worktree.path).toLowerCase(), projectPath)
   }
@@ -322,6 +331,7 @@ export class WorkspaceService {
    * fields to change. Changes to one project's config never overlap, so none is lost.
    */
   async mutateProjectConfig(projectPath: string, fn: (cfg: ProjectConfig) => Partial<ProjectConfig>): Promise<ProjectConfig> {
+    const gen = this.generation
     await this.ensureProject(projectPath)
     const file = join(projectPath, HIVE_DIR, 'project.json')
     const next = await withFileLock(file, async () => {
@@ -330,7 +340,7 @@ export class WorkspaceService {
       await writeKeptJson(file, withLegacyProjectFields(updated))
       return updated
     })
-    this.registerRoots(projectPath, next)
+    this.registerRoots(projectPath, next, gen)
     this.scheduleRefresh()
     return next
   }
@@ -393,8 +403,9 @@ export class WorkspaceService {
 
   async projectInfo(projectPath: string): Promise<ProjectInfo> {
     const active = new Set(this.activeNames())
+    const gen = this.generation
     const cfg = await this.projectConfig(projectPath)
-    this.registerRoots(projectPath, cfg)
+    this.registerRoots(projectPath, cfg, gen)
     const { live, restartNeeded, agents } = await WorkspaceService.liveProvider(projectPath, cfg)
     return {
       name: basename(projectPath),
@@ -457,6 +468,8 @@ export class WorkspaceService {
 // ---------------------------------------------------------------------------
 
 const services = new Set<WorkspaceService>()
+/** Workspaces being opened, one at a time (see open()). */
+let admission: Promise<void> = Promise.resolve()
 const context = new AsyncLocalStorage<WorkspaceService>()
 let fallback: () => WorkspaceService | null = () => null
 

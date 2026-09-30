@@ -172,6 +172,8 @@ class SessionManager {
    * agent, closing its workspace or quitting can cancel a start that hasn't spawned its process yet.
    */
   private starting = new Map<string, PendingStart>()
+  /** Hive is quitting: no new agent starts. */
+  private shuttingDown = false
   /** The window showing a project (several windows each show one workspace). */
   private getWindow: (projectPath?: string) => BrowserWindow | null = () => null
 
@@ -314,6 +316,7 @@ class SessionManager {
   }
 
   async start(projectPath: string, opts: { resumeId?: string; name?: string; agentId?: string; skipSetup?: boolean; permissionMode?: PermissionMode }): Promise<LiveSessionState> {
+    this.assertStartsAllowed(projectPath)
     projectPath = workspace.assertProject(projectPath)
     if (opts.resumeId !== undefined) assertSessionId(opts.resumeId)
     const agentId = opts.agentId || (await this.soleAgent(projectPath))
@@ -332,6 +335,11 @@ class SessionManager {
     } finally {
       this.starting.delete(id)
     }
+  }
+
+  /** Refuses a start while Hive quits, or while the project's workspace is closing or switching. */
+  private assertStartsAllowed(projectPath: string): void {
+    if (this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error("Hive is stopping this workspace's agents, so none can start now.")
   }
 
   /** Projects with an agent starting (not yet in liveStates). */
@@ -535,7 +543,7 @@ class SessionManager {
     await adapter.prepareLaunch(ctx)
     // Checked after the last await, just before spawning: stopped, its workspace closed or switched, or the
     // provider turned off while this launch was being prepared, it must not start a process.
-    if (l.stopRequested || this.live.get(id) !== l || this.starting.get(id)?.cancelled || !workspaceFor(projectPath)) throw new Error('The agent was stopped before it had started.')
+    if (l.stopRequested || this.live.get(id) !== l || this.starting.get(id)?.cancelled || !workspaceFor(projectPath) || this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error('The agent was stopped before it had started.')
     if (!isProviderEnabled(config.settings, adapter.id)) throw new Error(`${adapter.descriptor.name} was turned off while ${agent.name} was starting.`)
     const cmd = adapter.buildCommand(info.path, ctx)
     state.launchSignature = this.signature(eff)
@@ -621,6 +629,7 @@ class SessionManager {
    * session list update), or until the timeout, so quitting never loses the last messages or hangs.
    */
   async stopAllAndWait(timeoutMs = 3000): Promise<void> {
+    this.shuttingDown = true
     return this.stopWhereAndWait(() => true, timeoutMs)
   }
 

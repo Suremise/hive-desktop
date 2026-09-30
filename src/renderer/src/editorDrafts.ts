@@ -13,7 +13,8 @@ export interface EditorDraft {
   text: string
   /** The text as loaded: saving refuses (CONFLICT) to overwrite a file changed on disk since. */
   base: string
-  save: (text: string, base: string) => Promise<unknown>
+  /** Saves `text` unless the file changed from `base`; resolves to the text as written (the MCP view adds a final newline). */
+  save: (text: string, base: string) => Promise<string>
 }
 
 const drafts = new Map<string, EditorDraft>()
@@ -57,8 +58,11 @@ export async function saveEditorDrafts(): Promise<{ saved: number; failed: { abs
   let saved = 0
   for (const [k, d] of [...drafts]) {
     try {
-      await d.save(d.text, d.base)
-      drafts.delete(k)
+      const written = await d.save(d.text, d.base)
+      // Edited while it was saving: the newer text stays a draft, now of what was written.
+      const now = drafts.get(k)
+      if (now === d) drafts.delete(k)
+      else if (now) now.base = written
       saved++
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)

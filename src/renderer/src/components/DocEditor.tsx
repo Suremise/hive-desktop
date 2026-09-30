@@ -72,12 +72,17 @@ export function DocEditor({
     [path]
   )
 
-  const writeFile = (content: string, base: string): Promise<unknown> => call('file:write', path, content, base)
+  const writeFile = async (content: string, base: string): Promise<string> => {
+    await call('file:write', path, content, base)
+    return content
+  }
+  // What the edits are based on: a draft's base moves on when Save All saves text it has since changed.
+  const baseText = (): string => editorDraft(path)?.base ?? saved
 
   const save = async (): Promise<void> => {
     if (readOnly) return
     try {
-      await writeFile(text, saved).catch(async (e) => {
+      await writeFile(text, baseText()).catch(async (e) => {
         if (!errorMessage(e).includes('CONFLICT')) throw e
         const overwrite = await confirm({
           title: 'Overwrite the changes on disk?',
@@ -129,7 +134,7 @@ export function DocEditor({
             onChange={(v) => {
               setText(v)
               setTouched(true)
-              setEditorDraft({ key: path, label: title ?? basename(path), abs: path, text: v, base: saved, save: writeFile })
+              setEditorDraft({ key: path, label: title ?? basename(path), abs: path, text: v, base: baseText(), save: writeFile })
             }}
             onSave={() => void save()}
             readOnly={readOnly}

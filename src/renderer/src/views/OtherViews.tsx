@@ -270,10 +270,16 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
 
   const dirty = text !== saved
   const draftKey = `mcp:${selected}`
-  const writeMcp = (content: string, base: string): Promise<unknown> => call('mcp:save', selected, content, base)
+  // Saved as written to disk (with a final newline), so the next save compares with what is really there.
+  const asWritten = (content: string): string => (content.endsWith('\n') ? content : content + '\n')
+  const baseText = (): string => editorDraft(draftKey)?.base ?? saved
+  const writeMcp = async (content: string, base: string): Promise<string> => {
+    await call('mcp:save', selected, asWritten(content), base)
+    return asWritten(content)
+  }
   const edit = (v: string): void => {
     setText(v)
-    setEditorDraft({ key: draftKey, label: `${selected}.json`, abs: info?.path ?? `${selected}.json`, text: v, base: saved, save: writeMcp })
+    setEditorDraft({ key: draftKey, label: `${selected}.json`, abs: info?.path ?? `${selected}.json`, text: v, base: baseText(), save: writeMcp })
   }
   const save = async (): Promise<void> => {
     try {
@@ -283,8 +289,9 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
       return
     }
     let r: McpServerInfo | undefined
+    const written = asWritten(text)
     try {
-      r = await call('mcp:save', selected, text, saved)
+      r = await call('mcp:save', selected, written, baseText())
     } catch (e) {
       if (!errorMessage(e).includes('CONFLICT')) return notify('error', 'Could not save', errorMessage(e))
       const overwrite = await confirm({
@@ -295,11 +302,12 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
         danger: true
       })
       if (!overwrite) return
-      r = await actions.attempt('Could not save', () => call('mcp:save', selected, text))
+      r = await actions.attempt('Could not save', () => call('mcp:save', selected, written))
     }
     if (r) {
       clearEditorDraft(draftKey)
-      setSaved(text)
+      setText(written)
+      setSaved(written)
       setError(null)
       setInfo(r)
     }

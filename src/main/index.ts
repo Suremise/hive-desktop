@@ -339,7 +339,9 @@ async function stopWorkspaceAgents(from: BrowserWindow, scope: 'workspace' | 'sw
   }
   const mine = quitSessions(e.ws)
   if (mine.length && askBeforeStopping(mine) && (await ask(e, { sessions: mine, unsaved: [], scope })) === 'cancel') return false
-  // Also cancels agents still starting (not listed: they have no session yet).
+  // Also cancels agents still starting (not listed: they have no session yet). No new one starts until the
+  // workspace has closed or switched (ipc clears the flag).
+  e.ws.closing = true
   await sessions.stopWhereAndWait((s) => workspaceFor(s.projectPath) === e.ws, 3000)
   return true
 }
@@ -353,6 +355,7 @@ async function requestCloseWindow(e: HiveWindow): Promise<void> {
     const choice = await ask(e, { sessions: askSessions ? mine : [], unsaved: e.unsaved, scope: 'window' })
     if (choice === 'cancel') return
   }
+  e.ws.closing = true
   await sessions.stopWhereAndWait((s) => workspaceFor(s.projectPath) === e.ws, 3000)
   saveWindowsWithout(e)
   e.closing = true
