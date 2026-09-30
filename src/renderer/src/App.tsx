@@ -94,7 +94,7 @@ function handleEvent(e: HiveEvent): void {
       runCommand(e.command, ...(e.args ?? []))
       break
     case 'quit-request':
-      set({ quitRequest: e.sessions, quitUnsaved: e.unsaved })
+      set({ quitRequest: e.sessions, quitUnsaved: e.unsaved, quitScope: e.scope ?? 'app' })
       break
     case 'quit-pending':
       set({ quitPending: e.pending ? { working: e.working } : null })
@@ -154,7 +154,7 @@ export function App() {
       // A reloaded window picks up a quit dialog or pending quit that was already in progress.
       set({ planUsage: await call('app:planUsage'), update: await call('update:state') })
       const q = await call('app:quitState')
-      set({ quitRequest: q.request, quitUnsaved: q.unsaved, quitPending: q.pending ? { working: q.working } : null })
+      set({ quitRequest: q.request, quitUnsaved: q.unsaved, quitScope: q.scope, quitPending: q.pending ? { working: q.working } : null })
       applyTheme()
       noticeUnmanagedMcp()
     })()

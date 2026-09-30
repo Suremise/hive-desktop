@@ -40,6 +40,15 @@ The workspace `.hive` folder is meant to be **committed** so a team can share sk
 
 Each **project** (every subfolder except dot-folders) gets its own `.hive` folder for Hive's metadata: project settings, the session list and transcript backups. Hive adds it to the project's `.git/info/exclude`, so it's never committed and your `.gitignore` is left alone.
 
+### Several windows
+
+Like VS Code, Hive can show several workspaces at once, each in its own window: **File → New Window** (Ctrl+K Ctrl+N) opens one on the welcome page, where you open or create a workspace. Each window is a full Hive with its own projects, agents, shared notes, skills and MCP servers; settings, the tray and updates are shared.
+
+- **Open Workspace** replaces the workspace in the current window. If the workspace is already open in another window, that window comes forward instead, so two windows never run agents on the same project.
+- **Closing a window** closes its workspace and stops its agents, asking first as quitting does (*Close this window?*). Closing the last window keeps Hive in the tray, as before.
+- **Quitting** stops the agents of every window. When Hive starts again, it reopens the windows that were open, each with its workspace, where they were.
+- Notifications and the tray menu take you to the window showing the project.
+
 ### Working on a project
 
 The switch next to a project marks it as one you're **working on**. Only active projects run sessions, show live status and send notifications, so a workspace with dozens of projects stays quiet. Turning a project on never starts a session by itself.
@@ -305,11 +314,11 @@ When an agent finishes or needs input, Hive can play a chime and show a Windows 
 
 ## The system tray
 
-Closing the window keeps Hive running in the tray so sessions continue. The tray icon shows a red dot when an agent has finished or needs you, and its menu lists your active projects. Quit from the tray menu or **File → Exit**.
+Closing the (last) window keeps Hive running in the tray so sessions continue. The tray icon shows a red dot when an agent has finished or needs you, and its menu lists your active projects, grouped by workspace when several windows are open. Quit from the tray menu or **File → Exit**.
 
 ### Quitting
 
-Quitting stops every running session. Nothing is lost: each conversation is kept and you can resume it next time. So Hive only asks first when an agent is **in the middle of something** (working, or waiting for your answer). Otherwise it just closes and a notification tells you which sessions to resume.
+Quitting stops every running session, in every window. Nothing is lost: each conversation is kept and you can resume it next time. So Hive only asks first when an agent is **in the middle of something** (working, or waiting for your answer). Otherwise it just closes and a notification tells you which sessions to resume.
 
 When it asks, you see each session and what it's doing, and can choose:
 
@@ -328,6 +337,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Command palette | Ctrl+Shift+P |
 | Go to project | Ctrl+P |
 | Settings | Ctrl+, |
+| New window | Ctrl+K Ctrl+N |
 | New session / resume / stop | Ctrl+Shift+N / Ctrl+Shift+R / Ctrl+Shift+X |
 | Compact the conversation | Ctrl+Alt+C |
 | Switch permission mode | Ctrl+Alt+M (Shift+Tab inside the terminal) |

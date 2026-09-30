@@ -27,7 +27,7 @@ import { estimateCost } from '../shared/prices'
 import type { LaunchSkill, ProviderAdapter } from './providers/types'
 import { providerService } from './providerService'
 import { config } from './config'
-import { emit, toast } from './events'
+import { emit, emitTo, toast } from './events'
 import { hashDir, hashText, splitArgs } from './fsutil'
 import { createLogger } from './logger'
 import { listMcp, toLaunchDef } from './mcp'
@@ -35,7 +35,7 @@ import { childEnv, killPty, spawnPty, writePty } from './ptyHost'
 import { hiveSkills } from './skills'
 import { notificationIcon } from './paths'
 import { reportPlanUsage } from './planUsage'
-import { workspace } from './workspace'
+import { inWorkspace, workspace, workspaceOf } from './workspace'
 
 const log = createLogger('sessions')
 
@@ -158,9 +158,10 @@ class SessionManager {
   private exitWaiters = new Map<string, () => void>()
   /** Agents being started (liveId → the session being resumed), so two starts at once can't both get through. */
   private starting = new Map<string, string | undefined>()
-  private getWindow: () => BrowserWindow | null = () => null
+  /** The window showing a project (several windows each show one workspace). */
+  private getWindow: (projectPath?: string) => BrowserWindow | null = () => null
 
-  setWindowProvider(fn: () => BrowserWindow | null): void {
+  setWindowProvider(fn: (projectPath?: string) => BrowserWindow | null): void {
     this.getWindow = fn
   }
 
@@ -204,6 +205,10 @@ class SessionManager {
 
   /** Resolves global + project settings (and the agent's own overrides) into what a session launches with. */
   async effective(projectPath: string, agent?: AgentDef): Promise<EffectiveSettings> {
+    return inWorkspace(workspaceOf(projectPath), () => this.effectiveHere(projectPath, agent))
+  }
+
+  private async effectiveHere(projectPath: string, agent?: AgentDef): Promise<EffectiveSettings> {
     const s = config.settings
     const pc = await workspace.projectConfig(projectPath)
     // Every Hive skill reaches every agent: there are no skill switches (the old enabled/disabled lists are ignored).
@@ -378,7 +383,7 @@ class SessionManager {
         throw e
       }
       this.emitState(state)
-      workspace.scheduleRefresh()
+      workspaceOf(projectPath).scheduleRefresh()
       return state
     }
     try {
@@ -411,7 +416,7 @@ class SessionManager {
       this.forget(id)
       emit({ type: 'session-status', state: { ...l.state, status: 'stopped', settingUp: false } })
       if (agent && !l.stopRequested) toast('error', `${basename(projectPath)} · ${agent.name}: setup failed`, `The setup command exited with code ${code}. Its output is in the agent's terminal. Fix it and start the agent again, or start it without setup.`, undefined, projectPath)
-      workspace.scheduleRefresh()
+      workspaceOf(projectPath).scheduleRefresh()
       return
     }
     await workspace.updateAgent(projectPath, agentId, { needsSetup: false }).catch(() => undefined)
@@ -469,7 +474,7 @@ class SessionManager {
       agentId: agent.id,
       executable: info.path,
       cwd,
-      workspacePath: workspace.path!,
+      workspacePath: workspaceOf(projectPath).path!,
       runId: state.runId,
       sessionId: state.sessionId,
       resume,
@@ -486,7 +491,7 @@ class SessionManager {
         HIVE_HOOK_TOKEN: this.hookToken,
         HIVE_PROJECT: basename(projectPath),
         HIVE_PROJECT_PATH: projectPath,
-        HIVE_WORKSPACE: workspace.path!,
+        HIVE_WORKSPACE: workspaceOf(projectPath).path!,
         HIVE_RUN_ID: state.runId,
         ...(state.sessionId ? { HIVE_SESSION_ID: state.sessionId } : {}),
         HIVE_AGENT: agent.name,
@@ -519,9 +524,9 @@ class SessionManager {
     if (state.sessionId) await this.recordSession(projectPath, agent, l)
 
     // Launched as active: starting a session implies working on the project.
-    if (!workspace.activeNames().includes(basename(projectPath))) workspace.setActive(projectPath, true)
+    if (!workspaceOf(projectPath).activeNames().includes(basename(projectPath))) workspace.setActive(projectPath, true)
     this.emitState(state)
-    workspace.scheduleRefresh()
+    workspaceOf(projectPath).scheduleRefresh()
   }
 
   /** Records the running session in sessions.json and as the agent's session to resume. */
@@ -577,7 +582,13 @@ class SessionManager {
    * session list update), or until the timeout, so quitting never loses the last messages or hangs.
    */
   async stopAllAndWait(timeoutMs = 3000): Promise<void> {
-    const waits = [...this.live.keys()].map(
+    return this.stopWhereAndWait(() => true, timeoutMs)
+  }
+
+  /** Stops the sessions matching `which` (e.g. one window's workspace) and waits for them as stopAllAndWait does. */
+  async stopWhereAndWait(which: (s: LiveSessionState) => boolean, timeoutMs = 3000): Promise<void> {
+    const chosen = [...this.live.entries()].filter(([, l]) => which(l.state))
+    const waits = chosen.map(([k]) => k).map(
       (k) =>
         new Promise<void>((res) => {
           const previous = this.exitWaiters.get(k)
@@ -587,7 +598,10 @@ class SessionManager {
           })
         })
     )
-    this.stopAll()
+    for (const [, l] of chosen) {
+      l.stopRequested = true
+      killPty(this.key(l.state.projectPath, l.state.agentId))
+    }
     await Promise.race([Promise.all(waits), new Promise((r) => setTimeout(r, timeoutMs))])
   }
 
@@ -961,7 +975,7 @@ class SessionManager {
       type: 'session-status',
       state: { provider: l?.state.provider ?? '', runId, projectPath, agentId, cwd: l?.state.cwd ?? projectPath, sessionId, status: 'stopped', startedAt: l?.state.startedAt ?? '', launchSignature: '', unseen: false }
     })
-    workspace.scheduleRefresh()
+    workspaceOf(projectPath).scheduleRefresh()
   }
 
   /** The running session's transcript, once the provider has written one. */
@@ -1051,8 +1065,9 @@ class SessionManager {
     emit({ type: 'session-status', state: { ...state } })
   }
 
-  private windowAttentive(): boolean {
-    const w = this.getWindow()
+  /** Whether the user is looking at the window showing this project. */
+  private windowAttentive(projectPath: string): boolean {
+    const w = this.getWindow(projectPath)
     return !!w && w.isVisible() && w.isFocused() && !w.isMinimized()
   }
 
@@ -1071,7 +1086,7 @@ class SessionManager {
   /** "hive" for a project with one agent, "hive · Agent 2" when it has several. */
   private label(st: LiveSessionState): string {
     const project = basename(st.projectPath)
-    const count = workspace.info()?.projects.find((p) => p.path.toLowerCase() === st.projectPath.toLowerCase())?.agents.length ?? 1
+    const count = workspaceOf(st.projectPath).info()?.projects.find((p) => p.path.toLowerCase() === st.projectPath.toLowerCase())?.agents.length ?? 1
     return count > 1 ? `${project} · ${st.agentName ?? 'Agent'}` : project
   }
 
@@ -1097,7 +1112,7 @@ class SessionManager {
   // -------------------------------------------------------------------------
 
   private lockMode(projectPath: string): FileLockMode {
-    const p = workspace.info()?.projects.find((x) => x.path.toLowerCase() === projectPath.toLowerCase())
+    const p = workspaceOf(projectPath).info()?.projects.find((x) => x.path.toLowerCase() === projectPath.toLowerCase())
     const own = p?.config.fileLocks
     return own && own !== 'inherit' ? own : config.settings.agents.fileLocks
   }
@@ -1210,7 +1225,7 @@ class SessionManager {
         const { agent } = await this.agentDef(st.projectPath, st.agentId)
         await this.recordSession(st.projectPath, agent, l)
         this.emitState(st)
-        workspace.scheduleRefresh()
+        workspaceOf(st.projectPath).scheduleRefresh()
       } catch (e) {
         log.warn(`${label}: could not record session ${hook.sessionId}`, e)
       }
@@ -1278,7 +1293,7 @@ class SessionManager {
     if (next && next !== st.status) {
       st.status = next
       if (next === 'working' || next === 'ready') st.statusMessage = undefined
-      if (next === 'finished' || next === 'waiting') st.unseen = !this.windowAttentive()
+      if (next === 'finished' || next === 'waiting') st.unseen = !this.windowAttentive(st.projectPath)
       this.emitState(st)
     }
   }
@@ -1308,7 +1323,7 @@ class SessionManager {
       log.warn(`${this.label(st)}: could not record session ${sessionId}`, e)
     }
     this.emitState(st)
-    workspace.scheduleRefresh()
+    workspaceOf(st.projectPath).scheduleRefresh()
   }
 
   private notify(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting'): void {
@@ -1321,7 +1336,7 @@ class SessionManager {
     if (!n.desktopNotifications) return
     if (kind === 'finished' && !n.notifyOnFinished) return
     if (kind === 'waiting' && !n.notifyOnWaiting) return
-    if (n.onlyWhenUnfocused && this.windowAttentive()) return
+    if (n.onlyWhenUnfocused && this.windowAttentive(projectPath)) return
     if (!Notification.isSupported()) return
     const note = new Notification({ title, body, silent: true, icon: notificationIcon() })
     // Each event gets its own notification, so several agents finishing together stack in Windows.
@@ -1330,13 +1345,13 @@ class SessionManager {
     if (shownNotifications.size > 50) shownNotifications.delete(shownNotifications.values().next().value!)
     note.on('click', () => {
       shownNotifications.delete(note)
-      const w = this.getWindow()
+      const w = this.getWindow(projectPath)
       if (w) {
         if (w.isMinimized()) w.restore()
         w.show()
         w.focus()
+        emitTo(w, { type: 'menu-command', command: 'project.focus', args: [projectPath] })
       }
-      emit({ type: 'menu-command', command: 'project.focus', args: [projectPath] })
     })
     note.show()
   }

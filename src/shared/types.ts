@@ -135,10 +135,14 @@ export interface AppConfig {
   version: 2
   settings: AppSettings
   recentWorkspaces: string[]
+  /** The workspace of the window focused last (what 0.1 reopened); `windows` has every window. */
   lastWorkspace: string | null
   /** Active project names, keyed by workspace path. */
   activeProjects: Record<string, string[]>
+  /** The last focused window's size and place, for a new window. */
   window: WindowState
+  /** The windows open when Hive last quit, each with its workspace (null: the welcome page), reopened at start. */
+  windows?: (WindowState & { workspace: string | null })[]
   /** `panes`: resizable pane sizes by key (pixels, or a fraction for split views). */
   ui: { sidebarWidth: number; sidebarVisible: boolean; sidebarCompact?: boolean; panes?: Record<string, number> }
   /** Per provider: the model last seen in a session started without a model choice (the CLI's own default). */
@@ -728,7 +732,7 @@ export type HiveEvent =
   | { type: 'usage-changed'; projectPath: string; sessionId: string }
   | { type: 'notes-changed' }
   /** Quitting needs the user's decision: the renderer shows the quit dialog and answers with app:quitDecision. */
-  | { type: 'quit-request'; sessions: QuitSession[]; unsaved: string[] }
+  | { type: 'quit-request'; sessions: QuitSession[]; unsaved: string[]; /** 'window': closing one window (its workspace's sessions) rather than quitting. */ scope?: 'app' | 'window' }
   /** Hive is waiting for working agents to finish before quitting (or stopped waiting). */
   | { type: 'quit-pending'; pending: boolean; working: number }
   /** Files changed in a project that has a Files or Images tab open. dirs are relative, '' is the root. */

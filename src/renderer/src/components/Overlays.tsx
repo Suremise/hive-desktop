@@ -670,6 +670,8 @@ const BUSY: SessionStatus[] = ['working', 'waiting']
 export function QuitDialog() {
   const sessions = useStore((s) => s.quitRequest)
   const unsaved = useStore((s) => s.quitUnsaved)
+  const scope = useStore((s) => s.quitScope)
+  const closing = scope === 'window'
   const [dontAsk, setDontAsk] = useState(false)
   const [keep, setKeep] = useState<'save' | 'discard'>('save')
   const [saving, setSaving] = useState(false)
@@ -698,16 +700,16 @@ export function QuitDialog() {
   }
   const working = sessions.filter((s) => s.status === 'working').length
   const busy = sessions.filter((s) => BUSY.includes(s.status)).length
-  const verb = unsaved.length && keep === 'save' ? 'Save and quit' : 'Quit'
+  const verb = closing ? (unsaved.length && keep === 'save' ? 'Save and close' : 'Close window') : unsaved.length && keep === 'save' ? 'Save and quit' : 'Quit'
   const parts = (p: string): string[] => p.split(/[\\/]/)
   return (
     <Modal
-      title="Quit Hive?"
+      title={closing ? 'Close this window?' : 'Quit Hive?'}
       icon={busy || unsaved.length ? 'warning' : 'sign-out'}
       onClose={() => void decide('cancel')}
       footer={
         <>
-          {sessions.length > 0 && (
+          {sessions.length > 0 && !closing && (
             <label className="quit-dontask" title={unsaved.length ? 'Hive always asks about unsaved files.' : undefined}>
               <input type="checkbox" className="checkbox" checked={dontAsk} onChange={(e) => setDontAsk(e.target.checked)} /> Don't ask again about sessions
             </label>
@@ -715,7 +717,7 @@ export function QuitDialog() {
           <button className="btn subtle" onClick={() => void decide('cancel')} disabled={saving}>
             Cancel
           </button>
-          {working > 0 && (
+          {working > 0 && !closing && (
             <button className="btn subtle" onClick={() => void decide('wait')} disabled={saving} title="Hide Hive and quit as soon as no agent is working">
               <Icon name="watch" /> {verb} when {working === 1 ? 'the agent finishes' : 'agents finish'}
             </button>
@@ -753,8 +755,8 @@ export function QuitDialog() {
       {sessions.length > 0 && (
         <p style={{ marginTop: unsaved.length ? undefined : 0 }}>
           {busy
-            ? `${busy === 1 ? 'An agent is' : `${busy} agents are`} in the middle of something. Quitting stops ${sessions.length === 1 ? 'the session' : `all ${sessions.length} sessions`}.`
-            : `Quitting stops ${sessions.length === 1 ? 'the running session' : `${sessions.length} running sessions`}.`}
+            ? `${busy === 1 ? 'An agent is' : `${busy} agents are`} in the middle of something. ${closing ? "Closing this window stops this workspace's" : 'Quitting stops'} ${sessions.length === 1 ? 'session' : `${closing ? '' : 'all '}${sessions.length} sessions`}.`
+            : `${closing ? "Closing this window stops this workspace's" : 'Quitting stops'} ${sessions.length === 1 ? 'running session' : `${sessions.length} running sessions`}.`}
         </p>
       )}
       <div className="quit-list" hidden={!sessions.length}>

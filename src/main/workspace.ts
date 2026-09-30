@@ -1,11 +1,13 @@
 import { basename, join, resolve, sep } from 'path'
 import { mkdir, readdir, readFile, writeFile, appendFile } from 'fs/promises'
 import { existsSync, statSync } from 'fs'
+import { AsyncLocalStorage } from 'async_hooks'
+import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields } from '../shared/defaults'
-import type { AgentDef, AgentInfo, LiveSessionState, ProjectConfig, ProjectInfo, SessionRecord, WorkspaceConfig, WorkspaceInfo } from '../shared/types'
+import type { AgentDef, AgentInfo, HiveEvent, LiveSessionState, ProjectConfig, ProjectInfo, SessionRecord, WorkspaceConfig, WorkspaceInfo } from '../shared/types'
 import { config } from './config'
-import { emit } from './events'
+import { emit, emitTo } from './events'
 import { insideReal, isDir, readKeptJson, removePath, withFileLock, writeKeptJson } from './fsutil'
 import { createLogger } from './logger'
 import { allProviders } from './providers'
@@ -38,18 +40,22 @@ export interface SessionsFile {
 
 type LiveProvider = (projectPath: string, cfg: ProjectConfig) => Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }>
 
-class WorkspaceService {
+export class WorkspaceService {
   path: string | null = null
   private wsConfig: WorkspaceConfig = structuredClone(DEFAULT_WORKSPACE_CONFIG)
   private watcher: FSWatcher | null = null
   private refreshTimer: NodeJS.Timeout | null = null
-  private liveProvider: LiveProvider = async (_p, cfg) => ({ live: null, restartNeeded: false, agents: projectAgents(cfg).map((a) => ({ ...a, live: null, restartNeeded: false, resume: null })) })
+  private static liveProvider: LiveProvider = async (_p, cfg) => ({ live: null, restartNeeded: false, agents: projectAgents(cfg).map((a) => ({ ...a, live: null, restartNeeded: false, resume: null })) })
+  /** Called once for a new workspace (a folder Hive hadn't set up yet), after its .hive folder is made. */
+  static onCreated: (() => Promise<unknown>) | null = null
+  /** The window showing this workspace: its events go there. */
+  window: BrowserWindow | null = null
   /** Agents' worktree folders (lower-cased) and the project each belongs to. */
   private roots = new Map<string, string>()
   private cached: WorkspaceInfo | null = null
 
   setLiveProvider(p: LiveProvider): void {
-    this.liveProvider = p
+    WorkspaceService.liveProvider = p
   }
 
   get hiveDir(): string {
@@ -79,9 +85,6 @@ class WorkspaceService {
     return this.wsConfig
   }
 
-  /** Called once for a new workspace (a folder Hive hadn't set up yet), after its .hive folder is made. */
-  onCreated: (() => Promise<unknown>) | null = null
-
   async open(path: string): Promise<WorkspaceInfo> {
     const abs = resolve(path)
     if (!(await isDir(abs))) throw new Error(`Folder not found: ${abs}`)
@@ -89,7 +92,7 @@ class WorkspaceService {
     this.path = abs
     const isNew = !existsSync(join(abs, HIVE_DIR))
     await this.ensureWorkspaceStructure()
-    if (isNew) await this.onCreated?.().catch((e) => log.warn('setting up the new workspace', e))
+    if (isNew) await inWorkspace(this, async () => WorkspaceService.onCreated?.()).catch((e) => log.warn('setting up the new workspace', e))
     this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), await readKeptJson(join(this.hiveDir, 'workspace.json'), {}))
     config.update((c) => {
       c.lastWorkspace = abs
@@ -141,8 +144,8 @@ class WorkspaceService {
     })
     this.watcher.on('all', (evt, p) => {
       const rel = this.path ? p.slice(this.path.length + 1).replace(/\\/g, '/') : ''
-      if (rel.startsWith(`${HIVE_DIR}/shared`)) emit({ type: 'notes-changed' })
-      else if (rel.startsWith(`${HIVE_DIR}/skills`) || rel.startsWith(`${HIVE_DIR}/mcp`)) emit({ type: 'skills-changed' })
+      if (rel.startsWith(`${HIVE_DIR}/shared`)) this.emit({ type: 'notes-changed' })
+      else if (rel.startsWith(`${HIVE_DIR}/skills`) || rel.startsWith(`${HIVE_DIR}/mcp`)) this.emit({ type: 'skills-changed' })
       else if (rel === `${HIVE_DIR}/workspace.json`) void this.reloadConfig()
       else if (evt === 'addDir' || evt === 'unlinkDir') this.scheduleRefresh()
     })
@@ -152,13 +155,20 @@ class WorkspaceService {
   private async reloadConfig(): Promise<void> {
     if (!this.path) return
     this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), await readKeptJson(join(this.hiveDir, 'workspace.json'), {}))
-    emit({ type: 'skills-changed' })
+    this.emit({ type: 'skills-changed' })
     this.scheduleRefresh()
+  }
+
+  /** An event about this workspace, for its window (and the Agent API's event stream). */
+  emit(event: HiveEvent): void {
+    if (this.window) emitTo(this.window, event)
+    else emit(event)
   }
 
   scheduleRefresh(): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
-    this.refreshTimer = setTimeout(() => void this.refresh().catch((e) => log.warn('refresh failed', e)), 250)
+    // A window closed meanwhile (its agents stopping afterwards) has nothing to refresh.
+    this.refreshTimer = setTimeout(() => void (this.path ? this.refresh().catch((e) => log.warn('refresh failed', e)) : undefined), 250)
   }
 
   async listProjectPaths(): Promise<string[]> {
@@ -186,6 +196,12 @@ class WorkspaceService {
     if (this.isProjectPath(p)) return resolve(p)
     if (this.roots.has(resolve(p).toLowerCase())) return resolve(p)
     throw new Error(`Not a project or agent worktree in the open workspace: ${p}`)
+  }
+
+  /** Whether an absolute, lower-cased path is (inside) one of this workspace's agent worktrees. */
+  ownsRoot(abs: string): boolean {
+    for (const r of this.roots.keys()) if (abs === r || abs.startsWith(r + sep)) return true
+    return false
   }
 
   /** The project a worktree belongs to, or the project itself. */
@@ -363,7 +379,7 @@ class WorkspaceService {
     const active = new Set(this.activeNames())
     const cfg = await this.projectConfig(projectPath)
     this.registerRoots(projectPath, cfg)
-    const { live, restartNeeded, agents } = await this.liveProvider(projectPath, cfg)
+    const { live, restartNeeded, agents } = await WorkspaceService.liveProvider(projectPath, cfg)
     return {
       name: basename(projectPath),
       path: projectPath,
@@ -383,7 +399,7 @@ class WorkspaceService {
     const projects: ProjectInfo[] = []
     for (const p of await this.listProjectPaths()) projects.push(await this.projectInfo(p))
     this.cached = { path: this.path, name: basename(this.path), config: this.wsConfig, projects }
-    emit({ type: 'workspace-changed', workspace: this.cached })
+    this.emit({ type: 'workspace-changed', workspace: this.cached })
     return this.cached
   }
 
@@ -412,4 +428,107 @@ class WorkspaceService {
   }
 }
 
-export const workspace = new WorkspaceService()
+// ---------------------------------------------------------------------------
+// Several windows, each with its own workspace. The rest of Hive imports `workspace`, which stands for
+// the workspace the current work is for: the calling window's (IPC), an Agent API request's, or the one
+// owning the project path a call names.
+// ---------------------------------------------------------------------------
+
+const services = new Set<WorkspaceService>()
+const context = new AsyncLocalStorage<WorkspaceService>()
+let fallback: () => WorkspaceService | null = () => null
+
+/** A new, empty workspace service (for a new window). */
+export function createWorkspaceService(): WorkspaceService {
+  const w = new WorkspaceService()
+  services.add(w)
+  return w
+}
+
+/** Closes a window's workspace and forgets its service. */
+export async function disposeWorkspaceService(w: WorkspaceService): Promise<void> {
+  await w.close()
+  services.delete(w)
+}
+
+/** Runs fn with `workspace` standing for w. */
+export function inWorkspace<T>(w: WorkspaceService, fn: () => T): T {
+  return context.run(w, fn)
+}
+
+/** The workspace set for the current work by inWorkspace (a window's request, an API request), if any. */
+export function contextWorkspace(): WorkspaceService | undefined {
+  return context.getStore()
+}
+
+/** The workspace used when no window, request or path says which (the last focused window's). */
+export function setWorkspaceFallback(fn: () => WorkspaceService | null): void {
+  fallback = fn
+}
+
+/** The workspaces open in windows. */
+export function openWorkspaces(): WorkspaceService[] {
+  return [...services].filter((w) => !!w.path)
+}
+
+/** The open workspace a folder or file belongs to: a project, a file in one, or an agent's worktree. */
+export function workspaceFor(p: string): WorkspaceService | null {
+  const abs = resolve(p).toLowerCase()
+  for (const w of services) {
+    if (!w.path) continue
+    const root = w.path.toLowerCase()
+    if (abs === root || abs.startsWith(root + sep)) return w
+    const wt = worktreesRoot(w.path).toLowerCase()
+    if (abs === wt || abs.startsWith(wt + sep) || w.ownsRoot(abs)) return w
+  }
+  return null
+}
+
+let warned = false
+/** The workspace the current work is for. */
+export function currentWorkspace(): WorkspaceService {
+  const inCtx = context.getStore()
+  if (inCtx) return inCtx
+  const open = openWorkspaces()
+  if (open.length === 1) return open[0]
+  if (services.size === 1) return [...services][0]
+  const f = fallback()
+  if (open.length > 1 && !warned) {
+    warned = true
+    log.warn('A workspace was used without saying which; using the last focused window\'s', new Error('no workspace context').stack)
+  }
+  return f ?? open[0] ?? [...services][0] ?? createWorkspaceService()
+}
+
+/** The workspace owning a project (or worktree) path, else the current one. */
+export function workspaceOf(p: string): WorkspaceService {
+  return workspaceFor(p) ?? currentWorkspace()
+}
+
+/** Methods whose first argument is a project or worktree path: they go to the workspace owning it. */
+const BY_PATH = new Set<string>([
+  'isProjectPath', 'assertProject', 'assertRoot', 'projectForRoot', 'updateAgent', 'ensureProject', 'ensureGitExclude', 'branch',
+  'projectConfig', 'updateProjectConfig', 'mutateProjectConfig', 'sessionsFile', 'mutateSessions', 'upsertSession', 'setActive',
+  'unmanagedMcp', 'projectInfo'
+])
+
+export const workspace: WorkspaceService = new Proxy({} as WorkspaceService, {
+  get(_t, key: string) {
+    // Any open workspace's files may be read (hive-img:, file IPC) — each window only shows its own.
+    if (key === 'isAllowedPath') return (p: string, extra?: string[]) => [...services].some((w) => w.isAllowedPath(p, extra))
+    if (BY_PATH.has(key)) {
+      return (p: string, ...rest: unknown[]) => {
+        const w = workspaceFor(p) ?? currentWorkspace()
+        return (w as unknown as Record<string, (...a: unknown[]) => unknown>)[key](p, ...rest)
+      }
+    }
+    const w = currentWorkspace()
+    const v = (w as unknown as Record<string, unknown>)[key]
+    return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(w) : v
+  },
+  set(_t, key: string, value) {
+    if (key === 'onCreated') WorkspaceService.onCreated = value
+    else (currentWorkspace() as unknown as Record<string, unknown>)[key] = value
+    return true
+  }
+})

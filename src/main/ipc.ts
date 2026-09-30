@@ -11,7 +11,7 @@ import { isKnownProvider, projectProviderConfig, providerDescriptor } from '../s
 import { allProviders } from './providers'
 import { providerService } from './providerService'
 import { config } from './config'
-import { emit } from './events'
+import { emit, emitTo } from './events'
 import { insideReal, writeTextAtomic } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { logsDir } from './logger'
@@ -24,7 +24,9 @@ import * as projectAgents from './projectAgents'
 import { sessions } from './sessions'
 import { transcripts } from './transcripts'
 import * as skills from './skills'
-import { workspace } from './workspace'
+import { contextWorkspace, inWorkspace, workspace, workspaceFor, WorkspaceService } from './workspace'
+import { windowOf, windowShowing } from './windows'
+import { showWindow } from './tray'
 
 /** The instruction files of the given providers in a project, with their content. */
 async function projectInstructions(project: string, ids: ProviderId[]): Promise<InstructionsFile[]> {
@@ -61,30 +63,45 @@ function guardFile(path: string, write = false): string {
 }
 
 
+/** Quitting and closing windows (index.ts): each call names the window it came from. */
 export interface QuitControl {
   quit: () => void
-  decide: (choice: QuitChoice, dontAskAgain: boolean) => void
+  decide: (from: BrowserWindow, choice: QuitChoice, dontAskAgain: boolean) => void
   cancelPending: () => void
-  state: () => ReturnType<HiveRequests['app:quitState']>
-  setUnsaved: (paths: string[]) => void
+  state: (from: BrowserWindow) => ReturnType<HiveRequests['app:quitState']>
+  setUnsaved: (from: BrowserWindow, paths: string[]) => void
+  newWindow: (from: BrowserWindow) => void
 }
 
-export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: () => ReturnType<HiveRequests['app:info']>, quitControl: QuitControl): void {
+/** Whether any agent of this workspace is running. */
+function workspaceLive(ws: WorkspaceService): boolean {
+  return sessions.liveStates().some((s) => workspaceFor(s.projectPath) === ws)
+}
+
+export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info']>, quitControl: QuitControl): void {
   // A new workspace starts with the skills that ship with Hive.
-  workspace.onCreated = () => skills.addBundledSkills()
+  WorkspaceService.onCreated = () => skills.addBundledSkills()
+  /** The window the current request came from. */
   const win = (): BrowserWindow => {
-    const w = getWindow()
-    if (!w) throw new Error('No window')
+    const w = contextWorkspace()?.window
+    if (!w || w.isDestroyed()) throw new Error('No window')
     return w
+  }
+  /** Opening a workspace another window shows brings that window forward instead (as VS Code does). */
+  const shownElsewhere = (target: string): boolean => {
+    const other = windowShowing(target)
+    if (!other || other.win === win()) return false
+    showWindow(other.win)
+    return true
   }
 
   const impl: Impl = {
     'app:info': () => getAppInfo(),
     'app:planUsage': () => config.get().planUsage,
     'app:quit': () => quitControl.quit(),
-    'app:quitDecision': (choice, dontAskAgain) => quitControl.decide(choice, dontAskAgain),
+    'app:quitDecision': (choice, dontAskAgain) => quitControl.decide(win(), choice, dontAskAgain),
     'app:cancelPendingQuit': () => quitControl.cancelPending(),
-    'app:quitState': () => quitControl.state(),
+    'app:quitState': () => quitControl.state(win()),
     'app:openExternal': (url) => {
       if (/^https?:\/\//i.test(url) || url.startsWith('mailto:')) void shell.openExternal(url)
     },
@@ -106,6 +123,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
     'window:minimize': () => win().minimize(),
     'window:toggleMaximize': () => (win().isMaximized() ? win().unmaximize() : win().maximize()),
     'window:close': () => win().close(),
+    'window:new': () => quitControl.newWindow(win()),
     'window:toggleDevTools': () => win().webContents.toggleDevTools(),
     'window:zoom': (dir) => {
       const wc = win().webContents
@@ -140,8 +158,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
         if (r.canceled || !r.filePaths[0]) return workspace.info()
         target = r.filePaths[0]
       }
-      if (sessions.liveCount() > 0 && workspace.path && target.toLowerCase() !== workspace.path.toLowerCase()) {
-        throw new Error('Stop all running sessions before switching workspace.')
+      if (shownElsewhere(target)) return workspace.info()
+      if (workspace.path && target.toLowerCase() !== workspace.path.toLowerCase() && workspaceLive(contextWorkspace()!)) {
+        throw new Error("Stop this window's running sessions before switching workspace, or open it in a new window (File → New Window).")
       }
       return workspace.open(target)
     },
@@ -152,16 +171,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
         buttonLabel: 'Create Workspace'
       })
       if (r.canceled || !r.filePaths[0]) return workspace.info()
-      if (sessions.liveCount() > 0) throw new Error('Stop all running sessions before switching workspace.')
+      if (shownElsewhere(r.filePaths[0])) return workspace.info()
+      if (workspace.path && workspaceLive(contextWorkspace()!)) {
+        throw new Error("Stop this window's running sessions before switching workspace, or create it in a new window (File → New Window).")
+      }
       const { mkdir } = await import('fs/promises')
       await mkdir(r.filePaths[0], { recursive: true })
       return workspace.open(r.filePaths[0])
     },
     'workspace:close': async () => {
-      if (sessions.liveCount() > 0) throw new Error('Stop all running sessions before closing the workspace.')
+      if (workspaceLive(contextWorkspace()!)) throw new Error("Stop this window's running sessions before closing the workspace.")
       await workspace.close()
-      config.update((c) => (c.lastWorkspace = null))
-      emit({ type: 'workspace-changed', workspace: null })
+      emitTo(win(), { type: 'workspace-changed', workspace: null })
     },
     'workspace:recent': () => config.get().recentWorkspaces,
     'workspace:removeRecent': (p) => {
@@ -232,7 +253,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
     },
     'files:reveal': (p, rel) => shell.showItemInFolder(files.absPath(p, rel)),
     'files:watch': (p) => files.watchProject(p),
-    'files:setUnsaved': (paths) => quitControl.setUnsaved(Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : []),
+    'files:setUnsaved': (paths) => quitControl.setUnsaved(win(), Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : []),
     'files:unwatch': (p) => files.unwatchProject(p),
 
     'images:list': (p) => files.listImages(p),
@@ -386,10 +407,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
 
   for (const [channel, fn] of Object.entries(impl)) {
     ipcMain.handle(channel, async (e, ...args: unknown[]) => {
-      // Only Hive's own page may call: not another window, and not a frame inside it (e.g. an HTML preview).
-      const w = getWindow()
-      if (!w || e.sender !== w.webContents || e.senderFrame?.parent) throw new Error('Not allowed')
-      return (fn as (...a: unknown[]) => unknown)(...args)
+      // Only Hive's own pages may call: not another window, and not a frame inside one (e.g. an HTML preview).
+      const w = windowOf(e.sender)
+      if (!w || e.senderFrame?.parent) throw new Error('Not allowed')
+      // Everything the call does is for that window's workspace.
+      return inWorkspace(w.ws, () => (fn as (...a: unknown[]) => unknown)(...args))
     })
   }
 }

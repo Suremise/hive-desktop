@@ -91,6 +91,7 @@ export const commands: Command[] = [
   { id: 'settings.open', label: 'Open Settings', category: 'Preferences', keybinding: 'Mod+,', run: () => setActivity('settings') },
   { id: 'settings.providers', label: 'Choose Coding Agents (Providers)', category: 'Preferences', run: () => { set({ settingsSection: 'providers', settingsQuery: '' }); setActivity('settings') } },
   { id: 'settings.keybindings', label: 'Customise Keyboard Shortcuts', category: 'Preferences', run: () => { set({ settingsSection: 'keybindings', settingsQuery: '' }); setActivity('settings') } },
+  { id: 'window.new', label: 'New Window', category: 'File', keybinding: 'Mod+K Mod+N', run: () => call('window:new') },
   { id: 'workspace.open', label: 'Open Workspace…', category: 'File', keybinding: 'Mod+K Mod+O', run: (path?: string) => actions.openWorkspace(path) },
   { id: 'workspace.create', label: 'New Workspace…', category: 'File', run: () => actions.createWorkspace() },
   { id: 'workspace.close', label: 'Close Workspace', category: 'File', when: hasWorkspace, run: () => actions.closeWorkspace() },

@@ -11,6 +11,8 @@ import { hiveInstructions, projectHandovers, withLatestHandover } from '../../sh
 const VERSION = '1.0.0'
 const API = (process.env.HIVE_API_URL || 'http://127.0.0.1:47821').replace(/\/$/, '')
 const PROJECT = process.env.HIVE_PROJECT || ''
+/** The session's workspace: with several Hive windows open, the API answers for this one. */
+const WORKSPACE = process.env.HIVE_WORKSPACE || ''
 
 function token(): string {
   const t = process.env.HIVE_API_TOKEN
@@ -27,7 +29,7 @@ function token(): string {
 async function api(method: string, path: string, body?: unknown): Promise<unknown> {
   const res = await fetch(API + path, {
     method,
-    headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json', ...(WORKSPACE ? { 'X-Hive-Workspace': encodeURIComponent(WORKSPACE) } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body)
   })
   const text = await res.text()

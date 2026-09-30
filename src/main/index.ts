@@ -4,7 +4,7 @@ import { existsSync } from 'fs'
 import { basename, join, resolve, sep } from 'path'
 import { readFile } from 'fs/promises'
 import { pathToFileURL } from 'url'
-import type { AppInfo, QuitChoice, QuitSession } from '../shared/types'
+import type { AppInfo, QuitChoice, QuitSession, WindowState } from '../shared/types'
 import { providerService } from './providerService'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../shared/hiveGuidance'
 import { notesTree } from './notes'
@@ -12,7 +12,7 @@ import { PROVIDERS, projectProviderConfig, providerSettings } from '../shared/pr
 import { projectAgents } from '../shared/defaults'
 import { SERVABLE_EXT, unwatchAll } from './files'
 import { config } from './config'
-import { emit, onHiveEvent, setEventWindow, toast } from './events'
+import { emit, emitTo, onHiveEvent, toast } from './events'
 import { registerIpc } from './ipc'
 import { createLogger, logsDir } from './logger'
 import { killAll } from './ptyHost'
@@ -22,10 +22,10 @@ import { sessions } from './sessions'
 import { notificationIcon } from './paths'
 import { createTray, destroyTray, resourcesDir, setTrayPendingQuit, showWindow } from './tray'
 import { initUpdater, installNow } from './updater'
-import { workspace } from './workspace'
+import { createWorkspaceService, disposeWorkspaceService, inWorkspace, openWorkspaces, workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
+import { hiveWindows, lastFocused, registerWindow, unregisterWindow, windowForPath, type HiveWindow } from './windows'
 
 const log = createLogger('main')
-let mainWindow: BrowserWindow | null = null
 let quitting = false
 
 // Development builds use their own profile (and Agent API port, see servers.ts) so they can run
@@ -34,6 +34,7 @@ let quitting = false
 if (process.env.HIVE_USER_DATA) app.setPath('userData', process.env.HIVE_USER_DATA)
 else if (!app.isPackaged) app.setPath('userData', join(app.getPath('appData'), 'Hive-Dev'))
 
+// One Hive process, with a window per workspace (like VS Code): starting Hive again brings it forward.
 if (!app.requestSingleInstanceLock()) {
   app.quit()
   process.exit(0)
@@ -83,17 +84,35 @@ function titleBarColors(): { color: string; symbolColor: string } {
   return dark ? { color: '#1f1f1f', symbolColor: '#cccccc' } : { color: '#f3f3f3', symbolColor: '#333333' }
 }
 
-function createWindow(): BrowserWindow {
-  const saved = config.get().window
-  const visible = saved.x !== undefined && saved.y !== undefined && screen.getAllDisplays().some((d) => {
-    const b = d.workArea
-    return saved.x! >= b.x - 50 && saved.y! >= b.y - 50 && saved.x! < b.x + b.width && saved.y! < b.y + b.height
-  })
+/** Whether a saved position is still on a screen. */
+function onScreen(b: WindowState): boolean {
+  return (
+    b.x !== undefined &&
+    b.y !== undefined &&
+    screen.getAllDisplays().some((d) => {
+      const a = d.workArea
+      return b.x! >= a.x - 50 && b.y! >= a.y - 50 && b.x! < a.x + a.width && b.y! < a.y + a.height
+    })
+  )
+}
+
+/**
+ * Opens a Hive window, with its own workspace service. `workspacePath` opens that workspace in it;
+ * `bounds` places it (a restored window), else it goes over the last focused one, offset like VS Code's.
+ */
+function createWindow(opts: { workspacePath?: string | null; bounds?: WindowState; hidden?: boolean } = {}): HiveWindow {
+  const from = lastFocused()
+  let b: WindowState = opts.bounds ?? config.get().window
+  if (!opts.bounds && from && !from.win.isDestroyed()) {
+    const r = from.win.getNormalBounds()
+    b = { x: r.x + 30, y: r.y + 30, width: r.width, height: r.height, maximized: false }
+  }
+  const visible = onScreen(b)
   const win = new BrowserWindow({
-    width: saved.width,
-    height: saved.height,
-    x: visible ? saved.x : undefined,
-    y: visible ? saved.y : undefined,
+    width: b.width,
+    height: b.height,
+    x: visible ? b.x : undefined,
+    y: visible ? b.y : undefined,
     minWidth: 900,
     minHeight: 560,
     show: false,
@@ -113,7 +132,7 @@ function createWindow(): BrowserWindow {
       spellcheck: false
     }
   })
-  if (saved.maximized) win.maximize()
+  if (b.maximized) win.maximize()
   if (process.platform === 'win32') {
     // Taskbar identity for this window: the installed exe's icon, or the repo icon for dev builds.
     win.setAppDetails({
@@ -123,23 +142,25 @@ function createWindow(): BrowserWindow {
       relaunchDisplayName: app.isPackaged ? 'Hive' : 'Hive Dev'
     })
   }
+  const entry = registerWindow(win, createWorkspaceService())
 
   win.once('ready-to-show', () => {
-    const hidden = config.settings.general.startMinimized || process.argv.includes('--hidden')
-    if (!hidden) win.show()
+    if (!opts.hidden) win.show()
   })
 
   const saveBounds = (): void => {
     if (win.isDestroyed() || win.isMinimized() || win.isFullScreen()) return
     const maximized = win.isMaximized()
+    // The last window moved or resized sets where a new window goes.
     config.update((c) => {
       c.window.maximized = maximized
       if (!maximized) Object.assign(c.window, win.getBounds())
     })
+    saveWindowsSoon()
   }
   win.on('resize', saveBounds)
   win.on('move', saveBounds)
-  const sendState = (): void => emit({ type: 'window-state', maximized: win.isMaximized(), focused: win.isFocused() })
+  const sendState = (): void => emitTo(win, { type: 'window-state', maximized: win.isMaximized(), focused: win.isFocused() })
   win.on('maximize', sendState)
   win.on('unmaximize', sendState)
   win.on('focus', sendState)
@@ -149,13 +170,20 @@ function createWindow(): BrowserWindow {
     if (config.settings.general.minimizeToTray) win.hide()
   })
   win.on('close', (e) => {
-    if (!quitting && config.settings.general.closeToTray) {
-      e.preventDefault()
-      win.hide()
-    } else if (!quitting) {
-      e.preventDefault()
-      void requestQuit()
+    if (quitting || entry.closing) return
+    e.preventDefault()
+    // The last window: the tray keeps Hive running, or closing it quits (as before there were several).
+    if (hiveWindows().length <= 1) {
+      if (config.settings.general.closeToTray) win.hide()
+      else void requestQuit()
+      return
     }
+    void requestCloseWindow(entry)
+  })
+  win.on('closed', () => {
+    unregisterWindow(entry)
+    void disposeWorkspaceService(entry.ws)
+    if (!quitting) saveWindows()
   })
 
   // Links open in the user's browser, never inside Hive.
@@ -172,36 +200,100 @@ function createWindow(): BrowserWindow {
 
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) void win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else void win.loadFile(join(__dirname, '../renderer/index.html'))
-  return win
+
+  if (opts.workspacePath) {
+    const path = opts.workspacePath
+    void inWorkspace(entry.ws, () => entry.ws.open(path)).catch((e) => log.warn(`Could not reopen ${path}`, e))
+  }
+  return entry
 }
 
 // ---------------------------------------------------------------------------
-// Quitting. Stopping a session loses nothing (it can be resumed), but stopping an agent that is
-// working interrupts it — so by default Hive only asks when that would happen, in its own dialog.
+// Which windows were open, reopened at the next start (like VS Code).
 // ---------------------------------------------------------------------------
 
-let quitRequest: QuitSession[] | null = null
-/** Files with unsaved edits in the window (reported by the renderer): quitting always asks about them. */
-let unsavedFiles: string[] = []
-let answerQuit: ((choice: QuitChoice) => void) | null = null
+function saveWindows(): void {
+  const list = hiveWindows().map((e) => {
+    const maximized = e.win.isMaximized()
+    const r = e.win.getNormalBounds()
+    return { workspace: e.ws.path, x: r.x, y: r.y, width: r.width, height: r.height, maximized }
+  })
+  if (!list.length) return
+  config.update((c) => {
+    c.windows = list
+    // 0.1 reopened one workspace: the last focused window's.
+    c.lastWorkspace = lastFocused()?.ws.path ?? list[0].workspace
+  })
+}
+
+let saveTimer: NodeJS.Timeout | null = null
+function saveWindowsSoon(): void {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    saveTimer = null
+    if (!quitting) saveWindows()
+  }, 500)
+}
+
+/** The windows to open at start: those open when Hive last quit, else one window with the last workspace. */
+function windowsToRestore(): { workspacePath: string | null; bounds?: WindowState }[] {
+  const c = config.get()
+  const reopen = config.settings.general.reopenLastWorkspace
+  const saved = (c.windows ?? []).filter((w) => !w.workspace || existsSync(w.workspace))
+  if (reopen && saved.length) {
+    const seen = new Set<string>()
+    const out = []
+    for (const w of saved) {
+      const key = w.workspace?.toLowerCase()
+      if (key && seen.has(key)) continue
+      if (key) seen.add(key)
+      out.push({ workspacePath: w.workspace, bounds: { x: w.x, y: w.y, width: w.width, height: w.height, maximized: w.maximized } })
+    }
+    return out
+  }
+  const last = reopen && c.lastWorkspace && existsSync(c.lastWorkspace) ? c.lastWorkspace : null
+  return [{ workspacePath: last, bounds: c.window }]
+}
+
+// ---------------------------------------------------------------------------
+// Quitting, and closing one window. Stopping a session loses nothing (it can be resumed), but stopping an
+// agent that is working interrupts it — so by default Hive only asks when that would happen, in its own dialog.
+// ---------------------------------------------------------------------------
+
 let pendingQuit = false
 /** Restart and Update was chosen: install the downloaded update instead of just quitting. */
 let installOnQuit = false
 
-const quitSessions = (): QuitSession[] =>
-  sessions.liveStates().map((s) => {
-    const agents = workspace.info()?.projects.find((p) => p.path.toLowerCase() === s.projectPath.toLowerCase())?.agents.length ?? 1
-    return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, provider: s.provider, ...(agents > 1 ? { agent: s.agentName } : {}) }
-  })
+/** The running sessions of every window, or of one workspace. */
+const quitSessions = (ws?: WorkspaceService): QuitSession[] =>
+  sessions
+    .liveStates()
+    .filter((s) => !ws || workspaceFor(s.projectPath) === ws)
+    .map((s) => {
+      const agents = workspaceOf(s.projectPath).info()?.projects.find((p) => p.path.toLowerCase() === s.projectPath.toLowerCase())?.agents.length ?? 1
+      return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, provider: s.provider, ...(agents > 1 ? { agent: s.agentName } : {}) }
+    })
 const workingCount = (): number => sessions.liveStates().filter((s) => s.status === 'working').length
+
+/** Shows the quit (or close) dialog in a window and waits for the answer. */
+function ask(e: HiveWindow, req: { sessions: QuitSession[]; unsaved: string[]; scope: 'app' | 'window' }): Promise<QuitChoice> {
+  showWindow(e.win)
+  return new Promise<QuitChoice>((answer) => {
+    e.question = { request: req.sessions, unsaved: req.unsaved, scope: req.scope, answer }
+    emitTo(e.win, { type: 'quit-request', sessions: req.sessions, unsaved: req.unsaved, scope: req.scope })
+  }).finally(() => {
+    e.question = null
+  })
+}
 
 async function requestQuit(opts: { force?: boolean } = {}): Promise<void> {
   if (quitting) return
   // Already waiting to quit: asking again means "now".
   if (pendingQuit) return quitNow(true)
-  if (answerQuit) {
-    // The dialog is already open: just bring it forward.
-    if (mainWindow) showWindow(mainWindow)
+  const asking = hiveWindows().find((e) => e.question)
+  if (asking) {
+    // A dialog is already open: just bring it forward.
+    showWindow(asking.win)
     return
   }
   // Only a quit that goes ahead from here on installs the update; a cancelled one forgets it.
@@ -209,30 +301,55 @@ async function requestQuit(opts: { force?: boolean } = {}): Promise<void> {
   installOnQuit = false
   const live = sessions.liveStates()
   const mode = config.settings.general.confirmOnQuit
-  const ask = !opts.force && ((live.length > 0 && (mode === 'always' || (mode === 'working' && sessions.busyStates().length > 0))) || unsavedFiles.length > 0)
-  if (ask && mainWindow) {
-    showWindow(mainWindow)
-    quitRequest = quitSessions()
-    const choice = await new Promise<QuitChoice>((answer) => {
-      answerQuit = answer
-      emit({ type: 'quit-request', sessions: quitRequest!, unsaved: unsavedFiles })
-    })
-    answerQuit = null
-    quitRequest = null
+  const unsavedIn = hiveWindows().filter((e) => e.unsaved.length > 0)
+  const askSessions = !opts.force && live.length > 0 && (mode === 'always' || (mode === 'working' && sessions.busyStates().length > 0))
+  const target = unsavedIn.find((e) => e === lastFocused()) ?? unsavedIn[0] ?? lastFocused()
+  if ((askSessions || unsavedIn.length > 0) && target) {
+    // Unsaved edits live in each window's page: a window with some is asked about them first.
+    for (const other of unsavedIn.filter((e) => e !== target)) {
+      if ((await ask(other, { sessions: [], unsaved: other.unsaved, scope: 'app' })) === 'cancel') return
+    }
+    const choice = await ask(target, { sessions: askSessions ? quitSessions() : [], unsaved: target.unsaved, scope: 'app' })
     if (choice === 'cancel') return
     installOnQuit = forUpdate
     if (choice === 'wait') return startPendingQuit()
-    return quitNow(false)
+    return quitNow(!askSessions && live.length > 0)
   }
   installOnQuit = forUpdate
   return quitNow(live.length > 0)
+}
+
+/** Closing a window (not the last): its workspace's agents are stopped, after asking as quitting does. */
+async function requestCloseWindow(e: HiveWindow): Promise<void> {
+  if (e.question) return showWindow(e.win)
+  const mine = quitSessions(e.ws)
+  const mode = config.settings.general.confirmOnQuit
+  const busy = mine.some((s) => s.status === 'working' || s.status === 'waiting')
+  const askSessions = mine.length > 0 && (mode === 'always' || (mode === 'working' && busy))
+  if (askSessions || e.unsaved.length) {
+    const choice = await ask(e, { sessions: askSessions ? mine : [], unsaved: e.unsaved, scope: 'window' })
+    if (choice === 'cancel') return
+  }
+  if (mine.length) await sessions.stopWhereAndWait((s) => workspaceFor(s.projectPath) === e.ws, 3000)
+  saveWindowsWithout(e)
+  e.closing = true
+  e.win.close()
+}
+
+/** Remembers the windows as they will be once this one has closed. */
+function saveWindowsWithout(e: HiveWindow): void {
+  const others = hiveWindows().filter((x) => x !== e)
+  if (!others.length) return
+  config.update((c) => {
+    c.windows = (c.windows ?? []).filter((w) => w.workspace?.toLowerCase() !== e.ws.path?.toLowerCase() || !e.ws.path)
+  })
 }
 
 function startPendingQuit(): void {
   pendingQuit = true
   setTrayPendingQuit(true)
   emit({ type: 'quit-pending', pending: true, working: workingCount() })
-  mainWindow?.hide()
+  for (const e of hiveWindows()) e.win.hide()
   checkPendingQuit()
 }
 
@@ -253,6 +370,8 @@ function checkPendingQuit(): void {
 
 async function quitNow(tellUser: boolean): Promise<void> {
   if (quitting) return
+  // Remember the windows before they close.
+  saveWindows()
   quitting = true
   const stopped = sessions.liveCount()
   // Quitting without a dialog (or after waiting): say where the sessions went.
@@ -278,15 +397,20 @@ function wireSettingsEffects(): void {
     }
     if (s.appearance.theme !== prev.appearance.theme) {
       nativeTheme.themeSource = s.appearance.theme
-      try {
-        mainWindow?.setTitleBarOverlay({ ...titleBarColors(), height: 34 })
-      } catch {
-        // ignore
+      for (const e of hiveWindows()) {
+        try {
+          e.win.setTitleBarOverlay({ ...titleBarColors(), height: 34 })
+        } catch {
+          // ignore
+        }
       }
     }
-    if (JSON.stringify(s.agentApi) !== JSON.stringify(prev.agentApi)) void startApiServer().then(() => workspace.path && workspace.scheduleRefresh())
+    const refreshAll = (): void => {
+      for (const w of openWorkspaces()) w.scheduleRefresh()
+    }
+    if (JSON.stringify(s.agentApi) !== JSON.stringify(prev.agentApi)) void startApiServer().then(refreshAll)
     // Session settings changed: refresh "restart to apply", and offer to switch running agents to a new permission mode.
-    else if ((JSON.stringify(s.providers) !== JSON.stringify(prev.providers) || s.defaultProvider !== prev.defaultProvider) && workspace.path) workspace.scheduleRefresh()
+    else if (JSON.stringify(s.providers) !== JSON.stringify(prev.providers) || s.defaultProvider !== prev.defaultProvider) refreshAll()
     for (const p of PROVIDERS) {
       const now = providerSettings(s, p.id)
       const before = providerSettings(prev, p.id)
@@ -297,33 +421,34 @@ function wireSettingsEffects(): void {
   })
 }
 
-/** A provider's no-guardrails mode was turned off: projects and agents set to it go back to Inherit. */
+/** A provider's no-guardrails mode was turned off: projects and agents set to it (in every window) go back to Inherit. */
 async function revertDangerousModes(provider: string): Promise<void> {
-  if (!workspace.path) return
   const danger = PROVIDERS.find((p) => p.id === provider)?.permissionModes.find((m) => m.danger)
   if (!danger) return
   const changed: string[] = []
-  for (const p of await workspace.listProjectPaths()) {
-    const cfg = await workspace.projectConfig(p)
-    let touched = false
-    if (projectProviderConfig(cfg, provider).permissionMode === danger.value) {
-      await workspace.mutateProjectConfig(p, (now) => ({ providers: { ...now.providers, [provider]: { ...projectProviderConfig(now, provider), permissionMode: 'inherit' } } }))
-      touched = true
-    }
-    for (const a of projectAgents(cfg)) {
-      if (a.permissionMode === danger.value) {
-        await workspace.updateAgent(p, a.id, { permissionMode: undefined })
+  for (const w of openWorkspaces()) {
+    for (const p of await w.listProjectPaths()) {
+      const cfg = await workspace.projectConfig(p)
+      let touched = false
+      if (projectProviderConfig(cfg, provider).permissionMode === danger.value) {
+        await workspace.mutateProjectConfig(p, (now) => ({ providers: { ...now.providers, [provider]: { ...projectProviderConfig(now, provider), permissionMode: 'inherit' } } }))
         touched = true
       }
+      for (const a of projectAgents(cfg)) {
+        if (a.permissionMode === danger.value) {
+          await workspace.updateAgent(p, a.id, { permissionMode: undefined })
+          touched = true
+        }
+      }
+      if (touched) changed.push(basename(p))
     }
-    if (touched) changed.push(basename(p))
   }
   if (changed.length) {
     toast('warning', `${danger.label} turned off`, `These projects were switched back to Inherit: ${changed.join(', ')}. Running sessions keep their mode until restarted.`)
   }
 }
 
-/** Damaged settings or records found before the window can show them (config.json at startup) wait here. */
+/** Damaged settings or records found before a window can show them (config.json at startup) wait here. */
 const corruptReports: [string, string, boolean][] = []
 let reportsReady = false
 function showCorrupt(file: string, aside: string, restored: boolean): void {
@@ -331,12 +456,14 @@ function showCorrupt(file: string, aside: string, restored: boolean): void {
   toast(
     restored ? 'warning' : 'error',
     restored ? `${basename(file)} was damaged and has been restored` : `${basename(file)} was damaged`,
-    `${restored ? 'Hive went back to its last good copy.' : 'Hive had no good copy, so it started from defaults.'} The damaged file was kept as ${aside}.`
+    `${restored ? 'Hive went back to its last good copy.' : 'Hive had no good copy, so it started from defaults.'} The damaged file was kept as ${aside}.`,
+    undefined,
+    file
   )
 }
 onCorruptFile((file, aside, restored) => (reportsReady ? showCorrupt(file, aside, restored) : void corruptReports.push([file, aside, restored])))
 
-/** What Hive's window may use: the clipboard (paste, copy). Everything else web pages can ask for is refused. */
+/** What Hive's windows may use: the clipboard (paste, copy). Everything else web pages can ask for is refused. */
 const ALLOWED_PERMISSIONS = new Set(['clipboard-read', 'clipboard-sanitized-write'])
 
 app.whenReady().then(async () => {
@@ -365,58 +492,78 @@ app.whenReady().then(async () => {
         ELECTRON_RUN_AS_NODE: '1',
         HIVE_API_URL: env.HIVE_API_URL,
         HIVE_API_TOKEN_FILE: env.HIVE_API_TOKEN_FILE,
-        HIVE_PROJECT: basename(projectPath)
+        HIVE_PROJECT: basename(projectPath),
+        // With several windows, the API answers the session's tools for its own workspace.
+        HIVE_WORKSPACE: workspaceOf(projectPath).path ?? ''
       }
     }
   }
   // The hive MCP server's instructions, for providers that don't show MCP instructions to the model (Codex).
-  sessions.hiveGuidance = async (projectPath) => {
-    if (!sessions.hiveMcp(projectPath)) return ''
-    const project = basename(projectPath)
-    const names = (await workspace.listProjectPaths()).map((p) => basename(p))
-    const latest = (await projectHandovers(await notesTree(), project, names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
-    return withLatestHandover(hiveInstructions(project), latest?.relPath)
-  }
-  sessions.latestHandover = async (projectPath) => {
-    const names = (await workspace.listProjectPaths()).map((p) => basename(p))
-    const latest = (await projectHandovers(await notesTree(), basename(projectPath), names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
-    return latest ? { relPath: latest.relPath, modified: latest.modified ?? '' } : null
-  }
-  sessions.setWindowProvider(() => mainWindow)
+  sessions.hiveGuidance = (projectPath) =>
+    inWorkspace(workspaceOf(projectPath), async () => {
+      if (!sessions.hiveMcp(projectPath)) return ''
+      const project = basename(projectPath)
+      const names = (await workspace.listProjectPaths()).map((p) => basename(p))
+      const latest = (await projectHandovers(await notesTree(), project, names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
+      return withLatestHandover(hiveInstructions(project), latest?.relPath)
+    })
+  sessions.latestHandover = (projectPath) =>
+    inWorkspace(workspaceOf(projectPath), async () => {
+      const names = (await workspace.listProjectPaths()).map((p) => basename(p))
+      const latest = (await projectHandovers(await notesTree(), basename(projectPath), names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
+      return latest ? { relPath: latest.relPath, modified: latest.modified ?? '' } : null
+    })
+  // A project's notifications and focus checks use the window showing it.
+  sessions.setWindowProvider((projectPath) => (projectPath ? windowForPath(projectPath)?.win : null) ?? lastFocused()?.win ?? null)
   providerService.setLiveSessionCounter((p) => sessions.liveCount(p))
 
   await startHookServer()
   await startApiServer()
   wireSettingsEffects()
 
-  registerIpc(() => mainWindow, appInfo, {
+  registerIpc(appInfo, {
     quit: () => void requestQuit(),
-    decide: (choice, dontAskAgain) => {
-      if (dontAskAgain && choice !== 'cancel') config.updateSettings({ general: { confirmOnQuit: 'never' } })
-      answerQuit?.(choice)
+    decide: (from, choice, dontAskAgain) => {
+      const e = hiveWindows().find((x) => x.win === from)
+      if (dontAskAgain && choice !== 'cancel' && e?.question?.scope === 'app') config.updateSettings({ general: { confirmOnQuit: 'never' } })
+      e?.question?.answer(choice)
     },
     cancelPending: cancelPendingQuit,
-    state: () => ({ request: quitRequest, unsaved: quitRequest ? unsavedFiles : [], pending: pendingQuit, working: pendingQuit ? workingCount() : 0 }),
-    setUnsaved: (paths) => {
-      unsavedFiles = paths
+    state: (from) => {
+      const q = hiveWindows().find((x) => x.win === from)?.question
+      return { request: q?.request ?? null, unsaved: q?.unsaved ?? [], scope: q?.scope ?? 'app', pending: pendingQuit, working: pendingQuit ? workingCount() : 0 }
+    },
+    setUnsaved: (from, paths) => {
+      const e = hiveWindows().find((x) => x.win === from)
+      if (e) e.unsaved = paths
+    },
+    newWindow: () => {
+      createWindow()
+      saveWindowsSoon()
     }
   })
-  mainWindow = createWindow()
-  setEventWindow(mainWindow)
-  mainWindow.webContents.once('did-finish-load', () => {
-    // Give the renderer a moment to subscribe to events.
+
+  const hidden = config.settings.general.startMinimized || process.argv.includes('--hidden')
+  const restore = windowsToRestore()
+  for (const w of restore) createWindow({ ...w, hidden })
+  // The last restored window is on top: it counts as focused first.
+  const first = hiveWindows()[0]
+  first?.win.webContents.once('did-finish-load', () => {
+    // Give the page a moment to subscribe to events.
     setTimeout(() => {
       reportsReady = true
       for (const r of corruptReports.splice(0)) showCorrupt(...r)
     }, 1500)
   })
-  createTray(() => mainWindow, {
+  createTray(() => lastFocused()?.win ?? null, {
     quit: () => void requestQuit(),
     quitNow: () => void quitNow(true),
     cancelPendingQuit
   })
   onHiveEvent((e) => {
     if (e.type === 'session-status' || e.type === 'session-exit') checkPendingQuit()
+    // A window opened or closed its workspace: remember it for the next start.
+    if (e.type === 'workspace-changed') saveWindowsSoon()
   })
   initUpdater({
     restart: () => {
@@ -424,16 +571,12 @@ app.whenReady().then(async () => {
       void requestQuit()
     }
   })
-
-  const last = config.get().lastWorkspace
-  if (config.settings.general.reopenLastWorkspace && last && existsSync(last)) {
-    await workspace.open(last).catch((e) => log.warn(`Could not reopen ${last}`, e))
-  }
   void providerService.refresh()
 })
 
 app.on('second-instance', () => {
-  if (mainWindow) showWindow(mainWindow)
+  const w = lastFocused()
+  if (w) showWindow(w.win)
 })
 
 app.on('before-quit', (e) => {

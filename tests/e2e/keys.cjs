@@ -59,13 +59,13 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await page.keyboard.press('Escape'); await sleep(200)
   // Chord
   await row.locator('.icon-btn[aria-label^="Change shortcut"]').click(); await sleep(200)
-  await page.keyboard.press('Control+K'); await sleep(300); await page.keyboard.press('Control+N'); await sleep(500)
+  await page.keyboard.press('Control+K'); await sleep(300); await page.keyboard.press('Control+J'); await sleep(500)
   s = await inv('settings:get')
-  check('chord recorded', s.keybindings['view.notifications'] === 'Mod+K Mod+N', s.keybindings['view.notifications'])
+  check('chord recorded', s.keybindings['view.notifications'] === 'Mod+K Mod+J', s.keybindings['view.notifications'])
   // Refused key
   await row.locator('.icon-btn[aria-label^="Change shortcut"]').click(); await sleep(200)
   await page.keyboard.press('Control+C'); await sleep(1600)
-  check('Ctrl+C refused', (await page.locator('.toast', { hasText: "can't be used" }).count()) >= 1 && (await inv('settings:get')).keybindings['view.notifications'] === 'Mod+K Mod+N')
+  check('Ctrl+C refused', (await page.locator('.toast', { hasText: "can't be used" }).count()) >= 1 && (await inv('settings:get')).keybindings['view.notifications'] === 'Mod+K Mod+J')
   // Conflict asks
   await row.locator('.icon-btn[aria-label^="Change shortcut"]').click(); await sleep(200)
   await page.keyboard.press('Control+Shift+P'); await sleep(1600)

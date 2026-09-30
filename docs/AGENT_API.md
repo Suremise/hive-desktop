@@ -62,6 +62,14 @@ Errors return a non-2xx status and `{ "error": "message" }`.
 
 ---
 
+## Several windows
+
+Hive can show several workspaces, each in its own window (**File → New Window**). The API serves all of them:
+
+- A request is for one workspace: the one named by the `X-Hive-Workspace` header (its folder path, URL-encoded) or the `workspace` query parameter (its name or path), else the only one open. The `hive` MCP server sends its session's workspace, so an agent's tools always see its own workspace.
+- `{name}` in `/v1/projects/{name}` is a project in the request's workspace. With several windows open and no workspace named, a name is looked up in every open workspace: a name found in two answers **409**; say `<workspace>/<project>` instead (`/` encoded as `%2F` in the path: `/v1/projects/work%2Fapi`).
+- Calls about a whole workspace (`/v1/workspace`, shared notes, skills without a project, MCP servers) answer **400** when several are open and none is named.
+
 ## Endpoints
 
 ### Health
@@ -74,7 +82,7 @@ Errors return a non-2xx status and `{ "error": "message" }`.
 
 ### Status
 
-`GET /v1/status` — app version, each provider's install info, the open workspace and running sessions.
+`GET /v1/status` — app version, each provider's install info, the request's workspace (`null` if several are open and none is named), every open workspace (`workspaces`) and running sessions.
 
 ```json
 {
@@ -85,7 +93,8 @@ Errors return a non-2xx status and `{ "error": "message" }`.
     { "provider": "codex", "found": true, "version": "0.159.0", "source": "PATH", "updateAvailable": false, "loggedIn": true }
   ],
   "workspace": { "name": "work", "path": "D:\\work" },
-  "liveSessions": [{ "project": "api", "agent": "Agent 1", "provider": "claude-code", "sessionId": "6f1c…", "status": "working" }]
+  "workspaces": [{ "name": "work", "path": "D:\\work" }],
+  "liveSessions": [{ "workspace": "work", "project": "api", "agent": "Agent 1", "provider": "claude-code", "sessionId": "6f1c…", "status": "working" }]
 }
 ```
 
@@ -93,11 +102,13 @@ Errors return a non-2xx status and `{ "error": "message" }`.
 
 ### Workspace
 
-`GET /v1/workspace` — `{ name, path, config }` where `config` lists globally enabled skills and MCP servers, or `null` if no workspace is open.
+`GET /v1/workspace` — `{ name, path, config }` for the request's workspace, where `config` lists the workspace-enabled MCP servers, or `null` if no workspace is open.
+
+`GET /v1/workspaces` — every open workspace (one per window): `[{ name, path }]`.
 
 ### Projects
 
-`GET /v1/projects` — every project in the workspace.
+`GET /v1/projects` — every project in the request's workspace; with several windows open and none named, every open workspace's projects. Each has `workspace` (its workspace's name).
 
 `GET /v1/projects/{name}` — one project.
 

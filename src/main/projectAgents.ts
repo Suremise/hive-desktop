@@ -7,7 +7,7 @@ import { config } from './config'
 import { toast } from './events'
 import { createLogger } from './logger'
 import { sessions } from './sessions'
-import { workspace } from './workspace'
+import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
 
 const log = createLogger('agents')
@@ -24,7 +24,7 @@ export async function gitInfo(projectPath: string): Promise<ProjectGitInfo> {
     current,
     branches: await wt.localBranches(projectPath),
     worktrees: all.filter((w) => w.path.toLowerCase() !== resolve(projectPath).toLowerCase()).map((w) => ({ ...w, used: used.has(w.path.toLowerCase()) })),
-    worktreesRoot: join(workspace.worktreesRoot, projectPath.split(/[\\/]/).pop()!)
+    worktreesRoot: join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!)
   }
 }
 
@@ -52,7 +52,7 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
     const base = opts.base || (await wt.currentBranch(projectPath))
     if (!base) throw new Error('The project folder is not on a branch. Choose the branch to start from.')
     const branch = await wt.uniqueBranch(projectPath, opts.branch?.trim() || `hive/${slugify(name)}`)
-    const dest = wt.uniqueFolder(join(workspace.worktreesRoot, projectPath.split(/[\\/]/).pop()!, slugify(name)))
+    const dest = wt.uniqueFolder(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!, slugify(name)))
     await wt.createWorktree(projectPath, dest, branch, base)
     const s = config.settings.agents
     const copied = await wt.copyIgnored(projectPath, dest, cfg.worktreeCopy ?? s.worktreeCopy)
@@ -75,7 +75,7 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
     // Adding an agent shows every agent: the layout follows the count (choosing one by hand still works).
     return { agents: [...list, def], sessionLayout: layoutForAgents(list.length + 1) }
   })
-  await workspace.refresh()
+  await workspaceOf(projectPath).refresh()
   return def
 }
 
@@ -103,7 +103,7 @@ export async function updateAgent(projectPath: string, agentId: string, patch: P
   const def = await workspace.updateAgent(projectPath, agentId, clean)
   const live = sessions.liveFor(projectPath, agentId)
   if (live && patch.name) live.agentName = patch.name
-  await workspace.refresh()
+  await workspaceOf(projectPath).refresh()
   return def
 }
 
@@ -115,7 +115,7 @@ export async function removeAgent(projectPath: string, agentId: string, opts: { 
   if (!def) return
   if (def.worktree && opts.deleteWorktree) await wt.removeWorktree(projectPath, def.worktree, true)
   await workspace.mutateProjectConfig(projectPath, (now) => ({ agents: now.agents.filter((a) => a.id !== agentId) }))
-  await workspace.refresh()
+  await workspaceOf(projectPath).refresh()
 }
 
 async function worktreeOf(projectPath: string, agentId: string) {
@@ -135,13 +135,13 @@ export async function merge(projectPath: string, agentId: string, opts: { squash
   if (opts.cleanup && sessions.liveFor(projectPath, agentId)) throw new Error(`Stop ${def.name} before merging and removing its worktree.`)
   const result = await wt.mergeWorktree(projectPath, worktree, opts)
   if (!result.ok || !opts.cleanup) {
-    workspace.scheduleRefresh()
+    workspaceOf(projectPath).scheduleRefresh()
     return result
   }
   try {
     await wt.removeWorktree(projectPath, worktree, true)
     await workspace.mutateProjectConfig(projectPath, (now) => ({ agents: now.agents.filter((a) => a.id !== agentId) }))
-    await workspace.refresh()
+    await workspaceOf(projectPath).refresh()
     return { ...result, cleanedUp: true }
   } catch (e) {
     toast('warning', 'Merged, but the worktree was not removed', (e as Error).message, undefined, projectPath)

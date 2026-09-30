@@ -113,6 +113,8 @@ interface State {
   quitRequest: QuitSession[] | null
   /** Files with unsaved edits listed in the quit dialog (absolute paths). */
   quitUnsaved: string[]
+  /** 'window': the dialog is for closing this window (its workspace's sessions), not quitting Hive. */
+  quitScope: 'app' | 'window'
   /** Hive will quit once no agent is working. */
   quitPending: { working: number } | null
   /** The agent whose Compact dialog is open. */
@@ -184,6 +186,7 @@ export const useStore = create<State>(() => ({
   dialog: null,
   quitRequest: null,
   quitUnsaved: [],
+  quitScope: 'app',
   quitPending: null,
   compactFor: null,
   addAgentFor: null,

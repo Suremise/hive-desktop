@@ -1,7 +1,7 @@
 import http, { type IncomingMessage, type ServerResponse } from 'http'
 import { randomBytes, timingSafeEqual } from 'crypto'
 import { app } from 'electron'
-import { join, basename } from 'path'
+import { basename, dirname, join, resolve as resolvePath } from 'path'
 import { readFile } from 'fs/promises'
 import type { AgentApiInfo, HiveEvent, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, projectAgents } from '../shared/defaults'
@@ -17,7 +17,7 @@ import { assertInShared, createHandover, notesTree } from './notes'
 import { writePty } from './ptyHost'
 import { sessions } from './sessions'
 import { listSkills } from './skills'
-import { workspace } from './workspace'
+import { contextWorkspace, inWorkspace, openWorkspaces, workspace, workspaceOf, type WorkspaceService } from './workspace'
 
 const log = createLogger('servers')
 const MAX_BODY = 2 * 1024 * 1024
@@ -149,11 +149,57 @@ export function apiEnv(): Record<string, string> {
   return { HIVE_API_URL: info.url, HIVE_API_TOKEN: apiToken, HIVE_API_TOKEN_FILE: tokenFile() }
 }
 
+/** An open workspace by its folder path or its name. */
+function findWorkspace(want: string): WorkspaceService | null {
+  const v = want.toLowerCase()
+  const byPath = /[\\/]/.test(want) ? resolvePath(want).toLowerCase() : null
+  return openWorkspaces().find((w) => (byPath ? w.path!.toLowerCase() === byPath : basename(w.path!).toLowerCase() === v)) ?? null
+}
+
+/** The workspace a request names (X-Hive-Workspace header, or ?workspace=), else the only open one. */
+function requestWorkspace(req: IncomingMessage, url: URL): WorkspaceService | null {
+  const header = req.headers['x-hive-workspace']
+  const raw = typeof header === 'string' && header ? decodeURIComponent(header) : url.searchParams.get('workspace')
+  if (raw) {
+    const w = findWorkspace(raw)
+    if (!w) throw new HttpError(404, `Unknown workspace "${raw}": it isn't open in Hive`)
+    return w
+  }
+  const open = openWorkspaces()
+  return open.length === 1 ? open[0] : null
+}
+
+/** The request's workspace, for calls about a whole workspace (shared notes, MCP servers…). */
+function requireWorkspace(): WorkspaceService {
+  const w = contextWorkspace()
+  if (w) return w
+  if (!openWorkspaces().length) throw new HttpError(409, 'No workspace is open')
+  throw new HttpError(400, 'Several workspaces are open in Hive: say which with ?workspace=<name> or the X-Hive-Workspace header')
+}
+
+/**
+ * A project by name: "<project>" in the request's workspace (or, with none named, in whichever open
+ * workspace has it: 409 if several do), or "<workspace>/<project>" (encoded as %2F in a URL path).
+ */
 function projectByName(name: string): string {
-  if (!workspace.path) throw new HttpError(409, 'No workspace is open')
-  const p = join(workspace.path, decodeURIComponent(name))
-  if (!workspace.isProjectPath(p)) throw new HttpError(404, `Unknown project "${name}"`)
-  return p
+  const raw = decodeURIComponent(name)
+  if (!openWorkspaces().length) throw new HttpError(409, 'No workspace is open')
+  const slash = raw.search(/[\\/]/)
+  let project = raw
+  let candidates: WorkspaceService[]
+  if (slash > 0) {
+    const w = findWorkspace(raw.slice(0, slash))
+    if (!w) throw new HttpError(404, `Unknown workspace "${raw.slice(0, slash)}": it isn't open in Hive`)
+    candidates = [w]
+    project = raw.slice(slash + 1)
+  } else {
+    const ctx = contextWorkspace()
+    candidates = ctx ? [ctx] : openWorkspaces()
+  }
+  const hits = candidates.map((w) => join(w.path!, project)).filter((p) => workspace.isProjectPath(p))
+  if (!hits.length) throw new HttpError(404, `Unknown project "${raw}"`)
+  if (hits.length > 1) throw new HttpError(409, `"${project}" is a project in several open workspaces: name it as <workspace>/<project>, e.g. ${basename(dirname(hits[0]))}/${project}`)
+  return hits[0]
 }
 
 async function projectSummary(p: string) {
@@ -161,6 +207,7 @@ async function projectSummary(p: string) {
   return {
     name: info.name,
     path: info.path,
+    workspace: basename(workspaceOf(p).path ?? ''),
     active: info.active,
     branch: info.branch,
     status: info.live?.status ?? 'stopped',
@@ -206,18 +253,25 @@ route('GET', '/v1/status', async () => ({
   /** Claude Code's install info, as before providers; `providers` has every provider's. */
   agent: providerService.info(CLAUDE_CODE),
   providers: providerService.all(),
-  workspace: workspace.path ? { name: basename(workspace.path), path: workspace.path } : null,
-  liveSessions: sessions.liveStates().map((s) => ({ project: basename(s.projectPath), agent: s.agentName ?? null, provider: s.provider, sessionId: s.sessionId || null, status: s.status }))
+  /** The request's workspace (or the only open one); `workspaces` lists every window's. */
+  workspace: contextWorkspace()?.path ? { name: basename(contextWorkspace()!.path!), path: contextWorkspace()!.path } : null,
+  workspaces: openWorkspaces().map((w) => ({ name: basename(w.path!), path: w.path })),
+  liveSessions: sessions.liveStates().map((s) => ({ workspace: basename(workspaceOf(s.projectPath).path ?? ''), project: basename(s.projectPath), agent: s.agentName ?? null, provider: s.provider, sessionId: s.sessionId || null, status: s.status }))
 }))
 
 route('GET', '/v1/workspace', async () => {
-  if (!workspace.path) return null
-  return { name: basename(workspace.path), path: workspace.path, config: workspace.config }
+  if (!openWorkspaces().length) return null
+  const w = requireWorkspace()
+  return { name: basename(w.path!), path: w.path, config: w.config }
 })
 
+route('GET', '/v1/workspaces', async () => openWorkspaces().map((w) => ({ name: basename(w.path!), path: w.path })))
+
 route('GET', '/v1/projects', async () => {
+  // The request's workspace, else every open workspace's projects (each says its workspace).
+  const ctx = contextWorkspace()
   const out = []
-  for (const p of await workspace.listProjectPaths()) out.push(await projectSummary(p))
+  for (const w of ctx ? [ctx] : openWorkspaces()) for (const p of await w.listProjectPaths()) out.push(await projectSummary(p))
   return out
 })
 
@@ -226,7 +280,7 @@ route('GET', '/v1/projects/:name', async ({ params }) => projectSummary(projectB
 route('POST', '/v1/projects/:name/activate', async ({ params }) => {
   const p = projectByName(params[0])
   workspace.setActive(p, true)
-  await workspace.refresh()
+  await workspaceOf(p).refresh()
   return projectSummary(p)
 })
 
@@ -234,7 +288,7 @@ route('POST', '/v1/projects/:name/deactivate', async ({ params }) => {
   const p = projectByName(params[0])
   if (sessions.liveFor(p)) throw new HttpError(409, 'Stop the running session before deactivating the project')
   workspace.setActive(p, false)
-  await workspace.refresh()
+  await workspaceOf(p).refresh()
   return projectSummary(p)
 })
 
@@ -282,19 +336,19 @@ route('POST', '/v1/projects/:name/continue', async ({ params, body }) => {
   return { ok: true }
 })
 
-route('GET', '/v1/shared', async () => notesTree())
+route('GET', '/v1/shared', async () => inWorkspace(requireWorkspace(), () => notesTree()))
 
 route('GET', '/v1/shared/file', async ({ query }) => {
   const rel = query.get('path')
   if (!rel) throw new HttpError(400, 'path is required')
-  const abs = assertInShared(rel)
+  const abs = inWorkspace(requireWorkspace(), () => assertInShared(rel))
   return { path: rel, content: await readFile(abs, 'utf8').catch(() => { throw new HttpError(404, 'Not found') }) }
 })
 
 route('PUT', '/v1/shared/file', async ({ query, body }) => {
   const rel = query.get('path') ?? body?.path
   if (!rel) throw new HttpError(400, 'path is required')
-  const abs = assertInShared(rel)
+  const abs = inWorkspace(requireWorkspace(), () => assertInShared(rel))
   const content = String(body?.content ?? '')
   if (body?.append) {
     const existing = await readFile(abs, 'utf8').catch(() => '')
@@ -306,7 +360,9 @@ route('PUT', '/v1/shared/file', async ({ query, body }) => {
 
 route('POST', '/v1/shared/handovers', async ({ body }) => {
   if (!body?.title || !body?.content) throw new HttpError(400, 'title and content are required')
-  const file = await createHandover(String(body.project ?? ''), String(body.title), String(body.content))
+  // For a named project, its workspace's notes; else the request's workspace.
+  const ws = body.project ? workspaceOf(projectByName(String(body.project))) : requireWorkspace()
+  const file = await inWorkspace(ws, () => createHandover(String(body.project ?? ''), String(body.title), String(body.content)))
   emit({ type: 'notes-changed' })
   toast('info', 'Handover created', `${body.project ? body.project + ': ' : ''}${body.title}`, [{ label: 'Open', command: 'notes.open', args: [file] }])
   return { ok: true, path: file }
@@ -314,10 +370,14 @@ route('POST', '/v1/shared/handovers', async ({ body }) => {
 
 route('GET', '/v1/skills', async ({ query }) => {
   const project = query.get('project')
-  return listSkills(project ? projectByName(project) : undefined)
+  if (project) {
+    const p = projectByName(project)
+    return inWorkspace(workspaceOf(p), () => listSkills(p))
+  }
+  return inWorkspace(requireWorkspace(), () => listSkills())
 })
 
-route('GET', '/v1/mcp', async () => (await listMcp()).map(({ name, def, globallyEnabled, error }) => ({ name, description: def?.description ?? '', globallyEnabled, error })))
+route('GET', '/v1/mcp', async () => (await inWorkspace(requireWorkspace(), () => listMcp())).map(({ name, def, globallyEnabled, error }) => ({ name, description: def?.description ?? '', globallyEnabled, error })))
 
 route('POST', '/v1/notify', async ({ body }) => {
   const level: ToastLevel = ['info', 'success', 'warning', 'error'].includes(body?.level) ? body.level : 'info'
@@ -354,7 +414,10 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
       }
     }
     const params = url.pathname.match(r.pattern)!.slice(1)
-    const result = await r.handler({ params, query: url.searchParams, body })
+    // With several Hive windows, a request is for one workspace: the one it names, or the only one open.
+    const ws = requestWorkspace(req, url)
+    const run = (): Promise<unknown> => r.handler({ params, query: url.searchParams, body })
+    const result = ws ? await inWorkspace(ws, run) : await run()
     send(res, 200, result ?? null)
   } catch (e) {
     const status = e instanceof HttpError ? e.status : statusFor(e as Error)

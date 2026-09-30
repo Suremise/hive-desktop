@@ -11,7 +11,7 @@ type MenuDef = { label: string; items: (string | '-' | { submenu: 'recent' })[] 
 const MENUS: MenuDef[] = [
   {
     label: 'File',
-    items: ['project.new', '-', 'workspace.open', 'workspace.create', { submenu: 'recent' }, 'workspace.refresh', 'workspace.close', '-', 'settings.open', '-', 'app.quit']
+    items: ['project.new', 'window.new', '-', 'workspace.open', 'workspace.create', { submenu: 'recent' }, 'workspace.refresh', 'workspace.close', '-', 'settings.open', '-', 'app.quit']
   },
   { label: 'Edit', items: ['edit.undo', 'edit.redo', '-', 'edit.cut', 'edit.copy', 'edit.paste', '-', 'edit.selectAll'] },
   {

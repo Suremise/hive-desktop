@@ -54,7 +54,7 @@ export interface HiveRequests {
   'app:quitDecision': (choice: QuitChoice, dontAskAgain: boolean) => void
   'app:cancelPendingQuit': () => void
   /** Current quit state, for a window that reloads while a quit dialog or pending quit is open. */
-  'app:quitState': () => { request: QuitSession[] | null; unsaved: string[]; pending: boolean; working: number }
+  'app:quitState': () => { request: QuitSession[] | null; unsaved: string[]; scope: 'app' | 'window'; pending: boolean; working: number }
   'app:openExternal': (url: string) => void
   'app:openPath': (path: string) => void
   'app:showInFolder': (path: string) => void
@@ -72,6 +72,8 @@ export interface HiveRequests {
   'window:minimize': () => void
   'window:toggleMaximize': () => void
   'window:close': () => void
+  /** Opens another Hive window (the welcome page), like VS Code's New Window. */
+  'window:new': () => void
   'window:toggleDevTools': () => void
   'window:zoom': (direction: 'in' | 'out' | 'reset') => void
   'window:toggleFullScreen': () => void

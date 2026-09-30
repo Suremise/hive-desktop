@@ -1,0 +1,113 @@
+import type { BrowserWindow, WebContents } from 'electron'
+import type { HiveEvent, QuitChoice, QuitSession } from '../shared/types'
+import { setEventRouter } from './events'
+import { contextWorkspace, setWorkspaceFallback, workspaceFor, type WorkspaceService } from './workspace'
+
+/**
+ * Hive's windows, like VS Code's: each shows one workspace (or the welcome page), all in one app process,
+ * so settings, the Agent API, the tray, updates and file locks stay single. This module keeps track of
+ * them and decides which window each event and terminal's output goes to.
+ */
+
+export interface HiveWindow {
+  win: BrowserWindow
+  ws: WorkspaceService
+  /** Files with unsaved edits in this window (reported by its page). */
+  unsaved: string[]
+  focusedAt: number
+  /** A quit or close question shown in this window, waiting for the answer. */
+  question: { request: QuitSession[]; unsaved: string[]; scope: 'app' | 'window'; answer: (c: QuitChoice) => void } | null
+  /** Closing was decided: let the window close. */
+  closing: boolean
+}
+
+const entries = new Map<number, HiveWindow>()
+
+export function registerWindow(win: BrowserWindow, ws: WorkspaceService): HiveWindow {
+  const e: HiveWindow = { win, ws, unsaved: [], focusedAt: Date.now(), question: null, closing: false }
+  entries.set(win.webContents.id, e)
+  ws.window = win
+  win.on('focus', () => (e.focusedAt = Date.now()))
+  return e
+}
+
+export function unregisterWindow(e: HiveWindow): void {
+  for (const [k, v] of entries) if (v === e) entries.delete(k)
+  e.ws.window = null
+}
+
+/** Every window, in the order they were opened. */
+export function hiveWindows(): HiveWindow[] {
+  return [...entries.values()].filter((e) => !e.win.isDestroyed())
+}
+
+export function windowOf(sender: WebContents): HiveWindow | null {
+  return entries.get(sender.id) ?? null
+}
+
+/** The window used when nothing says which: the one focused last. */
+export function lastFocused(): HiveWindow | null {
+  return hiveWindows().sort((a, b) => b.focusedAt - a.focusedAt)[0] ?? null
+}
+
+/** The window showing a workspace folder, if one is. */
+export function windowShowing(path: string): HiveWindow | null {
+  const p = path.toLowerCase()
+  return hiveWindows().find((e) => e.ws.path?.toLowerCase() === p) ?? null
+}
+
+/** The window showing the workspace a project (or worktree) path belongs to. */
+export function windowForPath(p: string): HiveWindow | null {
+  const ws = workspaceFor(p)
+  return ws ? (hiveWindows().find((e) => e.ws === ws) ?? null) : null
+}
+
+const wins = (list: (HiveWindow | null)[]): BrowserWindow[] => list.filter((e): e is HiveWindow => !!e && !e.win.isDestroyed()).map((e) => e.win)
+
+function inContext(): HiveWindow | null {
+  const ws = contextWorkspace()
+  return ws ? (hiveWindows().find((e) => e.ws === ws) ?? null) : null
+}
+
+function forEvent(e: HiveEvent): BrowserWindow[] {
+  const all = hiveWindows()
+  switch (e.type) {
+    case 'session-status':
+      return wins([windowForPath(e.state.projectPath)])
+    case 'session-exit':
+    case 'chime':
+    case 'usage-changed':
+    case 'files-changed':
+      return wins([windowForPath(e.projectPath)])
+    case 'workspace-changed':
+    case 'skills-changed':
+    case 'notes-changed': {
+      // From a window's request: that window. From elsewhere (the Agent API, a timer): every window refreshes.
+      const w = inContext()
+      return w ? wins([w]) : wins(all)
+    }
+    case 'toast':
+    case 'menu-command': {
+      const source = e.type === 'toast' ? e.toast.source : undefined
+      const bySource = source && /[\\/]/.test(source) ? windowForPath(source) : null
+      return wins([inContext() ?? bySource ?? lastFocused()])
+    }
+    case 'window-state':
+    case 'quit-request':
+      // Sent to one window by emitTo.
+      return []
+    default:
+      // Settings, providers, plan usage, updates, a pending quit: every window.
+      return wins(all)
+  }
+}
+
+function forPty(key: string): BrowserWindow[] {
+  // session:<project path>#<agent id>: the window showing that project. Other terminals (Agent Setup's
+  // tasks) go to every window; only the one that started the task shows it.
+  const m = /^session:(.+)#[^#]+$/.exec(key)
+  return m ? wins([windowForPath(m[1])]) : wins(hiveWindows())
+}
+
+setEventRouter({ forEvent, forPty })
+setWorkspaceFallback(() => lastFocused()?.ws ?? null)

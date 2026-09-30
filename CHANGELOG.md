@@ -24,6 +24,11 @@
 - **A project's Skills tab lists everything its agents get**: the Hive skills (with **Edit in workspace**), then per provider the project's own **Local (User Managed)** skills, which you can now add, edit and delete there, and your user and plugin skills (view only). A local skill can be added for Claude Code and Codex at once.
 - **Six skills come with Hive**, for working with several agents and sessions: `handover`, `pick-up`, `merge-ready`, `review-agent-work`, `split-work` and `workspace-note`. New workspaces start with them. In an existing workspace they're listed greyed out: **Restore** adds one. When a later Hive improves them, **Revert to default** on a skill's page brings your copy up to date (the old copy goes to the Recycle Bin).
 
+### Several windows
+- **File → New Window** (Ctrl+K Ctrl+N) opens another Hive window, like VS Code, so you can work in several workspaces at once. Each window has its own projects and agents; settings, the tray and updates are shared.
+- Opening a workspace that's already open in another window brings that window forward. Closing a window stops its workspace's agents, asking first as quitting does. Hive reopens the windows that were open when it quit.
+- Agent API: `X-Hive-Workspace` or `?workspace=` names the workspace a request is for, `GET /v1/workspaces` lists them, and a project can be named `<workspace>/<project>`. The `hive` tools always use their session's workspace.
+
 ### Other new features
 - **Continue with…** in the agent menu hands an agent's work to another agent, of either provider, through a handover; the Sessions tab links the two sessions. Also `POST /v1/projects/{name}/continue` in the Agent API.
 - **A new Overview**: a project summary for a chosen period (tokens, API-equivalent cost, sessions, prompts) across providers, the agents running now, a section per provider with its plan limits, and a table by agent.
