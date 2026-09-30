@@ -1,5 +1,7 @@
+import { randomBytes } from 'crypto'
 import { join, resolve } from 'path'
-import { MAIN_AGENT, MAX_AGENTS, projectAgents, slugify } from '../shared/defaults'
+import { MAX_AGENTS, layoutForAgents, projectAgents, slugify } from '../shared/defaults'
+import { agentProvider, isKnownProvider } from '../shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, AgentDef, MergeResult, ProjectGitInfo } from '../shared/types'
 import { config } from './config'
 import { toast } from './events'
@@ -35,10 +37,13 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
   while (agents.some((a) => a.name === `Agent ${n}`)) n++
   const name = opts.name?.trim() || `Agent ${n}`
   if (agents.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an agent called "${name}".`)
-  let id = `a${n}`
-  while (agents.some((a) => a.id === id)) id = `a${++n}`
+  // Never reused: sessions of a removed agent keep its id and must not attach to a new one.
+  const id = `a-${randomBytes(4).toString('hex')}`
 
-  const def: AgentDef = { id, name }
+  // The provider is stored on the agent, so changing a default later doesn't move existing agents.
+  const provider = opts.provider || agentProvider(null, cfg, config.settings)
+  if (!isKnownProvider(provider)) throw new Error(`Unknown provider "${provider}".`)
+  const def: AgentDef = { id, name, provider }
   if (opts.model) def.model = opts.model
   if (opts.effort) def.effort = opts.effort
   if (opts.permissionMode) def.permissionMode = opts.permissionMode
@@ -65,16 +70,19 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
   }
 
   await workspace.mutateProjectConfig(projectPath, (now) => {
-    if (projectAgents(now).length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
-    return { agents: [...(now.agents ?? []), def] }
+    const list = projectAgents(now)
+    if (list.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
+    // Adding an agent shows every agent: the layout follows the count (choosing one by hand still works).
+    return { agents: [...list, def], sessionLayout: layoutForAgents(list.length + 1) }
   })
   await workspace.refresh()
   return def
 }
 
-export async function updateAgent(projectPath: string, agentId: string, patch: Partial<Pick<AgentDef, 'name' | 'model' | 'effort' | 'permissionMode'>>): Promise<AgentDef> {
+export async function updateAgent(projectPath: string, agentId: string, patch: Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode'>>): Promise<AgentDef> {
   projectPath = workspace.assertProject(projectPath)
-  const agents = projectAgents(await workspace.projectConfig(projectPath))
+  const cfg = await workspace.projectConfig(projectPath)
+  const agents = projectAgents(cfg)
   if (patch.name !== undefined) {
     patch.name = patch.name.trim()
     if (!patch.name) throw new Error('Enter a name.')
@@ -83,6 +91,15 @@ export async function updateAgent(projectPath: string, agentId: string, patch: P
   // Empty values clear an override so the agent follows the project again.
   const clean: Partial<AgentDef> = { ...patch }
   for (const k of ['model', 'effort', 'permissionMode'] as const) if (k in clean && !clean[k]) clean[k] = undefined
+  if (patch.provider !== undefined) {
+    const current = agents.find((a) => a.id === agentId)
+    if (!isKnownProvider(patch.provider)) throw new Error(`Unknown provider "${patch.provider}".`)
+    if (current && agentProvider(current, cfg, config.settings) !== patch.provider) {
+      if (sessions.liveFor(projectPath, agentId)) throw new Error('Stop the agent before changing its provider.')
+      // Model, effort and mode belong to the old provider, and its conversations can't be resumed by the new one.
+      Object.assign(clean, { model: patch.model || undefined, effort: patch.effort || undefined, permissionMode: patch.permissionMode || undefined, lastSessionId: undefined })
+    }
+  }
   const def = await workspace.updateAgent(projectPath, agentId, clean)
   const live = sessions.liveFor(projectPath, agentId)
   if (live && patch.name) live.agentName = patch.name
@@ -92,7 +109,6 @@ export async function updateAgent(projectPath: string, agentId: string, patch: P
 
 export async function removeAgent(projectPath: string, agentId: string, opts: { deleteWorktree: boolean }): Promise<void> {
   projectPath = workspace.assertProject(projectPath)
-  if (agentId === MAIN_AGENT) throw new Error('Agent 1 works in the project folder and cannot be removed.')
   if (sessions.liveFor(projectPath, agentId)) throw new Error('Stop the agent before removing it.')
   const cfg = await workspace.projectConfig(projectPath)
   const def = cfg.agents.find((a) => a.id === agentId)

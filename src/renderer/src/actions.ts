@@ -1,8 +1,9 @@
 import { basename } from './util'
 import { call, errorMessage } from './api'
-import { agentOf, confirm, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
-import { MAIN_AGENT, sessionInAgentFolder } from '@shared/defaults'
-import type { ProjectInfo, SessionLayout, SessionListItem } from '@shared/types'
+import { agentOf, agentProviderOf, confirm, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
+import { MAX_AGENTS, sessionInAgentFolder } from '@shared/defaults'
+import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
+import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { formatTokens } from './util'
 
 /** Runs an async action and shows a toast if it fails. */
@@ -122,16 +123,56 @@ async function waitForStop(path: string, agentId?: string, timeoutMs = 8000): Pr
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     const live = await call('session:live')
-    if (!live.some((l) => l.projectPath.toLowerCase() === path.toLowerCase() && (!agentId || (l.agentId ?? MAIN_AGENT) === agentId))) return
+    if (!live.some((l) => l.projectPath.toLowerCase() === path.toLowerCase() && (!agentId || l.agentId === agentId))) return
     await new Promise((r) => setTimeout(r, 150))
   }
 }
 
-async function ensureAgent(): Promise<boolean> {
-  const agent = get().agent
-  if (agent?.found) return true
-  set({ setupOpen: true })
+/** The agent's provider is turned on and installed; otherwise says so (or opens its setup) and returns false. */
+async function ensureAgent(path: string, agentId: string): Promise<boolean> {
+  const p = project(path)
+  const provider = agentProviderOf(p, agentOf(p, agentId))
+  const name = providerName(provider)
+  if (!isProviderEnabled(get().settings, provider)) {
+    notify('warning', `${name} is turned off`, `Turn it on in Settings → Providers to run this agent, or give the agent another provider in its settings.`, [{ label: 'Open Settings', command: 'settings.providers' }])
+    return false
+  }
+  if (get().providers[provider]?.found) return true
+  set({ setupOpen: provider })
   return false
+}
+
+/**
+ * Add Agent's quick add: an agent with the project's default provider and default settings, in the project
+ * folder. When that provider is off or not installed, opens the Add Agent dialog instead. Returns the new
+ * agent's id, or null.
+ */
+export async function quickAddAgent(path: string | null = get().selectedProject, forProvider?: ProviderId): Promise<string | null> {
+  if (!path) return null
+  const p = project(path)
+  if (p && p.agents.length >= MAX_AGENTS) {
+    notify('warning', 'No room for another agent', `A project can have up to ${MAX_AGENTS} agents. Remove one first.`)
+    return null
+  }
+  const provider = forProvider ?? projectDefaultProvider(p?.config, get().settings)
+  if (!isProviderEnabled(get().settings, provider) || !get().providers[provider]?.found) {
+    set({ addAgentFor: path })
+    return null
+  }
+  const def = await attempt('Could not add an agent', () => call('agents:add', path, { location: 'project', provider }))
+  if (!def) return null
+  await refreshWorkspace()
+  const now = project(path)
+  if (now) showAgent(now, def.id)
+  return def.id
+}
+
+/** Changes a project's settings for one provider. */
+export async function updateProjectProvider(path: string, provider: ProviderId, patch: Partial<ProjectProviderConfig>): Promise<void> {
+  const p = project(path)
+  if (!p) return
+  await attempt('Could not save project settings', () => call('project:updateProvider', path, provider, patch))
+  await refreshWorkspace()
 }
 
 /** " (Agent 2)" in projects with several agents, else nothing — for dialog wording. */
@@ -163,47 +204,68 @@ function reveal(path: string, agentId: string): void {
 }
 
 export async function newSession(path: string | null = get().selectedProject, agentId?: string, opts: { skipSetup?: boolean } = {}): Promise<void> {
-  if (!path || !(await ensureAgent())) return
-  const id = agentId ?? focusedAgentId(project(path))
+  if (!path) return
+  // A project without agents gets one (the quick add) and starts it.
+  const id = agentId ?? focusedAgentId(project(path)) ?? (await quickAddAgent(path))
+  if (!id) return
+  if (!(await ensureAgent(path, id))) return
   if (!(await stopIfRunning(path, id, 'Start a new session'))) return
   const st = await attempt('Could not start session', () => call('session:start', path, { agentId: id, skipSetup: opts.skipSetup }))
   if (st) reveal(path, id)
 }
 
 /**
- * Which agent resumes a session. A session runs in the folder it started in, so one from a worktree
- * goes back to the agent working there (null if none does). For the project folder: the agent asked
- * for, else one that isn't running — the agent that last ran it, the focused one, any other in the
- * folder — else the agent that ran it.
+ * Which agent resumes a session. A session runs in the folder it started in and with its provider, so
+ * one from a worktree goes back to the agent working there (null if none does, or it runs another
+ * provider). For the project folder: the agent asked for, else one that isn't running — the agent that
+ * last ran it, the focused one, any other in the folder — else the agent that ran it.
  */
-export function resumeTarget(p: ProjectInfo | undefined, item: Pick<SessionListItem, 'agentId' | 'cwd'>, preferred?: string): string | null {
-  if (!p) return preferred ?? MAIN_AGENT
+export function resumeTarget(p: ProjectInfo | undefined, item: Pick<SessionListItem, 'agentId' | 'cwd'> & { provider?: ProviderId }, preferred?: string): string | null {
+  if (!p) return preferred ?? null
+  const sameProvider = (a: ProjectInfo['agents'][number]): boolean => !item.provider || agentProviderOf(p, a) === item.provider
   if (item.cwd && item.cwd.toLowerCase() !== p.path.toLowerCase()) {
-    return p.agents.find((a) => a.worktree?.path.toLowerCase() === item.cwd!.toLowerCase())?.id ?? null
+    const a = p.agents.find((x) => x.worktree?.path.toLowerCase() === item.cwd!.toLowerCase())
+    return a && sameProvider(a) ? a.id : null
   }
-  const inFolder = (id: string | undefined): boolean => !!id && p.agents.some((a) => a.id === id && !a.worktree)
+  const inFolder = (id: string | undefined): boolean => !!id && p.agents.some((a) => a.id === id && !a.worktree && sameProvider(a))
   const free = (id: string | undefined): boolean => inFolder(id) && !agentOf(p, id!)?.live
   if (inFolder(preferred)) return preferred!
-  const recorded = item.agentId ?? MAIN_AGENT
-  const focused = focusedAgentId(p)
-  if (free(recorded)) return recorded
-  if (free(focused)) return focused
-  return p.agents.find((a) => !a.worktree && !a.live)?.id ?? (inFolder(recorded) ? recorded : MAIN_AGENT)
+  const recorded = item.agentId
+  const focused = focusedAgentId(p) ?? undefined
+  if (free(recorded)) return recorded!
+  if (free(focused)) return focused!
+  const other = p.agents.find((a) => !a.worktree && !a.live && sameProvider(a))?.id
+  return other ?? (inFolder(recorded) ? recorded! : (p.agents.find((a) => !a.worktree && sameProvider(a))?.id ?? null))
 }
 
-/** Agents that can run a session: those working in the folder it ran in. */
-export function agentsForSession(p: ProjectInfo, item: Pick<SessionListItem, 'cwd'>): ProjectInfo['agents'] {
-  return p.agents.filter((a) => sessionInAgentFolder(p.path, a, item))
+/** Agents that can run a session: those working in the folder it ran in, with its provider. */
+export function agentsForSession(p: ProjectInfo, item: Pick<SessionListItem, 'cwd'> & { provider?: ProviderId }): ProjectInfo['agents'] {
+  return p.agents.filter((a) => sessionInAgentFolder(p.path, a, item) && (!item.provider || agentProviderOf(p, a) === item.provider))
 }
 
-export async function resumeSession(path: string, item: Pick<SessionListItem, 'id' | 'recache' | 'title' | 'name' | 'agentId' | 'cwd'>, agentId?: string): Promise<void> {
-  if (!(await ensureAgent())) return
-  const p = project(path)
-  const target = resumeTarget(p, item, agentId)
+export async function resumeSession(path: string, item: Pick<SessionListItem, 'id' | 'recache' | 'title' | 'name' | 'agentId' | 'cwd'> & { provider?: ProviderId }, agentId?: string): Promise<void> {
+  let p = project(path)
+  let target = resumeTarget(p, item, agentId)
+  // A session from the project folder that no agent can run (none runs its provider): add one that does.
+  const inProjectFolder = !item.cwd || item.cwd.toLowerCase() === path.toLowerCase()
+  if (!target && inProjectFolder && item.provider && (p?.agents.length ?? 0) < MAX_AGENTS) {
+    target = await quickAddAgent(path, item.provider)
+    if (!target) return
+    p = project(path)
+  }
   if (!target) {
-    notify('warning', "Can't resume this session", `It ran in a worktree no agent uses any more (${item.cwd}). Add an agent for that worktree (Add Agent → existing worktree) to resume it.`)
+    const inWorktree = item.cwd && p && item.cwd.toLowerCase() !== p.path.toLowerCase()
+    const who = item.provider ? providerName(item.provider) : 'its provider'
+    notify(
+      'warning',
+      "Can't resume this session",
+      inWorktree
+        ? `It ran in a worktree no ${who} agent uses any more (${item.cwd}). Add a ${who} agent for that worktree (Add Agent → existing worktree) to resume it.`
+        : `It ran in ${who}, and no agent in the project folder runs ${who}. Conversations can't move between providers: add a ${who} agent, or continue the work with a handover.`
+    )
     return
   }
+  if (!(await ensureAgent(path, target))) return
   // One conversation can't run in two terminals: show the agent that has it open instead.
   const holder = p?.agents.find((a) => a.live?.sessionId === item.id)
   if (p && holder && holder.id !== target) {
@@ -227,12 +289,14 @@ export async function resumeSession(path: string, item: Pick<SessionListItem, 'i
 
 export async function resumeLast(path: string | null = get().selectedProject, agentId?: string): Promise<void> {
   if (!path) return
+  // A project without agents gets one (the quick add), which resumes the latest session it can.
+  const id = agentId ?? focusedAgentId(project(path)) ?? (await quickAddAgent(path))
+  if (!id) return
   const p = project(path)
-  const id = agentId ?? focusedAgentId(p)
   const a = agentOf(p, id)
   // Hive works out the session in the main process (AgentInfo.resume), skipping any open in another agent.
   const list = a?.resume ? await attempt('Could not list sessions', () => call('session:list', path)) : []
-  const last = a?.resume ? (list ?? []).find((s) => s.id === a.resume!.id) ?? { id: a.resume.id, name: a.resume.name, title: null, recache: null, agentId: id, cwd: a.worktree?.path } : null
+  const last = a?.resume ? (list ?? []).find((s) => s.id === a.resume!.id) ?? { id: a.resume.id, name: a.resume.name, title: null, recache: null, agentId: id, cwd: a.worktree?.path, provider: agentProviderOf(p, a) } : null
   if (!last) {
     notify('info', 'No previous session', `${(p?.agents.length ?? 1) > 1 && a ? `${a.name} has` : 'There is'} no session to resume. Start a new one instead.`)
     return
@@ -244,7 +308,7 @@ export async function stopSession(path: string | null = get().selectedProject, a
   if (!path) return
   const p = project(path)
   const id = agentId ?? focusedAgentId(p)
-  if (!agentOf(p, id)?.live) return
+  if (!id || !agentOf(p, id)?.live) return
   if (get().settings?.sessions.confirmStop) {
     const ok = await confirm({
       title: 'Stop session?',
@@ -279,12 +343,11 @@ export async function archiveCurrent(path: string | null = get().selectedProject
   if (!path) return
   const p = project(path)
   const id = agentId ?? focusedAgentId(p)
+  if (!id) return notify('info', 'Nothing to archive')
   const a = agentOf(p, id)
   const live = a?.live
   const list = await call('session:list', path)
-  const target = live
-    ? list.find((s) => s.id === live.sessionId)
-    : list.find((s) => s.id === a?.lastSessionId && !s.archived) ?? (id === MAIN_AGENT ? list.find((s) => s.source === 'hive' && !s.archived && !s.cwd) : undefined)
+  const target = live ? list.find((s) => s.id === live.sessionId) : list.find((s) => s.id === (a?.lastSessionId ?? a?.resume?.id) && !s.archived)
   if (!target) return notify('info', 'Nothing to archive')
   const ok = await confirm({
     title: 'Archive session and start fresh?',
@@ -372,13 +435,18 @@ export function cycleProject(delta: number): void {
   selectProject(next.path)
 }
 
-export async function refreshAgent(): Promise<void> {
-  const info = await attempt('Could not check Claude Code', () => call('agent:refresh'))
-  if (info) {
-    set({ agent: info })
-    if (!info.found) notify('warning', 'Claude Code CLI not installed', 'Hive needs the standalone Claude Code CLI. Open Help → Claude Code Setup to install it.')
-    else if (info.updateAvailable) notify('info', `Claude Code ${info.latestVersion} is available`, `You have ${info.version}.`, [{ label: 'Update', command: 'claude.update' }])
-    else notify('success', 'Claude Code is up to date', `Version ${info.version}`)
+/** Looks for the enabled providers' CLIs again and reports what it found. */
+export async function refreshProviders(): Promise<void> {
+  const all = await attempt('Could not check the providers', () => call('provider:refresh'))
+  if (!all) return
+  set({ providers: all })
+  const enabled = Object.values(all).filter((i) => isProviderEnabled(get().settings, i.provider))
+  if (!enabled.length) return notify('info', 'No providers are turned on', 'Turn on Claude Code or another provider in Settings → Providers.', [{ label: 'Open Settings', command: 'settings.providers' }])
+  for (const info of enabled) {
+    const name = providerName(info.provider)
+    if (!info.found) notify('warning', `${name} not installed`, `Open Help → Agent Setup to install it.`, [{ label: 'Agent Setup', command: 'help.agentSetup' }])
+    else if (info.updateAvailable) notify('info', `${name} ${info.latestVersion} is available`, `You have ${info.version}.`, [{ label: 'Update', command: 'help.agentSetup', args: [info.provider] }])
+    else notify('success', `${name} is up to date`, `Version ${info.version}`)
   }
 }
 

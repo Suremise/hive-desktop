@@ -1,10 +1,10 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { readFileSync } from 'fs'
-import { DEFAULT_APP_CONFIG, mergeDefaults, migrateConfig } from '../shared/defaults'
-import type { AppConfig, AppSettings } from '../shared/types'
+import { copyFileSync, existsSync } from 'fs'
+import { DEFAULT_APP_CONFIG, mergeDefaults, migrateConfig, withLegacySettings } from '../shared/defaults'
+import type { AppConfig, AppSettings, ModelPrice } from '../shared/types'
 import type { SettingsPatch } from '../shared/api'
-import { writeJsonAtomic } from './fsutil'
+import { readKeptJsonSync, writeKeptJson } from './fsutil'
 import { createLogger } from './logger'
 
 const log = createLogger('config')
@@ -14,18 +14,27 @@ class ConfigStore {
   private data: AppConfig = structuredClone(DEFAULT_APP_CONFIG)
   private saveTimer: NodeJS.Timeout | null = null
   private listeners = new Set<(s: AppSettings, prev: AppSettings) => void>()
+  /** The file on disk is from an older Hive (config version 1): keep a copy before the first save replaces it. */
+  private backupBeforeSave = false
 
   get path(): string {
     return join(app.getPath('userData'), 'config.json')
   }
 
+  /** Where a config from an older version is copied before this version first saves over it. */
+  get backupPath(): string {
+    return join(app.getPath('userData'), 'config.v1-backup.json')
+  }
+
   load(): void {
-    try {
-      const raw = JSON.parse(readFileSync(this.path, 'utf8'))
-      this.data = migrateConfig(mergeDefaults(structuredClone(DEFAULT_APP_CONFIG), raw))
-    } catch {
+    // A damaged file is set aside and its last good copy (.bak) used; only with neither does Hive start fresh.
+    const raw = readKeptJsonSync<Record<string, any> | null>(this.path, null)
+    if (!raw || typeof raw !== 'object') {
       this.data = structuredClone(DEFAULT_APP_CONFIG)
+      return
     }
+    this.backupBeforeSave = (raw.version ?? 1) < DEFAULT_APP_CONFIG.version
+    this.data = migrateConfig(mergeDefaults(structuredClone(DEFAULT_APP_CONFIG), raw), raw)
   }
 
   get(): AppConfig {
@@ -61,6 +70,22 @@ class ConfigStore {
     return this.data.settings
   }
 
+  /** Replaces one provider's price overrides; the deep merge in updateSettings can't delete a model. */
+  setProviderPrices(provider: string, prices: Record<string, ModelPrice>): AppSettings {
+    const prev = structuredClone(this.data.settings)
+    const clean: Record<string, ModelPrice> = {}
+    for (const [model, p] of Object.entries(prices ?? {})) {
+      const ok = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0
+      if (!p || !ok(p.input) || !ok(p.cachedInput) || !ok(p.output)) continue
+      clean[model] = { input: p.input, cachedInput: p.cachedInput, output: p.output, ...(ok(p.cacheWrite) ? { cacheWrite: p.cacheWrite } : {}) }
+    }
+    const current = this.data.settings.providers[provider]
+    this.data.settings = { ...this.data.settings, providers: { ...this.data.settings.providers, [provider]: { ...current, prices: clean } } }
+    this.scheduleSave()
+    for (const l of this.listeners) l(this.data.settings, prev)
+    return this.data.settings
+  }
+
   resetSettings(section?: keyof AppSettings): AppSettings {
     const prev = structuredClone(this.data.settings)
     if (section) (this.data.settings as unknown as Record<string, unknown>)[section] = structuredClone(DEFAULT_APP_CONFIG.settings[section])
@@ -83,7 +108,15 @@ class ConfigStore {
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = null
     try {
-      await writeJsonAtomic(this.path, this.data)
+      if (this.backupBeforeSave) {
+        this.backupBeforeSave = false
+        if (existsSync(this.path) && !existsSync(this.backupPath)) {
+          copyFileSync(this.path, this.backupPath)
+          log.info(`Saved the previous version's settings to ${this.backupPath}`)
+        }
+      }
+      // Claude Code's settings are also written where 0.1.x reads them, so going back keeps them.
+      await writeKeptJson(this.path, withLegacySettings(this.data))
     } catch (e) {
       log.error('Failed to save config', e)
     }

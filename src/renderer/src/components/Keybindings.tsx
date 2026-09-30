@@ -3,13 +3,16 @@ import { keybindingProblem, resolveKeybinding } from '@shared/defaults'
 import type { KeybindingOverrides, ProjectInfo } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
-import { TERMINAL_RESERVED, commands, eventToKey, isProjectScoped, type Command } from '../commands'
+import { commands, eventToKey, isProjectScoped, terminalReserved, type Command } from '../commands'
 import { confirm, notify, set, useStore } from '../store'
 import { cx, formatKeybinding } from '../util'
 import { Icon, IconButton, Tooltip } from './ui'
 
 /** Waits this long after the first combination for a second one, which makes a chord ("Ctrl+K Ctrl+S"). */
 const CHORD_WAIT = 1200
+
+/** Stable empty overrides, so the memos below don't recompute on every render. */
+const NO_KEYS: KeybindingOverrides = {}
 
 export function Kbd({ keys }: { keys: string | undefined }) {
   if (!keys) return <span className="faint">—</span>
@@ -78,8 +81,8 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
   const settings = useStore((s) => s.settings)
   const [query, setQuery] = useState('')
   const [recording, setRecording] = useState<string | null>(null)
-  const global: KeybindingOverrides = settings?.keybindings ?? {}
-  const local: KeybindingOverrides = project?.config.keybindings ?? {}
+  const global: KeybindingOverrides = settings?.keybindings ?? NO_KEYS
+  const local: KeybindingOverrides = project?.config.keybindings ?? NO_KEYS
 
   const rows = useMemo((): Row[] => {
     return commands
@@ -93,7 +96,7 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
         if (c.id in global) return { c, key: global[c.id] || undefined, source: global[c.id] ? 'changed' : 'removed', overridden: true } as Row
         return { c, key: c.keybinding, source: 'default', overridden: false } as Row
       })
-  }, [settings, project, global, local])
+  }, [project, global, local])
 
   // Shortcuts used by more than one command (within what this editor shows plus, for a project, the global rest).
   const conflicts = useMemo(() => {
@@ -165,7 +168,7 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
                 .filter((r) => r.c.category === cat)
                 .map((r) => {
                   const clash = r.key ? (conflicts.get(r.key.toUpperCase()) ?? []).filter((l) => l !== r.c.label) : []
-                  const terminal = r.key && TERMINAL_RESERVED.has(r.key.toUpperCase())
+                  const terminal = r.key && terminalReserved().has(r.key.toUpperCase())
                   return (
                     <tr key={r.c.id} className={cx(recording === r.c.id && 'recording')}>
                       <td className="kb-label">
@@ -184,7 +187,7 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
                               </Tooltip>
                             )}
                             {terminal && (
-                              <Tooltip content="While the terminal has focus this key goes to Claude Code, so the shortcut only works elsewhere.">
+                              <Tooltip content="While an agent's terminal has focus this key goes to the agent, so the shortcut only works elsewhere.">
                                 <Icon name="terminal" className="faint" />
                               </Tooltip>
                             )}

@@ -29,7 +29,9 @@ Sessions started from Hive receive these environment variables, so an agent can 
 | `HIVE_AGENT` | Name of the agent running the session (e.g. `Agent 1`) |
 | `HIVE_PROJECT_PATH` | Full path of the project |
 | `HIVE_WORKSPACE` | Full path of the workspace |
-| `HIVE_SESSION_ID` | Claude Code session ID |
+| `HIVE_PROVIDER` | The provider running the session: `claude-code` or `codex` |
+| `HIVE_SESSION_ID` | The session ID, when it is known at launch (Claude Code; Codex chooses its own ID with the first prompt, so its sessions don't get this) |
+| `HIVE_RUN_ID` | An ID for this launch of the agent, unique even before the session ID is known |
 
 ### Example (PowerShell)
 
@@ -50,11 +52,11 @@ Errors return a non-2xx status and `{ "error": "message" }`.
 
 | Status | Meaning |
 |---|---|
-| 400 | Invalid request (missing field, bad JSON, invalid session ID) |
+| 400 | Invalid request (missing field, bad JSON, invalid session ID, `agent` needed because the project has several) |
 | 401 | Missing or wrong token |
 | 403 | Blocked (cross-origin request, or a disabled feature such as session input) |
 | 404 | Unknown route, project or file |
-| 409 | Conflict with the current state (no workspace open, agent already running or starting, conversation open in another agent, session archived…) |
+| 409 | Conflict with the current state (no workspace open, the project has no agents, agent already running or starting or busy, conversation open in another agent, session archived, provider turned off or not installed…) |
 | 500 | Unexpected error; details are in Hive's log |
 | 413 | Body larger than 2 MB |
 
@@ -72,16 +74,22 @@ Errors return a non-2xx status and `{ "error": "message" }`.
 
 ### Status
 
-`GET /v1/status` — app version, Claude Code install info, the open workspace and running sessions.
+`GET /v1/status` — app version, each provider's install info, the open workspace and running sessions.
 
 ```json
 {
-  "app": { "name": "Hive", "version": "0.1.0" },
-  "agent": { "found": true, "version": "2.1.283", "source": "PATH", "updateAvailable": false, "loggedIn": true },
+  "app": { "name": "Hive", "version": "0.2.0" },
+  "agent": { "provider": "claude-code", "found": true, "version": "2.1.283", "source": "PATH", "updateAvailable": false, "loggedIn": true },
+  "providers": [
+    { "provider": "claude-code", "found": true, "version": "2.1.283", "source": "PATH", "updateAvailable": false, "loggedIn": true },
+    { "provider": "codex", "found": true, "version": "0.159.0", "source": "PATH", "updateAvailable": false, "loggedIn": true }
+  ],
   "workspace": { "name": "work", "path": "D:\\work" },
-  "liveSessions": [{ "project": "api", "agent": "Agent 1", "sessionId": "6f1c…", "status": "working" }]
+  "liveSessions": [{ "project": "api", "agent": "Agent 1", "provider": "claude-code", "sessionId": "6f1c…", "status": "working" }]
 }
 ```
+
+`agent` is Claude Code's install info, kept for scripts written for 0.1; use `providers`.
 
 ### Workspace
 
@@ -104,14 +112,14 @@ Errors return a non-2xx status and `{ "error": "message" }`.
   "statusMessage": "Claude needs your permission to use Bash",
   "restartNeeded": false,
   "agents": [
-    { "id": "main", "name": "Agent 1", "branch": null, "worktree": null, "status": "waiting", "sessionId": "6f1c…", "statusMessage": "Claude needs your permission to use Bash" },
-    { "id": "a2", "name": "Reviewer", "branch": "hive/reviewer", "worktree": "D:\\work.worktrees\\api\\reviewer", "status": "stopped", "sessionId": null, "statusMessage": null }
+    { "id": "a-3f9c01d2", "name": "Agent 1", "provider": "claude-code", "branch": null, "worktree": null, "status": "waiting", "sessionId": "6f1c…", "statusMessage": "Claude needs your permission to use Bash" },
+    { "id": "a-7b21e4aa", "name": "Reviewer", "provider": "codex", "branch": "hive/reviewer", "worktree": "D:\\work.worktrees\\api\\reviewer", "status": "stopped", "sessionId": null, "statusMessage": null }
   ],
   "settings": { "model": "opus", "effort": "inherit", "permissionMode": "inherit", "chime": "inherit", "skills": { "disabled": [] }, "mcp": { "disabled": [] } }
 }
 ```
 
-`status` is one of `stopped`, `starting`, `ready`, `working`, `waiting`, `finished`, `error`. A project can have up to four agents; the top-level `status`, `sessionId` and `statusMessage` are Agent 1's (or, when it isn't running, the first running agent's), and `agents` lists every agent. Endpoints that act on a session take an optional `agent` — its `id` or name — and default to Agent 1.
+`status` is one of `stopped`, `starting`, `ready`, `working`, `waiting`, `finished`, `error`. `provider` is the CLI the agent runs (`claude-code` or `codex`); each agent chooses its own, so a project can mix them. `settings` is the project's configuration, with per-provider overrides under `providers`. A project has up to four agents, all equal, in the order they were added; a new project has none. The top-level `status`, `sessionId` and `statusMessage` are the first running agent's, and `agents` lists every agent. Agent ids are random (`a-…`) and never reused. Endpoints that act on a session take an optional `agent` — its `id` or name. Without one, the project's only agent is used; a project with several answers 400 (say which), one with none 409.
 
 `POST /v1/projects/{name}/activate` — mark the project as being worked on.
 
@@ -127,28 +135,35 @@ Errors return a non-2xx status and `{ "error": "message" }`.
 { "resumeId": "6f1c…", "name": "Fix login bug", "agent": "Reviewer" }
 ```
 
-Omit `resumeId` to start a new session. Returns the live session state (which includes `agentId` and `cwd`, the folder it runs in). Fails with 409 if the agent is already running or starting, if that conversation is already open in another agent, or if it ran in a different folder than the agent works in; with 400 if `resumeId` isn't a session ID.
+Omit `resumeId` to start a new session. Returns the live session state (which includes `agentId` and `cwd`, the folder it runs in). Fails with 409 if the agent is already running or starting, if that conversation is already open in another agent, or if it ran in a different folder than the agent works in, or if the project has no agents yet (agents are added in Hive); with 400 if `resumeId` isn't a session ID.
 
 `POST /v1/projects/{name}/stop[?agent=…]` — stop one agent's session, or every running agent of the project when `agent` is omitted.
 
-`GET /v1/projects/{name}/usage[?sessionId=…][&agent=…]` — usage for the agent's live session (Agent 1 by default; or the most recent Hive session, or the one given).
+`GET /v1/projects/{name}/usage[?sessionId=…][&agent=…]` — usage for the agent's live session (see above for which agent), else the most recent Hive session, or the one given.
 
 ```json
 {
   "sessionId": "6f1c…",
+  "provider": "claude-code",
   "title": "Fix login bug",
   "model": "claude-opus-5-5",
   "inputTokens": 1204,
   "outputTokens": 48211,
+  "reasoningTokens": 0,
   "cacheWriteTokens": 190233,
   "cacheReadTokens": 2811093,
   "contextTokens": 84211,
   "requests": 57,
   "compactions": [{ "timestamp": "…", "trigger": "auto", "preTokens": 968490, "postTokens": 14813 }],
   "cacheTtlSeconds": 3600,
+  "contextWindow": null,
+  "costUsd": 4.82,
+  "costEstimated": false,
   "lastActivity": "2026-09-28T12:30:00Z"
 }
 ```
+
+`costUsd` is the API-equivalent cost: reported by the provider (Claude Code), or estimated by Hive from its price table (`costEstimated: true`), or `null` for a model without a price. It is not what a subscription plan charges. `reasoningTokens` (Codex) are included in `outputTokens`; `contextWindow` is the model's window when the provider reports it.
 
 `POST /v1/projects/{name}/input` — type into the running session. **Disabled by default**; enable *Allow sending input to sessions* in Settings → Agent API.
 
@@ -157,6 +172,14 @@ Omit `resumeId` to start a new session. Returns the live session state (which in
 ```
 
 `submit` (default `true`) presses Enter after the text.
+
+`POST /v1/projects/{name}/continue` — continue one agent's work in another, which may use a different provider (**Continue with…** in Hive). Also needs *Allow sending input to sessions*, and Hive's tools in sessions.
+
+```json
+{ "from": "Agent 1", "to": "Reviewer", "handover": true }
+```
+
+With `handover` (the default), `from` must be running and idle: it is asked to write a handover with `hive_create_handover`, and Hive waits until a new handover for the project exists (not just for the agent to stop). Then `to` starts a new session (or, if it is running and idle, gets the message in its current one) and reads the latest handover. The call returns `{ "ok": true }` at once; the handover can take minutes, and problems are shown as notifications in Hive. The new session's record has `continuedFrom`, the session it continues.
 
 ### Shared notes
 
@@ -217,7 +240,7 @@ curl -N -H "Authorization: Bearer $HIVE_API_TOKEN" "$HIVE_API_URL/v1/events"
 
 ## The built-in `hive` MCP server
 
-When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP server named `hive` to every session it starts. It wraps the API above:
+When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP server named `hive` to every session it starts, whatever its provider. It wraps the API above:
 
 | Tool | Endpoint |
 |---|---|
@@ -236,7 +259,7 @@ Tools default to the session's own project, so an agent can simply say *"create 
 
 A handover belongs to a project when its file name is `handovers/<date>-<project>-<title>.md`, as `hive_create_handover` writes it. When another project's name begins the same way (`hive` and `hive-website`), the `**Project:**` line at the top of the handover decides.
 
-The server's instructions tell the agent that handovers and shared notes live in the workspace and should be read with these tools rather than by searching the file system. When the project has a handover, the instructions also name the latest one, so a new session knows it is there from the start.
+The server's instructions (for Codex, which doesn't show MCP server instructions to the model, Hive passes the same text as developer instructions) tell the agent that handovers and shared notes live in the workspace and should be read with these tools rather than by searching the file system. When the project has a handover, the instructions also name the latest one, so a new session knows it is there from the start.
 
 The server is a small Node script bundled with Hive and run by Hive's own executable, so nothing else needs to be installed.
 

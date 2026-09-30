@@ -1,14 +1,16 @@
 import type { ProjectInfo } from '@shared/types'
 import { compactThreshold, effectiveModelLabel, effortLabel } from '@shared/defaults'
+import { agentLaunchSettings, isProviderEnabled, modeOption, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
+import { ProviderIcon } from '../components/ProviderIcon'
 import { useLiveUsage } from '../usage'
 import hexUrl from '../assets/icon.svg'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
-import { AgentStrip, PaneChrome, ResumeButton, SessionTag, TerminalLayer, usePanes } from '../components/AgentPanes'
+import { AddAgentButton, AgentStrip, PaneChrome, ResumeButton, SessionTag, TerminalLayer, usePanes } from '../components/AgentPanes'
 import { ModeBadge } from '../components/PermissionMode'
 import { Icon, IconButton, STATUS_TEXT, Switch, Tooltip, useContextMenu } from '../components/ui'
-import { projectKey, projectState, set, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
+import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
 import { carriesFiles, cx, formatKeybinding, formatTokens } from '../util'
 import { FilesTab, ImagesTab } from './FilesTab'
 import { ChangesTab, MemoryTab, OverviewTab, ProjectMcpTab, ProjectSettingsTab, ProjectSkillsTab } from './ProjectTabs'
@@ -29,9 +31,11 @@ const TABS: { id: ProjectTab; label: string; icon: string }[] = [
 ]
 
 function SessionEmpty({ project }: { project: ProjectInfo }) {
-  const agent = useStore((s) => s.agent)
   const focused = useFocusedAgent(project)
-  const epoch = useStore((s) => s.sessionEpoch[projectKey(project.path, focused?.id)])
+  const provider = agentProviderOf(project, focused)
+  const info = useStore((s) => s.providers[provider])
+  const on = useStore((s) => isProviderEnabled(s.settings, provider))
+  const epoch = useStore((s) => (focused ? s.sessionEpoch[projectKey(project.path, focused.id)] : undefined))
   const ended = epoch !== undefined
   // An ended session keeps its terminal; the pane shows the Resume bar over it.
   if (ended) return null
@@ -52,24 +56,36 @@ function SessionEmpty({ project }: { project: ProjectInfo }) {
       ) : (
         <div className="session-empty-card">
           <img src={hexUrl} className="hex-mark" alt="" />
-          <h2>{!project.active ? `${project.name} is not active` : many && focused ? `${focused.name} is not running` : 'No session running'}</h2>
+          <h2>{!focused ? 'No agents yet' : !project.active ? `${project.name} is not active` : many ? `${focused.name} is not running` : 'No session running'}</h2>
           <p>
-            {project.active
-              ? 'Start a new Claude Code session, or resume a previous one. Sessions keep running when you switch to other projects.'
-              : 'Mark this project as one you are working on to run sessions and see its status. You can also start a session directly.'}
+            {!focused
+              ? `Add an agent to work on ${project.name}: Add Agent adds a ${providerName(provider)} agent with its default settings (▾ to choose another provider, a worktree or settings). New Session adds one and starts it.`
+              : project.active
+                ? `Start a new ${providerName(provider)} session, or resume a previous one. Sessions keep running when you switch to other projects.`
+                : 'Mark this project as one you are working on to run sessions and see its status. You can also start a session directly.'}
           </p>
-          {!agent?.found && agent && !agent.checking && (
+          {!on ? (
             <p>
               <span className="badge warn">
-                <Icon name="warning" /> The Claude Code CLI is required — Help → Claude Code Setup
+                <Icon name="warning" /> {providerName(provider)} is turned off — Settings → Providers
               </span>
             </p>
+          ) : (
+            !info?.found &&
+            info &&
+            !info.checking && (
+              <p>
+                <span className="badge warn">
+                  <Icon name="warning" /> {providerName(provider)} is required — Help → Agent Setup
+                </span>
+              </p>
+            )
           )}
           <div className="btns">
             <button className="btn primary" onClick={() => void actions.newSession(project.path)}>
               <Icon name="add" /> New Session <kbd style={{ marginLeft: 6 }}>{formatKeybinding(commandKeybinding('session.new')!)}</kbd>
             </button>
-            {focused && <ResumeButton project={project} a={focused} className="tint-amber" label="Resume Last" />}
+            {focused ? <ResumeButton project={project} a={focused} className="tint-amber" label="Resume Last" /> : <AddAgentButton project={project} className="tint-amber" />}
             <button className="btn subtle" onClick={() => setProjectTab(project.path, 'sessions')}>
               <Icon name="history" /> All Sessions
             </button>
@@ -92,7 +108,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const selected = useStore((s) => s.selectedProject)
   const tabs = useStore((s) => s.projectTabs)
   const settings = useStore((s) => s.settings)
-  const claudeDefaultModel = useStore((s) => s.agent?.defaultModel ?? null)
+  const providers = useStore((s) => s.providers)
   const menu = useContextMenu()
   const project = workspace?.projects.find((p) => p.path === selected) ?? null
   const tab = (project && tabs[project.path]) || 'session'
@@ -125,9 +141,20 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const combined = projectState(project)
   const running = project.agents.filter((a) => a.live).length
   const agentId = focusedAgent?.id
-  const bypass = project.config.permissionMode === 'bypassPermissions' && settings?.claude.enableBypassOption
-  const model = effectiveModelLabel(project.config.model, settings?.claude.defaultModel ?? '', claudeDefaultModel)
-  const effort = effortLabel(live?.effort, project.config.effort, settings?.claude.defaultEffort)
+  // The header shows the focused agent's provider, model and effort (its own, else the project's).
+  const provider = agentProviderOf(project, focusedAgent)
+  const pc = projectProviderConfig(project.config, provider)
+  const ps = providerSettings(settings, provider)
+  const dangerous = settings
+    ? project.agents.flatMap((a) => {
+        const l = agentLaunchSettings(a, project.config, settings)
+        const m = modeOption(l.provider, a.live?.permissionMode ?? l.permissionMode)
+        return m?.danger ? [`${many ? `${a.name}: ` : ''}${m.label}`] : []
+      })
+    : []
+  const bypass = dangerous.length > 0
+  const model = effectiveModelLabel(provider, focusedAgent?.model || pc.model, ps.defaultModel, providers[provider]?.defaultModel ?? null)
+  const effort = effortLabel(provider, live?.effort, focusedAgent?.effort ?? pc.effort, ps.defaultEffort)
 
   const restart = async (): Promise<void> => {
     if (!live) return
@@ -171,7 +198,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
             )}
             <Tooltip content={live?.effort ? 'Model for new sessions (Project Settings) and the effort the running session reports' : 'Model and effort for new sessions (Project Settings)'}>
               <span className="badge">
-                <Icon name="hubot" /> {model}
+                <ProviderIcon provider={provider} /> {model}
                 {effort && <span className="faint"> · {effort}</span>}
               </span>
             </Tooltip>
@@ -202,7 +229,15 @@ export function ProjectView({ visible }: { visible: boolean }) {
             </>
           ) : (
             <>
-              {focusedAgent && <ResumeButton project={project} a={focusedAgent} className="tint-amber" />}
+              {focusedAgent ? (
+                <ResumeButton project={project} a={focusedAgent} className="tint-amber" />
+              ) : (
+                <Tooltip content="Adds an agent and resumes the latest session it can">
+                  <button className="btn tint-amber" onClick={() => void actions.resumeLast(project.path)}>
+                    <Icon name="debug-continue" /> Resume
+                  </button>
+                </Tooltip>
+              )}
               <button className="btn primary" onClick={() => void actions.newSession(project.path, agentId)}>
                 <Icon name="add" /> New Session
               </button>
@@ -216,7 +251,8 @@ export function ProjectView({ visible }: { visible: boolean }) {
                 { label: 'Reveal in File Explorer', icon: 'folder-opened', onClick: () => void call('project:openInExplorer', project.path) },
                 { label: 'Open External Terminal', icon: 'terminal', onClick: () => void call('project:openTerminal', project.path) },
                 { separator: true },
-                { label: 'Add Agent…', icon: 'person-add', onClick: () => set({ addAgentFor: project.path }) },
+                { label: 'Add Agent', icon: 'person-add', onClick: () => void actions.quickAddAgent(project.path) },
+                { label: 'Add Agent…', icon: 'blank', onClick: () => set({ addAgentFor: project.path }) },
                 { label: 'Archive Session and Start New', icon: 'archive', onClick: () => void actions.archiveCurrent(project.path, agentId) }
               ])
             }
@@ -243,7 +279,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
       )}
       {bypass && (
         <div className="banner danger">
-          <Icon name="warning" /> Bypass permissions is on for this project: the agent runs every command and edit without asking.
+          <Icon name="warning" /> {dangerous.join(', ')} {dangerous.length === 1 ? 'is' : 'are'} on in this project: the agent runs every command and edit without asking.
           <button className="btn small" onClick={() => setProjectTab(project.path, 'settings')}>
             Change
           </button>

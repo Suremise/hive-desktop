@@ -8,6 +8,7 @@ import { attempt } from '../actions'
 import { call } from '../api'
 import { isAppShortcut } from '../commands'
 import { useStore } from '../store'
+import type { ProviderId } from '@shared/types'
 import { carriesFiles, cx, HIVE_FILES_MIME, IMAGE_EXT, quotePath } from '../util'
 
 type Listener = (data: string) => void
@@ -124,6 +125,7 @@ export function TerminalView({
   autoFocus = true,
   projectPath,
   agentId,
+  provider,
   style,
   onFocus
 }: {
@@ -133,8 +135,10 @@ export function TerminalView({
   autoFocus?: boolean
   /** Set for session terminals: pasted and dropped images are saved into the project's .hive folder. */
   projectPath?: string
-  /** The agent whose session this is (Agent 1 by default). */
+  /** The agent whose session this is. */
   agentId?: string
+  /** The agent's provider: its terminal UI keeps its own shortcuts. */
+  provider?: ProviderId
   /** Position within its layer (a pane), instead of filling it. */
   style?: CSSProperties
   /** Called when the terminal gets keyboard focus or is clicked. */
@@ -148,6 +152,13 @@ export function TerminalView({
   const onExitRef = useRef(onExit)
   onExitRef.current = onExit
   const onFocusRef = useRef(onFocus)
+  const providerRef = useRef(provider)
+  providerRef.current = provider
+  // The key handler is set once per terminal; these keep it pointed at the current agent.
+  const pathRef = useRef(projectPath)
+  pathRef.current = projectPath
+  const agentRef = useRef(agentId)
+  agentRef.current = agentId
   onFocusRef.current = onFocus
   const webglRef = useRef<WebglAddon | null>(null)
   const dropWebgl = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -193,16 +204,17 @@ export function TerminalView({
       if (mod && !e.altKey && (e.key === 'v' || e.key === 'V')) {
         void navigator.clipboard.readText().then(async (t) => {
           if (t) term.paste(t)
-          else if (projectPath) {
-            // A screenshot: save it and paste its path, which Claude Code attaches as an image.
-            const saved = await attempt('Could not paste image', () => call('session:saveImage', projectPath, undefined, agentId))
+          else if (pathRef.current) {
+            // A screenshot: save it and paste its path, which the agent's CLI attaches as an image.
+            const p = pathRef.current
+            const saved = await attempt('Could not paste image', () => call('session:saveImage', p, undefined, agentRef.current))
             if (saved) term.paste(quotePath(saved))
           }
         })
         e.preventDefault()
         return false
       }
-      return !isAppShortcut(e)
+      return !isAppShortcut(e, providerRef.current)
     })
     // Removed with the terminal: the host element can outlive it (a new ptyKey in the same view).
     const listeners = new AbortController()
@@ -234,8 +246,9 @@ export function TerminalView({
         const paths: string[] = []
         for (const p of sources) {
           if (!p) continue
-          const keep = projectPath && IMAGE_EXT.test(p) && !/[\\/]\.hive[\\/]images[\\/]/i.test(p)
-          const saved = keep ? await attempt('Could not add image', () => call('session:saveImage', projectPath, p, agentId)) : null
+          const project = pathRef.current
+          const keep = project && IMAGE_EXT.test(p) && !/[\\/]\.hive[\\/]images[\\/]/i.test(p)
+          const saved = keep ? await attempt('Could not add image', () => call('session:saveImage', project, p, agentRef.current)) : null
           paths.push(quotePath(saved || p))
         }
         if (paths.length) term.paste(paths.join(' ') + ' ')

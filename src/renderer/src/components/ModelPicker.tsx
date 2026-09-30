@@ -1,23 +1,36 @@
 import { useEffect, useState } from 'react'
-import { MODEL_GROUPS, MODEL_PRESETS, baseModel, isOlderModel, isOneM, supportsOneM, withOneM, type ModelOption } from '@shared/defaults'
+import { baseModel, isOneM, supportsOneM, withOneM } from '@shared/claude'
+import { providerDescriptor, type ModelOption } from '@shared/providers'
+import type { ProviderId } from '@shared/types'
+import { useStore } from '../store'
 
 /**
- * Model choice for global and project settings: latest aliases, pinned versions, older versions
- * (hidden until asked for), a custom model ID, and the 1M-context variant where there is one.
- * `base` is the option meaning "no choice here" (Inherit, or Claude Code's default).
+ * Model choice for a provider's settings: its model groups (for Claude Code: latest aliases, pinned
+ * versions, older versions hidden until asked for), a custom model ID, and the 1M-context variant where
+ * the provider has one. `base` is the option meaning "no choice here" (Inherit, or the CLI's default).
  */
-export function ModelPicker({ value, base, onChange }: { value: string; base: ModelOption; onChange: (value: string) => void }) {
-  const known = MODEL_PRESETS.some((m) => m.value === baseModel(value))
+export function ModelPicker({ provider, value, base, onChange }: { provider: ProviderId; value: string; base: ModelOption; onChange: (value: string) => void }) {
+  const p = providerDescriptor(provider)
+  // The installed CLI's own list where it gives one (new models appear without a Hive update), else Hive's.
+  const catalog = useStore((s) => s.providers[provider]?.models)
+  const groups = catalog?.length ? [{ label: `${p.name} models`, models: catalog, older: false }] : p.modelGroups
+  const oneM = p.capabilities.oneMContext
+  const plain = (v: string): string => (oneM ? baseModel(v) : v)
+  const presets = groups.flatMap((g) => g.models)
+  const isOlder = (v: string): boolean => groups.some((g) => g.older && g.models.some((m) => m.value === plain(v)))
+  const known = presets.some((m) => m.value === plain(value))
   const [custom, setCustom] = useState(value !== base.value && !known)
   const [draft, setDraft] = useState(custom ? value : '')
-  const [showOlder, setShowOlder] = useState(isOlderModel(value))
+  const [showOlder, setShowOlder] = useState(isOlder(value))
+  const older = isOlder(value)
   useEffect(() => {
-    if (isOlderModel(value)) setShowOlder(true)
-  }, [value])
+    if (older) setShowOlder(true)
+  }, [older])
 
-  const selected = custom ? 'custom' : value === base.value ? base.value : baseModel(value)
+  const selected = custom ? 'custom' : value === base.value ? base.value : plain(value)
   const chosen = value !== base.value && !custom
-  const oneMOk = chosen && supportsOneM(value)
+  const oneMOk = oneM && chosen && supportsOneM(value)
+  const hasOlder = groups.some((g) => g.older)
 
   return (
     <div className="model-picker">
@@ -34,30 +47,34 @@ export function ModelPicker({ value, base, onChange }: { value: string; base: Mo
             }
             setCustom(false)
             // Keep the 1M choice when switching between models that have it.
-            onChange(v === base.value ? v : withOneM(v, isOneM(value)))
+            onChange(v === base.value || !oneM ? v : withOneM(v, isOneM(value)))
           }}
         >
           <option value={base.value}>{base.label}</option>
-          {MODEL_GROUPS.filter((g) => !g.older || showOlder).map((g) => (
-            <optgroup key={g.label} label={g.label}>
-              {g.models.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </optgroup>
-          ))}
+          {groups
+            .filter((g) => !g.older || showOlder)
+            .map((g) => (
+              <optgroup key={g.label} label={g.label}>
+                {g.models.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
           <option value="custom">Custom model ID…</option>
         </select>
-        <label className="flex muted" style={{ whiteSpace: 'nowrap', opacity: oneMOk ? 1 : 0.5 }} title={oneMOk ? 'Use the 1M-token context window' : 'This model has no 1M-context version'}>
-          <input type="checkbox" className="checkbox" disabled={!oneMOk} checked={oneMOk && isOneM(value)} onChange={(e) => onChange(withOneM(value, e.target.checked))} /> 1M context
-        </label>
+        {oneM && (
+          <label className="flex muted" style={{ whiteSpace: 'nowrap', opacity: oneMOk ? 1 : 0.5 }} title={oneMOk ? 'Use the 1M-token context window' : 'This model has no 1M-context version'}>
+            <input type="checkbox" className="checkbox" disabled={!oneMOk} checked={oneMOk && isOneM(value)} onChange={(e) => onChange(withOneM(value, e.target.checked))} /> 1M context
+          </label>
+        )}
       </div>
       {custom && (
         <input
           className="input"
           style={{ marginTop: 6 }}
-          placeholder="Full model ID, e.g. claude-opus-5-5"
+          placeholder={p.modelPlaceholder}
           autoFocus
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -68,9 +85,11 @@ export function ModelPicker({ value, base, onChange }: { value: string; base: Mo
           onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         />
       )}
-      <a className="model-picker-older" onClick={() => setShowOlder(!showOlder)}>
-        {showOlder ? 'Hide older versions' : 'Show older versions'}
-      </a>
+      {hasOlder && (
+        <a className="model-picker-older" onClick={() => setShowOlder(!showOlder)}>
+          {showOlder ? 'Hide older versions' : 'Show older versions'}
+        </a>
+      )}
     </div>
   )
 }

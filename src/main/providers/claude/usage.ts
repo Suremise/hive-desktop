@@ -1,4 +1,5 @@
-import type { CompactionEvent, RecacheEstimate, SessionUsage } from '../../shared/types'
+import type { CompactionEvent, SessionUsage } from '../../../shared/types'
+import { CLAUDE_CODE } from '../../../shared/claude'
 
 /** Claude Code stores transcripts under ~/.claude/projects/<encoded>, where every non-alphanumeric character becomes '-'. */
 export function encodeProjectPath(projectPath: string): string {
@@ -19,6 +20,7 @@ interface UsageBlock {
  */
 export function parseTranscript(text: string, sessionId: string): SessionUsage {
   const usage: SessionUsage = {
+    provider: CLAUDE_CODE,
     sessionId,
     title: null,
     model: null,
@@ -28,14 +30,17 @@ export function parseTranscript(text: string, sessionId: string): SessionUsage {
     cacheWriteTokens: 0,
     cacheReadTokens: 0,
     requests: 0,
+    reasoningTokens: 0,
     contextTokens: 0,
+    contextWindow: null,
     compactions: [],
     cacheTtlSeconds: 300,
     firstActivity: null,
     lastActivity: null,
     userMessages: 0,
     lastPrompt: null,
-    costUsd: null
+    costUsd: null,
+    costEstimated: false
   }
   // A single API response is written as several assistant entries (one per content block) that repeat
   // the same usage, so count each request once — the last entry for a request carries the final numbers.
@@ -118,18 +123,4 @@ export function parseTranscript(text: string, sessionId: string): SessionUsage {
   usage.title = customTitle ?? aiTitle
   usage.cacheTtlSeconds = saw1h ? 3600 : 300
   return usage
-}
-
-/** Estimates how many tokens resuming a session will write to the prompt cache. */
-export function recacheEstimate(usage: SessionUsage, ttlOverride: 'auto' | '5m' | '1h', now = Date.now()): RecacheEstimate {
-  const ttlSeconds = ttlOverride === '5m' ? 300 : ttlOverride === '1h' ? 3600 : usage.cacheTtlSeconds
-  const last = usage.lastActivity ? Date.parse(usage.lastActivity) : 0
-  const elapsed = last ? (now - last) / 1000 : Infinity
-  const warm = elapsed < ttlSeconds
-  return {
-    tokens: usage.contextTokens,
-    warm,
-    secondsLeft: warm ? Math.max(0, Math.round(ttlSeconds - elapsed)) : 0,
-    ttlSeconds
-  }
 }

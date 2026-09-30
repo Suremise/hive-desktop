@@ -10,19 +10,20 @@ export function useLiveUsage(project: ProjectInfo | null | undefined, agentId?: 
   const live = (agentId ? project?.agents.find((a) => a.id === agentId) : focused)?.live
   const sessionId = live && !live.settingUp ? live.sessionId : null
   const [usage, setUsage] = useState<SessionUsage | null>(null)
+  const path = project?.path
   useEffect(() => {
-    if (!project || !sessionId) {
+    if (!path || !sessionId) {
       setUsage(null)
       return
     }
     let cancelled = false
-    void call('session:usage', project.path, sessionId)
+    void call('session:usage', path, sessionId)
       .then((u) => !cancelled && setUsage(u))
       .catch(() => undefined)
     return () => {
       cancelled = true
     }
-  }, [project?.path, sessionId, usageVersion])
+  }, [path, sessionId, usageVersion])
   return usage
 }
 

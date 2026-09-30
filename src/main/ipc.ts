@@ -1,16 +1,18 @@
 import { BrowserWindow, ClipboardItem, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { spawn } from 'child_process'
 import { existsSync } from 'fs'
-import { dirname, join } from 'path'
+import { basename, dirname, join } from 'path'
 import { readFile } from 'fs/promises'
 import type { HiveChannel, HiveRequests } from '../shared/api'
 import * as updater from './updater'
-import type { QuitChoice } from '../shared/types'
-import { claudeCode, claudeHome } from './agents/claude-code'
-import { agentService } from './agentService'
+import type { ProviderId, QuitChoice } from '../shared/types'
+import { instructionFiles, instructionsShared, shareInstructions, SHARED_INSTRUCTIONS, type InstructionsFile } from '../shared/instructions'
+import { isKnownProvider, projectProviderConfig, providerDescriptor } from '../shared/providers'
+import { allProviders } from './providers'
+import { providerService } from './providerService'
 import { config } from './config'
 import { emit } from './events'
-import { claudeFileAllowed, writeTextAtomic } from './fsutil'
+import { writeTextAtomic } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { logsDir } from './logger'
 import * as files from './files'
@@ -23,6 +25,14 @@ import { sessions } from './sessions'
 import { transcripts } from './transcripts'
 import * as skills from './skills'
 import { workspace } from './workspace'
+
+/** The instruction files of the given providers in a project, with their content. */
+async function projectInstructions(project: string, ids: ProviderId[]): Promise<InstructionsFile[]> {
+  const descriptors = ids.map(providerDescriptor)
+  const content = new Map<string, string | null>()
+  for (const d of descriptors) content.set(d.instructionsFile, await readFile(join(project, d.instructionsFile), 'utf8').catch(() => null))
+  return instructionFiles(descriptors, (f) => content.get(f) ?? null)
+}
 
 type Impl = { [C in HiveChannel]: (...args: Parameters<HiveRequests[C]>) => ReturnType<HiveRequests[C]> | Promise<ReturnType<HiveRequests[C]>> }
 
@@ -37,9 +47,15 @@ function spawnDetached(file: string, args: string[], cwd?: string): boolean {
   }
 }
 
+/** A provider id this version knows; anything else is refused (it would become a settings key). */
+function knownProvider(id: unknown): ProviderId {
+  if (typeof id !== 'string' || !isKnownProvider(id)) throw new Error(`Unknown provider "${String(id)}".`)
+  return id
+}
+
 function guardFile(path: string, write = false): string {
-  if (workspace.isAllowedPath(path) || claudeFileAllowed(path, write, claudeHome())) return path
-  throw new Error('Hive can only read and write files inside the workspace, and Claude Code instruction, memory and skill files.')
+  if (workspace.isAllowedPath(path) || allProviders().some((p) => p.fileAllowed(path, write))) return path
+  throw new Error("Hive can only read and write files inside the workspace, and the agents' instruction, memory and skill files.")
 }
 
 
@@ -107,6 +123,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
     'settings:get': () => config.settings,
     'settings:update': (patch) => config.updateSettings(patch),
     'settings:setKeybinding': (id, key) => config.setKeybinding(id, key),
+    'settings:setProviderPrices': (provider, prices) => config.setProviderPrices(knownProvider(provider), prices),
     'settings:reset': (section) => config.resetSettings(section),
     'ui:get': () => config.get().ui,
     'ui:set': (ui) => config.update((c) => Object.assign(c.ui, ui)),
@@ -158,6 +175,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
       return workspace.refresh()
     },
     'project:updateConfig': (p, patch) => workspace.updateProjectConfig(workspace.assertProject(p), patch),
+    'project:updateProvider': (p, provider, patch) => {
+      const id = knownProvider(provider)
+      return workspace.mutateProjectConfig(workspace.assertProject(p), (cfg) => ({ providers: { ...cfg.providers, [id]: { ...projectProviderConfig(cfg, id), ...patch } } }))
+    },
     'project:openInExplorer': (p) => void shell.openPath(workspace.assertProject(p)),
     'project:openTerminal': (p) => {
       const dir = workspace.assertProject(p)
@@ -177,6 +198,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
     'session:live': () => sessions.liveStates(),
     'session:setMode': (p, agentId, mode) => sessions.setPermissionMode(p, agentId, mode),
     'session:restartInMode': (p, agentId, mode) => sessions.restartInMode(p, agentId, mode),
+    'session:setPlanMode': (p, agentId, on) => sessions.setPlanMode(p, agentId, on),
+    'session:continueWith': (p, from, to, opts) => sessions.continueWith(p, from, to, opts),
+    'session:allowLockedEdit': (p, agentId, path) => sessions.allowLockedEdit(p, agentId, path),
     'session:applyModes': () => sessions.applyModeSettings(),
     'session:compact': (p, focus, agentId) => sessions.compact(p, focus, agentId),
     'session:saveImage': (p, sourceFile, agentId) => sessions.saveImage(p, sourceFile, agentId),
@@ -209,7 +233,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
 
     'images:list': (p) => files.listImages(p),
     'images:trash': (p, path) => files.trashImage(p, path),
-    'transcript:read': (p, id, knownSize) => transcripts.read(p, id, knownSize),
+    'transcript:read': (p, id, opts) => transcripts.read(p, id, opts ?? {}),
     'transcript:tool': (p, id, itemId) => transcripts.tool(p, id, itemId),
     'transcript:image': (p, id, imageId) => transcripts.image(p, id, imageId),
     'transcript:search': (p, query, id) => transcripts.search(p, query, id),
@@ -303,16 +327,33 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
     'file:read': async (p) => readFile(guardFile(p), 'utf8').catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? '' : Promise.reject(e))),
     'file:write': (p, content) => writeTextAtomic(guardFile(p, true), content),
 
-    'memory:list': (p) => claudeCode.memorySources(workspace.assertProject(p)),
+    'memory:list': async (p) => {
+      const project = workspace.assertProject(p)
+      return (await Promise.all(allProviders().map((a) => a.memorySources(project)))).flat()
+    },
+    'memory:instructionsShared': async (p, ids) => {
+      const project = workspace.assertProject(p)
+      return instructionsShared(await projectInstructions(project, ids.map(knownProvider)))
+    },
+    'memory:shareInstructions': async (p, ids) => {
+      const project = workspace.assertProject(p)
+      const list = await projectInstructions(project, ids.map(knownProvider))
+      const shared = await readFile(join(project, SHARED_INSTRUCTIONS), 'utf8').catch(() => null)
+      const writes = shareInstructions(list, shared, basename(project))
+      for (const [file, text] of Object.entries(writes)) await writeTextAtomic(join(project, file), text)
+      return Object.keys(writes)
+    },
 
     'git:status': (root, base) => gitStatus(workspace.assertRoot(root), base),
     'git:diff': (root, f, base) => gitDiff(workspace.assertRoot(root), f, base),
 
-    'agent:info': () => agentService.info,
-    'agent:refresh': () => agentService.refresh(true),
-    'agent:install': () => agentService.install(),
-    'agent:update': () => agentService.update(),
-    'agent:login': () => agentService.login(),
+    'provider:info': () => providerService.all(),
+    'provider:refresh': async (id) => {
+      await providerService.refresh(id, true)
+      return providerService.all()
+    },
+    'provider:task': (id, task) => providerService.runProviderTask(id, task),
+    'provider:stopAgents': (id) => sessions.stopProvider(id),
 
     'api:info': () => apiInfo(),
     'api:regenerateToken': async () => {
@@ -322,6 +363,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
   }
 
   for (const [channel, fn] of Object.entries(impl)) {
-    ipcMain.handle(channel, async (_e, ...args: unknown[]) => (fn as (...a: unknown[]) => unknown)(...args))
+    ipcMain.handle(channel, async (e, ...args: unknown[]) => {
+      // Only Hive's own page may call: not another window, and not a frame inside it (e.g. an HTML preview).
+      const w = getWindow()
+      if (!w || e.sender !== w.webContents || e.senderFrame?.parent) throw new Error('Not allowed')
+      return (fn as (...a: unknown[]) => unknown)(...args)
+    })
   }
 }

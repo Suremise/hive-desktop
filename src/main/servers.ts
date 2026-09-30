@@ -4,8 +4,10 @@ import { app } from 'electron'
 import { join, basename } from 'path'
 import { readFile } from 'fs/promises'
 import type { AgentApiInfo, HiveEvent, ToastLevel } from '../shared/types'
-import { DEFAULT_API_PORT, MAIN_AGENT, projectAgents } from '../shared/defaults'
-import { agentService } from './agentService'
+import { DEFAULT_API_PORT, projectAgents } from '../shared/defaults'
+import { agentProvider } from '../shared/providers'
+import { CLAUDE_CODE } from '../shared/claude'
+import { providerService } from './providerService'
 import { config } from './config'
 import { emit, onHiveEvent, toast } from './events'
 import { readJson, writeJsonAtomic, writeTextAtomic } from './fsutil'
@@ -58,7 +60,7 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 }
 
 // ---------------------------------------------------------------------------
-// Hook server: receives Claude Code HTTP hooks. Random port, token from env.
+// Hook server: receives the agents' CLI hooks. Random port, token from env; ?run=<runId> names the launch.
 // ---------------------------------------------------------------------------
 
 let hookServer: http.Server | null = null
@@ -69,18 +71,20 @@ export async function startHookServer(): Promise<string> {
     if (!tokenMatches(req.headers.authorization, sessions.hookToken)) return send(res, 401, { error: 'unauthorized' })
     try {
       const body = JSON.parse((await readBody(req)) || '{}')
-      if (req.url.startsWith('/hook?statusline')) {
+      const query = new URL(req.url, 'http://127.0.0.1').searchParams
+      const run = query.get('run')
+      if (query.has('statusline')) {
         // The reply becomes Claude Code's status line, so send nothing.
         res.writeHead(204)
         res.end()
-        sessions.handleStatusLine(body)
+        sessions.handleStatusLine(run, body)
         return
       }
-      // PreToolUse waits for Hive's file-lock decision; other hooks are answered at once so they never slow the agent down.
-      const reply = body.hook_event_name === 'PreToolUse' ? sessions.preToolUse(body) : null
+      // A hook about to edit files waits for Hive's file-lock decision; other hooks are answered at once so they never slow the agent down.
+      const reply = body.hook_event_name === 'PreToolUse' ? sessions.preToolUse(run, body) : null
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(reply ?? {}))
-      await sessions.handleHook(body)
+      await sessions.handleHook(run, body)
     } catch (e) {
       log.warn('hook error', e)
       if (!res.headersSent) send(res, 400, { error: 'bad request' })
@@ -166,6 +170,7 @@ async function projectSummary(p: string) {
     agents: info.agents.map((a) => ({
       id: a.id,
       name: a.name,
+      provider: a.live?.provider ?? agentProvider(a, info.config, config.settings),
       branch: a.worktree?.branch ?? null,
       worktree: a.worktree?.path ?? null,
       status: a.live?.status ?? 'stopped',
@@ -176,9 +181,13 @@ async function projectSummary(p: string) {
   }
 }
 
-/** The agent an API call is for: an agent id or name, else Agent 1. */
+/** The agent an API call is for: an agent id or name, else the project's only agent (400 with several, 409 with none). */
 async function agentParam(p: string, value: unknown): Promise<string> {
-  if (typeof value !== 'string' || !value) return MAIN_AGENT
+  if (typeof value !== 'string' || !value) {
+    const agents = projectAgents(await workspace.projectConfig(p))
+    if (agents.length === 1) return agents[0].id
+    throw agents.length ? new HttpError(400, 'This project has several agents: say which one with "agent" (its id or name)') : new HttpError(409, 'This project has no agents yet')
+  }
   const a = projectAgents(await workspace.projectConfig(p)).find((x) => x.id === value || x.name.toLowerCase() === value.toLowerCase())
   if (!a) throw new HttpError(404, `Unknown agent "${value}"`)
   return a.id
@@ -194,9 +203,11 @@ function route(method: string, path: string, handler: Handler): void {
 
 route('GET', '/v1/status', async () => ({
   app: { name: 'Hive', version: app.getVersion() },
-  agent: agentService.info,
+  /** Claude Code's install info, as before providers; `providers` has every provider's. */
+  agent: providerService.info(CLAUDE_CODE),
+  providers: providerService.all(),
   workspace: workspace.path ? { name: basename(workspace.path), path: workspace.path } : null,
-  liveSessions: sessions.liveStates().map((s) => ({ project: basename(s.projectPath), agent: s.agentName ?? null, sessionId: s.sessionId, status: s.status }))
+  liveSessions: sessions.liveStates().map((s) => ({ project: basename(s.projectPath), agent: s.agentName ?? null, provider: s.provider, sessionId: s.sessionId || null, status: s.status }))
 }))
 
 route('GET', '/v1/workspace', async () => {
@@ -253,9 +264,21 @@ route('POST', '/v1/projects/:name/input', async ({ params, body }) => {
   if (!config.settings.agentApi.allowSessionInput) throw new HttpError(403, 'Session input is disabled. Enable it in Settings → Agent API.')
   const p = projectByName(params[0])
   const agentId = await agentParam(p, body?.agent)
-  if (!sessions.liveFor(p, agentId)) throw new HttpError(409, agentId === MAIN_AGENT ? 'No running session for this project' : 'That agent is not running')
+  if (!sessions.liveFor(p, agentId)) throw new HttpError(409, 'That agent is not running')
   const text = String(body?.text ?? '')
   writePty(sessions.key(p, agentId),text + (body?.submit === false ? '' : '\r'))
+  return { ok: true }
+})
+
+route('POST', '/v1/projects/:name/continue', async ({ params, body }) => {
+  if (!config.settings.agentApi.allowSessionInput) throw new HttpError(403, 'Session input is disabled. Enable it in Settings → Agent API.')
+  const p = projectByName(params[0])
+  const from = await agentParam(p, body?.from)
+  if (typeof body?.to !== 'string' || !body.to) throw new HttpError(400, 'to is required')
+  const to = await agentParam(p, body.to)
+  if (from === to) throw new HttpError(400, 'from and to must be different agents')
+  // It can take minutes (the handover is written first): answer now, report failures in Hive.
+  void sessions.continueWith(p, from, to, { handover: body?.handover !== false }).catch((e) => toast('error', 'Could not continue the work', (e as Error).message, undefined, p))
   return { ok: true }
 })
 
@@ -344,7 +367,8 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
 function statusFor(e: Error): number {
   const m = String(e?.message ?? '')
   if (/Invalid session id|URI malformed/i.test(m)) return 400
-  if (/already running|already open|already being opened|is starting|Stop it first|Stop the|archived|No session is running|ran in .* Resume it|CLI is required|No workspace/i.test(m)) return 409
+  if (/already running|already open|already being opened|is starting|Stop it first|Stop the|archived|No session is running|ran in .* Resume it|is required to run|is turned off|no agents yet|No workspace|busy/i.test(m)) return 409
+  if (/several agents: choose/i.test(m)) return 400
   if (/Not a project|Unknown (project|agent)|no longer exists/i.test(m)) return 404
   return 500
 }

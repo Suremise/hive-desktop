@@ -1,17 +1,62 @@
 import { useEffect, useState } from 'react'
-import { EFFORT_LEVELS, MAX_AGENTS, PERMISSION_MODES, effectiveModelLabel, projectAgents, slugify } from '@shared/defaults'
-import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo } from '@shared/types'
+import { MAX_AGENTS, effectiveModelLabel, projectAgents, slugify } from '@shared/defaults'
+import { PROVIDERS, agentProvider, isProviderEnabled, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerSettings } from '@shared/providers'
+import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
-import { notify, projectKey, set, showAgent, useStore } from '../store'
+import { agentProviderOf, confirm, notify, projectKey, set, setActivity, showAgent, useStore } from '../store'
+import { confirmDangerousMode } from './PermissionMode'
+import { ProviderIcon } from './ProviderIcon'
 import { cx } from '../util'
 import { ModelPicker } from './ModelPicker'
 import { pasteIntoTerminal } from './TerminalView'
 import { Icon, Modal } from './ui'
 
-/** The agent's own model, effort and permission mode; empty values follow the project. */
+/** Which provider an agent runs: enabled providers, with what each still needs (install, sign-in). */
+function ProviderChoice({ value, current, onChange }: { value: ProviderId; current?: ProviderId; onChange: (v: ProviderId) => void }) {
+  const settings = useStore((s) => s.settings)
+  const providers = useStore((s) => s.providers)
+  const shown = PROVIDERS.filter((p) => isProviderEnabled(settings, p.id) || p.id === value || p.id === current)
+  if (!shown.length) {
+    return (
+      <div className="muted">
+        No providers are turned on.{' '}
+        <a
+          onClick={() => {
+            set({ addAgentFor: null, agentSettingsFor: null, settingsSection: 'providers', settingsQuery: '' })
+            setActivity('settings')
+          }}
+        >
+          Choose one in Settings → Providers
+        </a>
+      </div>
+    )
+  }
+  return (
+    <div className="provider-choice">
+      {shown.map((p) => {
+        const info = providers[p.id]
+        const off = !isProviderEnabled(settings, p.id)
+        const issue = off ? 'Turned off in Settings' : !info?.found ? 'Not installed' : info.readiness?.find((r) => r.level === 'error')?.message
+        return (
+          <label key={p.id} className={cx('choice', value === p.id && 'selected', off && 'disabled')}>
+            <input type="radio" disabled={off} checked={value === p.id} onChange={() => onChange(p.id)} />
+            <ProviderIcon provider={p.id} />
+            <div>
+              <strong>{p.name}</strong>
+              <div className="faint">{issue ?? `${info?.version ?? ''}`}</div>
+            </div>
+          </label>
+        )
+      })}
+    </div>
+  )
+}
+
+/** The agent's own model, effort and permission mode for its provider; empty values follow the project. */
 function Overrides({
   project,
+  provider,
   model,
   effort,
   permission,
@@ -20,6 +65,7 @@ function Overrides({
   onPermission
 }: {
   project: ProjectInfo
+  provider: ProviderId
   model: string
   effort: string
   permission: string
@@ -28,23 +74,26 @@ function Overrides({
   onPermission: (v: string) => void
 }) {
   const settings = useStore((s) => s.settings)
-  const claudeDefault = useStore((s) => s.agent?.defaultModel ?? null)
+  const cliDefault = useStore((s) => s.providers[provider]?.defaultModel ?? null)
   if (!settings) return null
-  const cfg = project.config
-  const projectModel = effectiveModelLabel(cfg.model, settings.claude.defaultModel, claudeDefault)
-  const projectEffort = cfg.effort !== 'inherit' ? cfg.effort : settings.claude.defaultEffort || 'default'
-  const projectPermission = PERMISSION_MODES.find((m) => m.value === (cfg.permissionMode === 'inherit' ? settings.claude.defaultPermissionMode : cfg.permissionMode))?.label
-  const modes = PERMISSION_MODES.filter((m) => m.value !== 'bypassPermissions' || settings.claude.enableBypassOption)
+  const p = providerDescriptor(provider)
+  const pc = projectProviderConfig(project.config, provider)
+  const g = providerSettings(settings, provider)
+  const projectModel = effectiveModelLabel(provider, pc.model, g.defaultModel, cliDefault)
+  const projectEffortId = pc.effort !== 'inherit' ? pc.effort : g.defaultEffort
+  const projectEffort = projectEffortId ? p.effortLevels.find((l) => l.value === projectEffortId)?.label ?? projectEffortId : 'default'
+  const projectPermission = permissionLabel(provider, pc.permissionMode === 'inherit' ? g.defaultPermissionMode : pc.permissionMode)
+  const modes = offeredModes(provider, settings)
   return (
     <div className="agent-form">
       <label>Model</label>
-      <ModelPicker value={model} base={{ value: '', label: `Project's (${projectModel})` }} onChange={onModel} />
+      <ModelPicker key={provider} provider={provider} value={model} base={{ value: '', label: `Project's (${projectModel})` }} onChange={onModel} />
       <label>Effort</label>
       <select className="select" value={effort} onChange={(e) => onEffort(e.target.value)}>
         <option value="">Project's ({projectEffort})</option>
-        {EFFORT_LEVELS.map((l) => (
-          <option key={l} value={l}>
-            {l}
+        {p.effortLevels.map((l) => (
+          <option key={l.value} value={l.value}>
+            {l.label}
           </option>
         ))}
       </select>
@@ -79,6 +128,7 @@ export function AddAgentDialog() {
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
   const [permission, setPermission] = useState('')
+  const [provider, setProvider] = useState<ProviderId>('')
   const [startNow, setStartNow] = useState(true)
   const [busy, setBusy] = useState(false)
 
@@ -93,6 +143,10 @@ export function AddAgentDialog() {
     setModel('')
     setEffort('')
     setPermission('')
+    // The project's default provider when it is on, else the first one that is.
+    const s = useStore.getState().settings
+    const preferred = projectDefaultProvider(project.config, s)
+    setProvider(isProviderEnabled(s, preferred) ? preferred : PROVIDERS.find((p) => isProviderEnabled(s, p.id))?.id ?? preferred)
     setStartNow(true)
     setBusy(false)
     setGit(null)
@@ -115,13 +169,23 @@ export function AddAgentDialog() {
   const free = git?.worktrees.filter((w) => !w.used) ?? []
   const copy = project.config.worktreeCopy ?? settings.agents.worktreeCopy
   const setup = project.config.worktreeSetup.trim()
-  const valid = !!name.trim() && !full && (location !== 'new-worktree' || (!!branch.trim() && !!base)) && (location !== 'existing-worktree' || !!existing)
+  const valid = !!name.trim() && !full && isProviderEnabled(settings, provider) && (location !== 'new-worktree' || (!!branch.trim() && !!base)) && (location !== 'existing-worktree' || !!existing)
+  const chooseProvider = (v: ProviderId): void => {
+    // Model, effort and mode are the provider's own: another provider starts from the project's.
+    if (v === provider) return
+    setProvider(v)
+    setModel('')
+    setEffort('')
+    setPermission('')
+  }
 
   const add = async (): Promise<void> => {
+    if (permission && !(await confirmDangerousMode(provider, permission, name.trim()))) return
     setBusy(true)
     try {
       const def = await call('agents:add', project.path, {
         name: name.trim(),
+        provider,
         location,
         branch: location === 'new-worktree' ? branch.trim() : undefined,
         base: location === 'new-worktree' ? base : undefined,
@@ -175,6 +239,8 @@ export function AddAgentDialog() {
           }}
         />
       </div>
+      <h3 className="agent-dialog-h">Coding agent</h3>
+      <ProviderChoice value={provider} onChange={chooseProvider} />
       <h3 className="agent-dialog-h">Where it works</h3>
       <div className="choice-list">
         <label className={cx('choice', location === 'project' && 'selected')}>
@@ -219,7 +285,7 @@ export function AddAgentDialog() {
                   .{setup ? (
                     <>
                       {' '}
-                      <code>{setup}</code> runs in the agent's pane before Claude Code starts.
+                      <code>{setup}</code> runs in the agent's pane before {providerDescriptor(provider).name} starts.
                     </>
                   ) : (
                     ' Set a setup command (e.g. npm install) in Project Settings → Agents.'
@@ -250,7 +316,7 @@ export function AddAgentDialog() {
         </label>
       </div>
       <h3 className="agent-dialog-h">Settings</h3>
-      <Overrides project={project} model={model} effort={effort} permission={permission} onModel={setModel} onEffort={setEffort} onPermission={setPermission} />
+      <Overrides project={project} provider={provider} model={model} effort={effort} permission={permission} onModel={setModel} onEffort={setEffort} onPermission={setPermission} />
     </Modal>
   )
 }
@@ -267,19 +333,48 @@ export function AgentSettingsDialog() {
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
   const [permission, setPermission] = useState('')
+  const settings = useStore((s) => s.settings)
+  const current = project && agent ? (agent.live?.provider ?? agentProvider(agent, project.config, settings)) : ''
+  const [provider, setProvider] = useState<ProviderId>(current)
   useEffect(() => {
     setName(agent?.name ?? '')
     setModel(agent?.model ?? '')
     setEffort(agent?.effort ?? '')
     setPermission(agent?.permissionMode ?? '')
+    setProvider(current)
     // Reset when another agent's dialog opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.project, target?.agentId])
   if (!target || !project || !agent) return null
   const close = (): void => set({ agentSettingsFor: null })
+  const changed = provider !== current
+  const chooseProvider = (v: ProviderId): void => {
+    setProvider(v)
+    if (v !== provider) {
+      setModel('')
+      setEffort('')
+      setPermission('')
+    }
+  }
   const save = async (): Promise<void> => {
+    if (changed) {
+      const ok = await confirm({
+        title: `Switch ${agent.name} to ${providerDescriptor(provider).name}?`,
+        message: `Its conversations stay in the Sessions tab, but ${providerDescriptor(provider).name} can't resume ${providerDescriptor(current).name} conversations, so ${agent.name} starts fresh next time.`,
+        detail: 'To carry the work over, ask the agent for a handover before switching (Hive MCP: hive_create_handover), then ask the new agent to read it.',
+        confirmLabel: 'Switch'
+      })
+      if (!ok) return
+    }
+    if (permission && permission !== agent.permissionMode && !(await confirmDangerousMode(provider, permission, agent.name))) return
     const ok = await actions.attempt('Could not save agent', () =>
-      call('agents:update', project.path, agent.id, { name, model: model || undefined, effort: (effort || undefined) as EffortLevel | undefined, permissionMode: (permission || undefined) as PermissionMode | undefined })
+      call('agents:update', project.path, agent.id, {
+        name,
+        ...(changed ? { provider } : {}),
+        model: model || undefined,
+        effort: (effort || undefined) as EffortLevel | undefined,
+        permissionMode: (permission || undefined) as PermissionMode | undefined
+      })
     )
     if (ok) {
       await actions.refreshWorkspace()
@@ -317,9 +412,122 @@ export function AgentSettingsDialog() {
           )}
         </div>
       </div>
+      <h3 className="agent-dialog-h">Coding agent</h3>
+      {agent.live ? (
+        <div className="muted flex">
+          <ProviderIcon provider={current} /> {providerDescriptor(current).name} <span className="faint">— stop {agent.name} to change it</span>
+        </div>
+      ) : (
+        <ProviderChoice value={provider} current={current} onChange={chooseProvider} />
+      )}
       <h3 className="agent-dialog-h">Settings</h3>
-      <Overrides project={project} model={model} effort={effort} permission={permission} onModel={setModel} onEffort={setEffort} onPermission={setPermission} />
+      <Overrides project={project} provider={provider} model={model} effort={effort} permission={permission} onModel={setModel} onEffort={setEffort} onPermission={setPermission} />
       {agent.live && <div className="detail">Changes apply the next time {agent.name} starts; the running session keeps its settings until then.</div>}
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Continue with…
+// ---------------------------------------------------------------------------
+
+/**
+ * Hands one agent's work to another, of any provider. Conversations can't move between providers,
+ * so the source writes a handover (Hive's hive_create_handover tool) and the target reads it.
+ */
+export function ContinueDialog() {
+  const target = useStore((s) => s.continueFor)
+  const settings = useStore((s) => s.settings)
+  const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.continueFor?.project) ?? null)
+  const from = project?.agents.find((a) => a.id === target?.agentId) ?? null
+  const [to, setTo] = useState('')
+  const [handover, setHandover] = useState(true)
+
+  const idle = (a: { live?: { status: string } | null }): boolean => !a.live || a.live.status === 'ready' || a.live.status === 'finished'
+  const fromReady = !!from?.live && idle(from)
+  useEffect(() => {
+    if (!target || !project) return
+    setHandover(fromReady)
+    const first = project.agents.find((a) => a.id !== target.agentId && idle(a) && isProviderEnabled(settings, agentProviderOf(project, a)))
+    setTo(first?.id ?? '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target?.project, target?.agentId])
+
+  if (!target || !project || !from) return null
+  const close = (): void => set({ continueFor: null })
+  const others = project.agents.filter((a) => a.id !== from.id)
+  const chosen = others.find((a) => a.id === to)
+  const hiveTools = settings?.agentApi.provideHiveMcp !== false
+
+  const go = (): void => {
+    if (!chosen) return
+    close()
+    showAgent(project, chosen.id)
+    void call('session:continueWith', project.path, from.id, chosen.id, { handover: handover && fromReady }).catch((e) => notify('error', `Could not continue with ${chosen.name}`, errorMessage(e)))
+  }
+
+  return (
+    <Modal
+      title={`Continue ${from.name}'s work`}
+      icon="arrow-swap"
+      onClose={close}
+      footer={
+        <>
+          <button className="btn subtle" onClick={close}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={!chosen || !hiveTools} onClick={go}>
+            <Icon name="arrow-swap" /> Continue
+          </button>
+        </>
+      }
+    >
+      <p style={{ marginTop: 0 }}>
+        Another agent picks up the work from a handover. It can use a different provider: the conversation itself stays with {from.name}; the handover carries the goal, what's done and
+        the next steps.
+      </p>
+      {!hiveTools && (
+        <div className="banner warn">
+          <Icon name="warning" /> This needs Hive's tools in sessions. Turn on "Provide Hive tools to sessions" in Settings → Agent API.
+        </div>
+      )}
+      <div className="choice-list">
+        {others.map((a) => {
+          const p = agentProviderOf(project, a)
+          const enabled = isProviderEnabled(settings, p)
+          const free = idle(a)
+          return (
+            <label key={a.id} className={cx('choice', to === a.id && 'selected', (!enabled || !free) && 'disabled')}>
+              <input type="radio" disabled={!enabled || !free} checked={to === a.id} onChange={() => setTo(a.id)} />
+              <div>
+                <strong>
+                  <ProviderIcon provider={p} /> {a.name}
+                </strong>
+                <div className="faint">
+                  {!enabled
+                    ? `${providerDescriptor(p).name} is turned off.`
+                    : !free
+                      ? 'Busy. Choose it once it has finished.'
+                      : a.live
+                        ? 'Running: gets the message in its current session.'
+                        : `Starts a new ${providerDescriptor(p).name} session.`}
+                </div>
+              </div>
+            </label>
+          )
+        })}
+      </div>
+      <label className="flex muted" style={{ marginTop: 10 }}>
+        <input type="checkbox" className="checkbox" disabled={!fromReady} checked={handover && fromReady} onChange={(e) => setHandover(e.target.checked)} /> Ask {from.name} to write a
+        handover first
+      </label>
+      <div className="detail">
+        {fromReady
+          ? `${from.name} writes it with Hive's handover tool; ${chosen?.name ?? 'the other agent'} starts when it's done.`
+          : from.live
+            ? `${from.name} is busy, so ${chosen?.name ?? 'the other agent'} continues from the latest handover.`
+            : `${from.name} isn't running, so ${chosen?.name ?? 'the other agent'} continues from the latest handover. Resume ${from.name} first to have it write a new one.`}
+      </div>
     </Modal>
   )
 }

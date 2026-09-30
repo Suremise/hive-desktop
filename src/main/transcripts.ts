@@ -1,18 +1,22 @@
 import { open, stat } from 'fs/promises'
-import type { Transcript, TranscriptItem, TranscriptSearchResult, TranscriptTool } from '../shared/types'
-import { assertSessionId } from '../shared/defaults'
-import { ConversationParser, searchItems, transcriptMarkdown } from './agents/conversation'
+import type { ProviderId, Transcript, TranscriptItem, TranscriptSearchResult, TranscriptTool } from '../shared/types'
+import { TRANSCRIPT_WINDOW, assertSessionId } from '../shared/defaults'
+import { provider } from './providers'
+import { searchItems, transcriptMarkdown } from './providers/conversation'
+import type { ConversationParserLike } from './providers/types'
 import { sessions } from './sessions'
 import { workspace } from './workspace'
 
 /**
  * The Sessions tab's transcript viewer. Parsed transcripts are cached and followed incrementally
- * (Claude Code only appends), so re-reading a live session costs only the new lines.
+ * (providers only append), so re-reading a live session costs only the new lines. Each provider has its
+ * own parser into the same items.
  */
 
 interface Entry {
   path: string
-  parser: ConversationParser
+  provider: ProviderId
+  parser: ConversationParserLike
   size: number
   used: number
 }
@@ -41,7 +45,7 @@ const pending = new Map<string, Promise<unknown>>()
  */
 async function parsed(projectPath: string, sessionId: string): Promise<Entry> {
   projectPath = workspace.assertProject(projectPath)
-  // The id becomes part of a file name, so only accept what Claude Code uses (UUIDs).
+  // The id becomes part of a file name, so only accept plain ids (UUIDs).
   assertSessionId(sessionId)
   const key = `${projectPath.toLowerCase()}|${sessionId}`
   const run = (pending.get(key) ?? Promise.resolve()).then(
@@ -61,9 +65,10 @@ async function parseNow(projectPath: string, sessionId: string, key: string): Pr
   if (!path) throw new Error('This session has no transcript yet.')
   const size = (await stat(path)).size
   let e = cache.get(key)
-  // A different file (Claude Code deleted it and Hive's backup is used) or a shorter one means start again.
+  // A different file (the provider deleted it and Hive's backup is used) or a shorter one means start again.
   if (!e || e.path !== path || size < e.parser.offset) {
-    e = { path, parser: new ConversationParser(projectPath), size: 0, used: 0 }
+    const id = await sessions.sessionProvider(projectPath, sessionId)
+    e = { path, provider: id, parser: provider(id).conversationParser(projectPath), size: 0, used: 0 }
     cache.set(key, e)
   }
   e.used = Date.now()
@@ -90,11 +95,16 @@ function forDisplay(item: TranscriptItem): TranscriptItem {
 }
 
 export const transcripts = {
-  /** The conversation so far, or null when the file hasn't grown since knownSize. */
-  async read(projectPath: string, sessionId: string, knownSize?: number): Promise<Transcript | null> {
+  /**
+   * The conversation from item `from` on (by default the latest TRANSCRIPT_WINDOW items: the viewer loads
+   * earlier ones as you scroll up), or null when the file hasn't grown since knownSize.
+   */
+  async read(projectPath: string, sessionId: string, opts: { knownSize?: number; from?: number } = {}): Promise<Transcript | null> {
     const e = await parsed(projectPath, sessionId)
-    if (knownSize !== undefined && knownSize === e.size) return null
-    return { sessionId, size: e.size, items: e.parser.items.map(forDisplay) }
+    if (opts.knownSize !== undefined && opts.knownSize === e.size) return null
+    const total = e.parser.items.length
+    const from = Math.max(0, Math.min(total, opts.from ?? total - TRANSCRIPT_WINDOW))
+    return { sessionId, size: e.size, total, from, items: e.parser.items.slice(from).map(forDisplay) }
   },
 
   async tool(projectPath: string, sessionId: string, itemId: number): Promise<TranscriptTool> {
@@ -109,11 +119,9 @@ export const transcripts = {
     const loc = e.parser.images[imageId]
     if (!loc) throw new Error('No such image')
     const entry = JSON.parse((await readRange(e.path, loc.offset, loc.offset + loc.length)).toString('utf8'))
-    let block = entry.message?.content?.[loc.path[0]]
-    if (loc.path.length > 1) block = block?.content?.[loc.path[1]]
-    const src = block?.source
-    if (src?.type !== 'base64' || typeof src.data !== 'string') throw new Error('The image is not stored in the transcript')
-    return `data:${src.media_type ?? 'image/png'};base64,${src.data}`
+    const url = provider(e.provider).imageData(entry, loc)
+    if (!url) throw new Error('The image is not stored in the transcript')
+    return url
   },
 
   /** Searches one session, or every session of the project when sessionId is null. */
@@ -136,6 +144,7 @@ export const transcripts = {
   async markdown(projectPath: string, sessionId: string, title: string): Promise<string> {
     const e = await parsed(projectPath, sessionId)
     const project = workspace.assertProject(projectPath)
-    return transcriptMarkdown(e.parser.items, title, `Claude Code session \`${sessionId}\` · project ${project} · exported from Hive ${new Date().toLocaleString()}`)
+    const p = provider(e.provider)
+    return transcriptMarkdown(e.parser.items, title, `${p.exportSubtitle(sessionId, project)} · exported from Hive ${new Date().toLocaleString()}`, p.descriptor.assistant)
   }
 }

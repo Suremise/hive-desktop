@@ -3,14 +3,14 @@ import type { HiveEvent } from '@shared/types'
 import { call } from './api'
 import { playChime } from './chime'
 import { matchKeybinding, runCommand } from './commands'
-import { AboutDialog, ClaudeSetupDialog, CommandPalette, CompactDialog, Dialogs, NotificationCenter, QuitDialog, QuitPendingBanner, ShortcutsDialog, Toasts } from './components/Overlays'
-import { AddAgentDialog, AgentSettingsDialog, MergeDialog } from './components/AgentDialogs'
+import { AboutDialog, AgentSetupDialog, CommandPalette, CompactDialog, Dialogs, NotificationCenter, ProvidersBanner, QuitDialog, QuitPendingBanner, ShortcutsDialog, Toasts } from './components/Overlays'
+import { AddAgentDialog, AgentSettingsDialog, ContinueDialog, MergeDialog } from './components/AgentDialogs'
 import { UpdateDialog } from './components/Updates'
 import { ModeMenuHost } from './components/PermissionMode'
 import { ActivityBar, StatusBar } from './components/Shell'
 import { Sidebar } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
-import { MAIN_AGENT } from '@shared/defaults'
+import { isProviderEnabled } from '@shared/providers'
 import { applyLiveState, filesListeners, get, projectKey, projectState, pushToast, set, useStore } from './store'
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
 import { ProjectView } from './views/ProjectView'
@@ -59,7 +59,7 @@ function handleEvent(e: HiveEvent): void {
       const path = get().workspace?.projects.find((p) => p.path.toLowerCase() === e.state.projectPath.toLowerCase())?.path ?? e.state.projectPath
       // A new session (or its worktree setup) gets a fresh terminal. The setup command and Claude Code share one.
       const key = projectKey(path, e.state.agentId)
-      const prev = get().workspace?.projects.find((p) => p.path === path)?.agents.find((a) => a.id === (e.state.agentId ?? MAIN_AGENT))?.live
+      const prev = get().workspace?.projects.find((p) => p.path === path)?.agents.find((a) => a.id === e.state.agentId)?.live
       if (e.state.status === 'starting' && !prev?.settingUp) set((s) => ({ sessionEpoch: { ...s.sessionEpoch, [key]: (s.sessionEpoch[key] ?? 0) + 1 } }))
       applyLiveState(e.state)
       // Viewing the project that just finished counts as seeing it.
@@ -87,8 +87,8 @@ function handleEvent(e: HiveEvent): void {
       applyTheme()
       setTimeout(() => void call('api:info').then((api) => set({ api })), 400)
       break
-    case 'agent-install':
-      set({ agent: e.info })
+    case 'provider-install':
+      set((st) => ({ providers: { ...st.providers, [e.provider]: e.info } }))
       break
     case 'menu-command':
       runCommand(e.command, ...(e.args ?? []))
@@ -103,7 +103,7 @@ function handleEvent(e: HiveEvent): void {
       filesListeners.forEach((l) => l(e.projectPath, e.dirs))
       break
     case 'plan-usage':
-      set({ planUsage: e.usage })
+      set((st) => ({ planUsage: { ...st.planUsage, [e.provider]: e.usage } }))
       break
     case 'update-state':
       set({ update: e.state })
@@ -129,7 +129,7 @@ export function App() {
   const workspace = useStore((s) => s.workspace)
   const activity = useStore((s) => s.activity)
   const settings = useStore((s) => s.settings)
-  const agent = useStore((s) => s.agent)
+  const providers = useStore((s) => s.providers)
   const selected = useStore((s) => s.selectedProject)
   const sidebarVisible = useStore((s) => s.sidebarVisible)
   const sidebarCompact = useStore((s) => s.sidebarCompact)
@@ -143,12 +143,12 @@ export function App() {
         call('ui:get'),
         call('workspace:get'),
         call('workspace:recent'),
-        call('agent:info'),
+        call('provider:info'),
         call('api:info'),
         call('app:info'),
         call('session:live')
       ])
-      set({ settings: s, sidebarWidth: ui.sidebarWidth, sidebarVisible: ui.sidebarVisible, sidebarCompact: !!ui.sidebarCompact, panes: ui.panes ?? {}, workspace: ws, recent, agent: ag, api, appInfo: info })
+      set({ settings: s, sidebarWidth: ui.sidebarWidth, sidebarVisible: ui.sidebarVisible, sidebarCompact: !!ui.sidebarCompact, panes: ui.panes ?? {}, workspace: ws, recent, providers: ag, api, appInfo: info })
       if (ws) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
       for (const l of live) applyLiveState(l)
       // A reloaded window picks up a quit dialog or pending quit that was already in progress.
@@ -166,13 +166,15 @@ export function App() {
     }
   }, [])
 
-  // First run: offer to install Claude Code once detection has finished.
+  // An enabled provider that isn't installed: offer its setup once detection has finished.
   useEffect(() => {
-    if (agent && !agent.checking && !agent.found && !setupShown.current) {
+    if (setupShown.current || !settings) return
+    const missing = Object.values(providers).find((p) => isProviderEnabled(settings, p.provider) && !p.checking && !p.found)
+    if (missing) {
       setupShown.current = true
-      set({ setupOpen: true })
+      set({ setupOpen: missing.provider })
     }
-  }, [agent])
+  }, [providers, settings])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -226,6 +228,7 @@ export function App() {
         <Sidebar />
         <div className="main-area">
           <QuitPendingBanner />
+          <ProvidersBanner />
           {workspace && <ProjectView visible={activity === 'projects'} />}
           {main && (
             <div className="tab-body">
@@ -246,11 +249,12 @@ export function App() {
       <AddAgentDialog />
       <AgentSettingsDialog />
       <MergeDialog />
+      <ContinueDialog />
       <AboutDialog />
       <UpdateDialog />
       <ModeMenuHost />
       <ShortcutsDialog />
-      <ClaudeSetupDialog />
+      <AgentSetupDialog />
     </div>
   )
 }

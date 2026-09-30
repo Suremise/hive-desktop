@@ -1,10 +1,12 @@
 import { create } from 'zustand'
-import { MAIN_AGENT, agentPtyKey, layoutPanes, mostUrgent } from '@shared/defaults'
+import { agentPtyKey, layoutPanes, mostUrgent } from '@shared/defaults'
+import { agentProvider } from '@shared/providers'
 import type { UpdateState } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
   AgentInstallInfo,
+  ProviderId,
   AppInfo,
   AppSettings,
   LiveSessionState,
@@ -40,15 +42,28 @@ export interface PromptRequest {
   resolve: (value: string | null) => void
 }
 
-export type DialogRequest = ConfirmRequest | PromptRequest
+/** A question with several answers (buttons); Esc or × cancels (null). */
+export interface ChoiceRequest {
+  kind: 'choice'
+  title: string
+  message: string
+  detail?: string
+  danger?: boolean
+  /** Buttons left to right; the last is the default. */
+  choices: { label: string; value: string }[]
+  resolve: (value: string | null) => void
+}
+
+export type DialogRequest = ConfirmRequest | PromptRequest | ChoiceRequest
 
 interface State {
   settings: AppSettings | null
   workspace: WorkspaceInfo | null
   recent: string[]
-  agent: AgentInstallInfo | null
-  /** Subscription limits last reported by Claude Code (account-wide). */
-  planUsage: PlanUsage | null
+  /** Each provider's installed CLI (install state, version, sign-in, readiness). */
+  providers: Record<ProviderId, AgentInstallInfo>
+  /** Subscription limits each provider last reported (account-wide), by provider. */
+  planUsage: Record<ProviderId, PlanUsage>
   api: AgentApiInfo | null
   appInfo: AppInfo | null
 
@@ -86,7 +101,8 @@ interface State {
   /** Hive's own update state, and whether its dialog is open. */
   update: UpdateState | null
   updateOpen: boolean
-  setupOpen: boolean
+  /** The Agent Setup dialog, open at a provider (or at the first one). */
+  setupOpen: ProviderId | true | false
   shortcutsOpen: boolean
   dialog: DialogRequest | null
   /** Sessions listed in the quit dialog while main waits for a decision. */
@@ -103,11 +119,13 @@ interface State {
   agentSettingsFor: AgentRef | null
   /** Worktree agent whose Merge dialog is open. */
   mergeFor: AgentRef | null
+  /** The agent whose work "Continue with…" hands to another agent. */
+  continueFor: AgentRef | null
   /** Per project: the agent that session commands (header buttons, shortcuts, Insert into Session) act on. */
   focusedAgent: Record<string, string>
   /** Per project: which agent each pane of a multi-pane layout shows. */
   paneAgents: Record<string, string[]>
-  /** Per project: whose folder the Changes and Files tabs show (an agent id; Agent 1 = the project folder). */
+  /** Per project: whose folder the Changes and Files tabs show (a worktree agent's id; anything else = the project folder). */
   changesRoot: Record<string, string>
   filesRoot: Record<string, string>
 
@@ -124,8 +142,8 @@ export const useStore = create<State>(() => ({
   settings: null,
   workspace: null,
   recent: [],
-  agent: null,
-  planUsage: null,
+  providers: {},
+  planUsage: {},
   api: null,
   appInfo: null,
 
@@ -166,6 +184,7 @@ export const useStore = create<State>(() => ({
   addAgentFor: null,
   agentSettingsFor: null,
   mergeFor: null,
+  continueFor: null,
   focusedAgent: {},
   paneAgents: {},
   changesRoot: {},
@@ -187,16 +206,16 @@ export interface AgentRef {
   agentId: string
 }
 
-/** Terminal key of an agent's session (Agent 1 by default). */
-export function projectKey(path: string, agentId: string = MAIN_AGENT): string {
+/** Terminal key of an agent's session. */
+export function projectKey(path: string, agentId: string): string {
   return agentPtyKey(path, agentId)
 }
 
-/** The agent session commands act on in this project: the focused one, else Agent 1. */
-export function focusedAgentId(p: ProjectInfo | null | undefined): string {
-  if (!p) return MAIN_AGENT
+/** The agent session commands act on in this project: the focused one, else the first; null with no agents. */
+export function focusedAgentId(p: ProjectInfo | null | undefined): string | null {
+  if (!p) return null
   const id = get().focusedAgent[p.path]
-  return id && p.agents.some((a) => a.id === id) ? id : MAIN_AGENT
+  return id && p.agents.some((a) => a.id === id) ? id : (p.agents[0]?.id ?? null)
 }
 
 export function agentOf(p: ProjectInfo | null | undefined, agentId: string): AgentInfo | null {
@@ -208,6 +227,11 @@ export function useFocusedAgent(p: ProjectInfo | null | undefined): AgentInfo | 
   const id = useStore((s) => (p ? s.focusedAgent[p.path] : undefined))
   if (!p) return null
   return p.agents.find((a) => a.id === id) ?? p.agents[0] ?? null
+}
+
+/** The provider an agent runs (its own, else the project's default, else the global default). */
+export function agentProviderOf(p: ProjectInfo | null | undefined, a: Pick<AgentInfo, 'provider' | 'live'> | null | undefined): ProviderId {
+  return a?.live?.provider || agentProvider(a, p?.config, get().settings)
 }
 
 /** The combined state shown by a project's single status dot: its most urgent agent. */
@@ -223,7 +247,7 @@ export function focusAgent(path: string, agentId: string): void {
  * Which agent each pane shows. One pane shows the focused agent; with more, the panes keep the
  * agents placed in them and fill up in agent order. Null is an empty pane.
  */
-export function paneAssignment(p: ProjectInfo, focused: string, stored: string[] | undefined): (string | null)[] {
+export function paneAssignment(p: ProjectInfo, focused: string | null, stored: string[] | undefined): (string | null)[] {
   const n = layoutPanes(p.config.sessionLayout)
   if (n === 1) return [focused]
   const ids = p.agents.map((a) => a.id)
@@ -293,7 +317,7 @@ export function setProjectTab(path: string, tab: ProjectTab): void {
 export function applyLiveState(state: LiveSessionState): void {
   set((s) => {
     if (!s.workspace) return {}
-    const agentId = state.agentId ?? MAIN_AGENT
+    const agentId = state.agentId
     const live = state.status === 'stopped' ? null : state
     const projects = s.workspace.projects.map((p) => {
       if (p.path.toLowerCase() !== state.projectPath.toLowerCase()) return p
@@ -303,7 +327,7 @@ export function applyLiveState(state: LiveSessionState): void {
         : live
           ? [...p.agents, { id: agentId, name: state.agentName ?? 'Agent', live, restartNeeded: false, resume: null }]
           : p.agents
-      const primary = agents.find((a) => a.id === MAIN_AGENT && a.live) ?? agents.find((a) => a.live)
+      const primary = agents.find((a) => a.live)
       return { ...p, agents, live: primary?.live ?? null, restartNeeded: primary?.restartNeeded ?? false, active: live ? true : p.active }
     })
     return { workspace: { ...s.workspace, projects } }
@@ -331,6 +355,10 @@ export function notify(level: ToastMessage['level'], title: string, message?: st
 
 export function confirm(opts: Omit<ConfirmRequest, 'kind' | 'resolve'>): Promise<boolean> {
   return new Promise((resolve) => set({ dialog: { kind: 'confirm', ...opts, resolve } }))
+}
+
+export function choose(opts: Omit<ChoiceRequest, 'kind' | 'resolve'>): Promise<string | null> {
+  return new Promise((resolve) => set({ dialog: { kind: 'choice', ...opts, resolve } }))
 }
 
 export function prompt(opts: Omit<PromptRequest, 'kind' | 'resolve'>): Promise<string | null> {

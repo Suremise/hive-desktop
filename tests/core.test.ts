@@ -1,6 +1,7 @@
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { encodeProjectPath, parseTranscript, recacheEstimate } from '../src/main/agents/transcript'
+import { encodeProjectPath, parseTranscript } from '../src/main/providers/claude/usage'
+import { recacheEstimate } from '../src/main/providers/common'
 import { parseSkillFrontmatter } from '../src/main/skills'
 import { findSecretWarnings, toLaunchDef } from '../src/main/mcp'
 import { claudeFileAllowed, splitArgs, withFileLock, writeJsonAtomic } from '../src/main/fsutil'
@@ -126,10 +127,11 @@ describe('splitArgs', () => {
 
 describe('mergeDefaults', () => {
   it('fills new settings and keeps saved ones', () => {
-    const merged = mergeDefaults(DEFAULT_SETTINGS, { general: { closeToTray: false }, claude: { defaultModel: 'opus' } })
+    const merged = mergeDefaults(DEFAULT_SETTINGS, { general: { closeToTray: false }, providers: { 'claude-code': { defaultModel: 'opus' } } })
     expect(merged.general.closeToTray).toBe(false)
     expect(merged.general.confirmOnQuit).toBe('working')
-    expect(merged.claude.defaultModel).toBe('opus')
+    expect(merged.providers['claude-code'].defaultModel).toBe('opus')
+    expect(merged.providers['claude-code'].enabled).toBe(false)
     expect(merged.agentApi.port).toBe(DEFAULT_SETTINGS.agentApi.port)
   })
 })
@@ -150,6 +152,63 @@ describe('migrateConfig', () => {
   })
 })
 
+describe('providers migration', () => {
+  const v1 = {
+    settings: { claude: { executablePath: 'C:\\x\\claude.exe', defaultModel: 'opus', defaultEffort: 'high', defaultPermissionMode: 'acceptEdits', enableBypassOption: true, extraArgs: '--verbose', checkUpdatesOnLaunch: false } },
+    observedDefaultModel: 'claude-opus-5-5',
+    planUsage: { fiveHour: { usedPercent: 40, resetsAt: '2026-09-29T15:00:00.000Z' }, sevenDay: null, updatedAt: '2026-09-29T10:00:00.000Z' },
+    planWarnings: { fiveHour: { resetsAt: '2026-09-29T15:00:00.000Z', level: 80 } }
+  }
+  const load = (raw: Record<string, unknown>) => migrateConfig(mergeDefaults(structuredClone(DEFAULT_APP_CONFIG), raw), raw)
+
+  it('a fresh install starts with every provider off', () => {
+    expect(Object.values(DEFAULT_SETTINGS.providers).every((p) => !p.enabled)).toBe(true)
+    expect(DEFAULT_APP_CONFIG.version).toBe(2)
+  })
+  it('moves 0.1 Claude Code settings over and keeps Claude Code on', () => {
+    const c = load(v1)
+    expect(c.version).toBe(2)
+    expect(c.settings.defaultProvider).toBe('claude-code')
+    expect(c.settings.providers['claude-code']).toMatchObject({ enabled: true, executablePath: 'C:\\x\\claude.exe', defaultModel: 'opus', defaultEffort: 'high', defaultPermissionMode: 'acceptEdits', enableDangerousMode: true, extraArgs: '--verbose', checkUpdatesOnLaunch: false })
+    expect(c.observedDefaultModel).toEqual({ 'claude-code': 'claude-opus-5-5' })
+    expect(c.planUsage['claude-code'].limits).toEqual([{ id: 'five_hour', label: '5-hour', windowMinutes: 300, usedPercent: 40, resetsAt: '2026-09-29T15:00:00.000Z' }])
+    expect(c.planWarnings).toEqual({ 'claude-code:five_hour': { resetsAt: '2026-09-29T15:00:00.000Z', level: 80 } })
+  })
+  it('leaves a version 2 config alone', () => {
+    const c = load({ version: 2, settings: { providers: { 'claude-code': { enabled: false } } } })
+    expect(c.settings.providers['claude-code'].enabled).toBe(false)
+  })
+  it('writes the Claude Code settings where 0.1 reads them', async () => {
+    const { withLegacySettings } = await import('../src/shared/defaults')
+    const out = withLegacySettings(load(v1))
+    expect(out.settings.claude).toMatchObject({ defaultModel: 'opus', enableBypassOption: true, defaultPermissionMode: 'acceptEdits' })
+  })
+  it('moves a 0.1 project to Claude Code and back', async () => {
+    const { migrateProjectConfig, withLegacyProjectFields, DEFAULT_PROJECT_CONFIG } = await import('../src/shared/defaults')
+    const m = migrateProjectConfig({ version: 1, model: 'sonnet', effort: 'inherit', permissionMode: 'plan', extraArgs: '', agents: [{ id: 'a2', name: 'Agent 2' }], sessionLayout: 'grid' })
+    expect(m.providers['claude-code']).toEqual({ model: 'sonnet', effort: 'inherit', permissionMode: 'plan', extraArgs: '' })
+    expect('model' in m).toBe(false)
+    // 0.2.0: 0.1's agents and layout are cleared; the project keeps inheriting the default provider.
+    expect(m).toMatchObject({ version: 2, agents: [], sessionLayout: 'single' })
+    expect(m.defaultProvider).toBeUndefined()
+    const v2 = { version: 2, providers: {}, defaultProvider: 'inherit', agents: [{ id: 'a-1', name: 'Agent 1', provider: 'codex' }] }
+    expect(migrateProjectConfig(v2)).toEqual(v2)
+    const cfg = mergeDefaults(structuredClone(DEFAULT_PROJECT_CONFIG), m)
+    expect(withLegacyProjectFields(cfg)).toMatchObject({ model: 'sonnet', permissionMode: 'plan' })
+  })
+  it('resolves an agent from its own, the project and the global settings', async () => {
+    const { agentLaunchSettings } = await import('../src/shared/providers')
+    const settings = mergeDefaults(DEFAULT_SETTINGS, { providers: { 'claude-code': { enabled: true, defaultModel: 'opus', defaultPermissionMode: 'auto' } } })
+    const cfg = { defaultProvider: 'inherit', providers: { 'claude-code': { model: 'sonnet', effort: 'inherit', permissionMode: 'inherit', extraArgs: '--x' } } }
+    expect(agentLaunchSettings({}, cfg, settings)).toMatchObject({ provider: 'claude-code', model: 'sonnet', permissionMode: 'auto', extraArgs: ['--x'] })
+    expect(agentLaunchSettings({ model: 'haiku', permissionMode: 'plan' }, cfg, settings)).toMatchObject({ model: 'haiku', permissionMode: 'plan' })
+    // The dangerous mode needs enabling; otherwise the project's mode is used.
+    expect(agentLaunchSettings({ permissionMode: 'bypassPermissions' }, cfg, settings).permissionMode).toBe('auto')
+    // A mode from another provider falls back too.
+    expect(agentLaunchSettings({ permissionMode: 'full-access' }, cfg, settings).permissionMode).toBe('auto')
+  })
+})
+
 describe('modelLabel', () => {
   it('names aliases and model ids', () => {
     expect(modelLabel('opus')).toBe('Opus')
@@ -161,10 +220,10 @@ describe('modelLabel', () => {
     expect(modelLabel('some-custom-model')).toBe('some-custom-model')
   })
   it('marks inherited models as the default', () => {
-    expect(effectiveModelLabel('sonnet', 'opus', 'claude-opus-5-5')).toBe('Sonnet')
-    expect(effectiveModelLabel('inherit', 'opus', 'claude-opus-5-5')).toBe('Opus (default)')
-    expect(effectiveModelLabel('inherit', '', 'claude-opus-5-5')).toBe('Opus 5.5 (default)')
-    expect(effectiveModelLabel('inherit', '', null)).toBe('Claude Code default')
+    expect(effectiveModelLabel('claude-code', 'sonnet', 'opus', 'claude-opus-5-5')).toBe('Sonnet')
+    expect(effectiveModelLabel('claude-code', 'inherit', 'opus', 'claude-opus-5-5')).toBe('Opus (default)')
+    expect(effectiveModelLabel('claude-code', 'inherit', '', 'claude-opus-5-5')).toBe('Opus 5.5 (default)')
+    expect(effectiveModelLabel('claude-code', 'inherit', '', null)).toBe('Claude Code default')
   })
 })
 
@@ -177,14 +236,27 @@ describe('compactThreshold', () => {
   })
 })
 
-describe('sessionStartCommand', () => {
+describe('hookForwardCommand', () => {
   it('forwards the hook JSON from stdin to the hook server with the token', async () => {
-    const { sessionStartCommand } = await import('../src/main/agents/claude-code')
-    const cmd = sessionStartCommand('http://127.0.0.1:5000/hook', 'abc123')
+    const { hookForwardCommand } = await import('../src/main/providers/common')
+    const cmd = hookForwardCommand('http://127.0.0.1:5000/hook?run=abc', 'abc123')
     expect(cmd).toContain('--data-binary @-')
     expect(cmd).toContain('"Authorization: Bearer abc123"')
-    expect(cmd).toContain('"http://127.0.0.1:5000/hook"')
+    expect(cmd).toContain('"http://127.0.0.1:5000/hook?run=abc"')
     expect(cmd).not.toContain('\\')
+  })
+})
+
+describe('Claude Code hooks', () => {
+  it('turns hook calls into Hive events', async () => {
+    const { claudeCode } = await import('../src/main/providers/claude/adapter')
+    const h = (body: Record<string, unknown>) => claudeCode.normalizeHook(body)
+    expect(h({ hook_event_name: 'SessionStart', session_id: 's1', source: 'resume' })).toMatchObject({ event: { kind: 'start', source: 'resume' }, sessionId: 's1' })
+    expect(h({ hook_event_name: 'PreToolUse', tool_input: { file_path: 'a.ts' }, permission_mode: 'default' })).toMatchObject({ event: { kind: 'toolStart' }, editedPaths: ['a.ts'], mode: 'manual' })
+    expect(h({ hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'Claude needs your permission' }).event).toEqual({ kind: 'needsInput', message: 'Claude needs your permission' })
+    expect(h({ hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'waiting for your input' }).event.kind).toBe('ignore')
+    expect(h({ hook_event_name: 'Stop', last_assistant_message: 'done' }).event).toEqual({ kind: 'stop', lastMessage: 'done' })
+    expect(claudeCode.lockReply({ kind: 'deny', reason: 'r' })).toEqual({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'r' } })
   })
 })
 
@@ -209,7 +281,7 @@ describe('ConversationParser', () => {
   const text = lines.join('\n') + '\n'
 
   it('turns entries into messages, tool calls, commands and compactions', async () => {
-    const { ConversationParser } = await import('../src/main/agents/conversation')
+    const { ConversationParser } = await import('../src/main/providers/claude/conversation')
     const p = new ConversationParser('C:\\p')
     p.feed(Buffer.from(text))
     expect(p.items.map((i) => i.kind)).toEqual(['user', 'tool', 'tool', 'user', 'compaction', 'command', 'assistant', 'notice'])
@@ -224,7 +296,7 @@ describe('ConversationParser', () => {
   })
 
   it('reads appended bytes and leaves a partial last line for later', async () => {
-    const { ConversationParser } = await import('../src/main/agents/conversation')
+    const { ConversationParser } = await import('../src/main/providers/claude/conversation')
     const whole = new ConversationParser()
     whole.feed(Buffer.from(text))
     const parts = new ConversationParser()
@@ -238,7 +310,8 @@ describe('ConversationParser', () => {
   })
 
   it('searches every kind of item and exports Markdown', async () => {
-    const { ConversationParser, searchItems, transcriptMarkdown } = await import('../src/main/agents/conversation')
+    const { ConversationParser } = await import('../src/main/providers/claude/conversation')
+    const { searchItems, transcriptMarkdown } = await import('../src/main/providers/conversation')
     const p = new ConversationParser()
     p.feed(Buffer.from(text))
     const { hits, more } = searchItems(p.items, 'ZEBRA')
@@ -257,7 +330,7 @@ describe('ConversationParser', () => {
 
 describe('toolSummary', () => {
   it('describes common tools in one line', async () => {
-    const { toolSummary } = await import('../src/main/agents/conversation')
+    const { toolSummary } = await import('../src/main/providers/claude/conversation')
     expect(toolSummary('Read', { file_path: 'D:\\proj\\src\\a.ts' }, 'D:\\proj')).toBe('src/a.ts')
     expect(toolSummary('Read', { file_path: 'E:\\other\\a.ts' }, 'D:\\proj')).toBe('E:\\other\\a.ts')
     expect(toolSummary('Grep', { pattern: 'foo', path: 'D:\\proj\\src' }, 'D:\\proj')).toBe('foo in src')
@@ -268,7 +341,7 @@ describe('toolSummary', () => {
 
 describe('model choices', () => {
   it('knows which models have a 1M-context version', async () => {
-    const { supportsOneM, withOneM, isOlderModel, baseModel } = await import('../src/shared/defaults')
+    const { supportsOneM, withOneM, isOlderModel, baseModel } = await import('../src/shared/claude')
     expect(supportsOneM('opus')).toBe(true)
     expect(supportsOneM('haiku')).toBe(false)
     expect(supportsOneM('claude-opus-5-5')).toBe(true)
@@ -284,19 +357,27 @@ describe('model choices', () => {
   })
   it('labels effort from the session, the project or the default', async () => {
     const { effortLabel } = await import('../src/shared/defaults')
-    expect(effortLabel('xhigh', 'low', '')).toBe('Extra high')
-    expect(effortLabel(undefined, 'low', 'high')).toBe('Low')
-    expect(effortLabel(undefined, 'inherit', 'high')).toBe('High')
-    expect(effortLabel(undefined, 'inherit', '')).toBeNull()
+    expect(effortLabel('claude-code', 'xhigh', 'low', '')).toBe('Extra high')
+    expect(effortLabel('claude-code', undefined, 'low', 'high')).toBe('Low')
+    expect(effortLabel('claude-code', undefined, 'inherit', 'high')).toBe('High')
+    expect(effortLabel('claude-code', undefined, 'inherit', '')).toBeNull()
   })
 })
 
 describe('plan usage', () => {
   it('reads rate limits from the status line payload', async () => {
-    const { parsePlanUsage } = await import('../src/main/planUsage')
+    const { parseClaudePlanUsage: parsePlanUsage } = await import('../src/main/providers/claude/adapter')
     const now = new Date('2026-09-29T10:00:00Z')
     const u = parsePlanUsage({ rate_limits: { five_hour: { used_percentage: 34.4, resets_at: 1790000000 }, seven_day: { used_percentage: 12 } } }, now)
-    expect(u).toEqual({ fiveHour: { usedPercent: 34.4, resetsAt: new Date(1790000000 * 1000).toISOString() }, sevenDay: { usedPercent: 12, resetsAt: null }, updatedAt: now.toISOString() })
+    expect(u).toEqual({
+      provider: 'claude-code',
+      plan: null,
+      limits: [
+        { id: 'five_hour', label: '5-hour', windowMinutes: 300, usedPercent: 34.4, resetsAt: new Date(1790000000 * 1000).toISOString() },
+        { id: 'seven_day', label: 'weekly', windowMinutes: 10080, usedPercent: 12, resetsAt: null }
+      ],
+      updatedAt: now.toISOString()
+    })
     expect(parsePlanUsage({ model: {} })).toBeNull()
     expect(parsePlanUsage({ rate_limits: { five_hour: { used_percentage: 'x' } } })).toBeNull()
   })
@@ -313,18 +394,18 @@ describe('plan usage', () => {
 })
 
 describe('agents', () => {
-  it('always has Agent 1 first, in the project folder', async () => {
+  it('lists only the agents added, all equal, in the order added', async () => {
     const { projectAgents } = await import('../src/shared/defaults')
-    expect(projectAgents({ agents: [] }).map((a) => a.id)).toEqual(['main'])
-    const list = projectAgents({ agents: [{ id: 'a2', name: 'Reviewer' }, { id: 'main', name: 'Lead', worktree: { path: 'x', branch: 'b', base: 'main' } }] })
-    expect(list.map((a) => a.name)).toEqual(['Lead', 'Reviewer'])
-    expect(list[0].worktree).toBeUndefined()
+    expect(projectAgents({ agents: [] })).toEqual([])
+    const list = projectAgents({ agents: [{ id: 'a-2', name: 'Reviewer' }, { id: 'a-1', name: 'Lead', worktree: { path: 'x', branch: 'b', base: 'main' } }, null as never] })
+    expect(list.map((a) => a.name)).toEqual(['Reviewer', 'Lead'])
+    expect(list[1].worktree).toBeDefined()
   })
 
-  it('keeps the old terminal key for Agent 1', async () => {
-    const { agentPtyKey } = await import('../src/shared/defaults')
-    expect(agentPtyKey('D:\\WS\\Demo')).toBe('session:d:\\ws\\demo')
-    expect(agentPtyKey('D:\\WS\\Demo', 'a2')).toBe('session:d:\\ws\\demo#a2')
+  it('gives every agent its own terminal key, and a layout that shows them all', async () => {
+    const { agentPtyKey, layoutForAgents } = await import('../src/shared/defaults')
+    expect(agentPtyKey('D:\\WS\\Demo', 'a-2')).toBe('session:d:\\ws\\demo#a-2')
+    expect([1, 2, 3, 4].map(layoutForAgents)).toEqual(['single', 'columns2', 'columns3', 'grid'])
   })
 
   it('shows the most urgent state in the combined dot', async () => {
@@ -366,8 +447,8 @@ describe('agents', () => {
 })
 
 describe('resumeRecord', () => {
-  const P = 'D:\ws\proj'
-  const WT = 'D:\ws.worktrees\proj\agent-2'
+  const P = 'D:\\ws\\proj'
+  const WT = 'D:\\ws.worktrees\\proj\\agent-2'
   const rec = (id: string, at: string, extra: Record<string, unknown> = {}) => ({ id, lastActiveAt: at, archived: false, ...extra })
   const records = [
     rec('m1', '2026-09-01'),
@@ -376,19 +457,24 @@ describe('resumeRecord', () => {
     rec('w1', '2026-09-05', { agentId: 'a2', cwd: WT }),
     rec('old', '2026-09-06', { archived: true })
   ]
-  it("prefers the agent's last session, then its latest", async () => {
+  // m1 and m2 are 0.1 sessions (no agent recorded); a3 belongs to agent a3; w1 to a worktree agent.
+  const agents = new Set(['a3', 'a4'])
+  it("prefers the agent's last session, then its latest, then the latest no agent owns", async () => {
     const { resumeRecord } = await import('../src/shared/defaults')
-    expect(resumeRecord(P, { id: 'main', lastSessionId: 'm1' }, records, new Set())?.id).toBe('m1')
-    expect(resumeRecord(P, { id: 'main' }, records, new Set())?.id).toBe('m2')
-    expect(resumeRecord(P, { id: 'a3' }, records, new Set())?.id).toBe('a3')
-    expect(resumeRecord(P, { id: 'a4' }, records, new Set())).toBeNull()
+    expect(resumeRecord(P, { id: 'a4', lastSessionId: 'm1' }, records, new Set(), agents)?.id).toBe('m1')
+    expect(resumeRecord(P, { id: 'a3' }, records, new Set(), agents)?.id).toBe('a3')
+    expect(resumeRecord(P, { id: 'a4' }, records, new Set(), agents)?.id).toBe('m2')
+    // Another agent's session is not "unowned".
+    expect(resumeRecord(P, { id: 'a4' }, records, new Set(['m1', 'm2']), agents)).toBeNull()
+    // Once a3 is removed, its sessions are unowned too.
+    expect(resumeRecord(P, { id: 'a4' }, records, new Set(), new Set(['a4']))?.id).toBe('a3')
   })
   it('skips sessions open in another agent, archived ones and other folders', async () => {
     const { resumeRecord } = await import('../src/shared/defaults')
-    expect(resumeRecord(P, { id: 'main', lastSessionId: 'm2' }, records, new Set(['m2']))?.id).toBe('m1')
-    expect(resumeRecord(P, { id: 'a4', lastSessionId: 'w1' }, records, new Set())).toBeNull()
-    expect(resumeRecord(P, { id: 'a2', worktree: { path: WT, branch: 'hive/agent-2', base: 'main' } }, records, new Set())?.id).toBe('w1')
-    expect(resumeRecord(P, { id: 'main', lastSessionId: 'old' }, records, new Set())?.id).toBe('m2')
+    expect(resumeRecord(P, { id: 'a4', lastSessionId: 'm2' }, records, new Set(['m2']), agents)?.id).toBe('m1')
+    expect(resumeRecord(P, { id: 'a4', lastSessionId: 'w1' }, records, new Set(['m1', 'm2']), agents)).toBeNull()
+    expect(resumeRecord(P, { id: 'a2', worktree: { path: WT, branch: 'hive/agent-2', base: 'main' } }, records, new Set(), agents)?.id).toBe('w1')
+    expect(resumeRecord(P, { id: 'a4', lastSessionId: 'old' }, records, new Set(), agents)?.id).toBe('m2')
   })
 })
 
@@ -405,7 +491,7 @@ describe('sessionLabel', () => {
 
 describe('permission modes in a running session', () => {
   it('reads the mode from Claude Code footer output', async () => {
-    const { footerMode } = await import('../src/shared/defaults')
+    const { footerMode } = await import('../src/shared/claude')
     expect(footerMode(' ⏵⏵ accept edits on (shift+tab to cycle) · ← for agents ')).toBe('acceptEdits')
     expect(footerMode('⏸ plan mode on (shift+tab o cycle) · ←foragents')).toBe('plan')
     expect(footerMode('x ⏵⏵ auto mode on (shift+tab to cycle) y ⏸ manual mode on · ← for agents')).toBe('manual')
@@ -414,7 +500,7 @@ describe('permission modes in a running session', () => {
     expect(footerMode('Claude said: turn plan mode on and then')).toBeNull()
   })
   it('maps hook modes and knows what Shift+Tab can reach', async () => {
-    const { hookMode, canSwitchLive } = await import('../src/shared/defaults')
+    const { hookMode, canSwitchLive } = await import('../src/shared/claude')
     expect(hookMode('default')).toBe('manual')
     expect(hookMode('acceptEdits')).toBe('acceptEdits')
     expect(hookMode('nonsense')).toBeNull()

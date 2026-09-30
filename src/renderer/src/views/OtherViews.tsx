@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { McpServerInfo, SkillInfo } from '@shared/types'
+import { enabledProviders } from '@shared/providers'
 import iconUrl from '../assets/icon.svg'
 import guideMd from '@docs/USER_GUIDE.md?raw'
 import apiMd from '@docs/AGENT_API.md?raw'
@@ -23,7 +24,10 @@ import { basename, cx, formatKeybinding } from '../util'
 
 export function WelcomeView() {
   const recent = useStore((s) => s.recent)
-  const agent = useStore((s) => s.agent)
+  const providers = useStore((s) => s.providers)
+  const settings = useStore((s) => s.settings)
+  const on = enabledProviders(settings)
+  const missing = on.filter((p) => providers[p.id] && !providers[p.id].checking && !providers[p.id].found)
   return (
     <div className="welcome">
       <div className="welcome-inner">
@@ -43,11 +47,16 @@ export function WelcomeView() {
             <div className="welcome-link" onClick={() => runCommand('workspace.create')}>
               <Icon name="new-folder" /> New Workspace…
             </div>
-            {agent && !agent.checking && !agent.found && (
-              <div className="welcome-link" onClick={() => set({ setupOpen: true })}>
-                <Icon name="cloud-download" /> Install the Claude Code CLI (required)…
+            {settings && !on.length && (
+              <div className="welcome-link" onClick={() => runCommand('settings.providers')}>
+                <Icon name="hubot" /> Choose your coding agents (Claude Code, …)
               </div>
             )}
+            {missing.map((p) => (
+              <div key={p.id} className="welcome-link" onClick={() => set({ setupOpen: p.id })}>
+                <Icon name="cloud-download" /> Install {p.name}…
+              </div>
+            ))}
             <h3 style={{ marginTop: 28 }}>Recent</h3>
             {recent.length === 0 && <div className="muted">No recent workspaces.</div>}
             {recent.map((r) => (
@@ -79,7 +88,7 @@ export function WelcomeView() {
               <Icon name="folder" />
               <div>
                 <strong>Projects</strong>
-                <p>Each subfolder is a project. Toggle the ones you're working on; each gets its own Claude Code session, running side by side.</p>
+                <p>Each subfolder is a project. Toggle the ones you're working on; each gets its own coding agents, running side by side.</p>
               </div>
             </div>
             <div className="walkthrough">
@@ -203,7 +212,7 @@ export function SkillView() {
 // MCP server detail
 // ---------------------------------------------------------------------------
 
-const MCP_HELP = `**Format** — one server per file, in Claude Code's format plus an optional \`description\`:
+const MCP_HELP = `**Format** — one server per file, in Claude Code's .mcp.json format (Hive converts it for other providers) plus an optional \`description\`:
 
 \`\`\`json
 {

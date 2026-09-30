@@ -2,6 +2,7 @@ import * as pty from '@lydell/node-pty'
 import type { IPty } from '@lydell/node-pty'
 import { sendPty } from './events'
 import { createLogger } from './logger'
+import { allProviders } from './providers'
 
 const log = createLogger('pty')
 const MAX_BUFFER = 512 * 1024
@@ -23,7 +24,7 @@ export interface SpawnOptions {
   rows?: number
   onExit?: (code: number) => void
   onData?: (data: string) => void
-  /** Don't tell the renderer when it exits: another process continues in the same terminal (a worktree's setup command, then Claude Code). */
+  /** Don't tell the renderer when it exits: another process continues in the same terminal (a worktree's setup command, then the agent). */
   quietExit?: boolean
   /** Start from what the key's previous process printed, so the terminal replays both after a reload. */
   continueBuffer?: boolean
@@ -38,18 +39,24 @@ export function childEnv(extra: Record<string, string> = {}): Record<string, str
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   delete env.ELECTRON_RUN_AS_NODE
   delete env.ELECTRON_NO_ATTACH_CONSOLE
-  // If Hive itself was started from inside a Claude Code session, don't leak that session's identity.
-  // User configuration such as CLAUDE_CODE_GIT_BASH_PATH is kept.
-  const sessionVars = ['CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_AGENT_SDK_VERSION', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING', 'MCP_CONNECTION_NONBLOCKING']
-  for (const k of Object.keys(env)) if (sessionVars.includes(k) || k.startsWith('HIVE_')) delete env[k]
+  // If Hive itself was started from inside an agent's session, don't leak that session's identity
+  // (each provider lists its variables). User configuration is kept.
+  const sessionVars = new Set(allProviders().flatMap((p) => p.envToStrip))
+  for (const k of Object.keys(env)) if (sessionVars.has(k) || k.startsWith('HIVE_')) delete env[k]
   env.TERM_PROGRAM = 'Hive'
   env.COLORTERM = 'truecolor'
   return { ...env, ...extra }
 }
 
+/** An argument as logged: bearer tokens hidden (Codex's hooks carry one), long values shortened. */
+export function forLog(arg: string): string {
+  const safe = arg.replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, '$1***').replace(/(HIVE_[A-Z_]*TOKEN=)\S+/g, '$1***')
+  return safe.length > 300 ? `${safe.slice(0, 300)}… (${safe.length} characters)` : safe
+}
+
 export function spawnPty(key: string, opts: SpawnOptions): IPty {
   if (entries.has(key)) throw new Error(`A process is already running for ${key}`)
-  log.info(`spawn ${key}: ${opts.file} ${opts.args.join(' ')}`)
+  log.info(`spawn ${key}: ${opts.file} ${JSON.stringify(opts.args.map(forLog))}`)
   const proc = pty.spawn(opts.file, opts.args, {
     name: 'xterm-256color',
     cols: opts.cols ?? 120,

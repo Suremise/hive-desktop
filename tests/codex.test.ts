@@ -1,0 +1,208 @@
+import { describe, expect, it } from 'vitest'
+import { codexMcpServer, hookHash, toToml } from '../src/main/providers/codex/adapter'
+import { CodexConversationParser, parseRollout, patchPaths, presetFromSettings, rolloutDetails, rolloutPlanUsage } from '../src/main/providers/codex/rollout'
+import { codexModelLabel } from '../src/shared/codex'
+
+const line = (o: unknown): string => JSON.stringify(o)
+
+describe('Codex hook trust', () => {
+  it("hashes hooks the way Codex does (values from Codex 0.159's hooks/list)", () => {
+    expect(hookHash('session_start', undefined, 'echo hive-test', 5)).toBe('sha256:9304855a6bdb130c5107b4f69e530cbf6f7cb00c82e7bcd218d8bb4f071a8c7a')
+    expect(hookHash('pre_tool_use', '*', 'echo hive-test', 10)).toBe('sha256:fc3016d3b175c2e0d43538eff55ae4adb352fc1d3bb47acc3ac9d651e7b68024')
+    expect(hookHash('session_end', undefined, 'echo hive-test', 3)).toBe('sha256:22b9953958a5515d3eda16a1a8ce24cd1a55b3685b278840eed401bf0d7e1573')
+  })
+})
+
+describe('Codex hooks', () => {
+  it('turns hook calls into Hive events', async () => {
+    const { codex } = await import('../src/main/providers/codex/adapter')
+    const h = (body: Record<string, unknown>) => codex.normalizeHook(body)
+    expect(h({ hook_event_name: 'SessionStart', session_id: 's1', transcript_path: 'C:\\x\\r.jsonl', source: 'startup', permission_mode: 'default' })).toMatchObject({ event: { kind: 'start', source: 'startup' }, sessionId: 's1', transcriptPath: 'C:\\x\\r.jsonl', mode: null })
+    const patch = '*** Begin Patch\n*** Update File: a.ts\n@@\n-x\n+y\n*** Add File: notes.txt\n+hi\n*** Delete File: gone.txt\n*** Update File: old.txt\n*** Move to: new.txt\n*** End Patch'
+    expect(h({ hook_event_name: 'PreToolUse', tool_name: 'apply_patch', tool_input: { command: patch } })).toMatchObject({ event: { kind: 'toolStart' }, editedPaths: ['a.ts', 'notes.txt', 'gone.txt', 'old.txt', 'new.txt'] })
+    expect(h({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'git status' } })).toMatchObject({ event: { kind: 'toolStart' }, editedPaths: [] })
+    expect(h({ hook_event_name: 'PreToolUse', tool_name: 'request_user_input_async', tool_input: { questions: [{ title: 'Which language?' }] } }).event).toEqual({ kind: 'needsInput', message: 'Which language?' })
+    expect(h({ hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'git status --short' } }).event).toEqual({ kind: 'needsInput', message: 'Codex asks to run git status --short' })
+    expect(h({ hook_event_name: 'Interrupt' }).event).toEqual({ kind: 'interrupt' })
+    expect(h({ hook_event_name: 'Stop', last_assistant_message: 'ok' }).event).toEqual({ kind: 'stop', lastMessage: 'ok' })
+    expect(h({ hook_event_name: 'PreCompact', trigger: 'manual' }).event).toEqual({ kind: 'compactStart', trigger: 'manual' })
+  })
+  it('reads the patch in a code-mode script', async () => {
+    const { scriptPatch } = await import('../src/main/providers/codex/rollout')
+    expect(scriptPatch('const p = await tools.apply_patch("*** Begin Patch\\n*** Add File: notes.txt\\n+hi\\n*** End Patch");\ntext(p);')).toBe('*** Begin Patch\n*** Add File: notes.txt\n+hi\n*** End Patch')
+    expect(scriptPatch('text(await tools.exec_command({cmd: "ls"}))')).toBeNull()
+    // The patch kept in a variable first (seen with Codex 0.159).
+    expect(scriptPatch('const p = "*** Begin Patch\\n*** Add File: notes.txt\\n+hi\\n*** End Patch"; text(await tools.apply_patch(p));')).toBe('*** Begin Patch\n*** Add File: notes.txt\n+hi\n*** End Patch')
+  })
+  it('reads the files of a patch', () => {
+    expect(patchPaths('*** Begin Patch\n*** Add File: a b/c.ts\n+x\n*** End Patch')).toEqual(['a b/c.ts'])
+    expect(patchPaths('no patch')).toEqual([])
+  })
+})
+
+describe('Codex settings as TOML', () => {
+  it('writes inline tables for -c overrides', () => {
+    expect(toToml({ a: 'x"y', 'C:\\p q': { trust_level: 'trusted' }, n: [1, true] })).toBe('{a="x\\"y","C:\\\\p q"={trust_level="trusted"},n=[1,true]}')
+  })
+  it('passes MCP servers with secrets as environment names only', () => {
+    expect(codexMcpServer('gh', { command: 'npx', args: ['-y', 'x'], env: { GITHUB_TOKEN: '${GITHUB_TOKEN}', MODE: 'fast' } }).table).toEqual({
+      command: 'npx',
+      args: ['-y', 'x'],
+      env: { MODE: 'fast' },
+      env_vars: ['GITHUB_TOKEN'],
+      default_tools_approval_mode: 'approve'
+    })
+    expect(codexMcpServer('api', { url: 'https://x', headers: { Authorization: 'Bearer ${API_KEY}', 'X-Team': '${TEAM}', Accept: 'json' } }).table).toEqual({
+      url: 'https://x',
+      bearer_token_env_var: 'API_KEY',
+      env_http_headers: { 'X-Team': 'TEAM' },
+      http_headers: { Accept: 'json' },
+      default_tools_approval_mode: 'approve'
+    })
+    const literal = codexMcpServer('bad', { command: 'x', env: { API_TOKEN: 'ghp_abcdefghijklmnop' } })
+    expect(literal.table).toBeNull()
+    expect(literal.warning).toMatch(/literal secret/)
+    expect(codexMcpServer('renamed', { command: 'x', env: { TOKEN: '${OTHER}' } }).table).toBeNull()
+  })
+})
+
+describe('Codex rollouts', () => {
+  const rollout = [
+    line({ timestamp: '2026-09-29T21:00:00.000Z', type: 'session_meta', payload: { id: 'abc', cwd: 'C:\\p', cli_version: '0.159.0' } }),
+    line({ timestamp: '2026-09-29T21:00:01.000Z', type: 'response_item', payload: { type: 'message', role: 'developer', content: [{ type: 'input_text', text: 'instructions' }] } }),
+    line({ timestamp: '2026-09-29T21:00:01.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<environment_context>cwd</environment_context>' }] } }),
+    line({ timestamp: '2026-09-29T21:00:02.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Add notes' }] } }),
+    line({ timestamp: '2026-09-29T21:00:02.000Z', type: 'event_msg', payload: { type: 'item_completed', item: { type: 'UserMessage', content: [{ type: 'text', text: 'Add notes' }] } } }),
+    line({ timestamp: '2026-09-29T21:00:03.000Z', type: 'response_item', payload: { type: 'reasoning', summary: [{ type: 'summary_text', text: 'Thinking it over' }] } }),
+    line({ timestamp: '2026-09-29T21:00:04.000Z', type: 'response_item', payload: { type: 'function_call', name: 'exec_command', arguments: '{"cmd":"git status"}', call_id: 'c1' } }),
+    line({ timestamp: '2026-09-29T21:00:05.000Z', type: 'response_item', payload: { type: 'function_call_output', call_id: 'c1', output: 'Process exited with code 0\nclean' } }),
+    line({ timestamp: '2026-09-29T21:00:06.000Z', type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', input: '*** Begin Patch\n*** Add File: C:\\p\\notes.txt\n+hi\n*** End Patch', call_id: 'c2' } }),
+    line({ timestamp: '2026-09-29T21:00:07.000Z', type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'c2', output: 'Success. Updated the following files:\nA notes.txt' } }),
+    line({ timestamp: '2026-09-29T21:00:08.000Z', type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { input_tokens: 1000, cached_input_tokens: 800, output_tokens: 50, reasoning_output_tokens: 10 }, last_token_usage: { input_tokens: 600, output_tokens: 20 }, model_context_window: 258400 }, rate_limits: { primary: { used_percent: 12, window_minutes: 300, resets_at: 1790734354 }, secondary: { used_percent: 3, window_minutes: 10080, resets_at: 1791321154 }, plan_type: 'plus' } } }),
+    line({ timestamp: '2026-09-29T21:00:09.000Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] } }),
+    line({ timestamp: '2026-09-29T21:00:10.000Z', type: 'event_msg', payload: { type: 'turn_aborted', reason: 'interrupted' } }),
+    line({ timestamp: '2026-09-29T21:00:11.000Z', type: 'compacted', payload: { message: 'Summary of the work' } })
+  ].join('\n') + '\n'
+
+  it('counts usage', () => {
+    const u = parseRollout(rollout, 'abc', 'Add notes')
+    expect(u).toMatchObject({ provider: 'codex', title: 'Add notes', cliVersion: '0.159.0', inputTokens: 200, cacheReadTokens: 800, outputTokens: 50, reasoningTokens: 10, contextTokens: 620, contextWindow: 258400, requests: 1, userMessages: 1, lastPrompt: 'Add notes' })
+    expect(u.compactions).toHaveLength(1)
+  })
+  it('turns records into the conversation', () => {
+    const p = new CodexConversationParser('C:\\p')
+    p.feed(Buffer.from(rollout))
+    expect(p.items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'tool', 'assistant', 'notice', 'compaction'])
+    const [, , shell, edit] = p.items as any[]
+    expect(shell.tool).toMatchObject({ name: 'Shell', input: 'git status', summary: 'git status', result: 'Process exited with code 0\nclean', isError: false })
+    expect(edit.tool).toMatchObject({ name: 'Edit', summary: 'notes.txt' })
+  })
+  it('reads live details and plan limits', () => {
+    const d = rolloutDetails(rollout)
+    expect(d.planUsage).toMatchObject({ provider: 'codex', plan: 'plus', limits: [{ label: '5-hour', windowMinutes: 300, usedPercent: 12 }, { label: 'weekly', windowMinutes: 10080, usedPercent: 3 }] })
+    expect(rolloutPlanUsage(null, 'x')).toBeNull()
+    const settings = line({ type: 'event_msg', payload: { type: 'thread_settings_applied', thread_settings: { model: 'gpt-6-luna', approval_policy: 'on-request', approvals_reviewer: 'user', permission_profile: { type: 'managed', file_system: { type: 'restricted', entries: [{ access: 'read' }] } }, collaboration_mode: { mode: 'plan', settings: { reasoning_effort: 'low' } } } } })
+    expect(rolloutDetails(settings)).toMatchObject({ modelName: 'gpt-6-luna', effort: 'low', planMode: true, permissionMode: 'read-only' })
+  })
+  it('tells the presets apart', () => {
+    const restricted = (write: boolean) => ({ type: 'managed', file_system: { type: 'restricted', entries: [{ access: 'read' }, ...(write ? [{ access: 'write' }] : [])] } })
+    expect(presetFromSettings({ approval_policy: 'on-request', approvals_reviewer: 'user', permission_profile: restricted(false) })).toBe('read-only')
+    expect(presetFromSettings({ approval_policy: 'on-request', approvals_reviewer: 'user', permission_profile: restricted(true) })).toBe('ask')
+  })
+})
+
+describe('Codex compactions', () => {
+  const tc = (input: number, lastInput: number) =>
+    line({ type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { input_tokens: input, cached_input_tokens: 0, output_tokens: 5 }, last_token_usage: { input_tokens: lastInput, output_tokens: lastInput ? 5 : 0 } } } })
+  const prompt = line({ type: 'event_msg', payload: { type: 'item_completed', item: { type: 'UserMessage', content: [{ type: 'text', text: 'hi' }] } } })
+  const started = line({ type: 'event_msg', payload: { type: 'task_started' } })
+  it('tells /compact (a turn without a prompt) from automatic compaction, and skips empty requests', () => {
+    const manual = [started, prompt, tc(1000, 1000), started, line({ timestamp: '2026-09-30T06:36:16Z', type: 'compacted', payload: { message: '' } }), tc(1000, 0), started, prompt, tc(1400, 400)].join('\n')
+    const u = parseRollout(manual, 'x', null)
+    expect(u.compactions).toEqual([{ timestamp: '2026-09-30T06:36:16Z', trigger: 'manual', preTokens: 1005, postTokens: 405 }])
+    expect(u.requests).toBe(2)
+    const auto = [started, prompt, tc(1000, 1000), line({ type: 'compacted', payload: {} }), tc(1200, 200)].join('\n')
+    expect(parseRollout(auto, 'x', null).compactions[0].trigger).toBe('auto')
+  })
+})
+
+describe('Codex models', () => {
+  it('names models', () => {
+    expect(codexModelLabel('gpt-6-luna')).toBe('GPT-6 Luna')
+    expect(codexModelLabel('gpt-5.6-terra')).toBe('GPT-5.6 Terra')
+    expect(codexModelLabel('gpt-5.5')).toBe('GPT-5.5')
+    expect(codexModelLabel('o4-mini')).toBe('o4-mini')
+  })
+})
+
+describe('Codex skill copies', () => {
+  it("replaces and removes only Hive's marked copies, and leaves the user's own folders alone", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } = await import('fs')
+    const { tmpdir } = await import('os')
+    const { join } = await import('path')
+    const { codex } = await import('../src/main/providers/codex/adapter')
+    const root = mkdtempSync(join(tmpdir(), 'hive-skills-'))
+    const src = join(root, 'src', 'deploy')
+    mkdirSync(src, { recursive: true })
+    writeFileSync(join(src, 'SKILL.md'), '# deploy v1')
+    const cwd = join(root, 'proj')
+    const skills = join(cwd, '.agents', 'skills')
+    // The user's own folder that happens to use the prefix.
+    mkdirSync(join(skills, 'hive-mine'), { recursive: true })
+    writeFileSync(join(skills, 'hive-mine', 'SKILL.md'), '# mine')
+    const sync = (list: { name: string; sourcePath: string }[]) => (codex as any).syncSkills({ cwd, skills: list })
+    await sync([{ name: 'deploy', sourcePath: src }])
+    expect(readFileSync(join(skills, 'hive-deploy', 'SKILL.md'), 'utf8')).toBe('# deploy v1')
+    expect(existsSync(join(skills, 'hive-deploy', '.hive-copy'))).toBe(true)
+    writeFileSync(join(src, 'SKILL.md'), '# deploy v2')
+    await sync([{ name: 'deploy', sourcePath: src }])
+    expect(readFileSync(join(skills, 'hive-deploy', 'SKILL.md'), 'utf8')).toBe('# deploy v2')
+    // Disabled: Hive's copy goes, the user's folder stays.
+    await sync([])
+    expect(existsSync(join(skills, 'hive-deploy'))).toBe(false)
+    expect(existsSync(join(skills, 'hive-mine', 'SKILL.md'))).toBe(true)
+  })
+})
+
+describe('Codex permission menu', () => {
+  it('picks a preset by its number and reads the confirmation Codex prints', async () => {
+    const { codex } = await import('../src/main/providers/codex/adapter')
+    const keys = codex.modeMenuKeys('read-only').map((s) => s.keys)
+    expect(keys).toEqual(['\x15', '/permissions', '\r', '1'])
+    expect(codex.modeMenuKeys('full-access').at(-1)!.keys).toBe('4')
+    expect(codex.modeFromOutput('… • Permission selection requested: Read Only › Ask Codex to do anything')).toBe('read-only')
+    expect(codex.modeFromOutput('Permission selection requested: Approve for me Permission selection requested: Full Access')).toBe('full-access')
+    expect(codex.modeFromOutput('nothing yet')).toBeNull()
+  })
+})
+
+describe('Codex 0.159 rollout (fixture)', () => {
+  // A real session (scrubbed): prompts, tool calls with apply_patch, a compaction. When a new Codex
+  // version changes the format, add its fixture here.
+  const text = () => require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'codex-0.159.jsonl'), 'utf8') as string
+  it('reads usage, prompts and compactions', () => {
+    const u = parseRollout(text(), 'fixture')
+    expect(u.cliVersion).toMatch(/^0\.159/)
+    expect(u.requests).toBeGreaterThan(0)
+    expect(u.inputTokens + u.cacheReadTokens).toBeGreaterThan(0)
+    expect(u.outputTokens).toBeGreaterThan(0)
+    expect(u.userMessages).toBeGreaterThan(0)
+    expect(u.compactions.length).toBe(1)
+    expect(u.contextWindow).toBeGreaterThan(100000)
+    expect(u.model).toMatch(/^gpt-/)
+  })
+  it('shows the conversation with messages and edits', () => {
+    const p = new CodexConversationParser('C:\\proj')
+    p.feed(Buffer.from(text()))
+    const kinds = new Set(p.items.map((i) => i.kind))
+    expect(kinds.has('user')).toBe(true)
+    expect(kinds.has('assistant')).toBe(true)
+    expect(kinds.has('tool')).toBe(true)
+    expect(p.items.some((i) => i.kind === 'compaction')).toBe(true)
+  })
+  it('reads the live details (model, preset)', () => {
+    const d = rolloutDetails(text())
+    expect(d.modelName).toMatch(/^gpt-/)
+    expect(d.permissionMode).toBeTruthy()
+  })
+})

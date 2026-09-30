@@ -8,7 +8,9 @@ import { cx, formatKeybinding, formatTokens, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
 import { UpdateStatusRow } from './Updates'
 import { discardDrafts, saveAllDrafts } from './FileView'
-import type { QuitChoice, SessionStatus } from '@shared/types'
+import type { ProviderId, ProviderTask, QuitChoice, SessionStatus } from '@shared/types'
+import { PROVIDERS, enabledProviders, isProviderEnabled, providerDescriptor } from '@shared/providers'
+import { ProviderIcon } from './ProviderIcon'
 import { Icon, IconButton, Modal, STATUS_TEXT } from './ui'
 
 const LEVEL_ICON = { info: 'info', success: 'pass', warning: 'warning', error: 'error' } as const
@@ -31,7 +33,36 @@ export function Dialogs() {
   const close = (result: boolean | string | null): void => {
     set({ dialog: null })
     if (dialog.kind === 'confirm') dialog.resolve(result === true)
-    else dialog.resolve(typeof result === 'string' ? result : null)
+    else if (dialog.kind === 'prompt') dialog.resolve(typeof result === 'string' ? result : null)
+  }
+
+  if (dialog.kind === 'choice') {
+    const answer = (v: string | null): void => {
+      set({ dialog: null })
+      dialog.resolve(v)
+    }
+    return (
+      <Modal
+        title={dialog.title}
+        icon={dialog.danger ? 'warning' : 'question'}
+        onClose={() => answer(null)}
+        footer={
+          <>
+            <button className="btn subtle" onClick={() => answer(null)}>
+              Cancel
+            </button>
+            {dialog.choices.map((c, i) => (
+              <button key={c.value} className={cx('btn', i === dialog.choices.length - 1 ? (dialog.danger ? 'danger' : 'primary') : 'subtle')} autoFocus={i === dialog.choices.length - 1} onClick={() => answer(c.value)}>
+                {c.label}
+              </button>
+            ))}
+          </>
+        }
+      >
+        <div>{dialog.message}</div>
+        {dialog.detail && <div className="detail">{dialog.detail}</div>}
+      </Modal>
+    )
   }
 
   if (dialog.kind === 'confirm') {
@@ -140,6 +171,8 @@ export function CommandPalette() {
       .filter((i) => i.s > 0)
       .sort((a, b) => b.s - a.s)
       .slice(0, 60)
+    // `open`: commands' availability (when()) is read again each time the palette opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, projects, open, mode])
 
   useEffect(() => {
@@ -262,11 +295,14 @@ export function NotificationCenter() {
 export function AboutDialog() {
   const open = useStore((s) => s.aboutOpen)
   const info = useStore((s) => s.appInfo)
-  const agent = useStore((s) => s.agent)
+  const providers = useStore((s) => s.providers)
   if (!open || !info) return null
   const rows: [string, string][] = [
     ['Version', info.version],
-    ['Claude Code', agent?.found ? `CLI ${agent.version} (${agent.source})` : 'CLI not installed'],
+    ...PROVIDERS.map((p): [string, string] => {
+      const i = providers[p.id]
+      return [p.name, i?.found ? `CLI ${i.version} (${i.source})` : 'CLI not installed']
+    }),
     ['Electron', info.electron],
     ['Chromium', info.chrome],
     ['Node.js', info.node],
@@ -308,7 +344,7 @@ export function AboutDialog() {
         <h1>Hive</h1>
         <div className="version">Version {info.version}</div>
         <p className="muted" style={{ maxWidth: 360, margin: '10px auto 0' }}>
-          An agent-first workspace for AI-assisted coding. Run Claude Code across your projects, side by side.
+          An agent-first workspace for AI-assisted coding. Run coding agents such as {PROVIDERS.map((p) => p.name).join(' and ')} across your projects, side by side.
         </p>
         <table className="about-table">
           <tbody>
@@ -328,7 +364,7 @@ export function AboutDialog() {
           {' '}and <a onClick={() => void call('app:openChromiumLicenses').then((ok) => ok || notify('info', 'Licences not found', 'The Chromium licence file is in the folder Hive is installed in.'))}>Chromium</a>.
         </p>
         <p className="faint" style={{ fontSize: 11, marginTop: 8 }}>
-          © 2026 Darren Marshall. Claude and Claude Code are products of Anthropic. Hive is not affiliated with Anthropic.
+          © 2026 Darren Marshall. {PROVIDERS.map((p) => `${p.name} is a product of ${p.company}`).join('; ')}. Hive is not affiliated with {[...new Set(PROVIDERS.map((p) => p.company))].join(' or ')}.
         </p>
       </div>
     </Modal>
@@ -376,7 +412,7 @@ export function ShortcutsDialog() {
           ))}
           <tr>
             <td className="muted">Terminal</td>
-            <td>Switch permission mode (Claude Code)</td>
+            <td>Switch mode inside the agent (Claude Code: permission mode)</td>
             <td>
               <kbd>Shift+Tab</kbd>
             </td>
@@ -390,22 +426,47 @@ export function ShortcutsDialog() {
           </tr>
         </tbody>
       </table>
-      <p className="hint">Ctrl+B, Ctrl+K, Ctrl+O, Ctrl+R, Ctrl+T and Ctrl+G are left to Claude Code while the terminal has focus.</p>
+      {PROVIDERS.filter((p) => p.reservedKeys.length).map((p) => (
+        <p key={p.id} className="hint">
+          {p.reservedKeys.map((k) => k.replace('MOD+', 'Ctrl+')).join(', ')} are left to {p.name} while its terminal has focus.
+        </p>
+      ))}
     </Modal>
   )
 }
 
-export function ClaudeSetupDialog() {
+/** Text with `code` spans, as provider notes are written. */
+function CodeText({ text }: { text: string }) {
+  return (
+    <>
+      {text.split('`').map((part, i) => (i % 2 ? <code key={i}>{part}</code> : <span key={i}>{part}</span>))}
+    </>
+  )
+}
+
+/** Installing, updating, signing in to and setting up each provider's CLI, one tab per provider. */
+export function AgentSetupDialog() {
   const open = useStore((s) => s.setupOpen)
-  const agent = useStore((s) => s.agent)
+  const providers = useStore((s) => s.providers)
+  const settings = useStore((s) => s.settings)
+  const [tab, setTab] = useState<ProviderId>(PROVIDERS[0].id)
   const [task, setTask] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (typeof open === 'string') setTab(open)
+    else if (open) setTab(enabledProviders(settings)[0]?.id ?? PROVIDERS[0].id)
+    // Only when the dialog opens: a settings change while it is open doesn't move the tab.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   if (!open) return null
-  const start = async (kind: 'install' | 'update' | 'login'): Promise<void> => {
+  const p = providerDescriptor(tab)
+  const info = providers[tab]
+  const on = isProviderEnabled(settings, tab)
+  const start = async (kind: ProviderTask): Promise<void> => {
     try {
-      const key = await call(kind === 'install' ? 'agent:install' : kind === 'update' ? 'agent:update' : 'agent:login')
+      const key = await call('provider:task', tab, kind)
       setTask(key)
       setRunning(true)
     } catch (e) {
@@ -415,7 +476,7 @@ export function ClaudeSetupDialog() {
   const recheck = async (): Promise<void> => {
     setBusy(true)
     try {
-      set({ agent: await call('agent:refresh') })
+      set({ providers: await call('provider:refresh', tab) })
     } finally {
       setBusy(false)
     }
@@ -425,17 +486,18 @@ export function ClaudeSetupDialog() {
     setTask(null)
     set({ setupOpen: false })
   }
+  const issues = (info?.readiness ?? []).filter((r) => r.id !== 'not-installed')
 
   return (
     <Modal
-      title="Claude Code Setup"
+      title="Agent Setup"
       icon="hubot"
       wide
       onClose={close}
       footer={
         <>
-          <button className="btn subtle" onClick={() => void call('app:openExternal', 'https://code.claude.com/docs/en/setup')}>
-            <Icon name="link-external" /> Installation docs
+          <button className="btn subtle" onClick={() => void call('app:openExternal', p.setupUrl)}>
+            <Icon name="link-external" /> {p.name} docs
           </button>
           <div className="grow" />
           <button className="btn subtle" onClick={() => void recheck()} disabled={busy || running}>
@@ -447,42 +509,65 @@ export function ClaudeSetupDialog() {
         </>
       }
     >
-      {agent?.checking ? (
+      {PROVIDERS.length > 1 && (
+        <div className="setup-tabs">
+          {PROVIDERS.map((x) => (
+            <button key={x.id} className={cx('setup-tab', tab === x.id && 'selected')} disabled={running} onClick={() => setTab(x.id)}>
+              <ProviderIcon provider={x.id} /> {x.name}
+              {!isProviderEnabled(settings, x.id) && <span className="faint"> (off)</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {!on && (
+        <div className="banner info" style={{ borderRadius: 6, marginBottom: 10 }}>
+          <Icon name="info" />
+          <span>
+            {p.name} is turned off, so Hive doesn't run it.{' '}
+            <a onClick={() => void call('settings:update', { providers: { [tab]: { enabled: true } } }).then((ns) => set({ settings: ns }))}>Turn it on</a>
+          </span>
+        </div>
+      )}
+      {!info || info.checking ? (
         <div className="setup-status">
           <Icon name="loading" spin />
-          <div>Looking for Claude Code…</div>
+          <div>Looking for {p.name}…</div>
         </div>
-      ) : agent?.found ? (
+      ) : info.found ? (
         <div className="setup-status">
           <Icon name="pass-filled" className="" />
           <div className="grow">
             <div>
-              <strong>Claude Code {agent.version}</strong> <span className="muted">— found via {agent.source}</span>
+              <strong>
+                {p.name} {info.version}
+              </strong>{' '}
+              <span className="muted">— found via {info.source}</span>
             </div>
             <div className="muted mono" style={{ fontSize: 11 }}>
-              {agent.path}
+              {info.path}
             </div>
             <div style={{ marginTop: 4 }}>
-              {agent.loggedIn === true && <span className="badge success"><Icon name="account" /> Signed in ({agent.authMethod})</span>}
-              {agent.loggedIn === false && <span className="badge warn"><Icon name="account" /> Not signed in</span>}{' '}
-              {agent.updateAvailable ? (
-                <span className="badge accent"><Icon name="cloud-download" /> {agent.latestVersion} available</span>
-              ) : agent.latestVersion ? (
-                <span className="badge">Up to date</span>
-              ) : null}
+              {info.loggedIn === true && (
+                <span className="badge success">
+                  <Icon name="account" /> Signed in{info.authMethod ? ` (${info.authMethod})` : ''}
+                </span>
+              )}{' '}
+              {issues.map((r) => (
+                <span key={r.id} className={cx('badge', r.level === 'error' ? 'warn' : r.level === 'warning' ? 'warn' : 'accent')}>
+                  {r.message}
+                </span>
+              ))}{' '}
+              {!info.updateAvailable && info.latestVersion && <span className="badge">Up to date</span>}
             </div>
           </div>
           <div className="flex">
-            {agent.loggedIn === false && (
-              <button className="btn primary" disabled={running} onClick={() => void start('login')}>
-                Sign in
-              </button>
-            )}
-            {agent.updateAvailable && (
-              <button className="btn primary" disabled={running} onClick={() => void start('update')}>
-                Update
-              </button>
-            )}
+            {issues
+              .filter((r) => r.action)
+              .map((r) => (
+                <button key={r.id} className="btn primary" disabled={running} onClick={() => void start(r.action!.task)}>
+                  {r.action!.label}
+                </button>
+              ))}
           </div>
         </div>
       ) : (
@@ -490,31 +575,31 @@ export function ClaudeSetupDialog() {
           <div className="setup-status">
             <Icon name="warning" />
             <div className="grow">
-              <strong>The Claude Code CLI is required</strong>
-              <div className="muted">Hive runs the standalone Claude Code command-line tool in each project. It isn't bundled with Hive — install it with Anthropic's official installer.</div>
+              <strong>{p.name} is not installed</strong>
+              <div className="muted">
+                Hive runs the standalone {p.name} command-line tool in each project. It isn't bundled with Hive — install it with {p.company}'s official installer.
+              </div>
             </div>
             <button className="btn primary" disabled={running} onClick={() => void start('install')}>
-              <Icon name="cloud-download" /> Install Claude Code CLI
+              <Icon name="cloud-download" /> Install {p.name}
             </button>
           </div>
-          {agent?.editorExtensionOnly && (
+          {info.editorExtensionOnly && p.extensionNote && (
             <div className="banner info" style={{ borderRadius: 6, marginBottom: 10 }}>
               <Icon name="info" />
-              <span>
-                You have the Claude Code extension for VS Code (or a similar editor). Hive doesn't use it — the extension's built-in copy moves with every extension update and can't be updated
-                on its own. Install the CLI; your extension keeps working as before.
-              </span>
+              <span>{p.extensionNote}</span>
             </div>
           )}
-          <p className="hint">
-            The installer runs <code>irm https://claude.ai/install.ps1 | iex</code> in PowerShell and installs to <code>%USERPROFILE%\.local\bin</code>. After installing, start a session and sign
-            in with your Claude account (Pro, Max, Team or Enterprise) or an Anthropic Console account. If the CLI is installed somewhere else, set its path in Settings → Claude Code.
-          </p>
+          {p.installNote && (
+            <p className="hint">
+              <CodeText text={p.installNote} />
+            </p>
+          )}
         </>
       )}
-      {!!agent?.rejected?.length && (
+      {!!info?.rejected?.length && (
         <p className="hint">
-          <Icon name="info" /> Ignored {agent.rejected.length === 1 ? 'a copy' : 'copies'} bundled with an editor extension (<code>{agent.rejected[0]}</code>). Hive only uses the standalone CLI.
+          <Icon name="info" /> Ignored {info.rejected.length === 1 ? 'a copy' : 'copies'} bundled with an editor extension (<code>{info.rejected[0]}</code>). Hive only uses the standalone CLI.
         </p>
       )}
       {task && (
@@ -666,6 +751,45 @@ export function QuitPendingBanner() {
   )
 }
 
+/**
+ * What stands between you and running agents, until it is fixed: no provider turned on, or an enabled
+ * provider that isn't installed, isn't signed in or needs its one-time setup. Not dismissable.
+ */
+export function ProvidersBanner() {
+  const settings = useStore((s) => s.settings)
+  const providers = useStore((s) => s.providers)
+  if (!settings) return null
+  const on = enabledProviders(settings)
+  if (!on.length) {
+    return (
+      <div className="banner warn providers-banner">
+        <Icon name="hubot" /> No coding agents are turned on. Choose the ones you use (Claude Code, …) to run sessions.
+        <button className="btn small primary" onClick={() => runCommand('settings.providers')}>
+          Choose providers
+        </button>
+      </div>
+    )
+  }
+  const issues = on.flatMap((p) => {
+    const info = providers[p.id]
+    if (!info || info.checking) return []
+    return (info.readiness ?? []).filter((r) => r.level !== 'info').map((r) => ({ p, r }))
+  })
+  if (!issues.length) return null
+  return (
+    <>
+      {issues.map(({ p, r }) => (
+        <div key={`${p.id}:${r.id}`} className={cx('banner providers-banner', r.level === 'error' ? 'warn' : 'info')}>
+          <ProviderIcon provider={p.id} /> {r.message}
+          <button className="btn small primary" onClick={() => set({ setupOpen: p.id })}>
+            {r.action?.label ?? 'Set up'}
+          </button>
+        </div>
+      ))}
+    </>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Compact
 // ---------------------------------------------------------------------------
@@ -678,6 +802,7 @@ export function CompactDialog() {
   const agent = project?.agents.find((a) => a.id === target?.agentId) ?? null
   const ttl = useStore((s) => s.settings?.sessions.cacheTtl ?? 'auto')
   const usage = useLiveUsage(project, target?.agentId)
+  const provider = providerDescriptor(agent?.live?.provider)
   const [focus, setFocus] = useState('')
   const [busy, setBusy] = useState(false)
   useEffect(() => {
@@ -688,11 +813,12 @@ export function CompactDialog() {
   const close = (): void => set({ compactFor: null })
   const live = agent.live
   const idle = !!live && (live.status === 'ready' || live.status === 'finished')
-  const cache = usage ? cacheState(usage, ttl) : null
+  const cache = usage && provider.capabilities.promptCacheTtl ? cacheState(usage, ttl) : null
+  const focusOk = provider.capabilities.compactFocus
   const run = async (): Promise<void> => {
     setBusy(true)
     try {
-      await call('session:compact', project.path, focus.trim() || undefined, agent.id)
+      await call('session:compact', project.path, (focusOk && focus.trim()) || undefined, agent.id)
       close()
     } catch (e) {
       notify('error', 'Could not compact', errorMessage(e))
@@ -736,6 +862,7 @@ export function CompactDialog() {
           )}
         </div>
       )}
+      {focusOk && (
       <label className="compact-focus">
         <span>
           Focus <span className="faint">(optional)</span>
@@ -752,6 +879,7 @@ export function CompactDialog() {
           }}
         />
       </label>
+      )}
       {!idle && <div className="detail">The agent is busy. Compact once it has finished.</div>}
       <div className="detail">Anything you had half-typed in the session is cleared first; press Ctrl+Y in the session to get it back.</div>
     </Modal>

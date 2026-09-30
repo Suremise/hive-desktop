@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { McpServerInfo, NoteFile, ProjectInfo, SkillInfo } from '@shared/types'
+import { agentLaunchSettings, modeOption } from '@shared/providers'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding, runCommand } from '../commands'
@@ -110,7 +111,8 @@ function projectMenu(p: ProjectInfo): MenuEntry[] {
     running > 1
       ? { label: 'Stop All Agents', icon: 'debug-stop', onClick: () => void actions.stopAllAgents(p.path) }
       : { label: 'Stop Session', icon: 'debug-stop', disabled: !running, onClick: () => void actions.stopSession(p.path, p.agents.find((a) => a.live)?.id) },
-    { label: 'Add Agent…', icon: 'person-add', onClick: () => set({ addAgentFor: p.path }) },
+    { label: 'Add Agent', icon: 'person-add', onClick: () => void actions.quickAddAgent(p.path) },
+    { label: 'Add Agent…', icon: 'blank', onClick: () => set({ addAgentFor: p.path }) },
     { separator: true },
     { label: p.active ? 'Mark as Not Working On' : 'Mark as Working On', icon: p.active ? 'circle-slash' : 'pass', onClick: () => void actions.setProjectActive(p.path, !p.active) },
     { separator: true },
@@ -245,7 +247,11 @@ function ProjectsPanel() {
   const inactive = list.filter((p) => !p.active)
 
   const row = (p: ProjectInfo) => {
-    const bypass = p.config.permissionMode === 'bypassPermissions' && settings?.claude.enableBypassOption
+    // Marked when any agent starts (or runs) in its provider's no-guardrails mode.
+    const bypass = !!settings && p.agents.some((a) => {
+      const l = agentLaunchSettings(a, p.config, settings)
+      return !!modeOption(l.provider, a.live?.permissionMode ?? l.permissionMode)?.danger
+    })
     // One dot per project: the most urgent of its agents.
     const state = projectState(p)
     const running = p.agents.filter((a) => a.live).length
@@ -352,9 +358,10 @@ function NotesPanel() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ handovers: true })
   const menu = useContextMenu()
 
+  const wsPath = workspace?.path
   const load = useCallback(() => {
-    if (workspace) void call('notes:tree').then(setTree)
-  }, [workspace?.path])
+    if (wsPath) void call('notes:tree').then(setTree)
+  }, [wsPath])
   useEffect(load, [load, version])
 
   if (!workspace) {
@@ -459,8 +466,8 @@ function NotesPanel() {
 
 export const SKILL_LEVEL_TIP: Record<SkillInfo['level'], string> = {
   hive: 'Hive skills live in the workspace (.hive/skills). Enable them here for all projects; projects can turn them off individually. Copied into each session at launch.',
-  machine: 'Machine skills live in your user profile (~/.claude/skills). Claude Code always loads them. Hive lists them for reference only.',
-  plugin: 'Skills from installed Claude Code plugins. Always loaded by Claude Code. Listed for reference only.',
+  machine: 'Machine skills live in your user profile (for Claude Code, ~/.claude/skills). The agent that reads that folder always loads them. Hive lists them for reference only.',
+  plugin: "Skills from an agent's installed plugins (e.g. Claude Code plugins). Always loaded by that agent. Listed for reference only.",
   local: "Local skills live in the project's own .claude/skills folder. Claude Code always loads them in that project. Copy one to the workspace to manage it with Hive."
 }
 
@@ -474,8 +481,9 @@ function SkillsPanel() {
 
   const load = useCallback(() => {
     void call('skills:list', selectedProject ?? undefined).then(setSkills).catch(() => setSkills([]))
-  }, [selectedProject, workspace?.path])
-  useEffect(load, [load, version])
+  }, [selectedProject])
+  // Another workspace has other skills.
+  useEffect(load, [load, version, workspace?.path])
 
   const create = async (): Promise<void> => {
     if (!workspace) return notify('warning', 'Open a workspace first')
@@ -549,10 +557,10 @@ function SkillsPanel() {
             {local.map(row)}
           </Section>
         )}
-        <Section title="Machine (Claude)" count={machine.length} tip={SKILL_LEVEL_TIP.machine} defaultOpen={false}>
+        <Section title="Machine" count={machine.length} tip={SKILL_LEVEL_TIP.machine} defaultOpen={false}>
           {machine.map(row)}
         </Section>
-        <Section title="Plugins (Claude)" count={plugin.length} tip={SKILL_LEVEL_TIP.plugin} defaultOpen={false}>
+        <Section title="Plugins" count={plugin.length} tip={SKILL_LEVEL_TIP.plugin} defaultOpen={false}>
           {plugin.map(row)}
         </Section>
       </div>
@@ -573,13 +581,14 @@ function McpPanel() {
   const [servers, setServers] = useState<McpServerInfo[]>([])
   const loaded = useRef(false)
 
+  const wsPath = workspace?.path
   const load = useCallback(() => {
-    if (!workspace) return
+    if (!wsPath) return
     void call('mcp:list').then((l) => {
       setServers(l)
       loaded.current = true
     })
-  }, [workspace?.path])
+  }, [wsPath])
   useEffect(load, [load, version])
 
   if (!workspace) {

@@ -1,4 +1,6 @@
-import type { TranscriptImageRef, TranscriptItem, TranscriptSearchHit, TranscriptTool } from '../../shared/types'
+import type { TranscriptImageRef, TranscriptItem, TranscriptTool } from '../../../shared/types'
+import { firstLine, shortPath, toolLabel, type NewItem } from '../conversation'
+import type { ConversationParserLike, ImageLocation } from '../types'
 
 /**
  * Turns a Claude Code JSONL transcript into the conversation shown in the transcript viewer:
@@ -10,32 +12,12 @@ import type { TranscriptImageRef, TranscriptItem, TranscriptSearchHit, Transcrip
  * output, a compaction's summary). Like parseTranscript, it ignores anything it doesn't recognise.
  */
 
-/** Where an image's base64 data sits in the file: the line's byte range and the block inside it. */
-export interface ImageLocation {
-  offset: number
-  length: number
-  /** Content-block indices from message.content to the image (tool results nest one level deeper). */
-  path: number[]
-}
-
-/** An item before it gets its id (distributes over the union, so each kind keeps its own fields). */
-type NewItem = TranscriptItem extends infer T ? (T extends TranscriptItem ? Omit<T, 'id'> : never) : never
-
 const ANSI =/\x1b\[[0-9;?]*[ -/]*[@-~]/g
 const stripAnsi = (s: string): string => s.replace(ANSI, '')
 const tag = (s: string, name: string): string | null => {
   const m = new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(s)
   return m ? m[1] : null
 }
-
-function shortPath(p: unknown, root: string | null): string {
-  if (typeof p !== 'string') return ''
-  if (root && p.toLowerCase().startsWith(root.toLowerCase() + '\\')) return p.slice(root.length + 1).replace(/\\/g, '/')
-  if (root && p.toLowerCase().startsWith(root.toLowerCase().replace(/\\/g, '/') + '/')) return p.slice(root.length + 1)
-  return p
-}
-
-const firstLine = (s: unknown): string => (typeof s === 'string' ? s.trim().split('\n')[0] : '')
 
 /** One line describing a tool call, e.g. "npm test" or "src/main/files.ts". */
 export function toolSummary(name: string, input: Record<string, unknown>, root: string | null = null): string {
@@ -67,12 +49,6 @@ export function toolSummary(name: string, input: Record<string, unknown>, root: 
   return firstLine(first).slice(0, 200)
 }
 
-/** "mcp__hive__hive_notify" → "hive · hive_notify"; built-in tools keep their name. */
-export function toolLabel(name: string): string {
-  const m = /^mcp__(.+?)__(.+)$/.exec(name)
-  return m ? `${m[1]} · ${m[2]}` : name
-}
-
 /** Tool input as readable text: the command itself for shells, otherwise one "key: value" per field. */
 export function formatToolInput(name: string, input: Record<string, unknown>): string {
   if ((name === 'Bash' || name === 'PowerShell') && typeof input.command === 'string') return input.command
@@ -84,7 +60,8 @@ export function formatToolInput(name: string, input: Record<string, unknown>): s
     .join('\n')
 }
 
-export class ConversationParser {
+/** Claude Code's transcript parser. Image locations are content-block indices from message.content (tool results nest one level deeper). */
+export class ConversationParser implements ConversationParserLike {
   readonly items: TranscriptItem[] = []
   readonly images: ImageLocation[] = []
   /** Bytes consumed, always at a line boundary. */
@@ -120,7 +97,7 @@ export class ConversationParser {
     return full
   }
 
-  private image(offset: number, length: number, path: number[]): TranscriptImageRef {
+  private image(offset: number, length: number, path: (number | string)[]): TranscriptImageRef {
     this.images.push({ offset, length, path })
     return { id: this.images.length - 1, path: null }
   }
@@ -281,98 +258,11 @@ export class ConversationParser {
   }
 }
 
-/** Everything searchable in an item, in the order it is shown. */
-export function itemText(item: TranscriptItem): string {
-  switch (item.kind) {
-    case 'tool':
-      return [item.tool.name, item.tool.summary, item.tool.input, item.tool.result ?? ''].join('\n')
-    case 'compaction':
-      return item.summary ?? ''
-    case 'command':
-      return [item.name, item.args, item.output].join('\n')
-    default:
-      return item.text
-  }
-}
-
-/** Case-insensitive plain-text search. Snippets show the text around the first match in each item. */
-export function searchItems(items: TranscriptItem[], query: string, limit = 200): { hits: TranscriptSearchHit[]; more: boolean } {
-  const q = query.trim().toLowerCase()
-  const hits: TranscriptSearchHit[] = []
-  if (!q) return { hits, more: false }
-  for (const item of items) {
-    const text = itemText(item)
-    const at = text.toLowerCase().indexOf(q)
-    if (at === -1) continue
-    if (hits.length === limit) return { hits, more: true }
-    const from = Math.max(0, at - 60)
-    const snippet = (from ? '…' : '') + text.slice(from, at + q.length + 100).replace(/\s+/g, ' ').trim() + (at + q.length + 100 < text.length ? '…' : '')
-    hits.push({ itemId: item.id, kind: item.kind, snippet })
-  }
-  return { hits, more: false }
-}
-
-/** A code fence longer than any run of backticks in the text. */
-function fence(text: string, lang = ''): string {
-  const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length))
-  const f = '`'.repeat(longest + 1)
-  return `${f}${lang}\n${text}\n${f}`
-}
-
-const when = (ts: string | null): string => (ts ? new Date(ts).toLocaleString() : '')
-const tokens = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n))
-
-/** The conversation as Markdown, with tool calls, thinking and summaries in collapsible sections. */
-export function transcriptMarkdown(items: TranscriptItem[], title: string, subtitle: string): string {
-  const out: string[] = [`# ${title}`, '', subtitle, '']
-  let speaker: 'user' | 'assistant' | null = null
-  const heading = (who: 'user' | 'assistant', ts: string | null): void => {
-    if (speaker === who) return
-    speaker = who
-    out.push(`## ${who === 'user' ? 'You' : 'Claude'}${ts ? ` · ${when(ts)}` : ''}`, '')
-  }
-  const details = (summary: string, body: string): void => {
-    out.push('<details>', `<summary>${summary.replace(/</g, '&lt;')}</summary>`, '', body, '', '</details>', '')
-  }
-  for (const item of items) {
-    switch (item.kind) {
-      case 'user':
-        heading('user', item.timestamp)
-        out.push(item.text, '')
-        for (const img of item.images) out.push(`*[Image${img.path ? `: ${img.path}` : ''}]*`, '')
-        speaker = 'user'
-        break
-      case 'assistant':
-        heading('assistant', item.timestamp)
-        out.push(item.text, '')
-        break
-      case 'thinking':
-        heading('assistant', item.timestamp)
-        details('Thinking', item.text)
-        break
-      case 'tool': {
-        heading('assistant', item.timestamp)
-        const t = item.tool
-        const body = [fence(t.input)]
-        if (t.result !== null) body.push('', t.isError ? '**Error:**' : '**Result:**', '', fence(t.result))
-        details(`${t.name}${t.summary ? `: ${t.summary}` : ''}`, body.join('\n'))
-        break
-      }
-      case 'compaction':
-        speaker = null
-        out.push('---', '', `**Conversation compacted** (${item.trigger}) · ${tokens(item.preTokens)} → ${tokens(item.postTokens)} tokens${item.timestamp ? ` · ${when(item.timestamp)}` : ''}`, '')
-        if (item.summary) details('Summary', item.summary)
-        out.push('---', '')
-        break
-      case 'command':
-        speaker = null
-        out.push(`> \`${item.name === '!' ? `! ${item.args}` : `${item.name}${item.args ? ` ${item.args}` : ''}`}\``, '')
-        if (item.output) out.push(fence(item.output), '')
-        break
-      case 'notice':
-        out.push(`> *${item.text.replace(/\n+/g, ' ')}*`, '')
-        break
-    }
-  }
-  return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
+/** The base64 data URL of an image block located by ConversationParser. */
+export function claudeImageData(entry: Record<string, any>, loc: ImageLocation): string | null {
+  let block = entry.message?.content?.[loc.path[0] as number]
+  if (loc.path.length > 1) block = block?.content?.[loc.path[1] as number]
+  const src = block?.source
+  if (src?.type !== 'base64' || typeof src.data !== 'string') return null
+  return `data:${src.media_type ?? 'image/png'};base64,${src.data}`
 }

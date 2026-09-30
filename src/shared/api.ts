@@ -17,10 +17,14 @@ import type {
   LiveSessionState,
   McpServerInfo,
   MergeResult,
+  ModelPrice,
   MemorySource,
   NoteFile,
   PlanUsage,
   ProjectConfig,
+  ProjectProviderConfig,
+  ProviderId,
+  ProviderTask,
   ProjectGitInfo,
   QuitChoice,
   QuitSession,
@@ -43,8 +47,8 @@ export type SettingsPatch = DeepPartial<AppSettings>
  */
 export interface HiveRequests {
   'app:info': () => AppInfo
-  /** Last plan usage Claude Code reported (5-hour and weekly limits); null until a session reports it. */
-  'app:planUsage': () => PlanUsage | null
+  /** The plan usage each provider last reported (e.g. 5-hour and weekly limits), by provider. */
+  'app:planUsage': () => Record<ProviderId, PlanUsage>
   'app:quit': () => void
   'app:quitDecision': (choice: QuitChoice, dontAskAgain: boolean) => void
   'app:cancelPendingQuit': () => void
@@ -76,6 +80,8 @@ export interface HiveRequests {
   'settings:get': () => AppSettings
   'settings:update': (patch: SettingsPatch) => AppSettings
   'settings:reset': (section?: keyof AppSettings) => AppSettings
+  /** Replaces a provider's price overrides (USD per million tokens, by model id). */
+  'settings:setProviderPrices': (provider: ProviderId, prices: Record<string, ModelPrice>) => AppSettings
   /** Sets (string), removes (null) or resets to the default (undefined) one command's shortcut. */
   'settings:setKeybinding': (commandId: string, key: string | null | undefined) => AppSettings
   'ui:get': () => AppConfig['ui']
@@ -92,11 +98,13 @@ export interface HiveRequests {
   'project:create': (name: string) => WorkspaceInfo | null
   'project:setActive': (projectPath: string, active: boolean) => WorkspaceInfo | null
   'project:updateConfig': (projectPath: string, patch: Partial<ProjectConfig>) => ProjectConfig
+  /** Changes one provider's overrides for a project, merged under the file lock. */
+  'project:updateProvider': (projectPath: string, provider: ProviderId, patch: Partial<ProjectProviderConfig>) => ProjectConfig
   'project:openInExplorer': (projectPath: string) => void
   'project:openTerminal': (projectPath: string) => void
 
   'session:list': (projectPath: string) => SessionListItem[]
-  /** agentId defaults to Agent 1. skipSetup starts Claude Code even though the worktree's setup command hasn't succeeded. */
+  /** agentId: without one, the project's only agent. skipSetup starts the agent even though the worktree's setup command hasn't succeeded. */
   'session:start': (projectPath: string, opts: { resumeId?: string; name?: string; agentId?: string; skipSetup?: boolean }) => LiveSessionState
   'session:stop': (projectPath: string, agentId?: string) => void
   'session:archive': (projectPath: string, sessionId: string, archived: boolean) => void
@@ -105,10 +113,16 @@ export interface HiveRequests {
   'session:usage': (projectPath: string, sessionId: string) => SessionUsage | null
   'session:markSeen': (projectPath: string) => void
   'session:live': () => LiveSessionState[]
-  /** Runs Claude Code's /compact in the project's session (only while the agent is idle). */
+  /** Runs the CLI's /compact in the agent's session (only while the agent is idle). */
   'session:compact': (projectPath: string, focus?: string, agentId?: string) => void
-  /** Switches a running agent's permission mode with Shift+Tab. ok false: not possible live (restart instead) or it didn't take. */
+  /** Switches a running agent's permission mode the way the CLI allows (Claude Code: Shift+Tab). ok false: not possible live (restart instead) or it didn't take. */
   'session:setMode': (projectPath: string, agentId: string, mode: PermissionMode) => { ok: boolean; restart?: boolean; message?: string }
+  /** Lets an agent edit a file another agent holds ("Ask me" lock, for CLIs that can't ask themselves). */
+  'session:allowLockedEdit': (projectPath: string, agentId: string, path: string) => void
+  /** Continues one agent's work in another, of any provider: a handover from the source (optional), then the target picks it up. */
+  'session:continueWith': (projectPath: string, fromAgentId: string, toAgentId: string, opts: { handover: boolean }) => void
+  /** Turns Plan mode on or off in a running agent, for providers where it is a toggle (Codex). */
+  'session:setPlanMode': (projectPath: string, agentId: string, on: boolean) => void
   /** Stops the agent and resumes the same conversation in the given mode. */
   'session:restartInMode': (projectPath: string, agentId: string, mode: PermissionMode) => void
   /** Switches running agents whose settings now say a different mode (after "Switch now"). */
@@ -118,7 +132,8 @@ export interface HiveRequests {
 
   /** Adds an agent to the project (up to four), creating its worktree if asked. */
   'agents:add': (projectPath: string, opts: AddAgentOptions) => AgentDef
-  'agents:update': (projectPath: string, agentId: string, patch: Partial<Pick<AgentDef, 'name' | 'model' | 'effort' | 'permissionMode'>>) => AgentDef
+  /** Changing provider clears the agent's model, effort and mode, and its session to resume (conversations can't move between providers). */
+  'agents:update': (projectPath: string, agentId: string, patch: Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode'>>) => AgentDef
   /** Removes an agent (its session must be stopped). deleteWorktree also removes its worktree and branch. */
   'agents:remove': (projectPath: string, agentId: string, opts: { deleteWorktree: boolean }) => void
   /** Branches and worktrees, for the Add Agent dialog. */
@@ -128,7 +143,8 @@ export interface HiveRequests {
   'agents:merge': (projectPath: string, agentId: string, opts: { squash: boolean; message: string; cleanup: boolean }) => MergeResult
 
   /** The conversation for the transcript viewer; null when the file has not grown since knownSize. Long tool input/output is shortened. */
-  'transcript:read': (projectPath: string, sessionId: string, knownSize?: number) => Transcript | null
+  /** The conversation from item `from` on (default: the last TRANSCRIPT_WINDOW items); null when the file hasn't grown since knownSize and `from` is unchanged. */
+  'transcript:read': (projectPath: string, sessionId: string, opts?: { knownSize?: number; from?: number }) => Transcript | null
   /** One tool call with its full input and output. */
   'transcript:tool': (projectPath: string, sessionId: string, itemId: number) => TranscriptTool
   /** An image stored in the transcript, as a data URL. */
@@ -169,6 +185,10 @@ export interface HiveRequests {
   'file:write': (path: string, content: string) => void
 
   'memory:list': (projectPath: string) => MemorySource[]
+  /** Whether the given providers all read the project's AGENTS.md (directly or through an import). */
+  'memory:instructionsShared': (projectPath: string, providers: ProviderId[]) => boolean
+  /** Makes the given providers share AGENTS.md; returns the files written. */
+  'memory:shareInstructions': (projectPath: string, providers: ProviderId[]) => string[]
 
   'files:list': (projectPath: string, rel: string) => FileEntry[]
   'files:create': (projectPath: string, parentRel: string, name: string, isDir: boolean) => string
@@ -199,11 +219,14 @@ export interface HiveRequests {
   'git:status': (root: string, base?: string) => GitStatus
   'git:diff': (root: string, file: string, base?: string) => GitDiff
 
-  'agent:info': () => AgentInstallInfo
-  'agent:refresh': () => AgentInstallInfo
-  'agent:install': () => string
-  'agent:update': () => string
-  'agent:login': () => string
+  /** Each provider's installed CLI, by provider. */
+  'provider:info': () => Record<ProviderId, AgentInstallInfo>
+  /** Looks again (one provider, or all), including the latest version. */
+  'provider:refresh': (provider?: ProviderId) => Record<ProviderId, AgentInstallInfo>
+  /** Runs install, update, sign-in or setup in a terminal; returns the terminal's key. */
+  'provider:task': (provider: ProviderId, task: ProviderTask) => string
+  /** Stops every running agent of a provider (turning it off). */
+  'provider:stopAgents': (provider: ProviderId) => void
 
   'api:info': () => AgentApiInfo
   'api:regenerateToken': () => AgentApiInfo

@@ -2,12 +2,13 @@ import { basename, join, resolve, sep } from 'path'
 import { mkdir, readdir, readFile, writeFile, appendFile } from 'fs/promises'
 import { existsSync, statSync } from 'fs'
 import chokidar, { type FSWatcher } from 'chokidar'
-import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, MAIN_AGENT, mergeDefaults, projectAgents } from '../shared/defaults'
+import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields } from '../shared/defaults'
 import type { AgentDef, AgentInfo, LiveSessionState, ProjectConfig, ProjectInfo, SessionRecord, WorkspaceConfig, WorkspaceInfo } from '../shared/types'
 import { config } from './config'
 import { emit } from './events'
-import { isDir, readJson, withFileLock, writeJsonAtomic } from './fsutil'
+import { insideReal, isDir, readKeptJson, removePath, withFileLock, writeKeptJson } from './fsutil'
 import { createLogger } from './logger'
+import { allProviders } from './providers'
 import { worktreesRoot } from './worktrees'
 
 const log = createLogger('workspace')
@@ -84,7 +85,7 @@ class WorkspaceService {
     await this.close()
     this.path = abs
     await this.ensureWorkspaceStructure()
-    this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), await readJson(join(this.hiveDir, 'workspace.json'), {}))
+    this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), await readKeptJson(join(this.hiveDir, 'workspace.json'), {}))
     config.update((c) => {
       c.lastWorkspace = abs
       c.recentWorkspaces = [abs, ...c.recentWorkspaces.filter((p) => p.toLowerCase() !== abs.toLowerCase())].slice(0, 12)
@@ -108,14 +109,14 @@ class WorkspaceService {
     for (const d of [h, join(h, 'shared'), join(h, 'shared', 'handovers'), join(h, 'skills'), join(h, 'mcp')]) {
       await mkdir(d, { recursive: true })
     }
-    if (!existsSync(join(h, 'workspace.json'))) await writeJsonAtomic(join(h, 'workspace.json'), DEFAULT_WORKSPACE_CONFIG)
+    if (!existsSync(join(h, 'workspace.json'))) await writeKeptJson(join(h, 'workspace.json'), DEFAULT_WORKSPACE_CONFIG)
     if (!existsSync(join(h, 'README.md'))) await writeFile(join(h, 'README.md'), WORKSPACE_README)
     const hr = join(h, 'shared', 'handovers', 'README.md')
     if (!existsSync(hr)) await writeFile(hr, HANDOVER_README)
   }
 
   async saveWorkspaceConfig(): Promise<void> {
-    await writeJsonAtomic(join(this.hiveDir, 'workspace.json'), this.wsConfig)
+    await writeKeptJson(join(this.hiveDir, 'workspace.json'), this.wsConfig)
   }
 
   private startWatching(): void {
@@ -145,7 +146,7 @@ class WorkspaceService {
 
   private async reloadConfig(): Promise<void> {
     if (!this.path) return
-    this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), await readJson(join(this.hiveDir, 'workspace.json'), {}))
+    this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), await readKeptJson(join(this.hiveDir, 'workspace.json'), {}))
     emit({ type: 'skills-changed' })
     this.scheduleRefresh()
   }
@@ -193,7 +194,7 @@ class WorkspaceService {
     for (const a of cfg.agents ?? []) if (a.worktree?.path) this.roots.set(resolve(a.worktree.path).toLowerCase(), projectPath)
   }
 
-  /** Changes one agent's definition (adding Agent 1's entry when it is first changed). */
+  /** Changes one agent's definition. */
   async updateAgent(projectPath: string, agentId: string, patch: Partial<AgentDef>): Promise<AgentDef> {
     let next: AgentDef | undefined
     await this.mutateProjectConfig(projectPath, (cfg) => {
@@ -201,8 +202,7 @@ class WorkspaceService {
       if (!current) throw new Error('That agent no longer exists.')
       const def: AgentDef = { ...current, ...patch, id: agentId }
       next = def
-      const list = (cfg.agents ?? []).some((a) => a.id === agentId) ? cfg.agents.map((a) => (a.id === agentId ? def : a)) : agentId === MAIN_AGENT ? [def, ...(cfg.agents ?? [])] : [...(cfg.agents ?? []), def]
-      return { agents: list }
+      return { agents: projectAgents(cfg).map((a) => (a.id === agentId ? def : a)) }
     })
     return next!
   }
@@ -212,8 +212,10 @@ class WorkspaceService {
     const h = join(projectPath, HIVE_DIR)
     await mkdir(join(h, 'sessions'), { recursive: true })
     await mkdir(join(h, 'archive'), { recursive: true })
-    if (!existsSync(join(h, 'project.json'))) await writeJsonAtomic(join(h, 'project.json'), DEFAULT_PROJECT_CONFIG)
-    if (!existsSync(join(h, 'sessions.json'))) await writeJsonAtomic(join(h, 'sessions.json'), { version: 1, sessions: [] })
+    if (!existsSync(join(h, 'project.json'))) await writeKeptJson(join(h, 'project.json'), DEFAULT_PROJECT_CONFIG)
+    if (!existsSync(join(h, 'sessions.json'))) await writeKeptJson(join(h, 'sessions.json'), { version: 1, sessions: [] })
+    // 0.1's launch folder for Agent 1; every agent now has launch-<id>.
+    if (existsSync(join(h, 'launch'))) await removePath(join(h, 'launch')).catch(() => undefined)
     await this.ensureGitExclude(projectPath)
   }
 
@@ -270,7 +272,8 @@ class WorkspaceService {
   }
 
   async projectConfig(projectPath: string): Promise<ProjectConfig> {
-    return mergeDefaults(structuredClone(DEFAULT_PROJECT_CONFIG), await readJson(join(projectPath, HIVE_DIR, 'project.json'), {}))
+    const raw = await readKeptJson<Record<string, unknown>>(join(projectPath, HIVE_DIR, 'project.json'), {})
+    return mergeDefaults(structuredClone(DEFAULT_PROJECT_CONFIG), migrateProjectConfig(raw))
   }
 
   async updateProjectConfig(projectPath: string, patch: Partial<ProjectConfig>): Promise<ProjectConfig> {
@@ -287,7 +290,7 @@ class WorkspaceService {
     const next = await withFileLock(file, async () => {
       const cfg = await this.projectConfig(projectPath)
       const updated = { ...cfg, ...fn(cfg) }
-      await writeJsonAtomic(file, updated)
+      await writeKeptJson(file, withLegacyProjectFields(updated))
       return updated
     })
     this.registerRoots(projectPath, next)
@@ -296,7 +299,7 @@ class WorkspaceService {
   }
 
   async sessionsFile(projectPath: string): Promise<SessionsFile> {
-    return readJson<SessionsFile>(join(projectPath, HIVE_DIR, 'sessions.json'), { version: 1, sessions: [] })
+    return readKeptJson<SessionsFile>(join(projectPath, HIVE_DIR, 'sessions.json'), { version: 1, sessions: [] })
   }
 
   /** Changes sessions.json from its current content, one change at a time. */
@@ -305,7 +308,7 @@ class WorkspaceService {
     return withFileLock(file, async () => {
       const f = await this.sessionsFile(projectPath)
       const result = fn(f)
-      await writeJsonAtomic(file, f)
+      await writeKeptJson(file, f)
       return result
     })
   }
@@ -316,6 +319,7 @@ class WorkspaceService {
       if (existing) Object.assign(existing, rec)
       else {
         const now = new Date().toISOString()
+        // Callers name the provider; records from before providers are Claude Code's.
         existing = { agent: 'claude-code', name: '', createdAt: now, lastActiveAt: now, archived: false, ...rec }
         f.sessions.push(existing)
       }
@@ -339,14 +343,15 @@ class WorkspaceService {
     })
   }
 
+  /** MCP servers the project defines in a provider's own config (.mcp.json…) that aren't deployed to the workspace. */
   async unmanagedMcp(projectPath: string): Promise<string[]> {
-    const j = await readJson<{ mcpServers?: Record<string, unknown> }>(join(projectPath, '.mcp.json'), {})
-    const names = Object.keys(j.mcpServers ?? {})
-    if (!names.length || !this.path) return []
+    const names = new Set<string>()
+    for (const p of allProviders()) for (const n of Object.keys(await p.projectMcpServers(projectPath).catch(() => ({})))) names.add(n)
+    if (!names.size || !this.path) return []
     const deployed = new Set(
       (await readdir(this.mcpDir).catch(() => [] as string[])).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5))
     )
-    return names.filter((n) => !deployed.has(n))
+    return [...names].filter((n) => !deployed.has(n))
   }
 
   async projectInfo(projectPath: string): Promise<ProjectInfo> {
@@ -394,11 +399,11 @@ class WorkspaceService {
     return this.refresh()
   }
 
-  /** True if the path is inside the open workspace or Claude Code's config folder — used to guard file IPC. */
+  /** True if the path is inside the open workspace, its worktrees or extraRoots — used to guard file IPC. */
   isAllowedPath(p: string, extraRoots: string[] = []): boolean {
-    const abs = resolve(p).toLowerCase()
-    const roots = [this.path, this.path ? worktreesRoot(this.path) : null, ...this.roots.keys(), ...extraRoots].filter(Boolean).map((r) => resolve(r!).toLowerCase())
-    return roots.some((r) => abs === r || abs.startsWith(r + sep))
+    const roots = [this.path, this.path ? worktreesRoot(this.path) : null, ...this.roots.keys(), ...extraRoots].filter((r): r is string => !!r)
+    // By its real location too, so a link inside the workspace can't reach files outside it.
+    return insideReal(p, roots)
   }
 }
 

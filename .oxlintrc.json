@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "oxc", "unicorn"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn",
+    "react/react-in-jsx-scope": "off",
+    // Rules written for the React Compiler, which Hive doesn't use.
+    "react/set-state-in-effect": "off",
+    "react/refs": "off",
+    "react/globals": "off",
+    "react/purity": "off",
+    "react/memo-dependencies": "off",
+    "react/exhaustive-effect-dependencies": "off",
+    "react/preserve-manual-memoization": "off",
+    // Terminal output is matched on control sequences on purpose.
+    "no-control-regex": "off",
+    // Style preferences, not bugs.
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-reverse": "off",
+    "no-underscore-dangle": "off",
+    // Copies taken before loops that change the collection they walk are on purpose.
+    "unicorn/no-useless-spread": "off"
+  },
+  "ignorePatterns": ["out/**", "dist/**", "node_modules/**", "reference/**", "build/**", "resources/**", "tests/fixtures/**"]
+}

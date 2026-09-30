@@ -2,36 +2,12 @@ import { basename, join } from 'path'
 import { readdir, readFile, rm, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import type { McpServerDef, McpServerInfo } from '../shared/types'
-import { readJson, writeTextAtomic } from './fsutil'
+import { writeTextAtomic } from './fsutil'
+import { findSecretWarnings } from './mcpSecrets'
+import { allProviders } from './providers'
 import { workspace } from './workspace'
 
-const SECRET_KEY = /(token|secret|password|passwd|api[_-]?key|credential|private[_-]?key|authorization)/i
-const SECRET_VALUE = /^(sk-[A-Za-z0-9]|ghp_|gho_|github_pat_|xox[abp]-|AKIA[0-9A-Z]{12}|AIza[0-9A-Za-z_-]{20}|glpat-)/
-
-function isEnvRef(v: string): boolean {
-  const t = v.trim()
-  return /^\$\{[^}]+\}$/.test(t) || /^\$[A-Z_][A-Z0-9_]*$/.test(t)
-}
-
-/** Flags values that look like literal secrets rather than ${ENV} references. */
-export function findSecretWarnings(def: McpServerDef): string[] {
-  const warnings: string[] = []
-  const check = (where: string, key: string, raw: unknown): void => {
-    if (typeof raw !== 'string') return
-    const value = raw.replace(/^Bearer\s+/i, '').trim()
-    if (!value || isEnvRef(value) || value.includes('${')) return
-    if (SECRET_VALUE.test(value) || (SECRET_KEY.test(key) && value.length >= 8)) {
-      const envName = key.toUpperCase().replace(/[^A-Z0-9]/g, '_')
-      warnings.push(`${where} "${key}" looks like a literal secret. Use an environment variable reference such as "\${${envName}}".`)
-    }
-  }
-  for (const [k, v] of Object.entries(def.env ?? {})) check('env', k, v)
-  for (const [k, v] of Object.entries(def.headers ?? {})) check('header', k, v)
-  for (const a of def.args ?? []) {
-    if (typeof a === 'string' && SECRET_VALUE.test(a.trim())) warnings.push(`An argument starting "${a.slice(0, 6)}…" looks like a literal secret.`)
-  }
-  return warnings
-}
+export { findSecretWarnings }
 
 export async function listMcp(): Promise<McpServerInfo[]> {
   if (!workspace.path) return []
@@ -124,12 +100,15 @@ export async function deleteMcp(name: string): Promise<void> {
   await setMcpGlobal(name, false)
 }
 
-/** Copies servers defined in a project's own .mcp.json into the workspace. Returns the names imported. */
+/** Copies servers defined in a project's own config (.mcp.json…) into the workspace. Returns the names imported. */
 export async function importFromProject(projectPath: string, names: string[]): Promise<string[]> {
-  const j = await readJson<{ mcpServers?: Record<string, McpServerDef> }>(join(projectPath, '.mcp.json'), {})
+  const defs: Record<string, McpServerDef> = {}
+  for (const p of allProviders()) {
+    for (const [n, d] of Object.entries(await p.projectMcpServers(projectPath).catch(() => ({})))) defs[n] ??= d
+  }
   const imported: string[] = []
   for (const n of names) {
-    const def = j.mcpServers?.[n]
+    const def = defs[n]
     if (!def || !validMcpName(n)) continue
     const path = join(workspace.mcpDir, `${n}.json`)
     if (existsSync(path)) continue

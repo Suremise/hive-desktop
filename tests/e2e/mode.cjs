@@ -1,0 +1,93 @@
+// Live permission mode: reported mode, switching with Shift+Tab (API and badge menu), Shift+Tab typed
+// in the terminal, restart into Don't ask, the "Switch Now" offer after a settings change.
+// Throwaway profile; trusted scratch workspace ws/demo. A real Claude Code session starts, but no
+// prompt is ever sent (only Shift+Tab keys). Clipboard untouched.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs'), path = require('path')
+const scratch = lib.WORK, userData = path.join(scratch, 'mode-profile')
+const ws = path.join(scratch, 'ws'), proj = path.join(ws, 'demo')
+fs.rmSync(userData, { recursive: true, force: true })
+fs.mkdirSync(proj, { recursive: true })
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+let pass = 0, fail = 0
+const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
+;(async () => {
+  lib.enableProviders(userData)
+  const env = { ...process.env, HIVE_USER_DATA: userData }; delete env.ELECTRON_RUN_AS_NODE
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))
+  await page.setViewportSize({ width: 1400, height: 850 }).catch(() => {})
+  await sleep(1500)
+  await page.keyboard.press('Escape')
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  const live = async () => (await inv('session:live')).find((l) => l.projectPath.toLowerCase() === proj.toLowerCase())
+  const waitMode = async (m, ms = 6000) => { const t = Date.now(); while (Date.now() - t < ms) { if ((await live())?.permissionMode === m) return true; await sleep(200) } return false }
+  await inv('workspace:open', ws); await sleep(600)
+  await inv('project:updateConfig', proj, { providers: {}, sessionLayout: 'single', keybindings: {} })
+  const settings = await inv('settings:get')
+  check('default mode is Auto', settings.providers['claude-code'].defaultPermissionMode === 'auto', settings.providers['claude-code'].defaultPermissionMode)
+  await page.getByText('demo', { exact: true }).first().click(); await sleep(400)
+  const agent = await lib.soloAgent(inv, proj)
+  await inv('workspace:refresh')
+  await inv('session:start', proj, { agentId: agent.id })
+  await lib.acceptClaudeTrust(inv, proj, agent.id)
+  const t0 = Date.now(); while (Date.now() - t0 < 20000 && (await live())?.status !== 'ready') await sleep(300)
+  check('session ready', (await live())?.status === 'ready', (await live())?.status)
+  check('starts in Auto', await waitMode('auto'), (await live())?.permissionMode)
+  await page.screenshot({ path: path.join(scratch, 'mode-1-auto.png') })
+  check('header badge shows Auto', /Auto/.test(await page.locator('.project-header .mode-badge').innerText()))
+
+  // API switch (what the menu uses)
+  let r = await inv('session:setMode', proj, agent.id, 'plan')
+  check('switch to Plan live', r.ok && (await waitMode('plan')), JSON.stringify(r))
+  r = await inv('session:setMode', proj, agent.id, 'manual')
+  check('switch to Manual live', r.ok && (await waitMode('manual')), JSON.stringify(r))
+  // Shift+Tab typed in the terminal by the user shows up in Hive
+  await inv('pty:write', lib.ptyKey(proj, agent.id), '\x1b[Z')
+  check('Shift+Tab in the terminal is picked up', await waitMode('acceptEdits'), (await live())?.permissionMode)
+  check('no restart banner for mode changes', (await page.locator('.banner', { hasText: 'Restart the session' }).count()) === 0)
+
+  // Badge menu → Auto
+  await page.locator('.project-header .mode-badge').click(); await sleep(400)
+  const items = await page.locator('.menu .menu-item').allTextContents()
+  check('menu lists modes with the current one marked', items.some((t) => /Accept edits.*Current mode/.test(t)) && items.some((t) => /Don't ask.*Restarts the session/.test(t)), JSON.stringify(items.slice(0, 6)))
+  await page.screenshot({ path: path.join(scratch, 'mode-2-menu.png') })
+  await page.locator('.menu .menu-item', { hasText: /^Auto/ }).first().click()
+  check('menu switches to Auto', await waitMode('auto'))
+
+  // Keyboard shortcut opens the menu
+  await page.locator('.project-header h1').click()
+  await page.keyboard.press('Control+Alt+M'); await sleep(400)
+  check('Ctrl+Alt+M opens the mode menu', (await page.locator('.menu .menu-header', { hasText: 'Permission mode' }).count()) === 1)
+  await page.keyboard.press('Escape'); await sleep(200)
+
+  // Don't ask needs a restart; the conversation id is kept
+  const sid = (await live()).sessionId
+  await page.locator('.project-header .mode-badge').click(); await sleep(300)
+  await page.locator('.menu .menu-item', { hasText: "Don't ask" }).click(); await sleep(400)
+  check('restart is confirmed first', await page.locator('.dialog', { hasText: "Restart in Don't ask?" }).count() === 1)
+  await page.locator('.dialog button', { hasText: 'Restart' }).last().click()
+  const t1 = Date.now(); while (Date.now() - t1 < 25000 && !((await live())?.permissionMode === 'dontAsk' && (await live())?.status === 'ready')) await sleep(300)
+  const l2 = await live()
+  check("restarted in Don't ask, same conversation", l2?.permissionMode === 'dontAsk' && l2?.sessionId === sid, JSON.stringify({ m: l2?.permissionMode, same: l2?.sessionId === sid }))
+
+  // Settings change: offered, not forced
+  await inv('project:updateConfig', proj, { providers: { 'claude-code': { model: 'inherit', effort: 'inherit', permissionMode: 'plan', extraArgs: '' } } }); await inv('workspace:refresh'); await sleep(1500)
+  check('mode unchanged until asked', (await live())?.permissionMode === 'dontAsk')
+  const toast = page.locator('.toast', { hasText: 'Permission mode changed to Plan' })
+  check('offer to switch running agents', (await toast.count()) === 1)
+  await page.screenshot({ path: path.join(scratch, 'mode-3-offer.png') })
+  // Don't ask → Plan is in the cycle (Shift+Tab from Don't ask goes to Manual first)
+  await toast.locator('button', { hasText: 'Switch Now' }).click()
+  check('Switch Now moves it to Plan', await waitMode('plan', 10000), (await live())?.permissionMode)
+  await inv('workspace:refresh'); await sleep(1200)
+  check('no second offer', (await page.locator('.toast', { hasText: 'Permission mode changed' }).count()) <= 1)
+
+  await inv('session:stop', proj); await sleep(1500)
+  await inv('project:updateConfig', proj, { providers: {} })
+  await app.close()
+  console.log(`\n${pass} passed, ${fail} failed`)
+  process.exit(fail ? 1 : 0)
+})().catch((e) => { console.error(e); process.exit(1) })

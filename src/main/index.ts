@@ -1,16 +1,22 @@
-import { app, BrowserWindow, Menu, nativeTheme, net, Notification, protocol, screen, shell } from 'electron'
+import { app, BrowserWindow, Menu, nativeTheme, net, Notification, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
 import { basename, join, resolve, sep } from 'path'
+import { readFile } from 'fs/promises'
 import { pathToFileURL } from 'url'
 import type { AppInfo, QuitChoice, QuitSession } from '../shared/types'
-import { agentService } from './agentService'
+import { providerService } from './providerService'
+import { hiveInstructions, projectHandovers, withLatestHandover } from '../shared/hiveGuidance'
+import { notesTree } from './notes'
+import { PROVIDERS, projectProviderConfig, providerSettings } from '../shared/providers'
+import { projectAgents } from '../shared/defaults'
 import { SERVABLE_EXT, unwatchAll } from './files'
 import { config } from './config'
 import { emit, onHiveEvent, setEventWindow, toast } from './events'
 import { registerIpc } from './ipc'
 import { createLogger, logsDir } from './logger'
 import { killAll } from './ptyHost'
+import { onCorruptFile } from './fsutil'
 import { apiEnv, startApiServer, startHookServer } from './servers'
 import { sessions } from './sessions'
 import { notificationIcon } from './paths'
@@ -185,7 +191,7 @@ let installOnQuit = false
 const quitSessions = (): QuitSession[] =>
   sessions.liveStates().map((s) => {
     const agents = workspace.info()?.projects.find((p) => p.path.toLowerCase() === s.projectPath.toLowerCase())?.agents.length ?? 1
-    return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, ...(agents > 1 ? { agent: s.agentName } : {}) }
+    return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, provider: s.provider, ...(agents > 1 ? { agent: s.agentName } : {}) }
   })
 const workingCount = (): number => sessions.liveStates().filter((s) => s.status === 'working').length
 
@@ -207,8 +213,8 @@ async function requestQuit(opts: { force?: boolean } = {}): Promise<void> {
   if (ask && mainWindow) {
     showWindow(mainWindow)
     quitRequest = quitSessions()
-    const choice = await new Promise<QuitChoice>((resolve) => {
-      answerQuit = resolve
+    const choice = await new Promise<QuitChoice>((answer) => {
+      answerQuit = answer
       emit({ type: 'quit-request', sessions: quitRequest!, unsaved: unsavedFiles })
     })
     answerQuit = null
@@ -280,29 +286,63 @@ function wireSettingsEffects(): void {
     }
     if (JSON.stringify(s.agentApi) !== JSON.stringify(prev.agentApi)) void startApiServer().then(() => workspace.path && workspace.scheduleRefresh())
     // Session settings changed: refresh "restart to apply", and offer to switch running agents to a new permission mode.
-    else if (JSON.stringify(s.claude) !== JSON.stringify(prev.claude) && workspace.path) workspace.scheduleRefresh()
-    if (prev.claude.enableBypassOption && !s.claude.enableBypassOption) void revertBypassProjects()
-    if (s.claude.executablePath !== prev.claude.executablePath) void agentService.refresh(false)
+    else if ((JSON.stringify(s.providers) !== JSON.stringify(prev.providers) || s.defaultProvider !== prev.defaultProvider) && workspace.path) workspace.scheduleRefresh()
+    for (const p of PROVIDERS) {
+      const now = providerSettings(s, p.id)
+      const before = providerSettings(prev, p.id)
+      if (before.enableDangerousMode && !now.enableDangerousMode) void revertDangerousModes(p.id)
+      if (JSON.stringify(now.prices) !== JSON.stringify(before.prices)) sessions.clearUsageCache()
+      if (now.executablePath !== before.executablePath || (now.enabled && !before.enabled)) void providerService.refresh(p.id, now.enabled)
+    }
   })
 }
 
-async function revertBypassProjects(): Promise<void> {
+/** A provider's no-guardrails mode was turned off: projects and agents set to it go back to Inherit. */
+async function revertDangerousModes(provider: string): Promise<void> {
   if (!workspace.path) return
+  const danger = PROVIDERS.find((p) => p.id === provider)?.permissionModes.find((m) => m.danger)
+  if (!danger) return
   const changed: string[] = []
   for (const p of await workspace.listProjectPaths()) {
     const cfg = await workspace.projectConfig(p)
-    if (cfg.permissionMode === 'bypassPermissions') {
-      await workspace.updateProjectConfig(p, { permissionMode: 'inherit' })
-      changed.push(basename(p))
+    let touched = false
+    if (projectProviderConfig(cfg, provider).permissionMode === danger.value) {
+      await workspace.mutateProjectConfig(p, (now) => ({ providers: { ...now.providers, [provider]: { ...projectProviderConfig(now, provider), permissionMode: 'inherit' } } }))
+      touched = true
     }
+    for (const a of projectAgents(cfg)) {
+      if (a.permissionMode === danger.value) {
+        await workspace.updateAgent(p, a.id, { permissionMode: undefined })
+        touched = true
+      }
+    }
+    if (touched) changed.push(basename(p))
   }
   if (changed.length) {
-    toast('warning', 'Bypass permissions disabled', `These projects were switched back to Inherit: ${changed.join(', ')}. Running sessions keep their mode until restarted.`)
+    toast('warning', `${danger.label} turned off`, `These projects were switched back to Inherit: ${changed.join(', ')}. Running sessions keep their mode until restarted.`)
   }
 }
 
+/** Damaged settings or records found before the window can show them (config.json at startup) wait here. */
+const corruptReports: [string, string, boolean][] = []
+let reportsReady = false
+function showCorrupt(file: string, aside: string, restored: boolean): void {
+  log.warn(`${file} could not be read; set aside as ${aside}${restored ? ', restored from its .bak copy' : ''}`)
+  toast(
+    restored ? 'warning' : 'error',
+    restored ? `${basename(file)} was damaged and has been restored` : `${basename(file)} was damaged`,
+    `${restored ? 'Hive went back to its last good copy.' : 'Hive had no good copy, so it started from defaults.'} The damaged file was kept as ${aside}.`
+  )
+}
+onCorruptFile((file, aside, restored) => (reportsReady ? showCorrupt(file, aside, restored) : void corruptReports.push([file, aside, restored])))
+
+/** What Hive's window may use: the clipboard (paste, copy). Everything else web pages can ask for is refused. */
+const ALLOWED_PERMISSIONS = new Set(['clipboard-read', 'clipboard-sanitized-write'])
+
 app.whenReady().then(async () => {
   config.load()
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, done) => done(ALLOWED_PERMISSIONS.has(permission)))
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission))
   protocol.handle('hive-img', (req) => {
     const p = resolve(decodeURIComponent(new URL(req.url).pathname.slice(1)))
     if (!SERVABLE_EXT.test(p) || !workspace.isAllowedPath(p)) return new Response('Not found', { status: 404 })
@@ -329,8 +369,21 @@ app.whenReady().then(async () => {
       }
     }
   }
+  // The hive MCP server's instructions, for providers that don't show MCP instructions to the model (Codex).
+  sessions.hiveGuidance = async (projectPath) => {
+    if (!sessions.hiveMcp(projectPath)) return ''
+    const project = basename(projectPath)
+    const names = (await workspace.listProjectPaths()).map((p) => basename(p))
+    const latest = (await projectHandovers(await notesTree(), project, names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
+    return withLatestHandover(hiveInstructions(project), latest?.relPath)
+  }
+  sessions.latestHandover = async (projectPath) => {
+    const names = (await workspace.listProjectPaths()).map((p) => basename(p))
+    const latest = (await projectHandovers(await notesTree(), basename(projectPath), names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
+    return latest ? { relPath: latest.relPath, modified: latest.modified ?? '' } : null
+  }
   sessions.setWindowProvider(() => mainWindow)
-  agentService.setLiveSessionCounter(() => sessions.liveCount())
+  providerService.setLiveSessionCounter((p) => sessions.liveCount(p))
 
   await startHookServer()
   await startApiServer()
@@ -350,6 +403,13 @@ app.whenReady().then(async () => {
   })
   mainWindow = createWindow()
   setEventWindow(mainWindow)
+  mainWindow.webContents.once('did-finish-load', () => {
+    // Give the renderer a moment to subscribe to events.
+    setTimeout(() => {
+      reportsReady = true
+      for (const r of corruptReports.splice(0)) showCorrupt(...r)
+    }, 1500)
+  })
   createTray(() => mainWindow, {
     quit: () => void requestQuit(),
     quitNow: () => void quitNow(true),
@@ -369,7 +429,7 @@ app.whenReady().then(async () => {
   if (config.settings.general.reopenLastWorkspace && last && existsSync(last)) {
     await workspace.open(last).catch((e) => log.warn(`Could not reopen ${last}`, e))
   }
-  void agentService.refresh()
+  void providerService.refresh()
 })
 
 app.on('second-instance', () => {

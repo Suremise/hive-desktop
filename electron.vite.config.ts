@@ -25,7 +25,15 @@ export default defineConfig({
         '@root': resolve(__dirname)
       }
     },
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        // The dev server's hot reload needs ws: and localhost; a build connects to nothing.
+        name: 'hive-production-csp',
+        apply: 'build',
+        transformIndexHtml: (html: string) => html.replace(" connect-src 'self' ws: http://localhost:*", " connect-src 'self'")
+      }
+    ],
     build: { chunkSizeWarningLimit: 8000 }
   }
 })

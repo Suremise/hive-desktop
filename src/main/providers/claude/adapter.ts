@@ -1,0 +1,437 @@
+import { homedir } from 'os'
+import { join, basename } from 'path'
+import { mkdir, readdir, stat, writeFile } from 'fs/promises'
+import { existsSync, readFileSync } from 'fs'
+import type { AgentInstallInfo, McpServerDef, MemorySource, PlanLimit, PlanUsage, ReadinessIssue } from '../../../shared/types'
+import { HIVE_DIR, assertSessionId, isSessionId } from '../../../shared/defaults'
+import { CLAUDE_CODE, CLAUDE_DESCRIPTOR, canSwitchLive, footerMode, hookMode } from '../../../shared/claude'
+import { providerSettings } from '../../../shared/providers'
+import { config } from '../../config'
+import { claudeFileAllowed, copyDir, hashDir, isDir, readJson, removePath, writeJsonAtomic } from '../../fsutil'
+import { createLogger } from '../../logger'
+import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, run, toSpawnable } from '../common'
+import type { CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillRoots } from '../types'
+import { ConversationParser, claudeImageData } from './conversation'
+import { encodeProjectPath, parseTranscript } from './usage'
+
+const log = createLogger('claude-code')
+
+export const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'PreCompact', 'PostCompact', 'SessionEnd'] as const
+
+/** Tools that edit files: PreToolUse checks them against other agents' file locks. */
+export const EDIT_TOOLS = 'Edit|Write|MultiEdit|NotebookEdit'
+
+export function claudeHome(): string {
+  return process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')
+}
+
+/** Subscription limits from Claude Code's status line (rate_limits.five_hour / seven_day); null for API-key accounts. */
+export function parseClaudePlanUsage(payload: Record<string, unknown>, now = new Date()): PlanUsage | null {
+  const rl = payload.rate_limits as Record<string, unknown> | undefined
+  if (!rl || typeof rl !== 'object') return null
+  const limits: PlanLimit[] = []
+  const add = (raw: unknown, id: string, label: string, windowMinutes: number): void => {
+    if (!raw || typeof raw !== 'object') return
+    const r = raw as Record<string, unknown>
+    const pct = Number(r.used_percentage)
+    if (!Number.isFinite(pct)) return
+    limits.push({ id, label, windowMinutes, usedPercent: Math.max(0, Math.min(100, pct)), resetsAt: toIso(r.resets_at) })
+  }
+  add(rl.five_hour, 'five_hour', '5-hour', 300)
+  add(rl.seven_day, 'seven_day', 'weekly', 10080)
+  return limits.length ? { provider: CLAUDE_CODE, plan: null, limits, updatedAt: now.toISOString() } : null
+}
+
+/** resets_at arrives as epoch seconds (or ms, or an ISO string); normalise to ISO. */
+export function toIso(v: unknown): string | null {
+  if (typeof v === 'number' && Number.isFinite(v) && v > 0) return new Date(v < 1e12 ? v * 1000 : v).toISOString()
+  if (typeof v === 'string' && !Number.isNaN(Date.parse(v))) return new Date(v).toISOString()
+  return null
+}
+
+export class ClaudeCodeAdapter implements ProviderAdapter {
+  readonly id = CLAUDE_CODE
+  readonly descriptor = CLAUDE_DESCRIPTOR
+  /** If Hive itself was started from inside a Claude Code session, don't leak that session's identity. User configuration such as CLAUDE_CODE_GIT_BASH_PATH is kept. */
+  readonly envToStrip = ['CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_AGENT_SDK_VERSION', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING', 'MCP_CONNECTION_NONBLOCKING']
+  readonly compactFailure = /not enough messages to compact|error during compaction|compaction failed/i
+
+  private async candidates(): Promise<{ path: string; source: string }[]> {
+    const out: { path: string; source: string }[] = []
+    const custom = providerSettings(config.settings, this.id).executablePath.trim()
+    if (custom) out.push({ path: custom, source: 'settings' })
+
+    const where = await run(process.platform === 'win32' ? 'where.exe' : 'which', ['claude'], 5000)
+    for (const line of where.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+      // Prefer real executables over extension-less shims that node-pty cannot start on Windows.
+      if (process.platform !== 'win32' || /\.(exe|cmd|bat)$/i.test(line)) out.push({ path: line, source: 'PATH' })
+    }
+    const exe = process.platform === 'win32' ? 'claude.exe' : 'claude'
+    out.push({ path: join(homedir(), '.local', 'bin', exe), source: 'native install' })
+    if (process.platform === 'win32' && process.env.APPDATA) out.push({ path: join(process.env.APPDATA, 'npm', 'claude.cmd'), source: 'npm' })
+    return out
+  }
+
+  /** True if an editor extension (VS Code, Cursor…) ships its own Claude Code — used only to explain why it isn't used. */
+  private async editorExtensionPresent(): Promise<boolean> {
+    for (const root of EDITOR_ROOTS) {
+      try {
+        if ((await readdir(join(homedir(), root, 'extensions'))).some((d) => d.startsWith('anthropic.claude-code-'))) return true
+      } catch {
+        // Editor not installed.
+      }
+    }
+    return false
+  }
+
+  async locate(): Promise<AgentInstallInfo> {
+    const info: AgentInstallInfo = {
+      provider: this.id,
+      found: false,
+      path: null,
+      version: null,
+      source: null,
+      latestVersion: null,
+      updateAvailable: false,
+      loggedIn: null,
+      authMethod: null,
+      rejected: []
+    }
+    for (const c of await this.candidates()) {
+      if (!existsSync(c.path)) continue
+      // Hive requires the standalone CLI. Editor extensions bundle their own copy that moves on every
+      // extension update and can't be updated with `claude update`, so it is never used — even if set manually.
+      if (EDITOR_EXTENSION_PATH.test(c.path)) {
+        info.rejected!.push(c.path)
+        continue
+      }
+      const r = await run(c.path, ['--version'])
+      const m = r.stdout.match(/(\d+\.\d+\.\d+[\w.-]*)/)
+      if (!m) {
+        log.warn(`Candidate ${c.path} did not report a version`, r.stderr.slice(0, 200))
+        continue
+      }
+      info.found = true
+      info.path = c.path
+      info.version = m[1]
+      info.source = c.source
+      break
+    }
+    if (!info.found) info.editorExtensionOnly = await this.editorExtensionPresent()
+    if (info.path) {
+      const auth = await run(info.path, ['auth', 'status', '--json'], 10000)
+      try {
+        const j = JSON.parse(auth.stdout)
+        info.loggedIn = !!j.loggedIn
+        info.authMethod = j.authMethod ?? null
+      } catch {
+        info.loggedIn = null
+      }
+    }
+    return info
+  }
+
+  readiness(info: AgentInstallInfo): ReadinessIssue[] {
+    if (!info.found) return [{ id: 'not-installed', level: 'error', message: 'Claude Code is not installed.', action: { label: 'Install', task: 'install' } }]
+    const out: ReadinessIssue[] = []
+    if (info.loggedIn === false) out.push({ id: 'signed-out', level: 'error', message: 'Claude Code is not signed in.', action: { label: 'Sign in', task: 'login' } })
+    if (info.updateAvailable) out.push({ id: 'update', level: 'info', message: `Claude Code ${info.latestVersion} is available.`, action: { label: 'Update', task: 'update' } })
+    return out
+  }
+
+  async latestVersion(): Promise<string | null> {
+    try {
+      const ctrl = new AbortController()
+      const t = setTimeout(() => ctrl.abort(), 6000)
+      const res = await fetch('https://registry.npmjs.org/@anthropic-ai/claude-code/latest', { signal: ctrl.signal })
+      clearTimeout(t)
+      if (!res.ok) return null
+      return ((await res.json()) as { version?: string }).version ?? null
+    } catch {
+      return null
+    }
+  }
+
+  isNewer(latest: string, current: string): boolean {
+    return compareVersions(latest, current) > 0
+  }
+
+  installCommand(): CommandSpec {
+    if (process.platform === 'win32') {
+      return {
+        file: 'powershell.exe',
+        args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://claude.ai/install.ps1 | iex']
+      }
+    }
+    return { file: '/bin/bash', args: ['-lc', 'curl -fsSL https://claude.ai/install.sh | bash'] }
+  }
+
+  updateCommand(executable: string): CommandSpec {
+    return { file: executable, args: ['update'] }
+  }
+
+  loginCommand(executable: string): CommandSpec {
+    return { file: executable, args: ['auth', 'login'] }
+  }
+
+  /** Claude Code's own default: "model" in ~/.claude/settings.json. */
+  configuredDefaultModel(): string | null {
+    try {
+      const m = JSON.parse(readFileSync(join(claudeHome(), 'settings.json'), 'utf8')).model
+      if (typeof m === 'string' && m.trim()) return m.trim()
+    } catch {
+      // no settings file, or no model in it
+    }
+    return null
+  }
+
+  ownsModel(model: string): boolean {
+    return /^claude-/i.test(model)
+  }
+
+  /**
+   * Generated skills, MCP config and hooks for a launch. Each agent has its own folder, because a launch
+   * replaces the folder while the project's other agents may still be reading theirs.
+   */
+  launchDir(projectPath: string, agentId: string): string {
+    return join(projectPath, HIVE_DIR, `launch-${agentId}`)
+  }
+
+  /** Rebuilds <project>/.hive/launch with exactly the enabled skills, MCP servers and Hive's hooks. */
+  async prepareLaunch(ctx: LaunchContext): Promise<void> {
+    const dir = this.launchDir(ctx.projectPath, ctx.agentId)
+    await removePath(dir)
+    const pluginDir = join(dir, 'plugin')
+    await mkdir(join(pluginDir, '.claude-plugin'), { recursive: true })
+    await writeJsonAtomic(join(pluginDir, '.claude-plugin', 'plugin.json'), {
+      name: 'hive',
+      version: '1.0.0',
+      description: 'Skills enabled for this project by Hive. Regenerated on every session launch — do not edit.'
+    })
+    const hashes: Record<string, string> = {}
+    for (const skill of ctx.skills) {
+      const dest = join(pluginDir, 'skills', skill.name)
+      await copyDir(skill.sourcePath, dest)
+      hashes[`skill:${skill.name}`] = await hashDir(skill.sourcePath)
+    }
+    await writeJsonAtomic(join(dir, 'mcp.json'), { mcpServers: ctx.mcpServers })
+
+    const hook = {
+      type: 'http',
+      url: ctx.hookUrl,
+      timeout: 5,
+      headers: { Authorization: 'Bearer $HIVE_HOOK_TOKEN' },
+      allowedEnvVars: ['HIVE_HOOK_TOKEN']
+    }
+    const token = ctx.env.HIVE_HOOK_TOKEN ?? ''
+    const hooks: Record<string, unknown[]> = {}
+    for (const ev of HOOK_EVENTS) {
+      // SessionStart only supports command hooks (not http), so it forwards its JSON with curl.
+      if (ev === 'SessionStart') {
+        hooks[ev] = [{ hooks: [{ type: 'command', command: hookForwardCommand(ctx.hookUrl, token), timeout: 5 }] }]
+        continue
+      }
+      // PreToolUse answers with a lock decision, so it gets a longer timeout; if Hive doesn't answer, the edit goes ahead.
+      if (ev === 'PreToolUse') hooks[ev] = [{ matcher: EDIT_TOOLS, hooks: [{ ...hook, timeout: 10 }] }]
+      else hooks[ev] = [ev === 'PostToolUse' ? { matcher: '*', hooks: [hook] } : { hooks: [hook] }]
+    }
+    // The status line forwards Claude Code's status JSON (model, effort, cost, plan limits) to Hive and
+    // prints nothing, so no line is added to the terminal.
+    const statusLine = { type: 'command', command: hookForwardCommand(`${ctx.hookUrl}&statusline`, token), padding: 0 }
+    await writeJsonAtomic(join(dir, 'settings.json'), { hooks, statusLine })
+    await writeJsonAtomic(join(dir, 'sync.json'), { launchedAt: new Date().toISOString(), hashes })
+    await writeFile(
+      join(dir, 'README.txt'),
+      'This folder is generated by Hive each time a session starts. Edits here are overwritten.\n'
+    )
+  }
+
+  buildCommand(executable: string, ctx: LaunchContext): CommandSpec {
+    const dir = this.launchDir(ctx.projectPath, ctx.agentId)
+    const args: string[] = []
+    if (ctx.resume) args.push('--resume', ctx.sessionId)
+    else args.push('--session-id', ctx.sessionId)
+    if (ctx.name) args.push('--name', /\.(cmd|bat)$/i.test(executable) ? ctx.name.replace(/["%^&|<>!]/g, ' ').replace(/\s+/g, ' ').trim() : ctx.name)
+    args.push('--plugin-dir', join(dir, 'plugin'))
+    args.push('--mcp-config', join(dir, 'mcp.json'), '--strict-mcp-config')
+    args.push('--settings', join(dir, 'settings.json'))
+    if (ctx.model) args.push('--model', ctx.model)
+    if (ctx.effort) args.push('--effort', ctx.effort)
+    if (ctx.permissionMode) args.push('--permission-mode', ctx.permissionMode)
+    args.push(...ctx.extraArgs)
+    const s = toSpawnable(executable, args)
+    return { file: s.file, args: s.args, env: ctx.env }
+  }
+
+  // -------------------------------------------------------------------------
+  // Hooks
+  // -------------------------------------------------------------------------
+
+  normalizeHook(body: Record<string, any>): NormalizedHook {
+    const event = String(body.hook_event_name ?? '')
+    const out: NormalizedHook = {
+      event: { kind: 'ignore' },
+      sessionId: typeof body.session_id === 'string' ? body.session_id : null,
+      transcriptPath: typeof body.transcript_path === 'string' ? body.transcript_path : null,
+      mode: hookMode(body.permission_mode),
+      editedPaths: []
+    }
+    switch (event) {
+      case 'SessionStart':
+        out.event = { kind: 'start', source: typeof body.source === 'string' ? body.source : null }
+        break
+      case 'UserPromptSubmit':
+        out.event = { kind: 'prompt' }
+        break
+      case 'PreToolUse': {
+        out.event = { kind: 'toolStart' }
+        const input = body.tool_input ?? {}
+        const file: unknown = input.file_path ?? input.notebook_path
+        if (typeof file === 'string' && file) out.editedPaths = [file]
+        break
+      }
+      case 'PostToolUse':
+        out.event = { kind: 'toolEnd' }
+        break
+      case 'Notification': {
+        const kind: string = body.notification_type ?? body.type ?? ''
+        const message: string = body.message ?? ''
+        if (kind !== 'idle_prompt' && (kind === 'permission_prompt' || /permission|approve|waiting for your input/i.test(message))) {
+          out.event = { kind: 'needsInput', message: message || 'Waiting for your input' }
+        }
+        break
+      }
+      case 'Stop':
+        out.event = { kind: 'stop', lastMessage: typeof body.last_assistant_message === 'string' ? body.last_assistant_message : null }
+        break
+      case 'PreCompact':
+        out.event = { kind: 'compactStart', trigger: String(body.trigger ?? 'auto') }
+        break
+      case 'PostCompact':
+        out.event = { kind: 'compactEnd' }
+        break
+      case 'SessionEnd':
+        out.event = { kind: 'end' }
+        break
+    }
+    return out
+  }
+
+  lockReply(d: LockDecision): Record<string, unknown> {
+    if (d.kind === 'warn') return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: d.context } }
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.kind, permissionDecisionReason: d.reason } }
+  }
+
+  /** Claude Code's status-line JSON: the session's model, effort and cost, and the plan's limits. */
+  statusLine(body: Record<string, any>): LiveDetails {
+    const effort = typeof body.effort === 'string' ? body.effort : typeof body.effort?.level === 'string' ? body.effort.level : undefined
+    const modelName = typeof body.model?.display_name === 'string' ? body.model.display_name : undefined
+    const cost = Number(body.cost?.total_cost_usd)
+    return { effort, modelName, costUsd: Number.isFinite(cost) ? cost : undefined, planUsage: parseClaudePlanUsage(body) }
+  }
+
+  footerMode(tail: string): string | null {
+    return footerMode(tail)
+  }
+
+  canSwitchLive(target: string, current: string | undefined, launched: string | null | undefined): boolean {
+    return canSwitchLive(target, current, launched)
+  }
+
+  // -------------------------------------------------------------------------
+  // Transcripts
+  // -------------------------------------------------------------------------
+
+  async transcriptDir(folder: string): Promise<string | null> {
+    const root = join(claudeHome(), 'projects')
+    const encoded = encodeProjectPath(folder).toLowerCase()
+    try {
+      const match = (await readdir(root)).find((d) => d.toLowerCase() === encoded)
+      return match ? join(root, match) : null
+    } catch {
+      return null
+    }
+  }
+
+  async transcriptPath(folder: string, sessionId: string): Promise<string | null> {
+    const dir = await this.transcriptDir(folder)
+    if (!dir) return null
+    const p = join(dir, `${assertSessionId(sessionId)}.jsonl`)
+    return existsSync(p) ? p : null
+  }
+
+  /** Where a transcript would be written for a folder that has none yet. */
+  restorePath(folder: string, sessionId: string): string {
+    return join(claudeHome(), 'projects', encodeProjectPath(folder), `${assertSessionId(sessionId)}.jsonl`)
+  }
+
+  async listSessions(folder: string): Promise<ExternalSession[]> {
+    const dir = await this.transcriptDir(folder)
+    if (!dir) return []
+    const out: ExternalSession[] = []
+    for (const f of await readdir(dir)) {
+      if (!f.endsWith('.jsonl') || !isSessionId(basename(f, '.jsonl'))) continue
+      const p = join(dir, f)
+      try {
+        const s = await stat(p)
+        if (s.isFile() && s.size > 0) out.push({ id: basename(f, '.jsonl'), transcriptPath: p, modified: s.mtime.toISOString() })
+      } catch {
+        // Removed between readdir and stat.
+      }
+    }
+    return out
+  }
+
+  parseUsage(text: string, sessionId: string) {
+    return parseTranscript(text, sessionId)
+  }
+
+  conversationParser(projectPath: string): ConversationParser {
+    return new ConversationParser(projectPath)
+  }
+
+  imageData = claudeImageData
+
+  exportSubtitle(sessionId: string, project: string): string {
+    return `Claude Code session \`${sessionId}\` · project ${project}`
+  }
+
+  // -------------------------------------------------------------------------
+  // Project files
+  // -------------------------------------------------------------------------
+
+  async memorySources(projectPath: string): Promise<MemorySource[]> {
+    const p = this.id
+    const sources: MemorySource[] = [
+      { provider: p, id: 'project', label: 'CLAUDE.md', path: join(projectPath, 'CLAUDE.md'), kind: 'claude-md', exists: false },
+      { provider: p, id: 'project-dot', label: '.claude/CLAUDE.md', path: join(projectPath, '.claude', 'CLAUDE.md'), kind: 'claude-md', exists: false },
+      { provider: p, id: 'local', label: 'CLAUDE.local.md', path: join(projectPath, 'CLAUDE.local.md'), kind: 'local-md', exists: false },
+      { provider: p, id: 'user', label: 'User CLAUDE.md (all projects)', path: join(claudeHome(), 'CLAUDE.md'), kind: 'claude-md', exists: false }
+    ]
+    for (const s of sources) s.exists = existsSync(s.path)
+    const dir = await this.transcriptDir(projectPath)
+    const memDir = dir ? join(dir, 'memory') : null
+    if (memDir && (await isDir(memDir))) {
+      const files = (await readdir(memDir)).filter((f) => f.endsWith('.md')).sort((a, b) => (a === 'MEMORY.md' ? -1 : b === 'MEMORY.md' ? 1 : a.localeCompare(b)))
+      for (const f of files) {
+        sources.push({ provider: p, id: `auto:${f}`, label: f, path: join(memDir, f), kind: 'auto-memory', exists: true })
+      }
+    }
+    return sources
+  }
+
+  fileAllowed(path: string, write: boolean): boolean {
+    return claudeFileAllowed(path, write, claudeHome())
+  }
+
+  skillRoots(): SkillRoots {
+    return { machine: [join(claudeHome(), 'skills')], plugins: join(claudeHome(), 'plugins'), local: join('.claude', 'skills'), hiveCopyPrefix: null }
+  }
+
+  async projectMcpServers(projectPath: string): Promise<Record<string, McpServerDef>> {
+    const j = await readJson<{ mcpServers?: Record<string, McpServerDef> }>(join(projectPath, '.mcp.json'), {})
+    return j.mcpServers && typeof j.mcpServers === 'object' ? j.mcpServers : {}
+  }
+}
+
+export const claudeCode = new ClaudeCodeAdapter()

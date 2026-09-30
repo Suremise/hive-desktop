@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FileEntry, ProjectInfo, SessionImage, SessionImageGroup } from '@shared/types'
-import { MAIN_AGENT } from '@shared/defaults'
 import * as actions from '../actions'
 import { call } from '../api'
 import { discardDrafts, draftsUnder, FileView, hasDraft, moveDrafts, useDraftVersion } from '../components/FileView'
@@ -36,32 +35,33 @@ function useFileEvents(projectPath: string, onChange: (dirs: string[]) => void):
  * .hive/images are copied there first, like images dropped on the terminal.
  */
 async function insertIntoSession(project: ProjectInfo, paths: string[]): Promise<void> {
-  if (!project.live) return
   const t = sessionTarget(project)
+  const agentId = t.agentId
+  if (!project.live || !agentId) return
   const out: string[] = []
   for (const p of paths) {
     const keep = IMAGE_EXT.test(p) && !/[\\/]\.hive[\\/]images[\\/]/i.test(p)
-    const saved = keep ? await actions.attempt('Could not add image', () => call('session:saveImage', t.path, p, t.agentId)) : null
+    const saved = keep ? await actions.attempt('Could not add image', () => call('session:saveImage', t.path, p, agentId)) : null
     out.push(quotePath(saved || p))
   }
   const text = out.join(' ') + ' '
   setProjectTab(t.path, 'session')
   const owner = get().workspace?.projects.find((x) => x.path === t.path)
-  if (owner) showAgent(owner, t.agentId)
+  if (owner) showAgent(owner, agentId)
   // A real paste, so Claude Code attaches image paths instead of treating them as typed text.
-  const key = projectKey(t.path, t.agentId)
+  const key = projectKey(t.path, agentId)
   if (!pasteIntoTerminal(key, text)) await call('pty:write', key, text)
 }
 
 /**
  * A project as a tab sees it: the folder shown (the project folder, or a worktree agent's worktree)
  * and, as `live`, the session that Insert into Session pastes into — the worktree's agent, else the
- * focused agent if it works in the project folder, else Agent 1.
+ * focused agent if it works in the project folder, else the first agent (none in a project without agents).
  */
-type ViewProject = ProjectInfo & { target?: { path: string; agentId: string } }
+type ViewProject = ProjectInfo & { target?: { path: string; agentId: string | null } }
 
-function sessionTarget(p: ViewProject): { path: string; agentId: string } {
-  return p.target ?? { path: p.path, agentId: MAIN_AGENT }
+function sessionTarget(p: ViewProject): { path: string; agentId: string | null } {
+  return p.target ?? { path: p.path, agentId: null }
 }
 
 export function projectView(project: ProjectInfo, rootAgent?: string): ViewProject {
@@ -69,7 +69,7 @@ export function projectView(project: ProjectInfo, rootAgent?: string): ViewProje
   if (wt) return { ...project, path: wt.worktree!.path, branch: wt.worktree!.branch, live: wt.live, target: { path: project.path, agentId: wt.id } }
   const focused = project.agents.find((a) => a.id === focusedAgentId(project))
   const agent = focused && !focused.worktree ? focused : project.agents[0]
-  return { ...project, live: agent?.live ?? null, target: { path: project.path, agentId: agent?.id ?? MAIN_AGENT } }
+  return { ...project, live: agent?.live ?? null, target: { path: project.path, agentId: agent?.id ?? null } }
 }
 
 /** Picks whose folder a tab shows when agents work in worktrees. Renders nothing otherwise. */
@@ -79,8 +79,8 @@ export function RootSelector({ project, value, onChange }: { project: ProjectInf
   return (
     <div className="root-row">
       <Tooltip content="Show the project folder, or the worktree a worktree agent works in">
-        <select className="select root-select" value={worktrees.some((a) => a.id === value) ? value : MAIN_AGENT} onChange={(e) => onChange(e.target.value)}>
-          <option value={MAIN_AGENT}>Project folder</option>
+        <select className="select root-select" value={worktrees.some((a) => a.id === value) ? value : ''} onChange={(e) => onChange(e.target.value)}>
+          <option value="">Project folder</option>
           {worktrees.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}'s worktree · {a.worktree!.branch}

@@ -2,7 +2,9 @@ import { compactThreshold, effectiveModelLabel, effortLabel } from '@shared/defa
 import type { PlanLimit } from '@shared/types'
 import { useLiveUsage, useNow } from '../usage'
 import { runCommand } from '../commands'
-import { NO_PROJECTS, setActivity, set, useFocusedAgent, useStore, type Activity } from '../store'
+import { NO_PROJECTS, agentProviderOf, setActivity, set, useFocusedAgent, useStore, type Activity } from '../store'
+import { enabledProviders, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
+import { ProviderIcon } from './ProviderIcon'
 import { cx, formatKeybinding, formatTokens, resetsIn, timeAgo } from '../util'
 import { commandKeybinding } from '../commands'
 import { Icon, Tooltip } from './ui'
@@ -53,7 +55,7 @@ export function ActivityBar() {
 export function StatusBar() {
   const workspace = useStore((s) => s.workspace)
   const selected = useStore((s) => s.selectedProject)
-  const agent = useStore((s) => s.agent)
+  const providers = useStore((s) => s.providers)
   const api = useStore((s) => s.api)
   const settings = useStore((s) => s.settings)
   const project = workspace?.projects.find((p) => p.path === selected)
@@ -67,7 +69,7 @@ export function StatusBar() {
           <Icon name="folder-opened" /> Open a workspace
         </div>
         <div className="status-spacer" />
-        <AgentStatus />
+        <ProviderStatusItems />
         <UpdateStatusItem />
       </div>
     )
@@ -79,8 +81,11 @@ export function StatusBar() {
   const cfg = project?.config
   const threshold = compactThreshold(cfg, settings?.sessions.compactSuggestTokens ?? 0)
   const overThreshold = !!usage && threshold > 0 && usage.contextTokens >= threshold
-  const model = effectiveModelLabel(focused?.model || (cfg?.model ?? 'inherit'), settings?.claude.defaultModel ?? '', agent?.defaultModel ?? null)
-  const effort = effortLabel(focused?.live?.effort, focused?.effort ?? cfg?.effort, settings?.claude.defaultEffort)
+  const provider = agentProviderOf(project, focused)
+  const pc = projectProviderConfig(cfg, provider)
+  const ps = providerSettings(settings, provider)
+  const model = effectiveModelLabel(provider, focused?.model || pc.model, ps.defaultModel, providers[provider]?.defaultModel ?? null)
+  const effort = effortLabel(provider, focused?.live?.effort, focused?.effort ?? pc.effort, ps.defaultEffort)
 
   return (
     <div className="statusbar">
@@ -119,9 +124,9 @@ export function StatusBar() {
               </div>
             </Tooltip>
           )}
-          <Tooltip content={`Model${effort ? ' and effort' : ''} for this project's sessions${focused?.live?.effort ? ' (effort as reported by the running session)' : ''}${project.agents.length > 1 && focused ? ` — ${focused.name}` : ''}. Change them in Project Settings.`}>
+          <Tooltip content={`${providerName(provider)} model${effort ? ' and effort' : ''} for this project's sessions${focused?.live?.effort ? ' (effort as reported by the running session)' : ''}${project.agents.length > 1 && focused ? ` — ${focused.name}` : ''}. Change them in Project Settings.`}>
             <div className="status-item" onClick={() => runCommand('project.tab.settings')}>
-              <Icon name="hubot" /> {model}
+              <ProviderIcon provider={provider} /> {model}
               {effort && <span className="status-sub">· {effort}</span>}
             </div>
           </Tooltip>
@@ -136,55 +141,87 @@ export function StatusBar() {
           <Icon name={api?.running ? 'broadcast' : 'circle-slash'} /> API
         </div>
       </Tooltip>
-      <AgentStatus />
+      <ProviderStatusItems />
       <UpdateStatusItem />
     </div>
   )
 }
 
-/** The plan's 5-hour and weekly limits, as last reported by a Claude Code session. */
+/** "5h" / "Week" for the status bar; other windows by their label. */
+function shortLimit(l: PlanLimit): string {
+  if (l.windowMinutes === 300) return '5h'
+  if (l.windowMinutes === 10080) return 'Week'
+  return l.label
+}
+
+/** Each enabled provider's plan limits, as its sessions last reported them: one item per provider. */
 function PlanUsageStatus() {
-  const usage = useStore((s) => s.planUsage)
+  const all = useStore((s) => s.planUsage)
+  const settings = useStore((s) => s.settings)
   useNow(60000)
-  if (!usage || (!usage.fiveHour && !usage.sevenDay)) return null
-  const worst = Math.max(usage.fiveHour?.usedPercent ?? 0, usage.sevenDay?.usedPercent ?? 0)
-  const line = (name: string, l: PlanLimit | null): string | null => (l ? `${name}: ${Math.round(l.usedPercent)}% used${l.resetsAt ? `, resets ${resetsIn(l.resetsAt)}` : ''}` : null)
-  const tip = [line('5-hour limit', usage.fiveHour), line('Weekly limit', usage.sevenDay), `As of ${timeAgo(usage.updatedAt)}, from Claude Code. Updates while a session is running.`].filter(Boolean).join('\n')
   return (
-    <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
-      <div className={cx('status-item', worst >= 95 ? 'warn' : worst >= 80 && 'caution')} onClick={() => runCommand('project.tab.overview')}>
-        <Icon name="graph" />
-        {usage.fiveHour && <span>5h {Math.round(usage.fiveHour.usedPercent)}%</span>}
-        {usage.fiveHour && usage.sevenDay && <span className="status-sub">·</span>}
-        {usage.sevenDay && <span>Week {Math.round(usage.sevenDay.usedPercent)}%</span>}
-      </div>
-    </Tooltip>
+    <>
+      {enabledProviders(settings).map((p) => {
+        const usage = all[p.id]
+        if (!usage?.limits.length) return null
+        const worst = Math.max(...usage.limits.map((l) => l.usedPercent))
+        const lines = usage.limits.map((l) => `${l.label} limit: ${Math.round(l.usedPercent)}% used${l.resetsAt ? `, resets ${resetsIn(l.resetsAt)}` : ''}`)
+        const tip = [`${p.name}${usage.plan ? ` (${usage.plan} plan)` : ''}`, ...lines, `As of ${timeAgo(usage.updatedAt)}. Updates while a session is running.`].join('\n')
+        return (
+          <Tooltip key={p.id} content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
+            <div className={cx('status-item', worst >= 95 ? 'warn' : worst >= 80 && 'caution')} onClick={() => runCommand('project.tab.overview')}>
+              <ProviderIcon provider={p.id} />
+              {usage.limits.map((l, i) => (
+                <span key={l.id}>
+                  {i > 0 && <span className="status-sub">· </span>}
+                  {shortLimit(l)} {Math.round(l.usedPercent)}%
+                </span>
+              ))}
+            </div>
+          </Tooltip>
+        )
+      })}
+    </>
   )
 }
 
-function AgentStatus() {
-  const agent = useStore((s) => s.agent)
-  if (!agent || agent.checking) {
-    return (
-      <div className="status-item">
-        <Icon name="loading" spin /> Claude Code
-      </div>
-    )
-  }
-  if (!agent.found) {
-    return (
-      <div className="status-item warn" onClick={() => set({ setupOpen: true })}>
-        <Icon name="warning" /> Claude Code CLI required
-      </div>
-    )
-  }
-  const tip = `Claude Code ${agent.version} (${agent.source})${agent.loggedIn === false ? ' — not signed in' : ''}${agent.updateAvailable ? ` — ${agent.latestVersion} available` : ''}`
+/** One item per enabled provider: its CLI version, or what it still needs (install, sign-in, setup). */
+function ProviderStatusItems() {
+  const settings = useStore((s) => s.settings)
+  const providers = useStore((s) => s.providers)
   return (
-    <Tooltip content={tip}>
-      <div className="status-item" onClick={() => set({ setupOpen: true })}>
-        <Icon name={agent.updateAvailable ? 'cloud-download' : agent.loggedIn === false ? 'account' : 'check'} /> Claude Code {agent.version}
-      </div>
-    </Tooltip>
+    <>
+      {enabledProviders(settings).map((p) => {
+        const info = providers[p.id]
+        if (!info || info.checking) {
+          return (
+            <div key={p.id} className="status-item">
+              <Icon name="loading" spin /> {p.name}
+            </div>
+          )
+        }
+        const blocking = info.readiness?.find((r) => r.level === 'error')
+        if (!info.found || blocking) {
+          return (
+            <Tooltip key={p.id} content={blocking?.message ?? `${p.name} is not installed.`}>
+              <div className="status-item warn" onClick={() => set({ setupOpen: p.id })}>
+                <Icon name="warning" /> {p.name}
+              </div>
+            </Tooltip>
+          )
+        }
+        const warning = info.readiness?.find((r) => r.level === 'warning')
+        const tip = `${p.name} ${info.version} (${info.source})${warning ? ` — ${warning.message}` : ''}${info.updateAvailable ? ` — ${info.latestVersion} available` : ''}`
+        return (
+          <Tooltip key={p.id} content={tip}>
+            <div className={cx('status-item', warning && 'caution')} onClick={() => set({ setupOpen: p.id })}>
+              <ProviderIcon provider={p.id} /> {info.version}
+              {(info.updateAvailable || warning) && <Icon name={warning ? 'warning' : 'cloud-download'} />}
+            </div>
+          </Tooltip>
+        )
+      })}
+    </>
   )
 }
 

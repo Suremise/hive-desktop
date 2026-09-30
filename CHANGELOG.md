@@ -1,5 +1,47 @@
 # Release Notes
 
+## Unreleased
+
+### Codex, and a choice of coding agents
+- **Codex** (OpenAI) runs in Hive alongside **Claude Code**. Each agent chooses its provider, so a project can mix them, for example a Claude Code agent writing code while a Codex agent reviews. Hive shows each CLI's own terminal.
+- **Settings → Providers** turns providers on and off and sets the default provider. New installs start with every provider off, with a banner linking there; updating from 0.1 keeps Claude Code on. Turning a provider off while its agents run asks whether to stop them.
+- **One settings page per provider** (path, default model, effort and permission mode, extra arguments, update checks, API prices), with overrides per provider in Project Settings.
+- **Help → Agent Setup…** has a tab per provider for install, sign-in, updates, and Codex's one-time Windows sandbox setup, which Hive types for you.
+- Codex's permission presets: Read only, Ask for approval, **Approve for me** (the default) and Full access (off unless enabled, like Bypass). Presets and Plan mode switch live in a running Codex session.
+- File locks work for Codex agents; with **Ask me**, Hive asks you in a notification (**Allow**) because Codex can't show its own approval for it.
+- Workspace skills, MCP servers and Hive's own tools reach Codex agents too; file locks, status, notifications, compaction, transcripts, backups and the Sessions tab work for both.
+- The status bar has a plan-usage item per provider, and provider icons show on agent tabs, panes and sessions.
+
+### Agents
+- **All agents are equal, and a project starts with none.** **Add Agent** adds one in a click (your default provider, its default settings, in the project folder); its **▾** opens **Add Agent…** to choose the provider, a worktree and settings. New Session and Resume add an agent when a project has none. Any agent can work in a worktree, and any can be removed once stopped.
+- **The layout follows as you add agents**: two columns for two, three for three, the grid for four. Choosing a layout by hand still works, and removing an agent leaves it as it is.
+- **Updating from 0.1 clears every project's agents** (and resets the layout), since there is no longer a built-in Agent 1. Your sessions stay in the Sessions tab and can be resumed by an agent you add again.
+- Starting a new conversation inside the CLI (Claude Code's `/clear` or `/resume`, Codex's `/new`) is now followed: Hive records and backs up the new conversation instead of carrying on with the old one.
+
+### Other new features
+- **Continue with…** in the agent menu hands an agent's work to another agent, of either provider, through a handover; the Sessions tab links the two sessions. Also `POST /v1/projects/{name}/continue` in the Agent API.
+- **A new Overview**: a project summary for a chosen period (tokens, API-equivalent cost, sessions, prompts) across providers, the agents running now, a section per provider with its plan limits, and a table by agent.
+- **Estimated costs** for providers that don't report one, from a price table you can edit in each provider's settings.
+- **Share one AGENTS.md** in the Memory tab, so Claude Code and Codex agents read the same project instructions.
+- Agent API: `provider` on agents, sessions, usage and status; `providers` in `/v1/status`; `HIVE_PROVIDER` and `HIVE_RUN_ID` in session environments. Calls that name no `agent` use the project's only agent; with several they answer 400, with none 409.
+- **Codex models come from Codex itself**, so new ones appear in the model picker without a Hive update.
+- **The transcript viewer** loads the latest messages first and earlier ones as you scroll up, so long sessions open quickly. A running session updates only when you switch on **Follow** or click **Refresh** (Settings → Sessions sets the default).
+- **Overview updates** can be live (at most every 15 seconds, the default), every minute, or only on **Refresh** (Settings → Sessions).
+
+### Reliability and security
+- Hive keeps a last good copy of its settings and records (`.bak`). A file that can't be read is set aside and the copy restored, with a notification, instead of Hive starting over.
+- Hive's copies of workspace skills for Codex are marked, so a `hive-…` folder of your own in `.agents/skills` is never removed.
+- "Continue with…" waits until the handover has actually been written before the other agent starts.
+- A Codex permission change is confirmed by Codex before the badge shows it ("Switching to …"); the earlier method could pick the wrong preset.
+- Much less file reading while agents work: session lists read each file once, and Codex sessions are found without re-scanning every time.
+- Hive tells you once if a CLI version writes transcripts it doesn't understand, instead of showing zeros.
+- The hook token is no longer written to the log. The window refuses web permissions it doesn't need, IPC is accepted only from Hive's own page, and links inside the workspace can't be used to open files outside it.
+- Electron 44.5.1.
+
+### Notes
+- The end-to-end test suites are now in the repository (`tests/e2e`), with a lint step and a GitHub Actions workflow for pull requests and pushes.
+- `config.json` moves to a new format; Hive copies the old one to `config.v1-backup.json` first and keeps writing the old fields, so 0.1.x can still read it.
+
 ## 0.1.1 — 29 September 2026
 
 ### Fixes

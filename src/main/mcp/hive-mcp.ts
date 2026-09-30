@@ -6,6 +6,7 @@
  */
 import { readFileSync } from 'fs'
 import { createInterface } from 'readline'
+import { hiveInstructions, projectHandovers, withLatestHandover } from '../../shared/hiveGuidance'
 
 const VERSION = '1.0.0'
 const API = (process.env.HIVE_API_URL || 'http://127.0.0.1:47821').replace(/\/$/, '')
@@ -60,50 +61,16 @@ interface NoteFile {
   modified?: string
 }
 
-const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-
-/**
- * Handovers, newest first. Files are named <date>-<project>-<title>.md, so the project is matched on
- * the name. One project's name can begin another's ("hive" and "hive-website"), so a file belongs to
- * the longest project name it starts with.
- */
+/** This project's handovers, newest first (see projectHandovers). */
 async function handovers(project?: string): Promise<NoteFile[]> {
   const tree = (await api('GET', '/v1/shared')) as NoteFile[]
-  const files = tree.find((n) => n.isDir && n.name === 'handovers')?.children?.filter((f) => !f.isDir && f.name.endsWith('.md') && f.name !== 'README.md') ?? []
-  const p = project ? slug(project) : ''
-  // Other projects whose names overlap this one's ("hive" / "hive-website"): their handovers can look like ours.
-  let overlapping: string[] = []
-  if (p) {
-    try {
-      const all = (await api('GET', '/v1/projects')) as { name: string }[]
-      overlapping = all.map((x) => slug(x.name)).filter((s) => s !== p && (s.startsWith(p + '-') || p.startsWith(s + '-')))
-    } catch {
-      // Without the project list, fall back to the prefix alone.
-    }
+  let all: string[] = []
+  try {
+    all = ((await api('GET', '/v1/projects')) as { name: string }[]).map((x) => x.name)
+  } catch {
+    // Without the project list, the file name alone decides.
   }
-  const mine: NoteFile[] = []
-  for (const f of files) {
-    if (!p) {
-      mine.push(f)
-      continue
-    }
-    const rest = f.name.replace(/^\d{4}-\d{2}-\d{2}-/, '')
-    if (!rest.startsWith(p + '-')) continue
-    if (!overlapping.some((s) => rest.startsWith(s + '-'))) {
-      mine.push(f)
-      continue
-    }
-    // "hive-website-plan" could be hive-website's "Plan", or hive's "Website plan": the header says which.
-    try {
-      const { content } = (await api('GET', `/v1/shared/file?path=${enc(f.relPath)}`)) as { content: string }
-      const owner = /^- \*\*Project:\*\* (.+)$/m.exec(content)?.[1]?.trim()
-      if (owner && slug(owner) === p) mine.push(f)
-    } catch {
-      // Unreadable: leave it out.
-    }
-  }
-  return mine
-    .sort((a, b) => b.name.slice(0, 10).localeCompare(a.name.slice(0, 10)) || (b.modified ?? '').localeCompare(a.modified ?? ''))
+  return projectHandovers(tree, project, all, async (relPath) => ((await api('GET', `/v1/shared/file?path=${enc(relPath)}`)) as { content: string }).content)
 }
 
 const enc = (s: string): string => encodeURIComponent(s)
@@ -195,19 +162,12 @@ const tools: Tool[] = [
   }
 ]
 
-const INSTRUCTIONS = [
-  `Hive is the desktop app hosting this session${PROJECT ? ` (project "${PROJECT}")` : ''}. It manages a workspace: a folder of projects that share notes, skills and MCP servers.`,
-  'Handovers and shared notes live in the workspace, not in the project folder. When the user mentions a handover, shared notes, instructions for all projects, or another project in the workspace, use these tools rather than searching the file system:',
-  '- hive_read_latest_handover: the latest handover for this project. hive_list_shared_notes / hive_read_shared_note / hive_write_shared_note: everything else in the shared notes.',
-  '- hive_create_handover: when the user wants to hand work over to a future session, or asks you to wrap up.',
-  '- hive_list_projects / hive_project_status: other projects and their sessions. hive_session_usage: token and cache use.',
-  '- hive_notify: flag something to the user in Hive.'
-].join('\n')
+const INSTRUCTIONS = hiveInstructions(PROJECT)
 
 async function instructions(): Promise<string> {
   try {
     const latest = await Promise.race([handovers(PROJECT || undefined), new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), 1500))])
-    if (latest[0]) return `${INSTRUCTIONS}\n\nThe latest handover for this project is "${latest[0].relPath}". Read it with hive_read_latest_handover when the user asks you to pick up previous work.`
+    if (latest[0]) return withLatestHandover(INSTRUCTIONS, latest[0].relPath)
   } catch {
     // Hive not reachable yet: the static instructions still apply.
   }

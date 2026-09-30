@@ -1,5 +1,6 @@
 import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, resolveKeybinding } from '@shared/defaults'
-import type { SessionLayout } from '@shared/types'
+import { PROVIDERS, providerDescriptor } from '@shared/providers'
+import type { ProviderId, SessionLayout } from '@shared/types'
 import { call } from './api'
 import { checkForUpdates, openReleaseNotes } from './components/Updates'
 import { openModeMenu } from './components/PermissionMode'
@@ -88,6 +89,7 @@ export const commands: Command[] = [
   { id: 'palette.show', label: 'Show All Commands', category: 'View', keybinding: 'Mod+Shift+P', run: () => set({ paletteOpen: true, paletteMode: 'commands' }) },
   { id: 'project.goto', label: 'Go to Project…', category: 'View', keybinding: 'Mod+P', when: hasWorkspace, run: () => set({ paletteOpen: true, paletteMode: 'projects' }) },
   { id: 'settings.open', label: 'Open Settings', category: 'Preferences', keybinding: 'Mod+,', run: () => setActivity('settings') },
+  { id: 'settings.providers', label: 'Choose Coding Agents (Providers)', category: 'Preferences', run: () => { set({ settingsSection: 'providers', settingsQuery: '' }); setActivity('settings') } },
   { id: 'settings.keybindings', label: 'Customise Keyboard Shortcuts', category: 'Preferences', run: () => { set({ settingsSection: 'keybindings', settingsQuery: '' }); setActivity('settings') } },
   { id: 'workspace.open', label: 'Open Workspace…', category: 'File', keybinding: 'Mod+K Mod+O', run: (path?: string) => actions.openWorkspace(path) },
   { id: 'workspace.create', label: 'New Workspace…', category: 'File', run: () => actions.createWorkspace() },
@@ -123,7 +125,8 @@ export const commands: Command[] = [
     when: hasLive,
     run: (path?: string, agentId?: string) => {
       const p = path ?? get().selectedProject
-      if (p) set({ compactFor: { project: p, agentId: agentId ?? focusedAgentId(get().workspace?.projects.find((x) => x.path === p)) } })
+      const id = agentId ?? focusedAgentId(get().workspace?.projects.find((x) => x.path === p))
+      if (p && id) set({ compactFor: { project: p, agentId: id } })
     }
   },
   {
@@ -134,7 +137,19 @@ export const commands: Command[] = [
     when: hasProject,
     run: () => {
       const p = selected()
-      if (p) openModeMenu(p.path, focusedAgentId(p), document.querySelector('.project-header .mode-badge'))
+      const id = focusedAgentId(p)
+      if (p && id) openModeMenu(p.path, id, document.querySelector('.project-header .mode-badge'))
+    }
+  },
+  {
+    id: 'session.allowLockedEdit',
+    label: 'Allow a Locked Edit',
+    category: 'Session',
+    // Only from the notification, which passes the agent and file.
+    internal: true,
+    run: (projectPath?: unknown, agentId?: unknown, path?: unknown) => {
+      if (typeof projectPath === 'string' && typeof agentId === 'string' && typeof path === 'string')
+        void actions.attempt('Could not allow the edit', () => call('session:allowLockedEdit', projectPath, agentId, path))
     }
   },
   {
@@ -150,7 +165,8 @@ export const commands: Command[] = [
     }
   },
   { id: 'session.focusTerminal', label: 'Focus Session Terminal', category: 'Session', keybinding: 'Mod+`', when: hasProject, run: () => focusTerminal() },
-  { id: 'agent.add', label: 'Add Agent…', category: 'Session', keybinding: 'Mod+Alt+Shift+N', when: hasProject, run: (path?: string) => set({ addAgentFor: path ?? get().selectedProject }) },
+  { id: 'agent.add', label: 'Add Agent', category: 'Session', keybinding: 'Mod+Alt+Shift+N', when: hasProject, run: (path?: string) => void actions.quickAddAgent(path ?? get().selectedProject) },
+  { id: 'agent.addWith', label: 'Add Agent…', category: 'Session', when: hasProject, run: (path?: string) => set({ addAgentFor: path ?? get().selectedProject }) },
   {
     id: 'agent.next',
     label: 'Focus Next Agent',
@@ -181,9 +197,8 @@ export const commands: Command[] = [
   { id: 'view.reload', label: 'Reload Window', category: 'Developer', run: () => void actions.saveUnsavedFirst('reload the window').then((ok) => ok && location.reload()) },
   { id: 'notes.open', label: 'Open Shared Note', category: 'Notes', internal: true, run: (path: string) => { showView('notes'); set({ selectedNote: path }) } },
   { id: 'mcp.import', label: 'Copy Project MCP Servers to Workspace', category: 'MCP', internal: true, run: (path: string, names: string[]) => actions.importProjectMcp(path, names) },
-  { id: 'claude.setup', label: 'Claude Code Setup…', category: 'Help', run: () => set({ setupOpen: true }) },
-  { id: 'claude.update', label: 'Update Claude Code', category: 'Help', run: () => set({ setupOpen: true }) },
-  { id: 'claude.check', label: 'Check for Claude Code Updates', category: 'Help', run: () => actions.refreshAgent() },
+  { id: 'help.agentSetup', label: 'Agent Setup…', category: 'Help', run: (provider?: unknown) => set({ setupOpen: typeof provider === 'string' ? provider : true }) },
+  { id: 'help.checkProviders', label: 'Check Coding Agents for Updates', category: 'Help', run: () => actions.refreshProviders() },
   { id: 'help.docs', label: 'Documentation', category: 'Help', keybinding: 'F1', run: () => { set({ docsPage: 'guide' }); setActivity('docs') } },
   { id: 'help.api', label: 'Agent API Reference', category: 'Help', run: () => { set({ docsPage: 'api' }); setActivity('docs') } },
   { id: 'help.shortcuts', label: 'Keyboard Shortcuts', category: 'Help', keybinding: 'Mod+K Mod+S', run: () => set({ shortcutsOpen: true }) },
@@ -280,15 +295,20 @@ export function matchKeybinding(e: KeyboardEvent): Command | null {
   return null
 }
 
-// Shortcuts Claude Code itself uses (e.g. Ctrl+B background task, Ctrl+K kill line) stay with the terminal.
-export const TERMINAL_RESERVED = new Set(['MOD+B', 'MOD+K', 'MOD+O', 'MOD+R', 'MOD+T', 'MOD+G'])
+/**
+ * Shortcuts an agent's terminal UI uses itself (Claude Code: Ctrl+B background task, Ctrl+K kill line…)
+ * stay with the terminal. Each provider lists its own; outside a terminal, all of them count.
+ */
+export function terminalReserved(provider?: ProviderId): Set<string> {
+  return new Set(provider ? providerDescriptor(provider).reservedKeys : PROVIDERS.flatMap((p) => p.reservedKeys))
+}
 
 /** Keys the terminal must pass through to Hive instead of the agent. Chords are not started from the terminal. */
-export function isAppShortcut(e: KeyboardEvent): boolean {
+export function isAppShortcut(e: KeyboardEvent, provider?: ProviderId): boolean {
   if (e.type !== 'keydown') return false
   const key = eventToKey(e)
   if (!key) return false
   const norm = key.toUpperCase()
-  if (TERMINAL_RESERVED.has(norm)) return false
+  if (terminalReserved(provider).has(norm)) return false
   return bound().some((b) => b.key === norm)
 }

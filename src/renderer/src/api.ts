@@ -6,7 +6,7 @@ export async function call<C extends HiveChannel>(channel: C, ...args: Parameter
     return (await window.hive.invoke(channel, ...args)) as Awaited<ReturnType<HiveRequests[C]>>
   } catch (e) {
     const msg = (e as Error).message ?? String(e)
-    throw new Error(msg.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    throw new Error(msg.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), { cause: e })
   }
 }
 

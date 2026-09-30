@@ -1,38 +1,78 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeybindingsEditor } from '../components/Keybindings'
-import type { GitDiff, GitStatus, McpServerInfo, MemorySource, PermissionMode, PlanLimit, ProjectConfig, ProjectInfo, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
-import { EFFORT_LEVELS, FILE_LOCK_MODES, MAIN_AGENT, MAX_AGENTS, PERMISSION_MODES, effectiveModelLabel, modelLabel, permissionLabel } from '@shared/defaults'
+import type { GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
+import { FILE_LOCK_MODES, MAX_AGENTS, effectiveModelLabel, modelLabel } from '@shared/defaults'
+import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { ModelPicker } from '../components/ModelPicker'
+import { ProviderIcon } from '../components/ProviderIcon'
+import { confirmDangerousMode } from '../components/PermissionMode'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { DocEditor } from '../components/DocEditor'
 import { DiffView } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
-import { Icon, IconButton, InfoTip, StatusDot, Switch, Tooltip } from '../components/ui'
+import { Icon, IconButton, InfoTip, STATUS_TEXT, StatusDot, Switch, Tooltip } from '../components/ui'
 import { languageFor } from '../monacoLang'
 import { SKILL_LEVEL_TIP } from '../components/Sidebar'
 import { RootSelector } from './FilesTab'
-import { confirm, notify, set, setActivity, useStore } from '../store'
+import { agentProviderOf, confirm, notify, set, setActivity, useFocusedAgent, useStore } from '../store'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
-import { useNow } from '../usage'
+import { useLiveUsage, useNow } from '../usage'
 
 // ---------------------------------------------------------------------------
 // Overview
 // ---------------------------------------------------------------------------
 
+/** Live updates of the session list come at most this often (each reads the project's session files). */
+const LIVE_REFRESH_MS = 15_000
+
+/**
+ * The project's sessions with their usage, for the Overview and the Sessions tab. Updates follow
+ * Settings → Sessions → Overview updates: live (as sessions change, at most every 15 s), every minute, or
+ * only on reload(). Only while a view using it is shown.
+ */
 export function useSessions(project: ProjectInfo) {
+  const mode = useStore((s) => s.settings?.sessions.overviewRefresh ?? 'live')
   const usageVersion = useStore((s) => s.usageVersion[project.path] ?? 0)
   const [items, setItems] = useState<SessionListItem[] | null>(null)
+  const [loadedAt, setLoadedAt] = useState(0)
+  const last = useRef(0)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const load = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+    last.current = Date.now()
     void call('session:list', project.path)
-      .then(setItems)
+      .then((list) => {
+        setItems(list)
+        setLoadedAt(Date.now())
+      })
       .catch((e) => {
         setItems([])
         notify('error', 'Could not load sessions', errorMessage(e))
       })
   }, [project.path])
-  useEffect(load, [load, usageVersion, project.live?.sessionId, project.live?.status])
-  return { items, reload: load }
+  useEffect(() => {
+    load()
+    return () => {
+      if (timer.current) clearTimeout(timer.current)
+    }
+  }, [load])
+  // Live: a change (usage, or an agent starting or stopping) reloads, at most every LIVE_REFRESH_MS.
+  const liveKey = `${usageVersion}|${project.agents.map((a) => `${a.live?.sessionId ?? ''}:${a.live?.status ?? ''}`).join(',')}`
+  useEffect(() => {
+    if (mode !== 'live' || !last.current) return
+    const wait = last.current + LIVE_REFRESH_MS - Date.now()
+    if (wait <= 0) load()
+    else if (!timer.current) timer.current = setTimeout(load, wait)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveKey, mode])
+  useEffect(() => {
+    if (mode !== 'minute') return
+    const t = setInterval(load, 60_000)
+    return () => clearInterval(t)
+  }, [mode, load])
+  return { items, reload: load, loadedAt }
 }
 
 
@@ -49,42 +89,251 @@ function Card({ title, value, sub, tip, accent, children }: { title: string; val
   )
 }
 
-export function OverviewTab({ project }: { project: ProjectInfo }) {
-  const { items } = useSessions(project)
-  const settings = useStore((s) => s.settings)
-  const now = useNow(10000)
-  const current = useMemo(() => {
-    if (!items) return null
-    if (project.live) return items.find((i) => i.id === project.live!.sessionId) ?? null
-    return items.find((i) => i.source === 'hive' && !i.archived) ?? null
-  }, [items, project.live])
-  const u: SessionUsage | null = current?.usage ?? null
-  const hiveSessions = items?.filter((i) => i.source === 'hive') ?? []
-  const totals = hiveSessions.reduce(
-    (a, s) => ({
-      input: a.input + (s.usage?.inputTokens ?? 0),
-      output: a.output + (s.usage?.outputTokens ?? 0),
-      cacheRead: a.cacheRead + (s.usage?.cacheReadTokens ?? 0),
-      cacheWrite: a.cacheWrite + (s.usage?.cacheWriteTokens ?? 0)
-    }),
-    { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-  )
+type Period = 'today' | 'week' | 'month' | 'all'
+const PERIODS: { value: Period; label: string }[] = [
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: '7 days' },
+  { value: 'month', label: '30 days' },
+  { value: 'all', label: 'All time' }
+]
 
+function periodStart(p: Period, now: number): number {
+  if (p === 'all') return 0
+  if (p === 'today') {
+    const d = new Date(now)
+    d.setHours(0, 0, 0, 0)
+    return d.getTime()
+  }
+  return now - (p === 'week' ? 7 : 30) * 86400_000
+}
+
+interface Totals {
+  sessions: number
+  prompts: number
+  compactions: number
+  input: number
+  cached: number
+  cacheWrite: number
+  output: number
+  cost: number
+  /** Some of the cost is Hive's estimate. */
+  estimated: boolean
+  /** Sessions with no cost at all (no price known for their model). */
+  unpriced: number
+}
+
+function sumUsage(list: SessionListItem[]): Totals {
+  const t: Totals = { sessions: 0, prompts: 0, compactions: 0, input: 0, cached: 0, cacheWrite: 0, output: 0, cost: 0, estimated: false, unpriced: 0 }
+  for (const s of list) {
+    const u = s.usage
+    t.sessions++
+    if (!u) continue
+    t.prompts += u.userMessages
+    t.compactions += u.compactions.length
+    t.input += u.inputTokens
+    t.cached += u.cacheReadTokens
+    t.cacheWrite += u.cacheWriteTokens
+    t.output += u.outputTokens
+    if (u.costUsd === null) t.unpriced++
+    else {
+      t.cost += u.costUsd
+      if (u.costEstimated) t.estimated = true
+    }
+  }
+  return t
+}
+
+const money = (n: number): string => (n >= 100 ? `$${Math.round(n)}` : n > 0 && n < 0.01 ? '< $0.01' : `$${n.toFixed(2)}`)
+
+/** The agent a session belongs to: its worktree's agent, else the agent recorded for it ('?' when none). */
+function sessionAgent(project: ProjectInfo, s: SessionListItem): string {
+  if (s.cwd && s.cwd.toLowerCase() !== project.path.toLowerCase()) return project.agents.find((a) => a.worktree?.path.toLowerCase() === s.cwd!.toLowerCase())?.id ?? '?'
+  return s.agentId ?? '?'
+}
+
+/** The project's usage for a period: one summary, what runs now, each provider, each agent, then the focused agent's session. */
+export function OverviewTab({ project }: { project: ProjectInfo }) {
+  const { items, reload, loadedAt } = useSessions(project)
+  const settings = useStore((s) => s.settings)
+  const [period, setPeriod] = useState<Period>('week')
+  const now = useNow(60000)
   if (!items) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
 
+  const from = periodStart(period, now)
+  const inPeriod = items.filter((i) => i.source === 'hive' && Date.parse(i.lastActivity ?? i.lastActiveAt ?? '') >= from)
+  const total = sumUsage(inPeriod)
+  const running = project.agents.filter((a) => a.live && !a.live.settingUp)
+  const used = new Set([...inPeriod.map((i) => i.provider), ...running.map((a) => a.live!.provider)])
+  const providers = PROVIDERS.filter((p) => used.has(p.id) || isProviderEnabled(settings, p.id))
+  const tokens = (t: Totals): number => t.input + t.cached + t.cacheWrite + t.output
+  const costTip = 'What this work would have cost at API prices: reported by the provider where it does (Claude Code), else estimated by Hive from token counts and the prices in Settings → the provider. On a subscription you are not charged this; it shows how heavy the work was.'
+
+  return (
+    <div className="scroll-page">
+      <div className="page-narrow">
+        <div className="overview-head">
+          <h2 className="section">Project summary</h2>
+          <Tooltip content={`Updated ${timeAgo(new Date(loadedAt).toISOString())}. How often it updates: Settings → Sessions → Overview updates.`}>
+            <span>
+              <IconButton icon="refresh" title="Refresh" onClick={reload} />
+            </span>
+          </Tooltip>
+          <div className="grow" />
+          <div className="segmented" role="group" aria-label="Period">
+            {PERIODS.map((p) => (
+              <button key={p.value} className={cx(period === p.value && 'active')} onClick={() => setPeriod(p.value)}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="hint">Sessions active in the period, counted in full (all their tokens), across every provider.</p>
+        <div className="cards">
+          <Card accent title="Tokens" value={formatTokens(tokens(total))} sub={`${formatTokens(total.input + total.cacheWrite)} in · ${formatTokens(total.cached)} cached · ${formatTokens(total.output)} out`} tip="All tokens: new input, cache writes, input read from cache, and output." />
+          <Card
+            title="API-equivalent cost"
+            value={`${total.estimated ? '≈ ' : ''}${money(total.cost)}`}
+            sub={total.unpriced ? `${total.unpriced} session${total.unpriced === 1 ? '' : 's'} without a price` : total.estimated ? 'partly estimated' : 'as reported'}
+            tip={costTip}
+          />
+          <Card title="Sessions" value={total.sessions} sub={`${running.length} running now`} />
+          <Card title="Prompts" value={formatNumber(total.prompts)} sub={`${total.compactions} compaction${total.compactions === 1 ? '' : 's'}`} />
+        </div>
+
+        {running.length > 0 && (
+          <>
+            <h2 className="section">Running now</h2>
+            <div className="running-list">
+              {running.map((a) => (
+                <RunningAgent key={a.id} project={project} a={a} />
+              ))}
+            </div>
+          </>
+        )}
+
+        {providers.map((p) => {
+          const list = inPeriod.filter((i) => i.provider === p.id)
+          const t = sumUsage(list)
+          return (
+            <div key={p.id}>
+              <h2 className="section">
+                <ProviderIcon provider={p.id} /> {p.name}
+                {!isProviderEnabled(settings, p.id) && <span className="muted" style={{ fontWeight: 400 }}> — turned off</span>}
+              </h2>
+              <div className="cards">
+                <Card title="Tokens" value={formatTokens(tokens(t))} sub={`${formatTokens(t.output)} output`} />
+                <Card title="API-equivalent cost" value={`${t.estimated ? '≈ ' : ''}${money(t.cost)}`} sub={t.unpriced ? `${t.unpriced} without a price` : p.capabilities.reportsCost ? 'as reported' : 'estimated'} tip={costTip} />
+                <Card title="Sessions" value={t.sessions} sub={`${formatNumber(t.prompts)} prompts`} />
+              </div>
+              <PlanLimits provider={p.id} />
+            </div>
+          )
+        })}
+
+        {project.agents.length > 1 && (
+          <>
+            <h2 className="section">By agent</h2>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>Provider</th>
+                  <th className="num">Sessions</th>
+                  <th className="num">Tokens</th>
+                  <th className="num">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {project.agents.map((a) => {
+                  const t = sumUsage(inPeriod.filter((i) => sessionAgent(project, i) === a.id))
+                  const prov = agentProviderOf(project, a)
+                  return (
+                    <tr key={a.id}>
+                      <td>{a.name}</td>
+                      <td>
+                        <ProviderIcon provider={prov} /> {providerName(prov)}
+                      </td>
+                      <td className="num">{t.sessions}</td>
+                      <td className="num">{formatTokens(tokens(t))}</td>
+                      <td className="num">{t.sessions ? `${t.estimated ? '≈ ' : ''}${money(t.cost)}` : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        <SessionDetails project={project} items={items} />
+      </div>
+    </div>
+  )
+}
+
+/** One running agent: provider, model, mode, status, context used and cost so far. */
+function RunningAgent({ project, a }: { project: ProjectInfo; a: ProjectInfo['agents'][number] }) {
+  const live = a.live!
+  const usage = useLiveUsage(project, a.id)
+  const window = usage?.contextWindow ?? null
+  const ctx = usage?.contextTokens ?? 0
+  const pct = window ? Math.min(100, (ctx / window) * 100) : null
+  const cost = live.costUsd ?? usage?.costUsd ?? null
+  const estimated = live.costUsd !== undefined ? !!live.costEstimated : !!usage?.costEstimated
+  return (
+    <div className="running-row">
+      <StatusDot live={live} active={project.active} />
+      <ProviderIcon provider={live.provider} />
+      <div className="grow">
+        <div>
+          <strong>{a.name}</strong> <span className="faint">{live.statusMessage ?? STATUS_TEXT[live.status]}</span>
+        </div>
+        <div className="faint small">
+          {[live.modelName ?? usage?.model ?? null, live.permissionMode ? permissionLabel(live.provider, live.permissionMode) : null, live.planMode ? 'Plan' : null].filter(Boolean).join(' · ')}
+        </div>
+      </div>
+      <Tooltip content={window ? `${ctx.toLocaleString()} of ${window.toLocaleString()} tokens of context` : `${ctx.toLocaleString()} tokens of context`}>
+        <div className="running-ctx">
+          <span className="small">{formatTokens(ctx)} context{pct !== null ? ` · ${Math.round(pct)}%` : ''}</span>
+          {pct !== null && (
+            <div className={cx('meter', pct >= 90 ? 'danger' : pct >= 75 && 'caution')}>
+              <div style={{ width: `${pct}%` }} />
+            </div>
+          )}
+        </div>
+      </Tooltip>
+      <span className="running-cost small">{cost !== null ? `${estimated ? '≈ ' : ''}${money(cost)}` : ''}</span>
+    </div>
+  )
+}
+
+/** The focused agent's running session, else the project's most recent one, in detail. */
+function SessionDetails({ project, items }: { project: ProjectInfo; items: SessionListItem[] }) {
+  const settings = useStore((s) => s.settings)
+  const now = useNow(10000)
+  const focused = useFocusedAgent(project)
+  const liveState = focused?.live ?? project.live
+  const current = useMemo(() => {
+    if (liveState?.sessionId) return items.find((i) => i.id === liveState.sessionId) ?? null
+    return items.find((i) => i.source === 'hive' && !i.archived) ?? null
+  }, [items, liveState?.sessionId])
+  const u: SessionUsage | null = current?.usage ?? null
+
+  const provider = providerDescriptor(u?.provider ?? current?.provider)
+  const cacheTtl = provider.capabilities.promptCacheTtl
   const ttl = u ? (settings?.sessions.cacheTtl === '5m' ? 300 : settings?.sessions.cacheTtl === '1h' ? 3600 : u.cacheTtlSeconds) : 300
   const elapsed = u?.lastActivity ? (now - Date.parse(u.lastActivity)) / 1000 : Infinity
   const warm = elapsed < ttl
   const totalIn = u ? u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens : 0
   const hitRate = u && totalIn ? Math.round((u.cacheReadTokens / totalIn) * 100) : 0
-  const cost = (project.live && project.live.sessionId === current?.id ? project.live.costUsd : undefined) ?? u?.costUsd ?? null
+  const liveCost = liveState && liveState.sessionId === current?.id ? liveState.costUsd : undefined
+  const cost = liveCost ?? u?.costUsd ?? null
+  const costEstimated = liveCost !== undefined ? !!liveState?.costEstimated : !!u?.costEstimated
 
   return (
-    <div className="scroll-page">
-      <div className="page-narrow">
+    <>
         <h2 className="section">
-          {project.live ? 'Current session' : 'Most recent session'}
-          {current && <span className="muted" style={{ fontWeight: 400 }}>— {current.name || current.title || current.id.slice(0, 8)}</span>}
+          {liveState ? 'Current session' : 'Most recent session'}
+          {current && <span className="muted" style={{ fontWeight: 400 }}>— {current.name || current.title || current.id.slice(0, 8)} · {provider.name}</span>}
         </h2>
         {!u ? (
           <p className="hint">No session data yet. Start a session and its token use, cache and compaction history will appear here.</p>
@@ -96,35 +345,45 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
                 title="Context"
                 value={formatTokens(u.contextTokens)}
                 sub={`${formatNumber(u.contextTokens)} tokens in the last request`}
-                tip="How many tokens the conversation currently occupies. This is what gets re-cached when a session resumes after the cache expires."
-              />
-              <Card
-                title="Cache"
-                value={warm ? 'Warm' : 'Expired'}
-                sub={warm ? `≈ ${formatDuration(ttl - elapsed)} left of ${ttl === 3600 ? '1 h' : '5 min'} TTL` : `Last activity ${timeAgo(u.lastActivity)}`}
-                tip="Anthropic's prompt cache keeps the conversation prefix for a limited time (5 minutes or 1 hour). While warm, each message reads the context cheaply from cache."
-              />
-              <Card
-                title="Re-cache on resume"
-                value={warm ? '—' : `≈ ${formatTokens(u.contextTokens)}`}
-                sub={warm ? 'Cache is still warm' : 'tokens written to cache on the next message'}
-                tip="Estimate: when the cache has expired, the first message after resuming writes the whole context to cache again. Archive and start a new session to avoid it."
-              />
-              <Card title="Compactions" value={u.compactions.length} sub={u.compactions.length ? `Last ${timeAgo(u.compactions[u.compactions.length - 1].timestamp)}` : 'None yet'} tip="Claude Code summarises the conversation when the context fills up. Each compaction frees space but loses detail." />
+                tip="How many tokens the conversation currently occupies."
+              >
+                {u.contextWindow ? (
+                  <div className="meter">
+                    <div style={{ width: `${Math.min(100, (u.contextTokens / u.contextWindow) * 100)}%` }} />
+                  </div>
+                ) : null}
+              </Card>
+              {cacheTtl && (
+                <>
+                  <Card
+                    title="Cache"
+                    value={warm ? 'Warm' : 'Expired'}
+                    sub={warm ? `≈ ${formatDuration(ttl - elapsed)} left of ${ttl === 3600 ? '1 h' : '5 min'} TTL` : `Last activity ${timeAgo(u.lastActivity)}`}
+                    tip={`${provider.company}'s prompt cache keeps the conversation prefix for a limited time (5 minutes or 1 hour). While warm, each message reads the context cheaply from cache.`}
+                  />
+                  <Card
+                    title="Re-cache on resume"
+                    value={warm ? '—' : `≈ ${formatTokens(u.contextTokens)}`}
+                    sub={warm ? 'Cache is still warm' : 'tokens written to cache on the next message'}
+                    tip="Estimate: when the cache has expired, the first message after resuming writes the whole context to cache again. Archive and start a new session to avoid it."
+                  />
+                </>
+              )}
+              <Card title="Compactions" value={u.compactions.length} sub={u.compactions.length ? `Last ${timeAgo(u.compactions[u.compactions.length - 1].timestamp)}` : 'None yet'} tip={`${provider.name} summarises the conversation when the context fills up. Each compaction frees space but loses detail.`} />
               <Card title="Output" value={formatTokens(u.outputTokens)} sub={`${u.requests} requests · ${u.userMessages} prompts`} />
               <Card title="Input" value={formatTokens(u.inputTokens + u.cacheWriteTokens + u.cacheReadTokens)} sub={`${hitRate}% read from cache`} tip="All input tokens: uncached input, cache writes and cache reads.">
                 <div className="meter">
                   <div style={{ width: `${hitRate}%` }} />
                 </div>
               </Card>
-              <Card title="Cache writes" value={formatTokens(u.cacheWriteTokens)} sub="tokens written to cache" />
+              {cacheTtl && <Card title="Cache writes" value={formatTokens(u.cacheWriteTokens)} sub="tokens written to cache" />}
               <Card title="Cache reads" value={formatTokens(u.cacheReadTokens)} sub="tokens read from cache" />
               {cost !== null && (
                 <Card
                   title="API-equivalent cost"
-                  value={`${cost.toFixed(2)}`}
-                  sub="this session, at API prices"
-                  tip="What this session would have cost at Anthropic API prices, as Claude Code calculates it. On a Claude subscription you are not charged this; it shows how heavy the session has been."
+                  value={`${costEstimated ? '≈ ' : ''}${money(cost)}`}
+                  sub={costEstimated ? 'this session, estimated at API prices' : 'this session, at API prices'}
+                  tip={`What this session would have cost at ${provider.company} API prices${costEstimated ? ', estimated by Hive from its token counts' : `, as ${provider.name} calculates it`}. On a subscription you are not charged this; it shows how heavy the session has been.`}
                 />
               )}
             </div>
@@ -135,7 +394,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
                   <td className="mono">{u.model ?? '—'}</td>
                 </tr>
                 <tr>
-                  <td className="muted">Claude Code version</td>
+                  <td className="muted">{provider.name} version</td>
                   <td>{u.cliVersion ?? '—'}</td>
                 </tr>
                 <tr>
@@ -185,45 +444,31 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
             )}
           </>
         )}
-        <PlanUsageCards />
-        <h2 className="section">All Hive sessions in this project</h2>
-        <div className="cards">
-          <Card title="Sessions" value={hiveSessions.length} sub={`${hiveSessions.filter((s) => s.archived).length} archived`} />
-          <Card title="Output" value={formatTokens(totals.output)} sub="tokens, all sessions" />
-          <Card title="Input" value={formatTokens(totals.input + totals.cacheRead + totals.cacheWrite)} sub={`${formatTokens(totals.cacheRead)} from cache`} />
-        </div>
-      </div>
-    </div>
+    </>
   )
 }
 
-/** The subscription's 5-hour and weekly limits (account-wide), as Claude Code last reported them. */
-function PlanUsageCards() {
-  const usage = useStore((s) => s.planUsage)
+/** One provider's subscription limits (account-wide), as its sessions last reported them. */
+function PlanLimits({ provider }: { provider: ProviderId }) {
+  const usage = useStore((s) => s.planUsage[provider])
   useNow(60000)
-  const card = (title: string, l: PlanLimit | null, tip: string): React.ReactNode =>
-    l && (
-      <Card title={title} value={`${Math.round(l.usedPercent)}%`} sub={l.resetsAt ? `used · resets ${resetsIn(l.resetsAt)}` : 'used'} tip={tip} accent={l.usedPercent >= 80}>
-        <div className={cx('meter', l.usedPercent >= 95 ? 'danger' : l.usedPercent >= 80 && 'caution')}>
-          <div style={{ width: `${Math.min(100, l.usedPercent)}%` }} />
-        </div>
-      </Card>
-    )
-  return (
+  const p = providerDescriptor(provider)
+  const card = (id: ProviderId, l: PlanLimit): React.ReactNode => (
+    <Card key={l.id} title={`${l.label.charAt(0).toUpperCase()}${l.label.slice(1)} limit`} value={`${Math.round(l.usedPercent)}%`} sub={l.resetsAt ? `used · resets ${resetsIn(l.resetsAt)}` : 'used'} tip={`How much of your plan’s ${l.label} allowance is used, across all your ${providerName(id)} sessions (not just Hive).`} accent={l.usedPercent >= 80}>
+      <div className={cx('meter', l.usedPercent >= 95 ? 'danger' : l.usedPercent >= 80 && 'caution')}>
+        <div style={{ width: `${Math.min(100, l.usedPercent)}%` }} />
+      </div>
+    </Card>
+  )
+  return usage?.limits.length ? (
     <>
-      <h2 className="section">
-        Plan usage
-        {usage && <span className="muted" style={{ fontWeight: 400 }}>— as of {timeAgo(usage.updatedAt)}</span>}
-      </h2>
-      {usage && (usage.fiveHour || usage.sevenDay) ? (
-        <div className="cards">
-          {card('5-hour limit', usage.fiveHour, 'How much of your plan’s rolling 5-hour allowance is used, across all your Claude Code sessions (not just Hive).')}
-          {card('Weekly limit', usage.sevenDay, 'How much of your plan’s weekly allowance is used, across all your Claude Code sessions.')}
-        </div>
-      ) : (
-        <p className="hint">Claude Code reports your plan’s 5-hour and weekly limits while a session runs. They appear here after the next message in any session. Accounts that use an API key have no plan limits.</p>
-      )}
+      <div className="faint small overview-plan">
+        Plan limits{usage.plan ? ` (${usage.plan})` : ''}, account-wide, as of {timeAgo(usage.updatedAt)}
+      </div>
+      <div className="cards">{usage.limits.map((l) => card(provider, l))}</div>
     </>
+  ) : (
+    <p className="hint">{p.name} reports your plan’s limits while a session runs; they appear here after the next message in any {p.name} session. Accounts that use an API key have no plan limits.</p>
   )
 }
 
@@ -330,10 +575,11 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
 // Memory
 // ---------------------------------------------------------------------------
 
-const MEMORY_TIPS: Record<MemorySource['kind'], string> = {
-  'claude-md': 'Project instructions Claude Code reads at the start of every session. Usually committed to git.',
-  'local-md': 'Personal project instructions that are not committed.',
-  'auto-memory': "Claude Code's own memory for this project — facts it chose to remember across sessions."
+const memoryTip = (s: MemorySource): string => {
+  const name = providerName(s.provider)
+  if (s.kind === 'local-md') return `Personal project instructions ${name} reads that are not committed.`
+  if (s.kind === 'auto-memory') return `${name}'s own memory for this project — facts it chose to remember across sessions.`
+  return `Project instructions ${name} reads at the start of every session. Usually committed to git.`
 }
 
 export function MemoryTab({ project }: { project: ProjectInfo }) {
@@ -343,15 +589,44 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
   const load = useCallback(() => {
     void call('memory:list', project.path).then((s) => {
       setSources(s)
-      setSelected((cur) => cur ?? s.find((x) => x.exists)?.id ?? s[0]?.id ?? null)
+      const key = (x: MemorySource): string => `${x.provider}:${x.id}`
+      setSelected((cur) => cur ?? (s.find((x) => x.exists) ?? s[0] ? key(s.find((x) => x.exists) ?? s[0]) : null))
     })
   }, [project.path])
   useEffect(load, [load])
-  const sel = sources.find((s) => s.id === selected)
-  const groups: [string, MemorySource[]][] = [
-    ['Instructions', sources.filter((s) => s.kind !== 'auto-memory')],
-    ['Auto memory', sources.filter((s) => s.kind === 'auto-memory')]
-  ]
+  const sel = sources.find((s) => `${s.provider}:${s.id}` === selected)
+  // One pair of groups per provider the project uses (or, with none yet, every enabled provider).
+  const settings = useStore((s) => s.settings)
+  const used = new Set(project.agents.map((a) => agentProviderOf(project, a)))
+  const providers = PROVIDERS.filter((p) => used.has(p.id) || (isProviderEnabled(settings, p.id) && sources.some((s) => s.provider === p.id && s.exists)))
+  // With agents of more than one provider: one shared AGENTS.md instead of a file per CLI.
+  const usedIds = [...used].sort()
+  const [shared, setShared] = useState(true)
+  useEffect(() => {
+    if (usedIds.length < 2) return setShared(true)
+    void call('memory:instructionsShared', project.path, usedIds).then(setShared).catch(() => setShared(true))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.path, usedIds.join(), sources])
+  const share = async (): Promise<void> => {
+    const names = usedIds.map((id) => providerName(id)).join(' and ')
+    const importers = PROVIDERS.filter((p) => used.has(p.id) && p.instructionsImport && p.instructionsFile !== 'AGENTS.md')
+    const ok = await confirm({
+      title: 'Share instructions',
+      message: `${names} will read the same AGENTS.md.`,
+      detail: `${importers.map((p) => `${p.instructionsFile} gets an "${p.instructionsImport}" line that includes AGENTS.md; anything else in it still applies to ${p.name} only.`).join(' ')} If there's no AGENTS.md yet, the current instructions move into it, so nothing is lost.${sources.some((x) => x.id === 'project-dot' && x.exists) ? ' Your .claude/CLAUDE.md stays as it is and applies to Claude Code only: move anything the other agents should know into AGENTS.md.' : ''} Running sessions read the change when they next start.`,
+      confirmLabel: 'Share'
+    })
+    if (!ok) return
+    const written = await actions.attempt('Could not share the instructions', () => call('memory:shareInstructions', project.path, usedIds))
+    if (written) {
+      notify('success', 'Instructions shared', written.length ? `Updated ${written.join(', ')}.` : undefined)
+      load()
+    }
+  }
+  const groups: [string, MemorySource[]][] = providers.flatMap((p): [string, MemorySource[]][] => [
+    [`${p.name}: instructions`, sources.filter((s) => s.provider === p.id && s.kind !== 'auto-memory')],
+    [`${p.name}: memory`, sources.filter((s) => s.provider === p.id && s.kind === 'auto-memory')]
+  ])
   return (
     <div className="split">
       <div className="split-list" style={{ width: listWidth }}>
@@ -363,13 +638,21 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
           </div>
         </div>
         <div className="pane-body">
+          {!shared && (
+            <div className="memory-share">
+              <Icon name="info" /> Each provider reads its own instructions file.
+              <button className="btn subtle small" onClick={() => void share()}>
+                Share one AGENTS.md…
+              </button>
+            </div>
+          )}
           {groups.map(([title, list]) => (
             <div key={title}>
               <div className="section-header" style={{ cursor: 'default' }}>{title}</div>
-              {list.length === 0 && <div className="pane-empty" style={{ paddingTop: 6 }}>{title === 'Auto memory' ? 'Claude Code has not saved any memories for this project yet.' : ''}</div>}
+              {list.length === 0 && <div className="pane-empty" style={{ paddingTop: 6 }}>{title.endsWith('memory') ? 'Nothing saved for this project yet.' : ''}</div>}
               {list.map((s) => (
-                <Tooltip block key={s.id} content={<span style={{ whiteSpace: 'pre-line' }}>{`${MEMORY_TIPS[s.kind]}\n${s.path}`}</span>}>
-                  <div className={cx('row', selected === s.id && 'selected')} style={{ width: '100%' }} onClick={() => setSelected(s.id)}>
+                <Tooltip block key={`${s.provider}:${s.id}`} content={<span style={{ whiteSpace: 'pre-line' }}>{`${memoryTip(s)}\n${s.path}`}</span>}>
+                  <div className={cx('row', selected === `${s.provider}:${s.id}` && 'selected')} style={{ width: '100%' }} onClick={() => setSelected(`${s.provider}:${s.id}`)}>
                     <Icon name={s.kind === 'auto-memory' ? 'lightbulb' : 'book'} />
                     <span className="label" style={!s.exists ? { color: 'var(--fg-faint)' } : undefined}>{s.label}</span>
                     {!s.exists && <span className="desc">create</span>}
@@ -385,7 +668,7 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
           key={sel.path}
           path={sel.path}
           title={sel.label}
-          createIfMissing={sel.exists ? undefined : `# ${project.name}\n\nInstructions for Claude Code in this project.\n`}
+          createIfMissing={sel.exists ? undefined : `# ${project.name}\n\nInstructions for ${providerName(sel.provider)} in this project.\n`}
           onSaved={load}
         />
       ) : (
@@ -425,7 +708,7 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
   }
   const copy = async (s: SkillInfo): Promise<void> => {
     const r = await actions.attempt('Could not copy skill', () => call('skills:copyToWorkspace', s.path))
-    if (r) notify('success', `Copied "${s.name}" to the workspace`, 'Enable it in Skills to use it. The local copy is still loaded by Claude Code until you remove it from .claude/skills.')
+    if (r) notify('success', `Copied "${s.name}" to the workspace`, `Enable it in Skills to use it. The local copy is still loaded by ${providerName(s.provider)} until you remove it from the project's folder.`)
     load()
   }
 
@@ -465,7 +748,7 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
           Local skills <InfoTip text={SKILL_LEVEL_TIP.local} />
         </h2>
         {local.length === 0 ? (
-          <p className="hint">This project has no skills in .claude/skills.</p>
+          <p className="hint">This project has no skills of its own (such as .claude/skills).</p>
         ) : (
           <div className="toggle-list">
             {local.map((s) => (
@@ -473,7 +756,7 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
                 <Icon name="folder" />
                 <div className="ti-text">
                   <div className="ti-name">
-                    {s.name} <span className="badge">always on</span>
+                    {s.name} <span className="badge">always on</span> {s.provider && <span className="badge">{providerName(s.provider)}</span>}
                   </div>
                   <div className="ti-desc">{s.description}</div>
                 </div>
@@ -488,7 +771,7 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
           Machine & plugin skills <InfoTip text={SKILL_LEVEL_TIP.machine} />
         </h2>
         <p className="hint">
-          {machine.length} skill{machine.length === 1 ? '' : 's'} from your user profile and installed plugins are always available to Claude Code. <a onClick={() => setActivity('skills')}>View them</a>
+          {machine.length} skill{machine.length === 1 ? '' : 's'} from your user profile and installed plugins are always available to the agents that load them. <a onClick={() => setActivity('skills')}>View them</a>
         </p>
       </div>
     </div>
@@ -539,7 +822,7 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
         {project.unmanagedMcp.length > 0 && (
           <>
             <h2 className="section">Defined by the project (disabled)</h2>
-            <p className="hint">These servers are in the project's own .mcp.json. Hive starts sessions with only workspace servers, so they stay disabled until copied to the workspace.</p>
+            <p className="hint">These servers are in the project's own agent config (such as .mcp.json). Hive starts sessions with only workspace servers, so they stay disabled until copied to the workspace.</p>
             <div className="toggle-list">
               {project.unmanagedMcp.map((n) => (
                 <div key={n} className="toggle-item disabled">
@@ -590,12 +873,12 @@ function SettingRow({ title, desc, tip, children, modified }: { title: string; d
   )
 }
 
-type ProjectSection = 'claude' | 'sessions' | 'agents' | 'keys' | 'advanced'
+type ProjectSection = 'agents' | 'sessions' | 'keys' | 'advanced' | `provider:${string}`
 
-const PROJECT_SECTIONS: { id: ProjectSection; label: string; icon: string; desc: string }[] = [
-  { id: 'claude', label: 'Claude Code', icon: 'hubot', desc: 'Model, effort and permissions for this project’s sessions. Agents can override these for themselves.' },
+const PROJECT_SECTIONS: { id: ProjectSection; label: string; icon: string; desc: string; provider?: ProviderId }[] = [
+  { id: 'agents', label: 'Agents & Worktrees', icon: 'organization', desc: 'The project’s agents and their providers, file locks between them, and how new worktrees are set up.' },
+  ...PROVIDERS.map((p) => ({ id: `provider:${p.id}` as ProjectSection, label: p.name, icon: 'blank', provider: p.id, desc: `Model, effort and permissions for this project’s ${p.name} agents. Agents can override these for themselves.` })),
   { id: 'sessions', label: 'Sessions', icon: 'history', desc: 'Compacting and notifications for this project.' },
-  { id: 'agents', label: 'Agents & Worktrees', icon: 'organization', desc: 'The project’s agents, file locks between them, and how new worktrees are set up.' },
   { id: 'keys', label: 'Keyboard Shortcuts', icon: 'keyboard', desc: 'Shortcuts for project and session commands while this project is selected, over the global ones.' },
   { id: 'advanced', label: 'Advanced', icon: 'tools', desc: 'Where the settings are stored, and resetting them.' }
 ]
@@ -626,19 +909,26 @@ function DraftTextarea({ value, onCommit, ...rest }: { value: string; onCommit: 
 
 function AgentList({ project }: { project: ProjectInfo }) {
   const settings = useStore((s) => s.settings)
-  const claudeDefault = useStore((s) => s.agent?.defaultModel ?? null)
+  const providers = useStore((s) => s.providers)
   const cfg = project.config
   return (
     <div className="agent-list">
       {project.agents.map((a) => {
-        const model = a.model ? modelLabel(a.model) : effectiveModelLabel(cfg.model, settings?.claude.defaultModel ?? '', claudeDefault)
-        const overrides = [a.model && `model ${modelLabel(a.model)}`, a.effort && `effort ${a.effort}`, a.permissionMode && permissionLabel(a.permissionMode)].filter(Boolean)
+        const provider = agentProviderOf(project, a)
+        const model = a.model ? modelLabel(a.model, provider) : effectiveModelLabel(provider, projectProviderConfig(cfg, provider).model, providerSettings(settings, provider).defaultModel, providers[provider]?.defaultModel ?? null)
+        const overrides = [a.model && `model ${modelLabel(a.model, provider)}`, a.effort && `effort ${a.effort}`, a.permissionMode && permissionLabel(provider, a.permissionMode)].filter(Boolean)
+        const off = !isProviderEnabled(settings, provider)
         return (
-          <div key={a.id} className="agent-list-row">
+          <div key={a.id} className={cx('agent-list-row', off && 'off')}>
             <StatusDot live={a.live} active={project.active} />
+            <Tooltip content={off ? `${providerName(provider)} is turned off in Settings → Providers` : providerName(provider)}>
+              <span>
+                <ProviderIcon provider={provider} />
+              </span>
+            </Tooltip>
             <div className="grow">
               <div>
-                <strong>{a.name}</strong>{' '}
+                <strong>{a.name}</strong> <span className="faint">{providerName(provider)}{off ? ' (off)' : ''}</span>{' '}
                 {a.worktree ? (
                   <span className="agent-branch">
                     <Icon name="git-branch" /> {a.worktree.branch}
@@ -654,7 +944,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
             </div>
             <IconButton icon="settings" title="Agent settings…" onClick={() => set({ agentSettingsFor: { project: project.path, agentId: a.id } })} />
             {a.worktree && <IconButton icon="git-merge" title="Merge…" onClick={() => set({ mergeFor: { project: project.path, agentId: a.id } })} />}
-            {a.id !== MAIN_AGENT && <IconButton icon="close" title="Remove agent…" onClick={() => void actions.removeAgent(project.path, a.id)} />}
+            <IconButton icon="close" title="Remove agent…" onClick={() => void actions.removeAgent(project.path, a.id)} />
           </div>
         )
       })}
@@ -667,7 +957,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
 
 export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
   const settings = useStore((s) => s.settings)
-  const [section, setSection] = useState<ProjectSection>('claude')
+  const [section, setSection] = useState<ProjectSection>('agents')
   const [query, setQuery] = useState('')
   const cfg = project.config
   if (!settings) return null
@@ -675,80 +965,108 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     await actions.attempt('Could not save project settings', () => call('project:updateConfig', project.path, patch))
     await actions.refreshWorkspace()
   }
-  const modes = PERMISSION_MODES.filter((m) => m.value !== 'bypassPermissions' || settings.claude.enableBypassOption)
-  const defaultModeLabel = PERMISSION_MODES.find((m) => m.value === settings.claude.defaultPermissionMode)?.label
   const globalLock = FILE_LOCK_MODES.find((m) => m.value === settings.agents.fileLocks)
   const lockMode = cfg.fileLocks === 'inherit' ? settings.agents.fileLocks : cfg.fileLocks
+  const globalDefault = providerName(settings.defaultProvider)
 
-  const setPermission = async (v: string): Promise<void> => {
-    if (v === 'bypassPermissions') {
-      const ok = await confirm({
-        title: 'Use bypass permissions?',
-        message: `Sessions in ${project.name} will run every command, edit and network call without asking.`,
-        detail: 'Only use this for disposable work where mistakes cannot do harm. Running sessions keep their current mode until restarted.',
-        confirmLabel: 'Enable bypass',
-        danger: true
-      })
-      if (!ok) return
-    }
-    await update({ permissionMode: v as PermissionMode | 'inherit' })
+  /** A project's model, effort, mode and arguments for one provider. */
+  const providerDefs = (id: ProviderId): ProjectSettingDef[] => {
+    const p = providerDescriptor(id)
+    const pc = projectProviderConfig(cfg, id)
+    const g = providerSettings(settings, id)
+    const sect = `provider:${id}` as ProjectSection
+    const save = (patch: Partial<typeof pc>): Promise<void> => actions.updateProjectProvider(project.path, id, patch)
+    const globalModel = g.defaultModel ? modelLabel(g.defaultModel, id) : `${p.name} default`
+    const globalEffort = g.defaultEffort ? p.effortLevels.find((l) => l.value === g.defaultEffort)?.label ?? g.defaultEffort : 'default'
+    const modes = offeredModes(id, settings)
+    const mode = pc.permissionMode === 'inherit' ? g.defaultPermissionMode : pc.permissionMode
+    return [
+      {
+        section: sect,
+        key: `${id}.model`,
+        title: 'Model',
+        desc: `Model for this project's ${p.name} agents. Inherit uses the global default (${globalModel}).`,
+        tip: `Passed to ${p.name} when a session starts. Agents can choose their own.`,
+        modified: pc.model !== 'inherit',
+        render: () => <ModelPicker provider={id} value={pc.model} base={{ value: 'inherit', label: `Inherit (${globalModel})` }} onChange={(v) => void save({ model: v })} />
+      },
+      {
+        section: sect,
+        key: `${id}.effort`,
+        title: 'Effort',
+        desc: 'How much reasoning effort the model uses. Higher is more thorough but slower and uses more tokens.',
+        tip: `Passed to ${p.name} when a session starts.`,
+        modified: pc.effort !== 'inherit',
+        render: () => (
+          <select className="select" value={pc.effort} onChange={(e) => void save({ effort: e.target.value })}>
+            <option value="inherit">Inherit ({globalEffort})</option>
+            {p.effortLevels.map((l) => (
+              <option key={l.value} value={l.value}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        )
+      },
+      {
+        section: sect,
+        key: `${id}.permissionMode`,
+        title: 'Permission mode',
+        desc: modeOption(id, mode)?.description ?? '',
+        tip: `The mode sessions start in.${p.capabilities.liveModeSwitch === 'cycle' ? ' You can still switch modes inside a running session with Shift+Tab.' : ''}`,
+        modified: pc.permissionMode !== 'inherit',
+        render: () => (
+          <select
+            className="select"
+            value={modes.some((m) => m.value === pc.permissionMode) ? pc.permissionMode : 'inherit'}
+            onChange={async (e) => {
+              const v = e.target.value
+              if (v !== 'inherit' && !(await confirmDangerousMode(id, v, `Sessions in ${project.name}`))) return
+              await save({ permissionMode: v })
+            }}
+          >
+            <option value="inherit">Inherit ({permissionLabel(id, g.defaultPermissionMode)})</option>
+            {modes.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        )
+      },
+      {
+        section: sect,
+        key: `${id}.extraArgs`,
+        title: 'Extra arguments',
+        desc: `Additional ${p.cliName} command-line arguments for this project, added after the global ones.`,
+        tip: 'Split like a command line; quote arguments with spaces.',
+        modified: !!pc.extraArgs,
+        render: () => <DraftInput className="input mono" value={pc.extraArgs} placeholder="--add-dir ../lib" onCommit={(v) => void save({ extraArgs: v })} />
+      }
+    ]
   }
 
   const defs: ProjectSettingDef[] = [
     {
-      section: 'claude',
-      key: 'model',
-      title: 'Model',
-      desc: `Model for this project's sessions. Inherit uses the global default (${settings.claude.defaultModel ? modelLabel(settings.claude.defaultModel) : 'Claude Code default'}).`,
-      tip: 'Passed to Claude Code as --model. Latest aliases always pick the newest model in that family; a pinned version stays on that model. 1M context uses the larger context window where the model has one.',
-      modified: cfg.model !== 'inherit',
-      render: () => <ModelPicker value={cfg.model} base={{ value: 'inherit', label: `Inherit (${settings.claude.defaultModel ? modelLabel(settings.claude.defaultModel) : 'Claude Code default'})` }} onChange={(v) => void update({ model: v })} />
-    },
-    {
-      section: 'claude',
-      key: 'effort',
-      title: 'Effort',
-      desc: 'How much reasoning effort the model uses. Higher is more thorough but slower and uses more tokens.',
-      tip: 'Passed to Claude Code as --effort.',
-      modified: cfg.effort !== 'inherit',
+      section: 'agents',
+      key: 'defaultProvider',
+      title: 'Default provider',
+      desc: `The provider Add Agent uses for this project's new agents (the dialog can choose another). Inherit uses the global default (${globalDefault}).`,
+      tip: 'Each agent keeps the provider it was given; change it in the agent’s settings.',
+      modified: cfg.defaultProvider !== 'inherit',
       render: () => (
-        <select className="select" value={cfg.effort} onChange={(e) => void update({ effort: e.target.value as ProjectConfig['effort'] })}>
-          <option value="inherit">Inherit ({settings.claude.defaultEffort || 'default'})</option>
-          {EFFORT_LEVELS.map((l) => (
-            <option key={l} value={l}>
-              {l}
+        <select className="select" value={cfg.defaultProvider} onChange={(e) => void update({ defaultProvider: e.target.value })}>
+          <option value="inherit">Inherit ({globalDefault})</option>
+          {PROVIDERS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+              {isProviderEnabled(settings, p.id) ? '' : ' (off)'}
             </option>
           ))}
         </select>
       )
     },
-    {
-      section: 'claude',
-      key: 'permissionMode',
-      title: 'Permission mode',
-      desc: PERMISSION_MODES.find((m) => m.value === (cfg.permissionMode === 'inherit' ? settings.claude.defaultPermissionMode : cfg.permissionMode))?.description ?? '',
-      tip: 'The mode sessions start in. You can still switch modes inside a running session with Shift+Tab.',
-      modified: cfg.permissionMode !== 'inherit',
-      render: () => (
-        <select className="select" value={cfg.permissionMode === 'bypassPermissions' && !settings.claude.enableBypassOption ? 'inherit' : cfg.permissionMode} onChange={(e) => void setPermission(e.target.value)}>
-          <option value="inherit">Inherit ({defaultModeLabel})</option>
-          {modes.map((m) => (
-            <option key={m.value} value={m.value}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-      )
-    },
-    {
-      section: 'claude',
-      key: 'extraArgs',
-      title: 'Extra arguments',
-      desc: 'Additional Claude Code command-line arguments for this project, added after the global ones.',
-      tip: 'Example: --add-dir "../shared-lib"',
-      modified: !!cfg.extraArgs,
-      render: () => <DraftInput className="input mono" value={cfg.extraArgs} placeholder="--add-dir ../lib" onCommit={(v) => void update({ extraArgs: v })} />
-    },
+    ...PROVIDERS.flatMap((p) => providerDefs(p.id)),
     {
       section: 'sessions',
       key: 'compactSuggestTokens',
@@ -860,8 +1178,8 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
         <button
           className="btn subtle"
           onClick={async () => {
-            if (await confirm({ title: 'Reset project settings?', message: 'Model, effort, permission mode, chime, extra arguments, the compact threshold, file locks and worktree setup go back to Inherit. Agents and skill and MCP opt-outs are kept.', confirmLabel: 'Reset' }))
-              void update({ model: 'inherit', effort: 'inherit', permissionMode: 'inherit', chime: 'inherit', extraArgs: '', compactSuggestTokens: null, fileLocks: 'inherit', worktreeCopy: null, worktreeSetup: '' })
+            if (await confirm({ title: 'Reset project settings?', message: 'The default provider, each provider’s model, effort, permission mode and extra arguments, the chime, the compact threshold, file locks and worktree setup go back to Inherit. Agents and skill and MCP opt-outs are kept.', confirmLabel: 'Reset' }))
+              void update({ defaultProvider: 'inherit', providers: {}, chime: 'inherit', compactSuggestTokens: null, fileLocks: 'inherit', worktreeCopy: null, worktreeSetup: '' })
           }}
         >
           <Icon name="discard" /> Reset to defaults
@@ -882,7 +1200,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
         <a
           className="muted"
           onClick={() => {
-            set({ settingsSection: 'claude' })
+            set({ settingsSection: 'providers' })
             setActivity('settings')
           }}
         >
@@ -900,7 +1218,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
                 setQuery('')
               }}
             >
-              <Icon name={s.icon} /> <span className="label">{s.label}</span>
+              {s.provider ? <ProviderIcon provider={s.provider} /> : <Icon name={s.icon} />} <span className={cx('label', s.provider && 'settings-sub')}>{s.label}</span>
             </div>
           ))}
         </div>

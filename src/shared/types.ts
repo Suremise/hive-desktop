@@ -1,8 +1,12 @@
 // Types shared by the main process, preload bridge and renderer.
 
 export type ThemeSetting = 'dark' | 'light' | 'system'
-export type PermissionMode = 'manual' | 'acceptEdits' | 'plan' | 'auto' | 'dontAsk' | 'bypassPermissions'
-export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+/** A coding-agent CLI Hive can run ("claude-code", "codex"). See src/shared/providers.ts. */
+export type ProviderId = string
+/** A permission mode id from the agent's provider (e.g. Claude Code's "auto", Codex's "approve-for-me"). */
+export type PermissionMode = string
+/** A reasoning effort id from the agent's provider (e.g. "low", "high", "max"). */
+export type EffortLevel = string
 export type ChimeSound = 'chime' | 'bell' | 'soft' | 'pop'
 export type CacheTtlSetting = 'auto' | '5m' | '1h'
 
@@ -21,6 +25,7 @@ export interface QuitSession {
   status: SessionStatus
   /** The agent's name, when the project has more than one. */
   agent?: string
+  provider?: ProviderId
 }
 
 export type UpdateInstallMode = 'auto' | 'manual'
@@ -55,15 +60,10 @@ export interface AppSettings {
     terminalScrollback: number
     terminalCursorBlink: boolean
   }
-  claude: {
-    executablePath: string
-    defaultModel: string
-    defaultEffort: EffortLevel | ''
-    defaultPermissionMode: Exclude<PermissionMode, 'bypassPermissions'>
-    enableBypassOption: boolean
-    extraArgs: string
-    checkUpdatesOnLaunch: boolean
-  }
+  /** Each provider's settings, keyed by provider id. Providers start disabled on a fresh install. */
+  providers: Record<ProviderId, ProviderSettings>
+  /** The provider Add Agent's quick add uses unless the project says otherwise. */
+  defaultProvider: ProviderId
   notifications: {
     chimeEnabled: boolean
     chimeSound: ChimeSound
@@ -79,6 +79,10 @@ export interface AppSettings {
     confirmStop: boolean
     /** Context size (tokens) above which Compact is highlighted. 0 never highlights. */
     compactSuggestTokens: number
+    /** The Sessions tab's transcript of a running session follows new messages without a Refresh. */
+    followTranscripts: boolean
+    /** How the Overview and the session lists update: as sessions change (at most every 15 s), every minute, or on Refresh. */
+    overviewRefresh: 'live' | 'minute' | 'manual'
   }
   agentApi: {
     enabled: boolean
@@ -96,6 +100,28 @@ export interface AppSettings {
   }
 }
 
+/** API prices for one model, in USD per million tokens (for estimated costs). */
+export interface ModelPrice {
+  input: number
+  cachedInput: number
+  cacheWrite?: number
+  output: number
+}
+
+export interface ProviderSettings {
+  enabled: boolean
+  executablePath: string
+  defaultModel: string
+  defaultEffort: EffortLevel | ''
+  defaultPermissionMode: PermissionMode
+  /** The provider's no-guardrails mode (Claude Code's Bypass, Codex's Full Access) can be chosen. */
+  enableDangerousMode: boolean
+  extraArgs: string
+  checkUpdatesOnLaunch: boolean
+  /** The user's price overrides by model id; missing models use the prices Hive ships. */
+  prices: Record<string, ModelPrice>
+}
+
 export interface WindowState {
   x?: number
   y?: number
@@ -105,7 +131,8 @@ export interface WindowState {
 }
 
 export interface AppConfig {
-  version: 1
+  /** 2 since providers (0.2.0); 1 was Claude Code only. */
+  version: 2
   settings: AppSettings
   recentWorkspaces: string[]
   lastWorkspace: string | null
@@ -114,11 +141,11 @@ export interface AppConfig {
   window: WindowState
   /** `panes`: resizable pane sizes by key (pixels, or a fraction for split views). */
   ui: { sidebarWidth: number; sidebarVisible: boolean; sidebarCompact?: boolean; panes?: Record<string, number> }
-  /** Model last seen in a session started without --model (i.e. Claude Code's default). */
-  observedDefaultModel: string | null
-  /** Last plan usage Claude Code reported (account-wide). */
-  planUsage: PlanUsage | null
-  /** Highest warning shown per limit, and for which reset period. */
+  /** Per provider: the model last seen in a session started without a model choice (the CLI's own default). */
+  observedDefaultModel: Record<ProviderId, string>
+  /** Per provider: the plan usage it last reported (account-wide). */
+  planUsage: Record<ProviderId, PlanUsage>
+  /** Highest warning shown per "provider:limit", and for which reset period. */
   planWarnings: Record<string, { resetsAt: string | null; level: number }>
   /** A version the user chose to skip; automatic checks don't offer it. */
   skippedUpdate?: string
@@ -127,14 +154,21 @@ export interface AppConfig {
 }
 
 export interface PlanLimit {
+  /** Stable id within the provider, e.g. "five_hour", "seven_day". */
+  id: string
+  /** "5-hour", "weekly". */
+  label: string
+  windowMinutes: number | null
   usedPercent: number
   resetsAt: string | null
 }
 
-/** Subscription limits reported by Claude Code: the rolling 5-hour window and the weekly limit. */
+/** Subscription limits a provider reported (e.g. a rolling 5-hour window and a weekly limit). */
 export interface PlanUsage {
-  fiveHour: PlanLimit | null
-  sevenDay: PlanLimit | null
+  provider: ProviderId
+  /** The plan's name when the provider says (e.g. "plus"). */
+  plan: string | null
+  limits: PlanLimit[]
   updatedAt: string
 }
 
@@ -147,19 +181,20 @@ export interface WorkspaceConfig {
 export type Inherit<T> = 'inherit' | T
 
 export interface ProjectConfig {
-  version: 1
+  /** 2 since 0.2.0: agents are all equal and a project starts with none (0.1's agents are cleared). */
+  version: 2
   /** Project-scoped shortcut overrides (project, session and agent commands), over the global ones. */
   keybindings?: KeybindingOverrides
   skills: { disabled: string[] }
   mcp: { disabled: string[] }
   chime: 'inherit' | 'on' | 'off'
-  model: string // 'inherit' or a model alias / id
-  effort: Inherit<EffortLevel>
-  permissionMode: Inherit<PermissionMode>
-  extraArgs: string
+  /** The provider new agents get (Add Agent's quick add); inherit uses the global default. */
+  defaultProvider: Inherit<ProviderId>
+  /** The project's settings per provider, over the global ones. */
+  providers: Record<ProviderId, ProjectProviderConfig>
   /** Overrides settings.sessions.compactSuggestTokens for this project; null inherits. */
   compactSuggestTokens: number | null
-  /** The project's agents. Agent 1 ("main", the project folder) is always present, even when not listed. */
+  /** The project's agents, in the order they were added. All are equal; a new project has none. */
   agents: AgentDef[]
   sessionLayout: SessionLayout
   fileLocks: Inherit<FileLockMode>
@@ -167,6 +202,13 @@ export interface ProjectConfig {
   worktreeCopy: string | null
   /** Command run in a new worktree before its agent's first session, e.g. "npm install". */
   worktreeSetup: string
+}
+
+export interface ProjectProviderConfig {
+  model: string // 'inherit' or a model alias / id
+  effort: Inherit<EffortLevel>
+  permissionMode: Inherit<PermissionMode>
+  extraArgs: string
 }
 
 /** A worktree an agent works in: its own checkout of the project on its own branch. */
@@ -179,9 +221,11 @@ export interface AgentWorktree {
 
 /** One of a project's (up to four) agents. Settings left undefined follow the project's. */
 export interface AgentDef {
-  /** "main" for Agent 1, which always works in the project folder. */
+  /** Random and never reused, so session records of removed agents don't attach to new ones. */
   id: string
   name: string
+  /** The CLI this agent runs. Always stored when the agent is added. */
+  provider?: ProviderId
   worktree?: AgentWorktree
   model?: string
   effort?: EffortLevel
@@ -213,6 +257,7 @@ export interface AddAgentOptions {
   base?: string
   /** existing-worktree: its folder. */
   worktreePath?: string
+  provider?: ProviderId
   model?: string
   effort?: EffortLevel
   permissionMode?: PermissionMode
@@ -251,27 +296,36 @@ export interface MergeResult {
 
 export interface SessionRecord {
   id: string
-  agent: string
+  /** The provider that ran it ("claude-code", "codex"). The field name predates providers. */
+  agent: ProviderId
   name: string
   createdAt: string
   lastActiveAt: string
   archived: boolean
-  /** The agent that ran it; absent means Agent 1. */
+  /** The agent that ran it (absent in records from 0.1's Agent 1). */
   agentId?: string
   /** Folder it ran in, when not the project folder (a worktree). Claude Code files transcripts by folder. */
   cwd?: string
   branch?: string
+  /** Where the provider keeps the transcript, when it can't be found from the folder (Codex). */
+  transcriptPath?: string
+  /** The session whose work this one continues ("Continue with…", through a handover). */
+  continuedFrom?: string
 }
 
 export type SessionStatus = 'stopped' | 'starting' | 'ready' | 'working' | 'waiting' | 'finished' | 'error'
 
 export interface LiveSessionState {
+  provider: ProviderId
+  /** This launch, until the process exits; hooks name it so they reach the right agent. */
+  runId: string
   projectPath: string
-  /** Which of the project's agents this is ("main" = Agent 1). */
+  /** Which of the project's agents this is. */
   agentId: string
   agentName?: string
   /** Folder the session runs in: the project folder or the agent's worktree. */
   cwd: string
+  /** The provider's session id. Empty until the provider reports it, for providers that choose it themselves. */
   sessionId: string
   /** The mode the session is actually in: from launch, Hive's live switches, Shift+Tab in the terminal (its footer) and hooks. */
   permissionMode?: PermissionMode
@@ -284,14 +338,20 @@ export interface LiveSessionState {
   /** Effective settings the session launched with — used to detect "restart to apply". */
   launchSignature: string
   unseen: boolean
-  /** Reported by Claude Code (status line) once the session has started. */
+  /** Reported by the provider once the session has started. */
   effort?: string
   modelName?: string
   /** API-equivalent cost of the session so far, in USD. */
   costUsd?: number
+  /** costUsd was estimated by Hive from token counts, not reported by the provider. */
+  costEstimated?: boolean
+  /** A live permission-mode change Hive has asked for and is waiting to see confirmed. */
+  modeSwitching?: PermissionMode
+  /** Codex's Plan mode, which is separate from its permission preset. */
+  planMode?: boolean
   /** Files this agent has claimed by editing them (relative to its folder), while locks are on. */
   lockedFiles?: string[]
-  /** The worktree's setup command is running before Claude Code starts. */
+  /** The worktree's setup command is running before the agent starts. */
   settingUp?: boolean
 }
 
@@ -302,13 +362,13 @@ export interface ProjectInfo {
   isGitRepo: boolean
   branch: string | null
   config: ProjectConfig
-  /** Agent 1's session if it runs, else the first running agent's. */
+  /** The first running agent's session. */
   live: LiveSessionState | null
   /** True when the project's effective settings differ from the live session's launch settings. */
   restartNeeded: boolean
-  /** Every agent, Agent 1 first, with its running session. */
+  /** Every agent, in the order added, with its running session. */
   agents: AgentInfo[]
-  /** MCP servers defined in the project's own .mcp.json that are not deployed to the workspace. */
+  /** MCP servers defined in the project's own config (.mcp.json, .codex/config.toml) that are not deployed to the workspace. */
   unmanagedMcp: string[]
 }
 
@@ -322,6 +382,8 @@ export interface WorkspaceInfo {
 export type SkillLevel = 'hive' | 'machine' | 'plugin' | 'local'
 
 export interface SkillInfo {
+  /** For machine, plugin and local skills: the provider that loads them. */
+  provider?: ProviderId
   name: string
   description: string
   level: SkillLevel
@@ -360,6 +422,7 @@ export interface CompactionEvent {
 }
 
 export interface SessionUsage {
+  provider: ProviderId
   sessionId: string
   title: string | null
   model: string | null
@@ -369,15 +432,20 @@ export interface SessionUsage {
   cacheWriteTokens: number
   cacheReadTokens: number
   requests: number
+  /** Reasoning tokens, where the provider reports them separately (included in outputTokens). */
+  reasoningTokens: number
   contextTokens: number
+  /** The model's context window when the provider reports it. */
+  contextWindow: number | null
   compactions: CompactionEvent[]
   cacheTtlSeconds: number
   firstActivity: string | null
   lastActivity: string | null
   userMessages: number
   lastPrompt: string | null
-  /** API-equivalent cost Claude Code recorded for the session (USD), if any. */
+  /** API-equivalent cost for the session (USD): reported by the provider, else estimated by Hive; null if unknown. */
   costUsd: number | null
+  costEstimated: boolean
 }
 
 export interface RecacheEstimate {
@@ -389,6 +457,7 @@ export interface RecacheEstimate {
 
 export interface SessionListItem extends Partial<SessionRecord> {
   id: string
+  provider: ProviderId
   source: 'hive' | 'external'
   title: string | null
   lastActivity: string | null
@@ -442,6 +511,9 @@ export interface Transcript {
   sessionId: string
   /** File size read so far; pass back to transcript:read to get null when nothing changed. */
   size: number
+  /** Items in the whole conversation; `items` holds those from `from` on (an item's id is its index). */
+  total: number
+  from: number
   items: TranscriptItem[]
 }
 
@@ -459,6 +531,7 @@ export interface TranscriptSearchResult {
 }
 
 export interface MemorySource {
+  provider: ProviderId
   id: string
   label: string
   path: string
@@ -488,6 +561,7 @@ export interface GitDiff {
 }
 
 export interface AgentInstallInfo {
+  provider: ProviderId
   found: boolean
   path: string | null
   version: string | null
@@ -499,14 +573,29 @@ export interface AgentInstallInfo {
   checking?: boolean
   /** Candidates skipped because they belong to an editor extension rather than the standalone CLI. */
   rejected?: string[]
-  /** No CLI found, but an editor extension with its own Claude Code is installed. */
+  /** No CLI found, but an editor extension with its own copy is installed. */
   editorExtensionOnly?: boolean
   /**
-   * The model Claude Code uses when Hive passes no --model: its own settings' "model", else the model
-   * last seen answering in such a session. Null until known.
+   * The model the CLI uses when Hive passes none: its own settings, else the model last seen answering
+   * in such a session. Null until known.
    */
   defaultModel?: string | null
+  /** What still stands between the provider and running agents (not installed, not signed in, setup). */
+  readiness?: ReadinessIssue[]
+  /** The models the installed CLI offers, in its own order (providers that can list them, e.g. Codex). */
+  models?: { value: string; label: string }[] | null
 }
+
+export interface ReadinessIssue {
+  id: string
+  /** error: agents can't start; warning: they can, with limits; info: nice to know. */
+  level: 'error' | 'warning' | 'info'
+  message: string
+  /** Button: a provider task Hive runs in a terminal. */
+  action?: { label: string; task: ProviderTask }
+}
+
+export type ProviderTask = 'install' | 'update' | 'login' | 'setup'
 
 /** An entry in a project's file browser. relPath uses forward slashes and is relative to the project. */
 export interface FileEntry {
@@ -625,7 +714,7 @@ export type HiveEvent =
   | { type: 'toast'; toast: ToastMessage }
   | { type: 'chime'; projectPath: string }
   | { type: 'settings-changed'; settings: AppSettings }
-  | { type: 'agent-install'; info: AgentInstallInfo }
+  | { type: 'provider-install'; provider: ProviderId; info: AgentInstallInfo }
   | { type: 'menu-command'; command: string; args?: unknown[] }
   | { type: 'usage-changed'; projectPath: string; sessionId: string }
   | { type: 'notes-changed' }
@@ -636,6 +725,6 @@ export type HiveEvent =
   /** Files changed in a project that has a Files or Images tab open. dirs are relative, '' is the root. */
   | { type: 'files-changed'; projectPath: string; dirs: string[] }
   | { type: 'skills-changed' }
-  | { type: 'plan-usage'; usage: PlanUsage }
+  | { type: 'plan-usage'; provider: ProviderId; usage: PlanUsage }
   | { type: 'window-state'; maximized: boolean; focused: boolean }
   | { type: 'update-state'; state: UpdateState }

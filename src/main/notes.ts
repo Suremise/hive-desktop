@@ -2,12 +2,14 @@ import { join, relative, resolve, sep, dirname, basename } from 'path'
 import { mkdir, readdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import type { NoteFile } from '../shared/types'
+import { insideReal } from './fsutil'
 import { workspace } from './workspace'
 
 function assertInShared(p: string): string {
   const root = resolve(workspace.sharedDir)
   const abs = resolve(root, p)
   if (abs !== root && !abs.toLowerCase().startsWith(root.toLowerCase() + sep)) throw new Error('Path is outside the shared notes folder')
+  if (!insideReal(abs, [root])) throw new Error('Path is outside the shared notes folder')
   return abs
 }
 

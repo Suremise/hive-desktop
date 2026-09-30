@@ -7,7 +7,7 @@ import { confirm, notify } from '../store'
 import { cx, formatBytes, imageUrl, timeAgo } from '../util'
 import { CodeEditor } from './Editors'
 import { PaneResizer, usePaneSize } from './Resizer'
-import { Icon, IconButton, Markdown, Tooltip } from './ui'
+import { Icon, Markdown, Tooltip } from './ui'
 
 // ---------------------------------------------------------------------------
 // Previewer registry: which views a file gets besides the text editor.
@@ -560,5 +560,7 @@ function ImagePreview({ abs }: PreviewProps) {
 }
 
 function PdfPreview({ abs }: PreviewProps) {
+  // Chromium's PDF viewer doesn't run in a sandboxed frame; the source is hive-img:, which only serves images and PDFs from the workspace.
+  // eslint-disable-next-line react/iframe-missing-sandbox
   return <iframe className="pdf-preview" src={imageUrl(abs)} title="PDF preview" />
 }

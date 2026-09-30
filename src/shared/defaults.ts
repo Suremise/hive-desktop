@@ -1,9 +1,11 @@
-import type { AgentDef, AppConfig, AppSettings, KeybindingOverrides, EffortLevel, FileLockMode, PermissionMode, ProjectConfig, SessionLayout, SessionRecord, WorkspaceConfig } from './types'
+import type { AgentDef, AppConfig, AppSettings, KeybindingOverrides, FileLockMode, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderSettings, SessionLayout, SessionRecord, WorkspaceConfig } from './types'
+import { CLAUDE_CODE } from './claude'
+import { DEFAULT_PROVIDER, PROVIDERS, defaultProviderSettings, isKnownProvider, providerDescriptor } from './providers'
 
 export const APP_NAME = 'Hive'
 export const HIVE_DIR = '.hive'
 
-/** Claude Code session ids are UUIDs; this also accepts other plain ids but never anything that could be a path. */
+/** Session ids are UUIDs (Claude Code, Codex); this also accepts other plain ids but never anything that could be a path. */
 export const isSessionId = (id: unknown): id is string => typeof id === 'string' && /^[\w-]{1,100}$/.test(id)
 
 /** Throws unless id is a valid session id (see isSessionId). Session ids end up in file names. */
@@ -37,15 +39,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     terminalScrollback: 10000,
     terminalCursorBlink: true
   },
-  claude: {
-    executablePath: '',
-    defaultModel: '',
-    defaultEffort: '',
-    defaultPermissionMode: 'auto',
-    enableBypassOption: false,
-    extraArgs: '',
-    checkUpdatesOnLaunch: true
-  },
+  providers: Object.fromEntries(PROVIDERS.map((p) => [p.id, defaultProviderSettings(p)])),
+  defaultProvider: DEFAULT_PROVIDER,
   notifications: {
     chimeEnabled: true,
     chimeSound: 'chime',
@@ -59,7 +54,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     backupTranscripts: true,
     cacheTtl: 'auto',
     confirmStop: true,
-    compactSuggestTokens: 200000
+    compactSuggestTokens: 200000,
+    followTranscripts: false,
+    overviewRefresh: 'live'
   },
   agentApi: {
     enabled: true,
@@ -75,15 +72,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
-  version: 1,
+  version: 2,
   settings: DEFAULT_SETTINGS,
   recentWorkspaces: [],
   lastWorkspace: null,
   activeProjects: {},
   window: { width: 1400, height: 900, maximized: false },
   ui: { sidebarWidth: 280, sidebarVisible: true },
-  observedDefaultModel: null,
-  planUsage: null,
+  observedDefaultModel: {},
+  planUsage: {},
   planWarnings: {}
 }
 
@@ -94,14 +91,12 @@ export const DEFAULT_WORKSPACE_CONFIG: WorkspaceConfig = {
 }
 
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
-  version: 1,
+  version: 2,
   skills: { disabled: [] },
   mcp: { disabled: [] },
   chime: 'inherit',
-  model: 'inherit',
-  effort: 'inherit',
-  permissionMode: 'inherit',
-  extraArgs: '',
+  defaultProvider: 'inherit',
+  providers: {},
   compactSuggestTokens: null,
   agents: [],
   sessionLayout: 'single',
@@ -110,21 +105,25 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   worktreeSetup: ''
 }
 
+/** The transcript viewer loads this many items at a time (the latest first, earlier ones as you scroll up). */
+export const TRANSCRIPT_WINDOW = 200
+
 /** A project can run up to this many agents at once. */
 export const MAX_AGENTS = 4
-export const MAIN_AGENT = 'main'
 
-/** The project's agents, Agent 1 (the project folder) first. */
+/** The project's agents, in the order they were added. All are equal; a project can have none. */
 export function projectAgents(cfg: Pick<ProjectConfig, 'agents'>): AgentDef[] {
-  const list = Array.isArray(cfg.agents) ? cfg.agents.filter((a) => a && typeof a.id === 'string') : []
-  const main = list.find((a) => a.id === MAIN_AGENT)
-  return [{ ...main, id: MAIN_AGENT, name: main?.name || 'Agent 1', worktree: undefined }, ...list.filter((a) => a.id !== MAIN_AGENT)]
+  return Array.isArray(cfg.agents) ? cfg.agents.filter((a) => a && typeof a.id === 'string' && typeof a.name === 'string') : []
 }
 
-/** Terminal key of an agent's session. Agent 1 keeps the key sessions had before projects had agents. */
-export function agentPtyKey(projectPath: string, agentId: string = MAIN_AGENT): string {
-  const base = `session:${projectPath.toLowerCase()}`
-  return agentId === MAIN_AGENT ? base : `${base}#${agentId}`
+/** Terminal key of an agent's session. */
+export function agentPtyKey(projectPath: string, agentId: string): string {
+  return `session:${projectPath.toLowerCase()}#${agentId}`
+}
+
+/** The layout that shows every agent: set when an agent is added (choosing a layout by hand still works). */
+export function layoutForAgents(count: number): SessionLayout {
+  return count >= 4 ? 'grid' : count === 3 ? 'columns3' : count === 2 ? 'columns2' : 'single'
 }
 
 export const FILE_LOCK_MODES: { value: FileLockMode; label: string; description: string }[] = [
@@ -163,96 +162,19 @@ export function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 40) || 'agent'
 }
 
-export const PERMISSION_MODES: { value: PermissionMode; label: string; description: string }[] = [
-  { value: 'manual', label: 'Manual', description: 'Asks before file edits and shell commands unless you have pre-approved them.' },
-  { value: 'acceptEdits', label: 'Accept edits', description: 'Makes file edits in the working folder without asking; still asks before shell commands.' },
-  { value: 'plan', label: 'Plan', description: 'Read-only: explores and proposes a plan, changes nothing until you approve.' },
-  { value: 'auto', label: 'Auto', description: 'A safety classifier approves low-risk actions itself and only asks about risky ones.' },
-  { value: 'dontAsk', label: "Don't ask", description: 'Never prompts. Anything not pre-approved is refused instead of asked about.' },
-  { value: 'bypassPermissions', label: 'Bypass permissions', description: 'Never asks and allows everything — any edit, command or network call. Use only in disposable environments.' }
-]
-
-export const EFFORT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
-
-export interface ModelOption {
-  value: string
-  label: string
-}
-
-const pinned = (...ids: string[]): ModelOption[] => ids.map((id) => ({ value: id, label: modelLabel(id) }))
-
-/**
- * Models offered in the pickers. Aliases follow new releases; full IDs pin a version. The list is
- * what Claude Code knows about; whether an account can use a model is only known when a session
- * starts, and anything else can be typed as a custom ID.
- */
-export const MODEL_GROUPS: { label: string; older?: boolean; models: ModelOption[] }[] = [
-  {
-    label: 'Latest (follows new releases)',
-    models: [
-      { value: 'fable', label: 'Fable (latest)' },
-      { value: 'opus', label: 'Opus (latest)' },
-      { value: 'sonnet', label: 'Sonnet (latest)' },
-      { value: 'haiku', label: 'Haiku (latest)' }
-    ]
-  },
-  { label: 'Pinned versions', models: pinned('claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-4-5') },
-  {
-    label: 'Older versions',
-    older: true,
-    models: pinned('claude-fable-5', 'claude-opus-5', 'claude-sonnet-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-4-5', 'claude-sonnet-4-5', 'claude-opus-4-1')
-  }
-]
-
-export const MODEL_PRESETS: ModelOption[] = MODEL_GROUPS.flatMap((g) => g.models)
-
-const ONE_M = /\[1m\]$/i
-
-/** The model without its 1M-context suffix. */
-export const baseModel = (model: string): string => model.replace(ONE_M, '')
-export const isOneM = (model: string): boolean => ONE_M.test(model)
-
-/** Whether Claude Code offers a 1M-context variant: Fable, Opus 4.6+ and Sonnet 4.5+ (and their aliases). */
-export function supportsOneM(model: string): boolean {
-  const id = baseModel(model).toLowerCase()
-  if (id === 'fable' || id === 'opus' || id === 'sonnet' || id.startsWith('claude-fable-')) return true
-  const m = /^claude-(opus|sonnet)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(id)
-  if (!m) return false
-  const version = Number(m[2]) + Number(m[3] ?? 0) / 10
-  return m[1] === 'opus' ? version >= 4.6 : version >= 4.5
-}
-
-export const withOneM = (model: string, on: boolean): string => (on && supportsOneM(model) ? `${baseModel(model)}[1m]` : baseModel(model))
-
-export const isOlderModel = (model: string): boolean => MODEL_GROUPS.some((g) => g.older && g.models.some((m) => m.value === baseModel(model)))
-
-function cap(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
-}
-
-/** Friendly model name: "opus" → "Opus", "claude-opus-5-5" → "Opus 5.5", "claude-haiku-4-5-20251001" → "Haiku 4.5". */
-export function modelLabel(model: string): string {
-  const oneM = /\[1m\]$/i.test(model)
-  const id = model.replace(/\[1m\]$/i, '').trim()
-  const named = /^claude-([a-z]+)-(\d+)-(\d{1,2})(?:-\d{8})?$/i.exec(id) // claude-opus-5-5 (not a date)
-  const legacy = /^claude-(\d+)-(\d+)-([a-z]+)(?:-\d{8})?$/i.exec(id) // claude-3-5-sonnet-20241022
-  const major = /^claude-([a-z]+)-(\d+)(?:-\d{8})?$/i.exec(id) // claude-opus-4-20250514
-  let out = id
-  if (named) out = `${cap(named[1])} ${named[2]}.${named[3]}`
-  else if (legacy) out = `${cap(legacy[3])} ${legacy[1]}.${legacy[2]}`
-  else if (major) out = `${cap(major[1])} ${major[2]}`
-  else if (/^[a-z]+$/i.test(id)) out = cap(id)
-  return oneM ? `${out} (1M)` : out
+/** Friendly model name, as the provider names it ("claude-opus-5-5" → "Opus 5.5"). */
+export function modelLabel(model: string, provider: string = DEFAULT_PROVIDER): string {
+  return providerDescriptor(provider).modelLabel(model)
 }
 
 /**
- * The model a project's sessions use, for display. A project override shows plainly; anything
- * inherited (Hive's default, or Claude Code's own) is marked "(default)".
+ * The model an agent's sessions use, for display. An own or project choice shows plainly; anything
+ * inherited (Hive's default, or the CLI's own) is marked "(default)".
  */
-export function effectiveModelLabel(projectModel: string, globalModel: string, claudeDefault: string | null): string {
-  if (projectModel && projectModel !== 'inherit') return modelLabel(projectModel)
-  const m = globalModel || claudeDefault
-  return m ? `${modelLabel(m)} (default)` : 'Claude Code default'
+export function effectiveModelLabel(provider: string, chosen: string | undefined, globalModel: string, cliDefault: string | null): string {
+  if (chosen && chosen !== 'inherit') return modelLabel(chosen, provider)
+  const m = globalModel || cliDefault
+  return m ? `${modelLabel(m, provider)} (default)` : `${providerDescriptor(provider).name} default`
 }
 
 /** Context size at which a project's Compact button is highlighted (0 = never). */
@@ -261,19 +183,109 @@ export function compactThreshold(project: { compactSuggestTokens?: number | null
   return typeof p === 'number' && p >= 0 ? p : globalTokens
 }
 
-export function permissionLabel(mode: PermissionMode): string {
-  return PERMISSION_MODES.find((m) => m.value === mode)?.label ?? mode
+/** Claude Code's plan limits as 0.1 stored them. */
+const V1_LIMITS: Record<string, Pick<PlanLimit, 'id' | 'label' | 'windowMinutes'>> = {
+  fiveHour: { id: 'five_hour', label: '5-hour', windowMinutes: 300 },
+  sevenDay: { id: 'seven_day', label: 'weekly', windowMinutes: 10080 }
 }
 
-/** Deep-merge saved values over defaults so new settings get their defaults after an upgrade. */
-/** Upgrades settings saved by older versions. */
-export function migrateConfig(cfg: AppConfig): AppConfig {
+/**
+ * Upgrades a config saved by an older version. `raw` is the file as read (before defaults were merged
+ * in), so version 1 (Claude Code only, 0.1.x) can be told apart from a fresh install.
+ */
+export function migrateConfig(cfg: AppConfig, raw?: Record<string, any>): AppConfig {
   const g = cfg.settings.general
   const q = g.confirmOnQuit as unknown
   // 0.1 stored on/off; "on" asked whenever sessions ran, which maps to asking when an agent is working.
   if (typeof q === 'boolean') g.confirmOnQuit = q ? 'working' : 'never'
   else if (q !== 'working' && q !== 'always' && q !== 'never') g.confirmOnQuit = 'working'
+
+  if (raw && (raw.version ?? 1) < 2) {
+    // 0.1.x ran Claude Code only: its settings become Claude Code's, and it stays enabled.
+    const old = (raw.settings?.claude ?? {}) as Record<string, any>
+    const c: ProviderSettings = { ...cfg.settings.providers[CLAUDE_CODE], enabled: true }
+    for (const k of ['executablePath', 'defaultModel', 'defaultEffort', 'defaultPermissionMode', 'extraArgs', 'checkUpdatesOnLaunch'] as const) {
+      if (old[k] !== undefined) (c as unknown as Record<string, unknown>)[k] = old[k]
+    }
+    if (typeof old.enableBypassOption === 'boolean') c.enableDangerousMode = old.enableBypassOption
+    cfg.settings.providers[CLAUDE_CODE] = c
+    cfg.settings.defaultProvider = CLAUDE_CODE
+    const oldModel = raw.observedDefaultModel
+    cfg.observedDefaultModel = typeof oldModel === 'string' && oldModel ? { [CLAUDE_CODE]: oldModel } : {}
+    const oldUsage = raw.planUsage
+    cfg.planUsage = {}
+    if (oldUsage && typeof oldUsage === 'object' && !('limits' in oldUsage)) {
+      const limits: PlanLimit[] = []
+      for (const [key, meta] of Object.entries(V1_LIMITS)) {
+        const l = oldUsage[key]
+        if (l && typeof l.usedPercent === 'number') limits.push({ ...meta, usedPercent: l.usedPercent, resetsAt: l.resetsAt ?? null })
+      }
+      if (limits.length) cfg.planUsage[CLAUDE_CODE] = { provider: CLAUDE_CODE, plan: null, limits, updatedAt: oldUsage.updatedAt ?? new Date(0).toISOString() } as PlanUsage
+    }
+    const warnings: AppConfig['planWarnings'] = {}
+    for (const [k, v] of Object.entries(raw.planWarnings ?? {})) {
+      const meta = V1_LIMITS[k]
+      warnings[meta ? `${CLAUDE_CODE}:${meta.id}` : k] = v as AppConfig['planWarnings'][string]
+    }
+    cfg.planWarnings = warnings
+    cfg.version = 2
+  }
+  // Settings for providers this version doesn't know are kept (a newer Hive wrote them), but never used.
+  if (!isKnownProvider(cfg.settings.defaultProvider)) cfg.settings.defaultProvider = DEFAULT_PROVIDER
   return cfg
+}
+
+/**
+ * The settings as 0.1.x reads them: `claude` mirrors Claude Code's provider settings, so going back to
+ * an older Hive keeps them. Newer versions ignore it.
+ */
+export function withLegacySettings(cfg: AppConfig): AppConfig & { settings: AppSettings & { claude: Record<string, unknown> } } {
+  const c = cfg.settings.providers[CLAUDE_CODE] ?? defaultProviderSettings(providerDescriptor(CLAUDE_CODE))
+  const legacyMode = c.defaultPermissionMode === 'bypassPermissions' ? 'auto' : c.defaultPermissionMode
+  return {
+    ...cfg,
+    settings: {
+      ...cfg.settings,
+      claude: {
+        executablePath: c.executablePath,
+        defaultModel: c.defaultModel,
+        defaultEffort: c.defaultEffort,
+        defaultPermissionMode: legacyMode,
+        enableBypassOption: c.enableDangerousMode,
+        extraArgs: c.extraArgs,
+        checkUpdatesOnLaunch: c.checkUpdatesOnLaunch
+      }
+    }
+  }
+}
+
+/**
+ * Upgrades a project.json read from disk (before defaults are merged in). Projects from 0.1.x ran
+ * Claude Code only: their model, effort, mode and arguments become Claude Code's, and the project's
+ * default provider is Claude Code, so its existing agents (which name no provider) stay on it.
+ */
+export function migrateProjectConfig(raw: Record<string, any>): Record<string, any> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
+  let out = raw
+  if (out.providers === undefined) {
+    // 0.1's model, effort, mode and arguments were Claude Code's.
+    const legacy: Partial<ProjectProviderConfig> = {}
+    for (const k of ['model', 'effort', 'permissionMode', 'extraArgs'] as const) if (out[k] !== undefined) legacy[k] = out[k]
+    const { model: _m, effort: _e, permissionMode: _p, extraArgs: _x, ...rest } = out
+    out = { ...rest, providers: Object.keys(legacy).length ? { [CLAUDE_CODE]: legacy } : {} }
+  }
+  if ((Number(out.version) || 1) < 2) {
+    // 0.2.0: agents are all equal and none is made by default, so 0.1's agents (and their layout) are
+    // cleared. Their sessions stay in sessions.json and can be resumed by an agent added again.
+    out = { ...out, version: 2, agents: [], sessionLayout: 'single' }
+  }
+  return out
+}
+
+/** project.json as written: Claude Code's project settings are also kept in 0.1.x's flat fields. */
+export function withLegacyProjectFields(cfg: ProjectConfig): ProjectConfig & Partial<ProjectProviderConfig> {
+  const c = cfg.providers?.[CLAUDE_CODE]
+  return c ? { ...cfg, model: c.model, effort: c.effort, permissionMode: c.permissionMode, extraArgs: c.extraArgs } : cfg
 }
 
 export function mergeDefaults<T>(defaults: T, saved: unknown): T {
@@ -289,15 +301,14 @@ export function mergeDefaults<T>(defaults: T, saved: unknown): T {
   return out as T
 }
 
-const EFFORT_NAMES: Record<string, string> = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' }
-
 /**
  * Effort to show next to the model: what the running session reports, else what new sessions use
- * (the project's choice, then the global default). Null when Claude Code picks its own default.
+ * (the agent's or project's choice, then the global default). Null when the CLI picks its own default.
  */
-export function effortLabel(live: string | undefined, project: string | undefined, global: string | undefined): string | null {
-  const v = live || (project && project !== 'inherit' ? project : global)
-  return v ? EFFORT_NAMES[v] ?? cap(v) : null
+export function effortLabel(provider: string, live: string | undefined, chosen: string | undefined, global: string | undefined): string | null {
+  const v = live || (chosen && chosen !== 'inherit' ? chosen : global)
+  if (!v) return null
+  return providerDescriptor(provider).effortLevels.find((e) => e.value === v)?.label ?? v.charAt(0).toUpperCase() + v.slice(1)
 }
 
 /** Whether a session record ran in the folder an agent works in (its worktree, or the project folder). */
@@ -307,24 +318,32 @@ export function sessionInAgentFolder(projectPath: string, a: Pick<AgentDef, 'wor
 }
 
 /**
- * The session an agent's Resume opens: its last session, else the latest one it ran. Archived
- * sessions, sessions from another folder and sessions open in another agent are skipped.
+ * The session an agent's Resume opens: its last session, else the latest one it ran, else the latest
+ * one no current agent owns (its agent was removed, e.g. by the 0.2 upgrade). Archived sessions,
+ * sessions from another folder and sessions open in another agent are skipped. Callers pass only
+ * records of the agent's provider.
  */
 export function resumeRecord<R extends Pick<SessionRecord, 'id' | 'archived' | 'lastActiveAt'> & Partial<Pick<SessionRecord, 'cwd' | 'agentId'>>>(
   projectPath: string,
   a: Pick<AgentDef, 'id' | 'worktree' | 'lastSessionId'>,
   records: R[],
-  open: Set<string>
+  open: Set<string>,
+  agentIds: Set<string> = new Set([a.id])
 ): R | null {
   const usable = records
     .filter((r) => !r.archived && !open.has(r.id) && sessionInAgentFolder(projectPath, a, r))
     .sort((x, y) => (y.lastActiveAt ?? '').localeCompare(x.lastActiveAt ?? ''))
-  return usable.find((r) => r.id === a.lastSessionId) ?? usable.find((r) => !!a.worktree || (r.agentId ?? MAIN_AGENT) === a.id) ?? null
+  return (
+    usable.find((r) => r.id === a.lastSessionId) ??
+    usable.find((r) => !!a.worktree || r.agentId === a.id) ??
+    usable.find((r) => !r.agentId || !agentIds.has(r.agentId)) ??
+    null
+  )
 }
 
 /**
  * A session's display name: its Hive name, unless that is still the automatic "<project> · <date>"
- * one and Claude Code has titled the conversation.
+ * one and the provider has titled the conversation.
  */
 export function sessionLabel(s: { id: string; name?: string | null; title?: string | null }, projectName: string): string {
   const auto = !s.name || (s.name.startsWith(`${projectName} · `) && /\d{1,4}[/.-]\d{1,2}/.test(s.name))
@@ -333,47 +352,6 @@ export function sessionLabel(s: { id: string; name?: string | null; title?: stri
 
 /** Where Hive's releases (and its update feed) are published. */
 export const RELEASES_URL = 'https://github.com/Suremise/hive-desktop/releases'
-
-// ---------------------------------------------------------------------------
-// Permission modes in a running session
-// ---------------------------------------------------------------------------
-
-/** The modes Claude Code's Shift+Tab cycles through, in order (checked with Claude Code 2.1.284). */
-export const MODE_CYCLE: PermissionMode[] = ['manual', 'acceptEdits', 'plan', 'auto']
-
-const FOOTER_MODE = /(manual\s*mode|accept\s*edits|plan\s*mode|auto\s*mode|bypass\s*permissions|don['’]?t\s*ask)\s*on\s*(?:\(|·)/gi
-
-/**
- * The permission mode in Claude Code's footer ("⏵⏵ auto mode on (shift+tab to cycle)"), from terminal
- * output with control sequences already replaced by spaces. The last one wins; null when there is none.
- */
-export function footerMode(text: string): PermissionMode | null {
-  let last: string | null = null
-  for (const m of text.matchAll(FOOTER_MODE)) last = m[1].toLowerCase().replace(/\s+/g, '')
-  if (!last) return null
-  if (last.startsWith('manual')) return 'manual'
-  if (last.startsWith('accept')) return 'acceptEdits'
-  if (last.startsWith('plan')) return 'plan'
-  if (last.startsWith('auto')) return 'auto'
-  if (last.startsWith('bypass')) return 'bypassPermissions'
-  return 'dontAsk'
-}
-
-/** The permission_mode Claude Code sends with hooks ("default" is Manual). */
-export function hookMode(v: unknown): PermissionMode | null {
-  if (v === 'default' || v === 'manual') return 'manual'
-  return PERMISSION_MODES.some((m) => m.value === v) ? (v as PermissionMode) : null
-}
-
-/**
- * Whether a running session can switch to a mode with Shift+Tab. Don't ask leaves the cycle once left;
- * Bypass is only in it for a session launched in Bypass. Anything else needs a restart.
- */
-export function canSwitchLive(target: PermissionMode, current: PermissionMode | undefined, launched: PermissionMode | null | undefined): boolean {
-  if (target === current) return true
-  if (MODE_CYCLE.includes(target)) return true
-  return target === 'bypassPermissions' && launched === 'bypassPermissions'
-}
 
 // ---------------------------------------------------------------------------
 // Keyboard shortcuts
@@ -402,7 +380,7 @@ export function keybindingProblem(key: string): string | null {
     if (!mods.length && !fn && k !== 'Escape') return 'Add Ctrl or Alt: a single key would stop you typing it.'
     if (mods.length === 1 && mods[0] === 'Shift' && !fn) return 'Add Ctrl or Alt: Shift alone types a character.'
     if (mods.join('+') === 'Mod' && ['C', 'V', 'X', 'A', 'Z', 'Y'].includes(k)) return `Ctrl+${k} is kept for copy, paste and undo.`
-    if (mods.join('+') === 'Shift' && k === 'Tab') return "Shift+Tab switches the permission mode inside Claude Code's terminal."
+    if (mods.join('+') === 'Shift' && k === 'Tab') return "Shift+Tab switches modes inside the agents' terminals."
     if (!mods.length && k === 'Escape') return 'Escape closes dialogs and interrupts the agent.'
   }
   return null

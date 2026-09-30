@@ -2,7 +2,7 @@ import { join, basename, relative, sep } from 'path'
 import { mkdir, readdir, readFile, writeFile } from 'fs/promises'
 import { existsSync, type Dirent } from 'fs'
 import type { SkillInfo } from '../shared/types'
-import { claudeHome } from './agents/claude-code'
+import { allProviders } from './providers'
 import { copyDir, isDir, isFile } from './fsutil'
 import { workspace } from './workspace'
 
@@ -61,26 +61,31 @@ async function findSkills(root: string, level: SkillInfo['level'], maxDepth: num
 
 let machineCache: { at: number; skills: SkillInfo[] } | null = null
 
+/** Skills each provider's CLI loads from the user's profile and its installed plugins. */
 async function machineSkills(): Promise<SkillInfo[]> {
   if (machineCache && Date.now() - machineCache.at < 30_000) return machineCache.skills
-  const skills = await findSkills(join(claudeHome(), 'skills'), 'machine', 4)
-  const pluginRoot = join(claudeHome(), 'plugins')
-  const pluginSkills = await findSkills(pluginRoot, 'plugin', 7)
-  for (const s of pluginSkills) {
-    // .../<plugin>/[<version>/]skills/<skill> → the plugin name is the folder above "skills" (or above the version).
-    const parts = relative(pluginRoot, s.path).split(sep)
-    const i = parts.lastIndexOf('skills')
-    let plugin = i > 0 ? parts[i - 1] : parts[0]
-    if (/^\d+\.\d+/.test(plugin) && i > 1) plugin = parts[i - 2]
-    s.plugin = plugin
+  const all: SkillInfo[] = []
+  for (const p of allProviders()) {
+    const roots = p.skillRoots()
+    const skills: SkillInfo[] = []
+    for (const dir of roots.machine) skills.push(...(await findSkills(dir, 'machine', 4)))
+    const pluginSkills = roots.plugins ? await findSkills(roots.plugins, 'plugin', 7) : []
+    for (const s of pluginSkills) {
+      // .../<plugin>/[<version>/]skills/<skill> → the plugin name is the folder above "skills" (or above the version).
+      const parts = relative(roots.plugins!, s.path).split(sep)
+      const i = parts.lastIndexOf('skills')
+      let plugin = i > 0 ? parts[i - 1] : parts[0]
+      if (/^\d+\.\d+/.test(plugin) && i > 1) plugin = parts[i - 2]
+      s.plugin = plugin
+    }
+    const seen = new Set<string>()
+    for (const s of [...skills, ...pluginSkills]) {
+      const k = `${s.level}:${s.plugin ?? ''}:${s.name}`
+      if (seen.has(k)) continue
+      seen.add(k)
+      all.push({ ...s, provider: p.id })
+    }
   }
-  const seen = new Set<string>()
-  const all = [...skills, ...pluginSkills].filter((s) => {
-    const k = `${s.level}:${s.plugin ?? ''}:${s.name}`
-    if (seen.has(k)) return false
-    seen.add(k)
-    return true
-  })
   machineCache = { at: Date.now(), skills: all }
   return all
 }
@@ -108,10 +113,20 @@ export async function hiveSkills(): Promise<SkillInfo[]> {
   return out.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/** Skills in the project's own folders for each provider (e.g. .claude/skills), without Hive's copies there. */
 export async function localSkills(projectPath: string): Promise<SkillInfo[]> {
-  const dir = join(projectPath, '.claude', 'skills')
-  if (!(await isDir(dir))) return []
-  return findSkills(dir, 'local', 2)
+  const out: SkillInfo[] = []
+  for (const p of allProviders()) {
+    const roots = p.skillRoots()
+    if (!roots.local) continue
+    const dir = join(projectPath, roots.local)
+    if (!(await isDir(dir))) continue
+    for (const s of await findSkills(dir, 'local', 2)) {
+      if (roots.hiveCopyPrefix && basename(s.path).startsWith(roots.hiveCopyPrefix)) continue
+      out.push({ ...s, provider: p.id })
+    }
+  }
+  return out
 }
 
 export async function listSkills(projectPath?: string): Promise<SkillInfo[]> {

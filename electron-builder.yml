@@ -14,6 +14,9 @@ extraResources:
 asarUnpack:
   - '**/node_modules/@lydell/node-pty*/**'
   - out/main/hive-mcp.js
+  # Code hive-mcp.js shares with the main process (e.g. shared/hiveGuidance.ts) is split into chunks,
+  # which the CLIs load from outside the asar too.
+  - out/main/chunks/**
 npmRebuild: false
 # Releases (and electron-updater's feed) are on GitHub. npm run dist never publishes; npm run release
 # uploads a draft release. See RELEASING.md.

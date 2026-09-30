@@ -19,8 +19,10 @@ Hive is a Windows desktop app (Electron + TypeScript + React) for running Claude
 npm install            # after cloning; also run: npx install-electron --no  (Electron downloads its binary lazily)
 npm run dev            # dev build with hot reload — runs alongside the installed Hive (see below)
 npm run typecheck      # tsc for main/preload/shared and renderer
-npm test               # vitest unit tests (tests/)
-npm run build          # typecheck + production bundles into out/
+npm test               # vitest unit tests (tests/); also run by CI (.github/workflows/ci.yml) on push/PR
+npm run lint           # oxlint (.oxlintrc.json), fails on warnings; part of build and CI
+npm run e2e            # end-to-end suites (tests/e2e) against the dev build — needs npx electron-vite build first
+npm run build          # typecheck + lint + production bundles into out/
 npm run dist           # build + NSIS installer → dist/Hive-Setup-<version>.exe
 npm run icons          # regenerate PNG/ICO from build/*.svg
 npm run licenses       # regenerate THIRD_PARTY_NOTICES.md (also part of build)
@@ -45,11 +47,18 @@ npm 11 blocks install scripts by default; esbuild and electron-winstaller are ap
 - **zustand selectors** must not return fresh objects/arrays (`?? []`) — that loops forever (React error #185). Use a stable constant such as `NO_PROJECTS`.
 - **`setActivity(view)` toggles** the sidebar when that view is already shown (it's the activity bar's click). To just show a view (from a command or action), use `showView(view)`.
 - **Shortcuts**: never read `Command.keybinding` directly for display or matching; use `commandKeybinding(id)`, which applies the user's and the project's overrides.
+- **Agents**: a project can have none, and all are equal (no built-in Agent 1, no `'main'` id). Calls that name no agent use `sessions.soleAgent()`; renderer code gets `null` from `focusedAgentId()` when there are none and uses `actions.quickAddAgent()`.
+- **Kept files** (`config.json`, `workspace.json`, `project.json`, `sessions.json`): read with `readKeptJson()` and write with `writeKeptJson()` (keeps a `.bak`, recovers damaged files), never `readJson`/`writeJsonAtomic`.
+- **Tests**: e2e suites live in `tests/e2e` (see its README): use `lib.cjs`, work under `%LOCALAPPDATA%\hive-test\e2e`, never the real clipboard, profile or `~/.codex`. Unit tests get `tests/electron-stub.ts` for `electron`. Lint is oxlint because typescript-eslint doesn't support TypeScript 7.
 - **project.json / sessions.json**: change them with `workspace.mutateProjectConfig()`/`updateAgent()` and `workspace.mutateSessions()`/`upsertSession()`, which lock the file; computing a new value outside the lock and writing it loses concurrent changes (two agents finishing at once).
 - **Renderer errors**: a throw while rendering is caught by the nearest `ErrorBoundary`; don't rely on it — guard parsing of file content (e.g. `decodeURIComponent` on paths from Markdown) where it happens.
+- **hive-mcp.js** runs outside the asar (the CLIs start it), so it may only require Node built-ins and `out/main/chunks/*` (unpacked in `electron-builder.yml`); code it shares with main is split into those chunks. After `npm run dist`, check it with `npm run e2e -- packaged-mcp` (stdio calls against `dist/win-unpacked/resources/app.asar.unpacked/out/main/hive-mcp.js`).
 - **Monaco 0.57** deep imports drop the `esm/vs/` prefix: `monaco-editor/editor/editor.worker?worker`.
-- **Claude Code login**: never automate key presses on Claude Code's login screens in test sessions; warn the user before any test that may open a browser sign-in.
-- Hive must only use the **standalone Claude Code CLI**. Copies bundled in editor extensions are deliberately rejected (SPEC §11).
+- **CLI logins**: never automate key presses on Claude Code's or Codex's login screens in test sessions; warn the user before any test that may open a browser sign-in.
+- Hive must only use the **standalone CLIs** (Claude Code, Codex). Copies bundled in editor extensions are deliberately rejected (SPEC §11).
+- **Providers**: never switch on a provider id in shared code or the UI; put the difference in the descriptor (`capabilities`) or the adapter. Hive never edits a CLI's own config files (`~/.claude/settings.json`, `~/.codex/config.toml`); Codex gets everything through `-c` overrides.
+- **Codex hooks** run through PowerShell on Windows: only the exact `curl.exe … --data-binary "@-" "<url>"` form in `hookCommand()` works, and changing a hook's command, timeout or matcher changes its trust hash (`hookHash()`, tested against hashes from Codex in `tests/codex.test.ts`).
+- **Testing Codex**: point `CODEX_HOME` at a test home (never the user's `~/.codex`); the maintainer signs in there once (tests/e2e/README.md). Codex's SessionStart only fires with the first prompt.
 
 ## Driving the app for verification
 
@@ -60,17 +69,21 @@ Build with `npx electron-vite build`, then drive `node_modules/electron/dist/ele
 | Path | What |
 |---|---|
 | `src/main/index.ts` | App lifecycle, window, quit flow, settings side effects |
-| `src/main/sessions.ts` | Launch/stop/resume per agent, hook handling → status, file locks (PreToolUse), transcript backups, usage |
+| `src/main/sessions.ts` | Launch/stop/resume per agent (any provider), normalised hooks → status, file locks (PreToolUse), transcript backups, usage and cost, Continue with… |
 | `src/main/projectAgents.ts`, `src/main/worktrees.ts` | A project's agents (up to 4): add/update/remove/merge; git worktree operations |
-| `src/main/agents/` | `AgentAdapter` interface, `ClaudeCodeAdapter`, transcript parser |
+| `src/shared/providers.ts`, `claude.ts`, `codex.ts` | Provider descriptors (names, modes, models, capabilities) and settings resolution helpers |
+| `src/main/providers/` | `ProviderAdapter` interface, registry, `claude/` and `codex/` adapters (launch, hooks, transcripts, usage, conversation parsers) |
+| `src/main/providerService.ts` | Each provider's install info, readiness and setup tasks (Agent Setup) |
+| `src/shared/prices.ts`, `instructions.ts` | Price tables and cost estimates; shared AGENTS.md logic |
 | `src/main/servers.ts` | Hook server (random port) and Agent API |
 | `src/main/updater.ts`, `src/renderer/src/components/Updates.tsx` | Hive's own updates (electron-updater, GitHub Releases): state, status bar item, update dialog |
 | `src/main/mcp/hive-mcp.ts` | Built-in `hive` MCP server (Node built-ins only) |
 | `src/main/workspace.ts` | Workspace/project discovery, `.hive` folders, git exclude |
 | `src/main/files.ts` | Files/Images tab back end: project file operations, find, live watch, session images |
-| `src/main/transcripts.ts`, `src/main/agents/conversation.ts` | Sessions tab transcript viewer: incremental JSONL → conversation parser, search, Markdown export |
+| `src/main/transcripts.ts`, `src/main/providers/conversation.ts` | Sessions tab transcript viewer: per-provider incremental parsers, search, Markdown export |
 | `src/shared/api.ts` | The typed IPC contract — add channels here first |
 | `src/renderer/src/commands.ts` | Every command + keybinding (menus, palette, shortcuts) |
 | `src/renderer/src/views/` | Project view and tabs (`FilesTab.tsx` has Files and Images, `SessionsTab.tsx` the transcript viewer), settings, notes, skills, MCP, docs |
 | `src/renderer/src/components/FileView.tsx` | Files tab editor + previewer registry (markdown, CSV, HTML, SVG, images, PDF) |
-| `src/renderer/src/components/AgentPanes.tsx`, `AgentDialogs.tsx` | Session tab agent strip, layouts and panes; Add Agent, Agent Settings and Merge dialogs |
+| `tests/`, `tests/e2e/` | Unit tests (Vitest, fixtures in `tests/fixtures`); end-to-end suites (`lib.cjs`, `run.mjs`) |
+| `src/renderer/src/components/AgentPanes.tsx`, `AgentDialogs.tsx` | Session tab agent strip, layouts and panes; Add Agent, Agent Settings, Continue with… and Merge dialogs |

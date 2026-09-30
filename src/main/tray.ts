@@ -1,4 +1,4 @@
-import { app, Menu, nativeImage, Tray, type BrowserWindow } from 'electron'
+import { Menu, nativeImage, Tray, type BrowserWindow } from 'electron'
 import { basename, join } from 'path'
 import { mostUrgent } from '../shared/defaults'
 import type { SessionStatus } from '../shared/types'

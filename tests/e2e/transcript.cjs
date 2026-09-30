@@ -1,0 +1,206 @@
+// Sessions tab transcript viewer, in a throwaway profile and workspace. Transcripts are Hive backups
+// (.hive/sessions), so nothing is read from or written to the real ~/.claude. Never touches the clipboard.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+
+const scratch = lib.WORK
+const userData = path.join(scratch, 'tprofile')
+const ws = path.join(scratch, 'tws')
+const shots = path.join(scratch, 'tshots')
+for (const d of [userData, ws, shots]) fs.rmSync(d, { recursive: true, force: true })
+fs.mkdirSync(shots, { recursive: true })
+const proj = path.join(ws, 'demo')
+const sessDir = path.join(proj, '.hive', 'sessions')
+fs.mkdirSync(sessDir, { recursive: true })
+
+const A = '11111111-aaaa-bbbb-cccc-000000000001' // synthetic
+const B = '22222222-aaaa-bbbb-cccc-000000000002' // generated: a long session (1,200 turns)
+// A 1×1 PNG: enough for the thumbnail and viewer.
+const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+const t = (m) => `2026-09-29T10:${String(m).padStart(2, '0')}:00.000Z`
+const usage = (n) => ({ input_tokens: 5, cache_read_input_tokens: n, cache_creation_input_tokens: 100, output_tokens: 50 })
+const lines = [
+  { type: 'user', timestamp: t(0), message: { role: 'user', content: 'Please fix the flaky zebra test in login.spec.ts' } },
+  { type: 'assistant', requestId: 'r1', timestamp: t(1), message: { model: 'claude-opus-5-5', content: [{ type: 'thinking', thinking: 'The zebra test probably races the timer.' }], usage: usage(1000) } },
+  { type: 'assistant', requestId: 'r1', timestamp: t(1), message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: "I'll look at the **test** first.\n\n```ts\nconst x = 1\n```" }], usage: usage(1000) } },
+  { type: 'assistant', requestId: 'r1', timestamp: t(1), message: { model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 'tu1', name: 'Bash', input: { command: 'npm test -- login', description: 'Run the login tests' } }], usage: usage(1000) } },
+  { type: 'user', timestamp: t(2), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'FAIL login.spec.ts\n  zebra timed out\n' + 'x'.repeat(6000) }] } },
+  { type: 'assistant', requestId: 'r2', timestamp: t(3), message: { model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 'tu2', name: 'Edit', input: { file_path: proj + '\\login.spec.ts', old_string: 'wait(10)', new_string: 'wait(100)' } }], usage: usage(2000) } },
+  { type: 'user', timestamp: t(3), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu2', content: 'The file has been updated.' }] } },
+  { type: 'assistant', requestId: 'r3', timestamp: t(4), message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Fixed: the zebra test now waits long enough.' }], usage: usage(2500) } },
+  { type: 'user', timestamp: t(5), message: { role: 'user', content: [{ type: 'text', text: '[Image #1] this is what I see now' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png } }] } },
+  { type: 'user', isMeta: true, timestamp: t(5), message: { role: 'user', content: [{ type: 'text', text: `[Image: source: ${proj}\\.hive\\images\\${A}\\shot.png]` }] } },
+  { type: 'assistant', requestId: 'r4', timestamp: t(6), message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: 'That looks right.' }], usage: usage(3000) } },
+  { type: 'system', subtype: 'compact_boundary', timestamp: t(7), content: 'Conversation compacted', compactMetadata: { trigger: 'manual', preTokens: 180000, postTokens: 9000 } },
+  { type: 'user', isCompactSummary: true, isVisibleInTranscriptOnly: true, timestamp: t(7), message: { role: 'user', content: 'Summary:\n1. We fixed the zebra test by waiting longer.' } },
+  { type: 'user', timestamp: t(7), message: { role: 'user', content: '<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args>keep the test notes</command-args>' } },
+  { type: 'user', timestamp: t(7), message: { role: 'user', content: '<local-command-stdout>\u001b[2mCompacted\u001b[22m</local-command-stdout>' } },
+  { type: 'assistant', requestId: 'r5', timestamp: t(8), message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Anything else?' }], usage: usage(30000) } },
+  { type: 'custom-title', customTitle: 'Zebra test fix' }
+]
+fs.writeFileSync(path.join(sessDir, `${A}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+{
+  // A long session, with the phrase the all-sessions search looks for near the start (before the loaded window).
+  const out = []
+  for (let i = 0; i < 1200; i++) {
+    const at = new Date(Date.UTC(2026, 8, 28, 8, 0, i)).toISOString()
+    out.push({ type: 'user', timestamp: at, message: { role: 'user', content: i === 3 ? 'Now make the transcript viewer faster' : `Step ${i}: carry on` } })
+    out.push({ type: 'assistant', requestId: `b${i}`, timestamp: at, message: { model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: `bt${i}`, name: 'Bash', input: { command: `echo ${i}`, description: `Step ${i}` } }], usage: usage(1000 + i) } })
+    out.push({ type: 'user', timestamp: at, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `bt${i}`, content: `output ${i}\n` + 'y'.repeat(i % 7 === 0 ? 5000 : 200) }] } })
+    if (i === 1150) {
+      out.push({ type: 'system', subtype: 'compact_boundary', timestamp: at, content: 'Conversation compacted', compactMetadata: { trigger: 'auto', preTokens: 190000, postTokens: 12000 } })
+      out.push({ type: 'user', isCompactSummary: true, isVisibleInTranscriptOnly: true, timestamp: at, message: { role: 'user', content: 'Summary: steps 0 to 1149 done.' } })
+    }
+    out.push({ type: 'assistant', requestId: `c${i}`, timestamp: at, message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: `Done with step ${i}.` }], usage: usage(1100 + i) } })
+  }
+  fs.writeFileSync(path.join(sessDir, `${B}.jsonl`), out.map((l) => JSON.stringify(l)).join('\n') + '\n')
+}
+fs.writeFileSync(
+  path.join(proj, '.hive', 'sessions.json'),
+  JSON.stringify({ version: 1, sessions: [
+    { id: A, agent: 'claude-code', name: 'Zebra test fix', createdAt: t(0), lastActiveAt: t(8), archived: false },
+    { id: B, agent: 'claude-code', name: 'Long session', createdAt: t(0), lastActiveAt: t(0), archived: false }
+  ] })
+)
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const results = []
+const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? ` (${extra})` : ''}`)
+
+;(async () => {
+  const env = { ...process.env, HIVE_USER_DATA: userData }
+  delete env.ELECTRON_RUN_AS_NODE
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => results.push(`PAGEERROR ${e.message}`))
+  page.on('console', (m) => m.type() === 'error' && results.push(`CONSOLE ${m.text().slice(0, 200)}`))
+  await sleep(1500)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await inv('workspace:open', ws)
+  await sleep(1000)
+  await page.getByText('demo', { exact: true }).first().click()
+  await page.locator('.tab', { hasText: 'Sessions' }).click()
+  await sleep(1500)
+
+  const rows = page.locator('.session-row')
+  check('two sessions listed', (await rows.count()) === 2, String(await rows.count()))
+  await page.screenshot({ path: path.join(shots, '1-open.png') })
+  const sel = await page.locator('.session-row.selected strong').textContent().catch(() => null)
+  check('a session is selected by default', !!sel, sel)
+  const t0 = Date.now()
+  await page.locator('.session-row', { hasText: 'Long session' }).click()
+  await page.locator('.tx-compaction').first().waitFor({ timeout: 15000 })
+  check('long transcript renders', true, `${Date.now() - t0} ms`)
+  await sleep(300)
+  const atBottom = await page.locator('.transcript').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight < 80)
+  check('opens at the latest message', atBottom)
+  // Only the latest items load at first; earlier ones load as you scroll up.
+  const w = await inv('transcript:read', proj, B)
+  check('a long transcript loads its latest 200 items', w.items.length === 200 && w.from === w.total - 200, `${w.items.length} of ${w.total} from ${w.from}`)
+  check('the viewer offers the earlier items', (await page.locator('.transcript-earlier').count()) === 1)
+  const firstBefore = await page.locator('.transcript-body [id^="tx-"]').first().getAttribute('id')
+  await page.locator('.transcript').evaluate((el) => { el.scrollTop = 0; el.dispatchEvent(new Event('scroll')) })
+  await sleep(1500)
+  const firstAfter = await page.locator('.transcript-body [id^="tx-"]').first().getAttribute('id')
+  check('scrolling up loads earlier items', firstAfter !== firstBefore && Number(firstAfter?.slice(3)) < Number(firstBefore?.slice(3)), `${firstBefore} → ${firstAfter}`)
+  await page.screenshot({ path: path.join(shots, '2-long.png') })
+
+  // Synthetic session: structure.
+  await page.locator('.session-row', { hasText: 'Zebra test fix' }).click()
+  await sleep(800)
+  check('user messages', (await page.locator('.tx-user').count()) === 2)
+  check('replies grouped', (await page.locator('.tx-reply').count()) === 3, String(await page.locator('.tx-reply').count()))
+  check('tool calls collapsed', (await page.locator('.tx-tool').count()) === 2 && (await page.locator('.tx-tool.open').count()) === 0)
+  check('tool summary', (await page.locator('.tx-tool .tx-fold-detail').first().textContent()) === 'Run the login tests')
+  check('edit path shortened', (await page.locator('.tx-tool .tx-fold-detail').nth(1).textContent()) === 'login.spec.ts')
+  check('thinking collapsed', (await page.locator('.tx-thinking').count()) === 1)
+  check('command shown with output', (await page.locator('.tx-command').textContent()).includes('/compact keep the test notes') && (await page.locator('.tx-command-output').textContent()) === 'Compacted')
+  const divider = await page.locator('.tx-compaction-label').textContent()
+  check('compaction divider', divider.includes('180k → 9.0k (30.1k with instructions)') && divider.includes('with instructions'), divider)
+  await page.locator('.tx-tool .tx-fold-head').first().click()
+  await sleep(200)
+  const res = await page.locator('.tx-tool.open .tx-result').textContent()
+  check('tool expands with result', res.startsWith('FAIL login.spec.ts'))
+  check('long result shortened', res.length <= 4000, String(res.length))
+  await page.getByText(/Show all \(/).click()
+  await sleep(300)
+  check('Show all loads the full result', (await page.locator('.tx-tool.open .tx-result').textContent()).length > 6000)
+  await page.locator('.tx-compaction-line').click()
+  await sleep(200)
+  check('compaction summary expands', (await page.locator('.tx-compaction-summary').textContent()).includes('waiting longer'))
+  await sleep(800)
+  const imgSrc = await page.locator('.tx-user .thumb img').getAttribute('src').catch(() => null)
+  check('image thumbnail loads', !!imgSrc && imgSrc.startsWith('data:image/png;base64,'))
+  await page.screenshot({ path: path.join(shots, '3-synthetic.png') })
+  await page.locator('.tx-user .thumb').click()
+  await sleep(400)
+  check('image viewer opens', (await page.locator('.dialog .image-viewer img').count()) === 1)
+  check('image path from Claude Code shown', (await page.locator('.dialog-header h2').textContent()) === 'shot.png')
+  await page.screenshot({ path: path.join(shots, '4-image.png') })
+  await page.keyboard.press('Escape')
+  await sleep(200)
+  check('Resume offered for a stopped session', (await page.locator('.transcript-toolbar button', { hasText: 'Resume' }).count()) === 1)
+
+  // Expand all / collapse all.
+  await page.locator('.transcript-toolbar [aria-label="Expand Tool Calls"]').click()
+  await sleep(200)
+  check('expand all', (await page.locator('.tx-fold.open').count()) === 3, String(await page.locator('.tx-fold.open').count()))
+  await page.locator('.transcript-toolbar [aria-label="Collapse Tool Calls"]').click()
+  await sleep(200)
+  check('collapse all', (await page.locator('.tx-fold.open').count()) === 0)
+
+  // Search this transcript.
+  await page.locator('.sessions-list input.input').fill('zebra')
+  await sleep(700)
+  const hits = await page.locator('.search-hit').count()
+  check('search this session', hits >= 4, String(hits))
+  await page.locator('.search-hit', { hasText: 'timed out' }).click()
+  await sleep(600)
+  check('jumping to a tool hit expands it', (await page.locator('.tx-tool.open').count()) >= 1)
+  const hl = await page.evaluate(() => CSS.highlights.get('hive-search')?.size ?? 0)
+  check('matches highlighted', hl > 0, String(hl))
+  await page.screenshot({ path: path.join(shots, '5-search-this.png') })
+
+  // Search all sessions.
+  await page.locator('.sessions-scope button', { hasText: 'All sessions' }).click()
+  await page.locator('.sessions-list input.input').fill('transcript viewer')
+  await sleep(1500)
+  const groups = await page.locator('.search-results .section-header').allTextContents()
+  check('search all sessions groups by session', groups.length === 1 && groups[0].includes('Long session'), JSON.stringify(groups))
+  await page.locator('.search-hit').first().click()
+  await sleep(1500)
+  check('hit opens the other session', (await page.locator('.transcript-toolbar strong').first().textContent()) === 'Long session')
+  const flashVisible = await page.locator('.flash').evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    return r.top >= 0 && r.bottom <= window.innerHeight
+  }).catch(() => false)
+  check('jumped item is on screen', flashVisible)
+  await page.screenshot({ path: path.join(shots, '6-search-all.png') })
+  await page.locator('.sessions-list input.input').fill('')
+  await sleep(300)
+
+  // Incremental read: unchanged returns null, appended lines are picked up, a partial line waits.
+  const r1 = await inv('transcript:read', proj, A)
+  const r2 = await inv('transcript:read', proj, A, { knownSize: r1.size })
+  check('unchanged transcript returns null', r2 === null)
+  fs.appendFileSync(path.join(sessDir, `${A}.jsonl`), JSON.stringify({ type: 'user', timestamp: t(9), message: { role: 'user', content: 'one more thing' } }) + '\n{"type":"assistant","partial')
+  const r3 = await inv('transcript:read', proj, A, { knownSize: r1.size })
+  check('appended message read incrementally', !!r3 && r3.items.length === r1.items.length + 1 && r3.items.at(-1).text === 'one more thing')
+  fs.appendFileSync(path.join(sessDir, `${A}.jsonl`), `":1,"requestId":"r9","timestamp":"${t(9)}","message":{"content":[{"type":"text","text":"Sure."}]}}\n`)
+  const r4 = await inv('transcript:read', proj, A, { knownSize: r3.size })
+  check('partial last line completed later', !!r4 && r4.items.at(-1).text === 'Sure.')
+
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'))
+  await page.locator('.session-row', { hasText: 'Zebra test fix' }).click()
+  await sleep(700)
+  await page.screenshot({ path: path.join(shots, '7-light.png') })
+
+  await app.close()
+  console.log(results.join('\n'))
+})().catch(async (e) => {
+  console.log(results.join('\n'))
+  console.error('ERROR', e)
+  process.exit(1)
+})

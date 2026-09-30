@@ -1,14 +1,25 @@
 # Hive User Guide
 
-Hive is a desktop workspace for coding with AI agents. It runs a Claude Code session for each project you're working on, side by side, and keeps track of what each one is doing, how many tokens it uses, and the skills and MCP servers it has.
+Hive is a desktop workspace for coding with AI agents. It runs coding agents (**Claude Code** and **Codex**) for each project you're working on, side by side, and keeps track of what each one is doing, how many tokens it uses, and the skills and MCP servers it has.
 
 ## Getting started
 
 1. **Install Hive.** Download `Hive-Setup-<version>.exe` from the [latest release](https://github.com/Suremise/hive-desktop/releases/latest) and run it. The installer isn't code-signed yet, so Windows SmartScreen may warn you; choose **More info → Run anyway**. From then on Hive keeps itself up to date (see [Updating Hive](#updating-hive)).
-2. **Install the Claude Code CLI.** Hive runs the standalone Claude Code command-line tool in each project; it is required and not included with Hive. The copy inside the VS Code (or Cursor) extension is not used. On first launch Hive looks for the CLI and offers a one-click install with Anthropic's official installer if it's missing (**Help → Claude Code Setup**). In your first session, choose a theme, sign in, and press Enter at "Login successful" so the sign-in is saved.
+2. **Choose your coding agents.** Hive runs the standalone command-line tools of **Claude Code** (Anthropic) and **Codex** (OpenAI); they aren't included with Hive. A new install starts with both turned off: turn on the ones you use in **Settings → Providers** (the banner at the top links there). **Help → Agent Setup…** finds each CLI and offers a one-click install with the official installer if it's missing, and walks you through signing in (and, for Codex, its one-time Windows sandbox setup). The copies inside VS Code (or Cursor) extensions are not used. See [Coding agents](#coding-agents-claude-code-and-codex).
 3. **Open or create a workspace** (**File → Open Workspace…** or **New Workspace…**). A workspace is any folder whose subfolders are your projects.
 4. **Mark the projects you're working on** with the toggle next to each project.
-5. **Start a session** with **New Session** (Ctrl+Shift+N). Claude Code opens in the Session tab. Switch to another project and start another — sessions keep running in the background.
+5. **Add an agent and start it.** A new project has no agents: **New Session** (Ctrl+Shift+N) adds one with your default provider and starts it, or use **Add Agent** above the terminal. The agent opens in the Session tab. Switch to another project and start another — sessions keep running in the background.
+
+## Coding agents: Claude Code and Codex
+
+Hive calls the coding agents it can run **providers**. Each agent in a project chooses its own, so a project can have a Claude Code agent and a Codex agent working side by side. Hive shows each CLI's own terminal, exactly as it looks when you run it yourself.
+
+- **Turning providers on and off.** **Settings → Providers** lists them with their install state. A provider that is off can't start agents; its agents stay listed, greyed out. Turning one off while its agents run asks whether to stop them now or let them finish. **Default provider** is what new agents use (a project can choose its own in Project Settings).
+- **Setup.** **Help → Agent Setup…** has a tab per provider: install, sign in, and updates. Claude Code signs in with a Claude plan or an Anthropic Console account; Codex with a ChatGPT plan or an OpenAI API key. On Windows, Codex also needs its sandbox set up once: **Set up** runs Codex and types `/setup-default-sandbox` for you; Windows may ask for permission. Without it, Codex asks before every command.
+- **Settings per provider.** Each provider has its own page (**Settings → Claude Code**, **Settings → Codex**): the CLI's path, default model, effort and permission mode, extra arguments, update checks and its price table. Projects override them per provider in Project Settings.
+- **The icons** on agent tabs, pane headers and the Sessions list show which provider each agent and session uses.
+- **Conversations stay with their provider.** A Claude Code session can only be resumed by a Claude Code agent, and a Codex session by a Codex agent. To move work to another provider, use **Continue with…** (see [Sessions](#sessions)).
+- **What both share.** The workspace's Hive skills and MCP servers and Hive's own `hive` tools reach every agent. Neither CLI loads MCP servers from your user settings in Hive sessions. Hive never changes either CLI's own configuration files.
 
 ## Workspaces and projects
 
@@ -50,19 +61,20 @@ The sidebar and the lists in the Sessions, Files, Changes and Memory tabs can be
 
 ## Sessions
 
-Each agent of a project runs one session at a time (most projects have just one agent; see [Several agents in one project](#several-agents-in-one-project)). The project header and the **Session** menu let you:
+Each agent of a project runs one session at a time (most projects have just one agent; see [Several agents in one project](#several-agents-in-one-project)). A project without agents shows **No agents yet**: New Session and Resume add one for you. The project header and the **Session** menu let you:
 
 - **New Session** — start fresh. If one is running, Hive stops it first (after asking).
-- **Resume** — continue a previous conversation. Hive shows how many tokens resuming will re-cache if the prompt cache has expired.
+- **Resume** — continue a previous conversation. Hive shows how many tokens resuming will re-cache if the prompt cache has expired. A new agent can resume sessions whose agent is gone (for example after the upgrade to 0.2, which starts every project without agents).
 - **Stop** — end the session. The conversation is kept and can be resumed.
 - **Compact** — summarise the conversation so far so every later message is cheaper. Available once the agent has finished; it turns orange when the context passes your threshold (**Settings → Sessions → Suggest compacting above**, 200,000 tokens by default, and overridable per project in Project Settings). You can add an optional focus ("keep the API decisions, drop the test output"); left empty, the agent decides what to keep. Nothing is lost: the full history stays in the session's transcript. Anything you had half-typed is cleared first; press Ctrl+Y in the session to get it back.
+- **Continue with…** (agent menu) — hand this agent's work to another agent of the project, which may use another provider. Hive asks this agent to write a handover (if it's running and idle; untick to use the latest handover instead), then starts the other agent, or messages it if it's already running, and tells it to read the handover and carry on. The new session shows a **continued** badge in the Sessions tab that links back. It needs **Settings → Agent API → Provide Hive tools to sessions**. If the other agent's CLI asks something first (for example whether to trust the folder), answer it in its terminal.
 - **Archive & New** — archive the current conversation and start a clean one. This is the cheapest way to continue after a long session: the new session starts with an empty context instead of re-caching the old one. Write a handover first (see below) so the new session knows where to pick up.
 
 ### Reading past sessions
 
 The **Sessions** tab lists every session of the project on the left, newest first, with when it was last used and its context size. Sessions started outside Hive (in VS Code or a terminal) appear as *external*; **Adopt** them to manage them in Hive. Tick **Archived** to include archived sessions.
 
-Select a session to read its transcript on the right, from the first message to the last, including everything before each compaction:
+Select a session to read its transcript on the right, including everything before each compaction. It opens at the latest messages; scroll up to load earlier ones. A running session doesn't update on its own unless you switch on **Follow** (the Session tab always shows the agent working); otherwise click **Refresh**. **Settings → Sessions → Follow running sessions** sets the default.
 
 - Your messages and Claude's replies are shown in full.
 - Thinking and each tool call are collapsed to one line (for example "Bash · Run the login tests" or "Edit · src/app.ts"). Click one to see its input and result; very long output is shortened, with **Show all**. The expand button in the toolbar opens or closes them all.
@@ -77,22 +89,23 @@ From the toolbar you can **Copy** a message or reply (hover it), **Export as Mar
 
 ### Several agents in one project
 
-A project can have up to four agents working at once, for example one building a feature while another reviews or writes tests. Click **Add Agent** above the terminal and choose:
+A project can have up to four agents working at once, for example one building a feature while another reviews or writes tests. All agents are equal: any of them can work in a worktree, and any can be removed once stopped. **Add Agent** above the terminal adds one straight away, with your default provider (**Settings → Providers → Default provider**, or the project's in Project Settings) and its default settings, working in the project folder. Its **▾** opens **Add Agent…**, where you choose:
 
 - **Name** — "Agent 2" by default; rename it any time (double-click its tab).
 - **Where it works**:
   - **Project folder** — shares the folder with the project's other agents.
-  - **New worktree** — its own checkout of the project on its own branch (`hive/agent-2` by default, based on the branch you pick). Its work stays separate until you merge it. Hive creates worktrees next to the workspace, in `<workspace>.worktrees\<project>\<agent>`, and copies git-ignored files such as `.env` into them (**Project Settings → Agents & Worktrees → Copy into new worktrees**). If the project needs setting up first, set a **Setup command** such as `npm install`: it runs in the agent's pane before Claude Code starts, and if it fails you can retry or start without it.
+  - **New worktree** — its own checkout of the project on its own branch (`hive/agent-2` by default, based on the branch you pick). Its work stays separate until you merge it. Hive creates worktrees next to the workspace, in `<workspace>.worktrees\<project>\<agent>`, and copies git-ignored files such as `.env` into them (**Project Settings → Agents & Worktrees → Copy into new worktrees**). If the project needs setting up first, set a **Setup command** such as `npm install`: it runs in the agent's pane before the agent starts, and if it fails you can retry or start without it.
   - **Existing worktree** — a worktree of the project that no agent uses, such as one you kept when removing an agent.
-- **Settings** — the agent can use its own model, effort and permission mode, for example Sonnet for a reviewer while Opus codes. Left on *Project's*, it follows Project Settings.
+- **Provider** — Claude Code or Codex (only enabled providers can be chosen). Changing an agent's provider later clears its model settings and its last session, since conversations can't move between providers.
+- **Settings** — the agent can use its own model, effort and permission mode, for example Sonnet for a reviewer while Opus codes, or a Codex reviewer next to a Claude Code agent. Left on *Project's*, it follows Project Settings for its provider.
 
-**Layouts.** Once there is more than one agent, the buttons at the right of the agent row choose how they are shown: one at a time (click an agent to switch), two columns, three columns, or a grid of four. Three columns and the grid work best on a wide window, or with the sidebar hidden (Ctrl+B). Each pane has its own header with the agent's status and buttons; click a pane to make it the **focused** agent. The buttons in the project header, the Session menu, pasting screenshots and **Insert into Session** act on the focused agent. Ctrl+Alt+] and Ctrl+Alt+[ move between agents. Clicking an agent that isn't on screen shows it in the focused pane.
+**Layouts.** Adding an agent switches to the layout that shows them all (two columns for two, three columns for three, the grid for four); removing one leaves the layout as it is. The buttons at the right of the agent row also choose how they are shown: one at a time (click an agent to switch), two columns, three columns, or a grid of four. Three columns and the grid work best on a wide window, or with the sidebar hidden (Ctrl+B). Each pane has its own header with the agent's status and buttons; click a pane to make it the **focused** agent. The buttons in the project header, the Session menu, pasting screenshots and **Insert into Session** act on the focused agent. Ctrl+Alt+] and Ctrl+Alt+[ move between agents. Clicking an agent that isn't on screen shows it in the focused pane.
 
 **Which conversation each agent has.** Each pane header shows the name of the session the agent is running (hover for details, click to read it in the Sessions tab); the project header shows the focused agent's. A conversation can only be open in one agent at a time. **Resume** reopens the agent's own last session and is greyed out when it has none. Its **▾** lists the recent sessions from the agent's folder: pick one to continue it in this agent, including a paused conversation another agent in the same folder started. Sessions that are open in another agent are greyed out; clicking one takes you to that agent. Agents in their own worktree only see that worktree's sessions.
 
 The sidebar keeps one status dot per project, showing the most urgent agent (needs input, then working…), with the number of running agents next to the name. Hover the project header's status for each agent's state. Notifications name the agent, e.g. "hive · Agent 2 finished".
 
-**File locks.** Agents sharing the project folder could otherwise edit the same file at the same time. When an agent edits a file, Hive notes that it is working on it; if another agent then tries to edit that file, Hive tells it to wait or work on something else, and it carries on with other work. The claim ends when the first agent finishes its task. The files an agent holds show as a lock with a count on its tab. **Settings → Agents & Worktrees → File locks** (or per project) chooses what happens: **Block** (default), **Ask me** (you approve the edit), **Warn** (the edit goes ahead, the agent is told), or **Off**. Locks cover the agents' file edits, not shell commands (formatters, `npm install`, `git checkout`), and not files agents share outside the project such as Claude Code's own settings or memory — keep that in mind when several agents work in one folder. Agents in their own worktrees never get in each other's way.
+**File locks.** Agents sharing the project folder could otherwise edit the same file at the same time. When an agent edits a file, Hive notes that it is working on it; if another agent then tries to edit that file, Hive tells it to wait or work on something else, and it carries on with other work. The claim ends when the first agent finishes its task. The files an agent holds show as a lock with a count on its tab. **Settings → Agents & Worktrees → File locks** (or per project) chooses what happens: **Block** (default), **Ask me** (you approve the edit; Codex can't show its own approval for this, so Hive holds the edit back and shows a notification with **Allow**, and Codex waits until you allow it), **Warn** (the edit goes ahead, the agent is told), or **Off**. Locks cover the agents' file edits, not shell commands (formatters, `npm install`, `git checkout`), and not files agents share outside the project such as the CLIs' own settings or memory — keep that in mind when several agents work in one folder. Agents in their own worktrees never get in each other's way.
 
 **Reviewing and merging a worktree agent's work.** In the **Changes** and **Files** tabs, the selector at the top switches between the project folder and each agent's worktree. For a worktree, Changes lists everything the agent changed since its branch started (its commits and uncommitted edits). When it is done, choose **Merge** (pane header, agent menu or Changes tab):
 
@@ -105,21 +118,21 @@ The sidebar keeps one status dot per project, showing the most urgent agent (nee
 
 ### Archiving and backups
 
-Claude Code deletes old transcripts after a while. Hive keeps a copy of every session transcript in the project's `.hive/sessions` folder, and archived sessions in `.hive/archive`. Images you paste or drop into a session are kept in `.hive/images`. None of these are deleted. If Claude Code has removed a transcript, Hive restores it from the backup when you resume.
+Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of every session transcript in the project's `.hive/sessions` folder, and archived sessions in `.hive/archive`. Images you paste or drop into a session are kept in `.hive/images`. None of these are deleted. If the CLI has removed a transcript, Hive restores it from the backup when you resume.
 
 ### Token use, cache and compaction
 
-The **Overview** tab shows, for the current session:
+The **Overview** tab updates as sessions change (at most every 15 seconds; **Settings → Sessions → Overview updates** can make it every minute or only when you click **Refresh**). It starts with a **project summary** for the period you choose (Today, 7 days, 30 days, All time), across every provider: tokens, API-equivalent cost, sessions and prompts. Below it are the agents **running now** (with how full each one's context is), a section per provider with its totals and plan limits, a table **by agent**, and the focused agent's session:
 
 - **Context** — how many tokens the conversation occupies right now.
-- **Cache** — whether Anthropic's prompt cache is still warm (5-minute or 1-hour lifetime) and how long it has left.
+- **Cache** — whether Anthropic's prompt cache is still warm (5-minute or 1-hour lifetime) and how long it has left (Claude Code).
 - **Re-cache on resume** — an estimate of the tokens written to cache on the first message after resuming, once the cache has expired.
-- **Compactions** — each time Claude Code summarised the conversation to free space, with before/after sizes.
-- **API-equivalent cost** — what the session would have cost at Anthropic API prices, as Claude Code calculates it. On a subscription you are not charged this; it is a measure of how heavy the session is.
+- **Compactions** — each time the agent summarised the conversation to free space, with before/after sizes.
+- **API-equivalent cost** — what the session would have cost at API prices. On a subscription you are not charged this; it is a measure of how heavy the session is. Claude Code calculates it itself; for Codex, Hive **estimates** it from a price table (shown with **≈**). Hive ships the published prices, and you can change them in each provider's settings page (**API prices**) if they change or you have different rates. A model without a price shows no cost.
 
 ### Plan usage
 
-If you use Claude Code with a Claude subscription, the status bar shows how much of your plan's limits is used, for example **5h 34% · Week 12%**: the rolling 5-hour allowance and the weekly one. Hover it to see when each resets; the **Overview** tab shows both with meters. The numbers are for your whole account (every Claude Code session, not just Hive's) and come from Claude Code while a session is running, so after a quiet spell they show when they were last updated. The status bar darkens at 80% and turns red at 95%, and Hive notifies you once when you pass 80% and 95% of each limit in each reset period.
+If you use a subscription (a Claude plan for Claude Code, a ChatGPT plan for Codex), the status bar shows how much of each plan's limits is used, one item per provider, for example **5h 34% · Week 12%**: the rolling 5-hour allowance and the weekly one. Hover it to see when each resets; the **Overview** tab shows them with meters in each provider's section. The numbers are for your whole account (every session, not just Hive's) and come from the CLI while a session is running, so after a quiet spell they show when they were last updated. The status bar darkens at 80% and turns red at 95%, and Hive notifies you once when you pass 80% and 95% of each limit in each reset period.
 
 The model chip in the project header and the status bar also show the **effort**, e.g. *Opus 5.5 (default) · High*: what the running session reports, otherwise what new sessions will use.
 
@@ -130,12 +143,12 @@ Skills are instructions an agent can load when they're relevant. Hive shows thre
 | Level | Where | Managed by Hive |
 |---|---|---|
 | **Hive** | `Workspace/.hive/skills/<name>/SKILL.md` | Yes — enable for all projects, turn off per project |
-| **Machine** | `~/.claude/skills` and installed Claude Code plugins | No — always loaded by Claude Code |
-| **Local** | `Project/.claude/skills` | No — always loaded in that project; can be copied to the workspace |
+| **Machine** | `~/.claude/skills` and installed Claude Code plugins; `~/.codex/skills` for Codex | No — always loaded by that CLI |
+| **Local** | `Project/.claude/skills` (Claude Code), `Project/.agents/skills` (Codex) | No — always loaded in that project; can be copied to the workspace |
 
 Add a Hive skill by creating a folder with a `SKILL.md` in `.hive/skills`, or with **New Hive Skill** in the Skills view. Enable it in the Skills view; turn it off for a project in that project's **Skills** tab.
 
-When a session starts, Hive copies exactly the enabled skills into the project's `.hive/launch` folder and points Claude Code at it. A skill disabled in the workspace is therefore always gone the next time a session starts, and a running session keeps the version it started with.
+When a session starts, Hive copies exactly the enabled skills into the project's `.hive/launch` folder and points Claude Code at it. Codex only reads skills from the project's `.agents/skills` folder, so for Codex agents Hive copies them there as `hive-<name>` folders (and keeps them out of git). A skill disabled in the workspace is therefore always gone the next time a session starts, and a running session keeps the version it started with.
 
 ## MCP servers
 
@@ -150,7 +163,7 @@ MCP servers give agents extra tools. Each server is a JSON file in `Workspace/.h
 }
 ```
 
-Enable servers in the MCP view, and turn them off per project in the project's **MCP** tab. Sessions use **only** the servers Hive enables. If a project has its own `.mcp.json`, Hive tells you which of its servers aren't in the workspace and offers to copy them there; until then they stay disabled.
+Enable servers in the MCP view, and turn them off per project in the project's **MCP** tab. Sessions of every provider use **only** the servers Hive enables. If a project has its own `.mcp.json` (or, for Codex, `.codex/config.toml` servers), Hive tells you which of its servers aren't in the workspace and offers to copy them there; until then they stay disabled.
 
 Reference secrets with environment variables (`${NAME}`), never literal values — Hive warns when a definition looks like it contains one. Sessions get the environment Hive was started with, so after setting a variable (for example in Windows' *Edit environment variables for your account*), quit Hive completely, including from the tray, and open it again.
 
@@ -168,14 +181,14 @@ The **Shared Notes** view edits the markdown files in `.hive/shared`. Use it for
 
 ## Memory
 
-A project's **Memory** tab shows everything Claude Code remembers about it:
+A project's **Memory** tab shows what each provider its agents use reads about it, grouped by provider:
 
-- `CLAUDE.md` — project instructions read at the start of every session (usually committed).
-- `CLAUDE.local.md` — your personal project instructions (not committed).
-- **User CLAUDE.md** — instructions for all your projects.
-- **Auto memory** — facts Claude Code chose to remember about this project.
+- **Claude Code:** `CLAUDE.md` (project instructions read at the start of every session, usually committed), `CLAUDE.local.md` (your personal project instructions, not committed), the **User CLAUDE.md** (for all your projects) and **Auto memory** (facts Claude Code chose to remember about this project).
+- **Codex:** `AGENTS.md` (project instructions) and the **User AGENTS.md** (for all your projects).
 
 All of them can be edited here.
+
+**One set of instructions for both.** When a project has Claude Code and Codex agents, each reads its own file. **Share one AGENTS.md…** at the top of the list makes `AGENTS.md` the shared file: `CLAUDE.md` gets an `@AGENTS.md` line, which makes Claude Code read it too. Anything else in `CLAUDE.md` stays and applies to Claude Code only. If there's no `AGENTS.md` yet, what's in `CLAUDE.md` moves into it, so nothing is lost.
 
 ## Files
 
@@ -219,10 +232,12 @@ Each project can override the global defaults in its **Settings** tab, which has
 
 | Category | Setting | What it does |
 |---|---|---|
+| Providers | Default provider | The provider new agents in this project use |
+| Claude Code, Codex | | One page per provider, with the settings below for that provider's agents |
 | Claude Code | Model | **Latest** (Fable, Opus, Sonnet, Haiku — always the newest in that family), a **pinned version** such as Opus 5.5 (Show older versions lists the 4.x models too), or a custom model ID. **1M context** uses the larger context window where the model has one. The same choice is in Settings → Claude Code → Default model. |
 | | Effort | Reasoning effort: low → max |
 | | Permission mode | How much the agent asks before acting (below) |
-| | Extra arguments | Additional Claude Code command-line arguments |
+| | Extra arguments | Additional command-line arguments for the CLI |
 | Sessions | Suggest compacting above | When the Compact button turns orange (see [Sessions](#sessions)) |
 | | Completion chime | On, off or inherit |
 | Agents & Worktrees | Agents, file locks, copy into new worktrees, setup command | See [Several agents in one project](#several-agents-in-one-project) |
@@ -241,9 +256,22 @@ Changes apply to new sessions. If you change something while a session is runnin
 | Don't ask | Never asks; anything not pre-approved is refused |
 | Bypass permissions | Never asks; allows everything |
 
-**Bypass permissions** only appears after you tick **Settings → Claude Code → Enable bypass permissions option**. Projects using it show a red warning. Use it only for disposable work.
+**Bypass permissions** only appears after you tick **Settings → Claude Code → Enable the Bypass permissions option**. Projects using it show a red warning. Use it only for disposable work.
 
-**Switching mode while an agent runs.** The mode badge next to the model in the project header (and in each pane header, and the status bar) shows the mode the session is really in. Click it, or press **Ctrl+Alt+M**, and choose another: Hive switches it straight away, without a restart, the same way pressing **Shift+Tab** in the terminal does (which Hive also notices). Don't ask and Bypass permissions can't be reached that way, so choosing them restarts the session in that mode and carries on the same conversation. The switch applies to that session only; the settings decide what new sessions start in. When you change the setting while agents are running, Hive offers to **Switch Now**.
+Codex has its own presets:
+
+| Preset | Behaviour |
+|---|---|
+| Read only | Reads files; asks before any edit or internet access |
+| Ask for approval | Edits files and runs commands in its sandbox; asks before internet access or edits outside the project |
+| Approve for me | An automatic reviewer approves safe actions and asks only about risky ones (default) |
+| Full access | No sandbox and no approvals |
+
+When you switch a running Codex agent's preset, the badge says **Switching to …** until Codex confirms it; if Codex doesn't, the badge goes back and Hive tells you.
+
+**Full access** is like Bypass: it only appears after you tick **Settings → Codex → Enable the Full access option**, and projects using it show a red warning. Codex's **Plan** mode is separate from the preset: choose **Plan** in the mode menu (or press Shift+Tab in the terminal), and the badge shows "· Plan". In Codex's sandbox the `.git` folder is read-only, so Codex asks before committing.
+
+**Switching mode while an agent runs.** The mode badge next to the model in the project header (and in each pane header, and the status bar) shows the mode the session is really in. Click it, or press **Ctrl+Alt+M**, and choose another: Hive switches it straight away, without a restart, the same way pressing **Shift+Tab** in the terminal does (which Hive also notices). Don't ask and Bypass permissions can't be reached that way, so choosing them restarts the session in that mode and carries on the same conversation. For Codex, Hive picks the preset from Codex's `/permissions` menu. The switch applies to that session only; the settings decide what new sessions start in. When you change the setting while agents are running, Hive offers to **Switch Now**.
 
 ## Updating Hive
 
@@ -309,13 +337,16 @@ In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts th
 
 ## Troubleshooting
 
-- **"Claude Code CLI required"** — install the CLI from **Help → Claude Code Setup**, or set its path in Settings → Claude Code. Having the VS Code extension isn't enough; Hive needs the standalone CLI.
-- **Status dots don't change** — status comes from Claude Code hooks. Restart the session; if it persists, check **Help → Open Logs Folder**.
+- **"… was damaged and has been restored"** — one of Hive's settings or record files couldn't be read (for example after a hand edit). Hive went back to its last good copy (`.bak`) and kept the damaged file next to it as `.corrupt-<date>`.
+- **"Claude Code is required" / "Codex is required"** — install the CLI from **Help → Agent Setup…**, or set its path in the provider's settings page. Having the VS Code extension isn't enough; Hive needs the standalone CLI.
+- **"… is turned off"** — turn the provider on in **Settings → Providers**.
+- **Codex asks before every command** — its Windows sandbox isn't set up: **Help → Agent Setup… → Codex → Set up**.
+- **Status dots don't change** — status comes from the CLI's hooks. A Codex agent shows **Ready** once its prompt appears, and reports its session with your first message. Restart the session; if it persists, check **Help → Open Logs Folder**.
 - **Agent API port in use** — change the port in Settings → Agent API.
 - **"This tab ran into a problem"** — something in that view failed, for example on an unusual file. Your sessions keep running. Click **Try Again** or switch to another tab; if it keeps happening, **Open Logs** has the details for a bug report.
 - **Where is my data?** — app settings in `%APPDATA%\Hive`, workspace data in `Workspace/.hive`, project data in `Project/.hive`.
-- **How many sessions can run?** — as many as your machine can handle, across any number of projects. Each is a Claude Code process; Hive only draws the terminals you can see with the graphics card, so dozens of background sessions don't slow the window down.
+- **How many sessions can run?** — as many as your machine can handle, across any number of projects. Each is a CLI process; Hive only draws the terminals you can see with the graphics card, so dozens of background sessions don't slow the window down.
 
 ## Licence
 
-Hive is open source under the [MIT License](../LICENSE). It includes open-source libraries (xterm.js, Monaco, React and others) under their own permissive licences, listed with their full texts in [Third-Party Notices](../THIRD_PARTY_NOTICES.md); both are in the Docs view and linked from **Help → About Hive**. Electron's and Chromium's licences are in the folder Hive is installed in (`LICENSES.chromium.html`). Claude and Claude Code are products of Anthropic, installed separately under Anthropic's terms; Hive is not affiliated with Anthropic.
+Hive is open source under the [MIT License](../LICENSE). It includes open-source libraries (xterm.js, Monaco, React and others) under their own permissive licences, listed with their full texts in [Third-Party Notices](../THIRD_PARTY_NOTICES.md); both are in the Docs view and linked from **Help → About Hive**. Electron's and Chromium's licences are in the folder Hive is installed in (`LICENSES.chromium.html`). Claude and Claude Code are products of Anthropic, and Codex and ChatGPT products of OpenAI, installed separately under their makers' terms; the provider logos are their owners' trademarks, used to identify their products. Hive is not affiliated with Anthropic or OpenAI.

@@ -1,21 +1,27 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AppSettings, ChimeSound } from '@shared/types'
+import type { AppSettings, ChimeSound, ModelPrice, ProviderId } from '@shared/types'
+import { PRICES_CHECKED, SHIPPED_PRICES } from '@shared/prices'
 import type { SettingsPatch } from '@shared/api'
-import { DEFAULT_SETTINGS, EFFORT_LEVELS, FILE_LOCK_MODES, PERMISSION_MODES } from '@shared/defaults'
+import { DEFAULT_SETTINGS, FILE_LOCK_MODES } from '@shared/defaults'
+import { PROVIDERS, defaultProviderSettings, enabledProviders, isProviderEnabled, providerDescriptor, providerSettings, type ProviderDescriptor } from '@shared/providers'
 import { ModelPicker } from '../components/ModelPicker'
+import { ProviderIcon } from '../components/ProviderIcon'
 import * as actions from '../actions'
 import { call } from '../api'
 import { playChime } from '../chime'
 import { Icon, IconButton, InfoTip, Switch, Tooltip } from '../components/ui'
 import { UpdateStatusRow } from '../components/Updates'
 import { KeybindingsEditor } from '../components/Keybindings'
-import { confirm, notify, set, useStore } from '../store'
+import { choose, confirm, get, notify, set, useStore } from '../store'
 import { cx } from '../util'
 
-type Section = keyof AppSettings | 'advanced'
+/** A settings section: a group of AppSettings, "providers" (turning them on), one provider's page ("provider:<id>"), or "advanced". */
+type Section = keyof AppSettings | 'advanced' | `provider:${string}`
 
 interface SettingDef {
   section: Section
+  /** For a provider page: the provider whose settings this reads and writes. */
+  provider?: ProviderId
   key: string
   title: string
   desc: string
@@ -33,11 +39,14 @@ interface SettingDef {
   confirmOn?: { title: string; message: string; detail?: string }
 }
 
-const SECTIONS: { id: Section; label: string; icon: string; desc: string }[] = [
+const providerSection = (id: ProviderId): Section => `provider:${id}`
+
+const SECTIONS: { id: Section; label: string; icon: string; desc: string; provider?: ProviderId }[] = [
   { id: 'general', label: 'General', icon: 'settings-gear', desc: 'Startup, window and tray behaviour.' },
   { id: 'updates', label: 'Updates', icon: 'cloud-download', desc: "Keeping Hive itself up to date. New versions come from Hive's GitHub releases and are verified before they install." },
   { id: 'appearance', label: 'Appearance', icon: 'symbol-color', desc: 'Theme, fonts and terminal look.' },
-  { id: 'claude', label: 'Claude Code', icon: 'hubot', desc: 'The Claude Code CLI (required — the VS Code extension is not used) and the defaults every project inherits.' },
+  { id: 'providers', label: 'Providers', icon: 'hubot', desc: 'The coding agents Hive can run. Turn on the ones you use; each has its own page below with its CLI and the defaults every project inherits.' },
+  ...PROVIDERS.map((p) => ({ id: providerSection(p.id), label: p.name, icon: 'blank', provider: p.id, desc: `The ${p.name} CLI (the standalone one — copies bundled with editor extensions are not used) and the defaults every project inherits for ${p.name} agents.` })),
   { id: 'notifications', label: 'Notifications', icon: 'bell', desc: 'Chimes and desktop notifications when agents finish or need you.' },
   { id: 'sessions', label: 'Sessions', icon: 'history', desc: 'Transcript backups, cache estimates and session behaviour.' },
   { id: 'agents', label: 'Agents & Worktrees', icon: 'organization', desc: 'Defaults for projects running several agents: file locks, new worktrees and merging. Projects can override them.' },
@@ -61,7 +70,7 @@ const SETTINGS: SettingDef[] = [
   { section: 'updates', key: 'install', title: 'Install updates', desc: 'When a downloaded update is installed.', tip: 'Automatically: the update installs when you next quit Hive (never while it is running, so your sessions are not interrupted); Restart and Update installs it straight away. Manually: it installs only when you choose Restart and Update. Either way, Hive asks before stopping agents that are working.', type: 'select', options: [{ value: 'auto', label: 'Automatically, when Hive quits' }, { value: 'manual', label: 'Manually, with Restart and Update' }] },
   { section: 'updates', key: 'prerelease', title: 'Include pre-releases', desc: 'Also offer beta versions published before a full release.', tip: 'Pre-releases get new features first and may have rough edges. Turning this off again waits for the next full release rather than going back.', type: 'boolean' },
   // Keyboard shortcuts
-  { section: 'keybindings', key: 'editor', title: 'Shortcuts', desc: 'Click the pencil (or double-click a shortcut), then press the new keys. Wait a moment after the first combination, or press a second one for a chord such as Ctrl+K Ctrl+S.', tip: "Shortcuts need Ctrl or Alt (or are F-keys). Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A, Ctrl+Z, Ctrl+Y and Shift+Tab stay with editing and Claude Code's terminal. Ctrl+B, Ctrl+K, Ctrl+O, Ctrl+R, Ctrl+T and Ctrl+G go to Claude Code while its terminal has focus.", type: 'custom', wide: true, render: () => <KeybindingsEditor /> },
+  { section: 'keybindings', key: 'editor', title: 'Shortcuts', desc: 'Click the pencil (or double-click a shortcut), then press the new keys. Wait a moment after the first combination, or press a second one for a chord such as Ctrl+K Ctrl+S.', tip: "Shortcuts need Ctrl or Alt (or are F-keys). Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A, Ctrl+Z, Ctrl+Y and Shift+Tab stay with editing and the agents' terminals. Some keys go to the agent while its terminal has focus (for Claude Code: Ctrl+B, Ctrl+K, Ctrl+O, Ctrl+R, Ctrl+T and Ctrl+G).", type: 'custom', wide: true, render: () => <KeybindingsEditor /> },
   // Appearance
   { section: 'appearance', key: 'theme', title: 'Theme', desc: 'Colour theme for Hive.', tip: 'System follows your Windows light/dark setting.', type: 'select', options: [{ value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }, { value: 'system', label: 'System' }] },
   { section: 'appearance', key: 'uiFontSize', title: 'Interface font size', desc: 'Font size for menus, lists and panels, in pixels.', tip: 'Use View → Zoom to scale everything, including the terminal.', type: 'number', min: 11, max: 18 },
@@ -69,48 +78,24 @@ const SETTINGS: SettingDef[] = [
   { section: 'appearance', key: 'terminalFontSize', title: 'Terminal font size', desc: 'Font size for session terminals, in pixels.', tip: 'Applies to open terminals immediately.', type: 'number', min: 8, max: 28 },
   { section: 'appearance', key: 'terminalScrollback', title: 'Terminal scrollback', desc: 'Lines kept in each terminal for scrolling back.', tip: 'Higher values use more memory per running session.', type: 'number', min: 1000, max: 100000, step: 1000 },
   { section: 'appearance', key: 'terminalCursorBlink', title: 'Blinking cursor', desc: 'Blink the terminal cursor.', tip: 'Purely cosmetic.', type: 'boolean' },
-  // Claude Code
-  { section: 'claude', key: 'status', title: 'Installation', desc: '', tip: 'Where Hive found Claude Code and whether an update is available.', type: 'custom', render: () => <ClaudeStatus /> },
-  { section: 'claude', key: 'executablePath', title: 'Claude Code CLI path', desc: 'Full path to the Claude Code CLI (claude.exe). Leave empty to detect it automatically.', tip: 'Detection checks PATH, %USERPROFILE%\\.local\\bin and npm, in that order. Copies bundled with editor extensions (VS Code, Cursor…) are never used — Hive requires the standalone CLI.', type: 'text', placeholder: 'Auto-detect' },
-  { section: 'claude', key: 'checkUpdatesOnLaunch', title: 'Check for updates on launch', desc: 'Compare the installed version with the latest release when Hive starts.', tip: 'Hive never updates Claude Code without asking. Standalone installs also update themselves.', type: 'boolean' },
-  { section: 'claude', key: 'defaultModel', title: 'Default model', desc: "Model for sessions unless a project overrides it. Claude Code default uses Claude Code's own choice.", tip: 'Latest aliases (fable, opus, sonnet, haiku) always pick the newest model in that family; a pinned version stays on that model. 1M context uses the larger context window where the model has one. Whether your account can use a model is only known when a session starts.', type: 'custom', render: () => <GlobalModelPicker /> },
-  { section: 'claude', key: 'defaultEffort', title: 'Default effort', desc: 'Reasoning effort unless a project overrides it.', tip: 'Higher effort is more thorough but slower and uses more tokens.', type: 'select', options: [{ value: '', label: 'Claude Code default' }, ...EFFORT_LEVELS.map((l) => ({ value: l, label: l }))] },
-  {
-    section: 'claude',
-    key: 'defaultPermissionMode',
-    title: 'Default permission mode',
-    desc: 'The mode sessions start in unless a project overrides it.',
-    tip: PERMISSION_MODES.filter((m) => m.value !== 'bypassPermissions').map((m) => `${m.label}: ${m.description}`).join('\n'),
-    type: 'select',
-    options: PERMISSION_MODES.filter((m) => m.value !== 'bypassPermissions').map((m) => ({ value: m.value, label: m.label }))
-  },
-  {
-    section: 'claude',
-    key: 'enableBypassOption',
-    title: 'Enable bypass permissions option',
-    desc: 'Allow projects to choose "Bypass permissions", where the agent runs every action without asking.',
-    tip: 'Bypass is never a global default. When turned off, projects using it return to Inherit.',
-    type: 'boolean',
-    danger: true,
-    confirmOn: {
-      title: 'Enable the bypass permissions option?',
-      message: 'Projects will be able to run sessions where Claude Code executes every command, file edit and network request without asking.',
-      detail: 'Recommended only for disposable environments. Each project still has to choose it, and doing so asks for confirmation.'
-    }
-  },
-  { section: 'claude', key: 'extraArgs', title: 'Extra arguments', desc: 'Additional command-line arguments for every session.', tip: 'Projects can add more in their own settings. Example: --verbose', type: 'text', placeholder: 'e.g. --verbose' },
+  // Providers
+  { section: 'providers', key: 'list', title: 'Providers', desc: 'Turn on the coding agents you want to use. Agents of a provider that is off stay listed but can\'t start.', tip: 'Each project agent runs one provider, chosen when you add it (Add Agent) or in its settings. A provider needs its CLI installed and signed in.', type: 'custom', wide: true, render: () => <ProvidersList /> },
+  { section: 'providers', key: 'defaultProvider', title: 'Default provider', desc: 'The provider Add Agent uses for new agents (one click, with its default settings) unless the project chooses another.', tip: 'Projects can choose their own default in Project Settings. Agents keep the provider they were given; Add Agent… (▾) can choose another.', type: 'custom', render: () => <DefaultProviderPicker /> },
+  ...PROVIDERS.flatMap(providerSettingDefs),
   // Notifications
   { section: 'notifications', key: 'chimeEnabled', title: 'Completion chime', desc: 'Play a sound when an agent finishes or needs your input.', tip: 'Projects can override this in their settings.', type: 'boolean' },
   { section: 'notifications', key: 'chimeSound', title: 'Chime sound', desc: 'Which sound to play.', tip: 'Sounds are synthesised by Hive — no audio files needed.', type: 'custom', render: () => <ChimePicker /> },
   { section: 'notifications', key: 'chimeVolume', title: 'Chime volume', desc: 'Volume of the chime.', tip: 'Independent of Windows notification sounds.', type: 'range', min: 0, max: 1, step: 0.05 },
   { section: 'notifications', key: 'desktopNotifications', title: 'Desktop notifications', desc: 'Show Windows notifications for agent events.', tip: 'Clicking a notification opens Hive at that project.', type: 'boolean' },
-  { section: 'notifications', key: 'notifyOnFinished', title: 'Notify when an agent finishes', desc: 'Notify when a session completes its task.', tip: 'Triggered by Claude Code\'s Stop hook.', type: 'boolean' },
-  { section: 'notifications', key: 'notifyOnWaiting', title: 'Notify when input is needed', desc: 'Notify when a session is waiting for permission or input.', tip: "Triggered by Claude Code's permission prompts.", type: 'boolean' },
+  { section: 'notifications', key: 'notifyOnFinished', title: 'Notify when an agent finishes', desc: 'Notify when a session completes its task.', tip: "Triggered when the agent's turn ends (its Stop hook).", type: 'boolean' },
+  { section: 'notifications', key: 'notifyOnWaiting', title: 'Notify when input is needed', desc: 'Notify when a session is waiting for permission or input.', tip: "Triggered by the agent's permission prompts and questions.", type: 'boolean' },
   { section: 'notifications', key: 'onlyWhenUnfocused', title: 'Only when Hive is in the background', desc: 'Skip desktop notifications while you are looking at Hive.', tip: 'The chime still plays either way.', type: 'boolean' },
   // Sessions
-  { section: 'sessions', key: 'backupTranscripts', title: 'Back up transcripts', desc: "Copy each session's transcript into the project's .hive/sessions folder.", tip: 'Claude Code deletes old transcripts after a while (30 days by default). Backups let you resume and review sessions later. Archived sessions are always preserved.', type: 'boolean' },
+  { section: 'sessions', key: 'backupTranscripts', title: 'Back up transcripts', desc: "Copy each session's transcript into the project's .hive/sessions folder.", tip: 'Agents delete old transcripts after a while (Claude Code: 30 days by default). Backups let you resume and review sessions later. Archived sessions are always preserved.', type: 'boolean' },
   { section: 'sessions', key: 'cacheTtl', title: 'Prompt cache lifetime', desc: 'Used to estimate whether resuming a session needs to re-cache its context.', tip: 'Auto detects the cache type from the transcript (5 minutes or 1 hour).', type: 'select', options: [{ value: 'auto', label: 'Auto-detect' }, { value: '5m', label: '5 minutes' }, { value: '1h', label: '1 hour' }] },
   { section: 'sessions', key: 'compactSuggestTokens', title: 'Suggest compacting above', desc: 'Context size, in tokens, at which the Compact button and the context count in the status bar turn orange. 0 never suggests it.', tip: 'Compacting summarises the conversation so every later message is cheaper; the full history stays in the transcript. Projects can set their own value in Project Settings. Compact is always available once the agent has finished.', type: 'number', min: 0, max: 2000000, step: 10000 },
+  { section: 'sessions', key: 'overviewRefresh', title: 'Overview updates', desc: 'How the Overview and the session lists update while agents work.', tip: 'Live updates as sessions change, at most every 15 seconds and only while the tab is shown. Each update reads the project\'s session files, so with many sessions or agents a slower choice keeps Hive lighter. Refresh always updates at once.', type: 'select', options: [{ value: 'live', label: 'Live (at most every 15 s)' }, { value: 'minute', label: 'Every minute' }, { value: 'manual', label: 'Only when I click Refresh' }] },
+  { section: 'sessions', key: 'followTranscripts', title: 'Follow running sessions in the transcript viewer', desc: 'The Sessions tab shows new messages of a running session as they arrive.', tip: 'Off: the transcript shows what was there when you opened it; Refresh loads what is new. You can also switch following on in the viewer itself. The Session tab always shows the agent working.', type: 'boolean' },
   { section: 'sessions', key: 'confirmStop', title: 'Confirm before stopping', desc: 'Ask before stopping a running session.', tip: 'Stopped sessions can always be resumed.', type: 'boolean' },
   // Agents
   {
@@ -146,26 +131,173 @@ const SETTINGS: SettingDef[] = [
   { section: 'advanced', key: 'reset', title: 'Reset all settings', desc: 'Restore every setting on this page to its default. Workspaces and projects are not affected.', tip: 'Recent workspaces and window position are kept.', type: 'custom', danger: true, render: () => <ResetAll /> }
 ]
 
-function GlobalModelPicker() {
-  const value = useStore((s) => s.settings?.claude.defaultModel ?? '')
-  return <ModelPicker value={value} base={{ value: '', label: 'Claude Code default' }} onChange={(v) => void update(SETTINGS.find((d) => d.key === 'defaultModel')!, v)} />
+/** The settings on one provider's page, from its descriptor. */
+function providerSettingDefs(p: ProviderDescriptor): SettingDef[] {
+  const section = providerSection(p.id)
+  const safe = p.permissionModes.filter((m) => !m.danger)
+  const danger = p.permissionModes.find((m) => m.danger)
+  const defs: SettingDef[] = [
+    { section, provider: p.id, key: 'enabled', title: `Use ${p.name}`, desc: `Let project agents run ${p.name}.`, tip: `When off, ${p.name} agents stay listed but can't start, and Hive doesn't check for its CLI.`, type: 'custom', render: () => <ProviderToggle provider={p.id} /> },
+    { section, provider: p.id, key: 'status', title: 'Installation', desc: '', tip: `Where Hive found ${p.name}, whether it is signed in and whether an update is available.`, type: 'custom', render: () => <ProviderStatus provider={p.id} /> },
+    { section, provider: p.id, key: 'executablePath', title: 'CLI path', desc: `Full path to the ${p.name} CLI (${p.cliName}.exe). Leave empty to detect it automatically.`, tip: 'Detection checks PATH and the usual install folders. Copies bundled with editor extensions (VS Code, Cursor…) are never used — Hive requires the standalone CLI.', type: 'text', placeholder: 'Auto-detect' },
+    { section, provider: p.id, key: 'checkUpdatesOnLaunch', title: 'Check for updates on launch', desc: 'Compare the installed version with the latest release when Hive starts.', tip: `Hive never updates ${p.name} without asking. Standalone installs may also update themselves.`, type: 'boolean' },
+    { section, provider: p.id, key: 'defaultModel', title: 'Default model', desc: `Model for ${p.name} sessions unless a project overrides it. ${p.name} default uses its own choice.`, tip: 'Whether your account can use a model is only known when a session starts.', type: 'custom', render: () => <GlobalModelPicker provider={p.id} /> },
+    { section, provider: p.id, key: 'defaultEffort', title: 'Default effort', desc: 'Reasoning effort unless a project overrides it.', tip: 'Higher effort is more thorough but slower and uses more tokens.', type: 'select', options: [{ value: '', label: `${p.name} default` }, ...p.effortLevels.map((l) => ({ value: l.value, label: l.label }))] },
+    {
+      section,
+      provider: p.id,
+      key: 'defaultPermissionMode',
+      title: 'Default permission mode',
+      desc: 'The mode sessions start in unless a project overrides it.',
+      tip: safe.map((m) => `${m.label}: ${m.description}`).join('\n'),
+      type: 'select',
+      options: safe.map((m) => ({ value: m.value, label: m.label }))
+    }
+  ]
+  if (danger) {
+    defs.push({
+      section,
+      provider: p.id,
+      key: 'enableDangerousMode',
+      title: `Enable the ${danger.label} option`,
+      desc: `Allow projects and agents to choose "${danger.label}", where the agent runs every action without asking.`,
+      tip: `${danger.label} is never a global default. When turned off, projects and agents using it return to Inherit.`,
+      type: 'boolean',
+      danger: true,
+      confirmOn: {
+        title: `Enable the ${danger.label} option?`,
+        message: `Projects will be able to run sessions where ${p.name} executes every command, file edit and network request without asking.`,
+        detail: 'Recommended only for disposable environments. Each project still has to choose it, and doing so asks for confirmation.'
+      }
+    })
+  }
+  defs.push({ section, provider: p.id, key: 'extraArgs', title: 'Extra arguments', desc: `Additional ${p.cliName} command-line arguments for every session.`, tip: 'Projects can add more in their own settings.', type: 'text', placeholder: 'e.g. --verbose' })
+  defs.push({
+    section,
+    provider: p.id,
+    key: 'prices',
+    title: 'API prices',
+    desc: p.capabilities.reportsCost
+      ? `${p.name} reports each session's cost itself; these prices are only used for sessions without one. USD per million tokens.`
+      : `Used to estimate what ${p.name} sessions would cost at API prices (shown with ≈ on the Overview). USD per million tokens.`,
+    tip: `Hive ships the published prices as of ${PRICES_CHECKED}. Change any that are out of date; Reset returns a model to Hive's price. On a subscription you are not charged these — they show how heavy the work was.`,
+    type: 'custom',
+    wide: true,
+    render: () => <PriceTable provider={p.id} />
+  })
+  return defs
+}
+
+/** The price table for a provider's models: Hive's prices, with the user's overrides. */
+function PriceTable({ provider }: { provider: ProviderId }) {
+  const own = useStore((s) => providerSettings(s.settings, provider).prices)
+  const shipped = SHIPPED_PRICES[provider] ?? {}
+  const models = [...new Set([...Object.keys(shipped), ...Object.keys(own)])]
+  const cols: { key: keyof ModelPrice; label: string }[] = [
+    { key: 'input', label: 'Input' },
+    { key: 'cachedInput', label: 'Cached input' },
+    ...(Object.values(shipped).some((m) => m.cacheWrite !== undefined) ? [{ key: 'cacheWrite' as const, label: 'Cache write' }] : []),
+    { key: 'output', label: 'Output' }
+  ]
+  const save = (next: Record<string, ModelPrice>): Promise<void> =>
+    // Replaces the whole table (a deep merge can't remove a model's override).
+    actions.attempt('Could not save prices', () => call('settings:setProviderPrices', provider, next)).then((s) => void (s && set({ settings: s })))
+  const setPrice = (model: string, key: keyof ModelPrice, value: string): void => {
+    const n = Number(value)
+    if (!Number.isFinite(n) || n < 0) return
+    const current = own[model] ?? shipped[model] ?? { input: 0, cachedInput: 0, output: 0 }
+    void save({ ...own, [model]: { ...current, [key]: n } })
+  }
+  const reset = (model: string): void => {
+    const next = { ...own }
+    delete next[model]
+    void save(next)
+  }
+  return (
+    <table className="table price-table">
+      <thead>
+        <tr>
+          <th>Model</th>
+          {cols.map((c) => (
+            <th key={c.key} className="num">
+              {c.label}
+            </th>
+          ))}
+          <th />
+        </tr>
+      </thead>
+      <tbody>
+        {models.map((m) => {
+          const price = own[m] ?? shipped[m]
+          return (
+            <tr key={m}>
+              <td className="mono">
+                {m} {own[m] && <span className="badge">yours</span>}
+              </td>
+              {cols.map((c) => (
+                <td key={c.key} className="num">
+                  <input className="input price-input" type="number" min={0} step={0.01} defaultValue={price?.[c.key] ?? ''} key={`${m}:${c.key}:${price?.[c.key]}`} onBlur={(e) => e.target.value !== String(price?.[c.key] ?? '') && setPrice(m, c.key, e.target.value)} />
+                </td>
+              ))}
+              <td>{own[m] && shipped[m] && <IconButton icon="discard" title="Back to Hive's price" onClick={() => reset(m)} />}</td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
+function GlobalModelPicker({ provider }: { provider: ProviderId }) {
+  const value = useStore((s) => providerSettings(s.settings, provider).defaultModel)
+  const def = SETTINGS.find((d) => d.provider === provider && d.key === 'defaultModel')!
+  return <ModelPicker provider={provider} value={value} base={{ value: '', label: `${providerDescriptor(provider).name} default` }} onChange={(v) => void update(def, v)} />
 }
 
 function getValue(s: AppSettings, def: SettingDef): unknown {
-  if (def.section === 'advanced') return undefined
-  return (s[def.section] as unknown as Record<string, unknown>)[def.key]
+  if (def.section === 'advanced' || def.section === 'providers') return def.key === 'defaultProvider' ? s.defaultProvider : undefined
+  if (def.provider) return (providerSettings(s, def.provider) as unknown as Record<string, unknown>)[def.key]
+  return (s[def.section as keyof AppSettings] as unknown as Record<string, unknown>)[def.key]
 }
 
 function defaultValue(def: SettingDef): unknown {
-  if (def.section === 'advanced') return undefined
-  return (DEFAULT_SETTINGS[def.section] as unknown as Record<string, unknown>)[def.key]
+  if (def.section === 'advanced' || def.section === 'providers') return def.key === 'defaultProvider' ? DEFAULT_SETTINGS.defaultProvider : undefined
+  if (def.provider) return (defaultProviderSettings(providerDescriptor(def.provider)) as unknown as Record<string, unknown>)[def.key]
+  return (DEFAULT_SETTINGS[def.section as keyof AppSettings] as unknown as Record<string, unknown>)[def.key]
+}
+
+async function saveSettings(patch: SettingsPatch): Promise<void> {
+  const s = await actions.attempt('Could not save setting', () => call('settings:update', patch))
+  if (s) set({ settings: s })
 }
 
 async function update(def: SettingDef, value: unknown): Promise<void> {
   if (def.section === 'advanced') return
-  const patch = { [def.section]: { [def.key]: value } } as SettingsPatch
-  const s = await actions.attempt('Could not save setting', () => call('settings:update', patch))
-  if (s) set({ settings: s })
+  if (def.section === 'providers') return def.key === 'defaultProvider' ? saveSettings({ defaultProvider: value as string }) : undefined
+  if (def.provider) return saveSettings({ providers: { [def.provider]: { [def.key]: value } } } as SettingsPatch)
+  return saveSettings({ [def.section]: { [def.key]: value } } as SettingsPatch)
+}
+
+/** Turns a provider on or off. Turning it off with agents running asks whether to stop them. */
+export async function setProviderEnabled(provider: ProviderId, on: boolean): Promise<void> {
+  const name = providerDescriptor(provider).name
+  if (!on) {
+    const running = (get().workspace?.projects ?? []).flatMap((p) => p.agents.filter((a) => a.live?.provider === provider).map((a) => `${p.name} · ${a.name}`))
+    if (running.length) {
+      const choice = await choose({
+        title: `Turn off ${name}?`,
+        message: `${running.length === 1 ? 'An agent is' : `${running.length} agents are`} running ${name}: ${running.join(', ')}.`,
+        detail: 'Stop them now, or let them run until they are stopped. Either way no new ones start while it is off.',
+        choices: [
+          { label: 'Let them run', value: 'run' },
+          { label: 'Stop them now', value: 'stop' }
+        ]
+      })
+      if (!choice) return
+      if (choice === 'stop') await actions.attempt(`Could not stop the ${name} agents`, () => call('provider:stopAgents', provider))
+    }
+  }
+  await saveSettings({ providers: { [provider]: { enabled: on } } } as SettingsPatch)
 }
 
 function Control({ def, settings }: { def: SettingDef; settings: AppSettings }) {
@@ -224,28 +356,87 @@ function Control({ def, settings }: { def: SettingDef; settings: AppSettings }) 
   }
 }
 
-function ClaudeStatus() {
-  const agent = useStore((s) => s.agent)
-  if (!agent || agent.checking) return <span className="muted"><Icon name="loading" spin /> Checking…</span>
+function ProviderToggle({ provider }: { provider: ProviderId }) {
+  const on = useStore((s) => isProviderEnabled(s.settings, provider))
+  return <Switch checked={on} label={`Use ${providerDescriptor(provider).name}`} onChange={(v) => void setProviderEnabled(provider, v)} />
+}
+
+function ProviderStatus({ provider }: { provider: ProviderId }) {
+  const info = useStore((s) => s.providers[provider])
+  if (!info || info.checking) return <span className="muted"><Icon name="loading" spin /> Checking…</span>
+  const problems = (info.readiness ?? []).filter((r) => r.level !== 'info')
   return (
     <div className="flex" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-      {agent.found ? (
-        <Tooltip content={agent.path}>
+      {info.found ? (
+        <Tooltip content={info.path}>
           <span className="badge success">
-            <Icon name="check" /> {agent.version} · {agent.source}
+            <Icon name="check" /> {info.version} · {info.source}
           </span>
         </Tooltip>
       ) : (
         <span className="badge error">CLI not installed</span>
       )}
-      {agent.updateAvailable && <span className="badge accent">{agent.latestVersion} available</span>}
-      <button className="btn small subtle" onClick={() => void actions.refreshAgent()}>
+      {info.found &&
+        problems.map((r) => (
+          <span key={r.id} className={cx('badge', r.level === 'error' ? 'error' : 'accent')}>
+            {r.message}
+          </span>
+        ))}
+      {info.updateAvailable && <span className="badge accent">{info.latestVersion} available</span>}
+      <button className="btn small subtle" onClick={() => void actions.refreshProviders()}>
         Check now
       </button>
-      <button className="btn small primary" onClick={() => set({ setupOpen: true })}>
-        {agent.found ? 'Manage' : 'Install'}
+      <button className="btn small primary" onClick={() => set({ setupOpen: provider })}>
+        {info.found ? 'Manage' : 'Install'}
       </button>
     </div>
+  )
+}
+
+/** Every provider with its on/off switch and install state. */
+function ProvidersList() {
+  const settings = useStore((s) => s.settings)
+  const providers = useStore((s) => s.providers)
+  return (
+    <div className="provider-list">
+      {PROVIDERS.map((p) => {
+        const info = providers[p.id]
+        const on = isProviderEnabled(settings, p.id)
+        const state = !info || info.checking ? 'Checking…' : !info.found ? 'Not installed' : info.readiness?.find((r) => r.level === 'error')?.message ?? `Installed · ${info.version}`
+        return (
+          <div key={p.id} className={cx('provider-row', !on && 'off')}>
+            <ProviderIcon provider={p.id} />
+            <div className="grow">
+              <div>
+                <strong>{p.name}</strong> <span className="faint">by {p.company}</span>
+              </div>
+              <div className="faint small">{state}</div>
+            </div>
+            <button className="btn small subtle" onClick={() => set({ settingsSection: providerSection(p.id), settingsQuery: '' })}>
+              Settings
+            </button>
+            <Switch checked={on} label={`Use ${p.name}`} onChange={(v) => void setProviderEnabled(p.id, v)} />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function DefaultProviderPicker() {
+  const settings = useStore((s) => s.settings)
+  const on = enabledProviders(settings)
+  const def = SETTINGS.find((d) => d.key === 'defaultProvider')!
+  const current = settings?.defaultProvider ?? ''
+  return (
+    <select className="select" value={current} onChange={(e) => void update(def, e.target.value)}>
+      {PROVIDERS.filter((p) => on.includes(p) || p.id === current).map((p) => (
+        <option key={p.id} value={p.id}>
+          {p.name}
+          {on.includes(p) ? '' : ' (off)'}
+        </option>
+      ))}
+    </select>
   )
 }
 
@@ -364,6 +555,7 @@ export function SettingsView() {
 
   if (!settings) return null
   const grouped = SECTIONS.map((s) => ({ ...s, items: visible.filter((d) => d.section === s.id) })).filter((g) => g.items.length)
+  const navIcon = (s: (typeof SECTIONS)[number]): React.ReactNode => (s.provider ? <ProviderIcon provider={s.provider} /> : <Icon name={s.icon} />)
 
   return (
     <div className="settings">
@@ -382,7 +574,7 @@ export function SettingsView() {
                 setModifiedOnly(false)
               }}
             >
-              <Icon name={s.icon} /> <span className="label">{s.label}</span>
+              {navIcon(s)} <span className={cx('label', s.provider && 'settings-sub')}>{s.label}</span>
             </div>
           ))}
         </div>
@@ -393,7 +585,7 @@ export function SettingsView() {
               <h2>{g.label}</h2>
               <p>{g.desc}</p>
               {g.items.map((d) => {
-                const modified = (d.type !== 'custom' || d.key === 'defaultModel') && getValue(settings, d) !== defaultValue(d)
+                const modified = (d.type !== 'custom' || d.key === 'defaultModel' || d.key === 'defaultProvider') && getValue(settings, d) !== defaultValue(d)
                 return (
                   d.wide ? (
                     <div key={`${d.section}.${d.key}`} className="setting wide">

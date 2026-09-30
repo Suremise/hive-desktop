@@ -1,10 +1,13 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo, SessionListItem, Transcript, TranscriptImageRef, TranscriptItem, TranscriptSearchResult, TranscriptTool } from '@shared/types'
+import { TRANSCRIPT_WINDOW } from '@shared/defaults'
+import { providerDescriptor, providerName } from '@shared/providers'
+import { ProviderIcon } from '../components/ProviderIcon'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { Icon, IconButton, InfoTip, Markdown, Modal, Tooltip, useContextMenu } from '../components/ui'
-import { confirm, notify, prompt, revealAgent, set, useStore } from '../store'
+import { confirm, notify, openInSessionsTab, prompt, revealAgent, set, useStore } from '../store'
 import { cx, formatDuration, formatTokens, sessionLabel, timeAgo } from '../util'
 import { useSessions } from './ProjectTabs'
 
@@ -226,7 +229,7 @@ export function SessionsTab({ project }: { project: ProjectInfo }) {
                   }
                   return (
                     <span className="split-btn">
-                      <Tooltip content={`Resume in ${targetName ?? 'Agent 1'}`}>
+                      <Tooltip content={targetName ? `Resume in ${targetName}` : 'Resume (adds an agent if none can run it)'}>
                         <button className="btn small tint-amber" onClick={() => void actions.resumeSession(project.path, selected)}>
                           <Icon name="debug-continue" /> Resume{targetName ? ` in ${targetName}` : ''}
                         </button>
@@ -271,7 +274,7 @@ export function SessionsTab({ project }: { project: ProjectInfo }) {
 
 const HIT_KIND: Record<TranscriptItem['kind'], string> = {
   user: 'You',
-  assistant: 'Claude',
+  assistant: 'Reply',
   thinking: 'Thinking',
   tool: 'Tool',
   compaction: 'Summary',
@@ -291,14 +294,14 @@ function Highlight({ text, query }: { text: string; query: string }) {
   )
 }
 
-/** Which agent ran a session: its worktree's agent, else the agent recorded for it, else Agent 1. */
+/** Which agent ran a session: its worktree's agent, else the agent recorded for it (null when it no longer exists). */
 function agentLabel(project: ProjectInfo, s: SessionListItem): string | null {
   if (s.source !== 'hive') return null
   if (s.cwd && s.cwd.toLowerCase() !== project.path.toLowerCase()) {
     const a = project.agents.find((x) => x.worktree?.path.toLowerCase() === s.cwd!.toLowerCase())
     return a ? `${a.name} · ${s.branch ?? a.worktree!.branch}` : s.branch ?? 'worktree'
   }
-  return project.agents.find((a) => a.id === (s.agentId ?? 'main'))?.name ?? null
+  return project.agents.find((a) => a.id === s.agentId)?.name ?? null
 }
 
 function SessionRow({ s, name, live, agent, selected, onClick }: { s: SessionListItem; name: string; live: string | null; agent: string | null; selected: boolean; onClick: () => void }) {
@@ -306,6 +309,11 @@ function SessionRow({ s, name, live, agent, selected, onClick }: { s: SessionLis
     <div className={cx('session-row', selected && 'selected', s.archived && 'archived')} onClick={onClick}>
       <div className="session-row-title">
         {live && <span className={cx('dot', live)} />}
+        <Tooltip content={providerName(s.provider)}>
+          <span>
+            <ProviderIcon provider={s.provider} />
+          </span>
+        </Tooltip>
         <strong>{name}</strong>
       </div>
       <div className="session-row-meta">
@@ -319,7 +327,7 @@ function SessionRow({ s, name, live, agent, selected, onClick }: { s: SessionLis
         )}
         {s.archived && <span className="badge">archived</span>}
         {!s.hasTranscript && s.hasBackup && (
-          <Tooltip content="Claude Code no longer has this transcript; Hive shows and resumes it from its backup.">
+          <Tooltip content={`${providerName(s.provider)} no longer has this transcript; Hive shows and resumes it from its backup.`}>
             <span className="badge warn">backup</span>
           </Tooltip>
         )}
@@ -332,7 +340,7 @@ function SessionRow({ s, name, live, agent, selected, onClick }: { s: SessionLis
 // Transcript viewer
 // ---------------------------------------------------------------------------
 
-/** Items grouped the way they are read: your message, then everything Claude did in reply. */
+/** Items grouped the way they are read: your message, then everything the agent did in reply. */
 type Block =
   | { kind: 'user'; item: Extract<TranscriptItem, { kind: 'user' }> }
   | { kind: 'reply'; items: TranscriptItem[] }
@@ -361,37 +369,69 @@ function TranscriptView({ project, session, live, jump, query, toolbar }: { proj
   const [viewing, setViewing] = useState<TranscriptImageRef | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const sizeRef = useRef<number | undefined>(undefined)
+  /** The first item loaded: the latest TRANSCRIPT_WINDOW open first, earlier ones load as you scroll up. */
+  const fromRef = useRef<number | undefined>(undefined)
+  /** Scrolling up loaded earlier items: keep the view where it was (distance from the bottom). */
+  const keepBottom = useRef<number | null>(null)
+  const loadingEarlier = useRef(false)
   /** Whether the view follows the end of the transcript. */
   const pinned = useRef(jump === null)
+  const followDefault = useStore((s) => s.settings?.sessions.followTranscripts ?? false)
+  // A running session is followed only when switched on (Follow), else it updates with Refresh.
+  const [follow, setFollow] = useState(followDefault)
 
-  const load = useCallback(async () => {
-    try {
-      const t = await call('transcript:read', project.path, session.id, sizeRef.current)
-      if (!t) return
-      sizeRef.current = t.size
-      setTranscript(t)
-      setError(null)
-    } catch (e) {
-      setError(errorMessage(e))
-    }
-  }, [project.path, session.id])
+  const load = useCallback(
+    async (opts: { from?: number; force?: boolean } = {}) => {
+      try {
+        const from = opts.from ?? fromRef.current
+        const same = from === fromRef.current && !opts.force
+        const t = await call('transcript:read', project.path, session.id, { knownSize: same ? sizeRef.current : undefined, from })
+        if (!t) return
+        sizeRef.current = t.size
+        fromRef.current = t.from
+        setTranscript(t)
+        setError(null)
+      } catch (e) {
+        setError(errorMessage(e))
+      }
+    },
+    [project.path, session.id]
+  )
 
   useEffect(() => {
+    fromRef.current = undefined
+    sizeRef.current = undefined
     void load()
-  }, [load, session.lastActivity])
-  // Follow a running session as Claude Code appends to it.
+  }, [load])
+  // Follow a running session as its CLI appends to it (when switched on).
   useEffect(() => {
-    if (!live) return
+    if (!live || !follow) return
+    void load()
     const t = setInterval(() => void load(), 2000)
     return () => clearInterval(t)
-  }, [live, load])
+  }, [live, follow, load])
+
+  /** Loads the TRANSCRIPT_WINDOW items before the first one shown, keeping the view where it is. */
+  const loadEarlier = useCallback(async () => {
+    const el = scroller.current
+    const from = fromRef.current ?? 0
+    if (!el || from <= 0 || loadingEarlier.current) return
+    loadingEarlier.current = true
+    keepBottom.current = el.scrollHeight - el.scrollTop
+    await load({ from: Math.max(0, from - TRANSCRIPT_WINDOW) })
+    loadingEarlier.current = false
+  }, [load])
 
   // Open at the latest message and stay there while new messages arrive, unless you scroll up.
   // Blocks off screen are laid out lazily with estimated heights that settle as they render, so
   // the body is watched for size changes rather than scrolled once.
   useLayoutEffect(() => {
     const el = scroller.current
-    if (el && transcript && pinned.current) el.scrollTop = el.scrollHeight
+    if (!el || !transcript) return
+    if (keepBottom.current !== null) {
+      el.scrollTop = el.scrollHeight - keepBottom.current
+      keepBottom.current = null
+    } else if (pinned.current) el.scrollTop = el.scrollHeight
   }, [transcript])
   const hasTranscript = transcript !== null
   useEffect(() => {
@@ -408,6 +448,12 @@ function TranscriptView({ project, session, live, jump, query, toolbar }: { proj
   // Jump to a search hit: expand it if it's collapsed, then scroll it into the middle.
   useEffect(() => {
     if (!jump || !transcript) return
+    // A hit before the loaded items: load from a little before it first.
+    if (jump.itemId < transcript.from) {
+      void load({ from: Math.max(0, jump.itemId - 50) })
+      return
+    }
+    // Runs for a new jump, or once its items have loaded — not on every transcript update (it would scroll back).
     pinned.current = false
     setExpanded((s) => new Set(s).add(jump.itemId))
     let frames = 0
@@ -423,7 +469,8 @@ function TranscriptView({ project, session, live, jump, query, toolbar }: { proj
       }
     }
     requestAnimationFrame(go)
-  }, [jump, hasTranscript])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jump, hasTranscript, transcript?.from])
 
   // Highlight the search text everywhere it's rendered (CSS Custom Highlight API).
   useEffect(() => {
@@ -474,6 +521,13 @@ function TranscriptView({ project, session, live, jump, query, toolbar }: { proj
         <span className="path">
           <strong>{sessionLabel(session, project.name)}</strong>
           {live && <span className="badge accent" style={{ marginLeft: 8 }}>Running</span>}
+          {session.continuedFrom && (
+            <Tooltip content="This session continues another agent's work from a handover. Click to open that session.">
+              <span className="badge link" style={{ marginLeft: 8 }} onClick={() => openInSessionsTab(project.path, session.continuedFrom!)}>
+                <Icon name="arrow-swap" /> continued
+              </span>
+            </Tooltip>
+          )}
           {u && (
             <span className="faint" style={{ marginLeft: 8 }}>
               {formatTokens(u.contextTokens)} context · {formatTokens(u.outputTokens)} output · {u.userMessages} prompt{u.userMessages === 1 ? '' : 's'}
@@ -487,6 +541,14 @@ function TranscriptView({ project, session, live, jump, query, toolbar }: { proj
           setExpanded(new Set())
         }} />
         <IconButton icon="export" title="Export as Markdown…" disabled={!transcript} onClick={() => void exportMd()} />
+        {live && (
+          <Tooltip content={follow ? 'Following new messages as they arrive. Click to stop.' : 'Follow new messages as they arrive (Settings → Sessions sets the default)'}>
+            <button className={cx('btn small subtle', follow && 'active')} onClick={() => setFollow(!follow)}>
+              <Icon name={follow ? 'eye' : 'eye-closed'} /> Follow
+            </button>
+          </Tooltip>
+        )}
+        {!follow && <IconButton icon="refresh" title="Refresh (load new messages)" onClick={() => void load({ force: true })} />}
         {toolbar}
       </div>
       <div
@@ -495,6 +557,7 @@ function TranscriptView({ project, session, live, jump, query, toolbar }: { proj
         onScroll={(e) => {
           const el = e.currentTarget
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+          if (el.scrollTop < 200) void loadEarlier()
         }}
       >
         {error ? (
@@ -505,16 +568,23 @@ function TranscriptView({ project, session, live, jump, query, toolbar }: { proj
           <div className="empty-state">Nothing has been said in this session yet.</div>
         ) : (
           <div className="transcript-body">
+            {transcript.from > 0 && (
+              <div className="transcript-earlier faint">
+                <button className="btn small subtle" onClick={() => void loadEarlier()}>
+                  <Icon name="fold-up" /> {transcript.from} earlier item{transcript.from === 1 ? '' : 's'} — scroll up or click to load
+                </button>
+              </div>
+            )}
             {blocks.map((b) =>
               b.kind === 'user' ? (
                 <UserMessage key={b.item.id} item={b.item} project={project} sessionId={session.id} onImage={setViewing} />
               ) : b.kind === 'reply' ? (
-                <Reply key={b.items[0].id} items={b.items} project={project} sessionId={session.id} isOpen={isOpen} toggle={toggle} onImage={setViewing} />
+                <Reply key={b.items[0].id} items={b.items} project={project} sessionId={session.id} assistant={providerDescriptor(session.provider).assistant} isOpen={isOpen} toggle={toggle} onImage={setViewing} />
               ) : (
                 <OtherItem key={b.item.id} item={b.item} open={isOpen(b.item.id)} toggle={toggle} />
               )
             )}
-            {live && <div className="transcript-live faint"><Icon name="loading" spin /> Following the running session</div>}
+            {live && follow && <div className="transcript-live faint"><Icon name="loading" spin /> Following the running session</div>}
           </div>
         )}
       </div>
@@ -563,12 +633,12 @@ const UserMessage = memo(function UserMessage({ item, project, sessionId, onImag
   )
 })
 
-function Reply({ items, project, sessionId, isOpen, toggle, onImage }: { items: TranscriptItem[]; project: ProjectInfo; sessionId: string; isOpen: (id: number) => boolean; toggle: (id: number) => void; onImage: (img: TranscriptImageRef) => void }) {
+function Reply({ items, project, sessionId, assistant, isOpen, toggle, onImage }: { items: TranscriptItem[]; project: ProjectInfo; sessionId: string; assistant: string; isOpen: (id: number) => boolean; toggle: (id: number) => void; onImage: (img: TranscriptImageRef) => void }) {
   return (
     <div className="tx-block tx-reply">
       <div className="tx-head">
         <Icon name="sparkle" />
-        <strong>Claude</strong>
+        <strong>{assistant}</strong>
         <span className="faint">{time(items[0].timestamp)}</span>
       </div>
       {items.map((item) =>

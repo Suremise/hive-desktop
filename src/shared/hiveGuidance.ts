@@ -1,0 +1,64 @@
+/**
+ * What agents are told about Hive: the hive MCP server's instructions (Claude Code shows them to the
+ * model), and the same text as developer instructions for providers that don't (Codex). Kept here so the
+ * MCP server (bundled on its own, Node built-ins only) and the main process say the same thing.
+ */
+
+export function hiveInstructions(project: string): string {
+  return [
+    `Hive is the desktop app hosting this session${project ? ` (project "${project}")` : ''}. It manages a workspace: a folder of projects that share notes, skills and MCP servers.`,
+    'Handovers and shared notes live in the workspace, not in the project folder. When the user mentions a handover, shared notes, instructions for all projects, or another project in the workspace, use these tools rather than searching the file system:',
+    '- hive_read_latest_handover: the latest handover for this project. hive_list_shared_notes / hive_read_shared_note / hive_write_shared_note: everything else in the shared notes.',
+    '- hive_create_handover: when the user wants to hand work over to a future session, or asks you to wrap up.',
+    '- hive_list_projects / hive_project_status: other projects and their sessions. hive_session_usage: token and cache use.',
+    '- hive_notify: flag something to the user in Hive.'
+  ].join('\n')
+}
+
+export function withLatestHandover(instructions: string, relPath: string | null | undefined): string {
+  return relPath ? `${instructions}\n\nThe latest handover for this project is "${relPath}". Read it with hive_read_latest_handover when the user asks you to pick up previous work.` : instructions
+}
+
+const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+
+/** The fields of a shared-notes tree entry this needs (NoteFile, or the MCP server's copy of it). */
+interface NoteLike {
+  name: string
+  relPath: string
+  isDir: boolean
+  modified?: string
+  children?: NoteLike[]
+}
+
+/**
+ * A project's handovers, newest first. Files are named <date>-<project>-<title>.md, so the project is
+ * matched on the name. One project's name can begin another's ("hive" and "hive-website"), so where both
+ * could match, the file's "- **Project:**" header decides (read with `read`).
+ */
+export async function projectHandovers<T extends NoteLike>(tree: T[], project: string | undefined, allProjects: string[], read: (relPath: string) => Promise<string>): Promise<T[]> {
+  const files = ((tree.find((n) => n.isDir && n.name === 'handovers')?.children ?? []) as T[]).filter((f) => !f.isDir && f.name.endsWith('.md') && f.name !== 'README.md')
+  const p = project ? slug(project) : ''
+  // Other projects whose names overlap this one's ("hive" / "hive-website"): their handovers can look like ours.
+  const overlapping = p ? allProjects.map(slug).filter((s) => s !== p && (s.startsWith(p + '-') || p.startsWith(s + '-'))) : []
+  const mine: T[] = []
+  for (const f of files) {
+    if (!p) {
+      mine.push(f)
+      continue
+    }
+    const rest = f.name.replace(/^\d{4}-\d{2}-\d{2}-/, '')
+    if (!rest.startsWith(p + '-')) continue
+    if (!overlapping.some((s) => rest.startsWith(s + '-'))) {
+      mine.push(f)
+      continue
+    }
+    // "hive-website-plan" could be hive-website's "Plan", or hive's "Website plan": the header says which.
+    try {
+      const owner = /^- \*\*Project:\*\* (.+)$/m.exec(await read(f.relPath))?.[1]?.trim()
+      if (owner && slug(owner) === p) mine.push(f)
+    } catch {
+      // Unreadable: leave it out.
+    }
+  }
+  return mine.sort((a, b) => b.name.slice(0, 10).localeCompare(a.name.slice(0, 10)) || (b.modified ?? '').localeCompare(a.modified ?? ''))
+}
