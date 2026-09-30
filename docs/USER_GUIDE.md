@@ -44,7 +44,7 @@ Each **project** (every subfolder except dot-folders) gets its own `.hive` folde
 
 Like VS Code, Hive can show several workspaces at once, each in its own window: **File → New Window** (Ctrl+K Ctrl+N) opens one on the welcome page, where you open or create a workspace. Each window is a full Hive with its own projects, agents, shared notes, skills and MCP servers; settings, the tray and updates are shared.
 
-- **Open Workspace** replaces the workspace in the current window. If its agents are running, Hive asks first (*Switch workspace?*), then stops them; to keep them running, open the other workspace in a new window instead. If the workspace is already open in another window, that window comes forward instead, so two windows never run agents on the same project.
+- **Open Workspace** replaces the workspace in the current window. If its agents are running, Hive asks first (*Switch workspace?*), then stops them; to keep them running, open the other workspace in a new window instead. If the workspace is already open in another window, that window comes forward instead, so two windows never run agents on the same project. A folder inside a workspace open in another window (or one containing it) can't be opened as a workspace: its projects would belong to both.
 - **File → Close Workspace** stops every agent in every project of the workspace, asking first (*Close this workspace?*).
 - **Closing a window** closes its workspace and stops its agents, asking first as quitting does (*Close this window?*). Closing the last window keeps Hive in the tray, as before.
 - **Quitting** stops the agents of every window. When Hive starts again, it reopens the windows that were open, each with its workspace, where they were.
@@ -336,7 +336,7 @@ When it asks, you see each session and what it's doing, and can choose:
 - **Quit when agents finish**: Hive hides and quits by itself once no agent is working. Until then the tray menu has **Quit Now** and **Cancel Pending Quit**, and opening the window shows a banner with the same choices.
 - **Cancel**: keep working.
 
-If files in the Files tab have unsaved changes, Hive always asks, lists them at the top, and saves them (**Save and quit**) or discards them, as you choose. A file that changed on disk since you opened it isn't overwritten: Hive stays open so you can decide.
+If files have unsaved changes (in the Files tab, or a shared note, skill, instruction or memory file, or MCP server you're editing), Hive always asks, lists them at the top, and saves them (**Save and quit**) or discards them, as you choose. A file that changed on disk since you opened it isn't overwritten: Hive stays open so you can decide.
 
 Tick **Don't ask again** to stop the question about sessions, or change it any time in **Settings → General → Confirm before quitting** (*When an agent is working*, *Whenever sessions are running*, or *Never*).
 

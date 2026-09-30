@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { call, errorMessage } from '../api'
+import { clearEditorDraft, editorDraft, onEditorDrafts, setEditorDraft } from '../editorDrafts'
 import { languageFor } from '../monacoLang'
 import { confirm, notify } from '../store'
 import { basename } from '../util'
@@ -8,7 +9,8 @@ import { Icon, IconButton, Markdown } from './ui'
 
 /**
  * Loads a file through the main process, edits it in Monaco and saves with Ctrl+S.
- * Markdown files open in preview mode by default.
+ * Markdown files open in preview mode by default. Unsaved edits are kept (editorDrafts) when the view or
+ * file changes, and saving won't overwrite a file changed on disk since it was loaded without asking.
  */
 export function DocEditor({
   path,
@@ -35,8 +37,7 @@ export function DocEditor({
   const isMd = /\.(md|markdown)$/i.test(path)
   const [preview, setPreview] = useState(defaultPreview ?? isMd)
   const dirty = text !== saved
-  const dirtyRef = useRef(false)
-  dirtyRef.current = dirty && touched
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -44,39 +45,60 @@ export function DocEditor({
     void call('file:read', path)
       .then((t) => {
         if (cancelled) return
+        // Edits left unsaved earlier come back, still based on the text they were made to.
+        const draft = editorDraft(path)
         const isMissing = t === '' && !!createIfMissing
-        setText(isMissing ? createIfMissing! : t)
-        setSaved(t)
-        setTouched(false)
+        setText(draft ? draft.text : isMissing ? createIfMissing! : t)
+        setSaved(draft ? draft.base : t)
+        setTouched(!!draft)
         setMissing(isMissing)
-        if (isMissing) setPreview(false)
+        if (isMissing || draft) setPreview(false)
       })
       .catch((e) => notify('error', 'Could not open file', errorMessage(e)))
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
     }
-  }, [path, createIfMissing])
+  }, [path, createIfMissing, reload])
+
+  // Saved or discarded from elsewhere (Save All before closing the workspace…): show the file as it now is.
+  const state = useRef({ touched, dirty })
+  state.current = { touched, dirty }
+  useEffect(
+    () =>
+      onEditorDrafts(() => {
+        if (state.current.touched && state.current.dirty && !editorDraft(path)) setReload((n) => n + 1)
+      }),
+    [path]
+  )
+
+  const writeFile = (content: string, base: string): Promise<unknown> => call('file:write', path, content, base)
 
   const save = async (): Promise<void> => {
     if (readOnly) return
     try {
-      await call('file:write', path, text)
+      await writeFile(text, saved).catch(async (e) => {
+        if (!errorMessage(e).includes('CONFLICT')) throw e
+        const overwrite = await confirm({
+          title: 'Overwrite the changes on disk?',
+          message: `${basename(path)} has changed on disk since you opened it (an agent may have edited it). Save your version over it?`,
+          detail: 'Cancel keeps your edits here unsaved, so you can copy them and reopen the file.',
+          confirmLabel: 'Overwrite',
+          danger: true
+        })
+        if (!overwrite) throw new Error('CANCELLED')
+        await call('file:write', path, text)
+      })
+      clearEditorDraft(path)
       setSaved(text)
       setTouched(false)
       setMissing(false)
       onSaved?.()
     } catch (e) {
+      if (errorMessage(e).includes('CANCELLED')) return
       notify('error', 'Could not save', errorMessage(e))
     }
   }
-
-  // Warn before losing edits when the component is replaced by another file.
-  useEffect(() => {
-    return () => {
-      if (dirtyRef.current) notify('warning', `Unsaved changes to ${basename(path)} were discarded`)
-    }
-  }, [path])
 
   return (
     <div className="split-main">
@@ -107,6 +129,7 @@ export function DocEditor({
             onChange={(v) => {
               setText(v)
               setTouched(true)
+              setEditorDraft({ key: path, label: title ?? basename(path), abs: path, text: v, base: saved, save: writeFile })
             }}
             onSave={() => void save()}
             readOnly={readOnly}

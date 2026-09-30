@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { McpServerInfo, SkillInfo } from '@shared/types'
 import { enabledProviders } from '@shared/providers'
 import iconUrl from '../assets/icon.svg'
@@ -9,13 +9,14 @@ import licenseTxt from '@root/LICENSE?raw'
 import noticesMd from '@root/THIRD_PARTY_NOTICES.md?raw'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
+import { clearEditorDraft, editorDraft, onEditorDrafts, setEditorDraft } from '../editorDrafts'
 import { runCommand, commandKeybinding } from '../commands'
 import { DocEditor } from '../components/DocEditor'
 import { CodeEditor } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { Icon, IconButton, Markdown, Switch } from '../components/ui'
 import { SkillDetail } from '../components/Skills'
-import { confirm, set, useStore } from '../store'
+import { confirm, notify, set, useStore } from '../store'
 import { basename, cx, formatKeybinding } from '../util'
 
 // ---------------------------------------------------------------------------
@@ -209,14 +210,21 @@ export function McpView() {
   // The editor's share of the width; the format help beside it takes the rest (drag the edge between them).
   const editorShare = usePaneSize('mcpHelp', 0.68)
 
+  const [reload, setReload] = useState(0)
   useEffect(() => {
     if (!selected || selected === '__hive') return
     void call('mcp:read', selected).then((t) => {
-      setText(t)
-      setSaved(t)
+      // Edits left unsaved earlier come back, still based on the text they were made to.
+      const draft = editorDraft(`mcp:${selected}`)
+      setText(draft ? draft.text : t)
+      setSaved(draft ? draft.base : t)
       setError(null)
     })
-  }, [selected])
+  }, [selected, reload])
+  // Saved or discarded from elsewhere (Save All before closing the workspace…): show the file as it now is.
+  const dirtyNow = useRef(false)
+  dirtyNow.current = text !== saved
+  useEffect(() => onEditorDrafts(() => void (selected && dirtyNow.current && !editorDraft(`mcp:${selected}`) && setReload((n) => n + 1))), [selected])
   useEffect(() => {
     if (!selected || selected === '__hive') return
     void call('mcp:list').then((l) => setInfo(l.find((m) => m.name === selected) ?? null))
@@ -261,6 +269,12 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
   }
 
   const dirty = text !== saved
+  const draftKey = `mcp:${selected}`
+  const writeMcp = (content: string, base: string): Promise<unknown> => call('mcp:save', selected, content, base)
+  const edit = (v: string): void => {
+    setText(v)
+    setEditorDraft({ key: draftKey, label: `${selected}.json`, abs: info?.path ?? `${selected}.json`, text: v, base: saved, save: writeMcp })
+  }
   const save = async (): Promise<void> => {
     try {
       JSON.parse(text)
@@ -268,8 +282,23 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
       setError(`Invalid JSON: ${errorMessage(e)}`)
       return
     }
-    const r = await actions.attempt('Could not save', () => call('mcp:save', selected, text))
+    let r: McpServerInfo | undefined
+    try {
+      r = await call('mcp:save', selected, text, saved)
+    } catch (e) {
+      if (!errorMessage(e).includes('CONFLICT')) return notify('error', 'Could not save', errorMessage(e))
+      const overwrite = await confirm({
+        title: 'Overwrite the changes on disk?',
+        message: `${selected}.json has changed on disk since you opened it. Save your version over it?`,
+        detail: 'Cancel keeps your edits here unsaved.',
+        confirmLabel: 'Overwrite',
+        danger: true
+      })
+      if (!overwrite) return
+      r = await actions.attempt('Could not save', () => call('mcp:save', selected, text))
+    }
     if (r) {
+      clearEditorDraft(draftKey)
       setSaved(text)
       setError(null)
       setInfo(r)
@@ -278,6 +307,7 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
   const remove = async (): Promise<void> => {
     if (!(await confirm({ title: 'Delete MCP server?', message: `Delete ${selected}.json from the workspace? Projects will no longer be able to use it.`, confirmLabel: 'Delete', danger: true }))) return
     await actions.attempt('Could not delete', () => call('mcp:delete', selected))
+    clearEditorDraft(draftKey)
     set({ selectedMcp: null })
   }
 
@@ -318,7 +348,7 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
         ))}
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           <div className="editor-host" style={{ flex: `0 0 ${editorShare * 100}%`, position: 'relative' }}>
-            <CodeEditor value={text} language="json" onChange={setText} onSave={() => void save()} wordWrap={false} />
+            <CodeEditor value={text} language="json" onChange={edit} onSave={() => void save()} wordWrap={false} />
             <PaneResizer paneKey="mcpHelp" ratio />
           </div>
           <div style={{ flex: 1, minWidth: 0, borderLeft: '1px solid var(--border-subtle)', overflow: 'auto', padding: '14px 16px', fontSize: 12 }}>

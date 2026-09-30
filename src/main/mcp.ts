@@ -2,7 +2,7 @@ import { basename, join } from 'path'
 import { readdir, readFile, rm, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import type { McpServerDef, McpServerInfo } from '../shared/types'
-import { writeTextAtomic } from './fsutil'
+import { writeTextUnlessChanged } from './fsutil'
 import { findSecretWarnings } from './mcpSecrets'
 import { allProviders } from './providers'
 import { workspace } from './workspace'
@@ -87,10 +87,10 @@ export async function readMcp(name: string): Promise<string> {
   return readFile(join(workspace.mcpDir, `${name}.json`), 'utf8')
 }
 
-export async function saveMcp(name: string, text: string): Promise<McpServerInfo> {
+export async function saveMcp(name: string, text: string, expected?: string): Promise<McpServerInfo> {
   if (!validMcpName(name)) throw new Error('Invalid server name')
   JSON.parse(text) // throws a useful message on invalid JSON
-  await writeTextAtomic(join(workspace.mcpDir, `${name}.json`), text.endsWith('\n') ? text : text + '\n')
+  await writeTextUnlessChanged(join(workspace.mcpDir, `${name}.json`), text.endsWith('\n') ? text : text + '\n', expected)
   return (await listMcp()).find((m) => m.name === name)!
 }
 

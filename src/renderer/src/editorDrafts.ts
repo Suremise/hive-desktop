@@ -1,0 +1,70 @@
+/**
+ * Unsaved edits in the editors outside the Files tab (shared notes, skills, instruction and memory files,
+ * MCP servers). Like the Files tab's drafts they are kept while Hive is open, so changing view or file
+ * doesn't lose them, and quitting, reloading, closing or switching the workspace asks about them.
+ */
+export interface EditorDraft {
+  /** What the draft is of: a file path, or e.g. "mcp:<name>". */
+  key: string
+  /** Shown when asking about unsaved changes. */
+  label: string
+  /** The file, for the quit dialog. */
+  abs: string
+  text: string
+  /** The text as loaded: saving refuses (CONFLICT) to overwrite a file changed on disk since. */
+  base: string
+  save: (text: string, base: string) => Promise<unknown>
+}
+
+const drafts = new Map<string, EditorDraft>()
+const listeners = new Set<() => void>()
+const changed = (): void => listeners.forEach((l) => l())
+
+export const editorDraft = (key: string): EditorDraft | undefined => drafts.get(key.toLowerCase())
+export const editorDraftList = (): EditorDraft[] => [...drafts.values()]
+
+/** Records an editor's text: a draft while it differs from what was loaded, none once it's the same again. */
+export function setEditorDraft(d: EditorDraft): void {
+  const k = d.key.toLowerCase()
+  if (d.text === d.base) {
+    if (drafts.delete(k)) changed()
+  } else {
+    const had = drafts.has(k)
+    drafts.set(k, d)
+    if (!had) changed()
+  }
+}
+
+export function clearEditorDraft(key: string): void {
+  if (drafts.delete(key.toLowerCase())) changed()
+}
+
+export function clearEditorDrafts(): void {
+  if (!drafts.size) return
+  drafts.clear()
+  changed()
+}
+
+/** Called when drafts appear or go (not on every key press). */
+export function onEditorDrafts(l: () => void): () => void {
+  listeners.add(l)
+  return () => void listeners.delete(l)
+}
+
+/** Saves every draft. One whose file changed on disk since it was loaded is kept and reported. */
+export async function saveEditorDrafts(): Promise<{ saved: number; failed: { abs: string; message: string }[] }> {
+  const failed: { abs: string; message: string }[] = []
+  let saved = 0
+  for (const [k, d] of [...drafts]) {
+    try {
+      await d.save(d.text, d.base)
+      drafts.delete(k)
+      saved++
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      failed.push({ abs: d.abs, message: `${d.label}: ${msg.includes('CONFLICT') ? 'changed on disk since you opened it' : msg}` })
+    }
+  }
+  changed()
+  return { saved, failed }
+}

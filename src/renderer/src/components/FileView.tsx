@@ -3,6 +3,7 @@ import type { FileContent, ProjectInfo } from '@shared/types'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { languageFor } from '../monacoLang'
+import { clearEditorDrafts, editorDraftList, onEditorDrafts, saveEditorDrafts } from '../editorDrafts'
 import { confirm, notify } from '../store'
 import { cx, formatBytes, imageUrl, timeAgo } from '../util'
 import { CodeEditor } from './Editors'
@@ -66,12 +67,17 @@ const savedListeners = new Set<() => void>()
 const absOf = (root: string, rel: string): string => `${root}\\${rel.replace(/\//g, '\\')}`
 export const hasDraft = (abs: string): boolean => drafts.has(abs.toLowerCase())
 
-// The main process is told which files have unsaved edits, so quitting can ask about them.
-draftListeners.add(() => void call('files:setUnsaved', unsavedFiles().map((f) => f.abs)))
+// The main process is told which files have unsaved edits (here and in the other editors), so quitting can ask about them.
+const sendUnsaved = (): void => void call('files:setUnsaved', unsavedFiles().map((f) => f.abs))
+draftListeners.add(sendUnsaved)
+onEditorDrafts(sendUnsaved)
 
-/** Files with unsaved edits. */
+/** Files with unsaved edits: the Files tab's, then the other editors' (notes, skills, MCP servers…), named by `rel`. */
 export function unsavedFiles(): { root: string; rel: string; abs: string }[] {
-  return [...drafts.values()].map((d) => ({ root: d.root, rel: d.rel, abs: absOf(d.root, d.rel) }))
+  return [
+    ...[...drafts.values()].map((d) => ({ root: d.root, rel: d.rel, abs: absOf(d.root, d.rel) })),
+    ...editorDraftList().map((d) => ({ root: '', rel: d.label, abs: d.abs }))
+  ]
 }
 
 /** Unsaved files at rel or inside it (a folder), in root. */
@@ -99,6 +105,7 @@ export function moveDrafts(root: string, from: string, to: string): void {
 
 /** Drops unsaved edits: all of them, or those of the given files in root (e.g. after deleting them). */
 export function discardDrafts(root?: string, rels?: string[]): void {
+  if (!root) clearEditorDrafts()
   const under = root && rels ? new Set(draftsUnder(root, rels).map((r) => absOf(root, r).toLowerCase())) : null
   let changed = false
   for (const key of [...drafts.keys()]) {
@@ -127,7 +134,8 @@ export async function saveAllDrafts(): Promise<{ saved: number; failed: { abs: s
   }
   draftListeners.forEach((l) => l())
   savedListeners.forEach((l) => l())
-  return { saved, failed }
+  const others = await saveEditorDrafts()
+  return { saved: saved + others.saved, failed: [...failed, ...others.failed] }
 }
 export function useDraftVersion(): number {
   const [v, setV] = useState(0)

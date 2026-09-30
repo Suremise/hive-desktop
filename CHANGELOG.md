@@ -60,6 +60,14 @@
 - Hive tells you once if a CLI version writes transcripts it doesn't understand, instead of showing zeros.
 - The hook token is no longer written to the log. The window refuses web permissions it doesn't need, IPC is accepted only from Hive's own page, and links inside the workspace can't be used to open files outside it.
 - Links to sections within the user guide now work in Hive's Docs view.
+- **Unsaved edits in shared notes, skills, instruction and memory files and MCP servers are kept** when you change view or file, as the Files tab's are, and quitting, reloading, closing or switching the workspace asks about them. Saving a file that changed on disk since you opened it (an agent edited it) asks before overwriting it.
+- Closing or switching a workspace, stopping an agent, quitting or turning a provider off while an agent is still starting now cancels the start, instead of the CLI starting afterwards.
+- Turning a provider off lists the agents running it in every window, not only this one's.
+- Two agents adding to the same shared note at once both keep their text.
+- The Files tab can't read or write through a link (symlink or junction) that leads outside the project; the link itself can still be renamed, moved or deleted.
+- A workspace can't be opened inside, or around, one open in another window. A closed workspace's agent worktrees no longer count as part of the next workspace opened in that window.
+- Agent API: a workspace name two open workspaces share is refused (409) with both paths, instead of picking one; name it by its path.
+- Resizing a pane in one window no longer resets pane sizes changed in another.
 - Electron 44.5.1.
 
 ### Notes

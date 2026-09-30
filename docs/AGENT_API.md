@@ -66,7 +66,7 @@ Errors return a non-2xx status and `{ "error": "message" }`.
 
 Hive can show several workspaces, each in its own window (**File → New Window**). The API serves all of them:
 
-- A request is for one workspace: the one named by the `X-Hive-Workspace` header (its folder path, URL-encoded) or the `workspace` query parameter (its name or path), else the only one open. The `hive` MCP server sends its session's workspace, so an agent's tools always see its own workspace.
+- A request is for one workspace: the one named by the `X-Hive-Workspace` header (its folder path, URL-encoded) or the `workspace` query parameter (its name or path), else the only one open. A name that two open workspaces share (`C:\Clients\foo` and `D:\Clients\foo`) is refused with 409, listing both paths: name the workspace by its path instead. The `hive` MCP server sends its session's workspace, so an agent's tools always see its own workspace.
 - `{name}` in `/v1/projects/{name}` is a project in the request's workspace. With several windows open and no workspace named, a name is looked up in every open workspace: a name found in two answers **409**; say `<workspace>/<project>` instead (`/` encoded as `%2F` in the path: `/v1/projects/work%2Fapi`).
 - Calls about a whole workspace (`/v1/workspace`, shared notes, skills without a project, MCP servers) answer **400** when several are open and none is named.
 

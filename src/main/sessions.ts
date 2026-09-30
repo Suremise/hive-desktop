@@ -35,7 +35,7 @@ import { childEnv, killPty, spawnPty, writePty } from './ptyHost'
 import { hiveSkills } from './skills'
 import { notificationIcon } from './paths'
 import { reportPlanUsage } from './planUsage'
-import { inWorkspace, workspace, workspaceOf } from './workspace'
+import { inWorkspace, workspace, workspaceFor, workspaceOf } from './workspace'
 
 const log = createLogger('sessions')
 
@@ -96,6 +96,17 @@ export interface EffectiveSettings {
 }
 
 /** Files read once for a whole session list (instead of once per session). */
+/** An agent start in progress, before (or while) its process spawns. */
+interface PendingStart {
+  projectPath: string
+  /** The session being resumed, if any. */
+  resumeId?: string
+  /** Set by a stop, workspace close or quit: the start gives up at its next check. */
+  cancelled: boolean
+  /** Settles when the start has finished or given up. */
+  done: Promise<unknown>
+}
+
 interface ListContext {
   records: SessionRecord[]
   cfg: ProjectConfig
@@ -156,8 +167,11 @@ class SessionManager {
   /** The project's newest handover in the shared notes (relative path and modified time), or null. */
   latestHandover: (projectPath: string) => Promise<{ relPath: string; modified: string } | null> = async () => null
   private exitWaiters = new Map<string, () => void>()
-  /** Agents being started (liveId → the session being resumed), so two starts at once can't both get through. */
-  private starting = new Map<string, string | undefined>()
+  /**
+   * Agents being started (by liveId), so two starts at once can't both get through, and so stopping the
+   * agent, closing its workspace or quitting can cancel a start that hasn't spawned its process yet.
+   */
+  private starting = new Map<string, PendingStart>()
   /** The window showing a project (several windows each show one workspace). */
   private getWindow: (projectPath?: string) => BrowserWindow | null = () => null
 
@@ -308,17 +322,31 @@ class SessionManager {
     // once, must not start the agent twice (the second start would orphan the first process).
     if (this.live.has(id) || this.starting.has(id)) throw new Error('This agent is already running or starting. Stop it first.')
     // Two terminals on one conversation would both append to its transcript.
-    if (opts.resumeId && [...this.starting.values()].includes(opts.resumeId)) throw new Error('This conversation is already being opened in another agent.')
-    this.starting.set(id, opts.resumeId)
+    if (opts.resumeId && [...this.starting.values()].some((p) => p.resumeId === opts.resumeId)) throw new Error('This conversation is already being opened in another agent.')
+    const pending: PendingStart = { projectPath, resumeId: opts.resumeId, cancelled: false, done: Promise.resolve() }
+    this.starting.set(id, pending)
+    const run = this.startReserved(projectPath, agentId, id, opts)
+    pending.done = run.catch(() => undefined)
     try {
-      return await this.startReserved(projectPath, agentId, id, opts)
+      return await run
     } finally {
       this.starting.delete(id)
     }
   }
 
+  /** Projects with an agent starting (not yet in liveStates). */
+  pendingStarts(): string[] {
+    return [...this.starting.values()].map((p) => p.projectPath)
+  }
+
+  /** Throws if the start was cancelled while it awaited something (the agent stopped, its workspace closed). */
+  private assertStarting(id: string): void {
+    if (this.starting.get(id)?.cancelled) throw new Error('The agent was stopped before it had started.')
+  }
+
   private async startReserved(projectPath: string, agentId: string, id: string, opts: { resumeId?: string; name?: string; skipSetup?: boolean; permissionMode?: PermissionMode }): Promise<LiveSessionState> {
     const { agent, cfg, count } = await this.agentDef(projectPath, agentId)
+    this.assertStarting(id)
     if (this.live.has(id)) throw new Error(count > 1 ? `${agent.name} is already running. Stop it first.` : 'A session is already running for this project. Stop it first.')
     const holder = opts.resumeId ? this.projectStates(projectPath).find((s) => s.sessionId === opts.resumeId) : undefined
     if (holder) throw new Error(`This conversation is already open in ${holder.agentName ?? 'another agent'}. An agent can only resume a session no other agent is running.`)
@@ -333,6 +361,7 @@ class SessionManager {
     if (!existsSync(cwd)) throw new Error(`${agent.name}'s worktree folder is missing: ${cwd}. Remove the agent, or restore the folder with git worktree.`)
 
     const existing = opts.resumeId ? (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === opts.resumeId) : undefined
+    this.assertStarting(id)
     if (existing?.archived) throw new Error('This session is archived. Unarchive it before resuming.')
     if (opts.resumeId && existing && recordProvider(existing) !== providerId) {
       throw new Error(`This conversation ran in ${providerDescriptor(recordProvider(existing)).name}, and ${agent.name} runs ${name}. Conversations can't move between providers: continue it with a handover instead.`)
@@ -400,6 +429,9 @@ class SessionManager {
     const l = this.live.get(id)
     if (l) this.runs.delete(l.state.runId)
     this.live.delete(id)
+    // A start given up before its process spawned has no exit to wait for.
+    this.exitWaiters.get(id)?.()
+    this.exitWaiters.delete(id)
   }
 
   private async afterSetup(projectPath: string, agentId: string, code: number, launch: { sessionId: string; name: string; resume: boolean }): Promise<void> {
@@ -501,6 +533,10 @@ class SessionManager {
       })
     }
     await adapter.prepareLaunch(ctx)
+    // Checked after the last await, just before spawning: stopped, its workspace closed or switched, or the
+    // provider turned off while this launch was being prepared, it must not start a process.
+    if (l.stopRequested || this.live.get(id) !== l || this.starting.get(id)?.cancelled || !workspaceFor(projectPath)) throw new Error('The agent was stopped before it had started.')
+    if (!isProviderEnabled(config.settings, adapter.id)) throw new Error(`${adapter.descriptor.name} was turned off while ${agent.name} was starting.`)
     const cmd = adapter.buildCommand(info.path, ctx)
     state.launchSignature = this.signature(eff)
     l.defaultModel = !eff.model
@@ -567,6 +603,8 @@ class SessionManager {
       if (l) l.stopRequested = true
       killPty(this.key(projectPath, a))
     }
+    // Starts still being prepared (no process yet) give up at their next check.
+    for (const [k, p] of this.starting) if (p.projectPath.toLowerCase() === projectPath.toLowerCase() && (!agentId || k === liveId(projectPath, agentId))) p.cancelled = true
   }
 
   /** Stops every running agent of one provider (e.g. when the provider is turned off). */
@@ -586,8 +624,13 @@ class SessionManager {
     return this.stopWhereAndWait(() => true, timeoutMs)
   }
 
-  /** Stops the sessions matching `which` (e.g. one window's workspace) and waits for them as stopAllAndWait does. */
-  async stopWhereAndWait(which: (s: LiveSessionState) => boolean, timeoutMs = 3000): Promise<void> {
+  /**
+   * Stops the sessions matching `which` (e.g. one window's workspace) and waits for them as stopAllAndWait
+   * does. Starts in progress for matching projects are cancelled and waited for too.
+   */
+  async stopWhereAndWait(which: (s: { projectPath: string }) => boolean, timeoutMs = 3000): Promise<void> {
+    const pending = [...this.starting.values()].filter((p) => which(p))
+    for (const p of pending) p.cancelled = true
     const chosen = [...this.live.entries()].filter(([, l]) => which(l.state))
     const waits = chosen.map(([k]) => k).map(
       (k) =>
@@ -603,7 +646,7 @@ class SessionManager {
       l.stopRequested = true
       killPty(this.key(l.state.projectPath, l.state.agentId))
     }
-    await Promise.race([Promise.all(waits), new Promise((r) => setTimeout(r, timeoutMs))])
+    await Promise.race([Promise.all([...waits, ...pending.map((p) => p.done)]), new Promise((r) => setTimeout(r, timeoutMs))])
   }
 
   /**

@@ -90,6 +90,8 @@ export interface HiveRequests {
   'settings:setKeybinding': (commandId: string, key: string | null | undefined) => AppSettings
   'ui:get': () => AppConfig['ui']
   'ui:set': (ui: Partial<AppConfig['ui']>) => void
+  /** Saves one pane's size (null: back to its default), leaving the other panes as they are: several windows save them. */
+  'ui:setPane': (key: string, size: number | null) => void
 
   'workspace:get': () => WorkspaceInfo | null
   'workspace:open': (path?: string) => WorkspaceInfo | null
@@ -185,7 +187,8 @@ export interface HiveRequests {
   'mcp:setProject': (projectPath: string, name: string, enabled: boolean) => void
   'mcp:create': (name: string) => McpServerInfo
   'mcp:read': (name: string) => string
-  'mcp:save': (name: string, text: string) => McpServerInfo
+  /** With `expected` (the text as read), refuses with CONFLICT if the file has changed on disk since. */
+  'mcp:save': (name: string, text: string, expected?: string) => McpServerInfo
   'mcp:delete': (name: string) => void
   'mcp:importFromProject': (projectPath: string, names: string[]) => string[]
   'mcp:openFolder': () => void
@@ -196,7 +199,8 @@ export interface HiveRequests {
   'notes:rename': (path: string, newName: string) => string
 
   'file:read': (path: string) => string
-  'file:write': (path: string, content: string) => void
+  /** With `expected` (the text as read), refuses with CONFLICT if the file has changed on disk since (a missing file reads as ''). */
+  'file:write': (path: string, content: string, expected?: string) => void
 
   'memory:list': (projectPath: string) => MemorySource[]
   /** Whether the given providers all read the project's AGENTS.md (directly or through an import). */

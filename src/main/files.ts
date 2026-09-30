@@ -5,6 +5,7 @@ import { shell } from 'electron'
 import { HIVE_DIR } from '../shared/defaults'
 import type { FileContent, FileEntry, SessionImage, SessionImageGroup } from '../shared/types'
 import { emit } from './events'
+import { insideReal } from './fsutil'
 import { git } from './git'
 import { createLogger } from './logger'
 import { workspace } from './workspace'
@@ -18,8 +19,13 @@ export const SERVABLE_EXT = /\.(png|jpe?g|gif|webp|bmp|ico|pdf)$/i
 
 const toRel = (root: string, abs: string): string => relative(root, abs).split(sep).join('/')
 
-/** Resolves a project-relative path, refusing anything outside the project. '' is the project root. */
-function inProject(projectPath: string, rel: string, allowRoot = false): string {
+/**
+ * Resolves a project-relative path, refusing anything outside the project. '' is the project root.
+ * A link (symlink or junction) inside the project can't lead outside it: reading or writing through
+ * one is refused. With `entry`, the path is the entry itself (renaming, moving, copying or deleting a
+ * link acts on the link), so only the folder holding it must really be inside the project.
+ */
+function inProject(projectPath: string, rel: string, allowRoot = false, entry = false): string {
   const root = resolve(projectPath)
   const abs = resolve(root, rel || '.')
   if (abs === root) {
@@ -27,6 +33,7 @@ function inProject(projectPath: string, rel: string, allowRoot = false): string 
     throw new Error('This action needs a file or folder inside the project')
   }
   if (!abs.toLowerCase().startsWith(root.toLowerCase() + sep)) throw new Error('Path is outside the project')
+  if (!insideReal(entry ? dirname(abs) : abs, [root])) throw new Error('Path leads outside the project (through a link)')
   return abs
 }
 
@@ -96,7 +103,7 @@ export async function create(projectPath: string, parentRel: string, name: strin
 
 export async function renameEntry(projectPath: string, rel: string, newName: string): Promise<string> {
   projectPath = workspace.assertRoot(projectPath)
-  const abs = inProject(projectPath, rel)
+  const abs = inProject(projectPath, rel, false, true)
   const dest = join(dirname(abs), validName(newName))
   if (dest === abs) return rel
   // A case-only rename on Windows is the same file, so existsSync would be true.
@@ -117,7 +124,7 @@ export async function move(projectPath: string, rels: string[], destRel: string)
   const destDir = inProject(projectPath, destRel, true)
   const out: string[] = []
   for (const rel of rels) {
-    const src = inProject(projectPath, rel)
+    const src = inProject(projectPath, rel, false, true)
     if (dirname(src).toLowerCase() === destDir.toLowerCase()) {
       out.push(rel)
       continue
@@ -134,7 +141,7 @@ export async function move(projectPath: string, rels: string[], destRel: string)
 /** Copies entries into destRel (also used for Duplicate). Name clashes get a " copy" suffix. */
 export async function copy(projectPath: string, rels: string[], destRel: string): Promise<string[]> {
   projectPath = workspace.assertRoot(projectPath)
-  return copyInto(projectPath, rels.map((r) => inProject(projectPath, r)), inProject(projectPath, destRel, true))
+  return copyInto(projectPath, rels.map((r) => inProject(projectPath, r, false, true)), inProject(projectPath, destRel, true))
 }
 
 /** Copies files from anywhere (e.g. dropped from Explorer) into destRel. */
@@ -157,12 +164,12 @@ async function copyInto(projectPath: string, sources: string[], destDir: string)
 /** Moves entries to the Recycle Bin. */
 export async function trash(projectPath: string, rels: string[]): Promise<void> {
   projectPath = workspace.assertRoot(projectPath)
-  for (const rel of rels) await shell.trashItem(inProject(projectPath, rel))
+  for (const rel of rels) await shell.trashItem(inProject(projectPath, rel, false, true))
 }
 
 /** Absolute path of a project entry, for opening, revealing and pasting into the terminal. */
 export function absPath(projectPath: string, rel: string): string {
-  return inProject(workspace.assertRoot(projectPath), rel, true)
+  return inProject(workspace.assertRoot(projectPath), rel, true, true)
 }
 
 const MAX_EDIT_BYTES = 5 * 1024 * 1024

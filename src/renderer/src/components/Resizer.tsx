@@ -8,8 +8,9 @@ export function usePaneSize(key: string, fallback: number): number {
   return useStore((s) => s.panes[key]) ?? fallback
 }
 
-function save(): void {
-  void call('ui:set', { panes: get().panes })
+/** Saves one pane's size only: another window may have changed the others. */
+function save(key: string): void {
+  void call('ui:setPane', key, get().panes[key] ?? null)
 }
 
 /**
@@ -43,7 +44,7 @@ export function PaneResizer({ paneKey, min = 200, max = 700, keep = 320, ratio =
       document.body.classList.remove('pane-resizing')
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
-      save()
+      save(paneKey)
     }
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
@@ -55,7 +56,7 @@ export function PaneResizer({ paneKey, min = 200, max = 700, keep = 320, ratio =
       delete panes[paneKey]
       return { panes }
     })
-    save()
+    save(paneKey)
   }
 
   return <div className={cx('pane-resizer', dragging && 'dragging')} onMouseDown={start} onDoubleClick={reset} />

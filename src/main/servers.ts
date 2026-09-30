@@ -10,7 +10,7 @@ import { CLAUDE_CODE } from '../shared/claude'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, onHiveEvent, toast } from './events'
-import { readJson, writeJsonAtomic, writeTextAtomic } from './fsutil'
+import { readJson, withFileLock, writeJsonAtomic, writeTextAtomic } from './fsutil'
 import { createLogger } from './logger'
 import { listMcp } from './mcp'
 import { assertInShared, createHandover, notesTree } from './notes'
@@ -149,11 +149,15 @@ export function apiEnv(): Record<string, string> {
   return { HIVE_API_URL: info.url, HIVE_API_TOKEN: apiToken, HIVE_API_TOKEN_FILE: tokenFile() }
 }
 
-/** An open workspace by its folder path or its name. */
-function findWorkspace(want: string): WorkspaceService | null {
+/** An open workspace by its folder path or its name. A name two open workspaces share is refused (409): use the path. */
+export function findWorkspace(want: string): WorkspaceService | null {
   const v = want.toLowerCase()
   const byPath = /[\\/]/.test(want) ? resolvePath(want).toLowerCase() : null
-  return openWorkspaces().find((w) => (byPath ? w.path!.toLowerCase() === byPath : basename(w.path!).toLowerCase() === v)) ?? null
+  const hits = openWorkspaces().filter((w) => (byPath ? w.path!.toLowerCase() === byPath : basename(w.path!).toLowerCase() === v))
+  if (hits.length > 1) {
+    throw new HttpError(409, `Several open workspaces are named "${want}" (${hits.map((w) => w.path).join(', ')}): say which by its full path in the X-Hive-Workspace header or ?workspace=`)
+  }
+  return hits[0] ?? null
 }
 
 /** The workspace a request names (X-Hive-Workspace header, or ?workspace=), else the only open one. */
@@ -350,10 +354,13 @@ route('PUT', '/v1/shared/file', async ({ query, body }) => {
   if (!rel) throw new HttpError(400, 'path is required')
   const abs = inWorkspace(requireWorkspace(), () => assertInShared(rel))
   const content = String(body?.content ?? '')
-  if (body?.append) {
-    const existing = await readFile(abs, 'utf8').catch(() => '')
-    await writeTextAtomic(abs, existing + (existing && !existing.endsWith('\n') ? '\n' : '') + content)
-  } else await writeTextAtomic(abs, content)
+  // Locked from read to write, so two agents appending at once both keep their text.
+  await withFileLock(abs, async () => {
+    if (body?.append) {
+      const existing = await readFile(abs, 'utf8').catch(() => '')
+      await writeTextAtomic(abs, existing + (existing && !existing.endsWith('\n') ? '\n' : '') + content)
+    } else await writeTextAtomic(abs, content)
+  })
   emit({ type: 'notes-changed' })
   return { ok: true, path: rel }
 })

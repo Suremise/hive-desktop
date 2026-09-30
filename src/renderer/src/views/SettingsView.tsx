@@ -293,7 +293,17 @@ async function update(def: SettingDef, value: unknown): Promise<void> {
 export async function setProviderEnabled(provider: ProviderId, on: boolean): Promise<void> {
   const name = providerDescriptor(provider).name
   if (!on) {
-    const running = (get().workspace?.projects ?? []).flatMap((p) => p.agents.filter((a) => a.live?.provider === provider).map((a) => `${p.name} · ${a.name}`))
+    // Providers are app-wide: list the agents running it in every window, naming the other windows' workspaces.
+    const here = get().workspace?.path.toLowerCase()
+    const leaf = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?? p
+    const live = (await actions.attempt('Could not list the running agents', () => call('session:live'))) ?? []
+    const running = live
+      .filter((s) => s.provider === provider)
+      .map((s) => {
+        const parent = s.projectPath.replace(/[\\/][^\\/]+[\\/]?$/, '')
+        const where = parent.toLowerCase() === here ? leaf(s.projectPath) : `${leaf(parent)}/${leaf(s.projectPath)} (another window)`
+        return s.agentName ? `${where} · ${s.agentName}` : where
+      })
     if (running.length) {
       const choice = await choose({
         title: `Turn off ${name}?`,

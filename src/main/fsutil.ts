@@ -127,6 +127,20 @@ export function insideReal(p: string, roots: string[]): boolean {
   return within(resolve(p), roots.map((r) => resolve(r))) && within(realPath(p), roots.map(realPath))
 }
 
+/**
+ * Writes a text file from an editor. With `expected` (the text the editor loaded), throws CONFLICT
+ * instead if the file has changed since (an agent edited it), so a save never silently drops that edit.
+ */
+export function writeTextUnlessChanged(path: string, text: string, expected?: string): Promise<void> {
+  return withFileLock(path, async () => {
+    if (expected !== undefined) {
+      const current = await readFile(path, 'utf8').catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? '' : Promise.reject(e)))
+      if (current !== expected) throw new Error('CONFLICT')
+    }
+    await writeTextAtomic(path, text)
+  })
+}
+
 /** Saves a kept file and its .bak copy. */
 export async function writeKeptJson(path: string, data: unknown): Promise<void> {
   const text = JSON.stringify(data, null, 2) + '\n'

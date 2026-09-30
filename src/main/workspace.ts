@@ -53,6 +53,8 @@ export class WorkspaceService {
   /** Agents' worktree folders (lower-cased) and the project each belongs to. */
   private roots = new Map<string, string>()
   private cached: WorkspaceInfo | null = null
+  /** Goes up each time a workspace opens or closes, so work started for an earlier one doesn't touch this one. */
+  private generation = 0
 
   setLiveProvider(p: LiveProvider): void {
     WorkspaceService.liveProvider = p
@@ -88,7 +90,15 @@ export class WorkspaceService {
   async open(path: string): Promise<WorkspaceInfo> {
     const abs = resolve(path)
     if (!(await isDir(abs))) throw new Error(`Folder not found: ${abs}`)
+    // One workspace inside another would make its projects belong to both.
+    const inside = (a: string, b: string): boolean => a.toLowerCase().startsWith(b.toLowerCase() + sep)
+    for (const w of services) {
+      if (w === this || !w.path) continue
+      if (inside(abs, w.path)) throw new Error(`${abs} is inside the workspace ${w.path}, which is open in another window. Close that workspace first, or open this folder's projects from there.`)
+      if (inside(w.path, abs)) throw new Error(`The workspace ${w.path}, open in another window, is inside ${abs}. Close it first to open ${basename(abs)} as a workspace.`)
+    }
     await this.close()
+    this.generation++
     this.path = abs
     const isNew = !existsSync(join(abs, HIVE_DIR))
     await this.ensureWorkspaceStructure()
@@ -106,10 +116,16 @@ export class WorkspaceService {
   }
 
   async close(): Promise<void> {
+    this.generation++
+    if (this.refreshTimer) clearTimeout(this.refreshTimer)
+    this.refreshTimer = null
     await this.watcher?.close()
     this.watcher = null
     this.path = null
     this.cached = null
+    // The closed workspace's agent worktrees and settings must not route to (or be allowed by) the next one.
+    this.roots.clear()
+    this.wsConfig = structuredClone(DEFAULT_WORKSPACE_CONFIG)
   }
 
   private async ensureWorkspaceStructure(): Promise<void> {
@@ -396,8 +412,14 @@ export class WorkspaceService {
 
   async refresh(): Promise<WorkspaceInfo> {
     if (!this.path) throw new Error('No workspace is open')
+    const gen = this.generation
     const projects: ProjectInfo[] = []
     for (const p of await this.listProjectPaths()) projects.push(await this.projectInfo(p))
+    // Closed or switched meanwhile: the new workspace's own refresh reports it.
+    if (gen !== this.generation || !this.path) throw new Error('The workspace was closed')
+    // Worktrees of projects that are gone (deleted, renamed) no longer belong to this workspace.
+    const known = new Set(projects.map((p) => p.path.toLowerCase()))
+    for (const [k, v] of this.roots) if (!known.has(v.toLowerCase())) this.roots.delete(k)
     this.cached = { path: this.path, name: basename(this.path), config: this.wsConfig, projects }
     this.emit({ type: 'workspace-changed', workspace: this.cached })
     return this.cached

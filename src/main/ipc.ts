@@ -12,7 +12,7 @@ import { allProviders } from './providers'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo } from './events'
-import { insideReal, writeTextAtomic } from './fsutil'
+import { insideReal, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { logsDir } from './logger'
 import * as files from './files'
@@ -75,9 +75,9 @@ export interface QuitControl {
   stopWorkspaceAgents: (from: BrowserWindow, scope: 'workspace' | 'switch') => Promise<boolean>
 }
 
-/** Whether any agent of this workspace is running. */
+/** Whether any agent of this workspace is running or starting. */
 function workspaceLive(ws: WorkspaceService): boolean {
-  return sessions.liveStates().some((s) => workspaceFor(s.projectPath) === ws)
+  return [...sessions.liveStates().map((s) => s.projectPath), ...sessions.pendingStarts()].some((p) => workspaceFor(p) === ws)
 }
 
 export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info']>, quitControl: QuitControl): void {
@@ -151,6 +151,12 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'settings:reset': (section) => config.resetSettings(section),
     'ui:get': () => config.get().ui,
     'ui:set': (ui) => config.update((c) => Object.assign(c.ui, ui)),
+    'ui:setPane': (key, size) =>
+      config.update((c) => {
+        c.ui.panes ??= {}
+        if (typeof size === 'number' && Number.isFinite(size)) c.ui.panes[String(key)] = size
+        else delete c.ui.panes[String(key)]
+      }),
 
     'workspace:get': () => workspace.info(),
     'workspace:open': async (path) => {
@@ -347,8 +353,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       return m
     },
     'mcp:read': (name) => mcp.readMcp(name),
-    'mcp:save': async (name, text) => {
-      const m = await mcp.saveMcp(name, text)
+    'mcp:save': async (name, text, expected) => {
+      const m = await mcp.saveMcp(name, text, expected)
       emit({ type: 'skills-changed' })
       workspace.scheduleRefresh()
       return m
@@ -372,7 +378,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'notes:rename': (p, n) => notes.renameNote(p, n),
 
     'file:read': async (p) => readFile(guardFile(p), 'utf8').catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? '' : Promise.reject(e))),
-    'file:write': (p, content) => writeTextAtomic(guardFile(p, true), content),
+    'file:write': (p, content, expected) => writeTextUnlessChanged(guardFile(p, true), content, expected),
 
     'memory:list': async (p) => {
       const project = workspace.assertProject(p)
