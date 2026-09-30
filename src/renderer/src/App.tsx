@@ -12,7 +12,7 @@ import { Sidebar } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
 import { isProviderEnabled } from '@shared/providers'
 import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
-import { PersonaView } from './components/Personas'
+import { AssistantMain } from './components/AssistantView'
 import { applyLiveState, assistantWasOpen, filesListeners, findProject, get, projectKey, projectState, pushToast, set, useStore } from './store'
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
 import { ProjectView } from './views/ProjectView'
@@ -223,8 +223,8 @@ export function App() {
         return <SkillView />
       case 'mcp':
         return <McpView />
-      case 'personas':
-        return <PersonaView />
+      case 'assistant':
+        return <AssistantMain />
       default:
         return workspace ? null : <WelcomeView />
     }

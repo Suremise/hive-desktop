@@ -115,11 +115,17 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   check('a deleted bundled persona is offered for restoring', listed.find((p) => p.id === 'reviewer')?.bundled === 'missing')
   await inv('personas:restore', 'reviewer')
   check('and restores', (await inv('personas:list')).find((p) => p.id === 'reviewer')?.bundled === 'same')
-  await page.locator('.activity-btn[aria-label="Assistant Personas"]').click()
-  await lib.sleep(500)
-  check('the Personas view lists them', (await page.locator('.persona-row').count()) === 5)
+  // The Hive Assistant view: a summary, its conversations and its personas.
+  await page.locator('.activity-btn[aria-label="Hive Assistant"]').click()
+  await lib.sleep(800)
+  check('the Assistant view has a summary', (await page.locator('.assistant-summary .assistant-stat').count()) === 4)
+  check('it opens on the conversations', (await page.locator('.sessions-list .pane-header', { hasText: 'Conversations' }).count()) === 1 && (await page.locator('.sessions-list', { hasText: 'No conversations yet' }).count()) === 1)
+  check('it lists the personas', (await page.locator('.persona-row').count()) === 5)
+  await page.locator('.persona-row', { hasText: 'Reviewer' }).click()
+  await lib.sleep(600)
+  check('a persona opens in the editor', (await page.locator('.split-main .editor-toolbar', { hasText: 'Reviewer' }).count()) === 1)
 
-  // One launch (no prompt): in the workspace folder, in Auto mode, with Hive's reading tools allowed.
+  // One launch (no prompt): in the workspace folder, asking for Auto, with Hive's reading tools allowed.
   await inv('session:start', home, { agentId: 'assistant' })
   await lib.acceptClaudeTrust(inv, home, 'assistant', 20000)
   const t0 = Date.now()
@@ -127,14 +133,25 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   while (Date.now() - t0 < 30000 && (live = (await inv('session:live')).find((s) => s.agentId === 'assistant'))?.status !== 'ready') await lib.sleep(400)
   check('the Assistant starts', live?.status === 'ready', live?.status)
   check('it works in the workspace folder', live?.cwd.toLowerCase() === ws.toLowerCase(), live?.cwd)
-  check('in Auto mode', live?.permissionMode === 'auto', live?.permissionMode)
   check('its conversation is named for the persona', (live?.sessionName ?? '').startsWith('Assistant · Planner · '), live?.sessionName)
   const log = fs.readFileSync(path.join(userData, 'logs', 'hive.log'), 'utf8')
   const launch = log.split('\n').filter((l) => l.includes('spawn session:') && l.toLowerCase().includes('assistant#assistant')).pop() ?? ''
+  check('it launches in Auto', launch.includes('"--permission-mode","auto"'))
+  // Claude Code runs Haiku (set above) in Manual instead, and Hive shows the mode it really runs in.
+  await lib.sleep(1500)
+  const mode = (await inv('session:live')).find((s) => s.agentId === 'assistant')?.permissionMode
+  check('with Haiku, Claude Code falls back to Manual and Hive shows it', mode === 'manual', mode)
   check("its persona is appended to Claude Code's system prompt", launch.includes('--append-system-prompt-file'))
   check("Hive's reading tools are allowed", launch.includes('mcp__hive__hive_list_projects') && !launch.includes('mcp__hive__hive_write_shared_note'))
   check('Planner\'s instructions are in the launch', fs.readFileSync(path.join(home, '.hive', 'launch-assistant', 'instructions.md'), 'utf8').includes('heist'))
   check('it is not a project agent', (await inv('workspace:get')).projects.every((p) => p.agents.every((a) => a.id !== 'assistant')))
+  // Its conversation is in the Assistant view's browser, and reads like any session.
+  await page.locator('.assistant-panel .assistant-header button[aria-label="More"]').click()
+  await lib.sleep(300)
+  await page.locator('.menu-item', { hasText: 'All Conversations…' }).click()
+  await lib.sleep(1500)
+  check('All Conversations… lists it', (await page.locator('.session-row').count()) === 1, String(await page.locator('.session-row').count()))
+  check("it is the running one, with a Show button for the Assistant's panel", (await page.locator('.split-main button', { hasText: 'Show' }).count()) === 1)
   // Closing the workspace (Confirm on quit: always) lists it as "Assistant", then stops it.
   await inv('settings:update', { general: { confirmOnQuit: 'always' } })
   const closing = inv('workspace:close')

@@ -107,7 +107,7 @@ function periodStart(p: Period, now: number): number {
   return now - (p === 'week' ? 7 : 30) * 86400_000
 }
 
-interface Totals {
+export interface Totals {
   sessions: number
   prompts: number
   compactions: number
@@ -122,7 +122,7 @@ interface Totals {
   unpriced: number
 }
 
-function sumUsage(list: SessionListItem[]): Totals {
+export function sumUsage(list: SessionListItem[]): Totals {
   const t: Totals = { sessions: 0, prompts: 0, compactions: 0, input: 0, cached: 0, cacheWrite: 0, output: 0, cost: 0, estimated: false, unpriced: 0 }
   for (const s of list) {
     const u = s.usage
@@ -143,7 +143,7 @@ function sumUsage(list: SessionListItem[]): Totals {
   return t
 }
 
-const money = (n: number): string => (n >= 100 ? `$${Math.round(n)}` : n > 0 && n < 0.01 ? '< $0.01' : `$${n.toFixed(2)}`)
+export const money = (n: number): string => (n >= 100 ? `$${Math.round(n)}` : n > 0 && n < 0.01 ? '< $0.01' : `$${n.toFixed(2)}`)
 
 /** The agent a session belongs to: its worktree's agent, else the agent recorded for it ('?' when none). */
 function sessionAgent(project: ProjectInfo, s: SessionListItem): string {

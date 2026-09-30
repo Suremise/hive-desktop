@@ -33,7 +33,8 @@
   - the workspace at a glance, with agents waiting for you first (click one to go to it);
   - its terminal;
   - a footer with its model, mode, context and cost.
-- **Personas** decide who the Assistant is, and you can edit them or write your own in the new **Personas** view. Four come with Hive, each with a serious job and an unexpected character:
+- **The Hive Assistant view** (activity bar) shows what the Assistant has used so far, all its conversations (searchable, like a project's Sessions tab) and its personas.
+- **Personas** decide who the Assistant is, and you can edit them or write your own in the Assistant view. Four come with Hive, each with a serious job and an unexpected character:
   - 🗼 **Overseer**, a lighthouse keeper keeping a watch log;
   - 🎩 **Planner**, who plans every task like a heist;
   - 🦎 **Reviewer**, who reviews code like a wildlife documentary narrator;

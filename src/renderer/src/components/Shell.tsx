@@ -14,7 +14,7 @@ const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }
   { id: 'notes', icon: 'notebook', label: 'Shared Notes', command: 'view.notes' },
   { id: 'skills', icon: 'sparkle', label: 'Skills', command: 'view.skills' },
   { id: 'mcp', icon: 'plug', label: 'MCP Servers', command: 'view.mcp' },
-  { id: 'personas', icon: 'person', label: 'Assistant Personas', command: 'view.personas' }
+  { id: 'assistant', icon: 'hubot', label: 'Hive Assistant', command: 'view.assistant' }
 ]
 
 export function ActivityBar() {

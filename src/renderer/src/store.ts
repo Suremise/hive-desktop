@@ -17,7 +17,7 @@ import type {
   WorkspaceInfo
 } from '@shared/types'
 
-export type Activity = 'projects' | 'notes' | 'skills' | 'mcp' | 'personas' | 'docs' | 'settings'
+export type Activity = 'projects' | 'notes' | 'skills' | 'mcp' | 'assistant' | 'docs' | 'settings'
 export type ProjectTab = 'session' | 'overview' | 'sessions' | 'files' | 'images' | 'changes' | 'memory' | 'skills' | 'mcp' | 'settings'
 
 export interface ConfirmRequest {
@@ -88,6 +88,8 @@ interface State {
   selectedMcp: string | null
   /** The persona open in the Personas view (its file). */
   selectedPersona: string | null
+  /** What the Assistant view's main area shows: its conversations or the selected persona. */
+  assistantSection: 'conversations' | 'personas'
   /** The Hive Assistant's panel is shown (per workspace, saved in the pane sizes as assistant-open:<path>). */
   assistantOpen: boolean
   /** Assistant Settings is open. */
@@ -176,6 +178,7 @@ export const useStore = create<State>(() => ({
   skillEdit: null,
   selectedMcp: null,
   selectedPersona: null,
+  assistantSection: 'conversations',
   assistantOpen: false,
   assistantSettingsOpen: false,
   personasVersion: 0,
@@ -380,6 +383,12 @@ export function revealAgent(p: ProjectInfo, agentId: string): void {
 /** Shows a sidebar view without toggling it (setActivity hides the sidebar when that view is already shown). */
 export function showView(a: Exclude<Activity, 'docs' | 'settings'>): void {
   set({ activity: a, lastSideActivity: a, sidebarVisible: true })
+}
+
+/** Shows the Hive Assistant view (activity bar) on its conversations or its personas. */
+export function showAssistantView(section: 'conversations' | 'personas'): void {
+  set({ assistantSection: section })
+  showView('assistant')
 }
 
 export function setProjectTab(path: string, tab: ProjectTab): void {

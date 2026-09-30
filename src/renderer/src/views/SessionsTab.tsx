@@ -7,13 +7,14 @@ import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { Icon, IconButton, InfoTip, Markdown, Modal, Tooltip, useContextMenu } from '../components/ui'
-import { confirm, notify, openInSessionsTab, prompt, revealAgent, set, useStore } from '../store'
+import { confirm, notify, openInSessionsTab, prompt, revealAgent, set, setAssistantOpen, useStore } from '../store'
 import { cx, formatDuration, formatTokens, sessionLabel, timeAgo } from '../util'
 import { useSessions } from './ProjectTabs'
 
 /**
  * Sessions tab: the project's sessions on the left and a read-only transcript on the right,
- * with search across one transcript or all of them.
+ * with search across one transcript or all of them. The Hive Assistant's conversations use it too
+ * (`assistant`): its own words, Hive's conversations only, and its panel instead of an agent's pane.
  */
 
 type Scope = 'this' | 'all'
@@ -21,11 +22,16 @@ type Jump = { sessionId: string; itemId: number; nonce: number }
 
 const copyText = (text: string): void => void navigator.clipboard.writeText(text)
 
-export function SessionsTab({ project }: { project: ProjectInfo }) {
+export function SessionsTab({ project, assistant = false }: { project: ProjectInfo; assistant?: boolean }) {
   const { items, reload } = useSessions(project)
   const listWidth = usePaneSize('sessions', 320)
   const [showArchived, setShowArchived] = useState(false)
-  const [showExternal, setShowExternal] = useState(true)
+  const [showExternal, setShowExternal] = useState(!assistant)
+  const noun = assistant ? 'conversation' : 'session'
+  const newOne = (): void => {
+    void actions.newSession(project.path)
+    if (assistant) setAssistantOpen(true)
+  }
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<Scope>('this')
@@ -112,11 +118,17 @@ export function SessionsTab({ project }: { project: ProjectInfo }) {
       <div className="split-list sessions-list" style={{ width: listWidth }}>
         <PaneResizer paneKey="sessions" />
         <div className="pane-header" style={{ paddingLeft: 14 }}>
-          Sessions
-          <InfoTip text="Every session of this project. Select one to read its transcript: the whole conversation, including what came before each compaction. Transcripts Claude Code has deleted are read from Hive's backup." />
+          {assistant ? 'Conversations' : 'Sessions'}
+          <InfoTip
+            text={
+              assistant
+                ? "Every conversation of this workspace's Hive Assistant. Select one to read it in full, including what came before each compaction."
+                : "Every session of this project. Select one to read its transcript: the whole conversation, including what came before each compaction. Transcripts Claude Code has deleted are read from Hive's backup."
+            }
+          />
           <div className="actions">
             <IconButton icon="refresh" title="Refresh" onClick={reload} />
-            <IconButton icon="add" title="New Session" onClick={() => void actions.newSession(project.path)} />
+            <IconButton icon="add" title={assistant ? 'New Conversation' : 'New Session'} onClick={newOne} />
           </div>
         </div>
         <div className="files-filter">
@@ -124,7 +136,7 @@ export function SessionsTab({ project }: { project: ProjectInfo }) {
           <input
             ref={searchRef}
             className="input"
-            placeholder={scope === 'this' ? 'Search this transcript' : 'Search all sessions'}
+            placeholder={scope === 'this' ? `Search this ${assistant ? 'conversation' : 'transcript'}` : `Search all ${noun}s`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -137,10 +149,10 @@ export function SessionsTab({ project }: { project: ProjectInfo }) {
         <div className="sessions-scope">
           <div className="segmented">
             <button className={cx(scope === 'this' && 'active')} onClick={() => setScope('this')}>
-              This session
+              This {noun}
             </button>
             <button className={cx(scope === 'all' && 'active')} onClick={() => setScope('all')}>
-              All sessions
+              All {noun}s
             </button>
           </div>
           {q && results && <span className="faint">{hitCount === 0 ? 'No matches' : `${hitCount}${results.some((r) => r.more) ? '+' : ''} match${hitCount === 1 ? '' : 'es'}`}</span>}
@@ -170,15 +182,17 @@ export function SessionsTab({ project }: { project: ProjectInfo }) {
         ) : (
           <>
             <div className="sessions-filters">
-              <label className="flex muted">
-                <input type="checkbox" className="checkbox" checked={showExternal} onChange={(e) => setShowExternal(e.target.checked)} /> Started outside Hive
-              </label>
+              {!assistant && (
+                <label className="flex muted">
+                  <input type="checkbox" className="checkbox" checked={showExternal} onChange={(e) => setShowExternal(e.target.checked)} /> Started outside Hive
+                </label>
+              )}
               <label className="flex muted">
                 <input type="checkbox" className="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Archived
               </label>
             </div>
             <div className="pane-body">
-              {list.length === 0 && <div className="pane-empty">No sessions yet.</div>}
+              {list.length === 0 && <div className="pane-empty">No {noun}s yet.</div>}
               {list.map((s) => (
                 <SessionRow key={s.id} s={s} name={sessionName(s)} live={liveById.get(s.id)?.status ?? null} agent={many || s.cwd ? agentLabel(project, s) : null} selected={s.id === selectedId} onClick={() => open(s.id)} />
               ))}
@@ -209,8 +223,8 @@ export function SessionsTab({ project }: { project: ProjectInfo }) {
                 {isLive(selected.id) && (() => {
                   const holder = project.agents.find((a) => a.live?.sessionId === selected.id)!
                   return (
-                    <Tooltip content={`This conversation is running in ${holder.name}. Show its terminal.`}>
-                      <button className="btn small" onClick={() => revealAgent(project, holder.id)}>
+                    <Tooltip content={assistant ? 'The Assistant is running this conversation. Show its panel.' : `This conversation is running in ${holder.name}. Show its terminal.`}>
+                      <button className="btn small" onClick={() => (assistant ? setAssistantOpen(true) : revealAgent(project, holder.id))}>
                         <Icon name="terminal" /> Show{many ? ` ${holder.name}` : ''}
                       </button>
                     </Tooltip>

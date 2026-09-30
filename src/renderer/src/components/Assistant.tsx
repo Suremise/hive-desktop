@@ -5,7 +5,7 @@ import type { AgentDef, AgentInfo, EffortLevel, PermissionMode, PersonaInfo, Pro
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
-import { agentProviderOf, confirm, get, NO_PROJECTS, projectKey, revealAgent, set, setActivity, setAssistantOpen, showView, useStore } from '../store'
+import { agentProviderOf, confirm, get, NO_PROJECTS, projectKey, revealAgent, set, setActivity, setAssistantOpen, showAssistantView, showView, useStore } from '../store'
 import { useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
 import { Overrides, ProviderChoice } from './AgentDialogs'
@@ -274,7 +274,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
           })
         ),
       { separator: true },
-      { label: 'Manage Personas…', icon: 'person', onClick: () => showView('personas') }
+      { label: 'Manage Personas…', icon: 'person', onClick: () => showAssistantView('personas') }
     ])
   }
   const start = (): void => void actions.newSession(project.path, AGENT)
@@ -306,9 +306,10 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
         ? { label: 'New Conversation', icon: 'add', onClick: start }
         : { label: 'Resume', icon: 'debug-continue', disabled: !a.resume, onClick: () => void actions.resumeLast(project.path, AGENT) },
       { label: 'Resume a Conversation…', icon: 'history', onClick: () => void picker.openAt(project, x, y) },
+      { label: 'All Conversations…', icon: 'comment-discussion', onClick: () => showAssistantView('conversations') },
       { separator: true },
       { label: 'Assistant Settings…', icon: 'settings', onClick: () => set({ assistantSettingsOpen: true }) },
-      { label: 'Manage Personas…', icon: 'person', onClick: () => showView('personas') },
+      { label: 'Manage Personas…', icon: 'person', onClick: () => showAssistantView('personas') },
       { separator: true },
       { label: 'Hide the Assistant', icon: 'layout-sidebar-right-off', onClick: () => setAssistantOpen(false) }
     ])

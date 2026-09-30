@@ -72,8 +72,8 @@ Build with `npx electron-vite build`, then drive `node_modules/electron/dist/ele
 |---|---|
 | `src/main/index.ts` | App lifecycle, window, quit flow, settings side effects |
 | `src/main/sessions.ts` | Launch/stop/resume per agent (any provider), normalised hooks → status, file locks (PreToolUse), transcript backups, usage and cost, Continue with… |
-| `src/shared/assistant.ts`, `src/main/personas.ts`, `src/renderer/src/components/Assistant.tsx`, `Personas.tsx` | The Hive Assistant (one per workspace, a session host at `.hive/assistant` whose settings are overlaid from Settings → Assistant) and its personas (`.hive/personas`, shipped in `resources/personas`) |
-| `src/main/projectAgents.ts`, `src/main/worktrees.ts` | A project's agents (up to 4): add/update/remove/merge; git worktree operations |
+| `src/shared/assistant.ts`, `src/main/personas.ts`, `src/renderer/src/components/Assistant.tsx`, `AssistantView.tsx`, `Personas.tsx` | The Hive Assistant (one per workspace, a session host at `.hive/assistant` whose settings are overlaid from Settings → Assistant) and its personas (`.hive/personas`, shipped in `resources/personas`) |
+| `src/main/projectAgents.ts`, `src/main/worktrees.ts` | A project's agents (up to 12, six to a page): add/update/remove/merge; git worktree operations |
 | `src/shared/providers.ts`, `claude.ts`, `codex.ts` | Provider descriptors (names, modes, models, capabilities) and settings resolution helpers |
 | `src/main/providers/` | `ProviderAdapter` interface, registry, `claude/` and `codex/` adapters (launch, hooks, transcripts, usage, conversation parsers) |
 | `src/main/providerService.ts` | Each provider's install info, readiness and setup tasks (Agent Setup) |

@@ -422,6 +422,13 @@ kbd {
   cursor: pointer;
   border-top: 1px solid var(--border-subtle);
 }
+.section-header .section-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+  font-weight: 400;
+  text-transform: none;
+}
 .section-header .count {
   margin-left: auto;
   font-weight: 500;
@@ -3712,6 +3719,37 @@ button.mode-badge.badge:hover {
   max-height: 33%;
 }
 /* The hidden panel: a strip down the right edge (click to show it). */
+/* The Assistant view's summary (sidebar): what it has used, all time. */
+.assistant-summary {
+  padding: 4px 14px 12px 20px;
+}
+.assistant-summary-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-bottom: 6px;
+}
+.assistant-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.assistant-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 11px;
+}
+.assistant-stat strong {
+  font-size: 15px;
+  color: var(--fg-strong);
+}
 .assistant-rail {
   flex-shrink: 0;
   width: 28px;

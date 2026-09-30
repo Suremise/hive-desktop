@@ -163,9 +163,18 @@ Each workspace has a **Hive Assistant**, its overseer, in a panel on the right. 
 
 Ask it anything about the workspace: what the agents are doing, what a project is, what changed, what things cost, or for a plan or a review. It reads any project's files and uses Hive's own tools to see projects, agents, usage, shared notes and handovers. **For now it only looks and advises**: it doesn't edit files or start, stop or prompt agents, and if it tries to change something its provider asks you first. It will be able to do more in later versions.
 
-**The panel.** At the top: the Assistant's status, its persona (click to switch), Start or Compact and Stop (in **⋯** when the panel is narrow), and **⋯** (New Conversation while it runs or Resume when it doesn't, Resume a Conversation…, Assistant Settings…, Manage Personas…). Under it, the workspace at a glance: agents waiting for you (or in trouble) first, then your active projects and their agents, and clicking one takes you there. Inactive projects fold into one row at the end; click it to show them. Drag the line under it to give it more or less room. Then the Assistant's terminal, and a footer with its model and effort, permission mode, context and cost, as agents have. While it isn't running, the panel offers **Start Assistant**, **Resume** and its past conversations. While the panel is hidden, the strip shows a dot for what the Assistant is doing.
+**The panel.** At the top: the Assistant's status, its persona (click to switch), Start or Compact and Stop (in **⋯** when the panel is narrow), and **⋯** (New Conversation while it runs or Resume when it doesn't, Resume a Conversation…, All Conversations…, Assistant Settings…, Manage Personas…). Under it, the workspace at a glance: agents waiting for you (or in trouble) first, then your active projects and their agents, and clicking one takes you there. Inactive projects fold into one row at the end; click it to show them. Drag the line under it to give it more or less room. Then the Assistant's terminal, and a footer with its model and effort, permission mode, context and cost, as agents have. While it isn't running, the panel offers **Start Assistant**, **Resume** and its past conversations. While the panel is hidden, the strip shows a dot for what the Assistant is doing.
 
 It doesn't use one of a project's agent slots, and it runs in the workspace folder. Closing the workspace or the window, or quitting, stops it like any agent (the dialogs call it "Assistant"), and its conversations can be resumed.
+
+### The Assistant view
+
+The **Hive Assistant** button in the activity bar (the robot) opens everything else about it. At the top, **Used so far**: its conversations, prompts, tokens and API-equivalent cost, all time. These aren't counted in any project's Overview. Below that:
+
+- **All Conversations** shows every conversation you've had with it, in the same browser as a project's **Sessions** tab. Search one conversation or all of them, read any in full, export, rename, archive or resume one. **Show** on the running conversation opens the panel.
+- **Personas** lists its personas (below).
+
+The panel's **⋯** menu opens the same view with **All Conversations…** or **Manage Personas…**.
 
 ### Personas
 
@@ -178,7 +187,7 @@ A **persona** is who the Assistant is: its role and its character, written as in
 
 Whatever the character, they speak plainly about errors, security and anything you must decide.
 
-The **Personas** view (the person icon on the left) lists them. Click one to read or edit it, **+** to write your own, and the bin to delete one. Hive's own come back with **Restore** or **Revert to Default**. **Use in This Workspace** makes one the Assistant's. Switching persona while the Assistant is running asks first, because it starts a new conversation. A conversation keeps the persona it started with.
+The **Personas** section of the Assistant view (below) lists them. Click one to read or edit it, **+** to write your own, and the bin to delete one. Hive's own come back with **Restore** or **Revert to Default**. **Use in This Workspace** makes one the Assistant's. Switching persona while the Assistant is running asks first, because it starts a new conversation. A conversation keeps the persona it started with.
 
 ### Assistant settings
 

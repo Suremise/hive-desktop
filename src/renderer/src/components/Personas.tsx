@@ -6,17 +6,17 @@ import { confirm, prompt, set, useStore } from '../store'
 import { cx } from '../util'
 import { choosePersona, usePersonas } from './Assistant'
 import { DocEditor } from './DocEditor'
-import { Icon, IconButton, InfoTip, Tooltip } from './ui'
+import { Icon, IconButton, Tooltip } from './ui'
 
 /**
  * The Hive Assistant's personas: the workspace's Markdown files in .hive/personas, each a role and a character
  * in its own words. Listed in the sidebar and edited in the main area; Hive's own four can be restored.
  */
 
-const PERSONAS_TIP =
+export const PERSONAS_TIP =
   "A persona is who the Hive Assistant is: its role and its character, in a Markdown file in the workspace (.hive/personas). The panel's persona menu switches between them; Settings → Assistant sets the default."
 
-async function createPersona(): Promise<void> {
+export async function createPersona(): Promise<void> {
   const name = await prompt({
     title: 'New Persona',
     message: 'Creates .hive/personas/<name>.md in the workspace, to describe the role and character in your own words.',
@@ -26,7 +26,7 @@ async function createPersona(): Promise<void> {
   })
   if (!name) return
   const p = await actions.attempt('Could not create the persona', () => call('personas:create', name))
-  if (p) set((s) => ({ selectedPersona: p.path, personasVersion: s.personasVersion + 1 }))
+  if (p) set((s) => ({ selectedPersona: p.path, assistantSection: 'personas', personasVersion: s.personasVersion + 1 }))
 }
 
 async function deletePersona(p: PersonaInfo): Promise<void> {
@@ -45,9 +45,9 @@ async function restorePersona(p: PersonaInfo): Promise<void> {
   if (r) set((s) => ({ selectedPersona: r.path, personasVersion: s.personasVersion + 1 }))
 }
 
-export function PersonasPanel() {
-  const workspace = useStore((s) => s.workspace)
-  const selected = useStore((s) => s.selectedPersona)
+/** The personas, in the Assistant view's sidebar: select one to read or edit it in the main area. */
+export function PersonaList() {
+  const selected = useStore((s) => (s.assistantSection === 'personas' ? s.selectedPersona : null))
   const settings = useStore((s) => s.settings)
   const agent = useStore((s) => s.workspace?.assistant?.agents[0] ?? null)
   const personas = usePersonas()
@@ -55,19 +55,8 @@ export function PersonasPanel() {
   const byDefault = settings?.assistant.persona || DEFAULT_PERSONA
   return (
     <>
-      <div className="pane-header">
-        Personas
-        <InfoTip text={PERSONAS_TIP} />
-        <div className="actions">
-          <IconButton icon="add" title="New Persona…" onClick={() => void createPersona()} disabled={!workspace} />
-          <IconButton icon="refresh" title="Refresh" onClick={() => set((s) => ({ personasVersion: s.personasVersion + 1 }))} />
-          <IconButton icon="folder-opened" title="Open Personas Folder" disabled={!workspace} onClick={() => workspace && void call('app:openPath', `${workspace.path}\\.hive\\personas`)} />
-        </div>
-      </div>
-      <div className="pane-body">
-        {!workspace && <div className="pane-empty">Open a workspace to manage the Assistant's personas.</div>}
-        {personas.map((p) => (
-          <div key={p.id} className={cx('row tall persona-row', selected === p.path && 'selected', p.bundled === 'missing' && 'missing')} onClick={() => set({ selectedPersona: p.path })}>
+      {personas.map((p) => (
+          <div key={p.id} className={cx('row tall persona-row', selected === p.path && 'selected', p.bundled === 'missing' && 'missing')} onClick={() => set({ selectedPersona: p.path, assistantSection: 'personas' })}>
             <span className="persona-icon">{p.icon || '🐝'}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="label">
@@ -86,12 +75,9 @@ export function PersonasPanel() {
             )}
           </div>
         ))}
-        {workspace && (
-          <p className="hint" style={{ padding: '4px 14px' }}>
-            The Assistant takes one persona per conversation. Edit one to change its role or character; the next conversation uses it.
-          </p>
-        )}
-      </div>
+      <p className="hint" style={{ padding: '4px 14px' }}>
+        The Assistant takes one persona per conversation. Edit one to change its role or character; the next conversation uses it.
+      </p>
     </>
   )
 }

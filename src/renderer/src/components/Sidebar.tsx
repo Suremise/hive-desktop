@@ -8,7 +8,7 @@ import { confirm, get, notify, projectState, prompt, set, setProjectTab, toggleC
 import { cx, formatKeybinding } from '../util'
 import { Icon, IconButton, InfoTip, StatusDot, STATUS_TEXT, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
 import { addSkill, deleteSkill, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
-import { PersonasPanel } from './Personas'
+import { AssistantSidePanel } from './AssistantView'
 
 /** Width of the compact Projects rail, and how narrow a drag has to go before the sidebar snaps to it. */
 const RAIL_WIDTH = 48
@@ -54,7 +54,7 @@ export function Sidebar() {
       {view === 'notes' && <NotesPanel />}
       {view === 'skills' && <SkillsPanel />}
       {view === 'mcp' && <McpPanel />}
-      {view === 'personas' && <PersonasPanel />}
+      {view === 'assistant' && <AssistantSidePanel />}
       <div className={cx('sidebar-resizer', dragging && 'dragging')} onMouseDown={startDrag} onDoubleClick={() => {
           set({ sidebarWidth: 280, sidebarCompact: false })
           void call('ui:set', { sidebarWidth: 280 })
@@ -77,7 +77,7 @@ function NoWorkspace({ what }: { what: string }) {
   )
 }
 
-function Section({ title, count, children, defaultOpen = true, tip }: { title: string; count?: number; children: React.ReactNode; defaultOpen?: boolean; tip?: string }) {
+export function Section({ title, count, children, defaultOpen = true, tip, buttons }: { title: string; count?: number; children: React.ReactNode; defaultOpen?: boolean; tip?: string; buttons?: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
     <>
@@ -90,6 +90,11 @@ function Section({ title, count, children, defaultOpen = true, tip }: { title: s
           </span>
         )}
         {count !== undefined && <span className="count">{count}</span>}
+        {buttons && (
+          <span className="section-actions" onClick={(e) => e.stopPropagation()}>
+            {buttons}
+          </span>
+        )}
       </div>
       {open && children}
     </>

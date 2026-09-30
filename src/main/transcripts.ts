@@ -44,7 +44,8 @@ const pending = new Map<string, Promise<unknown>>()
  * otherwise both feed the same new bytes to the parser and duplicate messages.
  */
 async function parsed(projectPath: string, sessionId: string): Promise<Entry> {
-  projectPath = workspace.assertProject(projectPath)
+  // A project, or the Hive Assistant's home (its conversations are browsed the same way).
+  projectPath = workspace.assertSessionHost(projectPath)
   // The id becomes part of a file name, so only accept plain ids (UUIDs).
   assertSessionId(sessionId)
   const key = `${projectPath.toLowerCase()}|${sessionId}`
@@ -143,7 +144,7 @@ export const transcripts = {
 
   async markdown(projectPath: string, sessionId: string, title: string): Promise<string> {
     const e = await parsed(projectPath, sessionId)
-    const project = workspace.assertProject(projectPath)
+    const project = workspace.assertSessionHost(projectPath)
     const p = provider(e.provider)
     return transcriptMarkdown(e.parser.items, title, `${p.exportSubtitle(sessionId, project)} · exported from Hive ${new Date().toLocaleString()}`, p.descriptor.assistant)
   }
