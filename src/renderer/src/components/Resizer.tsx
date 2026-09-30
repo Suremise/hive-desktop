@@ -14,11 +14,11 @@ function save(key: string): void {
 }
 
 /**
- * Drag handle on the right edge of a pane. `ratio` panes store their share of the parent's width;
- * the others store a width in pixels, limited so the pane next to them keeps at least `keep` pixels.
- * Double-click resets to the default.
+ * Drag handle on the right edge of a pane (or its left edge, for a pane on the right of the window).
+ * `ratio` panes store their share of the parent's width; the others store a width in pixels, limited so
+ * the pane next to them keeps at least `keep` pixels. Double-click resets to the default.
  */
-export function PaneResizer({ paneKey, min = 200, max = 700, keep = 320, ratio = false }: { paneKey: string; min?: number; max?: number; keep?: number; ratio?: boolean }) {
+export function PaneResizer({ paneKey, min = 200, max = 700, keep = 320, ratio = false, edge = 'right' }: { paneKey: string; min?: number; max?: number; keep?: number; ratio?: boolean; edge?: 'left' | 'right' }) {
   const [dragging, setDragging] = useState(false)
 
   const start = (e: React.MouseEvent<HTMLDivElement>): void => {
@@ -33,7 +33,7 @@ export function PaneResizer({ paneKey, min = 200, max = 700, keep = 320, ratio =
     setDragging(true)
     document.body.classList.add('pane-resizing')
     const move = (ev: MouseEvent): void => {
-      const w = startW + ev.clientX - startX
+      const w = startW + (edge === 'left' ? startX - ev.clientX : ev.clientX - startX)
       const value = ratio
         ? Math.max(0.2, Math.min(0.8, w / box.width))
         : Math.round(Math.max(min, Math.min(max, box.width - keep, w)))
@@ -59,5 +59,5 @@ export function PaneResizer({ paneKey, min = 200, max = 700, keep = 320, ratio =
     save(paneKey)
   }
 
-  return <div className={cx('pane-resizer', dragging && 'dragging')} onMouseDown={start} onDoubleClick={reset} />
+  return <div className={cx('pane-resizer', edge === 'left' && 'left-edge', dragging && 'dragging')} onMouseDown={start} onDoubleClick={reset} />
 }

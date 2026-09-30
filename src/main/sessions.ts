@@ -4,6 +4,7 @@ import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { BrowserWindow, Notification, clipboard } from 'electron'
+import { ASSISTANT_NAME, ASSISTANT_TRUSTED_TOOLS } from '../shared/assistant'
 import { HIVE_DIR, agentPtyKey, assertSessionId, isSessionId, projectAgents, resumeRecord } from '../shared/defaults'
 import { agentLaunchSettings, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
 import type {
@@ -164,6 +165,8 @@ class SessionManager {
   hiveMcp: HiveMcpProvider = () => null
   /** Hive's guidance for agents (the hive MCP server's instructions), for providers that need it at launch. */
   hiveGuidance: (projectPath: string) => Promise<string> = async () => ''
+  /** The Hive Assistant's instructions for a launch (who it is, and its persona's), and the persona's name. */
+  assistantInstructions: (projectPath: string, agent: AgentDef) => Promise<{ text: string; persona: string }> = async () => ({ text: '', persona: '' })
   /** The project's newest handover in the shared notes (relative path and modified time), or null. */
   latestHandover: (projectPath: string) => Promise<{ relPath: string; modified: string } | null> = async () => null
   private exitWaiters = new Map<string, () => void>()
@@ -241,6 +244,12 @@ class SessionManager {
     }
     const hive = this.hiveMcp(projectPath)
     if (hive) mcpServers.hive = hive
+    // The Assistant looks after the workspace with Hive's own tools: no skills, and not the projects' MCP servers.
+    if (workspace.isAssistantHome(projectPath)) {
+      skills.length = 0
+      for (const k of Object.keys(skillHashes)) delete skillHashes[k]
+      for (const k of Object.keys(mcpServers)) if (k !== 'hive') delete mcpServers[k]
+    }
 
     const l = agentLaunchSettings(agent ?? projectAgents(pc)[0], pc, s)
     const extraArgs = l.extraArgs.flatMap((a) => splitArgs(a))
@@ -273,7 +282,9 @@ class SessionManager {
         }
       }
       const provider = agentLaunchSettings(a, cfg, config.settings).provider
-      const r = l ? null : resumeRecord(projectPath, a, records.filter((x) => recordProvider(x) === provider), openIds, ids)
+      // The Assistant's sessions ran in the workspace folder, not its home.
+      const folder = workspace.isAssistantHome(projectPath) ? (workspaceOf(projectPath).path ?? projectPath) : projectPath
+      const r = l ? null : resumeRecord(folder, a, records.filter((x) => recordProvider(x) === provider), openIds, ids)
       agents.push({ ...a, live: l?.state ?? null, restartNeeded, resume: r && { id: r.id, name: r.name, lastActiveAt: r.lastActiveAt } })
     }
     const primary = agents.find((a) => a.live)
@@ -317,7 +328,7 @@ class SessionManager {
 
   async start(projectPath: string, opts: { resumeId?: string; name?: string; agentId?: string; skipSetup?: boolean; permissionMode?: PermissionMode }): Promise<LiveSessionState> {
     this.assertStartsAllowed(projectPath)
-    projectPath = workspace.assertProject(projectPath)
+    projectPath = workspace.assertSessionHost(projectPath)
     if (opts.resumeId !== undefined) assertSessionId(opts.resumeId)
     const agentId = opts.agentId || (await this.soleAgent(projectPath))
     const id = liveId(projectPath, agentId)
@@ -365,7 +376,9 @@ class SessionManager {
     const info = providerService.info(providerId)
     if (!info.found || !info.path) throw new Error(`${name} is required to run ${agent.name}. Install it from Help → Agent Setup.`)
     await workspace.ensureProject(projectPath)
-    const cwd = agent.worktree?.path ?? projectPath
+    // The Assistant works in the workspace folder, where it can read every project.
+    const assistant = workspace.isAssistantHome(projectPath)
+    const cwd = assistant ? workspaceOf(projectPath).path! : (agent.worktree?.path ?? projectPath)
     if (!existsSync(cwd)) throw new Error(`${agent.name}'s worktree folder is missing: ${cwd}. Remove the agent, or restore the folder with git worktree.`)
 
     const existing = opts.resumeId ? (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === opts.resumeId) : undefined
@@ -380,7 +393,8 @@ class SessionManager {
     // Providers that choose their own session id report it once started (see the start hook).
     const sessionId = opts.resumeId ?? (adapter.descriptor.capabilities.fixedSessionId ? randomUUID() : '')
 
-    const sessionName = opts.name?.trim() || existing?.name || autoName(projectPath, agent, count)
+    const persona = assistant ? (await this.assistantInstructions(projectPath, agent).catch(() => null))?.persona : undefined
+    const sessionName = opts.name?.trim() || existing?.name || (assistant ? `${ASSISTANT_NAME}${persona ? ` · ${persona}` : ''} · ${new Date().toLocaleString()}` : autoName(projectPath, agent, count))
     const key = this.key(projectPath, agentId)
     const runId = randomBytes(12).toString('hex')
     const state: LiveSessionState = {
@@ -527,6 +541,8 @@ class SessionManager {
       extraArgs: eff.extraArgs,
       hookUrl: `${this.hookUrl}?run=${state.runId}`,
       guidance: await this.hiveGuidance(projectPath).catch(() => ''),
+      instructions: workspace.isAssistantHome(projectPath) ? (await this.assistantInstructions(projectPath, agent).catch(() => null))?.text : undefined,
+      trustedHiveTools: workspace.isAssistantHome(projectPath) ? ASSISTANT_TRUSTED_TOOLS : undefined,
       allowBackgroundSessions: providerSettings(config.settings, adapter.id).allowBackgroundSessions,
       env: childEnv({
         HIVE_HOOK_TOKEN: this.hookToken,
@@ -569,7 +585,7 @@ class SessionManager {
     if (state.sessionId) await this.recordSession(projectPath, agent, l)
 
     // Launched as active: starting a session implies working on the project.
-    if (!workspaceOf(projectPath).activeNames().includes(basename(projectPath))) workspace.setActive(projectPath, true)
+    if (!workspace.isAssistantHome(projectPath) && !workspaceOf(projectPath).activeNames().includes(basename(projectPath))) workspace.setActive(projectPath, true)
     this.emitState(state)
     workspaceOf(projectPath).scheduleRefresh()
   }
@@ -595,7 +611,9 @@ class SessionManager {
       agentId: agent.id,
       // Providers that choose their own ids file transcripts by date, not folder: remember where.
       ...(l.transcriptPath && !l.adapter.descriptor.capabilities.fixedSessionId ? { transcriptPath: l.transcriptPath } : {}),
-      ...(agent.worktree ? { cwd: state.cwd, branch: agent.worktree.branch } : {})
+      // Where it ran, when not the project folder (a worktree, or the Assistant's workspace folder).
+      ...(state.cwd.toLowerCase() !== projectPath.toLowerCase() ? { cwd: state.cwd } : {}),
+      ...(agent.worktree ? { branch: agent.worktree.branch } : {})
     })
     await workspace.updateAgent(projectPath, agent.id, { lastSessionId: sessionId }).catch(() => undefined)
     for (const other of projectAgents(await workspace.projectConfig(projectPath))) {
@@ -664,7 +682,7 @@ class SessionManager {
    * waits on a prompt the text would land in that prompt. Ctrl+U first clears anything half-typed.
    */
   async compact(projectPath: string, focus?: string, agentId?: string): Promise<void> {
-    projectPath = workspace.assertProject(projectPath)
+    projectPath = workspace.assertSessionHost(projectPath)
     agentId ||= await this.soleAgent(projectPath)
     const id = liveId(projectPath, agentId)
     const l = this.live.get(id)
@@ -752,7 +770,7 @@ class SessionManager {
    * the answer). Modes the provider can't switch to live need a restart (restartInMode).
    */
   async setPermissionMode(projectPath: string, agentId: string, mode: PermissionMode): Promise<{ ok: boolean; restart?: boolean; message?: string }> {
-    projectPath = workspace.assertProject(projectPath)
+    projectPath = workspace.assertSessionHost(projectPath)
     const id = liveId(projectPath, agentId)
     const l = this.live.get(id)
     if (!l || l.state.settingUp) throw new Error('No session is running for this agent.')
@@ -908,7 +926,7 @@ class SessionManager {
 
   /** Turns a running agent's Plan mode on or off (providers where it is a toggle, e.g. Codex's Shift+Tab). */
   async setPlanMode(projectPath: string, agentId: string, on: boolean): Promise<void> {
-    projectPath = workspace.assertProject(projectPath)
+    projectPath = workspace.assertSessionHost(projectPath)
     const l = this.live.get(liveId(projectPath, agentId))
     if (!l || l.state.settingUp) throw new Error('No session is running for this agent.')
     if (!l.adapter.planToggleKey) throw new Error(`${l.adapter.descriptor.name} has no Plan mode toggle.`)
@@ -921,7 +939,7 @@ class SessionManager {
 
   /** Stops the agent and resumes the same conversation in another permission mode. */
   async restartInMode(projectPath: string, agentId: string, mode: PermissionMode): Promise<void> {
-    projectPath = workspace.assertProject(projectPath)
+    projectPath = workspace.assertSessionHost(projectPath)
     const id = liveId(projectPath, agentId)
     const l = this.live.get(id)
     if (!l) throw new Error('No session is running for this agent.')
@@ -998,7 +1016,7 @@ class SessionManager {
 
   /** Stops the CLI's background job holding a conversation, then resumes the conversation in this agent. */
   async stopBackgroundAndResume(projectPath: string, agentId: string, jobId: string, sessionId: string): Promise<void> {
-    projectPath = workspace.assertProject(projectPath)
+    projectPath = workspace.assertSessionHost(projectPath)
     const { agent, cfg } = await this.agentDef(projectPath, agentId)
     const adapter = providerAdapter(agentLaunchSettings(agent, cfg, config.settings).provider)
     const info = providerService.info(adapter.id)
@@ -1167,6 +1185,7 @@ class SessionManager {
 
   /** "hive" for a project with one agent, "hive · Agent 2" when it has several. */
   private label(st: LiveSessionState): string {
+    if (workspace.isAssistantHome(st.projectPath)) return ASSISTANT_NAME
     const project = basename(st.projectPath)
     const count = workspaceOf(st.projectPath).info()?.projects.find((p) => p.path.toLowerCase() === st.projectPath.toLowerCase())?.agents.length ?? 1
     return count > 1 ? `${project} · ${st.agentName ?? 'Agent'}` : project
@@ -1265,7 +1284,7 @@ class SessionManager {
 
   /** "Allow" on an "Ask me" lock notification: lets the agent edit the file, and tells it to go ahead if it is waiting. */
   async allowLockedEdit(projectPath: string, agentId: string, path: string): Promise<void> {
-    projectPath = workspace.assertProject(projectPath)
+    projectPath = workspace.assertSessionHost(projectPath)
     const id = liveId(projectPath, agentId)
     const l = this.live.get(id)
     if (!l) return
@@ -1500,7 +1519,7 @@ class SessionManager {
    * Takes the clipboard image when no source file is given; returns null if there is none.
    */
   async saveImage(projectPath: string, sourceFile?: string, agentId?: string): Promise<string | null> {
-    projectPath = workspace.assertProject(projectPath)
+    projectPath = workspace.assertSessionHost(projectPath)
     agentId ||= await this.soleAgent(projectPath)
     const l = this.live.get(liveId(projectPath, agentId))
     if (!l) throw new Error('No session is running for this agent.')
@@ -1559,7 +1578,7 @@ class SessionManager {
   }
 
   async list(projectPath: string): Promise<SessionListItem[]> {
-    projectPath = workspace.assertProject(projectPath)
+    projectPath = workspace.assertSessionHost(projectPath)
     const file = await workspace.sessionsFile(projectPath)
     // Read once for the whole list, not once per session.
     const ctx: ListContext = { records: file.sessions, cfg: await workspace.projectConfig(projectPath) }
@@ -1611,7 +1630,7 @@ class SessionManager {
   }
 
   async archive(projectPath: string, sessionId: string, archived: boolean): Promise<void> {
-    projectPath = workspace.assertProject(projectPath)
+    projectPath = workspace.assertSessionHost(projectPath)
     if (archived && this.projectStates(projectPath).some((s) => s.sessionId === sessionId)) throw new Error('Stop the session before archiving it.')
     const active = this.backupPath(projectPath, sessionId)
     const arch = this.backupPath(projectPath, sessionId, true)
@@ -1632,7 +1651,7 @@ class SessionManager {
   }
 
   async rename(projectPath: string, sessionId: string, name: string): Promise<void> {
-    projectPath = workspace.assertProject(projectPath)
+    projectPath = workspace.assertSessionHost(projectPath)
     assertSessionId(sessionId)
     await workspace.upsertSession(projectPath, { id: sessionId, name: name.trim() })
     const live = this.projectStates(projectPath).find((s) => s.sessionId === sessionId)
@@ -1643,7 +1662,7 @@ class SessionManager {
   }
 
   async adopt(projectPath: string, sessionId: string): Promise<void> {
-    projectPath = workspace.assertProject(projectPath)
+    projectPath = workspace.assertSessionHost(projectPath)
     assertSessionId(sessionId)
     const src = await this.providerTranscript(projectPath, sessionId)
     const provider = src?.provider ?? 'claude-code'

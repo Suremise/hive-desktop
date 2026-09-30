@@ -5,6 +5,7 @@ import type {
   AgentApiInfo,
   AgentBranchStatus,
   AgentDef,
+  PersonaInfo,
   AgentInstallInfo,
   AppConfig,
   AppInfo,
@@ -142,7 +143,8 @@ export interface HiveRequests {
   /** Adds an agent to the project (up to four), creating its worktree if asked. */
   'agents:add': (projectPath: string, opts: AddAgentOptions) => AgentDef
   /** Changing provider clears the agent's model, effort and mode, and its session to resume (conversations can't move between providers). */
-  'agents:update': (projectPath: string, agentId: string, patch: Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode'>>) => AgentDef
+  /** Changes an agent's name and settings; for the Hive Assistant's home, its settings for this workspace (persona too). */
+  'agents:update': (projectPath: string, agentId: string, patch: Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona'>>) => AgentDef
   /** Removes an agent (its session must be stopped). deleteWorktree also removes its worktree and branch. */
   'agents:remove': (projectPath: string, agentId: string, opts: { deleteWorktree: boolean }) => void
   /** Branches and worktrees, for the Add Agent dialog. */
@@ -197,6 +199,14 @@ export interface HiveRequests {
   'notes:create': (relPath: string, isDir: boolean) => string
   'notes:delete': (path: string) => void
   'notes:rename': (path: string, newName: string) => string
+
+  /** The Hive Assistant's personas: the workspace's, then Hive's that it doesn't have (bundled: 'missing'). */
+  'personas:list': () => PersonaInfo[]
+  'personas:create': (name: string) => PersonaInfo
+  /** Moves the persona's file to the Recycle Bin. */
+  'personas:delete': (id: string) => void
+  /** Puts back one of Hive's personas as this version ships it (the workspace's copy goes to the Recycle Bin). */
+  'personas:restore': (id: string) => PersonaInfo
 
   'file:read': (path: string) => string
   /** With `expected` (the text as read), refuses with CONFLICT if the file has changed on disk since (a missing file reads as ''). */

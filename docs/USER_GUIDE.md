@@ -155,6 +155,39 @@ If you use a subscription (a Claude plan for Claude Code, a ChatGPT plan for Cod
 
 Each agent's footer shows its model and **effort**, e.g. *Opus 5.5 (default) · High*: what the running session reports, otherwise what new sessions will use.
 
+## Hive Assistant
+
+Each workspace has a **Hive Assistant**, its overseer, in a panel on the right. Show or hide it with **Ctrl+Alt+I**; hidden, it folds into a narrow **Hive Assistant** strip down the right edge, and clicking the strip opens it. Each workspace remembers whether it's open, and dragging its left edge makes it wider (double-click the edge for the default width). Hiding the panel doesn't stop the Assistant.
+
+Ask it anything about the workspace: what the agents are doing, what a project is, what changed, what things cost, or for a plan or a review. It reads any project's files and uses Hive's own tools to see projects, agents, usage, shared notes and handovers. **For now it only looks and advises**: it doesn't edit files or start, stop or prompt agents, and if it tries to change something its provider asks you first. It will be able to do more in later versions.
+
+**The panel.** At the top: the Assistant's status, its persona (click to switch), Start or Compact and Stop (in **⋯** when the panel is narrow), and **⋯** (New Conversation while it runs or Resume when it doesn't, Resume a Conversation…, Assistant Settings…, Manage Personas…). Under it, the workspace at a glance: agents waiting for you (or in trouble) first, then your active projects and their agents, and clicking one takes you there. Inactive projects fold into one row at the end; click it to show them. Drag the line under it to give it more or less room. Then the Assistant's terminal, and a footer with its model and effort, permission mode, context and cost, as agents have. While it isn't running, the panel offers **Start Assistant**, **Resume** and its past conversations. While the panel is hidden, the strip shows a dot for what the Assistant is doing.
+
+It doesn't use one of a project's agent slots, and it runs in the workspace folder. Closing the workspace or the window, or quitting, stops it like any agent (the dialogs call it "Assistant"), and its conversations can be resumed.
+
+### Personas
+
+A **persona** is who the Assistant is: its role and its character, written as instructions in a Markdown file in the workspace's `.hive/personas` folder. Hive comes with four, each with a serious job and a character to match:
+
+- 🗼 **Overseer** (the default): a lighthouse keeper who keeps a watch log of the workspace. Projects are ships, and an agent waiting for you is signalling.
+- 🎩 **Planner**: plans every task like a heist, with the job, the crew, the vault and always the getaway.
+- 🦎 **Reviewer**: reviews code like a hushed wildlife documentary narrator, with real findings ranked by severity.
+- 🛫 **Orchestrator**: coordinates the agents like an air traffic controller. For now it writes the instructions for you to pass on.
+
+Whatever the character, they speak plainly about errors, security and anything you must decide.
+
+The **Personas** view (the person icon on the left) lists them. Click one to read or edit it, **+** to write your own, and the bin to delete one. Hive's own come back with **Restore** or **Revert to Default**. **Use in This Workspace** makes one the Assistant's. Switching persona while the Assistant is running asks first, because it starts a new conversation. A conversation keeps the persona it started with.
+
+### Assistant settings
+
+**Settings → Assistant** sets the defaults for every workspace:
+
+- The provider (Claude Code or Codex, whatever your agents use).
+- The default persona.
+- For each provider: its model, effort, permission mode and extra arguments.
+
+It starts lighter than your agents, to spend fewer tokens: Claude Code's Sonnet with low effort. Its mode, like your agents', approves safe actions itself and only asks about risky ones: **Auto** for Claude Code and **Approve for me** for Codex. **Assistant Settings** in the panel changes any of them for one workspace. Changing its provider or persona restarts it, after asking.
+
 ## Skills
 
 Skills are instructions an agent loads when they're relevant. There are no switches: every skill an agent can see is always available to it. Hive shows where each one comes from:
@@ -360,6 +393,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Toggle sidebar | Ctrl+B (outside the terminal) |
 | Compact / expand the project list | Ctrl+Alt+B |
 | Notifications | Ctrl+Alt+U |
+| Show / hide the Hive Assistant | Ctrl+Alt+I |
 | External terminal in the project | Ctrl+Shift+` |
 | Documentation | F1 |
 

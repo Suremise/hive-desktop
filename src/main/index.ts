@@ -8,6 +8,8 @@ import type { AppInfo, QuitChoice, QuitScope, QuitSession, WindowState } from '.
 import { providerService } from './providerService'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../shared/hiveGuidance'
 import { notesTree } from './notes'
+import { assistantInstructions } from './personas'
+import { ASSISTANT_NAME, assistantPersona } from '../shared/assistant'
 import { PROVIDERS, projectProviderConfig, providerSettings } from '../shared/providers'
 import { projectAgents } from '../shared/defaults'
 import { SERVABLE_EXT, unwatchAll } from './files'
@@ -23,7 +25,7 @@ import { notificationIcon } from './paths'
 import { createTray, destroyTray, resourcesDir, setTrayPendingQuit, showWindow } from './tray'
 import { initUpdater, installNow } from './updater'
 import { createWorkspaceService, disposeWorkspaceService, inWorkspace, openWorkspaces, workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
-import { hiveWindows, lastFocused, registerWindow, unregisterWindow, windowForPath, type HiveWindow } from './windows'
+import { hiveWindows, lastFocused, TITLE_BAR_OVERLAY, registerWindow, unregisterWindow, windowForPath, type HiveWindow } from './windows'
 
 const log = createLogger('main')
 let quitting = false
@@ -120,7 +122,7 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
     icon: join(resourcesDir(), 'icon.png'),
     backgroundColor: titleBarColors().color,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { ...titleBarColors(), height: 34 },
+    titleBarOverlay: { ...titleBarColors(), height: TITLE_BAR_OVERLAY },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -270,6 +272,7 @@ const quitSessions = (ws?: WorkspaceService): QuitSession[] =>
     .liveStates()
     .filter((s) => !ws || workspaceFor(s.projectPath) === ws)
     .map((s) => {
+      if (workspace.isAssistantHome(s.projectPath)) return { projectPath: s.projectPath, project: ASSISTANT_NAME, status: s.status, provider: s.provider }
       const agents = workspaceOf(s.projectPath).info()?.projects.find((p) => p.path.toLowerCase() === s.projectPath.toLowerCase())?.agents.length ?? 1
       return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, provider: s.provider, ...(agents > 1 ? { agent: s.agentName } : {}) }
     })
@@ -425,7 +428,7 @@ function wireSettingsEffects(): void {
       nativeTheme.themeSource = s.appearance.theme
       for (const e of hiveWindows()) {
         try {
-          e.win.setTitleBarOverlay({ ...titleBarColors(), height: 34 })
+          e.win.setTitleBarOverlay({ ...titleBarColors(), height: TITLE_BAR_OVERLAY })
         } catch {
           // ignore
         }
@@ -436,7 +439,7 @@ function wireSettingsEffects(): void {
     }
     if (JSON.stringify(s.agentApi) !== JSON.stringify(prev.agentApi)) void startApiServer().then(refreshAll)
     // Session settings changed: refresh "restart to apply", and offer to switch running agents to a new permission mode.
-    else if (JSON.stringify(s.providers) !== JSON.stringify(prev.providers) || s.defaultProvider !== prev.defaultProvider) refreshAll()
+    else if (JSON.stringify(s.providers) !== JSON.stringify(prev.providers) || s.defaultProvider !== prev.defaultProvider || JSON.stringify(s.assistant) !== JSON.stringify(prev.assistant)) refreshAll()
     for (const p of PROVIDERS) {
       const now = providerSettings(s, p.id)
       const before = providerSettings(prev, p.id)
@@ -518,7 +521,8 @@ app.whenReady().then(async () => {
         ELECTRON_RUN_AS_NODE: '1',
         HIVE_API_URL: env.HIVE_API_URL,
         HIVE_API_TOKEN_FILE: env.HIVE_API_TOKEN_FILE,
-        HIVE_PROJECT: basename(projectPath),
+        // The Assistant looks after the whole workspace: its tools have no project of their own.
+        HIVE_PROJECT: workspace.isAssistantHome(projectPath) ? '' : basename(projectPath),
         // With several windows, the API answers the session's tools for its own workspace.
         HIVE_WORKSPACE: workspaceOf(projectPath).path ?? ''
       }
@@ -528,6 +532,7 @@ app.whenReady().then(async () => {
   sessions.hiveGuidance = (projectPath) =>
     inWorkspace(workspaceOf(projectPath), async () => {
       if (!sessions.hiveMcp(projectPath)) return ''
+      if (workspace.isAssistantHome(projectPath)) return hiveInstructions('')
       const project = basename(projectPath)
       const names = (await workspace.listProjectPaths()).map((p) => basename(p))
       const latest = (await projectHandovers(await notesTree(), project, names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
@@ -539,6 +544,8 @@ app.whenReady().then(async () => {
       const latest = (await projectHandovers(await notesTree(), basename(projectPath), names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
       return latest ? { relPath: latest.relPath, modified: latest.modified ?? '' } : null
     })
+  // The Assistant's role and persona (its workspace's choice, else Settings → Assistant's), for its launches.
+  sessions.assistantInstructions = (projectPath, agent) => inWorkspace(workspaceOf(projectPath), () => assistantInstructions(assistantPersona(agent, config.settings)))
   // A project's notifications and focus checks use the window showing it.
   sessions.setWindowProvider((projectPath) => (projectPath ? windowForPath(projectPath)?.win : null) ?? lastFocused()?.win ?? null)
   providerService.setLiveSessionCounter((p) => sessions.liveCount(p))

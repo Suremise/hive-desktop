@@ -1,6 +1,6 @@
 import { basename } from './util'
 import { call, errorMessage } from './api'
-import { agentOf, agentProviderOf, confirm, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
+import { agentOf, agentProviderOf, confirm, findProject, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
 import { MAX_AGENTS, sessionInAgentFolder } from '@shared/defaults'
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
@@ -96,7 +96,7 @@ export function selectProject(path: string): void {
   void call('session:markSeen', path)
 }
 
-const project = (path: string): ProjectInfo | undefined => get().workspace?.projects.find((x) => x.path === path)
+const project = (path: string): ProjectInfo | undefined => findProject(get(), path) ?? undefined
 
 export async function setProjectActive(path: string, active: boolean): Promise<void> {
   const ws = await attempt(active ? 'Could not activate project' : 'Could not deactivate project', async () => {
@@ -120,7 +120,7 @@ export async function setProjectActive(path: string, active: boolean): Promise<v
 }
 
 /** Waits until an agent's session (or, without agentId, every agent of the project) has stopped. */
-async function waitForStop(path: string, agentId?: string, timeoutMs = 8000): Promise<void> {
+export async function waitForStop(path: string, agentId?: string, timeoutMs = 8000): Promise<void> {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     const live = await call('session:live')
@@ -198,6 +198,8 @@ async function stopIfRunning(path: string, agentId: string, action: string): Pro
 }
 
 function reveal(path: string, agentId: string): void {
+  // The Hive Assistant lives in its own panel.
+  if (isAssistantPath(path)) return setAssistantOpen(true)
   setProjectTab(path, 'session')
   set({ selectedProject: path })
   const p = project(path)
@@ -224,6 +226,8 @@ export async function newSession(path: string | null = get().selectedProject, ag
 export function resumeTarget(p: ProjectInfo | undefined, item: Pick<SessionListItem, 'agentId' | 'cwd'> & { provider?: ProviderId }, preferred?: string): string | null {
   if (!p) return preferred ?? null
   const sameProvider = (a: ProjectInfo['agents'][number]): boolean => !item.provider || agentProviderOf(p, a) === item.provider
+  // The Hive Assistant's sessions ran in the workspace folder, with its one agent.
+  if (isAssistantPath(p.path)) return p.agents[0] && sameProvider(p.agents[0]) ? p.agents[0].id : null
   if (item.cwd && item.cwd.toLowerCase() !== p.path.toLowerCase()) {
     const a = p.agents.find((x) => x.worktree?.path.toLowerCase() === item.cwd!.toLowerCase())
     return a && sameProvider(a) ? a.id : null
@@ -249,6 +253,11 @@ export async function resumeSession(path: string, item: Pick<SessionListItem, 'i
   let target = resumeTarget(p, item, agentId)
   // A session from the project folder that no agent can run (none runs its provider): add one that does.
   const inProjectFolder = !item.cwd || item.cwd.toLowerCase() === path.toLowerCase()
+  if (!target && isAssistantPath(path)) {
+    const who = item.provider ? providerName(item.provider) : 'another provider'
+    notify('warning', "Can't resume this conversation", `It ran in ${who}, and the Assistant now runs ${providerName(agentProviderOf(p, p?.agents[0]))}. Switch its provider in Assistant Settings to resume it.`)
+    return
+  }
   if (!target && inProjectFolder && item.provider && (p?.agents.length ?? 0) < MAX_AGENTS) {
     target = await quickAddAgent(path, item.provider)
     if (!target) return

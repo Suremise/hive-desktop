@@ -524,7 +524,8 @@ export class CodexAdapter implements ProviderAdapter {
     if (ctx.model) args.push('-m', ctx.model)
     if (ctx.effort) args.push('-c', `model_reasoning_effort=${toToml(ctx.effort)}`)
     args.push(...(CODEX_MODE_FLAGS[ctx.permissionMode ?? ''] ?? CODEX_MODE_FLAGS[CODEX_DESCRIPTOR.defaultPermissionMode]))
-    if (ctx.guidance) args.push('-c', `developer_instructions=${toToml(ctx.guidance)}`)
+    const developer = [ctx.guidance, ctx.instructions].filter((t) => t && t.trim()).join('\n\n')
+    if (developer) args.push('-c', `developer_instructions=${toToml(developer)}`)
     // Only the workspace's MCP servers: the user's own (and a project's own) are turned off, as for Claude Code.
     for (const [name, def] of Object.entries(ctx.mcpServers)) {
       const { table, warning } = codexMcpServer(name, def)

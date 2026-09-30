@@ -9,6 +9,9 @@ import { contextWorkspace, setWorkspaceFallback, workspaceFor, type WorkspaceSer
  * them and decides which window each event and terminal's output goes to.
  */
 
+/** The window buttons' height: the title bar's (34 px) less its bottom border, which would otherwise stop short of them. */
+export const TITLE_BAR_OVERLAY = 33
+
 export interface HiveWindow {
   win: BrowserWindow
   ws: WorkspaceService

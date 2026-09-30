@@ -167,6 +167,8 @@ const tools: Tool[] = [
 const INSTRUCTIONS = hiveInstructions(PROJECT)
 
 async function instructions(): Promise<string> {
+  // Without a project (the Hive Assistant's session) there is no "latest handover for this project".
+  if (!PROJECT) return INSTRUCTIONS
   try {
     const latest = await Promise.race([handovers(PROJECT || undefined), new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), 1500))])
     if (latest[0]) return withLatestHandover(INSTRUCTIONS, latest[0].relPath)

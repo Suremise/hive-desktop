@@ -3,7 +3,7 @@ import type { AgentInfo, AppSettings, PermissionMode, ProjectInfo, ProviderId } 
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
-import { agentProviderOf, confirm, notify, set, useStore } from '../store'
+import { agentProviderOf, confirm, findProject, notify, set, useStore } from '../store'
 import { cx, formatKeybinding } from '../util'
 import { ContextMenu, Icon, Tooltip, type MenuEntry } from './ui'
 
@@ -128,7 +128,7 @@ function menuItems(project: ProjectInfo, a: AgentInfo, settings: AppSettings): M
 /** Renders the menu opened by openModeMenu. Mounted once in App. */
 export function ModeMenuHost() {
   const menu = useStore((s) => s.modeMenu)
-  const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.modeMenu?.project) ?? null)
+  const project = useStore((s) => findProject(s, s.modeMenu?.project))
   const settings = useStore((s) => s.settings)
   if (!menu || !project || !settings) return null
   const a = project.agents.find((x) => x.id === menu.agentId)

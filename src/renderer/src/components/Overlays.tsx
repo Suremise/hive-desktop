@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import iconUrl from '../assets/icon.svg'
 import { call, errorMessage } from '../api'
 import { commandKeybinding, commands, runCommand } from '../commands'
-import { dismissToast, NO_PROJECTS, notify, set, setActivity, useStore } from '../store'
+import { dismissToast, findProject, NO_PROJECTS, notify, set, setActivity, useStore } from '../store'
 import { cacheState, useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
@@ -842,7 +842,7 @@ export function ProvidersBanner() {
 export function CompactDialog() {
   const target = useStore((s) => s.compactFor)
   const path = target ? `${target.project}#${target.agentId}` : null
-  const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.compactFor?.project) ?? null)
+  const project = useStore((s) => findProject(s, s.compactFor?.project))
   const agent = project?.agents.find((a) => a.id === target?.agentId) ?? null
   const ttl = useStore((s) => s.settings?.sessions.cacheTtl ?? 'auto')
   const usage = useLiveUsage(project, target?.agentId)

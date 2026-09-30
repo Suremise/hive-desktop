@@ -13,7 +13,7 @@ import { pasteIntoTerminal } from './TerminalView'
 import { Icon, Modal } from './ui'
 
 /** Which provider an agent runs: enabled providers, with what each still needs (install, sign-in). */
-function ProviderChoice({ value, current, onChange }: { value: ProviderId; current?: ProviderId; onChange: (v: ProviderId) => void }) {
+export function ProviderChoice({ value, current, onChange }: { value: ProviderId; current?: ProviderId; onChange: (v: ProviderId) => void }) {
   const settings = useStore((s) => s.settings)
   const providers = useStore((s) => s.providers)
   const shown = PROVIDERS.filter((p) => isProviderEnabled(settings, p.id) || p.id === value || p.id === current)
@@ -53,8 +53,8 @@ function ProviderChoice({ value, current, onChange }: { value: ProviderId; curre
   )
 }
 
-/** The agent's own model, effort and permission mode for its provider; empty values follow the project. */
-function Overrides({
+/** The agent's own model, effort and permission mode for its provider; empty values follow the project (`inherit` names it). */
+export function Overrides({
   project,
   provider,
   model,
@@ -62,8 +62,10 @@ function Overrides({
   permission,
   onModel,
   onEffort,
-  onPermission
+  onPermission,
+  inherit = "Project's"
 }: {
+  inherit?: string
   project: ProjectInfo
   provider: ProviderId
   model: string
@@ -87,10 +89,12 @@ function Overrides({
   return (
     <div className="agent-form">
       <label>Model</label>
-      <ModelPicker key={provider} provider={provider} value={model} base={{ value: '', label: `Project's (${projectModel})` }} onChange={onModel} />
+      <ModelPicker key={provider} provider={provider} value={model} base={{ value: '', label: `${inherit} (${projectModel})` }} onChange={onModel} />
       <label>Effort</label>
       <select className="select" value={effort} onChange={(e) => onEffort(e.target.value)}>
-        <option value="">Project's ({projectEffort})</option>
+        <option value="">
+          {inherit} ({projectEffort})
+        </option>
         {p.effortLevels.map((l) => (
           <option key={l.value} value={l.value}>
             {l.label}
@@ -99,7 +103,9 @@ function Overrides({
       </select>
       <label>Permission mode</label>
       <select className="select" value={permission} onChange={(e) => onPermission(e.target.value)}>
-        <option value="">Project's ({projectPermission})</option>
+        <option value="">
+          {inherit} ({projectPermission})
+        </option>
         {modes.map((m) => (
           <option key={m.value} value={m.value}>
             {m.label}

@@ -2985,17 +2985,20 @@ body.pane-resizing .monaco-editor {
   flex-shrink: 0;
 }
 /* The agent's controls: labelled while the pane is wide, icons when narrower (see PaneHeader). */
-.pane-header-bar .pane-btn {
+.pane-header-bar .pane-btn,
+.assistant-header .pane-btn {
   flex-shrink: 0;
   height: 22px;
   gap: 5px;
 }
-.pane-header-bar .pane-btn.icon-only {
+.pane-header-bar .pane-btn.icon-only,
+.assistant-header .pane-btn.icon-only {
   width: 26px;
   padding: 0;
   justify-content: center;
 }
-.pane-header-bar .pane-btn.subtle {
+.pane-header-bar .pane-btn.subtle,
+.assistant-header .pane-btn.subtle {
   border-color: var(--border);
 }
 /* The agent's session details, under its terminal. */
@@ -3592,3 +3595,303 @@ button.mode-badge.badge:hover {
 }
 .memory-share .codicon { color: var(--info); vertical-align: -2px; }
 .memory-share .btn { margin-top: 6px; display: flex; }
+
+/* ---------- Hive Assistant: the workspace's overseer, in a panel on the right ---------- */
+.assistant-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 300px;
+  max-width: 70vw;
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--border-subtle);
+}
+.pane-resizer.left-edge {
+  left: -3px;
+  right: auto;
+}
+.assistant-header {
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  min-width: 0;
+}
+.assistant-header .pane-status {
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assistant-title {
+  color: var(--fg-strong);
+  flex-shrink: 0;
+}
+.assistant-persona {
+  height: 22px;
+  gap: 4px;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 160px;
+}
+.assistant-persona-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assistant-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.assistant-top {
+  flex-shrink: 0;
+  min-height: 60px;
+  overflow: auto;
+}
+/* Until the line under it is dragged: as tall as the workspace needs, up to a third. */
+.assistant-top.auto {
+  max-height: 33%;
+}
+/* The hidden panel: a strip down the right edge (click to show it). */
+.assistant-rail {
+  flex-shrink: 0;
+  width: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--border-subtle);
+  color: var(--fg-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.assistant-rail:hover {
+  color: var(--fg);
+}
+.assistant-rail .rail-btn {
+  width: 24px;
+}
+.assistant-rail-label {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.assistant-split {
+  height: 5px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-sidebar);
+}
+.assistant-split:hover,
+.assistant-split.dragging {
+  background: var(--accent-soft);
+}
+body.pane-resizing-v {
+  cursor: row-resize;
+  user-select: none;
+}
+body.pane-resizing-v .monaco-editor {
+  pointer-events: none;
+}
+.assistant-terminal {
+  position: relative;
+  flex: 1;
+  min-height: 80px;
+  background: var(--bg);
+}
+.assistant-footer {
+  position: relative;
+  height: 24px;
+  flex-shrink: 0;
+}
+.assistant-idle {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 20px;
+  text-align: center;
+  background: var(--bg);
+}
+.assistant-idle p {
+  margin: 0;
+  max-width: 320px;
+}
+.assistant-idle .btns {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.assistant-idle-mark {
+  font-size: 34px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.assistant-overview {
+  padding: 0 10px 10px;
+  font-size: 12px;
+}
+/* Stays at the top while the list scrolls under it. */
+.assistant-section-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-sidebar);
+  padding: 8px 0 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  margin: 0;
+}
+/* Inactive projects, folded into one row. */
+.assistant-fold {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 0;
+  color: var(--fg-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.assistant-fold:hover {
+  color: var(--fg);
+}
+.assistant-fold .codicon {
+  font-size: 14px;
+}
+.assistant-section-title .faint {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: normal;
+}
+.assistant-attention {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 6px;
+  margin-bottom: 4px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--fg-strong);
+  cursor: pointer;
+}
+.assistant-attention .codicon {
+  color: var(--warning);
+  margin-top: 1px;
+}
+.assistant-project {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.assistant-project:last-child {
+  border-bottom: none;
+}
+.assistant-project.inactive {
+  opacity: 0.6;
+}
+.assistant-project-name {
+  flex: 0 0 34%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-strong);
+  cursor: pointer;
+}
+.assistant-project-name:hover {
+  text-decoration: underline;
+}
+.assistant-agents {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.assistant-agent {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  cursor: pointer;
+}
+.assistant-agent:hover .assistant-agent-name {
+  color: var(--fg-strong);
+}
+.assistant-agent-name {
+  flex-shrink: 0;
+}
+.assistant-agent-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assistant-empty {
+  padding: 6px 0;
+}
+.assistant-defaults {
+  width: 100%;
+}
+.titlebar-btn {
+  position: relative;
+  width: 30px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.titlebar-btn:hover,
+.titlebar-btn.active {
+  background: var(--bg-hover);
+  color: var(--fg-strong);
+}
+.titlebar-dot {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.persona-row .persona-icon {
+  width: 20px;
+  text-align: center;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+.persona-row.missing {
+  opacity: 0.6;
+}
+.persona-row .badge {
+  margin-left: 6px;
+}

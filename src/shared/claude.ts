@@ -130,6 +130,10 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
   setupUrl: 'https://code.claude.com/docs/en/setup',
   permissionModes: CLAUDE_PERMISSION_MODES,
   defaultPermissionMode: 'auto',
+  // Plan mode would block the hive tools; Manual reads freely and asks before edits and commands.
+  assistantMode: 'auto',
+  assistantModel: 'sonnet',
+  assistantEffort: 'low',
   effortLevels: [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },

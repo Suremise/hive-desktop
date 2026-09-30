@@ -49,6 +49,7 @@ npm 11 blocks install scripts by default; esbuild and electron-winstaller are ap
 - **Shortcuts**: never read `Command.keybinding` directly for display or matching; use `commandKeybinding(id)`, which applies the user's and the project's overrides.
 - **Agents**: a project can have none, and all are equal (no built-in Agent 1, no `'main'` id). Calls that name no agent use `sessions.soleAgent()`; renderer code gets `null` from `focusedAgentId()` when there are none and uses `actions.quickAddAgent()`.
 - **Several windows**: each window has its own workspace. `workspace.x(projectPath, …)` finds the right one by path, but path-less calls (`workspace.path`, `skillsDir`, `refresh()`…) need the current work's workspace: IPC and Agent API calls have it; background code must use `workspaceOf(projectPath)` or `inWorkspace(ws, fn)`. Send a window-specific event with `emitTo(win, …)`.
+- **Hive Assistant**: its home `.hive/assistant` is a session host like a project (one agent, `assistant`) but is never in `workspace.projects`. Session code takes `workspace.assertSessionHost()`, not `assertProject()`; renderer code that looks a session's project up by path uses `findProject()`, which includes `workspace.assistant`.
 - **Kept files** (`config.json`, `workspace.json`, `project.json`, `sessions.json`): read with `readKeptJson()` and write with `writeKeptJson()` (keeps a `.bak`, recovers damaged files), never `readJson`/`writeJsonAtomic`.
 - **Tests**: e2e suites live in `tests/e2e` (see its README): use `lib.cjs`, work under `%LOCALAPPDATA%\hive-test\e2e`, never the real clipboard, profile or `~/.codex`. Unit tests get `tests/electron-stub.ts` for `electron`. Lint is oxlint because typescript-eslint doesn't support TypeScript 7.
 - **project.json / sessions.json**: change them with `workspace.mutateProjectConfig()`/`updateAgent()` and `workspace.mutateSessions()`/`upsertSession()`, which lock the file; computing a new value outside the lock and writing it loses concurrent changes (two agents finishing at once).
@@ -71,6 +72,7 @@ Build with `npx electron-vite build`, then drive `node_modules/electron/dist/ele
 |---|---|
 | `src/main/index.ts` | App lifecycle, window, quit flow, settings side effects |
 | `src/main/sessions.ts` | Launch/stop/resume per agent (any provider), normalised hooks → status, file locks (PreToolUse), transcript backups, usage and cost, Continue with… |
+| `src/shared/assistant.ts`, `src/main/personas.ts`, `src/renderer/src/components/Assistant.tsx`, `Personas.tsx` | The Hive Assistant (one per workspace, a session host at `.hive/assistant` whose settings are overlaid from Settings → Assistant) and its personas (`.hive/personas`, shipped in `resources/personas`) |
 | `src/main/projectAgents.ts`, `src/main/worktrees.ts` | A project's agents (up to 4): add/update/remove/merge; git worktree operations |
 | `src/shared/providers.ts`, `claude.ts`, `codex.ts` | Provider descriptors (names, modes, models, capabilities) and settings resolution helpers |
 | `src/main/providers/` | `ProviderAdapter` interface, registry, `claude/` and `codex/` adapters (launch, hooks, transcripts, usage, conversation parsers) |

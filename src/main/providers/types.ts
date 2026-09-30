@@ -31,6 +31,10 @@ export interface LaunchContext {
   hookUrl: string
   /** Hive's guidance for the agent (the hive MCP server's instructions), for providers that don't show MCP instructions themselves. */
   guidance: string
+  /** More instructions for this launch, over the provider's own (the Hive Assistant's role and persona). */
+  instructions?: string
+  /** Tools of the hive MCP server this launch may use without asking, for providers that can pre-approve tools. */
+  trustedHiveTools?: string[]
   env: Record<string, string>
   /** The user lets sessions move into the CLI's own background service (see capabilities.backgroundSessions). */
   allowBackgroundSessions: boolean

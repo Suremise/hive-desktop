@@ -18,6 +18,7 @@ import { logsDir } from './logger'
 import * as files from './files'
 import * as mcp from './mcp'
 import * as notes from './notes'
+import * as personas from './personas'
 import { killPty, ptyBuffer, resizePty, writePty } from './ptyHost'
 import { apiInfo, regenerateToken } from './servers'
 import * as projectAgents from './projectAgents'
@@ -25,7 +26,7 @@ import { sessions } from './sessions'
 import { transcripts } from './transcripts'
 import * as skills from './skills'
 import { contextWorkspace, inWorkspace, workspace, workspaceFor, WorkspaceService } from './workspace'
-import { windowOf, windowShowing } from './windows'
+import { TITLE_BAR_OVERLAY, windowOf, windowShowing } from './windows'
 import { showWindow } from './tray'
 
 /** The instruction files of the given providers in a project, with their content. */
@@ -93,6 +94,10 @@ async function openHere(path: string): ReturnType<WorkspaceService['open']> {
 export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info']>, quitControl: QuitControl): void {
   // A new workspace starts with the skills that ship with Hive.
   WorkspaceService.onCreated = () => skills.addBundledSkills()
+  // Every workspace gets Hive's personas the first time it opens with this version (an older one included).
+  WorkspaceService.onOpened = async () => {
+    if (!existsSync(workspace.personasDir)) await personas.addBundledPersonas()
+  }
   /** The window the current request came from. */
   const win = (): BrowserWindow => {
     const w = contextWorkspace()?.window
@@ -148,7 +153,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'window:setTitleBarColors': (color, symbolColor) => {
       try {
-        win().setTitleBarOverlay({ color, symbolColor, height: 34 })
+        win().setTitleBarOverlay({ color, symbolColor, height: TITLE_BAR_OVERLAY })
       } catch {
         // Not supported on this platform.
       }
@@ -238,11 +243,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
 
     'session:list': (p) => sessions.list(p),
     'session:start': (p, opts) => sessions.start(p, opts),
-    'session:stop': (p, agentId) => sessions.stop(workspace.assertProject(p), agentId),
+    'session:stop': (p, agentId) => sessions.stop(workspace.assertSessionHost(p), agentId),
     'session:archive': (p, id, archived) => sessions.archive(p, id, archived),
     'session:rename': (p, id, name) => sessions.rename(p, id, name),
     'session:adopt': (p, id) => sessions.adopt(p, id),
-    'session:usage': (p, id) => sessions.usage(workspace.assertProject(p), id),
+    'session:usage': (p, id) => sessions.usage(workspace.assertSessionHost(p), id),
     'session:markSeen': (p) => sessions.markSeen(p),
     'session:live': () => sessions.liveStates(),
     'session:setMode': (p, agentId, mode) => sessions.setPermissionMode(p, agentId, mode),
@@ -391,6 +396,22 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'notes:create': (rel, isDir) => notes.createNote(rel, isDir),
     'notes:delete': (p) => notes.deleteNote(p),
     'notes:rename': (p, n) => notes.renameNote(p, n),
+
+    'personas:list': () => personas.listPersonas(),
+    'personas:create': async (name) => {
+      const p = await personas.createPersona(name)
+      workspace.emit({ type: 'personas-changed' })
+      return p
+    },
+    'personas:delete': async (id) => {
+      await personas.deletePersona(id)
+      workspace.emit({ type: 'personas-changed' })
+    },
+    'personas:restore': async (id) => {
+      const p = await personas.restorePersona(id)
+      workspace.emit({ type: 'personas-changed' })
+      return p
+    },
 
     'file:read': async (p) => readFile(guardFile(p), 'utf8').catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? '' : Promise.reject(e))),
     'file:write': (p, content, expected) => writeTextUnlessChanged(guardFile(p, true), content, expected),

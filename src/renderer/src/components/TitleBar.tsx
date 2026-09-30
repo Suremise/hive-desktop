@@ -16,7 +16,7 @@ const MENUS: MenuDef[] = [
   { label: 'Edit', items: ['edit.undo', 'edit.redo', '-', 'edit.cut', 'edit.copy', 'edit.paste', '-', 'edit.selectAll'] },
   {
     label: 'View',
-    items: ['palette.show', '-', 'view.projects', 'view.notes', 'view.skills', 'view.mcp', '-', 'view.toggleSidebar', 'view.notifications', '-', 'view.zoomIn', 'view.zoomOut', 'view.zoomReset', 'view.fullScreen']
+    items: ['palette.show', '-', 'view.projects', 'view.notes', 'view.skills', 'view.mcp', 'view.personas', '-', 'assistant.toggle', 'assistant.settings', 'view.toggleSidebar', 'view.notifications', '-', 'view.zoomIn', 'view.zoomOut', 'view.zoomReset', 'view.fullScreen']
   },
   {
     label: 'Project',

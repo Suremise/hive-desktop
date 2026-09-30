@@ -92,6 +92,8 @@ export interface AppSettings {
     provideHiveMcp: boolean
     allowSessionInput: boolean
   }
+  /** The Hive Assistant's defaults (each workspace's Assistant Settings can override them). */
+  assistant: AssistantSettings
   agents: {
     /** Per-file locks between agents working in the same folder. */
     fileLocks: FileLockMode
@@ -100,6 +102,37 @@ export interface AppSettings {
     /** Default for merging a worktree agent's branch. */
     mergeStyle: MergeStyle
   }
+}
+
+/** The Hive Assistant's defaults: its provider, its persona and, per provider, its model, effort, mode and arguments. */
+export interface AssistantSettings {
+  /** '' follows the default provider. */
+  provider: ProviderId | ''
+  /** The persona new conversations use (a file in the workspace's .hive/personas, without .md). */
+  persona: string
+  providers: Partial<Record<ProviderId, AssistantProviderSettings>>
+}
+
+/** Empty values follow the provider's own settings; an empty permission mode is the provider's assistantMode (reads freely, asks before changing anything). */
+export interface AssistantProviderSettings {
+  model: string
+  effort: EffortLevel | ''
+  permissionMode: PermissionMode | ''
+  extraArgs: string
+}
+
+/** A persona the Hive Assistant can take: a Markdown file of instructions in the workspace's .hive/personas. */
+export interface PersonaInfo {
+  /** The file name without .md. */
+  id: string
+  name: string
+  description: string
+  /** An emoji or short mark shown beside the name. */
+  icon: string
+  /** The file; for a bundled persona missing from the workspace, its copy in Hive's installation. */
+  path: string
+  /** Personas that ship with Hive: the workspace copy matches Hive's, was changed, or isn't in the workspace. */
+  bundled?: 'same' | 'changed' | 'missing'
 }
 
 /** API prices for one model, in USD per million tokens (for estimated costs). */
@@ -242,6 +275,8 @@ export interface AgentDef {
   lastSessionId?: string
   /** The worktree's setup command hasn't run successfully yet. */
   needsSetup?: boolean
+  /** The Hive Assistant only: this workspace's persona, over Settings → Assistant. */
+  persona?: string
 }
 
 export interface AgentInfo extends AgentDef {
@@ -387,6 +422,11 @@ export interface WorkspaceInfo {
   name: string
   config: WorkspaceConfig
   projects: ProjectInfo[]
+  /**
+   * The Hive Assistant, the workspace's overseer: a session host like a project (its home is .hive/assistant,
+   * never listed as a project) with one agent, working in the workspace folder.
+   */
+  assistant: ProjectInfo | null
 }
 
 export type SkillLevel = 'hive' | 'machine' | 'plugin' | 'local'
@@ -744,6 +784,7 @@ export type HiveEvent =
   /** Files changed in a project that has a Files or Images tab open. dirs are relative, '' is the root. */
   | { type: 'files-changed'; projectPath: string; dirs: string[] }
   | { type: 'skills-changed' }
+  | { type: 'personas-changed' }
   | { type: 'plan-usage'; provider: ProviderId; usage: PlanUsage }
   | { type: 'window-state'; maximized: boolean; focused: boolean }
   | { type: 'update-state'; state: UpdateState }

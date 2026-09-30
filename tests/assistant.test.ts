@@ -1,0 +1,73 @@
+// The Hive Assistant: its settings overlay, personas, and the files Hive ships for it.
+import { readdirSync, readFileSync } from 'fs'
+import { join } from 'path'
+import { describe, expect, it } from 'vitest'
+import { ASSISTANT_AGENT_ID, assistantPersona, assistantProjectConfig, newPersonaText, parsePersona, personaId } from '../src/shared/assistant'
+import { DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS } from '../src/shared/defaults'
+import { agentLaunchSettings } from '../src/shared/providers'
+import type { AppSettings, ProjectConfig } from '../src/shared/types'
+
+const settings = (patch: Partial<AppSettings['assistant']> = {}): AppSettings => ({ ...structuredClone(DEFAULT_SETTINGS), assistant: { ...structuredClone(DEFAULT_SETTINGS.assistant), ...patch } })
+const cfg = (agents: ProjectConfig['agents'] = []): ProjectConfig => ({ ...structuredClone(DEFAULT_PROJECT_CONFIG), agents })
+
+describe('Assistant settings', () => {
+  it('has exactly its one agent, keeping the workspace overrides from the file', () => {
+    const c = assistantProjectConfig(cfg([{ id: 'assistant', name: 'Renamed', model: 'opus', persona: 'planner' }, { id: 'a-x', name: 'Stray' }]), settings())
+    expect(c.agents).toEqual([{ id: ASSISTANT_AGENT_ID, name: 'Assistant', model: 'opus', persona: 'planner' }])
+    expect(assistantProjectConfig(cfg(), settings()).agents).toEqual([{ id: ASSISTANT_AGENT_ID, name: 'Assistant' }])
+  })
+
+  it('launches with Settings → Assistant: a lighter model and effort, and a mode that rarely asks', () => {
+    const s = settings()
+    const c = assistantProjectConfig(cfg(), s)
+    const l = agentLaunchSettings(c.agents[0], c, s)
+    expect(l.provider).toBe('claude-code')
+    expect(l.model).toBe('sonnet')
+    expect(l.effort).toBe('low')
+    // Not Plan: plan mode blocks the hive tools the Assistant works with.
+    expect(l.permissionMode).toBe('auto')
+    const codex = assistantProjectConfig(cfg(), settings({ provider: 'codex' }))
+    expect(agentLaunchSettings(codex.agents[0], codex, s).permissionMode).toBe('approve-for-me')
+  })
+
+  it("lets the workspace override the defaults, and the agents' own settings don't leak in", () => {
+    const s = settings({ provider: 'codex', providers: { ...DEFAULT_SETTINGS.assistant.providers, 'claude-code': { model: 'haiku', effort: 'medium', permissionMode: '', extraArgs: '--verbose' } } })
+    s.providers['claude-code'] = { ...s.providers['claude-code'], defaultModel: 'fable', defaultPermissionMode: 'acceptEdits' }
+    const c = assistantProjectConfig(cfg([{ id: 'assistant', name: 'Assistant', provider: 'claude-code' }]), s)
+    const l = agentLaunchSettings(c.agents[0], c, s)
+    expect(l).toMatchObject({ provider: 'claude-code', model: 'haiku', effort: 'medium', permissionMode: 'auto' })
+    expect(l.extraArgs).toContain('--verbose')
+  })
+
+  it("picks the persona: the workspace's, else the default in Settings", () => {
+    expect(assistantPersona({ persona: 'reviewer' }, settings())).toBe('reviewer')
+    expect(assistantPersona({}, settings({ persona: 'planner' }))).toBe('planner')
+    expect(assistantPersona(null, null)).toBe('overseer')
+  })
+})
+
+describe('personas', () => {
+  it('reads the header and the instructions', () => {
+    const p = parsePersona('---\nname: Night Watch\ndescription: "Keeps an eye out."\nicon: 🦉\n---\n\nYou are the Night Watch.\n')
+    expect(p).toEqual({ name: 'Night Watch', description: 'Keeps an eye out.', icon: '🦉', body: 'You are the Night Watch.' })
+    expect(parsePersona('Just instructions.')).toEqual({ body: 'Just instructions.' })
+    expect(parsePersona(newPersonaText('Night Watch')).name).toBe('Night Watch')
+  })
+
+  it('names files from persona names', () => {
+    expect(personaId('  Night Watch! ')).toBe('night-watch')
+    expect(personaId('???')).toBe('')
+  })
+
+  it('ships four, each with a name, description, icon and the rule that clarity comes first', () => {
+    const dir = join(__dirname, '..', 'resources', 'personas')
+    const files = readdirSync(dir).filter((f) => f.endsWith('.md')).sort()
+    expect(files).toEqual(['orchestrator.md', 'overseer.md', 'planner.md', 'reviewer.md'])
+    for (const f of files) {
+      const p = parsePersona(readFileSync(join(dir, f), 'utf8'))
+      expect(p.name && p.description && p.icon, f).toBeTruthy()
+      expect(p.body.length, f).toBeGreaterThan(400)
+      expect(p.body, f).toMatch(/you don't edit files|don't edit files/i)
+    }
+  })
+})

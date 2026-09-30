@@ -174,10 +174,13 @@ export function SessionTag({ project, a, badge }: { project: ProjectInfo; a: Age
   )
 }
 
-function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void): MenuEntry[] {
+/** An agent's menu. `inHeader`: the pane's header shows the session and Merge buttons, so the menu leaves them out. */
+function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeader = false): MenuEntry[] {
   const worktree = !!a.worktree
   return [
-    ...(a.live
+    ...(inHeader
+      ? []
+      : a.live
       ? [
           { label: 'Stop', icon: 'debug-stop', onClick: () => void actions.stopSession(project.path, a.id) },
           { label: 'Compact…', icon: 'fold', disabled: !(a.live.status === 'ready' || a.live.status === 'finished'), onClick: () => set({ compactFor: { project: project.path, agentId: a.id } }) },
@@ -194,7 +197,7 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void): MenuEn
     ...(worktree
       ? [
           { label: 'Review Changes', icon: 'git-compare', onClick: () => reviewChanges(project, a) },
-          { label: 'Merge…', icon: 'git-merge', onClick: () => set({ mergeFor: { project: project.path, agentId: a.id } }) },
+          ...(inHeader ? [] : [{ label: 'Merge…', icon: 'git-merge', onClick: () => set({ mergeFor: { project: project.path, agentId: a.id } }) }]),
           { separator: true },
           { label: 'Remove Agent…', icon: 'close', onClick: () => void actions.removeAgent(project.path, a.id) },
           { label: 'Discard Worktree and Branch…', icon: 'trash', danger: true, onClick: () => void actions.discardAgent(project.path, a.id) }
@@ -368,7 +371,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
     </Tooltip>
   )
   return (
-    <div ref={ref} className={cx('pane-header-bar', focused && 'focused')} onMouseDown={() => focusAgent(project.path, a.id)} onContextMenu={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY)))}>
+    <div ref={ref} className={cx('pane-header-bar', focused && 'focused')} onMouseDown={() => focusAgent(project.path, a.id)} onContextMenu={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))}>
       <StatusDot live={live} active={project.active} />
       <Tooltip content={providerName(agentProviderOf(project, a))}>
         <span>
@@ -402,15 +405,18 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
           </>
         ))}
       {a.worktree && size !== 'menu' && btn('git-merge', 'Merge…', () => set({ mergeFor: { project: project.path, agentId: a.id } }), 'subtle')}
-      <IconButton icon="ellipsis" title="More" onClick={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY)))} />
+      <IconButton icon="ellipsis" title="More" onClick={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))} />
       {menu.element}
       {picker.element}
     </div>
   )
 }
 
-/** The agent's session details: model and effort, permission mode, context used and cost. */
-function PaneFooter({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
+/**
+ * The agent's session details: model and effort, permission mode, context used and cost. Clicking the model
+ * opens the agent's settings (or `onSettings`), the context its project's Overview (or `onContext`).
+ */
+export function PaneFooter({ project, a, onSettings, onContext, settingsName = 'Agent Settings or Project Settings' }: { project: ProjectInfo; a: AgentInfo; onSettings?: () => void; onContext?: () => void; settingsName?: string }) {
   const settings = useStore((s) => s.settings)
   const providers = useStore((s) => s.providers)
   const usage = useLiveUsage(project, a.id)
@@ -427,8 +433,8 @@ function PaneFooter({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const estimated = live?.costUsd !== undefined ? !!live.costEstimated : !!usage?.costEstimated
   return (
     <div className="pane-footer-bar" onMouseDown={() => focusAgent(project.path, a.id)}>
-      <Tooltip content={`${providerName(provider)} model${effort ? ' and effort' : ''} ${live ? 'of this session' : 'for new sessions'}${live?.effort ? ' (effort as the session reports it)' : ''}. Change them in Agent Settings or Project Settings.`}>
-        <span className="pane-foot-item" onClick={() => set({ agentSettingsFor: { project: project.path, agentId: a.id } })}>
+      <Tooltip content={`${providerName(provider)} model${effort ? ' and effort' : ''} ${live ? 'of this session' : 'for new sessions'}${live?.effort ? ' (effort as the session reports it)' : ''}. Change them in ${settingsName}.`}>
+        <span className="pane-foot-item" onClick={() => (onSettings ? onSettings() : set({ agentSettingsFor: { project: project.path, agentId: a.id } }))}>
           {model}
           {effort && <span className="faint"> · {effort}</span>}
         </span>
@@ -437,7 +443,7 @@ function PaneFooter({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
       <div className="grow" />
       {usage && (
         <Tooltip content={`Context: ${ctx.toLocaleString()} tokens${usage.contextWindow ? ` of ${usage.contextWindow.toLocaleString()}` : ''} · ${usage.compactions.length} compaction(s)${over ? ' — consider compacting' : ''}`}>
-          <span className={cx('pane-foot-item', over && 'warn')} onClick={() => setProjectTab(project.path, 'overview')}>
+          <span className={cx('pane-foot-item', over && 'warn')} onClick={() => (onContext ? onContext() : setProjectTab(project.path, 'overview'))}>
             <Icon name="dashboard" /> {formatTokens(ctx)} ctx
           </span>
         </Tooltip>

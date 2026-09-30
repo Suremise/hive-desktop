@@ -79,8 +79,11 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
   return def
 }
 
-export async function updateAgent(projectPath: string, agentId: string, patch: Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode'>>): Promise<AgentDef> {
-  projectPath = workspace.assertProject(projectPath)
+export async function updateAgent(projectPath: string, agentId: string, patch: Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona'>>): Promise<AgentDef> {
+  // The Hive Assistant's settings for this workspace are its agent's, too (it keeps its name).
+  projectPath = workspace.assertSessionHost(projectPath)
+  if (workspace.isAssistantHome(projectPath)) delete patch.name
+  else delete patch.persona
   const cfg = await workspace.projectConfig(projectPath)
   const agents = projectAgents(cfg)
   if (patch.name !== undefined) {
@@ -90,7 +93,7 @@ export async function updateAgent(projectPath: string, agentId: string, patch: P
   }
   // Empty values clear an override so the agent follows the project again.
   const clean: Partial<AgentDef> = { ...patch }
-  for (const k of ['model', 'effort', 'permissionMode'] as const) if (k in clean && !clean[k]) clean[k] = undefined
+  for (const k of ['model', 'effort', 'permissionMode', 'persona'] as const) if (k in clean && !clean[k]) clean[k] = undefined
   if (patch.provider !== undefined) {
     const current = agents.find((a) => a.id === agentId)
     if (!isKnownProvider(patch.provider)) throw new Error(`Unknown provider "${patch.provider}".`)

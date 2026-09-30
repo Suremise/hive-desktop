@@ -64,6 +64,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     provideHiveMcp: true,
     allowSessionInput: false
   },
+  // A lighter model and effort than the agents', to spend fewer tokens watching over the workspace.
+  assistant: {
+    provider: '',
+    persona: 'overseer',
+    providers: Object.fromEntries(PROVIDERS.map((p) => [p.id, { model: p.assistantModel ?? '', effort: p.assistantEffort ?? '', permissionMode: '', extraArgs: '' }]))
+  },
   agents: {
     fileLocks: 'block',
     worktreeCopy: '.env*',

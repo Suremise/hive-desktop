@@ -260,7 +260,8 @@ route('GET', '/v1/status', async () => ({
   /** The request's workspace (or the only open one); `workspaces` lists every window's. */
   workspace: contextWorkspace()?.path ? { name: basename(contextWorkspace()!.path!), path: contextWorkspace()!.path } : null,
   workspaces: openWorkspaces().map((w) => ({ name: basename(w.path!), path: w.path })),
-  liveSessions: sessions.liveStates().map((s) => ({ workspace: basename(workspaceOf(s.projectPath).path ?? ''), project: basename(s.projectPath), agent: s.agentName ?? null, provider: s.provider, sessionId: s.sessionId || null, status: s.status }))
+  // The Hive Assistant belongs to its workspace, not a project.
+  liveSessions: sessions.liveStates().map((s) => ({ workspace: basename(workspaceOf(s.projectPath).path ?? ''), project: workspace.isAssistantHome(s.projectPath) ? null : basename(s.projectPath), agent: s.agentName ?? null, provider: s.provider, sessionId: s.sessionId || null, status: s.status }))
 }))
 
 route('GET', '/v1/workspace', async () => {

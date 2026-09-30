@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AppSettings, ChimeSound, ModelPrice, ProviderId } from '@shared/types'
+import type { AppSettings, ChimeSound, EffortLevel, ModelPrice, PermissionMode, ProviderId } from '@shared/types'
+import { DEFAULT_PERSONA } from '@shared/assistant'
 import { PRICES_CHECKED, SHIPPED_PRICES } from '@shared/prices'
 import type { SettingsPatch } from '@shared/api'
 import { DEFAULT_SETTINGS, FILE_LOCK_MODES } from '@shared/defaults'
-import { PROVIDERS, defaultProviderSettings, enabledProviders, isProviderEnabled, providerDescriptor, providerSettings, type ProviderDescriptor } from '@shared/providers'
+import { PROVIDERS, defaultProviderSettings, enabledProviders, isProviderEnabled, offeredModes, permissionLabel, providerDescriptor, providerSettings, type ProviderDescriptor } from '@shared/providers'
+import { usePersonas } from '../components/Assistant'
 import { ModelPicker } from '../components/ModelPicker'
 import { ProviderIcon } from '../components/ProviderIcon'
 import * as actions from '../actions'
@@ -49,6 +51,7 @@ const SECTIONS: { id: Section; label: string; icon: string; desc: string; provid
   ...PROVIDERS.map((p) => ({ id: providerSection(p.id), label: p.name, icon: 'blank', provider: p.id, desc: `The ${p.name} CLI (the standalone one — copies bundled with editor extensions are not used) and the defaults every project inherits for ${p.name} agents.` })),
   { id: 'notifications', label: 'Notifications', icon: 'bell', desc: 'Chimes and desktop notifications when agents finish or need you.' },
   { id: 'sessions', label: 'Sessions', icon: 'history', desc: 'Transcript backups, cache estimates and session behaviour.' },
+  { id: 'assistant', label: 'Assistant', icon: 'person', desc: "The Hive Assistant's defaults: the side panel's overseer of each workspace (Ctrl+Alt+I). Each workspace can change them in the panel's Assistant Settings." },
   { id: 'agents', label: 'Agents & Worktrees', icon: 'organization', desc: 'Defaults for projects running several agents: file locks, new worktrees and merging. Projects can override them.' },
   { id: 'keybindings', label: 'Keyboard Shortcuts', icon: 'keyboard', desc: 'Change, remove or add shortcuts for any command. Projects can set their own for project and session commands (Project Settings → Keyboard Shortcuts).' },
   { id: 'agentApi', label: 'Agent API', icon: 'broadcast', desc: 'Local API and built-in MCP server that let agents interact with Hive.' },
@@ -109,6 +112,21 @@ const SETTINGS: SettingDef[] = [
   },
   { section: 'agents', key: 'worktreeCopy', title: 'Copy into new worktrees', desc: 'Git-ignored files copied from the project folder into each new worktree, comma separated (e.g. .env*, config/local.json).', tip: 'A new worktree only gets the files git tracks. Patterns without a slash match a file or folder name anywhere; with a slash they match a path from the project root. Projects can set their own list and a setup command (e.g. npm install) in Project Settings → Agents & Worktrees.', type: 'text', placeholder: '.env*' },
   { section: 'agents', key: 'mergeStyle', title: 'Default merge style', desc: "How a worktree agent's branch is merged back, unless you choose otherwise in the Merge dialog.", tip: 'Squash makes one commit with everything the agent did. Merge keeps its individual commits plus a merge commit.', type: 'select', options: [{ value: 'squash', label: 'Squash' }, { value: 'merge', label: 'Merge commit' }] },
+  // Assistant
+  { section: 'assistant', key: 'provider', title: 'Provider', desc: 'The coding agent the Assistant runs, unless a workspace chooses another.', tip: 'The Assistant is independent of your project agents: a Codex Assistant can look after Claude Code agents, and the other way round.', type: 'custom', render: () => <AssistantProviderPicker /> },
+  { section: 'assistant', key: 'persona', title: 'Default persona', desc: 'Who the Assistant is in a new conversation, unless a workspace chooses another.', tip: 'Personas are Markdown files in each workspace (.hive/personas): edit them, or add your own, in the Personas view (the person icon on the left).', type: 'custom', render: () => <AssistantPersonaPicker /> },
+  ...PROVIDERS.map(
+    (p): SettingDef => ({
+      section: 'assistant',
+      key: `provider:${p.id}`,
+      title: `With ${p.name}`,
+      desc: `The model, effort, permission mode and extra arguments when the Assistant runs ${p.name}. Default follows ${p.name}'s own settings, except the mode: ${permissionLabel(p.id, p.assistantMode)}, where ${p.name} approves safe actions itself and only asks about risky ones.`,
+      tip: "Watching over the workspace rarely needs the strongest model, so a lighter one and low effort save tokens. For now the Assistant only looks and advises: its default mode lets it read files and use Hive's reading tools freely, and makes it ask before any edit or command.",
+      type: 'custom',
+      wide: true,
+      render: () => <AssistantProviderDefaults provider={p.id} />
+    })
+  ),
   // Agent API
   { section: 'agentApi', key: 'status', title: 'Status', desc: '', tip: 'Whether the Agent API is listening.', type: 'custom', render: () => <ApiStatus /> },
   { section: 'agentApi', key: 'enabled', title: 'Enable Agent API', desc: 'Run a local HTTP API that agents and scripts can use to talk to Hive.', tip: 'Listens on 127.0.0.1 only and requires the bearer token below. See Help → Agent API Reference.', type: 'boolean' },
@@ -440,6 +458,89 @@ function ProvidersList() {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function AssistantProviderPicker() {
+  const settings = useStore((s) => s.settings)
+  const on = enabledProviders(settings)
+  const current = settings?.assistant.provider ?? ''
+  const def = providerDescriptor(settings?.defaultProvider)
+  return (
+    <select className="select" value={current} onChange={(e) => void saveSettings({ assistant: { provider: e.target.value } })}>
+      <option value="">Default provider ({def.name})</option>
+      {PROVIDERS.filter((p) => on.includes(p) || p.id === current).map((p) => (
+        <option key={p.id} value={p.id}>
+          {p.name}
+          {on.includes(p) ? '' : ' (off)'}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+/** Hive's personas, for choosing a default before a workspace is open. */
+const SHIPPED_PERSONAS = [
+  { id: 'overseer', name: 'Overseer', icon: '🗼' },
+  { id: 'planner', name: 'Planner', icon: '🎩' },
+  { id: 'reviewer', name: 'Reviewer', icon: '🦎' },
+  { id: 'orchestrator', name: 'Orchestrator', icon: '🛫' }
+]
+
+function AssistantPersonaPicker() {
+  const current = useStore((s) => s.settings?.assistant.persona) || DEFAULT_PERSONA
+  const own = usePersonas().filter((p) => p.bundled !== 'missing')
+  const list = own.length ? own : SHIPPED_PERSONAS
+  return (
+    <select className="select" value={current} onChange={(e) => void saveSettings({ assistant: { persona: e.target.value } })}>
+      {!list.some((p) => p.id === current) && <option value={current}>{current}</option>}
+      {list.map((p) => (
+        <option key={p.id} value={p.id}>
+          {p.icon ? `${p.icon} ` : ''}
+          {p.name}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+/** The Assistant's model, effort, mode and arguments with one provider. */
+function AssistantProviderDefaults({ provider }: { provider: ProviderId }) {
+  const settings = useStore((s) => s.settings)
+  const p = providerDescriptor(provider)
+  const a = settings?.assistant.providers[provider] ?? { model: '', effort: '', permissionMode: '', extraArgs: '' }
+  const g = providerSettings(settings, provider)
+  const [args, setArgs] = useState(a.extraArgs)
+  useEffect(() => setArgs(a.extraArgs), [a.extraArgs])
+  const save = (patch: Partial<typeof a>): void => void saveSettings({ assistant: { providers: { [provider]: patch } } } as SettingsPatch)
+  const effortName = g.defaultEffort ? (p.effortLevels.find((l) => l.value === g.defaultEffort)?.label ?? g.defaultEffort) : `${p.name}'s`
+  return (
+    <div className="agent-form assistant-defaults">
+      <label>Model</label>
+      <ModelPicker provider={provider} value={a.model} base={{ value: '', label: `${p.name} default${g.defaultModel ? ` (${p.modelLabel(g.defaultModel)})` : ''}` }} onChange={(v) => save({ model: v })} />
+      <label>Effort</label>
+      <select className="select" value={a.effort} onChange={(e) => save({ effort: e.target.value as EffortLevel | '' })}>
+        <option value="">Default ({effortName})</option>
+        {p.effortLevels.map((l) => (
+          <option key={l.value} value={l.value}>
+            {l.label}
+          </option>
+        ))}
+      </select>
+      <label>Permission mode</label>
+      <select className="select" value={a.permissionMode} onChange={(e) => save({ permissionMode: e.target.value as PermissionMode | '' })}>
+        <option value="">Default ({permissionLabel(provider, p.assistantMode)})</option>
+        {offeredModes(provider, settings)
+          .filter((m) => m.value !== p.assistantMode)
+          .map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
+      </select>
+      <label>Extra arguments</label>
+      <input className="input" value={args} placeholder="e.g. --verbose" onChange={(e) => setArgs(e.target.value)} onBlur={() => args !== a.extraArgs && save({ extraArgs: args.trim() })} />
     </div>
   )
 }

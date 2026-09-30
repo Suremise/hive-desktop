@@ -24,6 +24,21 @@
 - **A project's Skills tab lists everything its agents get**: the Hive skills (with **Edit in workspace**), then per provider the project's own **Local (User Managed)** skills, which you can now add, edit and delete there, and your user and plugin skills (view only). A local skill can be added for Claude Code and Codex at once.
 - **Six skills come with Hive**, for working with several agents and sessions: `handover`, `pick-up`, `merge-ready`, `review-agent-work`, `split-work` and `workspace-note`. New workspaces start with them. In an existing workspace they're listed greyed out: **Restore** adds one. When a later Hive improves them, **Revert to default** on a skill's page brings your copy up to date (the old copy goes to the Recycle Bin).
 
+### Hive Assistant
+- **Each workspace has a Hive Assistant, its overseer**, in a panel on the right (Ctrl+Alt+I, or click the Hive Assistant strip down the right edge). Ask it what the agents are doing, about any project, or for a plan or a review. It reads every project and uses Hive's own tools. For now it only looks and advises. It doesn't use a project's agent slot, and hiding the panel doesn't stop it.
+- **The panel has everything about it**:
+  - its status and persona;
+  - Start, Compact, Stop, and its past conversations;
+  - the workspace at a glance, with agents waiting for you first (click one to go to it);
+  - its terminal;
+  - a footer with its model, mode, context and cost.
+- **Personas** decide who the Assistant is, and you can edit them or write your own in the new **Personas** view. Four come with Hive, each with a serious job and an unexpected character:
+  - 🗼 **Overseer**, a lighthouse keeper keeping a watch log;
+  - 🎩 **Planner**, who plans every task like a heist;
+  - 🦎 **Reviewer**, who reviews code like a wildlife documentary narrator;
+  - 🛫 **Orchestrator**, an air traffic controller.
+- **Settings → Assistant** sets its provider, default persona, and each provider's model, effort, mode and arguments. It starts lighter than your agents, on Claude Code's Sonnet at low effort. **Assistant Settings** in the panel changes them for one workspace.
+
 ### Several windows
 - **File → New Window** (Ctrl+K Ctrl+N) opens another Hive window, like VS Code, so you can work in several workspaces at once. Each window has its own projects and agents; settings, the tray and updates are shared.
 - Opening a workspace that's already open in another window brings that window forward. Closing a window stops its workspace's agents, asking first as quitting does; so do Close Workspace and opening another workspace in the window, which used to refuse while agents were running. Hive reopens the windows that were open when it quit.
@@ -52,6 +67,7 @@
 - The format help beside an MCP server's definition can be resized by dragging the edge between them.
 
 ### Reliability and security
+- The title bar's bottom line runs all the way under the window buttons.
 - Hive keeps a last good copy of its settings and records (`.bak`). A file that can't be read is set aside and the copy restored, with a notification, instead of Hive starting over.
 - Hive's copies of workspace skills for Codex are marked, so a `hive-…` folder of your own in `.agents/skills` is never removed.
 - "Hand Over to…" waits until the handover has actually been written before the other agent starts.

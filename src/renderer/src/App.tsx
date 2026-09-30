@@ -11,7 +11,9 @@ import { ActivityBar, StatusBar } from './components/Shell'
 import { Sidebar } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
 import { isProviderEnabled } from '@shared/providers'
-import { applyLiveState, filesListeners, get, projectKey, projectState, pushToast, set, useStore } from './store'
+import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
+import { PersonaView } from './components/Personas'
+import { applyLiveState, assistantWasOpen, filesListeners, findProject, get, projectKey, projectState, pushToast, set, useStore } from './store'
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
 import { ProjectView } from './views/ProjectView'
 import { SettingsView } from './views/SettingsView'
@@ -48,6 +50,8 @@ function handleEvent(e: HiveEvent): void {
     case 'workspace-changed': {
       const sel = get().selectedProject
       const ws = e.workspace
+      // Another workspace in this window: its Assistant panel shows as that workspace left it.
+      if (ws?.path !== get().workspace?.path) set({ assistantOpen: assistantWasOpen(ws?.path) })
       // Drop warnings about projects that belong to a workspace that is no longer open.
       set((s) => ({ workspace: ws, toasts: s.toasts.filter((t) => !t.id.startsWith('mcp-') || !!ws?.projects.some((p) => t.id === `mcp-${p.path}`)) }))
       if (ws && (!sel || !ws.projects.some((p) => p.path === sel))) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
@@ -56,10 +60,10 @@ function handleEvent(e: HiveEvent): void {
       break
     }
     case 'session-status': {
-      const path = get().workspace?.projects.find((p) => p.path.toLowerCase() === e.state.projectPath.toLowerCase())?.path ?? e.state.projectPath
+      const path = findProject(get(), e.state.projectPath)?.path ?? e.state.projectPath
       // A new session (or its worktree setup) gets a fresh terminal. The setup command and Claude Code share one.
       const key = projectKey(path, e.state.agentId)
-      const prev = get().workspace?.projects.find((p) => p.path === path)?.agents.find((a) => a.id === e.state.agentId)?.live
+      const prev = findProject(get(), path)?.agents.find((a) => a.id === e.state.agentId)?.live
       if (e.state.status === 'starting' && !prev?.settingUp) set((s) => ({ sessionEpoch: { ...s.sessionEpoch, [key]: (s.sessionEpoch[key] ?? 0) + 1 } }))
       applyLiveState(e.state)
       // Viewing the project that just finished counts as seeing it.
@@ -70,7 +74,7 @@ function handleEvent(e: HiveEvent): void {
       set((s) => ({ usageVersion: { ...s.usageVersion, [e.projectPath]: (s.usageVersion[e.projectPath] ?? 0) + 1 } }))
       break
     case 'usage-changed': {
-      const path = get().workspace?.projects.find((p) => p.path.toLowerCase() === e.projectPath.toLowerCase())?.path ?? e.projectPath
+      const path = findProject(get(), e.projectPath)?.path ?? e.projectPath
       set((s) => ({ usageVersion: { ...s.usageVersion, [path]: (s.usageVersion[path] ?? 0) + 1 } }))
       break
     }
@@ -114,6 +118,9 @@ function handleEvent(e: HiveEvent): void {
     case 'skills-changed':
       set((s) => ({ skillsVersion: s.skillsVersion + 1 }))
       break
+    case 'personas-changed':
+      set((s) => ({ personasVersion: s.personasVersion + 1 }))
+      break
     case 'window-state':
       set({ maximized: e.maximized, windowFocused: e.focused })
       if (e.focused) {
@@ -149,6 +156,7 @@ export function App() {
         call('session:live')
       ])
       set({ settings: s, sidebarWidth: ui.sidebarWidth, sidebarVisible: ui.sidebarVisible, sidebarCompact: !!ui.sidebarCompact, panes: ui.panes ?? {}, workspace: ws, recent, providers: ag, api, appInfo: info })
+      set({ assistantOpen: assistantWasOpen(ws?.path) })
       if (ws) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
       for (const l of live) applyLiveState(l)
       // A reloaded window picks up a quit dialog or pending quit that was already in progress.
@@ -215,6 +223,8 @@ export function App() {
         return <SkillView />
       case 'mcp':
         return <McpView />
+      case 'personas':
+        return <PersonaView />
       default:
         return workspace ? null : <WelcomeView />
     }
@@ -238,6 +248,11 @@ export function App() {
             </div>
           )}
         </div>
+        {workspace && (
+          <ErrorBoundary label="The Assistant">
+            <AssistantPanel />
+          </ErrorBoundary>
+        )}
       </div>
       <StatusBar />
       <Toasts />
@@ -248,6 +263,7 @@ export function App() {
       <CompactDialog />
       <AddAgentDialog />
       <AgentSettingsDialog />
+      <AssistantSettingsDialog />
       <MergeDialog />
       <HandOverDialog />
       <AboutDialog />

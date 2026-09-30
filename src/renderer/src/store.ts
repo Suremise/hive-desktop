@@ -17,7 +17,7 @@ import type {
   WorkspaceInfo
 } from '@shared/types'
 
-export type Activity = 'projects' | 'notes' | 'skills' | 'mcp' | 'docs' | 'settings'
+export type Activity = 'projects' | 'notes' | 'skills' | 'mcp' | 'personas' | 'docs' | 'settings'
 export type ProjectTab = 'session' | 'overview' | 'sessions' | 'files' | 'images' | 'changes' | 'memory' | 'skills' | 'mcp' | 'settings'
 
 export interface ConfirmRequest {
@@ -86,6 +86,13 @@ interface State {
   /** A Hive skill to open for editing (not preview) when the Skills view shows it: from a project's Edit in workspace. */
   skillEdit: string | null
   selectedMcp: string | null
+  /** The persona open in the Personas view (its file). */
+  selectedPersona: string | null
+  /** The Hive Assistant's panel is shown (per workspace, saved in the pane sizes as assistant-open:<path>). */
+  assistantOpen: boolean
+  /** Assistant Settings is open. */
+  assistantSettingsOpen: boolean
+  personasVersion: number
   docsPage: string
   settingsSection: string
   settingsQuery: string
@@ -166,6 +173,10 @@ export const useStore = create<State>(() => ({
   selectedSkill: null,
   skillEdit: null,
   selectedMcp: null,
+  selectedPersona: null,
+  assistantOpen: false,
+  assistantSettingsOpen: false,
+  personasVersion: 0,
   docsPage: 'guide',
   settingsSection: 'general',
   settingsQuery: '',
@@ -278,6 +289,35 @@ export function showAgent(p: ProjectInfo, agentId: string): void {
   focusAgent(p.path, agentId)
 }
 
+/** A project, or the Hive Assistant (a session host like a project), by path. */
+export function findProject(s: Pick<State, 'workspace'>, path: string | null | undefined): ProjectInfo | null {
+  if (!path || !s.workspace) return null
+  const p = path.toLowerCase()
+  return s.workspace.projects.find((x) => x.path.toLowerCase() === p) ?? (s.workspace.assistant?.path.toLowerCase() === p ? s.workspace.assistant : null)
+}
+
+/** Whether a path is the open workspace's Hive Assistant. */
+export function isAssistantPath(path: string | null | undefined): boolean {
+  const a = get().workspace?.assistant
+  return !!path && !!a && a.path.toLowerCase() === path.toLowerCase()
+}
+
+const assistantOpenKey = (ws: string): string => `assistant-open:${ws.toLowerCase()}`
+
+/** Shows or hides the Hive Assistant's panel, remembered per workspace. */
+export function setAssistantOpen(open: boolean): void {
+  const ws = get().workspace?.path
+  set({ assistantOpen: open })
+  if (!ws) return
+  set((s) => ({ panes: { ...s.panes, [assistantOpenKey(ws)]: open ? 1 : 0 } }))
+  void window.hive.invoke('ui:setPane', assistantOpenKey(ws), open ? 1 : 0)
+}
+
+/** Whether a workspace's Assistant panel was left open. */
+export function assistantWasOpen(ws: string | null | undefined): boolean {
+  return !!ws && get().panes[assistantOpenKey(ws)] === 1
+}
+
 export function selectedProjectInfo() {
   const s = get()
   return s.workspace?.projects.find((p) => p.path === s.selectedProject) ?? null
@@ -338,7 +378,13 @@ export function applyLiveState(state: LiveSessionState): void {
       const primary = agents.find((a) => a.live)
       return { ...p, agents, live: primary?.live ?? null, restartNeeded: primary?.restartNeeded ?? false, active: live ? true : p.active }
     })
-    return { workspace: { ...s.workspace, projects } }
+    // The Hive Assistant's one agent.
+    const a = s.workspace.assistant
+    const assistant =
+      a && a.path.toLowerCase() === state.projectPath.toLowerCase()
+        ? { ...a, live, agents: a.agents.map((x) => (x.id === agentId ? { ...x, live, restartNeeded: live ? x.restartNeeded : false } : x)) }
+        : a
+    return { workspace: { ...s.workspace, projects, assistant } }
   })
 }
 

@@ -98,6 +98,8 @@ Hive can show several workspaces, each in its own window (**File → New Window*
 }
 ```
 
+A workspace's Hive Assistant is listed in `liveSessions` with `"project": null` and `"agent": "Assistant"`. It isn't a project, so the project endpoints don't reach it.
+
 `agent` is Claude Code's install info, kept for scripts written for 0.1; use `providers`.
 
 ### Workspace

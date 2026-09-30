@@ -8,6 +8,7 @@ import { confirm, get, notify, projectState, prompt, set, setProjectTab, toggleC
 import { cx, formatKeybinding } from '../util'
 import { Icon, IconButton, InfoTip, StatusDot, STATUS_TEXT, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
 import { addSkill, deleteSkill, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
+import { PersonasPanel } from './Personas'
 
 /** Width of the compact Projects rail, and how narrow a drag has to go before the sidebar snaps to it. */
 const RAIL_WIDTH = 48
@@ -53,6 +54,7 @@ export function Sidebar() {
       {view === 'notes' && <NotesPanel />}
       {view === 'skills' && <SkillsPanel />}
       {view === 'mcp' && <McpPanel />}
+      {view === 'personas' && <PersonasPanel />}
       <div className={cx('sidebar-resizer', dragging && 'dragging')} onMouseDown={startDrag} onDoubleClick={() => {
           set({ sidebarWidth: 280, sidebarCompact: false })
           void call('ui:set', { sidebarWidth: 280 })

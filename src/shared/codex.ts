@@ -57,6 +57,8 @@ export const CODEX_DESCRIPTOR: ProviderDescriptor = {
   setupUrl: 'https://developers.openai.com/codex/cli',
   permissionModes: CODEX_PERMISSION_MODES,
   defaultPermissionMode: 'approve-for-me',
+  assistantMode: 'approve-for-me',
+  assistantEffort: 'low',
   effortLevels: [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },

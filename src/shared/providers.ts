@@ -77,6 +77,14 @@ export interface ProviderDescriptor {
   instructionsFile: string
   /** A line that makes instructionsFile include the shared AGENTS.md, for CLIs that don't read AGENTS.md themselves. */
   instructionsImport?: string
+  /**
+   * The Hive Assistant's default mode: the one where the CLI approves safe actions itself (as agents default to),
+   * so it rarely asks. Not a plan mode, which blocks the MCP tools the Assistant works with.
+   */
+  assistantMode: PermissionMode
+  /** The Hive Assistant's default model and effort: lighter than the agents', to spend fewer tokens. */
+  assistantModel?: string
+  assistantEffort?: EffortLevel
   /** Agent Setup: how the installer works and which accounts can sign in. */
   installNote: string
   /** Agent Setup, when only an editor extension's copy was found: why Hive doesn't use it. */

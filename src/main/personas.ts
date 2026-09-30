@@ -1,0 +1,122 @@
+import { existsSync } from 'fs'
+import { mkdir, readdir, readFile, writeFile } from 'fs/promises'
+import { basename, join } from 'path'
+import { shell } from 'electron'
+import { DEFAULT_PERSONA, newPersonaText, parsePersona, personaId } from '../shared/assistant'
+import type { PersonaInfo } from '../shared/types'
+import { resourcesDir } from './paths'
+import { workspace } from './workspace'
+
+/**
+ * The Hive Assistant's personas: Markdown files in the workspace's .hive/personas (a header with name,
+ * description and icon, then the instructions). Hive ships four (resources/personas), copied into new
+ * workspaces and restorable like the bundled skills.
+ */
+
+export function bundledPersonasDir(): string {
+  return join(resourcesDir(), 'personas')
+}
+
+const validId = (id: string): boolean => /^[a-z0-9][a-z0-9-]{0,63}$/.test(id)
+
+async function mdIds(dir: string): Promise<string[]> {
+  try {
+    return (await readdir(dir)).filter((f) => f.endsWith('.md') && validId(f.slice(0, -3))).map((f) => f.slice(0, -3))
+  } catch {
+    return []
+  }
+}
+
+const same = async (a: string, b: string): Promise<boolean> => {
+  const [x, y] = await Promise.all([readFile(a, 'utf8').catch(() => null), readFile(b, 'utf8').catch(() => null)])
+  return x !== null && y !== null && x.replace(/\r\n/g, '\n') === y.replace(/\r\n/g, '\n')
+}
+
+async function info(path: string, id: string): Promise<PersonaInfo> {
+  const p = parsePersona(await readFile(path, 'utf8').catch(() => ''))
+  return { id, name: p.name || id, description: p.description ?? '', icon: p.icon ?? '', path }
+}
+
+/** The workspace's personas, then the bundled ones it doesn't have (greyed out, with Restore). */
+export async function listPersonas(): Promise<PersonaInfo[]> {
+  if (!workspace.path) return []
+  const bundled = new Set(await mdIds(bundledPersonasDir()))
+  const out: PersonaInfo[] = []
+  for (const id of await mdIds(workspace.personasDir)) {
+    const p = await info(join(workspace.personasDir, `${id}.md`), id)
+    if (bundled.has(id)) p.bundled = (await same(p.path, join(bundledPersonasDir(), `${id}.md`))) ? 'same' : 'changed'
+    out.push(p)
+  }
+  for (const id of bundled) if (!out.some((p) => p.id === id)) out.push({ ...(await info(join(bundledPersonasDir(), `${id}.md`), id)), bundled: 'missing' })
+  // The default first, then by name.
+  return out.sort((a, b) => Number(b.id === DEFAULT_PERSONA) - Number(a.id === DEFAULT_PERSONA) || a.name.localeCompare(b.name))
+}
+
+/** Copies the bundled personas the workspace doesn't have (a new workspace, or one from before personas). */
+export async function addBundledPersonas(): Promise<void> {
+  await mkdir(workspace.personasDir, { recursive: true })
+  for (const id of await mdIds(bundledPersonasDir())) {
+    const dest = join(workspace.personasDir, `${id}.md`)
+    if (!existsSync(dest)) await writeFile(dest, await readFile(join(bundledPersonasDir(), `${id}.md`)))
+  }
+}
+
+export async function createPersona(name: string): Promise<PersonaInfo> {
+  const id = personaId(name)
+  if (!validId(id)) throw new Error('Give the persona a name with letters or numbers.')
+  const path = join(workspace.personasDir, `${id}.md`)
+  if (existsSync(path)) throw new Error(`There is already a persona called "${id}".`)
+  await mkdir(workspace.personasDir, { recursive: true })
+  await writeFile(path, newPersonaText(name.trim()), { flag: 'wx' })
+  return info(path, id)
+}
+
+/** Moves a persona's file to the Recycle Bin. */
+export async function deletePersona(id: string): Promise<void> {
+  if (!validId(id)) throw new Error('Invalid persona')
+  const path = join(workspace.personasDir, `${id}.md`)
+  if (existsSync(path)) await shell.trashItem(path)
+}
+
+/** Puts back a bundled persona as this version of Hive ships it; the workspace's copy goes to the Recycle Bin. */
+export async function restorePersona(id: string): Promise<PersonaInfo> {
+  const src = join(bundledPersonasDir(), `${id}.md`)
+  if (!validId(id) || !existsSync(src)) throw new Error(`"${id}" isn't one of Hive's personas.`)
+  const dest = join(workspace.personasDir, `${id}.md`)
+  if (existsSync(dest)) await shell.trashItem(dest)
+  await mkdir(workspace.personasDir, { recursive: true })
+  await writeFile(dest, await readFile(src))
+  return { ...(await info(dest, id)), bundled: 'same' }
+}
+
+/** A persona's name and instructions: the workspace's file, else Hive's copy, else none. */
+export async function readPersona(id: string): Promise<{ id: string; name: string; body: string } | null> {
+  if (!validId(id)) return null
+  for (const dir of [workspace.personasDir, bundledPersonasDir()]) {
+    const text = await readFile(join(dir, `${id}.md`), 'utf8').catch(() => null)
+    if (text === null) continue
+    const p = parsePersona(text)
+    return { id, name: p.name || id, body: p.body }
+  }
+  return null
+}
+
+/**
+ * What the Assistant is told at launch, before its persona: who it is, what it looks after, and that for
+ * now it only looks. The persona's instructions follow.
+ */
+export async function assistantInstructions(personaIdValue: string): Promise<{ text: string; persona: string }> {
+  const ws = workspace.path ?? ''
+  const projects = (await workspace.listProjectPaths()).map((p) => basename(p))
+  const persona = (await readPersona(personaIdValue)) ?? (await readPersona(DEFAULT_PERSONA))
+  const text = [
+    `You are the Hive Assistant: the overseer of the workspace "${basename(ws)}" (${ws}), running in Hive's side panel. The user talks to you here while coding agents work in the workspace's projects.`,
+    `The projects are the folders in the workspace: ${projects.length ? projects.join(', ') : '(none yet)'}. Each can run up to four agents (Claude Code or Codex), some in their own git worktrees. You work in the workspace folder, so you can read any project's files.`,
+    'Use the hive tools to see the workspace: hive_list_projects and hive_project_status for projects, agents and what they are doing; hive_session_usage for tokens and cost; the shared notes and handovers for decisions and hand-offs. Read files when you need more.',
+    'For now you only look and advise: never edit or create files, run commands that change anything, or start, stop or prompt agents, even if asked. Say what you would do and let the user do it. (Writing to the shared notes with hive_write_shared_note or hive_create_handover is fine when the user asks.)',
+    'Be brief. Your character is flavour: clarity comes first. Drop it and speak plainly for errors, security problems, anything risky, and anything the user must decide.',
+    '',
+    persona ? `# Your persona: ${persona.name}\n\n${persona.body}` : ''
+  ].join('\n')
+  return { text, persona: persona?.name ?? '' }
+}

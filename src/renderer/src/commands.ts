@@ -5,7 +5,7 @@ import { call } from './api'
 import { checkForUpdates, openReleaseNotes } from './components/Updates'
 import { openModeMenu } from './components/PermissionMode'
 import * as actions from './actions'
-import { focusedAgentId, get, notify, set, setActivity, showView, setProjectTab, showAgent, toggleCompactSidebar, type ProjectTab } from './store'
+import { focusedAgentId, get, notify, set, setActivity, setAssistantOpen, showView, setProjectTab, showAgent, toggleCompactSidebar, type ProjectTab } from './store'
 
 export interface Command {
   id: string
@@ -198,6 +198,20 @@ export const commands: Command[] = [
   { id: 'view.notes', label: 'Show Shared Notes', category: 'View', keybinding: 'Mod+Shift+H', run: () => setActivity('notes') },
   { id: 'view.skills', label: 'Show Skills', category: 'View', keybinding: 'Mod+Shift+K', run: () => setActivity('skills') },
   { id: 'view.mcp', label: 'Show MCP Servers', category: 'View', keybinding: 'Mod+Shift+M', run: () => setActivity('mcp') },
+  { id: 'view.personas', label: 'Show Assistant Personas', category: 'View', run: () => setActivity('personas') },
+  { id: 'assistant.toggle', label: 'Toggle Hive Assistant', category: 'Assistant', keybinding: 'Mod+Alt+I', when: hasWorkspace, run: () => setAssistantOpen(!get().assistantOpen) },
+  { id: 'assistant.settings', label: 'Assistant Settings…', category: 'Assistant', when: hasWorkspace, run: () => set({ assistantSettingsOpen: true }) },
+  {
+    id: 'assistant.start',
+    label: 'Start the Hive Assistant',
+    category: 'Assistant',
+    when: () => !!get().workspace?.assistant && !get().workspace?.assistant?.agents[0]?.live,
+    run: () => {
+      setAssistantOpen(true)
+      const a = get().workspace?.assistant
+      if (a) void actions.newSession(a.path, a.agents[0]?.id)
+    }
+  },
   { id: 'view.toggleSidebar', label: 'Toggle Sidebar', category: 'View', keybinding: 'Mod+B', run: () => set((s) => ({ sidebarVisible: !s.sidebarVisible })) },
   { id: 'view.compactSidebar', label: 'Toggle Compact Sidebar', category: 'View', keybinding: 'Mod+Alt+B', run: () => toggleCompactSidebar() },
   { id: 'view.notifications', label: 'Show Notifications', category: 'View', keybinding: 'Mod+Alt+U', run: () => set({ showNotifications: true, unread: 0 }) },

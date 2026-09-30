@@ -21,6 +21,7 @@ const SUITES = [
   { name: 'agents', needs: ['claude'] },
   { name: 'windows', needs: ['claude'] },
   { name: 'launchrace', needs: ['claude'] },
+  { name: 'assistant', needs: ['claude'] },
   { name: 'rail' },
   { name: 'resize' },
   { name: 'keys' },

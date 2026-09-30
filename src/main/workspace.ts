@@ -4,6 +4,7 @@ import { existsSync, statSync } from 'fs'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
+import { ASSISTANT_DIR, ASSISTANT_NAME, PERSONAS_DIR, assistantProjectConfig } from '../shared/assistant'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields } from '../shared/defaults'
 import type { AgentDef, AgentInfo, HiveEvent, LiveSessionState, ProjectConfig, ProjectInfo, SessionRecord, WorkspaceConfig, WorkspaceInfo } from '../shared/types'
 import { config } from './config'
@@ -48,6 +49,8 @@ export class WorkspaceService {
   private static liveProvider: LiveProvider = async (_p, cfg) => ({ live: null, restartNeeded: false, agents: projectAgents(cfg).map((a) => ({ ...a, live: null, restartNeeded: false, resume: null })) })
   /** Called once for a new workspace (a folder Hive hadn't set up yet), after its .hive folder is made. */
   static onCreated: (() => Promise<unknown>) | null = null
+  /** Called each time a workspace opens, in its context (e.g. to give an older workspace Hive's personas). */
+  static onOpened: (() => Promise<unknown>) | null = null
   /** The window showing this workspace: its events go there. */
   window: BrowserWindow | null = null
   /** Agents' worktree folders (lower-cased) and the project each belongs to. */
@@ -77,6 +80,27 @@ export class WorkspaceService {
 
   get sharedDir(): string {
     return join(this.hiveDir, 'shared')
+  }
+
+  /** The Hive Assistant's personas. */
+  get personasDir(): string {
+    return join(this.hiveDir, PERSONAS_DIR)
+  }
+
+  /** The Hive Assistant's home: its one-agent config, sessions and backups (its agent works in the workspace folder). */
+  get assistantHome(): string {
+    return join(this.hiveDir, ASSISTANT_DIR)
+  }
+
+  /** Whether a path is this workspace's Assistant home. */
+  isAssistantHome(p: string): boolean {
+    return !!this.path && resolve(p).toLowerCase() === this.assistantHome.toLowerCase()
+  }
+
+  /** A folder sessions can run for: a project of the open workspace, or its Assistant's home. */
+  assertSessionHost(p: string): string {
+    if (this.isAssistantHome(p)) return this.assistantHome
+    return this.assertProject(p)
   }
 
   /** Where new worktrees are created, next to the workspace folder. */
@@ -117,6 +141,15 @@ export class WorkspaceService {
       c.activeProjects[abs] ??= []
     })
     for (const p of await this.listProjectPaths()) await this.ensureProject(p).catch((e) => log.warn(`ensureProject ${p}`, e))
+    try {
+      await this.ensureProject(this.assistantHome)
+      // The Assistant's conversations and backups are this machine's: kept out of git if the workspace is a repository.
+      const ignore = join(this.assistantHome, '.gitignore')
+      if (!existsSync(ignore)) await writeFile(ignore, "# Hive Assistant: this machine's sessions (added by Hive)\n*\n")
+    } catch (e) {
+      log.warn('setting up the Assistant', e)
+    }
+    await inWorkspace(this, async () => WorkspaceService.onOpened?.()).catch((e) => log.warn('opening the workspace', e))
     this.startWatching()
     log.info(`Opened workspace ${abs}`)
     return this.refresh()
@@ -161,7 +194,8 @@ export class WorkspaceService {
         const rel = p.slice(this.path.length + 1)
         if (!rel) return false
         const parts = rel.split(/[\\/]/)
-        if (parts[0] === HIVE_DIR) return false
+        // The Assistant's home changes with every launch; nothing in it is shown from the file system.
+        if (parts[0] === HIVE_DIR) return parts[1] === ASSISTANT_DIR
         return parts.length > 1 // project internals are not our business
       }
     })
@@ -169,6 +203,7 @@ export class WorkspaceService {
       const rel = this.path ? p.slice(this.path.length + 1).replace(/\\/g, '/') : ''
       if (rel.startsWith(`${HIVE_DIR}/shared`)) this.emit({ type: 'notes-changed' })
       else if (rel.startsWith(`${HIVE_DIR}/skills`) || rel.startsWith(`${HIVE_DIR}/mcp`)) this.emit({ type: 'skills-changed' })
+      else if (rel.startsWith(`${HIVE_DIR}/${PERSONAS_DIR}`)) this.emit({ type: 'personas-changed' })
       else if (rel === `${HIVE_DIR}/workspace.json`) void this.reloadConfig()
       else if (evt === 'addDir' || evt === 'unlinkDir') this.scheduleRefresh()
     })
@@ -319,7 +354,9 @@ export class WorkspaceService {
 
   async projectConfig(projectPath: string): Promise<ProjectConfig> {
     const raw = await readKeptJson<Record<string, unknown>>(join(projectPath, HIVE_DIR, 'project.json'), {})
-    return mergeDefaults(structuredClone(DEFAULT_PROJECT_CONFIG), migrateProjectConfig(raw))
+    const cfg = mergeDefaults(structuredClone(DEFAULT_PROJECT_CONFIG), migrateProjectConfig(raw))
+    // The Assistant's "project" settings are Settings → Assistant; its file keeps the workspace's own choices.
+    return this.isAssistantHome(projectPath) ? assistantProjectConfig(cfg, config.settings) : cfg
   }
 
   async updateProjectConfig(projectPath: string, patch: Partial<ProjectConfig>): Promise<ProjectConfig> {
@@ -426,12 +463,13 @@ export class WorkspaceService {
     const gen = this.generation
     const projects: ProjectInfo[] = []
     for (const p of await this.listProjectPaths()) projects.push(await this.projectInfo(p))
+    const assistant = await this.projectInfo(this.assistantHome).catch((e) => (log.warn('the Assistant', e), null))
     // Closed or switched meanwhile: the new workspace's own refresh reports it.
     if (gen !== this.generation || !this.path) throw new Error('The workspace was closed')
     // Worktrees of projects that are gone (deleted, renamed) no longer belong to this workspace.
     const known = new Set(projects.map((p) => p.path.toLowerCase()))
     for (const [k, v] of this.roots) if (!known.has(v.toLowerCase())) this.roots.delete(k)
-    this.cached = { path: this.path, name: basename(this.path), config: this.wsConfig, projects }
+    this.cached = { path: this.path, name: basename(this.path), config: this.wsConfig, projects, assistant: assistant && { ...assistant, name: ASSISTANT_NAME, active: true, unmanagedMcp: [] } }
     this.emit({ type: 'workspace-changed', workspace: this.cached })
     return this.cached
   }
@@ -544,7 +582,7 @@ export function workspaceOf(p: string): WorkspaceService {
 const BY_PATH = new Set<string>([
   'isProjectPath', 'assertProject', 'assertRoot', 'projectForRoot', 'updateAgent', 'ensureProject', 'ensureGitExclude', 'branch',
   'projectConfig', 'updateProjectConfig', 'mutateProjectConfig', 'sessionsFile', 'mutateSessions', 'upsertSession', 'setActive',
-  'unmanagedMcp', 'projectInfo'
+  'unmanagedMcp', 'projectInfo', 'isAssistantHome', 'assertSessionHost'
 ])
 
 export const workspace: WorkspaceService = new Proxy({} as WorkspaceService, {
