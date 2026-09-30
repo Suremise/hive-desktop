@@ -336,12 +336,13 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.kind, permissionDecisionReason: d.reason } }
   }
 
-  /** Claude Code's status-line JSON: the session's model, effort and cost, and the plan's limits. */
+  /** Claude Code's status-line JSON: the session's model, effort, cost and context window, and the plan's limits. */
   statusLine(body: Record<string, any>): LiveDetails {
     const effort = typeof body.effort === 'string' ? body.effort : typeof body.effort?.level === 'string' ? body.effort.level : undefined
     const modelName = typeof body.model?.display_name === 'string' ? body.model.display_name : undefined
     const cost = Number(body.cost?.total_cost_usd)
-    return { effort, modelName, costUsd: Number.isFinite(cost) ? cost : undefined, planUsage: parseClaudePlanUsage(body) }
+    const window = Number(body.context_window?.context_window_size)
+    return { effort, modelName, costUsd: Number.isFinite(cost) ? cost : undefined, contextWindow: window > 0 ? window : undefined, planUsage: parseClaudePlanUsage(body) }
   }
 
   footerMode(tail: string): string | null {

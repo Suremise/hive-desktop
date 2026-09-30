@@ -174,7 +174,7 @@ Omit `resumeId` to start a new session. Returns the live session state (which in
 }
 ```
 
-`costUsd` is the API-equivalent cost: reported by the provider (Claude Code), or estimated by Hive from its price table (`costEstimated: true`), or `null` for a model without a price. It is not what a subscription plan charges. `reasoningTokens` (Codex) are included in `outputTokens`; `contextWindow` is the model's window when the provider reports it.
+`costUsd` is the API-equivalent cost: reported by the provider (Claude Code), or estimated by Hive from its price table (`costEstimated: true`), or `null` for a model without a price. It is not what a subscription plan charges. `reasoningTokens` (Codex) are included in `outputTokens`; `contextWindow` is the model's window when the provider reports it (Codex always; Claude Code while the session is running).
 
 `POST /v1/projects/{name}/input` — type into the running session. **Disabled by default**; enable *Allow sending input to sessions* in Settings → Agent API.
 

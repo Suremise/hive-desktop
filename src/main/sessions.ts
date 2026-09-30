@@ -1131,10 +1131,21 @@ class SessionManager {
   private applyDetails(l: LiveSession, d: ReturnType<NonNullable<ProviderAdapter['statusLine']>>): void {
     if (d.planUsage) reportPlanUsage(l.state.provider, d.planUsage)
     const st = l.state
-    const next = { effort: d.effort ?? st.effort, modelName: d.modelName ?? st.modelName, costUsd: d.costUsd ?? st.costUsd, planMode: d.planMode ?? st.planMode, permissionMode: d.permissionMode ?? st.permissionMode }
-    if (next.effort === st.effort && next.modelName === st.modelName && next.costUsd === st.costUsd && next.planMode === st.planMode && next.permissionMode === st.permissionMode) return
+    const next = { effort: d.effort ?? st.effort, modelName: d.modelName ?? st.modelName, costUsd: d.costUsd ?? st.costUsd, planMode: d.planMode ?? st.planMode, permissionMode: d.permissionMode ?? st.permissionMode, contextWindow: d.contextWindow ?? st.contextWindow }
+    if (
+      next.effort === st.effort &&
+      next.modelName === st.modelName &&
+      next.costUsd === st.costUsd &&
+      next.planMode === st.planMode &&
+      next.permissionMode === st.permissionMode &&
+      next.contextWindow === st.contextWindow
+    )
+      return
+    const windowChanged = next.contextWindow !== st.contextWindow
     Object.assign(st, next)
     this.emitState(st)
+    // Usage shown in the renderer carries the window: have it read again.
+    if (windowChanged && st.sessionId) emit({ type: 'usage-changed', projectPath: st.projectPath, sessionId: st.sessionId })
   }
 
   // -------------------------------------------------------------------------
@@ -1486,7 +1497,13 @@ class SessionManager {
   async usage(projectPath: string, sessionId: string, ctx?: ListContext): Promise<SessionUsage | null> {
     assertSessionId(sessionId)
     const p = await this.anyTranscript(projectPath, sessionId, ctx)
-    return p ? this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx)) : null
+    const usage = p ? await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx)) : null
+    // A transcript without the context window (Claude Code's): the running session's status line has it.
+    if (usage && !usage.contextWindow) {
+      const window = [...this.live.values()].find((l) => l.state.sessionId === sessionId)?.state.contextWindow
+      if (window) return { ...usage, contextWindow: window }
+    }
+    return usage
   }
 
   async list(projectPath: string): Promise<SessionListItem[]> {

@@ -331,7 +331,7 @@ If "Provide Hive tools to sessions" is on (default), every session, of every pro
 
 ## 9. Usage, compaction and memory
 
-Each provider's adapter reads its own transcripts into one usage shape. Codex: rollout files under `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl` (`token_count` events for tokens, context window and plan limits; `session_index.jsonl` for titles). Claude Code: `~/.claude/projects/<encoded-path>/<session-id>.jsonl`, where the encoded path replaces every non-alphanumeric character of the project path with `-` (matched case-insensitively).
+Each provider's adapter reads its own transcripts into one usage shape. Codex: rollout files under `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl` (`token_count` events for tokens, context window and plan limits; `session_index.jsonl` for titles). Claude Code: `~/.claude/projects/<encoded-path>/<session-id>.jsonl`, where the encoded path replaces every non-alphanumeric character of the project path with `-` (matched case-insensitively). Claude Code's transcripts don't carry the context window; for a running session it comes from the status line (`context_window.context_window_size`) and is added to the session's usage.
 
 **Model choice** (global default and per project): Latest aliases, pinned versions and older versions (hidden until requested), from a list built into Hive of the models Claude Code knows; a custom model ID; and a 1M-context toggle (`[1m]` suffix) for Fable, Opus 4.6+ and Sonnet 4.5+. Availability for the account is only known when a session starts.
 

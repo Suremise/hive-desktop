@@ -259,6 +259,12 @@ describe('Claude Code hooks', () => {
     expect(claudeCode.lockReply({ kind: 'deny', reason: 'r' })).toEqual({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'r' } })
   })
 
+  it('reads the context window from the status line', async () => {
+    const { claudeCode } = await import('../src/main/providers/claude/adapter')
+    expect(claudeCode.statusLine({ context_window: { context_window_size: 1000000, used_percentage: 4 } }).contextWindow).toBe(1000000)
+    expect(claudeCode.statusLine({ model: { display_name: 'Opus 5.5' } }).contextWindow).toBeUndefined()
+  })
+
   it('reads the background job named when a resume is refused', async () => {
     const { claudeCode } = await import('../src/main/providers/claude/adapter')
     expect(claudeCode.backgroundJobIn('\x1b[31mSession a0292106 is still running in the background.\x1b[0m\r\nRun \x1b[1mclaude attach d98cd28c\x1b[0m to open it.')).toBe('d98cd28c')

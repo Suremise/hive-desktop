@@ -33,6 +33,7 @@
 - **Every agent has its own header and footer**, with one agent or several. The header has its status, session and buttons (Compact, a red **Stop**, Archive & New, or Resume and New Session), which turn into icons and then fold into ⋯ as the pane narrows. The footer has its model and effort, permission mode, context and cost.
 - **The project header is about the project**: Active, Explorer, Terminal and a new **Stop All Agents**, which lists the agents it will stop and asks first. The status bar keeps app-wide items only.
 - A narrow window no longer pushes the right side of the project view off screen.
+- Running Claude Code agents show their context against the model's window ("39,353 tokens of 1,000,000") in the footer tooltip and the Overview tab, as Codex agents already did.
 - Right-click in a Codex terminal pastes once. Codex also pastes on right-click, and it was being sent the click as well as Hive's paste; right-click in Hive's terminals is now always Hive's copy or paste.
 - Pressing ← on an empty Claude Code prompt no longer moves the session out of Hive: Hive turns off Claude Code's agent view in its sessions, which put the session into Claude Code's background service, where Stop couldn't end it and resuming failed. **Settings → Claude Code → Allow background sessions** turns it back on. If a conversation is in the background anyway, resuming it offers **Stop It and Resume**.
 - The status bar's icons are all drawn in its text colour, Hive's own mark and the providers' included, so the Claude mark no longer disappears on the amber bar.

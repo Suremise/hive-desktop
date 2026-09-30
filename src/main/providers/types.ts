@@ -92,6 +92,8 @@ export interface LiveDetails {
   permissionMode?: PermissionMode
   planMode?: boolean
   planUsage?: PlanUsage | null
+  /** The model's context window in tokens. */
+  contextWindow?: number
 }
 
 /** Where an image's data sits in a transcript: the line's byte range and the path to it inside the entry. */

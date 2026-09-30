@@ -351,6 +351,8 @@ export interface LiveSessionState {
   modelName?: string
   /** API-equivalent cost of the session so far, in USD. */
   costUsd?: number
+  /** The model's context window in tokens, as the provider reports it for the running session (Claude Code's status line). */
+  contextWindow?: number
   /** costUsd was estimated by Hive from token counts, not reported by the provider. */
   costEstimated?: boolean
   /** A live permission-mode change Hive has asked for and is waiting to see confirmed. */
