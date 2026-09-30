@@ -221,6 +221,15 @@ export function TerminalView({
     const { signal } = listeners
     host.current!.addEventListener('focusin', () => onFocusRef.current?.(), { signal })
     host.current!.addEventListener('mousedown', () => onFocusRef.current?.(), { signal })
+    // Right-click is Hive's copy/paste (below). Keep the button from xterm, which would otherwise report it to
+    // programs that track the mouse (Codex), and Codex pastes on right-click too: everything was pasted twice.
+    for (const type of ['mousedown', 'mouseup'] as const) {
+      host.current!.addEventListener(type, (e) => {
+        if (e.button !== 2) return
+        e.stopPropagation()
+        if (type === 'mousedown') onFocusRef.current?.()
+      }, { signal, capture: true })
+    }
     host.current!.addEventListener('contextmenu', (e) => {
       e.preventDefault()
       if (term.hasSelection()) {
