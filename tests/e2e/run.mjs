@@ -18,6 +18,7 @@ const SUITES = [
   { name: 'skills' },
   { name: 'providers' },
   { name: 'agents-ui' },
+  { name: 'pages' },
   { name: 'agents', needs: ['claude'] },
   { name: 'windows', needs: ['claude'] },
   { name: 'launchrace', needs: ['claude'] },

@@ -1,11 +1,12 @@
-import { useCallback, useRef, useState, type CSSProperties } from 'react'
-import { MAX_AGENTS, SESSION_LAYOUTS, compactThreshold, effectiveModelLabel, effortLabel, layoutPanes, sessionInAgentFolder } from '@shared/defaults'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, compactThreshold, effectiveModelLabel, effortLabel, layoutPanes, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder } from '@shared/defaults'
 import type { AgentInfo, ProjectInfo, SessionLayout, SessionListItem } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
-import { NO_PROJECTS, agentProviderOf, focusAgent, focusedAgentId, openInSessionsTab, paneAssignment, projectKey, revealAgent, set, setProjectTab, showAgent, useStore } from '../store'
+import { NO_PROJECTS, agentPage, agentProviderOf, focusAgent, focusedAgentId, openInSessionsTab, paneAssignment, projectKey, revealAgent, set, setProjectTab, showAgent, showPage, useStore } from '../store'
 import { useLiveUsage } from '../usage'
-import { cx, formatTokens, sessionLabel, timeAgo } from '../util'
+import { commandKeybinding } from '../commands'
+import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
 import { ModeBadge } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
@@ -25,6 +26,7 @@ interface Rect {
 
 function paneRect(count: number, i: number): Rect {
   if (count === 4) return { x: (i % 2) * 50, y: Math.floor(i / 2) * 50, w: 50, h: 50 }
+  if (count === 6) return { x: ((i % 3) * 100) / 3, y: Math.floor(i / 3) * 50, w: 100 / 3, h: 50 }
   const w = 100 / count
   return { x: i * w, y: 0, w, h: 100 }
 }
@@ -77,7 +79,7 @@ export function TerminalLayer({ visibleFor, panes }: { visibleFor: string | null
 function LayoutGlyph({ layout }: { layout: SessionLayout }) {
   const n = layoutPanes(layout)
   return (
-    <span className={cx('layout-glyph', layout === 'grid' && 'grid')}>
+    <span className={cx('layout-glyph', (layout === 'grid' || layout === 'grid6') && layout)}>
       {Array.from({ length: n }, (_, i) => (
         <span key={i} />
       ))}
@@ -270,13 +272,24 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
   const focused = useStore((s) => s.focusedAgent[project.path]) ?? project.agents[0]?.id
   const menu = useContextMenu()
   const picker = useSessionPicker()
-  const layout = project.config.sessionLayout ?? 'single'
+  const page = agentPage(project, focused ?? null)
+  const pages = agentPageCount(project.agents.length)
+  const layout = pageLayout(project.config, page)
   const many = project.agents.length > 1
+  const pageKb = commandKeybinding('agent.nextPage')
+  // The focused agent's tab stays in view when the tabs don't all fit.
+  const tabs = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    tabs.current?.querySelector('.agent-tab.focused')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [focused, project.agents.length])
   return (
     <div className="agent-strip">
-      {project.agents.map((a) => (
+      {/* Scrolls sideways (mouse wheel too) when a project's agents don't fit; a line marks where each page starts. */}
+      <div className="agent-tabs" ref={tabs} onWheel={(e) => e.deltaY && (e.currentTarget.scrollLeft += e.deltaY)}>
+      {project.agents.map((a, i) => (
         <Tooltip key={a.id} content={<AgentTabTip project={project} a={a} />}>
           <div
+            data-page-start={i > 0 && i % PAGE_AGENTS === 0 ? '' : undefined}
             className={cx('agent-tab', focused === a.id && 'focused', panes.includes(a.id) && 'shown')}
             onClick={() => showAgent(project, a.id)}
             onDoubleClick={() => set({ agentSettingsFor: { project: project.path, agentId: a.id } })}
@@ -297,13 +310,31 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
           </div>
         </Tooltip>
       ))}
+      </div>
       <AddAgentButton project={project} className="subtle small agent-add" />
       <div className="grow" />
+      {pages > 1 && (
+        <div className="segmented page-switch">
+          {Array.from({ length: pages }, (_, i) => {
+            const onPage = pageAgents(project.agents, i)
+            // Another page's most urgent agent shows as a dot on its button.
+            const state = page === i ? null : mostUrgent(onPage.map((a) => a.live))
+            return (
+              <Tooltip key={i} content={`Page ${i + 1}: agents ${i * PAGE_AGENTS + 1}–${i * PAGE_AGENTS + onPage.length}${pageKb ? ` (${formatKeybinding(pageKb)} for the next page)` : ''}`}>
+                <button className={cx(page === i && 'active')} onClick={() => showPage(project, i)} aria-label={`Agent page ${i + 1}`}>
+                  {i + 1}
+                  {state && <span className={cx('dot', state.status, state.unseen && 'unseen')} />}
+                </button>
+              </Tooltip>
+            )
+          })}
+        </div>
+      )}
       {(many || layout !== 'single') && (
         <div className="segmented layout-switch">
           {SESSION_LAYOUTS.map((l) => (
-            <Tooltip key={l.value} content={`${l.label}${l.panes > 2 ? ' (works best on a wide window, or with the sidebar hidden: Ctrl+B)' : ''}`}>
-              <button className={cx(layout === l.value && 'active')} onClick={() => void actions.setLayout(project.path, l.value)} aria-label={l.label}>
+            <Tooltip key={l.value} content={`${l.label}${pages > 1 ? ` for page ${page + 1}` : ''}${l.panes > 2 ? ' (works best on a wide window, or with the sidebar hidden: Ctrl+B)' : ''}`}>
+              <button className={cx(layout === l.value && 'active')} onClick={() => void actions.setLayout(project.path, page, l.value)} aria-label={l.label}>
                 <LayoutGlyph layout={l.value} />
               </button>
             </Tooltip>

@@ -47,7 +47,7 @@ export function assistantProjectConfig(cfg: ProjectConfig, settings: Pick<AppSet
     defaultProvider: a?.provider || 'inherit',
     providers,
     agents: [{ ...own, id: ASSISTANT_AGENT_ID, name: ASSISTANT_NAME }],
-    sessionLayout: 'single',
+    layouts: [],
     fileLocks: 'off',
     worktreeSetup: ''
   }

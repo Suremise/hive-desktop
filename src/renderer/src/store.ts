@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { agentPtyKey, layoutPanes, mostUrgent } from '@shared/defaults'
+import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageLayout, pageOfAgent } from '@shared/defaults'
 import { agentProvider } from '@shared/providers'
 import type { QuitScope, UpdateState } from '@shared/types'
 import type {
@@ -138,6 +138,8 @@ interface State {
   focusedAgent: Record<string, string>
   /** Per project: which agent each pane of a multi-pane layout shows. */
   paneAgents: Record<string, string[]>
+  /** Per project and agent page ("<path>#<page>"): the agent last focused there, focused again on going back. */
+  pageFocus: Record<string, string>
   /** Per project: whose folder the Changes and Files tabs show (a worktree agent's id; anything else = the project folder). */
   changesRoot: Record<string, string>
   filesRoot: Record<string, string>
@@ -206,6 +208,7 @@ export const useStore = create<State>(() => ({
   handOverFor: null,
   focusedAgent: {},
   paneAgents: {},
+  pageFocus: {},
   changesRoot: {},
   filesRoot: {},
 
@@ -259,34 +262,55 @@ export function projectState(p: ProjectInfo | null | undefined) {
 }
 
 export function focusAgent(path: string, agentId: string): void {
-  set((s) => ({ focusedAgent: { ...s.focusedAgent, [path]: agentId } }))
+  set((s) => {
+    const i = findProject(s, path)?.agents.findIndex((a) => a.id === agentId) ?? -1
+    return { focusedAgent: { ...s.focusedAgent, [path]: agentId }, ...(i >= 0 ? { pageFocus: { ...s.pageFocus, [`${path}#${pageOfAgent(i)}`]: agentId } } : {}) }
+  })
+}
+
+/** The agent page a project shows: the focused agent's (pages hold six agents each). */
+export function agentPage(p: ProjectInfo, focused: string | null): number {
+  const i = p.agents.findIndex((a) => a.id === focused)
+  return i < 0 ? 0 : pageOfAgent(i)
 }
 
 /**
- * Which agent each pane shows. One pane shows the focused agent; with more, the panes keep the
- * agents placed in them and fill up in agent order. Null is an empty pane.
+ * Which agent each pane shows, on the focused agent's page. One pane shows the focused agent; with more,
+ * the panes keep the agents placed in them and fill up in agent order. Null is an empty pane.
  */
 export function paneAssignment(p: ProjectInfo, focused: string | null, stored: string[] | undefined): (string | null)[] {
-  const n = layoutPanes(p.config.sessionLayout)
+  const page = agentPage(p, focused)
+  const n = layoutPanes(pageLayout(p.config, page))
   if (n === 1) return [focused]
-  const ids = p.agents.map((a) => a.id)
+  const ids = pageAgents(p.agents, page).map((a) => a.id)
   const out: string[] = []
   for (const id of stored ?? []) if (ids.includes(id) && !out.includes(id) && out.length < n) out.push(id)
   for (const id of ids) if (out.length < n && !out.includes(id)) out.push(id)
   return [...out, ...Array<null>(n - out.length).fill(null)]
 }
 
-/** Shows an agent: focuses its pane, or puts it in the focused agent's pane when it isn't on screen. */
+/**
+ * Shows an agent: focuses its pane, or puts it in the focused agent's pane when it isn't on screen. An agent
+ * on another page goes to that page.
+ */
 export function showAgent(p: ProjectInfo, agentId: string): void {
   const s = get()
   const focused = focusedAgentId(p)
   const panes = paneAssignment(p, focused, s.paneAgents[p.path])
-  if (panes.length > 1 && !panes.includes(agentId)) {
+  if (agentPage(p, agentId) === agentPage(p, focused) && panes.length > 1 && !panes.includes(agentId)) {
     const i = Math.max(0, panes.indexOf(focused))
     const next = panes.map((id, j) => (j === i ? agentId : id)).filter((id): id is string => !!id)
     set({ paneAgents: { ...s.paneAgents, [p.path]: next } })
   }
   focusAgent(p.path, agentId)
+}
+
+/** Goes to one of a project's agent pages, focusing the agent last focused there (else its first). */
+export function showPage(p: ProjectInfo, page: number): void {
+  const ids = pageAgents(p.agents, page).map((a) => a.id)
+  if (!ids.length) return
+  const last = get().pageFocus[`${p.path}#${page}`]
+  focusAgent(p.path, last && ids.includes(last) ? last : ids[0])
 }
 
 /** A project, or the Hive Assistant (a session host like a project), by path. */

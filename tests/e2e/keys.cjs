@@ -37,7 +37,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   check('tab shortcuts never hide the sidebar', (await page.locator('.project-row').count()) === 2)
   await page.keyboard.press('Control+Alt+2'); await sleep(500)
   const p = (await inv('workspace:refresh')).projects.find((x) => x.name === 'bravo')
-  check('Ctrl+Alt+2: two-column layout', p.config.sessionLayout === 'columns2', p.config.sessionLayout)
+  check('Ctrl+Alt+2: two-column layout', p.config.layouts[0] === 'columns2', JSON.stringify(p.config.layouts))
   await page.keyboard.press('Control+Alt+1'); await sleep(300)
 
   // Settings → Keyboard Shortcuts

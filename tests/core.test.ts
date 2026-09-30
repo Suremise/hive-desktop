@@ -189,10 +189,11 @@ describe('providers migration', () => {
     expect(m.providers['claude-code']).toEqual({ model: 'sonnet', effort: 'inherit', permissionMode: 'plan', extraArgs: '' })
     expect('model' in m).toBe(false)
     // 0.2.0: 0.1's agents and layout are cleared; the project keeps inheriting the default provider.
-    expect(m).toMatchObject({ version: 2, agents: [], sessionLayout: 'single' })
+    expect(m).toMatchObject({ version: 2, agents: [], layouts: ['auto'] })
+    expect('sessionLayout' in m).toBe(false)
     expect(m.defaultProvider).toBeUndefined()
     const v2 = { version: 2, providers: {}, defaultProvider: 'inherit', agents: [{ id: 'a-1', name: 'Agent 1', provider: 'codex' }] }
-    expect(migrateProjectConfig(v2)).toEqual(v2)
+    expect(migrateProjectConfig(v2)).toEqual({ ...v2, layouts: ['auto'] })
     const cfg = mergeDefaults(structuredClone(DEFAULT_PROJECT_CONFIG), m)
     expect(withLegacyProjectFields(cfg)).toMatchObject({ model: 'sonnet', permissionMode: 'plan' })
   })

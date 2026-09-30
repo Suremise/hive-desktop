@@ -2857,7 +2857,34 @@ body.pane-resizing .monaco-editor {
   border-bottom: 1px solid var(--border-subtle);
   z-index: 3;
 }
+/* The agent tabs: scroll sideways when they don't fit (no scrollbar; the mouse wheel scrolls them). */
+.agent-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.agent-tabs::-webkit-scrollbar {
+  display: none;
+}
+/* Where the next page's agents start. */
+.agent-tab[data-page-start] {
+  margin-left: 9px;
+  position: relative;
+}
+.agent-tab[data-page-start]::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 4px;
+  bottom: 4px;
+  border-left: 1px solid var(--border);
+}
 .agent-tab {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -2922,6 +2949,31 @@ body.pane-resizing .monaco-editor {
 .layout-glyph.grid > span {
   flex: 0 0 calc(50% - 0.5px);
   height: calc(50% - 0.5px);
+}
+.layout-glyph.grid6 {
+  flex-wrap: wrap;
+  width: 18px;
+}
+.layout-glyph.grid6 > span {
+  flex: 0 0 calc((100% - 2px) / 3);
+  height: calc(50% - 0.5px);
+}
+/* Agent pages (more than six agents): 1 · 2, with a dot for another page's most urgent agent. */
+.page-switch {
+  margin-right: 6px;
+}
+.page-switch button {
+  position: relative;
+  min-width: 24px;
+  padding: 0 7px;
+  font-size: 12px;
+}
+.page-switch .dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
 }
 .agents-area {
   position: absolute;

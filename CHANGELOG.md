@@ -14,7 +14,8 @@
 
 ### Agents
 - **All agents are equal, and a project starts with none.** **Add Agent** adds one in a click (your default provider, its default settings, in the project folder); its **▾** opens **Add Agent…** to choose the provider, a worktree and settings. New Session and Resume add an agent when a project has none. Any agent can work in a worktree, and any can be removed once stopped.
-- **The layout follows as you add agents**: two columns for two, three for three, the grid for four. Choosing a layout by hand still works, and removing an agent leaves it as it is.
+- **Up to twelve agents per project**, six to a page: a seventh opens page 2, and the **1 · 2** buttons (or Ctrl+Alt+PageDown / PageUp) switch pages. A new 3×2 grid shows six at once.
+- **The layout follows as you add agents**: two columns for two, three for three, a grid for four, the 3×2 grid for five or six. Each page has its own layout, and one you choose stays as agents are added.
 - **Updating from 0.1 clears every project's agents** (and resets the layout), since there is no longer a built-in Agent 1. Your sessions stay in the Sessions tab and can be resumed by an agent you add again.
 - Starting a new conversation inside the CLI (Claude Code's `/clear` or `/resume`, Codex's `/new`) is now followed: Hive records and backs up the new conversation instead of carrying on with the old one.
 

@@ -42,7 +42,7 @@ const post = (url, token, body) =>
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await inv('workspace:open', ws)
   await sleep(800)
-  await inv('project:updateConfig', proj, { sessionLayout: 'columns2', fileLocks: 'ask' })
+  await inv('project:updateConfig', proj, { layouts: ['columns2'], fileLocks: 'ask' })
   await page.getByText('demo', { exact: true }).first().click()
   await sleep(500)
   const agents = () => inv('workspace:get').then((w) => w.projects.find((p) => p.name === 'demo').agents)

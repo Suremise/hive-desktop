@@ -46,7 +46,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   check('Agent 2 has nothing of its own', a2().resume === null)
 
   // Two columns so both pane headers show.
-  await inv('project:updateConfig', proj, { sessionLayout: 'columns2' }); await sleep(800)
+  await inv('project:updateConfig', proj, { layouts: ['columns2'] }); await sleep(800)
   const h2 = page.locator('.pane-header-bar', { hasText: 'Agent 2' })
   check('Agent 2 Resume disabled', await h2.locator('button[aria-label="Resume"]').isDisabled())
 

@@ -14,8 +14,10 @@ export type QuitConfirm = 'working' | 'always' | 'never'
 /** What Hive does when an agent edits a file another agent in the same folder is editing. */
 export type FileLockMode = 'off' | 'warn' | 'block' | 'ask'
 export type MergeStyle = 'squash' | 'merge'
-/** How the Session tab arranges a project's agents. */
-export type SessionLayout = 'single' | 'columns2' | 'columns3' | 'grid'
+/** How the Session tab arranges the agents of one page. */
+export type SessionLayout = 'single' | 'columns2' | 'columns3' | 'grid' | 'grid6'
+/** A page's layout as saved: 'auto' is the one that shows the page's agents (until one is chosen by hand). */
+export type PageLayout = SessionLayout | 'auto'
 export type QuitChoice = 'now' | 'wait' | 'cancel'
 /** What the quit dialog is for: quitting, closing a window, closing its workspace, or switching the window to another workspace. */
 export type QuitScope = 'app' | 'window' | 'workspace' | 'switch'
@@ -237,7 +239,8 @@ export interface ProjectConfig {
   compactSuggestTokens: number | null
   /** The project's agents, in the order they were added. All are equal; a new project has none. */
   agents: AgentDef[]
-  sessionLayout: SessionLayout
+  /** Each agent page's layout, page 1 first; a missing one is 'auto'. */
+  layouts: PageLayout[]
   fileLocks: Inherit<FileLockMode>
   /** Overrides settings.agents.worktreeCopy; null inherits. */
   worktreeCopy: string | null
@@ -260,7 +263,7 @@ export interface AgentWorktree {
   base: string
 }
 
-/** One of a project's (up to four) agents. Settings left undefined follow the project's. */
+/** One of a project's (up to twelve) agents. Settings left undefined follow the project's. */
 export interface AgentDef {
   /** Random and never reused, so session records of removed agents don't attach to new ones. */
   id: string

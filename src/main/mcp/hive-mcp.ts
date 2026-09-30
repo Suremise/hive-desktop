@@ -91,7 +91,7 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_project_status',
-    description: "Get the status and settings of one project, and its agents (up to four, each in the project folder or a git worktree) with their running sessions.",
+    description: "Get the status and settings of one project, and its agents (up to twelve, each in the project folder or a git worktree) with their running sessions.",
     inputSchema: { type: 'object', properties: { project: projectArg } },
     run: (a) => api('GET', `/v1/projects/${proj(a)}`)
   },

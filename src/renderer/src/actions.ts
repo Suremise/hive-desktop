@@ -1,7 +1,7 @@
 import { basename } from './util'
 import { call, errorMessage } from './api'
 import { agentOf, agentProviderOf, confirm, findProject, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
-import { MAX_AGENTS, sessionInAgentFolder } from '@shared/defaults'
+import { MANY_AGENTS, MAX_AGENTS, sessionInAgentFolder, withPageLayout } from '@shared/defaults'
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { formatTokens } from './util'
@@ -163,9 +163,16 @@ export async function quickAddAgent(path: string | null = get().selectedProject,
   const def = await attempt('Could not add an agent', () => call('agents:add', path, { location: 'project', provider }))
   if (!def) return null
   await refreshWorkspace()
+  noteManyAgents(path)
   const now = project(path)
   if (now) showAgent(now, def.id)
   return def.id
+}
+
+/** After adding an agent: the seventh brings a note that each agent is its own CLI process. */
+export function noteManyAgents(path: string): void {
+  const n = project(path)?.agents.length ?? 0
+  if (n === MANY_AGENTS) notify('info', `${n} agents in this project`, "Each agent runs its own copy of its CLI (roughly 150–400 MB of memory each), and they all share your plan's usage limits.")
 }
 
 /** Changes a project's settings for one provider. */
@@ -425,8 +432,11 @@ export async function discardAgent(path: string, agentId: string): Promise<void>
   if (done) await refreshWorkspace()
 }
 
-export async function setLayout(path: string, layout: SessionLayout): Promise<void> {
-  await attempt('Could not change layout', () => call('project:updateConfig', path, { sessionLayout: layout }))
+/** Chooses one agent page's layout (the one that shows its agents makes it automatic again). */
+export async function setLayout(path: string, page: number, layout: SessionLayout): Promise<void> {
+  const p = project(path)
+  if (!p) return
+  await attempt('Could not change layout', () => call('project:updateConfig', path, { layouts: withPageLayout(p.config, page, layout) }))
   await refreshWorkspace()
 }
 

@@ -132,7 +132,7 @@ A workspace's Hive Assistant is listed in `liveSessions` with `"project": null` 
 }
 ```
 
-`status` is one of `stopped`, `starting`, `ready`, `working`, `waiting`, `finished`, `error`. `provider` is the CLI the agent runs (`claude-code` or `codex`); each agent chooses its own, so a project can mix them. `settings` is the project's configuration, with per-provider overrides under `providers`. A project has up to four agents, all equal, in the order they were added; a new project has none. The top-level `status`, `sessionId` and `statusMessage` are the first running agent's, and `agents` lists every agent. Agent ids are random (`a-…`) and never reused. Endpoints that act on a session take an optional `agent` — its `id` or name. Without one, the project's only agent is used; a project with several answers 400 (say which), one with none 409.
+`status` is one of `stopped`, `starting`, `ready`, `working`, `waiting`, `finished`, `error`. `provider` is the CLI the agent runs (`claude-code` or `codex`); each agent chooses its own, so a project can mix them. `settings` is the project's configuration, with per-provider overrides under `providers`. A project has up to twelve agents, all equal, in the order they were added; a new project has none. The top-level `status`, `sessionId` and `statusMessage` are the first running agent's, and `agents` lists every agent. Agent ids are random (`a-…`) and never reused. Endpoints that act on a session take an optional `agent` — its `id` or name. Without one, the project's only agent is used; a project with several answers 400 (say which), one with none 409.
 
 `POST /v1/projects/{name}/activate` — mark the project as being worked on.
 

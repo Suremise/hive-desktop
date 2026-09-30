@@ -1,11 +1,11 @@
-import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, resolveKeybinding } from '@shared/defaults'
+import { PAGE_AGENTS, PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, agentPageCount, resolveKeybinding } from '@shared/defaults'
 import { PROVIDERS, providerDescriptor } from '@shared/providers'
 import type { ProviderId, SessionLayout } from '@shared/types'
 import { call } from './api'
 import { checkForUpdates, openReleaseNotes } from './components/Updates'
 import { openModeMenu } from './components/PermissionMode'
 import * as actions from './actions'
-import { focusedAgentId, get, notify, set, setActivity, setAssistantOpen, showView, setProjectTab, showAgent, toggleCompactSidebar, type ProjectTab } from './store'
+import { agentPage, focusedAgentId, get, notify, set, setActivity, setAssistantOpen, showView, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
 
 export interface Command {
   id: string
@@ -54,6 +54,16 @@ function cycleTab(delta: number): void {
 }
 
 /** Focus agent N (1-based) of the selected project and show it. */
+/** Goes to the next or previous agent page (projects with more than six agents). */
+function cyclePage(delta: number): void {
+  const p = selected()
+  if (!p) return
+  const pages = agentPageCount(p.agents.length)
+  if (pages < 2) return
+  showPage(p, (agentPage(p, focusedAgentId(p)) + delta + pages) % pages)
+  setProjectTab(p.path, 'session')
+}
+
 function focusAgentN(n: number): void {
   const p = selected()
   const a = p?.agents[n - 1]
@@ -80,8 +90,9 @@ const layoutCommand = (value: SessionLayout, n: number): Command => ({
   keybinding: `Mod+Alt+${n}`,
   when: hasProject,
   run: () => {
-    const p = get().selectedProject
-    if (p) void actions.setLayout(p, value)
+    // The page on screen.
+    const p = selected()
+    if (p) void actions.setLayout(p.path, agentPage(p, focusedAgentId(p)), value)
   }
 })
 
@@ -188,11 +199,14 @@ export const commands: Command[] = [
     run: () => cycleAgent(1)
   },
   { id: 'agent.previous', label: 'Focus Previous Agent', category: 'Session', keybinding: 'Mod+Alt+[', when: hasProject, run: () => cycleAgent(-1) },
-  ...[1, 2, 3, 4].map((n): Command => ({ id: `agent.focus${n}`, label: `Focus Agent ${n}`, category: 'Session', keybinding: `Mod+${n}`, when: () => (selected()?.agents.length ?? 0) >= n, run: () => focusAgentN(n) })),
+  { id: 'agent.nextPage', label: 'Next Agent Page', category: 'Session', keybinding: 'Mod+Alt+PageDown', when: () => (selected()?.agents.length ?? 0) > PAGE_AGENTS, run: () => cyclePage(1) },
+  { id: 'agent.previousPage', label: 'Previous Agent Page', category: 'Session', keybinding: 'Mod+Alt+PageUp', when: () => (selected()?.agents.length ?? 0) > PAGE_AGENTS, run: () => cyclePage(-1) },
+  ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n): Command => ({ id: `agent.focus${n}`, label: `Focus Agent ${n}`, category: 'Session', keybinding: `Mod+${n}`, when: () => (selected()?.agents.length ?? 0) >= n, run: () => focusAgentN(n) })),
   layoutCommand('single', 1),
   layoutCommand('columns2', 2),
   layoutCommand('columns3', 3),
   layoutCommand('grid', 4),
+  layoutCommand('grid6', 5),
   { id: 'session.archive', label: 'Archive Session and Start New', category: 'Session', when: hasProject, run: () => actions.archiveCurrent() },
   { id: 'view.projects', label: 'Show Projects', category: 'View', keybinding: 'Mod+Shift+E', run: () => setActivity('projects') },
   { id: 'view.notes', label: 'Show Shared Notes', category: 'View', keybinding: 'Mod+Shift+H', run: () => setActivity('notes') },

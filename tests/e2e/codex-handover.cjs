@@ -47,7 +47,7 @@ const check = (name, ok, extra = '') => {
   check('agents added', (await agents()).length === 3)
   await sleep(800)
   // The dialog, from the pane header's menu (panes show in a multi-column layout).
-  await inv('project:updateConfig', proj, { sessionLayout: 'columns2' })
+  await inv('project:updateConfig', proj, { layouts: ['columns2'] })
   await sleep(800)
   await page.screenshot({ path: path.join(scratch, 'cont-0-before.png') })
   await page.locator('.pane-header-bar').first().click({ button: 'right' })

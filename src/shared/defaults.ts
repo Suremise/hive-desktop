@@ -1,4 +1,4 @@
-import type { AgentDef, AppConfig, AppSettings, KeybindingOverrides, FileLockMode, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderSettings, SessionLayout, SessionRecord, WorkspaceConfig } from './types'
+import type { AgentDef, AppConfig, AppSettings, KeybindingOverrides, FileLockMode, PageLayout, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderSettings, SessionLayout, SessionRecord, WorkspaceConfig } from './types'
 import { CLAUDE_CODE } from './claude'
 import { DEFAULT_PROVIDER, PROVIDERS, defaultProviderSettings, isKnownProvider, providerDescriptor } from './providers'
 
@@ -105,7 +105,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   providers: {},
   compactSuggestTokens: null,
   agents: [],
-  sessionLayout: 'single',
+  layouts: [],
   fileLocks: 'inherit',
   worktreeCopy: null,
   worktreeSetup: ''
@@ -115,7 +115,26 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
 export const TRANSCRIPT_WINDOW = 200
 
 /** A project can run up to this many agents at once. */
-export const MAX_AGENTS = 4
+export const MAX_AGENTS = 12
+/** The Session tab shows a project's agents a page at a time, this many to a page (a 3×2 grid). */
+export const PAGE_AGENTS = 6
+/** Adding the agent that makes this many: a note that each is its own CLI process. */
+export const MANY_AGENTS = 7
+
+/** How many agent pages a project with this many agents has (at least one). */
+export function agentPageCount(count: number): number {
+  return Math.max(1, Math.ceil(count / PAGE_AGENTS))
+}
+
+/** The page of the agent at this position (0 is page 1). */
+export function pageOfAgent(index: number): number {
+  return Math.max(0, Math.floor(index / PAGE_AGENTS))
+}
+
+/** The agents on one page. */
+export function pageAgents<T>(agents: T[], page: number): T[] {
+  return agents.slice(page * PAGE_AGENTS, (page + 1) * PAGE_AGENTS)
+}
 
 /** The project's agents, in the order they were added. All are equal; a project can have none. */
 export function projectAgents(cfg: Pick<ProjectConfig, 'agents'>): AgentDef[] {
@@ -127,9 +146,24 @@ export function agentPtyKey(projectPath: string, agentId: string): string {
   return `session:${projectPath.toLowerCase()}#${agentId}`
 }
 
-/** The layout that shows every agent: set when an agent is added (choosing a layout by hand still works). */
+/** The layout that shows this many agents: a page's automatic layout. */
 export function layoutForAgents(count: number): SessionLayout {
-  return count >= 4 ? 'grid' : count === 3 ? 'columns3' : count === 2 ? 'columns2' : 'single'
+  return count >= 5 ? 'grid6' : count === 4 ? 'grid' : count === 3 ? 'columns3' : count === 2 ? 'columns2' : 'single'
+}
+
+/** A page's layout: the one chosen for it by hand, else the one that shows its agents. */
+export function pageLayout(cfg: Pick<ProjectConfig, 'agents' | 'layouts'>, page: number): SessionLayout {
+  const chosen = cfg.layouts?.[page]
+  if (chosen && chosen !== 'auto' && SESSION_LAYOUTS.some((l) => l.value === chosen)) return chosen
+  return layoutForAgents(pageAgents(projectAgents(cfg), page).length)
+}
+
+/** The saved layouts with one page's chosen; choosing the layout that shows its agents makes it automatic again. */
+export function withPageLayout(cfg: Pick<ProjectConfig, 'agents' | 'layouts'>, page: number, layout: SessionLayout): PageLayout[] {
+  const out: PageLayout[] = [...(cfg.layouts ?? [])]
+  while (out.length <= page) out.push('auto')
+  out[page] = layout === layoutForAgents(pageAgents(projectAgents(cfg), page).length) ? 'auto' : layout
+  return out
 }
 
 export const FILE_LOCK_MODES: { value: FileLockMode; label: string; description: string }[] = [
@@ -143,7 +177,8 @@ export const SESSION_LAYOUTS: { value: SessionLayout; label: string; panes: numb
   { value: 'single', label: 'One at a time', panes: 1, icon: 'layout-single' },
   { value: 'columns2', label: 'Two columns', panes: 2, icon: 'layout-columns2' },
   { value: 'columns3', label: 'Three columns', panes: 3, icon: 'layout-columns3' },
-  { value: 'grid', label: 'Grid of four', panes: 4, icon: 'layout-grid' }
+  { value: 'grid', label: 'Grid of four', panes: 4, icon: 'layout-grid' },
+  { value: 'grid6', label: 'Grid of six', panes: 6, icon: 'layout-grid6' }
 ]
 
 export function layoutPanes(layout: SessionLayout | undefined): number {
@@ -284,6 +319,14 @@ export function migrateProjectConfig(raw: Record<string, any>): Record<string, a
     // 0.2.0: agents are all equal and none is made by default, so 0.1's agents (and their layout) are
     // cleared. Their sessions stay in sessions.json and can be resumed by an agent added again.
     out = { ...out, version: 2, agents: [], sessionLayout: 'single' }
+  }
+  if (out.layouts === undefined) {
+    // Before agent pages, one layout was set to show every agent whenever one was added. One that does (or
+    // none) becomes automatic; any other was chosen by hand and is kept as page 1's.
+    const { sessionLayout: legacy, ...rest } = out
+    const count = Math.min(Array.isArray(rest.agents) ? rest.agents.length : 0, PAGE_AGENTS)
+    const chosen = SESSION_LAYOUTS.some((l) => l.value === legacy) && legacy !== layoutForAgents(count)
+    out = { ...rest, layouts: [chosen ? legacy : 'auto'] }
   }
   return out
 }

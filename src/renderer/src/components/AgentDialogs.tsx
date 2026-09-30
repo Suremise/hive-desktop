@@ -202,6 +202,7 @@ export function AddAgentDialog() {
       })
       await actions.refreshWorkspace()
       close()
+      actions.noteManyAgents(project.path)
       const p = useStore.getState().workspace?.projects.find((x) => x.path === project.path)
       // Show the new agent in a pane: a single-pane layout switches to it.
       if (p) showAgent(p, def.id)

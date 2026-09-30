@@ -33,7 +33,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await page.locator('.agent-add:not(.split-caret)').click(); await sleep(1200)
   p0 = (await inv('workspace:refresh')).projects[0]
   check('quick add: Agent 1, default provider, project folder', p0.agents.length === 1 && p0.agents[0].name === 'Agent 1' && p0.agents[0].provider === 'claude-code' && !p0.agents[0].worktree, JSON.stringify(p0.agents))
-  check('one agent: single layout', p0.config.sessionLayout === 'single', p0.config.sessionLayout)
+  check('one agent: one pane, automatically', (p0.config.layouts[0] ?? 'auto') === 'auto' && (await page.locator('.agent-pane').count()) === 1, JSON.stringify(p0.config.layouts))
   // One agent or several, each pane has its header (who, controls) and footer (model, mode…).
   check('a single agent has its pane header', (await page.locator('.pane-header-bar', { hasText: 'Agent 1' }).count()) === 1)
   check('…and footer with model and mode', (await page.locator('.pane-footer-bar .mode-badge').count()) === 1)
@@ -53,7 +53,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await page.locator('.dialog .btn.primary', { hasText: 'Add Agent' }).click(); await sleep(2500)
   let p = (await inv('workspace:refresh')).projects[0]
   check('agent created from the dialog', p.agents.some((a) => a.name === 'Tester' && a.worktree?.branch === 'hive/tester'))
-  check('two agents: the layout switches to two columns', p.config.sessionLayout === 'columns2', p.config.sessionLayout)
+  check('two agents: two columns, automatically', (p.config.layouts[0] ?? 'auto') === 'auto' && (await page.locator('.agent-pane').count()) === 2, JSON.stringify(p.config.layouts))
   await sleep(500)
   await page.screenshot({ path: path.join(scratch, 'ui-2-strip.png') })
 
@@ -90,12 +90,11 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   // Discard the worktree agent through the API and check cleanup
   await inv('agents:remove', proj, t.id, { deleteWorktree: true })
   check('worktree deleted', !fs.existsSync(t.worktree.path))
-  // Any agent can be removed, the first one too; the layout stays as it was.
+  // Any agent can be removed, the first one too.
   const first = (await inv('workspace:refresh')).projects[0].agents[0]
   await inv('agents:remove', proj, first.id, { deleteWorktree: false })
   const p1 = (await inv('workspace:refresh')).projects[0]
   check('the first agent can be removed', p1.agents.length === 0)
-  check('removing keeps the layout', p1.config.sessionLayout === 'columns2', p1.config.sessionLayout)
   console.log(`${pass}/${pass + fail} passed`)
   await app.close()
   for (const d of [userData, root]) fs.rmSync(d, { recursive: true, force: true })

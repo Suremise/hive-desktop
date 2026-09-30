@@ -85,13 +85,13 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n
   check('PreToolUse hook registered', argsOk)
 
   // --- Layouts
-  await inv('project:updateConfig', proj, { sessionLayout: 'columns2' }); await inv('workspace:refresh'); await sleep(1200)
+  await inv('project:updateConfig', proj, { layouts: ['columns2'] }); await inv('workspace:refresh'); await sleep(1200)
   check('two pane headers', await page.locator('.pane-header-bar').count() === 2)
   await shot(page, '2-columns2')
-  await inv('project:updateConfig', proj, { sessionLayout: 'grid' }); await inv('workspace:refresh'); await sleep(1200)
+  await inv('project:updateConfig', proj, { layouts: ['grid'] }); await inv('workspace:refresh'); await sleep(1200)
   check('grid: 3 headers + empty pane', (await page.locator('.pane-header-bar').count()) === 3 && (await page.getByText('Empty pane').count()) === 1)
   await shot(page, '3-grid')
-  await inv('project:updateConfig', proj, { sessionLayout: 'columns3' }); await inv('workspace:refresh'); await sleep(1200)
+  await inv('project:updateConfig', proj, { layouts: ['columns3'] }); await inv('workspace:refresh'); await sleep(1200)
   await shot(page, '4-columns3')
   const visibleTerms = await page.locator('.terminal-host:not(.hidden)').count()
   check('two running terminals visible in 3 columns', visibleTerms === 2, String(visibleTerms))

@@ -108,7 +108,7 @@ From the toolbar you can **Copy** a message or reply (hover it), **Export as Mar
 
 ### Several agents in one project
 
-A project can have up to four agents working at once, for example one building a feature while another reviews or writes tests. All agents are equal: any of them can work in a worktree, and any can be removed once stopped. **Add Agent** above the terminal adds one straight away, with your default provider (**Settings → Providers → Default provider**, or the project's in Project Settings) and its default settings, working in the project folder. Its **▾** opens **Add Agent…**, where you choose:
+A project can have up to twelve agents working at once, for example one building a feature while another reviews or writes tests. All agents are equal: any of them can work in a worktree, and any can be removed once stopped. **Add Agent** above the terminal adds one straight away, with your default provider (**Settings → Providers → Default provider**, or the project's in Project Settings) and its default settings, working in the project folder. Its **▾** opens **Add Agent…**, where you choose:
 
 - **Name** — "Agent 2" by default; rename it any time (double-click its tab).
 - **Where it works**:
@@ -118,7 +118,9 @@ A project can have up to four agents working at once, for example one building a
 - **Provider** — Claude Code or Codex (only enabled providers can be chosen). Changing an agent's provider later clears its model settings and its last session, since conversations can't move between providers.
 - **Settings** — the agent can use its own model, effort and permission mode, for example Sonnet for a reviewer while Opus codes, or a Codex reviewer next to a Claude Code agent. Left on *Project's*, it follows Project Settings for its provider.
 
-**Layouts.** Adding an agent switches to the layout that shows them all (two columns for two, three columns for three, the grid for four); removing one leaves the layout as it is. The buttons at the right of the agent row also choose how they are shown: one at a time (click an agent to switch), two columns, three columns, or a grid of four. Three columns and the grid work best on a wide window, or with the sidebar hidden (Ctrl+B). Each pane has its own header with the agent's status and buttons; click a pane to make it the **focused** agent. The buttons in the project header, the Session menu, pasting screenshots and **Insert into Session** act on the focused agent. Ctrl+Alt+] and Ctrl+Alt+[ move between agents. Clicking an agent that isn't on screen shows it in the focused pane.
+**Layouts.** The layout follows as you add agents: two columns for two, three for three, a 2×2 grid for four, a 3×2 grid for five or six. The buttons at the right of the agent row choose one yourself: one at a time (click an agent to switch), two columns, three columns, a grid of four or a grid of six. A layout you choose stays as agents are added; choosing the one that shows all the agents makes it follow them again. Three columns and the grids work best on a wide window, or with the sidebar hidden (Ctrl+B).
+
+**Pages.** Six agents fit on a page; a seventh opens **page 2** (agents 7–12). The **1 · 2** buttons next to the layouts switch pages, or press Ctrl+Alt+PageDown / Ctrl+Alt+PageUp; a dot on a page's button shows its most urgent agent (one waiting for you, say). Each page has its own layout, so page 1 can show one agent at a time while page 2 shows all six. Clicking an agent on the other page goes there. Each agent runs its own copy of its CLI, so Hive notes the memory use when you add the seventh. Each pane has its own header with the agent's status and buttons; click a pane to make it the **focused** agent. The buttons in the project header, the Session menu, pasting screenshots and **Insert into Session** act on the focused agent. Ctrl+Alt+] and Ctrl+Alt+[ move between agents, across pages. Clicking an agent that isn't on screen shows it in the focused pane.
 
 **Which conversation each agent has.** Each agent's header shows the name of the session it is running (hover for details, click to read it in the Sessions tab). A conversation can only be open in one agent at a time. **Resume** reopens the agent's own last session and is greyed out when it has none. Its **▾** lists the recent sessions from the agent's folder: pick one to continue it in this agent, including a paused conversation another agent in the same folder started. Sessions that are open in another agent are greyed out; clicking one takes you to that agent. Agents in their own worktree only see that worktree's sessions.
 
@@ -385,8 +387,9 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Compact the conversation | Ctrl+Alt+C |
 | Switch permission mode | Ctrl+Alt+M (Shift+Tab inside the terminal) |
 | Add agent | Ctrl+Alt+Shift+N |
-| Focus agent 1–4 / next / previous | Ctrl+1 … Ctrl+4 / Ctrl+Alt+] / Ctrl+Alt+[ |
-| Layout: one at a time, two columns, three columns, grid | Ctrl+Alt+1 … Ctrl+Alt+4 |
+| Focus agent 1–9 / next / previous | Ctrl+1 … Ctrl+9 / Ctrl+Alt+] / Ctrl+Alt+[ |
+| Layout: one at a time, two columns, three columns, grid of four, grid of six | Ctrl+Alt+1 … Ctrl+Alt+5 |
+| Next / previous agent page | Ctrl+Alt+PageDown / Ctrl+Alt+PageUp |
 | Focus the session terminal | Ctrl+` |
 | Next / previous project | Ctrl+PageDown / Ctrl+PageUp |
 | Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Images, Changes, Memory, Skills, MCP, Settings); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |

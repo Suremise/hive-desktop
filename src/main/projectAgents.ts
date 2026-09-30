@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import { join, resolve } from 'path'
-import { MAX_AGENTS, layoutForAgents, projectAgents, slugify } from '../shared/defaults'
+import { MAX_AGENTS, projectAgents, slugify } from '../shared/defaults'
 import { agentProvider, isKnownProvider } from '../shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, AgentDef, MergeResult, ProjectGitInfo } from '../shared/types'
 import { config } from './config'
@@ -72,8 +72,8 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
   await workspace.mutateProjectConfig(projectPath, (now) => {
     const list = projectAgents(now)
     if (list.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
-    // Adding an agent shows every agent: the layout follows the count (choosing one by hand still works).
-    return { agents: [...list, def], sessionLayout: layoutForAgents(list.length + 1) }
+    // Pages whose layout wasn't chosen by hand follow their agents, so the new one shows.
+    return { agents: [...list, def] }
   })
   await workspaceOf(projectPath).refresh()
   return def

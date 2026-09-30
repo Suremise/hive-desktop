@@ -140,7 +140,7 @@ export interface HiveRequests {
   /** Saves the clipboard image (or copies sourceFile) into .hive/images/<sessionId>; null if the clipboard has no image. */
   'session:saveImage': (projectPath: string, sourceFile?: string, agentId?: string) => string | null
 
-  /** Adds an agent to the project (up to four), creating its worktree if asked. */
+  /** Adds an agent to the project (up to twelve), creating its worktree if asked. */
   'agents:add': (projectPath: string, opts: AddAgentOptions) => AgentDef
   /** Changing provider clears the agent's model, effort and mode, and its session to resume (conversations can't move between providers). */
   /** Changes an agent's name and settings; for the Hive Assistant's home, its settings for this workspace (persona too). */
