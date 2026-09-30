@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { MAX_AGENTS, effectiveModelLabel, projectAgents, slugify } from '@shared/defaults'
-import { PROVIDERS, agentProvider, isProviderEnabled, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerSettings } from '@shared/providers'
+import { PROVIDERS, agentProvider, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerSettings } from '@shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
@@ -86,6 +86,9 @@ export function Overrides({
   const projectEffort = projectEffortId ? p.effortLevels.find((l) => l.value === projectEffortId)?.label ?? projectEffortId : 'default'
   const projectPermission = permissionLabel(provider, pc.permissionMode === 'inherit' ? g.defaultPermissionMode : pc.permissionMode)
   const modes = offeredModes(provider, settings)
+  // What would run: the choice here, else what it inherits.
+  const runModel = model || (pc.model && pc.model !== 'inherit' ? pc.model : g.defaultModel) || cliDefault
+  const runMode = permission || (pc.permissionMode !== 'inherit' ? pc.permissionMode : g.defaultPermissionMode)
   return (
     <div className="agent-form">
       <label>Model</label>
@@ -112,6 +115,18 @@ export function Overrides({
           </option>
         ))}
       </select>
+      <ModeCaveat provider={provider} mode={runMode} model={runModel} />
+    </div>
+  )
+}
+
+/** Under a mode choice: the provider's warning when it may not run that mode with that model. */
+export function ModeCaveat({ provider, mode, model }: { provider: ProviderId; mode: string | null | undefined; model: string | null | undefined }) {
+  const text = modeCaveat(provider, mode as PermissionMode, model)
+  if (!text) return null
+  return (
+    <div className="mode-caveat">
+      <Icon name="warning" /> <span>{text}</span>
     </div>
   )
 }

@@ -85,6 +85,11 @@ export interface ProviderDescriptor {
   /** The Hive Assistant's default model and effort: lighter than the agents', to spend fewer tokens. */
   assistantModel?: string
   assistantEffort?: EffortLevel
+  /**
+   * A warning for a mode the CLI may not run with a model (it then runs another), or null. A warning, not a
+   * rule: which models support a mode is the CLI's to decide and can change, and Hive shows the mode it runs in.
+   */
+  modeCaveat?: (mode: PermissionMode, model: string) => string | null
   /** Agent Setup: how the installer works and which accounts can sign in. */
   installNote: string
   /** Agent Setup, when only an editor extension's copy was found: why Hive doesn't use it. */
@@ -179,6 +184,11 @@ export function agentProvider(agent: Pick<AgentDef, 'provider'> | null | undefin
 
 export function modeOption(provider: ProviderId, mode: PermissionMode | null | undefined): ModeOption | undefined {
   return providerDescriptor(provider).permissionModes.find((m) => m.value === mode)
+}
+
+/** The provider's warning for running this mode with this model (null when there is none, or the model isn't known). */
+export function modeCaveat(provider: ProviderId, mode: PermissionMode | '' | null | undefined, model: string | null | undefined): string | null {
+  return mode && model ? (providerDescriptor(provider).modeCaveat?.(mode, model) ?? null) : null
 }
 
 export function permissionLabel(provider: ProviderId, mode: PermissionMode): string {

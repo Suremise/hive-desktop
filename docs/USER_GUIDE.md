@@ -197,7 +197,7 @@ The **Personas** section of the Assistant view (below) lists them. Click one to 
 - The default persona.
 - For each provider: its model, effort, permission mode and extra arguments.
 
-It starts lighter than your agents, to spend fewer tokens: Claude Code's Sonnet with low effort. Its mode, like your agents', approves safe actions itself and only asks about risky ones: **Auto** for Claude Code and **Approve for me** for Codex. **Assistant Settings** in the panel changes any of them for one workspace. Changing its provider or persona restarts it, after asking.
+It starts lighter than your agents, to spend fewer tokens: Claude Code's Sonnet with low effort. Its mode, like your agents', approves safe actions itself and only asks about risky ones: **Auto** for Claude Code and **Approve for me** for Codex. Claude Code may not offer Auto with **Haiku**, and then runs in Manual instead (asking before edits and commands); the settings warn you when you pick that combination, for the Assistant or an agent. **Assistant Settings** in the panel changes any of them for one workspace. Changing its provider or persona restarts it, after asking.
 
 ## Skills
 

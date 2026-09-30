@@ -6,6 +6,7 @@ import type { SettingsPatch } from '@shared/api'
 import { DEFAULT_SETTINGS, FILE_LOCK_MODES } from '@shared/defaults'
 import { PROVIDERS, defaultProviderSettings, enabledProviders, isProviderEnabled, offeredModes, permissionLabel, providerDescriptor, providerSettings, type ProviderDescriptor } from '@shared/providers'
 import { usePersonas } from '../components/Assistant'
+import { ModeCaveat } from '../components/AgentDialogs'
 import { ModelPicker } from '../components/ModelPicker'
 import { ProviderIcon } from '../components/ProviderIcon'
 import * as actions from '../actions'
@@ -114,14 +115,14 @@ const SETTINGS: SettingDef[] = [
   { section: 'agents', key: 'mergeStyle', title: 'Default merge style', desc: "How a worktree agent's branch is merged back, unless you choose otherwise in the Merge dialog.", tip: 'Squash makes one commit with everything the agent did. Merge keeps its individual commits plus a merge commit.', type: 'select', options: [{ value: 'squash', label: 'Squash' }, { value: 'merge', label: 'Merge commit' }] },
   // Assistant
   { section: 'assistant', key: 'provider', title: 'Provider', desc: 'The coding agent the Assistant runs, unless a workspace chooses another.', tip: 'The Assistant is independent of your project agents: a Codex Assistant can look after Claude Code agents, and the other way round.', type: 'custom', render: () => <AssistantProviderPicker /> },
-  { section: 'assistant', key: 'persona', title: 'Default persona', desc: 'Who the Assistant is in a new conversation, unless a workspace chooses another.', tip: 'Personas are Markdown files in each workspace (.hive/personas): edit them, or add your own, in the Personas view (the person icon on the left).', type: 'custom', render: () => <AssistantPersonaPicker /> },
+  { section: 'assistant', key: 'persona', title: 'Default persona', desc: 'Who the Assistant is in a new conversation, unless a workspace chooses another.', tip: 'Personas are Markdown files in each workspace (.hive/personas): edit them, or add your own, in the Hive Assistant view (the robot on the left).', type: 'custom', render: () => <AssistantPersonaPicker /> },
   ...PROVIDERS.map(
     (p): SettingDef => ({
       section: 'assistant',
       key: `provider:${p.id}`,
       title: `With ${p.name}`,
       desc: `The model, effort, permission mode and extra arguments when the Assistant runs ${p.name}. Default follows ${p.name}'s own settings, except the mode: ${permissionLabel(p.id, p.assistantMode)}, where ${p.name} approves safe actions itself and only asks about risky ones.`,
-      tip: "Watching over the workspace rarely needs the strongest model, so a lighter one and low effort save tokens. For now the Assistant only looks and advises: its default mode lets it read files and use Hive's reading tools freely, and makes it ask before any edit or command.",
+      tip: "Watching over the workspace rarely needs the strongest model, so a lighter one and low effort save tokens. Its default mode is the one your agents default to, so it rarely asks; Hive's reading tools never ask. For now the Assistant only looks and advises, as its instructions tell it.",
       type: 'custom',
       wide: true,
       render: () => <AssistantProviderDefaults provider={p.id} />
@@ -515,6 +516,7 @@ function AssistantProviderDefaults({ provider }: { provider: ProviderId }) {
   useEffect(() => setArgs(a.extraArgs), [a.extraArgs])
   const save = (patch: Partial<typeof a>): void => void saveSettings({ assistant: { providers: { [provider]: patch } } } as SettingsPatch)
   const effortName = g.defaultEffort ? (p.effortLevels.find((l) => l.value === g.defaultEffort)?.label ?? g.defaultEffort) : `${p.name}'s`
+  const cliDefault = useStore((s) => s.providers[provider]?.defaultModel ?? null)
   return (
     <div className="agent-form assistant-defaults">
       <label>Model</label>
@@ -539,6 +541,7 @@ function AssistantProviderDefaults({ provider }: { provider: ProviderId }) {
             </option>
           ))}
       </select>
+      <ModeCaveat provider={provider} mode={a.permissionMode || p.assistantMode} model={a.model || g.defaultModel || cliDefault} />
       <label>Extra arguments</label>
       <input className="input" value={args} placeholder="e.g. --verbose" onChange={(e) => setArgs(e.target.value)} onBlur={() => args !== a.extraArgs && save({ extraArgs: args.trim() })} />
     </div>

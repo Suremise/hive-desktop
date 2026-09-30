@@ -69,6 +69,7 @@
 - The format help beside an MCP server's definition can be resized by dragging the edge between them.
 
 ### Reliability and security
+- Choosing Haiku with Auto mode (for the Assistant or an agent) warns that Claude Code may run it in Manual instead.
 - Switching a Claude Code agent to Manual with Shift+Tab shows in Hive again (Claude Code 2.1.286 shows Manual without its usual hint), and switching to Manual from Hive no longer offers a restart instead.
 - A Claude Code session's cost no longer stands still for hours: Claude Code records it only now and then, so Hive adds its estimate for the work since (shown with ≈). The Overview opens on All time.
 - The title bar's bottom line runs all the way under the window buttons.

@@ -106,6 +106,20 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   await lib.sleep(1200)
   check('Settings → Assistant changes its default model', (await inv('workspace:get')).assistant.config.providers['claude-code'].model === 'haiku')
   check('renaming the Assistant is ignored', (await inv('agents:update', home, 'assistant', { name: 'Bob' })).name === 'Assistant')
+  // Haiku in Auto: Claude Code may run it in Manual, which Assistant Settings and Settings → Assistant say.
+  await page.locator('.assistant-header button[aria-label="More"]').click()
+  await lib.sleep(300)
+  await page.locator('.menu-item', { hasText: 'Assistant Settings…' }).click()
+  await lib.sleep(500)
+  check('Assistant Settings warns about Auto with Haiku', (await page.locator('.dialog .mode-caveat', { hasText: 'Auto with Haiku' }).count()) === 1)
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Control+,')
+  await lib.sleep(500)
+  await page.locator('.settings-nav .row', { hasText: 'Assistant' }).first().click()
+  await lib.sleep(500)
+  check('so does Settings → Assistant', (await page.locator('.mode-caveat', { hasText: 'Auto with Haiku' }).count()) === 1)
+  await page.keyboard.press('Control+Shift+E')
+  await lib.sleep(300)
 
   // The Personas view: create, delete and restore.
   await inv('personas:create', 'Night Watch')

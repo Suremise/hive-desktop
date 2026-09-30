@@ -534,6 +534,16 @@ describe('permission modes in a running session', () => {
     expect(footerMode('⏸ manual mode on')).toBe('manual')
     expect(footerMode('⏸ manual mode on    ⏵⏵  accept edits  on (shift+tab to cycle)')).toBe('acceptEdits')
   })
+  it('warns that Claude Code may not run Haiku in Auto', async () => {
+    const { modeCaveat } = await import('../src/shared/providers')
+    expect(modeCaveat('claude-code', 'auto', 'haiku')).toMatch(/may not offer Auto with Haiku/)
+    expect(modeCaveat('claude-code', 'auto', 'claude-haiku-4-5-20251001')).not.toBeNull()
+    expect(modeCaveat('claude-code', 'auto', 'sonnet')).toBeNull()
+    expect(modeCaveat('claude-code', 'manual', 'haiku')).toBeNull()
+    // No model known (the CLI's default): no warning.
+    expect(modeCaveat('claude-code', 'auto', null)).toBeNull()
+    expect(modeCaveat('codex', 'approve-for-me', 'gpt-5.5')).toBeNull()
+  })
   it('maps hook modes and knows what Shift+Tab can reach', async () => {
     const { hookMode, canSwitchLive } = await import('../src/shared/claude')
     expect(hookMode('default')).toBe('manual')
