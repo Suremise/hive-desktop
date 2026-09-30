@@ -27,6 +27,7 @@
 - **Codex models come from Codex itself**, so new ones appear in the model picker without a Hive update.
 - **The transcript viewer** loads the latest messages first and earlier ones as you scroll up, so long sessions open quickly. A running session updates only when you switch on **Follow** or click **Refresh** (Settings → Sessions sets the default).
 - **Overview updates** can be live (at most every 15 seconds, the default), every minute, or only on **Refresh** (Settings → Sessions).
+- In the dark theme, the outlines of fields, cards and dialog options are lighter, so they stand out from the background.
 
 ### Reliability and security
 - Hive keeps a last good copy of its settings and records (`.bak`). A file that can't be read is set aside and the copy restored, with a notification, instead of Hive starting over.
