@@ -162,6 +162,15 @@ export function Modal({
 }
 
 marked.setOptions({ gfm: true, breaks: false })
+// GitHub-style heading ids, so the docs' #links work in Hive as they do on GitHub.
+marked.use({
+  renderer: {
+    heading({ tokens, depth, text }) {
+      const id = text.toLowerCase().replace(/<[^>]*>/g, '').replace(/[^\p{L}\p{N}\s-]/gu, '').trim().replace(/\s/g, '-')
+      return `<h${depth} id="${id}">${this.parser.parseInline(tokens)}</h${depth}>\n`
+    }
+  }
+})
 
 export function Markdown({ source, className, onLink }: { source: string; className?: string; onLink?: (href: string) => boolean }) {
   const html = DOMPurify.sanitize(marked.parse(source, { async: false }) as string)

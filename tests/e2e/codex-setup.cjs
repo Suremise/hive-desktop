@@ -1,5 +1,6 @@
-// The Codex sandbox "Set up" task: Hive opens Codex in a task terminal and types /setup-default-sandbox.
-// Only looks at the menu Codex shows; never chooses an option (the admin one needs the user).
+// The Codex sandbox "Set up" task: Hive opens Codex in a task terminal and brings up its sandbox setup
+// prompt (through /permissions, as no sandbox is set up yet). Uses a copy of the test home's sign-in with no
+// sandbox configured. Only looks at the prompt Codex shows; never chooses an option (the admin one needs the user).
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -12,7 +13,14 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
 ;(async () => {
   fs.rmSync(userData, { recursive: true, force: true })
   lib.enableProviders(userData, ['codex'])
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47890', CODEX_HOME: lib.CODEX_HOME }
+  const home = path.join(scratch, 'codex-nosandbox')
+  fs.rmSync(home, { recursive: true, force: true })
+  fs.mkdirSync(home, { recursive: true })
+  for (const f of ['auth.json', 'models_cache.json', 'version.json', 'installation_id']) {
+    if (fs.existsSync(path.join(lib.CODEX_HOME, f))) fs.copyFileSync(path.join(lib.CODEX_HOME, f), path.join(home, f))
+  }
+  fs.writeFileSync(path.join(home, 'config.toml'), '')
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47890', CODEX_HOME: home }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
   const page = await app.firstWindow()
@@ -22,12 +30,13 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   const key = await inv('provider:task', 'codex', 'setup')
   check('setup task starts', key === 'task:codex:setup', key)
   let text = ''
-  for (let i = 0; i < 40 && !/sandbox/i.test(text); i++) {
+  for (let i = 0; i < 40 && !/Set up default sandbox|Unrecognized/i.test(text); i++) {
     await sleep(1000)
     text = (await inv('pty:buffer', key)).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ').replace(/\s+/g, ' ')
   }
   check('Codex opened without a trust prompt', !/Trust this folder/.test(text))
-  check('Hive typed /setup-default-sandbox and Codex shows its setup menu', /Set up default sandbox|non-admin sandbox|setup-default-sandbox/i.test(text), text.slice(-400))
+  check('Codex shows its sandbox setup prompt', /Set up default sandbox/i.test(text) && /non-admin sandbox/i.test(text), text.slice(-400))
+  check('no unrecognized command', !/Unrecognized command/i.test(text))
   await inv('pty:kill', key)
   await sleep(1500)
   await app.close()

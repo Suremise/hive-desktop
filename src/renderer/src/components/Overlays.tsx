@@ -435,13 +435,10 @@ export function ShortcutsDialog() {
   )
 }
 
-/** Text with `code` spans, as provider notes are written. */
+/** Text with `code` and **bold** spans, as provider notes are written. */
 function CodeText({ text }: { text: string }) {
-  return (
-    <>
-      {text.split('`').map((part, i) => (i % 2 ? <code key={i}>{part}</code> : <span key={i}>{part}</span>))}
-    </>
-  )
+  const code = (s: string, k: number) => s.split('`').map((part, i) => (i % 2 ? <code key={`${k}.${i}`}>{part}</code> : <span key={`${k}.${i}`}>{part}</span>))
+  return <>{text.split('**').map((part, k) => (k % 2 ? <strong key={k}>{code(part, k)}</strong> : code(part, k)))}</>
 }
 
 /** Installing, updating, signing in to and setting up each provider's CLI, one tab per provider. */
@@ -534,6 +531,7 @@ export function AgentSetupDialog() {
           <div>Looking for {p.name}…</div>
         </div>
       ) : info.found ? (
+        <>
         <div className="setup-status">
           <Icon name="pass-filled" className="" />
           <div className="grow">
@@ -570,6 +568,18 @@ export function AgentSetupDialog() {
               ))}
           </div>
         </div>
+        {issues
+          .filter((r) => r.detail?.length)
+          .map((r) => (
+            <div key={r.id} className="setup-detail">
+              {r.detail!.map((para, i) => (
+                <p key={i} className="hint">
+                  <CodeText text={para} />
+                </p>
+              ))}
+            </div>
+          ))}
+        </>
       ) : (
         <>
           <div className="setup-status">

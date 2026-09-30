@@ -1801,6 +1801,13 @@ p.hint {
 .setup-status .codicon {
   font-size: 24px;
 }
+.setup-detail {
+  margin: -4px 2px 12px;
+}
+.setup-detail .hint {
+  margin: 0 0 6px;
+  line-height: 1.45;
+}
 .task-terminal {
   height: 280px;
   background: #1a1a1a;

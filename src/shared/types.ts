@@ -593,6 +593,8 @@ export interface ReadinessIssue {
   message: string
   /** Button: a provider task Hive runs in a terminal. */
   action?: { label: string; task: ProviderTask }
+  /** Shown in Agent Setup with the button: what the task will ask and how to choose (paragraphs, `code` allowed). */
+  detail?: string[]
 }
 
 export type ProviderTask = 'install' | 'update' | 'login' | 'setup'

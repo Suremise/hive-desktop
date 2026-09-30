@@ -6,7 +6,7 @@
 - **Codex** (OpenAI) runs in Hive alongside **Claude Code**. Each agent chooses its provider, so a project can mix them, for example a Claude Code agent writing code while a Codex agent reviews. Hive shows each CLI's own terminal.
 - **Settings → Providers** turns providers on and off and sets the default provider. New installs start with every provider off, with a banner linking there; updating from 0.1 keeps Claude Code on. Turning a provider off while its agents run asks whether to stop them.
 - **One settings page per provider** (path, default model, effort and permission mode, extra arguments, update checks, API prices), with overrides per provider in Project Settings.
-- **Help → Agent Setup…** has a tab per provider for install, sign-in, updates, and Codex's one-time Windows sandbox setup, which Hive types for you.
+- **Help → Agent Setup…** has a tab per provider for install, sign-in, updates, and Codex's one-time Windows sandbox setup, which Hive starts for you. It explains the choice between Codex's default sandbox and its non-admin one, and offers **Upgrade** from the non-admin one later.
 - Codex's permission presets: Read only, Ask for approval, **Approve for me** (the default) and Full access (off unless enabled, like Bypass). Presets and Plan mode switch live in a running Codex session.
 - File locks work for Codex agents; with **Ask me**, Hive asks you in a notification (**Allow**) because Codex can't show its own approval for it.
 - Workspace skills, MCP servers and Hive's own tools reach Codex agents too; file locks, status, notifications, compaction, transcripts, backups and the Sessions tab work for both.
@@ -36,6 +36,7 @@
 - Much less file reading while agents work: session lists read each file once, and Codex sessions are found without re-scanning every time.
 - Hive tells you once if a CLI version writes transcripts it doesn't understand, instead of showing zeros.
 - The hook token is no longer written to the log. The window refuses web permissions it doesn't need, IPC is accepted only from Hive's own page, and links inside the workspace can't be used to open files outside it.
+- Links to sections within the user guide now work in Hive's Docs view.
 - Electron 44.5.1.
 
 ### Notes

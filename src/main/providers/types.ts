@@ -38,13 +38,13 @@ export interface CommandSpec {
   file: string
   args: string[]
   env?: Record<string, string>
-  /** Typed into the program once its interface is ready (e.g. Codex's /setup-default-sandbox). */
-  input?: string
-  /** Output that means the program is ready for `input`. */
+  /** Typed into the program once its interface is ready (e.g. Codex's /permissions menu for its sandbox setup). */
+  keys?: KeySteps
+  /** Output that means the program is ready for `keys`. */
   readyPattern?: RegExp
 }
 
-/** Keys that change a running session's mode through the CLI's own menu, with pauses between them. */
+/** Keys typed into a CLI's own interface (a menu, a slash command), with pauses between them. */
 export type KeySteps = { keys: string; waitMs?: number }[]
 
 export interface ExternalSession {

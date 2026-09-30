@@ -40,6 +40,13 @@ function readToml(path: string): Record<string, any> {
 
 const userConfig = (): Record<string, any> => readToml(join(codexHome(), 'config.toml'))
 
+/** Agent Setup's explanation of the two choices Codex's sandbox setup offers, for someone working in Hive. */
+const SANDBOX_CHOICE = [
+  "**Set up** opens Codex's sandbox setup, which offers two choices. With either, Codex agents in **Ask for approval** or **Approve for me** can edit files in their own folder (the project, or the agent's worktree) and run commands there without asking, and ask before going online or writing anywhere else. Hive's own features (status, file locks, handovers, shared notes) work the same with both.",
+  "**Set up default sandbox** (recommended): commands run under two local Windows accounts Codex creates for them (`CodexSandboxOffline` and `CodexSandboxOnline`), with a firewall rule that keeps them offline unless you allow it. It isolates commands best. Windows asks for Administrator permission once.",
+  '**Use non-admin sandbox**: needs no Administrator permission. Commands run under your own account with restricted rights. It protects your files and blocks internet access in most cases, but Codex warns it carries more risk if the agent is tricked by instructions hidden in a file or web page it reads (prompt injection). You can upgrade to the default sandbox from here later.'
+]
+
 /** A value as TOML, for -c overrides: strings, numbers, booleans, arrays and inline tables. */
 export function toToml(v: unknown): string {
   if (typeof v === 'string') return JSON.stringify(v)
@@ -316,16 +323,31 @@ export class CodexAdapter implements ProviderAdapter {
 
   /** Codex's Windows sandbox is set up once (windows.sandbox in its config); without it every command needs approval. */
   sandboxReady(): boolean {
-    if (process.platform !== 'win32') return true
+    return !!this.sandboxKind()
+  }
+
+  /** Which Windows sandbox Codex has: its default (admin) one, the non-admin one ('unelevated'), or none. */
+  private sandboxKind(): string | null {
+    if (process.platform !== 'win32') return 'n/a'
     const w = userConfig().windows
-    return typeof w?.sandbox === 'string' && !!w.sandbox
+    return typeof w?.sandbox === 'string' && w.sandbox ? w.sandbox : null
   }
 
   readiness(info: AgentInstallInfo): ReadinessIssue[] {
     if (!info.found) return [{ id: 'not-installed', level: 'error', message: 'Codex is not installed.', action: { label: 'Install', task: 'install' } }]
     const out: ReadinessIssue[] = []
+    const sandbox = this.sandboxKind()
     if (info.loggedIn === false) out.push({ id: 'signed-out', level: 'error', message: 'Codex is not signed in.', action: { label: 'Sign in', task: 'login' } })
-    else if (!this.sandboxReady()) out.push({ id: 'sandbox', level: 'warning', message: 'Codex needs a one-time setup of its Windows sandbox; until then it asks before every command.', action: { label: 'Set up', task: 'setup' } })
+    else if (!sandbox) out.push({ id: 'sandbox', level: 'warning', message: 'Codex needs a one-time setup of its Windows sandbox; until then it asks before every command.', action: { label: 'Set up', task: 'setup' }, detail: SANDBOX_CHOICE })
+    else if (sandbox === 'unelevated') {
+      out.push({
+        id: 'sandbox-upgrade',
+        level: 'info',
+        message: 'Codex uses its non-admin sandbox.',
+        action: { label: 'Upgrade', task: 'setup' },
+        detail: ['**Upgrade** switches Codex to its default sandbox, which runs commands under separate Windows accounts instead of your own. Windows asks for Administrator permission once. Codex agents that are running keep their sandbox until they restart.']
+      })
+    }
     if (info.updateAvailable) out.push({ id: 'update', level: 'info', message: `Codex ${info.latestVersion} is available.`, action: { label: 'Update', task: 'update' } })
     return out
   }
@@ -364,14 +386,19 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   /**
-   * The Windows sandbox setup is Codex's own /setup-default-sandbox (it asks: the admin sandbox, or the
-   * non-admin one). Hive opens Codex in a folder of its own, trusted for this run only, and types the command.
+   * The Windows sandbox setup is Codex's own prompt (the admin sandbox, or the non-admin one). Hive opens
+   * Codex read-only in a folder of its own, trusted for this run only. With no sandbox yet, choosing "Ask for
+   * approval" in /permissions brings up the prompt; /setup-default-sandbox only exists once the non-admin
+   * sandbox is on (it upgrades that to the admin one).
    */
   setupCommand(executable: string): CommandSpec {
     const dir = join(tmpdir(), 'hive-codex-setup')
     mkdirSync(dir, { recursive: true })
-    const s = toSpawnable(executable, ['--no-daemon', '-C', dir, '-c', `projects=${toToml({ [dir]: { trust_level: 'trusted' } })}`])
-    return { ...s, input: '/setup-default-sandbox', readyPattern: /Ask Codex|›/ }
+    const s = toSpawnable(executable, ['--no-daemon', '-C', dir, '-c', `projects=${toToml({ [dir]: { trust_level: 'trusted' } })}`, ...CODEX_MODE_FLAGS['read-only']])
+    const keys = userConfig().windows?.sandbox === 'unelevated'
+      ? [{ keys: '/setup-default-sandbox', waitMs: 300 }, { keys: '\r' }]
+      : this.modeMenuKeys('ask')
+    return { ...s, keys, readyPattern: /Ask Codex|›/ }
   }
 
   /** Codex's model catalog (codex debug models): the listed models, in Codex's order. */

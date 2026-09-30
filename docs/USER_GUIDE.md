@@ -15,7 +15,7 @@ Hive is a desktop workspace for coding with AI agents. It runs coding agents (**
 Hive calls the coding agents it can run **providers**. Each agent in a project chooses its own, so a project can have a Claude Code agent and a Codex agent working side by side. Hive shows each CLI's own terminal, exactly as it looks when you run it yourself.
 
 - **Turning providers on and off.** **Settings → Providers** lists them with their install state. A provider that is off can't start agents; its agents stay listed, greyed out. Turning one off while its agents run asks whether to stop them now or let them finish. **Default provider** is what new agents use (a project can choose its own in Project Settings).
-- **Setup.** **Help → Agent Setup…** has a tab per provider: install, sign in, and updates. Claude Code signs in with a Claude plan or an Anthropic Console account; Codex with a ChatGPT plan or an OpenAI API key. On Windows, Codex also needs its sandbox set up once: **Set up** runs Codex and types `/setup-default-sandbox` for you; Windows may ask for permission. Without it, Codex asks before every command.
+- **Setup.** **Help → Agent Setup…** has a tab per provider: install, sign in, and updates. Claude Code signs in with a Claude plan or an Anthropic Console account; Codex with a ChatGPT plan or an OpenAI API key. On Windows, Codex also needs its sandbox set up once (without it, Codex asks before every command); see [Codex's Windows sandbox](#codexs-windows-sandbox).
 - **Settings per provider.** Each provider has its own page (**Settings → Claude Code**, **Settings → Codex**): the CLI's path, default model, effort and permission mode, extra arguments, update checks and its price table. Projects override them per provider in Project Settings.
 - **The icons** on agent tabs, pane headers and the Sessions list show which provider each agent and session uses.
 - **Conversations stay with their provider.** A Claude Code session can only be resumed by a Claude Code agent, and a Codex session by a Codex agent. To move work to another provider, use **Continue with…** (see [Sessions](#sessions)).
@@ -268,6 +268,15 @@ Codex has its own presets:
 | Full access | No sandbox and no approvals |
 
 When you switch a running Codex agent's preset, the badge says **Switching to …** until Codex confirms it; if Codex doesn't, the badge goes back and Hive tells you.
+
+### Codex's Windows sandbox
+
+On Windows, Codex runs commands in a sandbox, which it sets up once. **Help → Agent Setup… → Codex → Set up** opens Codex's setup, which offers two choices. With either, Codex agents in **Ask for approval** or **Approve for me** edit files in their own folder (the project, or the agent's worktree) and run commands there without asking, and ask before going online or writing anywhere else. Hive's own features (status, file locks, handovers, shared notes) work the same with both.
+
+- **Set up default sandbox** (recommended): commands run under two local Windows accounts that Codex creates for them (`CodexSandboxOffline` and `CodexSandboxOnline`), with a firewall rule that keeps them offline unless you allow it. It isolates commands best. Windows asks for Administrator permission once.
+- **Use non-admin sandbox**: needs no Administrator permission. Commands run under your own account with restricted rights. It protects your files and blocks internet access in most cases, but Codex warns it carries more risk if the agent is tricked by instructions hidden in a file or web page it reads (prompt injection).
+
+With the non-admin sandbox, Agent Setup shows **Upgrade** to switch to the default one later. Codex agents that are running keep their sandbox until they restart. **Full access** doesn't use the sandbox at all.
 
 **Full access** is like Bypass: it only appears after you tick **Settings → Codex → Enable the Full access option**, and projects using it show a red warning. Codex's **Plan** mode is separate from the preset: choose **Plan** in the mode menu (or press Shift+Tab in the terminal), and the badge shows "· Plan". In Codex's sandbox the `.git` folder is read-only, so Codex asks before committing.
 
