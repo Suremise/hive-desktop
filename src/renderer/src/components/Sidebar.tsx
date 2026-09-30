@@ -7,6 +7,7 @@ import { commandKeybinding, runCommand } from '../commands'
 import { confirm, get, notify, projectState, prompt, set, setProjectTab, toggleCompactSidebar, useStore } from '../store'
 import { cx, formatKeybinding } from '../util'
 import { Icon, IconButton, InfoTip, StatusDot, STATUS_TEXT, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { addSkill, deleteSkill, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
 
 /** Width of the compact Projects rail, and how narrow a drag has to go before the sidebar snaps to it. */
 const RAIL_WIDTH = 48
@@ -464,80 +465,36 @@ function NotesPanel() {
 // Skills
 // ---------------------------------------------------------------------------
 
-export const SKILL_LEVEL_TIP: Record<SkillInfo['level'], string> = {
-  hive: 'Hive skills live in the workspace (.hive/skills). Enable them here for all projects; projects can turn them off individually. Copied into each session at launch.',
-  machine: 'Machine skills live in your user profile (for Claude Code, ~/.claude/skills). The agent that reads that folder always loads them. Hive lists them for reference only.',
-  plugin: "Skills from an agent's installed plugins (e.g. Claude Code plugins). Always loaded by that agent. Listed for reference only.",
-  local: "Local skills live in the project's own .claude/skills folder. Claude Code always loads them in that project. Copy one to the workspace to manage it with Hive."
-}
-
 function SkillsPanel() {
   const workspace = useStore((s) => s.workspace)
   const version = useStore((s) => s.skillsVersion)
   const selectedSkill = useStore((s) => s.selectedSkill)
-  const selectedProject = useStore((s) => s.selectedProject)
   const [skills, setSkills] = useState<SkillInfo[]>([])
   const [filter, setFilter] = useState('')
 
   const load = useCallback(() => {
-    void call('skills:list', selectedProject ?? undefined).then(setSkills).catch(() => setSkills([]))
-  }, [selectedProject])
+    void call('skills:workspace').then(setSkills).catch(() => setSkills([]))
+  }, [])
   // Another workspace has other skills.
   useEffect(load, [load, version, workspace?.path])
 
-  const create = async (): Promise<void> => {
+  const add = async (mode: 'new' | 'file'): Promise<void> => {
     if (!workspace) return notify('warning', 'Open a workspace first')
-    const name = await prompt({
-      title: 'New Hive Skill',
-      message: 'Creates .hive/skills/<name>/SKILL.md in the workspace. Use lowercase letters, numbers and dashes.',
-      placeholder: 'my-skill',
-      confirmLabel: 'Create',
-      validate: (v) => (/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(v.trim()) ? null : 'Use letters, numbers, "-" and "_" (max 64)')
-    })
-    if (!name) return
-    const s = await actions.attempt('Could not create skill', () => call('skills:create', name.trim(), ''))
+    const s = await addSkill(mode, { kind: 'hive' })
     if (s) set({ selectedSkill: s.path })
-    load()
   }
 
   const f = (s: SkillInfo): boolean => !filter || `${s.name} ${s.description}`.toLowerCase().includes(filter.toLowerCase())
-  const hive = skills.filter((s) => s.level === 'hive' && f(s))
-  const machine = skills.filter((s) => s.level === 'machine' && f(s))
-  const plugin = skills.filter((s) => s.level === 'plugin' && f(s))
-  const local = skills.filter((s) => s.level === 'local' && f(s))
-  const projectName = workspace?.projects.find((p) => p.path === selectedProject)?.name
-
-  const row = (s: SkillInfo) => (
-    <div key={`${s.level}:${s.path}`} className={cx('row tall', selectedSkill === s.path && 'selected')} onClick={() => set({ selectedSkill: s.path })}>
-      <Icon name={s.level === 'hive' ? 'sparkle' : s.level === 'local' ? 'folder' : s.level === 'plugin' ? 'extensions' : 'device-desktop'} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="label" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {s.name} {s.plugin && <span className="desc">· {s.plugin}</span>}
-        </div>
-        {s.description && (
-          <div className="desc" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {s.description}
-          </div>
-        )}
-      </div>
-      {s.level === 'hive' && (
-        <Tooltip content={s.globallyEnabled ? 'Enabled for all projects (new sessions). Click to disable.' : 'Disabled. Click to enable for all projects (new sessions).'}>
-          <Switch
-            small
-            checked={!!s.globallyEnabled}
-            onChange={(v) => void actions.attempt('Could not update skill', () => call('skills:setGlobal', s.name, v)).then(load)}
-          />
-        </Tooltip>
-      )}
-    </div>
-  )
+  const shown = skills.filter(f)
+  const missing = skills.filter((s) => s.bundled === 'missing').length
 
   return (
     <>
       <div className="pane-header">
         Skills
         <div className="actions">
-          <IconButton icon="add" title="New Hive Skill…" onClick={() => void create()} disabled={!workspace} />
+          <IconButton icon="add" title="New Skill…" onClick={() => void add('new')} disabled={!workspace} />
+          <IconButton icon="file-add" title="Add Skill from File (.md or .zip)…" onClick={() => void add('file')} disabled={!workspace} />
           <IconButton icon="refresh" title="Refresh" onClick={load} />
           <IconButton icon="folder-opened" title="Open Hive Skills Folder" onClick={() => void call('skills:openFolder')} disabled={!workspace} />
         </div>
@@ -546,27 +503,35 @@ function SkillsPanel() {
         <input className="input" style={{ width: '100%', height: 24 }} placeholder="Filter skills" value={filter} onChange={(e) => setFilter(e.target.value)} />
       </div>
       <div className="pane-body">
-        <Section title="Hive" count={hive.length} tip={SKILL_LEVEL_TIP.hive}>
+        <Section title="Hive" count={skills.length - missing} tip={SKILL_LEVEL_TIP.hive}>
           {!workspace && <div className="pane-empty">Open a workspace to manage Hive skills.</div>}
-          {workspace && hive.length === 0 && <div className="pane-empty">No Hive skills yet. Add a folder with a SKILL.md to .hive/skills, or create one.</div>}
-          {hive.map(row)}
+          {workspace && skills.length === 0 && <div className="pane-empty">No Hive skills yet. Create one with +, or add one from a .md or .zip.</div>}
+          {shown.map((s) => (
+            <SkillRow
+              key={s.path}
+              skill={s}
+              selected={selectedSkill === s.path}
+              onSelect={() => set({ selectedSkill: s.path })}
+              actionsFor={
+                s.bundled === 'missing' ? (
+                  <IconButton icon="history" title="Restore this skill that ships with Hive" onClick={() => void restoreBundled(s).then((r) => r && set({ selectedSkill: r.path }))} />
+                ) : (
+                  <IconButton icon="trash" title="Delete skill" onClick={() => void deleteSkill(s)} />
+                )
+              }
+            />
+          ))}
         </Section>
-        {selectedProject && (
-          <Section title={`Local · ${projectName ?? ''}`} count={local.length} tip={SKILL_LEVEL_TIP.local}>
-            {local.length === 0 && <div className="pane-empty">No local skills in this project.</div>}
-            {local.map(row)}
-          </Section>
+        {workspace && (
+          <p className="hint" style={{ padding: '4px 14px' }}>
+            Every agent in every project gets these. A project's own skills, and your user and plugin skills, are in its <strong>Skills</strong> tab.
+          </p>
         )}
-        <Section title="Machine" count={machine.length} tip={SKILL_LEVEL_TIP.machine} defaultOpen={false}>
-          {machine.map(row)}
-        </Section>
-        <Section title="Plugins" count={plugin.length} tip={SKILL_LEVEL_TIP.plugin} defaultOpen={false}>
-          {plugin.map(row)}
-        </Section>
       </div>
     </>
   )
 }
+
 
 // ---------------------------------------------------------------------------
 // MCP servers

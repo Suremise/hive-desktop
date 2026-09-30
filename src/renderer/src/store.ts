@@ -39,6 +39,8 @@ export interface PromptRequest {
   initial?: string
   confirmLabel?: string
   validate?: (value: string) => string | null
+  /** A tick box under the field; `set` gets the user's choice before the dialog resolves. */
+  check?: { label: string; initial: boolean; set: (checked: boolean) => void }
   resolve: (value: string | null) => void
 }
 
@@ -81,6 +83,8 @@ interface State {
   projectTabs: Record<string, ProjectTab>
   selectedNote: string | null
   selectedSkill: string | null
+  /** A Hive skill to open for editing (not preview) when the Skills view shows it: from a project's Edit in workspace. */
+  skillEdit: string | null
   selectedMcp: string | null
   docsPage: string
   settingsSection: string
@@ -158,6 +162,7 @@ export const useStore = create<State>(() => ({
   projectTabs: {},
   selectedNote: null,
   selectedSkill: null,
+  skillEdit: null,
   selectedMcp: null,
   docsPage: 'guide',
   settingsSection: 'general',

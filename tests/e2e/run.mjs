@@ -15,6 +15,7 @@ const lib = createRequire(import.meta.url)('./lib.cjs')
 const SUITES = [
   { name: 'about' },
   { name: 'mcp' },
+  { name: 'skills' },
   { name: 'providers' },
   { name: 'agents-ui' },
   { name: 'agents', needs: ['claude'] },

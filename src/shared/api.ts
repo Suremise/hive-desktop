@@ -32,6 +32,7 @@ import type {
   SessionListItem,
   SessionUsage,
   SkillInfo,
+  SkillTarget,
   Transcript,
   TranscriptSearchResult,
   TranscriptTool,
@@ -160,9 +161,16 @@ export interface HiveRequests {
   'pty:kill': (key: string) => void
 
   'skills:list': (projectPath?: string) => SkillInfo[]
-  'skills:setGlobal': (name: string, enabled: boolean) => void
-  'skills:setProject': (projectPath: string, name: string, enabled: boolean) => void
-  'skills:create': (name: string, description: string) => SkillInfo
+  /** The workspace's Hive skills, with the bundled skills it doesn't have (bundled: 'missing'). */
+  'skills:workspace': () => SkillInfo[]
+  'skills:create': (name: string, description: string, targets: SkillTarget[]) => SkillInfo
+  /** Chooses a .md or .zip to add as a skill; returns it with a suggested name, or null if cancelled. */
+  'skills:pickFile': () => { path: string; name: string } | null
+  'skills:addFromFile': (file: string, name: string, targets: SkillTarget[]) => SkillInfo
+  /** Moves a Hive or local skill to the Recycle Bin. */
+  'skills:delete': (skillPath: string) => void
+  /** Puts back a bundled skill as this version of Hive ships it. */
+  'skills:restoreBundled': (name: string) => SkillInfo
   'skills:copyToWorkspace': (skillPath: string) => SkillInfo
   'skills:openFolder': () => void
 

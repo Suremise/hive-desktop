@@ -29,7 +29,7 @@ A **workspace** is a folder of projects. When you open one, Hive creates a `.hiv
 MyWorkspace/
   .hive/
     shared/       notes, instructions and handovers for every project
-    skills/       Hive skills (one folder per skill)
+    skills/       Hive skills (one folder per skill; a new workspace starts with Hive's six)
     mcp/          MCP server definitions (one .json per server)
     workspace.json
   ProjectA/
@@ -138,17 +138,22 @@ The model chip in the project header and the status bar also show the **effort**
 
 ## Skills
 
-Skills are instructions an agent can load when they're relevant. Hive shows three levels:
+Skills are instructions an agent loads when they're relevant. There are no switches: every skill an agent can see is always available to it. Hive shows where each one comes from:
 
-| Level | Where | Managed by Hive |
-|---|---|---|
-| **Hive** | `Workspace/.hive/skills/<name>/SKILL.md` | Yes — enable for all projects, turn off per project |
-| **Machine** | `~/.claude/skills` and installed Claude Code plugins; `~/.codex/skills` for Codex | No — always loaded by that CLI |
-| **Local** | `Project/.claude/skills` (Claude Code), `Project/.agents/skills` (Codex) | No — always loaded in that project; can be copied to the workspace |
+| Level | Where | Who gets it | In Hive |
+|---|---|---|---|
+| **Hive** | `Workspace/.hive/skills/<name>/SKILL.md` | Every agent in every project, of every provider | Add, edit and delete in the **Skills** view |
+| **Local (User Managed)** | `Project/.claude/skills` (Claude Code), `Project/.agents/skills` (Codex) | That provider's agents, in that project | Add, edit and delete in the project's **Skills** tab |
+| **User** | `~/.claude/skills` (Claude Code), `~/.codex/skills` (Codex) | That provider's agents, everywhere | View only |
+| **Plugin** | Claude Code plugins you've installed | Claude Code agents, everywhere | View only |
 
-Add a Hive skill by creating a folder with a `SKILL.md` in `.hive/skills`, or with **New Hive Skill** in the Skills view. Enable it in the Skills view; turn it off for a project in that project's **Skills** tab.
+**The Skills view** (the sparkle in the activity bar) lists the workspace's Hive skills. **+** creates one from a starter `SKILL.md`; **Add Skill from File** adds a `.md` (it becomes the skill's `SKILL.md`) or a `.zip` (unpacked as the skill's folder: use a zip for a skill with scripts or other files). Select a skill to read it; **Edit** changes it, and the bin deletes it (to the Recycle Bin).
 
-When a session starts, Hive copies exactly the enabled skills into the project's `.hive/launch` folder and points Claude Code at it. Codex only reads skills from the project's `.agents/skills` folder, so for Codex agents Hive copies them there as `hive-<name>` folders (and keeps them out of git). A skill disabled in the workspace is therefore always gone the next time a session starts, and a running session keeps the version it started with.
+**A project's Skills tab** lists everything its agents get: the Hive skills first, then a section per provider with its local skills, your user skills and plugin skills. Hive skills are shared by every project, so their **Edit in workspace** button takes you to the Skills view to edit them there. Local skills belong to the project: add (with **+** or from a `.md` or `.zip`), edit and delete them right there. When both Claude Code and Codex are on, adding a local skill offers to add it for the other provider too, since each reads its own folder. **Copy to workspace** turns a local or user skill into a Hive skill for every agent.
+
+**Skills that come with Hive.** A new workspace starts with six Hive skills: `handover` (wrap up a session in a handover), `pick-up` (continue from the latest handover, checking it against the code first), `merge-ready` (get a worktree agent's branch ready to review and merge), `review-agent-work` (one agent reviews another's work without changing it), `split-work` (plan how several agents can work on one task side by side) and `workspace-note` (record a decision or convention in the shared notes). They're ordinary Hive skills: edit or delete them as you like. A bundled skill you've deleted stays in the Skills view, greyed out, with **Restore**. When your copy differs from the one in your version of Hive (because you edited it, or a newer Hive improved it), its page offers **Revert to default**; that's also how to bring an existing workspace's copies up to date after updating Hive. The replaced copy goes to the Recycle Bin.
+
+When a session starts, Hive copies the Hive skills into the project's `.hive/launch` folder and points Claude Code at it (Claude Code shows them as `hive:<name>`). Codex only reads skills from the project's `.agents/skills` folder, so for Codex agents Hive copies them there as `hive-<name>` folders (and keeps them out of git); those copies aren't listed as local skills. A running session keeps the version it started with; changes reach new sessions.
 
 ## MCP servers
 

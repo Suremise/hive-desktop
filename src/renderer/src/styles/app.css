@@ -494,6 +494,44 @@ kbd {
   align-items: flex-start;
 }
 
+/* Skills lists: a bundled skill deleted from the workspace is shown greyed, with Restore. */
+.skill-row.missing .label,
+.skill-row.missing .desc,
+.skill-row.missing > .codicon {
+  opacity: 0.55;
+}
+.skill-provider {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+.skill-provider-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px 2px;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+.skill-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 8px 2px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+.skill-group .actions {
+  margin-left: auto;
+  display: flex;
+}
+.skill-group + .pane-empty {
+  padding: 2px 14px 6px;
+  font-size: 12px;
+}
+
 .project-row {
   height: 44px;
   padding-left: 12px;

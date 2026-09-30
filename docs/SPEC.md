@@ -156,15 +156,17 @@ Worktrees Hive creates for agents live **next to the workspace**, in `<Workspace
 
 ## 5. Settings resolution
 
-**Skills and MCP**
+**Skills** — no switches: every Hive skill in `<Workspace>/.hive/skills` goes to every agent (§7.1). The 0.1 lists (`workspace.json` `skills.enabled`, `project.json` `skills.disabled`) are ignored since 0.2 but still written, for downgrades.
+
+**MCP**
 
 ```
 effective(project) = globalEnabled − projectDisabled
 ```
 
-- Skills and MCP servers must be deployed to `<Workspace>/.hive/` before any project can use them. Projects can only turn off what is globally on.
+- MCP servers must be deployed to `<Workspace>/.hive/` before any project can use them. Projects can only turn off what is globally on.
 - An item disabled globally is off everywhere. The project's own "disabled" entry is kept, so its choice returns if the item is re-enabled globally.
-- Changes apply to **new sessions only**, including restarts. A live session keeps what it launched with; the UI shows "settings changed — restart to apply".
+- Changes (to skills and MCP) apply to **new sessions only**, including restarts. A live session keeps what it launched with; the UI shows "settings changed — restart to apply".
 - If a project defines MCP servers in its own `.mcp.json` that are not in the workspace, Hive notifies the user that they stay disabled until copied to the workspace, and offers "Copy to workspace". (`--strict-mcp-config` enforces this.)
 
 **Provider** — stored on each agent when it is added. The project's default provider, else the global one (Settings → Providers), is what **Add Agent** uses: its quick add adds an agent with that provider and its default settings in the project folder; **Add Agent…** (▾) chooses the provider, where it works and its settings.
@@ -283,15 +285,22 @@ codex [resume <id>] --no-daemon          # options must follow "resume <id>"
 
 ### 7.1 Skill levels
 
-| Level | Location | Loaded | Managed by Hive |
+Skills have no on/off switches: every skill an agent can see is always available. Hive lists them by where they come from.
+
+| Level (label) | Location | Loaded by | In Hive |
 |---|---|---|---|
-| **Hive** | `<Workspace>/.hive/skills/`, copied into `<Project>/.hive/launch/plugin/skills/` | Only when enabled | Yes — global and project toggles |
-| **Machine** | `~/.claude/skills/` and installed Claude Code plugins | Always | No — listed read-only |
-| **Local** | `<Project>/.claude/skills/` | Always, in that project | No — listed read-only, with "Copy to workspace" |
+| **Hive** | `<Workspace>/.hive/skills/`, copied into `<Project>/.hive/launch/plugin/skills/` (Claude Code) or `<agent folder>/.agents/skills/hive-<name>` (Codex) | Every agent, every provider | Skills view: add, add from file, edit, delete; bundled ones restore/revert |
+| **Local (User Managed)** | `<Project>/.claude/skills/` (Claude Code), `<Project>/.agents/skills/` (Codex), project root only | That provider's agents in the project | Project Skills tab: add, add from file, edit, delete |
+| **User** (`machine`) | `~/.claude/skills/`, `~/.codex/skills/` | That provider's agents everywhere | Project Skills tab: view only |
+| **Plugin** | Installed Claude Code plugins | Claude Code agents | Project Skills tab: view only |
 
-For Codex, Hive skills are copied into `<agent folder>/.agents/skills/hive-<name>` on each launch (removing Hive copies no longer enabled), since Codex reads skills only from there; Machine skills are `~/.codex/skills`, Local skills the project's own `.agents/skills`.
+- **Skills view** (activity bar): the workspace's Hive skills only. **Project → Skills**: Hive skills first (view, and **Edit in workspace**, which opens the Skills view with the skill in edit mode; if it no longer exists, the view says so), then a section per turned-on provider: Local, User, Plugins. **Copy to workspace** on local, user and plugin skills.
+- **Adding** (both places): **+** creates `<name>/SKILL.md` from a starter; **Add from file** takes a `.md` (becomes `SKILL.md`, with the frontmatter `name` set and a frontmatter added if missing) or a `.zip` (unpacked as the skill folder: `SKILL.md` at its top or inside one top folder; at most 500 files and 50 MB; unsafe paths refused). Names: letters, numbers, `-`, `_`, max 64. A local skill can be added for both providers at once (tick box, shown when both are on). **Deleting** moves the folder to the Recycle Bin; only Hive and local skills can be deleted, never Hive's marked Codex copies.
+- **Bundled skills** ship in the installation (`resources/skills`): `handover`, `pick-up`, `merge-ready`, `review-agent-work`, `split-work`, `workspace-note`. They're copied into a workspace only when Hive first sets it up (a folder without `.hive`). The Skills view compares each workspace copy with the bundled one (all files, line endings ignored): a differing copy offers **Revert to default**, and a bundled skill missing from the workspace is listed greyed as deleted with **Restore**. Both replace the workspace copy (the old one to the Recycle Bin). Updating an existing workspace's bundled skills after a Hive update is done this way.
 
-Hive skills are added manually (a remote repository is a future idea). The workspace folder is a store only; no agent loads from it directly. Copies are used (not links) so a live session keeps a fixed version; edits reach the next session.
+For Codex, Hive skills are copied into `<agent folder>/.agents/skills/hive-<name>` on each launch (removing Hive copies of deleted skills), since Codex reads skills only from there. Those copies carry a `.hive-copy` marker and are never listed as local skills.
+
+The workspace folder is a store only; no agent loads from it directly. Copies are used (not links) so a live session keeps a fixed version; edits reach the next session.
 
 ### 7.2 MCP servers
 

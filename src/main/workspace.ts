@@ -18,9 +18,9 @@ const WORKSPACE_README = `# .hive
 This folder is managed by [Hive](https://github.com/) and is meant to be committed.
 
 - \`shared/\` — notes, instructions and handovers shared across AI sessions and projects.
-- \`skills/\` — Hive skills (one folder per skill, each with a \`SKILL.md\`). Enable them in Hive.
+- \`skills/\` — Hive skills (one folder per skill, each with a \`SKILL.md\`). Every agent in every project gets them.
 - \`mcp/\` — MCP server definitions (one \`<name>.json\` per server). Enable them in Hive.
-- \`workspace.json\` — which skills and MCP servers are enabled for all projects.
+- \`workspace.json\` — which MCP servers are enabled for all projects.
 
 MCP definitions must not contain secrets. Reference environment variables instead, e.g. \`"\${GITHUB_TOKEN}"\`.
 `
@@ -79,12 +79,17 @@ class WorkspaceService {
     return this.wsConfig
   }
 
+  /** Called once for a new workspace (a folder Hive hadn't set up yet), after its .hive folder is made. */
+  onCreated: (() => Promise<unknown>) | null = null
+
   async open(path: string): Promise<WorkspaceInfo> {
     const abs = resolve(path)
     if (!(await isDir(abs))) throw new Error(`Folder not found: ${abs}`)
     await this.close()
     this.path = abs
+    const isNew = !existsSync(join(abs, HIVE_DIR))
     await this.ensureWorkspaceStructure()
+    if (isNew) await this.onCreated?.().catch((e) => log.warn('setting up the new workspace', e))
     this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), await readKeptJson(join(this.hiveDir, 'workspace.json'), {}))
     config.update((c) => {
       c.lastWorkspace = abs

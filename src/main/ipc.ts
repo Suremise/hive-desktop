@@ -12,7 +12,7 @@ import { allProviders } from './providers'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit } from './events'
-import { writeTextAtomic } from './fsutil'
+import { insideReal, writeTextAtomic } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { logsDir } from './logger'
 import * as files from './files'
@@ -55,6 +55,8 @@ function knownProvider(id: unknown): ProviderId {
 
 function guardFile(path: string, write = false): string {
   if (workspace.isAllowedPath(path) || allProviders().some((p) => p.fileAllowed(path, write))) return path
+  // The skills that ship with Hive, to view one the workspace doesn't have.
+  if (!write && insideReal(path, [skills.bundledSkillsDir()])) return path
   throw new Error("Hive can only read and write files inside the workspace, and the agents' instruction, memory and skill files.")
 }
 
@@ -68,6 +70,8 @@ export interface QuitControl {
 }
 
 export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: () => ReturnType<HiveRequests['app:info']>, quitControl: QuitControl): void {
+  // A new workspace starts with the skills that ship with Hive.
+  workspace.onCreated = () => skills.addBundledSkills()
   const win = (): BrowserWindow => {
     const w = getWindow()
     if (!w) throw new Error('No window')
@@ -261,18 +265,36 @@ export function registerIpc(getWindow: () => BrowserWindow | null, getAppInfo: (
       if (key.startsWith('task:')) killPty(key)
     },
 
-    'skills:list': (p) => skills.listSkills(p ? workspace.assertProject(p) : undefined),
-    'skills:setGlobal': async (name, enabled) => {
-      await skills.setSkillGlobal(name, enabled)
-      emit({ type: 'skills-changed' })
-      workspace.scheduleRefresh()
+    'skills:list': (p) => {
+      skills.invalidateSkillCache()
+      return skills.listSkills(p ? workspace.assertProject(p) : undefined)
     },
-    'skills:setProject': async (p, name, enabled) => {
-      await skills.setSkillProject(workspace.assertProject(p), name, enabled)
+    'skills:workspace': () => skills.hiveSkills(true),
+    'skills:create': async (name, description, targets) => {
+      const s = await skills.createSkill(name, description, targets)
+      emit({ type: 'skills-changed' })
+      return s
+    },
+    'skills:pickFile': async () => {
+      const r = await dialog.showOpenDialog(win(), {
+        title: 'Add a skill from a file',
+        properties: ['openFile'],
+        filters: [{ name: 'Skill (.md or .zip)', extensions: ['md', 'markdown', 'zip'] }]
+      })
+      if (r.canceled || !r.filePaths[0]) return null
+      return { path: r.filePaths[0], name: await skills.suggestSkillName(r.filePaths[0]) }
+    },
+    'skills:addFromFile': async (file, name, targets) => {
+      const s = await skills.addSkillFromFile(file, name, targets)
+      emit({ type: 'skills-changed' })
+      return s
+    },
+    'skills:delete': async (path) => {
+      await skills.deleteSkill(path)
       emit({ type: 'skills-changed' })
     },
-    'skills:create': async (name, description) => {
-      const s = await skills.createSkill(name, description)
+    'skills:restoreBundled': async (name) => {
+      const s = await skills.restoreBundledSkill(name)
       emit({ type: 'skills-changed' })
       return s
     },

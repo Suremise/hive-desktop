@@ -207,7 +207,7 @@ Returns `{ ok: true, path }`. Hive shows a notification with a link to the note.
 
 ### Skills and MCP
 
-`GET /v1/skills[?project=name]` — Hive, Machine and Plugin skills, plus Local skills for the project if given.
+`GET /v1/skills[?project=name]` — Hive skills (every agent gets them), each provider's user (`level: "machine"`) and plugin skills, plus the project's local skills if a project is given: `{ name, description, level, path, provider?, plugin?, bundled? }`. `bundled` is `same` or `changed` for Hive skills that ship with Hive. Skills have no enabled flag since 0.2.
 
 `GET /v1/mcp` — MCP servers deployed to the workspace: `{ name, description, globallyEnabled, error }`.
 

@@ -206,11 +206,10 @@ class SessionManager {
   async effective(projectPath: string, agent?: AgentDef): Promise<EffectiveSettings> {
     const s = config.settings
     const pc = await workspace.projectConfig(projectPath)
-    const skillsDisabled = new Set(pc.skills.disabled)
+    // Every Hive skill reaches every agent: there are no skill switches (the old enabled/disabled lists are ignored).
     const skills: LaunchSkill[] = []
     const skillHashes: Record<string, string> = {}
     for (const sk of await hiveSkills()) {
-      if (!sk.globallyEnabled || skillsDisabled.has(sk.name)) continue
       skills.push({ name: sk.name, sourcePath: sk.path })
       skillHashes[sk.name] = await hashDir(sk.path).catch(() => '')
     }

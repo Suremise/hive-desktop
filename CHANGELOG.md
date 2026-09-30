@@ -18,6 +18,12 @@
 - **Updating from 0.1 clears every project's agents** (and resets the layout), since there is no longer a built-in Agent 1. Your sessions stay in the Sessions tab and can be resumed by an agent you add again.
 - Starting a new conversation inside the CLI (Claude Code's `/clear` or `/resume`, Codex's `/new`) is now followed: Hive records and backs up the new conversation instead of carrying on with the old one.
 
+### Skills
+- **Simpler skills: no more switches.** Every Hive skill in the workspace reaches every agent in every project. Skills that were turned off in the workspace or a project are on again after updating.
+- **The Skills view shows the workspace's Hive skills**, where you add (**+**, or **Add Skill from File** with a `.md` or a `.zip`), edit and delete them.
+- **A project's Skills tab lists everything its agents get**: the Hive skills (with **Edit in workspace**), then per provider the project's own **Local (User Managed)** skills, which you can now add, edit and delete there, and your user and plugin skills (view only). A local skill can be added for Claude Code and Codex at once.
+- **Six skills come with Hive**, for working with several agents and sessions: `handover`, `pick-up`, `merge-ready`, `review-agent-work`, `split-work` and `workspace-note`. New workspaces start with them. In an existing workspace they're listed greyed out: **Restore** adds one. When a later Hive improves them, **Revert to default** on a skill's page brings your copy up to date (the old copy goes to the Recycle Bin).
+
 ### Other new features
 - **Continue with…** in the agent menu hands an agent's work to another agent, of either provider, through a handover; the Sessions tab links the two sessions. Also `POST /v1/projects/{name}/continue` in the Agent API.
 - **A new Overview**: a project summary for a chosen period (tokens, API-equivalent cost, sessions, prompts) across providers, the agents running now, a section per provider with its plan limits, and a table by agent.
@@ -28,6 +34,7 @@
 - **The transcript viewer** loads the latest messages first and earlier ones as you scroll up, so long sessions open quickly. A running session updates only when you switch on **Follow** or click **Refresh** (Settings → Sessions sets the default).
 - **Overview updates** can be live (at most every 15 seconds, the default), every minute, or only on **Refresh** (Settings → Sessions).
 - In the dark theme, the outlines of fields, cards and dialog options are lighter, so they stand out from the background.
+- The format help beside an MCP server's definition can be resized by dragging the edge between them.
 
 ### Reliability and security
 - Hive keeps a last good copy of its settings and records (`.bak`). A file that can't be read is set aside and the copy restored, with a notification, instead of Hive starting over.

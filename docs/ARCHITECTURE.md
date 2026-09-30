@@ -64,10 +64,10 @@ Adding a provider: a descriptor added to `PROVIDERS`, an adapter added to the re
 
 `sessions.start()` (Claude Code shown; Codex differs as above):
 
-1. Resolves effective settings (`effective()`): workspace-enabled skills and MCP servers minus the project's opt-outs, plus model, effort, permission mode and args. Bypass is downgraded unless the global opt-in is on.
+1. Resolves effective settings (`effective()`): every Hive skill in the workspace, the workspace-enabled MCP servers minus the project's opt-outs, plus model, effort, permission mode and args. Bypass is downgraded unless the global opt-in is on.
 2. Restores the transcript from `.hive/sessions` if resuming and Claude Code no longer has it.
 3. `adapter.prepareLaunch()` — for Claude Code, rebuilds `Project/.hive/launch/` from scratch:
-   - `plugin/` — a session-only Claude Code plugin containing copies of the enabled skills (`--plugin-dir`)
+   - `plugin/` — a session-only Claude Code plugin containing copies of the Hive skills (`--plugin-dir`)
    - `mcp.json` — enabled servers plus the built-in `hive` server (`--mcp-config … --strict-mcp-config`)
    - `settings.json` — HTTP hooks pointing at Hive's hook server (`--settings`); `SessionStart`, which can't be an HTTP hook, is a `curl.exe` command posting to the same server
 4. Spawns `claude` in a pty with `--session-id` (new) or `--resume` (existing), so Hive always knows the session ID and therefore the transcript path.
@@ -124,6 +124,7 @@ A project has up to four agents, all equal (`ProjectConfig.agents` as added; `pr
 | `actions.ts` | user flows with confirmations and error toasts |
 | `components/` | shell (title bar, activity bar, status bar, sidebar), overlays, terminal, editors |
 | `views/` | project view and tabs, settings, notes, skills, MCP, docs, welcome |
+| `components/Skills.tsx` | skill rows, the skill page (`SkillDetail`), adding (new or from a `.md`/`.zip`), deleting, restore/revert of bundled skills; used by the Skills view (Hive skills) and the project's Skills tab (Hive, then Local, User and Plugin per provider). Main side: `skills.ts` (listing, `skillFromZip`, `addBundledSkills` for new workspaces from `resources/skills`) |
 | `components/ErrorBoundary.tsx` | catches render errors: around each project tab (reset when the tab or project changes), the other views, and the whole app (offers Reload Window) |
 
 Terminals use xterm.js's WebGL renderer with `rescaleOverlappingGlyphs`, so symbols drawn from a wider fallback font (such as the close button in Claude Code's panels) are squeezed into their cell instead of being half painted over; the DOM renderer is the fallback if WebGL is unavailable. The terminal mounts in an unpadded child of its host, because the fit addon measures the parent.

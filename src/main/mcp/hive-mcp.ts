@@ -156,7 +156,7 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_list_skills',
-    description: 'List skills available to the project: Hive (managed), Machine, Plugin and Local.',
+    description: "List skills available to the project's agents: Hive (the workspace's, given to every agent), each provider's user and plugin skills, and the project's local skills.",
     inputSchema: { type: 'object', properties: { project: projectArg } },
     run: (a) => api('GET', `/v1/skills?project=${proj(a)}`)
   }

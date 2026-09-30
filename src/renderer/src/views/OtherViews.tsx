@@ -14,8 +14,8 @@ import { DocEditor } from '../components/DocEditor'
 import { CodeEditor } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { Icon, IconButton, Markdown, Switch } from '../components/ui'
-import { SKILL_LEVEL_TIP } from '../components/Sidebar'
-import { confirm, notify, set, useStore } from '../store'
+import { SkillDetail } from '../components/Skills'
+import { confirm, set, useStore } from '../store'
 import { basename, cx, formatKeybinding } from '../util'
 
 // ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ export function WelcomeView() {
               <Icon name="sparkle" />
               <div>
                 <strong>Skills &amp; MCP</strong>
-                <p>Deploy skills and MCP servers to the workspace, enable them globally, and turn them off per project. Changes apply to new sessions.</p>
+                <p>Hive skills in the workspace reach every agent; each project also shows its own and your user skills. MCP servers are turned on for the workspace and off per project. Changes apply to new sessions.</p>
               </div>
             </div>
             <div className="walkthrough">
@@ -142,68 +142,40 @@ export function NotesView() {
 export function SkillView() {
   const selected = useStore((s) => s.selectedSkill)
   const version = useStore((s) => s.skillsVersion)
-  const selectedProject = useStore((s) => s.selectedProject)
   const workspace = useStore((s) => s.workspace)
-  const [skill, setSkill] = useState<SkillInfo | null>(null)
+  const [list, setList] = useState<SkillInfo[] | null>(null)
 
   useEffect(() => {
-    if (!selected) return setSkill(null)
-    void call('skills:list', selectedProject ?? undefined).then((l) => setSkill(l.find((s) => s.path === selected) ?? null))
-  }, [selected, version, selectedProject])
+    void call('skills:workspace').then(setList).catch(() => setList([]))
+  }, [version, workspace?.path])
 
-  if (!selected || !skill) {
+  const skill = selected ? list?.find((s) => s.path === selected) : undefined
+  if (!selected || !list) {
     return (
       <div className="empty-state" style={{ paddingTop: '18vh' }}>
         <Icon name="sparkle" />
-        Select a skill to view it. Hive skills can be edited here; Machine, Plugin and Local skills are read-only.
+        Select a Hive skill to view or edit it. Every agent in every project of this workspace gets these skills.
       </div>
     )
   }
-  const editable = skill.level === 'hive'
-  const levelLabel = { hive: 'Hive', machine: 'Machine', plugin: 'Plugin', local: 'Local' }[skill.level]
+  if (!skill) {
+    // E.g. "Edit in workspace" from a project, for a skill deleted or renamed since.
+    const name = selected.split(/[\\/]/).pop()
+    return (
+      <div className="empty-state" style={{ paddingTop: '18vh' }}>
+        <Icon name="warning" />
+        <div>
+          The skill <strong>{name}</strong> no longer exists in this workspace. It may have been deleted or renamed.
+        </div>
+        <button className="btn subtle" style={{ marginTop: 12 }} onClick={() => set({ selectedSkill: null, skillEdit: null })}>
+          OK
+        </button>
+      </div>
+    )
+  }
   return (
     <div className="split">
-      <DocEditor
-        key={skill.path}
-        path={`${skill.path}\\SKILL.md`}
-        title={skill.name}
-        readOnly={!editable || !workspace}
-        defaultPreview
-        toolbarExtra={
-          <>
-            <span className={cx('badge', editable ? 'accent' : '')} title={SKILL_LEVEL_TIP[skill.level]}>
-              {levelLabel}
-              {skill.plugin ? ` · ${skill.plugin}` : ''}
-            </span>
-            {editable && (
-              <label className="flex muted" style={{ fontSize: 12 }}>
-                <Switch
-                  small
-                  checked={!!skill.globallyEnabled}
-                  onChange={(v) =>
-                    void actions.attempt('Could not update skill', () => call('skills:setGlobal', skill.name, v)).then(() => set((s) => ({ skillsVersion: s.skillsVersion + 1 })))
-                  }
-                />
-                Enabled
-              </label>
-            )}
-            {(skill.level === 'local' || skill.level === 'machine' || skill.level === 'plugin') && workspace && (
-              <button
-                className="btn small subtle"
-                onClick={async () => {
-                  const s = await actions.attempt('Could not copy skill', () => call('skills:copyToWorkspace', skill.path))
-                  if (s) {
-                    notify('success', `Copied "${skill.name}" to the workspace`, 'It is disabled until you enable it.')
-                    set({ selectedSkill: s.path })
-                  }
-                }}
-              >
-                <Icon name="cloud-upload" /> Copy to workspace
-              </button>
-            )}
-          </>
-        }
-      />
+      <SkillDetail skill={skill} where="workspace" onDeleted={() => set({ selectedSkill: null })} onRestored={(r) => set({ selectedSkill: r.path })} />
     </div>
   )
 }
@@ -234,6 +206,8 @@ export function McpView() {
   const [saved, setSaved] = useState('')
   const [info, setInfo] = useState<McpServerInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // The editor's share of the width; the format help beside it takes the rest (drag the edge between them).
+  const editorShare = usePaneSize('mcpHelp', 0.68)
 
   useEffect(() => {
     if (!selected || selected === '__hive') return
@@ -343,10 +317,11 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
           </div>
         ))}
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-          <div className="editor-host" style={{ flex: 1 }}>
+          <div className="editor-host" style={{ flex: `0 0 ${editorShare * 100}%`, position: 'relative' }}>
             <CodeEditor value={text} language="json" onChange={setText} onSave={() => void save()} wordWrap={false} />
+            <PaneResizer paneKey="mcpHelp" ratio />
           </div>
-          <div style={{ width: 340, borderLeft: '1px solid var(--border-subtle)', overflow: 'auto', padding: '14px 16px', fontSize: 12 }}>
+          <div style={{ flex: 1, minWidth: 0, borderLeft: '1px solid var(--border-subtle)', overflow: 'auto', padding: '14px 16px', fontSize: 12 }}>
             <Markdown source={MCP_HELP} />
           </div>
         </div>

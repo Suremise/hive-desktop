@@ -19,11 +19,13 @@ export function Dialogs() {
   const dialog = useStore((s) => s.dialog)
   const [value, setValue] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [checked, setChecked] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (dialog?.kind === 'prompt') {
       setValue(dialog.initial ?? '')
+      setChecked(dialog.check?.initial ?? false)
       setError(null)
       setTimeout(() => inputRef.current?.select(), 30)
     }
@@ -33,7 +35,10 @@ export function Dialogs() {
   const close = (result: boolean | string | null): void => {
     set({ dialog: null })
     if (dialog.kind === 'confirm') dialog.resolve(result === true)
-    else if (dialog.kind === 'prompt') dialog.resolve(typeof result === 'string' ? result : null)
+    else if (dialog.kind === 'prompt') {
+      dialog.check?.set(checked)
+      dialog.resolve(typeof result === 'string' ? result : null)
+    }
   }
 
   if (dialog.kind === 'choice') {
@@ -122,6 +127,11 @@ export function Dialogs() {
         onKeyDown={(e) => e.key === 'Enter' && submit()}
       />
       {error && <div className="field-error">{error}</div>}
+      {dialog.check && (
+        <label className="flex" style={{ marginTop: 10 }}>
+          <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> {dialog.check.label}
+        </label>
+      )}
     </Modal>
   )
 }

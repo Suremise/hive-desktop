@@ -382,17 +382,24 @@ export interface WorkspaceInfo {
 export type SkillLevel = 'hive' | 'machine' | 'plugin' | 'local'
 
 export interface SkillInfo {
-  /** For machine, plugin and local skills: the provider that loads them. */
+  /** For machine (user), plugin and local skills: the provider that loads them. */
   provider?: ProviderId
   name: string
   description: string
   level: SkillLevel
+  /** The skill's folder. For a bundled skill missing from the workspace: its folder in Hive's installation. */
   path: string
-  /** For hive skills: enabled globally. */
-  globallyEnabled?: boolean
   /** Plugin name for plugin skills. */
   plugin?: string
+  /**
+   * Hive skills that ship with Hive: the workspace copy matches this version of Hive's ('same'), differs
+   * because it was edited or is from an older version ('changed'), or isn't in the workspace ('missing').
+   */
+  bundled?: 'same' | 'changed' | 'missing'
 }
+
+/** Where a new skill goes: the workspace's Hive skills, or a provider's local skills folder in a project. */
+export type SkillTarget = { kind: 'hive' } | { kind: 'local'; projectPath: string; provider: ProviderId }
 
 export interface McpServerDef {
   command?: string

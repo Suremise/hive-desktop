@@ -13,7 +13,7 @@ import { DiffView } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { Icon, IconButton, InfoTip, STATUS_TEXT, StatusDot, Switch, Tooltip } from '../components/ui'
 import { languageFor } from '../monacoLang'
-import { SKILL_LEVEL_TIP } from '../components/Sidebar'
+import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
 import { RootSelector } from './FilesTab'
 import { agentProviderOf, confirm, notify, set, setActivity, useFocusedAgent, useStore } from '../store'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
@@ -694,85 +694,94 @@ function ChangesApplyNote({ project }: { project: ProjectInfo }) {
 
 export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
   const version = useStore((s) => s.skillsVersion)
-  const [skills, setSkills] = useState<SkillInfo[]>([])
-  const load = useCallback(() => void call('skills:list', project.path).then(setSkills), [project.path])
+  const settings = useStore((s) => s.settings)
+  const listWidth = usePaneSize('projectSkills', 320)
+  const [skills, setSkills] = useState<SkillInfo[] | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
+  const load = useCallback(() => void call('skills:list', project.path).then(setSkills).catch(() => setSkills([])), [project.path])
   useEffect(load, [load, version])
-  const disabled = new Set(project.config.skills.disabled)
-  const hive = skills.filter((s) => s.level === 'hive')
-  const local = skills.filter((s) => s.level === 'local')
-  const machine = skills.filter((s) => s.level === 'machine' || s.level === 'plugin')
 
-  const toggle = async (name: string, enabled: boolean): Promise<void> => {
-    await actions.attempt('Could not update skill', () => call('skills:setProject', project.path, name, enabled))
-    await actions.refreshWorkspace()
+  const providers = PROVIDERS.filter((p) => isProviderEnabled(settings, p.id))
+  const ids = providers.map((p) => p.id)
+  const all = skills ?? []
+  const hive = all.filter((s) => s.level === 'hive')
+  const current = selected ? all.find((s) => s.path === selected) : undefined
+
+  const add = async (mode: 'new' | 'file', provider: ProviderId): Promise<void> => {
+    const r = await addSkill(mode, { kind: 'local', projectPath: project.path, provider }, otherLocal(project.path, provider, ids))
+    if (r) setSelected(r.path)
   }
-  const copy = async (s: SkillInfo): Promise<void> => {
-    const r = await actions.attempt('Could not copy skill', () => call('skills:copyToWorkspace', s.path))
-    if (r) notify('success', `Copied "${s.name}" to the workspace`, `Enable it in Skills to use it. The local copy is still loaded by ${providerName(s.provider)} until you remove it from the project's folder.`)
-    load()
-  }
+  const row = (sk: SkillInfo, actionsFor?: React.ReactNode) => <SkillRow key={sk.path} skill={sk} selected={selected === sk.path} onSelect={() => setSelected(sk.path)} actionsFor={actionsFor} />
+  const group = (title: string, tip: string, items: SkillInfo[], extra?: React.ReactNode, empty?: string) => (
+    <>
+      <div className="skill-group">
+        {title} <InfoTip text={tip} />
+        {extra && <div className="actions">{extra}</div>}
+      </div>
+      {items.length === 0 && empty && <div className="pane-empty">{empty}</div>}
+    </>
+  )
 
   return (
-    <div className="scroll-page">
-      <div className="page-narrow">
-        <h2 className="section">
-          Hive skills <InfoTip text={SKILL_LEVEL_TIP.hive} />
-        </h2>
-        <ChangesApplyNote project={project} />
-        {hive.length === 0 ? (
-          <p className="hint">
-            No Hive skills in this workspace. <a onClick={() => setActivity('skills')}>Manage skills</a>
-          </p>
-        ) : (
-          <div className="toggle-list">
-            {hive.map((s) => {
-              const on = !!s.globallyEnabled && !disabled.has(s.name)
-              return (
-                <div key={s.name} className={cx('toggle-item', !s.globallyEnabled && 'disabled')}>
-                  <Icon name="sparkle" />
-                  <div className="ti-text">
-                    <div className="ti-name">
-                      {s.name} {!s.globallyEnabled && <span className="badge">disabled in workspace</span>}
-                    </div>
-                    <div className="ti-desc">{s.description}</div>
-                  </div>
-                  <Tooltip content={!s.globallyEnabled ? 'Enable this skill in the workspace first (Skills view).' : on ? 'On for this project. Click to turn off.' : 'Off for this project. Click to turn on.'}>
-                    <Switch checked={on} disabled={!s.globallyEnabled} onChange={(v) => void toggle(s.name, v)} />
-                  </Tooltip>
-                </div>
-              )
-            })}
+    <div className="split">
+      <div className="split-list" style={{ width: listWidth }}>
+        <PaneResizer paneKey="projectSkills" max={600} />
+        <div className="pane-header" style={{ paddingLeft: 14 }}>
+          Skills available to agents
+          <div className="actions">
+            <IconButton icon="refresh" title="Refresh" onClick={load} />
           </div>
-        )}
-        <h2 className="section">
-          Local skills <InfoTip text={SKILL_LEVEL_TIP.local} />
-        </h2>
-        {local.length === 0 ? (
-          <p className="hint">This project has no skills of its own (such as .claude/skills).</p>
-        ) : (
-          <div className="toggle-list">
-            {local.map((s) => (
-              <div key={s.path} className="toggle-item">
-                <Icon name="folder" />
-                <div className="ti-text">
-                  <div className="ti-name">
-                    {s.name} <span className="badge">always on</span> {s.provider && <span className="badge">{providerName(s.provider)}</span>}
-                  </div>
-                  <div className="ti-desc">{s.description}</div>
+        </div>
+        <div className="pane-body">
+          {group('Hive', SKILL_LEVEL_TIP.hive, hive, undefined, 'No Hive skills in this workspace.')}
+          {hive.map((sk) =>
+            row(
+              sk,
+              <IconButton icon="go-to-file" title="Edit in the workspace's Skills view (Hive skills are shared by every project)" onClick={() => editInWorkspace(sk)} />
+            )
+          )}
+          {providers.map((p) => {
+            const mine = all.filter((sk) => sk.provider === p.id)
+            const local = mine.filter((sk) => sk.level === 'local')
+            const user = mine.filter((sk) => sk.level === 'machine')
+            const plugin = mine.filter((sk) => sk.level === 'plugin')
+            return (
+              <div key={p.id} className="skill-provider">
+                <div className="skill-provider-title">
+                  <ProviderIcon provider={p.id} /> {p.name}
                 </div>
-                <button className="btn small subtle" onClick={() => void copy(s)}>
-                  <Icon name="cloud-upload" /> Copy to workspace
-                </button>
+                {group(
+                  'Local (User Managed)',
+                  SKILL_LEVEL_TIP.local,
+                  local,
+                  <>
+                    <IconButton icon="add" title={`New local skill for ${p.name}…`} onClick={() => void add('new', p.id)} />
+                    <IconButton icon="file-add" title={`Add a local skill for ${p.name} from a file (.md or .zip)…`} onClick={() => void add('file', p.id)} />
+                  </>,
+                  `None yet. Add one with +, or from a .md or .zip.`
+                )}
+                {local.map((sk) => row(sk, <IconButton icon="trash" title="Delete skill" onClick={() => void deleteSkill(sk).then((ok) => ok && selected === sk.path && setSelected(null))} />))}
+                {group('User', SKILL_LEVEL_TIP.machine, user, undefined, 'None in your user profile.')}
+                {user.map((sk) => row(sk))}
+                {plugin.length > 0 && group('Plugins', SKILL_LEVEL_TIP.plugin, plugin)}
+                {plugin.map((sk) => row(sk))}
               </div>
-            ))}
+            )
+          })}
+          {providers.length === 0 && <div className="pane-empty">Turn on a coding agent in Settings → Providers to see its skills.</div>}
+        </div>
+      </div>
+      <div className="split-main">
+        {current ? (
+          <SkillDetail key={current.path} skill={current} where="project" onDeleted={() => setSelected(null)} />
+        ) : (
+          <div className="empty-state" style={{ paddingTop: '14vh' }}>
+            <Icon name="sparkle" />
+            <div>
+              Select a skill to view it. <strong>Hive</strong> skills reach every agent and are edited in the workspace's Skills view; <strong>local</strong> skills belong to this project and one provider, and you can add, edit and delete them here.
+            </div>
           </div>
         )}
-        <h2 className="section">
-          Machine & plugin skills <InfoTip text={SKILL_LEVEL_TIP.machine} />
-        </h2>
-        <p className="hint">
-          {machine.length} skill{machine.length === 1 ? '' : 's'} from your user profile and installed plugins are always available to the agents that load them. <a onClick={() => setActivity('skills')}>View them</a>
-        </p>
       </div>
     </div>
   )

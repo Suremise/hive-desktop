@@ -87,7 +87,7 @@ export function DocEditor({
           {dirty && (missing ? ' (new)' : ' ●')} <span className="faint">{path}</span>
         </span>
         {toolbarExtra}
-        {isMd && <IconButton icon={preview ? 'edit' : 'open-preview'} title={preview ? 'Edit' : 'Preview'} onClick={() => setPreview(!preview)} />}
+        {isMd && <IconButton icon={preview ? (readOnly ? 'code' : 'edit') : 'open-preview'} title={preview ? (readOnly ? 'View source' : 'Edit') : 'Preview'} onClick={() => setPreview(!preview)} />}
         <IconButton icon="folder-opened" title="Reveal in File Explorer" onClick={() => void call('app:showInFolder', path)} disabled={missing} />
         {!readOnly && (
           <button className="btn small primary" disabled={!dirty} onClick={() => void save()}>
