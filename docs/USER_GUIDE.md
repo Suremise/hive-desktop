@@ -143,7 +143,7 @@ Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of
 
 ### Token use, cache and compaction
 
-The **Overview** tab updates as sessions change (at most every 15 seconds; **Settings → Sessions → Overview updates** can make it every minute or only when you click **Refresh**). It starts with a **project summary** for the period you choose (Today, 7 days, 30 days, All time), across every provider: tokens, API-equivalent cost, sessions and prompts. Below it are the agents **running now** (with how full each one's context is), a section per provider with its totals and plan limits, a table **by agent**, and the focused agent's session:
+The **Overview** tab updates as sessions change (at most every 15 seconds; **Settings → Sessions → Overview updates** can make it every minute or only when you click **Refresh**). It starts with a **project summary** for the period you choose (All time at first, or Today, 7 days, 30 days), across every provider: tokens, API-equivalent cost, sessions and prompts. Below it are the agents **running now** (with how full each one's context is), a section per provider with its totals and plan limits, a table **by agent**, and the focused agent's session:
 
 - **Context** — how many tokens the conversation occupies right now.
 - **Cache** — whether Anthropic's prompt cache is still warm (5-minute or 1-hour lifetime) and how long it has left (Claude Code).

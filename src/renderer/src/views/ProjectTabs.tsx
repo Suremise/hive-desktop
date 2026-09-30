@@ -155,7 +155,7 @@ function sessionAgent(project: ProjectInfo, s: SessionListItem): string {
 export function OverviewTab({ project }: { project: ProjectInfo }) {
   const { items, reload, loadedAt } = useSessions(project)
   const settings = useStore((s) => s.settings)
-  const [period, setPeriod] = useState<Period>('week')
+  const [period, setPeriod] = useState<Period>('all')
   const now = useNow(60000)
   if (!items) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
 

@@ -506,6 +506,11 @@ export interface SessionUsage {
   /** API-equivalent cost for the session (USD): reported by the provider, else estimated by Hive; null if unknown. */
   costUsd: number | null
   costEstimated: boolean
+  /**
+   * Tokens used after the provider last reported the cost (Claude Code writes it only at some turns' ends):
+   * Hive adds its estimate for them to the reported cost.
+   */
+  costUnreported?: Pick<SessionUsage, 'inputTokens' | 'outputTokens' | 'cacheWriteTokens' | 'cacheReadTokens'>
 }
 
 export interface RecacheEstimate {

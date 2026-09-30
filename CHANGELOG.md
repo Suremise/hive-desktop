@@ -68,6 +68,7 @@
 - The format help beside an MCP server's definition can be resized by dragging the edge between them.
 
 ### Reliability and security
+- A Claude Code session's cost no longer stands still for hours: Claude Code records it only now and then, so Hive adds its estimate for the work since (shown with ≈). The Overview opens on All time.
 - The title bar's bottom line runs all the way under the window buttons.
 - Hive keeps a last good copy of its settings and records (`.bak`). A file that can't be read is set aside and the copy restored, with a notification, instead of Hive starting over.
 - Hive's copies of workspace skills for Codex are marked, so a `hive-…` folder of your own in `.agents/skills` is never removed.

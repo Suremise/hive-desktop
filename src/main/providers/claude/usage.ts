@@ -48,6 +48,8 @@ export function parseTranscript(text: string, sessionId: string): SessionUsage {
   let customTitle: string | null = null
   let aiTitle: string | null = null
   let saw1h = false
+  // The requests the last reported cost (cost-state) covers; later ones get Hive's estimate on top.
+  let reported: Set<string> | null = null
 
   for (const line of text.split('\n')) {
     if (!line.trim()) continue
@@ -105,7 +107,10 @@ export function parseTranscript(text: string, sessionId: string): SessionUsage {
         if (typeof o.lastPrompt === 'string') usage.lastPrompt = o.lastPrompt
         break
       case 'cost-state':
-        if (typeof o.totalCostUSD === 'number') usage.costUsd = o.totalCostUSD
+        if (typeof o.totalCostUSD === 'number') {
+          usage.costUsd = o.totalCostUSD
+          reported = new Set(byRequest.keys())
+        }
         break
       case 'summary':
         if (o.summary && !aiTitle) aiTitle = o.summary
@@ -113,12 +118,20 @@ export function parseTranscript(text: string, sessionId: string): SessionUsage {
     }
   }
 
-  for (const u of byRequest.values()) {
+  const unreported = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 }
+  for (const [key, u] of byRequest) {
     usage.inputTokens += u.input_tokens ?? 0
     usage.outputTokens += u.output_tokens ?? 0
     usage.cacheWriteTokens += u.cache_creation_input_tokens ?? 0
     usage.cacheReadTokens += u.cache_read_input_tokens ?? 0
+    if (reported && !reported.has(key)) {
+      unreported.inputTokens += u.input_tokens ?? 0
+      unreported.outputTokens += u.output_tokens ?? 0
+      unreported.cacheWriteTokens += u.cache_creation_input_tokens ?? 0
+      unreported.cacheReadTokens += u.cache_read_input_tokens ?? 0
+    }
   }
+  if (Object.values(unreported).some((n) => n > 0)) usage.costUnreported = unreported
   usage.requests = byRequest.size
   usage.title = customTitle ?? aiTitle
   usage.cacheTtlSeconds = saw1h ? 3600 : 300

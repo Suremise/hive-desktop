@@ -73,6 +73,23 @@ describe('parseTranscript', () => {
     const t = [line({ type: 'ai-title', aiTitle: 'AI' }), line({ type: 'custom-title', customTitle: 'Mine' })].join('\n')
     expect(parseTranscript(t, 'x').title).toBe('Mine')
   })
+
+  it("keeps the tokens used after Claude Code last wrote its cost, for Hive's estimate", async () => {
+    const t = [
+      line({ type: 'assistant', requestId: 'r1', message: { model: 'claude-opus-5-5', usage: usage(10, 0, 1000, 100) } }),
+      line({ type: 'cost-state', totalCostUSD: 1.5 }),
+      line({ type: 'assistant', requestId: 'r2', message: { model: 'claude-opus-5-5', usage: usage(2, 1000, 0, 40) } }),
+      line({ type: 'assistant', requestId: 'r3', message: { model: 'claude-opus-5-5', usage: usage(3, 2000, 500, 60) } })
+    ].join('\n')
+    const late = parseTranscript(t, 'x')
+    expect(late.costUsd).toBe(1.5)
+    expect(late.costUnreported).toEqual({ inputTokens: 5, outputTokens: 100, cacheWriteTokens: 500, cacheReadTokens: 3000 })
+    // Everything reported: nothing to add.
+    expect(parseTranscript([t, line({ type: 'cost-state', totalCostUSD: 2 })].join('\n'), 'x').costUnreported).toBeUndefined()
+    // The session list adds the estimate for them and marks the cost as partly estimated.
+    const { estimateCost } = await import('../src/shared/prices')
+    expect(estimateCost({ ...late, ...late.costUnreported! })).toBeGreaterThan(0)
+  })
 })
 
 describe('recacheEstimate', () => {

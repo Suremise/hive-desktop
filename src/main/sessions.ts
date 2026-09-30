@@ -1488,6 +1488,10 @@ class SessionManager {
       if (usage.costUsd === null) {
         const est = estimateCost(usage, config.settings)
         if (est !== null) Object.assign(usage, { costUsd: est, costEstimated: true })
+      } else if (usage.costUnreported) {
+        // The provider reports its cost only now and then: the tokens since get Hive's estimate on top.
+        const est = estimateCost({ ...usage, ...usage.costUnreported }, config.settings)
+        if (est) Object.assign(usage, { costUsd: usage.costUsd + est, costEstimated: true })
       }
       usageCache.set(path, { mtime: s.mtimeMs, size: s.size, usage })
       return usage
