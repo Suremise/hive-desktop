@@ -42,13 +42,29 @@ function enableProviders(userData, providers = ['claude-code']) {
   fs.writeFileSync(file, JSON.stringify(cfg, null, 2))
 }
 
+/**
+ * Sizes the test window's page area to `size` and pins the page to it. Pinning alone (setViewportSize) leaves
+ * the rest of a bigger window blank, which looks like a layout bug when you watch a suite run.
+ */
+async function fitWindow(app, page, size) {
+  await app
+    .evaluate(({ BrowserWindow }, [w, h]) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (!win) return
+      if (win.isMaximized()) win.unmaximize()
+      win.setContentSize(w, h)
+    }, [size.width, size.height])
+    .catch(() => {})
+  await page.setViewportSize(size).catch(() => {})
+}
+
 /** Starts the dev build with a test profile. Returns { app, page, inv } (inv calls an IPC channel). */
 async function launch({ userData, env = {}, viewport = { width: 1400, height: 850 } }) {
   const e = { ...process.env, HIVE_USER_DATA: userData, ...env }
   delete e.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: ELECTRON, args: [ROOT], cwd: ROOT, env: e })
   const page = await app.firstWindow()
-  await page.setViewportSize(viewport).catch(() => {})
+  await fitWindow(app, page, viewport)
   await sleep(2000)
   const inv = (ch, ...a) => page.evaluate(([c, args]) => window.hive.invoke(c, ...args), [ch, a])
   return { app, page, inv }
@@ -163,4 +179,4 @@ function samplePng(w = 64, h = 40) {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, enableProviders, launch, addAgent, soloAgent, ptyKey, acceptClaudeTrust, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, fitWindow, enableProviders, launch, addAgent, soloAgent, ptyKey, acceptClaudeTrust, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng }

@@ -428,17 +428,17 @@ export function AgentSettingsDialog() {
 }
 
 // ---------------------------------------------------------------------------
-// Continue with…
+// Hand Over to…
 // ---------------------------------------------------------------------------
 
 /**
  * Hands one agent's work to another, of any provider. Conversations can't move between providers,
  * so the source writes a handover (Hive's hive_create_handover tool) and the target reads it.
  */
-export function ContinueDialog() {
-  const target = useStore((s) => s.continueFor)
+export function HandOverDialog() {
+  const target = useStore((s) => s.handOverFor)
   const settings = useStore((s) => s.settings)
-  const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.continueFor?.project) ?? null)
+  const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.handOverFor?.project) ?? null)
   const from = project?.agents.find((a) => a.id === target?.agentId) ?? null
   const [to, setTo] = useState('')
   const [handover, setHandover] = useState(true)
@@ -454,7 +454,7 @@ export function ContinueDialog() {
   }, [target?.project, target?.agentId])
 
   if (!target || !project || !from) return null
-  const close = (): void => set({ continueFor: null })
+  const close = (): void => set({ handOverFor: null })
   const others = project.agents.filter((a) => a.id !== from.id)
   const chosen = others.find((a) => a.id === to)
   const hiveTools = settings?.agentApi.provideHiveMcp !== false
@@ -463,12 +463,12 @@ export function ContinueDialog() {
     if (!chosen) return
     close()
     showAgent(project, chosen.id)
-    void call('session:continueWith', project.path, from.id, chosen.id, { handover: handover && fromReady }).catch((e) => notify('error', `Could not continue with ${chosen.name}`, errorMessage(e)))
+    void call('session:handOver', project.path, from.id, chosen.id, { handover: handover && fromReady }).catch((e) => notify('error', `Could not hand over to ${chosen.name}`, errorMessage(e)))
   }
 
   return (
     <Modal
-      title={`Continue ${from.name}'s work`}
+      title={`Hand over ${from.name}'s work to…`}
       icon="arrow-swap"
       onClose={close}
       footer={
@@ -477,7 +477,7 @@ export function ContinueDialog() {
             Cancel
           </button>
           <button className="btn primary" disabled={!chosen || !hiveTools} onClick={go}>
-            <Icon name="arrow-swap" /> Continue
+            <Icon name="arrow-swap" /> Hand Over
           </button>
         </>
       }

@@ -313,8 +313,8 @@ export interface SessionRecord {
   branch?: string
   /** Where the provider keeps the transcript, when it can't be found from the folder (Codex). */
   transcriptPath?: string
-  /** The session whose work this one continues ("Continue with…", through a handover). */
-  continuedFrom?: string
+  /** The session whose work was handed over to this one ("Hand Over to…"). */
+  handedOverFrom?: string
 }
 
 export type SessionStatus = 'stopped' | 'starting' | 'ready' | 'working' | 'waiting' | 'finished' | 'error'

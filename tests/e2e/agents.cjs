@@ -34,7 +34,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))
-  await page.setViewportSize({ width: 1600, height: 950 }).catch(() => {})
+  await lib.fitWindow(app, page, { width: 1600, height: 950 })
   await sleep(1500)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   const project = async () => (await inv('workspace:refresh')).projects.find((p) => p.name === 'demo')
@@ -100,7 +100,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n
   check('terminals in separate panes', new Set(rects).size === rects.length && rects.length >= 2, JSON.stringify(rects))
   // Clicking a pane header focuses that agent
   await page.locator('.pane-header-bar', { hasText: 'Reviewer' }).locator('.agent-name').click(); await sleep(300)
-  check('header shows focused agent', (await page.locator('.header-agent').innerText()).includes('Reviewer'))
+  check('its pane header shows it focused', (await page.locator('.pane-header-bar.focused .agent-name').innerText()).includes('Reviewer'))
 
   // --- File locks via synthetic PreToolUse calls
   const launch = fs.readFileSync(path.join(proj, '.hive', `launch-${a1.id}`, 'settings.json'), 'utf8')

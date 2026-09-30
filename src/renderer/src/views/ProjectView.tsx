@@ -1,17 +1,13 @@
 import type { ProjectInfo } from '@shared/types'
-import { compactThreshold, effectiveModelLabel, effortLabel } from '@shared/defaults'
-import { agentLaunchSettings, isProviderEnabled, modeOption, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
-import { ProviderIcon } from '../components/ProviderIcon'
-import { useLiveUsage } from '../usage'
+import { agentLaunchSettings, isProviderEnabled, modeOption, providerName } from '@shared/providers'
 import hexUrl from '../assets/icon.svg'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
-import { AddAgentButton, AgentStrip, PaneChrome, ResumeButton, SessionTag, TerminalLayer, usePanes } from '../components/AgentPanes'
-import { ModeBadge } from '../components/PermissionMode'
+import { AddAgentButton, AgentStrip, PANE_FOOTER, PANE_HEADER, PaneChrome, ResumeButton, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
 import { Icon, IconButton, STATUS_TEXT, Switch, Tooltip, useContextMenu } from '../components/ui'
 import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
-import { carriesFiles, cx, formatKeybinding, formatTokens } from '../util'
+import { carriesFiles, cx, formatKeybinding } from '../util'
 import { FilesTab, ImagesTab } from './FilesTab'
 import { ChangesTab, MemoryTab, OverviewTab, ProjectMcpTab, ProjectSettingsTab, ProjectSkillsTab } from './ProjectTabs'
 import { SessionsTab } from './SessionsTab'
@@ -30,7 +26,7 @@ const TABS: { id: ProjectTab; label: string; icon: string }[] = [
   { id: 'settings', label: 'Settings', icon: 'settings' }
 ]
 
-function SessionEmpty({ project }: { project: ProjectInfo }) {
+function SessionEmpty({ project, framed }: { project: ProjectInfo; framed: boolean }) {
   const focused = useFocusedAgent(project)
   const provider = agentProviderOf(project, focused)
   const info = useStore((s) => s.providers[provider])
@@ -41,7 +37,7 @@ function SessionEmpty({ project }: { project: ProjectInfo }) {
   if (ended) return null
   const many = project.agents.length > 1
   return (
-    <div className={ended ? 'session-ended' : 'session-empty'}>
+    <div className={ended ? 'session-ended' : 'session-empty'} style={framed ? { top: PANE_HEADER, bottom: PANE_FOOTER } : undefined}>
       {ended ? (
         <>
           <Icon name="debug-disconnect" />
@@ -108,13 +104,15 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const selected = useStore((s) => s.selectedProject)
   const tabs = useStore((s) => s.projectTabs)
   const settings = useStore((s) => s.settings)
-  const providers = useStore((s) => s.providers)
   const menu = useContextMenu()
   const project = workspace?.projects.find((p) => p.path === selected) ?? null
   const tab = (project && tabs[project.path]) || 'session'
   const terminalVisibleFor = visible && project && tab === 'session' ? project.path : null
   const panes = usePanes(project)
   const focusedAgent = useFocusedAgent(project)
+  // A narrow header shows its buttons as icons.
+  const [headerRef, headerWidth] = useWidth<HTMLDivElement>()
+  const narrow = headerWidth > 0 && headerWidth < 860
 
   if (!workspace) return null
 
@@ -135,17 +133,14 @@ export function ProjectView({ visible }: { visible: boolean }) {
     )
   }
 
-  // The header's session buttons act on the focused agent; the status badge speaks for all of them.
+  // The header is about the project: its status speaks for all its agents. Each agent's details and
+  // controls are in its pane's header and footer.
   const live = focusedAgent?.live ?? null
   const many = project.agents.length > 1
   const combined = projectState(project)
   // How many agents are in the status the badge shows (e.g. Working · 1 of 2 agents), not just running.
   const inStatus = combined ? project.agents.filter((a) => a.live?.status === combined.status).length : 0
-  const agentId = focusedAgent?.id
-  // The header shows the focused agent's provider, model and effort (its own, else the project's).
-  const provider = agentProviderOf(project, focusedAgent)
-  const pc = projectProviderConfig(project.config, provider)
-  const ps = providerSettings(settings, provider)
+  const running = project.agents.filter((a) => a.live)
   const dangerous = settings
     ? project.agents.flatMap((a) => {
         const l = agentLaunchSettings(a, project.config, settings)
@@ -154,8 +149,6 @@ export function ProjectView({ visible }: { visible: boolean }) {
       })
     : []
   const bypass = dangerous.length > 0
-  const model = effectiveModelLabel(provider, focusedAgent?.model || pc.model, ps.defaultModel, providers[provider]?.defaultModel ?? null)
-  const effort = effortLabel(provider, live?.effort, focusedAgent?.effort ?? pc.effort, ps.defaultEffort)
 
   const restart = async (): Promise<void> => {
     if (!live) return
@@ -168,44 +161,27 @@ export function ProjectView({ visible }: { visible: boolean }) {
   }
 
   return (
-    <div style={{ display: visible ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <div className="project-header">
-        <div>
-          <div className="flex">
-            <h1>{project.name}</h1>
-            <Tooltip
-              content={
-                <span style={{ whiteSpace: 'pre-line' }}>
-                  {many ? project.agents.map((a) => `${a.name}: ${a.live ? a.live.statusMessage ?? STATUS_TEXT[a.live.status] : 'not running'}`).join('\n') : live?.statusMessage ?? (live ? STATUS_TEXT[live.status] : 'No session running')}
+    <div style={{ display: visible ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0 }}>
+      <div className="project-header" ref={headerRef}>
+        <div className="flex">
+          <h1>{project.name}</h1>
+          <Tooltip
+            content={
+              <span style={{ whiteSpace: 'pre-line' }}>
+                {project.agents.length ? project.agents.map((a) => `${a.name}: ${a.live ? a.live.statusMessage ?? STATUS_TEXT[a.live.status] : 'not running'}`).join('\n') : 'No agents yet'}
+              </span>
+            }
+          >
+            <span className={cx('badge', combined?.status === 'working' && 'accent', combined?.status === 'waiting' && 'warn', combined?.status === 'finished' && 'success')}>
+              <span className={cx('dot', combined?.status ?? 'idle')} /> {combined ? STATUS_TEXT[combined.status] : 'No session'}
+              {many && inStatus > 0 && (
+                <span className="faint">
+                  {' '}
+                  · {inStatus} of {project.agents.length} agents
                 </span>
-              }
-            >
-              <span className={cx('badge', combined?.status === 'working' && 'accent', combined?.status === 'waiting' && 'warn', combined?.status === 'finished' && 'success')}>
-                <span className={cx('dot', combined?.status ?? 'idle')} /> {combined ? STATUS_TEXT[combined.status] : 'No session'}
-                {many && inStatus > 0 && (
-                  <span className="faint">
-                    {' '}
-                    · {inStatus} of {project.agents.length} agents
-                  </span>
-                )}
-              </span>
-            </Tooltip>
-          </div>
-          <div className="meta" style={{ marginTop: 4 }}>
-            {project.branch && (
-              <span className="badge">
-                <Icon name="git-branch" /> {project.branch}
-              </span>
-            )}
-            <Tooltip content={live?.effort ? 'Model for new sessions (Project Settings) and the effort the running session reports' : 'Model and effort for new sessions (Project Settings)'}>
-              <span className="badge">
-                <ProviderIcon provider={provider} /> {model}
-                {effort && <span className="faint"> · {effort}</span>}
-              </span>
-            </Tooltip>
-            <ModeBadge project={project} a={focusedAgent} variant="header" />
-            {focusedAgent && <SessionTag project={project} a={focusedAgent} badge />}
-          </div>
+              )}
+            </span>
+          </Tooltip>
         </div>
         <div className="actions">
           <Tooltip content={project.active ? 'You are working on this project' : 'Not working on this project'}>
@@ -213,48 +189,35 @@ export function ProjectView({ visible }: { visible: boolean }) {
               <Switch checked={project.active} onChange={(v) => void actions.setProjectActive(project.path, v)} /> Active
             </label>
           </Tooltip>
-          {many && focusedAgent && (
-            <Tooltip content="The buttons act on the focused agent. Click another agent's pane or tab to switch.">
-              <span className="muted header-agent">{focusedAgent.name}</span>
+          <Tooltip content="Reveal the project folder in File Explorer">
+            <button className="btn subtle" onClick={() => void call('project:openInExplorer', project.path)}>
+              <Icon name="folder-opened" />
+              {!narrow && " Explorer"}
+            </button>
+          </Tooltip>
+          <Tooltip content="Open a terminal in the project folder">
+            <button className="btn subtle" onClick={() => void call('project:openTerminal', project.path)}>
+              <Icon name="terminal" />
+              {!narrow && " Terminal"}
+            </button>
+          </Tooltip>
+          {running.length > 0 && (
+            <Tooltip content={running.length === 1 ? 'Stop the running agent' : `Stop all ${running.length} running agents`}>
+              <button className="btn tint-red" onClick={() => void actions.stopAllAgents(project.path)}>
+                <Icon name="stop-circle" /> {running.length === 1 ? 'Stop Agent' : narrow ? 'Stop All' : 'Stop All Agents'}
+              </button>
             </Tooltip>
-          )}
-          {live ? (
-            <>
-              <CompactButton project={project} />
-              <button className="btn tint-red" onClick={() => void actions.stopSession(project.path, agentId)}>
-                <Icon name="debug-stop" /> Stop
-              </button>
-              <button className="btn subtle" onClick={() => void actions.archiveCurrent(project.path, agentId)}>
-                <Icon name="archive" /> Archive &amp; New
-              </button>
-            </>
-          ) : (
-            <>
-              {focusedAgent ? (
-                <ResumeButton project={project} a={focusedAgent} className="tint-amber" />
-              ) : (
-                <Tooltip content="Adds an agent and resumes the latest session it can">
-                  <button className="btn tint-amber" onClick={() => void actions.resumeLast(project.path)}>
-                    <Icon name="debug-continue" /> Resume
-                  </button>
-                </Tooltip>
-              )}
-              <button className="btn primary" onClick={() => void actions.newSession(project.path, agentId)}>
-                <Icon name="add" /> New Session
-              </button>
-            </>
           )}
           <IconButton
             icon="ellipsis"
             title="More actions"
             onClick={(e) =>
               menu.open(e, [
-                { label: 'Reveal in File Explorer', icon: 'folder-opened', onClick: () => void call('project:openInExplorer', project.path) },
-                { label: 'Open External Terminal', icon: 'terminal', onClick: () => void call('project:openTerminal', project.path) },
-                { separator: true },
                 { label: 'Add Agent', icon: 'person-add', onClick: () => void actions.quickAddAgent(project.path) },
                 { label: 'Add Agent…', icon: 'blank', onClick: () => set({ addAgentFor: project.path }) },
-                { label: 'Archive Session and Start New', icon: 'archive', onClick: () => void actions.archiveCurrent(project.path, agentId) }
+                { separator: true },
+                { label: 'Changes', icon: 'git-compare', onClick: () => setProjectTab(project.path, 'changes') },
+                { label: 'Project Settings', icon: 'settings', onClick: () => setProjectTab(project.path, 'settings') }
               ])
             }
           />
@@ -307,7 +270,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
         <div className={cx('agents-area', tab === 'session' ? 'shown' : 'hidden')}>
           <TerminalLayer visibleFor={terminalVisibleFor} panes={panes} />
           {tab === 'session' && <PaneChrome project={project} panes={panes} />}
-          {tab === 'session' && panes.length === 1 && !live && <SessionEmpty project={project} />}
+          {tab === 'session' && panes.length === 1 && !live && <SessionEmpty project={project} framed={!!focusedAgent} />}
         </div>
         <ErrorBoundary label="This tab" resetKey={`${project.path}|${tab}`}>
           {tab === 'overview' && <OverviewTab project={project} />}
@@ -326,36 +289,3 @@ export function ProjectView({ visible }: { visible: boolean }) {
   )
 }
 
-/**
- * Compact the running session's conversation now. Enabled only while the agent is idle, and
- * highlighted once the context passes the project's (or global) threshold.
- */
-function CompactButton({ project }: { project: ProjectInfo }) {
-  const settings = useStore((s) => s.settings)
-  const usage = useLiveUsage(project)
-  const agent = useFocusedAgent(project)
-  const live = agent?.live
-  if (!live || !agent) return null
-  const threshold = compactThreshold(project.config, settings?.sessions.compactSuggestTokens ?? 0)
-  const tokens = usage?.contextTokens ?? 0
-  const suggested = threshold > 0 && tokens >= threshold
-  const idle = live.status === 'ready' || live.status === 'finished'
-  const empty = !usage || usage.userMessages === 0 || usage.contextTokens === 0
-  const compacting = live.status === 'working' && !!live.statusMessage?.startsWith('Compacting')
-  const tip = compacting
-    ? 'Compacting the conversation…'
-    : idle && empty
-      ? 'Nothing to compact yet: the conversation has no messages.'
-      : !idle
-      ? live.status === 'waiting'
-        ? 'The agent is waiting for your answer. Compact after it has finished.'
-        : 'Available once the agent has finished.'
-      : `Summarise the conversation to shrink its context${usage ? ` (now ${formatTokens(tokens)} tokens)` : ''}. The full history stays in the transcript.${suggested ? ' Recommended: the context is over your threshold.' : ''}`
-  return (
-    <Tooltip content={tip}>
-      <button className={cx('btn subtle', suggested && idle && 'suggest')} disabled={!idle || empty} onClick={() => set({ compactFor: { project: project.path, agentId: agent.id } })}>
-        <Icon name={compacting ? 'loading' : 'fold'} spin={compacting} /> Compact{usage && tokens > 0 ? <span className="btn-count">{formatTokens(tokens)}</span> : null}
-      </button>
-    </Tooltip>
-  )
-}

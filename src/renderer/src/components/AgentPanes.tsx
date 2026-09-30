@@ -1,5 +1,5 @@
-import type { CSSProperties } from 'react'
-import { MAX_AGENTS, SESSION_LAYOUTS, layoutPanes, sessionInAgentFolder } from '@shared/defaults'
+import { useCallback, useRef, useState, type CSSProperties } from 'react'
+import { MAX_AGENTS, SESSION_LAYOUTS, compactThreshold, effectiveModelLabel, effortLabel, layoutPanes, sessionInAgentFolder } from '@shared/defaults'
 import type { AgentInfo, ProjectInfo, SessionLayout, SessionListItem } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
@@ -9,11 +9,12 @@ import { cx, formatTokens, sessionLabel, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
 import { ModeBadge } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
-import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
+import { isProviderEnabled, projectDefaultProvider, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
 import { Icon, IconButton, STATUS_TEXT, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
-/** Height of a pane's header when several agents show at once. */
-const PANE_HEADER = 30
+/** Height of an agent pane's header (who it is, its controls) and footer (its session's details). */
+export const PANE_HEADER = 30
+export const PANE_FOOTER = 24
 
 interface Rect {
   x: number
@@ -28,8 +29,8 @@ function paneRect(count: number, i: number): Rect {
   return { x: i * w, y: 0, w, h: 100 }
 }
 
-function rectStyle(r: Rect, header: number): CSSProperties {
-  return { left: `${r.x}%`, top: `calc(${r.y}% + ${header}px)`, width: `${r.w}%`, height: `calc(${r.h}% - ${header}px)`, right: 'auto', bottom: 'auto' }
+function rectStyle(r: Rect): CSSProperties {
+  return { left: `${r.x}%`, top: `calc(${r.y}% + ${PANE_HEADER}px)`, width: `${r.w}%`, height: `calc(${r.h}% - ${PANE_HEADER + PANE_FOOTER}px)`, right: 'auto', bottom: 'auto' }
 }
 
 /** Which agent each pane of the selected project shows. */
@@ -47,7 +48,6 @@ export function usePanes(project: ProjectInfo | null): (string | null)[] {
 export function TerminalLayer({ visibleFor, panes }: { visibleFor: string | null; panes: (string | null)[] }) {
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   const epochs = useStore((s) => s.sessionEpoch)
-  const header = panes.length > 1 ? PANE_HEADER : 0
   return (
     <>
       {projects.flatMap((p) =>
@@ -60,7 +60,7 @@ export function TerminalLayer({ visibleFor, panes }: { visibleFor: string | null
               key={`${key}:${epochs[key] ?? 0}`}
               ptyKey={key}
               visible={i >= 0}
-              style={i >= 0 ? rectStyle(paneRect(panes.length, i), header) : undefined}
+              style={i >= 0 ? rectStyle(paneRect(panes.length, i)) : undefined}
               projectPath={p.path}
               agentId={a.id}
               provider={agentProviderOf(p, a)}
@@ -188,7 +188,7 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void): MenuEn
           { label: 'Resume a Session…', icon: 'history', onClick: pick },
           { label: 'New Session', icon: 'add', onClick: () => void actions.newSession(project.path, a.id) }
         ]),
-    { label: 'Continue with…', icon: 'arrow-swap', disabled: project.agents.length < 2, onClick: () => set({ continueFor: { project: project.path, agentId: a.id } }) },
+    { label: 'Hand Over to…', icon: 'arrow-swap', disabled: project.agents.length < 2, onClick: () => set({ handOverFor: { project: project.path, agentId: a.id } }) },
     { separator: true },
     { label: 'Agent Settings…', icon: 'settings', onClick: () => set({ agentSettingsFor: { project: project.path, agentId: a.id } }) },
     ...(worktree
@@ -313,15 +313,62 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
   )
 }
 
-/** A pane's header: which agent it shows and that agent's session controls. */
+/** An element's width, kept up to date as it resizes (a callback ref, so it works for an element that mounts later). */
+export function useWidth<T extends HTMLElement>(): [(el: T | null) => void, number] {
+  const [w, setW] = useState(0)
+  const observer = useRef<ResizeObserver | null>(null)
+  const ref = useCallback((el: T | null) => {
+    observer.current?.disconnect()
+    observer.current = null
+    if (!el) return
+    const ro = new ResizeObserver(() => setW(el.clientWidth))
+    ro.observe(el)
+    observer.current = ro
+    setW(el.clientWidth)
+  }, [])
+  return [ref, w]
+}
+
+/** Header buttons with labels while the pane is wide, icons when narrower, and only in ⋯ (which has them all) when narrow. */
+const LABELS_FROM = 620
+const ICONS_FROM = 340
+
 function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInfo; focused: boolean }) {
   const menu = useContextMenu()
   const picker = useSessionPicker()
+  const [ref, width] = useWidth<HTMLDivElement>()
+  const settings = useStore((s) => s.settings)
+  const usage = useLiveUsage(project, a.id)
   const live = a.live
   const idle = live && (live.status === 'ready' || live.status === 'finished')
+  // Compact: while idle and there's a conversation; highlighted once the context passes the threshold.
+  const threshold = compactThreshold(project.config, settings?.sessions.compactSuggestTokens ?? 0)
+  const tokens = usage?.contextTokens ?? 0
+  const suggested = threshold > 0 && tokens >= threshold
+  const empty = !usage || usage.userMessages === 0 || tokens === 0
+  const compacting = live?.status === 'working' && !!live.statusMessage?.startsWith('Compacting')
+  const compactTip = compacting
+    ? 'Compacting the conversation…'
+    : idle && empty
+      ? 'Nothing to compact yet: the conversation has no messages.'
+      : !idle
+        ? live?.status === 'waiting'
+          ? 'The agent is waiting for your answer. Compact after it has finished.'
+          : 'Available once the agent has finished.'
+        : `Summarise the conversation to shrink its context${usage ? ` (now ${formatTokens(tokens)} tokens)` : ''}. The full history stays in the transcript.${suggested ? ' Recommended: the context is over your threshold.' : ''}`
   const pick = (x: number, y: number) => () => void picker.openAt(project, a, x, y)
+  const size = width >= LABELS_FROM ? 'labels' : width >= ICONS_FROM ? 'icons' : 'menu'
+  /** A header button: labelled or an icon with a tooltip, by the pane's width. */
+  const btn = (icon: string, label: string, onClick: (e: React.MouseEvent<HTMLButtonElement>) => void, tone: string, opts: { disabled?: boolean; tip?: string } = {}) => (
+    <Tooltip key={label} content={opts.tip ?? label}>
+      <button type="button" className={cx('btn small pane-btn', tone, size === 'icons' && 'icon-only')} disabled={opts.disabled} aria-label={label} onClick={(e) => { e.stopPropagation(); onClick(e) }}>
+        <Icon name={icon} />
+        {size === 'labels' && <span>{label}</span>}
+      </button>
+    </Tooltip>
+  )
   return (
-    <div className={cx('pane-header-bar', focused && 'focused')} onMouseDown={() => focusAgent(project.path, a.id)} onContextMenu={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY)))}>
+    <div ref={ref} className={cx('pane-header-bar', focused && 'focused')} onMouseDown={() => focusAgent(project.path, a.id)} onContextMenu={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY)))}>
       <StatusDot live={live} active={project.active} />
       <Tooltip content={providerName(agentProviderOf(project, a))}>
         <span>
@@ -337,26 +384,71 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         </Tooltip>
       )}
       <span className="faint pane-status">{live ? live.statusMessage ?? STATUS_TEXT[live.status] : 'Not running'}</span>
-      <ModeBadge project={project} a={a} variant="pane" />
       <SessionTag project={project} a={a} />
       <Locks a={a} />
       <div className="grow" />
-      {live ? (
-        <>
-          <IconButton icon="fold" title="Compact…" disabled={!idle} onClick={() => set({ compactFor: { project: project.path, agentId: a.id } })} />
-          <IconButton icon="debug-stop" title="Stop" onClick={() => void actions.stopSession(project.path, a.id)} />
-        </>
-      ) : (
-        <>
-          <IconButton icon="debug-continue" title={resumeTip(project, a)} disabled={!a.resume} onClick={() => void actions.resumeLast(project.path, a.id)} />
-          <IconButton icon="history" title="Resume a Session…" onClick={(e) => picker.openBelow(e.currentTarget, project, a)} />
-          <IconButton icon="add" title="New Session" onClick={() => void actions.newSession(project.path, a.id)} />
-        </>
-      )}
-      {a.worktree && <IconButton icon="git-merge" title="Merge…" onClick={() => set({ mergeFor: { project: project.path, agentId: a.id } })} />}
+      {size !== 'menu' &&
+        (live ? (
+          <>
+            {btn(compacting ? 'loading' : 'fold', 'Compact', () => set({ compactFor: { project: project.path, agentId: a.id } }), cx('subtle', suggested && idle && 'suggest'), { disabled: !idle || empty, tip: compactTip })}
+            {btn('stop-circle', 'Stop', () => void actions.stopSession(project.path, a.id), 'tint-red', { tip: 'Stop this agent (the conversation is kept; resume it any time)' })}
+            {btn('archive', 'Archive & New', () => void actions.archiveCurrent(project.path, a.id), 'subtle', { tip: 'Archive this session and start a new one' })}
+          </>
+        ) : (
+          <>
+            {btn('debug-continue', 'Resume', () => void actions.resumeLast(project.path, a.id), 'tint-amber', { disabled: !a.resume, tip: resumeTip(project, a) })}
+            {btn('history', 'Resume a Session…', (e) => picker.openBelow(e.currentTarget, project, a), 'subtle')}
+            {btn('add', 'New Session', () => void actions.newSession(project.path, a.id), 'primary')}
+          </>
+        ))}
+      {a.worktree && size !== 'menu' && btn('git-merge', 'Merge…', () => set({ mergeFor: { project: project.path, agentId: a.id } }), 'subtle')}
       <IconButton icon="ellipsis" title="More" onClick={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY)))} />
       {menu.element}
       {picker.element}
+    </div>
+  )
+}
+
+/** The agent's session details: model and effort, permission mode, context used and cost. */
+function PaneFooter({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
+  const settings = useStore((s) => s.settings)
+  const providers = useStore((s) => s.providers)
+  const usage = useLiveUsage(project, a.id)
+  const provider = agentProviderOf(project, a)
+  const pc = projectProviderConfig(project.config, provider)
+  const ps = providerSettings(settings, provider)
+  const live = a.live
+  const model = effectiveModelLabel(provider, a.model || pc.model, ps.defaultModel, providers[provider]?.defaultModel ?? null)
+  const effort = effortLabel(provider, live?.effort, a.effort ?? pc.effort, ps.defaultEffort)
+  const threshold = compactThreshold(project.config, settings?.sessions.compactSuggestTokens ?? 0)
+  const ctx = usage?.contextTokens ?? 0
+  const over = threshold > 0 && ctx >= threshold
+  const cost = live?.costUsd ?? usage?.costUsd ?? null
+  const estimated = live?.costUsd !== undefined ? !!live.costEstimated : !!usage?.costEstimated
+  return (
+    <div className="pane-footer-bar" onMouseDown={() => focusAgent(project.path, a.id)}>
+      <Tooltip content={`${providerName(provider)} model${effort ? ' and effort' : ''} ${live ? 'of this session' : 'for new sessions'}${live?.effort ? ' (effort as the session reports it)' : ''}. Change them in Agent Settings or Project Settings.`}>
+        <span className="pane-foot-item" onClick={() => set({ agentSettingsFor: { project: project.path, agentId: a.id } })}>
+          {model}
+          {effort && <span className="faint"> · {effort}</span>}
+        </span>
+      </Tooltip>
+      <ModeBadge project={project} a={a} variant="pane" />
+      <div className="grow" />
+      {usage && (
+        <Tooltip content={`Context: ${ctx.toLocaleString()} tokens${usage.contextWindow ? ` of ${usage.contextWindow.toLocaleString()}` : ''} · ${usage.compactions.length} compaction(s)${over ? ' — consider compacting' : ''}`}>
+          <span className={cx('pane-foot-item', over && 'warn')} onClick={() => setProjectTab(project.path, 'overview')}>
+            <Icon name="dashboard" /> {formatTokens(ctx)} ctx
+          </span>
+        </Tooltip>
+      )}
+      {cost !== null && cost > 0 && (
+        <Tooltip content={estimated ? 'API-equivalent cost of this session, estimated by Hive from its tokens' : 'API-equivalent cost of this session, as the provider reports it'}>
+          <span className="pane-foot-item faint">
+            {estimated ? '≈' : ''}${cost < 0.01 ? '<0.01' : cost.toFixed(2)}
+          </span>
+        </Tooltip>
+      )}
     </div>
   )
 }
@@ -438,10 +530,12 @@ export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (s
             className={cx('agent-pane', !single && 'framed', !single && focused === id && 'focused', r.x > 0 && 'left-border', r.y > 0 && 'top-border')}
             style={{ left: `${r.x}%`, top: `${r.y}%`, width: `${r.w}%`, height: `${r.h}%` }}
           >
-            {!single && a && <PaneHeader project={project} a={a} focused={focused === a.id} />}
-            <div className="agent-pane-body" style={{ top: single ? 0 : PANE_HEADER }}>
+            {/* One agent or several: every agent pane has the same header and footer. */}
+            {a && <PaneHeader project={project} a={a} focused={!single && focused === a.id} />}
+            <div className="agent-pane-body" style={{ top: a ? PANE_HEADER : 0, bottom: a ? PANE_FOOTER : 0 }}>
               <PaneBody project={project} a={a} hasTerminal={hasTerminal} single={single} />
             </div>
+            {a && <PaneFooter project={project} a={a} />}
           </div>
         )
       })}

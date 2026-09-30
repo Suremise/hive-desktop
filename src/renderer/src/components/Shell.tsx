@@ -1,15 +1,13 @@
-import { compactThreshold, effectiveModelLabel, effortLabel } from '@shared/defaults'
 import type { PlanLimit } from '@shared/types'
-import { useLiveUsage, useNow } from '../usage'
+import { useNow } from '../usage'
 import { runCommand } from '../commands'
-import { NO_PROJECTS, agentProviderOf, setActivity, set, useFocusedAgent, useStore, type Activity } from '../store'
-import { enabledProviders, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
+import { NO_PROJECTS, setActivity, set, useStore, type Activity } from '../store'
+import { enabledProviders } from '@shared/providers'
 import { ProviderIcon } from './ProviderIcon'
-import { cx, formatKeybinding, formatTokens, resetsIn, timeAgo } from '../util'
+import { cx, formatKeybinding, resetsIn, timeAgo } from '../util'
 import { commandKeybinding } from '../commands'
 import { Icon, Tooltip } from './ui'
 import { UpdateStatusItem } from './Updates'
-import { ModeBadge } from './PermissionMode'
 
 const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }[] = [
   { id: 'projects', icon: 'files', label: 'Projects', command: 'view.projects' },
@@ -55,12 +53,8 @@ export function ActivityBar() {
 export function StatusBar() {
   const workspace = useStore((s) => s.workspace)
   const selected = useStore((s) => s.selectedProject)
-  const providers = useStore((s) => s.providers)
   const api = useStore((s) => s.api)
-  const settings = useStore((s) => s.settings)
   const project = workspace?.projects.find((p) => p.path === selected)
-  const usage = useLiveUsage(project)
-  const focused = useFocusedAgent(project)
 
   if (!workspace) {
     return (
@@ -78,14 +72,6 @@ export function StatusBar() {
   const live = workspace.projects.flatMap((p) => p.agents.map((a) => a.live).filter((l) => !!l))
   const working = live.filter((l) => l!.status === 'working').length
   const waiting = live.filter((l) => l!.status === 'waiting').length
-  const cfg = project?.config
-  const threshold = compactThreshold(cfg, settings?.sessions.compactSuggestTokens ?? 0)
-  const overThreshold = !!usage && threshold > 0 && usage.contextTokens >= threshold
-  const provider = agentProviderOf(project, focused)
-  const pc = projectProviderConfig(cfg, provider)
-  const ps = providerSettings(settings, provider)
-  const model = effectiveModelLabel(provider, focused?.model || pc.model, ps.defaultModel, providers[provider]?.defaultModel ?? null)
-  const effort = effortLabel(provider, focused?.live?.effort, focused?.effort ?? pc.effort, ps.defaultEffort)
 
   return (
     <div className="statusbar">
@@ -112,27 +98,8 @@ export function StatusBar() {
         </div>
       </Tooltip>
       <div className="status-spacer" />
+      {/* App-wide items only: each agent's model, effort, mode and context are in its pane's footer. */}
       <PlanUsageStatus />
-      {project && (
-        <>
-          {usage && (
-            <Tooltip
-              content={`Current context: ${usage.contextTokens.toLocaleString()} tokens · ${usage.compactions.length} compaction(s)${overThreshold ? ' — consider compacting (Session → Compact Conversation)' : ''}`}
-            >
-              <div className={cx('status-item', overThreshold && 'warn')} onClick={() => runCommand('project.tab.overview')}>
-                <Icon name="dashboard" /> {formatTokens(usage.contextTokens)} ctx
-              </div>
-            </Tooltip>
-          )}
-          <Tooltip content={`${providerName(provider)} model${effort ? ' and effort' : ''} for this project's sessions${focused?.live?.effort ? ' (effort as reported by the running session)' : ''}${project.agents.length > 1 && focused ? ` — ${focused.name}` : ''}. Change them in Project Settings.`}>
-            <div className="status-item" onClick={() => runCommand('project.tab.settings')}>
-              <ProviderIcon provider={provider} /> {model}
-              {effort && <span className="status-sub">· {effort}</span>}
-            </div>
-          </Tooltip>
-          <ModeBadge project={project} a={focused} variant="status" />
-        </>
-      )}
       <Tooltip content={api?.running ? `Agent API listening on ${api.url}` : api?.error ? `Agent API: ${api.error}` : 'Agent API is off'}>
         <div className="status-item" onClick={() => {
             set({ settingsSection: 'agentApi' })

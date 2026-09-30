@@ -18,7 +18,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))
-  await page.setViewportSize({ width: 1400, height: 850 }).catch(() => {})
+  await lib.fitWindow(app, page, { width: 1400, height: 850 })
   await sleep(1500)
   await page.keyboard.press('Escape')
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
@@ -37,7 +37,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   check('session ready', (await live())?.status === 'ready', (await live())?.status)
   check('starts in Auto', await waitMode('auto'), (await live())?.permissionMode)
   await page.screenshot({ path: path.join(scratch, 'mode-1-auto.png') })
-  check('header badge shows Auto', /Auto/.test(await page.locator('.project-header .mode-badge').innerText()))
+  check('header badge shows Auto', /Auto/.test(await page.locator('.pane-footer-bar .mode-badge').innerText()))
 
   // API switch (what the menu uses)
   let r = await inv('session:setMode', proj, agent.id, 'plan')
@@ -50,7 +50,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   check('no restart banner for mode changes', (await page.locator('.banner', { hasText: 'Restart the session' }).count()) === 0)
 
   // Badge menu → Auto
-  await page.locator('.project-header .mode-badge').click(); await sleep(400)
+  await page.locator('.pane-footer-bar .mode-badge').click(); await sleep(400)
   const items = await page.locator('.menu .menu-item').allTextContents()
   check('menu lists modes with the current one marked', items.some((t) => /Accept edits.*Current mode/.test(t)) && items.some((t) => /Don't ask.*Restarts the session/.test(t)), JSON.stringify(items.slice(0, 6)))
   await page.screenshot({ path: path.join(scratch, 'mode-2-menu.png') })
@@ -65,13 +65,14 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
 
   // Don't ask needs a restart; the conversation id is kept
   const sid = (await live()).sessionId
-  await page.locator('.project-header .mode-badge').click(); await sleep(300)
+  await page.locator('.pane-footer-bar .mode-badge').click(); await sleep(300)
   await page.locator('.menu .menu-item', { hasText: "Don't ask" }).click(); await sleep(400)
   check('restart is confirmed first', await page.locator('.dialog', { hasText: "Restart in Don't ask?" }).count() === 1)
   await page.locator('.dialog button', { hasText: 'Restart' }).last().click()
   const t1 = Date.now(); while (Date.now() - t1 < 25000 && !((await live())?.permissionMode === 'dontAsk' && (await live())?.status === 'ready')) await sleep(300)
   const l2 = await live()
-  check("restarted in Don't ask, same conversation", l2?.permissionMode === 'dontAsk' && l2?.sessionId === sid, JSON.stringify({ m: l2?.permissionMode, same: l2?.sessionId === sid }))
+  // Nothing was typed in this session, so there is no conversation to resume: it restarts as a new one.
+  check("restarted in Don't ask (a new session: nothing to resume yet)", l2?.permissionMode === 'dontAsk' && l2?.status === 'ready' && l2?.sessionId !== sid, JSON.stringify({ m: l2?.permissionMode, status: l2?.status, same: l2?.sessionId === sid }))
 
   // Settings change: offered, not forced
   await inv('project:updateConfig', proj, { providers: { 'claude-code': { model: 'inherit', effort: 'inherit', permissionMode: 'plan', extraArgs: '' } } }); await inv('workspace:refresh'); await sleep(1500)

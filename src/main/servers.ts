@@ -324,7 +324,7 @@ route('POST', '/v1/projects/:name/input', async ({ params, body }) => {
   return { ok: true }
 })
 
-route('POST', '/v1/projects/:name/continue', async ({ params, body }) => {
+route('POST', '/v1/projects/:name/handover', async ({ params, body }) => {
   if (!config.settings.agentApi.allowSessionInput) throw new HttpError(403, 'Session input is disabled. Enable it in Settings → Agent API.')
   const p = projectByName(params[0])
   const from = await agentParam(p, body?.from)
@@ -332,7 +332,7 @@ route('POST', '/v1/projects/:name/continue', async ({ params, body }) => {
   const to = await agentParam(p, body.to)
   if (from === to) throw new HttpError(400, 'from and to must be different agents')
   // It can take minutes (the handover is written first): answer now, report failures in Hive.
-  void sessions.continueWith(p, from, to, { handover: body?.handover !== false }).catch((e) => toast('error', 'Could not continue the work', (e as Error).message, undefined, p))
+  void sessions.handOver(p, from, to, { handover: body?.handover !== false }).catch((e) => toast('error', 'Could not hand over the work', (e as Error).message, undefined, p))
   return { ok: true }
 })
 

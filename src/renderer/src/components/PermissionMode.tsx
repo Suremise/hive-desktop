@@ -21,7 +21,7 @@ export function currentMode(project: ProjectInfo, a: AgentInfo | null | undefine
 /** Opens the permission mode menu for an agent, under an element (or at the window's centre). */
 export function openModeMenu(projectPath: string, agentId: string, anchor?: Element | null): void {
   const r = anchor?.getBoundingClientRect()
-  set({ modeMenu: { project: projectPath, agentId, x: r ? r.left : window.innerWidth / 2 - 150, y: r ? r.bottom + 4 : 120 } })
+  set({ modeMenu: { project: projectPath, agentId, x: r ? r.left : window.innerWidth / 2 - 150, y: r ? r.bottom + 4 : 120, above: r?.top } })
 }
 
 /** Confirms choosing a provider's no-guardrails mode (Claude Code's Bypass, Codex's Full Access). */
@@ -133,7 +133,7 @@ export function ModeMenuHost() {
   if (!menu || !project || !settings) return null
   const a = project.agents.find((x) => x.id === menu.agentId)
   if (!a) return null
-  return <ContextMenu x={menu.x} y={menu.y} items={menuItems(project, a, settings)} onClose={() => set({ modeMenu: null })} />
+  return <ContextMenu x={menu.x} y={menu.y} above={menu.above} items={menuItems(project, a, settings)} onClose={() => set({ modeMenu: null })} />
 }
 
 /** The permission mode as a clickable badge (project header), chip (pane header) or status bar item. */

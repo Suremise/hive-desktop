@@ -184,13 +184,13 @@ Omit `resumeId` to start a new session. Returns the live session state (which in
 
 `submit` (default `true`) presses Enter after the text.
 
-`POST /v1/projects/{name}/continue` — continue one agent's work in another, which may use a different provider (**Continue with…** in Hive). Also needs *Allow sending input to sessions*, and Hive's tools in sessions.
+`POST /v1/projects/{name}/handover` — hand one agent's work over to another, which may use a different provider (**Hand Over to…** in Hive). Also needs *Allow sending input to sessions*, and Hive's tools in sessions.
 
 ```json
 { "from": "Agent 1", "to": "Reviewer", "handover": true }
 ```
 
-With `handover` (the default), `from` must be running and idle: it is asked to write a handover with `hive_create_handover`, and Hive waits until a new handover for the project exists (not just for the agent to stop). Then `to` starts a new session (or, if it is running and idle, gets the message in its current one) and reads the latest handover. The call returns `{ "ok": true }` at once; the handover can take minutes, and problems are shown as notifications in Hive. The new session's record has `continuedFrom`, the session it continues.
+With `handover` (the default), `from` must be running and idle: it is asked to write a handover with `hive_create_handover`, and Hive waits until a new handover for the project exists (not just for the agent to stop). Then `to` starts a new session (or, if it is running and idle, gets the message in its current one) and reads the latest handover. The call returns `{ "ok": true }` at once; the handover can take minutes, and problems are shown as notifications in Hive. The new session's record has `handedOverFrom`, the session whose work it took over.
 
 ### Shared notes
 

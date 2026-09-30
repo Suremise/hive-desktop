@@ -19,7 +19,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))
-  await page.setViewportSize({ width: 1500, height: 950 }).catch(() => {})
+  await lib.fitWindow(app, page, { width: 1500, height: 950 })
   await sleep(1500)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await inv('workspace:open', ws); await sleep(800)
@@ -34,6 +34,13 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   p0 = (await inv('workspace:refresh')).projects[0]
   check('quick add: Agent 1, default provider, project folder', p0.agents.length === 1 && p0.agents[0].name === 'Agent 1' && p0.agents[0].provider === 'claude-code' && !p0.agents[0].worktree, JSON.stringify(p0.agents))
   check('one agent: single layout', p0.config.sessionLayout === 'single', p0.config.sessionLayout)
+  // One agent or several, each pane has its header (who, controls) and footer (model, mode…).
+  check('a single agent has its pane header', (await page.locator('.pane-header-bar', { hasText: 'Agent 1' }).count()) === 1)
+  check('…and footer with model and mode', (await page.locator('.pane-footer-bar .mode-badge').count()) === 1)
+  check('its session buttons are in its header', (await page.locator('.pane-header-bar button[aria-label="New Session"]').count()) === 1)
+  const headerText = await page.locator('.project-header').innerText()
+  check('the project header keeps project items only', !/New Session|Archive|Compact/.test(headerText) && (await page.locator('.project-header .mode-badge').count()) === 0, headerText.replace(/\s+/g, ' '))
+  check('the status bar has no agent model or mode', (await page.locator('.statusbar .mode-badge, .statusbar .status-item', { hasText: /ctx$|Auto$/ }).count()) === 0)
 
   // Add Agent dialog (▾), new worktree option
   await page.locator('.agent-add.split-caret').click(); await sleep(800)

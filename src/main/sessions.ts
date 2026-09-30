@@ -799,21 +799,21 @@ class SessionManager {
   }
 
   /**
-   * Continues one agent's work in another (any provider): the source writes a handover with Hive's
+   * Hands one agent's work over to another (any provider): the source writes a handover with Hive's
    * hive_create_handover tool, then the target starts and picks it up with hive_read_latest_handover.
    * Conversations can't move between providers; a handover carries the work instead.
    */
-  async continueWith(projectPath: string, fromAgentId: string, toAgentId: string, opts: { handover: boolean }): Promise<void> {
+  async handOver(projectPath: string, fromAgentId: string, toAgentId: string, opts: { handover: boolean }): Promise<void> {
     projectPath = workspace.assertProject(projectPath)
-    if (fromAgentId === toAgentId) throw new Error('Choose another agent to continue the work.')
-    if (!this.hiveMcp(projectPath)) throw new Error('Continuing needs Hive\'s tools in sessions: turn on "Provide Hive tools to sessions" in Settings → Agent API.')
+    if (fromAgentId === toAgentId) throw new Error('Choose another agent to hand the work over to.')
+    if (!this.hiveMcp(projectPath)) throw new Error('Handing over needs Hive\'s tools in sessions: turn on "Provide Hive tools to sessions" in Settings → Agent API.')
     const { agent: to } = await this.agentDef(projectPath, toAgentId)
     const { agent: from } = await this.agentDef(projectPath, fromAgentId)
     const source = this.live.get(liveId(projectPath, fromAgentId))?.state ?? null
     const fromSession = source?.sessionId || from.lastSessionId || ''
     if (opts.handover) {
-      if (!source) throw new Error(`${from.name} isn't running. Resume it to write a handover, or continue from the latest handover.`)
-      if (source.status !== 'ready' && source.status !== 'finished') throw new Error(`${from.name} is busy. Continue once it has finished.`)
+      if (!source) throw new Error(`${from.name} isn't running. Resume it to write a handover, or hand over the latest handover.`)
+      if (source.status !== 'ready' && source.status !== 'finished') throw new Error(`${from.name} is busy. Hand over once it has finished.`)
       // Proof, not status: the target starts only once a handover newer than this one exists.
       const before = await this.latestHandover(projectPath)
       const isNew = (h: { relPath: string; modified: string } | null): boolean => !!h && (!before || h.relPath !== before.relPath || h.modified > before.modified)
@@ -830,27 +830,27 @@ class SessionManager {
         if (isNew(await this.latestHandover(projectPath).catch(() => null))) break
         const st = this.live.get(liveId(projectPath, fromAgentId))?.state
         if (!st) throw new Error(`${from.name} stopped before writing a handover.`)
-        if (st.status === 'waiting') throw new Error(`${from.name} is asking you something before it can write the handover. Answer it, then continue again without a new handover.`)
+        if (st.status === 'waiting') throw new Error(`${from.name} is asking you something before it can write the handover. Answer it, then hand over again without a new handover.`)
         // Finished without one (the file can land a moment after the turn ends): give it 20 seconds.
         idleSince = st.status === 'finished' || st.status === 'ready' ? idleSince || Date.now() : 0
-        if (idleSince && Date.now() - idleSince > 20_000 && Date.now() - t0 > 30_000) throw new Error(`${from.name} finished without writing a handover. Ask it to write one, then continue again without a new handover.`)
+        if (idleSince && Date.now() - idleSince > 20_000 && Date.now() - t0 > 30_000) throw new Error(`${from.name} finished without writing a handover. Ask it to write one, then hand over again without a new handover.`)
         if (Date.now() - t0 > 15 * 60_000) throw new Error(`${from.name} didn't write its handover in 15 minutes.`)
       }
     }
     // The target: started fresh when idle, or given the message in its running session.
     let target = this.live.get(liveId(projectPath, toAgentId))?.state ?? null
-    if (target && target.status !== 'ready' && target.status !== 'finished') throw new Error(`${to.name} is busy. Continue once it has finished.`)
+    if (target && target.status !== 'ready' && target.status !== 'finished') throw new Error(`${to.name} is busy. Hand over once it has finished.`)
     if (!target) {
       await this.start(projectPath, { agentId: toAgentId })
       // Minutes, not seconds: the CLI may first ask something (e.g. whether to trust the folder).
       target = await this.waitStatus(projectPath, toAgentId, (s) => !s || s.status === 'ready', 5 * 60_000).catch(() => null)
-      if (!target) throw new Error(`${to.name} didn't become ready. Answer any question in its terminal, then continue again without a new handover.`)
+      if (!target) throw new Error(`${to.name} didn't become ready. Answer any question in its terminal, then hand over again without a new handover.`)
       await new Promise((r) => setTimeout(r, 1500))
     }
     await this.sendPrompt(projectPath, toAgentId, `Read the latest handover for this project with the hive_read_latest_handover tool and continue the work from it. It was written by ${from.name}.`)
     // Link the sessions once the target's id is known (Codex reports it with the first prompt).
     const linked = await this.waitStatus(projectPath, toAgentId, (s) => !s || !!s.sessionId, 60_000).catch(() => null)
-    if (linked?.sessionId && fromSession) await workspace.upsertSession(projectPath, { id: linked.sessionId, continuedFrom: fromSession }).catch(() => undefined)
+    if (linked?.sessionId && fromSession) await workspace.upsertSession(projectPath, { id: linked.sessionId, handedOverFrom: fromSession }).catch(() => undefined)
   }
 
   /** Turns a running agent's Plan mode on or off (providers where it is a toggle, e.g. Codex's Shift+Tab). */
@@ -873,6 +873,10 @@ class SessionManager {
     const l = this.live.get(id)
     if (!l) throw new Error('No session is running for this agent.')
     const { sessionId, sessionName } = l.state
+    // A session nobody has typed in yet has no conversation (its transcript, if any, holds no messages,
+    // and the CLI answers "no conversation found" to --resume): start a new one in the mode instead.
+    const usage = sessionId ? await this.usage(projectPath, sessionId).catch(() => null) : null
+    const resumable = !!sessionId && (usage?.userMessages ?? 0) > 0
     const previous = this.exitWaiters.get(id)
     const exited = new Promise<void>((res) =>
       this.exitWaiters.set(id, () => {
@@ -882,7 +886,7 @@ class SessionManager {
     )
     this.stop(projectPath, agentId)
     await Promise.race([exited, new Promise((r) => setTimeout(r, 8000))])
-    await this.start(projectPath, { resumeId: sessionId || undefined, name: sessionName, agentId, permissionMode: mode })
+    await this.start(projectPath, { resumeId: resumable ? sessionId : undefined, name: sessionName, agentId, permissionMode: mode })
   }
 
   // A changed mode setting applies to new sessions; for running ones, Hive offers to switch them now.

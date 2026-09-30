@@ -123,7 +123,7 @@ export interface HiveRequests {
   /** Lets an agent edit a file another agent holds ("Ask me" lock, for CLIs that can't ask themselves). */
   'session:allowLockedEdit': (projectPath: string, agentId: string, path: string) => void
   /** Continues one agent's work in another, of any provider: a handover from the source (optional), then the target picks it up. */
-  'session:continueWith': (projectPath: string, fromAgentId: string, toAgentId: string, opts: { handover: boolean }) => void
+  'session:handOver': (projectPath: string, fromAgentId: string, toAgentId: string, opts: { handover: boolean }) => void
   /** Turns Plan mode on or off in a running agent, for providers where it is a toggle (Codex). */
   'session:setPlanMode': (projectPath: string, agentId: string, on: boolean) => void
   /** Stops the agent and resumes the same conversation in the given mode. */

@@ -38,7 +38,7 @@ const SUITES = [
   { name: 'codex-setup', needs: ['codex'] },
   { name: 'codex', needs: ['codex'] },
   { name: 'codex-extra', needs: ['codex'] },
-  { name: 'codex-continue', needs: ['codex'] },
+  { name: 'codex-handover', needs: ['codex'] },
   { name: 'packaged', needs: ['packaged'] },
   { name: 'packaged-mcp', needs: ['packaged'] },
   { name: 'packaged-transcript', needs: ['packaged'] }

@@ -37,7 +37,7 @@ function prepare() {
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => results.push(`PAGEERROR ${e.message}`))
-  await page.setViewportSize({ width: 1400, height: 850 }).catch(() => {})
+  await lib.fitWindow(app, page, { width: 1400, height: 850 })
   await sleep(2000)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   const waitFor = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < ms) { const v = await fn(); if (v) return v; await sleep(500) } return null }

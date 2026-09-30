@@ -1,4 +1,4 @@
-// "Continue with…": the dialog, then a stopped Claude Code agent → Codex from the latest handover, then
+// "Hand Over to…": the dialog, then a stopped Claude Code agent → Codex from the latest handover, then
 // Codex writes a handover and a second Codex agent continues from it. Short prompts on a small model.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -32,7 +32,7 @@ const check = (name, ok, extra = '') => {
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
   const page = await app.firstWindow()
-  await page.setViewportSize({ width: 1400, height: 850 }).catch(() => {})
+  await lib.fitWindow(app, page, { width: 1400, height: 850 })
   await sleep(2000)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await inv('workspace:open', ws)
@@ -52,16 +52,16 @@ const check = (name, ok, extra = '') => {
   await page.screenshot({ path: path.join(scratch, 'cont-0-before.png') })
   await page.locator('.pane-header-bar').first().click({ button: 'right' })
   await sleep(300)
-  await page.getByText('Continue with…').first().click()
+  await page.getByText('Hand Over to…').first().click()
   await sleep(400)
-  const dialog = await page.locator('.dialog-header', { hasText: 'Continue' }).count()
+  const dialog = await page.locator('.dialog-header', { hasText: 'Hand over' }).count()
   await page.screenshot({ path: path.join(scratch, 'cont-1-dialog.png') })
   check('dialog opens', dialog > 0)
   await page.keyboard.press('Escape')
 
   // 1. Claude Code isn't running: Codex starts and reads the latest handover.
   const t0 = Date.now()
-  await inv('session:continueWith', proj, claude.id, cx.id, { handover: false })
+  await inv('session:handOver', proj, claude.id, cx.id, { handover: false })
   const codexLive = (await agents()).find((a) => a.id === cx.id).live
   check('codex started and got the prompt', !!codexLive, `${Math.round((Date.now() - t0) / 1000)}s`)
   // Wait for Codex to finish its turn.
@@ -74,7 +74,7 @@ const check = (name, ok, extra = '') => {
   const sessions = JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8'))
   const rec = (sessions.sessions ?? sessions).find?.((s) => s.id === l1.sessionId)
   check('codex session recorded', !!rec, l1.sessionId)
-  check('no continuedFrom without a source session', !rec?.continuedFrom || true)
+  check('no handedOverFrom without a source session', !rec?.handedOverFrom || true)
   await page.screenshot({ path: path.join(scratch, 'cont-2-codex.png') })
   const tr = await inv('transcript:read', proj, l1.sessionId).catch((e) => ({ error: String(e) }))
   const text = JSON.stringify(tr)
@@ -83,8 +83,8 @@ const check = (name, ok, extra = '') => {
 
   // 2. Codex writes a handover, a second Codex agent continues from it.
   const t1 = Date.now()
-  await inv('session:continueWith', proj, cx.id, cx2.id, { handover: true })
-  check('continue from codex returned', true, `${Math.round((Date.now() - t1) / 1000)}s`)
+  await inv('session:handOver', proj, cx.id, cx2.id, { handover: true })
+  check('hand over from codex returned', true, `${Math.round((Date.now() - t1) / 1000)}s`)
   const hs = fs.readdirSync(hdir)
   check('codex wrote a new handover', hs.length >= 2, hs.join(', '))
   for (let i = 0; i < 60; i++) {
@@ -95,7 +95,7 @@ const check = (name, ok, extra = '') => {
   const l2 = (await agents()).find((a) => a.id === cx2.id).live
   const s2 = JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8'))
   const rec2 = (s2.sessions ?? s2).find?.((s) => s.id === l2?.sessionId)
-  check('second session linked to the first', rec2?.continuedFrom === l1.sessionId, JSON.stringify(rec2?.continuedFrom))
+  check('second session linked to the first', rec2?.handedOverFrom === l1.sessionId, JSON.stringify(rec2?.handedOverFrom))
   await page.screenshot({ path: path.join(scratch, 'cont-3-codex2.png') })
   await page.locator('.tab', { hasText: 'Sessions' }).first().click().catch(() => undefined)
   await sleep(1500)

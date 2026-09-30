@@ -12,7 +12,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))
-  await page.setViewportSize({ width: 1300, height: 850 }).catch(() => {})
+  await lib.fitWindow(app, page, { width: 1300, height: 850 })
   await sleep(2000)
   // Setup dialog may show on a fresh profile; close any modal first.
   await page.keyboard.press('Escape'); await sleep(300)

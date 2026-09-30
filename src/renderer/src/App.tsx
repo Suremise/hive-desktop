@@ -4,7 +4,7 @@ import { call } from './api'
 import { playChime } from './chime'
 import { matchKeybinding, runCommand } from './commands'
 import { AboutDialog, AgentSetupDialog, CommandPalette, CompactDialog, Dialogs, NotificationCenter, ProvidersBanner, QuitDialog, QuitPendingBanner, ShortcutsDialog, Toasts } from './components/Overlays'
-import { AddAgentDialog, AgentSettingsDialog, ContinueDialog, MergeDialog } from './components/AgentDialogs'
+import { AddAgentDialog, AgentSettingsDialog, HandOverDialog, MergeDialog } from './components/AgentDialogs'
 import { UpdateDialog } from './components/Updates'
 import { ModeMenuHost } from './components/PermissionMode'
 import { ActivityBar, StatusBar } from './components/Shell'
@@ -249,7 +249,7 @@ export function App() {
       <AddAgentDialog />
       <AgentSettingsDialog />
       <MergeDialog />
-      <ContinueDialog />
+      <HandOverDialog />
       <AboutDialog />
       <UpdateDialog />
       <ModeMenuHost />

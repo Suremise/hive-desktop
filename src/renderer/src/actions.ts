@@ -5,6 +5,7 @@ import { MAX_AGENTS, sessionInAgentFolder } from '@shared/defaults'
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { formatTokens } from './util'
+import { STATUS_TEXT } from './components/ui'
 
 /** Runs an async action and shows a toast if it fails. */
 export async function attempt<T>(title: string, fn: () => Promise<T>): Promise<T | undefined> {
@@ -324,18 +325,17 @@ export async function stopSession(path: string | null = get().selectedProject, a
 
 export async function stopAllAgents(path: string): Promise<void> {
   const p = project(path)
-  const running = p?.agents.filter((a) => a.live).length ?? 0
-  if (!running) return
-  if (get().settings?.sessions.confirmStop) {
-    const ok = await confirm({
-      title: 'Stop all agents?',
-      message: `Stop the ${running} running sessions in ${p!.name}?`,
-      detail: 'Their conversations are kept and can be resumed later.',
-      confirmLabel: 'Stop all',
-      danger: true
-    })
-    if (!ok) return
-  }
+  const running = p?.agents.filter((a) => a.live) ?? []
+  if (!running.length) return
+  // Always asks, naming each agent that will stop and what it's doing.
+  const ok = await confirm({
+    title: running.length === 1 ? 'Stop the agent?' : 'Stop all agents?',
+    message: `These ${running.length === 1 ? 'agent stops' : `${running.length} agents stop`} in ${p!.name}:`,
+    detail: `${running.map((a) => `• ${a.name} — ${a.live!.statusMessage ?? STATUS_TEXT[a.live!.status]}`).join('\n')}\n\nTheir conversations are kept and can be resumed later.`,
+    confirmLabel: running.length === 1 ? 'Stop' : 'Stop all',
+    danger: true
+  })
+  if (!ok) return
   await attempt('Could not stop sessions', () => call('session:stop', path))
 }
 

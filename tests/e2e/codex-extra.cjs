@@ -37,7 +37,7 @@ const post = (url, token, body) =>
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
   const page = await app.firstWindow()
-  await page.setViewportSize({ width: 1400, height: 850 }).catch(() => {})
+  await lib.fitWindow(app, page, { width: 1400, height: 850 })
   await sleep(2000)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await inv('workspace:open', ws)

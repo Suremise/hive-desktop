@@ -521,10 +521,10 @@ function TranscriptView({ project, session, live, jump, query, toolbar }: { proj
         <span className="path">
           <strong>{sessionLabel(session, project.name)}</strong>
           {live && <span className="badge accent" style={{ marginLeft: 8 }}>Running</span>}
-          {session.continuedFrom && (
-            <Tooltip content="This session continues another agent's work from a handover. Click to open that session.">
-              <span className="badge link" style={{ marginLeft: 8 }} onClick={() => openInSessionsTab(project.path, session.continuedFrom!)}>
-                <Icon name="arrow-swap" /> continued
+          {session.handedOverFrom && (
+            <Tooltip content="Another agent's work was handed over to this session. Click to open that session.">
+              <span className="badge link" style={{ marginLeft: 8 }} onClick={() => openInSessionsTab(project.path, session.handedOverFrom!)}>
+                <Icon name="arrow-swap" /> handed over
               </span>
             </Tooltip>
           )}

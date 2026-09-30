@@ -29,8 +29,14 @@
 - Opening a workspace that's already open in another window brings that window forward. Closing a window stops its workspace's agents, asking first as quitting does. Hive reopens the windows that were open when it quit.
 - Agent API: `X-Hive-Workspace` or `?workspace=` names the workspace a request is for, `GET /v1/workspaces` lists them, and a project can be named `<workspace>/<project>`. The `hive` tools always use their session's workspace.
 
+### A tidier project view
+- **Every agent has its own header and footer**, with one agent or several. The header has its status, session and buttons (Compact, a red **Stop**, Archive & New, or Resume and New Session), which turn into icons and then fold into ⋯ as the pane narrows. The footer has its model and effort, permission mode, context and cost.
+- **The project header is about the project**: Active, Explorer, Terminal and a new **Stop All Agents**, which lists the agents it will stop and asks first. The status bar keeps app-wide items only.
+- A narrow window no longer pushes the right side of the project view off screen.
+- Switching a session you haven't typed in yet to Don't ask or Bypass (which restarts it) now starts a new session in that mode, instead of failing to resume a conversation that doesn't exist yet.
+
 ### Other new features
-- **Continue with…** in the agent menu hands an agent's work to another agent, of either provider, through a handover; the Sessions tab links the two sessions. Also `POST /v1/projects/{name}/continue` in the Agent API.
+- **Hand Over to…** in the agent menu hands an agent's work to another agent, of either provider, through a handover; the Sessions tab links the two sessions. Also `POST /v1/projects/{name}/handover` in the Agent API.
 - **A new Overview**: a project summary for a chosen period (tokens, API-equivalent cost, sessions, prompts) across providers, the agents running now, a section per provider with its plan limits, and a table by agent.
 - **Estimated costs** for providers that don't report one, from a price table you can edit in each provider's settings.
 - **Share one AGENTS.md** in the Memory tab, so Claude Code and Codex agents read the same project instructions.
@@ -44,7 +50,7 @@
 ### Reliability and security
 - Hive keeps a last good copy of its settings and records (`.bak`). A file that can't be read is set aside and the copy restored, with a notification, instead of Hive starting over.
 - Hive's copies of workspace skills for Codex are marked, so a `hive-…` folder of your own in `.agents/skills` is never removed.
-- "Continue with…" waits until the handover has actually been written before the other agent starts.
+- "Hand Over to…" waits until the handover has actually been written before the other agent starts.
 - A Codex permission change is confirmed by Codex before the badge shows it ("Switching to …"); the earlier method could pick the wrong preset.
 - Much less file reading while agents work: session lists read each file once, and Codex sessions are found without re-scanning every time.
 - Hive tells you once if a CLI version writes transcripts it doesn't understand, instead of showing zeros.

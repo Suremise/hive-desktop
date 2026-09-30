@@ -208,14 +208,16 @@ export interface MenuEntry {
   onClick?: () => void
 }
 
-export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: MenuEntry[]; onClose: () => void }) {
+/** A menu at x, y. `above`: where its anchor's top is, so a menu that doesn't fit below opens above it instead. */
+export function ContextMenu({ x, y, above, items, onClose }: { x: number; y: number; above?: number; items: MenuEntry[]; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ x, y })
   useLayoutEffect(() => {
     const r = ref.current?.getBoundingClientRect()
     if (!r) return
-    setPos({ x: Math.min(x, window.innerWidth - r.width - 8), y: Math.min(y, window.innerHeight - r.height - 8) })
-  }, [x, y])
+    const fits = y + r.height + 8 <= window.innerHeight
+    setPos({ x: Math.min(x, window.innerWidth - r.width - 8), y: fits || above === undefined ? Math.min(y, window.innerHeight - r.height - 8) : Math.max(8, above - r.height - 4) })
+  }, [x, y, above])
   useEffect(() => {
     const close = (e: MouseEvent): void => {
       if (!ref.current?.contains(e.target as Node)) onClose()

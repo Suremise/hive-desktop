@@ -18,7 +18,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => results.push(`PAGEERROR ${e.message}`))
-  await page.setViewportSize({ width: 1400, height: 850 }).catch(() => {})
+  await lib.fitWindow(app, page, { width: 1400, height: 850 })
   await sleep(2500)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   check('no setup dialog on a fresh install', (await page.locator('.dialog', { hasText: 'Agent Setup' }).count()) === 0)

@@ -98,7 +98,7 @@ interface State {
   /** What the palette lists: every command and project, or projects only (Go to Project). */
   paletteMode: 'commands' | 'projects'
   /** The permission mode menu, open for an agent at a point. */
-  modeMenu: { project: string; agentId: string; x: number; y: number } | null
+  modeMenu: { project: string; agentId: string; x: number; y: number; above?: number } | null
   /** A shortcut is being recorded in the keyboard shortcuts editor: app shortcuts are paused. */
   recordingKeys: boolean
   aboutOpen: boolean
@@ -125,8 +125,8 @@ interface State {
   agentSettingsFor: AgentRef | null
   /** Worktree agent whose Merge dialog is open. */
   mergeFor: AgentRef | null
-  /** The agent whose work "Continue with…" hands to another agent. */
-  continueFor: AgentRef | null
+  /** The agent whose work "Hand Over to…" hands to another agent. */
+  handOverFor: AgentRef | null
   /** Per project: the agent that session commands (header buttons, shortcuts, Insert into Session) act on. */
   focusedAgent: Record<string, string>
   /** Per project: which agent each pane of a multi-pane layout shows. */
@@ -192,7 +192,7 @@ export const useStore = create<State>(() => ({
   addAgentFor: null,
   agentSettingsFor: null,
   mergeFor: null,
-  continueFor: null,
+  handOverFor: null,
   focusedAgent: {},
   paneAgents: {},
   changesRoot: {},

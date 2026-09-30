@@ -41,7 +41,7 @@ async function launch(profile, extraEnv = {}) {
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))
-  await page.setViewportSize({ width: 1400, height: 850 }).catch(() => {})
+  await lib.fitWindow(app, page, { width: 1400, height: 850 })
   await sleep(1500)
   await page.keyboard.press('Escape') // first-run setup dialog, if any
   return { app, page, inv: (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a]) }

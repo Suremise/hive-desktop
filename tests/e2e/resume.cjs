@@ -26,7 +26,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))
-  await page.setViewportSize({ width: 1500, height: 900 }).catch(() => {})
+  await lib.fitWindow(app, page, { width: 1500, height: 900 })
   await sleep(1500)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   const project = async () => (await inv('workspace:refresh')).projects.find((p) => p.name === 'demo')
@@ -48,7 +48,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   // Two columns so both pane headers show.
   await inv('project:updateConfig', proj, { sessionLayout: 'columns2' }); await sleep(800)
   const h2 = page.locator('.pane-header-bar', { hasText: 'Agent 2' })
-  check('Agent 2 Resume disabled', await h2.locator('.icon-btn[aria-label^="There is"], .icon-btn[aria-label^="Agent 2 has"]').first().isDisabled())
+  check('Agent 2 Resume disabled', await h2.locator('button[aria-label="Resume"]').isDisabled())
 
   // Start Agent 1 fresh (no prompt sent).
   const st = await inv('session:start', proj, { agentId: A1.id })
@@ -67,7 +67,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   check('session tag shown', (await h1.locator('.session-tag').count()) === 1, await h1.locator('.session-tag').textContent().catch(() => ''))
 
   // Picker for Agent 2: Agent 1's open session greyed, old sessions resumable.
-  await h2.locator('.icon-btn[aria-label="Resume a Session…"]').click(); await sleep(1200)
+  await h2.locator('button[aria-label="Resume a Session…"]').click(); await sleep(1200)
   const rows = page.locator('.menu .menu-item.two-line')
   const texts = await rows.allTextContents()
   check('picker lists 3 sessions', texts.length === 3, JSON.stringify(texts))
@@ -95,11 +95,11 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   await shot(page, '3-resume-in')
   await page.keyboard.press('Escape')
 
-  // Header split button on Session tab
+  // The agent header's Resume and Resume a Session… buttons
   await page.locator('.tabs .tab', { hasText: 'Session' }).first().click(); await sleep(500)
   await page.locator('.pane-header-bar', { hasText: 'Agent 2' }).click(); await sleep(300)
-  check('header Resume disabled for Agent 2', await page.locator('.project-header .split-btn button').first().isDisabled())
-  await page.locator('.project-header .split-caret').click(); await sleep(1000)
+  check('header Resume disabled for Agent 2', await page.locator('.pane-header-bar', { hasText: 'Agent 2' }).locator('button[aria-label="Resume"]').isDisabled())
+  await page.locator('.pane-header-bar', { hasText: 'Agent 2' }).locator('button[aria-label="Resume a Session…"]').click(); await sleep(1000)
   check('header picker opens', (await page.locator('.menu .menu-header').textContent()) === 'Resume in Agent 2')
   await shot(page, '4-header')
   await page.keyboard.press('Escape')

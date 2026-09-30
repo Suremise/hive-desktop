@@ -72,12 +72,13 @@ const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}
   const pp = page.locator('.setting', { hasText: 'Model' }).locator('.model-picker').first()
   check('project picker offers Inherit', (await pp.locator('option').first().textContent()).startsWith('Inherit'))
   await page.screenshot({ path: path.join(shots, '4-project-settings.png') })
-  const chip = await page.locator('.project-header .badge', { hasText: 'Claude Code default' }).textContent().catch(() => '')
-  check('header shows the configured effort', chip.includes('· High'), chip)
 
   // Real session: the status line reaches Hive and prints nothing.
   const agent = await lib.soloAgent(inv, proj)
   await inv('workspace:refresh')
+  await page.locator('.tab', { hasText: 'Session' }).first().click(); await sleep(800)
+  const chip = await page.locator('.pane-footer-bar .pane-foot-item', { hasText: 'Claude Code default' }).first().textContent().catch(() => '')
+  check('the agent footer shows the configured effort', chip.includes('· High'), chip)
   await inv('session:start', proj, { agentId: agent.id })
   await lib.acceptClaudeTrust(inv, proj, agent.id)
   let live = null

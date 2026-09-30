@@ -18,7 +18,7 @@ Hive calls the coding agents it can run **providers**. Each agent in a project c
 - **Setup.** **Help → Agent Setup…** has a tab per provider: install, sign in, and updates. Claude Code signs in with a Claude plan or an Anthropic Console account; Codex with a ChatGPT plan or an OpenAI API key. On Windows, Codex also needs its sandbox set up once (without it, Codex asks before every command); see [Codex's Windows sandbox](#codexs-windows-sandbox).
 - **Settings per provider.** Each provider has its own page (**Settings → Claude Code**, **Settings → Codex**): the CLI's path, default model, effort and permission mode, extra arguments, update checks and its price table. Projects override them per provider in Project Settings.
 - **The icons** on agent tabs, pane headers and the Sessions list show which provider each agent and session uses.
-- **Conversations stay with their provider.** A Claude Code session can only be resumed by a Claude Code agent, and a Codex session by a Codex agent. To move work to another provider, use **Continue with…** (see [Sessions](#sessions)).
+- **Conversations stay with their provider.** A Claude Code session can only be resumed by a Claude Code agent, and a Codex session by a Codex agent. To move work to another provider, use **Hand Over to…** (see [Sessions](#sessions)).
 - **What both share.** The workspace's Hive skills and MCP servers and Hive's own `hive` tools reach every agent. Neither CLI loads MCP servers from your user settings in Hive sessions. Hive never changes either CLI's own configuration files.
 
 ## Workspaces and projects
@@ -70,13 +70,22 @@ The sidebar and the lists in the Sessions, Files, Changes and Memory tabs can be
 
 ## Sessions
 
-Each agent of a project runs one session at a time (most projects have just one agent; see [Several agents in one project](#several-agents-in-one-project)). A project without agents shows **No agents yet**: New Session and Resume add one for you. The project header and the **Session** menu let you:
+Each agent of a project runs one session at a time (most projects have just one agent; see [Several agents in one project](#several-agents-in-one-project)). A project without agents shows **No agents yet**: New Session and Resume add one for you.
+
+**Where things are.** The project header is about the project: its name and combined status, the **Active** switch, **Explorer** (reveal the folder), **Terminal** (open an external terminal there), **Stop All Agents** while any runs (it lists them and asks first), and **⋯** for Add Agent, Changes and Project Settings. Everything about one agent is on its own pane, whether a project has one agent or four:
+
+- **The agent header**: its status, provider, name, worktree branch, the session it's running, then its buttons: **Compact**, **Stop** and **Archive & New** while it runs; **Resume**, **Resume a Session…** and **New Session** when it doesn't; **Merge…** for a worktree agent; and **⋯** with everything else. As the pane gets narrower the buttons show only their icons, then fold into **⋯**.
+- **The agent footer**: its model and effort (click for Agent Settings), its permission mode (click to switch), the context it uses (amber past your Compact threshold) and the session's cost.
+
+The status bar keeps what concerns the whole app: the workspace, branch, running agents, plan limits, the Agent API, each CLI's version and Hive's updates.
+
+An agent's header and the **Session** menu let you:
 
 - **New Session** — start fresh. If one is running, Hive stops it first (after asking).
 - **Resume** — continue a previous conversation. Hive shows how many tokens resuming will re-cache if the prompt cache has expired. A new agent can resume sessions whose agent is gone (for example after the upgrade to 0.2, which starts every project without agents).
 - **Stop** — end the session. The conversation is kept and can be resumed.
 - **Compact** — summarise the conversation so far so every later message is cheaper. Available once the agent has finished; it turns orange when the context passes your threshold (**Settings → Sessions → Suggest compacting above**, 200,000 tokens by default, and overridable per project in Project Settings). You can add an optional focus ("keep the API decisions, drop the test output"); left empty, the agent decides what to keep. Nothing is lost: the full history stays in the session's transcript. Anything you had half-typed is cleared first; press Ctrl+Y in the session to get it back.
-- **Continue with…** (agent menu) — hand this agent's work to another agent of the project, which may use another provider. Hive asks this agent to write a handover (if it's running and idle; untick to use the latest handover instead), then starts the other agent, or messages it if it's already running, and tells it to read the handover and carry on. The new session shows a **continued** badge in the Sessions tab that links back. It needs **Settings → Agent API → Provide Hive tools to sessions**. If the other agent's CLI asks something first (for example whether to trust the folder), answer it in its terminal.
+- **Hand Over to…** (agent menu) — hand this agent's work to another agent of the project, which may use another provider. Hive asks this agent to write a handover (if it's running and idle; untick to use the latest handover instead), then starts the other agent, or messages it if it's already running, and tells it to read the handover and carry on. The new session shows a **handed over** badge in the Sessions tab that links back. It needs **Settings → Agent API → Provide Hive tools to sessions**. If the other agent's CLI asks something first (for example whether to trust the folder), answer it in its terminal.
 - **Archive & New** — archive the current conversation and start a clean one. This is the cheapest way to continue after a long session: the new session starts with an empty context instead of re-caching the old one. Write a handover first (see below) so the new session knows where to pick up.
 
 ### Reading past sessions
@@ -110,7 +119,7 @@ A project can have up to four agents working at once, for example one building a
 
 **Layouts.** Adding an agent switches to the layout that shows them all (two columns for two, three columns for three, the grid for four); removing one leaves the layout as it is. The buttons at the right of the agent row also choose how they are shown: one at a time (click an agent to switch), two columns, three columns, or a grid of four. Three columns and the grid work best on a wide window, or with the sidebar hidden (Ctrl+B). Each pane has its own header with the agent's status and buttons; click a pane to make it the **focused** agent. The buttons in the project header, the Session menu, pasting screenshots and **Insert into Session** act on the focused agent. Ctrl+Alt+] and Ctrl+Alt+[ move between agents. Clicking an agent that isn't on screen shows it in the focused pane.
 
-**Which conversation each agent has.** Each pane header shows the name of the session the agent is running (hover for details, click to read it in the Sessions tab); the project header shows the focused agent's. A conversation can only be open in one agent at a time. **Resume** reopens the agent's own last session and is greyed out when it has none. Its **▾** lists the recent sessions from the agent's folder: pick one to continue it in this agent, including a paused conversation another agent in the same folder started. Sessions that are open in another agent are greyed out; clicking one takes you to that agent. Agents in their own worktree only see that worktree's sessions.
+**Which conversation each agent has.** Each agent's header shows the name of the session it is running (hover for details, click to read it in the Sessions tab). A conversation can only be open in one agent at a time. **Resume** reopens the agent's own last session and is greyed out when it has none. Its **▾** lists the recent sessions from the agent's folder: pick one to continue it in this agent, including a paused conversation another agent in the same folder started. Sessions that are open in another agent are greyed out; clicking one takes you to that agent. Agents in their own worktree only see that worktree's sessions.
 
 The sidebar keeps one status dot per project, showing the most urgent agent (needs input, then working…), with the number of running agents next to the name. The project header's status says how many agents are in that state (for example *Working · 1 of 2 agents*); hover it for each agent's state. Notifications name the agent, e.g. "hive · Agent 2 finished".
 
@@ -143,7 +152,7 @@ The **Overview** tab updates as sessions change (at most every 15 seconds; **Set
 
 If you use a subscription (a Claude plan for Claude Code, a ChatGPT plan for Codex), the status bar shows how much of each plan's limits is used, one item per provider, for example **5h 34% · Week 12%**: the rolling 5-hour allowance and the weekly one. Hover it to see when each resets; the **Overview** tab shows them with meters in each provider's section. The numbers are for your whole account (every session, not just Hive's) and come from the CLI while a session is running, so after a quiet spell they show when they were last updated. The status bar darkens at 80% and turns red at 95%, and Hive notifies you once when you pass 80% and 95% of each limit in each reset period.
 
-The model chip in the project header and the status bar also show the **effort**, e.g. *Opus 5.5 (default) · High*: what the running session reports, otherwise what new sessions will use.
+Each agent's footer shows its model and **effort**, e.g. *Opus 5.5 (default) · High*: what the running session reports, otherwise what new sessions will use.
 
 ## Skills
 
@@ -294,7 +303,7 @@ Once Codex has set the sandbox up, Hive closes it and Agent Setup says so. With 
 
 **Full access** is like Bypass: it only appears after you tick **Settings → Codex → Enable the Full access option**, and projects using it show a red warning. Codex's **Plan** mode is separate from the preset: choose **Plan** in the mode menu (or press Shift+Tab in the terminal), and the badge shows "· Plan". In Codex's sandbox the `.git` folder is read-only, so Codex asks before committing.
 
-**Switching mode while an agent runs.** The mode badge next to the model in the project header (and in each pane header, and the status bar) shows the mode the session is really in. Click it, or press **Ctrl+Alt+M**, and choose another: Hive switches it straight away, without a restart, the same way pressing **Shift+Tab** in the terminal does (which Hive also notices). Don't ask and Bypass permissions can't be reached that way, so choosing them restarts the session in that mode and carries on the same conversation. For Codex, Hive picks the preset from Codex's `/permissions` menu. The switch applies to that session only; the settings decide what new sessions start in. When you change the setting while agents are running, Hive offers to **Switch Now**.
+**Switching mode while an agent runs.** The mode badge in each agent's footer shows the mode its session is really in. Click it, or press **Ctrl+Alt+M**, and choose another: Hive switches it straight away, without a restart, the same way pressing **Shift+Tab** in the terminal does (which Hive also notices). Don't ask and Bypass permissions can't be reached that way, so choosing them restarts the session in that mode and carries on the same conversation. For Codex, Hive picks the preset from Codex's `/permissions` menu. The switch applies to that session only; the settings decide what new sessions start in. When you change the setting while agents are running, Hive offers to **Switch Now**.
 
 ## Updating Hive
 

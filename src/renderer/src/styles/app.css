@@ -177,6 +177,8 @@ kbd {
 .workbench {
   display: flex;
   min-height: 0;
+  /* Never wider than the window: a narrow window shrinks the main area instead of pushing it off screen. */
+  min-width: 0;
 }
 
 .main-area {
@@ -1458,6 +1460,7 @@ p.hint {
   color: var(--fg-muted);
   font-size: 12px;
   margin-top: 6px;
+  white-space: pre-line;
 }
 .dialog-footer {
   display: flex;
@@ -2976,6 +2979,60 @@ body.pane-resizing .monaco-editor {
 }
 .pane-header-bar .icon-btn {
   flex-shrink: 0;
+}
+.pane-header-bar .agent-name {
+  flex-shrink: 0;
+}
+/* The agent's controls: labelled while the pane is wide, icons when narrower (see PaneHeader). */
+.pane-header-bar .pane-btn {
+  flex-shrink: 0;
+  height: 22px;
+  gap: 5px;
+}
+.pane-header-bar .pane-btn.icon-only {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
+}
+.pane-header-bar .pane-btn.subtle {
+  border-color: var(--border);
+}
+/* The agent's session details, under its terminal. */
+.pane-footer-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 10px;
+  background: var(--bg-sidebar);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 12px;
+  color: var(--fg-muted);
+  pointer-events: auto;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.pane-footer-bar .pane-foot-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pane-footer-bar .pane-foot-item:hover {
+  color: var(--fg-strong);
+}
+.pane-footer-bar .pane-foot-item.warn {
+  color: var(--warning);
+}
+.pane-footer-bar .mode-chip {
+  height: 18px;
 }
 .pane-placeholder {
   position: absolute;
