@@ -529,6 +529,10 @@ describe('permission modes in a running session', () => {
     expect(footerMode("⏵⏵ don't ask on (shift+tab to cycle)")).toBe('dontAsk')
     expect(footerMode('⏵⏵ bypass permissions on (shift+tab to cycle)')).toBe('bypassPermissions')
     expect(footerMode('Claude said: turn plan mode on and then')).toBeNull()
+    // Manual has no hint after it (Claude Code 2.1.286), only its symbol before.
+    expect(footerMode(' ⏵⏵ auto mode on (shift+tab to cycle)   ⏸  manual mode on   ')).toBe('manual')
+    expect(footerMode('⏸ manual mode on')).toBe('manual')
+    expect(footerMode('⏸ manual mode on    ⏵⏵  accept edits  on (shift+tab to cycle)')).toBe('acceptEdits')
   })
   it('maps hook modes and knows what Shift+Tab can reach', async () => {
     const { hookMode, canSwitchLive } = await import('../src/shared/claude')

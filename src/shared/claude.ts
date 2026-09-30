@@ -86,7 +86,12 @@ export const isOlderModel = (model: string): boolean => CLAUDE_MODEL_GROUPS.some
 /** The modes Claude Code's Shift+Tab cycles through, in order (checked with Claude Code 2.1.284). */
 export const MODE_CYCLE: PermissionMode[] = ['manual', 'acceptEdits', 'plan', 'auto']
 
-const FOOTER_MODE = /(manual\s*mode|accept\s*edits|plan\s*mode|auto\s*mode|bypass\s*permissions|don['’]?t\s*ask)\s*on\s*(?:\(|·)/gi
+const MODES = String.raw`(manual\s*mode|accept\s*edits|plan\s*mode|auto\s*mode|bypass\s*permissions|don['’]?t\s*ask)`
+/**
+ * A mode in the footer: after Claude Code's mode symbol (⏵⏵ or ⏸), or followed by its hint ("(shift+tab to
+ * cycle)" or "·"). Manual shows only "⏸ manual mode on" (Claude Code 2.1.286), so the symbol is needed.
+ */
+const FOOTER_MODE = new RegExp(String.raw`[⏵⏸][\s⏵⏸]*${MODES}\s*on\b|${MODES}\s*on\s*(?:\(|·)`, 'gi')
 
 /**
  * The permission mode in Claude Code's footer ("⏵⏵ auto mode on (shift+tab to cycle)"), from terminal
@@ -94,7 +99,7 @@ const FOOTER_MODE = /(manual\s*mode|accept\s*edits|plan\s*mode|auto\s*mode|bypas
  */
 export function footerMode(text: string): PermissionMode | null {
   let last: string | null = null
-  for (const m of text.matchAll(FOOTER_MODE)) last = m[1].toLowerCase().replace(/\s+/g, '')
+  for (const m of text.matchAll(FOOTER_MODE)) last = (m[1] ?? m[2]).toLowerCase().replace(/\s+/g, '')
   if (!last) return null
   if (last.startsWith('manual')) return 'manual'
   if (last.startsWith('accept')) return 'acceptEdits'
