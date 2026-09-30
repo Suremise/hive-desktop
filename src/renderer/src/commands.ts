@@ -154,6 +154,17 @@ export const commands: Command[] = [
     }
   },
   {
+    id: 'session.stopBackgroundAndResume',
+    label: 'Stop a Background Session and Resume It',
+    category: 'Session',
+    // Only from the notification, which names the job and the conversation.
+    internal: true,
+    run: (projectPath?: unknown, agentId?: unknown, jobId?: unknown, sessionId?: unknown) => {
+      if (typeof projectPath === 'string' && typeof agentId === 'string' && typeof jobId === 'string' && typeof sessionId === 'string')
+        void actions.attempt('Could not stop the background session', () => call('session:stopBackgroundAndResume', projectPath, agentId, jobId, sessionId))
+    }
+  },
+  {
     id: 'session.applyPermissionModes',
     label: 'Switch Running Agents to Their Permission Mode Settings',
     category: 'Session',

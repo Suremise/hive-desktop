@@ -32,6 +32,8 @@ export interface LaunchContext {
   /** Hive's guidance for the agent (the hive MCP server's instructions), for providers that don't show MCP instructions themselves. */
   guidance: string
   env: Record<string, string>
+  /** The user lets sessions move into the CLI's own background service (see capabilities.backgroundSessions). */
+  allowBackgroundSessions: boolean
 }
 
 export interface CommandSpec {
@@ -198,6 +200,12 @@ export interface ProviderAdapter {
   skillRoots(): SkillRoots
   /** MCP servers a project defines in the CLI's own config, which Hive leaves off until copied to the workspace. */
   projectMcpServers(projectPath: string): Promise<Record<string, McpServerDef>>
+
+  // Background sessions (capabilities.backgroundSessions)
+  /** The CLI's background job named in what it printed when it refused to resume a session held there; null if none. */
+  backgroundJobIn?(output: string): string | null
+  /** Stops one of the CLI's background jobs (its conversation is kept). */
+  stopBackgroundJob?(executable: string, jobId: string): Promise<void>
 }
 
 export type { TranscriptImageRef }

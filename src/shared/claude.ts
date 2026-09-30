@@ -148,7 +148,8 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
     compactFocus: true,
     oneMContext: true,
     imagePaste: true,
-    lockAsk: true
+    lockAsk: true,
+    backgroundSessions: true
   },
   reservedKeys: ['MOD+B', 'MOD+K', 'MOD+O', 'MOD+R', 'MOD+T', 'MOD+G'],
   instructionsFile: 'CLAUDE.md',

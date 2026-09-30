@@ -35,6 +35,7 @@ const SUITES = [
   { name: 'restart', needs: ['claude'] },
   { name: 'resume', needs: ['claude'] },
   { name: 'quit', needs: ['claude'] },
+  { name: 'agentview', needs: ['claude'] },
   { name: 'codex-setup', needs: ['codex'] },
   { name: 'codex', needs: ['codex'] },
   { name: 'codex-extra', needs: ['codex'] },

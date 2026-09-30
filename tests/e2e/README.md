@@ -16,7 +16,7 @@ is kept in `logs/` under the work folder.
 ## What they need
 
 - **Claude Code**, installed and signed in. Suites that start sessions (`agents`, `image`, `mode`, `plan`,
-  `compact`, `restart`, `resume`, `quit`) never send it a prompt. The first run in a test folder answers Claude
+  `compact`, `restart`, `resume`, `quit`, `agentview`) never send it a prompt. The first run in a test folder answers Claude
   Code's "trust this folder" question (never a sign-in screen), so later runs don't ask.
 - **Codex** for the `codex*` suites, signed in to the **test home** `%LOCALAPPDATA%\hive-test\codex` (never your
   own `~/.codex`). Sign in once:

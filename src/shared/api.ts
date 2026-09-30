@@ -27,6 +27,7 @@ import type {
   ProviderTask,
   ProjectGitInfo,
   QuitChoice,
+  QuitScope,
   QuitSession,
   SessionImageGroup,
   SessionListItem,
@@ -54,7 +55,7 @@ export interface HiveRequests {
   'app:quitDecision': (choice: QuitChoice, dontAskAgain: boolean) => void
   'app:cancelPendingQuit': () => void
   /** Current quit state, for a window that reloads while a quit dialog or pending quit is open. */
-  'app:quitState': () => { request: QuitSession[] | null; unsaved: string[]; scope: 'app' | 'window'; pending: boolean; working: number }
+  'app:quitState': () => { request: QuitSession[] | null; unsaved: string[]; scope: QuitScope; pending: boolean; working: number }
   'app:openExternal': (url: string) => void
   'app:openPath': (path: string) => void
   'app:showInFolder': (path: string) => void
@@ -93,7 +94,8 @@ export interface HiveRequests {
   'workspace:get': () => WorkspaceInfo | null
   'workspace:open': (path?: string) => WorkspaceInfo | null
   'workspace:create': () => WorkspaceInfo | null
-  'workspace:close': () => void
+  /** False when the user cancelled (running agents would have been stopped). */
+  'workspace:close': () => boolean
   'workspace:recent': () => string[]
   'workspace:removeRecent': (path: string) => string[]
   'workspace:refresh': () => WorkspaceInfo | null
@@ -109,6 +111,8 @@ export interface HiveRequests {
   'session:list': (projectPath: string) => SessionListItem[]
   /** agentId: without one, the project's only agent. skipSetup starts the agent even though the worktree's setup command hasn't succeeded. */
   'session:start': (projectPath: string, opts: { resumeId?: string; name?: string; agentId?: string; skipSetup?: boolean }) => LiveSessionState
+  /** Stops the CLI's background job holding a conversation, then resumes it in the agent. */
+  'session:stopBackgroundAndResume': (projectPath: string, agentId: string, jobId: string, sessionId: string) => void
   'session:stop': (projectPath: string, agentId?: string) => void
   'session:archive': (projectPath: string, sessionId: string, archived: boolean) => void
   'session:rename': (projectPath: string, sessionId: string, name: string) => void

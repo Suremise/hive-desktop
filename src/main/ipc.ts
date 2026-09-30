@@ -71,6 +71,8 @@ export interface QuitControl {
   state: (from: BrowserWindow) => ReturnType<HiveRequests['app:quitState']>
   setUnsaved: (from: BrowserWindow, paths: string[]) => void
   newWindow: (from: BrowserWindow) => void
+  /** Before closing or switching a window's workspace: asks (per Confirm on quit) and stops its agents; false if cancelled. */
+  stopWorkspaceAgents: (from: BrowserWindow, scope: 'workspace' | 'switch') => Promise<boolean>
 }
 
 /** Whether any agent of this workspace is running. */
@@ -160,7 +162,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       }
       if (shownElsewhere(target)) return workspace.info()
       if (workspace.path && target.toLowerCase() !== workspace.path.toLowerCase() && workspaceLive(contextWorkspace()!)) {
-        throw new Error("Stop this window's running sessions before switching workspace, or open it in a new window (File → New Window).")
+        if (!(await quitControl.stopWorkspaceAgents(win(), 'switch'))) return workspace.info()
       }
       return workspace.open(target)
     },
@@ -173,16 +175,17 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (r.canceled || !r.filePaths[0]) return workspace.info()
       if (shownElsewhere(r.filePaths[0])) return workspace.info()
       if (workspace.path && workspaceLive(contextWorkspace()!)) {
-        throw new Error("Stop this window's running sessions before switching workspace, or create it in a new window (File → New Window).")
+        if (!(await quitControl.stopWorkspaceAgents(win(), 'switch'))) return workspace.info()
       }
       const { mkdir } = await import('fs/promises')
       await mkdir(r.filePaths[0], { recursive: true })
       return workspace.open(r.filePaths[0])
     },
     'workspace:close': async () => {
-      if (workspaceLive(contextWorkspace()!)) throw new Error("Stop this window's running sessions before closing the workspace.")
+      if (workspaceLive(contextWorkspace()!) && !(await quitControl.stopWorkspaceAgents(win(), 'workspace'))) return false
       await workspace.close()
       emitTo(win(), { type: 'workspace-changed', workspace: null })
+      return true
     },
     'workspace:recent': () => config.get().recentWorkspaces,
     'workspace:removeRecent': (p) => {
@@ -224,6 +227,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:setMode': (p, agentId, mode) => sessions.setPermissionMode(p, agentId, mode),
     'session:restartInMode': (p, agentId, mode) => sessions.restartInMode(p, agentId, mode),
     'session:setPlanMode': (p, agentId, on) => sessions.setPlanMode(p, agentId, on),
+    'session:stopBackgroundAndResume': (p, agentId, jobId, sessionId) => sessions.stopBackgroundAndResume(p, agentId, jobId, sessionId),
     'session:handOver': (p, from, to, opts) => sessions.handOver(p, from, to, opts),
     'session:allowLockedEdit': (p, agentId, path) => sessions.allowLockedEdit(p, agentId, path),
     'session:applyModes': () => sessions.applyModeSettings(),

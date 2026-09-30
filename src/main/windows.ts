@@ -1,5 +1,5 @@
 import type { BrowserWindow, WebContents } from 'electron'
-import type { HiveEvent, QuitChoice, QuitSession } from '../shared/types'
+import type { HiveEvent, QuitChoice, QuitScope, QuitSession } from '../shared/types'
 import { setEventRouter } from './events'
 import { contextWorkspace, setWorkspaceFallback, workspaceFor, type WorkspaceService } from './workspace'
 
@@ -16,7 +16,7 @@ export interface HiveWindow {
   unsaved: string[]
   focusedAt: number
   /** A quit or close question shown in this window, waiting for the answer. */
-  question: { request: QuitSession[]; unsaved: string[]; scope: 'app' | 'window'; answer: (c: QuitChoice) => void } | null
+  question: { request: QuitSession[]; unsaved: string[]; scope: QuitScope; answer: (c: QuitChoice) => void } | null
   /** Closing was decided: let the window close. */
   closing: boolean
 }

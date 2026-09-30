@@ -6,7 +6,7 @@ import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { AddAgentButton, AgentStrip, PANE_FOOTER, PANE_HEADER, PaneChrome, ResumeButton, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
 import { Icon, IconButton, STATUS_TEXT, Switch, Tooltip, useContextMenu } from '../components/ui'
-import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
+import { agentProviderOf, projectKey, projectState, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
 import { carriesFiles, cx, formatKeybinding } from '../util'
 import { FilesTab, ImagesTab } from './FilesTab'
 import { ChangesTab, MemoryTab, OverviewTab, ProjectMcpTab, ProjectSettingsTab, ProjectSkillsTab } from './ProjectTabs'
@@ -213,9 +213,6 @@ export function ProjectView({ visible }: { visible: boolean }) {
             title="More actions"
             onClick={(e) =>
               menu.open(e, [
-                { label: 'Add Agent', icon: 'person-add', onClick: () => void actions.quickAddAgent(project.path) },
-                { label: 'Add Agent…', icon: 'blank', onClick: () => set({ addAgentFor: project.path }) },
-                { separator: true },
                 { label: 'Changes', icon: 'git-compare', onClick: () => setProjectTab(project.path, 'changes') },
                 { label: 'Project Settings', icon: 'settings', onClick: () => setProjectTab(project.path, 'settings') }
               ])

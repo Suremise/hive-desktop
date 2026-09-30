@@ -4,7 +4,7 @@ import { existsSync } from 'fs'
 import { basename, join, resolve, sep } from 'path'
 import { readFile } from 'fs/promises'
 import { pathToFileURL } from 'url'
-import type { AppInfo, QuitChoice, QuitSession, WindowState } from '../shared/types'
+import type { AppInfo, QuitChoice, QuitScope, QuitSession, WindowState } from '../shared/types'
 import { providerService } from './providerService'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../shared/hiveGuidance'
 import { notesTree } from './notes'
@@ -276,7 +276,7 @@ const quitSessions = (ws?: WorkspaceService): QuitSession[] =>
 const workingCount = (): number => sessions.liveStates().filter((s) => s.status === 'working').length
 
 /** Shows the quit (or close) dialog in a window and waits for the answer. */
-function ask(e: HiveWindow, req: { sessions: QuitSession[]; unsaved: string[]; scope: 'app' | 'window' }): Promise<QuitChoice> {
+function ask(e: HiveWindow, req: { sessions: QuitSession[]; unsaved: string[]; scope: QuitScope }): Promise<QuitChoice> {
   showWindow(e.win)
   return new Promise<QuitChoice>((answer) => {
     e.question = { request: req.sessions, unsaved: req.unsaved, scope: req.scope, answer }
@@ -319,13 +319,36 @@ async function requestQuit(opts: { force?: boolean } = {}): Promise<void> {
   return quitNow(live.length > 0)
 }
 
+/** Whether to ask before stopping these sessions: the Confirm on quit setting, the same for quitting, windows and workspaces. */
+function askBeforeStopping(mine: QuitSession[]): boolean {
+  const mode = config.settings.general.confirmOnQuit
+  const busy = mine.some((s) => s.status === 'working' || s.status === 'waiting')
+  return mine.length > 0 && (mode === 'always' || (mode === 'working' && busy))
+}
+
+/**
+ * Closing a window's workspace, or switching the window to another one: its agents are stopped, after asking as
+ * closing the window does. False when the user cancels. Unsaved files were already dealt with by the page.
+ */
+async function stopWorkspaceAgents(from: BrowserWindow, scope: 'workspace' | 'switch'): Promise<boolean> {
+  const e = hiveWindows().find((x) => x.win === from)
+  if (!e) return false
+  if (e.question) {
+    showWindow(e.win)
+    return false
+  }
+  const mine = quitSessions(e.ws)
+  if (!mine.length) return true
+  if (askBeforeStopping(mine) && (await ask(e, { sessions: mine, unsaved: [], scope })) === 'cancel') return false
+  await sessions.stopWhereAndWait((s) => workspaceFor(s.projectPath) === e.ws, 3000)
+  return true
+}
+
 /** Closing a window (not the last): its workspace's agents are stopped, after asking as quitting does. */
 async function requestCloseWindow(e: HiveWindow): Promise<void> {
   if (e.question) return showWindow(e.win)
   const mine = quitSessions(e.ws)
-  const mode = config.settings.general.confirmOnQuit
-  const busy = mine.some((s) => s.status === 'working' || s.status === 'waiting')
-  const askSessions = mine.length > 0 && (mode === 'always' || (mode === 'working' && busy))
+  const askSessions = askBeforeStopping(mine)
   if (askSessions || e.unsaved.length) {
     const choice = await ask(e, { sessions: askSessions ? mine : [], unsaved: e.unsaved, scope: 'window' })
     if (choice === 'cancel') return
@@ -537,6 +560,7 @@ app.whenReady().then(async () => {
       const e = hiveWindows().find((x) => x.win === from)
       if (e) e.unsaved = paths
     },
+    stopWorkspaceAgents,
     newWindow: () => {
       createWindow()
       saveWindowsSoon()

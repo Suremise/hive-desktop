@@ -260,7 +260,21 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     if (ctx.permissionMode) args.push('--permission-mode', ctx.permissionMode)
     args.push(...ctx.extraArgs)
     const s = toSpawnable(executable, args)
-    return { file: s.file, args: s.args, env: ctx.env }
+    // Agent view (← on an empty prompt) moves the session into Claude Code's background service, out of Hive's
+    // reach: Stop would only close the terminal and the session would keep running. Off unless the user allows it.
+    const env = ctx.allowBackgroundSessions ? ctx.env : { ...ctx.env, CLAUDE_CODE_DISABLE_AGENT_VIEW: '1' }
+    return { file: s.file, args: s.args, env }
+  }
+
+  backgroundJobIn(output: string): string | null {
+    // Claude Code names the job to attach to: "… running in the background … claude attach <id>".
+    const text = output.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07/g, ' ')
+    return /background/i.test(text) ? (/\bclaude attach ([A-Za-z0-9-]{4,64})\b/.exec(text)?.[1] ?? null) : null
+  }
+
+  async stopBackgroundJob(executable: string, jobId: string): Promise<void> {
+    const r = await run(executable, ['stop', jobId], 20000)
+    if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim() || `claude stop ${jobId} failed`)
   }
 
   // -------------------------------------------------------------------------

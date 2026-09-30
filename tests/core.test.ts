@@ -258,6 +258,13 @@ describe('Claude Code hooks', () => {
     expect(h({ hook_event_name: 'Stop', last_assistant_message: 'done' }).event).toEqual({ kind: 'stop', lastMessage: 'done' })
     expect(claudeCode.lockReply({ kind: 'deny', reason: 'r' })).toEqual({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'r' } })
   })
+
+  it('reads the background job named when a resume is refused', async () => {
+    const { claudeCode } = await import('../src/main/providers/claude/adapter')
+    expect(claudeCode.backgroundJobIn('\x1b[31mSession a0292106 is still running in the background.\x1b[0m\r\nRun \x1b[1mclaude attach d98cd28c\x1b[0m to open it.')).toBe('d98cd28c')
+    expect(claudeCode.backgroundJobIn('Run claude attach d98cd28c')).toBeNull()
+    expect(claudeCode.backgroundJobIn('No conversation found with session ID a0292106')).toBeNull()
+  })
 })
 
 describe('ConversationParser', () => {

@@ -46,6 +46,11 @@ export interface ProviderCapabilities {
   imagePaste: boolean
   /** Hooks can hand an edit to the CLI's own approval prompt (the "Ask me" file lock). Without it, Hive asks the user itself. */
   lockAsk: boolean
+  /**
+   * The CLI can move a session into its own background service (Claude Code's agent view, opened with ← on an
+   * empty prompt), where Hive can no longer see or stop it. Hive turns that off unless allowBackgroundSessions.
+   */
+  backgroundSessions: boolean
 }
 
 export interface ProviderDescriptor {
@@ -128,6 +133,7 @@ export function defaultProviderSettings(p: ProviderDescriptor): ProviderSettings
     enableDangerousMode: false,
     extraArgs: '',
     checkUpdatesOnLaunch: true,
+    allowBackgroundSessions: false,
     prices: {}
   }
 }

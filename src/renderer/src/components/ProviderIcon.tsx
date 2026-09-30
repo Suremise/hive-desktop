@@ -18,11 +18,14 @@ const MONO_MARKS: Record<string, string> = {
   codex: openaiMark
 }
 
-/** A provider's mark, next to its name or in place of it (with the name as a tooltip by the caller). */
-export function ProviderIcon({ provider, className }: { provider: ProviderId; className?: string }) {
+/**
+ * A provider's mark, next to its name or in place of it (with the name as a tooltip by the caller). `mono` draws
+ * even a coloured mark in the text colour, for coloured backgrounds such as the status bar.
+ */
+export function ProviderIcon({ provider, className, mono: monoOnly }: { provider: ProviderId; className?: string; mono?: boolean }) {
   const p = providerDescriptor(provider)
-  const mark = MARKS[p.icon]
-  const mono = MONO_MARKS[p.icon]
+  const mark = monoOnly ? undefined : MARKS[p.icon]
+  const mono = MONO_MARKS[p.icon] ?? (monoOnly ? MARKS[p.icon] : undefined)
   return (
     <span className={cx('provider-icon', `provider-${p.icon}`, className)} aria-label={p.name} role="img">
       {mark ? (

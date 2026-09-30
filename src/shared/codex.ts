@@ -78,7 +78,8 @@ export const CODEX_DESCRIPTOR: ProviderDescriptor = {
     // A pasted image path becomes [Image #n] (checked with Codex 0.159).
     imagePaste: true,
     // Codex rejects permissionDecision "ask" (and then runs the tool), so Hive asks the user itself.
-    lockAsk: false
+    lockAsk: false,
+    backgroundSessions: false
   },
   // Ctrl+T opens Codex's transcript view; Ctrl+G its external editor.
   reservedKeys: ['MOD+T', 'MOD+G'],

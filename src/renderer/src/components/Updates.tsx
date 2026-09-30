@@ -1,4 +1,3 @@
-import hexUrl from '../assets/icon.svg'
 import { RELEASES_URL } from '@shared/defaults'
 import type { UpdateState } from '@shared/types'
 import { call } from '../api'
@@ -42,6 +41,17 @@ export function updateSummary(u: UpdateState | null): string {
   }
 }
 
+/** Hive's mark as a line drawing in the text colour (hexagon, prompt and cursor), like the status bar's other icons. */
+function HiveMark() {
+  return (
+    <svg className="status-hex" viewBox="0 0 512 512" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="44" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="478,256 367,448 145,448 34,256 145,64 367,64" />
+      <polyline points="170,190 246,256 170,322" />
+      <line x1="280" y1="322" x2="348" y2="322" />
+    </svg>
+  )
+}
+
 /** The status bar's version item: plain when there is nothing new, otherwise what the update is doing. */
 export function UpdateStatusItem() {
   const info = useStore((s) => s.appInfo)
@@ -64,7 +74,7 @@ export function UpdateStatusItem() {
   return (
     <Tooltip content={`Hive ${info.version}${info.isPackaged ? '' : ' (development build)'} · Electron ${info.electron}${u && u.status !== 'disabled' ? ` · ${updateSummary(u)}` : ''}`}>
       <div className="status-item" onClick={() => set({ aboutOpen: true })}>
-        {u?.status === 'checking' ? <Icon name="loading" spin /> : <img src={hexUrl} className="status-hex" alt="" />} {label}
+        {u?.status === 'checking' ? <Icon name="loading" spin /> : <HiveMark />} {label}
       </div>
     </Tooltip>
   )

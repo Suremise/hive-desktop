@@ -68,7 +68,7 @@ export async function createWorkspace(): Promise<void> {
 
 export async function closeWorkspace(): Promise<void> {
   if (!(await saveUnsavedFirst('close the workspace'))) return
-  const ok = await attempt('Could not close workspace', () => call('workspace:close').then(() => true))
+  const ok = await attempt('Could not close workspace', () => call('workspace:close'))
   if (ok) set({ workspace: null, selectedProject: null })
 }
 

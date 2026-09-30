@@ -1,6 +1,7 @@
 // Several windows, like VS Code: each shows its own workspace. New Window, a workspace already open in
 // another window is brought forward instead, events stay in their window, the Agent API names workspaces,
-// windows are reopened at start, and closing a window stops its workspace's agents (after asking).
+// windows are reopened at start, and closing a window, switching its workspace or closing the workspace stops
+// that workspace's agents (after asking).
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -141,6 +142,35 @@ async function waitFor(fn, ms = 15000) {
   const readSaved = () => JSON.parse(fs.readFileSync(cfgFile, 'utf8')).windows ?? []
   const saved = (await waitFor(async () => (readSaved().length === 1 ? readSaved() : null), 5000)) ?? readSaved()
   check('the closed window is no longer reopened at start', saved.length === 1 && saved[0].workspace === wsA, JSON.stringify(saved.map((w) => w.workspace)))
+
+  // --- Switching a window's workspace with an agent running: asks (Cancel keeps everything), then stops it.
+  const alpha = path.join(wsA, 'alpha')
+  const agentA = await lib.addAgent(invA, alpha)
+  await invA('session:start', alpha, { agentId: agentA.id })
+  await lib.acceptClaudeTrust(invA, alpha, agentA.id)
+  check('an agent runs in window A', !!(await waitFor(async () => (await invA('session:live')).length === 1)))
+  let pending = invA('workspace:open', wsB)
+  check('switching workspace asks first ("Switch workspace?")', !!(await waitFor(async () => (await pa.getByText('Switch workspace?').count()) > 0, 8000)))
+  await pa.screenshot({ path: path.join(lib.WORK, 'windows-switch.png') }).catch(() => undefined)
+  await pa.locator('.dialog .btn', { hasText: 'Cancel' }).click()
+  check('Cancel keeps the workspace', (await pending)?.path === wsA)
+  check('…and the agent running', (await invA('session:live')).length === 1)
+  pending = invA('workspace:open', wsB)
+  await waitFor(async () => (await pa.getByText('Switch workspace?').count()) > 0, 8000)
+  await pa.locator('.dialog .btn', { hasText: 'Switch workspace now' }).click()
+  check('confirming switches the workspace', (await pending)?.path === wsB)
+  check("…after stopping the old workspace's agent", (await invA('session:live')).length === 0)
+
+  // --- Close Workspace with an agent running: asks, then stops every agent of the workspace.
+  const agentB = await lib.addAgent(invA, beta)
+  await invA('session:start', beta, { agentId: agentB.id })
+  check('an agent runs in workspace B', !!(await waitFor(async () => (await invA('session:live')).length === 1)))
+  pending = invA('workspace:close')
+  check('Close Workspace asks first ("Close this workspace?")', !!(await waitFor(async () => (await pa.getByText('Close this workspace?').count()) > 0, 8000)))
+  await pa.screenshot({ path: path.join(lib.WORK, 'windows-close-workspace.png') }).catch(() => undefined)
+  await pa.locator('.dialog .btn', { hasText: 'Close workspace now' }).click()
+  check('the workspace closes', (await pending) === true && (await invA('workspace:get')) === null)
+  check('…with its agents stopped', (await invA('session:live')).length === 0)
 
   await app.close()
   console.log(failed ? `${failed} failed` : 'all passed')

@@ -171,6 +171,17 @@ function providerSettingDefs(p: ProviderDescriptor): SettingDef[] {
       }
     })
   }
+  if (p.capabilities.backgroundSessions) {
+    defs.push({
+      section,
+      provider: p.id,
+      key: 'allowBackgroundSessions',
+      title: 'Allow background sessions',
+      desc: `Let ${p.name}'s agent view move a session into its own background service. Applies to sessions started afterwards.`,
+      tip: `Off by default. In ${p.name}, pressing ← on an empty prompt (easy to do while moving through text) opens its agent view and moves the session into the background. Hive can then no longer see it or stop it: Stop only closes the terminal, the session keeps running, and resuming it fails until it is stopped with "${p.cliName} stop".`,
+      type: 'boolean'
+    })
+  }
   defs.push({ section, provider: p.id, key: 'extraArgs', title: 'Extra arguments', desc: `Additional ${p.cliName} command-line arguments for every session.`, tip: 'Projects can add more in their own settings.', type: 'text', placeholder: 'e.g. --verbose' })
   defs.push({
     section,

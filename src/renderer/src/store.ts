@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { agentPtyKey, layoutPanes, mostUrgent } from '@shared/defaults'
 import { agentProvider } from '@shared/providers'
-import type { UpdateState } from '@shared/types'
+import type { QuitScope, UpdateState } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
@@ -114,7 +114,7 @@ interface State {
   /** Files with unsaved edits listed in the quit dialog (absolute paths). */
   quitUnsaved: string[]
   /** 'window': the dialog is for closing this window (its workspace's sessions), not quitting Hive. */
-  quitScope: 'app' | 'window'
+  quitScope: QuitScope
   /** Hive will quit once no agent is working. */
   quitPending: { working: number } | null
   /** The agent whose Compact dialog is open. */

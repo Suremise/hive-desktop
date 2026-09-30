@@ -17,6 +17,8 @@ export type MergeStyle = 'squash' | 'merge'
 /** How the Session tab arranges a project's agents. */
 export type SessionLayout = 'single' | 'columns2' | 'columns3' | 'grid'
 export type QuitChoice = 'now' | 'wait' | 'cancel'
+/** What the quit dialog is for: quitting, closing a window, closing its workspace, or switching the window to another workspace. */
+export type QuitScope = 'app' | 'window' | 'workspace' | 'switch'
 
 /** A running session listed in the quit dialog. */
 export interface QuitSession {
@@ -118,6 +120,8 @@ export interface ProviderSettings {
   enableDangerousMode: boolean
   extraArgs: string
   checkUpdatesOnLaunch: boolean
+  /** Let sessions move into the CLI's own background service (capabilities.backgroundSessions). Off: Hive turns it off. */
+  allowBackgroundSessions: boolean
   /** The user's price overrides by model id; missing models use the prices Hive ships. */
   prices: Record<string, ModelPrice>
 }
@@ -732,7 +736,7 @@ export type HiveEvent =
   | { type: 'usage-changed'; projectPath: string; sessionId: string }
   | { type: 'notes-changed' }
   /** Quitting needs the user's decision: the renderer shows the quit dialog and answers with app:quitDecision. */
-  | { type: 'quit-request'; sessions: QuitSession[]; unsaved: string[]; /** 'window': closing one window (its workspace's sessions) rather than quitting. */ scope?: 'app' | 'window' }
+  | { type: 'quit-request'; sessions: QuitSession[]; unsaved: string[]; /** Anything but 'app' stops only this window's workspace's sessions. */ scope?: QuitScope }
   /** Hive is waiting for working agents to finish before quitting (or stopped waiting). */
   | { type: 'quit-pending'; pending: boolean; working: number }
   /** Files changed in a project that has a Files or Images tab open. dirs are relative, '' is the root. */

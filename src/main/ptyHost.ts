@@ -22,7 +22,8 @@ export interface SpawnOptions {
   env: Record<string, string>
   cols?: number
   rows?: number
-  onExit?: (code: number) => void
+  /** `output`: the end of what the process printed (e.g. why it refused to start). */
+  onExit?: (code: number, output: string) => void
   onData?: (data: string) => void
   /** Don't tell the renderer when it exits: another process continues in the same terminal (a worktree's setup command, then the agent). */
   quietExit?: boolean
@@ -81,7 +82,7 @@ export function spawnPty(key: string, opts: SpawnOptions): IPty {
     if (entries.get(key)?.proc === proc) entries.delete(key)
     if (opts.quietExit) carried.set(key, entry.buffer)
     else sendPty('pty:exit', key, exitCode)
-    opts.onExit?.(exitCode)
+    opts.onExit?.(exitCode, entry.buffer.join('').slice(-8000))
   })
   return proc
 }

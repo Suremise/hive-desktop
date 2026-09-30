@@ -26,13 +26,15 @@
 
 ### Several windows
 - **File → New Window** (Ctrl+K Ctrl+N) opens another Hive window, like VS Code, so you can work in several workspaces at once. Each window has its own projects and agents; settings, the tray and updates are shared.
-- Opening a workspace that's already open in another window brings that window forward. Closing a window stops its workspace's agents, asking first as quitting does. Hive reopens the windows that were open when it quit.
+- Opening a workspace that's already open in another window brings that window forward. Closing a window stops its workspace's agents, asking first as quitting does; so do Close Workspace and opening another workspace in the window, which used to refuse while agents were running. Hive reopens the windows that were open when it quit.
 - Agent API: `X-Hive-Workspace` or `?workspace=` names the workspace a request is for, `GET /v1/workspaces` lists them, and a project can be named `<workspace>/<project>`. The `hive` tools always use their session's workspace.
 
 ### A tidier project view
 - **Every agent has its own header and footer**, with one agent or several. The header has its status, session and buttons (Compact, a red **Stop**, Archive & New, or Resume and New Session), which turn into icons and then fold into ⋯ as the pane narrows. The footer has its model and effort, permission mode, context and cost.
 - **The project header is about the project**: Active, Explorer, Terminal and a new **Stop All Agents**, which lists the agents it will stop and asks first. The status bar keeps app-wide items only.
 - A narrow window no longer pushes the right side of the project view off screen.
+- Pressing ← on an empty Claude Code prompt no longer moves the session out of Hive: Hive turns off Claude Code's agent view in its sessions, which put the session into Claude Code's background service, where Stop couldn't end it and resuming failed. **Settings → Claude Code → Allow background sessions** turns it back on. If a conversation is in the background anyway, resuming it offers **Stop It and Resume**.
+- The status bar's icons are all drawn in its text colour, Hive's own mark and the providers' included, so the Claude mark no longer disappears on the amber bar.
 - Switching a session you haven't typed in yet to Don't ask or Bypass (which restarts it) now starts a new session in that mode, instead of failing to resume a conversation that doesn't exist yet.
 
 ### Other new features

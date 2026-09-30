@@ -137,7 +137,7 @@ function PlanUsageStatus() {
         return (
           <Tooltip key={p.id} content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
             <div className={cx('status-item', worst >= 95 ? 'warn' : worst >= 80 && 'caution')} onClick={() => runCommand('project.tab.overview')}>
-              <ProviderIcon provider={p.id} />
+              <ProviderIcon provider={p.id} mono />
               {usage.limits.map((l, i) => (
                 <span key={l.id}>
                   {i > 0 && <span className="status-sub">· </span>}
@@ -182,7 +182,7 @@ function ProviderStatusItems() {
         return (
           <Tooltip key={p.id} content={tip}>
             <div className={cx('status-item', warning && 'caution')} onClick={() => set({ setupOpen: p.id })}>
-              <ProviderIcon provider={p.id} /> {info.version}
+              <ProviderIcon provider={p.id} mono /> {info.version}
               {(info.updateAvailable || warning) && <Icon name={warning ? 'warning' : 'cloud-download'} />}
             </div>
           </Tooltip>

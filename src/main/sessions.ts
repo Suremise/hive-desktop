@@ -5,7 +5,7 @@ import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { BrowserWindow, Notification, clipboard } from 'electron'
 import { HIVE_DIR, agentPtyKey, assertSessionId, isSessionId, projectAgents, resumeRecord } from '../shared/defaults'
-import { agentLaunchSettings, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor } from '../shared/providers'
+import { agentLaunchSettings, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
 import type {
   AgentDef,
   AgentInfo,
@@ -487,6 +487,7 @@ class SessionManager {
       extraArgs: eff.extraArgs,
       hookUrl: `${this.hookUrl}?run=${state.runId}`,
       guidance: await this.hiveGuidance(projectPath).catch(() => ''),
+      allowBackgroundSessions: providerSettings(config.settings, adapter.id).allowBackgroundSessions,
       env: childEnv({
         HIVE_HOOK_TOKEN: this.hookToken,
         HIVE_PROJECT: basename(projectPath),
@@ -517,7 +518,7 @@ class SessionManager {
         this.watchModeOutput(id, data)
         this.watchReadyOutput(id, data)
       },
-      onExit: (code) => void this.onExit(projectPath, agent.id, state.runId, code)
+      onExit: (code, output) => void this.onExit(projectPath, agent.id, state.runId, code, output)
     })
     state.pid = proc.pid
     l.backupTimer = setInterval(() => void this.backup(projectPath, agent.id), 5000)
@@ -943,15 +944,40 @@ class SessionManager {
     return { switched, skipped }
   }
 
+  /** Stops the CLI's background job holding a conversation, then resumes the conversation in this agent. */
+  async stopBackgroundAndResume(projectPath: string, agentId: string, jobId: string, sessionId: string): Promise<void> {
+    projectPath = workspace.assertProject(projectPath)
+    const { agent, cfg } = await this.agentDef(projectPath, agentId)
+    const adapter = providerAdapter(agentLaunchSettings(agent, cfg, config.settings).provider)
+    const info = providerService.info(adapter.id)
+    if (!adapter.stopBackgroundJob || !info.path) throw new Error(`${adapter.descriptor.name} can't stop background sessions.`)
+    await adapter.stopBackgroundJob(info.path, jobId)
+    // The job lets go of the conversation as it exits.
+    await new Promise((r) => setTimeout(r, 1500))
+    await this.start(projectPath, { agentId, resumeId: sessionId })
+  }
+
   /** Sessions that would be interrupted by quitting: an agent is working or waiting on a prompt. */
   busyStates(): LiveSessionState[] {
     return this.liveStates().filter((s) => s.status === 'working' || s.status === 'waiting')
   }
 
-  private async onExit(projectPath: string, agentId: string, runId: string, code: number): Promise<void> {
+  private async onExit(projectPath: string, agentId: string, runId: string, code: number, output = ''): Promise<void> {
     const id = liveId(projectPath, agentId)
     const l = this.live.get(id)
     const sessionId = l?.state.sessionId ?? ''
+    // The CLI refused to open a conversation it is running as a background job (e.g. Claude Code's agent view):
+    // say so, and offer to stop that job and resume here.
+    const job = l && !l.stopRequested && sessionId ? l.adapter.backgroundJobIn?.(output) : null
+    if (l && job) {
+      toast(
+        'warning',
+        `${this.label(l.state)}: the session is running in the background`,
+        `${l.adapter.descriptor.name} moved this conversation into its background service (job ${job}), so it can't be opened here until that job is stopped. The conversation is kept.`,
+        [{ label: 'Stop It and Resume', command: 'session.stopBackgroundAndResume', args: [projectPath, agentId, job, sessionId] }],
+        projectPath
+      )
+    }
     if (l) {
       if (l.backupTimer) clearInterval(l.backupTimer)
       if (l.compacting) clearTimeout(l.compacting.timer)
