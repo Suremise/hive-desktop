@@ -42,6 +42,8 @@ export interface CommandSpec {
   keys?: KeySteps
   /** Output that means the program is ready for `keys`. */
   readyPattern?: RegExp
+  /** True once the task has done its job, for a program that stays open afterwards (Codex after its sandbox setup): Hive then closes it. */
+  done?: () => boolean
 }
 
 /** Keys typed into a CLI's own interface (a menu, a slash command), with pauses between them. */

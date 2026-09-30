@@ -395,10 +395,16 @@ export class CodexAdapter implements ProviderAdapter {
     const dir = join(tmpdir(), 'hive-codex-setup')
     mkdirSync(dir, { recursive: true })
     const s = toSpawnable(executable, ['--no-daemon', '-C', dir, '-c', `projects=${toToml({ [dir]: { trust_level: 'trusted' } })}`, ...CODEX_MODE_FLAGS['read-only']])
-    const keys = userConfig().windows?.sandbox === 'unelevated'
+    const before = this.sandboxKind()
+    const keys = before === 'unelevated'
       ? [{ keys: '/setup-default-sandbox', waitMs: 300 }, { keys: '\r' }]
       : this.modeMenuKeys('ask')
-    return { ...s, keys, readyPattern: /Ask Codex|›/ }
+    // Codex stays open once the sandbox is set up: the task is done when its config names a new sandbox.
+    const done = (): boolean => {
+      const now = this.sandboxKind()
+      return !!now && now !== before
+    }
+    return { ...s, keys, readyPattern: /Ask Codex|›/, done }
   }
 
   /** Codex's model catalog (codex debug models): the listed models, in Codex's order. */

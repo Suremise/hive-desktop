@@ -7,7 +7,7 @@ import type { KeySteps } from './providers/types'
 import { config } from './config'
 import { emit, toast } from './events'
 import { createLogger } from './logger'
-import { childEnv, hasPty, spawnPty, writePty } from './ptyHost'
+import { childEnv, hasPty, killPty, spawnPty, writePty } from './ptyHost'
 
 const log = createLogger('providers')
 
@@ -99,12 +99,21 @@ class ProviderService {
     return next
   }
 
-  private runTask(id: ProviderId, task: ProviderTask, file: string, args: string[], label: string, typed?: { keys: KeySteps; ready?: RegExp }): string {
+  private runTask(id: ProviderId, task: ProviderTask, file: string, args: string[], label: string, typed?: { keys: KeySteps; ready?: RegExp; done?: () => boolean }): string {
     const key = `task:${id}:${task}`
     if (hasPty(key)) return key
     const s = toSpawnable(file, args)
     let seen = ''
     let sent = !typed
+    let finished = false
+    // A program that stays open after its job (Codex after its sandbox setup) is closed once the job is done.
+    const watch = typed?.done
+      ? setInterval(() => {
+          if (!hasPty(key) || finished || !typed.done!()) return
+          finished = true
+          setTimeout(() => killPty(key), 1500)
+        }, 1500)
+      : null
     // Some tasks are keys typed into the CLI once its interface is ready (Codex's sandbox setup).
     const type = async (): Promise<void> => {
       if (sent || !typed) return
@@ -127,7 +136,8 @@ class ProviderService {
         if (typed.ready.test(seen)) setTimeout(() => void type(), 800)
       },
       onExit: (code) => {
-        if (code === 0) toast('success', `${label} finished`)
+        if (watch) clearInterval(watch)
+        if (code === 0 || finished) toast('success', `${label} finished`)
         else toast('warning', `${label} exited with code ${code}`)
         void this.refresh(id, true)
       }
@@ -156,7 +166,7 @@ class ProviderService {
     }
     if (!adapter.setupCommand) throw new Error(`${name} has no setup task.`)
     const cmd = adapter.setupCommand(info.path)
-    return this.runTask(id, task, cmd.file, cmd.args, `${name} setup`, cmd.keys ? { keys: cmd.keys, ready: cmd.readyPattern } : undefined)
+    return this.runTask(id, task, cmd.file, cmd.args, `${name} setup`, cmd.keys ? { keys: cmd.keys, ready: cmd.readyPattern, done: cmd.done } : undefined)
   }
 }
 

@@ -447,9 +447,10 @@ export function AgentSetupDialog() {
   const providers = useStore((s) => s.providers)
   const settings = useStore((s) => s.settings)
   const [tab, setTab] = useState<ProviderId>(PROVIDERS[0].id)
-  const [task, setTask] = useState<string | null>(null)
+  const [task, setTask] = useState<{ key: string; kind: ProviderTask; issues: string[] } | null>(null)
   const [running, setRunning] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [finished, setFinished] = useState<string | null>(null)
   useEffect(() => {
     if (typeof open === 'string') setTab(open)
     else if (open) setTab(enabledProviders(settings)[0]?.id ?? PROVIDERS[0].id)
@@ -464,23 +465,42 @@ export function AgentSetupDialog() {
   const start = async (kind: ProviderTask): Promise<void> => {
     try {
       const key = await call('provider:task', tab, kind)
-      setTask(key)
+      setTask({ key, kind, issues: (info?.readiness ?? []).filter((r) => r.action?.task === kind).map((r) => r.id) })
+      setFinished(null)
       setRunning(true)
     } catch (e) {
       notify('error', 'Could not start', errorMessage(e))
     }
   }
-  const recheck = async (): Promise<void> => {
+  const recheck = async (): Promise<typeof providers | null> => {
     setBusy(true)
     try {
-      set({ providers: await call('provider:refresh', tab) })
+      const next = await call('provider:refresh', tab)
+      set({ providers: next })
+      return next
+    } catch {
+      return null
     } finally {
       setBusy(false)
     }
   }
-  const close = (): void => {
-    if (task && running) void call('pty:kill', task)
+  // When the issue the task was for is gone after it ends, it did its job: say so instead of leaving its last screen up.
+  const taskEnded = async (): Promise<void> => {
+    setRunning(false)
+    const next = await recheck()
+    const kind = task?.kind
+    const after = next?.[tab]
+    if (!kind || !after || after.checking) return
+    const left = kind === 'update' ? after.updateAvailable : (after.readiness ?? []).some((r) => task.issues.includes(r.id))
+    if (left) return
+    const what: Record<ProviderTask, string> = { install: `${p.name} is installed.`, update: `${p.name} is up to date.`, login: `${p.name} is signed in.`, setup: `${p.name} is set up.` }
+    setFinished(`${what[kind]} You can close this window.`)
     setTask(null)
+  }
+  const close = (): void => {
+    if (task && running) void call('pty:kill', task.key)
+    setTask(null)
+    setFinished(null)
     set({ setupOpen: false })
   }
   const issues = (info?.readiness ?? []).filter((r) => r.id !== 'not-installed')
@@ -509,7 +529,7 @@ export function AgentSetupDialog() {
       {PROVIDERS.length > 1 && (
         <div className="setup-tabs">
           {PROVIDERS.map((x) => (
-            <button key={x.id} className={cx('setup-tab', tab === x.id && 'selected')} disabled={running} onClick={() => setTab(x.id)}>
+            <button key={x.id} className={cx('setup-tab', tab === x.id && 'selected')} disabled={running} onClick={() => { setTab(x.id); setFinished(null) }}>
               <ProviderIcon provider={x.id} /> {x.name}
               {!isProviderEnabled(settings, x.id) && <span className="faint"> (off)</span>}
             </button>
@@ -612,16 +632,15 @@ export function AgentSetupDialog() {
           <Icon name="info" /> Ignored {info.rejected.length === 1 ? 'a copy' : 'copies'} bundled with an editor extension (<code>{info.rejected[0]}</code>). Hive only uses the standalone CLI.
         </p>
       )}
+      {finished && (
+        <div className="banner success" style={{ borderRadius: 6, marginTop: 10 }}>
+          <Icon name="pass-filled" />
+          <span>{finished}</span>
+        </div>
+      )}
       {task && (
         <div className="task-terminal">
-          <TerminalView
-            ptyKey={task}
-            visible
-            onExit={() => {
-              setRunning(false)
-              void recheck()
-            }}
-          />
+          <TerminalView ptyKey={task.key} visible onExit={() => void taskEnded()} />
         </div>
       )}
     </Modal>
