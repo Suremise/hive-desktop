@@ -123,6 +123,8 @@ export interface HiveRequests {
   'session:rename': (projectPath: string, sessionId: string, name: string) => void
   /** Deletes a session that isn't running from Hive (its record and backups; the CLI's transcript stays). */
   'session:delete': (projectPath: string, sessionId: string) => void
+  /** Deleted sessions' usage (list items with deleted: true), which totals still count. */
+  'session:keptUsage': (projectPath: string) => SessionListItem[]
   'session:adopt': (projectPath: string, sessionId: string) => void
   'session:usage': (projectPath: string, sessionId: string) => SessionUsage | null
   'session:markSeen': (projectPath: string) => void

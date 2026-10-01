@@ -6,7 +6,7 @@ import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
 import { ASSISTANT_DIR, ASSISTANT_NAME, PERSONAS_DIR, assistantProjectConfig } from '../shared/assistant'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields } from '../shared/defaults'
-import type { AgentDef, AgentInfo, HiveEvent, LiveSessionState, ProjectConfig, ProjectInfo, SessionRecord, WorkspaceConfig, WorkspaceInfo } from '../shared/types'
+import type { AgentDef, AgentInfo, HiveEvent, KeptUsage, LiveSessionState, ProjectConfig, ProjectInfo, SessionRecord, WorkspaceConfig, WorkspaceInfo } from '../shared/types'
 import { config } from './config'
 import { emit, emitTo } from './events'
 import { insideReal, isDir, readKeptJson, removePath, withFileLock, writeKeptJson } from './fsutil'
@@ -39,6 +39,8 @@ export interface SessionsFile {
   sessions: SessionRecord[]
   /** Sessions deleted in Hive: their CLI transcripts are left alone, so Hive hides them from its lists. */
   deleted?: string[]
+  /** What the deleted sessions used (by day too), which the project's totals still count. */
+  deletedUsage?: KeptUsage[]
 }
 
 type LiveProvider = (projectPath: string, cfg: ProjectConfig) => Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }>
@@ -410,6 +412,8 @@ export class WorkspaceService {
         f.sessions.push(existing)
         // A deleted session that runs again (e.g. resumed inside the CLI) is Hive's again.
         if (f.deleted?.includes(rec.id)) f.deleted = f.deleted.filter((id) => id !== rec.id)
+        // Counted from its transcript again, not twice.
+        if (f.deletedUsage?.some((k) => k.id === rec.id)) f.deletedUsage = f.deletedUsage.filter((k) => k.id !== rec.id)
       }
       return existing
     })

@@ -65,10 +65,10 @@ export function AssistantSidePanel() {
 
 /** Tokens, cost and conversations of the Assistant, for a period (by calendar day) or all time. */
 function AssistantSummary({ assistant }: { assistant: ProjectInfo }) {
-  const { items } = useSessions(assistant)
+  const { items, kept } = useSessions(assistant)
   const [period, setPeriod] = useState<Period>('all')
   const now = useNow(60000)
-  const hive = (items ?? []).filter((i) => i.source === 'hive')
+  const hive = [...(items ?? []).filter((i) => i.source === 'hive'), ...kept]
   const t = sumUsage(hive, periodFrom(period, now))
   const tokens = t.input + t.cached + t.cacheWrite + t.output
   return (

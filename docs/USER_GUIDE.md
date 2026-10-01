@@ -106,7 +106,7 @@ The transcript opens at the latest message. For the running session it updates a
 
 From the toolbar you can **Copy** a message or reply (hover it), **Export as Markdown** to save the whole conversation as a readable file, **Resume** a session that isn't running (with several agents, **▾** chooses which one continues it), **Show** the agent that is running it, and rename (the tag), archive, delete or adopt it. Rename and delete also show when you hover a session in the list.
 
-**Deleting a session** removes it from Hive: Hive's copies of its transcript go to the Recycle Bin and it no longer shows in the list. A running session has to be stopped first. Claude Code and Codex keep their own copy, so their own resume lists still have it.
+**Deleting a session** removes it from Hive: Hive's copies of its transcript go to the Recycle Bin and it no longer shows in the list. What it used (tokens, cost, prompts) stays in the Overview's totals. A running session has to be stopped first. Claude Code and Codex keep their own copy, so their own resume lists still have it.
 
 ### Several agents in one project
 

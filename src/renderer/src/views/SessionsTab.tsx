@@ -100,7 +100,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
       message: `Delete "${sessionName(s)}" from Hive?`,
       detail:
         s.source === 'hive'
-          ? `Hive's copies of its transcript go to the Recycle Bin and it no longer shows here. ${who} keeps its own transcript, so ${who}'s own resume list still has it.`
+          ? `Hive's copies of its transcript go to the Recycle Bin and it no longer shows here; what it used stays in the totals. ${who} keeps its own transcript, so ${who}'s own resume list still has it.`
           : `Hive stops listing it. ${who} keeps its transcript, so ${who}'s own resume list still has it.`,
       confirmLabel: 'Delete',
       danger: true

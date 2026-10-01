@@ -20,7 +20,7 @@
 - **The Overview's periods count only what happened in them**: Today is since midnight, and a session running for days adds only today's work to Today (and each day's cost: its share of what Claude Code reported). 7 and 30 days show a chart of tokens per day. The Assistant's **Used so far** has the same periods, and the Agent API's usage includes each day.
 - Hive reads only what's new in a running session's transcript when it updates usage, instead of the whole file each time.
 - When resuming would re-cache a large conversation, the warning offers **Archive and Start Fresh** next to **Resume**.
-- **Sessions can be deleted** in the Sessions tab (and the Assistant's conversations), when they aren't running. Hive's copies go to the Recycle Bin; the CLI keeps its own.
+- **Sessions can be deleted** in the Sessions tab (and the Assistant's conversations), when they aren't running. Hive's copies go to the Recycle Bin; the CLI keeps its own. What a deleted session used still counts in the Overview.
 - Lists show their delete button on hover (skills, MCP servers, shared notes, personas, sessions), and an open item has one in its top bar. Rename now uses a tag icon instead of the pencil.
 - Starting a new conversation inside the CLI (Claude Code's `/clear` or `/resume`, Codex's `/new`) is now followed: Hive records and backs up the new conversation instead of carrying on with the old one.
 

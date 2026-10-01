@@ -36,6 +36,8 @@ export function useSessions(project: ProjectInfo) {
   const mode = useStore((s) => s.settings?.sessions.overviewRefresh ?? 'live')
   const usageVersion = useStore((s) => s.usageVersion[project.path] ?? 0)
   const [items, setItems] = useState<SessionListItem[] | null>(null)
+  // Deleted sessions' usage: totals count it, lists don't show it.
+  const [kept, setKept] = useState<SessionListItem[]>([])
   const [loadedAt, setLoadedAt] = useState(0)
   const last = useRef(0)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -43,9 +45,10 @@ export function useSessions(project: ProjectInfo) {
     if (timer.current) clearTimeout(timer.current)
     timer.current = null
     last.current = Date.now()
-    void call('session:list', project.path)
-      .then((list) => {
+    void Promise.all([call('session:list', project.path), call('session:keptUsage', project.path).catch(() => [])])
+      .then(([list, deleted]) => {
         setItems(list)
+        setKept(deleted)
         setLoadedAt(Date.now())
       })
       .catch((e) => {
@@ -73,7 +76,7 @@ export function useSessions(project: ProjectInfo) {
     const t = setInterval(load, 60_000)
     return () => clearInterval(t)
   }, [mode, load])
-  return { items, reload: load, loadedAt }
+  return { items, kept, reload: load, loadedAt }
 }
 
 
@@ -202,14 +205,14 @@ function sessionAgent(project: ProjectInfo, s: SessionListItem): string {
 
 /** The project's usage for a period: one summary, what runs now, each provider, each agent, then the focused agent's session. */
 export function OverviewTab({ project }: { project: ProjectInfo }) {
-  const { items, reload, loadedAt } = useSessions(project)
+  const { items, kept, reload, loadedAt } = useSessions(project)
   const settings = useStore((s) => s.settings)
   const [period, setPeriod] = useState<Period>('all')
   const now = useNow(60000)
   if (!items) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
 
   const from = periodFrom(period, now)
-  const inPeriod = activeIn(items.filter((i) => i.source === 'hive'), from)
+  const inPeriod = activeIn([...items.filter((i) => i.source === 'hive'), ...kept], from)
   const total = sumUsage(inPeriod, from)
   const running = project.agents.filter((a) => a.live && !a.live.settingUp)
   const used = new Set([...inPeriod.map((i) => i.provider), ...running.map((a) => a.live!.provider)])

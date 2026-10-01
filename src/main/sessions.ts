@@ -12,6 +12,7 @@ import type {
   AgentInfo,
   EffortLevel,
   FileLockMode,
+  KeptUsage,
   LiveSessionState,
   McpServerDef,
   PermissionMode,
@@ -1754,6 +1755,10 @@ class SessionManager {
     projectPath = workspace.assertSessionHost(projectPath)
     assertSessionId(sessionId)
     if (this.projectStates(projectPath).some((s) => s.sessionId === sessionId)) throw new Error('Stop the session before deleting it.')
+    // What it used stays in the project's totals: read before its copies go.
+    const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
+    const used = rec ? await this.usage(projectPath, sessionId).catch(() => null) : null
+    const kept: KeptUsage | null = rec && used ? { id: sessionId, provider: recordProvider(rec), agentId: rec.agentId, cwd: rec.cwd, name: rec.name, usage: { ...used, lastPrompt: null, costUnreported: undefined } } : null
     for (const archived of [false, true]) {
       const b = this.backupPath(projectPath, sessionId, archived)
       if (existsSync(b)) await shell.trashItem(b)
@@ -1761,12 +1766,34 @@ class SessionManager {
     await workspace.mutateSessions(projectPath, (f) => {
       f.sessions = f.sessions.filter((s) => s.id !== sessionId)
       if (!f.deleted?.includes(sessionId)) f.deleted = [...(f.deleted ?? []), sessionId]
+      if (kept) f.deletedUsage = [...(f.deletedUsage ?? []).filter((k) => k.id !== sessionId), kept]
     })
     for (const a of projectAgents(await workspace.projectConfig(projectPath))) {
       if (a.lastSessionId === sessionId) await workspace.updateAgent(projectPath, a.id, { lastSessionId: undefined }).catch(() => undefined)
     }
     log.info(`Deleted session ${sessionId} in ${projectPath}`)
     workspaceOf(projectPath).scheduleRefresh()
+  }
+
+  /** Deleted sessions' usage, as list items for totals (never shown in the session lists). */
+  async keptUsage(projectPath: string): Promise<SessionListItem[]> {
+    projectPath = workspace.assertSessionHost(projectPath)
+    return ((await workspace.sessionsFile(projectPath)).deletedUsage ?? []).map((k) => ({
+      id: k.id,
+      provider: k.provider,
+      source: 'hive' as const,
+      agentId: k.agentId,
+      cwd: k.cwd,
+      name: k.name,
+      archived: true,
+      deleted: true,
+      title: null,
+      lastActivity: k.usage.lastActivity,
+      hasTranscript: false,
+      hasBackup: false,
+      usage: k.usage,
+      recache: null
+    }))
   }
 
   async rename(projectPath: string, sessionId: string, name: string): Promise<void> {

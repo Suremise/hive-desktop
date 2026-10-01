@@ -214,6 +214,8 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  $
   const file = JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8'))
   check('Hive remembers it as deleted', !file.sessions.some((s) => s.id === A) && file.deleted?.includes(A), JSON.stringify(file.deleted))
   check('the list leaves it out', !(await inv('session:list', proj)).some((s) => s.id === A))
+  const kept = (await inv('session:keptUsage', proj)).find((s) => s.id === A)
+  check('what it used stays in the totals', !!kept?.deleted && kept.usage?.requests > 0 && Object.keys(kept.usage.days ?? {}).length > 0, JSON.stringify(kept && { requests: kept.usage?.requests }))
 
   await app.close()
   console.log(results.join('\n'))

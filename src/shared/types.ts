@@ -569,6 +569,16 @@ export interface RecacheEstimate {
   ttlSeconds: number
 }
 
+/** A deleted session's usage, kept so totals (the Overview, the Assistant's summary) still count it. */
+export interface KeptUsage {
+  id: string
+  provider: ProviderId
+  agentId?: string
+  cwd?: string
+  name: string
+  usage: SessionUsage
+}
+
 export interface SessionListItem extends Partial<SessionRecord> {
   id: string
   provider: ProviderId
@@ -577,6 +587,8 @@ export interface SessionListItem extends Partial<SessionRecord> {
   lastActivity: string | null
   hasTranscript: boolean
   hasBackup: boolean
+  /** A deleted session kept only for its usage (session:keptUsage), never in lists. */
+  deleted?: boolean
   usage: SessionUsage | null
   recache: RecacheEstimate | null
 }
