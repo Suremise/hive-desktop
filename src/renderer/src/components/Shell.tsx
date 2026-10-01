@@ -11,6 +11,7 @@ import { UpdateStatusItem } from './Updates'
 
 const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }[] = [
   { id: 'projects', icon: 'files', label: 'Projects', command: 'view.projects' },
+  { id: 'board', icon: 'project', label: 'Task Board', command: 'view.board' },
   { id: 'notes', icon: 'notebook', label: 'Shared Notes', command: 'view.notes' },
   { id: 'skills', icon: 'sparkle', label: 'Skills', command: 'view.skills' },
   { id: 'mcp', icon: 'plug', label: 'MCP Servers', command: 'view.mcp' },
@@ -23,6 +24,8 @@ export function ActivityBar() {
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   const unread = useStore((s) => s.unread)
   const attention = projects.filter((p) => p.agents.some((a) => a.live?.unseen && (a.live.status === 'finished' || a.live.status === 'waiting'))).length
+  // Cards waiting for the user to look at them.
+  const review = useStore((s) => s.tasks.filter((c) => !c.archived && c.column === 'review').length)
 
   const button = (id: Activity, icon: string, label: string, command: string, badge?: number) => {
     const kb = commandKeybinding(command)
@@ -38,7 +41,7 @@ export function ActivityBar() {
 
   return (
     <div className="activitybar">
-      {ACTIVITIES.map((a) => button(a.id, a.icon, a.label, a.command, a.id === 'projects' ? attention : undefined))}
+      {ACTIVITIES.map((a) => button(a.id, a.icon, a.label, a.command, a.id === 'projects' ? attention : a.id === 'board' ? review : undefined))}
       <div className="activity-spacer" />
       <Tooltip content="Notifications">
         <button className="activity-btn" onClick={() => set((s) => ({ showNotifications: !s.showNotifications, unread: 0 }))} aria-label="Notifications">

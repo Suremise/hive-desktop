@@ -5,6 +5,8 @@ import { playChime } from './chime'
 import { matchKeybinding, runCommand } from './commands'
 import { AboutDialog, AgentSetupDialog, CommandPalette, CompactDialog, Dialogs, NotificationCenter, ProvidersBanner, QuitDialog, QuitPendingBanner, ShortcutsDialog, Toasts } from './components/Overlays'
 import { AddAgentDialog, AgentSettingsDialog, HandOverDialog, MergeDialog } from './components/AgentDialogs'
+import { BoardView, TaskDialog, TaskStartDialog } from './components/Board'
+import { RemoveProjectDialog } from './components/ProjectRemoval'
 import { UpdateDialog } from './components/Updates'
 import { ModeMenuHost } from './components/PermissionMode'
 import { ActivityBar, StatusBar } from './components/Shell'
@@ -13,7 +15,7 @@ import { TitleBar } from './components/TitleBar'
 import { isProviderEnabled } from '@shared/providers'
 import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
 import { AssistantMain } from './components/AssistantView'
-import { applyLiveState, assistantWasOpen, filesListeners, findProject, get, noteAgentAdded, notify, projectKey, projectState, pushToast, set, useStore } from './store'
+import { applyLiveState, assistantWasOpen, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, projectState, pushToast, set, useStore } from './store'
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
 import { ProjectView } from './views/ProjectView'
 import { SettingsView } from './views/SettingsView'
@@ -50,12 +52,14 @@ function handleEvent(e: HiveEvent): void {
     case 'workspace-changed': {
       const sel = get().selectedProject
       const ws = e.workspace
-      // Another workspace in this window: its Assistant panel shows as that workspace left it.
-      if (ws?.path !== get().workspace?.path) set({ assistantOpen: assistantWasOpen(ws?.path) })
+      // Another workspace in this window: its Assistant panel shows as that workspace left it, and its board.
+      const other = ws?.path !== get().workspace?.path
+      if (other) set({ assistantOpen: assistantWasOpen(ws?.path), tasks: [], boardProject: null, taskOpen: null, taskStartFor: null })
       // Drop warnings about projects that belong to a workspace that is no longer open.
       set((s) => ({ workspace: ws, toasts: s.toasts.filter((t) => !t.id.startsWith('mcp-') || !!ws?.projects.some((p) => t.id === `mcp-${p.path}`)) }))
       if (ws && (!sel || !ws.projects.some((p) => p.path === sel))) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
       if (!ws) set({ selectedProject: null })
+      if (other) void loadTasks()
       noticeUnmanagedMcp()
       break
     }
@@ -115,6 +119,9 @@ function handleEvent(e: HiveEvent): void {
     case 'notes-changed':
       set((s) => ({ notesVersion: s.notesVersion + 1 }))
       break
+    case 'tasks-changed':
+      if (e.workspacePath.toLowerCase() === get().workspace?.path.toLowerCase()) scheduleTasksLoad()
+      break
     case 'skills-changed':
       set((s) => ({ skillsVersion: s.skillsVersion + 1 }))
       break
@@ -152,6 +159,13 @@ function handleEvent(e: HiveEvent): void {
   }
 }
 
+let tasksTimer: number | undefined
+/** Reads the board again shortly (one change can come as several events: Hive's own and the folder watcher's). */
+function scheduleTasksLoad(): void {
+  window.clearTimeout(tasksTimer)
+  tasksTimer = window.setTimeout(() => void loadTasks(), 120)
+}
+
 export function App() {
   const workspace = useStore((s) => s.workspace)
   const activity = useStore((s) => s.activity)
@@ -179,6 +193,7 @@ export function App() {
       set({ assistantOpen: assistantWasOpen(ws?.path) })
       if (ws) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
       for (const l of live) applyLiveState(l)
+      void loadTasks()
       // A reloaded window picks up a quit dialog or pending quit that was already in progress.
       set({ planUsage: await call('app:planUsage'), update: await call('update:state') })
       const q = await call('app:quitState')
@@ -245,6 +260,8 @@ export function App() {
         return <McpView />
       case 'assistant':
         return <AssistantMain />
+      case 'board':
+        return <BoardView />
       default:
         return workspace ? null : <WelcomeView />
     }
@@ -286,6 +303,9 @@ export function App() {
       <AssistantSettingsDialog />
       <MergeDialog />
       <HandOverDialog />
+      <TaskDialog />
+      <TaskStartDialog />
+      <RemoveProjectDialog />
       <AboutDialog />
       <UpdateDialog />
       <ModeMenuHost />

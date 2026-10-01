@@ -15,6 +15,7 @@ import type {
   FileContent,
   FileEntry,
   GitDiff,
+  HiddenProject,
   GitStatus,
   HiveEvent,
   LiveSessionState,
@@ -29,6 +30,8 @@ import type {
   ProviderId,
   ProviderTask,
   ProjectGitInfo,
+  ProjectRemoval,
+  ProjectRemovalInfo,
   QuitChoice,
   QuitScope,
   QuitSession,
@@ -37,6 +40,10 @@ import type {
   SessionUsage,
   SkillInfo,
   SkillTarget,
+  TaskCard,
+  TaskColumn,
+  TaskPatch,
+  TaskStartTarget,
   Transcript,
   TranscriptSearchResult,
   TranscriptTool,
@@ -112,6 +119,28 @@ export interface HiveRequests {
   'project:updateProvider': (projectPath: string, provider: ProviderId, patch: Partial<ProjectProviderConfig>) => ProjectConfig
   'project:openInExplorer': (projectPath: string) => void
   'project:openTerminal': (projectPath: string) => void
+  /** What hiding, removing or deleting the project would touch (Project → Remove Project…). */
+  'project:removalInfo': (projectPath: string) => ProjectRemovalInfo
+  /** Hides it, removes it from Hive (packing its workspace files into its folder) or deletes it (to the Recycle Bin). */
+  'project:remove': (projectPath: string, how: ProjectRemoval) => { warnings: string[] }
+  /** Projects hidden or removed from Hive, and whether each folder is still in the workspace. */
+  'project:hidden': () => (HiddenProject & { present: boolean })[]
+  'project:restore': (name: string) => { handovers: number; cards: number }
+  /** Stops listing a hidden or removed project whose folder is gone. */
+  'project:forget': (name: string) => void
+  /** A folder holding what Remove from Hive packed: keep (unpack into this workspace) or discard it. */
+  'project:takeRemovedData': (projectPath: string, keep: boolean) => { handovers: number; cards: number }
+
+  /** Every card on the workspace's board, archived ones too. */
+  'tasks:list': () => TaskCard[]
+  'tasks:create': (input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[] }) => TaskCard
+  'tasks:update': (n: number, patch: TaskPatch) => TaskCard
+  'tasks:comment': (n: number, text: string) => TaskCard
+  'tasks:archive': (n: number, archived: boolean) => TaskCard
+  /** To the Recycle Bin. */
+  'tasks:delete': (n: number) => void
+  /** Gives the card to an agent (an existing one, or a new one) with the card as its prompt, and moves it to Doing. */
+  'tasks:start': (n: number, target: TaskStartTarget) => { agentId: string; agentName: string; added: boolean }
 
   'session:list': (projectPath: string) => SessionListItem[]
   /** agentId: without one, the project's only agent. skipSetup starts the agent even though the worktree's setup command hasn't succeeded. */

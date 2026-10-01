@@ -4,10 +4,11 @@ import { randomBytes, timingSafeEqual } from 'crypto'
 import { app } from 'electron'
 import { basename, dirname, join, relative, resolve as resolvePath } from 'path'
 import { readFile } from 'fs/promises'
-import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, ToastLevel } from '../shared/types'
+import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, projectAgents, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
+import { columnLabel, isTaskColumn } from '../shared/tasks'
 import type { HandoverAuthor } from '../shared/hiveGuidance'
 import { CLAUDE_CODE } from '../shared/claude'
 import * as assistant from './assistantControl'
@@ -21,6 +22,8 @@ import { listMcp } from './mcp'
 import { assertInShared, createHandover, notesTree } from './notes'
 import { writePty } from './ptyHost'
 import { sessions } from './sessions'
+import * as tasks from './tasks'
+import { startTask } from './taskStart'
 import { listSkills } from './skills'
 import { transcripts } from './transcripts'
 import { contextWorkspace, inWorkspace, openWorkspaces, workspace, workspaceOf, type WorkspaceService } from './workspace'
@@ -773,6 +776,156 @@ route('POST', '/v1/shared/handovers', async ({ body }) => {
   return { ok: true, path: file }
 })
 
+// ---------------------------------------------------------------------------
+// The task board. Agents and the Assistant read and change cards; moving one into or out of Done is the user's
+// (the Assistant asks them first), and so are archiving and deleting. Only the Assistant starts cards on agents.
+// ---------------------------------------------------------------------------
+
+/** Who is changing a card: the Assistant, the agent whose hive tools sent it (agent and agentProject), or a script. */
+async function taskActor(body: any): Promise<tasks.TaskActor> {
+  if (assistantCaller()) return { kind: 'assistant' }
+  if (typeof body?.byAgent === 'string' && body.byAgent && typeof body?.agentProject === 'string') {
+    try {
+      const p = projectByName(body.agentProject)
+      const a = projectAgents(await workspace.projectConfig(p)).find((x) => x.id === body.byAgent)
+      if (a) return { kind: 'agent', name: `${a.name} (${basename(p)})` }
+    } catch {
+      // An unknown agent is just a caller.
+    }
+  }
+  return { kind: 'agent', name: 'Agent API' }
+}
+
+/**
+ * A card with what its agent is doing now (and its name now), for callers deciding what to do next. `agents` keeps
+ * each project's agents for a whole list, so a long board reads each project.json once.
+ */
+async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType<typeof projectAgents>>>()) {
+  let agent: { id: string; name: string; status: string; backgroundTasks: number } | null = null
+  if (c.agent && c.project) {
+    try {
+      const p = projectByName(c.project)
+      const key = p.toLowerCase()
+      if (!agents.has(key)) agents.set(key, workspace.projectConfig(p).then(projectAgents))
+      const def = (await agents.get(key)!).find((a) => a.id === c.agent)
+      const st = sessions.liveFor(p, c.agent)
+      agent = { id: c.agent, name: def?.name ?? c.agentName ?? c.agent, status: def ? (st?.status ?? 'stopped') : 'removed', backgroundTasks: st?.backgroundTasks ?? 0 }
+    } catch {
+      agent = { id: c.agent, name: c.agentName ?? c.agent, status: 'removed', backgroundTasks: 0 }
+    }
+  }
+  return { ...c, agent }
+}
+
+const taskNumber = (v: string): number => {
+  const n = Number(decodeURIComponent(v).replace(/^#/, ''))
+  if (!Number.isInteger(n) || n < 1) throw new HttpError(400, `"${v}" is not a card number`)
+  return n
+}
+
+function columnParam(v: unknown): TaskColumn | undefined {
+  if (v === undefined || v === null || v === '') return undefined
+  if (!isTaskColumn(v)) throw new HttpError(400, `Unknown column "${String(v)}": todo, doing, review or done.`)
+  return v
+}
+
+/** The fields of a request body a card change may set. */
+function taskPatch(body: any): TaskPatch {
+  const out: TaskPatch = {}
+  for (const k of ['title', 'description', 'project', 'blocked'] as const) if (body?.[k] !== undefined) out[k] = body[k] === null ? (null as never) : String(body[k])
+  if (body?.agent !== undefined) out.agent = body.agent ? String(body.agent) : null
+  if (body?.column !== undefined) out.column = columnParam(body.column)
+  if (body?.before !== undefined) out.before = body.before === null ? null : Number(body.before)
+  for (const k of ['labels', 'blockedBy', 'links'] as const) if (body?.[k] !== undefined) out[k] = body[k]
+  return out
+}
+
+route('GET', '/v1/tasks', async ({ query }) => {
+  requireWorkspace()
+  const project = query.get('project') ?? undefined
+  const cards = await tasks.listTasks({ project: project ? basename(projectByName(project)) : undefined, column: columnParam(query.get('column')), archived: query.get('archived') === 'true' ? true : undefined })
+  const agents = new Map<string, Promise<ReturnType<typeof projectAgents>>>()
+  return Promise.all(cards.map((c) => taskView(c, agents)))
+})
+
+route('GET', '/v1/tasks/:n', async ({ params }) => {
+  requireWorkspace()
+  return taskView(await tasks.getTask(taskNumber(params[0])))
+})
+
+route('POST', '/v1/tasks', async ({ body }) => {
+  requireWorkspace()
+  const title = String(body?.title ?? '').trim()
+  if (!title) throw new HttpError(400, 'title is required')
+  const input = { title, description: body?.description, project: body?.project, agent: body?.agent, column: columnParam(body?.column), labels: body?.labels, blocked: body?.blocked, blockedBy: body?.blockedBy, links: body?.links }
+  const actor = await taskActor(body)
+  if (actor.kind !== 'assistant') return taskView(await tasks.createTask(input, actor))
+  return assistantChange('agents', `add the task "${clip(title, 60)}" to the board`, async () => {
+    const c = await tasks.createTask(input, actor)
+    return { done: `Added #${c.number} to the board${c.project ? ` (${c.project})` : ''}: ${clip(c.title, 80)}`, result: await taskView(c) }
+  })
+})
+
+route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
+  requireWorkspace()
+  const n = taskNumber(params[0])
+  const patch = taskPatch(body)
+  const comment = typeof body?.comment === 'string' ? body.comment.trim() : ''
+  const actor = await taskActor(body)
+  const apply = async (allowDone: boolean): Promise<TaskCard> => {
+    let c = await tasks.getTask(n)
+    if (Object.keys(patch).length) c = await tasks.updateTask(n, patch, actor, { allowDone })
+    if (comment) c = await tasks.commentTask(n, comment, actor)
+    return c
+  }
+  if (actor.kind !== 'assistant') return taskView(await apply(false))
+  const ws = assistantCaller()!
+  return assistantChange('agents', `change #${n} on the board`, async () => {
+    const before = await tasks.getTask(n)
+    let allowDone = false
+    // Done is the user's word: the Assistant asks, and this waits for the answer.
+    if (patch.column && (patch.column === 'done') !== (before.column === 'done')) {
+      const yes = await assistant.ask(ws, {
+        title: patch.column === 'done' ? `Move #${n} to Done?` : `Take #${n} out of Done?`,
+        message: `The Assistant wants to move "${clip(before.title, 120)}" from ${columnLabel(before.column)} to ${columnLabel(patch.column)}.${comment ? ` Its note: ${clip(comment, 300)}` : ''}`,
+        yes: 'Move it',
+        no: 'Leave it'
+      })
+      if (!yes) throw new HttpError(409, `The user chose not to move #${n} to ${columnLabel(patch.column)}. Leave it where it is.`)
+      allowDone = true
+    }
+    const c = await apply(allowDone)
+    const what = [patch.column && patch.column !== before.column ? `moved it to ${columnLabel(patch.column)}` : '', comment ? 'commented' : '', Object.keys(patch).some((k) => k !== 'column' && k !== 'before') ? 'changed it' : ''].filter(Boolean).join(', ')
+    return { done: `#${n} ${clip(c.title, 60)}: ${what || 'no change'}`, result: await taskView(c) }
+  })
+})
+
+route('POST', '/v1/tasks/:n/comments', async ({ params, body }) => {
+  requireWorkspace()
+  const n = taskNumber(params[0])
+  const text = typeof body?.text === 'string' ? body.text : ''
+  const actor = await taskActor(body)
+  if (actor.kind !== 'assistant') return taskView(await tasks.commentTask(n, text, actor))
+  return assistantChange('agents', `comment on #${n}`, async () => ({ done: `Commented on #${n}`, result: await taskView(await tasks.commentTask(n, text, actor)) }))
+})
+
+route('POST', '/v1/tasks/:n/start', async ({ params, body }) => {
+  requireWorkspace()
+  const n = taskNumber(params[0])
+  const card = await tasks.getTask(n)
+  const target: TaskStartTarget = body?.agent
+    ? { kind: 'agent', agentId: String(body.agent) }
+    : { kind: 'new-agent', worktree: body?.worktree === true, name: body?.name ? String(body.name) : undefined, provider: body?.provider && isKnownProvider(String(body.provider)) ? (String(body.provider) as ProviderId) : undefined }
+  return assistantChange('agents', `start #${n} ${target.kind === 'agent' ? `on ${target.agentId}` : 'on a new agent'}${card.project ? ` in ${card.project}` : ''}`, async () => {
+    if (target.kind === 'new-agent' && body?.provider && !isKnownProvider(String(body.provider))) throw new HttpError(400, `Unknown provider "${body.provider}". hive_list_providers lists them.`)
+    const r = await startTask(n, target, { kind: 'assistant' })
+    return {
+      done: `Started #${n} on ${r.added ? 'a new agent, ' : ''}${r.agentName} in ${card.project}: ${clip(card.title, 80)}`,
+      result: { ok: true, agent: r.agentName, added: r.added, card: await taskView(r.card), note: 'Follow it with hive_wait_for_agents; the agent keeps the card up to date if it has Hive tools.' }
+    }
+  })
+})
+
 route('GET', '/v1/skills', async ({ query }) => {
   const project = query.get('project')
   if (project) {
@@ -836,7 +989,7 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     const result = ws ? await inWorkspace(ws, run) : await run()
     send(res, 200, result ?? null)
   } catch (e) {
-    const status = e instanceof HttpError ? e.status : statusFor(e as Error)
+    const status = e instanceof HttpError ? e.status : e instanceof tasks.TaskPermissionError ? 403 : statusFor(e as Error)
     if (status === 500) log.error(`API ${req.method} ${url.pathname}`, e)
     send(res, status, { error: (e as Error).message })
   }
@@ -848,13 +1001,14 @@ function statusFor(e: Error): number {
   if (/Invalid session id|URI malformed|Unknown provider|Project names cannot/i.test(m)) return 400
   if (/already running|already open|already being opened|is starting|Stop it first|Stop the|archived|No session is running|ran in .* Resume it|is required to run|is turned off|no agents yet|No workspace|busy|no handover/i.test(m)) return 409
   if (/several agents: choose/i.test(m)) return 400
-  if (/Not a project|Unknown (project|agent)|no longer exists/i.test(m)) return 404
+  if (/Not a project|Unknown (project|agent|task)|no longer exists/i.test(m)) return 404
+  if (/is archived|is done\.|has no project|needs a title|is too long|Unknown column|labels must|up to \d+ labels|^(blockedBy|links):|Choose a project|comment is empty/i.test(m)) return 400
   return 500
 }
 
 function broadcast(event: HiveEvent): void {
   if (!sseClients.size) return
-  const allowed: HiveEvent['type'][] = ['session-status', 'session-exit', 'workspace-changed', 'notes-changed', 'skills-changed']
+  const allowed: HiveEvent['type'][] = ['session-status', 'session-exit', 'workspace-changed', 'notes-changed', 'skills-changed', 'tasks-changed']
   if (!allowed.includes(event.type)) return
   const payload = event.type === 'workspace-changed' ? { type: event.type, workspace: event.workspace?.path ?? null } : event
   const line = `event: ${event.type}\ndata: ${JSON.stringify(payload)}\n\n`

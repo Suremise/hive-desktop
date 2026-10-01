@@ -181,6 +181,23 @@ const check = (name, ok, extra = '') => {
   const asAssistant = (await inv('assistant:actions')).some((x) => x.ok && x.text === 'Activated alpha')
   check("its hive tools act as the Assistant with the Agent API on", !toolReply?.isError && asAssistant, JSON.stringify(toolReply).slice(0, 300))
 
+  // The task board: the Assistant adds and starts cards; moving one to Done asks the user first.
+  const added2 = await api('POST', '/v1/tasks', { title: 'Write the README', project: 'alpha', description: 'work 1' })
+  check('the Assistant adds a card', added2.status === 200 && added2.body?.createdBy === 'Assistant', JSON.stringify(added2.body))
+  const cardNo = added2.body?.number
+  const started = await api('POST', `/v1/tasks/${cardNo}/start`, { name: 'Writer' })
+  check('and starts it on a new agent', started.status === 200 && started.body?.added === true && started.body?.card?.column === 'doing', JSON.stringify(started.body))
+  const writer = (await inv('workspace:get')).projects.find((x) => x.name === 'alpha').agents.find((a) => a.name === 'Writer')
+  check('which runs the card', !!writer && !!(await until(async () => (await live(alpha, writer.id))?.status === 'finished', 30000)))
+  await api('PATCH', `/v1/tasks/${cardNo}`, { column: 'review', comment: 'Ready.' })
+  const moving = api('PATCH', `/v1/tasks/${cardNo}`, { column: 'done' })
+  const doneCard = page.locator('.assistant-question', { hasText: `Move #${cardNo} to Done?` })
+  check('moving a card to Done asks the user', !!(await doneCard.waitFor({ timeout: 10000 }).then(() => true).catch(() => false)))
+  await doneCard.locator('button', { hasText: 'Move it' }).click()
+  const moved = await moving
+  check("and moves it on the user's yes", moved.status === 200 && moved.body?.column === 'done', JSON.stringify(moved.body))
+  check('the board changes are listed', (await inv('assistant:actions')).some((x) => x.ok && x.text.startsWith(`Started #${cardNo} on a new agent, Writer`)))
+
   // At most 30 changes for one message.
   let status = 200
   let n = 0
@@ -198,9 +215,10 @@ const check = (name, ok, extra = '') => {
   const asAgent = tools({ HIVE_PROJECT: 'alpha' })
   const asAgents = tools({ HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'agents' })
   const asLook = tools({ HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'look' })
-  check('project agents get no control tools', !asAgent.includes('hive_add_agent') && !asAgent.includes('hive_agent_activity'), asAgent.join(','))
-  check('Control agents: agent tools, no project creation', asAgents.includes('hive_prompt_agent') && asAgents.includes('hive_stop_agent') && asAgents.includes('hive_hand_over') && !asAgents.includes('hive_create_project'))
-  check('Look and advise: reading tools only', asLook.includes('hive_agent_activity') && asLook.includes('hive_wait_for_agents') && !asLook.includes('hive_add_agent'))
+  check('project agents get no control tools', !asAgent.includes('hive_add_agent') && !asAgent.includes('hive_agent_activity') && !asAgent.includes('hive_start_task'), asAgent.join(','))
+  check('project agents get the board tools', ['hive_list_tasks', 'hive_read_task', 'hive_create_task', 'hive_update_task'].every((t) => asAgent.includes(t)), asAgent.join(','))
+  check('Control agents: agent tools, no project creation', asAgents.includes('hive_prompt_agent') && asAgents.includes('hive_stop_agent') && asAgents.includes('hive_hand_over') && asAgents.includes('hive_start_task') && !asAgents.includes('hive_create_project'))
+  check('Look and advise: reading tools only', asLook.includes('hive_agent_activity') && asLook.includes('hive_wait_for_agents') && asLook.includes('hive_list_tasks') && !asLook.includes('hive_add_agent') && !asLook.includes('hive_start_task'))
 
   // Let the agents finish before closing.
   await until(async () => !(await inv('session:live')).some((s) => s.status === 'working' || s.status === 'starting'), 30000)

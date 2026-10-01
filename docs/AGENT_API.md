@@ -54,8 +54,8 @@ Errors return a non-2xx status and `{ "error": "message" }`.
 |---|---|
 | 400 | Invalid request (missing field, bad JSON, invalid session ID, `agent` needed because the project has several) |
 | 401 | Missing or wrong token |
-| 403 | Blocked (cross-origin request, or a disabled feature such as session input) |
-| 404 | Unknown route, project or file |
+| 403 | Blocked (cross-origin request, a disabled feature such as session input, or a change only the user makes, such as moving a card to Done) |
+| 404 | Unknown route, project, card or file |
 | 409 | Conflict with the current state (no workspace open, the project has no agents, agent already running or starting or busy, conversation open in another agent, session archived, provider turned off or not installed…) |
 | 500 | Unexpected error; details are in Hive's log |
 | 413 | Body larger than 2 MB |
@@ -68,7 +68,7 @@ Hive can show several workspaces, each in its own window (**File → New Window*
 
 - A request is for one workspace: the one named by the `X-Hive-Workspace` header (its folder path, URL-encoded) or the `workspace` query parameter (its name or path), else the only one open. A name that two open workspaces share (`C:\Clients\foo` and `D:\Clients\foo`) is refused with 409, listing both paths: name the workspace by its path instead. The `hive` MCP server sends its session's workspace, so an agent's tools always see its own workspace.
 - `{name}` in `/v1/projects/{name}` is a project in the request's workspace. With several windows open and no workspace named, a name is looked up in every open workspace: a name found in two answers **409**; say `<workspace>/<project>` instead (`/` encoded as `%2F` in the path: `/v1/projects/work%2Fapi`).
-- Calls about a whole workspace (`/v1/workspace`, shared notes, skills without a project, MCP servers) answer **400** when several are open and none is named.
+- Calls about a whole workspace (`/v1/workspace`, shared notes, the task board, skills without a project, MCP servers) answer **400** when several are open and none is named.
 
 ## Endpoints
 
@@ -110,7 +110,7 @@ A workspace's Hive Assistant is listed in `liveSessions` with `"project": null` 
 
 ### Projects
 
-`GET /v1/projects` — every project in the request's workspace; with several windows open and none named, every open workspace's projects. Each has `workspace` (its workspace's name).
+`GET /v1/projects` — every project in the request's workspace; with several windows open and none named, every open workspace's projects. Each has `workspace` (its workspace's name). Projects hidden or removed from Hive (Project → Remove Project…) aren't listed and can't be named.
 
 `GET /v1/projects/{name}` — one project.
 
@@ -226,8 +226,11 @@ The changes below are the Assistant's only: other callers get `403`.
 | `POST /v1/projects/{name}/agents/{agent}/stop` | Control agents | Stops it. If it is working, waiting or starting, Hive asks the user in the Assistant's panel (with the optional `reason`) and the call waits for the answer: `409` if they say no |
 | `POST /v1/projects/{name}/agents/{agent}/prompt` `{ "text" }` | Control agents | Types a task into an idle agent and sends it. `409` while it is working, starting, waiting on its background tasks or waiting for the user, or when the user has just typed in its terminal (Settings → Assistant → Pause after you type) |
 | `POST /v1/projects/{name}/handover` | Control agents | Hand Over to… (below), without needing *Allow sending input to sessions*. `409` at once when the project's agents lack Hive's tools, the user has just typed in either agent's terminal, or (without a new handover) the project has no handover; later failures are listed in its actions |
+| `POST /v1/tasks/{n}/start` | Control agents | Starts a card on an agent (see [Task board](#task-board)) |
 
-With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees or delete projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/deactivate` needs Control agents.
+Changing the task board (`POST /v1/tasks`, `PATCH /v1/tasks/{n}`, comments) is open to other callers too; for the Assistant it needs Control agents and counts as a change.
+
+With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees, archive or delete cards, or remove projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/deactivate` needs Control agents.
 
 ### Shared notes
 
@@ -252,6 +255,45 @@ Set `"append": true` to add to the end of an existing note.
 ```
 
 Returns `{ ok: true, path }`. Hive shows a notification with a link to the note. Hive writes the note's header (`# <title>`, project and date, in local time with UTC in brackets). An agent's `hive_create_handover` also passes `agent` (its id) and `agentProject`, and the Hive Assistant is known by its token; the header then adds `- **Author:** <agent> (<CLI>)` (or `Assistant`) and `- **Session:** <id>`, the conversation it was written in.
+
+### Task board
+
+The workspace's board: cards in four columns, `todo`, `doing`, `review` and `done`, kept in `.hive/tasks`. Every caller can read and change cards; **moving a card into or out of `done` is the user's**, so other callers get `403` (the Hive Assistant's request instead asks the user in its panel and waits for the answer: `409` if they say no). Archived cards can't be changed (`403`), and archiving and deleting are only in Hive.
+
+`GET /v1/tasks[?project=web][&column=review][&archived=true]` — the cards on the board in order (by column, then position), or the archived ones. A card:
+
+```json
+{
+  "number": 12, "title": "Fix the login redirect", "description": "…markdown…",
+  "project": "web", "column": "doing", "order": 3, "labels": ["bug"],
+  "blocked": null, "blockedBy": [11], "links": [],
+  "agent": { "id": "a-3f9c01d2", "name": "Agent 1", "status": "working", "backgroundTasks": 0 },
+  "agentName": "Agent 1",
+  "comments": [{ "at": "…", "by": "Agent 1 (web)", "text": "Found it: the callback URL." }],
+  "history": [{ "at": "…", "by": "Assistant", "what": "Moved to Doing" }],
+  "archived": false, "createdAt": "…", "createdBy": "Assistant", "updatedAt": "…"
+}
+```
+
+`agent` is the agent the card is given to, with what it is doing now (`status` is `removed` if the agent no longer exists), or `null`. `project` is the project's folder name, or `""` for a card about the workspace. `by` and `createdBy` say who: `You`, `Assistant`, an agent (`"Agent 1 (web)"`, when its `hive` tools made the change) or `Agent API` (any other caller).
+
+`GET /v1/tasks/{n}` — one card (`#12` or `12`).
+
+`POST /v1/tasks` — add a card. `title` is required; `description`, `project`, `agent` (name or id, in that project), `column` (not `done`), `labels`, `blocked` (a reason), `blockedBy` and `links` (card numbers) are optional.
+
+```json
+{ "title": "Add tests for the redirect", "project": "web", "description": "…", "labels": ["tests"], "blockedBy": [12] }
+```
+
+`PATCH /v1/tasks/{n}` — change a card and/or comment on it: any of `title`, `description`, `project` (its agent is cleared unless `agent` is given), `agent` (empty takes it from its agent), `column`, `before` (the card it goes in front of in its column; `null` the end), `labels`, `blocked` (empty clears it), `blockedBy`, `links`, and `comment`.
+
+```json
+{ "column": "review", "comment": "Fixed in auth/callback.ts; tests pass." }
+```
+
+`POST /v1/tasks/{n}/comments` `{ "text" }` — add a comment.
+
+`POST /v1/tasks/{n}/start` — **the Hive Assistant only** (Control agents): gives the card to an agent of its project, with the card as its prompt, and moves it to `doing`. `agent` (name or id): an existing agent that is stopped (a new conversation) or idle (its next message); `409` if it is busy. Without `agent`, Hive adds one: `name`, `provider`, and `worktree: true` for its own git worktree. Returns `{ ok, agent, added, card }`.
 
 ### Skills and MCP
 
@@ -278,7 +320,7 @@ event: session-status
 data: {"type":"session-status","state":{"projectPath":"D:\\work\\api","sessionId":"6f1c…","status":"finished",…}}
 ```
 
-Event types: `session-status`, `session-exit`, `workspace-changed`, `notes-changed`, `skills-changed`. Events cover every open workspace, so the Hive Assistant's token is refused here (403); it follows agents with `hive_wait_for_agents`. A client that stops reading (more than 1 MB of events waiting) is disconnected.
+Event types: `session-status`, `session-exit`, `workspace-changed`, `notes-changed`, `skills-changed`, `tasks-changed` (`{ workspacePath }`: read the board again). Events cover every open workspace, so the Hive Assistant's token is refused here (403); it follows agents with `hive_wait_for_agents`. A client that stops reading (more than 1 MB of events waiting) is disconnected.
 
 ```bash
 curl -N -H "Authorization: Bearer $HIVE_API_TOKEN" "$HIVE_API_URL/v1/events"
@@ -302,8 +344,12 @@ When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP se
 | `hive_create_handover` | `POST /v1/shared/handovers` |
 | `hive_notify` | `POST /v1/notify` |
 | `hive_list_skills` | `GET /v1/skills` |
+| `hive_list_tasks` | `GET /v1/tasks` |
+| `hive_read_task` | `GET /v1/tasks/{n}` |
+| `hive_create_task` | `POST /v1/tasks` (the session's project by default) |
+| `hive_update_task` | `PATCH /v1/tasks/{n}` (with `comment`) |
 
-Tools default to the session's own project, so an agent can simply say *"create a handover"*.
+Tools default to the session's own project, so an agent can simply say *"create a handover"*. The board tools send the agent's id and project, so a card's history and comments name the agent.
 
 The Hive Assistant's `hive` server always runs (even with this setting or the Agent API off) and has more tools, as far as its control level allows:
 
@@ -319,9 +365,10 @@ The Hive Assistant's `hive` server always runs (even with this setting or the Ag
 | `hive_stop_agent` | `POST /v1/projects/{name}/agents/{agent}/stop` | Control agents |
 | `hive_prompt_agent` | `POST /v1/projects/{name}/agents/{agent}/prompt` | Control agents |
 | `hive_hand_over` | `POST /v1/projects/{name}/handover` | Control agents |
+| `hive_start_task` | `POST /v1/tasks/{n}/start` | Control agents |
 | `hive_create_project` | `POST /v1/projects` | Control agents and create projects |
 
-Claude Code runs these without asking (they are Hive's own, and limited by the control level); Codex gets a 15-minute tool timeout for them, since waiting and asking the user can take minutes.
+It also has the board tools above; Claude Code runs `hive_create_task` and `hive_update_task` without asking from Control agents up. Claude Code runs these without asking (they are Hive's own, and limited by the control level); Codex gets a 15-minute tool timeout for them, since waiting and asking the user can take minutes.
 
 A handover belongs to a project when its file name is `handovers/<date>-<project>-<title>.md`, as `hive_create_handover` writes it. When another project's name begins the same way (`hive` and `hive-website`), the `**Project:**` line at the top of the handover decides.
 

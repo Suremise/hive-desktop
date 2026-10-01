@@ -115,21 +115,24 @@ export async function copyIgnored(projectPath: string, dest: string, patterns: s
   return copied
 }
 
-async function dirtyCount(cwd: string): Promise<number> {
+/** Uncommitted files in a worktree; null when git can't say (a damaged index, say). */
+async function dirtyCount(cwd: string): Promise<number | null> {
   const r = await git(cwd, ['status', '--porcelain', '-z'])
-  return r.ok ? r.out.split('\0').filter((l) => l && !l.slice(3).startsWith('.hive/')).length : 0
+  return r.ok ? r.out.split('\0').filter((l) => l && !l.slice(3).startsWith('.hive/')).length : null
 }
 
-export async function branchStatus(projectPath: string, wt: AgentWorktree): Promise<AgentBranchStatus> {
+/**
+ * A worktree branch's commits not merged and its uncommitted files. With `strict` (before removing it), a git
+ * command that fails throws instead of counting as nothing to lose.
+ */
+export async function branchStatus(projectPath: string, wt: AgentWorktree, opts: { strict?: boolean } = {}): Promise<AgentBranchStatus> {
   const into = await currentBranch(projectPath)
   const count = await git(projectPath, ['rev-list', '--count', `${into ?? wt.base}..${wt.branch}`])
-  return {
-    branch: wt.branch,
-    base: wt.base,
-    into,
-    ahead: count.ok ? parseInt(count.out.trim(), 10) || 0 : 0,
-    dirty: existsSync(wt.path) ? await dirtyCount(wt.path) : 0
+  const dirty = existsSync(wt.path) ? await dirtyCount(wt.path) : 0
+  if (opts.strict && (!count.ok || dirty === null)) {
+    throw new Error(`Git couldn't check ${wt.branch}: ${(count.ok ? 'git status failed in its folder' : count.err.trim()) || 'unknown error'}.`)
   }
+  return { branch: wt.branch, base: wt.base, into, ahead: count.ok ? parseInt(count.out.trim(), 10) || 0 : 0, dirty: dirty ?? 0 }
 }
 
 /**
@@ -139,7 +142,10 @@ export async function branchStatus(projectPath: string, wt: AgentWorktree): Prom
  */
 export async function mergeWorktree(projectPath: string, wt: AgentWorktree, opts: { squash: boolean; message: string }): Promise<MergeResult> {
   const message = opts.message.trim() || `Merge ${wt.branch}`
-  if (existsSync(wt.path) && (await dirtyCount(wt.path)) > 0) {
+  const dirty = existsSync(wt.path) ? await dirtyCount(wt.path) : 0
+  // Git can't say what is uncommitted there: merging (and removing the worktree afterwards) could lose it.
+  if (dirty === null) return { ok: false, error: `Git couldn't check the worktree for uncommitted changes (git status failed in ${wt.path}). Fix it, then merge again.` }
+  if (dirty > 0) {
     const add = await git(wt.path, ['add', '-A'])
     const commit = add.ok ? await git(wt.path, ['commit', '-m', message]) : add
     if (!commit.ok) return { ok: false, error: `Could not commit the agent's changes: ${commit.err || commit.out}` }

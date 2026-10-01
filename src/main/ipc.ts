@@ -18,6 +18,9 @@ import { logsDir } from './logger'
 import * as files from './files'
 import * as mcp from './mcp'
 import * as notes from './notes'
+import * as removal from './projectRemoval'
+import * as tasks from './tasks'
+import { startTask } from './taskStart'
 import * as assistantControl from './assistantControl'
 import * as personas from './personas'
 import { killPty, ptyBuffer, resizePty, writePty } from './ptyHost'
@@ -222,6 +225,25 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'workspace:refresh': async () => (workspace.path ? workspace.refresh() : null),
 
     'project:create': (name) => workspace.createProject(name),
+    'project:removalInfo': (p) => removal.removalInfo(p),
+    'project:remove': (p, how) => {
+      if (!['hide', 'remove', 'delete'].includes(how)) throw new Error(`Unknown way to remove a project: ${String(how)}`)
+      return removal.removeProject(p, how)
+    },
+    'project:hidden': () => workspace.hiddenProjects(),
+    'project:restore': (name) => removal.restoreProject(name),
+    'project:forget': (name) => removal.forgetHidden(name),
+    'project:takeRemovedData': (p, keep) => removal.takeRemovedData(p, keep),
+    'tasks:list': () => tasks.allTasks(),
+    'tasks:create': (input) => tasks.createTask(input, { kind: 'user' }),
+    'tasks:update': (n, patch) => tasks.updateTask(n, patch, { kind: 'user' }),
+    'tasks:comment': (n, text) => tasks.commentTask(n, text, { kind: 'user' }),
+    'tasks:archive': (n, archived) => tasks.archiveTask(n, archived),
+    'tasks:delete': (n) => tasks.deleteTask(n),
+    'tasks:start': async (n, target) => {
+      const r = await startTask(n, target, { kind: 'user' })
+      return { agentId: r.agentId, agentName: r.agentName, added: r.added }
+    },
     'project:setActive': async (p, active) => {
       p = workspace.assertProject(p)
       if (!active && sessions.liveFor(p)) throw new Error('Stop the running session before deactivating this project.')

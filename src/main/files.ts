@@ -299,6 +299,25 @@ export function unwatchProject(projectPath: string): void {
   watchers.delete(key)
 }
 
+/**
+ * Closes the watchers on these folders whoever opened them (a project being deleted: they hold it open). The
+ * function returned opens them again as they were, for when the folders stay after all.
+ */
+export function suspendWatching(paths: string[]): () => void {
+  const closed: { path: string; refs: number }[] = []
+  for (const p of paths) {
+    const entry = watchers.get(p.toLowerCase())
+    if (!entry) continue
+    clearTimeout(entry.timer)
+    entry.w.close()
+    watchers.delete(p.toLowerCase())
+    closed.push({ path: p, refs: entry.refs })
+  }
+  return () => {
+    for (const c of closed) for (let i = 0; i < c.refs; i++) watchProject(c.path)
+  }
+}
+
 export function unwatchAll(): void {
   for (const e of watchers.values()) e.w.close()
   watchers.clear()

@@ -10,6 +10,7 @@ import { Icon, IconButton, InfoTip, StatusDot, STATUS_TEXT, statusText, Switch, 
 import { addSkill, deleteSkill, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
 import { hasEditorDraftsUnder } from '../editorDrafts'
 import { AssistantSidePanel } from './AssistantView'
+import { BoardPanel } from './Board'
 
 /** Width of the compact Projects rail, and how narrow a drag has to go before the sidebar snaps to it. */
 const RAIL_WIDTH = 48
@@ -52,6 +53,7 @@ export function Sidebar() {
   return (
     <div className={cx('sidebar', compact && 'compact')} style={{ width: compact ? RAIL_WIDTH : width }}>
       {view === 'projects' && (compact ? <ProjectsRail /> : <ProjectsPanel />)}
+      {view === 'board' && <BoardPanel />}
       {view === 'notes' && <NotesPanel />}
       {view === 'skills' && <SkillsPanel />}
       {view === 'mcp' && <McpPanel />}
@@ -129,13 +131,23 @@ function projectMenu(p: ProjectInfo): MenuEntry[] {
     { label: 'Open External Terminal', icon: 'terminal', onClick: () => void call('project:openTerminal', p.path) },
     { separator: true },
     {
+      label: 'Tasks',
+      icon: 'project',
+      onClick: () => {
+        actions.selectProject(p.path)
+        setProjectTab(p.path, 'tasks')
+      }
+    },
+    {
       label: 'Project Settings',
       icon: 'settings',
       onClick: () => {
         actions.selectProject(p.path)
         setProjectTab(p.path, 'settings')
       }
-    }
+    },
+    { separator: true },
+    { label: 'Remove Project…', icon: 'trash', onClick: () => set({ removeProjectFor: p.path }) }
   ]
 }
 

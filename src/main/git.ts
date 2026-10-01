@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
-import { join, resolve, sep } from 'path'
-import { readFile, stat } from 'fs/promises'
+import { resolve, sep } from 'path'
+import { lstat, readFile, readlink } from 'fs/promises'
+import { insideReal } from './fsutil'
 import type { GitDiff, GitStatus } from '../shared/types'
 
 const MAX_DIFF_BYTES = 2 * 1024 * 1024
@@ -91,10 +92,17 @@ export async function gitDiff(projectPath: string, file: string, base?: string):
   const original = head.ok ? head.buf : Buffer.alloc(0)
   let modified = Buffer.alloc(0)
   try {
-    const s = await stat(join(projectPath, file))
-    if (s.size > MAX_DIFF_BYTES) return { path: file, original: '', modified: `File is too large to diff (${Math.round(s.size / 1024)} KB).`, binary: true }
-    modified = await readFile(join(projectPath, file))
-  } catch {
+    const s = await lstat(abs)
+    // A link is shown as git stores it (the path it points to), never followed: it could lead outside the project.
+    if (s.isSymbolicLink()) modified = Buffer.from(await readlink(abs), 'utf8')
+    else {
+      // Nor a file reached through a linked folder that leads outside.
+      if (!insideReal(abs, [projectPath])) throw Object.assign(new Error('Path is outside the project'), { outside: true })
+      if (s.size > MAX_DIFF_BYTES) return { path: file, original: '', modified: `File is too large to diff (${Math.round(s.size / 1024)} KB).`, binary: true }
+      modified = await readFile(abs)
+    }
+  } catch (e) {
+    if ((e as { outside?: boolean }).outside) throw e
     // Deleted in the working tree.
   }
   if (isBinary(original) || isBinary(modified)) return { path: file, original: '', modified: '', binary: true }

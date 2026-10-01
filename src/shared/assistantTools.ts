@@ -17,11 +17,16 @@ export const ASSISTANT_READ_TOOLS = [
   'hive_list_skills',
   'hive_agent_activity',
   'hive_wait_for_agents',
-  'hive_list_providers'
+  'hive_list_providers',
+  'hive_list_tasks',
+  'hive_read_task'
 ]
 
-/** Running agents: add, change, start, stop, prompt; and turning projects on and off. */
-export const ASSISTANT_AGENT_TOOLS = ['hive_activate_project', 'hive_add_agent', 'hive_update_agent', 'hive_start_agent', 'hive_stop_agent', 'hive_prompt_agent', 'hive_hand_over']
+/** Running agents: add, change, start, stop, prompt; and turning projects on and off. Starting a board card runs an agent too. */
+export const ASSISTANT_AGENT_TOOLS = ['hive_activate_project', 'hive_add_agent', 'hive_update_agent', 'hive_start_agent', 'hive_stop_agent', 'hive_prompt_agent', 'hive_hand_over', 'hive_start_task']
+
+/** Changing the task board: every agent has these; the Assistant at the control level that runs agents. */
+export const TASK_TOOLS = ['hive_create_task', 'hive_update_task']
 
 /** Creating projects. */
 export const ASSISTANT_PROJECT_TOOLS = ['hive_create_project']
@@ -38,5 +43,5 @@ export function controlAllows(level: AssistantControlLevel | string | undefined,
 
 /** The tools an Assistant with this control level may use without asking. */
 export function assistantTools(level: AssistantControlLevel | string | undefined): string[] {
-  return [...ASSISTANT_READ_TOOLS, ...(controlAllows(level, 'agents') ? ASSISTANT_AGENT_TOOLS : []), ...(controlAllows(level, 'projects') ? ASSISTANT_PROJECT_TOOLS : [])]
+  return [...ASSISTANT_READ_TOOLS, ...(controlAllows(level, 'agents') ? [...ASSISTANT_AGENT_TOOLS, ...TASK_TOOLS] : []), ...(controlAllows(level, 'projects') ? ASSISTANT_PROJECT_TOOLS : [])]
 }

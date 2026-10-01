@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Task board
+- **A task board for the workspace**: cards in **Todo**, **Doing**, **Review** and **Done**, each for a project, with a description, labels, a blocked reason, the cards it depends on, comments and a history of who changed what. Open it from the activity bar (**Ctrl+Shift+J**); each project also has a **Tasks** tab. Drag cards between columns; a Doing card shows what its agent is doing right now.
+- **Start** gives a card to an agent (one that is stopped or idle, a new one, or a new one in its own worktree) with the card as its prompt.
+- **The Assistant and agents use it too.** Agents read cards, add cards for follow-up work and move their own to Review with a summary; the Assistant plans work as cards and starts them on agents. **Only you move cards to Done**: the Assistant asks first, and agents can't. Archiving and deleting cards are yours too.
+- Agent API: `/v1/tasks` and the `tasks-changed` event; hive tools `hive_list_tasks`, `hive_read_task`, `hive_create_task`, `hive_update_task`, and `hive_start_task` for the Assistant.
+
+### Projects
+- **Project → Remove Project…**: **Hide** a project (Hive leaves it out until you restore it), **Remove** it from Hive (the folder stays, with its handovers and cards packed into it, so it can move to another workspace and bring them along), or **Delete** it (the folder, its worktrees and its handovers to the Recycle Bin). **Settings → Workspace** lists hidden and removed projects, with **Restore**.
+
 ### Agents
 - **Agents waiting on background tasks aren't shown as finished.** When a Claude Code agent ends its turn while a task it started is still running (a test run, say), it shows as **waiting on background tasks** ("Waiting on 1 background task", a slow, faint dot) and carries on by itself when the task ends. The chime and the "finished" notification wait until it really has finished. Codex isn't told when its background terminals end, so Codex agents show as finished with the count next to them.
 - **Settings → Agents & Worktrees → Count background tasks for up to** (60 minutes): Hive can't tell a test run from something that never ends, such as a dev server, so it stops counting a task after this long.
@@ -18,6 +27,8 @@
 - **It waits for agents that are waiting on background tasks**, and won't give them a new task meanwhile (`hive_wait_for_agents` waits through them unless `ignoreBackground` is set; `hive_prompt_agent` refuses them). Its instructions now tell it never to promise a later check without a wait actually running.
 
 ### Fixes
+- **Merge** refuses when git can't check a worktree for uncommitted changes (a damaged index, say), instead of merging and, with clean-up, removing the worktree with them.
+- The **Changes** tab no longer shows the contents of a file outside the project reached through a link (a link is shown as the path it points to, as git stores it).
 - **Agent Setup → Codex → Set up** could sometimes not bring up Codex's sandbox prompt: Hive typed `/permissions` while Codex was still busy starting, and Codex queued it. Hive now waits until Codex is idle.
 - Hive noticed what a running Codex agent wrote to its rollout (its usage, cost and settings) only about once a minute and at the end of each turn: Windows reported the file's old modified time while Codex kept appending, so Hive now checks the size too.
 

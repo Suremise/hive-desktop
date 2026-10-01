@@ -6,16 +6,19 @@ import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { AddAgentButton, AgentStrip, PANE_FOOTER, PANE_HEADER, PaneChrome, ResumeButton, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
 import { Icon, IconButton, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu } from '../components/ui'
-import { agentProviderOf, projectKey, projectState, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
+import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
 import { carriesFiles, cx, formatKeybinding } from '../util'
 import { FilesTab, ImagesTab } from './FilesTab'
 import { ChangesTab, MemoryTab, OverviewTab, ProjectMcpTab, ProjectSettingsTab, ProjectSkillsTab } from './ProjectTabs'
 import { SessionsTab } from './SessionsTab'
 import { ErrorBoundary } from '../components/ErrorBoundary'
+import { ProjectTasksTab } from '../components/Board'
+import { RemovedDataBanner } from '../components/ProjectRemoval'
 
 const TABS: { id: ProjectTab; label: string; icon: string }[] = [
   { id: 'session', label: 'Session', icon: 'terminal' },
   { id: 'overview', label: 'Overview', icon: 'dashboard' },
+  { id: 'tasks', label: 'Tasks', icon: 'project' },
   { id: 'sessions', label: 'Sessions', icon: 'history' },
   { id: 'files', label: 'Files', icon: 'files' },
   { id: 'images', label: 'Images', icon: 'file-media' },
@@ -25,6 +28,12 @@ const TABS: { id: ProjectTab; label: string; icon: string }[] = [
   { id: 'mcp', label: 'MCP', icon: 'plug' },
   { id: 'settings', label: 'Settings', icon: 'settings' }
 ]
+
+/** A tab's tooltip, with its shortcut (they can be changed, and Tasks has none by default). */
+function tabTip(id: ProjectTab, label: string): string {
+  const kb = commandKeybinding(id === 'settings' ? 'project.tab.settings' : `project.tab.${id}`)
+  return kb ? `${label} (${formatKeybinding(kb)})` : label
+}
 
 function SessionEmpty({ project, framed }: { project: ProjectInfo; framed: boolean }) {
   const focused = useFocusedAgent(project)
@@ -216,7 +225,9 @@ export function ProjectView({ visible }: { visible: boolean }) {
             onClick={(e) =>
               menu.open(e, [
                 { label: 'Changes', icon: 'git-compare', onClick: () => setProjectTab(project.path, 'changes') },
-                { label: 'Project Settings', icon: 'settings', onClick: () => setProjectTab(project.path, 'settings') }
+                { label: 'Project Settings', icon: 'settings', onClick: () => setProjectTab(project.path, 'settings') },
+                { separator: true },
+                { label: 'Remove Project…', icon: 'trash', onClick: () => set({ removeProjectFor: project.path }) }
               ])
             }
           />
@@ -231,6 +242,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
           </button>
         </div>
       )}
+      <RemovedDataBanner project={project} />
       {project.unmanagedMcp.length > 0 && (
         <div className="banner warn">
           <Icon name="plug" /> This project defines MCP servers that are not in the workspace: <strong>{project.unmanagedMcp.join(', ')}</strong>. They stay disabled until copied to the
@@ -250,8 +262,8 @@ export function ProjectView({ visible }: { visible: boolean }) {
       )}
 
       <div className="tabs">
-        {TABS.map((t, i) => (
-          <Tooltip key={t.id} content={`${t.label} (Alt+${(i + 1) % 10})`}>
+        {TABS.map((t) => (
+          <Tooltip key={t.id} content={tabTip(t.id, t.label)}>
             <div
               className={cx('tab', tab === t.id && 'active')}
               onClick={() => setProjectTab(project.path, t.id)}
@@ -273,6 +285,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
         </div>
         <ErrorBoundary label="This tab" resetKey={`${project.path}|${tab}`}>
           {tab === 'overview' && <OverviewTab project={project} />}
+          {tab === 'tasks' && <ProjectTasksTab project={project} />}
           {tab === 'sessions' && <SessionsTab project={project} />}
           {tab === 'files' && <FilesTab project={project} />}
           {tab === 'images' && <ImagesTab project={project} />}

@@ -61,6 +61,10 @@ const settingsArgs = {
   mode: { type: 'string', description: 'Permission mode (hive_list_providers). Empty follows the project.' }
 }
 const agentPath = (a: Record<string, any>): string => `/v1/projects/${proj(a)}/agents/${enc(a.agent || '')}`
+/** Which agent is changing a card, for its history (Hive fills in the name). */
+const byAgent = (): Record<string, string> => (process.env.HIVE_AGENT_ID && PROJECT ? { byAgent: process.env.HIVE_AGENT_ID, agentProject: PROJECT } : {})
+const columnArg = { type: 'string', enum: ['todo', 'doing', 'review', 'done'] }
+const cardsArg = (what: string) => ({ type: 'array', items: { type: 'number' }, description: what })
 
 interface Tool {
   name: string
@@ -260,6 +264,81 @@ const tools: Tool[] = [
       "Hand one agent's work over to another in the same project, of either provider (Hive's Hand Over to…). With handover (the default), Hive asks `from` (running and idle) to write a handover, waits until a new one exists, then starts `to` (or, if it's running and idle, tells it) to read the latest handover and carry on. handover=false skips writing one and hands over the latest. With `to` the same as `from`, the agent carries on in a new conversation instead (its conversation ends and a new one reads the handover): the way to make a long transcript (transcriptMB in hive_agent_activity) short again. Returns at once: follow with hive_wait_for_agents.",
     inputSchema: { type: 'object', properties: { project: projectArg, from: agentArg, to: agentArg, handover: { type: 'boolean' } }, required: ['project', 'from', 'to'] },
     run: (a) => api('POST', `/v1/projects/${proj(a)}/handover`, { from: a.from, to: a.to, handover: a.handover })
+  },
+  {
+    name: 'hive_list_tasks',
+    description:
+      "The workspace's task board: cards in columns todo, doing, review and done, each with its project, the agent it's given to (and what that agent is doing now), labels, and whether it's blocked. Without project, every project's cards; archived=true lists the archived ones instead.",
+    inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Only this project\'s cards.' }, column: columnArg, archived: { type: 'boolean' } } },
+    run: (a) => {
+      const q = [a.project ? `project=${enc(a.project)}` : '', a.column ? `column=${enc(a.column)}` : '', a.archived ? 'archived=true' : ''].filter(Boolean).join('&')
+      return api('GET', `/v1/tasks${q ? `?${q}` : ''}`)
+    }
+  },
+  {
+    name: 'hive_read_task',
+    description: 'One card in full: its description, comments and history.',
+    inputSchema: { type: 'object', properties: { number: { type: 'number', description: 'The card number (#12 is 12).' } }, required: ['number'] },
+    run: (a) => api('GET', `/v1/tasks/${enc(String(a.number))}`)
+  },
+  {
+    name: 'hive_create_task',
+    description:
+      "Add a card to the workspace's task board (in todo unless column says otherwise; never done). Use it for follow-up work you find but shouldn't do now, or when the user asks. Give it a project (folder name) so it can be started on that project's agents.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        description: { type: 'string', description: 'Markdown: what to do and how to tell it is done, in full (whoever starts it reads only the card).' },
+        project: projectArg,
+        agent: { type: 'string', description: "Give it to this agent of the project (name or id)." },
+        column: columnArg,
+        labels: { type: 'array', items: { type: 'string' } },
+        blocked: { type: 'string', description: "Why it can't go on yet." },
+        blockedBy: cardsArg('Cards that have to be done first.'),
+        links: cardsArg('Related cards.')
+      },
+      required: ['title']
+    },
+    run: (a) => api('POST', '/v1/tasks', { title: a.title, description: a.description, project: a.project ?? PROJECT, agent: a.agent, column: a.column, labels: a.labels, blocked: a.blocked, blockedBy: a.blockedBy, links: a.links, ...byAgent() })
+  },
+  {
+    name: 'hive_update_task',
+    description:
+      `Change a card on the task board and/or comment on it: move it between todo, doing and review, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on. When you finish a card's work, move it to review with a comment saying what you did. Only the user moves cards to or from done${ASSISTANT ? ' (you can ask: Hive puts the question to the user and waits for the answer)' : ''}; archived cards can't be changed.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        number: { type: 'number' },
+        comment: { type: 'string', description: 'Added to its comments.' },
+        column: columnArg,
+        blocked: { type: 'string' },
+        title: { type: 'string' },
+        description: { type: 'string' },
+        project: { type: 'string' },
+        agent: { type: 'string', description: 'Agent name or id; empty takes it from its agent.' },
+        labels: { type: 'array', items: { type: 'string' } },
+        blockedBy: cardsArg('Cards that have to be done first (replaces the list).'),
+        links: cardsArg('Related cards (replaces the list).')
+      },
+      required: ['number']
+    },
+    run: (a) => {
+      const body: Record<string, unknown> = { ...byAgent() }
+      for (const k of ['comment', 'column', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links']) if (a[k] !== undefined) body[k] = a[k]
+      return api('PATCH', `/v1/tasks/${enc(String(a.number))}`, body)
+    }
+  },
+  {
+    name: 'hive_start_task',
+    description:
+      "Start a card: Hive gives it to an agent of its project with the card as the prompt and moves it to doing. agent: an existing agent that is stopped or idle; without agent, Hive adds a new one (worktree=true: in its own git worktree, only if the user asked for one). Follow with hive_wait_for_agents.",
+    inputSchema: {
+      type: 'object',
+      properties: { number: { type: 'number' }, agent: agentArg, worktree: { type: 'boolean' }, name: { type: 'string', description: 'A new agent\'s name.' }, provider: settingsArgs.provider },
+      required: ['number']
+    },
+    run: (a) => api('POST', `/v1/tasks/${enc(String(a.number))}/start`, { agent: a.agent, worktree: a.worktree, name: a.name, provider: a.provider })
   },
   {
     name: 'hive_list_skills',

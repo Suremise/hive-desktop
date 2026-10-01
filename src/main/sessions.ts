@@ -525,9 +525,20 @@ class SessionManager {
     }
   }
 
-  /** Refuses a start while Hive quits, or while the project's workspace is closing or switching. */
+  /** Refuses a start while Hive quits, while the project's workspace is closing or switching, or while the project is being removed. */
   private assertStartsAllowed(projectPath: string): void {
     if (this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error("Hive is stopping this workspace's agents, so none can start now.")
+    if (this.fenced.has(resolve(projectPath).toLowerCase())) throw new Error('This project is being removed, so its agents can\'t start now.')
+  }
+
+  /** Projects (lower-cased paths) whose agents may not start: they are being hidden, removed or deleted. */
+  private fenced = new Set<string>()
+
+  /** Keeps the project's agents from starting until `unfence()`: nothing may run in it while it is being removed. */
+  fenceStarts(projectPath: string): () => void {
+    const key = resolve(projectPath).toLowerCase()
+    this.fenced.add(key)
+    return () => void this.fenced.delete(key)
   }
 
   /** Projects with an agent starting (not yet in liveStates). */

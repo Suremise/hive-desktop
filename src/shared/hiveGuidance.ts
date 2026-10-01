@@ -11,7 +11,8 @@ export function hiveInstructions(project: string): string {
     '- hive_read_latest_handover: the latest handover for this project. hive_list_shared_notes / hive_read_shared_note / hive_write_shared_note: everything else in the shared notes.',
     '- hive_create_handover: when the user wants to hand work over to a future session, or asks you to wrap up.',
     '- hive_list_projects / hive_project_status: other projects and their sessions. hive_session_usage: token and cache use.',
-    '- hive_notify: flag something to the user in Hive.'
+    '- hive_notify: flag something to the user in Hive.',
+    "- hive_list_tasks / hive_read_task / hive_create_task / hive_update_task: the workspace's task board. When you were given a card (#n), keep it up to date and move it to review when the work is done; add cards for follow-up work rather than doing it unasked. Only the user moves cards to done."
   ].join('\n')
 }
 
@@ -57,16 +58,27 @@ interface NoteLike {
   children?: NoteLike[]
 }
 
+/** The project a handover's header names (its "- **Project:**" line), or null without one. */
+export function handoverProject(text: string): string | null {
+  return /^- \*\*Project:\*\* (.+)$/m.exec(text.slice(0, 2000))?.[1]?.trim() ?? null
+}
+
 /**
  * A project's handovers, newest first. Files are named <date>-<project>-<title>.md, so the project is
- * matched on the name. One project's name can begin another's ("hive" and "hive-website"), so where both
- * could match, the file's "- **Project:**" header decides (read with `read`).
+ * matched on the name. One project's name can begin another's ("hive" and "hive-website"), and two names can
+ * make the same slug ("foo_bar" and "foo-bar"): where another project could own the file, the file's
+ * "- **Project:**" header decides (read with `read`), by the project's exact name when two share a slug.
+ * `strict` (before moving or deleting them): a file only counts when its header names this project exactly, or it
+ * has no header and no other project could own it.
  */
-export async function projectHandovers<T extends NoteLike>(tree: T[], project: string | undefined, allProjects: string[], read: (relPath: string) => Promise<string>): Promise<T[]> {
+export async function projectHandovers<T extends NoteLike>(tree: T[], project: string | undefined, allProjects: string[], read: (relPath: string) => Promise<string>, opts: { strict?: boolean } = {}): Promise<T[]> {
   const files = ((tree.find((n) => n.isDir && n.name === 'handovers')?.children ?? []) as T[]).filter((f) => !f.isDir && f.name.endsWith('.md') && f.name !== 'README.md')
   const p = project ? slug(project) : ''
-  // Other projects whose names overlap this one's ("hive" / "hive-website"): their handovers can look like ours.
-  const overlapping = p ? allProjects.map(slug).filter((s) => s !== p && (s.startsWith(p + '-') || p.startsWith(s + '-'))) : []
+  const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
+  // Other projects whose names overlap this one's ("hive" / "hive-website"), or make the same slug ("foo_bar" / "foo-bar").
+  const others = p ? allProjects.filter((n) => !same(n, project!)) : []
+  const twins = others.filter((n) => slug(n) === p)
+  const overlapping = others.map(slug).filter((s) => s === p || s.startsWith(p + '-') || p.startsWith(s + '-'))
   const mine: T[] = []
   for (const f of files) {
     if (!p) {
@@ -75,14 +87,16 @@ export async function projectHandovers<T extends NoteLike>(tree: T[], project: s
     }
     const rest = f.name.replace(/^\d{4}-\d{2}-\d{2}-/, '')
     if (!rest.startsWith(p + '-')) continue
-    if (!overlapping.some((s) => rest.startsWith(s + '-'))) {
+    if (!opts.strict && !overlapping.some((s) => s === p || rest.startsWith(s + '-'))) {
       mine.push(f)
       continue
     }
     // "hive-website-plan" could be hive-website's "Plan", or hive's "Website plan": the header says which.
     try {
-      const owner = /^- \*\*Project:\*\* (.+)$/m.exec(await read(f.relPath))?.[1]?.trim()
-      if (owner && slug(owner) === p) mine.push(f)
+      const owner = handoverProject(await read(f.relPath))
+      // Strictly, a header names its project exactly: a project that has gone ("foo-bar") may share this one's slug.
+      const ours = owner === null ? !overlapping.some((s) => s === p || rest.startsWith(s + '-')) : opts.strict || twins.length ? same(owner, project!) : slug(owner) === p
+      if (ours) mine.push(f)
     } catch {
       // Unreadable: leave it out.
     }

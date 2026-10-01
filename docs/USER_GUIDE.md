@@ -31,6 +31,7 @@ MyWorkspace/
     shared/       notes, instructions and handovers for every project
     skills/       Hive skills (one folder per skill; a new workspace starts with Hive's six)
     mcp/          MCP server definitions (one .json per server)
+    tasks/        the task board (one .json per card)
     workspace.json
   ProjectA/
   ProjectB/
@@ -67,6 +68,16 @@ Status dots:
 | Glow | Something happened you haven't looked at yet |
 
 The sidebar and the lists in the Sessions, Files, Changes and Memory tabs can be made wider or narrower by dragging their right-hand edge, as can the two halves of a split view in the Files tab. Double-click the edge to reset it. Hive remembers the sizes.
+
+### Removing a project
+
+**Project → Remove Project…** (also in a project's right-click menu and the **⋯** at the top of a project) offers three ways. The dialog lists what each one touches: running agents (stopped first; their conversations are kept), the folder, the project's handovers, its cards on the task board and its worktrees.
+
+- **Hide**: Hive leaves the project out until you restore it. Nothing is moved or deleted; its cards are archived meanwhile.
+- **Remove from Hive**: the folder stays on disk, and its handovers and cards are packed into it (`.hive/removed`), so you can move it somewhere else, or into another workspace. Wherever Hive sees the folder again, the project shows a banner offering to **Restore** them (or **Discard** them). A worktree can't go with the folder: if one has work that isn't merged yet, merge or discard it first.
+- **Delete**: the folder, its worktrees and its handovers go to the Recycle Bin, and its cards are deleted. Type the project's name to confirm.
+
+The coding agents' own transcripts (in `~/.claude` and `~/.codex`) are never touched. **Settings → Workspace** lists the hidden and removed projects, with **Restore**, which brings each back with its cards (and, for a removed one, its handovers). If a removed project's folder has left the workspace, **Forget** stops listing it.
 
 **Compact project list.** To give the terminals more room while keeping an eye on every project, collapse the Projects sidebar to a narrow rail of status dots: click the **‹** chevron at the top of the list, press **Ctrl+Alt+B**, or drag the sidebar's edge almost all the way left. Each project shows as a tile with its initials and status dot; hover it for the name, status and agents, click to open it, right-click for the usual menu. Click **›** at the top of the rail (or press Ctrl+Alt+B again, or drag the edge out) to get the full list back. Shared Notes, Skills and MCP Servers always open at full width.
 
@@ -170,6 +181,19 @@ If you use a subscription (a Claude plan for Claude Code, a ChatGPT plan for Cod
 
 Each agent's footer shows its model and **effort**, e.g. *Opus 5.5 (default) · High*: what the running session reports, otherwise what new sessions will use.
 
+## Task board
+
+The **Task Board** (in the activity bar, or **Ctrl+Shift+J**) is the workspace's list of work, as cards in four columns: **Todo**, **Doing**, **Review** and **Done**. You, the Hive Assistant and the agents all use it, so it's where you can see at a glance what is planned, what is being worked on and what is waiting for you.
+
+- **Cards.** Each has a number (#12), a title, a description (Markdown: what to do and how to tell it's done), a project, and optionally the agent working on it. Add labels, mark it **blocked** with a reason (it shows in red), list the cards it **depends on** and related ones, and comment. Its history shows who changed what and when: you, the Assistant, or an agent. **New Card** (or **Ctrl+Alt+T**) adds one.
+- **Moving cards.** Drag a card to another column, or within one to reorder it, or right-click it for **Move to**. A Doing card shows what its agent is doing right now (working, waiting for you, finished…); a green edge means its agent has finished and the card is waiting for you to look. Nothing moves by itself: agents move their cards to Review when they're done.
+- **Done is yours.** Only you move a card into or out of Done. The Assistant can ask, and its panel shows the question; agents can't. Archive a card when you no longer need to see it (**Archived** lists them, with **Bring Back**); deleting sends it to the Recycle Bin.
+- **Start.** **Start…** on a card gives it to an agent of its project, with the card as its prompt, and moves it to Doing. Choose an agent that is stopped (it starts a new conversation on the card) or idle (it gets the card as its next message), a new agent, or a new agent in its own worktree. The agent is told to keep the card up to date and to move it to Review when it's done.
+- **One project.** The sidebar filters the board by project and lists the cards waiting for review; the badge on the activity bar counts them. Each project also has a **Tasks** tab with its own cards.
+- **With the Assistant.** Ask it to plan work as cards, start them on agents and follow them: *"split the login rework into cards for web and start the first two"*. Agents can add cards for follow-up work they find instead of doing it unasked.
+
+The cards are kept in `.hive/tasks`, one file each, so a workspace you commit shares its board.
+
 ## Hive Assistant
 
 Each workspace has a **Hive Assistant**, its overseer, in a panel on the right. Show or hide it with **Ctrl+Alt+I**; hidden, it folds into a narrow **Hive Assistant** strip down the right edge, and clicking the strip opens it. Each workspace remembers whether it's open, and dragging its left edge makes it wider (double-click the edge for the default width). Hiding the panel doesn't stop the Assistant.
@@ -185,10 +209,10 @@ It doesn't use one of a project's agent slots, and it runs in the workspace fold
 **Settings → Assistant → Control** decides, for every workspace:
 
 - **Look and advise**: it reads and suggests; you act.
-- **Control agents**: when you ask it, it also adds agents, changes their settings, starts and stops them, gives idle ones tasks, and hands one agent's work over to another. Ask *"add two agents to web: one to fix the login tests, one to update the docs"*, or *"ask Codex to review hive, then hand its findings over to Claude to fix"*, and it does.
+- **Control agents**: when you ask it, it also adds agents, changes their settings, starts and stops them, gives idle ones tasks, hands one agent's work over to another, and adds, changes and starts cards on the task board. Ask *"add two agents to web: one to fix the login tests, one to update the docs"*, or *"ask Codex to review hive, then hand its findings over to Claude to fix"*, and it does.
 - **Control agents and create projects** (the default): also new projects.
 
-It never removes agents, discards worktrees or deletes projects, and never edits project files itself: the agents do the work. It won't type into an agent that is working, asking you something, or that you have just typed in: for 15 seconds after your last key, unless that key was Enter (**Settings → Assistant → Pause after you type** and **Enter ends the pause**). Before it stops an agent in the middle of something, a card at the top of its panel asks you (**Stop** or **Don't stop**). It makes at most 30 changes for each message you send, and everything it does is listed under **Done by the Assistant** in its panel. Your view never moves: an agent it adds on the project you're looking at shows a dot on its page's button, and another project opens on the new agent's page the next time you go to it.
+It never removes agents, discards worktrees, archives or deletes cards, or removes projects, and never edits project files itself: the agents do the work. It won't type into an agent that is working, asking you something, or that you have just typed in: for 15 seconds after your last key, unless that key was Enter (**Settings → Assistant → Pause after you type** and **Enter ends the pause**). Before it stops an agent in the middle of something, or moves a card to Done, a card at the top of its panel asks you (**Stop** or **Don't stop**, **Move it** or **Leave it**). It makes at most 30 changes for each message you send, and everything it does is listed under **Done by the Assistant** in its panel. Your view never moves: an agent it adds on the project you're looking at shows a dot on its page's button, and another project opens on the new agent's page the next time you go to it.
 
 When an agent's CLI asks whether to trust a new folder before it starts, the agent shows as **waiting** for you: answer in its terminal.
 
@@ -266,7 +290,7 @@ A server you add or change is used by sessions started afterwards; restart a run
 
 ### The built-in `hive` server
 
-Every session also gets Hive's own MCP server, which lets agents list projects, read and write shared notes, write handovers and notify you. Try: *"Write a handover for the next session using the hive tools."* A new session is told about these tools and about the project's latest handover, so *"read the handover"* is enough to pick up where the last session stopped. See the [Agent API reference](AGENT_API.md).
+Every session also gets Hive's own MCP server, which lets agents list projects, read and write shared notes, write handovers, read and update the task board, and notify you. Try: *"Write a handover for the next session using the hive tools."* A new session is told about these tools and about the project's latest handover, so *"read the handover"* is enough to pick up where the last session stopped. See the [Agent API reference](AGENT_API.md).
 
 ## Shared notes and handovers
 
@@ -426,7 +450,8 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Next / previous agent page | Ctrl+Alt+PageDown / Ctrl+Alt+PageUp |
 | Focus the session terminal | Ctrl+` |
 | Next / previous project | Ctrl+PageDown / Ctrl+PageUp |
-| Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Images, Changes, Memory, Skills, MCP, Settings); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |
+| Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Images, Changes, Memory, Skills, MCP, Settings; Tasks has none, but you can give it one); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |
+| Task board / new card | Ctrl+Shift+J / Ctrl+Alt+T |
 | Toggle sidebar | Ctrl+B (outside the terminal) |
 | Compact / expand the project list | Ctrl+Alt+B |
 | Notifications | Ctrl+Alt+U |

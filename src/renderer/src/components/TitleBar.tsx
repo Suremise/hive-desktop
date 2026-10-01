@@ -16,11 +16,11 @@ const MENUS: MenuDef[] = [
   { label: 'Edit', items: ['edit.undo', 'edit.redo', '-', 'edit.cut', 'edit.copy', 'edit.paste', '-', 'edit.selectAll'] },
   {
     label: 'View',
-    items: ['palette.show', '-', 'view.projects', 'view.notes', 'view.skills', 'view.mcp', 'view.personas', '-', 'assistant.toggle', 'assistant.settings', 'view.toggleSidebar', 'view.notifications', '-', 'view.zoomIn', 'view.zoomOut', 'view.zoomReset', 'view.fullScreen']
+    items: ['palette.show', '-', 'view.projects', 'view.board', 'view.notes', 'view.skills', 'view.mcp', 'view.personas', '-', 'assistant.toggle', 'assistant.settings', 'view.toggleSidebar', 'view.notifications', '-', 'view.zoomIn', 'view.zoomOut', 'view.zoomReset', 'view.fullScreen']
   },
   {
     label: 'Project',
-    items: ['project.toggleActive', 'project.next', 'project.previous', '-', 'project.openExplorer', 'project.openTerminal', '-', 'project.tab.session', 'project.tab.overview', 'project.tab.sessions', 'project.tab.files', 'project.tab.images', 'project.tab.changes', 'project.tab.memory', 'project.tab.skills', 'project.tab.mcp', 'project.tab.settings']
+    items: ['project.toggleActive', 'project.next', 'project.previous', '-', 'task.new', '-', 'project.openExplorer', 'project.openTerminal', '-', 'project.tab.session', 'project.tab.overview', 'project.tab.tasks', 'project.tab.sessions', 'project.tab.files', 'project.tab.images', 'project.tab.changes', 'project.tab.memory', 'project.tab.skills', 'project.tab.mcp', 'project.tab.settings', '-', 'project.remove']
   },
   { label: 'Session', items: ['session.new', 'session.resume', 'session.stop', '-', 'session.compact', 'session.archive', '-', 'project.tab.sessions'] },
   {

@@ -43,7 +43,7 @@ const tab = (t: ProjectTab) => () => {
   setProjectTab(p, t)
 }
 
-const TAB_ORDER: ProjectTab[] = ['session', 'overview', 'sessions', 'files', 'images', 'changes', 'memory', 'skills', 'mcp', 'settings']
+const TAB_ORDER: ProjectTab[] = ['session', 'overview', 'tasks', 'sessions', 'files', 'images', 'changes', 'memory', 'skills', 'mcp', 'settings']
 
 function cycleTab(delta: number): void {
   const p = get().selectedProject
@@ -112,10 +112,12 @@ export const commands: Command[] = [
   { id: 'project.next', label: 'Next Project', category: 'Project', keybinding: 'Mod+PageDown', when: hasWorkspace, run: () => actions.cycleProject(1) },
   { id: 'project.previous', label: 'Previous Project', category: 'Project', keybinding: 'Mod+PageUp', when: hasWorkspace, run: () => actions.cycleProject(-1) },
   { id: 'project.focus', label: 'Focus Project', category: 'Project', internal: true, run: (path: string) => path && actions.selectProject(path) },
+  { id: 'project.remove', label: 'Remove Project…', category: 'Project', when: hasProject, run: (path?: unknown) => set({ removeProjectFor: typeof path === 'string' ? path : get().selectedProject }) },
   { id: 'project.openExplorer', label: 'Reveal Project in File Explorer', category: 'Project', when: hasProject, run: () => call('project:openInExplorer', get().selectedProject!) },
   { id: 'project.openTerminal', label: 'Open External Terminal Here', category: 'Project', keybinding: 'Mod+Shift+`', when: hasProject, run: () => call('project:openTerminal', get().selectedProject!) },
   { id: 'project.tab.session', label: 'Go to Session', category: 'Project', keybinding: 'Alt+1', when: hasProject, run: tab('session') },
   { id: 'project.tab.overview', label: 'Go to Overview', category: 'Project', keybinding: 'Alt+2', when: hasProject, run: tab('overview') },
+  { id: 'project.tab.tasks', label: 'Go to Tasks', category: 'Project', when: hasProject, run: tab('tasks') },
   { id: 'project.tab.sessions', label: 'Go to Sessions', category: 'Project', keybinding: 'Alt+3', when: hasProject, run: tab('sessions') },
   { id: 'project.tab.files', label: 'Go to Files', category: 'Project', keybinding: 'Alt+4', when: hasProject, run: tab('files') },
   { id: 'project.tab.images', label: 'Go to Images', category: 'Project', keybinding: 'Alt+5', when: hasProject, run: tab('images') },
@@ -219,6 +221,34 @@ export const commands: Command[] = [
   layoutCommand('grid6', 5),
   { id: 'session.archive', label: 'Archive Session and Start New', category: 'Session', when: hasProject, run: () => actions.archiveCurrent() },
   { id: 'view.projects', label: 'Show Projects', category: 'View', keybinding: 'Mod+Shift+E', run: () => setActivity('projects') },
+  { id: 'view.board', label: 'Show Task Board', category: 'View', keybinding: 'Mod+Shift+J', run: () => setActivity('board') },
+  {
+    id: 'task.new',
+    label: 'New Card…',
+    category: 'Tasks',
+    keybinding: 'Mod+Alt+T',
+    when: hasWorkspace,
+    // For the selected project when its Tasks tab or the Session tab is shown, else the board's filter.
+    run: () => {
+      const s = get()
+      const p = s.activity === 'projects' ? selected()?.name : s.boardProject
+      set({ taskOpen: { project: p ?? '' } })
+    }
+  },
+  {
+    id: 'agent.show',
+    label: 'Show Agent',
+    category: 'Session',
+    // From a notification, which names the agent.
+    internal: true,
+    run: (path?: unknown, agentId?: unknown) => {
+      const p = get().workspace?.projects.find((x) => x.path === path)
+      if (!p || typeof agentId !== 'string') return
+      actions.selectProject(p.path)
+      showAgent(p, agentId)
+      setProjectTab(p.path, 'session')
+    }
+  },
   { id: 'view.notes', label: 'Show Shared Notes', category: 'View', keybinding: 'Mod+Shift+H', run: () => setActivity('notes') },
   { id: 'view.skills', label: 'Show Skills', category: 'View', keybinding: 'Mod+Shift+K', run: () => setActivity('skills') },
   { id: 'view.mcp', label: 'Show MCP Servers', category: 'View', keybinding: 'Mod+Shift+M', run: () => setActivity('mcp') },

@@ -257,6 +257,113 @@ export interface WorkspaceConfig {
   version: 1
   skills: { enabled: string[] }
   mcp: { enabled: string[] }
+  /** Project folders Hive leaves out (Hide, or Remove from Hive while the folder is still in the workspace), by folder name. */
+  hiddenProjects?: HiddenProject[]
+}
+
+/** A project folder Hive leaves out of the workspace, until it's restored in Settings → Workspace. */
+export interface HiddenProject {
+  name: string
+  /** hidden: everything left where it is. removed: its workspace files were packed into the folder's .hive/removed. */
+  mode: 'hidden' | 'removed'
+  at: string
+}
+
+// ---------------------------------------------------------------------------
+// Task board: one per workspace, a card per file in .hive/tasks.
+// ---------------------------------------------------------------------------
+
+export type TaskColumn = 'todo' | 'doing' | 'review' | 'done'
+
+export interface TaskComment {
+  at: string
+  /** "You", "Assistant", or an agent ("Agent 2 (Claude Code) in hive"). */
+  by: string
+  text: string
+}
+
+export interface TaskHistoryEntry {
+  at: string
+  by: string
+  what: string
+}
+
+export interface TaskCard {
+  /** #number, unique in the workspace and never reused. */
+  number: number
+  title: string
+  /** Markdown. */
+  description: string
+  /** The project's folder name; '' for a card about the workspace. */
+  project: string
+  /** The agent working on it (its id in the project), if any. */
+  agent: string | null
+  /** The agent's name when it was assigned, for when the agent is gone. */
+  agentName?: string
+  column: TaskColumn
+  /** Position in its column, smallest first. */
+  order: number
+  labels: string[]
+  /** Why it can't go on, when it can't (shown in red in any column). */
+  blocked: string | null
+  /** Cards that have to be done first. */
+  blockedBy: number[]
+  /** Related cards. */
+  links: number[]
+  comments: TaskComment[]
+  history: TaskHistoryEntry[]
+  /** Hidden from the board, kept and searchable. */
+  archived: boolean
+  /** Who archived it: the user, or its project being hidden or removed (restoring the project brings those back). */
+  archivedFor?: 'user' | 'project-hidden' | 'project-removed'
+  createdAt: string
+  createdBy: string
+  updatedAt: string
+}
+
+/** What a change to a card may set (the board's own fields: number, history and dates are Hive's). */
+export interface TaskPatch {
+  title?: string
+  description?: string
+  project?: string
+  agent?: string | null
+  column?: TaskColumn
+  /** Before this card in the column (null: at the end). Only with column or on its own to reorder. */
+  before?: number | null
+  labels?: string[]
+  blocked?: string | null
+  blockedBy?: number[]
+  links?: number[]
+}
+
+/** Which agent Start gives a card to. */
+export type TaskStartTarget = { kind: 'agent'; agentId: string } | { kind: 'new-agent'; worktree: boolean; name?: string; provider?: ProviderId }
+
+/** How a project leaves Hive (the main menu's Project → Remove Project…). */
+export type ProjectRemoval = 'hide' | 'remove' | 'delete'
+
+/** What removing a project touches, for its dialog. */
+export interface ProjectRemovalInfo {
+  name: string
+  path: string
+  /** Running agents, which are stopped first. */
+  running: number
+  /** Its handovers in the shared notes. */
+  handovers: string[]
+  /** Its board cards (not archived / archived). */
+  cards: number
+  archivedCards: number
+  /** Worktree agents: their folder, and work not merged into the project folder (commits ahead, uncommitted files). */
+  /** `error`: git couldn't check it, which counts as holding work. */
+  worktrees: { agent: string; path: string; branch: string; ahead: number; dirty: number; error?: string }[]
+}
+
+/** A project folder holding what Remove from Hive packed into its .hive/removed. */
+export interface RemovedData {
+  at: string
+  workspace: string
+  handovers: number
+  cards: number
 }
 
 export type Inherit<T> = 'inherit' | T
@@ -463,6 +570,8 @@ export interface ProjectInfo {
   agents: AgentInfo[]
   /** MCP servers defined in the project's own config (.mcp.json, .codex/config.toml) that are not deployed to the workspace. */
   unmanagedMcp: string[]
+  /** The folder holds what Remove from Hive packed (handovers, board cards), which Hive offers to restore. */
+  removedData?: RemovedData | null
 }
 
 export interface WorkspaceInfo {
@@ -863,6 +972,8 @@ export type HiveEvent =
   | { type: 'menu-command'; command: string; args?: unknown[] }
   | { type: 'usage-changed'; projectPath: string; sessionId: string }
   | { type: 'notes-changed' }
+  /** The workspace's task board changed (its path names the window). */
+  | { type: 'tasks-changed'; workspacePath: string }
   /** Quitting needs the user's decision: the renderer shows the quit dialog and answers with app:quitDecision. */
   | { type: 'quit-request'; sessions: QuitSession[]; unsaved: string[]; /** Anything but 'app' stops only this window's workspace's sessions. */ scope?: QuitScope }
   /** Hive is waiting for working agents to finish before quitting (or stopped waiting). */

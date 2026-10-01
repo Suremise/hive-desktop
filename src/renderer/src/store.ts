@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageLayout, pageOfAgent } from '@shared/defaults'
 import { agentProvider } from '@shared/providers'
-import type { QuitScope, UpdateState } from '@shared/types'
+import type { QuitScope, TaskCard, UpdateState } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
@@ -19,8 +19,8 @@ import type {
   WorkspaceInfo
 } from '@shared/types'
 
-export type Activity = 'projects' | 'notes' | 'skills' | 'mcp' | 'assistant' | 'docs' | 'settings'
-export type ProjectTab = 'session' | 'overview' | 'sessions' | 'files' | 'images' | 'changes' | 'memory' | 'skills' | 'mcp' | 'settings'
+export type Activity = 'projects' | 'board' | 'notes' | 'skills' | 'mcp' | 'assistant' | 'docs' | 'settings'
+export type ProjectTab = 'session' | 'overview' | 'tasks' | 'sessions' | 'files' | 'images' | 'changes' | 'memory' | 'skills' | 'mcp' | 'settings'
 
 export interface ConfirmRequest {
   kind: 'confirm'
@@ -155,6 +155,19 @@ interface State {
   changesRoot: Record<string, string>
   filesRoot: Record<string, string>
 
+  /** The workspace's task board (archived cards too), and the board view's filters. */
+  tasks: TaskCard[]
+  /** The Board view's filter: a project's folder name, '' for workspace cards, null for all. */
+  boardProject: string | null
+  boardQuery: string
+  boardArchived: boolean
+  /** The card open in the card dialog, or a new card (with the project it's for). */
+  taskOpen: number | { project: string } | null
+  /** The card whose Start dialog is open. */
+  taskStartFor: number | null
+  /** The project whose Remove Project dialog is open. */
+  removeProjectFor: string | null
+
   windowFocused: boolean
   maximized: boolean
   notesVersion: number
@@ -227,6 +240,14 @@ export const useStore = create<State>(() => ({
   pageFocus: {},
   changesRoot: {},
   filesRoot: {},
+
+  tasks: [],
+  boardProject: null,
+  boardQuery: '',
+  boardArchived: false,
+  taskOpen: null,
+  taskStartFor: null,
+  removeProjectFor: null,
 
   windowFocused: true,
   maximized: false,
@@ -496,6 +517,24 @@ export function prompt(opts: Omit<PromptRequest, 'kind' | 'resolve'>): Promise<s
 
 /** Listeners for 'files-changed' events (Files and Images tabs). */
 export const filesListeners = new Set<(projectPath: string, dirs: string[]) => void>()
+
+let tasksLoad = 0
+
+/**
+ * Reads the board again (after a change here or a tasks-changed event). Only the latest read is kept, and only for
+ * the workspace it was made for: an older answer, or one for a workspace this window has since left, is dropped.
+ */
+export async function loadTasks(): Promise<void> {
+  const ws = get().workspace?.path
+  const mine = ++tasksLoad
+  if (!ws) return set({ tasks: [] })
+  try {
+    const tasks = await window.hive.invoke('tasks:list')
+    if (mine === tasksLoad && get().workspace?.path === ws) set({ tasks })
+  } catch {
+    // The workspace closed meanwhile.
+  }
+}
 
 /** Stable empty list for selectors — a fresh [] on every call makes zustand re-render forever. */
 export const NO_PROJECTS: ProjectInfo[] = []

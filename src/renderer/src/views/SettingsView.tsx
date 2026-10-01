@@ -15,11 +15,12 @@ import { playChime } from '../chime'
 import { Icon, IconButton, InfoTip, Switch, Tooltip } from '../components/ui'
 import { UpdateStatusRow } from '../components/Updates'
 import { KeybindingsEditor } from '../components/Keybindings'
+import { HiddenProjectsList } from '../components/ProjectRemoval'
 import { choose, confirm, get, notify, set, useStore } from '../store'
 import { cx } from '../util'
 
 /** A settings section: a group of AppSettings, "providers" (turning them on), one provider's page ("provider:<id>"), or "advanced". */
-type Section = keyof AppSettings | 'advanced' | `provider:${string}`
+type Section = keyof AppSettings | 'advanced' | 'workspace' | `provider:${string}`
 
 interface SettingDef {
   section: Section
@@ -53,6 +54,7 @@ const SECTIONS: { id: Section; label: string; icon: string; desc: string; provid
   { id: 'notifications', label: 'Notifications', icon: 'bell', desc: 'Chimes and desktop notifications when agents finish or need you.' },
   { id: 'sessions', label: 'Sessions', icon: 'history', desc: 'Transcript backups, cache estimates and session behaviour.' },
   { id: 'assistant', label: 'Assistant', icon: 'person', desc: "The Hive Assistant's defaults: the side panel's overseer of each workspace (Ctrl+Alt+I). Each workspace can change them in the panel's Assistant Settings." },
+  { id: 'workspace', label: 'Workspace', icon: 'root-folder', desc: "The open workspace's projects that Hive leaves out: hidden, or removed from Hive with their handovers and cards packed into the folder." },
   { id: 'agents', label: 'Agents & Worktrees', icon: 'organization', desc: 'Defaults for projects running several agents: file locks, new worktrees and merging (projects can override them), and how long background tasks count.' },
   { id: 'keybindings', label: 'Keyboard Shortcuts', icon: 'keyboard', desc: 'Change, remove or add shortcuts for any command. Projects can set their own for project and session commands (Project Settings → Keyboard Shortcuts).' },
   { id: 'agentApi', label: 'Agent API', icon: 'broadcast', desc: 'Local API and built-in MCP server that let agents interact with Hive.' },
@@ -104,6 +106,17 @@ const SETTINGS: SettingDef[] = [
   { section: 'sessions', key: 'usageCacheSize', title: 'Usage cache size', desc: 'How many transcripts Hive remembers the token use of, so the Overview and session lists open without reading them again, also after a restart.', tip: 'Kept in usage-cache.json in your Hive profile: a few KB per transcript. A transcript is read again only when it changed (for example, a session you continued outside Hive), and the cache starts afresh with each Hive version. The least recently used go first when it is full. 100 to 50,000.', type: 'number', min: 100, max: 50000, step: 100 },
   { section: 'sessions', key: 'usageCacheClear', title: 'Clear the usage cache', desc: 'Forget what the cache holds; each transcript is read again the next time it is shown.', tip: 'Only needed if the token counts look wrong. Nothing else is lost: sessions, transcripts and backups stay as they are.', type: 'custom', render: () => <ClearUsageCacheButton /> },
   { section: 'sessions', key: 'confirmStop', title: 'Confirm before stopping', desc: 'Ask before stopping a running session.', tip: 'Stopped sessions can always be resumed.', type: 'boolean' },
+  // Workspace
+  {
+    section: 'workspace',
+    key: 'hiddenProjects',
+    title: 'Hidden and removed projects',
+    desc: 'Restore one to bring it back with its cards (and, for a removed one, the handovers packed into its folder). A folder that has left the workspace can be forgotten.',
+    tip: 'Project → Remove Project… hides a project, removes it from Hive (its folder keeps its handovers and cards in .hive/removed, so it can move to another workspace) or deletes it (to the Recycle Bin). Deleted projects are not listed here: restore the folder from the Recycle Bin and Hive sees it as a new project.',
+    type: 'custom',
+    wide: true,
+    render: () => <HiddenProjectsList />
+  },
   // Agents
   {
     section: 'agents',
@@ -304,13 +317,13 @@ function GlobalModelPicker({ provider }: { provider: ProviderId }) {
 }
 
 function getValue(s: AppSettings, def: SettingDef): unknown {
-  if (def.section === 'advanced' || def.section === 'providers') return def.key === 'defaultProvider' ? s.defaultProvider : undefined
+  if (def.section === 'advanced' || def.section === 'providers' || def.section === 'workspace') return def.key === 'defaultProvider' ? s.defaultProvider : undefined
   if (def.provider) return (providerSettings(s, def.provider) as unknown as Record<string, unknown>)[def.key]
   return (s[def.section as keyof AppSettings] as unknown as Record<string, unknown>)[def.key]
 }
 
 function defaultValue(def: SettingDef): unknown {
-  if (def.section === 'advanced' || def.section === 'providers') return def.key === 'defaultProvider' ? DEFAULT_SETTINGS.defaultProvider : undefined
+  if (def.section === 'advanced' || def.section === 'providers' || def.section === 'workspace') return def.key === 'defaultProvider' ? DEFAULT_SETTINGS.defaultProvider : undefined
   if (def.provider) return (defaultProviderSettings(providerDescriptor(def.provider)) as unknown as Record<string, unknown>)[def.key]
   return (DEFAULT_SETTINGS[def.section as keyof AppSettings] as unknown as Record<string, unknown>)[def.key]
 }
@@ -321,7 +334,7 @@ async function saveSettings(patch: SettingsPatch): Promise<void> {
 }
 
 async function update(def: SettingDef, value: unknown): Promise<void> {
-  if (def.section === 'advanced') return
+  if (def.section === 'advanced' || def.section === 'workspace') return
   if (def.section === 'providers') return def.key === 'defaultProvider' ? saveSettings({ defaultProvider: value as string }) : undefined
   if (def.provider) return saveSettings({ providers: { [def.provider]: { [def.key]: value } } } as SettingsPatch)
   return saveSettings({ [def.section]: { [def.key]: value } } as SettingsPatch)

@@ -6,10 +6,10 @@ import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
 import { ASSISTANT_DIR, ASSISTANT_NAME, PERSONAS_DIR, assistantProjectConfig } from '../shared/assistant'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields } from '../shared/defaults'
-import type { AgentDef, AgentInfo, HiveEvent, KeptUsage, LiveSessionState, ProjectConfig, ProjectInfo, SessionRecord, WorkspaceConfig, WorkspaceInfo } from '../shared/types'
+import type { AgentDef, AgentInfo, HiddenProject, HiveEvent, KeptUsage, LiveSessionState, ProjectConfig, ProjectInfo, RemovedData, SessionRecord, WorkspaceConfig, WorkspaceInfo } from '../shared/types'
 import { config } from './config'
 import { emit, emitTo } from './events'
-import { insideReal, isDir, readKeptJson, removePath, withFileLock, writeKeptJson } from './fsutil'
+import { insideReal, isDir, readJson, readKeptJson, removePath, withFileLock, writeKeptJson } from './fsutil'
 import { createLogger } from './logger'
 import { allProviders } from './providers'
 import { worktreesRoot } from './worktrees'
@@ -218,7 +218,8 @@ export class WorkspaceService {
     })
     this.watcher.on('all', (evt, p) => {
       const rel = this.path ? p.slice(this.path.length + 1).replace(/\\/g, '/') : ''
-      if (rel.startsWith(`${HIVE_DIR}/shared`)) this.emit({ type: 'notes-changed' })
+      if (rel.startsWith(`${HIVE_DIR}/tasks/`) && rel.endsWith('.json')) this.emit({ type: 'tasks-changed', workspacePath: this.path! })
+      else if (rel.startsWith(`${HIVE_DIR}/shared`)) this.emit({ type: 'notes-changed' })
       else if (rel.startsWith(`${HIVE_DIR}/skills`) || rel.startsWith(`${HIVE_DIR}/mcp`)) this.emit({ type: 'skills-changed' })
       else if (rel.startsWith(`${HIVE_DIR}/${PERSONAS_DIR}`)) this.emit({ type: 'personas-changed' })
       else if (rel === `${HIVE_DIR}/workspace.json`) void this.reloadConfig()
@@ -256,19 +257,37 @@ export class WorkspaceService {
     this.refreshTimer = setTimeout(() => void (this.path ? this.refresh().catch((e) => log.warn('refresh failed', e)) : undefined), 250)
   }
 
-  async listProjectPaths(): Promise<string[]> {
+  /** The workspace's project folders, without the ones hidden or removed from Hive (hidden: true lists only those). */
+  async listProjectPaths(opts: { hidden?: boolean } = {}): Promise<string[]> {
     if (!this.path) return []
     const entries = await readdir(this.path, { withFileTypes: true })
+    const hidden = new Set((this.wsConfig.hiddenProjects ?? []).map((h) => h.name.toLowerCase()))
     return entries
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !e.name.startsWith('$'))
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !e.name.startsWith('$') && hidden.has(e.name.toLowerCase()) === !!opts.hidden)
       .map((e) => join(this.path!, e.name))
       .sort((a, b) => basename(a).localeCompare(basename(b), undefined, { sensitivity: 'base' }))
+  }
+
+  /** Projects Hive leaves out (Hide, Remove from Hive), and whether each folder is still in the workspace. */
+  hiddenProjects(): (HiddenProject & { present: boolean })[] {
+    if (!this.path) return []
+    return (this.wsConfig.hiddenProjects ?? []).map((h) => ({ ...h, present: existsSync(join(this.path!, h.name)) }))
+  }
+
+  /** Leaves a project folder out of the workspace (mode says how), or takes it back (null). */
+  async setHidden(name: string, mode: HiddenProject['mode'] | null): Promise<void> {
+    const rest = (this.wsConfig.hiddenProjects ?? []).filter((h) => h.name.toLowerCase() !== name.toLowerCase())
+    this.wsConfig.hiddenProjects = mode ? [...rest, { name, mode, at: new Date().toISOString() }] : rest
+    if (!this.wsConfig.hiddenProjects.length) delete this.wsConfig.hiddenProjects
+    await this.saveWorkspaceConfig()
   }
 
   isProjectPath(p: string): boolean {
     if (!this.path) return false
     const abs = resolve(p)
-    return abs.toLowerCase().startsWith(this.path.toLowerCase() + sep) && !basename(abs).startsWith('.') && abs.split(sep).length === this.path.split(sep).length + 1
+    if (!abs.toLowerCase().startsWith(this.path.toLowerCase() + sep) || basename(abs).startsWith('.') || abs.split(sep).length !== this.path.split(sep).length + 1) return false
+    // A hidden or removed project isn't one of the workspace's until it's restored.
+    return !(this.wsConfig.hiddenProjects ?? []).some((h) => h.name.toLowerCase() === basename(abs).toLowerCase())
   }
 
   assertProject(p: string): string {
@@ -485,7 +504,8 @@ export class WorkspaceService {
       live,
       restartNeeded,
       agents,
-      unmanagedMcp: await this.unmanagedMcp(projectPath)
+      unmanagedMcp: await this.unmanagedMcp(projectPath),
+      removedData: await removedData(projectPath)
     }
   }
 
@@ -528,6 +548,18 @@ export class WorkspaceService {
     // By its real location too, so a link inside the workspace can't reach files outside it.
     return insideReal(p, roots)
   }
+}
+
+/** Where Remove from Hive packs a project's workspace files, inside its own folder. */
+export const REMOVED_DIR = 'removed'
+
+/** What Remove from Hive packed into a project folder, if anything (its manifest). */
+async function removedData(projectPath: string): Promise<RemovedData | null> {
+  const file = join(projectPath, HIVE_DIR, REMOVED_DIR, 'manifest.json')
+  if (!existsSync(file)) return null
+  const m = await readJson<Partial<RemovedData> | null>(file, null)
+  if (!m || typeof m.at !== 'string') return null
+  return { at: m.at, workspace: String(m.workspace ?? ''), handovers: Number(m.handovers) || 0, cards: Number(m.cards) || 0 }
 }
 
 // ---------------------------------------------------------------------------

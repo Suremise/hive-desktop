@@ -159,3 +159,14 @@ describe('writes that keep other changes', () => {
     expect(readFileSync(f, 'utf8').split('\n').filter(Boolean).sort()).toEqual(['a', 'b', 'c'])
   })
 })
+
+describe('git diff boundaries', () => {
+  it("doesn't read a file through a link that leads outside the project", async () => {
+    const { gitDiff } = await import('../src/main/git')
+    const proj = dir('difflink', 'ws', 'proj')
+    const outside = dir('difflink', 'secret')
+    writeFileSync(join(outside, 'secret.txt'), 'top secret')
+    symlinkSync(outside, join(proj, 'linked'), 'junction')
+    await expect(gitDiff(proj, 'linked/secret.txt')).rejects.toThrow(/outside the project/)
+  })
+})
