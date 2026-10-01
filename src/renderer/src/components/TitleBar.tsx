@@ -20,7 +20,7 @@ const MENUS: MenuDef[] = [
   },
   {
     label: 'Project',
-    items: ['project.toggleActive', 'project.next', 'project.previous', '-', 'project.openExplorer', 'project.openTerminal', '-', 'project.tab.overview', 'project.tab.files', 'project.tab.images', 'project.tab.changes', 'project.tab.memory', 'project.tab.settings']
+    items: ['project.toggleActive', 'project.next', 'project.previous', '-', 'project.openExplorer', 'project.openTerminal', '-', 'project.tab.session', 'project.tab.overview', 'project.tab.sessions', 'project.tab.files', 'project.tab.images', 'project.tab.changes', 'project.tab.memory', 'project.tab.skills', 'project.tab.mcp', 'project.tab.settings']
   },
   { label: 'Session', items: ['session.new', 'session.resume', 'session.stop', '-', 'session.compact', 'session.archive', '-', 'project.tab.sessions'] },
   {
