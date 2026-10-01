@@ -278,9 +278,6 @@ async function agentParam(p: string, value: unknown): Promise<string> {
 
 type Handler = (ctx: { params: string[]; query: URLSearchParams; body: any }) => Promise<unknown>
 
-/** How recently the user must not have typed in an agent's terminal for anything else to type there. */
-const USER_TYPING_MS = 60_000
-
 const LEVEL_NAME: Record<AssistantControl, string> = { look: 'Look and advise', agents: 'Control agents', projects: 'Control agents and create projects' }
 
 /**
@@ -437,7 +434,7 @@ route('POST', '/v1/projects/:name/handover', async ({ params, body }) => {
     // Known at once rather than minutes later: without Hive's tools agents can't write or read a handover.
     if (!sessions.hiveMcp(p)) throw new HttpError(409, "The project's agents don't have Hive's tools (Settings → Agent API is off, or Provide Hive tools to sessions), so they can't write or read a handover. Tell the user.")
     for (const id of [from, to]) {
-      if (Date.now() - sessions.userTypedAt(p, id) < USER_TYPING_MS) throw new HttpError(409, `The user typed in ${name(id)}'s terminal in the last minute. Ask the user before handing over.`)
+      if (sessions.userMayBeTyping(p, id)) throw new HttpError(409, `The user has just typed in ${name(id)}'s terminal and may still be writing there. Ask the user before handing over.`)
     }
     await start()
     return {
@@ -605,7 +602,7 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
     if (st.status === 'starting') throw new HttpError(409, `${a.name} is still starting. Wait for it (hive_wait_for_agents), then try again.`)
     if (st.status === 'waiting') throw new HttpError(409, `${a.name} is waiting for the user${st.statusMessage ? ` (${st.statusMessage})` : ''}. Tell the user; don't answer for them.`)
     if (st.status === 'working') throw new HttpError(409, `${a.name} is working. Wait until it's idle (hive_wait_for_agents), then give it the task.`)
-    if (Date.now() - sessions.userTypedAt(p, agentId) < USER_TYPING_MS) throw new HttpError(409, `The user typed in ${a.name}'s terminal in the last minute. Ask the user before giving it a task.`)
+    if (sessions.userMayBeTyping(p, agentId)) throw new HttpError(409, `The user has just typed in ${a.name}'s terminal and may still be writing there. Ask the user before giving it a task.`)
     await sessions.sendPrompt(p, agentId, text)
     return { done: `Gave ${a.name} in ${basename(p)} a task: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true } }
   })

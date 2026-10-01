@@ -69,6 +69,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     provider: '',
     persona: 'overseer',
     control: 'projects',
+    typingPause: 15,
+    enterEndsPause: true,
     providers: Object.fromEntries(PROVIDERS.map((p) => [p.id, { model: p.assistantModel ?? '', effort: p.assistantEffort ?? '', permissionMode: '', extraArgs: '' }]))
   },
   agents: {

@@ -248,7 +248,7 @@ const tools: Tool[] = [
   {
     name: 'hive_prompt_agent',
     description:
-      "Give an idle running agent a task (typed into its terminal and sent). Refused while it is working, starting, or waiting for the user, or when the user typed in its terminal in the last minute. Write the task in full: the agent can't see your conversation.",
+      "Give an idle running agent a task (typed into its terminal and sent). Refused while it is working, starting, or waiting for the user, or when the user has just typed in its terminal. Write the task in full: the agent can't see your conversation.",
     inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, text: { type: 'string' } }, required: ['project', 'agent', 'text'] },
     run: (a) => api('POST', `${agentPath(a)}/prompt`, { text: a.text })
   },

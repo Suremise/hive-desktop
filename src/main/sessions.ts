@@ -2,6 +2,7 @@ import { randomUUID, randomBytes } from 'crypto'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'path'
 import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
+import { typedText } from '../shared/terminalInput'
 import { BrowserWindow, Notification, clipboard, shell } from 'electron'
 import { ASSISTANT_NAME } from '../shared/assistant'
 import { assistantTools } from '../shared/assistantTools'
@@ -191,7 +192,7 @@ class SessionManager {
   /** The user sent the Hive Assistant a message (a new turn). */
   onAssistantPrompt: (projectPath: string) => void = () => undefined
   /** When the user last typed in each terminal (by pty key), so nothing else types over them. */
-  private userInput = new Map<string, number>()
+  private userInput = new Map<string, { at: number; enter: boolean }>()
   /** The Hive Assistant's instructions for a launch (who it is, and its persona's), and the persona's name. */
   assistantInstructions: (projectPath: string, agent: AgentDef) => Promise<{ text: string; persona: string }> = async () => ({ text: '', persona: '' })
   /** The project's newest handover in the shared notes (relative path and modified time), or null. */
@@ -909,13 +910,23 @@ class SessionManager {
 
   /** The user typed in a terminal (Hive's own typing goes through sendPrompt, not here). */
   noteUserInput(key: string, data: string): void {
-    // xterm's own replies (focus in/out, cursor reports) aren't typing.
-    if (data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1bO?./g, '')) this.userInput.set(key, Date.now())
+    // xterm's own replies (focus in/out, cursor reports, colour queries) aren't typing.
+    const typed = typedText(data)
+    if (typed) this.userInput.set(key, { at: Date.now(), enter: typed.endsWith('\r') })
+  }
+
+  /** Whether the user may still be writing in an agent's terminal (Settings → Assistant → Pause after you type). */
+  userMayBeTyping(projectPath: string, agentId: string): boolean {
+    const u = this.userInput.get(this.key(projectPath, agentId))
+    if (!u) return false
+    const s = config.settings.assistant
+    if (u.enter && (s?.enterEndsPause ?? true)) return false
+    return Date.now() - u.at < (s?.typingPause ?? 15) * 1000
   }
 
   /** When the user last typed in an agent's terminal (ms since the epoch), or 0. */
   userTypedAt(projectPath: string, agentId: string): number {
-    return this.userInput.get(this.key(projectPath, agentId)) ?? 0
+    return this.userInput.get(this.key(projectPath, agentId))?.at ?? 0
   }
 
   /** Files an agent holds a lock on (it is editing them this turn). */

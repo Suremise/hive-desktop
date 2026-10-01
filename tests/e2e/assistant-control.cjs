@@ -33,6 +33,8 @@ const check = (name, ok, extra = '') => {
   cfg.settings.agentApi = { enabled: false }
   // Closing at the end must not wait on the quit dialog (an agent may still be working).
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  // A long pause, which Enter doesn't end, so the typing checks hold however long the steps take.
+  cfg.settings.assistant = { ...cfg.settings.assistant, typingPause: 600, enterEndsPause: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
   const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: PORT, CLAUDE_CONFIG_DIR: claudeHome }
@@ -98,6 +100,12 @@ const check = (name, ok, extra = '') => {
   check('its activity: the task and the reply', act?.currentTask === 'work 3' && act.latestReply === 'Done: work 3', JSON.stringify(act))
   const typed = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'next' })
   check("no task where the user typed in the last minute", typed.status === 409 && /typed/.test(typed.body?.error), JSON.stringify(typed.body))
+  // The user's last key was Enter: with Enter ends the pause, the task goes in.
+  await inv('settings:update', { assistant: { enterEndsPause: true } })
+  const afterEnter = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'work 1' })
+  check('Enter ends the pause', afterEnter.status === 200, JSON.stringify(afterEnter.body))
+  await inv('settings:update', { assistant: { enterEndsPause: false } })
+  await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Builder' }], timeoutSeconds: 30 })
 
   // A second agent, started idle, takes a task; its edit shows as a locked file and a tool call.
   const second = await api('POST', '/v1/projects/alpha/agents', { name: 'Fixer', start: true })

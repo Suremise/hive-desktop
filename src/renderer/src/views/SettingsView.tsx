@@ -120,7 +120,7 @@ const SETTINGS: SettingDef[] = [
     key: 'control',
     title: 'Control',
     desc: 'What the Assistant may do beyond looking and advising, in every workspace.',
-    tip: "Look and advise: it reads and suggests, and you act.\nControl agents: it can also add agents, change their settings, start and stop them, and give idle ones tasks, when you ask it to. Stopping a busy agent asks you first.\nControl agents and create projects: also new projects.\n\nIt never removes agents, discards worktrees or deletes projects, never types into an agent that is working, asking you something or that you just typed in, and makes at most 30 changes per message. What it does is listed in its panel. A running Assistant takes a change after a restart.",
+    tip: "Look and advise: it reads and suggests, and you act.\nControl agents: it can also add agents, change their settings, start and stop them, and give idle ones tasks, when you ask it to. Stopping a busy agent asks you first.\nControl agents and create projects: also new projects.\n\nIt never removes agents, discards worktrees or deletes projects, never types into an agent that is working, asking you something or that you just typed in (see Pause after you type), and makes at most 30 changes per message. What it does is listed in its panel. A running Assistant takes a change after a restart.",
     type: 'select',
     options: [
       { value: 'look', label: 'Look and advise' },
@@ -128,6 +128,8 @@ const SETTINGS: SettingDef[] = [
       { value: 'projects', label: 'Control agents and create projects' }
     ]
   },
+  { section: 'assistant', key: 'typingPause', title: 'Pause after you type', desc: "Seconds after you type in an agent's terminal before the Assistant may type there (give it a task or hand its work over). 0: no pause.", tip: "The Assistant types a task by clearing the agent's input line (Ctrl+U) and entering it, which would wipe or mix with something you were writing. During the pause it asks you instead.", type: 'number', min: 0, max: 600 },
+  { section: 'assistant', key: 'enterEndsPause', title: 'Enter ends the pause', desc: 'Once you press Enter in the terminal (you sent what you typed), the Assistant may type there at once.', tip: 'Turn this off if you often type a line and then keep writing (e.g. answering a question, then adding more).', type: 'boolean' },
   { section: 'assistant', key: 'persona', title: 'Default persona', desc: 'Who the Assistant is in a new conversation, unless a workspace chooses another.', tip: 'Personas are Markdown files in each workspace (.hive/personas): edit them, or add your own, in the Hive Assistant view (the robot on the left).', type: 'custom', render: () => <AssistantPersonaPicker /> },
   ...PROVIDERS.map(
     (p): SettingDef => ({

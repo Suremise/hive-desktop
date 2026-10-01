@@ -114,6 +114,10 @@ export interface AssistantSettings {
   persona: string
   /** What the Assistant may do beyond looking (see AssistantControl). */
   control: AssistantControl
+  /** Seconds after the user types in an agent's terminal before the Assistant may type there (0: no pause). */
+  typingPause: number
+  /** The user pressing Enter (sending what they typed) ends that pause. */
+  enterEndsPause: boolean
   providers: Partial<Record<ProviderId, AssistantProviderSettings>>
 }
 
