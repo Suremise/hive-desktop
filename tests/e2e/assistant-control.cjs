@@ -31,6 +31,8 @@ const check = (name, ok, extra = '') => {
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
   cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
   cfg.settings.agentApi = { enabled: false }
+  // Closing at the end must not wait on the quit dialog (an agent may still be working).
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
   const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: PORT, CLAUDE_CONFIG_DIR: claudeHome }
@@ -176,6 +178,8 @@ const check = (name, ok, extra = '') => {
   check('Control agents: agent tools, no project creation', asAgents.includes('hive_prompt_agent') && asAgents.includes('hive_stop_agent') && asAgents.includes('hive_hand_over') && !asAgents.includes('hive_create_project'))
   check('Look and advise: reading tools only', asLook.includes('hive_agent_activity') && asLook.includes('hive_wait_for_agents') && !asLook.includes('hive_add_agent'))
 
+  // Let the agents finish before closing.
+  await until(async () => !(await inv('session:live')).some((s) => s.status === 'working' || s.status === 'starting'), 30000)
   await app.close()
   process.exit(failed ? 1 : 0)
 })().catch((e) => {
