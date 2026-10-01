@@ -1,7 +1,7 @@
 import { randomUUID, randomBytes } from 'crypto'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'path'
 import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/promises'
-import { existsSync } from 'fs'
+import { existsSync, realpathSync } from 'fs'
 import { typedText } from '../shared/terminalInput'
 import { BrowserWindow, Notification, clipboard, shell } from 'electron'
 import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
@@ -42,6 +42,13 @@ import { reportPlanUsage } from './planUsage'
 import { inWorkspace, workspace, workspaceFor, workspaceOf } from './workspace'
 
 const log = createLogger('sessions')
+
+/** A handover in the shared notes: its path there, when it changed, and the session that wrote it (from its header). */
+export interface HandoverRef {
+  relPath: string
+  modified: string
+  session: string | null
+}
 
 export interface HiveMcpProvider {
   /** The hive MCP server for a project's sessions; with agentId, that agent's (its tools then say who is calling). */
@@ -127,7 +134,25 @@ interface ListContext {
 interface FileLock {
   liveId: string
   at: number
+  /** When it was claimed, in claim order (lockSeq): a turn's end releases only what was claimed before it. */
+  seq: number
   path: string
+}
+
+/**
+ * A file's identity for locks: its real path where it exists (a junction or link to it is the same file),
+ * else its folder's real path and its name; lower case, as Windows paths are.
+ */
+function lockKey(abs: string): string {
+  try {
+    return realpathSync.native(abs).toLowerCase()
+  } catch {
+    try {
+      return join(realpathSync.native(dirname(abs)), basename(abs)).toLowerCase()
+    } catch {
+      return abs.toLowerCase()
+    }
+  }
 }
 
 /** A lock is released when its agent's turn ends; this covers an agent that stalls without ending it. */
@@ -206,8 +231,11 @@ class SessionManager {
   private runs = new Map<string, string>()
   private locks = new Map<string, FileLock>()
   /** "Ask me" locks for CLIs without an approval reply: `<liveId>|<path>` the user allowed, or was asked about. */
-  private lockAllowed = new Set<string>()
-  private lockAsked = new Set<string>()
+  /** Counts lock claims, approvals and questions, so they can be told apart from a turn's end in order. */
+  private lockSeq = 0
+  /** "Allow" given for an agent and file (`<liveId>|<lock key>`), and questions already asked, with their lockSeq. */
+  private lockAllowed = new Map<string, number>()
+  private lockAsked = new Map<string, number>()
   readonly hookToken = randomBytes(24).toString('hex')
   hookUrl = ''
   apiEnv: () => Record<string, string> = () => ({})
@@ -224,8 +252,13 @@ class SessionManager {
   private userInput = new Map<string, { at: number; enter: boolean }>()
   /** The Hive Assistant's instructions for a launch (who it is, and its persona's), and the persona's name. */
   assistantInstructions: (projectPath: string, agent: AgentDef) => Promise<{ text: string; persona: string }> = async () => ({ text: '', persona: '' })
-  /** The project's newest handover in the shared notes (path in the notes, modified time, the session that wrote it), or null. */
-  latestHandover: (projectPath: string) => Promise<{ relPath: string; modified: string; session: string | null } | null> = async () => null
+  /** The project's newest handovers in the shared notes, newest first (at most `count`). */
+  recentHandovers: (projectPath: string, count: number) => Promise<HandoverRef[]> = async () => []
+
+  /** The project's newest handover, or null. */
+  async latestHandover(projectPath: string): Promise<HandoverRef | null> {
+    return (await this.recentHandovers(projectPath, 1))[0] ?? null
+  }
   private exitWaiters = new Map<string, () => void>()
   /**
    * Agents being started (by liveId), so two starts at once can't both get through, and so stopping the
@@ -1016,10 +1049,10 @@ class SessionManager {
       if (source.status !== 'ready' && source.status !== 'finished') throw new Error(`${from.name} is busy. Hand over once it has finished.`)
       // Proof, not status: the target starts only once a handover newer than this one exists, written in the
       // source's own conversation (its header's Session, which Hive writes), not by another agent meanwhile.
-      const before = await this.latestHandover(projectPath)
+      // Among the newest few, since another agent may write one after the source does.
+      const known = new Map((await this.recentHandovers(projectPath, 20)).map((h) => [h.relPath, h.modified]))
       const want = source.sessionId
-      const isNew = (h: { relPath: string; modified: string; session: string | null } | null): boolean =>
-        !!h && (!before || h.relPath !== before.relPath || h.modified > before.modified) && (!want || h.session === want)
+      const isNew = (h: HandoverRef): boolean => (!known.has(h.relPath) || h.modified > known.get(h.relPath)!) && (!want || h.session === want)
       toast('info', `${from.name} is writing a handover`, `${to.name} continues from it when it's done.`, undefined, projectPath)
       await this.sendPrompt(
         projectPath,
@@ -1030,8 +1063,8 @@ class SessionManager {
       let idleSince = 0
       for (;;) {
         await new Promise((r) => setTimeout(r, 2000))
-        const h = await this.latestHandover(projectPath).catch(() => null)
-        if (h && isNew(h)) {
+        const h = (await this.recentHandovers(projectPath, 10).catch(() => [] as HandoverRef[])).find(isNew)
+        if (h) {
           handover = h.relPath
           break
         }
@@ -1401,7 +1434,7 @@ class SessionManager {
     const files = hook.editedPaths.map((f) => resolve(isAbsolute(f) ? f : join(base, f)))
     const now = Date.now()
     for (const abs of files) {
-      const held = this.locks.get(abs.toLowerCase())
+      const held = this.locks.get(lockKey(abs))
       const holder = held && held.liveId !== id ? this.live.get(held.liveId) : undefined
       if (!holder || now - held!.at >= LOCK_TTL_MS) continue
       const rel = relative(holder.state.cwd, abs) || basename(abs)
@@ -1412,10 +1445,10 @@ class SessionManager {
       }
       if (mode === 'ask' && !l.adapter.descriptor.capabilities.lockAsk) {
         // The CLI can't show its own approval for this, so Hive asks the user and the agent waits.
-        const key = `${id}|${abs.toLowerCase()}`
+        const key = `${id}|${lockKey(abs)}`
         if (this.lockAllowed.has(key)) continue
         if (!this.lockAsked.has(key)) {
-          this.lockAsked.add(key)
+          this.lockAsked.set(key, ++this.lockSeq)
           toast('warning', `${this.label(l.state)} wants to edit ${rel}`, `${who} is editing it right now. Allow ${l.state.agentName ?? 'the agent'} to edit it too?`, [{ label: 'Allow', command: 'session.allowLockedEdit', args: [l.state.projectPath, l.state.agentId, abs] }], l.state.projectPath)
         }
         return l.adapter.lockReply({
@@ -1428,9 +1461,10 @@ class SessionManager {
     }
     let fresh = false
     for (const abs of files) {
-      const held = this.locks.get(abs.toLowerCase())
+      const key = lockKey(abs)
+      const held = this.locks.get(key)
       if (!held || held.liveId !== id) fresh = true
-      this.locks.set(abs.toLowerCase(), { liveId: id, at: now, path: abs })
+      this.locks.set(key, { liveId: id, at: now, seq: ++this.lockSeq, path: abs })
     }
     if (fresh) this.publishLocks(id)
     return null
@@ -1442,22 +1476,23 @@ class SessionManager {
     const id = liveId(projectPath, agentId)
     const l = this.live.get(id)
     if (!l) return
-    this.lockAllowed.add(`${id}|${resolve(path).toLowerCase()}`)
+    this.lockAllowed.set(`${id}|${lockKey(resolve(path))}`, ++this.lockSeq)
     if (l.state.status === 'ready' || l.state.status === 'finished') {
       await this.sendPrompt(projectPath, agentId, `The user allowed you to edit ${relative(l.state.cwd, path) || basename(path)} while the other agent works on it. Go ahead with the edit.`)
     }
   }
 
-  /** Releases an agent's file locks: all of them, or (`before`) those claimed before that time. */
+  /**
+   * Releases an agent's file locks, approvals and questions: all of them, or (`before`, a lockSeq) those from
+   * before then, so a turn's end handled late keeps what the next turn has claimed since.
+   */
   private releaseLocks(id: string, before = Infinity): void {
-    if (before === Infinity) {
-      for (const set of [this.lockAllowed, this.lockAsked]) {
-        for (const k of set) if (k.startsWith(`${id}|`)) set.delete(k)
-      }
+    for (const map of [this.lockAllowed, this.lockAsked]) {
+      for (const [k, seq] of map) if (k.startsWith(`${id}|`) && seq <= before) map.delete(k)
     }
     let changed = false
     for (const [k, v] of this.locks) {
-      if (v.liveId === id && v.at <= before) {
+      if (v.liveId === id && v.seq <= before) {
         this.locks.delete(k)
         changed = true
       }
@@ -1484,7 +1519,7 @@ class SessionManager {
   handleHook(runId: string | null, body: Record<string, any>): Promise<void> {
     const key = runId ?? `session:${String(body.session_id ?? '')}`
     // A turn's end releases only the locks claimed before it arrived: PreToolUse claims them at once, outside this queue.
-    const arrived = Date.now()
+    const arrived = this.lockSeq
     const run = (this.hookQueues.get(key) ?? Promise.resolve()).then(() => this.handleHookNow(runId, body, arrived))
     const tail = run.catch(() => undefined)
     this.hookQueues.set(key, tail)

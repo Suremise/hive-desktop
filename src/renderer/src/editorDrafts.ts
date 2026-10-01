@@ -24,10 +24,13 @@ const changed = (): void => listeners.forEach((l) => l())
 export const editorDraft = (key: string): EditorDraft | undefined => drafts.get(key.toLowerCase())
 export const editorDraftList = (): EditorDraft[] => [...drafts.values()]
 
+/** Drafts being saved by Save All: kept even when edited back to their base, as the file is about to change. */
+const saving = new Set<string>()
+
 /** Records an editor's text: a draft while it differs from what was loaded, none once it's the same again. */
 export function setEditorDraft(d: EditorDraft): void {
   const k = d.key.toLowerCase()
-  if (d.text === d.base) {
+  if (d.text === d.base && !saving.has(k)) {
     if (drafts.delete(k)) changed()
   } else {
     const had = drafts.has(k)
@@ -73,16 +76,22 @@ export async function saveEditorDrafts(): Promise<{ saved: number; failed: { abs
   const failed: { abs: string; message: string }[] = []
   let saved = 0
   for (const [k, d] of [...drafts]) {
+    saving.add(k)
     try {
       const written = await d.save(d.text, d.base)
-      // Edited while it was saving: the newer text stays a draft, now of what was written.
+      // Edited while it was saving (even back to what it was): the newer text stays a draft, now of what was written.
       const now = drafts.get(k)
-      if (now === d) drafts.delete(k)
+      if (now === d || now?.text === d.text) drafts.delete(k)
       else if (now) now.base = written
       saved++
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       failed.push({ abs: d.abs, message: `${d.label}: ${msg.includes('CONFLICT') ? 'changed on disk since you opened it' : msg}` })
+      // Not saved: a draft edited back to its base is no draft after all.
+      const now = drafts.get(k)
+      if (now && now.text === now.base) drafts.delete(k)
+    } finally {
+      saving.delete(k)
     }
   }
   changed()

@@ -191,7 +191,11 @@ export class WorkspaceService {
     // This workspace's file and settings object (another workspace opened meanwhile has its own).
     const file = join(this.hiveDir, 'workspace.json')
     const data = this.wsConfig
-    const run = this.savingConfig.then(() => writeKeptJson(file, data))
+    this.configSaves++
+    const run = this.savingConfig.then(() => writeKeptJson(file, data)).finally(() => {
+      this.configSaves--
+      this.configWritten = JSON.stringify(data, null, 2) + '\n'
+    })
     this.savingConfig = run.catch(() => undefined)
     return run
   }
@@ -223,9 +227,19 @@ export class WorkspaceService {
     this.watcher.on('error', (e) => log.warn('watcher error', e))
   }
 
+  /** Saves of workspace.json queued or running, and the text of the last one: the watcher sees Hive's own writes too. */
+  private configSaves = 0
+  private configWritten = ''
+
+  /** workspace.json changed on disk: edited by hand (or by another copy of Hive), so read it again. */
   private async reloadConfig(): Promise<void> {
-    if (!this.path) return
-    this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), await readKeptJson(join(this.hiveDir, 'workspace.json'), {}))
+    if (!this.path || this.configSaves) return
+    const generation = this.generation
+    const file = join(this.hiveDir, 'workspace.json')
+    const text = await readFile(file, 'utf8').catch(() => '')
+    // Hive's own save, or a save started meanwhile (its settings are newer), or another workspace opened since.
+    if (text === this.configWritten || this.configSaves || generation !== this.generation) return
+    this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), await readKeptJson(file, {}))
     this.emit({ type: 'skills-changed' })
     this.scheduleRefresh()
   }

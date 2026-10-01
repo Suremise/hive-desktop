@@ -31,6 +31,25 @@ import { hiveWindows, lastFocused, TITLE_BAR_OVERLAY, registerWindow, unregister
 const log = createLogger('main')
 let quitting = false
 
+/**
+ * Notes in hive.log when the main process was busy long enough to be felt (every terminal's typing goes
+ * through it), at most once a minute, so pauses can be matched with what Hive was doing.
+ */
+function watchMainStalls(): void {
+  const every = 500
+  let last = performance.now()
+  let logged = 0
+  setInterval(() => {
+    const now = performance.now()
+    const late = now - last - every
+    last = now
+    if (late > 250 && Date.now() - logged > 60_000) {
+      logged = Date.now()
+      log.warn(`The main process was busy for ${Math.round(late)} ms`)
+    }
+  }, every).unref()
+}
+
 // Development builds use their own profile (and Agent API port, see servers.ts) so they can run
 // alongside the installed Hive — e.g. while developing Hive from a session inside Hive.
 // HIVE_USER_DATA overrides the profile folder for tests.
@@ -508,6 +527,7 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = config.settings.appearance.theme
   Menu.setApplicationMenu(null)
   log.info(`Hive ${app.getVersion()} starting (Electron ${process.versions.electron})`)
+  watchMainStalls()
 
   workspace.setLiveProvider((p, cfg) => sessions.liveInfo(p, cfg))
   sessions.apiEnv = apiEnv
@@ -560,13 +580,13 @@ app.whenReady().then(async () => {
       const latest = (await projectHandovers(await notesTree(), project, names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
       return withLatestHandover(hiveInstructions(project), latest?.relPath)
     })
-  sessions.latestHandover = (projectPath) =>
+  sessions.recentHandovers = (projectPath, count) =>
     inWorkspace(workspaceOf(projectPath), async () => {
       const names = (await workspace.listProjectPaths()).map((p) => basename(p))
-      const latest = (await projectHandovers(await notesTree(), basename(projectPath), names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
-      if (!latest) return null
-      const text = await readFile(join(workspace.sharedDir, latest.relPath), 'utf8').catch(() => '')
-      return { relPath: latest.relPath, modified: latest.modified ?? '', session: handoverSession(text) }
+      const recent = (await projectHandovers(await notesTree(), basename(projectPath), names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8'))).slice(0, count)
+      return Promise.all(
+        recent.map(async (h) => ({ relPath: h.relPath, modified: h.modified ?? '', session: handoverSession(await readFile(join(workspace.sharedDir, h.relPath), 'utf8').catch(() => '')) }))
+      )
     })
   // Each Assistant launch gets a new token; each message to it starts a new turn (with a fresh limit of changes).
   sessions.onAssistantLaunch = async (projectPath) => {

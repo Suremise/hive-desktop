@@ -45,15 +45,18 @@ export function useSessions(project: ProjectInfo) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const current = useRef(project.path)
   current.current = project.path
+  // Loads are numbered: an older one finishing after a newer one is dropped.
+  const loads = useRef(0)
   const load = useCallback(() => {
     if (timer.current) clearTimeout(timer.current)
     timer.current = null
     last.current = Date.now()
     const path = project.path
+    const n = ++loads.current
     void Promise.all([call('session:list', path), call('session:keptUsage', path).catch(() => [])])
       .then(([list, deleted]) => {
-        // Another project shown meanwhile: its own load is on the way.
-        if (current.current !== path) return
+        // Another project shown meanwhile, or a newer load started: theirs is the one to show.
+        if (current.current !== path || n !== loads.current) return
         setItems(list)
         setKept(deleted)
         setLoadedAt(Date.now())

@@ -117,8 +117,14 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
     if (w.isVisible() && w.isFocused()) w.hide()
     else showWindow(w)
   })
+  // A working agent's status changes many times a minute (its cost with every status line): rebuild at most every 500 ms.
+  let pending: NodeJS.Timeout | null = null
   onHiveEvent((e) => {
-    if (e.type === 'session-status' || e.type === 'session-exit' || e.type === 'workspace-changed' || e.type === 'update-state') rebuild()
+    if (e.type !== 'session-status' && e.type !== 'session-exit' && e.type !== 'workspace-changed' && e.type !== 'update-state') return
+    pending ??= setTimeout(() => {
+      pending = null
+      rebuild()
+    }, 500)
   })
   rebuild()
   return tray

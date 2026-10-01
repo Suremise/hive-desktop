@@ -246,23 +246,26 @@ async function writeSkill(name: string, files: Map<string, Uint8Array | string>,
   const exists = (d: string): Error => new Error(`A skill named "${name}" already exists in ${relative(workspace.path ?? '', dirname(d)) || dirname(d)}`)
   for (const d of dirs) if (existsSync(d)) throw exists(d)
   // Each folder is claimed (created, never reused) before anything is written: two adds at once can't share one.
+  // If anything fails, the folders claimed so far go again, so a retry isn't blocked by a half-written skill.
   const claimed: string[] = []
-  for (const d of dirs) {
-    await mkdir(dirname(d), { recursive: true })
-    try {
-      await mkdir(d)
+  try {
+    for (const d of dirs) {
+      await mkdir(dirname(d), { recursive: true })
+      await mkdir(d).catch((e: NodeJS.ErrnoException) => {
+        throw e.code === 'EEXIST' ? exists(d) : e
+      })
       claimed.push(d)
-    } catch (e) {
-      for (const c of claimed) await rm(c, { recursive: true, force: true }).catch(() => undefined)
-      throw (e as NodeJS.ErrnoException).code === 'EEXIST' ? exists(d) : e
     }
-  }
-  for (const d of dirs) {
-    for (const [rel, data] of files) {
-      const f = join(d, rel)
-      await mkdir(dirname(f), { recursive: true })
-      await writeFile(f, data)
+    for (const d of dirs) {
+      for (const [rel, data] of files) {
+        const f = join(d, rel)
+        await mkdir(dirname(f), { recursive: true })
+        await writeFile(f, data)
+      }
     }
+  } catch (e) {
+    for (const c of claimed) await rm(c, { recursive: true, force: true }).catch(() => undefined)
+    throw e
   }
   const s = (await readSkill(dirs[0], targets[0].kind === 'hive' ? 'hive' : 'local'))!
   if (targets[0].kind === 'local') s.provider = targets[0].provider

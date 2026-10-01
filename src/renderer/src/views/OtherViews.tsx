@@ -201,6 +201,12 @@ Use \`\${HIVE_MCP_DIR}\` to point at server code stored in \`.hive/mcp\`.`
 
 export function McpView() {
   const selected = useStore((s) => s.selectedMcp)
+  // One editor per server (and workspace): a load or save still running for one can't land in another's.
+  const ws = useStore((s) => s.workspace?.path ?? '')
+  return <McpServerView key={`${ws}|${selected ?? ''}`} selected={selected} />
+}
+
+function McpServerView({ selected }: { selected: string | null }) {
   const version = useStore((s) => s.skillsVersion)
   const api = useStore((s) => s.api)
   const [text, setText] = useState('')

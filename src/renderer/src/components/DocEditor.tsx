@@ -65,12 +65,18 @@ export function DocEditor({
   }, [path, createIfMissing, reload])
 
   // Saved or discarded from elsewhere (Save All before closing the workspace…): show the file as it now is.
-  const state = useRef({ touched, dirty })
-  state.current = { touched, dirty }
+  const state = useRef({ touched, dirty, saved })
+  state.current = { touched, dirty, saved }
   useEffect(
     () =>
       onEditorDrafts(() => {
-        if (state.current.touched && state.current.dirty && !editorDraft(path)) setReload((n) => n + 1)
+        const d = editorDraft(path)
+        if (state.current.touched && state.current.dirty && !d) setReload((n) => n + 1)
+        // Save All wrote other text than this editor now has: it is unsaved, against what is on disk.
+        else if (d && d.base !== state.current.saved) {
+          setSaved(d.base)
+          setTouched(true)
+        }
       }),
     [path]
   )

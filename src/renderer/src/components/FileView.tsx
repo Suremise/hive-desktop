@@ -124,15 +124,21 @@ export async function saveAllDrafts(): Promise<{ saved: number; failed: { abs: s
   const failed: { abs: string; message: string }[] = []
   let saved = 0
   for (const [key, d] of [...drafts]) {
+    savingFiles.add(key)
     try {
       const w = await call('files:write', d.root, d.rel, d.text, d.base.modified || null, d.base.bom)
-      // Edited while it was saving: the newer text stays a draft, now of what was written.
+      // Edited while it was saving (even back to what it was): the newer text stays a draft, now of what was written.
       const now = drafts.get(key)
       if (now === d || now?.text === d.text) drafts.delete(key)
       else if (now) now.base = { ...now.base, text: d.text, modified: w.modified }
       saved++
     } catch (e) {
       failed.push({ abs: absOf(d.root, d.rel), message: `${d.rel}: ${errorMessage(e).includes('CONFLICT') ? 'changed on disk since you opened it' : errorMessage(e)}` })
+      // Not saved: a draft edited back to what was loaded is no draft after all.
+      const now = drafts.get(key)
+      if (now && now.text === now.base.text) drafts.delete(key)
+    } finally {
+      savingFiles.delete(key)
     }
   }
   draftListeners.forEach((l) => l())
@@ -149,6 +155,9 @@ export function useDraftVersion(): number {
   }, [])
   return v
 }
+/** Files being saved by Save All: their drafts stay even when edited back to what was loaded, as the file is about to change. */
+const savingFiles = new Set<string>()
+
 function setDraft(abs: string, d: Draft | null): void {
   const key = abs.toLowerCase()
   const had = drafts.has(key)
@@ -234,7 +243,7 @@ export function FileView({
   // Keep the draft in step with the editor so it survives unmounting.
   useEffect(() => {
     if (!content || content.kind !== 'text') return
-    setDraft(abs, text !== content.text ? { text, base: content, root: project.path, rel } : null)
+    setDraft(abs, text !== content.text || savingFiles.has(abs.toLowerCase()) ? { text, base: content, root: project.path, rel } : null)
   }, [text, content, abs, project.path, rel])
 
   // Saved or discarded from elsewhere (the quit dialog, Save All): pick up what's on disk now.
