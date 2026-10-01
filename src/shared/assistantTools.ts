@@ -26,7 +26,7 @@ export const ASSISTANT_READ_TOOLS = [
 export const ASSISTANT_AGENT_TOOLS = ['hive_activate_project', 'hive_add_agent', 'hive_update_agent', 'hive_start_agent', 'hive_stop_agent', 'hive_prompt_agent', 'hive_hand_over', 'hive_start_task']
 
 /** Changing the task board: every agent has these; the Assistant at the control level that runs agents. */
-export const TASK_TOOLS = ['hive_create_task', 'hive_update_task']
+export const TASK_TOOLS = ['hive_create_task', 'hive_update_task', 'hive_reorder_tasks']
 
 /** Creating projects. */
 export const ASSISTANT_PROJECT_TOOLS = ['hive_create_project']

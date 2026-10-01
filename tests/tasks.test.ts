@@ -109,6 +109,88 @@ describe('task board', () => {
     expect((await run(() => tasks.getTask(a.number))).column).toBe('review')
   })
 
+  describe('agents putting cards in order', () => {
+    const titles = async (column: 'todo' | 'review', only: number[]): Promise<string[]> =>
+      (await run(() => tasks.listTasks({ column }))).filter((t) => only.includes(t.number)).map((t) => t.title)
+    const make = async (names: string[]) => {
+      const out = []
+      for (const title of names) out.push(await run(() => tasks.createTask({ title }, user)))
+      return out
+    }
+    const last = async (n: number): Promise<string> => (await run(() => tasks.getTask(n))).history.at(-1)!.what
+
+    it('puts a card at the top, the bottom or before another, and says so in its history', async () => {
+      const [p, q, r] = await make(['P', 'Q', 'R'])
+      const ns = [p.number, q.number, r.number]
+      await run(() => tasks.updateTask(r.number, { position: 'top' }, agent))
+      expect(await titles('todo', ns)).toEqual(['R', 'P', 'Q'])
+      expect(await last(r.number)).toBe('Moved to the top of Todo')
+      expect((await run(() => tasks.listTasks({ column: 'todo' })))[0].number).toBe(r.number)
+      await run(() => tasks.updateTask(r.number, { position: 'bottom' }, assistant))
+      expect(await titles('todo', ns)).toEqual(['P', 'Q', 'R'])
+      expect(await last(r.number)).toBe('Moved to the bottom of Todo')
+      await run(() => tasks.updateTask(q.number, { before: p.number }, agent))
+      expect(await titles('todo', ns)).toEqual(['Q', 'P', 'R'])
+      expect(await last(q.number)).toBe(`Moved before #${p.number} in Todo`)
+      // Already there: no line.
+      const lines = (await run(() => tasks.getTask(q.number))).history.length
+      await run(() => tasks.updateTask(q.number, { before: p.number }, agent))
+      expect((await run(() => tasks.getTask(q.number))).history.length).toBe(lines)
+      // With a column change, one line says both.
+      await run(() => tasks.updateTask(p.number, { column: 'review', position: 'top' }, agent))
+      expect((await run(() => tasks.listTasks({ column: 'review' })))[0].number).toBe(p.number)
+      expect(await last(p.number)).toBe('Moved to the top of Review')
+      await run(() => tasks.updateTask(r.number, { column: 'review', before: p.number }, agent))
+      expect(await titles('review', [p.number, r.number])).toEqual(['R', 'P'])
+      expect(await last(r.number)).toBe(`Moved to Review, before #${p.number}`)
+      // The user's drags stay out of the history.
+      const userLines = (await run(() => tasks.getTask(r.number))).history.length
+      await run(() => tasks.updateTask(r.number, { position: 'bottom' }, user))
+      expect((await run(() => tasks.getTask(r.number))).history.length).toBe(userLines)
+      for (const n of ns) await run(() => tasks.deleteTask(n))
+    })
+
+    it('refuses a place it can not honour', async () => {
+      const a = await run(() => tasks.createTask({ title: 'A' }, user))
+      const b = await run(() => tasks.createTask({ title: 'B', column: 'review' }, user))
+      const d = await run(() => tasks.createTask({ title: 'D', column: 'done' }, user))
+      await expect(run(() => tasks.updateTask(a.number, { before: b.number }, agent))).rejects.toThrow(`#${b.number} is in Review, not in Todo`)
+      await expect(run(() => tasks.updateTask(a.number, { before: 99_999 }, agent))).rejects.toThrow('There is no card #99999')
+      await expect(run(() => tasks.updateTask(a.number, { before: a.number }, agent))).rejects.toThrow("can't go before itself")
+      await expect(run(() => tasks.updateTask(a.number, { before: b.number, position: 'top' }, agent))).rejects.toThrow('not both')
+      await expect(run(() => tasks.updateTask(a.number, { position: 'middle' as never }, agent))).rejects.toThrow('Unknown position')
+      await expect(run(() => tasks.updateTask(d.number, { position: 'top' }, agent))).rejects.toThrow(tasks.TaskPermissionError)
+      // The Assistant, even when the user agreed to the move into Done, doesn't choose its place there.
+      await expect(run(() => tasks.updateTask(b.number, { column: 'done', position: 'top' }, assistant, { allowDone: true }))).rejects.toThrow('Only the user puts the cards in Done in order')
+      // The user may (a drop whose card moved meanwhile goes to the end).
+      await run(() => tasks.updateTask(d.number, { position: 'top' }, user))
+      await run(() => tasks.updateTask(a.number, { before: b.number }, user))
+      for (const n of [a.number, b.number, d.number]) await run(() => tasks.deleteTask(n))
+    })
+
+    it('puts a list of cards at the top of a column in one call, the rest keeping their order', async () => {
+      const cards = await make(['1', '2', '3', '4', '5'])
+      const ns = cards.map((c) => c.number)
+      const [c1, c2, c3, c4, c5] = ns
+      const list = await run(() => tasks.reorderTasks('todo', [c4, `#${c2}`, c1], agent))
+      expect(list.filter((c) => ns.includes(c.number)).map((c) => c.title)).toEqual(['4', '2', '1', '3', '5'])
+      expect(list[0].number).toBe(c4)
+      expect(await last(c4)).toBe('Moved to the top of Todo')
+      expect(await last(c2)).toBe('Placed 2nd in Todo')
+      expect(await last(c1)).toBe('Placed 3rd in Todo')
+      // Not moved: no line.
+      expect(await last(c3)).toBe('Created in Todo')
+      const b = await run(() => tasks.createTask({ title: 'B', column: 'review' }, user))
+      await expect(run(() => tasks.reorderTasks('todo', [c5, b.number], agent))).rejects.toThrow(`#${b.number} is in Review, not in Todo`)
+      await expect(run(() => tasks.reorderTasks('todo', [c5, c5], agent))).rejects.toThrow('listed twice')
+      await expect(run(() => tasks.reorderTasks('todo', [], agent))).rejects.toThrow('cards:')
+      await expect(run(() => tasks.reorderTasks('done', [c5], assistant))).rejects.toThrow(tasks.TaskPermissionError)
+      // A failed list changes nothing.
+      expect(await titles('todo', ns)).toEqual(['4', '2', '1', '3', '5'])
+      for (const n of [...ns, b.number]) await run(() => tasks.deleteTask(n))
+    })
+  })
+
   it('drops references to a deleted card', async () => {
     const a = await run(() => tasks.createTask({ title: 'Base' }, user))
     const b = await run(() => tasks.createTask({ title: 'Depends', blockedBy: [a.number], links: [a.number] }, user))

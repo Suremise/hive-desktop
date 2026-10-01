@@ -86,6 +86,25 @@ const check = (name, ok, extra = '') => {
   const start = await api('POST', '/v1/tasks/1/start', {})
   check('only the Assistant starts cards through the API', start.status === 403, JSON.stringify(start))
 
+  // As an agent: put cards in order (a list in one call, then one card), and the board follows.
+  const todoOrder = () => column('Todo').locator('.task-card').evaluateAll((els) => els.map((e) => Number(e.dataset.task)))
+  const rA = (await api('POST', '/v1/tasks', { title: 'Order A', project: 'alpha' })).body.number
+  const rB = (await api('POST', '/v1/tasks', { title: 'Order B', project: 'alpha' })).body.number
+  await until(async () => (await todoOrder()).length === 3, 5000)
+  const reorder = await api('POST', '/v1/tasks/reorder', { column: 'todo', cards: [rB, rA] })
+  check('an agent puts cards in order in one call', reorder.status === 200 && reorder.body.map((c) => c.number).join() === [rB, rA, 1].join(), JSON.stringify(reorder.body?.map?.((c) => c.number) ?? reorder))
+  check('the board shows the new order', !!(await until(async () => (await todoOrder()).join() === [rB, rA, 1].join(), 5000)), (await todoOrder()).join())
+  // A was 2nd already: only B moved, so only B's history says so.
+  check('the history says where it went', (await card(rB))?.history.at(-1)?.what === 'Moved to the top of Todo' && (await card(rA))?.history.length === 1, JSON.stringify([(await card(rB))?.history, (await card(rA))?.history]))
+  const bottom = await api('PATCH', `/v1/tasks/${rB}`, { position: 'bottom' })
+  check('an agent moves one card to the bottom', bottom.status === 200 && !!(await until(async () => (await todoOrder()).join() === [rA, 1, rB].join(), 5000)), (await todoOrder()).join())
+  const wrong = await api('PATCH', `/v1/tasks/${rA}`, { before: 2 })
+  check("before a card in another column is refused", wrong.status === 400 && /in Review, not in Todo/.test(wrong.body?.error), JSON.stringify(wrong))
+  const mixed = await api('POST', '/v1/tasks/reorder', { column: 'todo', cards: [rA, 2] })
+  const doneOrder = await api('POST', '/v1/tasks/reorder', { column: 'done', cards: [rA] })
+  check('a list with a card from another column, or for Done, is refused', mixed.status === 400 && doneOrder.status === 403, JSON.stringify([mixed, doneOrder]))
+  for (const n of [rA, rB]) await inv('tasks:delete', n)
+
   // Dragging a card to another column.
   await tile(1).dragTo(column('Doing').locator('.board-column-body'))
   check('a card drags to another column', !!(await until(async () => (await card(1))?.column === 'doing', 5000)), (await card(1))?.column)

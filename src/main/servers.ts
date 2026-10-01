@@ -838,7 +838,11 @@ function taskPatch(body: any): TaskPatch {
   for (const k of ['title', 'description', 'project', 'blocked'] as const) if (body?.[k] !== undefined) out[k] = body[k] === null ? (null as never) : String(body[k])
   if (body?.agent !== undefined) out.agent = body.agent ? String(body.agent) : null
   if (body?.column !== undefined) out.column = columnParam(body.column)
-  if (body?.before !== undefined) out.before = body.before === null ? null : Number(body.before)
+  if (body?.before !== undefined) out.before = body.before === null ? null : Number(String(body.before).replace(/^#/, ''))
+  if (body?.position !== undefined && body.position !== null && body.position !== '') {
+    if (body.position !== 'top' && body.position !== 'bottom') throw new HttpError(400, `Unknown position "${String(body.position)}": top or bottom.`)
+    out.position = body.position
+  }
   for (const k of ['labels', 'blockedBy', 'links'] as const) if (body?.[k] !== undefined) out[k] = body[k]
   return out
 }
@@ -885,6 +889,9 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
   const ws = assistantCaller()!
   return assistantChange('agents', `change #${n} on the board`, async () => {
     const before = await tasks.getTask(n)
+    const placed = (patch.before !== undefined && patch.before !== null) || patch.position !== undefined
+    // Refused before asking about Done, so the user isn't asked for a move that then fails.
+    if (placed && (patch.column ?? before.column) === 'done') throw new tasks.TaskPermissionError('Only the user puts the cards in Done in order.')
     let allowDone = false
     // Done is the user's word: the Assistant asks, and this waits for the answer.
     if (patch.column && (patch.column === 'done') !== (before.column === 'done')) {
@@ -898,8 +905,40 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
       allowDone = true
     }
     const c = await apply(allowDone)
-    const what = [patch.column && patch.column !== before.column ? `moved it to ${columnLabel(patch.column)}` : '', comment ? 'commented' : '', Object.keys(patch).some((k) => k !== 'column' && k !== 'before') ? 'changed it' : ''].filter(Boolean).join(', ')
+    const at = patch.position ? `at the ${patch.position}` : placed ? `before #${patch.before}` : ''
+    const what = [
+      patch.column && patch.column !== before.column
+        ? `moved it to ${columnLabel(patch.column)}${at ? `, ${at}` : ''}`
+        : patch.position
+          ? `moved it to the ${patch.position} of ${columnLabel(c.column)}`
+          : at
+            ? `moved it ${at}`
+            : '',
+      comment ? 'commented' : '',
+      Object.keys(patch).some((k) => k !== 'column' && k !== 'before' && k !== 'position') ? 'changed it' : ''
+    ]
+      .filter(Boolean)
+      .join(', ')
     return { done: `#${n} ${clip(c.title, 60)}: ${what || 'no change'}`, result: await taskView(c) }
+  })
+})
+
+route('POST', '/v1/tasks/reorder', async ({ body }) => {
+  requireWorkspace()
+  const column = columnParam(body?.column)
+  if (!column) throw new HttpError(400, 'column is required: todo, doing or review')
+  const cards = body?.cards
+  const actor = await taskActor(body)
+  const view = async (list: TaskCard[]) => {
+    const agents = new Map<string, Promise<ReturnType<typeof projectAgents>>>()
+    return Promise.all(list.map((c) => taskView(c, agents)))
+  }
+  if (actor.kind !== 'assistant') return view(await tasks.reorderTasks(column, cards, actor))
+  const count = Array.isArray(cards) ? cards.length : 0
+  return assistantChange('agents', `put ${count} card${count === 1 ? '' : 's'} in order in ${columnLabel(column)}`, async () => {
+    const list = await tasks.reorderTasks(column, cards, actor)
+    const top = (cards as unknown[]).map((x) => `#${String(x).replace(/^#/, '')}`).join(', ')
+    return { done: `Put ${top} at the top of ${columnLabel(column)}`, result: await view(list) }
   })
 })
 
@@ -1002,10 +1041,10 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
 function statusFor(e: Error): number {
   const m = String(e?.message ?? '')
   if (/Invalid session id|URI malformed|Unknown provider|Project names cannot/i.test(m)) return 400
-  if (/already running|already open|already being opened|is starting|Stop it first|Stop the|archived|No session is running|ran in .* Resume it|is required to run|is turned off|no agents yet|No workspace|busy|no handover/i.test(m)) return 409
+  if (/already running|already open|already being opened|is starting|Stop it first|Stop the|archived|No session is running|ran in .* Resume it|is required to run|is turned off|no agents yet|No workspace|busy|no handover|changed while the cards/i.test(m)) return 409
   if (/several agents: choose/i.test(m)) return 400
   if (/Not a project|Unknown (project|agent|task)|no longer exists/i.test(m)) return 404
-  if (/is archived|is done\.|has no project|needs a title|is too long|Unknown column|labels must|up to \d+ labels|^(blockedBy|links):|Choose a project|comment is empty/i.test(m)) return 400
+  if (/is archived|is done\.|has no project|needs a title|is too long|Unknown column|labels must|up to \d+ labels|^(blockedBy|links):|Choose a project|comment is empty|Unknown position|before or position|can't go before|, not in (Todo|Doing|Review|Done)|There is no card #|^cards:/i.test(m)) return 400
   return 500
 }
 

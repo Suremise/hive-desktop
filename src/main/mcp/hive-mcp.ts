@@ -268,7 +268,7 @@ const tools: Tool[] = [
   {
     name: 'hive_list_tasks',
     description:
-      "The workspace's task board: cards in columns todo, doing, review and done, each with its project, the agent it's given to (and what that agent is doing now), labels, and whether it's blocked. Without project, every project's cards; archived=true lists the archived ones instead.",
+      "The workspace's task board: cards in columns todo, doing, review and done, in board order (top of each column first: the order is their priority), each with its project, the agent it's given to (and what that agent is doing now), labels, and whether it's blocked. Without project, every project's cards; archived=true lists the archived ones instead.",
     inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Only this project\'s cards.' }, column: columnArg, archived: { type: 'boolean' } } },
     run: (a) => {
       const q = [a.project ? `project=${enc(a.project)}` : '', a.column ? `column=${enc(a.column)}` : '', a.archived ? 'archived=true' : ''].filter(Boolean).join('&')
@@ -305,13 +305,15 @@ const tools: Tool[] = [
   {
     name: 'hive_update_task',
     description:
-      `Change a card on the task board and/or comment on it: move it between todo, doing and review, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on. When you finish a card's work, move it to review with a comment saying what you did. Only the user moves cards to or from done${ASSISTANT ? ' (you can ask: Hive puts the question to the user and waits for the answer)' : ''}; archived cards can't be changed.`,
+      `Change a card on the task board and/or comment on it: move it between todo, doing and review, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on, or its place in its column (position top or bottom, or before another card in that column; with or without a column change). When you finish a card's work, move it to review with a comment saying what you did. Only the user moves cards to or from done${ASSISTANT ? ' (you can ask: Hive puts the question to the user and waits for the answer)' : ''}; archived cards can't be changed.`,
     inputSchema: {
       type: 'object',
       properties: {
         number: { type: 'number' },
         comment: { type: 'string', description: 'Added to its comments.' },
         column: columnArg,
+        position: { type: 'string', enum: ['top', 'bottom'], description: 'Put it at the top (highest priority) or bottom of its column.' },
+        before: { type: 'number', description: 'Put it just above this card, which must be in the same column.' },
         blocked: { type: 'string' },
         title: { type: 'string' },
         description: { type: 'string' },
@@ -325,9 +327,23 @@ const tools: Tool[] = [
     },
     run: (a) => {
       const body: Record<string, unknown> = { ...byAgent() }
-      for (const k of ['comment', 'column', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links']) if (a[k] !== undefined) body[k] = a[k]
+      for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links']) if (a[k] !== undefined) body[k] = a[k]
       return api('PATCH', `/v1/tasks/${enc(String(a.number))}`, body)
     }
+  },
+  {
+    name: 'hive_reorder_tasks',
+    description:
+      "Put cards in priority order in one call: the listed cards go to the top of the column in the order given, and the column's other cards keep their order below them. The cards must already be in that column (move them first with hive_update_task); only the user orders done. Use this when asked to prioritise, rather than only listing an order.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        column: { type: 'string', enum: ['todo', 'doing', 'review'] },
+        cards: cardsArg('Card numbers, highest priority first.')
+      },
+      required: ['column', 'cards']
+    },
+    run: (a) => api('POST', '/v1/tasks/reorder', { column: a.column, cards: a.cards, ...byAgent() })
   },
   {
     name: 'hive_start_task',

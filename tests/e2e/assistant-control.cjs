@@ -197,6 +197,18 @@ const check = (name, ok, extra = '') => {
   const moved = await moving
   check("and moves it on the user's yes", moved.status === 200 && moved.body?.column === 'done', JSON.stringify(moved.body))
   check('the board changes are listed', (await inv('assistant:actions')).some((x) => x.ok && x.text.startsWith(`Started #${cardNo} on a new agent, Writer`)))
+  // Putting cards in order: listed in Done by the Assistant; the order of Done is the user's, refused without asking.
+  const o1 = (await api('POST', '/v1/tasks', { title: 'Order one', project: 'alpha' })).body.number
+  const o2 = (await api('POST', '/v1/tasks', { title: 'Order two', project: 'alpha' })).body.number
+  const ordered = await api('POST', '/v1/tasks/reorder', { column: 'todo', cards: [o2, o1] })
+  const o2Card = (await api('GET', `/v1/tasks/${o2}`)).body
+  check('the Assistant puts cards in order', ordered.status === 200 && ordered.body[0]?.number === o2 && o2Card.history.at(-1)?.by === 'Assistant', JSON.stringify(ordered.body?.map?.((c) => c.number) ?? ordered))
+  const top = await api('PATCH', `/v1/tasks/${o1}`, { position: 'top' })
+  check('and one card to the top', top.status === 200 && (await api('GET', '/v1/tasks?column=todo')).body[0]?.number === o1, JSON.stringify(top.body))
+  const listed = (await inv('assistant:actions')).map((x) => x.ok && x.text)
+  check('both are listed in Done by the Assistant', listed.includes(`Put #${o2}, #${o1} at the top of Todo`) && listed.some((t) => t && t.startsWith(`#${o1} `) && t.endsWith('moved it to the top of Todo')), JSON.stringify(listed.slice(-3)))
+  const doneTop = await api('PATCH', `/v1/tasks/${cardNo}`, { position: 'top' })
+  check("the Assistant can't put Done in order, and the user isn't asked", doneTop.status === 403 && (await page.locator('.assistant-question').count()) === 0, JSON.stringify(doneTop))
 
   // At most 30 changes for one message.
   let status = 200
@@ -216,7 +228,7 @@ const check = (name, ok, extra = '') => {
   const asAgents = tools({ HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'agents' })
   const asLook = tools({ HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'look' })
   check('project agents get no control tools', !asAgent.includes('hive_add_agent') && !asAgent.includes('hive_agent_activity') && !asAgent.includes('hive_start_task'), asAgent.join(','))
-  check('project agents get the board tools', ['hive_list_tasks', 'hive_read_task', 'hive_create_task', 'hive_update_task'].every((t) => asAgent.includes(t)), asAgent.join(','))
+  check('project agents get the board tools', ['hive_list_tasks', 'hive_read_task', 'hive_create_task', 'hive_update_task', 'hive_reorder_tasks'].every((t) => asAgent.includes(t)), asAgent.join(','))
   check('Control agents: agent tools, no project creation', asAgents.includes('hive_prompt_agent') && asAgents.includes('hive_stop_agent') && asAgents.includes('hive_hand_over') && asAgents.includes('hive_start_task') && !asAgents.includes('hive_create_project'))
   check('Look and advise: reading tools only', asLook.includes('hive_agent_activity') && asLook.includes('hive_wait_for_agents') && asLook.includes('hive_list_tasks') && !asLook.includes('hive_add_agent') && !asLook.includes('hive_start_task'))
 

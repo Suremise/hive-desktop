@@ -173,6 +173,102 @@ function orderIn(cards: TaskCard[], column: TaskColumn, self: number | null, bef
   return (prev + list[i].order) / 2
 }
 
+const OUT_OF_DONE = 'Only the user puts the cards in Done in order.'
+
+/**
+ * Where a change puts a card in `column`: before a card, at the top or bottom, or (without either) at the end. An
+ * agent's or the Assistant's explicit placement is checked (the card it names has to be in the column; never in
+ * Done) and, when it moves the card, says so for the history; the user's drags are saved quietly.
+ */
+function placement(all: TaskCard[], card: TaskCard, column: TaskColumn, patch: TaskPatch, actor: TaskActor): { order: number; said?: string } {
+  const { before, position } = patch
+  const placed = (before !== undefined && before !== null) || position !== undefined
+  if (position !== undefined && position !== 'top' && position !== 'bottom') throw new Error(`Unknown position "${String(position)}": top or bottom.`)
+  if (placed && before !== undefined && before !== null && position !== undefined) throw new Error('Give before or position, not both.')
+  const list = all.filter((c) => c.column === column && !c.archived && c.number !== card.number)
+  const W = COLUMN_WORD[column]
+  if (placed && actor.kind !== 'user') {
+    if (column === 'done') throw new TaskPermissionError(OUT_OF_DONE)
+    if (before != null && !list.some((c) => c.number === before)) {
+      const other = all.find((c) => c.number === before)
+      throw new Error(
+        before === card.number
+          ? "A card can't go before itself."
+          : !other
+            ? `There is no card #${before}.`
+            : `#${before} is ${other.archived ? 'archived' : `in ${COLUMN_WORD[other.column]}`}, not in ${W}: #${card.number} can only go before a card in the column it's in.`
+      )
+    }
+  }
+  const order = position === 'top' ? (list.length ? list[0].order - 1 : 1) : orderIn(all, column, card.number, position === 'bottom' ? null : before)
+  if (!placed || actor.kind === 'user') return { order }
+  const moved = column !== card.column
+  // Within its column, a placement that leaves it where it was isn't worth a line.
+  const rank = (o: number): number => sortCards([...list, { ...card, column, order: o }]).findIndex((c) => c.number === card.number)
+  if (!moved && rank(card.order) === rank(order)) return { order }
+  const said =
+    position === 'top'
+      ? `Moved to the top of ${W}`
+      : position === 'bottom'
+        ? `Moved to the bottom of ${W}`
+        : moved
+          ? `Moved to ${W}, before #${before}`
+          : `Moved before #${before} in ${W}`
+  return { order, said }
+}
+
+const ordinal = (n: number): string => {
+  const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')
+  return `${n}${s}`
+}
+
+/**
+ * Puts cards at the top of a column in the order given; the column's other cards keep their order below them. The
+ * listed cards have to be in that column already (this never moves cards between columns), and only the user puts
+ * Done in order. An agent's or the Assistant's list adds a line to each card it moved.
+ */
+export async function reorderTasks(column: TaskColumn, numbers: unknown, actor: TaskActor): Promise<TaskCard[]> {
+  if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": todo, doing, review or done.`)
+  if (column === 'done' && actor.kind !== 'user') throw new TaskPermissionError(OUT_OF_DONE)
+  if (!Array.isArray(numbers) || !numbers.length) throw new Error('cards: list the card numbers in the order wanted.')
+  if (numbers.length > 500) throw new Error('cards: at most 500 cards at once.')
+  const nums = numbers.map((x) => Number(String(x).replace(/^#/, '')))
+  const seen = new Set<number>()
+  for (const x of nums) {
+    if (!Number.isInteger(x) || x < 1) throw new Error(`cards: "${x}" is not a card number`)
+    if (seen.has(x)) throw new Error(`cards: #${x} is listed twice`)
+    seen.add(x)
+  }
+  const ws = workspace
+  const by = actorName(actor)
+  const W = COLUMN_WORD[column]
+  const all = await allTasks(ws)
+  const list = all.filter((c) => c.column === column && !c.archived)
+  for (const x of nums) {
+    if (list.some((c) => c.number === x)) continue
+    const other = all.find((c) => c.number === x)
+    throw new Error(!other ? `There is no card #${x}.` : `#${x} is ${other.archived ? 'archived' : `in ${COLUMN_WORD[other.column]}`}, not in ${W}. Only cards already in ${W} can be put in order there.`)
+  }
+  const top = list[0].order
+  for (const [i, x] of nums.entries()) {
+    const was = list.findIndex((c) => c.number === x)
+    await withFileLock(cardFile(x, ws), async () => {
+      const card = await getTask(x, ws)
+      // Moved or archived since the list was read: the order asked for no longer holds.
+      if (card.column !== column || card.archived) throw new Error(`#${x} changed while the cards were being put in order; read the board again.`)
+      card.order = top - nums.length + i
+      if (was !== i && actor.kind !== 'user') note(card, by, i === 0 ? `Moved to the top of ${W}` : `Placed ${ordinal(i + 1)} in ${W}`)
+      await writeJsonAtomic(cardFile(x, ws), card)
+    }).catch((e) => {
+      if (i) changed(ws)
+      throw e
+    })
+  }
+  log.info(`${W} put in order by ${by}: ${nums.map((x) => `#${x}`).join(', ')}`)
+  changed(ws)
+  return (await allTasks(ws)).filter((c) => c.column === column && !c.archived)
+}
+
 function note(card: TaskCard, by: string, what: string): void {
   const at = new Date().toISOString()
   card.history = [...card.history, { at, by, what }].slice(-MAX_HISTORY)
@@ -276,14 +372,17 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
         delete card.agentName
       }
     }
-    if (patch.column !== undefined || patch.before !== undefined) {
+    if (patch.column !== undefined || patch.before !== undefined || patch.position !== undefined) {
       const column = patch.column ?? card.column
       if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": todo, doing, review or done.`)
       if ((column === 'done') !== (card.column === 'done') && actor.kind !== 'user' && !opts.allowDone) {
         throw new TaskPermissionError(column === 'done' ? 'Only the user moves cards to Done.' : `#${n} is done: only the user moves it out of Done.`)
       }
-      if (column !== card.column) said.push(`Moved to ${COLUMN_WORD[column]}`)
-      const order = orderIn(await allTasks(ws), column, n, patch.before)
+      const all = await allTasks(ws)
+      const place = placement(all, card, column, patch, actor)
+      if (column !== card.column) said.push(place.said ?? `Moved to ${COLUMN_WORD[column]}`)
+      else if (place.said) said.push(place.said)
+      const order = place.order
       reordered = order !== card.order
       card.order = order
       card.column = column

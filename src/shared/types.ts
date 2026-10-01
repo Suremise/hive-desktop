@@ -341,6 +341,8 @@ export interface TaskPatch {
   column?: TaskColumn
   /** Before this card in the column (null: at the end). Only with column or on its own to reorder. */
   before?: number | null
+  /** At the top or the bottom of the column (instead of before). */
+  position?: 'top' | 'bottom'
   labels?: string[]
   blocked?: string | null
   blockedBy?: number[]

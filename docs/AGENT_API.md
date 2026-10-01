@@ -286,10 +286,20 @@ The workspace's board: cards in four columns, `todo`, `doing`, `review` and `don
 { "title": "Add tests for the redirect", "project": "web", "description": "…", "labels": ["tests"], "blockedBy": [12] }
 ```
 
-`PATCH /v1/tasks/{n}` — change a card and/or comment on it: any of `title`, `description`, `project` (its agent is cleared unless `agent` is given), `agent` (empty takes it from its agent), `column`, `before` (the card it goes in front of in its column; `null` the end), `labels`, `blocked` (empty clears it), `blockedBy`, `links`, and `comment`.
+`PATCH /v1/tasks/{n}` — change a card and/or comment on it: any of `title`, `description`, `project` (its agent is cleared unless `agent` is given), `agent` (empty takes it from its agent), `column`, `position` (`top` or `bottom` of its column) or `before` (the card it goes in front of, which has to be in the column the card ends up in; `null` the end), `labels`, `blocked` (empty clears it), `blockedBy`, `links`, and `comment`.
 
 ```json
 { "column": "review", "comment": "Fixed in auth/callback.ts; tests pass." }
+```
+
+Placing a card with `position` or `before` adds a line to its history when it moves it. A `before` card in another column, or both `position` and `before`, is `400`; placing a card in Done is `403` (the order of Done is the user's).
+
+`GET /v1/tasks` returns cards in board order: by column, then top first. That order is their priority.
+
+`POST /v1/tasks/reorder` — put cards in order: `column` (`todo`, `doing` or `review`) and `cards`, card numbers highest priority first. The listed cards go to the top of the column in that order; the column's other cards keep their order below them. Every listed card has to be in that column already (move it first with `PATCH`), or nothing changes and the answer is `400`; `done` is `403`. Returns the column's cards in their new order.
+
+```json
+{ "column": "todo", "cards": [14, 9, 12] }
 ```
 
 `POST /v1/tasks/{n}/comments` `{ "text" }` — add a comment.
@@ -349,6 +359,7 @@ When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP se
 | `hive_read_task` | `GET /v1/tasks/{n}` |
 | `hive_create_task` | `POST /v1/tasks` (the session's project by default) |
 | `hive_update_task` | `PATCH /v1/tasks/{n}` (with `comment`) |
+| `hive_reorder_tasks` | `POST /v1/tasks/reorder` |
 
 Tools default to the session's own project, so an agent can simply say *"create a handover"*. The board tools send the agent's id and project, so a card's history and comments name the agent.
 
@@ -369,7 +380,7 @@ The Hive Assistant's `hive` server always runs (even with this setting or the Ag
 | `hive_start_task` | `POST /v1/tasks/{n}/start` | Control agents |
 | `hive_create_project` | `POST /v1/projects` | Control agents and create projects |
 
-It also has the board tools above; Claude Code runs `hive_create_task` and `hive_update_task` without asking from Control agents up. Claude Code runs these without asking (they are Hive's own, and limited by the control level); Codex gets a 15-minute tool timeout for them, since waiting and asking the user can take minutes.
+It also has the board tools above; Claude Code runs `hive_create_task`, `hive_update_task` and `hive_reorder_tasks` without asking from Control agents up. Claude Code runs these without asking (they are Hive's own, and limited by the control level); Codex gets a 15-minute tool timeout for them, since waiting and asking the user can take minutes.
 
 A handover belongs to a project when its file name is `handovers/<date>-<project>-<title>.md`, as `hive_create_handover` writes it. When another project's name begins the same way (`hive` and `hive-website`), the `**Project:**` line at the top of the handover decides.
 
