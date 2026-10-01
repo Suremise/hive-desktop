@@ -110,6 +110,10 @@ export interface AppSettings {
     /** How long a background task an agent started counts as running if it never reports its end, in minutes. */
     backgroundTaskMinutes: number
   }
+  board: {
+    /** Done cards are archived this many days after they went into Done. 0 never. */
+    archiveDoneDays: number
+  }
 }
 
 /** The Hive Assistant's defaults: its provider, its persona and, per provider, its model, effort, mode and arguments. */
@@ -314,8 +318,11 @@ export interface TaskCard {
   history: TaskHistoryEntry[]
   /** Hidden from the board, kept and searchable. */
   archived: boolean
-  /** Who archived it: the user, or its project being hidden or removed (restoring the project brings those back). */
-  archivedFor?: 'user' | 'project-hidden' | 'project-removed'
+  /**
+   * Who archived it: the user, Hive after its days in Done (Settings → Board), or its project being hidden or
+   * removed (restoring the project brings those back).
+   */
+  archivedFor?: 'user' | 'done' | 'project-hidden' | 'project-removed'
   createdAt: string
   createdBy: string
   updatedAt: string

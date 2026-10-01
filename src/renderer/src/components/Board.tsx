@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch } from '@shared/types'
-import { TASK_COLUMNS, columnLabel } from '@shared/tasks'
+import { TASK_COLUMNS, columnLabel, stalledReason } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
 import { NO_PROJECTS, agentProviderOf, confirm, get, loadTasks, notify, revealAgent, set, useStore } from '../store'
@@ -15,6 +15,12 @@ const NO_TASKS: TaskCard[] = []
 function cardAgent(projects: ProjectInfo[], c: TaskCard): { project: ProjectInfo | null; agent: AgentInfo | null } {
   const project = c.project ? (projects.find((p) => p.name.toLowerCase() === c.project.toLowerCase()) ?? null) : null
   return { project, agent: c.agent ? (project?.agents.find((a) => a.id === c.agent) ?? null) : null }
+}
+
+/** Why nobody is working on the card (a Doing card only), from its agent as the window knows it. */
+export function cardStalled(projects: ProjectInfo[], c: TaskCard): string | null {
+  const { agent } = cardAgent(projects, c)
+  return stalledReason(c, agent ? { name: agent.name, running: !!agent.live } : null)
 }
 
 /** A card matches the search: its number (#12 or 12), title, description, labels, project or agent. */
@@ -122,11 +128,12 @@ function CardTile({
   const { agent } = cardAgent(projects, c)
   // A Doing card whose agent has finished is waiting for someone to look: it shows like a finished agent.
   const finished = c.column === 'doing' && agent?.live?.status === 'finished'
+  const stalled = cardStalled(projects, c)
   return (
     <>
       {dropHere && <div className="task-drop" />}
       <div
-        className={cx('task-card', c.blocked && 'blocked', finished && 'finished')}
+        className={cx('task-card', c.blocked && 'blocked', finished && 'finished', stalled && !c.blocked && 'stalled')}
         draggable={!c.archived}
         onDragStart={onDragStart}
         onDragOver={onDragOver}
@@ -144,6 +151,13 @@ function CardTile({
           <div className="task-blocked">
             <Icon name="circle-slash" /> {c.blocked}
           </div>
+        )}
+        {stalled && (
+          <Tooltip content="Nobody is working on it. Start it again (on this agent or another), or move it back to Todo.">
+            <div className="task-stalled">
+              <Icon name="debug-pause" /> Stalled: {stalled}
+            </div>
+          </Tooltip>
         )}
         {(c.labels.length > 0 || c.blockedBy.length > 0 || c.comments.length > 0) && (
           <div className="task-meta">
@@ -350,6 +364,7 @@ export function BoardPanel() {
   const chosen = useStore((s) => s.boardProject)
   const open = (name: string | null): number => tasks.filter((c) => !c.archived && c.column !== 'done' && (name === null || c.project.toLowerCase() === name.toLowerCase())).length
   const review = tasks.filter((c) => !c.archived && c.column === 'review')
+  const stalled = tasks.filter((c) => cardStalled(projects, c))
   const row = (name: string | null, label: string, icon: string) => (
     <div key={label} className={cx('row', chosen === name && 'selected')} onClick={() => set({ boardProject: name })}>
       <Icon name={icon} /> <span className="label">{label}</span>
@@ -370,6 +385,21 @@ export function BoardPanel() {
         {row(null, 'All projects', 'layers')}
         {projects.map((p) => row(p.name, p.name, 'folder'))}
         {row('', 'Workspace (no project)', 'root-folder')}
+        {stalled.length > 0 && (
+          <>
+            <div className="section-header">
+              Stalled <span className="count">{stalled.length}</span>
+              <InfoTip text="Cards in Doing that nobody is working on: no agent has them, or their agent was removed or isn't running." />
+            </div>
+            {stalled.map((c) => (
+              <Tooltip key={c.number} content={cardStalled(projects, c) ?? ''}>
+                <div className="row" onClick={() => set({ taskOpen: c.number })}>
+                  <span className="task-number">#{c.number}</span> <span className="label">{c.title}</span>
+                </div>
+              </Tooltip>
+            ))}
+          </>
+        )}
         {review.length > 0 && (
           <>
             <div className="section-header">
@@ -554,7 +584,7 @@ export function TaskDialog() {
     >
       {card?.archived && (
         <div className="banner info">
-          <Icon name="archive" /> Archived{card.archivedFor === 'project-hidden' ? ` when ${card.project} was hidden` : card.archivedFor === 'project-removed' ? ` when ${card.project} was removed from Hive` : ''}. Bring it back to change it.
+          <Icon name="archive" /> Archived{card.archivedFor === 'project-hidden' ? ` when ${card.project} was hidden` : card.archivedFor === 'project-removed' ? ` when ${card.project} was removed from Hive` : card.archivedFor === 'done' ? ' automatically after its days in Done (Settings → Board)' : ''}. Bring it back to change it.
         </div>
       )}
       <input ref={titleRef} className="input task-title-input" placeholder="Title" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />

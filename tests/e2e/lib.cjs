@@ -70,6 +70,23 @@ async function launch({ userData, env = {}, viewport = { width: 1400, height: 85
   return { app, page, inv }
 }
 
+/**
+ * Waits until Hive has finished looking for a provider's CLI (it does so in the background after start): starting
+ * an agent before then fails with "Claude Code is required". Throws if it isn't found.
+ */
+async function waitForProvider(inv, provider = 'claude-code', timeoutMs = 30000) {
+  const t = Date.now()
+  while (Date.now() - t < timeoutMs) {
+    const info = (await inv('provider:info').catch(() => ({})))[provider]
+    if (info && !info.checking) {
+      if (!info.found) throw new Error(`${provider} wasn't found on this machine`)
+      return info
+    }
+    await sleep(250)
+  }
+  throw new Error(`${provider}: still looking for it after ${timeoutMs / 1000} s`)
+}
+
 /** Adds an agent (Claude Code in the project folder unless told otherwise); returns its definition. */
 function addAgent(inv, proj, opts = {}) {
   return inv('agents:add', proj, { location: 'project', provider: 'claude-code', ...opts })
@@ -179,4 +196,4 @@ function samplePng(w = 64, h = 40) {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, fitWindow, enableProviders, launch, addAgent, soloAgent, ptyKey, acceptClaudeTrust, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng }

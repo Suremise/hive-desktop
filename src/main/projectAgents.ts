@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto'
-import { join, resolve } from 'path'
+import { basename, join, resolve } from 'path'
 import { MAX_AGENTS, projectAgents, slugify } from '../shared/defaults'
 import { agentProvider, isKnownProvider } from '../shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, AgentDef, MergeResult, ProjectGitInfo } from '../shared/types'
@@ -8,6 +8,7 @@ import { toast } from './events'
 import { withFileLock } from './fsutil'
 import { createLogger } from './logger'
 import { sessions } from './sessions'
+import { releaseAgentCards } from './tasks'
 import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
 
@@ -121,7 +122,8 @@ export async function updateAgent(projectPath: string, agentId: string, patch: P
   return def
 }
 
-export async function removeAgent(projectPath: string, agentId: string, opts: { deleteWorktree: boolean }): Promise<void> {
+/** Removes an agent (stopped). `releaseCards` takes its open cards from it too (Doing ones back to Todo). */
+export async function removeAgent(projectPath: string, agentId: string, opts: { deleteWorktree: boolean; releaseCards?: boolean }): Promise<void> {
   projectPath = workspace.assertProject(projectPath)
   if (sessions.liveFor(projectPath, agentId)) throw new Error('Stop the agent before removing it.')
   const cfg = await workspace.projectConfig(projectPath)
@@ -129,6 +131,7 @@ export async function removeAgent(projectPath: string, agentId: string, opts: { 
   if (!def) return
   if (def.worktree && opts.deleteWorktree) await wt.removeWorktree(projectPath, def.worktree, true)
   await workspace.mutateProjectConfig(projectPath, (now) => ({ agents: now.agents.filter((a) => a.id !== agentId) }))
+  if (opts.releaseCards) await releaseAgentCards(basename(projectPath), agentId, { kind: 'user' })
   await workspaceOf(projectPath).refresh()
 }
 

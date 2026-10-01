@@ -120,6 +120,7 @@ export function controlRules(control: AssistantControl): string {
     '- Agents sharing a folder must not edit the same files: split the work by files, or give one its own worktree. Add a worktree only if the user asked for one, or after asking them.',
     "- To pass one agent's work to another (e.g. a review to the agent that fixes it), use hive_hand_over: Hive has the first write a handover, waits for it, and starts the second on it.",
     "- The task board is the shared list of work. Plan multi-step work as cards (hive_create_task, with a project and a description complete enough to work from), start them on agents with hive_start_task, and keep them current (hive_update_task). Only the user moves cards to Done: you can ask, and Hive puts the question to them.",
+    "- A card's stalled field says when nobody is working on a Doing card (no agent, its agent removed or not running). When you look at the board, report stalled cards and suggest who could take each one (an idle agent of its project, or a new one), but don't reassign or restart them unless the user agrees.",
     '- Stopping a busy agent asks the user first: give your reason. An agent asking to trust its folder is waiting for the user: tell them.',
     "- You can't remove agents, discard worktrees, archive or delete cards, or hide, remove or delete projects: tell the user how if it's needed. Hive allows 30 changes for one message from the user.",
     '- Afterwards, say briefly what you did.',

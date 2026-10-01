@@ -132,6 +132,78 @@ describe('task board', () => {
     rmSync(join(wsPath, '.hive', 'tasks', '500.json'))
     rmSync(join(wsPath, '.hive', 'tasks', '501.json'))
   })
+  it('leaves out a reference to a card deleted as it was linked, and drops it from the file on the next save', async () => {
+    const keep = await run(() => tasks.createTask({ title: 'Kept' }, user))
+    const c = await run(() => tasks.createTask({ title: 'Linked' }, user))
+    // As if the link was written just after #998 was deleted.
+    const file = join(wsPath, '.hive', 'tasks', `${c.number}.json`)
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), blockedBy: [998], links: [keep.number, 998] }))
+    const read = await run(() => tasks.getTask(c.number))
+    expect([read.blockedBy, read.links]).toEqual([[], [keep.number]])
+    const listed = (await run(() => tasks.allTasks())).find((x) => x.number === c.number)!
+    expect([listed.blockedBy, listed.links]).toEqual([[], [keep.number]])
+    await run(() => tasks.commentTask(c.number, 'saved', agent))
+    const saved = JSON.parse(readFileSync(file, 'utf8'))
+    expect([saved.blockedBy, saved.links]).toEqual([[], [keep.number]])
+  })
+
+  it('says which Doing cards nobody is working on', async () => {
+    const { stalledReason } = await import('../src/shared/tasks')
+    const card = { column: 'doing' as const, archived: false, agent: 'a2', agentName: 'Agent 2' }
+    expect(stalledReason(card, { name: 'Agent 2', running: true })).toBeNull()
+    expect(stalledReason(card, { name: 'Agent 2', running: false })).toBe("Agent 2 isn't running.")
+    expect(stalledReason(card, null)).toBe('Agent 2 was removed.')
+    expect(stalledReason({ ...card, agent: null }, null)).toMatch(/no agent/)
+    expect(stalledReason({ ...card, column: 'review' }, null)).toBeNull()
+    expect(stalledReason({ ...card, archived: true }, null)).toBeNull()
+  })
+
+  it("takes a removed agent's open cards back, and leaves its done ones", async () => {
+    const { removeAgent } = await import('../src/main/projectAgents')
+    const p = join(wsPath, 'alpha')
+    await run(() => w.mutateProjectConfig(p, (now) => ({ agents: [...now.agents, { id: 'gone', name: 'Agent 9' }] })))
+    const doing = await run(() => tasks.createTask({ title: 'Half done', project: 'alpha', agent: 'gone', column: 'doing' }, user))
+    const review = await run(() => tasks.createTask({ title: 'To check', project: 'alpha', agent: 'gone', column: 'review' }, user))
+    const done = await run(() => tasks.createTask({ title: 'Finished', project: 'alpha', agent: 'gone', column: 'done' }, user))
+    const other = await run(() => tasks.createTask({ title: 'Not theirs', project: 'alpha', agent: 'a1', column: 'doing' }, user))
+    expect((await run(() => tasks.agentCards('alpha', 'gone'))).map((c) => c.number)).toEqual([doing.number, review.number])
+    await run(() => removeAgent(p, 'gone', { deleteWorktree: false, releaseCards: true }))
+    const get = (n: number) => run(() => tasks.getTask(n))
+    expect([(await get(doing.number)).column, (await get(doing.number)).agent]).toEqual(['todo', null])
+    expect([(await get(review.number)).column, (await get(review.number)).agent]).toEqual(['review', null])
+    expect((await get(done.number)).agent).toBe('gone')
+    expect((await get(other.number)).agent).toBe('a1')
+    expect((await get(doing.number)).history.map((h) => h.what)).toContain('Taken from Agent 9')
+  })
+
+  it('archives cards some days after they went into Done', async () => {
+    const { config } = await import('../src/main/config')
+    const day = 86_400_000
+    const now = Date.now()
+    const at = (daysAgo: number): string => new Date(now - daysAgo * day).toISOString()
+    const make = async (title: string, history: { at: string; what: string }[], column = 'done'): Promise<number> => {
+      const c = await run(() => tasks.createTask({ title }, user))
+      const file = join(wsPath, '.hive', 'tasks', `${c.number}.json`)
+      writeFileSync(file, JSON.stringify({ ...c, column, history: history.map((h) => ({ ...h, by: 'You' })), updatedAt: at(0) }))
+      return c.number
+    }
+    const old = await make('Done long ago', [{ at: at(30), what: 'Created in Todo' }, { at: at(20), what: 'Moved to Done' }])
+    const recent = await make('Done lately', [{ at: at(30), what: 'Moved to Done' }, { at: at(30), what: 'Moved to Review' }, { at: at(3), what: 'Moved to Done' }])
+    const back = await make('Brought back', [{ at: at(40), what: 'Moved to Done' }, { at: at(1), what: 'Brought back from the archive' }])
+    const review = await make('In Review', [{ at: at(40), what: 'Moved to Review' }], 'review')
+    // Edited lately, but in Done for long: its edits don't count.
+    const edited = await make('Edited', [{ at: at(15), what: 'Moved to Done' }, { at: at(0), what: 'Changed the description' }])
+
+    config.settings.board.archiveDoneDays = 0
+    expect(await tasks.archiveOldDone(w, now)).toEqual([])
+    config.settings.board.archiveDoneDays = 14
+    expect((await tasks.archiveOldDone(w, now)).sort((a, b) => a - b)).toEqual([old, edited])
+    const card = await run(() => tasks.getTask(old))
+    expect([card.archived, card.archivedFor, card.history.at(-1)?.what]).toEqual([true, 'done', 'Archived after 14 days in Done'])
+    for (const n of [recent, back, review]) expect((await run(() => tasks.getTask(n))).archived).toBe(false)
+    // Already archived: left as it is.
+    expect(await tasks.archiveOldDone(w, now)).toEqual([])
+  })
 })
 
 describe('removing projects', () => {

@@ -80,6 +80,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     worktreeCopy: '.env*',
     mergeStyle: 'squash',
     backgroundTaskMinutes: 60
+  },
+  board: {
+    archiveDoneDays: 14
   }
 }
 

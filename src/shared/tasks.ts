@@ -12,6 +12,19 @@ export const isTaskColumn = (v: unknown): v is TaskColumn => typeof v === 'strin
 
 export const columnLabel = (c: TaskColumn): string => TASK_COLUMNS.find((x) => x.id === c)?.label ?? c
 
+/**
+ * Why nobody is working on a Doing card, or null when someone is (or it isn't in Doing): it has no agent, its agent
+ * was removed, or its agent isn't running. `agentNow` is its agent as it is now (null when removed). An agent that
+ * has finished its turn isn't stalled: it is waiting for the user to look.
+ */
+export function stalledReason(card: Pick<TaskCard, 'column' | 'archived' | 'agent' | 'agentName'>, agentNow: { name: string; running: boolean } | null): string | null {
+  if (card.archived || card.column !== 'doing') return null
+  if (!card.agent) return 'In Doing, but no agent has it.'
+  if (!agentNow) return `${card.agentName ?? 'Its agent'} was removed.`
+  if (!agentNow.running) return `${agentNow.name} isn't running.`
+  return null
+}
+
 /** Cards in board order: by column, then position. */
 export function sortCards(cards: TaskCard[]): TaskCard[] {
   const col = (c: TaskCard): number => TASK_COLUMNS.findIndex((x) => x.id === c.column)

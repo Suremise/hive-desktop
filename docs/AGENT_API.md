@@ -271,11 +271,12 @@ The workspace's board: cards in four columns, `todo`, `doing`, `review` and `don
   "agentName": "Agent 1",
   "comments": [{ "at": "…", "by": "Agent 1 (web)", "text": "Found it: the callback URL." }],
   "history": [{ "at": "…", "by": "Assistant", "what": "Moved to Doing" }],
-  "archived": false, "createdAt": "…", "createdBy": "Assistant", "updatedAt": "…"
+  "archived": false, "createdAt": "…", "createdBy": "Assistant", "updatedAt": "…",
+  "stalled": null
 }
 ```
 
-`agent` is the agent the card is given to, with what it is doing now (`status` is `removed` if the agent no longer exists), or `null`. `project` is the project's folder name, or `""` for a card about the workspace. `by` and `createdBy` say who: `You`, `Assistant`, an agent (`"Agent 1 (web)"`, when its `hive` tools made the change) or `Agent API` (any other caller).
+`agent` is the agent the card is given to, with what it is doing now (`status` is `removed` if the agent no longer exists), or `null`. `stalled` says why nobody is working on a card in `doing` ("Agent 1 isn't running.", "Agent 2 was removed.", or that no agent has it), and is `null` otherwise; an agent that has finished its turn doesn't make its card stalled. `project` is the project's folder name, or `""` for a card about the workspace. `by` and `createdBy` say who: `You`, `Assistant`, an agent (`"Agent 1 (web)"`, when its `hive` tools made the change) or `Agent API` (any other caller).
 
 `GET /v1/tasks/{n}` — one card (`#12` or `12`).
 

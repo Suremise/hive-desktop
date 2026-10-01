@@ -14,6 +14,7 @@ import { PROVIDERS, projectProviderConfig, providerSettings } from '../shared/pr
 import { projectAgents } from '../shared/defaults'
 import { SERVABLE_EXT, unwatchAll } from './files'
 import { config } from './config'
+import { archiveOldDone } from './tasks'
 import { emit, emitTo, onHiveEvent, toast } from './events'
 import { registerIpc } from './ipc'
 import { createLogger, logsDir } from './logger'
@@ -440,9 +441,15 @@ async function quitNow(tellUser: boolean): Promise<void> {
   else app.quit()
 }
 
+/** Archives Done cards past Settings → Board's days in every open workspace (also on open: ipc.ts). */
+function archiveOldDoneEverywhere(): void {
+  for (const w of openWorkspaces()) void archiveOldDone(w).catch((e) => log.warn('archiving old Done cards', e))
+}
+
 function wireSettingsEffects(): void {
   config.onSettingsChanged((s, prev) => {
     emit({ type: 'settings-changed', settings: s })
+    if (s.board.archiveDoneDays !== prev.board.archiveDoneDays) archiveOldDoneEverywhere()
     if (s.general.launchAtLogin !== prev.general.launchAtLogin) {
       app.setLoginItemSettings({ openAtLogin: s.general.launchAtLogin, args: ['--hidden'] })
     }
@@ -530,6 +537,7 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
   log.info(`Hive ${app.getVersion()} starting (Electron ${process.versions.electron})`)
   watchMainStalls()
+  setInterval(archiveOldDoneEverywhere, 3_600_000).unref()
 
   workspace.setLiveProvider((p, cfg) => sessions.liveInfo(p, cfg))
   sessions.apiEnv = apiEnv

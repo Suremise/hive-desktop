@@ -37,6 +37,8 @@ async function launch(name, config) {
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await inv('workspace:open', ws)
   await sleep(800)
+  // Starting an agent before Claude Code has been found fails (it did now and then on a busy machine).
+  await lib.waitForProvider(inv)
   return { app, page, inv, ws }
 }
 const exited = (app, ms = 10000) => app.waitForEvent('close', { timeout: ms }).then(() => true, () => false)

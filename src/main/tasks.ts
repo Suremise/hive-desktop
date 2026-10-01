@@ -5,6 +5,7 @@ import { shell } from 'electron'
 import { projectAgents } from '../shared/defaults'
 import { isTaskColumn, sortCards } from '../shared/tasks'
 import type { TaskCard, TaskColumn, TaskPatch } from '../shared/types'
+import { config } from './config'
 import { emit } from './events'
 import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger } from './logger'
@@ -69,16 +70,26 @@ function clean(raw: Partial<TaskCard>, n: number): TaskCard {
   }
 }
 
+/**
+ * Leaves out references to cards that are gone. A card deleted while another was being linked to it can leave
+ * one behind; it is never shown or passed on, and leaves the file the next time that card is saved. Numbers are
+ * never reused, so a reference can't come to mean another card.
+ */
+function withoutGone(card: TaskCard, exists: (n: number) => boolean): TaskCard {
+  card.blockedBy = card.blockedBy.filter(exists)
+  card.links = card.links.filter(exists)
+  return card
+}
+
 /** Every card on the board (archived ones too), in board order. */
 export async function allTasks(ws: WorkspaceService = workspace): Promise<TaskCard[]> {
   if (!ws.path) return []
   const names = await readdir(tasksDir(ws)).catch(() => [] as string[])
+  const numbers = new Set(names.flatMap((f) => (/^(\d+)\.json$/.test(f) ? [Number(f.slice(0, -5))] : [])))
   const out: TaskCard[] = []
-  for (const f of names) {
-    const m = /^(\d+)\.json$/.exec(f)
-    if (!m) continue
-    const raw = await readJson<Partial<TaskCard> | null>(join(tasksDir(ws), f), null)
-    if (raw && typeof raw === 'object') out.push(clean(raw, Number(m[1])))
+  for (const n of numbers) {
+    const raw = await readJson<Partial<TaskCard> | null>(cardFile(n, ws), null)
+    if (raw && typeof raw === 'object') out.push(withoutGone(clean(raw, n), (x) => numbers.has(x)))
   }
   return sortCards(out)
 }
@@ -96,7 +107,7 @@ export async function getTask(n: number, ws: WorkspaceService = workspace): Prom
   if (!Number.isInteger(n) || n < 1) throw new Error(`Unknown task #${n}`)
   const raw = await readJson<Partial<TaskCard> | null>(cardFile(n, ws), null)
   if (!raw || typeof raw !== 'object') throw new Error(`Unknown task #${n}`)
-  return clean(raw, n)
+  return withoutGone(clean(raw, n), (x) => existsSync(cardFile(x, ws)))
 }
 
 /** The next card number, never reused (board.json keeps it; past every card file, damaged ones too, if it is lost). */
@@ -339,6 +350,32 @@ export async function archiveTask(n: number, archived: boolean): Promise<TaskCar
   return card
 }
 
+/** The open cards (not archived or done) given to one agent of a project. */
+export async function agentCards(project: string, agentId: string, ws: WorkspaceService = workspace): Promise<TaskCard[]> {
+  return (await allTasks(ws)).filter((c) => !c.archived && c.column !== 'done' && c.agent === agentId && c.project.toLowerCase() === project.toLowerCase())
+}
+
+/**
+ * Takes an agent's open cards from it (it is being removed): nobody has them, and Doing ones go back to Todo. A card
+ * given to someone else meanwhile is left alone.
+ */
+export async function releaseAgentCards(project: string, agentId: string, actor: TaskActor): Promise<number[]> {
+  const out: number[] = []
+  for (const c of await agentCards(project, agentId)) {
+    try {
+      await updateTask(c.number, { agent: null, ...(c.column === 'doing' ? { column: 'todo' as const } : {}) }, actor, {
+        check: (now) => {
+          if (now.agent !== agentId || now.archived || now.column === 'done') throw new Error('changed meanwhile')
+        }
+      })
+      out.push(c.number)
+    } catch (e) {
+      log.info(`#${c.number} left as it is: ${(e as Error).message}`)
+    }
+  }
+  return out
+}
+
 /** Deletes a card (to the Recycle Bin). The user's alone. Other cards' references to it are dropped. */
 export async function deleteTask(n: number): Promise<void> {
   const ws = workspace
@@ -367,6 +404,42 @@ async function dropRefs(ws: WorkspaceService, gone: Set<number>): Promise<void> 
       await writeJsonAtomic(cardFile(c.number, ws), fresh)
     })
   }
+}
+
+/**
+ * When a card last went into Done: its latest "Moved to Done", "Created in Done" or bringing back from the
+ * archive (a card the user brought back gets its days again). Its last change when its history has none.
+ */
+export function doneSince(card: TaskCard): number {
+  const at = card.history.filter((h) => /^(Moved to Done|Created in Done|Brought back)/.test(h.what)).map((h) => Date.parse(h.at))
+  const t = Math.max(...at.filter(Number.isFinite))
+  return Number.isFinite(t) ? t : Date.parse(card.updatedAt) || 0
+}
+
+/** Archives the cards that have been in Done for Settings → Board's days (none when that is 0). */
+export async function archiveOldDone(ws: WorkspaceService, now = Date.now()): Promise<number[]> {
+  const days = Number(config.settings.board?.archiveDoneDays) || 0
+  if (!ws.path || days <= 0) return []
+  const cutoff = now - days * 86_400_000
+  const out: number[] = []
+  for (const c of await allTasks(ws)) {
+    if (c.archived || c.column !== 'done' || doneSince(c) > cutoff) continue
+    await withFileLock(cardFile(c.number, ws), async () => {
+      // As it is now: moved out of Done or archived meanwhile, it stays.
+      const fresh = await getTask(c.number, ws).catch(() => null)
+      if (!fresh || fresh.archived || fresh.column !== 'done' || doneSince(fresh) > cutoff) return
+      fresh.archived = true
+      fresh.archivedFor = 'done'
+      note(fresh, 'Hive', `Archived after ${days} day${days === 1 ? '' : 's'} in Done`)
+      await writeJsonAtomic(cardFile(c.number, ws), fresh)
+      out.push(c.number)
+    })
+  }
+  if (out.length) {
+    log.info(`Archived ${out.length} card(s) done for ${days}+ days: ${out.map((n) => `#${n}`).join(', ')}`)
+    changed(ws)
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------

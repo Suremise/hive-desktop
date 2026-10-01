@@ -183,7 +183,7 @@ export interface HiveRequests {
   /** Changes an agent's name and settings; for the Hive Assistant's home, its settings for this workspace (persona too). */
   'agents:update': (projectPath: string, agentId: string, patch: Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona'>>) => AgentDef
   /** Removes an agent (its session must be stopped). deleteWorktree also removes its worktree and branch. */
-  'agents:remove': (projectPath: string, agentId: string, opts: { deleteWorktree: boolean }) => void
+  'agents:remove': (projectPath: string, agentId: string, opts: { deleteWorktree: boolean; releaseCards?: boolean }) => void
   /** Branches and worktrees, for the Add Agent dialog. */
   'agents:gitInfo': (projectPath: string) => ProjectGitInfo
   'agents:branchStatus': (projectPath: string, agentId: string) => AgentBranchStatus

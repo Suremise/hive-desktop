@@ -8,7 +8,7 @@ import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessio
 import { DEFAULT_API_PORT, projectAgents, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
-import { columnLabel, isTaskColumn } from '../shared/tasks'
+import { columnLabel, isTaskColumn, stalledReason } from '../shared/tasks'
 import type { HandoverAuthor } from '../shared/hiveGuidance'
 import { CLAUDE_CODE } from '../shared/claude'
 import * as assistant from './assistantControl'
@@ -802,6 +802,7 @@ async function taskActor(body: any): Promise<tasks.TaskActor> {
  */
 async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType<typeof projectAgents>>>()) {
   let agent: { id: string; name: string; status: string; backgroundTasks: number } | null = null
+  let now: { name: string; running: boolean } | null = null
   if (c.agent && c.project) {
     try {
       const p = projectByName(c.project)
@@ -810,11 +811,13 @@ async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType
       const def = (await agents.get(key)!).find((a) => a.id === c.agent)
       const st = sessions.liveFor(p, c.agent)
       agent = { id: c.agent, name: def?.name ?? c.agentName ?? c.agent, status: def ? (st?.status ?? 'stopped') : 'removed', backgroundTasks: st?.backgroundTasks ?? 0 }
+      now = def ? { name: def.name, running: !!st } : null
     } catch {
       agent = { id: c.agent, name: c.agentName ?? c.agent, status: 'removed', backgroundTasks: 0 }
     }
   }
-  return { ...c, agent }
+  // Nobody working on a Doing card: the Assistant reports these and suggests who could take them.
+  return { ...c, agent, stalled: stalledReason(c, now) }
 }
 
 const taskNumber = (v: string): number => {

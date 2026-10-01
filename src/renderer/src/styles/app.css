@@ -4244,6 +4244,16 @@ body.pane-resizing-v .monaco-editor {
 .task-card.finished {
   border-left-color: var(--success);
 }
+.task-card.stalled {
+  border-left-color: var(--warning);
+}
+.task-stalled {
+  font-size: 12px;
+  color: var(--warning);
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+}
 .task-card-top {
   display: flex;
   align-items: center;

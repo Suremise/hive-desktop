@@ -14,7 +14,7 @@ import { config } from './config'
 import { emit, emitTo } from './events'
 import { insideReal, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
-import { logsDir } from './logger'
+import { createLogger, logsDir } from './logger'
 import * as files from './files'
 import * as mcp from './mcp'
 import * as notes from './notes'
@@ -95,12 +95,16 @@ async function openHere(path: string): ReturnType<WorkspaceService['open']> {
   }
 }
 
+const log = createLogger('ipc')
+
 export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info']>, quitControl: QuitControl): void {
   // A new workspace starts with the skills that ship with Hive.
   WorkspaceService.onCreated = () => skills.addBundledSkills()
   // Every workspace gets Hive's personas the first time it opens with this version (an older one included).
   WorkspaceService.onOpened = async () => {
     if (!existsSync(workspace.personasDir)) await personas.addBundledPersonas()
+    const ws = workspace
+    void tasks.archiveOldDone(ws).catch((e) => log.warn('archiving old Done cards', e))
   }
   /** The window the current request came from. */
   const win = (): BrowserWindow => {

@@ -6,6 +6,8 @@
 - **A task board for the workspace**: cards in **Todo**, **Doing**, **Review** and **Done**, each for a project, with a description, labels, a blocked reason, the cards it depends on, comments and a history of who changed what. Open it from the activity bar (**Ctrl+Shift+J**); each project also has a **Tasks** tab. Drag cards between columns; a Doing card shows what its agent is doing right now.
 - **Start** gives a card to an agent (one that is stopped or idle, a new one, or a new one in its own worktree) with the card as its prompt.
 - **The Assistant and agents use it too.** Agents read cards, add cards for follow-up work and move their own to Review with a summary; the Assistant plans work as cards and starts them on agents. **Only you move cards to Done**: the Assistant asks first, and agents can't. Archiving and deleting cards are yours too.
+- **Stalled cards stand out**: a Doing card whose agent was removed or isn't running (or that has no agent) is marked in amber and listed under **Stalled** in the board's sidebar, and the Assistant points them out. Removing an agent that has open cards asks whether to move them back to Todo or leave them.
+- **Done cards are archived after 14 days** in Done: **Settings → Board → Archive Done cards after** (0 never).
 - Agent API: `/v1/tasks` and the `tasks-changed` event; hive tools `hive_list_tasks`, `hive_read_task`, `hive_create_task`, `hive_update_task`, and `hive_start_task` for the Assistant.
 
 ### Projects

@@ -132,11 +132,36 @@ const check = (name, ok, extra = '') => {
   check('its tile shows the agent finished', !!(await until(async () => ((await tile(1).getAttribute('class')) ?? '').includes('finished') && /Finished/.test(await tile(1).innerText()), 8000)), await tile(1).innerText())
   await page.screenshot({ path: path.join(lib.WORK, 'board.png') })
 
+  // Its agent stops: nobody is working on the Doing card, which shows as stalled.
+  await inv('session:stop', alpha, agent.id)
+  await until(async () => !(await live()), 10000)
+  check('a Doing card whose agent stopped shows as stalled', !!(await until(async () => ((await tile(1).getAttribute('class')) ?? '').includes('stalled') && /Stalled: .* isn't running/.test(await tile(1).innerText()), 8000)), await tile(1).innerText())
+  check('the sidebar lists stalled cards', !!(await until(async () => (await page.locator('.section-header', { hasText: 'Stalled' }).count()) === 1, 5000)))
+  const viaApi = await api('GET', '/v1/tasks/1')
+  check('the Agent API says why it is stalled', /isn't running/.test(viaApi.body?.stalled ?? ''), JSON.stringify(viaApi.body?.stalled))
+  await page.screenshot({ path: path.join(lib.WORK, 'board-stalled.png') })
+
   // The project's Tasks tab shows its cards.
   await page.getByRole('button', { name: 'Projects' }).click()
   await page.locator('.sidebar .row', { hasText: 'alpha' }).first().click()
   await page.locator('.tab', { hasText: 'Tasks' }).click()
   check("the project's Tasks tab shows its cards", !!(await until(async () => (await page.locator('.board-view.in-tab .task-card').count()) === 2, 5000)))
+
+  // Removing the agent asks about its open card; Move them back puts it in Todo with nobody.
+  await page.locator('.tab', { hasText: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Remove agent…' }).first().click()
+  await page.locator('.dialog .btn', { hasText: 'Remove' }).click()
+  const ask = page.locator('.dialog', { hasText: 'open card' })
+  check('Remove Agent asks about its open cards', !!(await until(async () => (await ask.count()) === 1 && /#1 Add a greeting/.test(await ask.innerText()), 5000)))
+  await page.screenshot({ path: path.join(lib.WORK, 'board-remove-agent.png') })
+  await ask.getByRole('button', { name: /Move (it|them) back/ }).click()
+  const back = await until(async () => {
+    const c = await card(1)
+    return c?.agent === null && c
+  }, 8000)
+  check('Move them back puts the card in Todo with nobody', back && back.column === 'todo', JSON.stringify(back && { column: back.column, agent: back.agent }))
+  check('and the agent is gone', !!(await until(async () => (await project())?.agents.length === 0, 5000)))
+  await page.locator('.tab', { hasText: 'Tasks' }).click()
 
   // The user moves it to Done, and archives it.
   await inv('tasks:update', 1, { column: 'done' })

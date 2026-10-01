@@ -416,6 +416,30 @@ export async function deleteNote(path: string, label: string, isDir: boolean): P
   set((s) => ({ notesVersion: s.notesVersion + 1, ...(gone(s.selectedNote) ? { selectedNote: null } : {}) }))
 }
 
+/**
+ * The agent's open cards: asks whether to take them back (nobody has them; Doing ones go to Todo) or leave them
+ * (they show the agent as removed, and Doing ones as stalled). Null: cancelled, keep the agent.
+ */
+async function cardsOfRemovedAgent(p: ProjectInfo, agentId: string, name: string): Promise<boolean | null> {
+  const open = get().tasks.filter((c) => !c.archived && c.column !== 'done' && c.agent === agentId && c.project.toLowerCase() === p.name.toLowerCase())
+  if (!open.length) return false
+  const them = open.length === 1 ? 'it' : 'them'
+  const list = open.slice(0, 5).map((c) => `#${c.number} ${c.title}`).join(', ') + (open.length > 5 ? ` and ${open.length - 5} more` : '')
+  const choice = await choose({
+    title: `${name} has ${open.length} open card${open.length === 1 ? '' : 's'}`,
+    message: list,
+    detail:
+      open.length === 1
+        ? `Move it back: nobody has it, and if it is in Doing it goes to Todo, ready to start on another agent. Leave it: it keeps showing ${name} (removed), and in Doing shows as stalled.`
+        : `Move them back: nobody has them, and those in Doing go to Todo, ready to start on another agent. Leave them: they keep showing ${name} (removed), and those in Doing show as stalled.`,
+    choices: [
+      { label: `Leave ${them}`, value: 'leave' },
+      { label: `Move ${them} back`, value: 'release' }
+    ]
+  })
+  return choice === null ? null : choice === 'release'
+}
+
 /** Removes an agent; for a worktree agent, asks whether to keep its worktree and branch. */
 export async function removeAgent(path: string, agentId: string): Promise<void> {
   const p = project(path)
@@ -443,7 +467,9 @@ export async function removeAgent(path: string, agentId: string): Promise<void> 
       deleteWorktree = true
     }
   } else if (!(await confirm({ title: `Remove ${a.name}?`, message: `${a.name} is removed from ${p.name}. Its sessions stay in the Sessions tab.`, confirmLabel: 'Remove' }))) return
-  const ok = await attempt('Could not remove agent', () => call('agents:remove', path, agentId, { deleteWorktree }).then(() => true))
+  const releaseCards = await cardsOfRemovedAgent(p, agentId, a.name)
+  if (releaseCards === null) return
+  const ok = await attempt('Could not remove agent', () => call('agents:remove', path, agentId, { deleteWorktree, releaseCards }).then(() => true))
   if (!ok) return
   focusAfterRemoving(p, agentId)
   await refreshWorkspace()
@@ -462,11 +488,13 @@ export async function discardAgent(path: string, agentId: string): Promise<void>
     danger: true
   })
   if (!ok) return
+  const releaseCards = await cardsOfRemovedAgent(p, agentId, a.name)
+  if (releaseCards === null) return
   if (a.live) {
     await call('session:stop', path, agentId)
     await waitForStop(path, agentId)
   }
-  const done = await attempt('Could not discard agent', () => call('agents:remove', path, agentId, { deleteWorktree: true }).then(() => true))
+  const done = await attempt('Could not discard agent', () => call('agents:remove', path, agentId, { deleteWorktree: true, releaseCards }).then(() => true))
   if (!done) return
   focusAfterRemoving(p, agentId)
   await refreshWorkspace()
