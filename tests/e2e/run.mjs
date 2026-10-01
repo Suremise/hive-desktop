@@ -32,6 +32,7 @@ const SUITES = [
   { name: 'unsaved' },
   { name: 'drafts' },
   { name: 'transcript' },
+  { name: 'overview' },
   { name: 'update' },
   { name: 'image', needs: ['claude'] },
   { name: 'mode', needs: ['claude'] },

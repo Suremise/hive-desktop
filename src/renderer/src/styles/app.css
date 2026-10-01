@@ -3444,6 +3444,25 @@ body.pane-resizing .monaco-editor {
 .overview-head .section {
   margin-bottom: 0;
 }
+.overview-head.session-head {
+  margin: 24px 0 10px;
+}
+.overview-head.session-head .section {
+  margin: 0;
+}
+/* A long session's compactions scroll in their own pane, under a header that stays. */
+.compaction-history {
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+.compaction-history .table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 1;
+}
 .overview-plan {
   margin: 4px 0 6px;
 }

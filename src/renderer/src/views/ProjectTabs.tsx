@@ -203,7 +203,7 @@ function sessionAgent(project: ProjectInfo, s: SessionListItem): string {
   return s.agentId ?? '?'
 }
 
-/** The project's usage for a period: one summary, what runs now, each provider, each agent, then the focused agent's session. */
+/** The project's usage for a period: one summary, what runs now, each provider, each agent, then one agent's session. */
 export function OverviewTab({ project }: { project: ProjectInfo }) {
   const { items, kept, reload, loadedAt } = useSessions(project)
   const settings = useStore((s) => s.settings)
@@ -359,16 +359,19 @@ function RunningAgent({ project, a }: { project: ProjectInfo; a: ProjectInfo['ag
   )
 }
 
-/** The focused agent's running session, else the project's most recent one, in detail. */
+/** One agent's running session, else its most recent one, in detail: the agent picked here, else the focused one. */
 function SessionDetails({ project, items }: { project: ProjectInfo; items: SessionListItem[] }) {
   const settings = useStore((s) => s.settings)
   const now = useNow(10000)
   const focused = useFocusedAgent(project)
-  const liveState = focused?.live ?? project.live
+  const [pickedId, setPickedId] = useState<string | null>(null)
+  const agent = project.agents.find((a) => a.id === pickedId) ?? focused
+  const liveState = agent ? agent.live : project.live
   const current = useMemo(() => {
     if (liveState?.sessionId) return items.find((i) => i.id === liveState.sessionId) ?? null
-    return items.find((i) => i.source === 'hive' && !i.archived) ?? null
-  }, [items, liveState?.sessionId])
+    const own = items.filter((i) => i.source === 'hive' && (!agent || sessionAgent(project, i) === agent.id))
+    return own.find((i) => !i.archived) ?? own[0] ?? null
+  }, [items, liveState?.sessionId, agent, project])
   const u: SessionUsage | null = current?.usage ?? null
 
   const provider = providerDescriptor(u?.provider ?? current?.provider)
@@ -384,12 +387,27 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
 
   return (
     <>
-        <h2 className="section">
-          {liveState ? 'Current session' : 'Most recent session'}
-          {current && <span className="muted" style={{ fontWeight: 400 }}>— {current.name || current.title || current.id.slice(0, 8)} · {provider.name}</span>}
-        </h2>
+        <div className="overview-head session-head">
+          <h2 className="section">
+            {liveState ? 'Current session' : 'Most recent session'}
+            {current && <span className="muted" style={{ fontWeight: 400 }}>— {current.name || current.title || current.id.slice(0, 8)} · {provider.name}</span>}
+          </h2>
+          {project.agents.length > 1 && agent && (
+            <Tooltip content="Whose session to show. It follows the focused agent until you pick one.">
+              <span>
+              <select className="select" aria-label="Agent" value={agent.id} onChange={(e) => setPickedId(e.target.value)}>
+                {project.agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} · {providerName(agentProviderOf(project, a))}
+                  </option>
+                ))}
+              </select>
+              </span>
+            </Tooltip>
+          )}
+        </div>
         {!u ? (
-          <p className="hint">No session data yet. Start a session and its token use, cache and compaction history will appear here.</p>
+          <p className="hint">{project.agents.length > 1 && agent ? `${agent.name} has no session data yet.` : 'No session data yet.'} Start a session and its token use, cache and compaction history will appear here.</p>
         ) : (
           <>
             <div className="cards">
@@ -468,31 +486,35 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
             </table>
             {u.compactions.length > 0 && (
               <>
-                <h2 className="section">Compaction history</h2>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>When</th>
-                      <th>Trigger</th>
-                      <th className="num">Before</th>
-                      <th className="num">After</th>
-                      <th className="num">Freed</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {u.compactions.map((c, i) => (
-                      <tr key={i}>
-                        <td>{c.timestamp ? new Date(c.timestamp).toLocaleString() : '—'}</td>
-                        <td>
-                          <span className={cx('badge', c.trigger === 'auto' ? 'accent' : 'info')}>{c.trigger}</span>
-                        </td>
-                        <td className="num">{formatTokens(c.preTokens)}</td>
-                        <td className="num">{formatTokens(c.postTokens)}</td>
-                        <td className="num">{formatTokens(Math.max(0, c.preTokens - c.postTokens))}</td>
+                <h2 className="section">
+                  Compaction history <span className="muted" style={{ fontWeight: 400 }}>— newest first</span>
+                </h2>
+                <div className="compaction-history">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>When</th>
+                        <th>Trigger</th>
+                        <th className="num">Before</th>
+                        <th className="num">After</th>
+                        <th className="num">Freed</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {[...u.compactions].reverse().map((c, i) => (
+                        <tr key={i}>
+                          <td>{c.timestamp ? new Date(c.timestamp).toLocaleString() : '—'}</td>
+                          <td>
+                            <span className={cx('badge', c.trigger === 'auto' ? 'accent' : 'info')}>{c.trigger}</span>
+                          </td>
+                          <td className="num">{formatTokens(c.preTokens)}</td>
+                          <td className="num">{formatTokens(c.postTokens)}</td>
+                          <td className="num">{formatTokens(Math.max(0, c.preTokens - c.postTokens))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </>
             )}
           </>
