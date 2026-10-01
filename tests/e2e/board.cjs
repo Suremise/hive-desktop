@@ -100,7 +100,7 @@ const check = (name, ok, extra = '') => {
   await api('PATCH', `/v1/tasks/${c3}`, { column: 'review' })
   await lib.sleep(500)
   await edit.locator('.task-title-input').fill('New title')
-  await edit.getByRole('button', { name: 'Save' }).click()
+  await edit.getByRole('button', { name: 'Save', exact: true }).click()
   const c3b = await until(async () => {
     const c = await card(c3)
     return c?.title === 'New title' && c

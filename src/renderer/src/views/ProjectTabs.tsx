@@ -502,7 +502,9 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
   const listWidth = usePaneSize('changes', 280)
   const [status, setStatus] = useState<GitStatus | null>(null)
   const [file, setFile] = useState<string | null>(null)
-  const [diff, setDiff] = useState<GitDiff | null>(null)
+  // The diff and its failure, each with the file (and folder) it is for.
+  const [diffOf, setDiffOf] = useState<{ for: string; diff: GitDiff } | null>(null)
+  const [diffErrorOf, setDiffErrorOf] = useState<{ for: string; error: string } | null>(null)
   const [inline, setInline] = useState(false)
   // A worktree agent's changes are everything on its branch since it left its base branch.
   const agent = owner.agents.find((a) => a.id === rootId && a.worktree)
@@ -510,20 +512,65 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
   const base = agent?.worktree?.base
   const project = agent ? { ...owner, path: root } : owner
 
+  const [statusError, setStatusError] = useState<string | null>(null)
+  const [diffTry, setDiffTry] = useState(0)
+  // Each answer is for the folder (and base) it was asked about: an older one arriving late is dropped.
+  const statusFor = useRef('')
+  const statusLoads = useRef(0)
+  const key = `${root}\n${base ?? ''}`
   const load = useCallback(() => {
-    void call('git:status', root, base).then((s) => {
-      setStatus(s)
-      setFile((f) => (f && s.files.some((x) => x.path === f) ? f : s.files[0]?.path ?? null))
-    })
+    const n = ++statusLoads.current
+    void call('git:status', root, base).then(
+      (s) => {
+        if (n !== statusLoads.current) return
+        statusFor.current = `${root}\n${base ?? ''}`
+        setStatus(s)
+        setStatusError(null)
+        setFile((f) => (f && s.files.some((x) => x.path === f) ? f : s.files[0]?.path ?? null))
+      },
+      (e) => n === statusLoads.current && setStatusError(errorMessage(e))
+    )
+  }, [root, base])
+  // Another folder: its files aren't these, so nothing shows until its own status arrives.
+  useEffect(() => {
+    setStatus(null)
+    setStatusError(null)
+    setFile(null)
   }, [root, base])
   useEffect(load, [load, usageVersion])
 
+  // A refresh of the same file keeps showing its diff until the new one arrives; another file's never shows.
+  const wanted = `${key}\n${file ?? ''}`
+  const diff = diffOf?.for === wanted ? diffOf.diff : null
+  const diffError = diffErrorOf?.for === wanted ? diffErrorOf.error : null
   useEffect(() => {
-    if (!file) return setDiff(null)
-    void call('git:diff', root, file, base).then(setDiff).catch((e) => notify('error', 'Could not load diff', errorMessage(e)))
-  }, [file, root, base, status])
+    if (!file || statusFor.current !== key) return
+    const asked = `${key}\n${file}`
+    let current = true
+    void call('git:diff', root, file, base).then(
+      (d) => {
+        if (!current) return
+        setDiffOf({ for: asked, diff: d })
+        setDiffErrorOf(null)
+      },
+      (e) => current && setDiffErrorOf({ for: asked, error: errorMessage(e) })
+    )
+    return () => {
+      current = false
+    }
+  }, [file, root, base, status, key, diffTry])
   const selector = <RootSelector project={owner} value={rootId} onChange={(id) => set((s) => ({ changesRoot: { ...s.changesRoot, [owner.path]: id } }))} />
 
+  if (!status && statusError) {
+    return (
+      <div className="empty-state">
+        <Icon name="error" /> Could not read the changes: {statusError}
+        <button className="btn small" style={{ marginTop: 10 }} onClick={load}>
+          <Icon name="refresh" /> Retry
+        </button>
+      </div>
+    )
+  }
   if (!status) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
   if (!status.isRepo) {
     return (
@@ -546,6 +593,14 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
           </div>
         </div>
         {selector}
+        {statusError && (
+          <div className="banner warn">
+            <Icon name="warning" /> Could not refresh: {statusError}
+            <button className="btn small" onClick={load}>
+              Retry
+            </button>
+          </div>
+        )}
         <div className="muted" style={{ padding: '0 14px 8px', fontSize: 12 }}>
           <Icon name="git-branch" /> {status.branch} {agent ? <span className="faint">since it left {base}</span> : <>{status.ahead > 0 && `↑${status.ahead}`} {status.behind > 0 && `↓${status.behind}`}</>}
         </div>
@@ -581,6 +636,17 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
               )}
             </div>
           </>
+        ) : diffError ? (
+          <div className="empty-state">
+            <Icon name="error" /> Could not load the diff: {diffError}
+            <button className="btn small" style={{ marginTop: 10 }} onClick={() => setDiffTry((n) => n + 1)}>
+              <Icon name="refresh" /> Retry
+            </button>
+          </div>
+        ) : file ? (
+          <div className="empty-state">
+            <Icon name="loading" spin /> Loading the diff…
+          </div>
         ) : (
           <div className="empty-state">Select a file to see its changes.</div>
         )}

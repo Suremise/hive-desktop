@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import { basename, join, resolve } from 'path'
-import { MAX_AGENTS, projectAgents, slugify } from '../shared/defaults'
+import { MAX_AGENTS, moveAgentTo, projectAgents, slugify } from '../shared/defaults'
 import { agentProvider, isKnownProvider } from '../shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, AgentDef, MergeResult, ProjectGitInfo } from '../shared/types'
 import { config } from './config'
@@ -133,6 +133,19 @@ export async function removeAgent(projectPath: string, agentId: string, opts: { 
   await workspace.mutateProjectConfig(projectPath, (now) => ({ agents: now.agents.filter((a) => a.id !== agentId) }))
   if (opts.releaseCards) await releaseAgentCards(basename(projectPath), agentId, { kind: 'user' })
   await workspaceOf(projectPath).refresh()
+}
+
+/** Moves an agent to `index` in the project's order (its position afterwards); returns the agents' ids in the new order. */
+export async function moveAgent(projectPath: string, agentId: string, index: number): Promise<string[]> {
+  projectPath = workspace.assertProject(projectPath)
+  if (!Number.isFinite(index)) throw new Error('Choose where to move the agent.')
+  const next = await workspace.mutateProjectConfig(projectPath, (now) => {
+    const list = projectAgents(now)
+    if (!list.some((a) => a.id === agentId)) throw new Error('That agent no longer exists.')
+    return { agents: moveAgentTo(list, agentId, index) }
+  })
+  await workspaceOf(projectPath).refresh()
+  return projectAgents(next).map((a) => a.id)
 }
 
 async function worktreeOf(projectPath: string, agentId: string) {

@@ -46,7 +46,7 @@ export function isMac(): boolean {
 export function formatKeybinding(k: string): string {
   return k
     .split(' ')
-    .map((chord) => chord.split('+').map((p) => (p === 'Mod' ? (isMac() ? '⌘' : 'Ctrl') : p)).join('+'))
+    .map((chord) => chord.split('+').map((p) => (p === 'Mod' ? (isMac() ? '⌘' : 'Ctrl') : p.replace(/^Arrow(?=.)/, ''))).join('+'))
     .join(' ')
 }
 

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { CardChip, useAgentCards } from './CardChip'
-import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, compactThreshold, effectiveModelLabel, effortLabel, formatBytes, layoutPanes, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit } from '@shared/defaults'
+import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, effectiveModelLabel, effortLabel, formatBytes, layoutPanes, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit } from '@shared/defaults'
 import type { AgentInfo, ProjectInfo, SessionLayout, SessionListItem } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, focusAgent, focusedAgentId, openInSessionsTab, paneAssignment, projectKey, revealAgent, seenAgents, set, setProjectTab, showAgent, showInOverview, showPage, useStore } from '../store'
-import { useLiveUsage } from '../usage'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, focusAgent, focusedAgentId, isAssistantPath, openInSessionsTab, paneAssignment, projectKey, revealAgent, seenAgents, set, setProjectTab, showAgent, showInOverview, showPage, useStore } from '../store'
+import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
@@ -177,6 +177,51 @@ export function SessionTag({ project, a, badge }: { project: ProjectInfo; a: Age
   )
 }
 
+// Dragging an agent (its strip tab or pane header) moves it in the project's order: dropped on a tab it goes before
+// or after it, on a pane it takes that agent's place, on a page button to the end of that page.
+const AGENT_DRAG = 'application/x-hive-agent'
+
+function agentDragProps(project: ProjectInfo, a: AgentInfo) {
+  if (project.agents.length < 2 || isAssistantPath(project.path)) return {}
+  return {
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.effectAllowed = 'move'
+      e.dataTransfer.setData(AGENT_DRAG, a.id)
+      e.dataTransfer.setData('text/plain', a.name)
+      // After the browser has taken its drag image: drop targets appear over the panes.
+      setTimeout(() => set({ agentDrag: { project: project.path, id: a.id } }), 0)
+    },
+    onDragEnd: () => set({ agentDrag: null })
+  }
+}
+
+/** The agent being dragged in this project, if any. */
+function useAgentDrag(project: ProjectInfo): string | null {
+  return useStore((s) => (s.agentDrag?.project === project.path ? s.agentDrag.id : null))
+}
+
+function dropAgent(project: ProjectInfo, index: number): void {
+  const id = useStore.getState().agentDrag?.id
+  set({ agentDrag: null })
+  if (id) void actions.moveAgent(project.path, id, index)
+}
+
+/** Move Left / Move Right, for a project with several agents (they cross pages at the edges). */
+function moveItems(project: ProjectInfo, a: AgentInfo): MenuEntry[] {
+  if (project.agents.length < 2 || isAssistantPath(project.path)) return []
+  const i = project.agents.findIndex((x) => x.id === a.id)
+  const kb = (id: string): string | undefined => {
+    const k = commandKeybinding(id)
+    return k ? formatKeybinding(k) : undefined
+  }
+  return [
+    { separator: true },
+    { label: 'Move Left', icon: 'arrow-left', disabled: i <= 0, keybinding: kb('agent.moveLeft'), onClick: () => actions.nudgeAgent(-1, project.path, a.id) },
+    { label: 'Move Right', icon: 'arrow-right', disabled: i >= project.agents.length - 1, keybinding: kb('agent.moveRight'), onClick: () => actions.nudgeAgent(1, project.path, a.id) }
+  ]
+}
+
 /** An agent's menu. `inHeader`: the pane's header shows the session and Merge buttons, so the menu leaves them out. */
 function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeader = false): MenuEntry[] {
   const worktree = !!a.worktree
@@ -195,6 +240,7 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
           { label: 'New Session', icon: 'add', onClick: () => void actions.newSession(project.path, a.id) }
         ]),
     { label: 'Hand Over to…', icon: 'arrow-swap', onClick: () => set({ handOverFor: { project: project.path, agentId: a.id } }) },
+    ...moveItems(project, a),
     { separator: true },
     { label: 'Agent Settings…', icon: 'settings', onClick: () => set({ agentSettingsFor: { project: project.path, agentId: a.id } }) },
     ...(worktree
@@ -286,6 +332,18 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
     const here = pageAgents(project.agents, page).map((a) => a.id).filter((id) => fresh.includes(id))
     if (here.length) seenAgents(project.path, here)
   }, [fresh, page, project.agents, project.path])
+  const dragging = useAgentDrag(project)
+  const removing = useStore((s) => s.running)
+  // Where a dragged agent would land: before this agent (null: at the end).
+  const [dropBefore, setDropBefore] = useState<string | null | undefined>(undefined)
+  const [dropPage, setDropPage] = useState<number | null>(null)
+  useEffect(() => {
+    if (!dragging) {
+      setDropBefore(undefined)
+      setDropPage(null)
+    }
+  }, [dragging])
+  const ids = project.agents.map((a) => a.id)
   // The focused agent's tab stays in view when the tabs don't all fit.
   const tabs = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -299,7 +357,22 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
         <Tooltip key={a.id} content={<AgentTabTip project={project} a={a} />}>
           <div
             data-page-start={i > 0 && i % PAGE_AGENTS === 0 ? '' : undefined}
-            className={cx('agent-tab', focused === a.id && 'focused', panes.includes(a.id) && 'shown')}
+            className={cx('agent-tab', focused === a.id && 'focused', panes.includes(a.id) && 'shown', dragging === a.id && 'dragging', dragging && dropBefore === a.id && 'drop-before', dragging && dropBefore === null && i === project.agents.length - 1 && 'drop-after')}
+            data-agent={a.id}
+            {...agentDragProps(project, a)}
+            onDragOver={(e) => {
+              if (!dragging) return
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'move'
+              const r = e.currentTarget.getBoundingClientRect()
+              // The left half drops before this agent, the right half before the next one.
+              setDropBefore(e.clientX < r.left + r.width / 2 ? a.id : (project.agents[i + 1]?.id ?? null))
+              setDropPage(null)
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              if (dragging && dropBefore !== undefined) dropAgent(project, dropIndex(ids, dragging, dropBefore))
+            }}
             onClick={() => showAgent(project, a.id)}
             onDoubleClick={() => set({ agentSettingsFor: { project: project.path, agentId: a.id } })}
             onContextMenu={(e) => {
@@ -307,7 +380,7 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
               menu.open(e, agentMenu(project, a, () => void picker.openAt(project, a, x, y)))
             }}
           >
-            <span className={cx('dot', a.live?.status ?? (project.active ? 'idle' : 'stopped'), a.live?.unseen && 'unseen')} />
+            {removing[`removeAgent:${project.path}#${a.id}`] ? <Icon name="loading" spin title="Removing…" /> : <span className={cx('dot', a.live?.status ?? (project.active ? 'idle' : 'stopped'), a.live?.unseen && 'unseen')} />}
             <ProviderIcon provider={agentProviderOf(project, a)} />
             <span className="agent-name">{a.name}</span>
             {a.worktree && (
@@ -332,7 +405,22 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
             const added = page !== i && onPage.some((a) => fresh.includes(a.id))
             return (
               <Tooltip key={i} content={`Page ${i + 1}: agents ${i * PAGE_AGENTS + 1}–${i * PAGE_AGENTS + onPage.length}${added ? ', with an agent the Assistant added' : ''}${pageKb ? ` (${formatKeybinding(pageKb)} for the next page)` : ''}`}>
-                <button className={cx(page === i && 'active')} onClick={() => showPage(project, i)} aria-label={`Agent page ${i + 1}`}>
+                <button
+                  className={cx(page === i && 'active', dragging && dropPage === i && 'drop-target')}
+                  onClick={() => showPage(project, i)}
+                  aria-label={`Agent page ${i + 1}`}
+                  onDragOver={(e) => {
+                    if (!dragging) return
+                    e.preventDefault()
+                    setDropPage(i)
+                    setDropBefore(undefined)
+                  }}
+                  onDragLeave={() => setDropPage(null)}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    if (dragging) dropAgent(project, pageEndIndex(project.agents.length, i))
+                  }}
+                >
                   {i + 1}
                   {state ? <span className={cx('dot', state.status, state.unseen && 'unseen')} /> : added && <span className="dot added" />}
                 </button>
@@ -413,7 +501,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
     </Tooltip>
   )
   return (
-    <div ref={ref} className={cx('pane-header-bar', focused && 'focused')} onMouseDown={() => focusAgent(project.path, a.id)} onContextMenu={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))}>
+    <div ref={ref} className={cx('pane-header-bar', focused && 'focused')} {...agentDragProps(project, a)} onMouseDown={() => focusAgent(project.path, a.id)} onContextMenu={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))}>
       <StatusDot live={live} active={project.active} />
       <Tooltip content={providerName(agentProviderOf(project, a))}>
         <span>
@@ -479,7 +567,7 @@ export function PaneFooter({
 }) {
   const settings = useStore((s) => s.settings)
   const providers = useStore((s) => s.providers)
-  const usage = useLiveUsage(project, a.id)
+  const { usage, pending } = useLiveUsageState(project, a.id)
   const provider = agentProviderOf(project, a)
   const pc = projectProviderConfig(project.config, provider)
   const ps = providerSettings(settings, provider)
@@ -504,12 +592,21 @@ export function PaneFooter({
       </Tooltip>
       <ModeBadge project={project} a={a} variant="pane" />
       <div className="grow" />
-      {usage && (
-        <Tooltip content={`Context: ${ctx.toLocaleString()} tokens${usage.contextWindow ? ` of ${usage.contextWindow.toLocaleString()}` : ''} · ${usage.compactions.length} compaction(s)${over ? ' — consider compacting' : ''}`}>
-          <span className={cx('pane-foot-item', over && 'warn')} onClick={() => (onContext ? onContext() : showInOverview(project.path, a.id))}>
+      {usage ? (
+        <Tooltip content={`Context: ${ctx.toLocaleString()} tokens${usage.contextWindow ? ` of ${usage.contextWindow.toLocaleString()}` : ''} · ${usage.compactions.length} compaction(s)${over ? ' — consider compacting' : ''}${usage.stale ? '\nCouldn’t read it again just now: this may be behind.' : ''}`}>
+          <span className={cx('pane-foot-item', over && 'warn', usage.stale && 'stale')} onClick={() => (onContext ? onContext() : showInOverview(project.path, a.id))}>
             <Icon name="dashboard" /> {formatTokens(ctx)} ctx
           </span>
         </Tooltip>
+      ) : (
+        // A new or other conversation: its own numbers aren't read yet (the previous one's never show).
+        pending && (
+          <Tooltip content="Reading this conversation's usage…">
+            <span className="pane-foot-item faint usage-pending">
+              <Icon name="dashboard" /> – ctx
+            </span>
+          </Tooltip>
+        )
       )}
       {bytes !== undefined && (
         <Tooltip
@@ -596,6 +693,9 @@ export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (s
   const epochs = useStore((s) => s.sessionEpoch)
   const focused = useStore((s) => s.focusedAgent[project.path]) ?? project.agents[0]?.id
   const single = panes.length === 1
+  const dragging = useAgentDrag(project)
+  const [over, setOver] = useState<string | null>(null)
+  useEffect(() => setOver(null), [dragging])
   return (
     <>
       {panes.map((id, i) => {
@@ -614,6 +714,26 @@ export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (s
               <PaneBody project={project} a={a} hasTerminal={hasTerminal} single={single} />
             </div>
             {a && <PaneFooter project={project} a={a} />}
+            {/* While an agent is dragged: drop it here to put it in this agent's place. */}
+            {dragging && a && a.id !== dragging && (
+              <div
+                className={cx('pane-drop', over === a.id && 'over')}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  setOver(a.id)
+                }}
+                onDragLeave={() => setOver((o) => (o === a.id ? null : o))}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  dropAgent(project, project.agents.findIndex((x) => x.id === a.id))
+                }}
+              >
+                <span>
+                  <Icon name="arrow-swap" /> Move here
+                </span>
+              </div>
+            )}
           </div>
         )
       })}

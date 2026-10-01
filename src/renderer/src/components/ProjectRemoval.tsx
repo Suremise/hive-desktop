@@ -4,7 +4,7 @@ import { call, errorMessage } from '../api'
 import { clearEditorDraftsUnder, hasEditorDraftsUnder } from '../editorDrafts'
 import { loadTasks, notify, set, useStore } from '../store'
 import { cx, timeAgo } from '../util'
-import { Icon, Modal } from './ui'
+import { BusyButton, Icon, Modal, useBusy } from './ui'
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`
 
@@ -25,43 +25,39 @@ export function RemoveProjectDialog() {
   const [info, setInfo] = useState<ProjectRemovalInfo | null>(null)
   const [how, setHow] = useState<ProjectRemoval>('hide')
   const [typed, setTyped] = useState('')
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const action = useBusy()
+  const { setError: setActionError } = action
 
   useEffect(() => {
     setInfo(null)
     setHow('hide')
     setTyped('')
     setError('')
+    setActionError(null)
     if (!path) return
     call('project:removalInfo', path)
       .then(setInfo)
       .catch((e) => setError(errorMessage(e)))
-  }, [path])
+  }, [path, setActionError])
 
   if (!path) return null
   const close = (): void => set({ removeProjectFor: null })
   const unmerged = info?.worktrees.filter((w) => w.ahead || w.dirty || w.error) ?? []
   const drafts = hasEditorDraftsUnder(path)
   const blocked = how === 'remove' && unmerged.length > 0
-  const ready = !!info && !busy && !blocked && (how !== 'delete' || typed.trim().toLowerCase() === info.name.toLowerCase())
+  const ready = !!info && !blocked && (how !== 'delete' || typed.trim().toLowerCase() === info.name.toLowerCase())
 
   const go = async (): Promise<void> => {
     if (!info) return
-    setBusy(true)
-    setError('')
-    try {
-      const r = await call('project:remove', info.path, how)
-      if (how === 'delete') clearEditorDraftsUnder(info.path)
-      await loadTasks()
-      close()
-      notify('success', how === 'hide' ? `${info.name} is hidden` : how === 'remove' ? `${info.name} was removed from Hive` : `${info.name} was moved to the Recycle Bin`, how === 'delete' ? undefined : 'Restore it in Settings → Workspace.')
-      if (r.warnings.length) notify('warning', `Not everything of ${info.name} could be removed`, r.warnings.join('\n'))
-    } catch (e) {
-      setError(errorMessage(e))
-    } finally {
-      setBusy(false)
-    }
+    // The dialog stays open (no closing, a spinner) until it's done: there is no stopping half-way.
+    const r = await action.run('remove', () => call('project:remove', info.path, how))
+    if (!r) return
+    if (how === 'delete') clearEditorDraftsUnder(info.path)
+    await loadTasks()
+    close()
+    notify('success', how === 'hide' ? `${info.name} is hidden` : how === 'remove' ? `${info.name} was removed from Hive` : `${info.name} was moved to the Recycle Bin`, how === 'delete' ? undefined : 'Restore it in Settings → Workspace.')
+    if (r.value.warnings.length) notify('warning', `Not everything of ${info.name} could be removed`, r.value.warnings.join('\n'))
   }
 
   const name = info?.name ?? path.split(/[\\/]/).pop()
@@ -70,14 +66,22 @@ export function RemoveProjectDialog() {
       title={`Remove ${name}`}
       icon="trash"
       onClose={close}
+      busy={!!action.busy}
+      error={action.error}
       footer={
         <>
           <button className="btn subtle" onClick={close}>
             Cancel
           </button>
-          <button className={cx('btn', how === 'delete' ? 'danger' : 'primary')} disabled={!ready} onClick={() => void go()}>
+          <BusyButton
+            className={how === 'delete' ? 'danger' : 'primary'}
+            disabled={!ready}
+            busy={action.busy === 'remove'}
+            busyLabel={how === 'hide' ? 'Hiding…' : how === 'remove' ? 'Removing from Hive…' : 'Moving to the Recycle Bin…'}
+            onClick={() => void go()}
+          >
             {CHOICES.find((c) => c.id === how)!.label}
-          </button>
+          </BusyButton>
         </>
       }
     >

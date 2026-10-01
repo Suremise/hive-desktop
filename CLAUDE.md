@@ -66,6 +66,8 @@ npm 11 blocks install scripts by default; esbuild and electron-winstaller are ap
 
 Build with `npx electron-vite build`, then drive `node_modules/electron/dist/electron.exe .` with Playwright's `_electron` (`playwright-core` is a dev dependency). Pass `HIVE_USER_DATA=<temp dir>` so tests never touch real profiles, delete `ELECTRON_RUN_AS_NODE` from the child env, and use a throwaway workspace folder. Take screenshots and look at them. To test updates, set `HIVE_UPDATE_FEED` to a local HTTP server serving a `latest.yml` (generic provider); unpackaged builds then check it, cache downloads in `%LOCALAPPDATA%\hive-test-updater`, and never install what they download. `window.hive.invoke(channel, ...)` in the page calls any IPC channel from `src/shared/api.ts`.
 
+To test what the window does while an action is slow or fails, set `HIVE_TEST_SLOW_IPC` / `HIVE_TEST_FAIL_IPC` (unpackaged builds only; see `tests/e2e/README.md`).
+
 ## Code map
 
 | Path | What |

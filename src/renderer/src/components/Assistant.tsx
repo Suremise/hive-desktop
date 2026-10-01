@@ -5,7 +5,7 @@ import type { AgentDef, AgentInfo, AssistantAction, EffortLevel, PermissionMode,
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
-import { agentProviderOf, confirm, get, NO_PROJECTS, projectKey, revealAgent, set, setActivity, setAssistantOpen, showAssistantView, showView, useStore } from '../store'
+import { agentProviderOf, confirm, get, NO_PROJECTS, projectKey, revealAgent, runOnce, set, setActivity, setAssistantOpen, showAssistantView, showView, useStore } from '../store'
 import { useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
 import { Overrides, ProviderChoice } from './AgentDialogs'
@@ -395,6 +395,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
 /** Questions the Assistant's actions wait on (e.g. stopping a busy agent): the user answers on the card. */
 function AssistantQuestions() {
   const questions = useStore((s) => s.assistantQuestions)
+  const answering = useStore((s) => s.running)
   if (!questions.length) return null
   return (
     <div className="assistant-questions">
@@ -405,10 +406,11 @@ function AssistantQuestions() {
           </div>
           <div className="assistant-question-message">{q.message}</div>
           <div className="assistant-question-buttons">
-            <button className="btn small subtle" onClick={() => void call('assistant:answer', q.id, false)}>
+            {/* Answered once: a second click while the answer goes is ignored. */}
+            <button className="btn small subtle" disabled={!!answering[`answer:${q.id}`]} onClick={() => void runOnce(`answer:${q.id}`, () => call('assistant:answer', q.id, false))}>
               {q.no}
             </button>
-            <button className="btn small danger" onClick={() => void call('assistant:answer', q.id, true)}>
+            <button className="btn small danger" disabled={!!answering[`answer:${q.id}`]} onClick={() => void runOnce(`answer:${q.id}`, () => call('assistant:answer', q.id, true))}>
               {q.yes}
             </button>
           </div>

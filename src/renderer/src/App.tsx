@@ -298,7 +298,6 @@ export function App() {
       <Toasts />
       <NotificationCenter />
       <CommandPalette />
-      <Dialogs />
       <QuitDialog />
       <CompactDialog />
       <AddAgentDialog />
@@ -314,6 +313,8 @@ export function App() {
       <ModeMenuHost />
       <ShortcutsDialog />
       <AgentSetupDialog />
+      {/* Last: its questions (confirm, choose, prompt) are often asked from another dialog, so they go on top. */}
+      <Dialogs />
     </div>
   )
 }

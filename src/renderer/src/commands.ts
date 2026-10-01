@@ -211,6 +211,8 @@ export const commands: Command[] = [
     run: () => cycleAgent(1)
   },
   { id: 'agent.previous', label: 'Focus Previous Agent', category: 'Session', keybinding: 'Mod+Alt+[', when: hasProject, run: () => cycleAgent(-1) },
+  { id: 'agent.moveLeft', label: 'Move Agent Left', category: 'Session', keybinding: 'Mod+Alt+Shift+ArrowLeft', when: () => (selected()?.agents.length ?? 0) > 1, run: () => actions.nudgeAgent(-1) },
+  { id: 'agent.moveRight', label: 'Move Agent Right', category: 'Session', keybinding: 'Mod+Alt+Shift+ArrowRight', when: () => (selected()?.agents.length ?? 0) > 1, run: () => actions.nudgeAgent(1) },
   { id: 'agent.nextPage', label: 'Next Agent Page', category: 'Session', keybinding: 'Mod+Alt+PageDown', when: () => (selected()?.agents.length ?? 0) > PAGE_AGENTS, run: () => cyclePage(1) },
   { id: 'agent.previousPage', label: 'Previous Agent Page', category: 'Session', keybinding: 'Mod+Alt+PageUp', when: () => (selected()?.agents.length ?? 0) > PAGE_AGENTS, run: () => cyclePage(-1) },
   ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n): Command => ({ id: `agent.focus${n}`, label: `Focus Agent ${n}`, category: 'Session', keybinding: `Mod+${n}`, when: () => (selected()?.agents.length ?? 0) >= n, run: () => focusAgentN(n) })),

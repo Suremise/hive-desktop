@@ -31,6 +31,10 @@ export interface ConfirmRequest {
   confirmLabel?: string
   cancelLabel?: string
   danger?: boolean
+  /** The action, run with the dialog open (a spinner, no closing) until it's done: a failure stays in the dialog. */
+  run?: () => Promise<unknown>
+  /** The confirm button's label while `run` runs ("Deleting…"). */
+  busyLabel?: string
   resolve: (ok: boolean) => void
 }
 
@@ -150,6 +154,10 @@ interface State {
   focusedAgent: Record<string, string>
   /** Per project: which agent each pane of a multi-pane layout shows. */
   paneAgents: Record<string, string[]>
+  /** An agent being dragged (its strip tab or pane header) to move it in its project's order. */
+  agentDrag: { project: string; id: string } | null
+  /** Actions without a dialog that are running (runOnce): their buttons show a spinner and ignore clicks. */
+  running: Record<string, true>
   /** Per project and agent page ("<path>#<page>"): the agent last focused there, focused again on going back. */
   pageFocus: Record<string, string>
   /** Per project: whose folder the Changes and Files tabs show (a worktree agent's id; anything else = the project folder). */
@@ -242,6 +250,8 @@ export const useStore = create<State>(() => ({
   overviewJump: null,
   focusedAgent: {},
   paneAgents: {},
+  agentDrag: null,
+  running: {},
   pageFocus: {},
   changesRoot: {},
   filesRoot: {},
@@ -494,6 +504,23 @@ export function dismissToast(id: string): void {
 }
 
 let toastSeq = 0
+
+/**
+ * Runs an action that has no dialog (a header button, a menu item) once at a time: a second call while it runs is
+ * ignored. `key` names it, so its button can show a spinner (`useStore((s) => s.running[key])`).
+ */
+export async function runOnce<T>(key: string, fn: () => Promise<T>): Promise<T | undefined> {
+  if (get().running[key]) return undefined
+  set((s) => ({ running: { ...s.running, [key]: true } }))
+  try {
+    return await fn()
+  } finally {
+    set((s) => {
+      const { [key]: _, ...rest } = s.running
+      return { running: rest }
+    })
+  }
+}
 export function notify(level: ToastMessage['level'], title: string, message?: string, actions?: ToastMessage['actions']): void {
   pushToast({ id: `local-${++toastSeq}-${Date.now()}`, level, title, message, actions, timestamp: new Date().toISOString() })
 }

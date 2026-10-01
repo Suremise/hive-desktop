@@ -19,6 +19,7 @@
 - **Project → Remove Project…**: **Hide** a project (Hive leaves it out until you restore it), **Remove** it from Hive (the folder stays, with its handovers and cards packed into it, so it can move to another workspace and bring them along), or **Delete** it (the folder, its worktrees and its handovers to the Recycle Bin). **Settings → Workspace** lists hidden and removed projects, with **Restore**.
 
 ### Agents
+- **Arrange a project's agents**: drag a tab in the agent strip or a pane by its header to move an agent, drop a tab on a page button to move it to that page, or use **Move Left / Move Right** (agent menu, Ctrl+Alt+Shift+Left/Right). The order is saved with the project, and running agents carry on.
 - **Resume All Agents** in the project header (and the project's right-click menu): resumes every stopped agent's last session in one go, leaving running agents alone. If one can't resume, a notification names it and says why, and the others still resume.
 - **Agents waiting on background tasks aren't shown as finished.** When a Claude Code agent ends its turn while a task it started is still running (a test run, say), it shows as **waiting on background tasks** ("Waiting on 1 background task", a slow, faint dot) and carries on by itself when the task ends. The chime and the "finished" notification wait until it really has finished. Codex isn't told when its background terminals end, so Codex agents show as finished with the count next to them.
 - **Settings → Agents & Worktrees → Count background tasks for up to** (60 minutes): Hive can't tell a test run from something that never ends, such as a dev server, so it stops counting a task after this long.
@@ -34,7 +35,15 @@
 - **The Assistant uses your agents' model and effort.** It used to start lighter (Sonnet, low effort), which made it careless: it could say it would check on an agent later and never do it. Settings left at the old defaults move to the agents'; ones you chose stay.
 - **It waits for agents that are waiting on background tasks**, and won't give them a new task meanwhile (`hive_wait_for_agents` waits through them unless `ignoreBackground` is set; `hive_prompt_agent` refuses them). Its instructions now tell it never to promise a later check without a wait actually running.
 
+### Feedback for slow actions
+- **Actions that take a moment show it and can't be interrupted by mistake**: Start (on a card), Remove Project, Save, Delete, Archive and Comment on a card, Compact, Agent Settings, Stop All Agents, and deleting a note or an MCP server show a spinner and what they're doing (**Starting…**, **Deleting…**); while they run the dialog can't be closed (Escape, ×, a click outside) and a second click does nothing. If one fails, the dialog stays open with the error, so you can try again. **Resume All** shows a spinner on its button, and an agent being removed shows one on its tab.
+
 ### Fixes
+- **Start… on a card you've edited** used the card as last saved, so the agent got the old description. It now reads **Save and Start…** and saves your edits first; if the save fails, nothing starts and the dialog says why.
+- **Closing a card with unsaved changes** (Escape, ×, a click outside, Cancel) lost them without a word, including a comment being written. Hive now asks **Keep Editing** or **Discard**; a card with nothing changed closes at once. **Save** also posts a comment you were writing.
+- A question asked from inside a dialog (Delete on a card, say) could appear underneath it; questions now always come on top, and Escape closes only the top one.
+- The **Changes** tab could show the previous file's diff after you picked another while it loaded, and a git error left it stuck loading or showing another folder's files. It now always shows the selected file's diff, and a failure shows the error with **Retry**.
+- After switching an agent to another conversation, its footer could show the **previous conversation's** context and cost until the new numbers arrived, or for good if reading them failed. It now shows a placeholder until the conversation's own usage is read, and a refresh that fails keeps that conversation's numbers, faded.
 - **Merge** refuses when git can't check a worktree for uncommitted changes (a damaged index, say), instead of merging and, with clean-up, removing the worktree with them.
 - The **Changes** tab no longer shows the contents of a file outside the project reached through a link (a link is shown as the path it points to, as git stores it).
 - **Agent Setup → Codex → Set up** could sometimes not bring up Codex's sandbox prompt: Hive typed `/permissions` while Codex was still busy starting, and Codex queued it. Hive now waits until Codex is idle.

@@ -116,6 +116,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const selected = useStore((s) => s.selectedProject)
   const tabs = useStore((s) => s.projectTabs)
   const settings = useStore((s) => s.settings)
+  const runningActions = useStore((s) => s.running)
   const menu = useContextMenu()
   const project = workspace?.projects.find((p) => p.path === selected) ?? null
   const tab = (project && tabs[project.path]) || 'session'
@@ -154,6 +155,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const inStatus = combined ? project.agents.filter((a) => a.live?.status === combined.status).length : 0
   const running = project.agents.filter((a) => a.live)
   const resumable = agentsToResume(project.agents)
+  const resuming = !!runningActions[`resumeAll:${project.path}`]
   const dangerous = settings
     ? project.agents.flatMap((a) => {
         const l = agentLaunchSettings(a, project.config, settings)
@@ -216,8 +218,8 @@ export function ProjectView({ visible }: { visible: boolean }) {
           </Tooltip>
           {resumable.length > 0 && (
             <Tooltip content={resumable.length === 1 ? `Resume ${resumable[0].name}'s last session` : `Resume all ${resumable.length} stopped agents (running ones are left alone)`}>
-              <button className="btn subtle" onClick={() => void actions.resumeAllAgents(project.path)}>
-                <Icon name="debug-continue" /> {resumable.length === 1 ? 'Resume Agent' : narrow ? 'Resume All' : 'Resume All Agents'}
+              <button className="btn subtle" disabled={resuming} aria-busy={resuming || undefined} onClick={() => void actions.resumeAllAgents(project.path)}>
+                <Icon name={resuming ? 'loading' : 'debug-continue'} spin={resuming} /> {resuming ? 'Resuming…' : resumable.length === 1 ? 'Resume Agent' : narrow ? 'Resume All' : 'Resume All Agents'}
               </button>
             </Tooltip>
           )}

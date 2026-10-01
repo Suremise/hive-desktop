@@ -149,7 +149,29 @@ export function pageAgents<T>(agents: T[], page: number): T[] {
   return agents.slice(page * PAGE_AGENTS, (page + 1) * PAGE_AGENTS)
 }
 
-/** The project's agents, in the order they were added. All are equal; a project can have none. */
+/** The agents with one moved to `index`, its position afterwards (clamped). An unknown id leaves the order as it is. */
+export function moveAgentTo<T extends { id: string }>(agents: readonly T[], id: string, index: number): T[] {
+  const from = agents.findIndex((a) => a.id === id)
+  if (from < 0) return [...agents]
+  const rest = agents.filter((a) => a.id !== id)
+  const to = Math.max(0, Math.min(rest.length, Math.round(index)))
+  return [...rest.slice(0, to), agents[from], ...rest.slice(to)]
+}
+
+/** Where an agent dropped before another one ends up (`before` null, or itself: at the end, or where it is). */
+export function dropIndex(ids: readonly string[], id: string, before: string | null): number {
+  if (before === id) return Math.max(0, ids.indexOf(id))
+  const rest = ids.filter((x) => x !== id)
+  const i = before === null ? -1 : rest.indexOf(before)
+  return i < 0 ? rest.length : i
+}
+
+/** Where an agent dropped on a page's button ends up: that page's last place (the last agent's, on the last page). */
+export function pageEndIndex(count: number, page: number): number {
+  return Math.max(0, Math.min((page + 1) * PAGE_AGENTS - 1, count - 1))
+}
+
+/** The project's agents, in the order the user put them (the order they were added, until moved). All are equal; a project can have none. */
 export function projectAgents(cfg: Pick<ProjectConfig, 'agents'>): AgentDef[] {
   return Array.isArray(cfg.agents) ? cfg.agents.filter((a) => a && typeof a.id === 'string' && typeof a.name === 'string') : []
 }

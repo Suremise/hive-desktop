@@ -11,7 +11,7 @@ import { discardDrafts, saveAllDrafts, unsavedFiles } from './FileView'
 import type { ProviderId, ProviderTask, QuitChoice, SessionStatus } from '@shared/types'
 import { PROVIDERS, enabledProviders, isProviderEnabled, providerDescriptor } from '@shared/providers'
 import { ProviderIcon } from './ProviderIcon'
-import { Icon, IconButton, Modal, STATUS_TEXT } from './ui'
+import { BusyButton, Icon, IconButton, Modal, STATUS_TEXT, useBusy } from './ui'
 
 const LEVEL_ICON = { info: 'info', success: 'pass', warning: 'warning', error: 'error' } as const
 
@@ -21,15 +21,18 @@ export function Dialogs() {
   const [error, setError] = useState<string | null>(null)
   const [checked, setChecked] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const action = useBusy()
+  const { setError: setActionError } = action
 
   useEffect(() => {
+    setActionError(null)
     if (dialog?.kind === 'prompt') {
       setValue(dialog.initial ?? '')
       setChecked(dialog.check?.initial ?? false)
       setError(null)
       setTimeout(() => inputRef.current?.select(), 30)
     }
-  }, [dialog])
+  }, [dialog, setActionError])
 
   if (!dialog) return null
   const close = (result: boolean | string | null): void => {
@@ -76,14 +79,26 @@ export function Dialogs() {
         title={dialog.title}
         icon={dialog.danger ? 'warning' : 'question'}
         onClose={() => close(false)}
+        busy={!!action.busy}
+        error={action.error}
         footer={
           <>
             <button className="btn subtle" onClick={() => close(false)}>
               {dialog.cancelLabel ?? 'Cancel'}
             </button>
-            <button className={cx('btn', dialog.danger ? 'danger' : 'primary')} autoFocus onClick={() => close(true)}>
-              {dialog.confirmLabel ?? 'OK'}
-            </button>
+            <BusyButton
+              className={dialog.danger ? 'danger' : 'primary'}
+              autoFocus
+              busy={action.busy === 'confirm'}
+              busyLabel={dialog.busyLabel ?? 'Working…'}
+              onClick={() => {
+                const run = dialog.run
+                if (!run) return close(true)
+                void action.run('confirm', run).then((r) => r && close(true))
+              }}
+            >
+              {action.error ? 'Try Again' : (dialog.confirmLabel ?? 'OK')}
+            </BusyButton>
           </>
         }
       >
@@ -856,11 +871,12 @@ export function CompactDialog() {
   const usage = useLiveUsage(project, target?.agentId)
   const provider = providerDescriptor(agent?.live?.provider)
   const [focus, setFocus] = useState('')
-  const [busy, setBusy] = useState(false)
+  const action = useBusy()
+  const { setError: setCompactError } = action
   useEffect(() => {
     setFocus('')
-    setBusy(false)
-  }, [path])
+    setCompactError(null)
+  }, [path, setCompactError])
   if (!path || !project || !agent) return null
   const close = (): void => set({ compactFor: null })
   const live = agent.live
@@ -868,28 +884,24 @@ export function CompactDialog() {
   const cache = usage && provider.capabilities.promptCacheTtl ? cacheState(usage, ttl) : null
   const focusOk = provider.capabilities.compactFocus
   const run = async (): Promise<void> => {
-    setBusy(true)
-    try {
-      await call('session:compact', project.path, (focusOk && focus.trim()) || undefined, agent.id)
-      close()
-    } catch (e) {
-      notify('error', 'Could not compact', errorMessage(e))
-      setBusy(false)
-    }
+    const r = await action.run('compact', () => call('session:compact', project.path, (focusOk && focus.trim()) || undefined, agent.id))
+    if (r) close()
   }
   return (
     <Modal
       title={`Compact ${project.name}${project.agents.length > 1 ? ` · ${agent.name}` : ''}?`}
       icon="fold"
       onClose={close}
+      busy={!!action.busy}
+      error={action.error}
       footer={
         <>
           <button className="btn subtle" onClick={close}>
             Cancel
           </button>
-          <button className="btn primary" disabled={!idle || busy} onClick={() => void run()}>
+          <BusyButton className="primary" disabled={!idle} busy={action.busy === 'compact'} busyLabel="Sending…" onClick={() => void run()}>
             <Icon name="fold" /> Compact
-          </button>
+          </BusyButton>
         </>
       }
     >
@@ -927,7 +939,7 @@ export function CompactDialog() {
           placeholder="Leave empty and the agent decides what to keep. Or steer it, e.g. “keep the Files tab decisions and open bugs; drop the test runs”."
           onChange={(e) => setFocus(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && idle && !busy) void run()
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && idle) void run()
           }}
         />
       </label>

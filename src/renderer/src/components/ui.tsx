@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { LiveSessionState, SessionStatus } from '@shared/types'
 import { cx } from '../util'
+import { errorMessage } from '../api'
 
 export function Icon({ name, className, title, spin }: { name: string; className?: string; title?: string; spin?: boolean }) {
   return <i className={cx('codicon', `codicon-${name}`, spin && 'spin', className)} title={title} aria-hidden={!title} />
@@ -132,13 +133,87 @@ export function StatusDot({ live, active }: { live: LiveSessionState | null; act
   )
 }
 
+/**
+ * One action at a time for a dialog or a button. `run(name, fn)` ignores a second call while one runs; `busy` names
+ * the one running (for its button's spinner and "…ing" label), and `error` holds the last failure (cleared by the next
+ * run). It resolves to `{ value }` on success and null on failure or when ignored.
+ */
+export function useBusy() {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const running = useRef(false)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  const run = useCallback(async <T,>(name: string, fn: () => Promise<T>): Promise<{ value: T } | null> => {
+    if (running.current) return null
+    running.current = true
+    setBusy(name)
+    setError(null)
+    try {
+      return { value: await fn() }
+    } catch (e) {
+      if (mounted.current) setError(errorMessage(e))
+      return null
+    } finally {
+      running.current = false
+      if (mounted.current) setBusy(null)
+    }
+  }, [])
+  return { busy, error, run, setError }
+}
+
+/** A button for an action that takes a moment: while `busy`, a spinner and its "…ing" label, and it can't be clicked. */
+export function BusyButton({
+  busy,
+  busyLabel,
+  className,
+  disabled,
+  autoFocus,
+  onClick,
+  children
+}: {
+  busy: boolean
+  busyLabel: string
+  className?: string
+  disabled?: boolean
+  autoFocus?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button className={cx('btn', className)} disabled={disabled || busy} aria-busy={busy || undefined} autoFocus={autoFocus} onClick={onClick}>
+      {busy ? (
+        <>
+          <Icon name="loading" spin /> {busyLabel}
+        </>
+      ) : (
+        children
+      )}
+    </button>
+  )
+}
+
+/** The dialogs open, oldest first. */
+const openModals: symbol[] = []
+
+/**
+ * A dialog. While `busy` (an action it started is running) it can't be closed (Escape, outside, ×) and its fields and
+ * other buttons are disabled; `error` shows the action's failure above the buttons.
+ */
 export function Modal({
   title,
   icon,
   onClose,
   children,
   footer,
-  wide
+  wide,
+  busy,
+  error
 }: {
   title: string
   icon?: string
@@ -146,13 +221,26 @@ export function Modal({
   children: ReactNode
   footer?: ReactNode
   wide?: boolean
+  busy?: boolean
+  error?: string | null
 }) {
+  const busyNow = useRef(busy)
+  busyNow.current = busy
+  // Dialogs open over each other (a question over a card): Escape is for the top one only.
+  const me = useRef(Symbol('dialog'))
+  useEffect(() => {
+    const id = me.current
+    openModals.push(id)
+    return () => {
+      const i = openModals.lastIndexOf(id)
+      if (i >= 0) openModals.splice(i, 1)
+    }
+  }, [])
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        onClose()
-      }
+      if (e.key !== 'Escape' || openModals[openModals.length - 1] !== me.current) return
+      e.stopPropagation()
+      if (!busyNow.current) onClose()
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
@@ -167,15 +255,26 @@ export function Modal({
     }
   }, [])
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={cx('dialog', wide && 'wide')} role="dialog" aria-modal="true" aria-label={title}>
+    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
+      <div className={cx('dialog', wide && 'wide', busy && 'busy')} role="dialog" aria-modal="true" aria-label={title} aria-busy={busy || undefined}>
         <div className="dialog-header">
           {icon && <Icon name={icon} />}
           <h2>{title}</h2>
-          <IconButton icon="close" title="Close (Esc)" onClick={onClose} />
+          <IconButton icon="close" title={busy ? 'Wait for it to finish' : 'Close (Esc)'} disabled={busy} onClick={onClose} />
         </div>
-        <div className="dialog-body">{children}</div>
-        {footer && <div className="dialog-footer">{footer}</div>}
+        <div className="dialog-body" inert={busy || undefined}>
+          {children}
+        </div>
+        {error && (
+          <div className="dialog-error" role="alert">
+            <Icon name="error" /> <span>{error}</span>
+          </div>
+        )}
+        {footer && (
+          <div className="dialog-footer" inert={busy || undefined}>
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   )

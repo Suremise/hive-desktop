@@ -302,6 +302,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'agents:add': (p, opts) => projectAgents.addAgent(p, opts),
     'agents:update': (p, id, patch) => projectAgents.updateAgent(p, id, patch),
     'agents:remove': (p, id, opts) => projectAgents.removeAgent(p, id, opts),
+    'agents:move': (p, id, index) => projectAgents.moveAgent(p, id, index),
     'agents:gitInfo': (p) => projectAgents.gitInfo(p),
     'agents:branchStatus': (p, id) => projectAgents.branchStatus(p, id),
     'agents:merge': (p, id, opts) => projectAgents.merge(p, id, opts),
@@ -496,11 +497,41 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     }
   }
 
+  // Tests only (unpackaged builds), so a suite can see what the window does while an action runs or fails:
+  // HIVE_TEST_SLOW_IPC="tasks:start=1500,git:diff=1500*1" delays those calls (`*n`: only the first n), and
+  // HIVE_TEST_FAIL_IPC="git:status*1" makes them fail.
+  // A suite may change them while Hive runs (in the main process): they are read again when they change.
+  type TestCalls = { from: string; calls: Map<string, { ms: number; left: number }> }
+  const testCalls = (name: string, held: TestCalls): TestCalls => {
+    const from = app.isPackaged ? '' : (process.env[name] ?? '')
+    if (from === held.from) return held
+    const calls = new Map(
+      from
+        .split(',')
+        .map((x) => x.trim().match(/^([^=*]+)(?:=(\d+))?(?:\*(\d+))?$/))
+        .filter((m): m is RegExpMatchArray => !!m)
+        .map((m) => [m[1], { ms: Number(m[2] ?? 0), left: m[3] ? Number(m[3]) : Infinity }] as const)
+    )
+    return { from, calls }
+  }
+  let slow: TestCalls = { from: '', calls: new Map() }
+  let failing: TestCalls = { from: '', calls: new Map() }
+  const take = (t: TestCalls, channel: string): { ms: number } | null => {
+    const c = t.calls.get(channel)
+    if (!c || c.left <= 0) return null
+    c.left--
+    return c
+  }
   for (const [channel, fn] of Object.entries(impl)) {
     ipcMain.handle(channel, async (e, ...args: unknown[]) => {
       // Only Hive's own pages may call: not another window, and not a frame inside one (e.g. an HTML preview).
       const w = windowOf(e.sender)
       if (!w || e.senderFrame?.parent) throw new Error('Not allowed')
+      slow = testCalls('HIVE_TEST_SLOW_IPC', slow)
+      failing = testCalls('HIVE_TEST_FAIL_IPC', failing)
+      const delay = take(slow, channel)
+      if (delay?.ms) await new Promise((r) => setTimeout(r, delay.ms))
+      if (take(failing, channel)) throw new Error(`${channel} failed (HIVE_TEST_FAIL_IPC)`)
       // Everything the call does is for that window's workspace.
       return inWorkspace(w.ws, () => (fn as (...a: unknown[]) => unknown)(...args))
     })

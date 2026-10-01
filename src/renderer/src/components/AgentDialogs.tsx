@@ -10,7 +10,7 @@ import { ProviderIcon } from './ProviderIcon'
 import { cx } from '../util'
 import { ModelPicker } from './ModelPicker'
 import { pasteIntoTerminal } from './TerminalView'
-import { Icon, Modal } from './ui'
+import { BusyButton, Icon, Modal, useBusy } from './ui'
 
 /** Which provider an agent runs: enabled providers, with what each still needs (install, sign-in). */
 export function ProviderChoice({ value, current, onChange }: { value: ProviderId; current?: ProviderId; onChange: (v: ProviderId) => void }) {
@@ -358,7 +358,9 @@ export function AgentSettingsDialog() {
   const settings = useStore((s) => s.settings)
   const current = project && agent ? (agent.live?.provider ?? agentProvider(agent, project.config, settings)) : ''
   const [provider, setProvider] = useState<ProviderId>(current)
+  const action = useBusy()
   useEffect(() => {
+    action.setError(null)
     setName(agent?.name ?? '')
     setModel(agent?.model ?? '')
     setEffort(agent?.effort ?? '')
@@ -389,33 +391,33 @@ export function AgentSettingsDialog() {
       if (!ok) return
     }
     if (permission && permission !== agent.permissionMode && !(await confirmDangerousMode(provider, permission, agent.name))) return
-    const ok = await actions.attempt('Could not save agent', () =>
-      call('agents:update', project.path, agent.id, {
+    const ok = await action.run('save', async () => {
+      await call('agents:update', project.path, agent.id, {
         name,
         ...(changed ? { provider } : {}),
         model: model || undefined,
         effort: (effort || undefined) as EffortLevel | undefined,
         permissionMode: (permission || undefined) as PermissionMode | undefined
       })
-    )
-    if (ok) {
       await actions.refreshWorkspace()
-      close()
-    }
+    })
+    if (ok) close()
   }
   return (
     <Modal
       title={`${agent.name} settings`}
       icon="settings"
       onClose={close}
+      busy={!!action.busy}
+      error={action.error}
       footer={
         <>
           <button className="btn subtle" onClick={close}>
             Cancel
           </button>
-          <button className="btn primary" disabled={!name.trim()} onClick={() => void save()}>
+          <BusyButton className="primary" disabled={!name.trim()} busy={action.busy === 'save'} busyLabel="Saving…" onClick={() => void save()}>
             Save
-          </button>
+          </BusyButton>
         </>
       }
     >

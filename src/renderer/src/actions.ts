@@ -1,7 +1,7 @@
 import { basename } from './util'
 import { call, errorMessage } from './api'
-import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemoving, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
-import { MANY_AGENTS, MAX_AGENTS, sessionInAgentFolder, withPageLayout } from '@shared/defaults'
+import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemoving, focusAgent, runOnce, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
+import { MANY_AGENTS, MAX_AGENTS, moveAgentTo, sessionInAgentFolder, withPageLayout } from '@shared/defaults'
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { agentsToResume, resumeAll } from '@shared/resumeAll'
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
@@ -360,15 +360,19 @@ export async function stopAllAgents(path: string): Promise<void> {
   const running = p?.agents.filter((a) => a.live) ?? []
   if (!running.length) return
   // Always asks, naming each agent that will stop and what it's doing.
-  const ok = await confirm({
+  // The question stays open, with a spinner, until they have stopped.
+  await confirm({
     title: running.length === 1 ? 'Stop the agent?' : 'Stop all agents?',
     message: `These ${running.length === 1 ? 'agent stops' : `${running.length} agents stop`} in ${p!.name}:`,
     detail: `${running.map((a) => `• ${a.name} — ${statusText(a.live!)}`).join('\n')}\n\nTheir conversations are kept and can be resumed later.`,
     confirmLabel: running.length === 1 ? 'Stop' : 'Stop all',
-    danger: true
+    busyLabel: 'Stopping…',
+    danger: true,
+    run: async () => {
+      await call('session:stop', path)
+      await Promise.all(running.map((a) => waitForStop(path, a.id)))
+    }
   })
-  if (!ok) return
-  await attempt('Could not stop sessions', () => call('session:stop', path))
 }
 
 /**
@@ -376,7 +380,12 @@ export async function stopAllAgents(path: string): Promise<void> {
  * left alone. Asks first only when some caches have expired; one failure doesn't stop the rest, and the
  * failures are reported together with their reasons.
  */
-export async function resumeAllAgents(path: string): Promise<void> {
+export function resumeAllAgents(path: string): Promise<void> {
+  // A second click while it runs is ignored; the button shows a spinner.
+  return runOnce(`resumeAll:${path}`, () => resumeAll_(path)).then(() => undefined)
+}
+
+async function resumeAll_(path: string): Promise<void> {
   const p = project(path)
   if (!p) return
   const stopped = agentsToResume(p.agents)
@@ -444,8 +453,14 @@ export async function archiveCurrent(path: string | null = get().selectedProject
 
 /** Deletes a workspace MCP server after asking; true when it was deleted. */
 export async function deleteMcpServer(name: string): Promise<boolean> {
-  if (!(await confirm({ title: 'Delete MCP server?', message: `Move ${name}.json to the Recycle Bin? Projects will no longer be able to use it.`, confirmLabel: 'Delete', danger: true }))) return false
-  const ok = await attempt('Could not delete', () => call('mcp:delete', name).then(() => true))
+  const ok = await confirm({
+    title: 'Delete MCP server?',
+    message: `Move ${name}.json to the Recycle Bin? Projects will no longer be able to use it.`,
+    confirmLabel: 'Delete',
+    busyLabel: 'Deleting…',
+    danger: true,
+    run: () => call('mcp:delete', name)
+  })
   if (!ok) return false
   clearEditorDraft(`mcp:${name}`)
   set((s) => ({ skillsVersion: s.skillsVersion + 1, ...(s.selectedMcp === name ? { selectedMcp: null } : {}) }))
@@ -454,8 +469,14 @@ export async function deleteMcpServer(name: string): Promise<boolean> {
 
 /** Deletes a shared note or folder after asking. */
 export async function deleteNote(path: string, label: string, isDir: boolean): Promise<void> {
-  if (!(await confirm({ title: 'Delete?', message: `Move "${label}"${isDir ? ' and everything in it' : ''} to the Recycle Bin?`, confirmLabel: 'Delete', danger: true }))) return
-  const ok = await attempt('Could not delete', () => call('notes:delete', path).then(() => true))
+  const ok = await confirm({
+    title: 'Delete?',
+    message: `Move "${label}"${isDir ? ' and everything in it' : ''} to the Recycle Bin?`,
+    confirmLabel: 'Delete',
+    busyLabel: 'Deleting…',
+    danger: true,
+    run: () => call('notes:delete', path)
+  })
   if (!ok) return
   // Unsaved edits of it would otherwise bring it back (Save All, or saving before quitting).
   clearEditorDraftsUnder(path)
@@ -488,6 +509,36 @@ async function cardsOfRemovedAgent(p: ProjectInfo, agentId: string, name: string
 }
 
 /** Removes an agent; for a worktree agent, asks whether to keep its worktree and branch. */
+/**
+ * Moves an agent to `index` in the project's order (its position afterwards): the strip, its pages and the panes
+ * follow. Shown at once, then saved; the agent keeps focus, so the view goes to its page.
+ */
+export async function moveAgent(path: string, agentId: string, index: number): Promise<void> {
+  const p = project(path)
+  if (!p || isAssistantPath(path) || !agentOf(p, agentId)) return
+  const agents = moveAgentTo(p.agents, agentId, index)
+  if (agents.every((a, i) => a.id === p.agents[i].id)) return
+  const order = (id: string | null): number => agents.findIndex((a) => a.id === id)
+  set((s) => ({
+    workspace: s.workspace && { ...s.workspace, projects: s.workspace.projects.map((x) => (x.path === path ? { ...x, agents } : x)) },
+    // The agents on screen stay on screen, in the new order.
+    paneAgents: { ...s.paneAgents, [path]: [...(s.paneAgents[path] ?? [])].sort((a, b) => order(a) - order(b)) }
+  }))
+  focusAgent(path, agentId)
+  const saved = await attempt('Could not move the agent', () => call('agents:move', path, agentId, index))
+  if (!saved) await call('workspace:refresh').then((ws) => set({ workspace: ws })).catch(() => undefined)
+}
+
+/** Moves the focused agent (or `agentId`) one place left or right, across pages at their edges. */
+export function nudgeAgent(delta: -1 | 1, path: string | null = get().selectedProject, agentId?: string): void {
+  const p = path ? project(path) : undefined
+  const id = agentId ?? (p ? focusedAgentId(p) : null)
+  if (!p || !id || p.agents.length < 2) return
+  const i = p.agents.findIndex((a) => a.id === id)
+  if (i < 0 || i + delta < 0 || i + delta >= p.agents.length) return
+  void moveAgent(p.path, id, i + delta)
+}
+
 export async function removeAgent(path: string, agentId: string): Promise<void> {
   const p = project(path)
   const a = agentOf(p, agentId)
@@ -516,7 +567,8 @@ export async function removeAgent(path: string, agentId: string): Promise<void> 
   } else if (!(await confirm({ title: `Remove ${a.name}?`, message: `${a.name} is removed from ${p.name}. Its sessions stay in the Sessions tab.`, confirmLabel: 'Remove' }))) return
   const releaseCards = await cardsOfRemovedAgent(p, agentId, a.name)
   if (releaseCards === null) return
-  const ok = await attempt('Could not remove agent', () => call('agents:remove', path, agentId, { deleteWorktree, releaseCards }).then(() => true))
+  // Its tab shows a spinner while it goes (deleting a worktree takes a moment); a second Remove is ignored.
+  const ok = await runOnce(`removeAgent:${path}#${agentId}`, () => attempt('Could not remove agent', () => call('agents:remove', path, agentId, { deleteWorktree, releaseCards }).then(() => true)))
   if (!ok) return
   focusAfterRemoving(p, agentId)
   await refreshWorkspace()
@@ -537,11 +589,13 @@ export async function discardAgent(path: string, agentId: string): Promise<void>
   if (!ok) return
   const releaseCards = await cardsOfRemovedAgent(p, agentId, a.name)
   if (releaseCards === null) return
-  if (a.live) {
-    await call('session:stop', path, agentId)
-    await waitForStop(path, agentId)
-  }
-  const done = await attempt('Could not discard agent', () => call('agents:remove', path, agentId, { deleteWorktree: true, releaseCards }).then(() => true))
+  const done = await runOnce(`removeAgent:${path}#${agentId}`, async () => {
+    if (a.live) {
+      await call('session:stop', path, agentId)
+      await waitForStop(path, agentId)
+    }
+    return attempt('Could not discard agent', () => call('agents:remove', path, agentId, { deleteWorktree: true, releaseCards }).then(() => true))
+  })
   if (!done) return
   focusAfterRemoving(p, agentId)
   await refreshWorkspace()

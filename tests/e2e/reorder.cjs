@@ -1,0 +1,141 @@
+// Moving a project's agents: dragging a strip tab, dragging a pane by its header onto another pane, dropping a tab on a
+// page button, Move Right across a page and its shortcut. The order is saved in project.json and a running agent's
+// terminal and session survive the moves. The agent runs the fake Claude Code (fake-claude/). Dev build, throwaway
+// profile, workspace and CLAUDE_CONFIG_DIR.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+
+const userData = path.join(lib.WORK, 'reorder-profile')
+const ws = path.join(lib.WORK, 'reorder-ws')
+const claudeHome = path.join(lib.WORK, 'reorder-claude-home')
+const alpha = path.join(ws, 'alpha')
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+
+;(async () => {
+  for (const d of [userData, ws, claudeHome]) fs.rmSync(d, { recursive: true, force: true })
+  fs.mkdirSync(claudeHome, { recursive: true })
+  lib.gitProject(alpha)
+  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase()]))
+  lib.enableProviders(userData)
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47895', CLAUDE_CONFIG_DIR: claudeHome }
+  delete env.ELECTRON_RUN_AS_NODE
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.fitWindow(app, page, { width: 1500, height: 900 })
+  await lib.sleep(1500)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await inv('workspace:open', ws)
+  await lib.sleep(1000)
+  const until = async (fn, ms = 10000) => {
+    const t = Date.now()
+    let v
+    while (!(v = await fn()) && Date.now() - t < ms) await lib.sleep(200)
+    return v
+  }
+  const live = async (id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === id)
+  const saved = () => JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'project.json'), 'utf8')).agents.map((a) => a.name).join(',')
+  const tabNames = async () => (await page.locator('.agent-tab .agent-name').allInnerTexts()).join(',')
+  const paneNames = async () => (await page.locator('.pane-header-bar .agent-name').allInnerTexts()).join(',')
+  // A native drag: press, a first small move (so the drag starts), then over the target, and release.
+  const drag = async (from, to, { dx = 0 } = {}) => {
+    const a = await from.boundingBox()
+    const b = await to.boundingBox()
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(a.x + a.width / 2 + 8, a.y + a.height / 2, { steps: 3 })
+    await lib.sleep(150)
+    const x = b.x + b.width / 2 + dx, y = b.y + b.height / 2
+    await page.mouse.move(x, y, { steps: 8 })
+    await lib.sleep(150)
+    await page.mouse.move(x + 1, y, { steps: 2 })
+    await lib.sleep(100)
+    await page.mouse.up()
+    await lib.sleep(600)
+  }
+
+  await page.getByText('alpha', { exact: true }).first().click()
+  const names = ['One', 'Two', 'Three']
+  const agents = []
+  for (const name of names) agents.push(await lib.addAgent(inv, alpha, { name }))
+  await inv('project:updateConfig', alpha, { layouts: ['columns3'] })
+  // One runs, with something in its terminal.
+  const one = agents[0]
+  await inv('session:start', alpha, { agentId: one.id })
+  await until(async () => (await live(one.id))?.status === 'ready', 15000)
+  await inv('pty:write', lib.ptyKey(alpha, one.id), 'hello')
+  await lib.sleep(300)
+  await inv('pty:write', lib.ptyKey(alpha, one.id), '\r')
+  await until(async () => (await live(one.id))?.status === 'finished', 15000)
+  const session = (await live(one.id)).sessionId
+  check('starts in the order added', (await tabNames()) === 'One,Two,Three' && (await paneNames()) === 'One,Two,Three', await tabNames())
+
+  // Drag Three's tab onto One's left half: Three goes first.
+  const tab = (n) => page.locator('.agent-tab', { hasText: n })
+  await drag(tab('Three'), tab('One'), { dx: -20 })
+  check('dragging a tab moves the agent', !!(await until(async () => (await tabNames()) === 'Three,One,Two')), await tabNames())
+  check('the panes follow', (await paneNames()) === 'Three,One,Two', await paneNames())
+  check('the order is saved', !!(await until(async () => saved() === 'Three,One,Two')), saved())
+  await page.screenshot({ path: path.join(lib.WORK, 'reorder-1-tab.png') })
+
+  // Drag One's pane by its header onto Two's pane: One takes Two's place.
+  const header = (n) => page.locator('.pane-header-bar', { hasText: n }).locator('.agent-name')
+  const a = await header('One').boundingBox()
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(a.x + a.width / 2 + 10, a.y + a.height / 2, { steps: 3 })
+  const target = page.locator('.pane-drop').last()
+  check('dragging a pane shows where it can go', !!(await until(async () => (await page.locator('.pane-drop').count()) === 2, 3000)))
+  const b = await target.boundingBox()
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 })
+  await lib.sleep(200)
+  await page.screenshot({ path: path.join(lib.WORK, 'reorder-2-pane-drag.png') })
+  await page.mouse.up()
+  check("dropping a pane on another puts it in that agent's place", !!(await until(async () => (await paneNames()) === 'Three,Two,One')), await paneNames())
+  check('and saves it', !!(await until(async () => saved() === 'Three,Two,One')), saved())
+  check('the running agent kept its session', (await live(one.id))?.sessionId === session)
+  check('and its terminal', String(await inv('pty:buffer', lib.ptyKey(alpha, one.id))).includes('Done: hello'))
+
+  // The shortcut moves the focused agent: One (last) to the left.
+  await page.locator('.agent-tab', { hasText: 'One' }).click()
+  await lib.sleep(300)
+  await page.keyboard.press('Control+Alt+Shift+ArrowLeft')
+  check('Ctrl+Alt+Shift+Left moves the focused agent left', !!(await until(async () => saved() === 'Three,One,Two')), saved())
+
+  // Two pages: four more agents (seven in all).
+  for (const name of ['Four', 'Five', 'Six', 'Seven']) await lib.addAgent(inv, alpha, { name })
+  await until(async () => (await page.locator('.page-switch button').count()) === 2)
+  check('seven agents make two pages', (await page.locator('.page-switch button').count()) === 2)
+  // Move Right on the sixth (last of page 1) takes it to page 2.
+  await page.locator('.agent-tab', { hasText: 'Six' }).click({ button: 'right' })
+  await page.locator('.menu .menu-item', { hasText: 'Move Right' }).click()
+  check('Move Right crosses to the next page', !!(await until(async () => saved() === 'Three,One,Two,Four,Five,Seven,Six')), saved())
+  check('and the view follows the agent to its page', !!(await until(async () => (await page.locator('.page-switch button.active').innerText()).trim() === '2')))
+
+  // Drop Six's tab on page 1's button: the last place on page 1.
+  await drag(tab('Six'), page.locator('.page-switch button[aria-label="Agent page 1"]'))
+  check("dropping on a page button moves it to that page's last place", !!(await until(async () => saved() === 'Three,One,Two,Four,Five,Six,Seven')), saved())
+  await page.screenshot({ path: path.join(lib.WORK, 'reorder-3-pages.png') })
+  check('still running throughout', (await live(one.id))?.sessionId === session)
+
+  await inv('session:stop', alpha)
+  await lib.sleep(1500)
+  await app.close()
+  console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

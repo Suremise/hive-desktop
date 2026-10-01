@@ -3,10 +3,10 @@ import type { AgentInfo, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatc
 import { TASK_COLUMNS, columnColor, columnLabel, stalledReason } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
-import { NO_PROJECTS, agentProviderOf, confirm, get, loadTasks, notify, revealAgent, set, useStore } from '../store'
+import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, useStore } from '../store'
 import { selectProject } from '../actions'
 import { cx, timeAgo } from '../util'
-import { Icon, IconButton, InfoTip, Markdown, Modal, STATUS_TEXT, statusText, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, STATUS_TEXT, statusText, Tooltip, useBusy, useContextMenu, type MenuEntry } from './ui'
 import { ProviderIcon } from './ProviderIcon'
 
 const NO_TASKS: TaskCard[] = []
@@ -42,26 +42,35 @@ async function change(n: number, patch: TaskPatch, what = 'Could not change the 
   }
 }
 
+// Cards being archived from the menu: a second click while one runs is ignored.
+const archiving = new Set<number>()
+
 async function archive(c: TaskCard, archived: boolean): Promise<void> {
+  if (archiving.has(c.number)) return
+  archiving.add(c.number)
   try {
     await call('tasks:archive', c.number, archived)
     await loadTasks()
   } catch (e) {
     notify('error', archived ? 'Could not archive the card' : 'Could not bring the card back', errorMessage(e))
+  } finally {
+    archiving.delete(c.number)
   }
 }
 
-async function remove(c: TaskCard): Promise<boolean> {
-  const ok = await confirm({ title: `Delete #${c.number}?`, message: `"${c.title}" goes to the Recycle Bin, with its comments and history. Archive it instead to keep it out of sight but searchable.`, confirmLabel: 'Delete', danger: true })
-  if (!ok) return false
-  try {
-    await call('tasks:delete', c.number)
-    await loadTasks()
-    return true
-  } catch (e) {
-    notify('error', 'Could not delete the card', errorMessage(e))
-    return false
-  }
+/** Deletes a card after asking; the question stays open, with a spinner, until it's done. */
+function remove(c: TaskCard): Promise<boolean> {
+  return confirm({
+    title: `Delete #${c.number}?`,
+    message: `"${c.title}" goes to the Recycle Bin, with its comments and history. Archive it instead to keep it out of sight but searchable.`,
+    confirmLabel: 'Delete',
+    busyLabel: 'Deleting…',
+    danger: true,
+    run: async () => {
+      await call('tasks:delete', c.number)
+      await loadTasks()
+    }
+  })
 }
 
 /** The right-click menu of a card. */
@@ -458,7 +467,7 @@ export function TaskDialog() {
   const [links, setLinks] = useState('')
   const [preview, setPreview] = useState(false)
   const [comment, setComment] = useState('')
-  const [busy, setBusy] = useState(false)
+  const action = useBusy()
   const [showHistory, setShowHistory] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
   // The fields as the dialog opened: Save sends only what the user changed since, so a change an agent made
@@ -466,8 +475,10 @@ export function TaskDialog() {
   const orig = useRef<Record<string, string>>({})
 
   // Filled from the card when it opens (later changes by agents show in its comments and history).
+  const { setError: setActionError } = action
   useEffect(() => {
     if (open === null) return
+    setActionError(null)
     const c = typeof open === 'number' ? get().tasks.find((x) => x.number === open) : null
     setTitle(c?.title ?? '')
     setDescription(c?.description ?? '')
@@ -481,7 +492,7 @@ export function TaskDialog() {
     orig.current = {
       title: c?.title ?? '',
       description: c?.description ?? '',
-      project: c ? c.project : '',
+      project: c ? c.project : typeof open === 'object' ? open.project : '',
       agent: c?.agent ?? '',
       column: c?.column ?? 'todo',
       labels: c?.labels.join(', ') ?? '',
@@ -493,6 +504,7 @@ export function TaskDialog() {
     setComment('')
     setShowHistory(false)
     setTimeout(() => (c ? null : titleRef.current?.focus()), 30)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   if (open === null || (!isNew && !card)) return null
@@ -502,64 +514,98 @@ export function TaskDialog() {
     .split(',')
     .map((l) => l.trim())
     .filter(Boolean)
+  const fields: Record<string, string> = { title, description, project, agent, column, labels, blocked, blockedBy, links }
+  // Edits not saved yet: the fields as they opened, or a comment being written.
+  const edited = Object.keys(fields).filter((k) => fields[k] !== (orig.current[k] ?? ''))
+  const unsaved = edited.length > 0 || !!comment.trim()
 
-  const save = async (): Promise<void> => {
-    if (!title.trim()) return notify('warning', 'A card needs a title')
-    setBusy(true)
-    try {
-      if (isNew) {
-        const c = await call('tasks:create', { title, description, project, agent: agent || null, column, labels: labelList })
-        const extra: TaskPatch = {}
-        if (blocked.trim()) extra.blocked = blocked
-        if (refs(blockedBy).length) extra.blockedBy = refs(blockedBy)
-        if (refs(links).length) extra.links = refs(links)
-        if (Object.keys(extra).length) await call('tasks:update', c.number, extra)
-      } else if (card) {
-        const was = orig.current
-        const patch: TaskPatch = {}
-        if (title !== was.title) patch.title = title
-        if (description !== was.description) patch.description = description
-        if (project !== was.project) patch.project = project
-        if (agent !== was.agent) patch.agent = agent || null
-        if (column !== was.column) patch.column = column
-        if (labels !== was.labels) patch.labels = labelList
-        if (blocked !== was.blocked) patch.blocked = blocked.trim() || null
-        if (blockedBy !== was.blockedBy) patch.blockedBy = refs(blockedBy)
-        if (links !== was.links) patch.links = refs(links)
-        // Someone else changed a field the user also changed: the user's choice wins, but they are told.
-        const now: Record<string, string> = {
-          title: card.title,
-          description: card.description,
-          project: card.project,
-          agent: card.agent ?? '',
-          column: card.column,
-          labels: card.labels.join(', '),
-          blocked: card.blocked ?? '',
-          blockedBy: card.blockedBy.map((n) => `#${n}`).join(' '),
-          links: card.links.map((n) => `#${n}`).join(' ')
-        }
-        const clashed = Object.keys(patch).filter((k) => now[k] !== was[k])
-        if (Object.keys(patch).length) await call('tasks:update', card.number, patch)
-        if (clashed.length) notify('warning', `#${card.number} was also changed while you edited it`, `Your ${clashed.join(', ')} replaced the change made meanwhile (see its history).`)
-      }
-      await loadTasks()
-      close()
-    } catch (e) {
-      notify('error', isNew ? 'Could not add the card' : 'Could not save the card', errorMessage(e))
-    } finally {
-      setBusy(false)
+  /** Closing (Escape, ×, outside, Cancel): asks first when something would be lost. */
+  const tryClose = async (): Promise<void> => {
+    if (action.busy) return
+    if (unsaved) {
+      const what = [edited.length ? (isNew ? 'this new card' : 'your changes to the card') : '', comment.trim() ? 'the comment you are writing' : ''].filter(Boolean).join(' and ')
+      const choice = await choose({
+        title: 'Discard unsaved changes?',
+        message: `Closing loses ${what}.`,
+        choices: [
+          { label: 'Discard', value: 'discard' },
+          { label: 'Keep Editing', value: 'keep' }
+        ]
+      })
+      if (choice !== 'discard') return
     }
+    close()
+  }
+
+  /** Saves the card (creates a new one); the dialog's fields become the saved ones. */
+  const persist = async (): Promise<void> => {
+    if (!title.trim()) throw new Error('A card needs a title.')
+    if (isNew) {
+      const c = await call('tasks:create', { title, description, project, agent: agent || null, column, labels: labelList })
+      const extra: TaskPatch = {}
+      if (blocked.trim()) extra.blocked = blocked
+      if (refs(blockedBy).length) extra.blockedBy = refs(blockedBy)
+      if (refs(links).length) extra.links = refs(links)
+      if (Object.keys(extra).length) await call('tasks:update', c.number, extra)
+    } else if (card) {
+      const was = orig.current
+      const patch: TaskPatch = {}
+      if (title !== was.title) patch.title = title
+      if (description !== was.description) patch.description = description
+      if (project !== was.project) patch.project = project
+      if (agent !== was.agent) patch.agent = agent || null
+      if (column !== was.column) patch.column = column
+      if (labels !== was.labels) patch.labels = labelList
+      if (blocked !== was.blocked) patch.blocked = blocked.trim() || null
+      if (blockedBy !== was.blockedBy) patch.blockedBy = refs(blockedBy)
+      if (links !== was.links) patch.links = refs(links)
+      // Someone else changed a field the user also changed: the user's choice wins, but they are told.
+      const now: Record<string, string> = {
+        title: card.title,
+        description: card.description,
+        project: card.project,
+        agent: card.agent ?? '',
+        column: card.column,
+        labels: card.labels.join(', '),
+        blocked: card.blocked ?? '',
+        blockedBy: card.blockedBy.map((n) => `#${n}`).join(' '),
+        links: card.links.map((n) => `#${n}`).join(' ')
+      }
+      const clashed = Object.keys(patch).filter((k) => now[k] !== was[k])
+      if (Object.keys(patch).length) await call('tasks:update', card.number, patch)
+      if (clashed.length) notify('warning', `#${card.number} was also changed while you edited it`, `Your ${clashed.join(', ')} replaced the change made meanwhile (see its history).`)
+    }
+    orig.current = { ...fields }
+    await loadTasks()
+  }
+
+  /** Save: the card's fields, and a comment being written (so nothing in the dialog is left behind). */
+  const save = async (): Promise<void> => {
+    const r = await action.run('save', async () => {
+      await persist()
+      if (card && comment.trim()) {
+        await call('tasks:comment', card.number, comment)
+        setComment('')
+        await loadTasks()
+      }
+    })
+    if (r) close()
+  }
+
+  /** Start…: unsaved edits are saved first, so the agent gets the card as shown (a failed save starts nothing). */
+  const start = async (): Promise<void> => {
+    if (!card) return
+    if (edited.length && !(await action.run('start', persist))) return
+    set({ taskStartFor: card.number })
   }
 
   const addComment = async (): Promise<void> => {
     if (!card || !comment.trim()) return
-    try {
+    const r = await action.run('comment', async () => {
       await call('tasks:comment', card.number, comment)
-      setComment('')
       await loadTasks()
-    } catch (e) {
-      notify('error', 'Could not add the comment', errorMessage(e))
-    }
+    })
+    if (r) setComment('')
   }
 
   return (
@@ -567,7 +613,9 @@ export function TaskDialog() {
       title={isNew ? 'New Card' : `#${card!.number}`}
       icon="checklist"
       wide
-      onClose={close}
+      onClose={() => void tryClose()}
+      busy={!!action.busy}
+      error={action.error}
       footer={
         <>
           {card && (
@@ -575,25 +623,37 @@ export function TaskDialog() {
               <button className="btn subtle danger-text" onClick={() => void remove(card).then((ok) => ok && close())}>
                 <Icon name="trash" /> Delete
               </button>
-              <button className="btn subtle" onClick={() => void archive(card, !card.archived).then(close)}>
+              <BusyButton
+                className="subtle"
+                busy={action.busy === 'archive'}
+                busyLabel={card.archived ? 'Bringing back…' : 'Archiving…'}
+                onClick={() =>
+                  void action
+                    .run('archive', async () => {
+                      await call('tasks:archive', card.number, !card.archived)
+                      await loadTasks()
+                    })
+                    .then((r) => r && close())
+                }
+              >
                 <Icon name={card.archived ? 'discard' : 'archive'} /> {card.archived ? 'Bring Back' : 'Archive'}
-              </button>
+              </BusyButton>
               {!card.archived && (
-                <Tooltip content={!card.project ? 'Give it a project first: its agent works there.' : card.column === 'done' ? 'It is done.' : 'Give it to an agent, with the card as its prompt.'}>
-                  <button className="btn subtle" disabled={!card.project || card.column === 'done'} onClick={() => set({ taskStartFor: card.number })}>
-                    <Icon name="play" /> Start…
-                  </button>
+                <Tooltip content={!card.project ? 'Give it a project first: its agent works there.' : card.column === 'done' ? 'It is done.' : edited.length ? 'Save your changes, then give it to an agent with the card as its prompt.' : 'Give it to an agent, with the card as its prompt.'}>
+                  <BusyButton className="subtle" busy={action.busy === 'start'} busyLabel="Saving…" disabled={!card.project || card.column === 'done' || !title.trim()} onClick={() => void start()}>
+                    <Icon name="play" /> {edited.length ? 'Save and Start…' : 'Start…'}
+                  </BusyButton>
                 </Tooltip>
               )}
             </>
           )}
           <div className="grow" />
-          <button className="btn subtle" onClick={close}>
+          <button className="btn subtle" onClick={() => void tryClose()}>
             Cancel
           </button>
-          <button className="btn primary" disabled={busy || !title.trim() || card?.archived} onClick={() => void save()}>
+          <BusyButton className="primary" busy={action.busy === 'save'} busyLabel={isNew ? 'Adding…' : 'Saving…'} disabled={!title.trim() || card?.archived} onClick={() => void save()}>
             {isNew ? 'Add Card' : 'Save'}
-          </button>
+          </BusyButton>
         </>
       }
     >
@@ -680,9 +740,9 @@ export function TaskDialog() {
           {!card.archived && (
             <div className="task-comment-new">
               <textarea className="input" placeholder="Add a comment" value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && void addComment()} />
-              <button className="btn small" disabled={!comment.trim()} onClick={() => void addComment()}>
+              <BusyButton className="small" busy={action.busy === 'comment'} busyLabel="Posting…" disabled={!comment.trim()} onClick={() => void addComment()}>
                 Comment
-              </button>
+              </BusyButton>
             </div>
           )}
           <div className="task-section-h clickable" onClick={() => setShowHistory(!showHistory)}>
@@ -720,7 +780,8 @@ export function TaskStartDialog() {
   const [choice, setChoice] = useState<StartChoice | null>(null)
   const [name, setName] = useState('')
   const [provider, setProvider] = useState<ProviderId | ''>('')
-  const [busy, setBusy] = useState(false)
+  const action = useBusy()
+  const { setError: setStartError } = action
 
   const free = (a: AgentInfo): boolean => !a.live || a.live.status === 'ready' || a.live.status === 'finished' || a.live.status === 'stopped'
   useEffect(() => {
@@ -730,6 +791,7 @@ export function TaskStartDialog() {
     setChoice(first ? { kind: 'agent', id: first.id } : { kind: 'new' })
     setName('')
     setProvider('')
+    setStartError(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [n])
 
@@ -747,22 +809,17 @@ export function TaskStartDialog() {
 
   const go = async (): Promise<void> => {
     if (!choice) return
-    setBusy(true)
-    try {
-      const target =
-        choice.kind === 'agent'
-          ? ({ kind: 'agent', agentId: choice.id } as const)
-          : ({ kind: 'new-agent', worktree: choice.kind === 'worktree', name: name.trim() || undefined, provider: provider || undefined } as const)
-      const r = await call('tasks:start', card.number, target)
-      close()
-      set({ taskOpen: null })
-      await loadTasks()
-      notify('success', `#${card.number} started on ${r.agentName}`, card.title, [{ label: 'Show', command: 'agent.show', args: [project.path, r.agentId] }])
-    } catch (e) {
-      notify('error', `Could not start #${card.number}`, errorMessage(e))
-    } finally {
-      setBusy(false)
-    }
+    const target =
+      choice.kind === 'agent'
+        ? ({ kind: 'agent', agentId: choice.id } as const)
+        : ({ kind: 'new-agent', worktree: choice.kind === 'worktree', name: name.trim() || undefined, provider: provider || undefined } as const)
+    // The dialog stays open (no closing, a spinner) until the agent has the card; a failure shows here.
+    const r = await action.run('start', () => call('tasks:start', card.number, target))
+    if (!r) return
+    close()
+    set({ taskOpen: null })
+    await loadTasks()
+    notify('success', `#${card.number} started on ${r.value.agentName}`, card.title, [{ label: 'Show', command: 'agent.show', args: [project.path, r.value.agentId] }])
   }
 
   return (
@@ -770,14 +827,16 @@ export function TaskStartDialog() {
       title={`Start #${card.number}: ${card.title}`}
       icon="play"
       onClose={close}
+      busy={!!action.busy}
+      error={action.error}
       footer={
         <>
           <button className="btn subtle" onClick={close}>
             Cancel
           </button>
-          <button className="btn primary" disabled={!choice || busy} onClick={() => void go()}>
-            <Icon name="play" /> Start
-          </button>
+          <BusyButton className="primary" busy={action.busy === 'start'} busyLabel={choice?.kind === 'worktree' ? 'Creating the worktree…' : 'Starting…'} disabled={!choice} onClick={() => void go()}>
+            <Icon name="play" /> {action.error ? 'Try Again' : 'Start'}
+          </BusyButton>
         </>
       }
     >
