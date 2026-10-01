@@ -53,7 +53,7 @@ const SECTIONS: { id: Section; label: string; icon: string; desc: string; provid
   { id: 'notifications', label: 'Notifications', icon: 'bell', desc: 'Chimes and desktop notifications when agents finish or need you.' },
   { id: 'sessions', label: 'Sessions', icon: 'history', desc: 'Transcript backups, cache estimates and session behaviour.' },
   { id: 'assistant', label: 'Assistant', icon: 'person', desc: "The Hive Assistant's defaults: the side panel's overseer of each workspace (Ctrl+Alt+I). Each workspace can change them in the panel's Assistant Settings." },
-  { id: 'agents', label: 'Agents & Worktrees', icon: 'organization', desc: 'Defaults for projects running several agents: file locks, new worktrees and merging. Projects can override them.' },
+  { id: 'agents', label: 'Agents & Worktrees', icon: 'organization', desc: 'Defaults for projects running several agents: file locks, new worktrees and merging (projects can override them), and how long background tasks count.' },
   { id: 'keybindings', label: 'Keyboard Shortcuts', icon: 'keyboard', desc: 'Change, remove or add shortcuts for any command. Projects can set their own for project and session commands (Project Settings → Keyboard Shortcuts).' },
   { id: 'agentApi', label: 'Agent API', icon: 'broadcast', desc: 'Local API and built-in MCP server that let agents interact with Hive.' },
   { id: 'advanced', label: 'Advanced', icon: 'tools', desc: 'Logs, data and resetting Hive.' }
@@ -91,7 +91,7 @@ const SETTINGS: SettingDef[] = [
   { section: 'notifications', key: 'chimeSound', title: 'Chime sound', desc: 'Which sound to play.', tip: 'Sounds are synthesised by Hive — no audio files needed.', type: 'custom', render: () => <ChimePicker /> },
   { section: 'notifications', key: 'chimeVolume', title: 'Chime volume', desc: 'Volume of the chime.', tip: 'Independent of Windows notification sounds.', type: 'range', min: 0, max: 1, step: 0.05 },
   { section: 'notifications', key: 'desktopNotifications', title: 'Desktop notifications', desc: 'Show Windows notifications for agent events.', tip: 'Clicking a notification opens Hive at that project.', type: 'boolean' },
-  { section: 'notifications', key: 'notifyOnFinished', title: 'Notify when an agent finishes', desc: 'Notify when a session completes its task.', tip: "Triggered when the agent's turn ends (its Stop hook).", type: 'boolean' },
+  { section: 'notifications', key: 'notifyOnFinished', title: 'Notify when an agent finishes', desc: 'Notify when a session completes its task.', tip: "Triggered when the agent's turn ends (its Stop hook), or for an agent waiting on background tasks it started, when they have ended.", type: 'boolean' },
   { section: 'notifications', key: 'notifyOnWaiting', title: 'Notify when input is needed', desc: 'Notify when a session is waiting for permission or input.', tip: "Triggered by the agent's permission prompts and questions.", type: 'boolean' },
   { section: 'notifications', key: 'onlyWhenUnfocused', title: 'Only when Hive is in the background', desc: 'Skip desktop notifications while you are looking at Hive.', tip: 'The chime still plays either way.', type: 'boolean' },
   // Sessions
@@ -113,6 +113,7 @@ const SETTINGS: SettingDef[] = [
   },
   { section: 'agents', key: 'worktreeCopy', title: 'Copy into new worktrees', desc: 'Git-ignored files copied from the project folder into each new worktree, comma separated (e.g. .env*, config/local.json).', tip: 'A new worktree only gets the files git tracks. Patterns without a slash match a file or folder name anywhere; with a slash they match a path from the project root. Projects can set their own list and a setup command (e.g. npm install) in Project Settings → Agents & Worktrees.', type: 'text', placeholder: '.env*' },
   { section: 'agents', key: 'mergeStyle', title: 'Default merge style', desc: "How a worktree agent's branch is merged back, unless you choose otherwise in the Merge dialog.", tip: 'Squash makes one commit with everything the agent did. Merge keeps its individual commits plus a merge commit.', type: 'select', options: [{ value: 'squash', label: 'Squash' }, { value: 'merge', label: 'Merge commit' }] },
+  { section: 'agents', key: 'backgroundTaskMinutes', title: 'Count background tasks for up to', desc: 'Minutes an agent waits on a background task it started (such as a test run) before Hive counts it as finished anyway.', tip: "An agent that ends its turn while a task it started is still running shows as waiting on background tasks, not finished: Claude Code carries on by itself when the task ends. Hive can't tell a test run from something that never ends, such as a dev server, so it stops counting a task after this long (a Monitor also when it expires). Codex isn't told when its background terminals end, so they are only counted and shown. 10 to 480 minutes.", type: 'number', min: 10, max: 480, step: 5 },
   // Assistant
   { section: 'assistant', key: 'provider', title: 'Provider', desc: 'The coding agent the Assistant runs, unless a workspace chooses another.', tip: 'The Assistant is independent of your project agents: a Codex Assistant can look after Claude Code agents, and the other way round.', type: 'custom', render: () => <AssistantProviderPicker /> },
   {
@@ -137,7 +138,7 @@ const SETTINGS: SettingDef[] = [
       key: `provider:${p.id}`,
       title: `With ${p.name}`,
       desc: `The model, effort, permission mode and extra arguments when the Assistant runs ${p.name}. Default follows ${p.name}'s own settings, except the mode: ${permissionLabel(p.id, p.assistantMode)}, where ${p.name} approves safe actions itself and only asks about risky ones.`,
-      tip: "Watching over the workspace rarely needs the strongest model, so a lighter one and low effort save tokens. Its default mode is the one your agents default to, so it rarely asks. Hive's own tools never ask: what they may do is set by Control above.",
+      tip: "By default it uses the same model and effort as your agents. A lighter model or low effort saves tokens but makes it careless (for example, saying it will check on an agent later and never doing so). Its default mode is the one your agents default to, so it rarely asks. Hive's own tools never ask: what they may do is set by Control above.",
       type: 'custom',
       wide: true,
       render: () => <AssistantProviderDefaults provider={p.id} />

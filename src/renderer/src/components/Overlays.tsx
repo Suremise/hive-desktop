@@ -661,7 +661,7 @@ export function AgentSetupDialog() {
 // Quit
 // ---------------------------------------------------------------------------
 
-const BUSY: SessionStatus[] = ['working', 'waiting']
+const BUSY: SessionStatus[] = ['working', 'waiting', 'background']
 
 /**
  * Asks what to do with running sessions and unsaved files when Hive quits. Main waits for
@@ -708,7 +708,7 @@ export function QuitDialog() {
     set({ quitRequest: null, quitUnsaved: [] })
     void call('app:quitDecision', choice, dontAsk)
   }
-  const working = sessions.filter((s) => s.status === 'working').length
+  const working = sessions.filter((s) => s.status === 'working' || s.status === 'background').length
   const busy = sessions.filter((s) => BUSY.includes(s.status)).length
   const verb = closing ? (unsaved.length && keep === 'save' ? 'Save and close' : what) : unsaved.length && keep === 'save' ? 'Save and quit' : 'Quit'
   const parts = (p: string): string[] => p.split(/[\\/]/)
@@ -776,6 +776,7 @@ export function QuitDialog() {
             <strong>{s.project}</strong>{s.agent && <span className="muted">· {s.agent}</span>}
             <span className="faint">{STATUS_TEXT[s.status]}</span>
             {s.status === 'working' && <span className="badge warn">Will be interrupted</span>}
+            {s.status === 'background' && <span className="badge warn">Background tasks will stop</span>}
             {s.status === 'waiting' && <span className="badge warn">Waiting for you</span>}
           </div>
         ))}

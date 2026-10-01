@@ -180,11 +180,11 @@ describe('providers migration', () => {
 
   it('a fresh install starts with every provider off', () => {
     expect(Object.values(DEFAULT_SETTINGS.providers).every((p) => !p.enabled)).toBe(true)
-    expect(DEFAULT_APP_CONFIG.version).toBe(2)
+    expect(DEFAULT_APP_CONFIG.version).toBe(3)
   })
   it('moves 0.1 Claude Code settings over and keeps Claude Code on', () => {
     const c = load(v1)
-    expect(c.version).toBe(2)
+    expect(c.version).toBe(3)
     expect(c.settings.defaultProvider).toBe('claude-code')
     expect(c.settings.providers['claude-code']).toMatchObject({ enabled: true, executablePath: 'C:\\x\\claude.exe', defaultModel: 'opus', defaultEffort: 'high', defaultPermissionMode: 'acceptEdits', enableDangerousMode: true, extraArgs: '--verbose', checkUpdatesOnLaunch: false })
     expect(c.observedDefaultModel).toEqual({ 'claude-code': 'claude-opus-5-5' })
@@ -194,6 +194,18 @@ describe('providers migration', () => {
   it('leaves a version 2 config alone', () => {
     const c = load({ version: 2, settings: { providers: { 'claude-code': { enabled: false } } } })
     expect(c.settings.providers['claude-code'].enabled).toBe(false)
+  })
+  it("moves the Assistant off 0.2's lighter defaults onto the agents', keeping other choices", () => {
+    const assistant = (providers: Record<string, unknown>) => ({ settings: { assistant: { providers } } })
+    const old = load({ version: 2, ...assistant({ 'claude-code': { model: 'sonnet', effort: 'low', permissionMode: '', extraArgs: '' }, codex: { model: '', effort: 'low', permissionMode: '', extraArgs: '' } }) })
+    expect(old.settings.assistant.providers['claude-code']).toMatchObject({ model: '', effort: '' })
+    expect(old.settings.assistant.providers.codex).toMatchObject({ model: '', effort: '' })
+    const chosen = load({ version: 2, ...assistant({ 'claude-code': { model: 'opus', effort: 'medium', permissionMode: '', extraArgs: '' }, codex: { model: 'gpt-6.1-sol', effort: 'high', permissionMode: '', extraArgs: '' } }) })
+    expect(chosen.settings.assistant.providers['claude-code']).toMatchObject({ model: 'opus', effort: 'medium' })
+    expect(chosen.settings.assistant.providers.codex).toMatchObject({ model: 'gpt-6.1-sol', effort: 'high' })
+    // Once migrated, the same values are the user's choice.
+    expect(load({ version: 3, ...assistant({ 'claude-code': { model: 'sonnet', effort: 'low', permissionMode: '', extraArgs: '' } }) }).settings.assistant.providers['claude-code']).toMatchObject({ model: 'sonnet', effort: 'low' })
+    expect(DEFAULT_SETTINGS.assistant.providers['claude-code']).toMatchObject({ model: '', effort: '' })
   })
   it('writes the Claude Code settings where 0.1 reads them', async () => {
     const { withLegacySettings } = await import('../src/shared/defaults')

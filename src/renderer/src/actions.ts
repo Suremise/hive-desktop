@@ -5,7 +5,7 @@ import { MANY_AGENTS, MAX_AGENTS, sessionInAgentFolder, withPageLayout } from '@
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { formatTokens } from './util'
-import { STATUS_TEXT } from './components/ui'
+import { statusText } from './components/ui'
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
 
 /** Runs an async action and shows a toast if it fails. */
@@ -362,7 +362,7 @@ export async function stopAllAgents(path: string): Promise<void> {
   const ok = await confirm({
     title: running.length === 1 ? 'Stop the agent?' : 'Stop all agents?',
     message: `These ${running.length === 1 ? 'agent stops' : `${running.length} agents stop`} in ${p!.name}:`,
-    detail: `${running.map((a) => `• ${a.name} — ${a.live!.statusMessage ?? STATUS_TEXT[a.live!.status]}`).join('\n')}\n\nTheir conversations are kept and can be resumed later.`,
+    detail: `${running.map((a) => `• ${a.name} — ${statusText(a.live!)}`).join('\n')}\n\nTheir conversations are kept and can be resumed later.`,
     confirmLabel: running.length === 1 ? 'Stop' : 'Stop all',
     danger: true
   })

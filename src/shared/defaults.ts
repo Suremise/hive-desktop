@@ -64,24 +64,25 @@ export const DEFAULT_SETTINGS: AppSettings = {
     provideHiveMcp: true,
     allowSessionInput: false
   },
-  // A lighter model and effort than the agents', to spend fewer tokens watching over the workspace.
+  // The agents' model and effort (empty): a lighter choice saves tokens but makes the Assistant careless.
   assistant: {
     provider: '',
     persona: 'overseer',
     control: 'projects',
     typingPause: 15,
     enterEndsPause: true,
-    providers: Object.fromEntries(PROVIDERS.map((p) => [p.id, { model: p.assistantModel ?? '', effort: p.assistantEffort ?? '', permissionMode: '', extraArgs: '' }]))
+    providers: Object.fromEntries(PROVIDERS.map((p) => [p.id, { model: '', effort: '', permissionMode: '', extraArgs: '' }]))
   },
   agents: {
     fileLocks: 'block',
     worktreeCopy: '.env*',
-    mergeStyle: 'squash'
+    mergeStyle: 'squash',
+    backgroundTaskMinutes: 60
   }
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
-  version: 2,
+  version: 3,
   settings: DEFAULT_SETTINGS,
   recentWorkspaces: [],
   lastWorkspace: null,
@@ -188,7 +189,7 @@ export function layoutPanes(layout: SessionLayout | undefined): number {
   return SESSION_LAYOUTS.find((l) => l.value === layout)?.panes ?? 1
 }
 
-const URGENCY: Record<string, number> = { waiting: 6, working: 5, error: 4, starting: 3, finished: 2, ready: 1, stopped: 0 }
+const URGENCY: Record<string, number> = { waiting: 7, working: 6, background: 5, error: 4, starting: 3, finished: 2, ready: 1, stopped: 0 }
 
 /**
  * The state that speaks for several agents in one dot: the most urgent status (needs input, then
@@ -237,6 +238,9 @@ const V1_LIMITS: Record<string, Pick<PlanLimit, 'id' | 'label' | 'windowMinutes'
  * Upgrades a config saved by an older version. `raw` is the file as read (before defaults were merged
  * in), so version 1 (Claude Code only, 0.1.x) can be told apart from a fresh install.
  */
+/** The Assistant's model and effort defaults before 0.3, saved into every config. */
+const OLD_ASSISTANT_DEFAULTS: Record<string, { model?: string; effort: string }> = { 'claude-code': { model: 'sonnet', effort: 'low' }, codex: { effort: 'low' } }
+
 export function migrateConfig(cfg: AppConfig, raw?: Record<string, any>): AppConfig {
   const g = cfg.settings.general
   const q = g.confirmOnQuit as unknown
@@ -272,8 +276,17 @@ export function migrateConfig(cfg: AppConfig, raw?: Record<string, any>): AppCon
       warnings[meta ? `${CLAUDE_CODE}:${meta.id}` : k] = v as AppConfig['planWarnings'][string]
     }
     cfg.planWarnings = warnings
-    cfg.version = 2
   }
+  if (raw && (raw.version ?? 1) < 3) {
+    // 0.2 saved a lighter model and effort as the Assistant's defaults; they now follow the agents'.
+    for (const [id, old] of Object.entries(OLD_ASSISTANT_DEFAULTS)) {
+      const a = cfg.settings.assistant.providers[id]
+      if (!a) continue
+      if (old.model && a.model === old.model) a.model = ''
+      if (a.effort === old.effort) a.effort = ''
+    }
+  }
+  cfg.version = 3
   // Settings for providers this version doesn't know are kept (a newer Hive wrote them), but never used.
   if (!isKnownProvider(cfg.settings.defaultProvider)) cfg.settings.defaultProvider = DEFAULT_PROVIDER
   return cfg

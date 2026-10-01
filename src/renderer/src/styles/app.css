@@ -675,6 +675,7 @@ kbd {
 .dot.starting, .dot.ready { background: var(--info); }
 .dot.working { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 .dot.waiting { background: var(--warning); animation: pulse 0.8s ease-in-out infinite; }
+.dot.background { background: var(--accent); opacity: 0.6; animation: pulse 2.4s ease-in-out infinite; }
 .dot.finished { background: var(--success); }
 .dot.error { background: var(--error); }
 .dot.unseen { box-shadow: 0 0 0 3px var(--accent-soft); }

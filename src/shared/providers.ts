@@ -51,6 +51,12 @@ export interface ProviderCapabilities {
    * empty prompt), where Hive can no longer see or stop it. Hive turns that off unless allowBackgroundSessions.
    */
   backgroundSessions: boolean
+  /**
+   * The CLI starts a new turn by itself when one of the agent's background tasks ends (Claude Code's task
+   * notifications). An agent with such tasks open is then shown as background, not finished; without it the
+   * tasks are only counted.
+   */
+  backgroundWakes: boolean
 }
 
 export interface ProviderDescriptor {
@@ -82,9 +88,6 @@ export interface ProviderDescriptor {
    * so it rarely asks. Not a plan mode, which blocks the MCP tools the Assistant works with.
    */
   assistantMode: PermissionMode
-  /** The Hive Assistant's default model and effort: lighter than the agents', to spend fewer tokens. */
-  assistantModel?: string
-  assistantEffort?: EffortLevel
   /**
    * A warning for a mode the CLI may not run with a model (it then runs another), or null. A warning, not a
    * rule: which models support a mode is the CLI's to decide and can change, and Hive shows the mode it runs in.

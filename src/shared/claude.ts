@@ -137,8 +137,6 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
   defaultPermissionMode: 'auto',
   // Plan mode would block the hive tools.
   assistantMode: 'auto',
-  assistantModel: 'sonnet',
-  assistantEffort: 'low',
   // Claude Code 2.1.286 runs Haiku in Manual when asked for Auto, without saying so.
   modeCaveat: (mode, model) =>
     mode === 'auto' && /haiku/i.test(model) ? "Claude Code may not offer Auto with Haiku. If it doesn't, it runs in Manual (asking before edits and commands), and Hive shows that mode." : null,
@@ -161,7 +159,8 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
     oneMContext: true,
     imagePaste: true,
     lockAsk: true,
-    backgroundSessions: true
+    backgroundSessions: true,
+    backgroundWakes: true
   },
   reservedKeys: ['MOD+B', 'MOD+K', 'MOD+O', 'MOD+R', 'MOD+T', 'MOD+G'],
   instructionsFile: 'CLAUDE.md',

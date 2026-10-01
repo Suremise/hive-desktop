@@ -260,7 +260,8 @@ async function projectSummary(p: string) {
       worktree: a.worktree?.path ?? null,
       status: a.live?.status ?? 'stopped',
       sessionId: a.live?.sessionId ?? null,
-      statusMessage: a.live?.statusMessage ?? null
+      statusMessage: a.live?.statusMessage ?? null,
+      backgroundTasks: a.live?.backgroundTasks ?? 0
     })),
     settings: info.config
   }
@@ -485,8 +486,18 @@ route('POST', '/v1/projects', async ({ body }) => {
   })
 })
 
-const busy = (s: LiveSessionState | null): boolean => !!s && (s.status === 'working' || s.status === 'waiting' || s.status === 'starting')
-const STATUS_WORDS: Record<string, string> = { working: 'working', waiting: 'waiting for the user', starting: 'starting', ready: 'idle', finished: 'idle (finished its task)', error: 'in error', stopped: 'stopped' }
+const busy = (s: LiveSessionState | null): boolean => !!s && (s.status === 'working' || s.status === 'waiting' || s.status === 'starting' || s.status === 'background')
+const STATUS_WORDS: Record<string, string> = {
+  working: 'working',
+  waiting: 'waiting for the user',
+  starting: 'starting',
+  background: 'waiting on background tasks it started',
+  ready: 'idle',
+  finished: 'idle (finished its task)',
+  error: 'in error',
+  stopped: 'stopped'
+}
+const tasksWord = (n: number): string => `${n} background task${n === 1 ? '' : 's'}`
 const clip = (t: string, n: number): string => (t.length > n ? `${t.slice(0, n)}…` : t)
 
 async function agentDefOf(p: string, agentId: string) {
@@ -609,6 +620,9 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
     if (st.status === 'starting') throw new HttpError(409, `${a.name} is still starting. Wait for it (hive_wait_for_agents), then try again.`)
     if (st.status === 'waiting') throw new HttpError(409, `${a.name} is waiting for the user${st.statusMessage ? ` (${st.statusMessage})` : ''}. Tell the user; don't answer for them.`)
     if (st.status === 'working') throw new HttpError(409, `${a.name} is working. Wait until it's idle (hive_wait_for_agents), then give it the task.`)
+    if (st.status === 'background') {
+      throw new HttpError(409, `${a.name} is waiting on ${tasksWord(st.backgroundTasks ?? 0)} it started (such as a test run) and carries on by itself when they end. Wait for it (hive_wait_for_agents), then give it the task. If it seems stuck, tell the user.`)
+    }
     if (sessions.userMayBeTyping(p, agentId)) throw new HttpError(409, `The user has just typed in ${a.name}'s terminal and may still be writing there. Ask the user before giving it a task.`)
     await sessions.sendPrompt(p, agentId, text)
     return { done: `Gave ${a.name} in ${basename(p)} a task: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true } }
@@ -647,6 +661,7 @@ async function agentActivity(p: string, agentId: string) {
     provider: st?.provider ?? agentProvider(a, info.config, config.settings),
     status: st?.status ?? 'stopped',
     statusMessage: st?.statusMessage ?? null,
+    backgroundTasks: st?.backgroundTasks ?? 0,
     branch: a.worktree?.branch ?? null,
     worktree: a.worktree?.path ?? null,
     sessionId: sessionId || null,
@@ -680,17 +695,19 @@ route('POST', '/v1/agents/wait', async ({ body }) => {
     targets = sessions.liveStates().filter((s) => busy(s) && workspaceOf(s.projectPath) === ws && !workspace.isAssistantHome(s.projectPath)).map((s) => ({ p: s.projectPath, id: s.agentId }))
   }
   const limit = Math.min(600, Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
+  // An agent waiting on its background tasks carries on when they end: not done yet, unless the caller says so.
+  const throughBackground = body?.ignoreBackground !== true
   const t0 = Date.now()
   const working = (): boolean => targets.some((t) => {
     const s = sessions.liveFor(t.p, t.id)
-    return !!s && (s.status === 'working' || s.status === 'starting')
+    return !!s && (s.status === 'working' || s.status === 'starting' || (throughBackground && s.status === 'background'))
   })
   while (working() && Date.now() - t0 < limit) await new Promise((r) => setTimeout(r, 1000))
   const agents = []
   for (const t of targets) {
     const def = projectAgents(await workspace.projectConfig(t.p)).find((a) => a.id === t.id)
     const s = sessions.liveFor(t.p, t.id)
-    agents.push({ project: basename(t.p), agent: def?.name ?? t.id, status: s?.status ?? 'stopped', statusMessage: s?.statusMessage ?? null })
+    agents.push({ project: basename(t.p), agent: def?.name ?? t.id, status: s?.status ?? 'stopped', statusMessage: s?.statusMessage ?? null, backgroundTasks: s?.backgroundTasks ?? 0 })
   }
   return { timedOut: working(), waitedSeconds: Math.round((Date.now() - t0) / 1000), agents }
 })

@@ -10,7 +10,8 @@ import { config } from '../../config'
 import { claudeFileAllowed, copyDir, hashDir, isDir, readJson, removePath, writeJsonAtomic } from '../../fsutil'
 import { createLogger } from '../../logger'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, toSpawnable } from '../common'
-import type { CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillRoots } from '../types'
+import type { BackgroundTaskEvent, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillRoots } from '../types'
+import { claudeBackgroundTasks } from './background'
 import { ConversationParser, claudeImageData } from './conversation'
 import { ClaudeUsageParser, encodeProjectPath, parseTranscript } from './usage'
 
@@ -272,6 +273,10 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     // reach: Stop would only close the terminal and the session would keep running. Off unless the user allows it.
     const env = ctx.allowBackgroundSessions ? ctx.env : { ...ctx.env, CLAUDE_CODE_DISABLE_AGENT_VIEW: '1' }
     return { file: s.file, args: s.args, env }
+  }
+
+  backgroundTasks(appended: string): BackgroundTaskEvent[] {
+    return claudeBackgroundTasks(appended)
   }
 
   backgroundJobIn(output: string): string | null {

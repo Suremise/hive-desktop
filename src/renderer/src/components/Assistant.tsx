@@ -14,7 +14,7 @@ import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { PaneResizer, usePaneSize } from './Resizer'
 import { TerminalView } from './TerminalView'
-import { Icon, IconButton, Modal, STATUS_TEXT, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, Modal, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
 /**
  * The Hive Assistant's side panel: the workspace's overseer. Its header (status, persona, controls), what is
@@ -196,7 +196,7 @@ function AssistantRail({ a }: { a: AgentInfo | null }) {
       {asking > 0 ? (
         <Icon name="bell-dot" className="assistant-rail-asking" title="The Assistant is asking you something" />
       ) : (
-        live && <span className={cx('dot', live.status, live.unseen && 'unseen')} title={live.statusMessage ?? STATUS_TEXT[live.status]} />
+        live && <span className={cx('dot', live.status, live.unseen && 'unseen')} title={statusText(live)} />
       )}
       <span className="assistant-rail-label">Hive Assistant</span>
     </div>
@@ -365,7 +365,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
           <Icon name="chevron-down" />
         </button>
       </Tooltip>
-      <span className="faint pane-status">{live ? live.statusMessage ?? STATUS_TEXT[live.status] : 'Not running'}</span>
+      <span className="faint pane-status">{live ? statusText(live) : 'Not running'}</span>
       <div className="grow" />
       {buttons &&
         (live ? (
@@ -476,12 +476,12 @@ function WorkspaceOverview() {
       <div className="assistant-agents">
         {p.agents.length === 0 && <span className="faint">no agents</span>}
         {p.agents.map((a) => (
-          <Tooltip key={a.id} content={`${a.name}: ${a.live ? a.live.statusMessage ?? STATUS_TEXT[a.live.status] : 'not running'}${a.worktree ? ` · worktree ${a.worktree.branch}` : ''}`}>
+          <Tooltip key={a.id} content={`${a.name}: ${a.live ? statusText(a.live) : 'not running'}${a.worktree ? ` · worktree ${a.worktree.branch}` : ''}`}>
             <span className="assistant-agent" onClick={() => go(p, a.id)}>
               <span className={cx('dot', a.live?.status ?? 'stopped', a.live?.unseen && 'unseen')} />
               <ProviderIcon provider={agentProviderOf(p, a)} />
               <span className="assistant-agent-name">{a.name}</span>
-              {a.live && <span className="faint assistant-agent-status">{a.live.statusMessage ?? STATUS_TEXT[a.live.status]}</span>}
+              {a.live && <span className="faint assistant-agent-status">{statusText(a.live)}</span>}
             </span>
           </Tooltip>
         ))}

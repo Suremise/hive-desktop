@@ -40,7 +40,7 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   check('its home is not listed as a project', info.projects.map((p) => p.name).sort().join(',') === 'api,web')
   check("its sessions are kept out of git", fs.readFileSync(path.join(home, '.gitignore'), 'utf8').includes('*'))
   check('Hive\'s four personas are in the workspace', fs.readdirSync(path.join(ws, '.hive', 'personas')).sort().join(',') === 'orchestrator.md,overseer.md,planner.md,reviewer.md')
-  check('it defaults to a lighter model and Auto mode', JSON.stringify(info.assistant.config.providers['claude-code']) === JSON.stringify({ model: 'sonnet', effort: 'low', permissionMode: 'auto', extraArgs: '' }))
+  check("it defaults to the agents' model and effort, and Auto mode", JSON.stringify(info.assistant.config.providers['claude-code']) === JSON.stringify({ model: 'inherit', effort: 'inherit', permissionMode: 'auto', extraArgs: '' }))
 
   // The panel: hidden at first, Ctrl+Alt+I shows it, and each workspace remembers it.
   check('the panel starts hidden, as a strip', (await page.locator('.assistant-panel').count()) === 0 && (await page.locator('.assistant-rail', { hasText: 'Hive Assistant' }).count()) === 1)

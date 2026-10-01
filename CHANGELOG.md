@@ -1,5 +1,19 @@
 # Release Notes
 
+## Unreleased
+
+### Agents
+- **Agents waiting on background tasks aren't shown as finished.** When a Claude Code agent ends its turn while a task it started is still running (a test run, say), it shows as **waiting on background tasks** ("Waiting on 1 background task", a slow, faint dot) and carries on by itself when the task ends. The chime and the "finished" notification wait until it really has finished. Codex isn't told when its background terminals end, so Codex agents show as finished with the count next to them.
+- **Settings → Agents & Worktrees → Count background tasks for up to** (60 minutes): Hive can't tell a test run from something that never ends, such as a dev server, so it stops counting a task after this long.
+- Quitting asks first while an agent waits on background tasks (they would stop), and **Quit when agents finish** waits for them.
+
+### Hive Assistant
+- **The Assistant uses your agents' model and effort.** It used to start lighter (Sonnet, low effort), which made it careless: it could say it would check on an agent later and never do it. Settings left at the old defaults move to the agents'; ones you chose stay.
+- **It waits for agents that are waiting on background tasks**, and won't give them a new task meanwhile (`hive_wait_for_agents` waits through them unless `ignoreBackground` is set; `hive_prompt_agent` refuses them). Its instructions now tell it never to promise a later check without a wait actually running.
+
+### Fixes
+- Hive noticed what a running Codex agent wrote to its rollout (its usage, cost and settings) only about once a minute and at the end of each turn: Windows reported the file's old modified time while Codex kept appending, so Hive now checks the size too.
+
 ## 0.2.0 — 1 October 2026
 
 ### Codex, and a choice of coding agents

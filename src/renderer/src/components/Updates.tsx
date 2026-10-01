@@ -84,7 +84,7 @@ export function UpdateDialog() {
   const open = useStore((s) => s.updateOpen)
   const u = useStore((s) => s.update)
   const settings = useStore((s) => s.settings)
-  const working = useStore((s) => s.workspace?.projects.some((p) => p.agents.some((a) => a.live?.status === 'working' || a.live?.status === 'waiting')) ?? false)
+  const working = useStore((s) => s.workspace?.projects.some((p) => p.agents.some((a) => a.live?.status === 'working' || a.live?.status === 'waiting' || a.live?.status === 'background')) ?? false)
   if (!open || !u) return null
   const close = (): void => set({ updateOpen: false })
   const auto = settings?.updates.install === 'auto'

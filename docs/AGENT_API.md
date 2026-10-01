@@ -132,7 +132,7 @@ A workspace's Hive Assistant is listed in `liveSessions` with `"project": null` 
 }
 ```
 
-`status` is one of `stopped`, `starting`, `ready`, `working`, `waiting`, `finished`, `error`. `provider` is the CLI the agent runs (`claude-code` or `codex`); each agent chooses its own, so a project can mix them. `settings` is the project's configuration, with per-provider overrides under `providers`. A project has up to twelve agents, all equal, in the order they were added; a new project has none. The top-level `status`, `sessionId` and `statusMessage` are the first running agent's, and `agents` lists every agent. Agent ids are random (`a-…`) and never reused. Endpoints that act on a session take an optional `agent` — its `id` or name. Without one, the project's only agent is used; a project with several answers 400 (say which), one with none 409.
+`status` is one of `stopped`, `starting`, `ready`, `working`, `waiting`, `background`, `finished`, `error`. **background** means the agent's turn has ended but background tasks it started (a test run, say) are still running, and it carries on by itself when they end (Claude Code). Each agent also has `backgroundTasks`, how many of those are running; Codex agents count theirs but stay `finished`, since Codex isn't told when they end. `provider` is the CLI the agent runs (`claude-code` or `codex`); each agent chooses its own, so a project can mix them. `settings` is the project's configuration, with per-provider overrides under `providers`. A project has up to twelve agents, all equal, in the order they were added; a new project has none. The top-level `status`, `sessionId` and `statusMessage` are the first running agent's, and `agents` lists every agent. Agent ids are random (`a-…`) and never reused. Endpoints that act on a session take an optional `agent` — its `id` or name. Without one, the project's only agent is used; a project with several answers 400 (say which), one with none 409.
 
 `POST /v1/projects/{name}/activate` — mark the project as being worked on.
 
@@ -200,15 +200,15 @@ These read-only calls are open to every caller:
 
 `GET /v1/providers` — the coding-agent providers: whether each is turned on and installed (`enabled`, `installed`, `version`, `problem`), whether it's the default, and the `models`, `efforts` and `modes` an agent can use.
 
-`GET /v1/projects/{name}/agents/{agent}/activity` — what one agent is doing: `status` and `statusMessage`, `currentTask` (its last prompt), `latestReply`, `recentTools` (tool calls since that prompt), `lockedFiles` (relative to its folder), its branch and worktree, its session, and `userTypedSecondsAgo` (when the user last typed in its terminal). `{agent}` is the agent's name or id.
+`GET /v1/projects/{name}/agents/{agent}/activity` — what one agent is doing: `status`, `statusMessage` and `backgroundTasks`, `currentTask` (its last prompt), `latestReply`, `recentTools` (tool calls since that prompt), `lockedFiles` (relative to its folder), its branch and worktree, its session, and `userTypedSecondsAgo` (when the user last typed in its terminal). `{agent}` is the agent's name or id.
 
-`POST /v1/agents/wait` — waits until agents stop working (finished, idle, waiting for the user or stopped), or `timeoutSeconds` (5–600, default 300). Without `agents`, it waits for every agent working in the workspace.
+`POST /v1/agents/wait` — waits until agents stop working (finished, idle, waiting for the user or stopped), or `timeoutSeconds` (5–600, default 300). An agent waiting on its background tasks (`background`) still counts as working, since it carries on when they end; `"ignoreBackground": true` stops waiting at the end of its turn instead. Without `agents`, it waits for every busy agent in the workspace.
 
 ```json
 { "agents": [{ "project": "web", "agent": "Agent 2" }], "timeoutSeconds": 120 }
 ```
 
-Returns `{ "timedOut": false, "waitedSeconds": 41, "agents": [{ "project": "web", "agent": "Agent 2", "status": "finished", "statusMessage": null }] }`.
+Returns `{ "timedOut": false, "waitedSeconds": 41, "agents": [{ "project": "web", "agent": "Agent 2", "status": "finished", "statusMessage": null, "backgroundTasks": 0 }] }`.
 
 ### The Hive Assistant
 
@@ -224,7 +224,7 @@ The changes below are the Assistant's only: other callers get `403`.
 | `PATCH /v1/projects/{name}/agents/{agent}` | Control agents | Changes `name`, `provider`, `model`, `effort` or `mode` (empty clears an override) |
 | `POST /v1/projects/{name}/agents/{agent}/start` | Control agents | Starts a stopped agent: a new conversation, or `resume: true` (its last) or a session id; `prompt` as above |
 | `POST /v1/projects/{name}/agents/{agent}/stop` | Control agents | Stops it. If it is working, waiting or starting, Hive asks the user in the Assistant's panel (with the optional `reason`) and the call waits for the answer: `409` if they say no |
-| `POST /v1/projects/{name}/agents/{agent}/prompt` `{ "text" }` | Control agents | Types a task into an idle agent and sends it. `409` while it is working, starting or waiting for the user, or when the user has just typed in its terminal (Settings → Assistant → Pause after you type) |
+| `POST /v1/projects/{name}/agents/{agent}/prompt` `{ "text" }` | Control agents | Types a task into an idle agent and sends it. `409` while it is working, starting, waiting on its background tasks or waiting for the user, or when the user has just typed in its terminal (Settings → Assistant → Pause after you type) |
 | `POST /v1/projects/{name}/handover` | Control agents | Hand Over to… (below), without needing *Allow sending input to sessions*. `409` at once when the project's agents lack Hive's tools, the user has just typed in either agent's terminal, or (without a new handover) the project has no handover; later failures are listed in its actions |
 
 With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees or delete projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/deactivate` needs Control agents.

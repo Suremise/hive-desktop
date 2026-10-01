@@ -150,6 +150,7 @@ export async function merge(projectPath: string, agentId: string, opts: { squash
   // Its uncommitted work is committed first: not while it is still changing it.
   const st = sessions.liveFor(projectPath, agentId)?.status
   if (st === 'working' || st === 'starting') throw new Error(`${def.name} is working. Merge once it has finished.`)
+  if (st === 'background') throw new Error(`${def.name} is waiting on background tasks it started. Merge once it has finished.`)
   // One merge at a time per project folder: two would stage and commit into each other.
   const result = await withFileLock(join(projectPath, '.git', 'hive-merge'), () => wt.mergeWorktree(projectPath, worktree, opts))
   if (!result.ok || !opts.cleanup) {

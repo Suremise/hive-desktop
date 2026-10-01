@@ -58,7 +58,6 @@ export const CODEX_DESCRIPTOR: ProviderDescriptor = {
   permissionModes: CODEX_PERMISSION_MODES,
   defaultPermissionMode: 'approve-for-me',
   assistantMode: 'approve-for-me',
-  assistantEffort: 'low',
   effortLevels: [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
@@ -81,7 +80,9 @@ export const CODEX_DESCRIPTOR: ProviderDescriptor = {
     imagePaste: true,
     // Codex rejects permissionDecision "ask" (and then runs the tool), so Hive asks the user itself.
     lockAsk: false,
-    backgroundSessions: false
+    backgroundSessions: false,
+    // Codex isn't told when a background terminal ends: it finds out only by checking during a turn.
+    backgroundWakes: false
   },
   // Ctrl+T opens Codex's transcript view; Ctrl+G its external editor.
   reservedKeys: ['MOD+T', 'MOD+G'],

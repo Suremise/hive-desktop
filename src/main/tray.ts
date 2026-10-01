@@ -46,6 +46,7 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   ready: 'Ready',
   working: 'Working…',
   waiting: 'Needs input',
+  background: 'Background tasks',
   finished: 'Finished',
   error: 'Error'
 }
@@ -65,7 +66,7 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
     attention = live.some((s) => s.unseen && (s.status === 'finished' || s.status === 'waiting'))
     tray.setImage(icon(attention ? 'tray-attention' : 'tray'))
     const waiting = live.filter((s) => s.status === 'waiting').length
-    const working = live.filter((s) => s.status === 'working').length
+    const working = live.filter((s) => s.status === 'working' || s.status === 'background').length
     const open = openWorkspaces()
     tray.setToolTip(
       `Hive${open.length ? ` — ${open.map((w) => basename(w.path!)).join(', ')}` : ''}${live.length ? `\n${working} working, ${waiting} need input` : ''}${pendingQuit ? '\nWill quit when agents finish' : ''}`

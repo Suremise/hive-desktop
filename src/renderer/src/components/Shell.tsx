@@ -73,6 +73,7 @@ export function StatusBar() {
   const live = workspace.projects.flatMap((p) => p.agents.map((a) => a.live).filter((l) => !!l))
   const working = live.filter((l) => l!.status === 'working').length
   const waiting = live.filter((l) => l!.status === 'waiting').length
+  const background = live.filter((l) => l!.status === 'background').length
 
   return (
     <div className="statusbar">
@@ -88,7 +89,7 @@ export function StatusBar() {
           </div>
         </Tooltip>
       )}
-      <Tooltip content={`${live.length} running session(s): ${working} working, ${waiting} waiting for input`}>
+      <Tooltip content={`${live.length} running session(s): ${working} working, ${background ? `${background} waiting on background tasks, ` : ''}${waiting} waiting for input`}>
         <div className="status-item" onClick={() => runCommand('view.projects')}>
           <Icon name="pulse" /> {live.length}
           {waiting > 0 && (

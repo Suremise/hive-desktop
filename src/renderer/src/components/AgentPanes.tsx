@@ -11,7 +11,7 @@ import { TerminalView } from './TerminalView'
 import { ModeBadge } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { isProviderEnabled, projectDefaultProvider, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
-import { Icon, IconButton, STATUS_TEXT, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
 /** Height of an agent pane's header (who it is, its controls) and footer (its session's details). */
 export const PANE_HEADER = 30
@@ -260,7 +260,7 @@ function Locks({ a }: { a: AgentInfo }) {
 function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const usage = useLiveUsage(project, a.live ? a.id : undefined)
   const live = a.live
-  const lines = [`${a.name} (${providerName(agentProviderOf(project, a))}): ${live ? live.statusMessage ?? STATUS_TEXT[live.status] : 'not running'}`]
+  const lines = [`${a.name} (${providerName(agentProviderOf(project, a))}): ${live ? statusText(live) : 'not running'}`]
   if (live) lines.push(`Session: ${sessionLabel({ id: live.sessionId, name: live.sessionName, title: usage?.title }, project.name)}`)
   else if (a.resume) lines.push(`Resume opens: ${sessionLabel(a.resume, project.name)} (${timeAgo(a.resume.lastActiveAt)})`)
   if (a.worktree) lines.push(`Worktree ${a.worktree.path} on ${a.worktree.branch}, branched from ${a.worktree.base}`)
@@ -424,7 +424,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
           </span>
         </Tooltip>
       )}
-      <span className="faint pane-status">{live ? live.statusMessage ?? STATUS_TEXT[live.status] : 'Not running'}</span>
+      <span className="faint pane-status">{live ? statusText(live) : 'Not running'}</span>
       <SessionTag project={project} a={a} />
       <Locks a={a} />
       <div className="grow" />

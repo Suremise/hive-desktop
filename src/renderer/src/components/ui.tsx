@@ -107,13 +107,24 @@ export const STATUS_TEXT: Record<SessionStatus | 'idle', string> = {
   ready: 'Ready',
   working: 'Working…',
   waiting: 'Needs your input',
+  background: 'Background tasks',
   finished: 'Finished',
   error: 'Error'
 }
 
+const tasks = (n: number): string => `${n} background task${n === 1 ? '' : 's'}`
+
+/** What an agent is doing, in words: its status message, else its status with any background tasks it is running. */
+export function statusText(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'backgroundTasks'>): string {
+  if (live.statusMessage) return live.statusMessage
+  const n = live.backgroundTasks ?? 0
+  if (live.status === 'background') return `Waiting on ${tasks(n)}`
+  return n && (live.status === 'finished' || live.status === 'ready') ? `${STATUS_TEXT[live.status]} · ${tasks(n)} running` : STATUS_TEXT[live.status]
+}
+
 export function StatusDot({ live, active }: { live: LiveSessionState | null; active: boolean }) {
   const status = live?.status ?? (active ? 'idle' : 'stopped')
-  const text = live?.statusMessage ? `${STATUS_TEXT[status]} — ${live.statusMessage}` : STATUS_TEXT[status]
+  const text = !live ? STATUS_TEXT[status] : live.statusMessage ? `${STATUS_TEXT[status]} — ${live.statusMessage}` : statusText(live)
   return (
     <Tooltip content={text}>
       <span className={cx('dot', status, live?.unseen && 'unseen')} />

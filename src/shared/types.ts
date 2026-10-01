@@ -103,6 +103,8 @@ export interface AppSettings {
     worktreeCopy: string
     /** Default for merging a worktree agent's branch. */
     mergeStyle: MergeStyle
+    /** How long a background task an agent started counts as running if it never reports its end, in minutes. */
+    backgroundTaskMinutes: number
   }
 }
 
@@ -202,8 +204,8 @@ export interface WindowState {
 }
 
 export interface AppConfig {
-  /** 2 since providers (0.2.0); 1 was Claude Code only. */
-  version: 2
+  /** 3 since the Assistant uses the agents' model and effort (0.3.0); 2 since providers (0.2.0); 1 was Claude Code only. */
+  version: 3
   settings: AppSettings
   recentWorkspaces: string[]
   /** The workspace of the window focused last (what 0.1 reopened); `windows` has every window. */
@@ -391,7 +393,8 @@ export interface SessionRecord {
   handedOverFrom?: string
 }
 
-export type SessionStatus = 'stopped' | 'starting' | 'ready' | 'working' | 'waiting' | 'finished' | 'error'
+/** background: the agent's turn has ended, but it has background tasks that will start it again when they end. */
+export type SessionStatus = 'stopped' | 'starting' | 'ready' | 'working' | 'waiting' | 'background' | 'finished' | 'error'
 
 export interface LiveSessionState {
   provider: ProviderId
@@ -433,6 +436,8 @@ export interface LiveSessionState {
   lockedFiles?: string[]
   /** The worktree's setup command is running before the agent starts. */
   settingUp?: boolean
+  /** Background tasks the agent started that are still running (commands, Monitors, Codex's background terminals). */
+  backgroundTasks?: number
 }
 
 export interface ProjectInfo {

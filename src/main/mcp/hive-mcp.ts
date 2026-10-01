@@ -179,22 +179,23 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_agent_activity',
-    description: "What one agent is doing: its status, the task it was last given, its latest reply, its recent tool calls (this turn), the files it has locked, and how long ago the user typed in its terminal.",
+    description: "What one agent is doing: its status, how many background tasks it has running, the task it was last given, its latest reply, its recent tool calls (this turn), the files it has locked, and how long ago the user typed in its terminal.",
     inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg } },
     run: (a) => api('GET', `${agentPath(a)}/activity`)
   },
   {
     name: 'hive_wait_for_agents',
     description:
-      'Wait until agents stop working (finished, idle, or waiting for the user), up to timeoutSeconds (default 50, at most 600). With no agents listed, waits for every agent working in the workspace. Returns each one\'s status; call again to keep waiting.',
+      "Wait until agents stop working (finished, idle, or waiting for the user), up to timeoutSeconds (default 50, at most 600). An agent whose turn has ended but that is waiting on background tasks it started (status background, e.g. a test run) still counts as working, since it carries on when they end; ignoreBackground=true stops waiting at the end of its turn instead. With no agents listed, waits for every busy agent in the workspace. Returns each one's status and background task count; call again to keep waiting.",
     inputSchema: {
       type: 'object',
       properties: {
         agents: { type: 'array', items: { type: 'object', properties: { project: { type: 'string' }, agent: { type: 'string' } }, required: ['project'] } },
-        timeoutSeconds: { type: 'number' }
+        timeoutSeconds: { type: 'number' },
+        ignoreBackground: { type: 'boolean' }
       }
     },
-    run: (a) => api('POST', '/v1/agents/wait', { agents: a.agents, timeoutSeconds: a.timeoutSeconds ?? 50 })
+    run: (a) => api('POST', '/v1/agents/wait', { agents: a.agents, timeoutSeconds: a.timeoutSeconds ?? 50, ignoreBackground: a.ignoreBackground === true })
   },
   {
     name: 'hive_create_project',
@@ -249,7 +250,7 @@ const tools: Tool[] = [
   {
     name: 'hive_prompt_agent',
     description:
-      "Give an idle running agent a task (typed into its terminal and sent). Refused while it is working, starting, or waiting for the user, or when the user has just typed in its terminal. Write the task in full: the agent can't see your conversation.",
+      "Give an idle running agent a task (typed into its terminal and sent). Refused while it is working, starting, waiting on its background tasks or waiting for the user, or when the user has just typed in its terminal. Write the task in full: the agent can't see your conversation.",
     inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, text: { type: 'string' } }, required: ['project', 'agent', 'text'] },
     run: (a) => api('POST', `${agentPath(a)}/prompt`, { text: a.text })
   },

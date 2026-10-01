@@ -63,14 +63,15 @@ const COST_INTERVAL_MS = 30_000
 interface LiveSession {
   state: LiveSessionState
   adapter: ProviderAdapter
-  transcriptMtime: number
+  /** The transcript's modified time and size at the last look ("mtime:size"). */
+  transcriptMtime: string
   /** Where the provider writes this session's transcript, once known (from a hook, or found by id). */
   transcriptPath?: string
   backupTimer?: NodeJS.Timeout
   /** When the transcript was last copied to .hive/sessions (see BACKUP_INTERVAL_MS). */
   lastBackupAt?: number
-  /** The transcript's modified time when it was last backed up. */
-  backupMtime?: number
+  /** The transcript's modified time and size when it was last backed up. */
+  backupMtime?: string
   /** Launched without a model choice, so its transcript shows the CLI's default model. */
   defaultModel: boolean
   /** Set while a Hive-requested compaction runs: compactions in the transcript before it, and a safety timer. */
@@ -99,6 +100,12 @@ interface LiveSession {
   initialPrompt?: string
   /** The CLI asked something before it started (e.g. whether to trust the folder): shown as waiting for the user. */
   askedAtStart?: boolean
+  /** Background tasks started in this launch that haven't ended: id → when it started, and when it expires. */
+  tasks?: Map<string, { at: number; expiresAt?: number }>
+  /** Tasks seen to end, so a start read late doesn't count one again. */
+  tasksEnded?: Set<string>
+  /** Bytes of the transcript already read for background tasks. */
+  tasksOffset?: number
 }
 
 export interface EffectiveSettings {
@@ -219,6 +226,9 @@ const shownNotifications = new Set<Notification>()
 function autoName(projectPath: string, agent: Pick<AgentDef, 'name'>, count: number): string {
   return `${basename(projectPath)}${count > 1 ? ` · ${agent.name}` : ''} · ${new Date().toLocaleString()}`
 }
+
+/** How long a background task counts as running at most (Settings → Agents), in minutes. */
+const taskMinutes = (): number => Math.min(480, Math.max(10, Number(config.settings.agents.backgroundTaskMinutes) || 60))
 
 const liveId = (projectPath: string, agentId: string): string => `${projectPath.toLowerCase()}#${agentId}`
 
@@ -501,7 +511,7 @@ class SessionManager {
       launchSignature: '',
       unseen: false
     }
-    this.live.set(id, { state, adapter, transcriptMtime: 0, defaultModel: false, modeTail: '', launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined })
+    this.live.set(id, { state, adapter, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined })
     this.runs.set(runId, id)
 
     const setup = cfg.worktreeSetup.trim()
@@ -1202,7 +1212,7 @@ class SessionManager {
 
   /** Sessions that would be interrupted by quitting: an agent is working or waiting on a prompt. */
   busyStates(): LiveSessionState[] {
-    return this.liveStates().filter((s) => s.status === 'working' || s.status === 'waiting')
+    return this.liveStates().filter((s) => s.status === 'working' || s.status === 'waiting' || s.status === 'background')
   }
 
   private async onExit(projectPath: string, agentId: string, runId: string, code: number, output = ''): Promise<void> {
@@ -1266,12 +1276,15 @@ class SessionManager {
   private async backup(projectPath: string, agentId: string, force = false): Promise<void> {
     const l = this.live.get(liveId(projectPath, agentId))
     if (!l) return
+    // Tasks that expire or run past the limit end without a word in the transcript.
+    this.settleBackground(l, false)
     const sessionId = l.state.sessionId
     const src = await this.liveTranscript(l)
     if (!src) return
     const s = await stat(src).catch(() => null)
     if (!s) return
-    const mtime = s.mtimeMs
+    // The size too: Windows can report a file's old modified time while another process keeps appending to it.
+    const mtime = `${s.mtimeMs}:${s.size}`
     const backups = config.settings.sessions.backupTranscripts
     // Nothing new, and the backup (if any) has everything: nothing to do.
     if (!force && l.transcriptMtime === mtime && (!backups || l.backupMtime === mtime)) return
@@ -1301,6 +1314,7 @@ class SessionManager {
     }
     emit({ type: 'usage-changed', projectPath, sessionId })
     await this.readDetails(l, src, size)
+    this.settleBackground(l, await this.readBackground(l, src, size))
     if (l.compacting) {
       // Fallback if the compaction hooks never arrive: a new compaction in the transcript.
       const u = await this.usageFor(src, sessionId, l.state.provider)
@@ -1346,6 +1360,113 @@ class SessionManager {
     } finally {
       await fh.close()
     }
+  }
+
+  /**
+   * Background tasks started or ended in what the transcript gained since the last look (providers that report
+   * them). Only this launch's count: tasks from before it ended with the CLI. True if one ended.
+   */
+  private async readBackground(l: LiveSession, path: string, size: number): Promise<boolean> {
+    if (!l.adapter.backgroundTasks) return false
+    const from = l.tasksOffset ?? 0
+    if (size <= from) {
+      if (size < from) l.tasksOffset = 0
+      return false
+    }
+    const start = Math.max(from, size - 4 * 1024 * 1024)
+    const fh = await open(path, 'r')
+    let text: string
+    try {
+      const buf = Buffer.alloc(size - start)
+      const { bytesRead } = await fh.read(buf, 0, buf.length, start)
+      text = buf.toString('utf8', 0, bytesRead)
+    } finally {
+      await fh.close()
+    }
+    const end = text.lastIndexOf('\n')
+    if (end < 0) return false
+    l.tasksOffset = start + Buffer.byteLength(text.slice(0, end + 1))
+    const since = Date.parse(l.state.startedAt) - 5000
+    const tasks = (l.tasks ??= new Map())
+    const ended = (l.tasksEnded ??= new Set())
+    let woke = false
+    for (const ev of l.adapter.backgroundTasks(text.slice(0, end + 1))) {
+      if (ev.at < since) continue
+      if (ev.kind === 'start') {
+        if (!ended.has(ev.id)) tasks.set(ev.id, { at: ev.at, expiresAt: ev.expiresAt })
+        continue
+      }
+      if (tasks.delete(ev.id)) woke = true
+      ended.add(ev.id)
+      if (ended.size > 500) ended.delete(ended.values().next().value!)
+    }
+    return woke
+  }
+
+  /** Reads the transcript for background tasks now (at a turn's end, before choosing between finished and background). */
+  private async refreshBackground(l: LiveSession): Promise<void> {
+    const src = await this.liveTranscript(l).catch(() => null)
+    const s = src ? await stat(src).catch(() => null) : null
+    if (src && s) await this.readBackground(l, src, s.size).catch((e) => log.warn('background tasks: read failed', e))
+  }
+
+  /** Drops tasks past their expiry or the time limit and updates the count. True if the limit dropped one. */
+  private sweepTasks(l: LiveSession): boolean {
+    const now = Date.now()
+    const minutes = taskMinutes()
+    let dropped = false
+    for (const [id, t] of l.tasks ?? []) {
+      if (t.expiresAt && t.expiresAt <= now) l.tasks!.delete(id)
+      else if (now - t.at >= minutes * 60_000) {
+        l.tasks!.delete(id)
+        dropped = true
+        log.info(`${this.label(l.state)}: stopped counting background task ${id} after ${minutes} minutes`)
+      }
+    }
+    l.state.backgroundTasks = l.tasks?.size || undefined
+    return dropped
+  }
+
+  /** The status a turn's end (or an interruption) leaves: background while tasks will start the agent again. */
+  private idleStatus(l: LiveSession, idle: 'finished' | 'ready'): SessionStatus {
+    return l.adapter.descriptor.capabilities.backgroundWakes && l.tasks?.size ? 'background' : idle
+  }
+
+  /**
+   * After the background tasks changed: the count, and the status of an agent whose turn has ended. When the last
+   * task ends, a CLI that is told starts a new turn (working); one that runs out of time leaves the agent finished.
+   */
+  private settleBackground(l: LiveSession, woke: boolean): void {
+    const st = l.state
+    const before = st.backgroundTasks
+    const dropped = this.sweepTasks(l)
+    let changed = before !== st.backgroundTasks
+    if (l.adapter.descriptor.capabilities.backgroundWakes) {
+      if (st.status === 'background' && !l.tasks?.size) {
+        if (woke) st.status = 'working'
+        else {
+          st.status = 'finished'
+          st.statusMessage = dropped ? `Stopped counting its background tasks after ${taskMinutes()} minutes` : undefined
+          st.unseen = !this.windowAttentive(st.projectPath)
+          this.notify(st.projectPath, `${this.label(st)} finished`, st.statusMessage ?? 'Its background tasks have ended.', 'finished')
+        }
+        changed = true
+      } else if (st.status === 'finished' && l.tasks?.size) {
+        // A task the turn started, read after its end was handled.
+        st.status = 'background'
+        st.unseen = false
+        changed = true
+      }
+    }
+    if (changed) this.emitState(st)
+  }
+
+  /** Forgets the background tasks (the CLI moved to another conversation, or the session ended). */
+  private clearTasks(l: LiveSession): void {
+    l.tasks?.clear()
+    l.tasksEnded?.clear()
+    l.tasksOffset = 0
+    l.state.backgroundTasks = undefined
   }
 
   private emitState(state: LiveSessionState): void {
@@ -1577,7 +1698,7 @@ class SessionManager {
         if (workspace.isAssistantHome(st.projectPath)) this.onAssistantPrompt(st.projectPath)
         break
       case 'toolEnd':
-        next = st.status === 'waiting' || st.status === 'ready' || st.status === 'finished' ? 'working' : null
+        next = st.status === 'waiting' || st.status === 'ready' || st.status === 'finished' || st.status === 'background' ? 'working' : null
         break
       case 'needsInput':
         next = 'waiting'
@@ -1585,17 +1706,22 @@ class SessionManager {
         this.notify(st.projectPath, `${label} needs your input`, st.statusMessage, 'waiting')
         break
       case 'stop':
-        next = 'finished'
+        // Hooks are handled in order, so the next one waits for this read.
+        await this.refreshBackground(l)
+        this.sweepTasks(l)
+        next = this.idleStatus(l, 'finished')
         st.statusMessage = undefined
         this.releaseLocks(id, arrived)
         // Not awaited: a prompt arriving meanwhile must not be overwritten by this older Stop.
         if (st.sessionId) void workspace.upsertSession(st.projectPath, { id: st.sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
-        this.notify(st.projectPath, `${label} finished`, ev.lastMessage?.slice(0, 180) ?? 'The agent has finished its task.', 'finished')
+        // An agent waiting on background tasks isn't done: it is told when they end and carries on.
+        if (next === 'finished') this.notify(st.projectPath, `${label} finished`, ev.lastMessage?.slice(0, 180) ?? 'The agent has finished its task.', 'finished')
         void this.backup(st.projectPath, st.agentId, true)
+        if (next === st.status) this.emitState(st)
         break
       case 'interrupt':
         // Interrupted turns end without Stop: the agent is idle again, and its claims go.
-        next = 'ready'
+        next = this.idleStatus(l, 'ready')
         st.statusMessage = undefined
         this.releaseLocks(id, arrived)
         break
@@ -1614,6 +1740,7 @@ class SessionManager {
         break
       case 'end':
         this.releaseLocks(id)
+        this.clearTasks(l)
         next = 'stopped'
         break
     }
@@ -1639,8 +1766,9 @@ class SessionManager {
       l.name = existing?.name || autoName(st.projectPath, agent, count)
       st.sessionName = l.name
       l.transcriptPath = transcriptPath ?? existing?.transcriptPath
-      l.transcriptMtime = 0
+      l.transcriptMtime = ''
       l.detailsOffset = 0
+      this.clearTasks(l)
       l.lastBackupAt = undefined
       st.costUsd = undefined
       st.costEstimated = undefined

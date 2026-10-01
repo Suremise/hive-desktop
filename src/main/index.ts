@@ -296,7 +296,8 @@ const quitSessions = (ws?: WorkspaceService): QuitSession[] =>
       const agents = workspaceOf(s.projectPath).info()?.projects.find((p) => p.path.toLowerCase() === s.projectPath.toLowerCase())?.agents.length ?? 1
       return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, provider: s.provider, ...(agents > 1 ? { agent: s.agentName } : {}) }
     })
-const workingCount = (): number => sessions.liveStates().filter((s) => s.status === 'working').length
+/** Agents that are working, or waiting on background tasks that will set them working again. */
+const workingCount = (): number => sessions.liveStates().filter((s) => s.status === 'working' || s.status === 'background').length
 
 /** Shows the quit (or close) dialog in a window and waits for the answer. */
 function ask(e: HiveWindow, req: { sessions: QuitSession[]; unsaved: string[]; scope: QuitScope }): Promise<QuitChoice> {
@@ -345,7 +346,7 @@ async function requestQuit(opts: { force?: boolean } = {}): Promise<void> {
 /** Whether to ask before stopping these sessions: the Confirm on quit setting, the same for quitting, windows and workspaces. */
 function askBeforeStopping(mine: QuitSession[]): boolean {
   const mode = config.settings.general.confirmOnQuit
-  const busy = mine.some((s) => s.status === 'working' || s.status === 'waiting')
+  const busy = mine.some((s) => s.status === 'working' || s.status === 'waiting' || s.status === 'background')
   return mine.length > 0 && (mode === 'always' || (mode === 'working' && busy))
 }
 

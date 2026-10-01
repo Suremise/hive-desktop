@@ -12,7 +12,7 @@ import { call, errorMessage } from '../api'
 import { DocEditor } from '../components/DocEditor'
 import { DiffView } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
-import { Icon, IconButton, InfoTip, STATUS_TEXT, StatusDot, Switch, Tooltip } from '../components/ui'
+import { Icon, IconButton, InfoTip, statusText, StatusDot, Switch, Tooltip } from '../components/ui'
 import { languageFor } from '../monacoLang'
 import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
 import { RootSelector } from './FilesTab'
@@ -348,7 +348,7 @@ function RunningAgent({ project, a }: { project: ProjectInfo; a: ProjectInfo['ag
       <ProviderIcon provider={live.provider} />
       <div className="grow">
         <div>
-          <strong>{a.name}</strong> <span className="faint">{live.statusMessage ?? STATUS_TEXT[live.status]}</span>
+          <strong>{a.name}</strong> <span className="faint">{statusText(live)}</span>
         </div>
         <div className="faint small">
           {[live.modelName ?? usage?.model ?? null, live.permissionMode ? permissionLabel(live.provider, live.permissionMode) : null, live.planMode ? 'Plan' : null].filter(Boolean).join(' · ')}

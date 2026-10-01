@@ -20,13 +20,14 @@ describe('Assistant settings', () => {
     expect(assistantProjectConfig(cfg(), settings()).agents).toEqual([{ id: ASSISTANT_AGENT_ID, name: 'Assistant' }])
   })
 
-  it('launches with Settings → Assistant: a lighter model and effort, and a mode that rarely asks', () => {
+  it("launches with Settings → Assistant: the agents' model and effort, and a mode that rarely asks", () => {
     const s = settings()
+    s.providers['claude-code'] = { ...s.providers['claude-code'], defaultModel: 'opus', defaultEffort: 'high' }
     const c = assistantProjectConfig(cfg(), s)
     const l = agentLaunchSettings(c.agents[0], c, s)
     expect(l.provider).toBe('claude-code')
-    expect(l.model).toBe('sonnet')
-    expect(l.effort).toBe('low')
+    expect(l.model).toBe('opus')
+    expect(l.effort).toBe('high')
     // Not Plan: plan mode blocks the hive tools the Assistant works with.
     expect(l.permissionMode).toBe('auto')
     const codex = assistantProjectConfig(cfg(), settings({ provider: 'codex' }))

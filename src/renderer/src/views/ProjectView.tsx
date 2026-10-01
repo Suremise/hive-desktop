@@ -5,7 +5,7 @@ import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { AddAgentButton, AgentStrip, PANE_FOOTER, PANE_HEADER, PaneChrome, ResumeButton, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
-import { Icon, IconButton, STATUS_TEXT, Switch, Tooltip, useContextMenu } from '../components/ui'
+import { Icon, IconButton, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu } from '../components/ui'
 import { agentProviderOf, projectKey, projectState, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
 import { carriesFiles, cx, formatKeybinding } from '../util'
 import { FilesTab, ImagesTab } from './FilesTab'
@@ -170,11 +170,11 @@ export function ProjectView({ visible }: { visible: boolean }) {
           <Tooltip
             content={
               <span style={{ whiteSpace: 'pre-line' }}>
-                {project.agents.length ? project.agents.map((a) => `${a.name}: ${a.live ? a.live.statusMessage ?? STATUS_TEXT[a.live.status] : 'not running'}`).join('\n') : 'No agents yet'}
+                {project.agents.length ? project.agents.map((a) => `${a.name}: ${a.live ? statusText(a.live) : 'not running'}`).join('\n') : 'No agents yet'}
               </span>
             }
           >
-            <span className={cx('badge', combined?.status === 'working' && 'accent', combined?.status === 'waiting' && 'warn', combined?.status === 'finished' && 'success')}>
+            <span className={cx('badge', (combined?.status === 'working' || combined?.status === 'background') && 'accent', combined?.status === 'waiting' && 'warn', combined?.status === 'finished' && 'success')}>
               <span className={cx('dot', combined?.status ?? 'idle')} /> {combined ? STATUS_TEXT[combined.status] : 'No session'}
               {many && inStatus > 0 && (
                 <span className="faint">

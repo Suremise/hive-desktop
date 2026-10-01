@@ -79,7 +79,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   await page.screenshot({ path: path.join(scratch, 'pv-5-add-agent.png') })
   await page.keyboard.press('Escape')
   const cfg = JSON.parse(fs.readFileSync(path.join(userData, 'config.json'), 'utf8'))
-  check('config saved as version 2 with the legacy block', cfg.version === 2 && cfg.settings.claude?.defaultModel === 'sonnet', JSON.stringify(cfg.settings.claude))
+  check('config saved as version 3 with the legacy block', cfg.version === 3 && cfg.settings.claude?.defaultModel === 'sonnet', JSON.stringify(cfg.settings.claude))
   await app.close()
   console.log(results.join('\n'))
 })().catch((e) => {

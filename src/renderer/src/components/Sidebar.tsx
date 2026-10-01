@@ -6,7 +6,7 @@ import { call } from '../api'
 import { commandKeybinding, runCommand } from '../commands'
 import { get, notify, projectState, prompt, set, setProjectTab, toggleCompactSidebar, useStore } from '../store'
 import { cx, formatKeybinding } from '../util'
-import { Icon, IconButton, InfoTip, StatusDot, STATUS_TEXT, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, InfoTip, StatusDot, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
 import { addSkill, deleteSkill, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
 import { hasEditorDraftsUnder } from '../editorDrafts'
 import { AssistantSidePanel } from './AssistantView'
@@ -195,7 +195,7 @@ function ProjectsRail() {
         {running > 1 &&
           p.agents.map((a) => (
             <div key={a.id} className="desc">
-              {`${a.name}: ${a.live ? STATUS_TEXT[a.live.status] : 'not running'}`}
+              {`${a.name}: ${a.live ? statusText(a.live) : 'not running'}`}
             </div>
           ))}
       </div>
@@ -283,7 +283,7 @@ function ProjectsPanel() {
               </Tooltip>
             )}
             {running > 1 && (
-              <Tooltip content={p.agents.map((a) => `${a.name}: ${a.live ? STATUS_TEXT[a.live.status] : 'not running'}`).join('\n')}>
+              <Tooltip content={p.agents.map((a) => `${a.name}: ${a.live ? statusText(a.live) : 'not running'}`).join('\n')}>
                 <span className="agent-count">{running}</span>
               </Tooltip>
             )}

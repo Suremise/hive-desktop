@@ -8,7 +8,8 @@
 // - It sends SessionStart, then takes prompts: the last command-line argument, or a line typed and sent with
 //   Enter (Ctrl+U clears the line). Each prompt sends UserPromptSubmit, is written to the transcript, "works"
 //   (1 s, or N seconds for "work N"), and ends with a reply and Stop. "edit <file>" first sends PreToolUse for
-//   an Edit of that file and records the tool call.
+//   an Edit of that file and records the tool call. "background N" starts a background command that ends after
+//   N seconds; its task notification then starts a turn by itself, as in Claude Code.
 // - Ctrl+C twice, or "/exit", ends it with SessionEnd.
 const fs = require('fs')
 const path = require('path')
@@ -67,6 +68,7 @@ async function hook(event, extra = {}) {
 }
 
 let busy = false
+const isBusy = () => busy
 async function runPrompt(text) {
   busy = true
   out(`\r\n> ${text}\r\n`)
@@ -82,14 +84,41 @@ async function runPrompt(text) {
     write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: denied ? 'Blocked by a hook' : 'The file has been updated.', is_error: denied }] } })
     await hook('PostToolUse', { tool_name: 'Edit', tool_input: { file_path: file }, tool_use_id: id })
   }
+  const background = /\bbackground\s+(\d+)/i.exec(text)
+  if (background) await startBackgroundTask(Number(background[1]))
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
   await sleep(secs * 1000)
-  const answer = `Done: ${text}`
+  await endTurn(`Done: ${text}`)
+}
+
+async function endTurn(answer) {
   write({ type: 'assistant', requestId: `req_${randomUUID().slice(0, 8)}`, message: { model: 'claude-fake', content: [{ type: 'text', text: answer }], usage: { input_tokens: 20, output_tokens: 10 } } })
   out(`\r\n${answer}\r\n`)
   await hook('Stop', { last_assistant_message: answer })
   busy = false
   promptLine()
+}
+
+/**
+ * A Bash command run in the background for `secs` seconds, recorded the way Claude Code records one. When it
+ * ends, the task notification starts a new turn by itself (no UserPromptSubmit), which replies and stops.
+ */
+async function startBackgroundTask(secs) {
+  const id = `toolu_${randomUUID().slice(0, 8)}`
+  const task = `b${randomUUID().slice(0, 8)}`
+  const input = { command: `sleep ${secs}`, description: 'Run the tests', run_in_background: true }
+  await hook('PreToolUse', { tool_name: 'Bash', tool_input: input, tool_use_id: id })
+  write({ type: 'assistant', requestId: `req_${id}`, message: { model: 'claude-fake', content: [{ type: 'tool_use', id, name: 'Bash', input }], usage: { input_tokens: 10, output_tokens: 5 } } })
+  write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: `Command running in background with ID: ${task}.` }] }, toolUseResult: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: task } })
+  await hook('PostToolUse', { tool_name: 'Bash', tool_input: input, tool_use_id: id })
+  setTimeout(async () => {
+    // A turn in progress finishes first, as Claude Code takes the notification after it.
+    for (let i = 0; i < 600 && isBusy(); i++) await sleep(200)
+    busy = true
+    write({ type: 'user', message: { role: 'user', content: `<task-notification>\n<task-id>${task}</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>completed</status>\n<summary>Background command "Run the tests" completed (exit code 0)</summary>\n</task-notification>` } })
+    await sleep(1500)
+    await endTurn(`The background task ${task} has finished.`)
+  }, secs * 1000)
 }
 
 const promptLine = () => out('\r\n> \r\n  ? for shortcuts\r\n')

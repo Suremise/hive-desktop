@@ -14,7 +14,8 @@ import { copyDir, hashDir, removePath, withFileLock } from '../../fsutil'
 import { createLogger } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, toSpawnable } from '../common'
-import type { CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillRoots, UsageParser } from '../types'
+import type { BackgroundTaskEvent, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillRoots, UsageParser } from '../types'
+import { codexBackgroundTasks } from './background'
 import { CodexConversationParser, CodexUsageParser, codexImageData, parseRollout, patchPaths, rolloutDetails } from './rollout'
 
 const log = createLogger('codex')
@@ -621,6 +622,10 @@ export class CodexAdapter implements ProviderAdapter {
 
   transcriptDetails(appended: string): LiveDetails {
     return rolloutDetails(appended)
+  }
+
+  backgroundTasks(appended: string): BackgroundTaskEvent[] {
+    return codexBackgroundTasks(appended)
   }
 
   /**

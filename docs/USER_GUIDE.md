@@ -62,6 +62,7 @@ Status dots:
 | Blue | Session starting / ready for a prompt |
 | Pulsing orange | Agent is working |
 | Pulsing yellow | Agent needs your input (e.g. a permission prompt) |
+| Slow, faint orange | Agent is waiting on background tasks it started (e.g. a test run) and carries on when they end |
 | Green | Agent finished its task |
 | Glow | Something happened you haven't looked at yet |
 
@@ -127,6 +128,8 @@ A project can have up to twelve agents working at once, for example one building
 **Which conversation each agent has.** Each agent's header shows the name of the session it is running (hover for details, click to read it in the Sessions tab). A conversation can only be open in one agent at a time. **Resume** reopens the agent's own last session and is greyed out when it has none. Its **▾** lists the recent sessions from the agent's folder: pick one to continue it in this agent, including a paused conversation another agent in the same folder started. Sessions that are open in another agent are greyed out; clicking one takes you to that agent. Agents in their own worktree only see that worktree's sessions.
 
 The sidebar keeps one status dot per project, showing the most urgent agent (needs input, then working…), with the number of running agents next to the name. The project header's status says how many agents are in that state (for example *Working · 1 of 2 agents*); hover it for each agent's state. Notifications name the agent, e.g. "hive · Agent 2 finished".
+
+**Background tasks.** An agent can start something and end its turn while it runs, such as a long test run. Claude Code is told when the task ends and carries on by itself, so Hive shows the agent as **waiting on background tasks** ("Waiting on 1 background task") rather than finished, and only says it has finished (chime and notification) once it really has. Meanwhile the Assistant waits for it and won't give it a new task, and quitting asks first, since the task would stop. Codex isn't told when its background terminals end, so a Codex agent shows as finished with the count next to it ("Finished · 1 background task running"). Hive can't tell a test run from something that never ends, such as a dev server, so it stops counting a task after an hour; change that in **Settings → Agents & Worktrees → Count background tasks for up to**.
 
 **File locks.** Agents sharing the project folder could otherwise edit the same file at the same time. When an agent edits a file, Hive notes that it is working on it; if another agent then tries to edit that file, Hive tells it to wait or work on something else, and it carries on with other work. The claim ends when the first agent finishes its task. The files an agent holds show as a lock with a count on its tab. **Settings → Agents & Worktrees → File locks** (or per project) chooses what happens: **Block** (default), **Ask me** (you approve the edit; Codex can't show its own approval for this, so Hive holds the edit back and shows a notification with **Allow**, and Codex waits until you allow it), **Warn** (the edit goes ahead, the agent is told), or **Off**. Locks cover the agents' file edits, not shell commands (formatters, `npm install`, `git checkout`), and not files agents share outside the project such as the CLIs' own settings or memory — keep that in mind when several agents work in one folder. Agents in their own worktrees never get in each other's way.
 
@@ -211,7 +214,7 @@ The **Personas** section of the Assistant view (below) lists them. Click one to 
 - The default persona.
 - For each provider: its model, effort, permission mode and extra arguments.
 
-It starts lighter than your agents, to spend fewer tokens: Claude Code's Sonnet with low effort. Its mode, like your agents', approves safe actions itself and only asks about risky ones: **Auto** for Claude Code and **Approve for me** for Codex. Claude Code may not offer Auto with **Haiku**, and then runs in Manual instead (asking before edits and commands); the settings warn you when you pick that combination, for the Assistant or an agent. **Assistant Settings** in the panel changes any of them for one workspace. Changing its provider or persona restarts it, after asking.
+It uses the same model and effort as your agents (each provider's defaults in Settings), since a lighter model or low effort makes it careless: it may say it will check on an agent later and never do. Its mode, like your agents', approves safe actions itself and only asks about risky ones: **Auto** for Claude Code and **Approve for me** for Codex. Claude Code may not offer Auto with **Haiku**, and then runs in Manual instead (asking before edits and commands); the settings warn you when you pick that combination, for the Assistant or an agent. **Assistant Settings** in the panel changes any of them for one workspace. Changing its provider or persona restarts it, after asking.
 
 ## Skills
 
@@ -378,7 +381,7 @@ Updates are checked against their published checksum before they install.
 
 ## Notifications
 
-When an agent finishes or needs input, Hive can play a chime and show a Windows notification (click it to jump to the project). Configure both in **Settings → Notifications**; each project can override the chime.
+When an agent finishes (for one waiting on background tasks, once they have ended) or needs input, Hive can play a chime and show a Windows notification (click it to jump to the project). Configure both in **Settings → Notifications**; each project can override the chime.
 
 ## The system tray
 
@@ -386,12 +389,12 @@ Closing the (last) window keeps Hive running in the tray so sessions continue. T
 
 ### Quitting
 
-Quitting stops every running session, in every window. Nothing is lost: each conversation is kept and you can resume it next time. So Hive only asks first when an agent is **in the middle of something** (working, or waiting for your answer). Otherwise it just closes and a notification tells you which sessions to resume.
+Quitting stops every running session, in every window. Nothing is lost: each conversation is kept and you can resume it next time. So Hive only asks first when an agent is **in the middle of something** (working, waiting for your answer, or waiting on background tasks it started). Otherwise it just closes and a notification tells you which sessions to resume.
 
 When it asks, you see each session and what it's doing, and can choose:
 
 - **Quit now**: stop everything straight away.
-- **Quit when agents finish**: Hive hides and quits by itself once no agent is working. Until then the tray menu has **Quit Now** and **Cancel Pending Quit**, and opening the window shows a banner with the same choices.
+- **Quit when agents finish**: Hive hides and quits by itself once no agent is working or waiting on background tasks. Until then the tray menu has **Quit Now** and **Cancel Pending Quit**, and opening the window shows a banner with the same choices.
 - **Cancel**: keep working.
 
 If files have unsaved changes (in the Files tab, or a shared note, skill, instruction or memory file, or MCP server you're editing), Hive always asks, lists them at the top, and saves them (**Save and quit**) or discards them, as you choose. A file that changed on disk since you opened it isn't overwritten: Hive stays open so you can decide.

@@ -102,6 +102,12 @@ export interface LiveDetails {
   contextWindow?: number
 }
 
+/**
+ * A background task an agent started (a command left running, a Monitor) or that ended, from its transcript.
+ * `at` is when the line was written (ms); a task with `expiresAt` ends then if nothing says so sooner.
+ */
+export type BackgroundTaskEvent = { kind: 'start'; id: string; at: number; expiresAt?: number } | { kind: 'end'; id: string; at: number }
+
 /** Where an image's data sits in a transcript: the line's byte range and the path to it inside the entry. */
 export interface ImageLocation {
   offset: number
@@ -175,6 +181,8 @@ export interface ProviderAdapter {
   statusLine?(body: Record<string, any>): LiveDetails
   /** Details from lines appended to the session's transcript (Codex: model, preset, Plan mode, plan limits). */
   transcriptDetails?(appended: string): LiveDetails
+  /** Background tasks started or ended in lines appended to the session's transcript (whole lines). */
+  backgroundTasks?(appended: string): BackgroundTaskEvent[]
   /** For liveModeSwitch 'menu': the keys that pick a mode in the CLI's menu. */
   /** The models the installed CLI offers, when it can list them (null: couldn't). */
   listModels?(executable: string): Promise<{ value: string; label: string }[] | null>
