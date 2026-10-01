@@ -141,7 +141,7 @@ function PlanUsageStatus() {
               <ProviderIcon provider={p.id} mono />
               {usage.limits.map((l, i) => (
                 <span key={l.id}>
-                  {i > 0 && <span className="status-sub">· </span>}
+                  {i > 0 && <span className="status-sep">·</span>}
                   {shortLimit(l)} {Math.round(l.usedPercent)}%
                 </span>
               ))}

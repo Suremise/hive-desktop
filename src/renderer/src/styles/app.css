@@ -722,6 +722,13 @@ kbd {
 .status-sub {
   opacity: 0.8;
 }
+/* Between a provider's plan limits ("5h 55% · Week 35%"): larger, bold and spaced, so it's seen. */
+.status-sep {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  margin: 0 5px 0 3px;
+}
 .status-spacer {
   flex: 1;
 }
