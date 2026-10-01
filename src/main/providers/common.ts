@@ -42,6 +42,16 @@ export function toSpawnable(file: string, args: string[]): { file: string; args:
  * with Windows 10+. For hooks a CLI can only run as commands. The token is written literally so the
  * command works whichever shell the CLI runs it in; forward slashes keep bash from eating backslashes.
  */
+/**
+ * A first task as the CLI's last argument. A .cmd/.bat runs through cmd.exe, which can't pass newlines or its
+ * special characters safely, so there it becomes one plain line. A leading dash would read as an option.
+ */
+export function promptArg(executable: string, text: string): string {
+  let t = /\.(cmd|bat)$/i.test(executable) ? text.replace(/["%^&|<>!]/g, ' ').replace(/\s+/g, ' ').trim() : text.trim()
+  if (t.startsWith('-')) t = `Task: ${t}`
+  return t
+}
+
 export function hookForwardCommand(hookUrl: string, token: string): string {
   const curl = process.platform === 'win32' ? `"${join(process.env.SystemRoot || 'C:/Windows', 'System32', 'curl.exe').split('\\').join('/')}"` : 'curl'
   return `${curl} -s -m 5 -X POST -H "Authorization: Bearer ${token}" -H "Content-Type: application/json" --data-binary @- "${hookUrl}"`

@@ -1,12 +1,15 @@
 import http, { type IncomingMessage, type ServerResponse } from 'http'
+import { AsyncLocalStorage } from 'async_hooks'
 import { randomBytes, timingSafeEqual } from 'crypto'
 import { app } from 'electron'
-import { basename, dirname, join, resolve as resolvePath } from 'path'
+import { basename, dirname, join, relative, resolve as resolvePath } from 'path'
 import { readFile } from 'fs/promises'
-import type { AgentApiInfo, HiveEvent, ToastLevel } from '../shared/types'
+import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, projectAgents } from '../shared/defaults'
-import { agentProvider } from '../shared/providers'
+import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider } from '../shared/providers'
 import { CLAUDE_CODE } from '../shared/claude'
+import * as assistant from './assistantControl'
+import { addAgent, updateAgent } from './projectAgents'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, onHiveEvent, toast } from './events'
@@ -17,6 +20,7 @@ import { assertInShared, createHandover, notesTree } from './notes'
 import { writePty } from './ptyHost'
 import { sessions } from './sessions'
 import { listSkills } from './skills'
+import { transcripts } from './transcripts'
 import { contextWorkspace, inWorkspace, openWorkspaces, workspace, workspaceOf, type WorkspaceService } from './workspace'
 
 const log = createLogger('servers')
@@ -104,6 +108,18 @@ export async function startHookServer(): Promise<string> {
 
 let apiServer: http.Server | null = null
 let apiToken = ''
+
+/**
+ * Who made a request: a caller with the Agent API's token (agents' hive tools, scripts), which Settings → Agent
+ * API governs, or a workspace's Hive Assistant with its own token, which Settings → Assistant → Control governs.
+ */
+type Caller = { kind: 'api' } | { kind: 'assistant'; workspace: string }
+const callerStore = new AsyncLocalStorage<Caller>()
+
+function assistantCaller(): string | null {
+  const c = callerStore.getStore()
+  return c?.kind === 'assistant' ? c.workspace : null
+}
 let apiError: string | undefined
 const sseClients = new Set<ServerResponse>()
 
@@ -133,13 +149,20 @@ function apiPort(): number {
 
 export function apiInfo(): AgentApiInfo {
   const s = config.settings.agentApi
+  // With the Agent API off, the server still runs for the Hive Assistant alone.
+  const running = s.enabled && !!apiServer?.listening
   return {
     enabled: s.enabled,
-    running: !!apiServer?.listening,
-    url: apiServer?.listening ? `http://127.0.0.1:${apiPort()}` : null,
+    running,
+    url: running ? `http://127.0.0.1:${apiPort()}` : null,
     token: apiToken,
     error: apiError
   }
+}
+
+/** The server's address for the Hive Assistant, which reaches it whether or not the Agent API is turned on. */
+export function assistantApiUrl(): string | null {
+  return apiServer?.listening ? `http://127.0.0.1:${apiPort()}` : null
 }
 
 /** Environment passed to sessions so agents (and the Hive MCP server) can reach the API. */
@@ -162,6 +185,12 @@ export function findWorkspace(want: string): WorkspaceService | null {
 
 /** The workspace a request names (X-Hive-Workspace header, or ?workspace=), else the only open one. */
 function requestWorkspace(req: IncomingMessage, url: URL): WorkspaceService | null {
+  const own = assistantCaller()
+  if (own) {
+    const w = openWorkspaces().find((x) => x.path!.toLowerCase() === own)
+    if (!w) throw new HttpError(409, "The Assistant's workspace isn't open in Hive")
+    return w
+  }
   const header = req.headers['x-hive-workspace']
   const raw = typeof header === 'string' && header ? decodeURIComponent(header) : url.searchParams.get('workspace')
   if (raw) {
@@ -200,6 +229,9 @@ function projectByName(name: string): string {
     const ctx = contextWorkspace()
     candidates = ctx ? [ctx] : openWorkspaces()
   }
+  const own = assistantCaller()
+  // The Assistant looks after its own workspace only.
+  if (own) candidates = candidates.filter((w) => w.path!.toLowerCase() === own)
   const hits = candidates.map((w) => join(w.path!, project)).filter((p) => workspace.isProjectPath(p))
   if (!hits.length) throw new HttpError(404, `Unknown project "${raw}"`)
   if (hits.length > 1) throw new HttpError(409, `"${project}" is a project in several open workspaces: name it as <workspace>/<project>, e.g. ${basename(dirname(hits[0]))}/${project}`)
@@ -246,6 +278,42 @@ async function agentParam(p: string, value: unknown): Promise<string> {
 
 type Handler = (ctx: { params: string[]; query: URLSearchParams; body: any }) => Promise<unknown>
 
+const LEVEL_NAME: Record<AssistantControl, string> = { look: 'Look and advise', agents: 'Control agents', projects: 'Control agents and create projects' }
+
+/**
+ * A change the Hive Assistant asks for: refused beyond its control level or this turn's limit, else run and
+ * recorded (its panel's list and hive.log). Other callers can't make these changes through the API.
+ */
+async function assistantChange<T>(need: AssistantControl, what: string, fn: () => Promise<{ done: string; result: T }>): Promise<T> {
+  const ws = assistantCaller()
+  if (!ws) throw new HttpError(403, `Only the Hive Assistant can ${what} through the Agent API.`)
+  const line = what.charAt(0).toUpperCase() + what.slice(1)
+  if (!assistant.allows(need)) {
+    assistant.record(ws, line, 'not allowed by Settings → Assistant → Control')
+    throw new HttpError(403, `The user's settings (Settings → Assistant → Control: ${LEVEL_NAME[assistant.controlLevel()]}) don't let you ${what}. Tell the user what you would do instead.`)
+  }
+  if (!assistant.countAction(ws)) {
+    assistant.record(ws, line, `limit of ${assistant.MAX_ACTIONS_PER_TURN} changes for one message`)
+    throw new HttpError(429, `You have made ${assistant.MAX_ACTIONS_PER_TURN} changes for this message, the most Hive allows for one. Tell the user what is done and ask whether to go on.`)
+  }
+  try {
+    const { done, result } = await fn()
+    assistant.record(ws, done)
+    return result
+  } catch (e) {
+    assistant.record(ws, line, (e as Error).message)
+    throw e
+  }
+}
+
+/** For routes that change something and that other callers may use too: the Assistant needs the control level. */
+function assistantMay(need: AssistantControl, what: string): void {
+  const ws = assistantCaller()
+  if (!ws || assistant.allows(need)) return
+  assistant.record(ws, what.charAt(0).toUpperCase() + what.slice(1), 'not allowed by Settings → Assistant → Control')
+  throw new HttpError(403, `The user's settings (Settings → Assistant → Control: ${LEVEL_NAME[assistant.controlLevel()]}) don't let you ${what}. Tell the user what you would do instead.`)
+}
+
 const routes: { method: string; pattern: RegExp; handler: Handler }[] = []
 function route(method: string, path: string, handler: Handler): void {
   const pattern = new RegExp('^' + path.replace(/:[a-zA-Z]+/g, '([^/]+)') + '/?$')
@@ -260,8 +328,8 @@ route('GET', '/v1/status', async () => ({
   /** The request's workspace (or the only open one); `workspaces` lists every window's. */
   workspace: contextWorkspace()?.path ? { name: basename(contextWorkspace()!.path!), path: contextWorkspace()!.path } : null,
   workspaces: openWorkspaces().map((w) => ({ name: basename(w.path!), path: w.path })),
-  // The Hive Assistant belongs to its workspace, not a project.
-  liveSessions: sessions.liveStates().map((s) => ({ workspace: basename(workspaceOf(s.projectPath).path ?? ''), project: workspace.isAssistantHome(s.projectPath) ? null : basename(s.projectPath), agent: s.agentName ?? null, provider: s.provider, sessionId: s.sessionId || null, status: s.status }))
+  // The Hive Assistant belongs to its workspace, not a project; it sees its own workspace's sessions only.
+  liveSessions: sessions.liveStates().filter((s) => !assistantCaller() || workspaceOf(s.projectPath).path?.toLowerCase() === assistantCaller()).map((s) => ({ workspace: basename(workspaceOf(s.projectPath).path ?? ''), project: workspace.isAssistantHome(s.projectPath) ? null : basename(s.projectPath), agent: s.agentName ?? null, provider: s.provider, sessionId: s.sessionId || null, status: s.status }))
 }))
 
 route('GET', '/v1/workspace', async () => {
@@ -284,6 +352,13 @@ route('GET', '/v1/projects/:name', async ({ params }) => projectSummary(projectB
 
 route('POST', '/v1/projects/:name/activate', async ({ params }) => {
   const p = projectByName(params[0])
+  if (assistantCaller()) {
+    return assistantChange('agents', `activate the project ${basename(p)}`, async () => {
+      workspace.setActive(p, true)
+      await workspaceOf(p).refresh()
+      return { done: `Activated ${basename(p)}`, result: await projectSummary(p) }
+    })
+  }
   workspace.setActive(p, true)
   await workspaceOf(p).refresh()
   return projectSummary(p)
@@ -291,6 +366,7 @@ route('POST', '/v1/projects/:name/activate', async ({ params }) => {
 
 route('POST', '/v1/projects/:name/deactivate', async ({ params }) => {
   const p = projectByName(params[0])
+  assistantMay('agents', `deactivate the project ${basename(p)}`)
   if (sessions.liveFor(p)) throw new HttpError(409, 'Stop the running session before deactivating the project')
   workspace.setActive(p, false)
   await workspaceOf(p).refresh()
@@ -301,11 +377,13 @@ route('GET', '/v1/projects/:name/sessions', async ({ params }) => sessions.list(
 
 route('POST', '/v1/projects/:name/sessions', async ({ params, body }) => {
   const p = projectByName(params[0])
+  if (assistantCaller()) throw new HttpError(400, 'Use hive_start_agent (POST /v1/projects/{name}/agents/{agent}/start) to start agents.')
   return sessions.start(p, { resumeId: body?.resumeId, name: body?.name, agentId: await agentParam(p, body?.agent) })
 })
 
 route('POST', '/v1/projects/:name/stop', async ({ params, query, body }) => {
   const p = projectByName(params[0])
+  if (assistantCaller()) throw new HttpError(400, 'Use hive_stop_agent (POST /v1/projects/{name}/agents/{agent}/stop) to stop agents.')
   const agent = query.get('agent') ?? body?.agent
   sessions.stop(p, agent ? await agentParam(p, agent) : undefined)
   return { ok: true }
@@ -320,6 +398,7 @@ route('GET', '/v1/projects/:name/usage', async ({ params, query }) => {
 })
 
 route('POST', '/v1/projects/:name/input', async ({ params, body }) => {
+  if (assistantCaller()) throw new HttpError(400, 'Use hive_prompt_agent (POST /v1/projects/{name}/agents/{agent}/prompt) to give agents work.')
   if (!config.settings.agentApi.allowSessionInput) throw new HttpError(403, 'Session input is disabled. Enable it in Settings → Agent API.')
   const p = projectByName(params[0])
   const agentId = await agentParam(p, body?.agent)
@@ -330,7 +409,8 @@ route('POST', '/v1/projects/:name/input', async ({ params, body }) => {
 })
 
 route('POST', '/v1/projects/:name/handover', async ({ params, body }) => {
-  if (!config.settings.agentApi.allowSessionInput) throw new HttpError(403, 'Session input is disabled. Enable it in Settings → Agent API.')
+  assistantMay('agents', 'hand work over between agents')
+  if (!assistantCaller() && !config.settings.agentApi.allowSessionInput) throw new HttpError(403, 'Session input is disabled. Enable it in Settings → Agent API.')
   const p = projectByName(params[0])
   const from = await agentParam(p, body?.from)
   if (typeof body?.to !== 'string' || !body.to) throw new HttpError(400, 'to is required')
@@ -339,6 +419,253 @@ route('POST', '/v1/projects/:name/handover', async ({ params, body }) => {
   // It can take minutes (the handover is written first): answer now, report failures in Hive.
   void sessions.handOver(p, from, to, { handover: body?.handover !== false }).catch((e) => toast('error', 'Could not hand over the work', (e as Error).message, undefined, p))
   return { ok: true }
+})
+
+// ---------------------------------------------------------------------------
+// Agents and projects for the Hive Assistant (Settings → Assistant → Control). Reading is open to every caller.
+// ---------------------------------------------------------------------------
+
+/** The providers agents can run: whether each is on and installed, and its models, effort levels and modes. */
+route('GET', '/v1/providers', async () => {
+  const s = config.settings
+  return PROVIDERS.map((p) => {
+    const info = providerService.info(p.id)
+    return {
+      id: p.id,
+      name: p.name,
+      enabled: isProviderEnabled(s, p.id),
+      installed: info.found,
+      version: info.version,
+      problem: info.readiness?.find((r) => r.level === 'error')?.message ?? null,
+      isDefault: s.defaultProvider === p.id,
+      defaultModel: info.defaultModel ?? null,
+      models: info.models?.length ? info.models : p.modelGroups.flatMap((g) => g.models.map((m) => ({ value: m.value, label: m.label }))),
+      efforts: p.effortLevels,
+      modes: offeredModes(p.id, s).map((m) => ({ value: m.value, label: m.label, description: m.description }))
+    }
+  })
+})
+
+route('POST', '/v1/projects', async ({ body }) => {
+  const name = String(body?.name ?? '').trim()
+  if (!name) throw new HttpError(400, 'name is required')
+  return assistantChange('projects', `create the project "${name}"`, async () => {
+    await workspace.createProject(name)
+    const p = join(workspace.path!, name)
+    workspace.setActive(p, true)
+    await workspace.refresh()
+    return { done: `Created the project ${name}`, result: await projectSummary(p) }
+  })
+})
+
+const busy = (s: LiveSessionState | null): boolean => !!s && (s.status === 'working' || s.status === 'waiting' || s.status === 'starting')
+const STATUS_WORDS: Record<string, string> = { working: 'working', waiting: 'waiting for the user', starting: 'starting', ready: 'idle', finished: 'idle (finished its task)', error: 'in error', stopped: 'stopped' }
+const clip = (t: string, n: number): string => (t.length > n ? `${t.slice(0, n)}…` : t)
+
+async function agentDefOf(p: string, agentId: string) {
+  const a = projectAgents(await workspace.projectConfig(p)).find((x) => x.id === agentId)
+  if (!a) throw new HttpError(404, 'Unknown agent')
+  return a
+}
+
+/** Settings from a request body: an agent's provider, model, effort and mode (empty clears an override). */
+function agentSettings(body: any): { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode } {
+  const out: { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode } = {}
+  if (body?.provider !== undefined) {
+    if (!isKnownProvider(String(body.provider))) throw new HttpError(400, `Unknown provider "${body.provider}". hive_list_providers lists them.`)
+    out.provider = String(body.provider) as ProviderId
+  }
+  if (body?.model !== undefined) out.model = String(body.model)
+  if (body?.effort !== undefined) out.effort = String(body.effort) as EffortLevel
+  if (body?.mode !== undefined) out.permissionMode = String(body.mode) as PermissionMode
+  return out
+}
+
+route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
+  const p = projectByName(params[0])
+  const project = basename(p)
+  return assistantChange('agents', `add an agent to ${project}`, async () => {
+    const set = agentSettings(body)
+    const provider = set.provider ?? projectDefaultProvider((await workspace.projectConfig(p)), config.settings)
+    if (!isProviderEnabled(config.settings, provider)) throw new HttpError(409, `${PROVIDERS.find((x) => x.id === provider)?.name ?? provider} is turned off in Settings → Providers.`)
+    const def = await addAgent(p, {
+      name: body?.name ? String(body.name) : undefined,
+      location: body?.worktree ? 'new-worktree' : 'project',
+      branch: body?.branch ? String(body.branch) : undefined,
+      base: body?.base ? String(body.base) : undefined,
+      ...set,
+      provider
+    })
+    // The view stays where the user has it; the new agent is marked for them.
+    emit({ type: 'agent-added', projectPath: p, agentId: def.id })
+    const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : ''
+    let started = ''
+    if (body?.start || prompt) {
+      try {
+        await sessions.start(p, { agentId: def.id, prompt: prompt || undefined })
+        started = prompt ? ` and started it on: ${clip(prompt.replace(/\s+/g, ' '), 80)}` : ' and started it'
+      } catch (e) {
+        started = ` (it didn't start: ${(e as Error).message})`
+      }
+    }
+    return { done: `Added ${def.name} to ${project}${def.worktree ? ` (worktree, branch ${def.worktree.branch})` : ''}${started}`, result: { agent: def, project: await projectSummary(p) } }
+  })
+})
+
+route('PATCH', '/v1/projects/:name/agents/:agent', async ({ params, body }) => {
+  const p = projectByName(params[0])
+  const agentId = await agentParam(p, params[1] && decodeURIComponent(params[1]))
+  const a = await agentDefOf(p, agentId)
+  return assistantChange('agents', `change ${a.name}'s settings in ${basename(p)}`, async () => {
+    const def = await updateAgent(p, agentId, { ...(body?.name !== undefined ? { name: String(body.name) } : {}), ...agentSettings(body) })
+    const live = sessions.liveFor(p, agentId)
+    return { done: `Changed ${def.name}'s settings in ${basename(p)}${live ? ' (it applies them when restarted)' : ''}`, result: def }
+  })
+})
+
+route('POST', '/v1/projects/:name/agents/:agent/start', async ({ params, body }) => {
+  const p = projectByName(params[0])
+  const agentId = await agentParam(p, decodeURIComponent(params[1]))
+  const a = await agentDefOf(p, agentId)
+  return assistantChange('agents', `start ${a.name} in ${basename(p)}`, async () => {
+    if (sessions.liveFor(p, agentId)) throw new HttpError(409, `${a.name} is already running. Use hive_prompt_agent to give it work once it's idle.`)
+    let resumeId: string | undefined
+    if (typeof body?.resume === 'string' && body.resume) resumeId = body.resume
+    else if (body?.resume) {
+      resumeId = (await workspace.projectInfo(p)).agents.find((x) => x.id === agentId)?.resume?.id
+      if (!resumeId) throw new HttpError(409, `${a.name} has no conversation to resume. Start it without resume.`)
+    }
+    const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : ''
+    const st = await sessions.start(p, { agentId, resumeId, prompt: prompt || undefined })
+    return { done: `${resumeId ? 'Resumed' : 'Started'} ${a.name} in ${basename(p)}${prompt ? ` on: ${clip(prompt.replace(/\s+/g, ' '), 80)}` : ''}`, result: st }
+  })
+})
+
+route('POST', '/v1/projects/:name/agents/:agent/stop', async ({ params, body }) => {
+  const p = projectByName(params[0])
+  const agentId = await agentParam(p, decodeURIComponent(params[1]))
+  const a = await agentDefOf(p, agentId)
+  const ws = assistantCaller()
+  return assistantChange('agents', `stop ${a.name} in ${basename(p)}`, async () => {
+    const st = sessions.liveFor(p, agentId)
+    if (!st) return { done: `${a.name} in ${basename(p)} wasn't running`, result: { ok: true, wasRunning: false } }
+    // Stopping an agent in the middle of something is the user's call.
+    if (busy(st) && ws) {
+      const said = typeof body?.reason === 'string' ? clip(body.reason.trim(), 300) : ''
+      const reason = said ? ` Its reason: ${said}${/[.!?]$/.test(said) ? '' : '.'}` : ''
+      const yes = await assistant.ask(ws, {
+        title: `Stop ${a.name} in ${basename(p)}?`,
+        message: `The Assistant wants to stop ${a.name}, which is ${STATUS_WORDS[st.status] ?? st.status}.${reason} Its conversation is kept and can be resumed.`,
+        yes: 'Stop',
+        no: "Don't stop"
+      })
+      if (!yes) throw new HttpError(409, `The user chose not to stop ${a.name}. Leave it running.`)
+    }
+    sessions.stop(p, agentId)
+    return { done: `Stopped ${a.name} in ${basename(p)}`, result: { ok: true, wasRunning: true } }
+  })
+})
+
+/** How recently the user must not have typed in an agent's terminal for anything else to type there. */
+const USER_TYPING_MS = 60_000
+
+route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }) => {
+  const p = projectByName(params[0])
+  const agentId = await agentParam(p, decodeURIComponent(params[1]))
+  const a = await agentDefOf(p, agentId)
+  const text = typeof body?.text === 'string' ? body.text.trim() : ''
+  if (!text) throw new HttpError(400, 'text is required')
+  return assistantChange('agents', `give ${a.name} in ${basename(p)} a task`, async () => {
+    const st = sessions.liveFor(p, agentId)
+    // Never over the top of the agent's work, a question to the user, or the user's own typing.
+    if (!st) throw new HttpError(409, `${a.name} isn't running. Start it with the task instead (hive_start_agent with prompt).`)
+    if (st.status === 'starting') throw new HttpError(409, `${a.name} is still starting. Wait for it (hive_wait_for_agents), then try again.`)
+    if (st.status === 'waiting') throw new HttpError(409, `${a.name} is waiting for the user${st.statusMessage ? ` (${st.statusMessage})` : ''}. Tell the user; don't answer for them.`)
+    if (st.status === 'working') throw new HttpError(409, `${a.name} is working. Wait until it's idle (hive_wait_for_agents), then give it the task.`)
+    if (Date.now() - sessions.userTypedAt(p, agentId) < USER_TYPING_MS) throw new HttpError(409, `The user typed in ${a.name}'s terminal in the last minute. Ask the user before giving it a task.`)
+    await sessions.sendPrompt(p, agentId, text)
+    return { done: `Gave ${a.name} in ${basename(p)} a task: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true } }
+  })
+})
+
+/** What an agent is doing: its status, the task it was last given, its latest reply, its recent tool calls, its locked files. */
+async function agentActivity(p: string, agentId: string) {
+  const info = await workspace.projectInfo(p)
+  const a = info.agents.find((x) => x.id === agentId)
+  if (!a) throw new HttpError(404, 'Unknown agent')
+  const st = a.live
+  const sessionId = st?.sessionId || a.lastSessionId || a.resume?.id || ''
+  let currentTask: string | null = null
+  let latestReply: string | null = null
+  let recentTools: { tool: string; summary: string; failed: boolean }[] = []
+  if (sessionId) {
+    const t = await transcripts.read(p, sessionId).catch(() => null)
+    const items = t?.items ?? []
+    const lastUser = items.map((x) => x.kind).lastIndexOf('user')
+    const task = lastUser >= 0 ? items[lastUser] : null
+    if (task?.kind === 'user') currentTask = clip(task.text, 2000)
+    const reply = [...items].reverse().find((x) => x.kind === 'assistant')
+    if (reply?.kind === 'assistant') latestReply = clip(reply.text, 3000)
+    recentTools = items
+      .slice(Math.max(0, lastUser))
+      .flatMap((x) => (x.kind === 'tool' ? [{ tool: x.tool.name, summary: clip(x.tool.summary, 200), failed: x.tool.isError }] : []))
+      .slice(-10)
+  }
+  const folder = a.worktree?.path ?? p
+  const typed = sessions.userTypedAt(p, agentId)
+  return {
+    project: info.name,
+    agent: a.name,
+    id: a.id,
+    provider: st?.provider ?? agentProvider(a, info.config, config.settings),
+    status: st?.status ?? 'stopped',
+    statusMessage: st?.statusMessage ?? null,
+    branch: a.worktree?.branch ?? null,
+    worktree: a.worktree?.path ?? null,
+    sessionId: sessionId || null,
+    sessionName: st?.sessionName ?? null,
+    currentTask,
+    latestReply,
+    recentTools,
+    lockedFiles: sessions.locksFor(p, agentId).map((f) => relative(folder, f) || f),
+    userTypedSecondsAgo: typed ? Math.round((Date.now() - typed) / 1000) : null
+  }
+}
+
+route('GET', '/v1/projects/:name/agents/:agent/activity', async ({ params }) => {
+  const p = projectByName(params[0])
+  return agentActivity(p, await agentParam(p, decodeURIComponent(params[1])))
+})
+
+/**
+ * Waits until agents stop working (or `timeoutSeconds`, at most 10 minutes): the ones named, else every agent
+ * working in the workspace. Answers with each one's status, so the caller sees who finished and who needs the user.
+ */
+route('POST', '/v1/agents/wait', async ({ body }) => {
+  const list: { project: string; agent?: string }[] = Array.isArray(body?.agents) ? body.agents : []
+  let targets: { p: string; id: string }[] = []
+  for (const x of list) {
+    const p = projectByName(String(x.project))
+    targets.push({ p, id: await agentParam(p, x.agent) })
+  }
+  if (!list.length) {
+    const ws = requireWorkspace()
+    targets = sessions.liveStates().filter((s) => busy(s) && workspaceOf(s.projectPath) === ws && !workspace.isAssistantHome(s.projectPath)).map((s) => ({ p: s.projectPath, id: s.agentId }))
+  }
+  const limit = Math.min(600, Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
+  const t0 = Date.now()
+  const working = (): boolean => targets.some((t) => {
+    const s = sessions.liveFor(t.p, t.id)
+    return !!s && (s.status === 'working' || s.status === 'starting')
+  })
+  while (working() && Date.now() - t0 < limit) await new Promise((r) => setTimeout(r, 1000))
+  const agents = []
+  for (const t of targets) {
+    const def = projectAgents(await workspace.projectConfig(t.p)).find((a) => a.id === t.id)
+    const s = sessions.liveFor(t.p, t.id)
+    agents.push({ project: basename(t.p), agent: def?.name ?? t.id, status: s?.status ?? 'stopped', statusMessage: s?.statusMessage ?? null })
+  }
+  return { timedOut: working(), waitedSeconds: Math.round((Date.now() - t0) / 1000), agents }
 })
 
 route('GET', '/v1/shared', async () => inWorkspace(requireWorkspace(), () => notesTree()))
@@ -398,8 +725,17 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
   const url = new URL(req.url ?? '/', 'http://127.0.0.1')
   // Browsers must not be able to drive the API from a web page.
   if (req.headers.origin) return send(res, 403, { error: 'Cross-origin requests are not allowed' })
+  const enabled = config.settings.agentApi.enabled
+  if (url.pathname === '/v1/health' && enabled) return send(res, 200, { ok: true, app: 'Hive', version: app.getVersion() })
+  const bearer = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')
+  const ownWorkspace = bearer ? assistant.assistantForToken(bearer) : null
+  const caller: Caller | null = ownWorkspace ? { kind: 'assistant', workspace: ownWorkspace } : enabled && tokenMatches(req.headers.authorization, apiToken) ? { kind: 'api' } : null
+  if (!caller) return send(res, enabled ? 401 : 403, { error: enabled ? 'Missing or invalid bearer token' : 'The Agent API is turned off in Settings → Agent API' })
+  return callerStore.run(caller, () => serveApi(req, res, url))
+}
+
+async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   if (url.pathname === '/v1/health') return send(res, 200, { ok: true, app: 'Hive', version: app.getVersion() })
-  if (!tokenMatches(req.headers.authorization, apiToken)) return send(res, 401, { error: 'Missing or invalid bearer token' })
 
   if (req.method === 'GET' && url.pathname === '/v1/events') {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
@@ -437,7 +773,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
 /** The HTTP status for an error thrown by the session and workspace services, which don't know about HTTP. */
 function statusFor(e: Error): number {
   const m = String(e?.message ?? '')
-  if (/Invalid session id|URI malformed/i.test(m)) return 400
+  if (/Invalid session id|URI malformed|Unknown provider|Project names cannot/i.test(m)) return 400
   if (/already running|already open|already being opened|is starting|Stop it first|Stop the|archived|No session is running|ran in .* Resume it|is required to run|is turned off|no agents yet|No workspace|busy/i.test(m)) return 409
   if (/several agents: choose/i.test(m)) return 400
   if (/Not a project|Unknown (project|agent)|no longer exists/i.test(m)) return 404
@@ -457,8 +793,7 @@ export async function startApiServer(): Promise<AgentApiInfo> {
   await stopApiServer()
   apiError = undefined
   if (!apiToken) apiToken = await loadToken()
-  const s = config.settings.agentApi
-  if (!s.enabled) return apiInfo()
+  // Runs with the Agent API off too, for the Hive Assistant's token alone (see handleApi).
   apiServer = http.createServer((req, res) => void handleApi(req, res))
   try {
     await new Promise<void>((resolve, reject) => {

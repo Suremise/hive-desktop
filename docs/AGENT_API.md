@@ -194,6 +194,40 @@ Omit `resumeId` to start a new session. Returns the live session state (which in
 
 With `handover` (the default), `from` must be running and idle: it is asked to write a handover with `hive_create_handover`, and Hive waits until a new handover for the project exists (not just for the agent to stop). Then `to` starts a new session (or, if it is running and idle, gets the message in its current one) and reads the latest handover. The call returns `{ "ok": true }` at once; the handover can take minutes, and problems are shown as notifications in Hive. The new session's record has `handedOverFrom`, the session whose work it took over.
 
+### Agents and providers
+
+These read-only calls are open to every caller:
+
+`GET /v1/providers` — the coding-agent providers: whether each is turned on and installed (`enabled`, `installed`, `version`, `problem`), whether it's the default, and the `models`, `efforts` and `modes` an agent can use.
+
+`GET /v1/projects/{name}/agents/{agent}/activity` — what one agent is doing: `status` and `statusMessage`, `currentTask` (its last prompt), `latestReply`, `recentTools` (tool calls since that prompt), `lockedFiles` (relative to its folder), its branch and worktree, its session, and `userTypedSecondsAgo` (when the user last typed in its terminal). `{agent}` is the agent's name or id.
+
+`POST /v1/agents/wait` — waits until agents stop working (finished, idle, waiting for the user or stopped), or `timeoutSeconds` (5–600, default 300). Without `agents`, it waits for every agent working in the workspace.
+
+```json
+{ "agents": [{ "project": "web", "agent": "Agent 2" }], "timeoutSeconds": 120 }
+```
+
+Returns `{ "timedOut": false, "waitedSeconds": 41, "agents": [{ "project": "web", "agent": "Agent 2", "status": "finished", "statusMessage": null }] }`.
+
+### The Hive Assistant
+
+Each workspace's Hive Assistant calls the API with **its own token**, a new one each time it starts, in a file its `hive` MCP server reads. Hive applies **Settings → Assistant → Control** to its calls instead of Settings → Agent API, and they always concern its own workspace (a request naming another workspace or one of its projects gets 404). With the Agent API turned off, the server still runs and answers the Assistant alone; other callers get `403`.
+
+The changes below are the Assistant's only: other callers get `403`.
+
+| Call | Needs | What it does |
+|---|---|---|
+| `POST /v1/projects` `{ "name" }` | Control agents and create projects | Creates a project folder in the workspace and turns it on |
+| `POST /v1/projects/{name}/activate` | Control agents | Turns a project on (other callers: no restriction, as before) |
+| `POST /v1/projects/{name}/agents` | Control agents | Adds an agent: `name`, `provider`, `model`, `effort`, `mode`, `worktree` (with `branch`, `base`); `start` starts it, and `prompt` starts it on that task, given on the CLI's command line |
+| `PATCH /v1/projects/{name}/agents/{agent}` | Control agents | Changes `name`, `provider`, `model`, `effort` or `mode` (empty clears an override) |
+| `POST /v1/projects/{name}/agents/{agent}/start` | Control agents | Starts a stopped agent: a new conversation, or `resume: true` (its last) or a session id; `prompt` as above |
+| `POST /v1/projects/{name}/agents/{agent}/stop` | Control agents | Stops it. If it is working, waiting or starting, Hive asks the user in the Assistant's panel (with the optional `reason`) and the call waits for the answer: `409` if they say no |
+| `POST /v1/projects/{name}/agents/{agent}/prompt` `{ "text" }` | Control agents | Types a task into an idle agent and sends it. `409` while it is working, starting or waiting for the user, or when the user typed in its terminal in the last minute |
+
+With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees or delete projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/handover` and `/deactivate` need Control agents.
+
 ### Shared notes
 
 Shared notes live in the workspace's `.hive/shared` folder. Paths are relative to that folder and cannot escape it.
@@ -270,6 +304,23 @@ When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP se
 
 Tools default to the session's own project, so an agent can simply say *"create a handover"*.
 
+The Hive Assistant's `hive` server always runs (even with this setting or the Agent API off) and has more tools, as far as its control level allows:
+
+| Tool | Endpoint | Control |
+|---|---|---|
+| `hive_list_providers` | `GET /v1/providers` | any |
+| `hive_agent_activity` | `GET /v1/projects/{name}/agents/{agent}/activity` | any |
+| `hive_wait_for_agents` | `POST /v1/agents/wait` (50 seconds by default; it calls again to keep waiting) | any |
+| `hive_activate_project` | `POST /v1/projects/{name}/activate` | Control agents |
+| `hive_add_agent` | `POST /v1/projects/{name}/agents` | Control agents |
+| `hive_update_agent` | `PATCH /v1/projects/{name}/agents/{agent}` | Control agents |
+| `hive_start_agent` | `POST /v1/projects/{name}/agents/{agent}/start` | Control agents |
+| `hive_stop_agent` | `POST /v1/projects/{name}/agents/{agent}/stop` | Control agents |
+| `hive_prompt_agent` | `POST /v1/projects/{name}/agents/{agent}/prompt` | Control agents |
+| `hive_create_project` | `POST /v1/projects` | Control agents and create projects |
+
+Claude Code runs these without asking (they are Hive's own, and limited by the control level); Codex gets a 15-minute tool timeout for them, since waiting and asking the user can take minutes.
+
 A handover belongs to a project when its file name is `handovers/<date>-<project>-<title>.md`, as `hive_create_handover` writes it. When another project's name begins the same way (`hive` and `hive-website`), the `**Project:**` line at the top of the handover decides.
 
 The server's instructions (for Codex, which doesn't show MCP server instructions to the model, Hive passes the same text as developer instructions) tell the agent that handovers and shared notes live in the workspace and should be read with these tools rather than by searching the file system. When the project has a handover, the instructions also name the latest one, so a new session knows it is there from the start.
@@ -281,4 +332,5 @@ The server is a small Node script bundled with Hive and run by Hive's own execut
 - The API binds to `127.0.0.1` only; it is not reachable from other machines.
 - Any local program that can read the token can use the API. Regenerate the token in Settings if it leaks.
 - Session input is off by default because it lets one agent drive another project's session.
+- The Hive Assistant's token is separate, replaced each time it starts, and limited to its workspace and to Settings → Assistant → Control.
 - Shared-note paths are confined to `.hive/shared`.

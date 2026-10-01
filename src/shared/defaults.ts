@@ -68,6 +68,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   assistant: {
     provider: '',
     persona: 'overseer',
+    control: 'projects',
     providers: Object.fromEntries(PROVIDERS.map((p) => [p.id, { model: p.assistantModel ?? '', effort: p.assistantEffort ?? '', permissionMode: '', extraArgs: '' }]))
   },
   agents: {

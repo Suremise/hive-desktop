@@ -1,0 +1,170 @@
+// The Hive Assistant's control (Settings → Assistant → Control), through the Agent API with the Assistant's own
+// token, with the Agent API itself turned off. Agents run the fake Claude Code (fake-claude/), so nothing signs in
+// or spends tokens. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const { createHash } = require('crypto')
+const { execFileSync } = require('child_process')
+const fs = require('fs')
+const path = require('path')
+
+const userData = path.join(lib.WORK, 'control-profile')
+const ws = path.join(lib.WORK, 'control-ws')
+const claudeHome = path.join(lib.WORK, 'control-claude-home')
+const alpha = path.join(ws, 'alpha')
+const PORT = '47895'
+const API = `http://127.0.0.1:${PORT}`
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+
+;(async () => {
+  for (const d of [userData, ws, claudeHome]) fs.rmSync(d, { recursive: true, force: true })
+  fs.mkdirSync(claudeHome, { recursive: true })
+  lib.gitProject(alpha, { 'a.ts': 'export const a = 1\n' })
+  fs.mkdirSync(path.join(ws, 'gamma'))
+  lib.enableProviders(userData)
+  // Claude Code is the fake one; the Agent API is off (the Assistant still gets in with its own token).
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
+  cfg.settings.agentApi = { enabled: false }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: PORT, CLAUDE_CONFIG_DIR: claudeHome }
+  delete env.ELECTRON_RUN_AS_NODE
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.fitWindow(app, page, { width: 1500, height: 900 })
+  await lib.sleep(1500)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await inv('workspace:open', ws)
+  await lib.sleep(1000)
+  const info = await inv('workspace:refresh')
+  const home = info.assistant.path
+  const live = async (p, agentId) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === p.toLowerCase() && s.agentId === agentId)
+  const until = async (fn, ms = 20000) => {
+    const t = Date.now()
+    let v
+    while (!(v = await fn()) && Date.now() - t < ms) await lib.sleep(300)
+    return v
+  }
+
+  // The Assistant starts in the workspace folder; the fake asks to trust it, which shows as waiting for the user.
+  await page.getByText('gamma', { exact: true }).first().click()
+  await lib.sleep(300)
+  await inv('session:start', home, { agentId: 'assistant' })
+  const asking = await until(async () => (await live(home, 'assistant'))?.status === 'waiting' && (await live(home, 'assistant')))
+  check('a trust question before the start shows as waiting', !!asking && /trust/i.test(asking.statusMessage ?? ''), JSON.stringify(asking && { status: asking.status, msg: asking.statusMessage }))
+  await inv('pty:write', lib.ptyKey(home, 'assistant'), '\r')
+  check('answered, it starts', !!(await until(async () => (await live(home, 'assistant'))?.status === 'ready')))
+
+  // Its hive tools: its own token file, its role and control level.
+  const tokenFile = path.join(userData, 'assistant-api', `${createHash('sha256').update(ws.toLowerCase()).digest('hex').slice(0, 16)}.json`)
+  const token = JSON.parse(fs.readFileSync(tokenFile, 'utf8')).token
+  const mcp = JSON.parse(fs.readFileSync(path.join(home, '.hive', 'launch-assistant', 'mcp.json'), 'utf8')).mcpServers.hive
+  check("the Assistant's hive tools use its token and role", mcp?.env.HIVE_API_TOKEN_FILE === tokenFile && mcp.env.HIVE_ROLE === 'assistant' && mcp.env.HIVE_ASSISTANT_CONTROL === 'projects', JSON.stringify(mcp?.env))
+  const api = async (method, p, body, bearer = token) => {
+    const res = await fetch(API + p, { method, headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' }, ...(body && method !== 'GET' ? { body: JSON.stringify(body) } : {}) })
+    return { status: res.status, body: await res.json().catch(() => null) }
+  }
+  const apiToken = JSON.parse(fs.readFileSync(path.join(userData, 'agent-api.json'), 'utf8')).token
+  check('with the Agent API off, its own token is refused', (await api('GET', '/v1/projects', null, apiToken)).status === 403)
+  check("the Assistant's token still works", (await api('GET', '/v1/projects')).status === 200)
+  const providers = (await api('GET', '/v1/providers')).body
+  check('it lists the providers with their models, efforts and modes', providers?.some((p) => p.id === 'claude-code' && p.enabled && p.installed && p.models.length && p.efforts.length && p.modes.length), JSON.stringify(providers?.map((p) => p.id)))
+
+  // Create a project; add an agent that starts on a task (on the command line). The view stays on gamma.
+  const created = await api('POST', '/v1/projects', { name: 'beta' })
+  check('it creates a project, turned on', created.status === 200 && created.body?.active === true && fs.existsSync(path.join(ws, 'beta')), JSON.stringify(created.body))
+  const added = await api('POST', '/v1/projects/alpha/agents', { name: 'Builder', prompt: 'work 3' })
+  check('it adds an agent that starts on a task', added.status === 200 && added.body?.agent?.name === 'Builder', JSON.stringify(added.body))
+  const builder = added.body?.agent?.id
+  const trusting = await until(async () => (await live(alpha, builder))?.status === 'waiting')
+  check("a new folder's trust question waits for the user", !!trusting)
+  await inv('pty:write', lib.ptyKey(alpha, builder), '\r')
+  check('then it works on the task', !!(await until(async () => (await live(alpha, builder))?.status === 'working')))
+  check("the user's view didn't move", (await page.locator('.project-header, .project-title').first().innerText().catch(() => '')).includes('gamma'))
+  const busy = await api('POST', `/v1/projects/alpha/agents/Builder/prompt`, { text: 'more' })
+  check('no task for a working agent', busy.status === 409 && /working/.test(busy.body?.error), JSON.stringify(busy.body))
+  const waited = await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Builder' }], timeoutSeconds: 30 })
+  check('waiting returns when it finishes', waited.body?.timedOut === false && waited.body.agents[0].status === 'finished', JSON.stringify(waited.body))
+  const act = (await api('GET', '/v1/projects/alpha/agents/Builder/activity')).body
+  check('its activity: the task and the reply', act?.currentTask === 'work 3' && act.latestReply === 'Done: work 3', JSON.stringify(act))
+  const typed = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'next' })
+  check("no task where the user typed in the last minute", typed.status === 409 && /typed/.test(typed.body?.error), JSON.stringify(typed.body))
+
+  // A second agent, started idle, takes a task; its edit shows as a locked file and a tool call.
+  const second = await api('POST', '/v1/projects/alpha/agents', { name: 'Fixer', start: true })
+  const fixer = second.body?.agent?.id
+  check('an agent started idle is ready', !!(await until(async () => (await live(alpha, fixer))?.status === 'ready')))
+  const given = await api('POST', '/v1/projects/alpha/agents/Fixer/prompt', { text: 'edit a.ts work 6' })
+  check('an idle agent takes a task', given.status === 200, JSON.stringify(given.body))
+  await until(async () => (await live(alpha, fixer))?.status === 'working')
+  await lib.sleep(1500)
+  const working = (await api('GET', '/v1/projects/alpha/agents/Fixer/activity')).body
+  check('its activity shows the edit and the locked file', working?.recentTools?.some((t) => t.tool === 'Edit') && working.lockedFiles?.includes('a.ts'), JSON.stringify(working))
+
+  // Stopping a busy agent asks the user, in the panel: no, then yes.
+  await inv('settings:update', {})
+  await page.keyboard.press('Control+Alt+I').catch(() => {})
+  await lib.sleep(500)
+  const stopping = api('POST', '/v1/projects/alpha/agents/Fixer/stop', { reason: 'testing' })
+  const card = page.locator('.assistant-question', { hasText: 'Stop Fixer in alpha?' })
+  await card.waitFor({ timeout: 10000 }).catch(() => {})
+  check('stopping a busy agent asks the user on a card', (await card.count()) === 1)
+  await page.screenshot({ path: path.join(lib.WORK, 'control-1-question.png') })
+  await card.locator('button', { hasText: "Don't stop" }).click()
+  const refused = await stopping
+  check("the user's no is the answer", refused.status === 409 && /chose not to stop/.test(refused.body?.error) && !!(await live(alpha, fixer)), JSON.stringify(refused.body))
+  const stopping2 = api('POST', '/v1/projects/alpha/agents/Fixer/stop', {})
+  await card.waitFor({ timeout: 10000 }).catch(() => {})
+  const qs = await inv('assistant:questions')
+  await inv('assistant:answer', qs[0]?.id, true)
+  check('and a yes stops it', (await stopping2).status === 200 && !!(await until(async () => !(await live(alpha, fixer)))))
+
+  // What it did is listed in the panel.
+  const done = await inv('assistant:actions')
+  check('its actions are listed', done.some((x) => x.text.startsWith('Created the project beta')) && done.some((x) => x.text.startsWith('Stopped Fixer')) && done.some((x) => !x.ok), JSON.stringify(done.map((x) => x.text)))
+  check('the panel shows them', (await page.locator('.assistant-action').count()) >= 3)
+  await page.screenshot({ path: path.join(lib.WORK, 'control-2-actions.png') })
+
+  // Look and advise: changes are refused (and listed).
+  await inv('settings:update', { assistant: { control: 'look' } })
+  const looked = await api('POST', '/v1/projects/alpha/agents', { name: 'Nope' })
+  check('Look and advise refuses changes', looked.status === 403 && /Look and advise/.test(looked.body?.error), JSON.stringify(looked.body))
+  check('but it can still read', (await api('GET', '/v1/projects/alpha/agents/Builder/activity')).status === 200)
+  await inv('settings:update', { assistant: { control: 'agents' } })
+  check('Control agents can\'t create projects', (await api('POST', '/v1/projects', { name: 'delta' })).status === 403)
+  check('nor remove agents (no such call)', (await api('DELETE', `/v1/projects/alpha/agents/Builder`)).status === 404)
+
+  // At most 30 changes for one message.
+  let status = 200
+  let n = 0
+  while (status === 200 && n < 40) {
+    status = (await api('POST', '/v1/projects/alpha/activate')).status
+    n++
+  }
+  check('at most 30 changes for one message', status === 429, `${status} after ${n}`)
+
+  // The tools its hive MCP server offers follow the control level; project agents never get them.
+  const tools = (envExtra) => {
+    const outText = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], { input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) + '\n', env: { ...process.env, HIVE_API_URL: API, ...envExtra }, timeout: 10000 }).toString()
+    return JSON.parse(outText.split('\n')[0]).result.tools.map((t) => t.name)
+  }
+  const asAgent = tools({ HIVE_PROJECT: 'alpha' })
+  const asAgents = tools({ HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'agents' })
+  const asLook = tools({ HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'look' })
+  check('project agents get no control tools', !asAgent.includes('hive_add_agent') && !asAgent.includes('hive_agent_activity'), asAgent.join(','))
+  check('Control agents: agent tools, no project creation', asAgents.includes('hive_prompt_agent') && asAgents.includes('hive_stop_agent') && !asAgents.includes('hive_create_project'))
+  check('Look and advise: reading tools only', asLook.includes('hive_agent_activity') && asLook.includes('hive_wait_for_agents') && !asLook.includes('hive_add_agent'))
+
+  await app.close()
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.log('FAIL', e.message)
+  process.exit(1)
+})

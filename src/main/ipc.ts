@@ -18,6 +18,7 @@ import { logsDir } from './logger'
 import * as files from './files'
 import * as mcp from './mcp'
 import * as notes from './notes'
+import * as assistantControl from './assistantControl'
 import * as personas from './personas'
 import { killPty, ptyBuffer, resizePty, writePty } from './ptyHost'
 import { apiInfo, regenerateToken } from './servers'
@@ -310,7 +311,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(img.toPNG())], { type: 'image/png' }) })])
     },
 
-    'pty:write': (key, data) => writePty(key, data),
+    'pty:write': (key, data) => {
+      sessions.noteUserInput(key, data)
+      writePty(key, data)
+    },
     'pty:resize': (key, cols, rows) => resizePty(key, cols, rows),
     'pty:buffer': (key) => ptyBuffer(key),
     'pty:kill': (key) => {
@@ -398,6 +402,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'notes:delete': (p) => notes.deleteNote(p),
     'notes:rename': (p, n) => notes.renameNote(p, n),
 
+    'assistant:actions': () => (workspace.path ? assistantControl.actions(workspace.path) : []),
+    'assistant:questions': () => (workspace.path ? assistantControl.questions(workspace.path) : []),
+    'assistant:answer': (id, yes) => assistantControl.answer(id, yes),
     'personas:list': () => personas.listPersonas(),
     'personas:create': async (name) => {
       const p = await personas.createPersona(name)

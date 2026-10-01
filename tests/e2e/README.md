@@ -39,4 +39,11 @@ Start from an existing suite and use `lib.cjs`:
 - `addAgent()` / `soloAgent()`: projects start without agents;
 - `acceptClaudeTrust()`, `trustForCodex()`, `gitProject()`, `samplePng()`.
 
+**A fake Claude Code** (`fake-claude/fake-claude.cmd`) runs agents without signing in or spending tokens: set it as
+the profile's Claude Code path (`settings.providers['claude-code'].executablePath`) and start Hive with
+`CLAUDE_CONFIG_DIR` pointing at a test folder. It goes through Hive's real Claude Code adapter: it asks to trust a
+new folder (Enter trusts it), sends Claude Code's hooks, writes its transcripts, starts on a task given on the
+command line, and answers each prompt after a second (`work N` takes N seconds; `edit <file>` makes an Edit, with
+its file lock). `assistant-control` uses it.
+
 Print `PASS name` / `FAIL name` per check, and add the suite to `SUITES` in `run.mjs`.

@@ -217,6 +217,8 @@ export const commands: Command[] = [
   { id: 'view.personas', label: 'Show Assistant Personas', category: 'View', run: () => showAssistantView('personas') },
   { id: 'assistant.toggle', label: 'Toggle Hive Assistant', category: 'Assistant', keybinding: 'Mod+Alt+I', when: hasWorkspace, run: () => setAssistantOpen(!get().assistantOpen) },
   { id: 'assistant.settings', label: 'Assistant Settings…', category: 'Assistant', when: hasWorkspace, run: () => set({ assistantSettingsOpen: true }) },
+  // The answer to a question the Assistant waits on (its card in the panel, or a notification).
+  { id: 'assistant.answer', label: 'Answer the Hive Assistant', category: 'Assistant', internal: true, run: (id: string, yes: boolean) => void call('assistant:answer', id, yes) },
   {
     id: 'assistant.start',
     label: 'Start the Hive Assistant',

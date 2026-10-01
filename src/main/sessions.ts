@@ -4,7 +4,8 @@ import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { BrowserWindow, Notification, clipboard, shell } from 'electron'
-import { ASSISTANT_NAME, ASSISTANT_TRUSTED_TOOLS } from '../shared/assistant'
+import { ASSISTANT_NAME } from '../shared/assistant'
+import { assistantTools } from '../shared/assistantTools'
 import { HIVE_DIR, agentPtyKey, assertSessionId, isSessionId, projectAgents, resumeRecord } from '../shared/defaults'
 import { agentLaunchSettings, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
 import type {
@@ -82,6 +83,10 @@ interface LiveSession {
   costAt?: number
   /** Terminal output while a mode switch waits for the CLI's confirmation. */
   switchTail?: string
+  /** The first task, for the launch's command line (cleared once launched). */
+  initialPrompt?: string
+  /** The CLI asked something before it started (e.g. whether to trust the folder): shown as waiting for the user. */
+  askedAtStart?: boolean
 }
 
 export interface EffectiveSettings {
@@ -165,6 +170,12 @@ class SessionManager {
   hiveMcp: HiveMcpProvider = () => null
   /** Hive's guidance for agents (the hive MCP server's instructions), for providers that need it at launch. */
   hiveGuidance: (projectPath: string) => Promise<string> = async () => ''
+  /** Before each Hive Assistant launch (its workspace gets a new Agent API token). */
+  onAssistantLaunch: (projectPath: string) => Promise<void> = async () => undefined
+  /** The user sent the Hive Assistant a message (a new turn). */
+  onAssistantPrompt: (projectPath: string) => void = () => undefined
+  /** When the user last typed in each terminal (by pty key), so nothing else types over them. */
+  private userInput = new Map<string, number>()
   /** The Hive Assistant's instructions for a launch (who it is, and its persona's), and the persona's name. */
   assistantInstructions: (projectPath: string, agent: AgentDef) => Promise<{ text: string; persona: string }> = async () => ({ text: '', persona: '' })
   /** The project's newest handover in the shared notes (relative path and modified time), or null. */
@@ -326,7 +337,7 @@ class SessionManager {
     return null
   }
 
-  async start(projectPath: string, opts: { resumeId?: string; name?: string; agentId?: string; skipSetup?: boolean; permissionMode?: PermissionMode }): Promise<LiveSessionState> {
+  async start(projectPath: string, opts: { resumeId?: string; name?: string; agentId?: string; skipSetup?: boolean; permissionMode?: PermissionMode; prompt?: string }): Promise<LiveSessionState> {
     this.assertStartsAllowed(projectPath)
     projectPath = workspace.assertSessionHost(projectPath)
     if (opts.resumeId !== undefined) assertSessionId(opts.resumeId)
@@ -363,7 +374,7 @@ class SessionManager {
     if (this.starting.get(id)?.cancelled) throw new Error('The agent was stopped before it had started.')
   }
 
-  private async startReserved(projectPath: string, agentId: string, id: string, opts: { resumeId?: string; name?: string; skipSetup?: boolean; permissionMode?: PermissionMode }): Promise<LiveSessionState> {
+  private async startReserved(projectPath: string, agentId: string, id: string, opts: { resumeId?: string; name?: string; skipSetup?: boolean; permissionMode?: PermissionMode; prompt?: string }): Promise<LiveSessionState> {
     const { agent, cfg, count } = await this.agentDef(projectPath, agentId)
     this.assertStarting(id)
     if (this.live.has(id)) throw new Error(count > 1 ? `${agent.name} is already running. Stop it first.` : 'A session is already running for this project. Stop it first.')
@@ -411,7 +422,7 @@ class SessionManager {
       launchSignature: '',
       unseen: false
     }
-    this.live.set(id, { state, adapter, transcriptMtime: 0, defaultModel: false, modeTail: '', launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath })
+    this.live.set(id, { state, adapter, transcriptMtime: 0, defaultModel: false, modeTail: '', launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined })
     this.runs.set(runId, id)
 
     const setup = cfg.worktreeSetup.trim()
@@ -542,7 +553,8 @@ class SessionManager {
       hookUrl: `${this.hookUrl}?run=${state.runId}`,
       guidance: await this.hiveGuidance(projectPath).catch(() => ''),
       instructions: workspace.isAssistantHome(projectPath) ? (await this.assistantInstructions(projectPath, agent).catch(() => null))?.text : undefined,
-      trustedHiveTools: workspace.isAssistantHome(projectPath) ? ASSISTANT_TRUSTED_TOOLS : undefined,
+      trustedHiveTools: workspace.isAssistantHome(projectPath) ? assistantTools(config.settings.assistant?.control) : undefined,
+      initialPrompt: l.initialPrompt,
       allowBackgroundSessions: providerSettings(config.settings, adapter.id).allowBackgroundSessions,
       env: childEnv({
         HIVE_HOOK_TOKEN: this.hookToken,
@@ -557,6 +569,7 @@ class SessionManager {
       })
     }
     await adapter.prepareLaunch(ctx)
+    if (workspace.isAssistantHome(projectPath)) await this.onAssistantLaunch(projectPath)
     // Checked after the last await, just before spawning: stopped, its workspace closed or switched, or the
     // provider turned off while this launch was being prepared, it must not start a process.
     if (l.stopRequested || this.live.get(id) !== l || this.starting.get(id)?.cancelled || !workspaceFor(projectPath) || this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error('The agent was stopped before it had started.')
@@ -581,6 +594,7 @@ class SessionManager {
       onExit: (code, output) => void this.onExit(projectPath, agent.id, state.runId, code, output)
     })
     state.pid = proc.pid
+    l.initialPrompt = undefined
     l.backupTimer = setInterval(() => void this.backup(projectPath, agent.id), 5000)
     if (state.sessionId) await this.recordSession(projectPath, agent, l)
 
@@ -744,12 +758,29 @@ class SessionManager {
   /** For CLIs whose first hook waits for the first prompt: the prompt showing in the terminal means ready. */
   private watchReadyOutput(id: string, data: string): void {
     const l = this.live.get(id)
-    if (!l?.adapter.readyOutput || l.state.status !== 'starting') return
+    if (!l || (l.state.status !== 'starting' && !l.askedAtStart) || (!l.adapter.readyOutput && !l.adapter.startupQuestion)) return
     l.modeTail = (l.modeTail + data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ')).slice(-600)
-    if (l.adapter.readyOutput.test(l.modeTail.replace(/\s+/g, ' '))) {
+    const text = l.modeTail.replace(/\s+/g, ' ')
+    const asked = l.adapter.startupQuestion?.exec(text)
+    if (l.state.status === 'starting' && asked) {
+      l.askedAtStart = true
+      l.modeTail = ''
+      l.state.status = 'waiting'
+      l.state.statusMessage = asked[0].includes('trust') ? 'Asks whether to trust this folder' : 'Asks something before it starts'
+      this.notify(l.state.projectPath, `${this.label(l.state)} needs your input`, l.state.statusMessage, 'waiting')
+      this.emitState(l.state)
+    } else if (l.adapter.readyOutput?.test(text)) {
+      this.startupAnswered(l)
       l.state.status = 'ready'
       this.emitState(l.state)
     }
+  }
+
+  /** The question before the start was answered: the agent is starting again. */
+  private startupAnswered(l: LiveSession): void {
+    if (!l.askedAtStart) return
+    l.askedAtStart = false
+    l.state.statusMessage = undefined
   }
 
   /** Reads the mode from the CLI's footer as it redraws, so a mode change in the terminal shows in Hive at once. */
@@ -857,6 +888,23 @@ class SessionManager {
       if (Date.now() - t > ms) throw new Error('timeout')
       await new Promise((r) => setTimeout(r, 400))
     }
+  }
+
+  /** The user typed in a terminal (Hive's own typing goes through sendPrompt, not here). */
+  noteUserInput(key: string, data: string): void {
+    // xterm's own replies (focus in/out, cursor reports) aren't typing.
+    if (data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1bO?./g, '')) this.userInput.set(key, Date.now())
+  }
+
+  /** When the user last typed in an agent's terminal (ms since the epoch), or 0. */
+  userTypedAt(projectPath: string, agentId: string): number {
+    return this.userInput.get(this.key(projectPath, agentId)) ?? 0
+  }
+
+  /** Files an agent holds a lock on (it is editing them this turn). */
+  locksFor(projectPath: string, agentId: string): string[] {
+    const id = liveId(projectPath, agentId)
+    return [...this.locks.values()].filter((x) => x.liveId === id).map((x) => x.path)
   }
 
   /** Types a message into an agent's terminal and sends it. */
@@ -1350,7 +1398,8 @@ class SessionManager {
     let next: SessionStatus | null = null
     switch (ev.kind) {
       case 'start':
-        next = st.status === 'starting' ? 'ready' : null
+        next = st.status === 'starting' || l.askedAtStart ? 'ready' : null
+        this.startupAnswered(l)
         break
       case 'compactEnd':
         if (l.compacting) this.finishCompacting(id)
@@ -1361,6 +1410,8 @@ class SessionManager {
         break
       case 'prompt':
         next = 'working'
+        this.startupAnswered(l)
+        if (workspace.isAssistantHome(st.projectPath)) this.onAssistantPrompt(st.projectPath)
         break
       case 'toolEnd':
         next = st.status === 'waiting' || st.status === 'ready' || st.status === 'finished' ? 'working' : null

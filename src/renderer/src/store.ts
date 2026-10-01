@@ -5,6 +5,8 @@ import type { QuitScope, UpdateState } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
+  AssistantAction,
+  AssistantQuestion,
   AgentInstallInfo,
   ProviderId,
   AppInfo,
@@ -94,6 +96,11 @@ interface State {
   assistantOpen: boolean
   /** Assistant Settings is open. */
   assistantSettingsOpen: boolean
+  /** What the Hive Assistant did in this window's workspace (oldest first), and what it is asking the user. */
+  assistantActions: AssistantAction[]
+  assistantQuestions: AssistantQuestion[]
+  /** Agents the Assistant added that the user hasn't looked at yet, by project path (their page's button shows a dot). */
+  newAgents: Record<string, string[]>
   personasVersion: number
   docsPage: string
   settingsSection: string
@@ -181,6 +188,9 @@ export const useStore = create<State>(() => ({
   assistantSection: 'conversations',
   assistantOpen: false,
   assistantSettingsOpen: false,
+  assistantActions: [],
+  assistantQuestions: [],
+  newAgents: {},
   personasVersion: 0,
   docsPage: 'guide',
   settingsSection: 'general',
@@ -468,3 +478,29 @@ export const filesListeners = new Set<(projectPath: string, dirs: string[]) => v
 
 /** Stable empty list for selectors — a fresh [] on every call makes zustand re-render forever. */
 export const NO_PROJECTS: ProjectInfo[] = []
+export const NO_IDS: string[] = []
+
+/**
+ * The Assistant added an agent. The user's view doesn't move: on the project they're looking at, its page's
+ * button gets a dot; another project opens on the new agent's page next time.
+ */
+export function noteAgentAdded(path: string, agentId: string): void {
+  set((s) => {
+    const shown = s.selectedProject?.toLowerCase() === path.toLowerCase() && s.activity === 'projects'
+    return {
+      newAgents: { ...s.newAgents, [path]: [...(s.newAgents[path] ?? []), agentId] },
+      ...(shown ? {} : { focusedAgent: { ...s.focusedAgent, [path]: agentId } })
+    }
+  })
+}
+
+/** The user saw these new agents (their page is shown). */
+export function seenAgents(path: string, ids: string[]): void {
+  set((s) => {
+    const left = (s.newAgents[path] ?? []).filter((id) => !ids.includes(id))
+    const next = { ...s.newAgents }
+    if (left.length) next[path] = left
+    else delete next[path]
+    return { newAgents: next }
+  })
+}

@@ -29,6 +29,8 @@
 - **Six skills come with Hive**, for working with several agents and sessions: `handover`, `pick-up`, `merge-ready`, `review-agent-work`, `split-work` and `workspace-note`. New workspaces start with them. In an existing workspace they're listed greyed out: **Restore** adds one. When a later Hive improves them, **Revert to default** on a skill's page brings your copy up to date (the old copy goes to the Recycle Bin).
 
 ### Hive Assistant
+- **The Assistant can run your agents.** Ask it to add agents, start them on tasks, give idle ones more work, change their settings, stop them, or create a project. **Settings → Assistant → Control** decides how far it may go: Look and advise, Control agents, or Control agents and create projects (the default). It never removes agents or deletes anything, never types into an agent that's busy, asking you something or that you just typed in, asks you before stopping a busy agent, makes at most 30 changes per message, and lists what it did in its panel. Your view stays where it is.
+- An agent whose CLI asks whether to trust a new folder now shows as waiting for you, instead of starting forever.
 - **Each workspace has a Hive Assistant, its overseer**, in a panel on the right (Ctrl+Alt+I, or click the Hive Assistant strip down the right edge). Ask it what the agents are doing, about any project, or for a plan or a review. It reads every project and uses Hive's own tools. For now it only looks and advises. It doesn't use a project's agent slot, and hiding the panel doesn't stop it.
 - **The panel has everything about it**:
   - its status and persona;

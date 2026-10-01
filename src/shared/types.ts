@@ -112,7 +112,35 @@ export interface AssistantSettings {
   provider: ProviderId | ''
   /** The persona new conversations use (a file in the workspace's .hive/personas, without .md). */
   persona: string
+  /** What the Assistant may do beyond looking (see AssistantControl). */
+  control: AssistantControl
   providers: Partial<Record<ProviderId, AssistantProviderSettings>>
+}
+
+/**
+ * How far the Hive Assistant may act: only look and advise; also run the agents (add, change, start, stop and
+ * prompt them); or that and create projects. It never removes agents, discards worktrees or deletes projects.
+ */
+export type AssistantControl = 'look' | 'agents' | 'projects'
+
+/** Something the Hive Assistant did (or tried), for the list in its panel and hive.log. */
+export interface AssistantAction {
+  id: string
+  at: string
+  /** One line, e.g. "Started Agent 2 in hive". */
+  text: string
+  ok: boolean
+  /** Why it failed or was refused. */
+  error?: string
+}
+
+/** A question the Hive Assistant's action is waiting on (e.g. stopping a busy agent), shown as a card in its panel. */
+export interface AssistantQuestion {
+  id: string
+  title: string
+  message: string
+  yes: string
+  no: string
 }
 
 /** Empty values follow the provider's own settings; an empty permission mode is the provider's assistantMode (reads freely, asks before changing anything). */
@@ -793,6 +821,11 @@ export type HiveEvent =
   | { type: 'files-changed'; projectPath: string; dirs: string[] }
   | { type: 'skills-changed' }
   | { type: 'personas-changed' }
+  /** The Hive Assistant acted, or asks the user something (its home's path names the window). */
+  | { type: 'assistant-activity'; projectPath: string; action: AssistantAction }
+  | { type: 'assistant-questions'; projectPath: string; questions: AssistantQuestion[] }
+  /** An agent was added by the Hive Assistant: the view doesn't move to it. */
+  | { type: 'agent-added'; projectPath: string; agentId: string }
   | { type: 'plan-usage'; provider: ProviderId; usage: PlanUsage }
   | { type: 'window-state'; maximized: boolean; focused: boolean }
   | { type: 'update-state'; state: UpdateState }

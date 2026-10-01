@@ -13,7 +13,7 @@ import { TitleBar } from './components/TitleBar'
 import { isProviderEnabled } from '@shared/providers'
 import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
 import { AssistantMain } from './components/AssistantView'
-import { applyLiveState, assistantWasOpen, filesListeners, findProject, get, projectKey, projectState, pushToast, set, useStore } from './store'
+import { applyLiveState, assistantWasOpen, filesListeners, findProject, get, noteAgentAdded, notify, projectKey, projectState, pushToast, set, useStore } from './store'
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
 import { ProjectView } from './views/ProjectView'
 import { SettingsView } from './views/SettingsView'
@@ -120,6 +120,26 @@ function handleEvent(e: HiveEvent): void {
       break
     case 'personas-changed':
       set((s) => ({ personasVersion: s.personasVersion + 1 }))
+      break
+    case 'assistant-activity':
+      set((s) => ({ assistantActions: [...s.assistantActions, e.action].slice(-200) }))
+      break
+    case 'assistant-questions': {
+      const before = get().assistantQuestions
+      set({ assistantQuestions: e.questions })
+      // With the panel hidden, the question comes as a notification the user can answer.
+      if (!get().assistantOpen) {
+        for (const q of e.questions.filter((x) => !before.some((b) => b.id === x.id))) {
+          notify('warning', q.title, q.message, [
+            { label: q.yes, command: 'assistant.answer', args: [q.id, true] },
+            { label: q.no, command: 'assistant.answer', args: [q.id, false] }
+          ])
+        }
+      }
+      break
+    }
+    case 'agent-added':
+      noteAgentAdded(e.projectPath, e.agentId)
       break
     case 'window-state':
       set({ maximized: e.maximized, windowFocused: e.focused })

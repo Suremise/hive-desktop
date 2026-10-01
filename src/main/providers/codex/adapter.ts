@@ -13,7 +13,7 @@ import { config } from '../../config'
 import { copyDir, hashDir, removePath } from '../../fsutil'
 import { createLogger } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
-import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, run, toSpawnable } from '../common'
+import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, toSpawnable } from '../common'
 import type { CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillRoots } from '../types'
 import { CodexConversationParser, codexImageData, parseRollout, patchPaths, rolloutDetails } from './rollout'
 
@@ -182,6 +182,8 @@ export function codexMcpServer(name: string, def: McpServerDef): { table: Record
   }
   if (!def.command) return { table: null }
   const table: Record<string, unknown> = { command: def.command, default_tools_approval_mode: 'approve' }
+  // Hive's own tools can wait minutes (for agents to finish, or for the user to answer the Assistant).
+  if (name === 'hive') table.tool_timeout_sec = 900
   if (def.args?.length) table.args = def.args.map(String)
   if (typeof def.cwd === 'string') table.cwd = def.cwd
   const env: Record<string, string> = {}
@@ -254,6 +256,8 @@ export class CodexAdapter implements ProviderAdapter {
   readonly compactFailure = null
   // SessionStart only comes with the first prompt; the composer's placeholder means Codex is up.
   readonly readyOutput = /Ask Codex to do anything/
+  // Before a folder's first session: "Trust this folder? Codex can read, edit, and run files here…".
+  readonly startupQuestion = /trust this folder/i
   readonly planToggleKey = '\x1b[Z'
   /** Codex versions whose hook hashes Hive has checked against Codex itself: true = Hive's own hash matches. */
   private hashCheck = new Map<string, boolean>()
@@ -540,6 +544,8 @@ export class CodexAdapter implements ProviderAdapter {
       else log.warn(`Codex MCP server "${name}" can't be turned off for Hive sessions (its name needs quoting).`)
     }
     args.push(...ctx.extraArgs)
+    // Codex takes a first prompt as its last argument (after "resume <id>" too) and starts on it.
+    if (ctx.initialPrompt) args.push(promptArg(executable, ctx.initialPrompt))
     const s = toSpawnable(executable, args)
     return { file: s.file, args: s.args, env: ctx.env }
   }

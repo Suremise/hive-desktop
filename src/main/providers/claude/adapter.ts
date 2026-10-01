@@ -9,7 +9,7 @@ import { providerSettings } from '../../../shared/providers'
 import { config } from '../../config'
 import { claudeFileAllowed, copyDir, hashDir, isDir, readJson, removePath, writeJsonAtomic } from '../../fsutil'
 import { createLogger } from '../../logger'
-import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, run, toSpawnable } from '../common'
+import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, toSpawnable } from '../common'
 import type { CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillRoots } from '../types'
 import { ConversationParser, claudeImageData } from './conversation'
 import { encodeProjectPath, parseTranscript } from './usage'
@@ -55,6 +55,8 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   /** If Hive itself was started from inside a Claude Code session, don't leak that session's identity. User configuration such as CLAUDE_CODE_GIT_BASH_PATH is kept. */
   readonly envToStrip = ['CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_AGENT_SDK_VERSION', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING', 'MCP_CONNECTION_NONBLOCKING']
   readonly compactFailure = /not enough messages to compact|error during compaction|compaction failed/i
+  // Before a folder's first session: "Is this a project you created or one you trust? … trust this folder".
+  readonly startupQuestion = /trust this folder/i
 
   private async candidates(): Promise<{ path: string; source: string }[]> {
     const out: { path: string; source: string }[] = []
@@ -263,6 +265,8 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     if (ctx.effort) args.push('--effort', ctx.effort)
     if (ctx.permissionMode) args.push('--permission-mode', ctx.permissionMode)
     args.push(...ctx.extraArgs)
+    // Claude Code takes a first message as its last argument and starts on it.
+    if (ctx.initialPrompt) args.push(promptArg(executable, ctx.initialPrompt))
     const s = toSpawnable(executable, args)
     // Agent view (← on an empty prompt) moves the session into Claude Code's background service, out of Hive's
     // reach: Stop would only close the terminal and the session would keep running. Off unless the user allows it.

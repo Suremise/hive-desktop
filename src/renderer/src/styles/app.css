@@ -3188,6 +3188,71 @@ body.pane-resizing .monaco-editor {
   font-size: 14px;
   margin-top: 1px;
 }
+/* The Hive Assistant's questions (a card per question, under its header) and its list of actions. */
+.assistant-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.assistant-question {
+  border: 1px solid var(--warning);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--bg-elevated, var(--bg));
+}
+.assistant-question-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+.assistant-question-message {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.assistant-question-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+.assistant-action {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 12px;
+  font-size: 12px;
+  min-width: 0;
+}
+.assistant-action .codicon {
+  color: var(--success);
+  flex: none;
+}
+.assistant-action.failed .codicon {
+  color: var(--fg-muted);
+}
+.assistant-action-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assistant-action.failed .assistant-action-text {
+  color: var(--fg-muted);
+}
+.assistant-rail-asking {
+  color: var(--warning);
+}
+/* An agent page with an agent the Assistant added, until the user looks at it. */
+.page-switch .dot.added {
+  background: var(--accent);
+}
 .agent-form > label {
   color: var(--fg-muted);
 }

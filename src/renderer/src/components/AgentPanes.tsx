@@ -3,7 +3,7 @@ import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, compactThresh
 import type { AgentInfo, ProjectInfo, SessionLayout, SessionListItem } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
-import { NO_PROJECTS, agentPage, agentProviderOf, focusAgent, focusedAgentId, openInSessionsTab, paneAssignment, projectKey, revealAgent, set, setProjectTab, showAgent, showPage, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, focusAgent, focusedAgentId, openInSessionsTab, paneAssignment, projectKey, revealAgent, seenAgents, set, setProjectTab, showAgent, showPage, useStore } from '../store'
 import { useLiveUsage } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -277,6 +277,12 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
   const layout = pageLayout(project.config, page)
   const many = project.agents.length > 1
   const pageKb = commandKeybinding('agent.nextPage')
+  const fresh = useStore((s) => s.newAgents[project.path] ?? NO_IDS)
+  // Agents the Assistant added on the page shown are seen.
+  useEffect(() => {
+    const here = pageAgents(project.agents, page).map((a) => a.id).filter((id) => fresh.includes(id))
+    if (here.length) seenAgents(project.path, here)
+  }, [fresh, page, project.agents, project.path])
   // The focused agent's tab stays in view when the tabs don't all fit.
   const tabs = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -317,13 +323,14 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
         <div className="segmented page-switch">
           {Array.from({ length: pages }, (_, i) => {
             const onPage = pageAgents(project.agents, i)
-            // Another page's most urgent agent shows as a dot on its button.
+            // Another page's most urgent agent shows as a dot on its button, or one the Assistant added there.
             const state = page === i ? null : mostUrgent(onPage.map((a) => a.live))
+            const added = page !== i && onPage.some((a) => fresh.includes(a.id))
             return (
-              <Tooltip key={i} content={`Page ${i + 1}: agents ${i * PAGE_AGENTS + 1}–${i * PAGE_AGENTS + onPage.length}${pageKb ? ` (${formatKeybinding(pageKb)} for the next page)` : ''}`}>
+              <Tooltip key={i} content={`Page ${i + 1}: agents ${i * PAGE_AGENTS + 1}–${i * PAGE_AGENTS + onPage.length}${added ? ', with an agent the Assistant added' : ''}${pageKb ? ` (${formatKeybinding(pageKb)} for the next page)` : ''}`}>
                 <button className={cx(page === i && 'active')} onClick={() => showPage(project, i)} aria-label={`Agent page ${i + 1}`}>
                   {i + 1}
-                  {state && <span className={cx('dot', state.status, state.unseen && 'unseen')} />}
+                  {state ? <span className={cx('dot', state.status, state.unseen && 'unseen')} /> : added && <span className="dot added" />}
                 </button>
               </Tooltip>
             )

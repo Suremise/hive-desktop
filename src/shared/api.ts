@@ -2,6 +2,8 @@ import type {
   UpdateState,
   PermissionMode,
   AddAgentOptions,
+  AssistantAction,
+  AssistantQuestion,
   AgentApiInfo,
   AgentBranchStatus,
   AgentDef,
@@ -203,6 +205,10 @@ export interface HiveRequests {
   'notes:rename': (path: string, newName: string) => string
 
   /** The Hive Assistant's personas: the workspace's, then Hive's that it doesn't have (bundled: 'missing'). */
+  /** The Hive Assistant's actions in this window's workspace, oldest first, and the questions it waits on. */
+  'assistant:actions': () => AssistantAction[]
+  'assistant:questions': () => AssistantQuestion[]
+  'assistant:answer': (id: string, yes: boolean) => void
   'personas:list': () => PersonaInfo[]
   'personas:create': (name: string) => PersonaInfo
   /** Moves the persona's file to the Recycle Bin. */

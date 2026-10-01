@@ -6,6 +6,9 @@ import { ASSISTANT_AGENT_ID, assistantPersona, assistantProjectConfig, newPerson
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS } from '../src/shared/defaults'
 import { agentLaunchSettings } from '../src/shared/providers'
 import type { AppSettings, ProjectConfig } from '../src/shared/types'
+import { assistantTools, controlAllows } from '../src/shared/assistantTools'
+import { controlRules } from '../src/main/personas'
+import { promptArg } from '../src/main/providers/common'
 
 const settings = (patch: Partial<AppSettings['assistant']> = {}): AppSettings => ({ ...structuredClone(DEFAULT_SETTINGS), assistant: { ...structuredClone(DEFAULT_SETTINGS.assistant), ...patch } })
 const cfg = (agents: ProjectConfig['agents'] = []): ProjectConfig => ({ ...structuredClone(DEFAULT_PROJECT_CONFIG), agents })
@@ -67,7 +70,35 @@ describe('personas', () => {
       const p = parsePersona(readFileSync(join(dir, f), 'utf8'))
       expect(p.name && p.description && p.icon, f).toBeTruthy()
       expect(p.body.length, f).toBeGreaterThan(400)
-      expect(p.body, f).toMatch(/you don't edit files|don't edit files/i)
+      expect(p.body, f).toMatch(/never edit files/i)
     }
+  })
+})
+
+describe('control', () => {
+  it('gives each control level its tools', () => {
+    expect(assistantTools('look')).not.toContain('hive_add_agent')
+    expect(assistantTools('look')).toContain('hive_agent_activity')
+    expect(assistantTools('agents')).toContain('hive_prompt_agent')
+    expect(assistantTools('agents')).not.toContain('hive_create_project')
+    expect(assistantTools('projects')).toContain('hive_create_project')
+    // An unknown level (a newer Hive's) is the default, the top one.
+    expect(controlAllows('someday', 'projects')).toBe(true)
+    expect(controlAllows('look', 'agents')).toBe(false)
+  })
+
+  it("tells the Assistant what it may do, over its persona's words", () => {
+    expect(controlRules('look')).toMatch(/look and advise/i)
+    expect(controlRules('look')).not.toMatch(/hive_add_agent/)
+    expect(controlRules('agents')).toMatch(/hive_prompt_agent/)
+    expect(controlRules('agents')).not.toMatch(/hive_create_project/)
+    expect(controlRules('projects')).toMatch(/hive_create_project/)
+    expect(controlRules('projects')).toMatch(/replace anything your persona says/)
+  })
+
+  it('passes a first task as a safe last argument', () => {
+    expect(promptArg('C:/x/claude.exe', 'Fix the tests\nin web')).toBe('Fix the tests\nin web')
+    expect(promptArg('C:/x/claude.cmd', 'Fix "the" tests & 100%\nnow')).toBe('Fix the tests 100 now')
+    expect(promptArg('claude.exe', '--help me')).toBe('Task: --help me')
   })
 })

@@ -35,6 +35,8 @@ export interface LaunchContext {
   instructions?: string
   /** Tools of the hive MCP server this launch may use without asking, for providers that can pre-approve tools. */
   trustedHiveTools?: string[]
+  /** The first task, given on the command line so the CLI starts on it (e.g. from the Hive Assistant). */
+  initialPrompt?: string
   env: Record<string, string>
   /** The user lets sessions move into the CLI's own background service (see capabilities.backgroundSessions). */
   allowBackgroundSessions: boolean
@@ -192,6 +194,8 @@ export interface ProviderAdapter {
   /** Where to put a transcript restored from Hive's backup so the CLI can resume it; null if it can't be restored. */
   restorePath(folder: string, sessionId: string, recorded?: string): string | null
   listSessions(folder: string): Promise<ExternalSession[]>
+  /** Output that means the CLI is asking the user something before it starts (e.g. whether to trust the folder). */
+  readonly startupQuestion?: RegExp
   parseUsage(text: string, sessionId: string): SessionUsage
   conversationParser(projectPath: string): ConversationParserLike
   /** An image's data URL from the transcript line holding it. */

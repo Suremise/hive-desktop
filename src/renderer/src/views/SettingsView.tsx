@@ -115,6 +115,19 @@ const SETTINGS: SettingDef[] = [
   { section: 'agents', key: 'mergeStyle', title: 'Default merge style', desc: "How a worktree agent's branch is merged back, unless you choose otherwise in the Merge dialog.", tip: 'Squash makes one commit with everything the agent did. Merge keeps its individual commits plus a merge commit.', type: 'select', options: [{ value: 'squash', label: 'Squash' }, { value: 'merge', label: 'Merge commit' }] },
   // Assistant
   { section: 'assistant', key: 'provider', title: 'Provider', desc: 'The coding agent the Assistant runs, unless a workspace chooses another.', tip: 'The Assistant is independent of your project agents: a Codex Assistant can look after Claude Code agents, and the other way round.', type: 'custom', render: () => <AssistantProviderPicker /> },
+  {
+    section: 'assistant',
+    key: 'control',
+    title: 'Control',
+    desc: 'What the Assistant may do beyond looking and advising, in every workspace.',
+    tip: "Look and advise: it reads and suggests, and you act.\nControl agents: it can also add agents, change their settings, start and stop them, and give idle ones tasks, when you ask it to. Stopping a busy agent asks you first.\nControl agents and create projects: also new projects.\n\nIt never removes agents, discards worktrees or deletes projects, never types into an agent that is working, asking you something or that you just typed in, and makes at most 30 changes per message. What it does is listed in its panel. A running Assistant takes a change after a restart.",
+    type: 'select',
+    options: [
+      { value: 'look', label: 'Look and advise' },
+      { value: 'agents', label: 'Control agents' },
+      { value: 'projects', label: 'Control agents and create projects' }
+    ]
+  },
   { section: 'assistant', key: 'persona', title: 'Default persona', desc: 'Who the Assistant is in a new conversation, unless a workspace chooses another.', tip: 'Personas are Markdown files in each workspace (.hive/personas): edit them, or add your own, in the Hive Assistant view (the robot on the left).', type: 'custom', render: () => <AssistantPersonaPicker /> },
   ...PROVIDERS.map(
     (p): SettingDef => ({
@@ -122,7 +135,7 @@ const SETTINGS: SettingDef[] = [
       key: `provider:${p.id}`,
       title: `With ${p.name}`,
       desc: `The model, effort, permission mode and extra arguments when the Assistant runs ${p.name}. Default follows ${p.name}'s own settings, except the mode: ${permissionLabel(p.id, p.assistantMode)}, where ${p.name} approves safe actions itself and only asks about risky ones.`,
-      tip: "Watching over the workspace rarely needs the strongest model, so a lighter one and low effort save tokens. Its default mode is the one your agents default to, so it rarely asks; Hive's reading tools never ask. For now the Assistant only looks and advises, as its instructions tell it.",
+      tip: "Watching over the workspace rarely needs the strongest model, so a lighter one and low effort save tokens. Its default mode is the one your agents default to, so it rarely asks. Hive's own tools never ask: what they may do is set by Control above.",
       type: 'custom',
       wide: true,
       render: () => <AssistantProviderDefaults provider={p.id} />
@@ -130,7 +143,7 @@ const SETTINGS: SettingDef[] = [
   ),
   // Agent API
   { section: 'agentApi', key: 'status', title: 'Status', desc: '', tip: 'Whether the Agent API is listening.', type: 'custom', render: () => <ApiStatus /> },
-  { section: 'agentApi', key: 'enabled', title: 'Enable Agent API', desc: 'Run a local HTTP API that agents and scripts can use to talk to Hive.', tip: 'Listens on 127.0.0.1 only and requires the bearer token below. See Help → Agent API Reference.', type: 'boolean' },
+  { section: 'agentApi', key: 'enabled', title: 'Enable Agent API', desc: 'Run a local HTTP API that agents and scripts can use to talk to Hive.', tip: "Listens on 127.0.0.1 only and requires the bearer token below. See Help → Agent API Reference. Turned off, the port still answers the Hive Assistant alone (it has its own token, and Settings → Assistant → Control decides what it may do).", type: 'boolean' },
   { section: 'agentApi', key: 'port', title: 'Port', desc: 'Local port for the Agent API.', tip: 'Change this if the port is used by another program.', type: 'number', min: 1024, max: 65535 },
   { section: 'agentApi', key: 'provideHiveMcp', title: 'Provide Hive tools to sessions', desc: 'Add the built-in "hive" MCP server to every session.', tip: 'Gives agents tools for shared notes, handovers, project status and notifications.', type: 'boolean' },
   {

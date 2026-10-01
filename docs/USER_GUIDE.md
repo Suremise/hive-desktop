@@ -169,6 +169,18 @@ Ask it anything about the workspace: what the agents are doing, what a project i
 
 It doesn't use one of a project's agent slots, and it runs in the workspace folder. Closing the workspace or the window, or quitting, stops it like any agent (the dialogs call it "Assistant"), and its conversations can be resumed.
 
+### What the Assistant may do
+
+**Settings → Assistant → Control** decides, for every workspace:
+
+- **Look and advise**: it reads and suggests; you act.
+- **Control agents**: when you ask it, it also adds agents, changes their settings, starts and stops them, and gives idle ones tasks. Ask *"add two agents to web: one to fix the login tests, one to update the docs"* and it does.
+- **Control agents and create projects** (the default): also new projects.
+
+It never removes agents, discards worktrees or deletes projects, and never edits project files itself: the agents do the work. It won't type into an agent that is working, asking you something, or that you typed in during the last minute. Before it stops an agent in the middle of something, a card at the top of its panel asks you (**Stop** or **Don't stop**). It makes at most 30 changes for each message you send, and everything it does is listed under **Done by the Assistant** in its panel. Your view never moves: an agent it adds on the project you're looking at shows a dot on its page's button, and another project opens on the new agent's page the next time you go to it.
+
+When an agent's CLI asks whether to trust a new folder before it starts, the agent shows as **waiting** for you: answer in its terminal.
+
 ### The Assistant view
 
 The **Hive Assistant** button in the activity bar (the robot) opens everything else about it. At the top, **Used so far**: its conversations, prompts, tokens and API-equivalent cost, all time. These aren't counted in any project's Overview. Below that:

@@ -4,7 +4,7 @@ import { existsSync } from 'fs'
 import { basename, join, resolve, sep } from 'path'
 import { readFile } from 'fs/promises'
 import { pathToFileURL } from 'url'
-import type { AppInfo, QuitChoice, QuitScope, QuitSession, WindowState } from '../shared/types'
+import type { AppInfo, McpServerDef, QuitChoice, QuitScope, QuitSession, WindowState } from '../shared/types'
 import { providerService } from './providerService'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../shared/hiveGuidance'
 import { notesTree } from './notes'
@@ -19,7 +19,8 @@ import { registerIpc } from './ipc'
 import { createLogger, logsDir } from './logger'
 import { killAll } from './ptyHost'
 import { onCorruptFile } from './fsutil'
-import { apiEnv, startApiServer, startHookServer } from './servers'
+import { apiEnv, assistantApiUrl, startApiServer, startHookServer } from './servers'
+import { assistantTokenFile, newAssistantToken, newTurn } from './assistantControl'
 import { sessions } from './sessions'
 import { notificationIcon } from './paths'
 import { createTray, destroyTray, resourcesDir, setTrayPendingQuit, showWindow } from './tray'
@@ -510,9 +511,28 @@ app.whenReady().then(async () => {
 
   workspace.setLiveProvider((p, cfg) => sessions.liveInfo(p, cfg))
   sessions.apiEnv = apiEnv
-  sessions.hiveMcp = (projectPath) => {
+  sessions.hiveMcp = (projectPath): McpServerDef | null => {
     const s = config.settings.agentApi
     const env = apiEnv()
+    // The Hive Assistant always has Hive's tools, with its own token and its control level (Settings → Assistant).
+    if (workspace.isAssistantHome(projectPath)) {
+      const url = assistantApiUrl()
+      const ws = workspaceOf(projectPath).path
+      if (!url || !ws) return null
+      return {
+        command: process.execPath,
+        args: [hiveMcpScript()],
+        env: {
+          ELECTRON_RUN_AS_NODE: '1',
+          HIVE_API_URL: url,
+          HIVE_API_TOKEN_FILE: assistantTokenFile(ws),
+          HIVE_PROJECT: '',
+          HIVE_WORKSPACE: ws,
+          HIVE_ROLE: 'assistant',
+          HIVE_ASSISTANT_CONTROL: config.settings.assistant?.control ?? 'projects'
+        }
+      }
+    }
     if (!s.enabled || !s.provideHiveMcp || !env.HIVE_API_URL) return null
     return {
       command: process.execPath,
@@ -544,8 +564,17 @@ app.whenReady().then(async () => {
       const latest = (await projectHandovers(await notesTree(), basename(projectPath), names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
       return latest ? { relPath: latest.relPath, modified: latest.modified ?? '' } : null
     })
+  // Each Assistant launch gets a new token; each message to it starts a new turn (with a fresh limit of changes).
+  sessions.onAssistantLaunch = async (projectPath) => {
+    const ws = workspaceOf(projectPath).path
+    if (ws) await newAssistantToken(ws)
+  }
+  sessions.onAssistantPrompt = (projectPath) => {
+    const ws = workspaceOf(projectPath).path
+    if (ws) newTurn(ws)
+  }
   // The Assistant's role and persona (its workspace's choice, else Settings → Assistant's), for its launches.
-  sessions.assistantInstructions = (projectPath, agent) => inWorkspace(workspaceOf(projectPath), () => assistantInstructions(assistantPersona(agent, config.settings)))
+  sessions.assistantInstructions = (projectPath, agent) => inWorkspace(workspaceOf(projectPath), () => assistantInstructions(assistantPersona(agent, config.settings), config.settings.assistant?.control ?? 'projects'))
   // A project's notifications and focus checks use the window showing it.
   sessions.setWindowProvider((projectPath) => (projectPath ? windowForPath(projectPath)?.win : null) ?? lastFocused()?.win ?? null)
   providerService.setLiveSessionCounter((p) => sessions.liveCount(p))

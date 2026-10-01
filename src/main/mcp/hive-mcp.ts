@@ -7,12 +7,16 @@
 import { readFileSync } from 'fs'
 import { createInterface } from 'readline'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../../shared/hiveGuidance'
+import { ASSISTANT_ONLY_TOOLS, assistantTools } from '../../shared/assistantTools'
 
 const VERSION = '1.0.0'
 const API = (process.env.HIVE_API_URL || 'http://127.0.0.1:47821').replace(/\/$/, '')
 const PROJECT = process.env.HIVE_PROJECT || ''
 /** The session's workspace: with several Hive windows open, the API answers for this one. */
 const WORKSPACE = process.env.HIVE_WORKSPACE || ''
+/** The Hive Assistant's session gets the tools to run agents, as far as its control level allows. */
+const ASSISTANT = process.env.HIVE_ROLE === 'assistant'
+const CONTROL = process.env.HIVE_ASSISTANT_CONTROL || 'projects'
 
 function token(): string {
   const t = process.env.HIVE_API_TOKEN
@@ -47,6 +51,14 @@ const projectArg = {
   type: 'string',
   description: `Project name. Defaults to the current project${PROJECT ? ` ("${PROJECT}")` : ''}.`
 }
+const agentArg = { type: 'string', description: "The agent's name (e.g. \"Agent 2\") or id. Optional when the project has one agent." }
+const settingsArgs = {
+  provider: { type: 'string', description: 'Provider id (hive_list_providers). Default: the project\'s default provider.' },
+  model: { type: 'string', description: 'Model (hive_list_providers). Empty follows the project.' },
+  effort: { type: 'string', description: 'Effort level (hive_list_providers). Empty follows the project.' },
+  mode: { type: 'string', description: 'Permission mode (hive_list_providers). Empty follows the project.' }
+}
+const agentPath = (a: Record<string, any>): string => `/v1/projects/${proj(a)}/agents/${enc(a.agent || '')}`
 
 interface Tool {
   name: string
@@ -157,12 +169,98 @@ const tools: Tool[] = [
     run: (a) => api('POST', '/v1/notify', { title: a.title, message: a.message, level: a.level, source: PROJECT || 'agent' })
   },
   {
+    name: 'hive_list_providers',
+    description: 'The coding-agent providers (Claude Code, Codex): whether each is turned on and installed, and its models, effort levels and permission modes. Use the values from here when adding or changing agents.',
+    inputSchema: { type: 'object', properties: {} },
+    run: () => api('GET', '/v1/providers')
+  },
+  {
+    name: 'hive_agent_activity',
+    description: "What one agent is doing: its status, the task it was last given, its latest reply, its recent tool calls (this turn), the files it has locked, and how long ago the user typed in its terminal.",
+    inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg } },
+    run: (a) => api('GET', `${agentPath(a)}/activity`)
+  },
+  {
+    name: 'hive_wait_for_agents',
+    description:
+      'Wait until agents stop working (finished, idle, or waiting for the user), up to timeoutSeconds (default 50, at most 600). With no agents listed, waits for every agent working in the workspace. Returns each one\'s status; call again to keep waiting.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agents: { type: 'array', items: { type: 'object', properties: { project: { type: 'string' }, agent: { type: 'string' } }, required: ['project'] } },
+        timeoutSeconds: { type: 'number' }
+      }
+    },
+    run: (a) => api('POST', '/v1/agents/wait', { agents: a.agents, timeoutSeconds: a.timeoutSeconds ?? 50 })
+  },
+  {
+    name: 'hive_create_project',
+    description: 'Create a project: a new folder in the workspace (turned on). Only when the user asked for one.',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Folder name.' } }, required: ['name'] },
+    run: (a) => api('POST', '/v1/projects', { name: a.name })
+  },
+  {
+    name: 'hive_activate_project',
+    description: 'Turn a project on (it shows under Working On in Hive). Starting an agent does this too.',
+    inputSchema: { type: 'object', properties: { project: projectArg }, required: ['project'] },
+    run: (a) => api('POST', `/v1/projects/${proj(a)}/activate`)
+  },
+  {
+    name: 'hive_add_agent',
+    description:
+      "Add an agent to a project (up to 12). It works in the project folder; set worktree only if the user asked for one, or after asking them (its own git branch and folder). With prompt, it starts at once on that task (given on the CLI's command line); with start and no prompt, it starts idle. Hive doesn't move the user's view to it.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: projectArg,
+        name: { type: 'string', description: 'Default: "Agent n".' },
+        ...settingsArgs,
+        worktree: { type: 'boolean' },
+        branch: { type: 'string', description: 'Worktree branch (default hive/<name>).' },
+        base: { type: 'string', description: 'Branch the worktree starts from (default the current one).' },
+        start: { type: 'boolean' },
+        prompt: { type: 'string', description: 'The first task, in full: it reads nothing else from you.' }
+      },
+      required: ['project']
+    },
+    run: (a) => api('POST', `/v1/projects/${proj(a)}/agents`, { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, worktree: a.worktree, branch: a.branch, base: a.base, start: a.start, prompt: a.prompt })
+  },
+  {
+    name: 'hive_update_agent',
+    description: "Change an agent's name, provider, model, effort or permission mode. A running agent applies the change when restarted (its provider only while stopped).",
+    inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, name: { type: 'string' }, ...settingsArgs }, required: ['project', 'agent'] },
+    run: (a) => api('PATCH', agentPath(a), { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode })
+  },
+  {
+    name: 'hive_start_agent',
+    description: "Start a stopped agent: a new conversation, or resume=true for its last one. With prompt, it starts on that task (given on the CLI's command line). If its folder is new to the CLI, it first asks the user to trust it (the agent shows as waiting): tell the user.",
+    inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, resume: { type: 'boolean' }, prompt: { type: 'string' } }, required: ['project', 'agent'] },
+    run: (a) => api('POST', `${agentPath(a)}/start`, { resume: a.resume, prompt: a.prompt })
+  },
+  {
+    name: 'hive_stop_agent',
+    description: 'Stop a running agent (its conversation is kept). If it is busy, Hive asks the user first and this waits for their answer; give a reason.',
+    inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, reason: { type: 'string' } }, required: ['project', 'agent'] },
+    run: (a) => api('POST', `${agentPath(a)}/stop`, { reason: a.reason })
+  },
+  {
+    name: 'hive_prompt_agent',
+    description:
+      "Give an idle running agent a task (typed into its terminal and sent). Refused while it is working, starting, or waiting for the user, or when the user typed in its terminal in the last minute. Write the task in full: the agent can't see your conversation.",
+    inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, text: { type: 'string' } }, required: ['project', 'agent', 'text'] },
+    run: (a) => api('POST', `${agentPath(a)}/prompt`, { text: a.text })
+  },
+  {
     name: 'hive_list_skills',
     description: "List skills available to the project's agents: Hive (the workspace's, given to every agent), each provider's user and plugin skills, and the project's local skills.",
     inputSchema: { type: 'object', properties: { project: projectArg } },
     run: (a) => api('GET', `/v1/skills?project=${proj(a)}`)
   }
 ]
+
+/** Agents get Hive's common tools; the Assistant also those its control level allows. */
+const allowed = new Set(assistantTools(CONTROL))
+const offered = tools.filter((t) => (ASSISTANT ? !ASSISTANT_ONLY_TOOLS.includes(t.name) || allowed.has(t.name) : !ASSISTANT_ONLY_TOOLS.includes(t.name)))
 
 const INSTRUCTIONS = hiveInstructions(PROJECT)
 
@@ -201,9 +299,9 @@ async function handle(msg: { id?: unknown; method?: string; params?: any }): Pro
     case 'ping':
       return reply(id, {})
     case 'tools/list':
-      return reply(id, { tools: tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) })
+      return reply(id, { tools: offered.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) })
     case 'tools/call': {
-      const tool = tools.find((t) => t.name === params?.name)
+      const tool = offered.find((t) => t.name === params?.name)
       if (!tool) return replyError(id, -32602, `Unknown tool: ${params?.name}`)
       try {
         const result = await tool.run(params?.arguments ?? {})

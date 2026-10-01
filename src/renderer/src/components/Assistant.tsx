@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ASSISTANT_AGENT_ID, assistantPersona } from '@shared/assistant'
 import { agentProvider, providerDescriptor } from '@shared/providers'
-import type { AgentDef, AgentInfo, EffortLevel, PermissionMode, PersonaInfo, ProjectInfo, ProviderId } from '@shared/types'
+import type { AgentDef, AgentInfo, AssistantAction, EffortLevel, PermissionMode, PersonaInfo, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
@@ -81,6 +81,12 @@ export function AssistantPanel() {
   const topShare = useStore((s) => s.panes.assistantTop)
   const body = useRef<HTMLDivElement>(null)
   const [dragging, setDragging] = useState(false)
+  // What the Assistant did and asks in this workspace (events keep them current).
+  const ws = useStore((s) => s.workspace?.path)
+  useEffect(() => {
+    if (!ws) return
+    void Promise.all([call('assistant:actions'), call('assistant:questions')]).then(([assistantActions, assistantQuestions]) => set({ assistantActions, assistantQuestions }))
+  }, [ws])
   if (!a) return null
   if (!open) return <AssistantRail a={a.agents[0] ?? null} />
   const agent = a.agents[0]
@@ -114,6 +120,7 @@ export function AssistantPanel() {
     <div className="assistant-panel" style={{ width }}>
       <PaneResizer paneKey="assistant" edge="left" min={300} max={900} keep={380} />
       <AssistantHeader project={a} a={agent} />
+      <AssistantQuestions />
       <div className="assistant-body" ref={body}>
         <div className={cx('assistant-top', topShare === undefined && 'auto')} style={topShare === undefined ? undefined : { height: `${topShare * 100}%` }}>
           <WorkspaceOverview />
@@ -156,6 +163,7 @@ export function AssistantPanel() {
 function AssistantRail({ a }: { a: AgentInfo | null }) {
   const kb = commandKeybinding('assistant.toggle')
   const live = a?.live
+  const asking = useStore((s) => s.assistantQuestions.length)
   return (
     <div className="assistant-rail" role="button" aria-label="Show the Hive Assistant" onClick={() => setAssistantOpen(true)}>
       <Tooltip content={`Show the Hive Assistant${kb ? ` (${formatKeybinding(kb)})` : ''}`}>
@@ -163,7 +171,11 @@ function AssistantRail({ a }: { a: AgentInfo | null }) {
           <Icon name="chevron-left" />
         </span>
       </Tooltip>
-      {live && <span className={cx('dot', live.status, live.unseen && 'unseen')} title={live.statusMessage ?? STATUS_TEXT[live.status]} />}
+      {asking > 0 ? (
+        <Icon name="bell-dot" className="assistant-rail-asking" title="The Assistant is asking you something" />
+      ) : (
+        live && <span className={cx('dot', live.status, live.unseen && 'unseen')} title={live.statusMessage ?? STATUS_TEXT[live.status]} />
+      )}
       <span className="assistant-rail-label">Hive Assistant</span>
     </div>
   )
@@ -350,6 +362,65 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
   )
 }
 
+/** Questions the Assistant's actions wait on (e.g. stopping a busy agent): the user answers on the card. */
+function AssistantQuestions() {
+  const questions = useStore((s) => s.assistantQuestions)
+  if (!questions.length) return null
+  return (
+    <div className="assistant-questions">
+      {questions.map((q) => (
+        <div key={q.id} className="assistant-question" role="alertdialog" aria-label={q.title}>
+          <div className="assistant-question-title">
+            <Icon name="question" /> {q.title}
+          </div>
+          <div className="assistant-question-message">{q.message}</div>
+          <div className="assistant-question-buttons">
+            <button className="btn small subtle" onClick={() => void call('assistant:answer', q.id, false)}>
+              {q.no}
+            </button>
+            <button className="btn small danger" onClick={() => void call('assistant:answer', q.id, true)}>
+              {q.yes}
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** What the Assistant did in this workspace, newest first: the last few, or all of them unfolded. */
+function AssistantActions() {
+  const list = useStore((s) => s.assistantActions)
+  const [all, setAll] = useState(false)
+  if (!list.length) return null
+  const newest = [...list].reverse()
+  const shown = all ? newest : newest.slice(0, 3)
+  const row = (x: AssistantAction) => (
+    <Tooltip key={x.id} block content={`${new Date(x.at).toLocaleString()}${x.error ? `\nNot done: ${x.error}` : ''}`}>
+      <div className={cx('assistant-action', !x.ok && 'failed')}>
+        <Icon name={x.ok ? 'check' : 'circle-slash'} />
+        <span className="assistant-action-text">{x.text}</span>
+        <span className="faint">{timeAgo(x.at)}</span>
+      </div>
+    </Tooltip>
+  )
+  return (
+    <>
+      <div className="assistant-section-title">
+        Done by the Assistant
+        <span className="faint">{list.length}</span>
+      </div>
+      {shown.map(row)}
+      {list.length > 3 && (
+        <div className="assistant-fold" role="button" aria-expanded={all} onClick={() => setAll(!all)}>
+          <Icon name={all ? 'chevron-down' : 'chevron-right'} />
+          {all ? 'Show fewer' : `Show all ${list.length}`}
+        </div>
+      )}
+    </>
+  )
+}
+
 /** Whether a workspace's overview shows its inactive projects (remembered per workspace). */
 const inactiveKey = (ws: string): string => `assistant-inactive:${ws.toLowerCase()}`
 
@@ -422,6 +493,7 @@ function WorkspaceOverview() {
         </div>
       )}
       {showInactive && folded.map(row)}
+      <AssistantActions />
     </div>
   )
 }

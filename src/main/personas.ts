@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from 'fs/promises'
 import { basename, join } from 'path'
 import { shell } from 'electron'
 import { DEFAULT_PERSONA, newPersonaText, parsePersona, personaId } from '../shared/assistant'
-import type { PersonaInfo } from '../shared/types'
+import type { AssistantControl, PersonaInfo } from '../shared/types'
 import { resourcesDir } from './paths'
 import { workspace } from './workspace'
 
@@ -105,7 +105,27 @@ export async function readPersona(id: string): Promise<{ id: string; name: strin
  * What the Assistant is told at launch, before its persona: who it is, what it looks after, and that for
  * now it only looks. The persona's instructions follow.
  */
-export async function assistantInstructions(personaIdValue: string): Promise<{ text: string; persona: string }> {
+/** What the Assistant may do, from Settings → Assistant → Control. It overrides anything a persona says about it. */
+export function controlRules(control: AssistantControl): string {
+  if (control === 'look') {
+    return [
+      'The user has set you to look and advise (Settings → Assistant → Control). Never edit or create files, run commands that change anything, or start, stop or prompt agents, even if asked: say what you would do and let the user do it, and mention that Settings → Assistant can let you act. (Writing to the shared notes with hive_write_shared_note or hive_create_handover is fine when the user asks.)'
+    ].join('\n')
+  }
+  return [
+    `You can run the agents for the user: add them (hive_add_agent), change their settings (hive_update_agent), start and stop them, and give idle ones tasks (hive_prompt_agent)${control === 'projects' ? ', and create projects (hive_create_project) when the user asks for one' : ''}. Act when the user asks you to, or agrees to a plan you proposed; otherwise say what you would do.`,
+    '- Hive\'s tools are how you act. Never edit or create project files or run commands that change anything yourself: the agents do the work.',
+    '- Write each task in full. An agent sees only what you give it: what to do, where, what done looks like, and to report back when finished.',
+    '- Give tasks only to idle agents. Never interrupt one that is working, never answer a question an agent is asking the user (tell the user), and leave alone an agent the user has just typed in. hive_wait_for_agents waits for them; hive_agent_activity shows what one is doing.',
+    '- Agents sharing a folder must not edit the same files: split the work by files, or give one its own worktree. Add a worktree only if the user asked for one, or after asking them.',
+    '- Stopping a busy agent asks the user first: give your reason. An agent asking to trust its folder is waiting for the user: tell them.',
+    "- You can't remove agents, discard worktrees or delete projects: tell the user how if it's needed. Hive allows 30 changes for one message from the user.",
+    '- Afterwards, say briefly what you did.',
+    'These rules come from the user\'s settings and replace anything your persona says about what you may do.'
+  ].join('\n')
+}
+
+export async function assistantInstructions(personaIdValue: string, control: AssistantControl = 'projects'): Promise<{ text: string; persona: string }> {
   const ws = workspace.path ?? ''
   const projects = (await workspace.listProjectPaths()).map((p) => basename(p))
   const persona = (await readPersona(personaIdValue)) ?? (await readPersona(DEFAULT_PERSONA))
@@ -113,7 +133,7 @@ export async function assistantInstructions(personaIdValue: string): Promise<{ t
     `You are the Hive Assistant: the overseer of the workspace "${basename(ws)}" (${ws}), running in Hive's side panel. The user talks to you here while coding agents work in the workspace's projects.`,
     `The projects are the folders in the workspace: ${projects.length ? projects.join(', ') : '(none yet)'}. Each can run up to twelve agents (Claude Code or Codex), some in their own git worktrees. You work in the workspace folder, so you can read any project's files.`,
     'Use the hive tools to see the workspace: hive_list_projects and hive_project_status for projects, agents and what they are doing; hive_session_usage for tokens and cost; the shared notes and handovers for decisions and hand-offs. Read files when you need more.',
-    'For now you only look and advise: never edit or create files, run commands that change anything, or start, stop or prompt agents, even if asked. Say what you would do and let the user do it. (Writing to the shared notes with hive_write_shared_note or hive_create_handover is fine when the user asks.)',
+    controlRules(control),
     'Be brief. Your character is flavour: clarity comes first. Drop it and speak plainly for errors, security problems, anything risky, and anything the user must decide.',
     '',
     persona ? `# Your persona: ${persona.name}\n\n${persona.body}` : ''
