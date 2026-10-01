@@ -187,6 +187,8 @@ function CardTile({
   )
 }
 
+type DragState = { n: number; column: TaskColumn; before: number | null }
+
 /**
  * The board: four columns of cards (one project's, or all of them). Cards drag between and within columns;
  * click opens one, right-click has the rest. With archived, the archived cards as a list instead.
@@ -194,7 +196,14 @@ function CardTile({
 export function Board({ project, query, archived }: { project: string | null; query: string; archived: boolean }) {
   const all = useStore((s) => s.tasks)
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
-  const [drag, setDrag] = useState<{ n: number; column: TaskColumn; before: number | null } | null>(null)
+  const [drag, showDrag] = useState<DragState | null>(null)
+  // The handlers read the drag from here, not from the last render: a dragover or drop can come before React has
+  // drawn the drag's start (a quick drag), and would then be refused.
+  const dragNow = useRef<DragState | null>(null)
+  const setDrag = (d: DragState | null): void => {
+    dragNow.current = d
+    showDrag(d)
+  }
   const cards = useMemo(
     () => all.filter((c) => c.archived === archived && (project === null || c.project.toLowerCase() === project.toLowerCase()) && matches(c, query)),
     [all, project, query, archived]
@@ -227,7 +236,7 @@ export function Board({ project, query, archived }: { project: string | null; qu
   }
 
   const drop = async (column: TaskColumn): Promise<void> => {
-    const d = drag
+    const d = dragNow.current
     setDrag(null)
     if (!d) return
     const card = all.find((c) => c.number === d.n)
@@ -246,15 +255,16 @@ export function Board({ project, query, archived }: { project: string | null; qu
             key={col.id}
             className={cx('board-column', drag?.column === col.id && 'drag-over')}
             onDragOver={(e) => {
-              if (!drag) return
+              const d = dragNow.current
+              if (!d) return
               e.preventDefault()
               // Below its last card (or an empty column): to the end. Gaps between cards keep the marker where it is.
               if ((e.target as HTMLElement).closest('.task-card')) return
               const tiles = (e.currentTarget as HTMLElement).querySelectorAll('.task-card')
               const last = tiles[tiles.length - 1]?.getBoundingClientRect()
               const past = !last || e.clientY > last.bottom
-              if (past && (drag.column !== col.id || drag.before !== null)) setDrag({ ...drag, column: col.id, before: null })
-              else if (!past && drag.column !== col.id) setDrag({ ...drag, column: col.id, before: null })
+              if (past && (d.column !== col.id || d.before !== null)) setDrag({ ...d, column: col.id, before: null })
+              else if (!past && d.column !== col.id) setDrag({ ...d, column: col.id, before: null })
             }}
             onDrop={(e) => {
               e.preventDefault()
@@ -282,13 +292,14 @@ export function Board({ project, query, archived }: { project: string | null; qu
                     setDrag({ n: c.number, column: c.column, before: c.number })
                   }}
                   onDragOver={(e) => {
-                    if (!drag) return
+                    const d = dragNow.current
+                    if (!d) return
                     e.preventDefault()
                     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
                     // The top half drops before this card, the bottom half before the next one.
                     const i = list.findIndex((x) => x.number === c.number)
                     const before = e.clientY < r.top + r.height / 2 ? c.number : (list[i + 1]?.number ?? null)
-                    if (drag.column !== col.id || drag.before !== before) setDrag({ ...drag, column: col.id, before })
+                    if (d.column !== col.id || d.before !== before) setDrag({ ...d, column: col.id, before })
                   }}
                 />
               ))}
