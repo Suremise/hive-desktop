@@ -6,6 +6,7 @@ import { matchKeybinding, runCommand } from './commands'
 import { AboutDialog, AgentSetupDialog, CommandPalette, CompactDialog, Dialogs, NotificationCenter, ProvidersBanner, QuitDialog, QuitPendingBanner, ShortcutsDialog, Toasts } from './components/Overlays'
 import { AddAgentDialog, AgentSettingsDialog, HandOverDialog, MergeDialog } from './components/AgentDialogs'
 import { BoardView, TaskDialog, TaskStartDialog } from './components/Board'
+import { WorkspaceOverviewView } from './views/WorkspaceOverview'
 import { RemoveProjectDialog } from './components/ProjectRemoval'
 import { UpdateDialog } from './components/Updates'
 import { ModeMenuHost } from './components/PermissionMode'
@@ -262,6 +263,8 @@ export function App() {
         return <AssistantMain />
       case 'board':
         return <BoardView />
+      case 'overview':
+        return <WorkspaceOverviewView />
       default:
         return workspace ? null : <WelcomeView />
     }

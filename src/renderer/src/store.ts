@@ -1,7 +1,8 @@
 import { create } from 'zustand'
+import type { Period } from '@shared/usageTotals'
 import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageLayout, pageOfAgent } from '@shared/defaults'
 import { agentProvider } from '@shared/providers'
-import type { QuitScope, TaskCard, UpdateState } from '@shared/types'
+import type { QuitScope, TaskCard, UpdateState, WorkspaceUsage } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
@@ -19,7 +20,7 @@ import type {
   WorkspaceInfo
 } from '@shared/types'
 
-export type Activity = 'projects' | 'board' | 'notes' | 'skills' | 'mcp' | 'assistant' | 'docs' | 'settings'
+export type Activity = 'projects' | 'overview' | 'board' | 'notes' | 'skills' | 'mcp' | 'assistant' | 'docs' | 'settings'
 export type ProjectTab = 'session' | 'overview' | 'tasks' | 'sessions' | 'files' | 'images' | 'changes' | 'memory' | 'skills' | 'mcp' | 'settings'
 
 export interface ConfirmRequest {
@@ -157,6 +158,10 @@ interface State {
 
   /** The workspace's task board (archived cards too), and the board view's filters. */
   tasks: TaskCard[]
+  /** The Workspace Overview's period, and the workspace's usage it last loaded (with when). */
+  overviewPeriod: Period
+  workspaceUsage: WorkspaceUsage | null
+  workspaceUsageAt: number
   /** The Board view's filter: a project's folder name, '' for workspace cards, null for all. */
   boardProject: string | null
   boardQuery: string
@@ -242,6 +247,9 @@ export const useStore = create<State>(() => ({
   filesRoot: {},
 
   tasks: [],
+  overviewPeriod: 'week',
+  workspaceUsage: null,
+  workspaceUsageAt: 0,
   boardProject: null,
   boardQuery: '',
   boardArchived: false,

@@ -2193,6 +2193,36 @@ class SessionManager {
     workspaceOf(projectPath).scheduleRefresh()
   }
 
+  /**
+   * Hive's sessions of a project (and deleted ones' kept usage) with only what totals need, for the Workspace
+   * Overview. Lighter than list(): no sessions started outside Hive, no transcript or backup checks, and usage
+   * comes from the usage cache (a transcript is read only where it grew since it was last read).
+   */
+  async usageItems(projectPath: string): Promise<SessionListItem[]> {
+    projectPath = workspace.assertSessionHost(projectPath)
+    const file = await workspace.sessionsFile(projectPath)
+    const ctx: ListContext = { records: file.sessions, cfg: await workspace.projectConfig(projectPath) }
+    const items: SessionListItem[] = []
+    for (const rec of file.sessions) {
+      const usage = await this.usage(projectPath, rec.id, ctx).catch(() => null)
+      items.push({
+        id: rec.id,
+        provider: recordProvider(rec),
+        source: 'hive',
+        agentId: rec.agentId,
+        cwd: rec.cwd,
+        archived: rec.archived,
+        title: null,
+        lastActivity: usage?.lastActivity ?? rec.lastActiveAt,
+        hasTranscript: !!usage,
+        hasBackup: false,
+        usage: usage && { ...usage, lastPrompt: null, title: null },
+        recache: null
+      })
+    }
+    return [...items, ...(await this.keptUsage(projectPath))]
+  }
+
   /** Deleted sessions' usage, as list items for totals (never shown in the session lists). */
   async keptUsage(projectPath: string): Promise<SessionListItem[]> {
     projectPath = workspace.assertSessionHost(projectPath)

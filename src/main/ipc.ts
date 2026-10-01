@@ -222,6 +222,15 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       return true
     },
     'workspace:recent': () => config.get().recentWorkspaces,
+    'workspace:usage': async () => {
+      const ws = workspace
+      if (!ws.path) throw new Error('No workspace is open')
+      // One project at a time: each reads its sessions file and checks its transcripts against the usage cache.
+      const projects = []
+      for (const p of await ws.listProjectPaths()) projects.push({ name: basename(p), path: p, items: await sessions.usageItems(p).catch(() => []) })
+      const assistant = existsSync(ws.assistantHome) ? await sessions.usageItems(ws.assistantHome).catch(() => []) : []
+      return { workspacePath: ws.path, projects, assistant, hidden: ws.hiddenProjects().length }
+    },
     'workspace:removeRecent': (p) => {
       config.update((c) => (c.recentWorkspaces = c.recentWorkspaces.filter((x) => x !== p)))
       return config.get().recentWorkspaces

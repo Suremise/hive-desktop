@@ -10,6 +10,9 @@
 - **Done cards are archived after 14 days** in Done: **Settings → Board → Archive Done cards after** (0 never).
 - Agent API: `/v1/tasks` and the `tasks-changed` event; hive tools `hive_list_tasks`, `hive_read_task`, `hive_create_task`, `hive_update_task`, and `hive_start_task` for the Assistant.
 
+### Workspace Overview
+- **A Workspace Overview** (activity bar, **Ctrl+Shift+O**): what the whole workspace used in a period (7 days by default), every project and the Assistant together: tokens, API-equivalent cost, sessions and prompts, a daily chart stacked by project, every agent running now, a sortable table by project, each provider's plan limits, and the task board at a glance. It reads no more than a project's Overview: token counts come from the usage cache.
+
 ### Projects
 - **Project → Remove Project…**: **Hide** a project (Hive leaves it out until you restore it), **Remove** it from Hive (the folder stays, with its handovers and cards packed into it, so it can move to another workspace and bring them along), or **Delete** it (the folder, its worktrees and its handovers to the Recycle Bin). **Settings → Workspace** lists hidden and removed projects, with **Restore**.
 

@@ -4418,3 +4418,130 @@ body.pane-resizing-v .monaco-editor {
 .warn-text {
   color: var(--warning);
 }
+
+/* The Workspace Overview. Chart series: the validated categorical order (blue, orange, aqua, yellow, magenta,
+   green), stepped for each theme; Other is neutral. */
+:root,
+[data-theme='dark'] {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-other: #6b6b6b;
+}
+[data-theme='light'] {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-other: #a3a3a3;
+}
+.stack-bar {
+  width: 100%;
+  max-width: 28px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  border-radius: 3px 3px 0 0;
+  overflow: hidden;
+}
+.stack-part {
+  min-height: 2px;
+}
+.stack-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.stack-legend > span,
+.stack-tip-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.stack-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.board-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 14px;
+  color: var(--fg-muted);
+}
+.board-strip-item {
+  background: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 2px 10px;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.board-strip-item:hover {
+  border-color: var(--border);
+  color: var(--fg);
+}
+.board-strip-item .n {
+  font-weight: 600;
+  color: var(--fg-strong);
+  font-variant-numeric: tabular-nums;
+}
+.board-strip-item.accent .n {
+  color: var(--accent);
+}
+.board-strip-item.warning .n {
+  color: var(--warning);
+}
+.board-strip-item.error .n {
+  color: var(--error);
+}
+.table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.table th.sortable:hover {
+  color: var(--fg-strong);
+}
+.table tr.clickable,
+.running-row.clickable {
+  cursor: pointer;
+}
+.running-row.clickable:hover {
+  border-color: var(--border);
+  background: var(--bg-hover);
+}
+.ws-projects .share {
+  display: inline-block;
+  width: 48px;
+  height: 4px;
+  margin-right: 8px;
+  vertical-align: middle;
+  background: var(--bg-active);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ws-projects .share-bar {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}

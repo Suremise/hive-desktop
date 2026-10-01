@@ -11,6 +11,7 @@ import { addSkill, deleteSkill, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from
 import { hasEditorDraftsUnder } from '../editorDrafts'
 import { AssistantSidePanel } from './AssistantView'
 import { BoardPanel } from './Board'
+import { WorkspaceOverviewPanel } from '../views/WorkspaceOverview'
 
 /** Width of the compact Projects rail, and how narrow a drag has to go before the sidebar snaps to it. */
 const RAIL_WIDTH = 48
@@ -53,6 +54,7 @@ export function Sidebar() {
   return (
     <div className={cx('sidebar', compact && 'compact')} style={{ width: compact ? RAIL_WIDTH : width }}>
       {view === 'projects' && (compact ? <ProjectsRail /> : <ProjectsPanel />)}
+      {view === 'overview' && <WorkspaceOverviewPanel />}
       {view === 'board' && <BoardPanel />}
       {view === 'notes' && <NotesPanel />}
       {view === 'skills' && <SkillsPanel />}

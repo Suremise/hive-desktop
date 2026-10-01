@@ -37,6 +37,7 @@ import type {
   QuitSession,
   SessionImageGroup,
   SessionListItem,
+  WorkspaceUsage,
   SessionUsage,
   SkillInfo,
   SkillTarget,
@@ -109,6 +110,8 @@ export interface HiveRequests {
   /** False when the user cancelled (running agents would have been stopped). */
   'workspace:close': () => boolean
   'workspace:recent': () => string[]
+  /** Every project's (and the Assistant's) sessions with their usage, for the Workspace Overview. */
+  'workspace:usage': () => WorkspaceUsage
   'workspace:removeRecent': (path: string) => string[]
   'workspace:refresh': () => WorkspaceInfo | null
 

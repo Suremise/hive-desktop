@@ -726,6 +726,18 @@ export interface SessionListItem extends Partial<SessionRecord> {
   recache: RecacheEstimate | null
 }
 
+/**
+ * The workspace's usage for the Workspace Overview: each project's sessions (Hive's own, and deleted ones' kept
+ * usage) and the Assistant's, with their usage by day, from the usage cache.
+ */
+export interface WorkspaceUsage {
+  workspacePath: string
+  projects: { name: string; path: string; items: SessionListItem[] }[]
+  assistant: SessionListItem[]
+  /** Projects left out: hidden, or removed from Hive. */
+  hidden: number
+}
+
 /** A tool call and its result, as shown in the transcript viewer. */
 export interface TranscriptTool {
   toolUseId: string

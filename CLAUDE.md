@@ -87,7 +87,7 @@ Build with `npx electron-vite build`, then drive `node_modules/electron/dist/ele
 | `src/main/transcripts.ts`, `src/main/providers/conversation.ts` | Sessions tab transcript viewer: per-provider incremental parsers, search, Markdown export |
 | `src/shared/api.ts` | The typed IPC contract — add channels here first |
 | `src/renderer/src/commands.ts` | Every command + keybinding (menus, palette, shortcuts) |
-| `src/renderer/src/views/` | Project view and tabs (`FilesTab.tsx` has Files and Images, `SessionsTab.tsx` the transcript viewer), settings, notes, skills, MCP, docs |
+| `src/renderer/src/views/` | Project view and tabs (`FilesTab.tsx` has Files and Images, `SessionsTab.tsx` the transcript viewer), the Workspace Overview (`WorkspaceOverview.tsx`), settings, notes, skills, MCP, docs |
 | `src/renderer/src/components/FileView.tsx` | Files tab editor + previewer registry (markdown, CSV, HTML, SVG, images, PDF) |
 | `tests/`, `tests/e2e/` | Unit tests (Vitest, fixtures in `tests/fixtures`); end-to-end suites (`lib.cjs`, `run.mjs`, and a fake Claude Code in `fake-claude/` for suites that run agents without signing in) |
 | `src/renderer/src/components/AgentPanes.tsx`, `AgentDialogs.tsx` | Session tab agent strip, layouts and panes; Add Agent, Agent Settings, Continue with… and Merge dialogs |

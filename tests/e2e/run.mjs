@@ -36,6 +36,7 @@ const SUITES = [
   { name: 'drafts' },
   { name: 'transcript' },
   { name: 'overview' },
+  { name: 'wsoverview' },
   { name: 'update' },
   { name: 'image', needs: ['claude'] },
   { name: 'mode', needs: ['claude'] },

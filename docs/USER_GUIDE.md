@@ -175,6 +175,19 @@ To start afresh without losing the thread, click the size (or choose **Hand Over
 
 **Usage cache.** Hive remembers each transcript's token counts, also across restarts, so the Overview and session lists open without reading every transcript again. A transcript is read again only if it changed while Hive was closed, such as a session you continued outside Hive. **Settings → Sessions → Usage cache size** sets how many it keeps (5,000), and **Clear the usage cache** starts afresh.
 
+### Workspace Overview
+
+The **Workspace Overview** (in the activity bar, or **Ctrl+Shift+O**) adds up the whole workspace: every project and the Hive Assistant. It opens on the last **7 days** (or Today, 30 days, All time) and shows:
+
+- the task board at a glance: cards per column, stalled and blocked, each opening the board;
+- tokens, API-equivalent cost, sessions and prompts for the period;
+- for 7 and 30 days, a chart of tokens per day, stacked by project (the six busiest, the rest as Other); hover a day for each project's share;
+- every agent running now, in any project (click one to go to it);
+- a table **by project**, with the Assistant as its own row: click a column to sort, or a row to open that project's Overview;
+- each provider's totals and plan limits.
+
+Hidden and removed projects aren't counted. It updates like the project Overview, and reads no more than it does: token counts come from the usage cache.
+
 ### Plan usage
 
 If you use a subscription (a Claude plan for Claude Code, a ChatGPT plan for Codex), the status bar shows how much of each plan's limits is used, one item per provider, for example **5h 34% · Week 12%**: the rolling 5-hour allowance and the weekly one. Hover it to see when each resets; the **Overview** tab shows them with meters in each provider's section. The numbers are for your whole account (every session, not just Hive's) and come from the CLI while a session is running, so after a quiet spell they show when they were last updated. The status bar darkens at 80% and turns red at 95%, and Hive notifies you once when you pass 80% and 95% of each limit in each reset period.
@@ -452,6 +465,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Next / previous project | Ctrl+PageDown / Ctrl+PageUp |
 | Project tabs | Alt+1 … Alt+9, Alt+0 (Session, Overview, Sessions, Files, Images, Changes, Memory, Skills, MCP, Settings; Tasks has none, but you can give it one); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |
 | Task board / new card | Ctrl+Shift+J / Ctrl+Alt+T |
+| Workspace Overview | Ctrl+Shift+O |
 | Toggle sidebar | Ctrl+B (outside the terminal) |
 | Compact / expand the project list | Ctrl+Alt+B |
 | Notifications | Ctrl+Alt+U |

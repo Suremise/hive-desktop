@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeybindingsEditor } from '../components/Keybindings'
 import type { GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
-import { dayOffset, localDay, usageFrom } from '@shared/usageDays'
+import { PERIODS, activeIn, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
 import { FILE_LOCK_MODES, MAX_AGENTS, effectiveModelLabel, modelLabel } from '@shared/defaults'
 import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { ModelPicker } from '../components/ModelPicker'
@@ -103,87 +103,10 @@ function Card({ title, value, sub, tip, accent, children }: { title: string; val
   )
 }
 
-export type Period = 'today' | 'week' | 'month' | 'all'
-export const PERIODS: { value: Period; label: string }[] = [
-  { value: 'today', label: 'Today' },
-  { value: 'week', label: '7 days' },
-  { value: 'month', label: '30 days' },
-  { value: 'all', label: 'All time' }
-]
-
-/** A period's first local day (calendar days: "7 days" is today and the six before); null for all time. */
-export function periodFrom(p: Period, now: number): string | null {
-  if (p === 'all') return null
-  return dayOffset(now, p === 'today' ? 0 : p === 'week' ? -6 : -29)
-}
-
-/** Sessions with activity in a period (on or after its first day). */
-export function activeIn(list: SessionListItem[], fromDay: string | null): SessionListItem[] {
-  if (!fromDay) return list
-  return list.filter((s) => (s.usage ? usageFrom(s.usage, fromDay).active : localDay(s.lastActivity ?? s.lastActiveAt) >= fromDay))
-}
-
-export interface Totals {
-  sessions: number
-  prompts: number
-  compactions: number
-  input: number
-  cached: number
-  cacheWrite: number
-  output: number
-  cost: number
-  /** Some of the cost is Hive's estimate. */
-  estimated: boolean
-  /** Sessions with no cost at all (no price known for their model). */
-  unpriced: number
-}
-
-/** What sessions used, all of it or from a day on (only what happened then, a day at a time). */
-export function sumUsage(list: SessionListItem[], fromDay: string | null = null): Totals {
-  const t: Totals = { sessions: 0, prompts: 0, compactions: 0, input: 0, cached: 0, cacheWrite: 0, output: 0, cost: 0, estimated: false, unpriced: 0 }
-  for (const s of activeIn(list, fromDay)) {
-    t.sessions++
-    if (!s.usage) continue
-    const u = usageFrom(s.usage, fromDay)
-    t.prompts += u.prompts
-    t.compactions += u.compactions
-    t.input += u.inputTokens
-    t.cached += u.cacheReadTokens
-    t.cacheWrite += u.cacheWriteTokens
-    t.output += u.outputTokens
-    if (u.costUsd === null) t.unpriced++
-    else {
-      t.cost += u.costUsd
-      if (u.costEstimated) t.estimated = true
-    }
-  }
-  return t
-}
-
-/** Each day's tokens, cost and prompts across sessions, from `fromDay` to today (days without use included). */
-export function dailyTotals(list: SessionListItem[], fromDay: string, now: number): { day: string; tokens: number; cost: number; estimated: boolean; prompts: number }[] {
-  const out: { day: string; tokens: number; cost: number; estimated: boolean; prompts: number }[] = []
-  for (let i = 0; ; i++) {
-    const day = dayOffset(Date.parse(`${fromDay}T12:00:00`), i)
-    if (day > localDay(now)) break
-    out.push({ day, tokens: 0, cost: 0, estimated: false, prompts: 0 })
-  }
-  const byDay = new Map(out.map((d) => [d.day, d]))
-  for (const s of list) {
-    for (const [day, d] of Object.entries(s.usage?.days ?? {})) {
-      const o = byDay.get(day)
-      if (!o) continue
-      o.tokens += d.inputTokens + d.outputTokens + d.cacheWriteTokens + d.cacheReadTokens
-      o.prompts += d.prompts
-      if (d.costUsd !== null) o.cost += d.costUsd
-      if (d.costEstimated) o.estimated = true
-    }
-  }
-  return out
-}
+export { PERIODS, activeIn, dailyTotals, money, periodFrom, sumUsage, type Period, type Totals } from '@shared/usageTotals'
 
 /** A small bar per day (tokens), for the 7- and 30-day periods; hover a day for its numbers. */
-export function DailyChart({ days }: { days: ReturnType<typeof dailyTotals> }) {
+export function DailyChart({ days }: { days: DayTotal[] }) {
   const max = Math.max(1, ...days.map((d) => d.tokens))
   const label = (day: string): string => new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
   return (
@@ -204,8 +127,6 @@ export function DailyChart({ days }: { days: ReturnType<typeof dailyTotals> }) {
     </div>
   )
 }
-
-export const money = (n: number): string => (n >= 100 ? `$${Math.round(n)}` : n > 0 && n < 0.01 ? '< $0.01' : `$${n.toFixed(2)}`)
 
 /** The agent a session belongs to: its worktree's agent, else the agent recorded for it ('?' when none). */
 function sessionAgent(project: ProjectInfo, s: SessionListItem): string {
@@ -333,8 +254,8 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
   )
 }
 
-/** One running agent: provider, model, mode, status, context used and cost so far. */
-function RunningAgent({ project, a }: { project: ProjectInfo; a: ProjectInfo['agents'][number] }) {
+/** One running agent: provider, model, mode, status, context used and cost so far. `onOpen` makes it a link. */
+export function RunningAgent({ project, a, label, onOpen }: { project: ProjectInfo; a: ProjectInfo['agents'][number]; label?: string; onOpen?: () => void }) {
   const live = a.live!
   const usage = useLiveUsage(project, a.id)
   const window = usage?.contextWindow ?? null
@@ -343,12 +264,12 @@ function RunningAgent({ project, a }: { project: ProjectInfo; a: ProjectInfo['ag
   const cost = live.costUsd ?? usage?.costUsd ?? null
   const estimated = live.costUsd !== undefined ? !!live.costEstimated : !!usage?.costEstimated
   return (
-    <div className="running-row">
+    <div className={cx('running-row', onOpen && 'clickable')} onClick={onOpen} role={onOpen ? 'button' : undefined}>
       <StatusDot live={live} active={project.active} />
       <ProviderIcon provider={live.provider} />
       <div className="grow">
         <div>
-          <strong>{a.name}</strong> <span className="faint">{statusText(live)}</span>
+          <strong>{label ?? a.name}</strong> <span className="faint">{statusText(live)}</span>
         </div>
         <div className="faint small">
           {[live.modelName ?? usage?.model ?? null, live.permissionMode ? permissionLabel(live.provider, live.permissionMode) : null, live.planMode ? 'Plan' : null].filter(Boolean).join(' · ')}
@@ -543,7 +464,7 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
 }
 
 /** One provider's subscription limits (account-wide), as its sessions last reported them. */
-function PlanLimits({ provider }: { provider: ProviderId }) {
+export function PlanLimits({ provider }: { provider: ProviderId }) {
   const usage = useStore((s) => s.planUsage[provider])
   useNow(60000)
   const p = providerDescriptor(provider)
