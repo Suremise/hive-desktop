@@ -412,7 +412,7 @@ function FilesBrowser({ project, selector }: { project: ProjectInfo; selector: R
       { label: 'Copy Path', icon: 'blank', keybinding: 'Shift+Alt+C', onClick: () => copyText(abs.join('\n')) },
       { label: 'Copy Relative Path', icon: 'blank', onClick: () => copyText(items.map((i) => i.relPath).join('\n')) },
       { separator: true },
-      ...(single ? [{ label: 'Rename…', icon: 'edit', keybinding: 'F2', onClick: () => setEditing({ kind: 'rename', rel: e.relPath }) }] : []),
+      ...(single ? [{ label: 'Rename…', icon: 'tag', keybinding: 'F2', onClick: () => setEditing({ kind: 'rename', rel: e.relPath }) }] : []),
       { label: 'Delete', icon: 'trash', keybinding: 'Del', danger: true, onClick: () => void trashSelected(items) }
     ]
   }
@@ -771,7 +771,7 @@ function FileDetails({
       </div>
       <div className="btns">
         <button className="btn subtle" onClick={() => onRename(entry)}>
-          <Icon name="edit" /> Rename
+          <Icon name="tag" /> Rename
         </button>
         <button className="btn subtle danger-text" onClick={onDelete}>
           <Icon name="trash" /> Delete

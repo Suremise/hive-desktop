@@ -68,11 +68,13 @@ export function PersonaList() {
                 {p.bundled === 'missing' ? 'Ships with Hive. Restore it to use it.' : p.description}
               </div>
             </div>
-            {p.bundled === 'missing' ? (
-              <IconButton icon="history" title="Restore this persona that ships with Hive" onClick={() => void restorePersona(p)} />
-            ) : (
-              <IconButton icon="trash" title="Delete persona" onClick={() => void deletePersona(p)} />
-            )}
+            <div className="row-actions" onClick={(e) => e.stopPropagation()}>
+              {p.bundled === 'missing' ? (
+                <IconButton icon="history" title="Restore this persona that ships with Hive" onClick={() => void restorePersona(p)} />
+              ) : (
+                <IconButton icon="trash" title="Delete persona" onClick={() => void deletePersona(p)} />
+              )}
+            </div>
           </div>
         ))}
       <p className="hint" style={{ padding: '4px 14px' }}>
@@ -131,6 +133,7 @@ export function PersonaView() {
                 <Icon name={inUse ? 'check' : 'person'} /> {inUse ? 'In Use' : 'Use in This Workspace'}
               </button>
             </Tooltip>
+            <IconButton icon="trash" title="Delete persona" onClick={() => void deletePersona(p)} />
           </>
         }
       />

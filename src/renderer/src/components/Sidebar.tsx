@@ -4,7 +4,7 @@ import { agentLaunchSettings, modeOption } from '@shared/providers'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding, runCommand } from '../commands'
-import { confirm, get, notify, projectState, prompt, set, setProjectTab, toggleCompactSidebar, useStore } from '../store'
+import { get, notify, projectState, prompt, set, setProjectTab, toggleCompactSidebar, useStore } from '../store'
 import { cx, formatKeybinding } from '../util'
 import { Icon, IconButton, InfoTip, StatusDot, STATUS_TEXT, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
 import { addSkill, deleteSkill, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
@@ -413,7 +413,7 @@ function NotesPanel() {
                 : []),
               {
                 label: 'Rename…',
-                icon: 'edit',
+                icon: 'tag',
                 onClick: async () => {
                   const nn = await prompt({ title: 'Rename', initial: n.name, confirmLabel: 'Rename' })
                   if (nn && nn !== n.name) {
@@ -425,24 +425,16 @@ function NotesPanel() {
               },
               { label: 'Reveal in File Explorer', icon: 'folder-opened', onClick: () => void call('app:showInFolder', n.path) },
               { separator: true },
-              {
-                label: 'Delete',
-                icon: 'trash',
-                danger: true,
-                onClick: async () => {
-                  if (await confirm({ title: 'Delete?', message: `Delete "${n.relPath}"${n.isDir ? ' and everything in it' : ''}?`, confirmLabel: 'Delete', danger: true })) {
-                    await actions.attempt('Could not delete', () => call('notes:delete', n.path))
-                    if (selected === n.path) set({ selectedNote: null })
-                    load()
-                  }
-                }
-              }
+              { label: 'Delete', icon: 'trash', danger: true, onClick: () => void actions.deleteNote(n.path, n.relPath, n.isDir).then(load) }
             ])
           }
         >
           {n.isDir ? <Icon name={expanded[n.relPath] ? 'chevron-down' : 'chevron-right'} /> : <Icon name={n.name.endsWith('.md') ? 'markdown' : 'file'} />}
           {n.isDir && <Icon name={expanded[n.relPath] ? 'folder-opened' : 'folder'} />}
           <span className="label">{n.name}</span>
+          <div className="row-actions" style={{ marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <IconButton icon="trash" title={n.isDir ? 'Delete folder' : 'Delete note'} onClick={() => void actions.deleteNote(n.path, n.relPath, n.isDir).then(load)} />
+          </div>
         </div>
         {n.isDir && expanded[n.relPath] && n.children && renderNodes(n.children, depth + 1)}
       </div>
@@ -617,6 +609,9 @@ function McpPanel() {
                 <div className="desc" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {m.error ?? m.def?.description ?? m.def?.command ?? m.def?.url}
                 </div>
+              </div>
+              <div className="row-actions" onClick={(e) => e.stopPropagation()}>
+                <IconButton icon="trash" title="Delete server" onClick={() => void actions.deleteMcpServer(m.name)} />
               </div>
               <Tooltip content={m.globallyEnabled ? 'Enabled for all projects (new sessions). Click to disable.' : 'Disabled. Click to enable for all projects (new sessions).'}>
                 <Switch small checked={m.globallyEnabled} disabled={!!m.error} onChange={(v) => void actions.attempt('Could not update server', () => call('mcp:setGlobal', m.name, v)).then(load)} />

@@ -104,7 +104,9 @@ The transcript opens at the latest message. For the running session it updates a
 
 **Search** (Ctrl+F in the tab) looks through messages, replies, tool calls and results, and compaction summaries. Choose **This session** or **All sessions**; the matches replace the list on the left, grouped by session, and clicking one opens the transcript at that point with the matches highlighted. Clear the search to get the list back.
 
-From the toolbar you can **Copy** a message or reply (hover it), **Export as Markdown** to save the whole conversation as a readable file, **Resume** a session that isn't running (with several agents, **▾** chooses which one continues it), **Show** the agent that is running it, and rename, archive or adopt it.
+From the toolbar you can **Copy** a message or reply (hover it), **Export as Markdown** to save the whole conversation as a readable file, **Resume** a session that isn't running (with several agents, **▾** chooses which one continues it), **Show** the agent that is running it, and rename (the tag), archive, delete or adopt it. Rename and delete also show when you hover a session in the list.
+
+**Deleting a session** removes it from Hive: Hive's copies of its transcript go to the Recycle Bin and it no longer shows in the list. A running session has to be stopped first. Claude Code and Codex keep their own copy, so their own resume lists still have it.
 
 ### Several agents in one project
 
@@ -139,7 +141,7 @@ The sidebar keeps one status dot per project, showing the most urgent agent (nee
 
 ### Archiving and backups
 
-Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of every session transcript in the project's `.hive/sessions` folder, and archived sessions in `.hive/archive`. Images you paste or drop into a session are kept in `.hive/images`. None of these are deleted. If the CLI has removed a transcript, Hive restores it from the backup when you resume.
+Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of every session transcript in the project's `.hive/sessions` folder, and archived sessions in `.hive/archive`. Images you paste or drop into a session are kept in `.hive/images`. Hive only deletes them when you ask (deleting a session sends its transcript copies to the Recycle Bin; its images stay). If the CLI has removed a transcript, Hive restores it from the backup when you resume.
 
 ### Token use, cache and compaction
 
@@ -171,7 +173,7 @@ It doesn't use one of a project's agent slots, and it runs in the workspace fold
 
 The **Hive Assistant** button in the activity bar (the robot) opens everything else about it. At the top, **Used so far**: its conversations, prompts, tokens and API-equivalent cost, all time. These aren't counted in any project's Overview. Below that:
 
-- **All Conversations** shows every conversation you've had with it, in the same browser as a project's **Sessions** tab. Search one conversation or all of them, read any in full, export, rename, archive or resume one. **Show** on the running conversation opens the panel.
+- **All Conversations** shows every conversation you've had with it, in the same browser as a project's **Sessions** tab. Search one conversation or all of them, read any in full, export, rename, archive, delete or resume one. **Show** on the running conversation opens the panel.
 - **Personas** lists its personas (below).
 
 The panel's **⋯** menu opens the same view with **All Conversations…** or **Manage Personas…**.
@@ -187,7 +189,7 @@ A **persona** is who the Assistant is: its role and its character, written as in
 
 Whatever the character, they speak plainly about errors, security and anything you must decide.
 
-The **Personas** section of the Assistant view (below) lists them. Click one to read or edit it, **+** to write your own, and the bin to delete one. Hive's own come back with **Restore** or **Revert to Default**. **Use in This Workspace** makes one the Assistant's. Switching persona while the Assistant is running asks first, because it starts a new conversation. A conversation keeps the persona it started with.
+The **Personas** section of the Assistant view (below) lists them. Click one to read or edit it, **+** to write your own, and the bin (on hover, or at the top of an open one) to delete one. Hive's own come back with **Restore** or **Revert to Default**. **Use in This Workspace** makes one the Assistant's. Switching persona while the Assistant is running asks first, because it starts a new conversation. A conversation keeps the persona it started with.
 
 ### Assistant settings
 

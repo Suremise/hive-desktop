@@ -119,6 +119,8 @@ export interface HiveRequests {
   'session:stop': (projectPath: string, agentId?: string) => void
   'session:archive': (projectPath: string, sessionId: string, archived: boolean) => void
   'session:rename': (projectPath: string, sessionId: string, name: string) => void
+  /** Deletes a session that isn't running from Hive (its record and backups; the CLI's transcript stays). */
+  'session:delete': (projectPath: string, sessionId: string) => void
   'session:adopt': (projectPath: string, sessionId: string) => void
   'session:usage': (projectPath: string, sessionId: string) => SessionUsage | null
   'session:markSeen': (projectPath: string) => void

@@ -6,6 +6,7 @@ import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { formatTokens } from './util'
 import { STATUS_TEXT } from './components/ui'
+import { clearEditorDraft } from './editorDrafts'
 
 /** Runs an async action and shows a toast if it fails. */
 export async function attempt<T>(title: string, fn: () => Promise<T>): Promise<T | undefined> {
@@ -387,6 +388,25 @@ export async function archiveCurrent(path: string | null = get().selectedProject
   }
   const archived = await attempt('Could not archive session', () => call('session:archive', path, target.id, true).then(() => true))
   if (archived) await newSession(path, id)
+}
+
+/** Deletes a workspace MCP server after asking; true when it was deleted. */
+export async function deleteMcpServer(name: string): Promise<boolean> {
+  if (!(await confirm({ title: 'Delete MCP server?', message: `Delete ${name}.json from the workspace? Projects will no longer be able to use it.`, confirmLabel: 'Delete', danger: true }))) return false
+  const ok = await attempt('Could not delete', () => call('mcp:delete', name).then(() => true))
+  if (!ok) return false
+  clearEditorDraft(`mcp:${name}`)
+  set((s) => ({ skillsVersion: s.skillsVersion + 1, ...(s.selectedMcp === name ? { selectedMcp: null } : {}) }))
+  return true
+}
+
+/** Deletes a shared note or folder after asking. */
+export async function deleteNote(path: string, label: string, isDir: boolean): Promise<void> {
+  if (!(await confirm({ title: 'Delete?', message: `Delete "${label}"${isDir ? ' and everything in it' : ''}?`, confirmLabel: 'Delete', danger: true }))) return
+  const ok = await attempt('Could not delete', () => call('notes:delete', path).then(() => true))
+  if (!ok) return
+  const gone = (p: string | null): boolean => !!p && (p === path || p.toLowerCase().startsWith(`${path.toLowerCase()}\\`))
+  set((s) => ({ notesVersion: s.notesVersion + 1, ...(gone(s.selectedNote) ? { selectedNote: null } : {}) }))
 }
 
 /** Removes an agent; for a worktree agent, asks whether to keep its worktree and branch. */

@@ -131,7 +131,7 @@ export function NotesView() {
   }
   return (
     <div className="split">
-      <DocEditor key={selected} path={selected} />
+      <DocEditor key={selected} path={selected} toolbarExtra={<IconButton icon="trash" title="Delete note" onClick={() => void actions.deleteNote(selected, basename(selected), false)} />} />
     </div>
   )
 }
@@ -312,12 +312,7 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
       setInfo(r)
     }
   }
-  const remove = async (): Promise<void> => {
-    if (!(await confirm({ title: 'Delete MCP server?', message: `Delete ${selected}.json from the workspace? Projects will no longer be able to use it.`, confirmLabel: 'Delete', danger: true }))) return
-    await actions.attempt('Could not delete', () => call('mcp:delete', selected))
-    clearEditorDraft(draftKey)
-    set({ selectedMcp: null })
-  }
+  const remove = (): Promise<boolean> => actions.deleteMcpServer(selected)
 
   return (
     <div className="split">

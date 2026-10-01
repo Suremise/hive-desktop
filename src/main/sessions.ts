@@ -3,7 +3,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
-import { BrowserWindow, Notification, clipboard } from 'electron'
+import { BrowserWindow, Notification, clipboard, shell } from 'electron'
 import { ASSISTANT_NAME, ASSISTANT_TRUSTED_TOOLS } from '../shared/assistant'
 import { HIVE_DIR, agentPtyKey, assertSessionId, isSessionId, projectAgents, resumeRecord } from '../shared/defaults'
 import { agentLaunchSettings, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
@@ -1588,7 +1588,8 @@ class SessionManager {
     const ctx: ListContext = { records: file.sessions, cfg: await workspace.projectConfig(projectPath) }
     const ttl = config.settings.sessions.cacheTtl
     const items: SessionListItem[] = []
-    const known = new Set(file.sessions.map((s) => s.id))
+    // Deleted sessions stay hidden, though the CLI still has their transcripts.
+    const known = new Set([...file.sessions.map((s) => s.id), ...(file.deleted ?? [])])
     for (const rec of file.sessions) {
       const provider = recordProvider(rec)
       let hasTranscript = false
@@ -1652,6 +1653,29 @@ class SessionManager {
       await rename(arch, active)
     }
     await workspace.upsertSession(projectPath, { id: sessionId, archived })
+  }
+
+  /**
+   * Deletes a session from Hive: its record and Hive's copies of the transcript (to the Recycle Bin). The CLI's
+   * own transcript is left alone (Hive doesn't change the CLIs' files), so Hive remembers the id to keep it hidden.
+   */
+  async delete(projectPath: string, sessionId: string): Promise<void> {
+    projectPath = workspace.assertSessionHost(projectPath)
+    assertSessionId(sessionId)
+    if (this.projectStates(projectPath).some((s) => s.sessionId === sessionId)) throw new Error('Stop the session before deleting it.')
+    for (const archived of [false, true]) {
+      const b = this.backupPath(projectPath, sessionId, archived)
+      if (existsSync(b)) await shell.trashItem(b)
+    }
+    await workspace.mutateSessions(projectPath, (f) => {
+      f.sessions = f.sessions.filter((s) => s.id !== sessionId)
+      if (!f.deleted?.includes(sessionId)) f.deleted = [...(f.deleted ?? []), sessionId]
+    })
+    for (const a of projectAgents(await workspace.projectConfig(projectPath))) {
+      if (a.lastSessionId === sessionId) await workspace.updateAgent(projectPath, a.id, { lastSessionId: undefined }).catch(() => undefined)
+    }
+    log.info(`Deleted session ${sessionId} in ${projectPath}`)
+    workspaceOf(projectPath).scheduleRefresh()
   }
 
   async rename(projectPath: string, sessionId: string, name: string): Promise<void> {

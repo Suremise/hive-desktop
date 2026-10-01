@@ -93,6 +93,23 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
     await actions.attempt('Could not rename', () => call('session:rename', project.path, s.id, name))
     reload()
   }
+  const remove = async (s: SessionListItem): Promise<void> => {
+    const who = providerName(s.provider)
+    const ok = await confirm({
+      title: `Delete ${noun}?`,
+      message: `Delete "${sessionName(s)}" from Hive?`,
+      detail:
+        s.source === 'hive'
+          ? `Hive's copies of its transcript go to the Recycle Bin and it no longer shows here. ${who} keeps its own transcript, so ${who}'s own resume list still has it.`
+          : `Hive stops listing it. ${who} keeps its transcript, so ${who}'s own resume list still has it.`,
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (!ok) return
+    const done = await actions.attempt(`Could not delete the ${noun}`, () => call('session:delete', project.path, s.id).then(() => true))
+    if (done && selectedId === s.id) setSelectedId(null)
+    reload()
+  }
   const archive = async (s: SessionListItem, archived: boolean): Promise<void> => {
     if (archived && !(await confirm({ title: 'Archive session?', message: 'The transcript is preserved in .hive/archive and hidden from this list. You can unarchive it at any time.', confirmLabel: 'Archive' }))) return
     await actions.attempt('Could not archive', () => call('session:archive', project.path, s.id, archived))
@@ -194,7 +211,21 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
             <div className="pane-body">
               {list.length === 0 && <div className="pane-empty">No {noun}s yet.</div>}
               {list.map((s) => (
-                <SessionRow key={s.id} s={s} name={sessionName(s)} live={liveById.get(s.id)?.status ?? null} agent={many || s.cwd ? agentLabel(project, s) : null} selected={s.id === selectedId} onClick={() => open(s.id)} />
+                <SessionRow
+                  key={s.id}
+                  s={s}
+                  name={sessionName(s)}
+                  live={liveById.get(s.id)?.status ?? null}
+                  agent={many || s.cwd ? agentLabel(project, s) : null}
+                  selected={s.id === selectedId}
+                  onClick={() => open(s.id)}
+                  buttons={
+                    <>
+                      {s.source === 'hive' && <IconButton icon="tag" title="Rename" onClick={() => void rename(s)} />}
+                      {!isLive(s.id) && <IconButton icon="trash" title={`Delete ${noun}`} onClick={() => void remove(s)} />}
+                    </>
+                  }
+                />
               ))}
             </div>
           </>
@@ -216,10 +247,11 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
                     Adopt
                   </button>
                 )}
-                {selected.source === 'hive' && <IconButton icon="edit" title="Rename" onClick={() => void rename(selected)} />}
+                {selected.source === 'hive' && <IconButton icon="tag" title="Rename" onClick={() => void rename(selected)} />}
                 {selected.source === 'hive' && !isLive(selected.id) && (
                   <IconButton icon={selected.archived ? 'unarchive' : 'archive'} title={selected.archived ? 'Unarchive' : 'Archive'} onClick={() => void archive(selected, !selected.archived)} />
                 )}
+                {!isLive(selected.id) && <IconButton icon="trash" title={`Delete ${noun}`} onClick={() => void remove(selected)} />}
                 {isLive(selected.id) && (() => {
                   const holder = project.agents.find((a) => a.live?.sessionId === selected.id)!
                   return (
@@ -318,7 +350,7 @@ function agentLabel(project: ProjectInfo, s: SessionListItem): string | null {
   return project.agents.find((a) => a.id === s.agentId)?.name ?? null
 }
 
-function SessionRow({ s, name, live, agent, selected, onClick }: { s: SessionListItem; name: string; live: string | null; agent: string | null; selected: boolean; onClick: () => void }) {
+function SessionRow({ s, name, live, agent, selected, onClick, buttons }: { s: SessionListItem; name: string; live: string | null; agent: string | null; selected: boolean; onClick: () => void; buttons: React.ReactNode }) {
   return (
     <div className={cx('session-row', selected && 'selected', s.archived && 'archived')} onClick={onClick}>
       <div className="session-row-title">
@@ -345,6 +377,9 @@ function SessionRow({ s, name, live, agent, selected, onClick }: { s: SessionLis
             <span className="badge warn">backup</span>
           </Tooltip>
         )}
+      </div>
+      <div className="row-actions" onClick={(e) => e.stopPropagation()}>
+        {buttons}
       </div>
     </div>
   )

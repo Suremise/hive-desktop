@@ -138,6 +138,7 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   await page.locator('.persona-row', { hasText: 'Reviewer' }).click()
   await lib.sleep(600)
   check('a persona opens in the editor', (await page.locator('.split-main .editor-toolbar', { hasText: 'Reviewer' }).count()) === 1)
+  check('its toolbar can delete it', (await page.locator('.split-main .editor-toolbar [aria-label="Delete persona"]').count()) === 1)
 
   // One launch (no prompt): in the workspace folder, asking for Auto, with Hive's reading tools allowed.
   await inv('session:start', home, { agentId: 'assistant' })

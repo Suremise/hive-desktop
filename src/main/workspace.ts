@@ -37,6 +37,8 @@ Agents can create these with the Hive MCP tool \`hive_create_handover\`.
 export interface SessionsFile {
   version: 1
   sessions: SessionRecord[]
+  /** Sessions deleted in Hive: their CLI transcripts are left alone, so Hive hides them from its lists. */
+  deleted?: string[]
 }
 
 type LiveProvider = (projectPath: string, cfg: ProjectConfig) => Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }>
@@ -406,6 +408,8 @@ export class WorkspaceService {
         // Callers name the provider; records from before providers are Claude Code's.
         existing = { agent: 'claude-code', name: '', createdAt: now, lastActiveAt: now, archived: false, ...rec }
         f.sessions.push(existing)
+        // A deleted session that runs again (e.g. resumed inside the CLI) is Hive's again.
+        if (f.deleted?.includes(rec.id)) f.deleted = f.deleted.filter((id) => id !== rec.id)
       }
       return existing
     })

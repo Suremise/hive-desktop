@@ -246,6 +246,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:stop': (p, agentId) => sessions.stop(workspace.assertSessionHost(p), agentId),
     'session:archive': (p, id, archived) => sessions.archive(p, id, archived),
     'session:rename': (p, id, name) => sessions.rename(p, id, name),
+    'session:delete': (p, id) => sessions.delete(p, id),
     'session:adopt': (p, id) => sessions.adopt(p, id),
     'session:usage': (p, id) => sessions.usage(workspace.assertSessionHost(p), id),
     'session:markSeen': (p) => sessions.markSeen(p),

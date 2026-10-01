@@ -2478,6 +2478,18 @@ p.hint {
   background: var(--bg-active);
   border-left-color: var(--accent);
 }
+/* Rename and delete, on hover (like .row-actions in other lists), over the row's right end. */
+.session-row .row-actions {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  display: none;
+  gap: 2px;
+  background: inherit;
+}
+.session-row:hover .row-actions {
+  display: flex;
+}
 .session-row.archived strong {
   color: var(--fg-muted);
 }

@@ -18,6 +18,8 @@
 - **The layout follows as you add agents**: two columns for two, three for three, a grid for four, the 3×2 grid for five or six. Each page has its own layout, and one you choose stays as agents are added.
 - **Updating from 0.1 clears every project's agents** (and resets the layout), since there is no longer a built-in Agent 1. Your sessions stay in the Sessions tab and can be resumed by an agent you add again.
 - When resuming would re-cache a large conversation, the warning offers **Archive and Start Fresh** next to **Resume**.
+- **Sessions can be deleted** in the Sessions tab (and the Assistant's conversations), when they aren't running. Hive's copies go to the Recycle Bin; the CLI keeps its own.
+- Lists show their delete button on hover (skills, MCP servers, shared notes, personas, sessions), and an open item has one in its top bar. Rename now uses a tag icon instead of the pencil.
 - Starting a new conversation inside the CLI (Claude Code's `/clear` or `/resume`, Codex's `/new`) is now followed: Hive records and backs up the new conversation instead of carrying on with the old one.
 
 ### Skills
