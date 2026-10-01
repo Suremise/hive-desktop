@@ -34,6 +34,7 @@ import { config } from './config'
 import { emit, emitTo, toast } from './events'
 import { hashDir, hashText, readJson, removePath, splitArgs, syncCopy, syncCopyLocked, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger } from './logger'
+import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
 import { childEnv, killPty, spawnPty, writePty } from './ptyHost'
 import { hiveSkills } from './skills'
@@ -813,6 +814,8 @@ class SessionManager {
       ...(agent.worktree ? { branch: agent.worktree.branch } : {})
     })
     await workspace.updateAgent(projectPath, agent.id, { lastSessionId: sessionId }).catch(() => undefined)
+    // The card it was started on (or already has in Doing).
+    await recordCards(workspaceOf(projectPath), projectPath, agent.id, sessionId).catch((e) => log.warn(`Could not record the cards of session ${sessionId}`, e))
     for (const other of projectAgents(await workspace.projectConfig(projectPath))) {
       if (other.id !== agent.id && other.lastSessionId === sessionId) await workspace.updateAgent(projectPath, other.id, { lastSessionId: undefined }).catch(() => undefined)
     }

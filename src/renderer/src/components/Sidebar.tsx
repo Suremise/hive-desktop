@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { McpServerInfo, NoteFile, ProjectInfo, SkillInfo } from '@shared/types'
+import type { McpServerInfo, NoteFile, ProjectInfo, SkillInfo, TaskCard } from '@shared/types'
+import { agentDoingCards } from '@shared/tasks'
+import { cardText } from './CardChip'
 import { agentLaunchSettings, modeOption } from '@shared/providers'
 import { agentsToResume } from '@shared/resumeAll'
 import * as actions from '../actions'
@@ -116,6 +118,12 @@ function compactTip(): string {
   return kb ? ` (${formatKeybinding(kb)})` : ''
 }
 
+/** An agent's line in a project's tooltip: "Agent 2: working · #5 Prompt snippets". */
+function agentTipLine(p: ProjectInfo, a: ProjectInfo['agents'][number], tasks: TaskCard[]): string {
+  const card = cardText(agentDoingCards(tasks, p.name, a.id))
+  return `${a.name}: ${a.live ? statusText(a.live) : 'not running'}${card ? ` · ${card}` : ''}`
+}
+
 /** Right-click menu for a project, shared by the full list and the compact rail. */
 function projectMenu(p: ProjectInfo): MenuEntry[] {
   const running = p.agents.filter((a) => a.live).length
@@ -169,6 +177,7 @@ export function projectInitials(name: string): string {
 /** The Projects sidebar collapsed to one status dot per project. */
 function ProjectsRail() {
   const workspace = useStore((s) => s.workspace)
+  const tasks = useStore((s) => s.tasks)
   const selected = useStore((s) => s.selectedProject)
   const menu = useContextMenu()
 
@@ -208,10 +217,10 @@ function ProjectsRail() {
             <Icon name="git-branch" /> {p.branch}
           </div>
         )}
-        {running > 1 &&
+        {(running > 1 || p.agents.some((a) => agentDoingCards(tasks, p.name, a.id).length)) &&
           p.agents.map((a) => (
             <div key={a.id} className="desc">
-              {`${a.name}: ${a.live ? statusText(a.live) : 'not running'}`}
+              {agentTipLine(p, a, tasks)}
             </div>
           ))}
       </div>
@@ -254,6 +263,7 @@ function ProjectsRail() {
 
 function ProjectsPanel() {
   const workspace = useStore((s) => s.workspace)
+  const tasks = useStore((s) => s.tasks)
   const selected = useStore((s) => s.selectedProject)
   const settings = useStore((s) => s.settings)
   const menu = useContextMenu()
@@ -299,7 +309,7 @@ function ProjectsPanel() {
               </Tooltip>
             )}
             {running > 1 && (
-              <Tooltip content={p.agents.map((a) => `${a.name}: ${a.live ? statusText(a.live) : 'not running'}`).join('\n')}>
+              <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{p.agents.map((a) => agentTipLine(p, a, tasks)).join('\n')}</span>}>
                 <span className="agent-count">{running}</span>
               </Tooltip>
             )}
@@ -320,7 +330,14 @@ function ProjectsPanel() {
                 <Icon name="git-branch" /> {p.branch} ·
               </>
             )}{' '}
-            {status}
+            {/* Its agents and their cards, when one has a card in Doing (the agent count has them with several running). */}
+            {p.agents.some((a) => agentDoingCards(tasks, p.name, a.id).length) ? (
+              <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{p.agents.map((a) => agentTipLine(p, a, tasks)).join('\n')}</span>}>
+                <span className="project-status">{status}</span>
+              </Tooltip>
+            ) : (
+              status
+            )}
           </div>
         </div>
         <Tooltip content={p.active ? 'Working on this project. Click to mark it as not being worked on.' : 'Mark as a project you are working on. Only active projects run sessions and show status.'}>

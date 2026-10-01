@@ -27,6 +27,7 @@ const SUITES = [
   { name: 'background' },
   { name: 'longsession' },
   { name: 'resumeall' },
+  { name: 'cardchip' },
   { name: 'board' },
   { name: 'rail' },
   { name: 'resize' },

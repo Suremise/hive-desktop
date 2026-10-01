@@ -40,6 +40,12 @@ export function sortCards(cards: TaskCard[]): TaskCard[] {
   return [...cards].sort((a, b) => col(a) - col(b) || a.order - b.order || a.number - b.number)
 }
 
+/** The cards an agent of a project has in Doing (not archived), in board order: what it is working on now. */
+export function agentDoingCards(cards: readonly TaskCard[], project: string, agentId: string): TaskCard[] {
+  const p = project.toLowerCase()
+  return sortCards(cards.filter((c) => !c.archived && c.column === 'doing' && c.agent === agentId && c.project.toLowerCase() === p))
+}
+
 /**
  * What an agent is given when a card is started: the card in full, and what to do with it on the board. With
  * Hive's tools it can read the comments and move the card itself; without them, the card is all it has.

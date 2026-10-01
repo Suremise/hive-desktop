@@ -600,6 +600,7 @@ function TranscriptView({ project, session, live, jump, query, toolbar }: { proj
         {!follow && <IconButton icon="refresh" title="Refresh (load new messages)" onClick={() => void load({ force: true })} />}
         {toolbar}
       </div>
+      <WorkedOn cards={session.cards} />
       <div
         className="transcript"
         ref={scroller}
@@ -911,5 +912,35 @@ function TranscriptImageViewer({ project, sessionId, image, images, onNavigate, 
         <IconButton icon="chevron-right" title="Later (→)" disabled={!next} onClick={() => next && onNavigate(next)} />
       </div>
     </Modal>
+  )
+}
+
+/** "Worked on #5 Prompt snippets, #7 …": the board cards the session's agent had in Doing. A deleted card keeps its
+ *  number and the title it had, without a link. */
+function WorkedOn({ cards }: { cards: SessionListItem['cards'] }) {
+  const tasks = useStore((s) => s.tasks)
+  if (!cards?.length) return null
+  return (
+    <div className="worked-on faint">
+      <Icon name="project" /> Worked on{' '}
+      {cards.map((c, i) => {
+        const card = tasks.find((t) => t.number === c.number)
+        const text = `#${c.number} ${card?.title ?? c.title}`
+        return (
+          <span key={c.number}>
+            {i > 0 && ', '}
+            {card ? (
+              <a className="link" data-task={c.number} onClick={() => set({ taskOpen: c.number })}>
+                {text}
+              </a>
+            ) : (
+              <Tooltip content="This card was deleted.">
+                <span>{text}</span>
+              </Tooltip>
+            )}
+          </span>
+        )
+      })}
+    </div>
   )
 }

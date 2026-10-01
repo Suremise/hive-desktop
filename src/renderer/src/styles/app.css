@@ -3607,6 +3607,80 @@ body.pane-resizing .monaco-editor {
   font-size: 12px;
   max-width: 100%;
 }
+/* An agent's card in Doing (CardChip): "#4 title", tinted with the Doing column's colour. */
+.card-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 240px;
+  padding: 0 6px;
+  height: 18px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--fg);
+  background: var(--bg-active);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  flex: none;
+  vertical-align: middle;
+}
+.card-chip.colored {
+  background: color-mix(in srgb, var(--col) 18%, var(--bg-elevated));
+  border-color: color-mix(in srgb, var(--col) 45%, var(--border-subtle));
+}
+.card-chip:hover {
+  color: var(--fg-strong);
+  border-color: var(--border);
+}
+.card-chip.colored:hover {
+  border-color: var(--col);
+}
+.card-chip .codicon {
+  font-size: 12px;
+}
+.card-chip-number {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.card-chip-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.card-chip-more {
+  color: var(--fg-muted);
+}
+/* Short of room, the session name gives way first, then the card's title, before the agent's status. */
+.pane-header-bar > .tip-wrap:has(> .card-chip) {
+  display: inline-flex;
+  min-width: 0;
+  flex-shrink: 4;
+}
+.pane-header-bar > .tip-wrap:has(> .session-tag) {
+  flex-shrink: 8;
+}
+.pane-header-bar .card-chip {
+  flex-shrink: 1;
+  max-width: 170px;
+}
+.agent-tab .card-chip {
+  margin-left: 2px;
+}
+.worked-on {
+  padding: 4px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.worked-on .link {
+  color: var(--accent);
+  cursor: pointer;
+}
+.worked-on .link:hover {
+  text-decoration: underline;
+}
 .pane-header-bar .session-tag:hover,
 .badge.session-tag:hover {
   color: var(--fg-strong);

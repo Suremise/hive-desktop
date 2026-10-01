@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CardChip } from '../components/CardChip'
 import { KeybindingsEditor } from '../components/Keybindings'
 import type { GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
 import { PERIODS, activeIn, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
@@ -73,7 +74,9 @@ export function useSessions(project: ProjectInfo) {
     }
   }, [load])
   // Live: a change (usage, or an agent starting or stopping) reloads, at most every LIVE_REFRESH_MS.
-  const liveKey = `${usageVersion}|${project.agents.map((a) => `${a.live?.sessionId ?? ''}:${a.live?.status ?? ''}`).join(',')}`
+  // A card moving into an agent's Doing too: its session records it ("Worked on #5").
+  const doingKey = useStore((s) => s.tasks.filter((c) => c.column === 'doing' && c.agent && c.project.toLowerCase() === project.name.toLowerCase()).map((c) => `${c.number}:${c.agent}`).join(','))
+  const liveKey = `${usageVersion}|${doingKey}|${project.agents.map((a) => `${a.live?.sessionId ?? ''}:${a.live?.status ?? ''}`).join(',')}`
   useEffect(() => {
     if (mode !== 'live' || !last.current || !shown) return
     const wait = last.current + LIVE_REFRESH_MS - Date.now()
@@ -269,7 +272,7 @@ export function RunningAgent({ project, a, label, onOpen }: { project: ProjectIn
       <ProviderIcon provider={live.provider} />
       <div className="grow">
         <div>
-          <strong>{label ?? a.name}</strong> <span className="faint">{statusText(live)}</span>
+          <strong>{label ?? a.name}</strong> <span className="faint">{statusText(live)}</span> <CardChip project={project} a={a} />
         </div>
         <div className="faint small">
           {[live.modelName ?? usage?.model ?? null, live.permissionMode ? permissionLabel(live.provider, live.permissionMode) : null, live.planMode ? 'Plan' : null].filter(Boolean).join(' · ')}

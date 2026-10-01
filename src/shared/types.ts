@@ -515,6 +515,8 @@ export interface SessionRecord {
   transcriptPath?: string
   /** The session whose work was handed over to this one ("Hand Over to…"). */
   handedOverFrom?: string
+  /** Board cards its agent had in Doing while it ran, in order, with the title each had then. */
+  cards?: { number: number; title: string }[]
 }
 
 /** background: the agent's turn has ended, but it has background tasks that will start it again when they end. */

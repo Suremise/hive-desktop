@@ -538,3 +538,52 @@ describe('column colours', () => {
     expect(new Set(Object.values(DEFAULT_COLUMN_COLORS)).size).toBe(4)
   })
 })
+
+describe("an agent's cards on its session", () => {
+  let w: WS
+  const wsPath = join(base, 'ws-cards')
+  let alpha = ''
+  beforeAll(async () => {
+    alpha = project(wsPath, 'alpha', [
+      { id: 'a1', name: 'Agent 1' },
+      { id: 'a2', name: 'Agent 2' }
+    ])
+    w = await open(wsPath)
+  })
+  afterAll(async () => disposeWorkspaceService(w))
+  const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
+
+  it('shows only the Doing cards given to the agent, in board order', async () => {
+    const { agentDoingCards } = await import('../src/shared/tasks')
+    const a = await run(() => tasks.createTask({ title: 'Inbox', project: 'alpha', agent: 'a1', column: 'doing' }, user))
+    const b = await run(() => tasks.createTask({ title: 'Snippets', project: 'alpha', agent: 'a1', column: 'doing' }, user))
+    await run(() => tasks.createTask({ title: 'Later', project: 'alpha', agent: 'a1', column: 'todo' }, user))
+    await run(() => tasks.createTask({ title: 'Theirs', project: 'alpha', agent: 'a2', column: 'doing' }, user))
+    const all = await run(() => tasks.allTasks(w))
+    expect(agentDoingCards(all, 'ALPHA', 'a1').map((c) => c.number)).toEqual([a.number, b.number])
+    await run(() => tasks.updateTask(a.number, { column: 'review' }, user))
+    expect(agentDoingCards(await run(() => tasks.allTasks(w)), 'alpha', 'a1').map((c) => c.number)).toEqual([b.number])
+    // Back in Doing, it goes to the end.
+    await run(() => tasks.updateTask(a.number, { column: 'doing' }, user))
+  })
+
+  it("records each Doing card on the agent's running session once, in order, with its title then", async () => {
+    const { recordCards, recordLiveCards } = await import('../src/main/cardSessions')
+    await w.upsertSession(alpha, { id: 's1', agentId: 'a1' })
+    await recordCards(w, alpha, 'a1', 's1')
+    const rec = async () => (await w.sessionsFile(alpha)).sessions.find((s) => s.id === 's1')
+    expect((await rec())?.cards?.map((c) => c.title)).toEqual(['Snippets', 'Inbox'])
+    // A card given to it later is added; moving one out of Doing or renaming it keeps the record.
+    const c = await run(() => tasks.createTask({ title: 'Third', project: 'alpha', agent: 'a1', column: 'doing' }, user))
+    await run(() => tasks.updateTask(1, { column: 'review', title: 'Inbox, renamed' }, user))
+    await recordLiveCards(wsPath, [{ projectPath: alpha, agentId: 'a1', sessionId: 's1' } as never])
+    expect((await rec())?.cards).toEqual([
+      { number: 2, title: 'Snippets' },
+      { number: 1, title: 'Inbox' },
+      { number: c.number, title: 'Third' }
+    ])
+    // A session Hive hasn't recorded isn't created.
+    await recordCards(w, alpha, 'a1', 'unknown')
+    expect((await w.sessionsFile(alpha)).sessions.some((s) => s.id === 'unknown')).toBe(false)
+  })
+})

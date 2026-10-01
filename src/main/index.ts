@@ -16,6 +16,7 @@ import { SERVABLE_EXT, unwatchAll } from './files'
 import { config } from './config'
 import { archiveOldDone } from './tasks'
 import { emit, emitTo, onHiveEvent, toast } from './events'
+import { recordLiveCards } from './cardSessions'
 import { registerIpc } from './ipc'
 import { createLogger, logsDir } from './logger'
 import { killAll } from './ptyHost'
@@ -666,6 +667,8 @@ app.whenReady().then(async () => {
     if (e.type === 'session-status' || e.type === 'session-exit') checkPendingQuit()
     // A window opened or closed its workspace: remember it for the next start.
     if (e.type === 'workspace-changed') saveWindowsSoon()
+    // A card moved to Doing (or was given to a running agent): its session records it.
+    if (e.type === 'tasks-changed') void recordLiveCards(e.workspacePath, sessions.liveStates())
   })
   initUpdater({
     restart: () => {

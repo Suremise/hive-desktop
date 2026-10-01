@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { CardChip, useAgentCards } from './CardChip'
 import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, compactThreshold, effectiveModelLabel, effortLabel, formatBytes, layoutPanes, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit } from '@shared/defaults'
 import type { AgentInfo, ProjectInfo, SessionLayout, SessionListItem } from '@shared/types'
 import * as actions from '../actions'
@@ -259,8 +260,10 @@ function Locks({ a }: { a: AgentInfo }) {
 /** The row above the Session tab: one tab per agent, Add Agent and the layout choice. */
 function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const usage = useLiveUsage(project, a.live ? a.id : undefined)
+  const cards = useAgentCards(project, a.id)
   const live = a.live
   const lines = [`${a.name} (${providerName(agentProviderOf(project, a))}): ${live ? statusText(live) : 'not running'}`]
+  for (const c of cards) lines.push(`Working on #${c.number} ${c.title}`)
   if (live) lines.push(`Session: ${sessionLabel({ id: live.sessionId, name: live.sessionName, title: usage?.title }, project.name)}`)
   else if (a.resume) lines.push(`Resume opens: ${sessionLabel(a.resume, project.name)} (${timeAgo(a.resume.lastActiveAt)})`)
   if (a.worktree) lines.push(`Worktree ${a.worktree.path} on ${a.worktree.branch}, branched from ${a.worktree.base}`)
@@ -312,6 +315,7 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
                 <Icon name="git-branch" /> {a.worktree.branch}
               </span>
             )}
+            <CardChip project={project} a={a} short tip={false} />
             <Locks a={a} />
           </div>
         </Tooltip>
@@ -425,6 +429,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         </Tooltip>
       )}
       <span className="faint pane-status">{live ? statusText(live) : 'Not running'}</span>
+      <CardChip project={project} a={a} short={size === 'menu'} />
       <SessionTag project={project} a={a} />
       <Locks a={a} />
       <div className="grow" />
