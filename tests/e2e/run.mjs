@@ -26,6 +26,7 @@ const SUITES = [
   { name: 'assistant-control' },
   { name: 'background' },
   { name: 'longsession' },
+  { name: 'resumeall' },
   { name: 'board' },
   { name: 'rail' },
   { name: 'resize' },

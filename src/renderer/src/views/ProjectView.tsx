@@ -1,5 +1,6 @@
 import type { ProjectInfo } from '@shared/types'
 import { agentLaunchSettings, isProviderEnabled, modeOption, providerName } from '@shared/providers'
+import { agentsToResume } from '@shared/resumeAll'
 import hexUrl from '../assets/icon.svg'
 import * as actions from '../actions'
 import { call } from '../api'
@@ -152,6 +153,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
   // How many agents are in the status the badge shows (e.g. Working · 1 of 2 agents), not just running.
   const inStatus = combined ? project.agents.filter((a) => a.live?.status === combined.status).length : 0
   const running = project.agents.filter((a) => a.live)
+  const resumable = agentsToResume(project.agents)
   const dangerous = settings
     ? project.agents.flatMap((a) => {
         const l = agentLaunchSettings(a, project.config, settings)
@@ -212,6 +214,13 @@ export function ProjectView({ visible }: { visible: boolean }) {
               {!narrow && " Terminal"}
             </button>
           </Tooltip>
+          {resumable.length > 0 && (
+            <Tooltip content={resumable.length === 1 ? `Resume ${resumable[0].name}'s last session` : `Resume all ${resumable.length} stopped agents (running ones are left alone)`}>
+              <button className="btn subtle" onClick={() => void actions.resumeAllAgents(project.path)}>
+                <Icon name="debug-continue" /> {resumable.length === 1 ? 'Resume Agent' : narrow ? 'Resume All' : 'Resume All Agents'}
+              </button>
+            </Tooltip>
+          )}
           {running.length > 0 && (
             <Tooltip content={running.length === 1 ? 'Stop the running agent' : `Stop all ${running.length} running agents`}>
               <button className="btn tint-red" onClick={() => void actions.stopAllAgents(project.path)}>

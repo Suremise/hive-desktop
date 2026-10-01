@@ -3,6 +3,7 @@ import { call, errorMessage } from './api'
 import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemoving, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
 import { MANY_AGENTS, MAX_AGENTS, sessionInAgentFolder, withPageLayout } from '@shared/defaults'
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
+import { agentsToResume, resumeAll } from '@shared/resumeAll'
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { formatTokens } from './util'
 import { statusText } from './components/ui'
@@ -368,6 +369,52 @@ export async function stopAllAgents(path: string): Promise<void> {
   })
   if (!ok) return
   await attempt('Could not stop sessions', () => call('session:stop', path))
+}
+
+/**
+ * Resumes every stopped agent that has a conversation to resume, one after another; running agents are
+ * left alone. Asks first only when some caches have expired; one failure doesn't stop the rest, and the
+ * failures are reported together with their reasons.
+ */
+export async function resumeAllAgents(path: string): Promise<void> {
+  const p = project(path)
+  if (!p) return
+  const stopped = agentsToResume(p.agents)
+  if (!stopped.length) return notify('info', 'Nothing to resume', 'No stopped agent has a session to resume.')
+  const list = (await attempt('Could not list sessions', () => call('session:list', path))) ?? []
+  const cold = stopped.flatMap((a) => {
+    const r = list.find((s) => s.id === a.resume!.id)?.recache
+    return r && !r.warm && r.tokens > 20000 ? [`• ${a.name} — about ${formatTokens(r.tokens)} tokens`] : []
+  })
+  if (cold.length) {
+    const ok = await confirm({
+      title: stopped.length === 1 ? 'Resume the agent?' : 'Resume all agents?',
+      message: `The prompt cache has expired for ${cold.length === stopped.length && cold.length > 1 ? 'all of them' : cold.length === 1 ? 'one agent' : `${cold.length} agents`}. Resuming re-caches on the first message:`,
+      detail: cold.join('\n'),
+      confirmLabel: stopped.length === 1 ? 'Resume' : 'Resume all'
+    })
+    if (!ok) return
+  }
+  // The agents as they are now: one may have started while the dialog was open.
+  const result = await resumeAll(project(path)?.agents ?? [], async (a) => {
+    const provider = agentProviderOf(project(path), a)
+    const name = providerName(provider)
+    if (!isProviderEnabled(get().settings, provider)) throw new Error(`${name} is turned off in Settings → Providers.`)
+    if (!get().providers[provider]?.found) throw new Error(`${name} isn't installed (Agent Setup).`)
+    try {
+      await call('session:start', path, { resumeId: a.resume!.id, name: a.resume!.name, agentId: a.id })
+    } catch (e) {
+      throw new Error(errorMessage(e), { cause: e })
+    }
+  })
+  if (result.failed.length) {
+    const tried = result.failed.length + result.resumed.length
+    notify(
+      'error',
+      result.failed.length === tried ? (tried === 1 ? 'Could not resume the agent' : 'Could not resume the agents') : `${result.failed.length} of ${tried} agents could not resume`,
+      [...result.failed.map((f) => `• ${f.name}: ${f.error}`), ...(result.resumed.length ? [`Resumed: ${result.resumed.join(', ')}`] : [])].join('\n')
+    )
+  }
 }
 
 export async function archiveCurrent(path: string | null = get().selectedProject, agentId?: string): Promise<void> {

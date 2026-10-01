@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { McpServerInfo, NoteFile, ProjectInfo, SkillInfo } from '@shared/types'
 import { agentLaunchSettings, modeOption } from '@shared/providers'
+import { agentsToResume } from '@shared/resumeAll'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding, runCommand } from '../commands'
@@ -121,6 +122,7 @@ function projectMenu(p: ProjectInfo): MenuEntry[] {
   return [
     { label: 'New Session', icon: 'add', onClick: () => void actions.newSession(p.path) },
     { label: 'Resume Last Session', icon: 'debug-continue', onClick: () => void actions.resumeLast(p.path) },
+    ...(p.agents.length > 1 ? [{ label: 'Resume All Agents', icon: 'blank', disabled: !agentsToResume(p.agents).length, onClick: () => void actions.resumeAllAgents(p.path) }] : []),
     running > 1
       ? { label: 'Stop All Agents', icon: 'debug-stop', onClick: () => void actions.stopAllAgents(p.path) }
       : { label: 'Stop Session', icon: 'debug-stop', disabled: !running, onClick: () => void actions.stopSession(p.path, p.agents.find((a) => a.live)?.id) },

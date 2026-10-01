@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AppSettings, ChimeSound, EffortLevel, ModelPrice, PermissionMode, ProviderId } from '@shared/types'
+import type { AppSettings, ChimeSound, EffortLevel, ModelPrice, PermissionMode, ProviderId, TaskColumn } from '@shared/types'
+import { DEFAULT_COLUMN_COLORS, TASK_COLUMNS, columnColor } from '@shared/tasks'
 import { DEFAULT_PERSONA } from '@shared/assistant'
 import { PRICES_CHECKED, SHIPPED_PRICES } from '@shared/prices'
 import type { SettingsPatch } from '@shared/api'
@@ -55,7 +56,7 @@ const SECTIONS: { id: Section; label: string; icon: string; desc: string; provid
   { id: 'sessions', label: 'Sessions', icon: 'history', desc: 'Transcript backups, cache estimates and session behaviour.' },
   { id: 'assistant', label: 'Assistant', icon: 'person', desc: "The Hive Assistant's defaults: the side panel's overseer of each workspace (Ctrl+Alt+I). Each workspace can change them in the panel's Assistant Settings." },
   { id: 'workspace', label: 'Workspace', icon: 'root-folder', desc: "The open workspace's projects that Hive leaves out: hidden, or removed from Hive with their handovers and cards packed into the folder." },
-  { id: 'board', label: 'Board', icon: 'project', desc: "The task board's housekeeping, the same in every workspace." },
+  { id: 'board', label: 'Board', icon: 'project', desc: "The task board's colours and housekeeping, the same in every workspace." },
   { id: 'agents', label: 'Agents & Worktrees', icon: 'organization', desc: 'Defaults for projects running several agents: file locks, new worktrees and merging (projects can override them), and how long background tasks count.' },
   { id: 'keybindings', label: 'Keyboard Shortcuts', icon: 'keyboard', desc: 'Change, remove or add shortcuts for any command. Projects can set their own for project and session commands (Project Settings → Keyboard Shortcuts).' },
   { id: 'agentApi', label: 'Agent API', icon: 'broadcast', desc: 'Local API and built-in MCP server that let agents interact with Hive.' },
@@ -131,6 +132,8 @@ const SETTINGS: SettingDef[] = [
   { section: 'agents', key: 'worktreeCopy', title: 'Copy into new worktrees', desc: 'Git-ignored files copied from the project folder into each new worktree, comma separated (e.g. .env*, config/local.json).', tip: 'A new worktree only gets the files git tracks. Patterns without a slash match a file or folder name anywhere; with a slash they match a path from the project root. Projects can set their own list and a setup command (e.g. npm install) in Project Settings → Agents & Worktrees.', type: 'text', placeholder: '.env*' },
   { section: 'agents', key: 'mergeStyle', title: 'Default merge style', desc: "How a worktree agent's branch is merged back, unless you choose otherwise in the Merge dialog.", tip: 'Squash makes one commit with everything the agent did. Merge keeps its individual commits plus a merge commit.', type: 'select', options: [{ value: 'squash', label: 'Squash' }, { value: 'merge', label: 'Merge commit' }] },
   { section: 'board', key: 'archiveDoneDays', title: 'Archive Done cards after', desc: 'Days a card stays in Done before Hive archives it. 0 never archives them.', tip: "Counted from when the card last went into Done (or was brought back from the archive), not from its last change. An archived card is kept: the board's Archived list shows it, and you can bring it back. Hive checks when a workspace opens and every hour.", type: 'number', min: 0, max: 365, step: 1 },
+  { section: 'board', key: 'columnColors', title: 'Colour columns', desc: "Give each column's heading its colour and tint its cards with it.", tip: 'A card takes the colour of the column it is in. Blocked, stalled and finished cards keep their red, amber and green edge, and their text, over the tint.', type: 'boolean' },
+  { section: 'board', key: 'colors', title: 'Column colours', desc: 'Pick the colour of each column.', tip: 'The tint on cards is a light mix of the colour with the theme, so it works in light and dark themes. Reset puts back the default.', type: 'custom', render: () => <ColumnColors /> },
   { section: 'agents', key: 'backgroundTaskMinutes', title: 'Count background tasks for up to', desc: 'Minutes an agent waits on a background task it started (such as a test run) before Hive counts it as finished anyway.', tip: "An agent that ends its turn while a task it started is still running shows as waiting on background tasks, not finished: Claude Code carries on by itself when the task ends. Hive can't tell a test run from something that never ends, such as a dev server, so it stops counting a task after this long (a Monitor also when it expires). Codex isn't told when its background terminals end, so they are only counted and shown. 10 to 480 minutes.", type: 'number', min: 10, max: 480, step: 5 },
   // Assistant
   { section: 'assistant', key: 'provider', title: 'Provider', desc: 'The coding agent the Assistant runs, unless a workspace chooses another.', tip: 'The Assistant is independent of your project agents: a Codex Assistant can look after Claude Code agents, and the other way round.', type: 'custom', render: () => <AssistantProviderPicker /> },
@@ -615,6 +618,36 @@ function ClearUsageCacheButton() {
     >
       <Icon name="clear-all" /> Clear
     </button>
+  )
+}
+
+/** A colour picker per board column, saved a moment after the pick settles (the picker reports every drag). */
+function ColumnColors() {
+  const board = useStore((st) => st.settings!.board)
+  const [draft, setDraft] = useState<Partial<Record<TaskColumn, string>>>({})
+  useEffect(() => {
+    if (!Object.keys(draft).length) return
+    const t = setTimeout(() => {
+      void saveSettings({ board: { colors: draft } } as SettingsPatch)
+      setDraft({})
+    }, 300)
+    return () => clearTimeout(t)
+  }, [draft])
+  return (
+    <div className={cx('column-colors', !board.columnColors && 'off')}>
+      {TASK_COLUMNS.map((c) => {
+        const value = draft[c.id] ?? columnColor(board.colors, c.id)
+        return (
+          <label key={c.id} className="column-color">
+            <input type="color" value={value} aria-label={`${c.label} colour`} onChange={(e) => setDraft((d) => ({ ...d, [c.id]: e.target.value }))} />
+            <span>{c.label}</span>
+            {value.toLowerCase() !== DEFAULT_COLUMN_COLORS[c.id] && (
+              <IconButton icon="discard" title={`Reset ${c.label} to its default`} onClick={() => void saveSettings({ board: { colors: { [c.id]: DEFAULT_COLUMN_COLORS[c.id] } } } as SettingsPatch)} />
+            )}
+          </label>
+        )
+      })}
+    </div>
   )
 }
 

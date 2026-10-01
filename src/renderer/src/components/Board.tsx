@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch } from '@shared/types'
-import { TASK_COLUMNS, columnLabel, stalledReason } from '@shared/tasks'
+import { TASK_COLUMNS, columnColor, columnLabel, stalledReason } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
 import { NO_PROJECTS, agentProviderOf, confirm, get, loadTasks, notify, revealAgent, set, useStore } from '../store'
@@ -196,6 +196,8 @@ type DragState = { n: number; column: TaskColumn; before: number | null }
 export function Board({ project, query, archived }: { project: string | null; query: string; archived: boolean }) {
   const all = useStore((s) => s.tasks)
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
+  const colored = useStore((s) => s.settings?.board.columnColors ?? true)
+  const colors = useStore((s) => s.settings?.board.colors)
   const [drag, showDrag] = useState<DragState | null>(null)
   // The handlers read the drag from here, not from the last render: a dragover or drop can come before React has
   // drawn the drag's start (a quick drag), and would then be refused.
@@ -247,13 +249,15 @@ export function Board({ project, query, archived }: { project: string | null; qu
   }
 
   return (
-    <div className="board" onDragEnd={() => setDrag(null)}>
+    <div className={cx('board', colored && 'colored')} onDragEnd={() => setDrag(null)}>
       {TASK_COLUMNS.map((col) => {
         const list = cards.filter((c) => c.column === col.id)
         return (
           <div
             key={col.id}
             className={cx('board-column', drag?.column === col.id && 'drag-over')}
+            data-column={col.id}
+            style={colored ? ({ '--col': columnColor(colors, col.id) } as React.CSSProperties) : undefined}
             onDragOver={(e) => {
               const d = dragNow.current
               if (!d) return
@@ -273,7 +277,7 @@ export function Board({ project, query, archived }: { project: string | null; qu
           >
             <div className="board-column-header">
               <Tooltip content={col.description}>
-                <span>{col.label}</span>
+                <span className="board-column-label">{col.label}</span>
               </Tooltip>
               <span className="count">{list.length}</span>
               {col.id === 'todo' && <IconButton icon="add" title="New card" onClick={() => set({ taskOpen: { project: project ?? '' } })} />}

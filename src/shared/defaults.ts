@@ -1,5 +1,6 @@
 import type { AgentDef, AppConfig, AppSettings, KeybindingOverrides, FileLockMode, PageLayout, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderSettings, SessionLayout, SessionRecord, WorkspaceConfig } from './types'
 import { CLAUDE_CODE } from './claude'
+import { DEFAULT_COLUMN_COLORS } from './tasks'
 import { DEFAULT_PROVIDER, PROVIDERS, defaultProviderSettings, isKnownProvider, providerDescriptor } from './providers'
 
 export const APP_NAME = 'Hive'
@@ -82,7 +83,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     backgroundTaskMinutes: 60
   },
   board: {
-    archiveDoneDays: 14
+    archiveDoneDays: 14,
+    columnColors: true,
+    colors: { ...DEFAULT_COLUMN_COLORS }
   }
 }
 

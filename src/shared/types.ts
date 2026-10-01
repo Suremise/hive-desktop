@@ -113,6 +113,10 @@ export interface AppSettings {
   board: {
     /** Done cards are archived this many days after they went into Done. 0 never. */
     archiveDoneDays: number
+    /** Colour each column's heading and tint its cards. */
+    columnColors: boolean
+    /** The columns' colours (#rrggbb). */
+    colors: Record<TaskColumn, string>
   }
 }
 

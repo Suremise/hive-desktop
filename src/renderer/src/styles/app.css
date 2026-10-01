@@ -1578,6 +1578,7 @@ p.hint {
   font-size: 12px;
   margin-top: 2px;
   word-break: break-word;
+  white-space: pre-line;
 }
 .toast-actions {
   display: flex;
@@ -4203,6 +4204,64 @@ body.pane-resizing-v .monaco-editor {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--fg-muted);
+}
+/* Settings → Board → Colour columns: each column's colour (--col) on its top edge and heading, and a subtle tint on
+   its cards. Mixed with the theme's own colours so it reads in light and dark; the state edges stay solid on top. */
+:root,
+[data-theme='dark'] {
+  --board-tint: 11%;
+  --board-label: 70%;
+}
+[data-theme='light'] {
+  --board-tint: 10%;
+  --board-label: 80%;
+}
+.board.colored .board-column {
+  border-top: 3px solid var(--col);
+}
+.board.colored .board-column-label {
+  color: color-mix(in srgb, var(--col) var(--board-label), var(--fg-strong));
+}
+.board.colored .task-card {
+  background: color-mix(in srgb, var(--col) var(--board-tint), var(--bg-elevated));
+  --card-edge: color-mix(in srgb, var(--col) 22%, var(--border-subtle));
+  border-color: var(--card-edge) var(--card-edge) var(--card-edge) transparent;
+}
+.board.colored .task-card:hover {
+  --card-edge: color-mix(in srgb, var(--col) 45%, var(--border));
+}
+.board.colored .task-card.blocked {
+  border-left-color: var(--error);
+}
+.board.colored .task-card.finished {
+  border-left-color: var(--success);
+}
+.board.colored .task-card.stalled {
+  border-left-color: var(--warning);
+}
+.column-colors {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 6px 16px;
+  justify-content: end;
+}
+.column-colors.off {
+  opacity: 0.6;
+}
+.column-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+}
+.column-color input[type='color'] {
+  width: 28px;
+  height: 22px;
+  padding: 0 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input, transparent);
+  cursor: pointer;
 }
 .board-column-header .count {
   font-weight: 400;

@@ -12,6 +12,15 @@ export const isTaskColumn = (v: unknown): v is TaskColumn => typeof v === 'strin
 
 export const columnLabel = (c: TaskColumn): string => TASK_COLUMNS.find((x) => x.id === c)?.label ?? c
 
+/** Each column's colour (its heading, and a tint on its cards): slate blue, blue, purple and green. */
+export const DEFAULT_COLUMN_COLORS: Record<TaskColumn, string> = { todo: '#7a88b8', doing: '#3b82f6', review: '#a371f7', done: '#2ea043' }
+
+/** A column's colour from Settings → Board: the default unless it's a #rrggbb colour (it goes into CSS). */
+export function columnColor(colors: Partial<Record<TaskColumn, string>> | undefined, c: TaskColumn): string {
+  const v = colors?.[c]
+  return typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : DEFAULT_COLUMN_COLORS[c]
+}
+
 /**
  * Why nobody is working on a Doing card, or null when someone is (or it isn't in Doing): it has no agent, its agent
  * was removed, or its agent isn't running. `agentNow` is its agent as it is now (null when removed). An agent that

@@ -1,5 +1,5 @@
 // The task board: cards added in the Board view and through the Agent API (as an agent's hive tools would), Done kept
-// for the user, dragging between columns, Start on a new agent (the fake Claude Code gets the card as its prompt),
+// for the user, dragging between columns, column colours (Settings → Board), Start on a new agent (the fake Claude Code gets the card as its prompt),
 // a project's Tasks tab, archiving; and Project → Remove Project… (Hide, restored from Settings → Workspace, and
 // Delete). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR. Delete sends a small test folder to the
 // Recycle Bin.
@@ -141,6 +141,36 @@ const check = (name, ok, extra = '') => {
   check('the Agent API says why it is stalled', /isn't running/.test(viaApi.body?.stalled ?? ''), JSON.stringify(viaApi.body?.stalled))
   await page.screenshot({ path: path.join(lib.WORK, 'board-stalled.png') })
 
+  // Column colours (Settings → Board): each column's heading and a tint on its cards, in both themes; a picked colour;
+  // turned off. Two workspace cards fill Done and show a blocked card.
+  const extra = [await inv('tasks:create', { title: 'Shipped thing', project: '' }), await inv('tasks:create', { title: 'Waiting on a decision', project: '' })]
+  await inv('tasks:update', extra[0].number, { column: 'done' })
+  await inv('tasks:update', extra[1].number, { blocked: 'Needs a decision' })
+  const bg = (n) => tile(n).evaluate((e) => getComputedStyle(e).backgroundColor)
+  const edge = (n) => tile(n).evaluate((e) => getComputedStyle(e).borderLeftColor)
+  check('cards are tinted by their column', !!(await until(async () => (await tile(extra[0].number).count()) === 1 && new Set([await bg(1), await bg(2), await bg(extra[0].number), await bg(extra[1].number)]).size === 4, 5000)), JSON.stringify([await bg(1), await bg(2)]))
+  const heading = (name) => column(name).locator('.board-column-label').evaluate((e) => getComputedStyle(e).color)
+  check('column headings have their own colours', new Set([await heading('Todo'), await heading('Doing'), await heading('Review'), await heading('Done')]).size === 4)
+  const doingBg = await bg(1)
+  check('the state edges stay over the tint', (await edge(1)) !== (await edge(extra[1].number)) && (await edge(2)) === 'rgba(0, 0, 0, 0)', JSON.stringify([await edge(1), await edge(extra[1].number), await edge(2)]))
+  await page.screenshot({ path: path.join(lib.WORK, 'board-colours-dark.png') })
+  await inv('settings:update', { appearance: { theme: 'light' } })
+  await lib.sleep(600)
+  await page.screenshot({ path: path.join(lib.WORK, 'board-colours-light.png') })
+  check('the tint follows the theme', (await bg(1)) !== doingBg)
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await inv('settings:update', { board: { colors: { doing: '#ff0000' } } })
+  // Mixed colours come back as color(srgb r g b): red now leads.
+  const rgb = async (n) => ((await bg(n)).match(/[\d.]+/g) ?? []).map(Number).slice(-3)
+  check('a picked colour is used', !!(await until(async () => {
+    const [r, g, b] = await rgb(1)
+    return r > g * 1.3 && r > b * 1.3
+  }, 5000)), await bg(1))
+  await inv('settings:update', { board: { columnColors: false } })
+  check('Colour columns off: no tint', !!(await until(async () => !((await page.locator('.board').first().getAttribute('class')) ?? '').includes('colored') && (await bg(1)) === (await bg(2)), 5000)))
+  await inv('settings:update', { board: { columnColors: true, colors: { doing: '#3b82f6' } } })
+  for (const c of extra) await inv('tasks:delete', c.number)
+
   // The project's Tasks tab shows its cards.
   await page.getByRole('button', { name: 'Projects' }).click()
   await page.locator('.sidebar .row', { hasText: 'alpha' }).first().click()
@@ -189,6 +219,11 @@ const check = (name, ok, extra = '') => {
   check('its folder stays', fs.existsSync(path.join(ws, 'delta')))
   check('and its cards are archived', (await cards()).find((c) => c.project === 'delta')?.archivedFor === 'project-hidden')
   await page.getByRole('button', { name: 'Settings' }).click()
+  // Settings → Board: the switch and a picker per column (Doing was changed and put back, so no reset shows).
+  await page.locator('.settings-nav .row').filter({ has: page.getByText('Board', { exact: true }) }).click()
+  check('Settings → Board has a colour picker per column', !!(await until(async () => (await page.locator('.column-color input[type="color"]').count()) === 4, 5000)))
+  check('only changed colours offer a reset', (await page.locator('.column-color .icon-btn').count()) === 0)
+  await page.screenshot({ path: path.join(lib.WORK, 'board-settings-colours.png') })
   await page.locator('.settings-nav .row', { hasText: 'Workspace' }).click()
   const row = page.locator('.hidden-projects tr', { hasText: 'delta' })
   check('Settings → Workspace lists it', !!(await until(async () => (await row.count()) === 1, 5000)))

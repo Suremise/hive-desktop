@@ -527,3 +527,14 @@ describe('removal and board under faults', () => {
     }
   })
 })
+
+describe('column colours', () => {
+  it('uses a saved #rrggbb colour, and the default for anything else', async () => {
+    const { columnColor, DEFAULT_COLUMN_COLORS } = await import('../src/shared/tasks')
+    expect(columnColor({ doing: '#123ABC' }, 'doing')).toBe('#123ABC')
+    expect(columnColor({ doing: 'red; background: url(x)' }, 'doing')).toBe(DEFAULT_COLUMN_COLORS.doing)
+    expect(columnColor({ doing: '#fff' }, 'doing')).toBe(DEFAULT_COLUMN_COLORS.doing)
+    expect(columnColor(undefined, 'done')).toBe(DEFAULT_COLUMN_COLORS.done)
+    expect(new Set(Object.values(DEFAULT_COLUMN_COLORS)).size).toBe(4)
+  })
+})

@@ -7,6 +7,7 @@
 - **Start** gives a card to an agent (one that is stopped or idle, a new one, or a new one in its own worktree) with the card as its prompt.
 - **The Assistant and agents use it too.** Agents read cards, add cards for follow-up work and move their own to Review with a summary; the Assistant plans work as cards and starts them on agents. **Only you move cards to Done**: the Assistant asks first, and agents can't. Archiving and deleting cards are yours too.
 - **Stalled cards stand out**: a Doing card whose agent was removed or isn't running (or that has no agent) is marked in amber and listed under **Stalled** in the board's sidebar, and the Assistant points them out. Removing an agent that has open cards asks whether to move them back to Todo or leave them.
+- **Colour-coded columns**: each column has its own colour on its heading and as a light tint on its cards (Todo slate blue, Doing blue, Review purple, Done green). Pick your own in **Settings → Board → Column colours**, or turn them off.
 - **Done cards are archived after 14 days** in Done: **Settings → Board → Archive Done cards after** (0 never).
 - Agent API: `/v1/tasks` and the `tasks-changed` event; hive tools `hive_list_tasks`, `hive_read_task`, `hive_create_task`, `hive_update_task`, and `hive_start_task` for the Assistant.
 
@@ -17,6 +18,7 @@
 - **Project → Remove Project…**: **Hide** a project (Hive leaves it out until you restore it), **Remove** it from Hive (the folder stays, with its handovers and cards packed into it, so it can move to another workspace and bring them along), or **Delete** it (the folder, its worktrees and its handovers to the Recycle Bin). **Settings → Workspace** lists hidden and removed projects, with **Restore**.
 
 ### Agents
+- **Resume All Agents** in the project header (and the project's right-click menu): resumes every stopped agent's last session in one go, leaving running agents alone. If one can't resume, a notification names it and says why, and the others still resume.
 - **Agents waiting on background tasks aren't shown as finished.** When a Claude Code agent ends its turn while a task it started is still running (a test run, say), it shows as **waiting on background tasks** ("Waiting on 1 background task", a slow, faint dot) and carries on by itself when the task ends. The chime and the "finished" notification wait until it really has finished. Codex isn't told when its background terminals end, so Codex agents show as finished with the count next to them.
 - **Settings → Agents & Worktrees → Count background tasks for up to** (60 minutes): Hive can't tell a test run from something that never ends, such as a dev server, so it stops counting a task after this long.
 - Quitting asks first while an agent waits on background tasks (they would stop), and **Quit when agents finish** waits for them.
