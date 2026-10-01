@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## 0.2.0 — 1 October 2026
 
 ### Codex, and a choice of coding agents
 - **Codex** (OpenAI) runs in Hive alongside **Claude Code**. Each agent chooses its provider, so a project can mix them, for example a Claude Code agent writing code while a Codex agent reviews. Hive shows each CLI's own terminal.
