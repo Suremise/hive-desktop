@@ -98,6 +98,26 @@
 - A workspace can't be opened inside, or around, one open in another window. A closed workspace's agent worktrees no longer count as part of the next workspace opened in that window.
 - Agent API: a workspace name two open workspaces share is refused (409) with both paths, instead of picking one; name it by its path.
 - Resizing a pane in one window no longer resets pane sizes changed in another.
+- **Transcript backups write only what's new**: Hive appends what a session's transcript gained since the last backup, instead of copying the whole file each time (a long session's transcript can pass 100 MB). A failed backup is tried again at the next look.
+- Reading a long transcript for the first time takes it in pieces, so it no longer needs its whole size in memory at once; Hive keeps the usage of at most 200 transcripts in memory. Two reads of one transcript at once can no longer count its lines twice.
+- An agent's hooks are handled in order, so a turn's end can't overwrite the start of the next one (it could show Finished while the agent worked).
+- Hive types one prompt at a time into an agent, and stops if the agent stops or restarts meanwhile.
+- When the Assistant asks to stop a busy agent, your answer stops only the run it asked about, and only if Control still allows it. When the Assistant stops, its token stops working and its open questions are withdrawn. The Agent API's event stream is for Agent API callers only.
+- Saving settings or workspace settings twice in quick succession can no longer leave the older version on disk. Changing the Agent API settings quickly restarts its server once at a time.
+- Typing while a note, skill, MCP server or file is being saved keeps the newer text as unsaved, and closing or switching after Save All stays open if something was edited while it saved. A deleted note, skill, persona or MCP server can't come back through Save All, and a note with unsaved edits asks to save or discard them before it is renamed.
+- Deleting a shared note or an MCP server sends it to the Recycle Bin, like files, skills, personas and sessions.
+- **Handovers say who wrote them**: Hive starts every handover an agent writes with its project, **author** (the agent and its CLI), **session** and date (your time, with UTC). **Hand Over to…** waits for the handover from that agent's own session, so another agent's meanwhile isn't picked up, and tells the next agent exactly which handover to read.
+- Two handovers, notes or MCP servers created with the same name at once no longer overwrite each other. A handover written for `<workspace>/<project>` is named after the project.
+- Saving a file in the Files tab checks and writes it under one lock, so two saves at once can't both pass the check.
+- One merge at a time per project, and not while the worktree agent is working. Two agents added at once can't get the same name or worktree, and a new worktree made for an agent that couldn't be added is removed.
+- Codex agents in one folder starting together copy the workspace skills one at a time.
+- If Hive can't record a session it has just started (a full disk, say), the agent keeps running and is still tracked.
+- Two windows opening the same workspace at the same moment can't both have it.
+- While the Files tab watches a busy project (a build), it still updates at least once a second, and changes inside `node_modules` are no longer followed. Moving several files where one name is taken in the destination now moves none of them. A project's Overview doesn't update while another view is shown, and a slow load can't show the previous project's sessions or MCP server.
+- Dialogs asked for while one is open wait their turn instead of replacing it. A dialog gives the keyboard back to where it was when it closes; the hidden Assistant strip works from the keyboard.
+- Removing the New Session shortcut no longer breaks the empty Session tab.
+- The Assistant's start screen and the user guide no longer say it can only look and advise. The Sessions tab's **+** comes before Refresh, as in the other lists.
+- `npm run release` refuses to upload to a release that is already published.
 - Electron 44.5.1.
 
 ### Notes

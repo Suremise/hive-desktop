@@ -1,6 +1,8 @@
 import { join, relative, resolve, sep, dirname, basename } from 'path'
-import { mkdir, readdir, rename, rm, stat, writeFile } from 'fs/promises'
+import { mkdir, readdir, rename, stat, writeFile } from 'fs/promises'
+import { shell } from 'electron'
 import { existsSync } from 'fs'
+import { handoverHeader, type HandoverAuthor } from '../shared/hiveGuidance'
 import type { NoteFile } from '../shared/types'
 import { insideReal } from './fsutil'
 import { workspace } from './workspace'
@@ -50,7 +52,7 @@ export async function createNote(relPath: string, isDir: boolean): Promise<strin
   else {
     await mkdir(dirname(abs), { recursive: true })
     const title = basename(abs).replace(/\.[^.]+$/, '')
-    await writeFile(abs, abs.endsWith('.md') ? `# ${title}\n\n` : '')
+    await writeFile(abs, abs.endsWith('.md') ? `# ${title}\n\n` : '', { flag: 'wx' })
   }
   return abs
 }
@@ -58,7 +60,8 @@ export async function createNote(relPath: string, isDir: boolean): Promise<strin
 export async function deleteNote(p: string): Promise<void> {
   const abs = assertInShared(p)
   if (abs === resolve(workspace.sharedDir)) throw new Error('Cannot delete the shared folder itself')
-  await rm(abs, { recursive: true, force: true })
+  // To the Recycle Bin, like files, skills, personas and sessions.
+  if (existsSync(abs)) await shell.trashItem(abs)
 }
 
 export async function renameNote(p: string, newName: string): Promise<string> {
@@ -70,8 +73,8 @@ export async function renameNote(p: string, newName: string): Promise<string> {
   return dest
 }
 
-/** Writes a handover note into shared/handovers and returns its path. */
-export async function createHandover(project: string, title: string, content: string): Promise<string> {
+/** Writes a handover note into shared/handovers and returns its path; `by` is the agent that wrote it, for its header. */
+export async function createHandover(project: string, title: string, content: string, by: HandoverAuthor | null = null): Promise<string> {
   const date = new Date().toISOString().slice(0, 10)
   const slug = `${title}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'handover'
   const dir = join(workspace.sharedDir, 'handovers')
@@ -79,11 +82,17 @@ export async function createHandover(project: string, title: string, content: st
   // The same slug as hive-mcp's, which finds a project's handovers by this prefix.
   const projectSlug = project.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
   let file = join(dir, `${date}-${projectSlug ? projectSlug + '-' : ''}${slug}.md`)
-  let n = 2
-  while (existsSync(file)) file = file.replace(/(-\d+)?\.md$/, `-${n++}.md`)
-  const header = `# ${title}\n\n- **Project:** ${project || '(workspace)'}\n- **Date:** ${new Date().toISOString()}\n\n`
-  await writeFile(file, header + content.trim() + '\n')
-  return file
+  const header = handoverHeader(title, project, by, new Date())
+  // Created, never overwritten: two handovers with the same title at once get -2, -3…
+  for (let n = 2; ; n++) {
+    try {
+      await writeFile(file, header + content.trim() + '\n', { flag: 'wx' })
+      return file
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST' || n > 1000) throw e
+      file = file.replace(/(-\d+)?\.md$/, `-${n}.md`)
+    }
+  }
 }
 
 export { assertInShared }

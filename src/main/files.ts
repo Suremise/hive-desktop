@@ -5,7 +5,7 @@ import { shell } from 'electron'
 import { HIVE_DIR } from '../shared/defaults'
 import type { FileContent, FileEntry, SessionImage, SessionImageGroup } from '../shared/types'
 import { emit } from './events'
-import { insideReal } from './fsutil'
+import { insideReal, withFileLock } from './fsutil'
 import { git } from './git'
 import { createLogger } from './logger'
 import { workspace } from './workspace'
@@ -122,18 +122,26 @@ function assertNotInside(src: string, destDir: string): void {
 export async function move(projectPath: string, rels: string[], destRel: string): Promise<string[]> {
   projectPath = workspace.assertRoot(projectPath)
   const destDir = inProject(projectPath, destRel, true)
-  const out: string[] = []
+  // Every entry is checked before any moves, so a name taken in the destination moves nothing at all
+  // (the renderer moves unsaved edits along only when the whole move worked).
+  const plan: { src: string; dest: string | null; rel: string }[] = []
+  const taken = new Set<string>()
   for (const rel of rels) {
     const src = inProject(projectPath, rel, false, true)
     if (dirname(src).toLowerCase() === destDir.toLowerCase()) {
-      out.push(rel)
+      plan.push({ src, dest: null, rel })
       continue
     }
     assertNotInside(src, destDir)
     const dest = join(destDir, basename(src))
-    if (existsSync(dest)) throw new Error(`"${basename(src)}" already exists in ${destRel || 'the project root'}`)
-    await rename(src, dest)
-    out.push(toRel(projectPath, dest))
+    if (existsSync(dest) || taken.has(dest.toLowerCase())) throw new Error(`"${basename(src)}" already exists in ${destRel || 'the project root'}`)
+    taken.add(dest.toLowerCase())
+    plan.push({ src, dest, rel })
+  }
+  const out: string[] = []
+  for (const p of plan) {
+    if (p.dest) await rename(p.src, p.dest)
+    out.push(p.dest ? toRel(projectPath, p.dest) : p.rel)
   }
   return out
 }
@@ -190,14 +198,18 @@ export async function readText(projectPath: string, rel: string): Promise<FileCo
 export async function writeText(projectPath: string, rel: string, text: string, expectedModified: string | null, bom: boolean): Promise<{ modified: string; size: number }> {
   projectPath = workspace.assertRoot(projectPath)
   const abs = inProject(projectPath, rel)
-  if (expectedModified) {
-    const cur = await stat(abs).catch(() => null)
-    // A file deleted on disk is simply recreated; one changed since it was opened is a conflict.
-    if (cur && Math.abs(cur.mtime.getTime() - Date.parse(expectedModified)) > 1) throw new Error('CONFLICT')
-  }
-  await writeFile(abs, bom ? '\uFEFF' + text : text, 'utf8')
-  const s = await stat(abs)
-  return { modified: s.mtime.toISOString(), size: s.size }
+  // Checked and written under one lock: two saves at once can't both pass the check. Written in place
+  // (not via a temp file), so the file keeps its identity for editors and tools that hold it open.
+  return withFileLock(abs, async () => {
+    if (expectedModified) {
+      const cur = await stat(abs).catch(() => null)
+      // A file deleted on disk is simply recreated; one changed since it was opened is a conflict.
+      if (cur && Math.abs(cur.mtime.getTime() - Date.parse(expectedModified)) > 1) throw new Error('CONFLICT')
+    }
+    await writeFile(abs, bom ? '\uFEFF' + text : text, 'utf8')
+    const s = await stat(abs)
+    return { modified: s.mtime.toISOString(), size: s.size }
+  })
 }
 
 const SKIP_WALK = new Set(['.git', 'node_modules'])
@@ -250,17 +262,26 @@ export function watchProject(projectPath: string): void {
     return
   }
   try {
-    const entry = { w: null as unknown as FSWatcher, refs: 1, dirs: new Set<string>(), timer: undefined as NodeJS.Timeout | undefined }
+    const entry = { w: null as unknown as FSWatcher, refs: 1, dirs: new Set<string>(), timer: undefined as NodeJS.Timeout | undefined, since: 0 }
+    const flush = (): void => {
+      clearTimeout(entry.timer)
+      entry.timer = undefined
+      entry.since = 0
+      emit({ type: 'files-changed', projectPath, dirs: [...entry.dirs] })
+      entry.dirs.clear()
+    }
     entry.w = watch(projectPath, { recursive: true }, (_evt, file) => {
       if (!file) return
       const rel = String(file).split(sep).join('/')
       if (rel === '.git' || rel.startsWith('.git/')) return
+      // An install writes thousands of files there; the tree shows the folder itself.
+      if (rel.startsWith('node_modules/') || rel.includes('/node_modules/')) return
       entry.dirs.add(rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '')
+      // Quiet for 250 ms, or at least once a second while files keep changing (a build, an install).
+      entry.since ||= Date.now()
+      if (Date.now() - entry.since >= 1000) return flush()
       clearTimeout(entry.timer)
-      entry.timer = setTimeout(() => {
-        emit({ type: 'files-changed', projectPath, dirs: [...entry.dirs] })
-        entry.dirs.clear()
-      }, 250)
+      entry.timer = setTimeout(flush, 250)
     })
     entry.w.on('error', (e) => log.warn('watch error', e))
     watchers.set(key, entry)

@@ -461,16 +461,29 @@ export function notify(level: ToastMessage['level'], title: string, message?: st
   pushToast({ id: `local-${++toastSeq}-${Date.now()}`, level, title, message, actions, timestamp: new Date().toISOString() })
 }
 
+/** Dialogs asked for while another is open: each is shown in turn, so none is left unanswered. */
+const dialogQueue: DialogRequest[] = []
+
+function openDialog(d: DialogRequest): void {
+  if (get().dialog) dialogQueue.push(d)
+  else set({ dialog: d })
+}
+
+/** Closes the dialog shown (its caller resolves it) and shows the next one waiting, if any. */
+export function closeDialog(): void {
+  set({ dialog: dialogQueue.shift() ?? null })
+}
+
 export function confirm(opts: Omit<ConfirmRequest, 'kind' | 'resolve'>): Promise<boolean> {
-  return new Promise((resolve) => set({ dialog: { kind: 'confirm', ...opts, resolve } }))
+  return new Promise((resolve) => openDialog({ kind: 'confirm', ...opts, resolve }))
 }
 
 export function choose(opts: Omit<ChoiceRequest, 'kind' | 'resolve'>): Promise<string | null> {
-  return new Promise((resolve) => set({ dialog: { kind: 'choice', ...opts, resolve } }))
+  return new Promise((resolve) => openDialog({ kind: 'choice', ...opts, resolve }))
 }
 
 export function prompt(opts: Omit<PromptRequest, 'kind' | 'resolve'>): Promise<string | null> {
-  return new Promise((resolve) => set({ dialog: { kind: 'prompt', ...opts, resolve } }))
+  return new Promise((resolve) => openDialog({ kind: 'prompt', ...opts, resolve }))
 }
 
 /** Listeners for 'files-changed' events (Files and Images tabs). */

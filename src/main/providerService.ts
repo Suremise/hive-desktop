@@ -70,9 +70,14 @@ class ProviderService {
     return Promise.all(ids.map((p) => this.refreshOne(p, checkLatest)))
   }
 
+  /** Each provider's latest refresh: an older one still running when a newer starts (the path changed) is dropped. */
+  private refreshes = new Map<ProviderId, number>()
+
   private async refreshOne(id: ProviderId, checkLatest?: boolean): Promise<AgentInstallInfo> {
     const adapter = provider(id)
     const prev = this.info(id)
+    const run = (this.refreshes.get(id) ?? 0) + 1
+    this.refreshes.set(id, run)
     this.set(id, { ...prev, checking: true })
     const latestWanted = checkLatest ?? (isProviderEnabled(config.settings, id) && providerSettings(config.settings, id).checkUpdatesOnLaunch)
     let next: AgentInstallInfo
@@ -95,6 +100,7 @@ class ProviderService {
       next = { ...prev, checking: false }
     }
     next.readiness = adapter.readiness(next)
+    if (this.refreshes.get(id) !== run) return this.info(id)
     this.set(id, next)
     return next
   }

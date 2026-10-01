@@ -40,6 +40,22 @@ export function clearEditorDraft(key: string): void {
   if (drafts.delete(key.toLowerCase())) changed()
 }
 
+const under = (key: string, path: string): boolean => {
+  const k = key.toLowerCase()
+  const p = path.toLowerCase().replace(/[\\/]+$/, '')
+  return k === p || k.startsWith(`${p}\\`) || k.startsWith(`${p}/`)
+}
+
+/** Whether there are unsaved edits of this file, or of files in this folder. */
+export const hasEditorDraftsUnder = (path: string): boolean => [...drafts.keys()].some((k) => under(k, path))
+
+/** Drops the drafts of a file, or of the files in a folder, that is gone (deleted, or replaced by Hive's version). */
+export function clearEditorDraftsUnder(path: string): void {
+  let any = false
+  for (const k of [...drafts.keys()]) if (under(k, path) && drafts.delete(k)) any = true
+  if (any) changed()
+}
+
 export function clearEditorDrafts(): void {
   if (!drafts.size) return
   drafts.clear()

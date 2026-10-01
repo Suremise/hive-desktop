@@ -6,7 +6,7 @@ import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { formatTokens } from './util'
 import { STATUS_TEXT } from './components/ui'
-import { clearEditorDraft } from './editorDrafts'
+import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
 
 /** Runs an async action and shows a toast if it fails. */
 export async function attempt<T>(title: string, fn: () => Promise<T>): Promise<T | undefined> {
@@ -36,6 +36,11 @@ export async function saveUnsavedFirst(action: string): Promise<boolean> {
   const r = await saveAllDrafts()
   if (r.failed.length) {
     notify('error', `Couldn't save ${r.failed.length === 1 ? 'a file' : `${r.failed.length} files`}`, r.failed.map((f) => f.message).join('\n'))
+    return false
+  }
+  // Edited while it was saving: those edits are unsaved again.
+  if (unsavedFiles().length) {
+    notify('warning', 'Some files changed while they were being saved', `Save them, then ${action} again.`)
     return false
   }
   return true
@@ -392,7 +397,7 @@ export async function archiveCurrent(path: string | null = get().selectedProject
 
 /** Deletes a workspace MCP server after asking; true when it was deleted. */
 export async function deleteMcpServer(name: string): Promise<boolean> {
-  if (!(await confirm({ title: 'Delete MCP server?', message: `Delete ${name}.json from the workspace? Projects will no longer be able to use it.`, confirmLabel: 'Delete', danger: true }))) return false
+  if (!(await confirm({ title: 'Delete MCP server?', message: `Move ${name}.json to the Recycle Bin? Projects will no longer be able to use it.`, confirmLabel: 'Delete', danger: true }))) return false
   const ok = await attempt('Could not delete', () => call('mcp:delete', name).then(() => true))
   if (!ok) return false
   clearEditorDraft(`mcp:${name}`)
@@ -402,9 +407,11 @@ export async function deleteMcpServer(name: string): Promise<boolean> {
 
 /** Deletes a shared note or folder after asking. */
 export async function deleteNote(path: string, label: string, isDir: boolean): Promise<void> {
-  if (!(await confirm({ title: 'Delete?', message: `Delete "${label}"${isDir ? ' and everything in it' : ''}?`, confirmLabel: 'Delete', danger: true }))) return
+  if (!(await confirm({ title: 'Delete?', message: `Move "${label}"${isDir ? ' and everything in it' : ''} to the Recycle Bin?`, confirmLabel: 'Delete', danger: true }))) return
   const ok = await attempt('Could not delete', () => call('notes:delete', path).then(() => true))
   if (!ok) return
+  // Unsaved edits of it would otherwise bring it back (Save All, or saving before quitting).
+  clearEditorDraftsUnder(path)
   const gone = (p: string | null): boolean => !!p && (p === path || p.toLowerCase().startsWith(`${path.toLowerCase()}\\`))
   set((s) => ({ notesVersion: s.notesVersion + 1, ...(gone(s.selectedNote) ? { selectedNote: null } : {}) }))
 }

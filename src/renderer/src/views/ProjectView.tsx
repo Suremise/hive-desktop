@@ -28,6 +28,8 @@ const TABS: { id: ProjectTab; label: string; icon: string }[] = [
 
 function SessionEmpty({ project, framed }: { project: ProjectInfo; framed: boolean }) {
   const focused = useFocusedAgent(project)
+  // Unbound in Keyboard Shortcuts: no key to show.
+  const newKey = commandKeybinding('session.new')
   const provider = agentProviderOf(project, focused)
   const info = useStore((s) => s.providers[provider])
   const on = useStore((s) => isProviderEnabled(s.settings, provider))
@@ -79,7 +81,7 @@ function SessionEmpty({ project, framed }: { project: ProjectInfo; framed: boole
           )}
           <div className="btns">
             <button className="btn primary" onClick={() => void actions.newSession(project.path)}>
-              <Icon name="add" /> New Session <kbd style={{ marginLeft: 6 }}>{formatKeybinding(commandKeybinding('session.new')!)}</kbd>
+              <Icon name="add" /> New Session {newKey && <kbd style={{ marginLeft: 6 }}>{formatKeybinding(newKey)}</kbd>}
             </button>
             {focused ? <ResumeButton project={project} a={focused} className="tint-amber" label="Resume Last" /> : <AddAgentButton project={project} className="tint-amber" />}
             <button className="btn subtle" onClick={() => setProjectTab(project.path, 'sessions')}>

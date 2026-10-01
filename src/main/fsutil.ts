@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'fs'
-import { mkdir, readFile, rename, writeFile, stat, cp, rm } from 'fs/promises'
+import { copyFile, mkdir, open, readFile, rename, writeFile, stat, cp, rm } from 'fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'path'
 import { createHash } from 'crypto'
 import { readdir } from 'fs/promises'
@@ -164,6 +164,11 @@ export async function writeTextAtomic(path: string, text: string): Promise<void>
   await mkdir(dirname(path), { recursive: true })
   const tmp = `${path}.${process.pid}-${++tmpCounter}.tmp`
   await writeFile(tmp, text, 'utf8')
+  await renameIntoPlace(tmp, path)
+}
+
+/** Renames a finished temp file over its target, retrying while Windows holds the target; removes the temp file on failure. */
+async function renameIntoPlace(tmp: string, path: string): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     try {
       await rename(tmp, path)
@@ -177,6 +182,83 @@ export async function writeTextAtomic(path: string, text: string): Promise<void>
       await new Promise((r) => setTimeout(r, 15 + attempt * 10))
     }
   }
+}
+
+/**
+ * Brings a copy of an append-only file (a CLI transcript) up to date. While the copy is still the start of
+ * the source (the same first and last 4 KB at the copy's length), only the new bytes are appended, so a long
+ * transcript isn't rewritten in full each time. Otherwise (the first copy, or a source that was rewritten)
+ * the whole file is copied to a temp file and renamed into place. Copies of one file take turns.
+ */
+export function syncCopy(src: string, dest: string): Promise<void> {
+  return withFileLock(dest, () => syncCopyLocked(src, dest))
+}
+
+/** syncCopy for a caller that already holds dest's lock (withFileLock isn't re-entrant). */
+export async function syncCopyLocked(src: string, dest: string): Promise<void> {
+  const s = await stat(src)
+  const d = await stat(dest).catch(() => null)
+  if (d && d.size > 0 && d.size <= s.size && (await samePrefix(src, dest, d.size))) {
+    if (s.size > d.size) await appendRange(src, dest, d.size, s.size)
+    return
+  }
+  await mkdir(dirname(dest), { recursive: true })
+  const tmp = `${dest}.${process.pid}-${++tmpCounter}.tmp`
+  try {
+    await copyFile(src, tmp)
+  } catch (e) {
+    await rm(tmp, { force: true }).catch(() => undefined)
+    throw e
+  }
+  await renameIntoPlace(tmp, dest)
+}
+
+async function readRange(path: string, from: number, length: number): Promise<Buffer> {
+  const fh = await open(path, 'r')
+  try {
+    const buf = Buffer.alloc(length)
+    const { bytesRead } = await fh.read(buf, 0, length, from)
+    return buf.subarray(0, bytesRead)
+  } finally {
+    await fh.close()
+  }
+}
+
+/**
+ * Whether two files look the same over their first `len` bytes: the first, middle and last 4 KB. A sample,
+ * not proof: enough for transcripts, which the CLIs only ever append to (one replaced or cut short fails it).
+ */
+async function samePrefix(a: string, b: string, len: number): Promise<boolean> {
+  const n = Math.min(4096, len)
+  for (const from of len > n ? [0, Math.floor((len - n) / 2), len - n] : [0]) {
+    const [x, y] = await Promise.all([readRange(a, from, n), readRange(b, from, n)])
+    if (x.length !== n || !x.equals(y)) return false
+  }
+  return true
+}
+
+/** Appends bytes [from, to) of src to dest, a piece at a time. */
+async function appendRange(src: string, dest: string, from: number, to: number): Promise<void> {
+  const r = await open(src, 'r')
+  try {
+    const w = await open(dest, 'a')
+    try {
+      const buf = Buffer.alloc(Math.min(4 * 1024 * 1024, to - from))
+      for (let pos = from; pos < to; ) {
+        const { bytesRead } = await r.read(buf, 0, Math.min(buf.length, to - pos), pos)
+        if (!bytesRead) throw new Error(`${src} ended before ${to} bytes`)
+        // A write can take less than it was given: the rest follows.
+        for (let off = 0; off < bytesRead; ) off += (await w.write(buf, off, bytesRead - off)).bytesWritten
+        pos += bytesRead
+      }
+    } finally {
+      await w.close()
+    }
+  } finally {
+    await r.close()
+  }
+  const got = (await stat(dest)).size
+  if (got !== to) throw new Error(`The copy of ${src} is ${got} bytes, not ${to}`)
 }
 
 const fileLocks = new Map<string, Promise<unknown>>()

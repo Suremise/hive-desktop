@@ -8,6 +8,7 @@ import { get, notify, projectState, prompt, set, setProjectTab, toggleCompactSid
 import { cx, formatKeybinding } from '../util'
 import { Icon, IconButton, InfoTip, StatusDot, STATUS_TEXT, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
 import { addSkill, deleteSkill, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
+import { hasEditorDraftsUnder } from '../editorDrafts'
 import { AssistantSidePanel } from './AssistantView'
 
 /** Width of the compact Projects rail, and how narrow a drag has to go before the sidebar snaps to it. */
@@ -415,8 +416,12 @@ function NotesPanel() {
                 label: 'Rename…',
                 icon: 'tag',
                 onClick: async () => {
+                  // Its unsaved edits are tied to its path: renaming would leave them saving to the old name.
+                  if (hasEditorDraftsUnder(n.path)) return notify('warning', `Save or discard your changes to ${n.name} first`, 'It has unsaved edits, which would otherwise be saved under its old name.')
                   const nn = await prompt({ title: 'Rename', initial: n.name, confirmLabel: 'Rename' })
                   if (nn && nn !== n.name) {
+                    // Edited while the dialog was open.
+                    if (hasEditorDraftsUnder(n.path)) return notify('warning', `Save or discard your changes to ${n.name} first`, 'It has unsaved edits, which would otherwise be saved under its old name.')
                     const np = await actions.attempt('Could not rename', () => call('notes:rename', n.path, nn))
                     if (np && selected === n.path) set({ selectedNote: np })
                     load()

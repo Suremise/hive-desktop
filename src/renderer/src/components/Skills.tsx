@@ -3,6 +3,7 @@ import type { ProviderId, SkillInfo, SkillLevel, SkillTarget } from '@shared/typ
 import { providerDescriptor } from '@shared/providers'
 import * as actions from '../actions'
 import { call } from '../api'
+import { clearEditorDraftsUnder } from '../editorDrafts'
 import { DocEditor } from './DocEditor'
 import { Icon, IconButton, Tooltip } from './ui'
 import { confirm, notify, prompt, set, showView, useStore } from '../store'
@@ -84,6 +85,8 @@ export async function deleteSkill(s: SkillInfo): Promise<boolean> {
     await call('skills:delete', s.path)
     return true
   })
+  // Unsaved edits of it would otherwise bring it back (Save All, or saving before quitting).
+  if (ok2) clearEditorDraftsUnder(s.path)
   bump()
   return !!ok2
 }
@@ -100,6 +103,7 @@ export async function restoreBundled(s: SkillInfo): Promise<SkillInfo | null> {
   }
   const r = await actions.attempt('Could not restore the skill', () => call('skills:restoreBundled', s.name))
   if (r) {
+    clearEditorDraftsUnder(r.path)
     notify('success', s.bundled === 'missing' ? `Restored "${s.name}"` : `Reverted "${s.name}" to default`)
     bump()
   }

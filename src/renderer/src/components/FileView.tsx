@@ -125,8 +125,11 @@ export async function saveAllDrafts(): Promise<{ saved: number; failed: { abs: s
   let saved = 0
   for (const [key, d] of [...drafts]) {
     try {
-      await call('files:write', d.root, d.rel, d.text, d.base.modified || null, d.base.bom)
-      drafts.delete(key)
+      const w = await call('files:write', d.root, d.rel, d.text, d.base.modified || null, d.base.bom)
+      // Edited while it was saving: the newer text stays a draft, now of what was written.
+      const now = drafts.get(key)
+      if (now === d || now?.text === d.text) drafts.delete(key)
+      else if (now) now.base = { ...now.base, text: d.text, modified: w.modified }
       saved++
     } catch (e) {
       failed.push({ abs: absOf(d.root, d.rel), message: `${d.rel}: ${errorMessage(e).includes('CONFLICT') ? 'changed on disk since you opened it' : errorMessage(e)}` })
@@ -237,7 +240,11 @@ export function FileView({
   // Saved or discarded from elsewhere (the quit dialog, Save All): pick up what's on disk now.
   useEffect(() => {
     const onSaved = (): void => {
-      if (!drafts.has(abs.toLowerCase()) && contentRef.current?.kind === 'text' && textRef.current !== contentRef.current.text) void load(false)
+      const d = drafts.get(abs.toLowerCase())
+      const c = contentRef.current
+      if (!d && c?.kind === 'text' && textRef.current !== c.text) void load(false)
+      // Typed into while Save All saved it: the draft is now of what was written, and so is this editor.
+      else if (d && c?.kind === 'text' && d.base.modified !== c.modified) setContent(d.base)
     }
     savedListeners.add(onSaved)
     return () => void savedListeners.delete(onSaved)

@@ -35,18 +35,25 @@ const LIVE_REFRESH_MS = 15_000
 export function useSessions(project: ProjectInfo) {
   const mode = useStore((s) => s.settings?.sessions.overviewRefresh ?? 'live')
   const usageVersion = useStore((s) => s.usageVersion[project.path] ?? 0)
+  // A project's tabs stay mounted while another view (Notes, Settings…) is shown: they don't update then.
+  const shown = useStore((s) => s.activity === 'projects' || s.workspace?.assistant?.path === project.path)
   const [items, setItems] = useState<SessionListItem[] | null>(null)
   // Deleted sessions' usage: totals count it, lists don't show it.
   const [kept, setKept] = useState<SessionListItem[]>([])
   const [loadedAt, setLoadedAt] = useState(0)
   const last = useRef(0)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const current = useRef(project.path)
+  current.current = project.path
   const load = useCallback(() => {
     if (timer.current) clearTimeout(timer.current)
     timer.current = null
     last.current = Date.now()
-    void Promise.all([call('session:list', project.path), call('session:keptUsage', project.path).catch(() => [])])
+    const path = project.path
+    void Promise.all([call('session:list', path), call('session:keptUsage', path).catch(() => [])])
       .then(([list, deleted]) => {
+        // Another project shown meanwhile: its own load is on the way.
+        if (current.current !== path) return
         setItems(list)
         setKept(deleted)
         setLoadedAt(Date.now())
@@ -65,17 +72,17 @@ export function useSessions(project: ProjectInfo) {
   // Live: a change (usage, or an agent starting or stopping) reloads, at most every LIVE_REFRESH_MS.
   const liveKey = `${usageVersion}|${project.agents.map((a) => `${a.live?.sessionId ?? ''}:${a.live?.status ?? ''}`).join(',')}`
   useEffect(() => {
-    if (mode !== 'live' || !last.current) return
+    if (mode !== 'live' || !last.current || !shown) return
     const wait = last.current + LIVE_REFRESH_MS - Date.now()
     if (wait <= 0) load()
     else if (!timer.current) timer.current = setTimeout(load, wait)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveKey, mode])
+  }, [liveKey, mode, shown])
   useEffect(() => {
-    if (mode !== 'minute') return
+    if (mode !== 'minute' || !shown) return
     const t = setInterval(load, 60_000)
     return () => clearInterval(t)
-  }, [mode, load])
+  }, [mode, load, shown])
   return { items, kept, reload: load, loadedAt }
 }
 

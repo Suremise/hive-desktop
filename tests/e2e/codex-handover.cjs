@@ -78,7 +78,7 @@ const check = (name, ok, extra = '') => {
   await page.screenshot({ path: path.join(scratch, 'cont-2-codex.png') })
   const tr = await inv('transcript:read', proj, l1.sessionId).catch((e) => ({ error: String(e) }))
   const text = JSON.stringify(tr)
-  check('codex read the handover', /hive_read_latest_handover/.test(text), '')
+  check('codex read the handover it was given', /hive_read_shared_note/.test(text) && /2026-09-30-demo-test\.md/.test(text), '')
   check('codex answered PINEAPPLE', /PINEAPPLE/.test(text))
 
   // 2. Codex writes a handover, a second Codex agent continues from it.
@@ -87,6 +87,12 @@ const check = (name, ok, extra = '') => {
   check('hand over from codex returned', true, `${Math.round((Date.now() - t1) / 1000)}s`)
   const hs = fs.readdirSync(hdir)
   check('codex wrote a new handover', hs.length >= 2, hs.join(', '))
+  // Hive writes its header: the agent, its CLI and the conversation it was written in.
+  const written = hs.filter((f) => f !== '2026-09-30-demo-test.md').map((f) => fs.readFileSync(path.join(hdir, f), 'utf8'))
+  const header = written.find((t) => /^- \*\*Author:\*\* /m.test(t)) ?? ''
+  check('its header names the author and its CLI', header.includes(`- **Author:** ${cx.name} (Codex)\n`), header.slice(0, 300))
+  check('and the session it was written in', header.includes(`- **Session:** ${l1.sessionId}`))
+  check('and the date, with UTC', /^- \*\*Date:\*\* \d{4}-\d{2}-\d{2} \d{2}:\d{2} \(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\)$/m.test(header))
   for (let i = 0; i < 60; i++) {
     const l = (await agents()).find((a) => a.id === cx2.id).live
     if (l && l.sessionId && (l.status === 'finished' || l.status === 'ready') && Date.now() - t1 > 20000) break

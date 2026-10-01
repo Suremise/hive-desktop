@@ -144,8 +144,8 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
             }
           />
           <div className="actions">
-            <IconButton icon="refresh" title="Refresh" onClick={reload} />
             <IconButton icon="add" title={assistant ? 'New Conversation' : 'New Session'} onClick={newOne} />
+            <IconButton icon="refresh" title="Refresh" onClick={reload} />
           </div>
         </div>
         <div className="files-filter">

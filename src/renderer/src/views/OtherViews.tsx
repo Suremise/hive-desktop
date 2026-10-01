@@ -213,21 +213,34 @@ export function McpView() {
   const [reload, setReload] = useState(0)
   useEffect(() => {
     if (!selected || selected === '__hive') return
+    // Another server selected before this one loaded: its text must not show (and be saved) under that one.
+    let current = true
     void call('mcp:read', selected).then((t) => {
+      if (!current) return
       // Edits left unsaved earlier come back, still based on the text they were made to.
       const draft = editorDraft(`mcp:${selected}`)
       setText(draft ? draft.text : t)
       setSaved(draft ? draft.base : t)
       setError(null)
     })
+    return () => {
+      current = false
+    }
   }, [selected, reload])
   // Saved or discarded from elsewhere (Save All before closing the workspace…): show the file as it now is.
   const dirtyNow = useRef(false)
   dirtyNow.current = text !== saved
+  // The editor's text right now (a save in progress compares it with what it wrote).
+  const latest = useRef(text)
+  latest.current = text
   useEffect(() => onEditorDrafts(() => void (selected && dirtyNow.current && !editorDraft(`mcp:${selected}`) && setReload((n) => n + 1))), [selected])
   useEffect(() => {
     if (!selected || selected === '__hive') return
-    void call('mcp:list').then((l) => setInfo(l.find((m) => m.name === selected) ?? null))
+    let current = true
+    void call('mcp:list').then((l) => current && setInfo(l.find((m) => m.name === selected) ?? null))
+    return () => {
+      current = false
+    }
   }, [selected, version])
 
   if (!selected) {
@@ -305,8 +318,12 @@ Try asking an agent: *"Write a handover for the next session using the hive tool
       r = await actions.attempt('Could not save', () => call('mcp:save', selected, written))
     }
     if (r) {
-      clearEditorDraft(draftKey)
-      setText(written)
+      // Typed into while it was saving (even back to what it was before): the newer text stays a draft, now of what was written.
+      if (latest.current !== text) setEditorDraft({ key: draftKey, label: `${selected}.json`, abs: info?.path ?? `${selected}.json`, text: latest.current, base: written, save: writeMcp })
+      else {
+        clearEditorDraft(draftKey)
+        setText(written)
+      }
       setSaved(written)
       setError(null)
       setInfo(r)

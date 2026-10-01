@@ -112,7 +112,8 @@ const read = (f) => fs.readFileSync(f, 'utf8')
   check('quit: Hive quits after saving', await Promise.race([exited, sleep(8000).then(() => false)]))
   check('quit: the note was saved', read(note).includes('DRAFT-2'))
   check('quit: the server was saved', read(server) !== '{ "command": "node", "args": [] }\n' && !!JSON.parse(read(server)))
-  if (!app.process().exitCode && app.process().exitCode !== 0) await app.close().catch(() => undefined)
+  // Hive has quit (that was the test): Playwright may already have let go of it, so asking about it can throw.
+  await app.close().catch(() => undefined)
   process.exit(failed ? 1 : 0)
 })().catch((e) => {
   console.log('FAIL', e.message)

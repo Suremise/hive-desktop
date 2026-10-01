@@ -64,6 +64,13 @@ export async function newAssistantToken(workspacePath: string): Promise<void> {
   await writeJsonAtomic(file, { token: s.token, note: "The Hive Assistant's Agent API token for one workspace. Hive replaces it each time the Assistant starts." })
 }
 
+/** The Assistant stopped: its token stops working, and anything it was asking the user is answered no. */
+export function endAssistant(workspacePath: string): void {
+  const s = stateOf(workspacePath)
+  s.token = ''
+  for (const p of [...s.pending.values()]) p.resolve(false)
+}
+
 /** The workspace whose Assistant a token belongs to, or null. */
 export function assistantForToken(token: string): string | null {
   const got = Buffer.from(token)

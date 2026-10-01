@@ -5,6 +5,7 @@ import { agentProvider, isKnownProvider } from '../shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, AgentDef, MergeResult, ProjectGitInfo } from '../shared/types'
 import { config } from './config'
 import { toast } from './events'
+import { withFileLock } from './fsutil'
 import { createLogger } from './logger'
 import { sessions } from './sessions'
 import { workspace, workspaceOf } from './workspace'
@@ -69,12 +70,22 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
     def.worktree = { path: found.path, branch: found.branch, base: (await wt.currentBranch(projectPath)) ?? found.branch }
   }
 
-  await workspace.mutateProjectConfig(projectPath, (now) => {
-    const list = projectAgents(now)
-    if (list.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
-    // Pages whose layout wasn't chosen by hand follow their agents, so the new one shows.
-    return { agents: [...list, def] }
-  })
+  try {
+    await workspace.mutateProjectConfig(projectPath, (now) => {
+      const list = projectAgents(now)
+      // Checked again under the lock: another add (the UI and the Assistant at once) may have come first.
+      if (list.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
+      if (list.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an agent called "${name}".`)
+      const wtPath = def.worktree?.path.toLowerCase()
+      if (wtPath && list.some((a) => a.worktree?.path.toLowerCase() === wtPath)) throw new Error('Another agent already works in that worktree.')
+      // Pages whose layout wasn't chosen by hand follow their agents, so the new one shows.
+      return { agents: [...list, def] }
+    })
+  } catch (e) {
+    // A worktree made for this agent alone goes with it.
+    if (opts.location === 'new-worktree' && def.worktree) await wt.removeWorktree(projectPath, def.worktree, true).catch((err) => log.warn('Could not remove the new worktree', err))
+    throw e
+  }
   await workspaceOf(projectPath).refresh()
   return def
 }
@@ -136,7 +147,11 @@ export async function merge(projectPath: string, agentId: string, opts: { squash
   projectPath = workspace.assertProject(projectPath)
   const { def, worktree } = await worktreeOf(projectPath, agentId)
   if (opts.cleanup && sessions.liveFor(projectPath, agentId)) throw new Error(`Stop ${def.name} before merging and removing its worktree.`)
-  const result = await wt.mergeWorktree(projectPath, worktree, opts)
+  // Its uncommitted work is committed first: not while it is still changing it.
+  const st = sessions.liveFor(projectPath, agentId)?.status
+  if (st === 'working' || st === 'starting') throw new Error(`${def.name} is working. Merge once it has finished.`)
+  // One merge at a time per project folder: two would stage and commit into each other.
+  const result = await withFileLock(join(projectPath, '.git', 'hive-merge'), () => wt.mergeWorktree(projectPath, worktree, opts))
   if (!result.ok || !opts.cleanup) {
     workspaceOf(projectPath).scheduleRefresh()
     return result

@@ -31,7 +31,7 @@ Leave out the story of how you got here. Name files, functions and commands exac
 
 ## Saving it
 
-Save it with the `hive_create_handover` tool (title: a few words on the work, content: the note). Hive files it under the workspace's shared notes for this project, and the next session is told it exists.
+Save it with the `hive_create_handover` tool (title: a few words on the work, content: the note). Hive files it under the workspace's shared notes for this project, and the next session is told it exists. Hive writes the header itself (title, project, author, session and date), so start the content with the first heading.
 
 If the Hive tools aren't available in this session, write the note to `HANDOVER.md` in the project root instead and tell the user where it is.
 

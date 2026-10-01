@@ -10,7 +10,7 @@ import { assertSessionId, isSessionId } from '../../../shared/defaults'
 import { CODEX, CODEX_DESCRIPTOR, CODEX_MODE_FLAGS, CODEX_PERMISSION_MODES } from '../../../shared/codex'
 import { providerSettings } from '../../../shared/providers'
 import { config } from '../../config'
-import { copyDir, hashDir, removePath } from '../../fsutil'
+import { copyDir, hashDir, removePath, withFileLock } from '../../fsutil'
 import { createLogger } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, toSpawnable } from '../common'
@@ -449,7 +449,12 @@ export class CodexAdapter implements ProviderAdapter {
    * copies carry a marker file (with the source's hash): folders without one are the user's and are never
    * touched, and an unchanged skill isn't copied again (another agent may be reading it).
    */
-  private async syncSkills(ctx: LaunchContext): Promise<void> {
+  private syncSkills(ctx: LaunchContext): Promise<void> {
+    // Codex agents sharing a folder start together (resuming after a restart): one copies at a time.
+    return withFileLock(join(ctx.cwd, '.agents', 'skills'), () => this.syncSkillsNow(ctx))
+  }
+
+  private async syncSkillsNow(ctx: LaunchContext): Promise<void> {
     const dir = join(ctx.cwd, '.agents', 'skills')
     const wanted = new Map(ctx.skills.map((s) => [`hive-${s.name}`, s]))
     if (!ctx.skills.length && !existsSync(dir)) return

@@ -31,9 +31,14 @@ export function usePersonas(): PersonaInfo[] {
   const [list, setList] = useState<PersonaInfo[]>([])
   useEffect(() => {
     if (!ws) return setList([])
+    // A newer load (another workspace, a change) replaces this one.
+    let current = true
     void call('personas:list')
-      .then(setList)
-      .catch(() => setList([]))
+      .then((l) => current && setList(l))
+      .catch(() => current && setList([]))
+    return () => {
+      current = false
+    }
   }, [version, ws])
   return list
 }
@@ -85,7 +90,12 @@ export function AssistantPanel() {
   const ws = useStore((s) => s.workspace?.path)
   useEffect(() => {
     if (!ws) return
-    void Promise.all([call('assistant:actions'), call('assistant:questions')]).then(([assistantActions, assistantQuestions]) => set({ assistantActions, assistantQuestions }))
+    // Another workspace opened before this loaded: its own load is on the way.
+    let current = true
+    void Promise.all([call('assistant:actions'), call('assistant:questions')]).then(([assistantActions, assistantQuestions]) => current && set({ assistantActions, assistantQuestions }))
+    return () => {
+      current = false
+    }
   }, [ws])
   if (!a) return null
   if (!open) return <AssistantRail a={a.agents[0] ?? null} />
@@ -165,7 +175,19 @@ function AssistantRail({ a }: { a: AgentInfo | null }) {
   const live = a?.live
   const asking = useStore((s) => s.assistantQuestions.length)
   return (
-    <div className="assistant-rail" role="button" aria-label="Show the Hive Assistant" onClick={() => setAssistantOpen(true)}>
+    <div
+      className="assistant-rail"
+      role="button"
+      tabIndex={0}
+      aria-label="Show the Hive Assistant"
+      onClick={() => setAssistantOpen(true)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          setAssistantOpen(true)
+        }
+      }}
+    >
       <Tooltip content={`Show the Hive Assistant${kb ? ` (${formatKeybinding(kb)})` : ''}`}>
         <span className="rail-btn">
           <Icon name="chevron-left" />
@@ -211,7 +233,7 @@ function AssistantIdle({ project, a, ended }: { project: ProjectInfo; a: AgentIn
       <p>
         <strong>{persona?.name ?? 'The Assistant'}</strong> watches over this workspace: ask it what the agents are doing, about any project, or for a plan or a review.
       </p>
-      <p className="faint">For now it only looks and advises; it doesn't change files or run agents.</p>
+      <p className="faint">It doesn't edit files itself. Within Settings → Assistant → Control, it can run agents for you and create projects; everything it does is listed here.</p>
       <div className="btns">
         <button className="btn primary" onClick={() => void actions.newSession(project.path, AGENT)}>
           <Icon name="play" /> Start Assistant

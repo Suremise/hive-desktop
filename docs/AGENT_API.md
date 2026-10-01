@@ -225,7 +225,7 @@ The changes below are the Assistant's only: other callers get `403`.
 | `POST /v1/projects/{name}/agents/{agent}/start` | Control agents | Starts a stopped agent: a new conversation, or `resume: true` (its last) or a session id; `prompt` as above |
 | `POST /v1/projects/{name}/agents/{agent}/stop` | Control agents | Stops it. If it is working, waiting or starting, Hive asks the user in the Assistant's panel (with the optional `reason`) and the call waits for the answer: `409` if they say no |
 | `POST /v1/projects/{name}/agents/{agent}/prompt` `{ "text" }` | Control agents | Types a task into an idle agent and sends it. `409` while it is working, starting or waiting for the user, or when the user has just typed in its terminal (Settings → Assistant → Pause after you type) |
-| `POST /v1/projects/{name}/handover` | Control agents | Hand Over to… (below), without needing *Allow sending input to sessions*. `409` at once when the project's agents lack Hive's tools, or the user has just typed in either agent's terminal; later failures are listed in its actions |
+| `POST /v1/projects/{name}/handover` | Control agents | Hand Over to… (below), without needing *Allow sending input to sessions*. `409` at once when the project's agents lack Hive's tools, the user has just typed in either agent's terminal, or (without a new handover) the project has no handover; later failures are listed in its actions |
 
 With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees or delete projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/deactivate` needs Control agents.
 
@@ -251,7 +251,7 @@ Set `"append": true` to add to the end of an existing note.
 { "project": "api", "title": "Auth refactor", "content": "## State\n…\n## Next steps\n…" }
 ```
 
-Returns `{ ok: true, path }`. Hive shows a notification with a link to the note.
+Returns `{ ok: true, path }`. Hive shows a notification with a link to the note. Hive writes the note's header (`# <title>`, project and date, in local time with UTC in brackets). An agent's `hive_create_handover` also passes `agent` (its id) and `agentProject`, and the Hive Assistant is known by its token; the header then adds `- **Author:** <agent> (<CLI>)` (or `Assistant`) and `- **Session:** <id>`, the conversation it was written in.
 
 ### Skills and MCP
 
@@ -278,7 +278,7 @@ event: session-status
 data: {"type":"session-status","state":{"projectPath":"D:\\work\\api","sessionId":"6f1c…","status":"finished",…}}
 ```
 
-Event types: `session-status`, `session-exit`, `workspace-changed`, `notes-changed`, `skills-changed`.
+Event types: `session-status`, `session-exit`, `workspace-changed`, `notes-changed`, `skills-changed`. Events cover every open workspace, so the Hive Assistant's token is refused here (403); it follows agents with `hive_wait_for_agents`. A client that stops reading (more than 1 MB of events waiting) is disconnected.
 
 ```bash
 curl -N -H "Authorization: Bearer $HIVE_API_TOKEN" "$HIVE_API_URL/v1/events"

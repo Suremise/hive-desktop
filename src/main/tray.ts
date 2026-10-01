@@ -27,10 +27,16 @@ export function setTrayPendingQuit(pending: boolean): void {
 
 export { resourcesDir }
 
+/** Loaded once: the tray is rebuilt on every status change. */
+const icons = new Map<string, Electron.NativeImage>()
+
 function icon(name: 'tray' | 'tray-attention'): Electron.NativeImage {
+  const cached = icons.get(name)
+  if (cached) return cached
   const img = nativeImage.createFromPath(join(resourcesDir(), `${name}.png`))
   const hi = nativeImage.createFromPath(join(resourcesDir(), `${name}@2x.png`))
   if (!hi.isEmpty()) img.addRepresentation({ scaleFactor: 2, buffer: hi.toPNG() })
+  icons.set(name, img)
   return img
 }
 

@@ -104,9 +104,18 @@ class ConfigStore {
     this.saveTimer = setTimeout(() => void this.flush(), 300)
   }
 
-  async flush(): Promise<void> {
+  /** The save in progress: saves run one after another, so an older one can't land after a newer one. */
+  private saving: Promise<void> = Promise.resolve()
+
+  flush(): Promise<void> {
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = null
+    // Each save writes the settings as they are when its turn comes.
+    this.saving = this.saving.then(() => this.write())
+    return this.saving
+  }
+
+  private async write(): Promise<void> {
     try {
       if (this.backupBeforeSave) {
         this.backupBeforeSave = false

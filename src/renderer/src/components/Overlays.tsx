@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import iconUrl from '../assets/icon.svg'
 import { call, errorMessage } from '../api'
 import { commandKeybinding, commands, runCommand } from '../commands'
-import { dismissToast, findProject, NO_PROJECTS, notify, set, setActivity, useStore } from '../store'
+import { closeDialog, dismissToast, findProject, NO_PROJECTS, notify, set, setActivity, useStore } from '../store'
 import { cacheState, useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
 import { UpdateStatusRow } from './Updates'
-import { discardDrafts, saveAllDrafts } from './FileView'
+import { discardDrafts, saveAllDrafts, unsavedFiles } from './FileView'
 import type { ProviderId, ProviderTask, QuitChoice, SessionStatus } from '@shared/types'
 import { PROVIDERS, enabledProviders, isProviderEnabled, providerDescriptor } from '@shared/providers'
 import { ProviderIcon } from './ProviderIcon'
@@ -33,7 +33,7 @@ export function Dialogs() {
 
   if (!dialog) return null
   const close = (result: boolean | string | null): void => {
-    set({ dialog: null })
+    closeDialog()
     if (dialog.kind === 'confirm') dialog.resolve(result === true)
     else if (dialog.kind === 'prompt') {
       dialog.check?.set(checked)
@@ -43,7 +43,7 @@ export function Dialogs() {
 
   if (dialog.kind === 'choice') {
     const answer = (v: string | null): void => {
-      set({ dialog: null })
+      closeDialog()
       dialog.resolve(v)
     }
     return (
@@ -694,6 +694,13 @@ export function QuitDialog() {
         if (r.failed.length) {
           notify('error', `Couldn't save ${r.failed.length === 1 ? 'a file' : `${r.failed.length} files`}, so Hive is still open`, r.failed.map((f) => f.message).join('\n'))
           set({ quitUnsaved: r.failed.map((f) => f.abs) })
+          return
+        }
+        // Edited while it was saving: those edits are unsaved again, so stay.
+        const left = unsavedFiles()
+        if (left.length) {
+          notify('warning', 'Some files changed while they were being saved', 'Hive is still open, so your latest edits are kept. Save them, then try again.')
+          set({ quitUnsaved: left.map((f) => f.abs) })
           return
         }
       }

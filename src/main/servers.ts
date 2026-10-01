@@ -6,7 +6,9 @@ import { basename, dirname, join, relative, resolve as resolvePath } from 'path'
 import { readFile } from 'fs/promises'
 import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, projectAgents } from '../shared/defaults'
-import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider } from '../shared/providers'
+import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
+import { ASSISTANT_AGENT_ID } from '../shared/assistant'
+import type { HandoverAuthor } from '../shared/hiveGuidance'
 import { CLAUDE_CODE } from '../shared/claude'
 import * as assistant from './assistantControl'
 import { addAgent, updateAgent } from './projectAgents'
@@ -417,6 +419,8 @@ route('POST', '/v1/projects/:name/handover', async ({ params, body }) => {
   const to = await agentParam(p, body.to)
   if (from === to) throw new HttpError(400, 'from and to must be different agents')
   const handover = body?.handover !== false
+  // Known at once rather than later in a notification: from the latest handover, there has to be one.
+  if (!handover && !(await sessions.latestHandover(p))) throw new HttpError(409, `There is no handover for ${basename(p)} yet. Hand over with a new handover (handover: true) instead.`)
   const start = async (): Promise<void> => {
     // It can take minutes (the handover is written first): answer now, report failures in Hive.
     void sessions.handOver(p, from, to, { handover }).catch((e) => {
@@ -583,6 +587,9 @@ route('POST', '/v1/projects/:name/agents/:agent/stop', async ({ params, body }) 
         no: "Don't stop"
       })
       if (!yes) throw new HttpError(409, `The user chose not to stop ${a.name}. Leave it running.`)
+      // The answer can come minutes later: only the run the user was asked about, and only if Control still allows it.
+      if (sessions.liveFor(p, agentId)?.runId !== st.runId) return { done: `${a.name} in ${basename(p)} had already stopped`, result: { ok: true, wasRunning: false } }
+      if (!assistant.allows('agents')) throw new HttpError(403, `The user's settings (Settings → Assistant → Control: ${LEVEL_NAME[assistant.controlLevel()]}) no longer let you stop agents.`)
     }
     sessions.stop(p, agentId)
     return { done: `Stopped ${a.name} in ${basename(p)}`, result: { ok: true, wasRunning: true } }
@@ -713,13 +720,37 @@ route('PUT', '/v1/shared/file', async ({ query, body }) => {
   return { ok: true, path: rel }
 })
 
+/**
+ * Who is writing a handover, for its header: the Assistant (its own token), or the agent whose hive tools sent
+ * it (they pass its id and project). Others (scripts, the user) leave no author.
+ */
+async function handoverAuthor(body: any): Promise<HandoverAuthor | null> {
+  const own = assistantCaller()
+  if (own) return { author: 'Assistant', session: sessions.liveFor(assistant.assistantHome(own), ASSISTANT_AGENT_ID)?.sessionId || undefined }
+  if (typeof body?.agent !== 'string' || !body.agent || typeof body?.agentProject !== 'string') return null
+  try {
+    const p = projectByName(body.agentProject)
+    const cfg = await workspace.projectConfig(p)
+    const a = projectAgents(cfg).find((x) => x.id === body.agent)
+    if (!a) return null
+    const st = sessions.liveFor(p, a.id)
+    return { author: `${a.name} (${providerName(st?.provider ?? agentProvider(a, cfg, config.settings))})`, session: st?.sessionId || undefined }
+  } catch {
+    return null
+  }
+}
+
 route('POST', '/v1/shared/handovers', async ({ body }) => {
   if (!body?.title || !body?.content) throw new HttpError(400, 'title and content are required')
   // For a named project, its workspace's notes; else the request's workspace.
-  const ws = body.project ? workspaceOf(projectByName(String(body.project))) : requireWorkspace()
-  const file = await inWorkspace(ws, () => createHandover(String(body.project ?? ''), String(body.title), String(body.content)))
+  // The project's own name, also when it was given as "<workspace>/<project>".
+  const project = body.project ? projectByName(String(body.project)) : null
+  const ws = project ? workspaceOf(project) : requireWorkspace()
+  const name = project ? basename(project) : ''
+  const by = await handoverAuthor(body)
+  const file = await inWorkspace(ws, () => createHandover(name, String(body.title), String(body.content), by))
   emit({ type: 'notes-changed' })
-  toast('info', 'Handover created', `${body.project ? body.project + ': ' : ''}${body.title}`, [{ label: 'Open', command: 'notes.open', args: [file] }])
+  toast('info', 'Handover created', `${name ? name + ': ' : ''}${body.title}`, [{ label: 'Open', command: 'notes.open', args: [file] }])
   return { ok: true, path: file }
 })
 
@@ -758,6 +789,8 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
   if (url.pathname === '/v1/health') return send(res, 200, { ok: true, app: 'Hive', version: app.getVersion() })
 
   if (req.method === 'GET' && url.pathname === '/v1/events') {
+    // Events are about every open workspace: not for an Assistant, which sees only its own (it has hive_wait_for_agents).
+    if (assistantCaller()) return send(res, 403, { error: 'The event stream is for Agent API callers. Use hive_wait_for_agents to follow agents.' })
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
     res.write(': connected\n\n')
     sseClients.add(res)
@@ -794,7 +827,7 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
 function statusFor(e: Error): number {
   const m = String(e?.message ?? '')
   if (/Invalid session id|URI malformed|Unknown provider|Project names cannot/i.test(m)) return 400
-  if (/already running|already open|already being opened|is starting|Stop it first|Stop the|archived|No session is running|ran in .* Resume it|is required to run|is turned off|no agents yet|No workspace|busy/i.test(m)) return 409
+  if (/already running|already open|already being opened|is starting|Stop it first|Stop the|archived|No session is running|ran in .* Resume it|is required to run|is turned off|no agents yet|No workspace|busy|no handover/i.test(m)) return 409
   if (/several agents: choose/i.test(m)) return 400
   if (/Not a project|Unknown (project|agent)|no longer exists/i.test(m)) return 404
   return 500
@@ -806,10 +839,28 @@ function broadcast(event: HiveEvent): void {
   if (!allowed.includes(event.type)) return
   const payload = event.type === 'workspace-changed' ? { type: event.type, workspace: event.workspace?.path ?? null } : event
   const line = `event: ${event.type}\ndata: ${JSON.stringify(payload)}\n\n`
-  for (const c of sseClients) c.write(line)
+  for (const c of sseClients) {
+    // A client that stopped reading would make Hive hold every event for it: it is disconnected instead.
+    if (c.writableLength > SSE_MAX_BUFFERED) {
+      sseClients.delete(c)
+      c.destroy()
+    } else c.write(line)
+  }
 }
 
-export async function startApiServer(): Promise<AgentApiInfo> {
+/** How much an event-stream client may fall behind (bytes not yet sent) before it is disconnected. */
+const SSE_MAX_BUFFERED = 1024 * 1024
+
+/** The (re)start in progress: settings changed quickly twice restart the server one after the other. */
+let apiRestart: Promise<unknown> = Promise.resolve()
+
+export function startApiServer(): Promise<AgentApiInfo> {
+  const run = apiRestart.then(startApiServerNow)
+  apiRestart = run.catch(() => undefined)
+  return run
+}
+
+async function startApiServerNow(): Promise<AgentApiInfo> {
   await stopApiServer()
   apiError = undefined
   if (!apiToken) apiToken = await loadToken()

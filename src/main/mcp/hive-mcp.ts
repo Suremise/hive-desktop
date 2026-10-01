@@ -158,7 +158,8 @@ const tools: Tool[] = [
       properties: { title: { type: 'string' }, content: { type: 'string' }, project: projectArg },
       required: ['title', 'content']
     },
-    run: (a) => api('POST', '/v1/shared/handovers', { title: a.title, content: a.content, project: a.project || PROJECT })
+    // Hive writes the header (project, author, session, date) from the agent these tools belong to.
+    run: (a) => api('POST', '/v1/shared/handovers', { title: a.title, content: a.content, project: a.project || PROJECT, ...(process.env.HIVE_AGENT_ID ? { agent: process.env.HIVE_AGENT_ID, agentProject: PROJECT } : {}) })
   },
   {
     name: 'hive_notify',

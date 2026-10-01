@@ -6,7 +6,7 @@ import { readFile } from 'fs/promises'
 import { pathToFileURL } from 'url'
 import type { AppInfo, McpServerDef, QuitChoice, QuitScope, QuitSession, WindowState } from '../shared/types'
 import { providerService } from './providerService'
-import { hiveInstructions, projectHandovers, withLatestHandover } from '../shared/hiveGuidance'
+import { handoverSession, hiveInstructions, projectHandovers, withLatestHandover } from '../shared/hiveGuidance'
 import { notesTree } from './notes'
 import { assistantInstructions } from './personas'
 import { ASSISTANT_NAME, assistantPersona } from '../shared/assistant'
@@ -20,7 +20,7 @@ import { createLogger, logsDir } from './logger'
 import { killAll } from './ptyHost'
 import { onCorruptFile } from './fsutil'
 import { apiEnv, assistantApiUrl, startApiServer, startHookServer } from './servers'
-import { assistantTokenFile, newAssistantToken, newTurn } from './assistantControl'
+import { assistantHome, assistantTokenFile, endAssistant, newAssistantToken, newTurn } from './assistantControl'
 import { sessions } from './sessions'
 import { notificationIcon } from './paths'
 import { createTray, destroyTray, resourcesDir, setTrayPendingQuit, showWindow } from './tray'
@@ -511,7 +511,7 @@ app.whenReady().then(async () => {
 
   workspace.setLiveProvider((p, cfg) => sessions.liveInfo(p, cfg))
   sessions.apiEnv = apiEnv
-  sessions.hiveMcp = (projectPath): McpServerDef | null => {
+  sessions.hiveMcp = (projectPath, agentId): McpServerDef | null => {
     const s = config.settings.agentApi
     const env = apiEnv()
     // The Hive Assistant always has Hive's tools, with its own token and its control level (Settings → Assistant).
@@ -544,7 +544,9 @@ app.whenReady().then(async () => {
         // The Assistant looks after the whole workspace: its tools have no project of their own.
         HIVE_PROJECT: workspace.isAssistantHome(projectPath) ? '' : basename(projectPath),
         // With several windows, the API answers the session's tools for its own workspace.
-        HIVE_WORKSPACE: workspaceOf(projectPath).path ?? ''
+        HIVE_WORKSPACE: workspaceOf(projectPath).path ?? '',
+        // Which agent's tools these are: Hive names it as the author of the handovers it writes.
+        ...(agentId ? { HIVE_AGENT_ID: agentId } : {})
       }
     }
   }
@@ -562,7 +564,9 @@ app.whenReady().then(async () => {
     inWorkspace(workspaceOf(projectPath), async () => {
       const names = (await workspace.listProjectPaths()).map((p) => basename(p))
       const latest = (await projectHandovers(await notesTree(), basename(projectPath), names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
-      return latest ? { relPath: latest.relPath, modified: latest.modified ?? '' } : null
+      if (!latest) return null
+      const text = await readFile(join(workspace.sharedDir, latest.relPath), 'utf8').catch(() => '')
+      return { relPath: latest.relPath, modified: latest.modified ?? '', session: handoverSession(text) }
     })
   // Each Assistant launch gets a new token; each message to it starts a new turn (with a fresh limit of changes).
   sessions.onAssistantLaunch = async (projectPath) => {
@@ -572,6 +576,11 @@ app.whenReady().then(async () => {
   sessions.onAssistantPrompt = (projectPath) => {
     const ws = workspaceOf(projectPath).path
     if (ws) newTurn(ws)
+  }
+  // When it stops, its token stops working and its questions are withdrawn (its workspace may be closed by now).
+  sessions.onAssistantExit = (projectPath) => {
+    const ws = resolve(projectPath, '..', '..')
+    if (assistantHome(ws).toLowerCase() === resolve(projectPath).toLowerCase()) endAssistant(ws)
   }
   // The Assistant's role and persona (its workspace's choice, else Settings → Assistant's), for its launches.
   sessions.assistantInstructions = (projectPath, agent) => inWorkspace(workspaceOf(projectPath), () => assistantInstructions(assistantPersona(agent, config.settings), config.settings.assistant?.control ?? 'projects'))

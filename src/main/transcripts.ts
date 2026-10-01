@@ -22,6 +22,8 @@ interface Entry {
 }
 
 const MAX_CACHED = 6
+/** How much of a transcript is read at a time. */
+const READ_CHUNK = 4 * 1024 * 1024
 /** Tool input and output longer than this are shortened in transcript:read; transcript:tool has the full text. */
 const DISPLAY_LIMIT = 4000
 const cache = new Map<string, Entry>()
@@ -74,7 +76,17 @@ async function parseNow(projectPath: string, sessionId: string, key: string): Pr
   }
   e.used = Date.now()
   if (size !== e.size) {
-    e.parser.feed(await readRange(path, e.parser.offset, size))
+    // In pieces, so a long transcript opened for the first time doesn't take its whole size in memory at once.
+    let chunk = READ_CHUNK
+    while (e.parser.offset < size) {
+      const before = e.parser.offset
+      const end = Math.min(size, before + chunk)
+      e.parser.feed(await readRange(path, before, end))
+      if (e.parser.offset > before) continue
+      // One line longer than the piece (a large image): read a bigger piece; at the end, a line still being written.
+      if (end === size) break
+      chunk *= 2
+    }
     e.size = size
   }
   if (cache.size > MAX_CACHED) {

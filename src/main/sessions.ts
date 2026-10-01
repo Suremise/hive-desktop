@@ -4,7 +4,7 @@ import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/
 import { existsSync } from 'fs'
 import { typedText } from '../shared/terminalInput'
 import { BrowserWindow, Notification, clipboard, shell } from 'electron'
-import { ASSISTANT_NAME } from '../shared/assistant'
+import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { assistantTools } from '../shared/assistantTools'
 import { HIVE_DIR, agentPtyKey, assertSessionId, isSessionId, projectAgents, resumeRecord } from '../shared/defaults'
 import { agentLaunchSettings, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
@@ -32,7 +32,7 @@ import type { LaunchSkill, ProviderAdapter, UsageParser } from './providers/type
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, toast } from './events'
-import { hashDir, hashText, splitArgs } from './fsutil'
+import { hashDir, hashText, splitArgs, syncCopy, syncCopyLocked, withFileLock } from './fsutil'
 import { createLogger } from './logger'
 import { listMcp, toLaunchDef } from './mcp'
 import { childEnv, killPty, spawnPty, writePty } from './ptyHost'
@@ -44,7 +44,8 @@ import { inWorkspace, workspace, workspaceFor, workspaceOf } from './workspace'
 const log = createLogger('sessions')
 
 export interface HiveMcpProvider {
-  (projectPath: string): McpServerDef | null
+  /** The hive MCP server for a project's sessions; with agentId, that agent's (its tools then say who is calling). */
+  (projectPath: string, agentId?: string): McpServerDef | null
 }
 
 /** Minimum time between transcript backups while a turn is running. */
@@ -61,6 +62,8 @@ interface LiveSession {
   backupTimer?: NodeJS.Timeout
   /** When the transcript was last copied to .hive/sessions (see BACKUP_INTERVAL_MS). */
   lastBackupAt?: number
+  /** The transcript's modified time when it was last backed up. */
+  backupMtime?: number
   /** Launched without a model choice, so its transcript shows the CLI's default model. */
   defaultModel: boolean
   /** Set while a Hive-requested compaction runs: compactions in the transcript before it, and a safety timer. */
@@ -135,7 +138,8 @@ const LOCK_TTL_MS = 15 * 60_000
  * from where the last read stopped (a long session's transcript can be 100 MB) rather than from the start.
  */
 interface UsageEntry {
-  parser: UsageParser
+  /** null once dropped (too many kept): the result stays, and a changed file is read again from the start. */
+  parser: UsageParser | null
   sessionId: string
   provider: ProviderId
   /** Bytes read so far, at a line boundary. */
@@ -146,11 +150,34 @@ interface UsageEntry {
   usage: SessionUsage | null
 }
 const usageCache = new Map<string, UsageEntry>()
+/** Transcripts whose parsers are kept (each holds its session's request history); results are kept for more. */
+const MAX_USAGE_PARSERS = 200
+const MAX_USAGE_RESULTS = 5000
+/** How much of a transcript is read at a time. */
+const USAGE_CHUNK = 4 * 1024 * 1024
+
+/** Drops the least recently used parsers beyond MAX_USAGE_PARSERS (their results stay), and results beyond MAX_USAGE_RESULTS. */
+function trimUsageCache(): void {
+  let parsers = 0
+  for (const c of usageCache.values()) if (c.parser) parsers++
+  for (const [k, c] of usageCache) {
+    if (parsers <= MAX_USAGE_PARSERS && usageCache.size <= MAX_USAGE_RESULTS) break
+    if (usageCache.size > MAX_USAGE_RESULTS) {
+      usageCache.delete(k)
+      if (c.parser) parsers--
+    } else if (c.parser) {
+      c.parser = null
+      parsers--
+    }
+  }
+}
 
 /** Writes text to a session in small pieces, the way keystrokes arrive, rather than as one burst. */
-async function typeInto(key: string, text: string): Promise<void> {
+async function typeInto(key: string, text: string, still: () => boolean = () => true): Promise<void> {
   const CHUNK = 8
   for (let i = 0; i < text.length; i += CHUNK) {
+    // The agent stopped or restarted meanwhile: the rest mustn't reach the new process.
+    if (!still()) throw new Error('The agent stopped before the prompt was sent.')
     writePty(key, text.slice(i, i + CHUNK))
     if (i + CHUNK < text.length) await new Promise((r) => setTimeout(r, 10))
   }
@@ -191,12 +218,14 @@ class SessionManager {
   onAssistantLaunch: (projectPath: string) => Promise<void> = async () => undefined
   /** The user sent the Hive Assistant a message (a new turn). */
   onAssistantPrompt: (projectPath: string) => void = () => undefined
+  /** The Hive Assistant's process ended (its token is revoked, its questions withdrawn). */
+  onAssistantExit: (projectPath: string) => void = () => undefined
   /** When the user last typed in each terminal (by pty key), so nothing else types over them. */
   private userInput = new Map<string, { at: number; enter: boolean }>()
   /** The Hive Assistant's instructions for a launch (who it is, and its persona's), and the persona's name. */
   assistantInstructions: (projectPath: string, agent: AgentDef) => Promise<{ text: string; persona: string }> = async () => ({ text: '', persona: '' })
-  /** The project's newest handover in the shared notes (relative path and modified time), or null. */
-  latestHandover: (projectPath: string) => Promise<{ relPath: string; modified: string } | null> = async () => null
+  /** The project's newest handover in the shared notes (path in the notes, modified time, the session that wrote it), or null. */
+  latestHandover: (projectPath: string) => Promise<{ relPath: string; modified: string; session: string | null } | null> = async () => null
   private exitWaiters = new Map<string, () => void>()
   /**
    * Agents being started (by liveId), so two starts at once can't both get through, and so stopping the
@@ -270,7 +299,7 @@ class SessionManager {
     for (const m of await listMcp()) {
       if (m.globallyEnabled && !mcpDisabled.has(m.name) && m.def) mcpServers[m.name] = toLaunchDef(m.def, workspace.mcpDir)
     }
-    const hive = this.hiveMcp(projectPath)
+    const hive = this.hiveMcp(projectPath, agent?.id)
     if (hive) mcpServers.hive = hive
     // The Assistant looks after the workspace with Hive's own tools: no skills, and not the projects' MCP servers.
     if (workspace.isAssistantHome(projectPath)) {
@@ -449,6 +478,8 @@ class SessionManager {
       state.statusMessage = `Setting up the worktree: ${setup}`
       const sh = shellCommand(setup)
       try {
+        // The same last check as before an agent's own launch.
+        if (this.starting.get(id)?.cancelled || this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error('The agent was stopped before it had started.')
         spawnPty(key, {
           file: sh.file,
           args: sh.args,
@@ -478,6 +509,8 @@ class SessionManager {
   private forget(id: string): void {
     const l = this.live.get(id)
     if (l) this.runs.delete(l.state.runId)
+    // An Assistant that didn't start: the token made for this launch stops working too.
+    if (l && basename(l.state.projectPath) === ASSISTANT_DIR) this.onAssistantExit(l.state.projectPath)
     this.live.delete(id)
     // A start given up before its process spawned has no exit to wait for.
     this.exitWaiters.get(id)?.()
@@ -614,7 +647,8 @@ class SessionManager {
     state.pid = proc.pid
     l.initialPrompt = undefined
     l.backupTimer = setInterval(() => void this.backup(projectPath, agent.id), 5000)
-    if (state.sessionId) await this.recordSession(projectPath, agent, l)
+    // The process runs now: failing to record it (a full disk) must not leave it untracked.
+    if (state.sessionId) await this.recordSession(projectPath, agent, l).catch((e) => log.warn(`${this.label(state)}: could not record session ${state.sessionId}`, e))
 
     // Launched as active: starting a session implies working on the project.
     if (!workspace.isAssistantHome(projectPath) && !workspaceOf(projectPath).activeNames().includes(basename(projectPath))) workspace.setActive(projectPath, true)
@@ -936,13 +970,30 @@ class SessionManager {
   }
 
   /** Types a message into an agent's terminal and sends it. */
+  /** Agents Hive is typing a prompt into (one at a time each). */
+  private delivering = new Set<string>()
+
+  /**
+   * Types a prompt into an agent and sends it, on one line (a new line would send it early in the CLI).
+   * Refused while another is being typed there; stops if the agent stops or restarts meanwhile.
+   */
   async sendPrompt(projectPath: string, agentId: string, text: string): Promise<void> {
     const key = this.key(projectPath, agentId)
-    writePty(key, '\x15')
-    await new Promise((r) => setTimeout(r, 150))
-    await typeInto(key, text.replace(/\s+/g, ' ').trim())
-    await new Promise((r) => setTimeout(r, 300))
-    writePty(key, '\r')
+    const runId = this.live.get(liveId(projectPath, agentId))?.state.runId
+    if (this.delivering.has(key)) throw new Error('Hive is already typing a prompt into this agent; it is busy.')
+    this.delivering.add(key)
+    const same = (): boolean => !!runId && this.live.get(liveId(projectPath, agentId))?.state.runId === runId
+    try {
+      writePty(key, '\x15')
+      await new Promise((r) => setTimeout(r, 150))
+      if (!same()) throw new Error('The agent stopped before the prompt was sent.')
+      await typeInto(key, text.replace(/\s+/g, ' ').trim(), same)
+      await new Promise((r) => setTimeout(r, 300))
+      if (!same()) throw new Error('The agent stopped before the prompt was sent.')
+      writePty(key, '\r')
+    } finally {
+      this.delivering.delete(key)
+    }
   }
 
   /**
@@ -958,12 +1009,17 @@ class SessionManager {
     const { agent: from } = await this.agentDef(projectPath, fromAgentId)
     const source = this.live.get(liveId(projectPath, fromAgentId))?.state ?? null
     const fromSession = source?.sessionId || from.lastSessionId || ''
+    // The handover the target reads, by name: a newer one appearing meanwhile isn't the one meant.
+    let handover = ''
     if (opts.handover) {
       if (!source) throw new Error(`${from.name} isn't running. Resume it to write a handover, or hand over the latest handover.`)
       if (source.status !== 'ready' && source.status !== 'finished') throw new Error(`${from.name} is busy. Hand over once it has finished.`)
-      // Proof, not status: the target starts only once a handover newer than this one exists.
+      // Proof, not status: the target starts only once a handover newer than this one exists, written in the
+      // source's own conversation (its header's Session, which Hive writes), not by another agent meanwhile.
       const before = await this.latestHandover(projectPath)
-      const isNew = (h: { relPath: string; modified: string } | null): boolean => !!h && (!before || h.relPath !== before.relPath || h.modified > before.modified)
+      const want = source.sessionId
+      const isNew = (h: { relPath: string; modified: string; session: string | null } | null): boolean =>
+        !!h && (!before || h.relPath !== before.relPath || h.modified > before.modified) && (!want || h.session === want)
       toast('info', `${from.name} is writing a handover`, `${to.name} continues from it when it's done.`, undefined, projectPath)
       await this.sendPrompt(
         projectPath,
@@ -974,7 +1030,11 @@ class SessionManager {
       let idleSince = 0
       for (;;) {
         await new Promise((r) => setTimeout(r, 2000))
-        if (isNew(await this.latestHandover(projectPath).catch(() => null))) break
+        const h = await this.latestHandover(projectPath).catch(() => null)
+        if (h && isNew(h)) {
+          handover = h.relPath
+          break
+        }
         const st = this.live.get(liveId(projectPath, fromAgentId))?.state
         if (!st) throw new Error(`${from.name} stopped before writing a handover.`)
         if (st.status === 'waiting') throw new Error(`${from.name} is asking you something before it can write the handover. Answer it, then hand over again without a new handover.`)
@@ -983,6 +1043,10 @@ class SessionManager {
         if (idleSince && Date.now() - idleSince > 20_000 && Date.now() - t0 > 30_000) throw new Error(`${from.name} finished without writing a handover. Ask it to write one, then hand over again without a new handover.`)
         if (Date.now() - t0 > 15 * 60_000) throw new Error(`${from.name} didn't write its handover in 15 minutes.`)
       }
+    }
+    if (!handover) {
+      handover = (await this.latestHandover(projectPath))?.relPath ?? ''
+      if (!handover) throw new Error(`There is no handover for ${basename(projectPath)} yet. Hand over with a new handover instead.`)
     }
     // The target: started fresh when idle, or given the message in its running session.
     let target = this.live.get(liveId(projectPath, toAgentId))?.state ?? null
@@ -994,7 +1058,7 @@ class SessionManager {
       if (!target) throw new Error(`${to.name} didn't become ready. Answer any question in its terminal, then hand over again without a new handover.`)
       await new Promise((r) => setTimeout(r, 1500))
     }
-    await this.sendPrompt(projectPath, toAgentId, `Read the latest handover for this project with the hive_read_latest_handover tool and continue the work from it. It was written by ${from.name}.`)
+    await this.sendPrompt(projectPath, toAgentId, `Read the handover "${handover}" with the hive_read_shared_note tool and continue the work from it. It was written by ${from.name}.`)
     // Link the sessions once the target's id is known (Codex reports it with the first prompt).
     const linked = await this.waitStatus(projectPath, toAgentId, (s) => !s || !!s.sessionId, 60_000).catch(() => null)
     if (linked?.sessionId && fromSession) await workspace.upsertSession(projectPath, { id: linked.sessionId, handedOverFrom: fromSession }).catch(() => undefined)
@@ -1132,6 +1196,8 @@ class SessionManager {
     }
     this.runs.delete(runId)
     this.releaseLocks(id)
+    // Even when its workspace has just closed.
+    if (basename(projectPath) === ASSISTANT_DIR) this.onAssistantExit(projectPath)
     if (sessionId) {
       if (await this.anyTranscript(projectPath, sessionId)) {
         await workspace.upsertSession(projectPath, { id: sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
@@ -1173,15 +1239,35 @@ class SessionManager {
     const s = await stat(src).catch(() => null)
     if (!s) return
     const mtime = s.mtimeMs
-    if (!force && l.transcriptMtime === mtime) return
+    const backups = config.settings.sessions.backupTranscripts
+    // Nothing new, and the backup (if any) has everything: nothing to do.
+    if (!force && l.transcriptMtime === mtime && (!backups || l.backupMtime === mtime)) return
+    if (force || l.transcriptMtime !== mtime) await this.transcriptChanged(l, projectPath, agentId, src, s.size, force)
     l.transcriptMtime = mtime
+    if (!backups) return
+    // While the agent works, at most once a minute (a change held back is copied at a later look); the end of each
+    // turn (Stop) and the session's exit force one, so nothing is left out. Only what the transcript gained is written.
+    if (!force && l.lastBackupAt && Date.now() - l.lastBackupAt < BACKUP_INTERVAL_MS) return
+    try {
+      await syncCopy(src, this.backupPath(projectPath, sessionId))
+      l.lastBackupAt = Date.now()
+      l.backupMtime = mtime
+    } catch (e) {
+      // Tried again at the next look, whether or not the transcript changes.
+      log.warn('backup failed', e)
+    }
+  }
+
+  /** What follows from the live transcript growing: status, usage, details, compaction, cost. */
+  private async transcriptChanged(l: LiveSession, projectPath: string, agentId: string, src: string, size: number, force: boolean): Promise<void> {
+    const sessionId = l.state.sessionId
     // Fallback if hooks never arrive: a transcript means the session is up.
     if (l.state.status === 'starting') {
       l.state.status = 'ready'
       this.emitState(l.state)
     }
     emit({ type: 'usage-changed', projectPath, sessionId })
-    await this.readDetails(l, src, s.size)
+    await this.readDetails(l, src, size)
     if (l.compacting) {
       // Fallback if the compaction hooks never arrive: a new compaction in the transcript.
       const u = await this.usageFor(src, sessionId, l.state.provider)
@@ -1203,14 +1289,6 @@ class SessionManager {
         this.emitState(l.state)
       }
     }
-    if (!config.settings.sessions.backupTranscripts) return
-    // A transcript can be many MB: while the agent works, copy it at most once a minute. The end of
-    // each turn (Stop) and the session's exit force a copy, so nothing is left out.
-    if (!force && l.lastBackupAt && Date.now() - l.lastBackupAt < BACKUP_INTERVAL_MS) return
-    l.lastBackupAt = Date.now()
-    const dest = this.backupPath(projectPath, sessionId)
-    await mkdir(dirname(dest), { recursive: true })
-    await copyFile(src, dest).catch((e) => log.warn('backup failed', e))
   }
 
   /** Live details from what the provider appended to its transcript since the last look (Codex). */
@@ -1370,13 +1448,16 @@ class SessionManager {
     }
   }
 
-  private releaseLocks(id: string): void {
-    for (const set of [this.lockAllowed, this.lockAsked]) {
-      for (const k of set) if (k.startsWith(`${id}|`)) set.delete(k)
+  /** Releases an agent's file locks: all of them, or (`before`) those claimed before that time. */
+  private releaseLocks(id: string, before = Infinity): void {
+    if (before === Infinity) {
+      for (const set of [this.lockAllowed, this.lockAsked]) {
+        for (const k of set) if (k.startsWith(`${id}|`)) set.delete(k)
+      }
     }
     let changed = false
     for (const [k, v] of this.locks) {
-      if (v.liveId === id) {
+      if (v.liveId === id && v.at <= before) {
         this.locks.delete(k)
         changed = true
       }
@@ -1393,8 +1474,27 @@ class SessionManager {
     this.emitState(l.state)
   }
 
-  /** Handles a hook call from an agent's CLI (already answered; see preToolUse). */
-  async handleHook(runId: string | null, body: Record<string, any>): Promise<void> {
+  /** Each launch's hooks, handled one at a time in the order they came. */
+  private hookQueues = new Map<string, Promise<void>>()
+
+  /**
+   * Handles a hook call from an agent's CLI (already answered; see preToolUse). One launch's hooks run in
+   * order: an older one that awaits (recording the session) must not land after a newer one's status.
+   */
+  handleHook(runId: string | null, body: Record<string, any>): Promise<void> {
+    const key = runId ?? `session:${String(body.session_id ?? '')}`
+    // A turn's end releases only the locks claimed before it arrived: PreToolUse claims them at once, outside this queue.
+    const arrived = Date.now()
+    const run = (this.hookQueues.get(key) ?? Promise.resolve()).then(() => this.handleHookNow(runId, body, arrived))
+    const tail = run.catch(() => undefined)
+    this.hookQueues.set(key, tail)
+    void tail.then(() => {
+      if (this.hookQueues.get(key) === tail) this.hookQueues.delete(key)
+    })
+    return run
+  }
+
+  private async handleHookNow(runId: string | null, body: Record<string, any>, arrived: number): Promise<void> {
     const found = this.findLaunch(runId, body.session_id)
     if (!found) return
     const [id, l] = found
@@ -1452,8 +1552,9 @@ class SessionManager {
       case 'stop':
         next = 'finished'
         st.statusMessage = undefined
-        this.releaseLocks(id)
-        if (st.sessionId) await workspace.upsertSession(st.projectPath, { id: st.sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
+        this.releaseLocks(id, arrived)
+        // Not awaited: a prompt arriving meanwhile must not be overwritten by this older Stop.
+        if (st.sessionId) void workspace.upsertSession(st.projectPath, { id: st.sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
         this.notify(st.projectPath, `${label} finished`, ev.lastMessage?.slice(0, 180) ?? 'The agent has finished its task.', 'finished')
         void this.backup(st.projectPath, st.agentId, true)
         break
@@ -1461,7 +1562,7 @@ class SessionManager {
         // Interrupted turns end without Stop: the agent is idle again, and its claims go.
         next = 'ready'
         st.statusMessage = undefined
-        this.releaseLocks(id)
+        this.releaseLocks(id, arrived)
         break
       case 'compactStart':
         if (l.compacting && !l.compacting.started) {
@@ -1556,27 +1657,50 @@ class SessionManager {
     }
   }
 
-  private async usageFor(path: string, sessionId: string, provider: ProviderId): Promise<SessionUsage | null> {
+  /** A transcript's usage, read incrementally. Reads of one transcript take turns, so no line is fed twice. */
+  private usageFor(path: string, sessionId: string, provider: ProviderId): Promise<SessionUsage | null> {
+    return withFileLock(`${path}#usage`, () => this.usageForNow(path, sessionId, provider))
+  }
+
+  private async usageForNow(path: string, sessionId: string, provider: ProviderId): Promise<SessionUsage | null> {
     try {
       const s = await stat(path)
       let c = usageCache.get(path)
-      if (c && c.mtime === s.mtimeMs && c.size === s.size && c.usage) return c.usage
-      // A file that shrank or was rewritten (or is now another session's) is read again from the start.
-      if (c && (c.sessionId !== sessionId || c.provider !== provider || s.size < c.offset || (s.size === c.size && s.mtimeMs !== c.mtime))) c = undefined
+      // Most recently used last: the oldest go first when there are too many.
+      if (c) {
+        usageCache.delete(path)
+        usageCache.set(path, c)
+      }
+      if (c && c.mtime === s.mtimeMs && c.size === s.size && c.usage && c.sessionId === sessionId && c.provider === provider) return c.usage
+      // A file that shrank or was rewritten (or is now another session's), or whose parser was dropped, is read again from the start.
+      if (c && (!c.parser || c.sessionId !== sessionId || c.provider !== provider || s.size < c.offset || (s.size === c.size && s.mtimeMs !== c.mtime))) c = undefined
       if (!c) {
         c = { parser: providerAdapter(provider).usageParser(sessionId), sessionId, provider, offset: 0, size: 0, mtime: 0, usage: null }
         usageCache.set(path, c)
+        trimUsageCache()
       }
+      const parser = c.parser!
       if (s.size > c.offset) {
         const fh = await open(path, 'r')
         try {
-          const buf = Buffer.alloc(s.size - c.offset)
-          const { bytesRead } = await fh.read(buf, 0, buf.length, c.offset)
-          // Whole lines only: a line still being written is read next time.
-          const end = buf.subarray(0, bytesRead).lastIndexOf(0x0a)
-          if (end >= 0) {
-            c.parser.feed(buf.subarray(0, end + 1).toString('utf8'))
+          // In pieces, so a long transcript read for the first time doesn't take its whole size in memory at once.
+          let chunk = USAGE_CHUNK
+          while (c.offset < s.size) {
+            const buf = Buffer.alloc(Math.min(chunk, s.size - c.offset))
+            const { bytesRead } = await fh.read(buf, 0, buf.length, c.offset)
+            // Whole lines only: a line still being written is read next time.
+            const end = buf.subarray(0, bytesRead).lastIndexOf(0x0a)
+            if (end < 0) {
+              // One line longer than the piece (a large image or tool output): read a bigger piece.
+              if (bytesRead === buf.length && c.offset + bytesRead < s.size) {
+                chunk *= 2
+                continue
+              }
+              break
+            }
+            parser.feed(buf.subarray(0, end + 1).toString('utf8'))
             c.offset += end + 1
+            if (bytesRead < buf.length) break
           }
         } finally {
           await fh.close()
@@ -1584,7 +1708,7 @@ class SessionManager {
       }
       c.size = s.size
       c.mtime = s.mtimeMs
-      const usage = c.parser.result()
+      const usage = parser.result()
       this.checkUnderstood(provider, usage, s.size)
       // Providers that don't report a cost get Hive's estimate from their token counts (prices: Settings → provider).
       if (usage.costUsd === null) {
@@ -1745,17 +1869,17 @@ class SessionManager {
     const arch = this.backupPath(projectPath, sessionId, true)
     await mkdir(dirname(arch), { recursive: true })
     await mkdir(dirname(active), { recursive: true })
-    if (archived) {
-      // Always take a fresh copy from the provider so the archive is complete.
-      const src = await this.providerTranscript(projectPath, sessionId)
-      if (src) {
-        await copyFile(src.path, arch)
-        // The fresh copy is the archive; the older backup would only overwrite it.
-        await rm(active, { force: true })
-      } else if (existsSync(active)) await rename(active, arch)
-    } else if (existsSync(arch)) {
-      await rename(arch, active)
-    }
+    const src = archived ? await this.providerTranscript(projectPath, sessionId) : null
+    // Both copies locked (always the archive's first), so no backup or other move runs into the middle of this one.
+    await withFileLock(arch, () =>
+      withFileLock(active, async () => {
+        if (archived) {
+          // The backup becomes the archive, brought up to date from the provider's transcript so it is complete.
+          if (existsSync(active)) await rename(active, arch)
+          if (src) await syncCopyLocked(src.path, arch)
+        } else if (existsSync(arch)) await rename(arch, active)
+      })
+    )
     await workspace.upsertSession(projectPath, { id: sessionId, archived })
   }
 
@@ -1833,7 +1957,7 @@ class SessionManager {
       lastActiveAt: usage?.lastActivity ?? new Date().toISOString(),
       ...(src && !providerDescriptor(provider).capabilities.fixedSessionId ? { transcriptPath: src.path } : {})
     })
-    if (src && config.settings.sessions.backupTranscripts) await copyFile(src.path, this.backupPath(projectPath, sessionId)).catch(() => undefined)
+    if (src && config.settings.sessions.backupTranscripts) await syncCopy(src.path, this.backupPath(projectPath, sessionId)).catch(() => undefined)
   }
 }
 

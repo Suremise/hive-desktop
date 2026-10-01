@@ -1,5 +1,6 @@
 import { basename, join } from 'path'
-import { readdir, readFile, rm, writeFile } from 'fs/promises'
+import { readdir, readFile, writeFile } from 'fs/promises'
+import { shell } from 'electron'
 import { existsSync } from 'fs'
 import type { McpServerDef, McpServerInfo } from '../shared/types'
 import { writeTextUnlessChanged } from './fsutil'
@@ -78,7 +79,9 @@ export async function createMcp(name: string): Promise<McpServerInfo> {
     args: ['-y', 'your-mcp-server-package'],
     env: { EXAMPLE_TOKEN: '${EXAMPLE_TOKEN}' }
   }
-  await writeFile(path, JSON.stringify(template, null, 2) + '\n')
+  await writeFile(path, JSON.stringify(template, null, 2) + '\n', { flag: 'wx' }).catch((e: NodeJS.ErrnoException) => {
+    throw e.code === 'EEXIST' ? new Error(`A server named "${name}" already exists`) : e
+  })
   return (await listMcp()).find((m) => m.name === name)!
 }
 
@@ -96,7 +99,9 @@ export async function saveMcp(name: string, text: string, expected?: string): Pr
 
 export async function deleteMcp(name: string): Promise<void> {
   if (!validMcpName(name)) throw new Error('Invalid server name')
-  await rm(join(workspace.mcpDir, `${name}.json`), { force: true })
+  // To the Recycle Bin, like files, skills, personas and sessions.
+  const file = join(workspace.mcpDir, `${name}.json`)
+  if (existsSync(file)) await shell.trashItem(file)
   await setMcpGlobal(name, false)
 }
 
@@ -112,8 +117,15 @@ export async function importFromProject(projectPath: string, names: string[]): P
     if (!def || !validMcpName(n)) continue
     const path = join(workspace.mcpDir, `${n}.json`)
     if (existsSync(path)) continue
-    await writeFile(path, JSON.stringify({ description: `Imported from project ${basename(projectPath)}`, ...def }, null, 2) + '\n')
-    imported.push(n)
+    // Never over one that appeared meanwhile.
+    const wrote = await writeFile(path, JSON.stringify({ description: `Imported from project ${basename(projectPath)}`, ...def }, null, 2) + '\n', { flag: 'wx' }).then(
+      () => true,
+      (e: NodeJS.ErrnoException) => {
+        if (e.code === 'EEXIST') return false
+        throw e
+      }
+    )
+    if (wrote) imported.push(n)
   }
   return imported
 }

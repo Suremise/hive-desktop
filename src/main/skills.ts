@@ -1,5 +1,5 @@
 import { join, basename, dirname, extname, relative, resolve, sep } from 'path'
-import { mkdir, readdir, readFile, writeFile } from 'fs/promises'
+import { mkdir, readdir, readFile, rm, writeFile } from 'fs/promises'
 import { existsSync, type Dirent } from 'fs'
 import { shell } from 'electron'
 import { unzipSync } from 'fflate'
@@ -243,7 +243,20 @@ async function writeSkill(name: string, files: Map<string, Uint8Array | string>,
   assertName(name)
   if (!targets.length) throw new Error('No place to add the skill to.')
   const dirs = targets.map((t) => join(targetDir(t), name))
-  for (const d of dirs) if (existsSync(d)) throw new Error(`A skill named "${name}" already exists in ${relative(workspace.path ?? '', dirname(d)) || dirname(d)}`)
+  const exists = (d: string): Error => new Error(`A skill named "${name}" already exists in ${relative(workspace.path ?? '', dirname(d)) || dirname(d)}`)
+  for (const d of dirs) if (existsSync(d)) throw exists(d)
+  // Each folder is claimed (created, never reused) before anything is written: two adds at once can't share one.
+  const claimed: string[] = []
+  for (const d of dirs) {
+    await mkdir(dirname(d), { recursive: true })
+    try {
+      await mkdir(d)
+      claimed.push(d)
+    } catch (e) {
+      for (const c of claimed) await rm(c, { recursive: true, force: true }).catch(() => undefined)
+      throw (e as NodeJS.ErrnoException).code === 'EEXIST' ? exists(d) : e
+    }
+  }
   for (const d of dirs) {
     for (const [rel, data] of files) {
       const f = join(d, rel)

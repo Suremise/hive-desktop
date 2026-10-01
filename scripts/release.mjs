@@ -28,7 +28,13 @@ run('npm', ['run', 'build'])
 // Create the draft first: electron-builder uploads the files in parallel and, with no release yet,
 // each upload creates its own draft (you end up with two drafts, the files split between them).
 const tag = `v${pkg.version}`
-const exists = spawnSync('gh', ['release', 'view', tag], { stdio: 'ignore', shell: true, env: { ...process.env, GH_TOKEN: token } }).status === 0
+const view = spawnSync('gh', ['release', 'view', tag, '--json', 'isDraft'], { shell: true, env: { ...process.env, GH_TOKEN: token } })
+const exists = view.status === 0
+// Only ever upload to a draft: a published release is what installed copies update from.
+if (exists && JSON.parse(view.stdout.toString() || '{}').isDraft !== true) {
+  console.error(`${tag} is already published. Bump the version in package.json for a new release.`)
+  process.exit(1)
+}
 if (!exists) run('gh', ['release', 'create', tag, '--draft', '--title', pkg.version, '--notes', '""'])
 run('npx', ['electron-builder', '--win', '--publish', 'always'])
 console.log(`\nDraft release v${pkg.version} uploaded. Review it at https://github.com/Suremise/hive-desktop/releases and publish it there.`)

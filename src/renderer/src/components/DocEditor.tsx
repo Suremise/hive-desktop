@@ -38,6 +38,9 @@ export function DocEditor({
   const [preview, setPreview] = useState(defaultPreview ?? isMd)
   const dirty = text !== saved
   const [reload, setReload] = useState(0)
+  // The editor's text right now (a save in progress compares it with what it wrote).
+  const latest = useRef(text)
+  latest.current = text
 
   useEffect(() => {
     let cancelled = false
@@ -94,9 +97,12 @@ export function DocEditor({
         if (!overwrite) throw new Error('CANCELLED')
         await call('file:write', path, text)
       })
-      clearEditorDraft(path)
+      // Typed into while it was saving (even back to what it was before): the newer text stays a draft, now of what was written.
+      const newer = latest.current !== text
+      if (newer) setEditorDraft({ key: path, label: title ?? basename(path), abs: path, text: latest.current, base: text, save: writeFile })
+      else clearEditorDraft(path)
       setSaved(text)
-      setTouched(false)
+      setTouched(newer)
       setMissing(false)
       onSaved?.()
     } catch (e) {

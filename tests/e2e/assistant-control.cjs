@@ -151,6 +151,11 @@ const check = (name, ok, extra = '') => {
   check('Control agents can\'t create projects', (await api('POST', '/v1/projects', { name: 'delta' })).status === 403)
   check('nor remove agents (no such call)', (await api('DELETE', `/v1/projects/alpha/agents/Builder`)).status === 404)
 
+  // From the latest handover: there has to be one.
+  const none = await api('POST', '/v1/projects/alpha/handover', { from: 'Builder', to: 'Fixer', handover: false })
+  check('no hand-over from the latest handover when there is none', none.status === 409 && /no handover/i.test(none.body?.error), JSON.stringify(none.body))
+  fs.mkdirSync(path.join(ws, '.hive', 'shared', 'handovers'), { recursive: true })
+  fs.writeFileSync(path.join(ws, '.hive', 'shared', 'handovers', '2026-10-01-alpha-plan.md'), '# Plan\n\n- **Project:** alpha\n\nwork 1\n')
   // Handing over: refused at once while project agents lack Hive's tools (the Agent API is off), then done.
   const noTools = await api('POST', '/v1/projects/alpha/handover', { from: 'Builder', to: 'Fixer', handover: false })
   check("no hand-over while agents can't use Hive's tools", noTools.status === 409 && /Hive's tools/.test(noTools.body?.error), JSON.stringify(noTools.body))
@@ -161,7 +166,7 @@ const check = (name, ok, extra = '') => {
   await api('POST', '/v1/projects/alpha/agents', { name: 'Checker' })
   const handed = await api('POST', '/v1/projects/alpha/handover', { from: 'Fixer', to: 'Checker', handover: false })
   check('it hands one agent\'s work over to another', handed.status === 200, JSON.stringify(handed.body))
-  const picked = await until(async () => /latest handover/i.test((await api('GET', '/v1/projects/alpha/agents/Checker/activity')).body?.currentTask ?? ''), 30000)
+  const picked = await until(async () => /Read the handover "handovers\/2026-10-01-alpha-plan\.md"/.test((await api('GET', '/v1/projects/alpha/agents/Checker/activity')).body?.currentTask ?? ''), 30000)
   check('the other agent starts on the handover', !!picked)
   check('the hand-over is listed', (await inv('assistant:actions')).some((x) => x.ok && x.text.startsWith("Handing Fixer's work over to Checker")))
 

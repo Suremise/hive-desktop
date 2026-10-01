@@ -19,6 +19,33 @@ export function withLatestHandover(instructions: string, relPath: string | null 
   return relPath ? `${instructions}\n\nThe latest handover for this project is "${relPath}". Read it with hive_read_latest_handover when the user asks you to pick up previous work.` : instructions
 }
 
+/** Who wrote a handover: Hive fills this in from the agent whose hive tools wrote it. */
+export interface HandoverAuthor {
+  /** "Claude (Claude Code)", or "Assistant". */
+  author: string
+  /** The conversation it was written in. */
+  session?: string
+}
+
+/**
+ * The header Hive puts at the top of every handover: its title, then project, author and session (when an
+ * agent wrote it) and the date, in the machine's time with UTC in brackets.
+ */
+export function handoverHeader(title: string, project: string, by: HandoverAuthor | null, at: Date): string {
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const local = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
+  const lines = [`- **Project:** ${project || '(workspace)'}`]
+  if (by) lines.push(`- **Author:** ${by.author}`)
+  if (by?.session) lines.push(`- **Session:** ${by.session}`)
+  lines.push(`- **Date:** ${local} (${at.toISOString().slice(0, 19)}Z)`)
+  return `# ${title}\n\n${lines.join('\n')}\n\n`
+}
+
+/** The conversation a handover was written in, from its header (null when it doesn't say). */
+export function handoverSession(text: string): string | null {
+  return /^- \*\*Session:\*\* (\S+)\s*$/m.exec(text.slice(0, 2000))?.[1] ?? null
+}
+
 const slug = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
 /** The fields of a shared-notes tree entry this needs (NoteFile, or the MCP server's copy of it). */

@@ -126,6 +126,7 @@ export class WorkspaceService {
       const inside = (a: string, b: string): boolean => a.toLowerCase().startsWith(b.toLowerCase() + sep)
       for (const w of services) {
         if (w === this || !w.path) continue
+        if (abs.toLowerCase() === w.path.toLowerCase()) throw new Error(`${abs} is already open in another window.`)
         if (inside(abs, w.path)) throw new Error(`${abs} is inside the workspace ${w.path}, which is open in another window. Close that workspace first, or open this folder's projects from there.`)
         if (inside(w.path, abs)) throw new Error(`The workspace ${w.path}, open in another window, is inside ${abs}. Close it first to open ${basename(abs)} as a workspace.`)
       }
@@ -183,8 +184,16 @@ export class WorkspaceService {
     if (!existsSync(hr)) await writeFile(hr, HANDOVER_README)
   }
 
-  async saveWorkspaceConfig(): Promise<void> {
-    await writeKeptJson(join(this.hiveDir, 'workspace.json'), this.wsConfig)
+  /** workspace.json saves, one after another, so an older one can't land after a newer one. */
+  private savingConfig: Promise<void> = Promise.resolve()
+
+  saveWorkspaceConfig(): Promise<void> {
+    // This workspace's file and settings object (another workspace opened meanwhile has its own).
+    const file = join(this.hiveDir, 'workspace.json')
+    const data = this.wsConfig
+    const run = this.savingConfig.then(() => writeKeptJson(file, data))
+    this.savingConfig = run.catch(() => undefined)
+    return run
   }
 
   private startWatching(): void {

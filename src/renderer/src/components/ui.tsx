@@ -146,9 +146,18 @@ export function Modal({
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [onClose])
+  // Closed, it gives the keyboard back to what had it (a terminal, a list): noted while rendering for the
+  // first time, before a field inside takes the focus.
+  const opener = useRef(document.activeElement)
+  useEffect(() => {
+    const before = opener.current
+    return () => {
+      if (before instanceof HTMLElement && before.isConnected) before.focus()
+    }
+  }, [])
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={cx('dialog', wide && 'wide')} role="dialog" aria-label={title}>
+      <div className={cx('dialog', wide && 'wide')} role="dialog" aria-modal="true" aria-label={title}>
         <div className="dialog-header">
           {icon && <Icon name={icon} />}
           <h2>{title}</h2>

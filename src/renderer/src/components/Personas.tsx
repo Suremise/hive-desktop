@@ -2,6 +2,7 @@ import { DEFAULT_PERSONA, assistantPersona } from '@shared/assistant'
 import type { PersonaInfo } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
+import { clearEditorDraftsUnder } from '../editorDrafts'
 import { confirm, prompt, set, useStore } from '../store'
 import { cx } from '../util'
 import { choosePersona, usePersonas } from './Assistant'
@@ -32,7 +33,8 @@ export async function createPersona(): Promise<void> {
 async function deletePersona(p: PersonaInfo): Promise<void> {
   const ok = await confirm({ title: `Delete ${p.name}?`, message: `${p.id}.md goes to the Recycle Bin.${p.bundled ? ' It ships with Hive, so you can restore it later.' : ''}`, confirmLabel: 'Delete', danger: true })
   if (!ok) return
-  await actions.attempt('Could not delete the persona', () => call('personas:delete', p.id))
+  if (!(await actions.attempt('Could not delete the persona', () => call('personas:delete', p.id).then(() => true)))) return
+  clearEditorDraftsUnder(p.path)
   set((s) => ({ selectedPersona: s.selectedPersona === p.path ? null : s.selectedPersona, personasVersion: s.personasVersion + 1 }))
 }
 
@@ -42,6 +44,7 @@ async function restorePersona(p: PersonaInfo): Promise<void> {
     if (!ok) return
   }
   const r = await actions.attempt('Could not restore the persona', () => call('personas:restore', p.id))
+  if (r) clearEditorDraftsUnder(p.path)
   if (r) set((s) => ({ selectedPersona: r.path, personasVersion: s.personasVersion + 1 }))
 }
 
