@@ -141,6 +141,20 @@ const check = (name, ok, extra = '') => {
   check('Control agents can\'t create projects', (await api('POST', '/v1/projects', { name: 'delta' })).status === 403)
   check('nor remove agents (no such call)', (await api('DELETE', `/v1/projects/alpha/agents/Builder`)).status === 404)
 
+  // Handing over: refused at once while project agents lack Hive's tools (the Agent API is off), then done.
+  const noTools = await api('POST', '/v1/projects/alpha/handover', { from: 'Builder', to: 'Fixer', handover: false })
+  check("no hand-over while agents can't use Hive's tools", noTools.status === 409 && /Hive's tools/.test(noTools.body?.error), JSON.stringify(noTools.body))
+  await inv('settings:update', { agentApi: { enabled: true } })
+  await lib.sleep(1000)
+  const typedIn = await api('POST', '/v1/projects/alpha/handover', { from: 'Builder', to: 'Fixer', handover: false })
+  check('no hand-over from an agent the user just typed in', typedIn.status === 409 && /typed/.test(typedIn.body?.error), JSON.stringify(typedIn.body))
+  await api('POST', '/v1/projects/alpha/agents', { name: 'Checker' })
+  const handed = await api('POST', '/v1/projects/alpha/handover', { from: 'Fixer', to: 'Checker', handover: false })
+  check('it hands one agent\'s work over to another', handed.status === 200, JSON.stringify(handed.body))
+  const picked = await until(async () => /latest handover/i.test((await api('GET', '/v1/projects/alpha/agents/Checker/activity')).body?.currentTask ?? ''), 30000)
+  check('the other agent starts on the handover', !!picked)
+  check('the hand-over is listed', (await inv('assistant:actions')).some((x) => x.ok && x.text.startsWith("Handing Fixer's work over to Checker")))
+
   // At most 30 changes for one message.
   let status = 200
   let n = 0
@@ -159,7 +173,7 @@ const check = (name, ok, extra = '') => {
   const asAgents = tools({ HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'agents' })
   const asLook = tools({ HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'look' })
   check('project agents get no control tools', !asAgent.includes('hive_add_agent') && !asAgent.includes('hive_agent_activity'), asAgent.join(','))
-  check('Control agents: agent tools, no project creation', asAgents.includes('hive_prompt_agent') && asAgents.includes('hive_stop_agent') && !asAgents.includes('hive_create_project'))
+  check('Control agents: agent tools, no project creation', asAgents.includes('hive_prompt_agent') && asAgents.includes('hive_stop_agent') && asAgents.includes('hive_hand_over') && !asAgents.includes('hive_create_project'))
   check('Look and advise: reading tools only', asLook.includes('hive_agent_activity') && asLook.includes('hive_wait_for_agents') && !asLook.includes('hive_add_agent'))
 
   await app.close()

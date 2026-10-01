@@ -118,6 +118,7 @@ export function controlRules(control: AssistantControl): string {
     '- Write each task in full. An agent sees only what you give it: what to do, where, what done looks like, and to report back when finished.',
     '- Give tasks only to idle agents. Never interrupt one that is working, never answer a question an agent is asking the user (tell the user), and leave alone an agent the user has just typed in. hive_wait_for_agents waits for them; hive_agent_activity shows what one is doing.',
     '- Agents sharing a folder must not edit the same files: split the work by files, or give one its own worktree. Add a worktree only if the user asked for one, or after asking them.',
+    "- To pass one agent's work to another (e.g. a review to the agent that fixes it), use hive_hand_over: Hive has the first write a handover, waits for it, and starts the second on it.",
     '- Stopping a busy agent asks the user first: give your reason. An agent asking to trust its folder is waiting for the user: tell them.',
     "- You can't remove agents, discard worktrees or delete projects: tell the user how if it's needed. Hive allows 30 changes for one message from the user.",
     '- Afterwards, say briefly what you did.',

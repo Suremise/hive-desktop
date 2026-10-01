@@ -225,8 +225,9 @@ The changes below are the Assistant's only: other callers get `403`.
 | `POST /v1/projects/{name}/agents/{agent}/start` | Control agents | Starts a stopped agent: a new conversation, or `resume: true` (its last) or a session id; `prompt` as above |
 | `POST /v1/projects/{name}/agents/{agent}/stop` | Control agents | Stops it. If it is working, waiting or starting, Hive asks the user in the Assistant's panel (with the optional `reason`) and the call waits for the answer: `409` if they say no |
 | `POST /v1/projects/{name}/agents/{agent}/prompt` `{ "text" }` | Control agents | Types a task into an idle agent and sends it. `409` while it is working, starting or waiting for the user, or when the user typed in its terminal in the last minute |
+| `POST /v1/projects/{name}/handover` | Control agents | Hand Over to… (below), without needing *Allow sending input to sessions*. `409` at once when the project's agents lack Hive's tools, or the user typed in either agent's terminal in the last minute; later failures are listed in its actions |
 
-With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees or delete projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/handover` and `/deactivate` need Control agents.
+With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees or delete projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/deactivate` needs Control agents.
 
 ### Shared notes
 
@@ -317,6 +318,7 @@ The Hive Assistant's `hive` server always runs (even with this setting or the Ag
 | `hive_start_agent` | `POST /v1/projects/{name}/agents/{agent}/start` | Control agents |
 | `hive_stop_agent` | `POST /v1/projects/{name}/agents/{agent}/stop` | Control agents |
 | `hive_prompt_agent` | `POST /v1/projects/{name}/agents/{agent}/prompt` | Control agents |
+| `hive_hand_over` | `POST /v1/projects/{name}/handover` | Control agents |
 | `hive_create_project` | `POST /v1/projects` | Control agents and create projects |
 
 Claude Code runs these without asking (they are Hive's own, and limited by the control level); Codex gets a 15-minute tool timeout for them, since waiting and asking the user can take minutes.

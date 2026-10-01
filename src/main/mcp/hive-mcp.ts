@@ -251,6 +251,13 @@ const tools: Tool[] = [
     run: (a) => api('POST', `${agentPath(a)}/prompt`, { text: a.text })
   },
   {
+    name: 'hive_hand_over',
+    description:
+      "Hand one agent's work over to another in the same project, of either provider (Hive's Hand Over to…). With handover (the default), Hive asks `from` (running and idle) to write a handover, waits until a new one exists, then starts `to` (or, if it's running and idle, tells it) to read the latest handover and carry on. handover=false skips writing one and hands over the latest. Returns at once: follow with hive_wait_for_agents.",
+    inputSchema: { type: 'object', properties: { project: projectArg, from: agentArg, to: agentArg, handover: { type: 'boolean' } }, required: ['project', 'from', 'to'] },
+    run: (a) => api('POST', `/v1/projects/${proj(a)}/handover`, { from: a.from, to: a.to, handover: a.handover })
+  },
+  {
     name: 'hive_list_skills',
     description: "List skills available to the project's agents: Hive (the workspace's, given to every agent), each provider's user and plugin skills, and the project's local skills.",
     inputSchema: { type: 'object', properties: { project: projectArg } },

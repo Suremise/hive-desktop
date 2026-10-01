@@ -278,6 +278,9 @@ async function agentParam(p: string, value: unknown): Promise<string> {
 
 type Handler = (ctx: { params: string[]; query: URLSearchParams; body: any }) => Promise<unknown>
 
+/** How recently the user must not have typed in an agent's terminal for anything else to type there. */
+const USER_TYPING_MS = 60_000
+
 const LEVEL_NAME: Record<AssistantControl, string> = { look: 'Look and advise', agents: 'Control agents', projects: 'Control agents and create projects' }
 
 /**
@@ -409,16 +412,39 @@ route('POST', '/v1/projects/:name/input', async ({ params, body }) => {
 })
 
 route('POST', '/v1/projects/:name/handover', async ({ params, body }) => {
-  assistantMay('agents', 'hand work over between agents')
-  if (!assistantCaller() && !config.settings.agentApi.allowSessionInput) throw new HttpError(403, 'Session input is disabled. Enable it in Settings → Agent API.')
+  const own = assistantCaller()
+  if (!own && !config.settings.agentApi.allowSessionInput) throw new HttpError(403, 'Session input is disabled. Enable it in Settings → Agent API.')
   const p = projectByName(params[0])
   const from = await agentParam(p, body?.from)
   if (typeof body?.to !== 'string' || !body.to) throw new HttpError(400, 'to is required')
   const to = await agentParam(p, body.to)
   if (from === to) throw new HttpError(400, 'from and to must be different agents')
-  // It can take minutes (the handover is written first): answer now, report failures in Hive.
-  void sessions.handOver(p, from, to, { handover: body?.handover !== false }).catch((e) => toast('error', 'Could not hand over the work', (e as Error).message, undefined, p))
-  return { ok: true }
+  const handover = body?.handover !== false
+  const start = async (): Promise<void> => {
+    // It can take minutes (the handover is written first): answer now, report failures in Hive.
+    void sessions.handOver(p, from, to, { handover }).catch((e) => {
+      toast('error', 'Could not hand over the work', (e as Error).message, undefined, p)
+      if (own) assistant.record(own, `Hand over in ${basename(p)}`, (e as Error).message)
+    })
+  }
+  if (!own) {
+    await start()
+    return { ok: true }
+  }
+  const names = projectAgents(await workspace.projectConfig(p))
+  const name = (id: string): string => names.find((a) => a.id === id)?.name ?? id
+  return assistantChange('agents', `hand ${name(from)}'s work over to ${name(to)} in ${basename(p)}`, async () => {
+    // Known at once rather than minutes later: without Hive's tools agents can't write or read a handover.
+    if (!sessions.hiveMcp(p)) throw new HttpError(409, "The project's agents don't have Hive's tools (Settings → Agent API is off, or Provide Hive tools to sessions), so they can't write or read a handover. Tell the user.")
+    for (const id of [from, to]) {
+      if (Date.now() - sessions.userTypedAt(p, id) < USER_TYPING_MS) throw new HttpError(409, `The user typed in ${name(id)}'s terminal in the last minute. Ask the user before handing over.`)
+    }
+    await start()
+    return {
+      done: `Handing ${name(from)}'s work over to ${name(to)} in ${basename(p)}${handover ? '' : ' (from the latest handover)'}`,
+      result: { ok: true, note: `Hive ${handover ? `asks ${name(from)} for a handover, waits until it exists, then ` : ''}starts ${name(to)} on it. Use hive_wait_for_agents to follow; problems show as notifications and in your actions.` }
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -565,9 +591,6 @@ route('POST', '/v1/projects/:name/agents/:agent/stop', async ({ params, body }) 
     return { done: `Stopped ${a.name} in ${basename(p)}`, result: { ok: true, wasRunning: true } }
   })
 })
-
-/** How recently the user must not have typed in an agent's terminal for anything else to type there. */
-const USER_TYPING_MS = 60_000
 
 route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }) => {
   const p = projectByName(params[0])

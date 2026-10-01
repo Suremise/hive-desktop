@@ -21,7 +21,7 @@ export const ASSISTANT_READ_TOOLS = [
 ]
 
 /** Running agents: add, change, start, stop, prompt; and turning projects on and off. */
-export const ASSISTANT_AGENT_TOOLS = ['hive_activate_project', 'hive_add_agent', 'hive_update_agent', 'hive_start_agent', 'hive_stop_agent', 'hive_prompt_agent']
+export const ASSISTANT_AGENT_TOOLS = ['hive_activate_project', 'hive_add_agent', 'hive_update_agent', 'hive_start_agent', 'hive_stop_agent', 'hive_prompt_agent', 'hive_hand_over']
 
 /** Creating projects. */
 export const ASSISTANT_PROJECT_TOOLS = ['hive_create_project']
