@@ -12,7 +12,7 @@ import { createLogger } from '../../logger'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, toSpawnable } from '../common'
 import type { CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillRoots } from '../types'
 import { ConversationParser, claudeImageData } from './conversation'
-import { encodeProjectPath, parseTranscript } from './usage'
+import { ClaudeUsageParser, encodeProjectPath, parseTranscript } from './usage'
 
 const log = createLogger('claude-code')
 
@@ -407,6 +407,10 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
 
   parseUsage(text: string, sessionId: string) {
     return parseTranscript(text, sessionId)
+  }
+
+  usageParser(sessionId: string): ClaudeUsageParser {
+    return new ClaudeUsageParser(sessionId)
   }
 
   conversationParser(projectPath: string): ConversationParser {

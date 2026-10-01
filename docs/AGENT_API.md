@@ -152,7 +152,7 @@ Omit `resumeId` to start a new session. Returns the live session state (which in
 
 `POST /v1/projects/{name}/stop[?agent=…]` — stop one agent's session, or every running agent of the project when `agent` is omitted.
 
-`GET /v1/projects/{name}/usage[?sessionId=…][&agent=…]` — usage for the agent's live session (see above for which agent), else the most recent Hive session, or the one given.
+`GET /v1/projects/{name}/usage[?sessionId=…][&agent=…]` — usage for the agent's live session (see above for which agent), else the most recent Hive session, or the one given. `days` breaks it down by local calendar day (`YYYY-MM-DD`): tokens, requests, prompts, compactions and that day's API-equivalent cost (`costUsd`, `costEstimated`). Session lists include the same.
 
 ```json
 {

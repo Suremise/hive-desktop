@@ -3253,6 +3253,46 @@ body.pane-resizing .monaco-editor {
 .page-switch .dot.added {
   background: var(--accent);
 }
+/* The Overview's tokens per day (7 and 30 days): one bar a day, its numbers on hover. */
+.daily-chart {
+  margin: 12px 0 18px;
+}
+.daily-bars {
+  display: flex;
+  gap: 3px;
+  height: 64px;
+  border-bottom: 1px solid var(--border);
+}
+.daily-bars .tip-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.daily-col {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+}
+.daily-col:hover {
+  background: var(--bg-hover);
+}
+.daily-bar {
+  width: 100%;
+  max-width: 28px;
+  margin: 0 auto;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent);
+}
+.daily-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-top: 4px;
+}
+.assistant-periods {
+  margin-bottom: 8px;
+}
 .agent-form > label {
   color: var(--fg-muted);
 }

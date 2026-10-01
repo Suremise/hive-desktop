@@ -109,6 +109,12 @@ export interface ImageLocation {
   path: (number | string)[]
 }
 
+/** Incremental transcript → usage parser: feed it whole lines as the transcript grows, read the usage so far. */
+export interface UsageParser {
+  feed(text: string): void
+  result(): SessionUsage
+}
+
 /** Incremental transcript → conversation parser (transcripts are append-only). */
 export interface ConversationParserLike {
   readonly items: TranscriptItem[]
@@ -197,6 +203,8 @@ export interface ProviderAdapter {
   /** Output that means the CLI is asking the user something before it starts (e.g. whether to trust the folder). */
   readonly startupQuestion?: RegExp
   parseUsage(text: string, sessionId: string): SessionUsage
+  /** Reads a transcript's usage a piece at a time (whole lines), for transcripts that keep growing. */
+  usageParser(sessionId: string): UsageParser
   conversationParser(projectPath: string): ConversationParserLike
   /** An image's data URL from the transcript line holding it. */
   imageData(line: Record<string, any>, loc: ImageLocation): string | null

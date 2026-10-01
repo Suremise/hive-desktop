@@ -2,7 +2,6 @@ import { randomUUID, randomBytes } from 'crypto'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'path'
 import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
-import { readFile } from 'fs/promises'
 import { BrowserWindow, Notification, clipboard, shell } from 'electron'
 import { ASSISTANT_NAME } from '../shared/assistant'
 import { assistantTools } from '../shared/assistantTools'
@@ -26,7 +25,8 @@ import type {
 import { provider as providerAdapter, allProviders } from './providers'
 import { recacheEstimate } from './providers/common'
 import { estimateCost } from '../shared/prices'
-import type { LaunchSkill, ProviderAdapter } from './providers/types'
+import { withDayCosts } from '../shared/usageDays'
+import type { LaunchSkill, ProviderAdapter, UsageParser } from './providers/types'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, toast } from './events'
@@ -128,7 +128,22 @@ interface FileLock {
 /** A lock is released when its agent's turn ends; this covers an agent that stalls without ending it. */
 const LOCK_TTL_MS = 15 * 60_000
 
-const usageCache = new Map<string, { mtime: number; size: number; usage: SessionUsage }>()
+/**
+ * Each transcript's usage, with the parser that read it: transcripts only grow, so a running session's is read
+ * from where the last read stopped (a long session's transcript can be 100 MB) rather than from the start.
+ */
+interface UsageEntry {
+  parser: UsageParser
+  sessionId: string
+  provider: ProviderId
+  /** Bytes read so far, at a line boundary. */
+  offset: number
+  size: number
+  mtime: number
+  /** Worked out from the parser (with costs); null until asked for again after a change. */
+  usage: SessionUsage | null
+}
+const usageCache = new Map<string, UsageEntry>()
 
 /** Writes text to a session in small pieces, the way keystrokes arrive, rather than as one burst. */
 async function typeInto(key: string, text: string): Promise<void> {
@@ -306,9 +321,9 @@ class SessionManager {
     return join(projectPath, HIVE_DIR, archived ? 'archive' : 'sessions', `${assertSessionId(sessionId)}.jsonl`)
   }
 
-  /** Forgets parsed usage (e.g. after price changes, so estimates are recomputed). */
+  /** Works out usage again (e.g. after price changes, so estimates are recomputed); what was read is kept. */
   clearUsageCache(): void {
-    usageCache.clear()
+    for (const c of usageCache.values()) c.usage = null
   }
 
   /**
@@ -1531,9 +1546,32 @@ class SessionManager {
   private async usageFor(path: string, sessionId: string, provider: ProviderId): Promise<SessionUsage | null> {
     try {
       const s = await stat(path)
-      const c = usageCache.get(path)
-      if (c && c.mtime === s.mtimeMs && c.size === s.size) return c.usage
-      const usage = providerAdapter(provider).parseUsage(await readFile(path, 'utf8'), sessionId)
+      let c = usageCache.get(path)
+      if (c && c.mtime === s.mtimeMs && c.size === s.size && c.usage) return c.usage
+      // A file that shrank or was rewritten (or is now another session's) is read again from the start.
+      if (c && (c.sessionId !== sessionId || c.provider !== provider || s.size < c.offset || (s.size === c.size && s.mtimeMs !== c.mtime))) c = undefined
+      if (!c) {
+        c = { parser: providerAdapter(provider).usageParser(sessionId), sessionId, provider, offset: 0, size: 0, mtime: 0, usage: null }
+        usageCache.set(path, c)
+      }
+      if (s.size > c.offset) {
+        const fh = await open(path, 'r')
+        try {
+          const buf = Buffer.alloc(s.size - c.offset)
+          const { bytesRead } = await fh.read(buf, 0, buf.length, c.offset)
+          // Whole lines only: a line still being written is read next time.
+          const end = buf.subarray(0, bytesRead).lastIndexOf(0x0a)
+          if (end >= 0) {
+            c.parser.feed(buf.subarray(0, end + 1).toString('utf8'))
+            c.offset += end + 1
+          }
+        } finally {
+          await fh.close()
+        }
+      }
+      c.size = s.size
+      c.mtime = s.mtimeMs
+      const usage = c.parser.result()
       this.checkUnderstood(provider, usage, s.size)
       // Providers that don't report a cost get Hive's estimate from their token counts (prices: Settings → provider).
       if (usage.costUsd === null) {
@@ -1544,7 +1582,9 @@ class SessionManager {
         const est = estimateCost({ ...usage, ...usage.costUnreported }, config.settings)
         if (est) Object.assign(usage, { costUsd: usage.costUsd + est, costEstimated: true })
       }
-      usageCache.set(path, { mtime: s.mtimeMs, size: s.size, usage })
+      // Each day's share, for the Overview's periods.
+      withDayCosts(usage, config.settings)
+      c.usage = usage
       return usage
     } catch {
       return null

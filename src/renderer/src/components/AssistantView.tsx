@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import type { ProjectInfo } from '@shared/types'
 import { call } from '../api'
+import { useNow } from '../usage'
 import { set, setAssistantOpen, useStore } from '../store'
 import { cx, formatNumber, formatTokens } from '../util'
 import { SessionsTab } from '../views/SessionsTab'
-import { money, sumUsage, useSessions } from '../views/ProjectTabs'
+import { PERIODS, money, periodFrom, sumUsage, useSessions, type Period } from '../views/ProjectTabs'
 import { PERSONAS_TIP, PersonaList, PersonaView, createPersona } from './Personas'
 import { Section } from './Sidebar'
 import { Icon, IconButton, InfoTip, Tooltip } from './ui'
@@ -14,7 +16,7 @@ import { Icon, IconButton, InfoTip, Tooltip } from './ui'
  */
 
 const SUMMARY_TIP =
-  "Everything this workspace's Assistant has used, across its conversations (all time). It isn't counted in any project's Overview. The cost is what the work would have cost at API prices: on a subscription you are not charged this."
+  "What this workspace's Assistant has used across its conversations, in the period chosen (by calendar day: Today is since midnight). It isn't counted in any project's Overview. The cost is what the work would have cost at API prices: on a subscription you are not charged this."
 
 export function AssistantSidePanel() {
   const workspace = useStore((s) => s.workspace)
@@ -61,17 +63,26 @@ export function AssistantSidePanel() {
   )
 }
 
-/** Tokens, cost and conversations of the Assistant, all time. */
+/** Tokens, cost and conversations of the Assistant, for a period (by calendar day) or all time. */
 function AssistantSummary({ assistant }: { assistant: ProjectInfo }) {
   const { items } = useSessions(assistant)
+  const [period, setPeriod] = useState<Period>('all')
+  const now = useNow(60000)
   const hive = (items ?? []).filter((i) => i.source === 'hive')
-  const t = sumUsage(hive)
+  const t = sumUsage(hive, periodFrom(period, now))
   const tokens = t.input + t.cached + t.cacheWrite + t.output
   return (
     <div className="assistant-summary">
       <div className="assistant-summary-title">
         Used so far
         <InfoTip text={SUMMARY_TIP} />
+      </div>
+      <div className="segmented assistant-periods" role="group" aria-label="Period">
+        {PERIODS.map((p) => (
+          <button key={p.value} className={cx(period === p.value && 'active')} onClick={() => setPeriod(p.value)}>
+            {p.label}
+          </button>
+        ))}
       </div>
       <div className="assistant-summary-grid">
         <Stat label="Conversations" value={items ? String(t.sessions) : '…'} />

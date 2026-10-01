@@ -14,8 +14,8 @@ import { copyDir, hashDir, removePath } from '../../fsutil'
 import { createLogger } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, toSpawnable } from '../common'
-import type { CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillRoots } from '../types'
-import { CodexConversationParser, codexImageData, parseRollout, patchPaths, rolloutDetails } from './rollout'
+import type { CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillRoots, UsageParser } from '../types'
+import { CodexConversationParser, CodexUsageParser, codexImageData, parseRollout, patchPaths, rolloutDetails } from './rollout'
 
 const log = createLogger('codex')
 
@@ -760,6 +760,12 @@ export class CodexAdapter implements ProviderAdapter {
 
   parseUsage(text: string, sessionId: string) {
     return parseRollout(text, sessionId, this.title(sessionId))
+  }
+
+  usageParser(sessionId: string): UsageParser {
+    const p = new CodexUsageParser(sessionId)
+    // The title is Codex's own (its session index), which can change as the rollout grows.
+    return { feed: (text) => p.feed(text), result: () => p.result(this.title(sessionId)) }
   }
 
   conversationParser(projectPath: string): CodexConversationParser {

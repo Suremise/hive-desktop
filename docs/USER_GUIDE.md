@@ -145,7 +145,7 @@ Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of
 
 ### Token use, cache and compaction
 
-The **Overview** tab updates as sessions change (at most every 15 seconds; **Settings → Sessions → Overview updates** can make it every minute or only when you click **Refresh**). It starts with a **project summary** for the period you choose (All time at first, or Today, 7 days, 30 days), across every provider: tokens, API-equivalent cost, sessions and prompts. Below it are the agents **running now** (with how full each one's context is), a section per provider with its totals and plan limits, a table **by agent**, and the focused agent's session:
+The **Overview** tab updates as sessions change (at most every 15 seconds; **Settings → Sessions → Overview updates** can make it every minute or only when you click **Refresh**). It starts with a **project summary** for the period you choose (All time at first, or Today, 7 days, 30 days), across every provider: tokens, API-equivalent cost, sessions and prompts. Periods are calendar days (Today is since midnight; 7 days is today and the six days before), and they count only what happened in them: a session that has been running since Monday adds only today's work to Today. For 7 and 30 days a small chart shows the tokens of each day; hover a day for its cost and prompts. Below it are the agents **running now** (with how full each one's context is), a section per provider with its totals and plan limits, a table **by agent**, and the focused agent's session:
 
 - **Context** — how many tokens the conversation occupies right now.
 - **Cache** — whether Anthropic's prompt cache is still warm (5-minute or 1-hour lifetime) and how long it has left (Claude Code).
@@ -183,7 +183,7 @@ When an agent's CLI asks whether to trust a new folder before it starts, the age
 
 ### The Assistant view
 
-The **Hive Assistant** button in the activity bar (the robot) opens everything else about it. At the top, **Used so far**: its conversations, prompts, tokens and API-equivalent cost, all time. These aren't counted in any project's Overview. Below that:
+The **Hive Assistant** button in the activity bar (the robot) opens everything else about it. At the top, **Used so far**: its conversations, prompts, tokens and API-equivalent cost, for Today, 7 days, 30 days or All time. These aren't counted in any project's Overview. Below that:
 
 - **All Conversations** shows every conversation you've had with it, in the same browser as a project's **Sessions** tab. Search one conversation or all of them, read any in full, export, rename, archive, delete or resume one. **Show** on the running conversation opens the panel.
 - **Personas** lists its personas (below).

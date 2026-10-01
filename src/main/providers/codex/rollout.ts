@@ -1,4 +1,5 @@
-import type { CompactionEvent, PlanLimit, PlanUsage, SessionUsage, TranscriptImageRef, TranscriptItem, TranscriptTool } from '../../../shared/types'
+import type { CompactionEvent, DayUsage, PlanLimit, PlanUsage, SessionUsage, TranscriptImageRef, TranscriptItem, TranscriptTool, UsageTokens } from '../../../shared/types'
+import { emptyDay, localDay } from '../../../shared/usageDays'
 import { CODEX } from '../../../shared/codex'
 import { firstLine, shortPath, toolLabel, type NewItem } from '../conversation'
 import type { ConversationParserLike, ImageLocation, LiveDetails } from '../types'
@@ -98,83 +99,130 @@ export function rolloutDetails(text: string): LiveDetails {
   return out
 }
 
-/** Usage statistics for a Codex rollout (the Overview, the Sessions list and the Agent API). */
-export function parseRollout(text: string, sessionId: string, title: string | null = null): SessionUsage {
-  const usage: SessionUsage = {
-    provider: CODEX,
-    sessionId,
-    title,
-    model: null,
-    cliVersion: null,
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheWriteTokens: 0,
-    cacheReadTokens: 0,
-    requests: 0,
-    reasoningTokens: 0,
-    contextTokens: 0,
-    contextWindow: null,
-    compactions: [],
-    cacheTtlSeconds: 0,
-    firstActivity: null,
-    lastActivity: null,
-    userMessages: 0,
-    lastPrompt: null,
-    costUsd: null,
-    costEstimated: false
-  }
-  let pending: CompactionEvent | null = null
-  let turnHasPrompt = false
-  for (const line of text.split('\n')) {
-    const r = parseLine(line)
-    if (!r) continue
-    const ts = r.timestamp
-    if (ts) {
-      if (!usage.firstActivity || ts < usage.firstActivity) usage.firstActivity = ts
-      if (!usage.lastActivity || ts > usage.lastActivity) usage.lastActivity = ts
+/**
+ * Usage statistics for a Codex rollout (the Overview, the Sessions list and the Agent API), read a piece at a
+ * time (rollouts only grow). Codex writes running token totals, so each day gets what the totals grew by on it.
+ */
+export class CodexUsageParser {
+  private usage: SessionUsage
+  private pending: CompactionEvent | null = null
+  private turnHasPrompt = false
+  private days: Record<string, DayUsage> = {}
+  /** The last running totals seen, to count each day's increase. */
+  private last: UsageTokens = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 }
+
+  constructor(sessionId: string) {
+    this.usage = {
+      provider: CODEX,
+      sessionId,
+      title: null,
+      model: null,
+      cliVersion: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheWriteTokens: 0,
+      cacheReadTokens: 0,
+      requests: 0,
+      reasoningTokens: 0,
+      contextTokens: 0,
+      contextWindow: null,
+      compactions: [],
+      cacheTtlSeconds: 0,
+      firstActivity: null,
+      lastActivity: null,
+      userMessages: 0,
+      lastPrompt: null,
+      costUsd: null,
+      costEstimated: false
     }
-    const p = r.payload ?? {}
-    if (r.type === 'session_meta') {
-      if (typeof p.cli_version === 'string') usage.cliVersion = p.cli_version
-    } else if (r.type === 'turn_context') {
-      if (typeof p.model === 'string') usage.model = p.model
-    } else if (r.type === 'event_msg' && p.type === 'thread_settings_applied' && typeof p.thread_settings?.model === 'string') {
-      usage.model = p.thread_settings.model
-    } else if (r.type === 'event_msg' && p.type === 'token_count' && p.info) {
-      const total = p.info.total_token_usage ?? {}
-      const last = p.info.last_token_usage ?? {}
-      const cached = total.cached_input_tokens ?? 0
-      usage.inputTokens = Math.max(0, (total.input_tokens ?? 0) - cached)
-      usage.cacheReadTokens = cached
-      usage.outputTokens = total.output_tokens ?? 0
-      usage.reasoningTokens = total.reasoning_output_tokens ?? 0
-      if (typeof p.info.model_context_window === 'number') usage.contextWindow = p.info.model_context_window
-      const lastTokens = (last.input_tokens ?? 0) + (last.output_tokens ?? 0)
-      // Codex repeats the totals with an empty last request (e.g. right after compacting): not a request.
-      if (lastTokens > 0) {
-        usage.contextTokens = lastTokens
-        usage.requests++
-        if (pending) {
-          pending.postTokens = lastTokens
-          pending = null
-        }
+  }
+
+  private day(ts: string | undefined): DayUsage | null {
+    const d = localDay(ts) || localDay(this.usage.lastActivity)
+    return d ? (this.days[d] ??= emptyDay()) : null
+  }
+
+  /** Reads whole lines of the rollout (the next part of it). */
+  feed(text: string): void {
+    const usage = this.usage
+    for (const line of text.split('\n')) {
+      const r = parseLine(line)
+      if (!r) continue
+      const ts = r.timestamp
+      if (ts) {
+        if (!usage.firstActivity || ts < usage.firstActivity) usage.firstActivity = ts
+        if (!usage.lastActivity || ts > usage.lastActivity) usage.lastActivity = ts
       }
-    } else if (r.type === 'event_msg' && p.type === 'task_started') {
-      turnHasPrompt = false
-      if (typeof p.model_context_window === 'number') usage.contextWindow = p.model_context_window
-    } else if (r.type === 'event_msg' && (p.type === 'user_message' || (p.type === 'item_completed' && p.item?.type === 'UserMessage'))) {
-      // Older Codex writes user_message; 0.159 writes item_completed with a UserMessage item.
-      usage.userMessages++
-      turnHasPrompt = true
-      const said = typeof p.message === 'string' ? p.message : contentText(p.item?.content)
-      if (said) usage.lastPrompt = said
-    } else if (r.type === 'compacted') {
-      // Codex doesn't record the trigger: /compact runs as a turn of its own, without a prompt.
-      pending = { timestamp: ts ?? '', trigger: turnHasPrompt ? 'auto' : 'manual', preTokens: usage.contextTokens, postTokens: 0 }
-      usage.compactions.push(pending)
+      const p = r.payload ?? {}
+      if (r.type === 'session_meta') {
+        if (typeof p.cli_version === 'string') usage.cliVersion = p.cli_version
+      } else if (r.type === 'turn_context') {
+        if (typeof p.model === 'string') usage.model = p.model
+      } else if (r.type === 'event_msg' && p.type === 'thread_settings_applied' && typeof p.thread_settings?.model === 'string') {
+        usage.model = p.thread_settings.model
+      } else if (r.type === 'event_msg' && p.type === 'token_count' && p.info) {
+        const total = p.info.total_token_usage ?? {}
+        const last = p.info.last_token_usage ?? {}
+        const cached = total.cached_input_tokens ?? 0
+        usage.inputTokens = Math.max(0, (total.input_tokens ?? 0) - cached)
+        usage.cacheReadTokens = cached
+        usage.outputTokens = total.output_tokens ?? 0
+        usage.reasoningTokens = total.reasoning_output_tokens ?? 0
+        // The day's share: what the running totals grew by (a lower total, e.g. after a reset, starts again).
+        const d = this.day(ts)
+        if (d) {
+          const grew = (now: number, before: number): number => (now >= before ? now - before : now)
+          d.inputTokens += grew(usage.inputTokens, this.last.inputTokens)
+          d.cacheReadTokens += grew(usage.cacheReadTokens, this.last.cacheReadTokens)
+          d.outputTokens += grew(usage.outputTokens, this.last.outputTokens)
+        }
+        this.last = { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheWriteTokens: 0, cacheReadTokens: usage.cacheReadTokens }
+        if (typeof p.info.model_context_window === 'number') usage.contextWindow = p.info.model_context_window
+        const lastTokens = (last.input_tokens ?? 0) + (last.output_tokens ?? 0)
+        // Codex repeats the totals with an empty last request (e.g. right after compacting): not a request.
+        if (lastTokens > 0) {
+          usage.contextTokens = lastTokens
+          usage.requests++
+          if (d) d.requests++
+          if (this.pending) {
+            this.pending.postTokens = lastTokens
+            this.pending = null
+          }
+        }
+      } else if (r.type === 'event_msg' && p.type === 'task_started') {
+        this.turnHasPrompt = false
+        if (typeof p.model_context_window === 'number') usage.contextWindow = p.model_context_window
+      } else if (r.type === 'event_msg' && (p.type === 'user_message' || (p.type === 'item_completed' && p.item?.type === 'UserMessage'))) {
+        // Older Codex writes user_message; 0.159 writes item_completed with a UserMessage item.
+        usage.userMessages++
+        const d = this.day(ts)
+        if (d) d.prompts++
+        this.turnHasPrompt = true
+        const said = typeof p.message === 'string' ? p.message : contentText(p.item?.content)
+        if (said) usage.lastPrompt = said
+      } else if (r.type === 'compacted') {
+        // Codex doesn't record the trigger: /compact runs as a turn of its own, without a prompt.
+        this.pending = { timestamp: ts ?? '', trigger: this.turnHasPrompt ? 'auto' : 'manual', preTokens: usage.contextTokens, postTokens: 0 }
+        usage.compactions.push(this.pending)
+        const d = this.day(ts)
+        if (d) d.compactions++
+      }
     }
   }
-  return usage
+
+  /** The usage so far: a new object each time (the parser keeps reading). Day costs come later (withDayCosts). */
+  result(title: string | null = null): SessionUsage {
+    const days: Record<string, DayUsage> = {}
+    for (const [k, d] of Object.entries(this.days)) days[k] = { ...d }
+    return { ...this.usage, title, compactions: this.usage.compactions.map((c) => ({ ...c })), days }
+  }
+}
+
+/** Usage statistics for a whole Codex rollout (see CodexUsageParser). */
+export function parseRollout(text: string, sessionId: string, title: string | null = null): SessionUsage {
+  const p = new CodexUsageParser(sessionId)
+  p.feed(text)
+  return p.result(title)
 }
 
 const PATCH_FILE = /^\*\*\* (Add File|Update File|Delete File|Move to): (.+)$/gm

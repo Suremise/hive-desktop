@@ -17,6 +17,8 @@
 - **Up to twelve agents per project**, six to a page: a seventh opens page 2, and the **1 · 2** buttons (or Ctrl+Alt+PageDown / PageUp) switch pages. A new 3×2 grid shows six at once.
 - **The layout follows as you add agents**: two columns for two, three for three, a grid for four, the 3×2 grid for five or six. Each page has its own layout, and one you choose stays as agents are added.
 - **Updating from 0.1 clears every project's agents** (and resets the layout), since there is no longer a built-in Agent 1. Your sessions stay in the Sessions tab and can be resumed by an agent you add again.
+- **The Overview's periods count only what happened in them**: Today is since midnight, and a session running for days adds only today's work to Today (and each day's cost: its share of what Claude Code reported). 7 and 30 days show a chart of tokens per day. The Assistant's **Used so far** has the same periods, and the Agent API's usage includes each day.
+- Hive reads only what's new in a running session's transcript when it updates usage, instead of the whole file each time.
 - When resuming would re-cache a large conversation, the warning offers **Archive and Start Fresh** next to **Resume**.
 - **Sessions can be deleted** in the Sessions tab (and the Assistant's conversations), when they aren't running. Hive's copies go to the Recycle Bin; the CLI keeps its own.
 - Lists show their delete button on hover (skills, MCP servers, shared notes, personas, sessions), and an open item has one in its top bar. Rename now uses a tag icon instead of the pencil.

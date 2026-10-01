@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeybindingsEditor } from '../components/Keybindings'
 import type { GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
+import { dayOffset, localDay, usageFrom } from '@shared/usageDays'
 import { FILE_LOCK_MODES, MAX_AGENTS, effectiveModelLabel, modelLabel } from '@shared/defaults'
 import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { ModelPicker } from '../components/ModelPicker'
@@ -89,22 +90,24 @@ function Card({ title, value, sub, tip, accent, children }: { title: string; val
   )
 }
 
-type Period = 'today' | 'week' | 'month' | 'all'
-const PERIODS: { value: Period; label: string }[] = [
+export type Period = 'today' | 'week' | 'month' | 'all'
+export const PERIODS: { value: Period; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: 'week', label: '7 days' },
   { value: 'month', label: '30 days' },
   { value: 'all', label: 'All time' }
 ]
 
-function periodStart(p: Period, now: number): number {
-  if (p === 'all') return 0
-  if (p === 'today') {
-    const d = new Date(now)
-    d.setHours(0, 0, 0, 0)
-    return d.getTime()
-  }
-  return now - (p === 'week' ? 7 : 30) * 86400_000
+/** A period's first local day (calendar days: "7 days" is today and the six before); null for all time. */
+export function periodFrom(p: Period, now: number): string | null {
+  if (p === 'all') return null
+  return dayOffset(now, p === 'today' ? 0 : p === 'week' ? -6 : -29)
+}
+
+/** Sessions with activity in a period (on or after its first day). */
+export function activeIn(list: SessionListItem[], fromDay: string | null): SessionListItem[] {
+  if (!fromDay) return list
+  return list.filter((s) => (s.usage ? usageFrom(s.usage, fromDay).active : localDay(s.lastActivity ?? s.lastActiveAt) >= fromDay))
 }
 
 export interface Totals {
@@ -122,14 +125,15 @@ export interface Totals {
   unpriced: number
 }
 
-export function sumUsage(list: SessionListItem[]): Totals {
+/** What sessions used, all of it or from a day on (only what happened then, a day at a time). */
+export function sumUsage(list: SessionListItem[], fromDay: string | null = null): Totals {
   const t: Totals = { sessions: 0, prompts: 0, compactions: 0, input: 0, cached: 0, cacheWrite: 0, output: 0, cost: 0, estimated: false, unpriced: 0 }
-  for (const s of list) {
-    const u = s.usage
+  for (const s of activeIn(list, fromDay)) {
     t.sessions++
-    if (!u) continue
-    t.prompts += u.userMessages
-    t.compactions += u.compactions.length
+    if (!s.usage) continue
+    const u = usageFrom(s.usage, fromDay)
+    t.prompts += u.prompts
+    t.compactions += u.compactions
     t.input += u.inputTokens
     t.cached += u.cacheReadTokens
     t.cacheWrite += u.cacheWriteTokens
@@ -141,6 +145,51 @@ export function sumUsage(list: SessionListItem[]): Totals {
     }
   }
   return t
+}
+
+/** Each day's tokens, cost and prompts across sessions, from `fromDay` to today (days without use included). */
+export function dailyTotals(list: SessionListItem[], fromDay: string, now: number): { day: string; tokens: number; cost: number; estimated: boolean; prompts: number }[] {
+  const out: { day: string; tokens: number; cost: number; estimated: boolean; prompts: number }[] = []
+  for (let i = 0; ; i++) {
+    const day = dayOffset(Date.parse(`${fromDay}T12:00:00`), i)
+    if (day > localDay(now)) break
+    out.push({ day, tokens: 0, cost: 0, estimated: false, prompts: 0 })
+  }
+  const byDay = new Map(out.map((d) => [d.day, d]))
+  for (const s of list) {
+    for (const [day, d] of Object.entries(s.usage?.days ?? {})) {
+      const o = byDay.get(day)
+      if (!o) continue
+      o.tokens += d.inputTokens + d.outputTokens + d.cacheWriteTokens + d.cacheReadTokens
+      o.prompts += d.prompts
+      if (d.costUsd !== null) o.cost += d.costUsd
+      if (d.costEstimated) o.estimated = true
+    }
+  }
+  return out
+}
+
+/** A small bar per day (tokens), for the 7- and 30-day periods; hover a day for its numbers. */
+export function DailyChart({ days }: { days: ReturnType<typeof dailyTotals> }) {
+  const max = Math.max(1, ...days.map((d) => d.tokens))
+  const label = (day: string): string => new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+  return (
+    <div className="daily-chart" role="img" aria-label="Tokens per day">
+      <div className="daily-bars">
+        {days.map((d) => (
+          <Tooltip key={d.day} content={`${label(d.day)}: ${formatTokens(d.tokens)} tokens · ${d.estimated ? '≈ ' : ''}${money(d.cost)} · ${d.prompts} prompt${d.prompts === 1 ? '' : 's'}`}>
+            <div className="daily-col">
+              <div className="daily-bar" style={{ height: `${d.tokens ? Math.max(3, (d.tokens / max) * 100) : 0}%` }} />
+            </div>
+          </Tooltip>
+        ))}
+      </div>
+      <div className="daily-axis">
+        <span>{label(days[0].day)}</span>
+        <span>Today</span>
+      </div>
+    </div>
+  )
 }
 
 export const money = (n: number): string => (n >= 100 ? `$${Math.round(n)}` : n > 0 && n < 0.01 ? '< $0.01' : `$${n.toFixed(2)}`)
@@ -159,9 +208,9 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
   const now = useNow(60000)
   if (!items) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
 
-  const from = periodStart(period, now)
-  const inPeriod = items.filter((i) => i.source === 'hive' && Date.parse(i.lastActivity ?? i.lastActiveAt ?? '') >= from)
-  const total = sumUsage(inPeriod)
+  const from = periodFrom(period, now)
+  const inPeriod = activeIn(items.filter((i) => i.source === 'hive'), from)
+  const total = sumUsage(inPeriod, from)
   const running = project.agents.filter((a) => a.live && !a.live.settingUp)
   const used = new Set([...inPeriod.map((i) => i.provider), ...running.map((a) => a.live!.provider)])
   const providers = PROVIDERS.filter((p) => used.has(p.id) || isProviderEnabled(settings, p.id))
@@ -187,7 +236,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
             ))}
           </div>
         </div>
-        <p className="hint">Sessions active in the period, counted in full (all their tokens), across every provider.</p>
+        <p className="hint">What was used in the period across every provider, by calendar day: a session that ran over several days counts only its part in the period.</p>
         <div className="cards">
           <Card accent title="Tokens" value={formatTokens(tokens(total))} sub={`${formatTokens(total.input + total.cacheWrite)} in · ${formatTokens(total.cached)} cached · ${formatTokens(total.output)} out`} tip="All tokens: new input, cache writes, input read from cache, and output." />
           <Card
@@ -199,6 +248,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
           <Card title="Sessions" value={total.sessions} sub={`${running.length} running now`} />
           <Card title="Prompts" value={formatNumber(total.prompts)} sub={`${total.compactions} compaction${total.compactions === 1 ? '' : 's'}`} />
         </div>
+        {from && period !== 'today' && <DailyChart days={dailyTotals(inPeriod, from, now)} />}
 
         {running.length > 0 && (
           <>
@@ -213,7 +263,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
 
         {providers.map((p) => {
           const list = inPeriod.filter((i) => i.provider === p.id)
-          const t = sumUsage(list)
+          const t = sumUsage(list, from)
           return (
             <div key={p.id}>
               <h2 className="section">
@@ -222,7 +272,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
               </h2>
               <div className="cards">
                 <Card title="Tokens" value={formatTokens(tokens(t))} sub={`${formatTokens(t.output)} output`} />
-                <Card title="API-equivalent cost" value={`${t.estimated ? '≈ ' : ''}${money(t.cost)}`} sub={t.unpriced ? `${t.unpriced} without a price` : p.capabilities.reportsCost ? 'as reported' : 'estimated'} tip={costTip} />
+                <Card title="API-equivalent cost" value={`${t.estimated ? '≈ ' : ''}${money(t.cost)}`} sub={t.unpriced ? `${t.unpriced} without a price` : !t.estimated ? 'as reported' : p.capabilities.reportsCost ? 'partly estimated' : 'estimated'} tip={costTip} />
                 <Card title="Sessions" value={t.sessions} sub={`${formatNumber(t.prompts)} prompts`} />
               </div>
               <PlanLimits provider={p.id} />
@@ -245,7 +295,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
               </thead>
               <tbody>
                 {project.agents.map((a) => {
-                  const t = sumUsage(inPeriod.filter((i) => sessionAgent(project, i) === a.id))
+                  const t = sumUsage(inPeriod.filter((i) => sessionAgent(project, i) === a.id), from)
                   const prov = agentProviderOf(project, a)
                   return (
                     <tr key={a.id}>

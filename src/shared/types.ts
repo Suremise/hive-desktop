@@ -539,6 +539,27 @@ export interface SessionUsage {
    * Hive adds its estimate for them to the reported cost.
    */
   costUnreported?: Pick<SessionUsage, 'inputTokens' | 'outputTokens' | 'cacheWriteTokens' | 'cacheReadTokens'>
+  /** The session's usage by local day (YYYY-MM-DD in this computer's time zone), for periods (see usageDays.ts). */
+  days?: Record<string, DayUsage>
+  /** From the parser: each cost report's increase and the tokens it covered by day. Hive turns them into day costs and removes them. */
+  costReports?: { costUsd: number; days: Record<string, UsageTokens> }[]
+}
+
+export interface UsageTokens {
+  inputTokens: number
+  outputTokens: number
+  cacheWriteTokens: number
+  cacheReadTokens: number
+}
+
+/** One local day's share of a session's usage. */
+export interface DayUsage extends UsageTokens {
+  requests: number
+  prompts: number
+  compactions: number
+  /** The day's API-equivalent cost: its share of the reported cost, else Hive's estimate; null when no price is known. */
+  costUsd: number | null
+  costEstimated: boolean
 }
 
 export interface RecacheEstimate {
