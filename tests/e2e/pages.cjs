@@ -81,6 +81,30 @@ const check = (name, ok, extra = '') => {
   check('a thirteenth is refused', /up to 12 agents/.test(refused), refused)
   await page.screenshot({ path: path.join(lib.WORK, 'pages-2-twelve.png') })
 
+  // Removing the focused agent on page 2 stays on page 2 (the next agent takes focus) until page 2 empties.
+  const active = async () => (await page.locator('.page-switch button.active').innerText().catch(() => '')).trim()
+  const remove = async (name) => {
+    await page.locator('.agent-tab', { hasText: name }).click({ button: 'right' })
+    await page.locator('.menu-item', { hasText: 'Remove Agent…' }).click()
+    await page.locator('.dialog-footer button', { hasText: /^Remove$/ }).click()
+    await lib.sleep(1000)
+  }
+  await page.locator('.agent-tab', { hasText: 'Agent 9' }).click()
+  await lib.sleep(300)
+  await remove('Agent 9')
+  check('removing an agent on page 2 stays on page 2', (await active()) === '2', await active())
+  check('the next agent takes its focus', (await page.locator('.agent-tab.focused, .agent-tab.active', { hasText: 'Agent 10' }).count()) === 1)
+  await remove('Agent 12')
+  check('removing another agent there stays too', (await active()) === '2', await active())
+  const left = (await inv('workspace:refresh')).projects[0].agents
+  for (const a of left.slice(7)) await inv('agents:remove', proj, a.id, { deleteWorktree: false })
+  await inv('workspace:refresh')
+  await lib.sleep(600)
+  await page.locator('.agent-tab', { hasText: 'Agent 7' }).click()
+  await lib.sleep(300)
+  await remove('Agent 7')
+  check('removing the only agent on page 2 goes to page 1', (await page.locator('.page-switch').count()) === 0 && (await panes()) >= 1)
+
   await app.close()
   process.exit(failed ? 1 : 0)
 })().catch((e) => {

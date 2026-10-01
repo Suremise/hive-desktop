@@ -4,7 +4,7 @@ import { PROVIDERS, agentProvider, isProviderEnabled, modeCaveat, offeredModes, 
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
-import { agentProviderOf, confirm, notify, projectKey, set, setActivity, showAgent, useStore } from '../store'
+import { agentProviderOf, confirm, focusAfterRemoving, notify, projectKey, set, setActivity, showAgent, useStore } from '../store'
 import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { cx } from '../util'
@@ -598,6 +598,7 @@ export function MergeDialog() {
       setResult(r)
       if (r.ok) {
         notify('success', `Merged ${agent.worktree!.branch} into ${status?.into ?? 'the project folder'}`, r.cleanedUp ? `${agent.name}'s worktree and branch were removed.` : undefined)
+        if (r.cleanedUp) focusAfterRemoving(project, agent.id)
         await actions.refreshWorkspace()
         close()
       }

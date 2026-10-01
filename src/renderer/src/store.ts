@@ -308,6 +308,17 @@ export function showAgent(p: ProjectInfo, agentId: string): void {
   focusAgent(p.path, agentId)
 }
 
+/**
+ * Before an agent is removed: if it has focus, focus the agent that takes its place (the next), else the one
+ * before it, so the view stays on its page unless that page empties. `p` is the project before the removal.
+ */
+export function focusAfterRemoving(p: ProjectInfo, agentId: string): void {
+  if (focusedAgentId(p) !== agentId) return
+  const i = p.agents.findIndex((a) => a.id === agentId)
+  const next = p.agents[i + 1] ?? p.agents[i - 1]
+  if (next) set((s) => ({ focusedAgent: { ...s.focusedAgent, [p.path]: next.id } }))
+}
+
 /** Goes to one of a project's agent pages, focusing the agent last focused there (else its first). */
 export function showPage(p: ProjectInfo, page: number): void {
   const ids = pageAgents(p.agents, page).map((a) => a.id)

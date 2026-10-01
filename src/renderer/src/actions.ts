@@ -1,6 +1,6 @@
 import { basename } from './util'
 import { call, errorMessage } from './api'
-import { agentOf, agentProviderOf, choose, confirm, findProject, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
+import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemoving, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
 import { MANY_AGENTS, MAX_AGENTS, sessionInAgentFolder, withPageLayout } from '@shared/defaults'
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
@@ -417,7 +417,9 @@ export async function removeAgent(path: string, agentId: string): Promise<void> 
     }
   } else if (!(await confirm({ title: `Remove ${a.name}?`, message: `${a.name} is removed from ${p.name}. Its sessions stay in the Sessions tab.`, confirmLabel: 'Remove' }))) return
   const ok = await attempt('Could not remove agent', () => call('agents:remove', path, agentId, { deleteWorktree }).then(() => true))
-  if (ok) await refreshWorkspace()
+  if (!ok) return
+  focusAfterRemoving(p, agentId)
+  await refreshWorkspace()
 }
 
 /** Removes a worktree agent together with its worktree and branch. */
@@ -438,7 +440,9 @@ export async function discardAgent(path: string, agentId: string): Promise<void>
     await waitForStop(path, agentId)
   }
   const done = await attempt('Could not discard agent', () => call('agents:remove', path, agentId, { deleteWorktree: true }).then(() => true))
-  if (done) await refreshWorkspace()
+  if (!done) return
+  focusAfterRemoving(p, agentId)
+  await refreshWorkspace()
 }
 
 /** Chooses one agent page's layout (the one that shows its agents makes it automatic again). */
