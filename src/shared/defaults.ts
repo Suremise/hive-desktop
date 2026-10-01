@@ -55,6 +55,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     cacheTtl: 'auto',
     confirmStop: true,
     compactSuggestTokens: 200000,
+    transcriptWarnMB: 50,
+    usageCacheSize: 5000,
     followTranscripts: false,
     overviewRefresh: 'live'
   },
@@ -108,6 +110,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   defaultProvider: 'inherit',
   providers: {},
   compactSuggestTokens: null,
+  transcriptWarnMB: null,
   agents: [],
   layouts: [],
   fileLocks: 'inherit',
@@ -226,6 +229,19 @@ export function effectiveModelLabel(provider: string, chosen: string | undefined
 export function compactThreshold(project: { compactSuggestTokens?: number | null } | null | undefined, globalTokens: number): number {
   const p = project?.compactSuggestTokens
   return typeof p === 'number' && p >= 0 ? p : globalTokens
+}
+
+/** The transcript size (MB) past which a session is flagged in a project (its own setting, else the global one); 0 never. */
+export function transcriptWarnLimit(project: { transcriptWarnMB?: number | null } | null | undefined, globalMB: number): number {
+  const p = project?.transcriptWarnMB
+  return typeof p === 'number' && p >= 0 ? p : globalMB
+}
+
+/** A size in bytes for the footer: "820 KB", "6.1 MB", "118 MB". */
+export function formatBytes(n: number): string {
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`
+  const mb = n / (1024 * 1024)
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`
 }
 
 /** Claude Code's plan limits as 0.1 stored them. */

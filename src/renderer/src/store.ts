@@ -143,6 +143,8 @@ interface State {
   mergeFor: AgentRef | null
   /** The agent whose work "Hand Over to…" hands to another agent. */
   handOverFor: AgentRef | null
+  /** Shows this agent's session in its project's Overview and scrolls to it (the footer's context count); `at` makes each click count. */
+  overviewJump: (AgentRef & { at: number }) | null
   /** Per project: the agent that session commands (header buttons, shortcuts, Insert into Session) act on. */
   focusedAgent: Record<string, string>
   /** Per project: which agent each pane of a multi-pane layout shows. */
@@ -219,6 +221,7 @@ export const useStore = create<State>(() => ({
   agentSettingsFor: null,
   mergeFor: null,
   handOverFor: null,
+  overviewJump: null,
   focusedAgent: {},
   paneAgents: {},
   pageFocus: {},
@@ -414,6 +417,11 @@ export function showAssistantView(section: 'conversations' | 'personas'): void {
 
 export function setProjectTab(path: string, tab: ProjectTab): void {
   set((s) => ({ projectTabs: { ...s.projectTabs, [path]: tab } }))
+}
+
+/** Opens a project's Overview at one agent's session (picked there, and scrolled to). */
+export function showInOverview(path: string, agentId: string): void {
+  set((s) => ({ projectTabs: { ...s.projectTabs, [path]: 'overview' }, overviewJump: { project: path, agentId, at: Date.now() } }))
 }
 
 export function applyLiveState(state: LiveSessionState): void {

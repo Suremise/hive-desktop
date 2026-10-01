@@ -376,6 +376,15 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
   const focused = useFocusedAgent(project)
   const [pickedId, setPickedId] = useState<string | null>(null)
   const agent = project.agents.find((a) => a.id === pickedId) ?? focused
+  // The footer's context count: this agent's session, scrolled to.
+  const jump = useStore((s) => s.overviewJump)
+  const head = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!jump || jump.project !== project.path) return
+    setPickedId(jump.agentId)
+    set({ overviewJump: null })
+    requestAnimationFrame(() => head.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+  }, [jump, project.path])
   const liveState = agent ? agent.live : project.live
   const current = useMemo(() => {
     if (liveState?.sessionId) return items.find((i) => i.id === liveState.sessionId) ?? null
@@ -397,7 +406,7 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
 
   return (
     <>
-        <div className="overview-head session-head">
+        <div className="overview-head session-head" ref={head}>
           <h2 className="section">
             {liveState ? 'Current session' : 'Most recent session'}
             {current && <span className="muted" style={{ fontWeight: 400 }}>— {current.name || current.title || current.id.slice(0, 8)} · {provider.name}</span>}
@@ -1185,6 +1194,28 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     },
     {
       section: 'sessions',
+      key: 'transcriptWarnMB',
+      title: 'Warn when a transcript is over',
+      desc: `Size, in MB, at which a running conversation's transcript is flagged for this project. Empty inherits the global value (${settings.sessions.transcriptWarnMB} MB); 0 never warns.`,
+      tip: "A long conversation slows down the CLI and Hive; handing the work over to a new conversation makes it short again.",
+      modified: cfg.transcriptWarnMB !== null,
+      render: () => (
+        <DraftInput
+          className="input"
+          type="number"
+          min={0}
+          step={10}
+          value={cfg.transcriptWarnMB === null || cfg.transcriptWarnMB === undefined ? '' : String(cfg.transcriptWarnMB)}
+          placeholder={`Inherit (${settings.sessions.transcriptWarnMB} MB)`}
+          onCommit={(t) => {
+            const v = t.trim() === '' ? null : Math.max(0, Math.round(Number(t)))
+            if (v === null || Number.isFinite(v)) void update({ transcriptWarnMB: v })
+          }}
+        />
+      )
+    },
+    {
+      section: 'sessions',
       key: 'chime',
       title: 'Completion chime',
       desc: 'Play a sound when an agent in this project finishes or needs input.',
@@ -1272,8 +1303,8 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
         <button
           className="btn subtle"
           onClick={async () => {
-            if (await confirm({ title: 'Reset project settings?', message: 'The default provider, each provider’s model, effort, permission mode and extra arguments, the chime, the compact threshold, file locks and worktree setup go back to Inherit. Agents and skill and MCP opt-outs are kept.', confirmLabel: 'Reset' }))
-              void update({ defaultProvider: 'inherit', providers: {}, chime: 'inherit', compactSuggestTokens: null, fileLocks: 'inherit', worktreeCopy: null, worktreeSetup: '' })
+            if (await confirm({ title: 'Reset project settings?', message: 'The default provider, each provider’s model, effort, permission mode and extra arguments, the chime, the compact threshold, the transcript size warning, file locks and worktree setup go back to Inherit. Agents and skill and MCP opt-outs are kept.', confirmLabel: 'Reset' }))
+              void update({ defaultProvider: 'inherit', providers: {}, chime: 'inherit', compactSuggestTokens: null, transcriptWarnMB: null, fileLocks: 'inherit', worktreeCopy: null, worktreeSetup: '' })
           }}
         >
           <Icon name="discard" /> Reset to defaults

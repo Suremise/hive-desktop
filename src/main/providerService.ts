@@ -105,13 +105,18 @@ class ProviderService {
     return next
   }
 
-  private runTask(id: ProviderId, task: ProviderTask, file: string, args: string[], label: string, typed?: { keys: KeySteps; ready?: RegExp; done?: () => boolean }): string {
+  private runTask(id: ProviderId, task: ProviderTask, file: string, args: string[], label: string, typed?: { keys: KeySteps; ready?: RegExp; busyTitle?: RegExp; done?: () => boolean }): string {
     const key = `task:${id}:${task}`
     if (hasPty(key)) return key
     const s = toSpawnable(file, args)
     let seen = ''
     let sent = !typed
     let finished = false
+    let ready = false
+    let busy = false
+    /** When the program last showed or stopped showing that it is busy. */
+    let busyChanged = 0
+    let typeTimer: NodeJS.Timeout | null = null
     // A program that stays open after its job (Codex after its sandbox setup) is closed once the job is done.
     const watch = typed?.done
       ? setInterval(() => {
@@ -121,25 +126,52 @@ class ProviderService {
         }, 1500)
       : null
     // Some tasks are keys typed into the CLI once its interface is ready (Codex's sandbox setup).
+    /** Not busy, and not for half a second (the output changes as it settles). */
+    const settled = (): boolean => !busy && Date.now() - busyChanged >= 500
     const type = async (): Promise<void> => {
       if (sent || !typed) return
       sent = true
       for (const step of typed.keys) {
+        // Each key waits while the program is busy (it can get busy again after showing its prompt): an Enter
+        // typed then would queue the command rather than run it. At most 30 seconds, then it goes in anyway.
+        for (const t0 = Date.now(); !settled() && Date.now() - t0 < 30_000; ) await new Promise((r) => setTimeout(r, 200))
         if (!hasPty(key)) return
         writePty(key, step.keys)
         await new Promise((r) => setTimeout(r, step.waitMs ?? 60))
       }
     }
-    if (typed) setTimeout(() => void type(), 15000)
+    // Typed once the interface is ready and has been idle for a moment (or, failing that, after 30 seconds).
+    const typeWhenIdle = (): void => {
+      if (sent || typeTimer) return
+      const wait = (): void => {
+        typeTimer = null
+        if (sent) return
+        const idleFor = Date.now() - busyChanged
+        if (busy || idleFor < 1000) typeTimer = setTimeout(wait, busy ? 300 : 1000 - idleFor)
+        else void type()
+      }
+      typeTimer = setTimeout(wait, 800)
+    }
+    if (typed) setTimeout(() => void type(), 30000)
     spawnPty(key, {
       file: s.file,
       args: s.args,
       cwd: homedir(),
       env: childEnv(),
       onData: (d) => {
-        if (sent || !typed?.ready) return
+        if (!typed?.ready || finished) return
+        if (typed.busyTitle) {
+          const titles = [...d.matchAll(/\x1b\][02];([^\x07\x1b]*)(?:\x07|\x1b\\)/g)]
+          const last = titles.at(-1)?.[1]
+          if (last !== undefined && typed.busyTitle.test(last) !== busy) {
+            busy = !busy
+            busyChanged = Date.now()
+          }
+        }
+        if (sent) return
         seen = (seen + d.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ')).slice(-2000)
-        if (typed.ready.test(seen)) setTimeout(() => void type(), 800)
+        if (!ready && typed.ready.test(seen)) ready = true
+        if (ready) typeWhenIdle()
       },
       onExit: (code) => {
         if (watch) clearInterval(watch)
@@ -172,7 +204,7 @@ class ProviderService {
     }
     if (!adapter.setupCommand) throw new Error(`${name} has no setup task.`)
     const cmd = adapter.setupCommand(info.path)
-    return this.runTask(id, task, cmd.file, cmd.args, `${name} setup`, cmd.keys ? { keys: cmd.keys, ready: cmd.readyPattern, done: cmd.done } : undefined)
+    return this.runTask(id, task, cmd.file, cmd.args, `${name} setup`, cmd.keys ? { keys: cmd.keys, ready: cmd.readyPattern, busyTitle: cmd.busyTitle, done: cmd.done } : undefined)
   }
 }
 

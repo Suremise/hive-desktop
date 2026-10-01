@@ -409,7 +409,8 @@ export class CodexAdapter implements ProviderAdapter {
       const now = this.sandboxKind()
       return !!now && now !== before
     }
-    return { ...s, keys, readyPattern: /Ask Codex|›/, done }
+    // Codex puts a spinner in its window title while it works (also just after showing its prompt, as it starts up).
+    return { ...s, keys, readyPattern: /Ask Codex|›/, busyTitle: /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/, done }
   }
 
   /** Codex's model catalog (codex debug models): the listed models, in Codex's order. */

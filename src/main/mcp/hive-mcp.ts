@@ -179,7 +179,7 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_agent_activity',
-    description: "What one agent is doing: its status, how many background tasks it has running, the task it was last given, its latest reply, its recent tool calls (this turn), the files it has locked, and how long ago the user typed in its terminal.",
+    description: "What one agent is doing: its status, how many background tasks it has running, how big its conversation's transcript is (transcriptMB; past transcriptWarnMB it slows things down, so suggest handing it over to a new conversation), the task it was last given, its latest reply, its recent tool calls (this turn), the files it has locked, and how long ago the user typed in its terminal.",
     inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg } },
     run: (a) => api('GET', `${agentPath(a)}/activity`)
   },
@@ -257,7 +257,7 @@ const tools: Tool[] = [
   {
     name: 'hive_hand_over',
     description:
-      "Hand one agent's work over to another in the same project, of either provider (Hive's Hand Over to…). With handover (the default), Hive asks `from` (running and idle) to write a handover, waits until a new one exists, then starts `to` (or, if it's running and idle, tells it) to read the latest handover and carry on. handover=false skips writing one and hands over the latest. Returns at once: follow with hive_wait_for_agents.",
+      "Hand one agent's work over to another in the same project, of either provider (Hive's Hand Over to…). With handover (the default), Hive asks `from` (running and idle) to write a handover, waits until a new one exists, then starts `to` (or, if it's running and idle, tells it) to read the latest handover and carry on. handover=false skips writing one and hands over the latest. With `to` the same as `from`, the agent carries on in a new conversation instead (its conversation ends and a new one reads the handover): the way to make a long transcript (transcriptMB in hive_agent_activity) short again. Returns at once: follow with hive_wait_for_agents.",
     inputSchema: { type: 'object', properties: { project: projectArg, from: agentArg, to: agentArg, handover: { type: 'boolean' } }, required: ['project', 'from', 'to'] },
     run: (a) => api('POST', `/v1/projects/${proj(a)}/handover`, { from: a.from, to: a.to, handover: a.handover })
   },

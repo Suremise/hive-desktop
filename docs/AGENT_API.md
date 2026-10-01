@@ -192,7 +192,7 @@ Omit `resumeId` to start a new session. Returns the live session state (which in
 { "from": "Agent 1", "to": "Reviewer", "handover": true }
 ```
 
-With `handover` (the default), `from` must be running and idle: it is asked to write a handover with `hive_create_handover`, and Hive waits until a new handover for the project exists (not just for the agent to stop). Then `to` starts a new session (or, if it is running and idle, gets the message in its current one) and reads the latest handover. The call returns `{ "ok": true }` at once; the handover can take minutes, and problems are shown as notifications in Hive. The new session's record has `handedOverFrom`, the session whose work it took over.
+With `handover` (the default), `from` must be running and idle: it is asked to write a handover with `hive_create_handover`, and Hive waits until a new handover for the project exists (not just for the agent to stop). Then `to` starts a new session (or, if it is running and idle, gets the message in its current one) and reads the latest handover. The call returns `{ "ok": true }` at once; the handover can take minutes, and problems are shown as notifications in Hive. The new session's record has `handedOverFrom`, the session whose work it took over. With `to` the same as `from`, the agent carries on in a new conversation: once the handover exists, Hive stops it, starts a new conversation and gives it the handover, which is how a long transcript becomes short again.
 
 ### Agents and providers
 
@@ -200,7 +200,7 @@ These read-only calls are open to every caller:
 
 `GET /v1/providers` — the coding-agent providers: whether each is turned on and installed (`enabled`, `installed`, `version`, `problem`), whether it's the default, and the `models`, `efforts` and `modes` an agent can use.
 
-`GET /v1/projects/{name}/agents/{agent}/activity` — what one agent is doing: `status`, `statusMessage` and `backgroundTasks`, `currentTask` (its last prompt), `latestReply`, `recentTools` (tool calls since that prompt), `lockedFiles` (relative to its folder), its branch and worktree, its session, and `userTypedSecondsAgo` (when the user last typed in its terminal). `{agent}` is the agent's name or id.
+`GET /v1/projects/{name}/agents/{agent}/activity` — what one agent is doing: `status`, `statusMessage` and `backgroundTasks`, `transcriptMB` (its conversation's transcript, or null) and `transcriptWarnMB` (the size past which Hive flags it, or null), `currentTask` (its last prompt), `latestReply`, `recentTools` (tool calls since that prompt), `lockedFiles` (relative to its folder), its branch and worktree, its session, and `userTypedSecondsAgo` (when the user last typed in its terminal). `{agent}` is the agent's name or id.
 
 `POST /v1/agents/wait` — waits until agents stop working (finished, idle, waiting for the user or stopped), or `timeoutSeconds` (5–600, default 300). An agent waiting on its background tasks (`background`) still counts as working, since it carries on when they end; `"ignoreBackground": true` stops waiting at the end of its turn instead. Without `agents`, it waits for every busy agent in the workspace.
 

@@ -10,7 +10,7 @@ import { ModeCaveat } from '../components/AgentDialogs'
 import { ModelPicker } from '../components/ModelPicker'
 import { ProviderIcon } from '../components/ProviderIcon'
 import * as actions from '../actions'
-import { call } from '../api'
+import { call, errorMessage } from '../api'
 import { playChime } from '../chime'
 import { Icon, IconButton, InfoTip, Switch, Tooltip } from '../components/ui'
 import { UpdateStatusRow } from '../components/Updates'
@@ -98,8 +98,11 @@ const SETTINGS: SettingDef[] = [
   { section: 'sessions', key: 'backupTranscripts', title: 'Back up transcripts', desc: "Copy each session's transcript into the project's .hive/sessions folder.", tip: 'Agents delete old transcripts after a while (Claude Code: 30 days by default). Backups let you resume and review sessions later. Archived sessions are always preserved.', type: 'boolean' },
   { section: 'sessions', key: 'cacheTtl', title: 'Prompt cache lifetime', desc: 'Used to estimate whether resuming a session needs to re-cache its context.', tip: 'Auto detects the cache type from the transcript (5 minutes or 1 hour).', type: 'select', options: [{ value: 'auto', label: 'Auto-detect' }, { value: '5m', label: '5 minutes' }, { value: '1h', label: '1 hour' }] },
   { section: 'sessions', key: 'compactSuggestTokens', title: 'Suggest compacting above', desc: 'Context size, in tokens, at which the Compact button and the context count in the status bar turn orange. 0 never suggests it.', tip: 'Compacting summarises the conversation so every later message is cheaper; the full history stays in the transcript. Projects can set their own value in Project Settings. Compact is always available once the agent has finished.', type: 'number', min: 0, max: 2000000, step: 10000 },
+  { section: 'sessions', key: 'transcriptWarnMB', title: 'Warn when a transcript is over', desc: "Size, in MB, at which a running conversation's transcript turns orange in its footer and Hive notifies you once. 0 never warns.", tip: "A long conversation slows down the CLI and Hive: each turn, resume and transcript view has more to read. Compacting doesn't shrink the file, which keeps the whole history; handing the work over to a new conversation does (click the size in the footer for Hand Over to…, and choose the agent itself). Projects can set their own value in Project Settings.", type: 'number', min: 0, max: 2000, step: 10 },
   { section: 'sessions', key: 'overviewRefresh', title: 'Overview updates', desc: 'How the Overview and the session lists update while agents work.', tip: 'Live updates as sessions change, at most every 15 seconds and only while the tab is shown. Each update reads the project\'s session files, so with many sessions or agents a slower choice keeps Hive lighter. Refresh always updates at once.', type: 'select', options: [{ value: 'live', label: 'Live (at most every 15 s)' }, { value: 'minute', label: 'Every minute' }, { value: 'manual', label: 'Only when I click Refresh' }] },
   { section: 'sessions', key: 'followTranscripts', title: 'Follow running sessions in the transcript viewer', desc: 'The Sessions tab shows new messages of a running session as they arrive.', tip: 'Off: the transcript shows what was there when you opened it; Refresh loads what is new. You can also switch following on in the viewer itself. The Session tab always shows the agent working.', type: 'boolean' },
+  { section: 'sessions', key: 'usageCacheSize', title: 'Usage cache size', desc: 'How many transcripts Hive remembers the token use of, so the Overview and session lists open without reading them again, also after a restart.', tip: 'Kept in usage-cache.json in your Hive profile: a few KB per transcript. A transcript is read again only when it changed (for example, a session you continued outside Hive), and the cache starts afresh with each Hive version. The least recently used go first when it is full. 100 to 50,000.', type: 'number', min: 100, max: 50000, step: 100 },
+  { section: 'sessions', key: 'usageCacheClear', title: 'Clear the usage cache', desc: 'Forget what the cache holds; each transcript is read again the next time it is shown.', tip: 'Only needed if the token counts look wrong. Nothing else is lost: sessions, transcripts and backups stay as they are.', type: 'custom', render: () => <ClearUsageCacheButton /> },
   { section: 'sessions', key: 'confirmStop', title: 'Confirm before stopping', desc: 'Ask before stopping a running session.', tip: 'Stopped sessions can always be resumed.', type: 'boolean' },
   // Agents
   {
@@ -578,6 +581,25 @@ function DefaultProviderPicker() {
         </option>
       ))}
     </select>
+  )
+}
+
+function ClearUsageCacheButton() {
+  const [busy, setBusy] = useState(false)
+  return (
+    <button
+      className="btn subtle"
+      disabled={busy}
+      onClick={() => {
+        setBusy(true)
+        void call('session:clearUsageCache')
+          .then(() => notify('info', 'Usage cache cleared', 'Each transcript is read again the next time it is shown.'))
+          .catch((e) => notify('error', 'Could not clear the usage cache', errorMessage(e)))
+          .finally(() => setBusy(false))
+      }}
+    >
+      <Icon name="clear-all" /> Clear
+    </button>
   )
 }
 

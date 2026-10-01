@@ -163,7 +163,15 @@ export function AssistantPanel() {
         </div>
       </div>
       <div className="assistant-footer">
-        <PaneFooter project={a} a={agent} onSettings={() => set({ assistantSettingsOpen: true })} onContext={() => undefined} settingsName="Assistant Settings" />
+        <PaneFooter
+          project={a}
+          a={agent}
+          onSettings={() => set({ assistantSettingsOpen: true })}
+          onContext={() => undefined}
+          onTranscript={() => undefined}
+          transcriptAdvice="Start a new conversation (⋯ → New Conversation) to keep things quick."
+          settingsName="Assistant Settings"
+        />
       </div>
     </div>
   )

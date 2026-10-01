@@ -83,6 +83,10 @@ export interface AppSettings {
     confirmStop: boolean
     /** Context size (tokens) above which Compact is highlighted. 0 never highlights. */
     compactSuggestTokens: number
+    /** A running session's transcript over this many MB is flagged (footer, notification): long ones slow the CLI and Hive. 0 never. */
+    transcriptWarnMB: number
+    /** How many transcripts' usage Hive keeps, in memory and in usage-cache.json, so a restart doesn't read them again. */
+    usageCacheSize: number
     /** The Sessions tab's transcript of a running session follows new messages without a Refresh. */
     followTranscripts: boolean
     /** How the Overview and the session lists update: as sessions change (at most every 15 s), every minute, or on Refresh. */
@@ -271,6 +275,8 @@ export interface ProjectConfig {
   providers: Record<ProviderId, ProjectProviderConfig>
   /** Overrides settings.sessions.compactSuggestTokens for this project; null inherits. */
   compactSuggestTokens: number | null
+  /** Overrides settings.sessions.transcriptWarnMB for this project; null inherits. */
+  transcriptWarnMB: number | null
   /** The project's agents, in the order they were added. All are equal; a new project has none. */
   agents: AgentDef[]
   /** Each agent page's layout, page 1 first; a missing one is 'auto'. */
@@ -438,6 +444,8 @@ export interface LiveSessionState {
   settingUp?: boolean
   /** Background tasks the agent started that are still running (commands, Monitors, Codex's background terminals). */
   backgroundTasks?: number
+  /** The running conversation's transcript size in bytes, once the provider has written one. */
+  transcriptBytes?: number
 }
 
 export interface ProjectInfo {

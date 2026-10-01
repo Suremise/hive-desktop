@@ -125,6 +125,8 @@ export interface HiveRequests {
   'session:delete': (projectPath: string, sessionId: string) => void
   /** Deleted sessions' usage (list items with deleted: true), which totals still count. */
   'session:keptUsage': (projectPath: string) => SessionListItem[]
+  /** Forgets every transcript's usage, in memory and in usage-cache.json (Settings → Sessions → Usage cache). */
+  'session:clearUsageCache': () => void
   'session:adopt': (projectPath: string, sessionId: string) => void
   'session:usage': (projectPath: string, sessionId: string) => SessionUsage | null
   'session:markSeen': (projectPath: string) => void

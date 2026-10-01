@@ -5,7 +5,7 @@ import { app } from 'electron'
 import { basename, dirname, join, relative, resolve as resolvePath } from 'path'
 import { readFile } from 'fs/promises'
 import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, ToastLevel } from '../shared/types'
-import { DEFAULT_API_PORT, projectAgents } from '../shared/defaults'
+import { DEFAULT_API_PORT, projectAgents, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import type { HandoverAuthor } from '../shared/hiveGuidance'
@@ -418,7 +418,6 @@ route('POST', '/v1/projects/:name/handover', async ({ params, body }) => {
   const from = await agentParam(p, body?.from)
   if (typeof body?.to !== 'string' || !body.to) throw new HttpError(400, 'to is required')
   const to = await agentParam(p, body.to)
-  if (from === to) throw new HttpError(400, 'from and to must be different agents')
   const handover = body?.handover !== false
   // Known at once rather than later in a notification: from the latest handover, there has to be one.
   if (!handover && !(await sessions.latestHandover(p))) throw new HttpError(409, `There is no handover for ${basename(p)} yet. Hand over with a new handover (handover: true) instead.`)
@@ -665,6 +664,9 @@ async function agentActivity(p: string, agentId: string) {
     branch: a.worktree?.branch ?? null,
     worktree: a.worktree?.path ?? null,
     sessionId: sessionId || null,
+    // A long transcript slows the CLI and Hive; handing over to itself (a new conversation) makes it short again.
+    transcriptMB: st?.transcriptBytes !== undefined ? Math.round((st.transcriptBytes / (1024 * 1024)) * 10) / 10 : null,
+    transcriptWarnMB: transcriptWarnLimit(info.config, config.settings.sessions.transcriptWarnMB) || null,
     sessionName: st?.sessionName ?? null,
     currentTask,
     latestReply,

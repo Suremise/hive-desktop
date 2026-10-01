@@ -50,6 +50,11 @@ export interface CommandSpec {
   keys?: KeySteps
   /** Output that means the program is ready for `keys`. */
   readyPattern?: RegExp
+  /**
+   * A window title (set by the program's OSC 0/2 sequences) that means it is busy: `keys` wait until it has been
+   * idle for a moment, since a busy CLI queues what is typed instead of acting on it (Codex: "tab to queue message").
+   */
+  busyTitle?: RegExp
   /** True once the task has done its job, for a program that stays open afterwards (Codex after its sandbox setup): Hive then closes it. */
   done?: () => boolean
 }

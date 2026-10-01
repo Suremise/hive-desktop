@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { MAX_AGENTS, effectiveModelLabel, projectAgents, slugify } from '@shared/defaults'
+import { MAX_AGENTS, effectiveModelLabel, formatBytes, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
 import { PROVIDERS, agentProvider, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerSettings } from '@shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
@@ -455,7 +455,8 @@ export function AgentSettingsDialog() {
 
 /**
  * Hands one agent's work to another, of any provider. Conversations can't move between providers,
- * so the source writes a handover (Hive's hive_create_handover tool) and the target reads it.
+ * so the source writes a handover (Hive's hive_create_handover tool) and the target reads it. The agent
+ * itself can be the target: it carries on in a new conversation (a long transcript made short again).
  */
 export function HandOverDialog() {
   const target = useStore((s) => s.handOverFor)
@@ -471,14 +472,21 @@ export function HandOverDialog() {
     if (!target || !project) return
     setHandover(fromReady)
     const first = project.agents.find((a) => a.id !== target.agentId && idle(a) && isProviderEnabled(settings, agentProviderOf(project, a)))
-    setTo(first?.id ?? '')
+    const own = project.agents.find((a) => a.id === target.agentId)
+    const mb = own?.live?.transcriptBytes ?? 0
+    const limit = transcriptWarnLimit(project.config, settings?.sessions.transcriptWarnMB ?? 0)
+    // A long conversation (from its footer or the notification) most likely wants a new one of its own.
+    const ownFirst = !!own && idle(own) && limit > 0 && mb >= limit * 1024 * 1024
+    setTo(ownFirst ? target.agentId : (first?.id ?? (own && idle(own) ? target.agentId : '')))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.project, target?.agentId])
 
   if (!target || !project || !from) return null
   const close = (): void => set({ handOverFor: null })
   const others = project.agents.filter((a) => a.id !== from.id)
-  const chosen = others.find((a) => a.id === to)
+  const self = to === from.id
+  const chosen = self ? from : others.find((a) => a.id === to)
+  const next = self ? `${from.name} continues in a new conversation` : `${chosen?.name ?? 'the other agent'} starts`
   const hiveTools = settings?.agentApi.provideHiveMcp !== false
 
   const go = (): void => {
@@ -506,7 +514,7 @@ export function HandOverDialog() {
     >
       <p style={{ marginTop: 0 }}>
         Another agent picks up the work from a handover. It can use a different provider: the conversation itself stays with {from.name}; the handover carries the goal, what's done and
-        the next steps.
+        the next steps. Or {from.name} carries on itself in a new conversation, which keeps a long one from slowing things down.
       </p>
       {!hiveTools && (
         <div className="banner warn">
@@ -514,6 +522,19 @@ export function HandOverDialog() {
         </div>
       )}
       <div className="choice-list">
+        <label className={cx('choice', self && 'selected', !idle(from) && 'disabled')}>
+          <input type="radio" disabled={!idle(from)} checked={self} onChange={() => setTo(from.id)} />
+          <div>
+            <strong>
+              <ProviderIcon provider={agentProviderOf(project, from)} /> {from.name}, in a new conversation
+            </strong>
+            <div className="faint">
+              {!idle(from)
+                ? 'Busy. Choose it once it has finished.'
+                : `Its conversation ends here (it stays in the Sessions tab) and a new one continues from the handover.${from.live?.transcriptBytes ? ` Its transcript is ${formatBytes(from.live.transcriptBytes)}.` : ''}`}
+            </div>
+          </div>
+        </label>
         {others.map((a) => {
           const p = agentProviderOf(project, a)
           const enabled = isProviderEnabled(settings, p)
@@ -545,10 +566,10 @@ export function HandOverDialog() {
       </label>
       <div className="detail">
         {fromReady
-          ? `${from.name} writes it with Hive's handover tool; ${chosen?.name ?? 'the other agent'} starts when it's done.`
+          ? `${from.name} writes it with Hive's handover tool; ${next} when it's done.`
           : from.live
-            ? `${from.name} is busy, so ${chosen?.name ?? 'the other agent'} continues from the latest handover.`
-            : `${from.name} isn't running, so ${chosen?.name ?? 'the other agent'} continues from the latest handover. Resume ${from.name} first to have it write a new one.`}
+            ? `${from.name} is busy, so ${self ? 'it' : (chosen?.name ?? 'the other agent')} continues from the latest handover.`
+            : `${from.name} isn't running, so ${self ? 'a new conversation' : (chosen?.name ?? 'the other agent')} continues from the latest handover. Resume ${from.name} first to have it write a new one.`}
       </div>
     </Modal>
   )

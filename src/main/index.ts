@@ -434,6 +434,7 @@ async function quitNow(tellUser: boolean): Promise<void> {
     }).show()
   }
   await sessions.stopAllAndWait(3000)
+  await sessions.flushUsageCache()
   await config.flush()
   if (installOnQuit) installNow()
   else app.quit()

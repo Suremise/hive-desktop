@@ -154,6 +154,16 @@ export const commands: Command[] = [
     }
   },
   {
+    id: 'session.handOverTo',
+    label: 'Hand Over an Agent\'s Work',
+    category: 'Session',
+    // From the long-conversation notification, which passes the agent.
+    internal: true,
+    run: (projectPath?: unknown, agentId?: unknown) => {
+      if (typeof projectPath === 'string' && typeof agentId === 'string') set({ handOverFor: { project: projectPath, agentId } })
+    }
+  },
+  {
     id: 'session.allowLockedEdit',
     label: 'Allow a Locked Edit',
     category: 'Session',

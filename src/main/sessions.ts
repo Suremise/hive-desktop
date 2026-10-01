@@ -3,10 +3,10 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { existsSync, realpathSync } from 'fs'
 import { typedText } from '../shared/terminalInput'
-import { BrowserWindow, Notification, clipboard, shell } from 'electron'
+import { BrowserWindow, Notification, app, clipboard, shell } from 'electron'
 import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { assistantTools } from '../shared/assistantTools'
-import { HIVE_DIR, agentPtyKey, assertSessionId, isSessionId, projectAgents, resumeRecord } from '../shared/defaults'
+import { HIVE_DIR, agentPtyKey, assertSessionId, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
 import { agentLaunchSettings, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
 import type {
   AgentDef,
@@ -32,7 +32,7 @@ import type { LaunchSkill, ProviderAdapter, UsageParser } from './providers/type
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, toast } from './events'
-import { hashDir, hashText, splitArgs, syncCopy, syncCopyLocked, withFileLock } from './fsutil'
+import { hashDir, hashText, readJson, removePath, splitArgs, syncCopy, syncCopyLocked, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger } from './logger'
 import { listMcp, toLaunchDef } from './mcp'
 import { childEnv, killPty, spawnPty, writePty } from './ptyHost'
@@ -106,6 +106,8 @@ interface LiveSession {
   tasksEnded?: Set<string>
   /** Bytes of the transcript already read for background tasks. */
   tasksOffset?: number
+  /** The conversation already warned about for its transcript's size (once each). */
+  sizeWarned?: string
 }
 
 export interface EffectiveSettings {
@@ -178,23 +180,39 @@ interface UsageEntry {
   offset: number
   size: number
   mtime: number
-  /** Worked out from the parser (with costs); null until asked for again after a change. */
+  /** The parser's result before costs, which follow the prices in the settings: what usage-cache.json keeps. */
+  raw: SessionUsage | null
+  /** Worked out from raw (with costs); null until asked for again after a change. */
   usage: SessionUsage | null
 }
 const usageCache = new Map<string, UsageEntry>()
 /** Transcripts whose parsers are kept (each holds its session's request history); results are kept for more. */
 const MAX_USAGE_PARSERS = 200
-const MAX_USAGE_RESULTS = 5000
+/** Transcripts whose results are kept, in memory and on disk (Settings → Sessions → Usage cache size). */
+const maxUsageResults = (): number => Math.min(50000, Math.max(100, Number(config.settings.sessions.usageCacheSize) || 5000))
 /** How much of a transcript is read at a time. */
 const USAGE_CHUNK = 4 * 1024 * 1024
 
-/** Drops the least recently used parsers beyond MAX_USAGE_PARSERS (their results stay), and results beyond MAX_USAGE_RESULTS. */
+/**
+ * usage-cache.json in the profile: each transcript's result (before costs) with the size and modified time it
+ * had, so after a restart an unchanged transcript isn't read again. Derived and disposable: a missing, damaged or
+ * older version's file is ignored (each Hive version starts afresh, as parsers change), and a transcript that
+ * changed while Hive was closed is read again in full.
+ */
+interface UsageCacheFile {
+  version: string
+  entries: { path: string; sessionId: string; provider: ProviderId; size: number; mtime: number; usage: SessionUsage }[]
+}
+const usageCacheFile = (): string => join(app.getPath('userData'), 'usage-cache.json')
+
+/** Drops the least recently used parsers beyond MAX_USAGE_PARSERS (their results stay), and results beyond the cache size. */
 function trimUsageCache(): void {
+  const maxResults = maxUsageResults()
   let parsers = 0
   for (const c of usageCache.values()) if (c.parser) parsers++
   for (const [k, c] of usageCache) {
-    if (parsers <= MAX_USAGE_PARSERS && usageCache.size <= MAX_USAGE_RESULTS) break
-    if (usageCache.size > MAX_USAGE_RESULTS) {
+    if (parsers <= MAX_USAGE_PARSERS && usageCache.size <= maxResults) break
+    if (usageCache.size > maxResults) {
       usageCache.delete(k)
       if (c.parser) parsers--
     } else if (c.parser) {
@@ -398,6 +416,65 @@ class SessionManager {
   /** Works out usage again (e.g. after price changes, so estimates are recomputed); what was read is kept. */
   clearUsageCache(): void {
     for (const c of usageCache.values()) c.usage = null
+  }
+
+  /** Forgets every transcript's usage, in memory and on disk (Settings → Sessions → Clear): each is read again when needed. */
+  async forgetUsageCache(): Promise<void> {
+    await this.loadUsageCache()
+    usageCache.clear()
+    if (this.usageSaveTimer) clearTimeout(this.usageSaveTimer)
+    this.usageSaveTimer = null
+    await removePath(usageCacheFile()).catch((e) => log.warn('usage cache: could not delete it', e))
+    log.info('usage cache cleared')
+  }
+
+  private usageCacheLoad: Promise<void> | null = null
+  private usageSaveTimer: NodeJS.Timeout | null = null
+
+  /** Reads usage-cache.json once, into the in-memory cache (results only: a changed transcript is read again in full). */
+  private loadUsageCache(): Promise<void> {
+    return (this.usageCacheLoad ??= (async () => {
+      const file = await readJson<UsageCacheFile | null>(usageCacheFile(), null).catch(() => null)
+      if (!file || file.version !== app.getVersion() || !Array.isArray(file.entries)) return
+      for (const e of file.entries) {
+        if (!e || typeof e.path !== 'string' || !e.usage || usageCache.has(e.path)) continue
+        usageCache.set(e.path, { parser: null, sessionId: e.sessionId, provider: e.provider, offset: e.size, size: e.size, mtime: e.mtime, raw: e.usage, usage: null })
+      }
+      trimUsageCache()
+      log.info(`usage cache: ${usageCache.size} transcript(s) from the last run`)
+    })())
+  }
+
+  /** Writes usage-cache.json a few seconds after the last change (and at quit: flushUsageCache). */
+  private scheduleUsageSave(): void {
+    if (this.usageSaveTimer) return
+    this.usageSaveTimer = setTimeout(() => void this.flushUsageCache(), 5000)
+  }
+
+  async flushUsageCache(): Promise<void> {
+    if (!this.usageSaveTimer) return
+    clearTimeout(this.usageSaveTimer)
+    this.usageSaveTimer = null
+    const entries: UsageCacheFile['entries'] = []
+    for (const [path, c] of usageCache) if (c.raw) entries.push({ path, sessionId: c.sessionId, provider: c.provider, size: c.size, mtime: c.mtime, usage: c.raw })
+    await writeJsonAtomic(usageCacheFile(), { version: app.getVersion(), entries } satisfies UsageCacheFile).catch((e) => log.warn('usage cache: could not save it', e))
+  }
+
+  /** A result with costs from the current prices: the provider's report, else (or on top) Hive's estimate, and each day's share. */
+  private priced(raw: SessionUsage): SessionUsage {
+    const usage = structuredClone(raw)
+    // Providers that don't report a cost get Hive's estimate from their token counts (prices: Settings → provider).
+    if (usage.costUsd === null) {
+      const est = estimateCost(usage, config.settings)
+      if (est !== null) Object.assign(usage, { costUsd: est, costEstimated: true })
+    } else if (usage.costUnreported) {
+      // The provider reports its cost only now and then: the tokens since get Hive's estimate on top.
+      const est = estimateCost({ ...usage, ...usage.costUnreported }, config.settings)
+      if (est) Object.assign(usage, { costUsd: usage.costUsd + est, costEstimated: true })
+    }
+    // Each day's share, for the Overview's periods.
+    withDayCosts(usage, config.settings)
+    return usage
   }
 
   /**
@@ -1046,7 +1123,8 @@ class SessionManager {
    */
   async handOver(projectPath: string, fromAgentId: string, toAgentId: string, opts: { handover: boolean }): Promise<void> {
     projectPath = workspace.assertProject(projectPath)
-    if (fromAgentId === toAgentId) throw new Error('Choose another agent to hand the work over to.')
+    // To itself: the agent carries on in a new conversation (a long transcript made short again).
+    const self = fromAgentId === toAgentId
     if (!this.hiveMcp(projectPath)) throw new Error('Handing over needs Hive\'s tools in sessions: turn on "Provide Hive tools to sessions" in Settings → Agent API.')
     const { agent: to } = await this.agentDef(projectPath, toAgentId)
     const { agent: from } = await this.agentDef(projectPath, fromAgentId)
@@ -1063,11 +1141,11 @@ class SessionManager {
       const known = new Map((await this.recentHandovers(projectPath, 20)).map((h) => [h.relPath, h.modified]))
       const want = source.sessionId
       const isNew = (h: HandoverRef): boolean => (!known.has(h.relPath) || h.modified > known.get(h.relPath)!) && (!want || h.session === want)
-      toast('info', `${from.name} is writing a handover`, `${to.name} continues from it when it's done.`, undefined, projectPath)
+      toast('info', `${from.name} is writing a handover`, self ? 'It continues from it in a new conversation when it\'s done.' : `${to.name} continues from it when it's done.`, undefined, projectPath)
       await this.sendPrompt(
         projectPath,
         fromAgentId,
-        `Please write a handover of this work with the hive_create_handover tool, so that another agent (${to.name}) can continue it: the goal, what is done, decisions made and why, the current state, open problems and the next steps. Then stop.`
+        `Please write a handover of this work with the hive_create_handover tool, so that ${self ? 'you can continue it in a new conversation' : `another agent (${to.name}) can continue it`}: the goal, what is done, decisions made and why, the current state, open problems and the next steps. Then stop.`
       )
       const t0 = Date.now()
       let idleSince = 0
@@ -1091,6 +1169,11 @@ class SessionManager {
       handover = (await this.latestHandover(projectPath))?.relPath ?? ''
       if (!handover) throw new Error(`There is no handover for ${basename(projectPath)} yet. Hand over with a new handover instead.`)
     }
+    // To itself: its conversation ends here (it stays in the Sessions tab), and a new one starts below.
+    if (self && this.live.has(liveId(projectPath, fromAgentId))) {
+      await this.stopWhereAndWait((s) => s.projectPath.toLowerCase() === projectPath.toLowerCase() && (s as { agentId?: string }).agentId === fromAgentId, 15_000)
+      if (this.live.has(liveId(projectPath, fromAgentId))) throw new Error(`${from.name} didn't stop. Stop it, then start it and ask it to read the handover "${handover}".`)
+    }
     // The target: started fresh when idle, or given the message in its running session.
     let target = this.live.get(liveId(projectPath, toAgentId))?.state ?? null
     if (target && target.status !== 'ready' && target.status !== 'finished') throw new Error(`${to.name} is busy. Hand over once it has finished.`)
@@ -1101,7 +1184,7 @@ class SessionManager {
       if (!target) throw new Error(`${to.name} didn't become ready. Answer any question in its terminal, then hand over again without a new handover.`)
       await new Promise((r) => setTimeout(r, 1500))
     }
-    await this.sendPrompt(projectPath, toAgentId, `Read the handover "${handover}" with the hive_read_shared_note tool and continue the work from it. It was written by ${from.name}.`)
+    await this.sendPrompt(projectPath, toAgentId, `Read the handover "${handover}" with the hive_read_shared_note tool and continue the work from it. It was written by ${self ? 'you, in your previous conversation' : from.name}.`)
     // Link the sessions once the target's id is known (Codex reports it with the first prompt).
     const linked = await this.waitStatus(projectPath, toAgentId, (s) => !s || !!s.sessionId, 60_000).catch(() => null)
     if (linked?.sessionId && fromSession) await workspace.upsertSession(projectPath, { id: linked.sessionId, handedOverFrom: fromSession }).catch(() => undefined)
@@ -1283,6 +1366,7 @@ class SessionManager {
     if (!src) return
     const s = await stat(src).catch(() => null)
     if (!s) return
+    this.noteTranscriptSize(l, s.size)
     // The size too: Windows can report a file's old modified time while another process keeps appending to it.
     const mtime = `${s.mtimeMs}:${s.size}`
     const backups = config.settings.sessions.backupTranscripts
@@ -1467,6 +1551,31 @@ class SessionManager {
     l.tasksEnded?.clear()
     l.tasksOffset = 0
     l.state.backgroundTasks = undefined
+  }
+
+  /**
+   * The running conversation's transcript size, for the footer (shown in 0.1 MB steps), and a warning once it
+   * passes Settings → Sessions → Warn when a transcript is over: a long one slows the CLI and Hive, and only a
+   * new conversation (a handover) makes it short again, since compacting keeps the whole history in the file.
+   */
+  private noteTranscriptSize(l: LiveSession, bytes: number): void {
+    const st = l.state
+    const step = (b: number | undefined): number => (b === undefined ? -1 : Math.floor(b / (100 * 1024)))
+    const changed = step(st.transcriptBytes) !== step(bytes)
+    st.transcriptBytes = bytes
+    if (changed) this.emitState(st)
+    const project = workspaceOf(st.projectPath).info()?.projects.find((x) => x.path.toLowerCase() === st.projectPath.toLowerCase())
+    const limitMB = transcriptWarnLimit(project?.config, Number(config.settings.sessions.transcriptWarnMB) || 0)
+    if (!limitMB || bytes < limitMB * 1024 * 1024 || !st.sessionId || l.sizeWarned === st.sessionId) return
+    l.sizeWarned = st.sessionId
+    const label = this.label(st)
+    const assistant = workspace.isAssistantHome(st.projectPath)
+    const advice = assistant
+      ? 'Start a new conversation (⋯ → New Conversation) to keep things quick.'
+      : 'Hand it over to a new conversation (Hand Over to…) to keep things quick. Compacting doesn\'t shrink the file.'
+    log.info(`${label}: transcript is ${formatBytes(bytes)}, over ${limitMB} MB`)
+    toast('warning', `${label}: long conversation`, `Its transcript is ${formatBytes(bytes)}, which slows down the CLI and Hive. ${advice}`, assistant ? undefined : [{ label: 'Hand Over to…', command: 'session.handOverTo', args: [st.projectPath, st.agentId] }], st.projectPath)
+    this.notify(st.projectPath, `${label}: long conversation`, `Its transcript is ${formatBytes(bytes)}. ${advice}`, 'notice')
   }
 
   private emitState(state: LiveSessionState): void {
@@ -1768,6 +1877,7 @@ class SessionManager {
       l.transcriptPath = transcriptPath ?? existing?.transcriptPath
       l.transcriptMtime = ''
       l.detailsOffset = 0
+      st.transcriptBytes = undefined
       this.clearTasks(l)
       l.lastBackupAt = undefined
       st.costUsd = undefined
@@ -1781,13 +1891,16 @@ class SessionManager {
     workspaceOf(st.projectPath).scheduleRefresh()
   }
 
-  private notify(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting'): void {
+  /** A desktop notification (and for finished/waiting, the chime): a notice is a warning that needs no sound. */
+  private notify(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting' | 'notice'): void {
     const n = config.settings.notifications
-    void this.effective(projectPath)
-      .then((eff) => {
-        if (eff.chime) emit({ type: 'chime', projectPath })
-      })
-      .catch((e) => log.warn('chime: settings unavailable', e))
+    if (kind !== 'notice') {
+      void this.effective(projectPath)
+        .then((eff) => {
+          if (eff.chime) emit({ type: 'chime', projectPath })
+        })
+        .catch((e) => log.warn('chime: settings unavailable', e))
+    }
     if (!n.desktopNotifications) return
     if (kind === 'finished' && !n.notifyOnFinished) return
     if (kind === 'waiting' && !n.notifyOnWaiting) return
@@ -1827,6 +1940,7 @@ class SessionManager {
 
   private async usageForNow(path: string, sessionId: string, provider: ProviderId): Promise<SessionUsage | null> {
     try {
+      await this.loadUsageCache()
       const s = await stat(path)
       let c = usageCache.get(path)
       // Most recently used last: the oldest go first when there are too many.
@@ -1834,11 +1948,15 @@ class SessionManager {
         usageCache.delete(path)
         usageCache.set(path, c)
       }
-      if (c && c.mtime === s.mtimeMs && c.size === s.size && c.usage && c.sessionId === sessionId && c.provider === provider) return c.usage
+      if (c && c.mtime === s.mtimeMs && c.size === s.size && c.sessionId === sessionId && c.provider === provider) {
+        if (c.usage) return c.usage
+        // Unchanged since it was read (in this run, or one before: usage-cache.json): priced again, not read.
+        if (c.raw) return (c.usage = this.priced(c.raw))
+      }
       // A file that shrank or was rewritten (or is now another session's), or whose parser was dropped, is read again from the start.
       if (c && (!c.parser || c.sessionId !== sessionId || c.provider !== provider || s.size < c.offset || (s.size === c.size && s.mtimeMs !== c.mtime))) c = undefined
       if (!c) {
-        c = { parser: providerAdapter(provider).usageParser(sessionId), sessionId, provider, offset: 0, size: 0, mtime: 0, usage: null }
+        c = { parser: providerAdapter(provider).usageParser(sessionId), sessionId, provider, offset: 0, size: 0, mtime: 0, raw: null, usage: null }
         usageCache.set(path, c)
         trimUsageCache()
       }
@@ -1871,21 +1989,11 @@ class SessionManager {
       }
       c.size = s.size
       c.mtime = s.mtimeMs
-      const usage = parser.result()
-      this.checkUnderstood(provider, usage, s.size)
-      // Providers that don't report a cost get Hive's estimate from their token counts (prices: Settings → provider).
-      if (usage.costUsd === null) {
-        const est = estimateCost(usage, config.settings)
-        if (est !== null) Object.assign(usage, { costUsd: est, costEstimated: true })
-      } else if (usage.costUnreported) {
-        // The provider reports its cost only now and then: the tokens since get Hive's estimate on top.
-        const est = estimateCost({ ...usage, ...usage.costUnreported }, config.settings)
-        if (est) Object.assign(usage, { costUsd: usage.costUsd + est, costEstimated: true })
-      }
-      // Each day's share, for the Overview's periods.
-      withDayCosts(usage, config.settings)
-      c.usage = usage
-      return usage
+      c.raw = parser.result()
+      this.checkUnderstood(provider, c.raw, s.size)
+      c.usage = this.priced(c.raw)
+      this.scheduleUsageSave()
+      return c.usage
     } catch {
       return null
     }

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, compactThreshold, effectiveModelLabel, effortLabel, layoutPanes, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder } from '@shared/defaults'
+import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, compactThreshold, effectiveModelLabel, effortLabel, formatBytes, layoutPanes, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit } from '@shared/defaults'
 import type { AgentInfo, ProjectInfo, SessionLayout, SessionListItem } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, focusAgent, focusedAgentId, openInSessionsTab, paneAssignment, projectKey, revealAgent, seenAgents, set, setProjectTab, showAgent, showPage, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, focusAgent, focusedAgentId, openInSessionsTab, paneAssignment, projectKey, revealAgent, seenAgents, set, setProjectTab, showAgent, showInOverview, showPage, useStore } from '../store'
 import { useLiveUsage } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -193,7 +193,7 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
           { label: 'Resume a Session…', icon: 'history', onClick: pick },
           { label: 'New Session', icon: 'add', onClick: () => void actions.newSession(project.path, a.id) }
         ]),
-    { label: 'Hand Over to…', icon: 'arrow-swap', disabled: project.agents.length < 2, onClick: () => set({ handOverFor: { project: project.path, agentId: a.id } }) },
+    { label: 'Hand Over to…', icon: 'arrow-swap', onClick: () => set({ handOverFor: { project: project.path, agentId: a.id } }) },
     { separator: true },
     { label: 'Agent Settings…', icon: 'settings', onClick: () => set({ agentSettingsFor: { project: project.path, agentId: a.id } }) },
     ...(worktree
@@ -452,9 +452,26 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
 
 /**
  * The agent's session details: model and effort, permission mode, context used and cost. Clicking the model
- * opens the agent's settings (or `onSettings`), the context its project's Overview (or `onContext`).
+ * opens the agent's settings (or `onSettings`), the context its session in the project's Overview (or `onContext`), the
+ * transcript size Hand Over to… (or `onTranscript`, with `transcriptAdvice` in its tooltip).
  */
-export function PaneFooter({ project, a, onSettings, onContext, settingsName = 'Agent Settings or Project Settings' }: { project: ProjectInfo; a: AgentInfo; onSettings?: () => void; onContext?: () => void; settingsName?: string }) {
+export function PaneFooter({
+  project,
+  a,
+  onSettings,
+  onContext,
+  onTranscript,
+  transcriptAdvice = 'Hand it over to a new conversation: click for Hand Over to…, and choose the agent itself.',
+  settingsName = 'Agent Settings or Project Settings'
+}: {
+  project: ProjectInfo
+  a: AgentInfo
+  onSettings?: () => void
+  onContext?: () => void
+  onTranscript?: () => void
+  transcriptAdvice?: string
+  settingsName?: string
+}) {
   const settings = useStore((s) => s.settings)
   const providers = useStore((s) => s.providers)
   const usage = useLiveUsage(project, a.id)
@@ -469,6 +486,9 @@ export function PaneFooter({ project, a, onSettings, onContext, settingsName = '
   const over = threshold > 0 && ctx >= threshold
   const cost = live?.costUsd ?? usage?.costUsd ?? null
   const estimated = live?.costUsd !== undefined ? !!live.costEstimated : !!usage?.costEstimated
+  const bytes = live?.transcriptBytes
+  const sizeLimit = transcriptWarnLimit(project.config, settings?.sessions.transcriptWarnMB ?? 0)
+  const long = bytes !== undefined && sizeLimit > 0 && bytes >= sizeLimit * 1024 * 1024
   return (
     <div className="pane-footer-bar" onMouseDown={() => focusAgent(project.path, a.id)}>
       <Tooltip content={`${providerName(provider)} model${effort ? ' and effort' : ''} ${live ? 'of this session' : 'for new sessions'}${live?.effort ? ' (effort as the session reports it)' : ''}. Change them in ${settingsName}.`}>
@@ -481,8 +501,17 @@ export function PaneFooter({ project, a, onSettings, onContext, settingsName = '
       <div className="grow" />
       {usage && (
         <Tooltip content={`Context: ${ctx.toLocaleString()} tokens${usage.contextWindow ? ` of ${usage.contextWindow.toLocaleString()}` : ''} · ${usage.compactions.length} compaction(s)${over ? ' — consider compacting' : ''}`}>
-          <span className={cx('pane-foot-item', over && 'warn')} onClick={() => (onContext ? onContext() : setProjectTab(project.path, 'overview'))}>
+          <span className={cx('pane-foot-item', over && 'warn')} onClick={() => (onContext ? onContext() : showInOverview(project.path, a.id))}>
             <Icon name="dashboard" /> {formatTokens(ctx)} ctx
+          </span>
+        </Tooltip>
+      )}
+      {bytes !== undefined && (
+        <Tooltip
+          content={`Transcript: ${formatBytes(bytes)}${sizeLimit > 0 ? ` (flagged over ${sizeLimit} MB: Settings → Sessions)` : ''}. A long conversation slows down the CLI and Hive, and compacting doesn't shrink the file: it keeps the whole history.${long ? ` ${transcriptAdvice}` : ''}`}
+        >
+          <span className={cx('pane-foot-item', long ? 'warn' : 'faint')} onClick={() => (onTranscript ? onTranscript() : set({ handOverFor: { project: project.path, agentId: a.id } }))}>
+            <Icon name="file" /> {formatBytes(bytes)}
           </span>
         </Tooltip>
       )}

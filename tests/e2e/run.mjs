@@ -25,6 +25,7 @@ const SUITES = [
   { name: 'assistant', needs: ['claude'] },
   { name: 'assistant-control' },
   { name: 'background' },
+  { name: 'longsession' },
   { name: 'rail' },
   { name: 'resize' },
   { name: 'keys' },

@@ -29,8 +29,11 @@ const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}
   const plan = page.locator('.statusbar .status-item', { hasText: '5h' })
   check('status bar shows plan usage', (await plan.textContent()).replace(/\s+/g, '').includes('5h86%·Week40%'), await plan.textContent())
   check('86% is highlighted', (await plan.getAttribute('class')).includes('caution'))
-  await plan.hover(); await sleep(700)
-  const tip = await page.locator('.tip').last().textContent().catch(() => '')
+  // Waits for the tooltip itself: a fixed pause missed it when the machine was busy.
+  await plan.hover()
+  const tipEl = page.locator('.tip', { hasText: 'resets' }).last()
+  await tipEl.waitFor({ timeout: 5000 }).catch(() => undefined)
+  const tip = await tipEl.textContent().catch(() => '')
   check('tooltip shows reset time', /resets in 2 h 1[34] min/.test(tip), tip)
   await page.screenshot({ path: path.join(shots, '1-statusbar.png') })
 

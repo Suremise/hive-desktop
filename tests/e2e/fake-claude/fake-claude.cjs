@@ -9,7 +9,8 @@
 //   Enter (Ctrl+U clears the line). Each prompt sends UserPromptSubmit, is written to the transcript, "works"
 //   (1 s, or N seconds for "work N"), and ends with a reply and Stop. "edit <file>" first sends PreToolUse for
 //   an Edit of that file and records the tool call. "background N" starts a background command that ends after
-//   N seconds; its task notification then starts a turn by itself, as in Claude Code.
+//   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
+//   transcript.
 // - Ctrl+C twice, or "/exit", ends it with SessionEnd.
 const fs = require('fs')
 const path = require('path')
@@ -84,6 +85,9 @@ async function runPrompt(text) {
     write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: denied ? 'Blocked by a hook' : 'The file has been updated.', is_error: denied }] } })
     await hook('PostToolUse', { tool_name: 'Edit', tool_input: { file_path: file }, tool_use_id: id })
   }
+  // "pad N": N KB more transcript, as a long conversation has.
+  const pad = /\bpad\s+(\d+)/i.exec(text)
+  if (pad) write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_pad', content: 'x'.repeat(Number(pad[1]) * 1024) }] } })
   const background = /\bbackground\s+(\d+)/i.exec(text)
   if (background) await startBackgroundTask(Number(background[1]))
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
