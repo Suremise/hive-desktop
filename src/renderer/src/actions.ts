@@ -1,6 +1,6 @@
 import { basename } from './util'
 import { call, errorMessage } from './api'
-import { agentOf, agentProviderOf, confirm, findProject, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
+import { agentOf, agentProviderOf, choose, confirm, findProject, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
 import { MANY_AGENTS, MAX_AGENTS, sessionInAgentFolder, withPageLayout } from '@shared/defaults'
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
@@ -291,13 +291,22 @@ export async function resumeSession(path: string, item: Pick<SessionListItem, 'i
     return
   }
   if (item.recache && !item.recache.warm && item.recache.tokens > 20000) {
-    const ok = await confirm({
-      title: 'Resume session?',
-      message: `The prompt cache for this session has expired. Resuming will re-cache about ${formatTokens(item.recache.tokens)} tokens on the first message.`,
-      detail: 'To save tokens, you can archive it and start a fresh session instead, perhaps from a handover note.',
-      confirmLabel: 'Resume'
+    const what = isAssistantPath(path) ? 'conversation' : 'session'
+    const choice = await choose({
+      title: `Resume ${what}?`,
+      message: `The prompt cache for this ${what} has expired. Resuming will re-cache about ${formatTokens(item.recache.tokens)} tokens on the first message.`,
+      detail: `To save tokens, archive it and start a fresh ${what} instead. The archived one stays readable${isAssistantPath(path) ? '' : ', and a handover note can carry the work on'}.`,
+      choices: [
+        { label: 'Archive and Start Fresh', value: 'fresh' },
+        { label: 'Resume', value: 'resume' }
+      ]
     })
-    if (!ok) return
+    if (!choice) return
+    if (choice === 'fresh') {
+      const archived = await attempt(`Could not archive ${what}`, () => call('session:archive', path, item.id, true).then(() => true))
+      if (archived) await newSession(path, target)
+      return
+    }
   }
   if (!(await stopIfRunning(path, target, 'Resume this session'))) return
   const st = await attempt('Could not resume session', () => call('session:start', path, { resumeId: item.id, name: item.name, agentId: target }))
