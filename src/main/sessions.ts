@@ -581,7 +581,8 @@ class SessionManager {
         ...(state.sessionId ? { HIVE_SESSION_ID: state.sessionId } : {}),
         HIVE_AGENT: agent.name,
         HIVE_PROVIDER: adapter.id,
-        ...this.apiEnv()
+        // Not for the Assistant: it reaches the API through its hive tools, with its own token.
+        ...(workspace.isAssistantHome(projectPath) ? {} : this.apiEnv())
       })
     }
     await adapter.prepareLaunch(ctx)

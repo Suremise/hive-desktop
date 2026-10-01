@@ -157,6 +157,17 @@ const check = (name, ok, extra = '') => {
   check('the other agent starts on the handover', !!picked)
   check('the hand-over is listed', (await inv('assistant:actions')).some((x) => x.ok && x.text.startsWith("Handing Fixer's work over to Checker")))
 
+  // Through its real hive tools, with the Agent API on: the CLI hands its own environment to MCP servers, and
+  // that may carry the Agent API's token (HIVE_API_TOKEN); the Assistant's tools must still use its own.
+  const viaTool = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], {
+    input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'hive_activate_project', arguments: { project: 'alpha', active: true } } }) + '\n',
+    env: { ...process.env, HIVE_API_TOKEN: apiToken, ...mcp.env, HIVE_API_URL: API },
+    timeout: 15000
+  }).toString()
+  const toolReply = JSON.parse(viaTool.split('\n')[0]).result
+  const asAssistant = (await inv('assistant:actions')).some((x) => x.ok && x.text === 'Activated alpha')
+  check("its hive tools act as the Assistant with the Agent API on", !toolReply?.isError && asAssistant, JSON.stringify(toolReply).slice(0, 300))
+
   // At most 30 changes for one message.
   let status = 200
   let n = 0

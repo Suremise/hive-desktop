@@ -20,7 +20,9 @@ const CONTROL = process.env.HIVE_ASSISTANT_CONTROL || 'projects'
 
 function token(): string {
   const t = process.env.HIVE_API_TOKEN
-  if (t && !t.includes('${')) return t
+  // The Assistant uses its own token (from its file): HIVE_API_TOKEN, which a CLI hands on from its own
+  // environment, would be the Agent API's, and Hive would take its calls for an ordinary caller's.
+  if (t && !t.includes('${') && !ASSISTANT) return t
   try {
     const file = process.env.HIVE_API_TOKEN_FILE
     if (file) return JSON.parse(readFileSync(file, 'utf8')).token ?? ''
