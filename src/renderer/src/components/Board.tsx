@@ -408,7 +408,7 @@ export function BoardPanel() {
       <div className="pane-body">
         {row(null, 'All projects', 'layers')}
         {projects.map((p) => row(p.name, p.name, 'folder'))}
-        {row('', 'Workspace (no project)', 'root-folder')}
+        {row('', 'Workspace', 'root-folder')}
         {stalled.length > 0 && (
           <>
             <div className="section-header">
