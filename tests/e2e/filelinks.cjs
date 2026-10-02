@@ -23,7 +23,8 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
   for (const d of [userData, ws, ws + '.worktrees', claudeHome]) fs.rmSync(d, { recursive: true, force: true })
   fs.mkdirSync(claudeHome, { recursive: true })
   fs.mkdirSync(path.join(alpha, 'src'), { recursive: true })
-  lib.gitProject(alpha, { 'src/app.ts': lines(40, 'app'), 'README.md': '# Alpha\n' })
+  fs.mkdirSync(path.join(alpha, 'my docs'), { recursive: true })
+  lib.gitProject(alpha, { 'src/app.ts': lines(40, 'app'), 'README.md': '# Alpha\n', 'my docs/my notes.ts': lines(20, 'notes') })
   fs.mkdirSync(path.join(beta, 'lib'), { recursive: true })
   fs.writeFileSync(path.join(beta, 'lib', 'util.js'), lines(10, 'util'))
   lib.enableProviders(userData)
@@ -123,6 +124,39 @@ const lines = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} line ${
   check("it opens in the agent's worktree", !!(await until(async () => (await page.locator('.root-select').inputValue().catch(() => '')) === two.id && (await selectedRow()) === 'src/app.ts', 5000)))
   check('at line 7', !!(await until(async () => (await activeLine()) === '7', 10000)), await activeLine())
   await page.screenshot({ path: path.join(lib.WORK, 'filelinks-3-worktree.png') })
+
+  // --- Review findings: a path printed in other case opens the file as it is spelled on disk (Windows ignores
+  // case; the Files tree doesn't), and a path with spaces is one link, quoted or not.
+  await backToSession()
+  for (const prompt of ['see SRC/APP.TS:9 and "my docs/my notes.ts":4', 'then my docs/my notes.ts:6', 'not "docs/missing README.md":2']) {
+    await inv('pty:write', key2, prompt)
+    await lib.sleep(200)
+    await inv('pty:write', key2, '\r')
+    await until(async () => String(await inv('pty:buffer', key2)).includes(`Done: ${prompt}`), 15000)
+    await until(async () => (await live(alpha, two.id))?.status === 'finished', 15000)
+  }
+  check('the paths are printed', !!(await until(() => textAt(key2, 'SRC/APP.TS:9'), 10000)) && !!(await textAt(key2, 'my notes.ts:6')))
+  // A quoted path that isn't a file: README.md inside it exists in the worktree, but isn't linked on its own.
+  const inQuote = await textAt(key2, 'README.md":2')
+  await page.mouse.move(inQuote.x + 4, inQuote.y)
+  await lib.sleep(700)
+  check("a piece of a quoted path that isn't a file isn't linked", (await linkTitle()) === 0)
+  const upper = await textAt(key2, 'SRC/APP.TS:9')
+  await page.mouse.move(upper.x + 4, upper.y)
+  await lib.sleep(500)
+  await ctrlClick({ x: upper.x + 4, y: upper.y })
+  check('a path in other case selects the file', !!(await until(async () => (await selectedRow()) === 'src/app.ts', 5000)), String(await selectedRow()))
+  check('and shows its line', !!(await until(async () => (await activeLine()) === '9', 10000)), await activeLine())
+  for (const [printed, line] of [['my notes.ts":4', '4'], ['my notes.ts:6', '6']]) {
+    await backToSession()
+    // On the path's last name: the link is the whole path, spaces and all.
+    const at = await textAt(key2, printed)
+    await page.mouse.move(at.x + 4, at.y)
+    await lib.sleep(500)
+    await ctrlClick({ x: at.x + 4, y: at.y })
+    check(`a path with spaces opens (${printed})`, !!(await until(async () => (await selectedRow()) === 'my docs/my notes.ts', 5000)), String(await selectedRow()))
+    check(`at line ${line}`, !!(await until(async () => (await activeLine()) === line, 10000)), await activeLine())
+  }
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')

@@ -6,6 +6,7 @@
 - **Agents can move cards to Done.** Ask an agent *"looks good, move #65 to done"* and it does; the Assistant can too. Agents still move finished work to Review by default, for you to check. Every move is in the card's history with who made it, and a card can be moved back out of Done from the board or by asking. Before, only you could move cards into or out of Done.
 
 ### Fixes
+- **File links in the terminal**: a path printed in different case from the file (`SRC/APP.TS`) opened the Files tab without selecting the file or showing its line. Paths with spaces (quoted, or like `C:/ws/my app/src/app.ts`) and names with brackets (`app/[slug]/page.tsx`) are now links too, and a piece of a longer path no longer links to some other file.
 - Changing a number setting and then ticking **Never** straight away could leave the number saved and Never unticked, mostly in Project Settings. A number box now saves one change at a time, and your last choice wins.
 - **Help → Copy Diagnostics…** left some of your own text in the log lines it copied: card titles, what the Hive Assistant did, session names, and the names and folders of workspaces you had opened before. Hive now marks your text as it writes its log and the report leaves it out, including what an agent was started with; lines an older version wrote show only their time and source, and folders that aren't Hive's or the coding agents' own are hidden. The report also says which Windows sandbox Codex uses.
 
