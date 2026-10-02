@@ -274,7 +274,7 @@ Rebuilding `launch/` on every launch guarantees anything disabled globally is go
 | `Notification` (permission prompt) | **waiting** — notification if window hidden/unfocused |
 | `Stop` | **finished** — chime if enabled; notification if hidden/unfocused. **background** instead when the agent has background tasks running that will start it again (below) |
 | `PreCompact` | **working** ("Compacting the conversation…" when it was idle, e.g. `/compact` typed in the CLI); toast for automatic compaction |
-| `PostCompact` | back to **ready** after a compaction that started idle (Hive's Compact or `/compact`); one mid-turn keeps working |
+| `PostCompact` | back to **ready** after a compaction that started idle (Hive's Compact or `/compact`); one mid-turn keeps working, and so does a turn begun since (a prompt after the compaction began ends it). Without the hook, Hive's Compact ends when the transcript shows a new compaction, the CLI says it refused or failed it, or if it hasn't begun 20 seconds after Hive submitted its `/compact` (typing a long focus doesn't count) or runs past 10 minutes, with the same rule. While Hive types the command, the agent is reserved: a second Compact or a prompt is refused, and if the agent stops meanwhile the rest isn't typed |
 | `SessionEnd` | **stopped** |
 
 Hooks have a short timeout; if Hive is unreachable, Claude Code continues normally. The same question twice, or a second `Stop`, notifies once. The rules are in `main/hookStatus.ts` (pure, unit-tested for both providers); `SessionManager.handleHookNow` carries out what they say.

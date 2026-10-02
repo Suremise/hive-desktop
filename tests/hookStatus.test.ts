@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { applyStep, hookStep, titleStep, type HookAction, type HookStatusInput, type HookStep } from '../src/main/hookStatus'
+import { applyStep, compactionOver, hookStep, titleStep, type HookAction, type HookStatusInput, type HookStep } from '../src/main/hookStatus'
+import { COMPACTING_MESSAGE } from '../src/shared/defaults'
 import type { Ask, ProviderAdapter } from '../src/main/providers/types'
 import type { SessionStatus } from '../src/shared/types'
 
@@ -47,12 +48,9 @@ function send(adapter: ProviderAdapter, a: Agent, ...bodies: Record<string, unkn
   for (const body of bodies) {
     const step = hookStep(adapter.normalizeHook(body).event, input(a, adapter.descriptor.capabilities.backgroundWakes))
     apply(a, step)
+    // SessionManager.carryOut: the compaction Hive asked for has begun, or is over (the step set the status).
     if (step.actions.includes('compactBegan')) a.compacting = 'started'
-    if (step.actions.includes('compactEnded')) {
-      a.compacting = null
-      // finishCompacting: back to ready.
-      if (a.status === 'working') a.status = 'ready'
-    }
+    if (step.actions.includes('compactEnded')) a.compacting = null
   }
   return a
 }
@@ -145,11 +143,42 @@ describe('hook → status, for each provider', () => {
 
   it('compaction Hive asked for: under way, then ready', async () => {
     for (const [name, adapter, h] of await providers()) {
-      const a = agent('working', { statusMessage: 'Compacting…', compacting: 'requested' })
+      const a = agent('working', { statusMessage: COMPACTING_MESSAGE, compacting: 'requested' })
       send(adapter, a, h.compactStart)
-      expect([a.status, a.compacting, a.actions], name).toEqual(['working', 'started', ['compactBegan']])
+      expect([a.status, a.statusMessage, a.compacting, a.actions], name).toEqual(['working', COMPACTING_MESSAGE, 'started', ['compactBegan']])
       send(adapter, a, h.compactEnd)
-      expect([a.status, a.compacting], name).toEqual(['ready', null])
+      expect([a.status, a.statusMessage, a.compacting, a.unseen], name).toEqual(['ready', undefined, null, undefined])
+    }
+  })
+
+  it("compaction Hive asked for, its end unsaid: a new turn ends it, and a late end doesn't make the turn idle", async () => {
+    for (const [name, adapter, h] of await providers()) {
+      const a = send(adapter, agent('working', { statusMessage: COMPACTING_MESSAGE, compacting: 'requested' }), h.compactStart, h.prompt)
+      expect([a.status, a.statusMessage, a.compacting], name).toEqual(['working', undefined, null])
+      expect(a.actions, name).toEqual(['compactBegan', 'answered', 'prompted', 'compactEnded'])
+      // PostCompact after all, or Hive noticing the end (transcript, time limit): the turn stands.
+      expect(send(adapter, a, h.compactEnd).status, name).toBe('working')
+      expect(compactionOver(a).next, name).toBeNull()
+    }
+  })
+
+  it("a prompt before the CLI begins Hive's compaction (it may be the /compact typed) leaves it under way", async () => {
+    for (const [name, adapter, h] of await providers()) {
+      const a = send(adapter, agent('working', { statusMessage: COMPACTING_MESSAGE, compacting: 'requested' }), h.prompt)
+      expect([a.status, a.statusMessage, a.compacting], name).toEqual(['working', COMPACTING_MESSAGE, 'requested'])
+      send(adapter, a, h.compactStart, h.compactEnd)
+      expect([a.status, a.statusMessage, a.compacting], name).toEqual(['ready', undefined, null])
+    }
+  })
+
+  it('a compaction over by what Hive saw (no hook): ready only while it still shows', () => {
+    const shown = agent('working', { statusMessage: COMPACTING_MESSAGE })
+    expect(applyStep(shown, compactionOver(shown))).toBe(true)
+    expect([shown.status, shown.statusMessage]).toEqual(['ready', undefined])
+    for (const other of [agent('working'), agent('working', { statusMessage: 'Auto-review: x' }), agent('waiting', { statusMessage: COMPACTING_MESSAGE }), agent('stopped')]) {
+      const before = { ...other }
+      expect(applyStep(other, compactionOver(other))).toBe(false)
+      expect(other).toEqual(before)
     }
   })
 
@@ -161,9 +190,12 @@ describe('hook → status, for each provider', () => {
       expect(send(adapter, busy, h.compactEnd).status, name).toBe('working')
       // /compact typed while idle: working while it compacts, and ready (not stuck working) once done.
       const idle = send(adapter, agent('ready'), h.compactStart)
-      expect([idle.status, idle.statusMessage], name).toEqual(['working', 'Compacting the conversation…'])
+      expect([idle.status, idle.statusMessage], name).toEqual(['working', COMPACTING_MESSAGE])
       send(adapter, idle, h.compactEnd)
       expect([idle.status, idle.statusMessage], name).toEqual(['ready', undefined])
+      // A prompt typed meanwhile (queued until it is done) starts a turn its end doesn't idle.
+      const queued = send(adapter, agent('ready'), h.compactStart, h.prompt, h.compactEnd)
+      expect([queued.status, queued.statusMessage], name).toEqual(['working', undefined])
     }
   })
 

@@ -1,0 +1,208 @@
+// A compaction Hive asked for: how it ends when the CLI doesn't say so (the transcript, the CLI refusing it, the
+// time limits), and that it ends once, with the status rules deciding what the agent shows.
+import { mkdtempSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { BEGIN_MS, Compaction, LIMIT_MS } from '../src/main/compaction'
+import { applyStep, compactionOver, hookStep, type HookStatusInput } from '../src/main/hookStatus'
+import { COMPACTING_MESSAGE } from '../src/shared/defaults'
+import type { SessionStatus } from '../src/shared/types'
+
+beforeEach(() => vi.useFakeTimers())
+afterEach(() => vi.useRealTimers())
+
+// What Hive types into agents' terminals, recorded instead (no process runs).
+const typed = vi.hoisted(() => [] as { key: string; data: string }[])
+vi.mock('../src/main/ptyHost', async (original) => ({ ...(await original<object>()), writePty: (key: string, data: string) => typed.push({ key, data }) }))
+
+const claudeFailure = async (): Promise<RegExp | null> => (await import('../src/main/providers/claude/adapter')).claudeCode.compactFailure
+
+/**
+ * An agent compacting as SessionManager.compact leaves it once its /compact is submitted, whose compaction ends as
+ * its `over` callback does.
+ */
+function compacting(before = 2, failure: RegExp | null = null, submitted = true) {
+  const st: { status: SessionStatus; statusMessage?: string } = { status: 'working', statusMessage: COMPACTING_MESSAGE }
+  const over = vi.fn(() => applyStep(st, compactionOver(st)))
+  const c = new Compaction(before, failure, over)
+  if (submitted) c.submitted()
+  return { st, over, c }
+}
+
+describe('a compaction Hive asked for', () => {
+  it('while its /compact is typed, no limit runs; the time to begin counts from its submission', () => {
+    const { c, over } = compacting(2, null, false)
+    expect(vi.getTimerCount()).toBe(0)
+    vi.advanceTimersByTime(LIMIT_MS * 2)
+    expect(over).not.toHaveBeenCalled()
+    c.submitted()
+    vi.advanceTimersByTime(BEGIN_MS - 1)
+    expect(over).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(over).toHaveBeenCalledTimes(1)
+  })
+
+  it('not begun within the time it has: over, and the agent ready', () => {
+    const { st, over } = compacting()
+    vi.advanceTimersByTime(BEGIN_MS - 1)
+    expect(over).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(over).toHaveBeenCalledTimes(1)
+    expect(st).toEqual({ status: 'ready', statusMessage: undefined })
+    vi.advanceTimersByTime(LIMIT_MS)
+    expect(over).toHaveBeenCalledTimes(1)
+  })
+
+  it('begun: it has the longer limit, then is over', () => {
+    const { c, over } = compacting()
+    vi.advanceTimersByTime(BEGIN_MS - 1)
+    c.begin()
+    expect(c.started).toBe(true)
+    vi.advanceTimersByTime(LIMIT_MS - 1)
+    expect(over).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(over).toHaveBeenCalledTimes(1)
+  })
+
+  it('the transcript shows one more compaction than before: over, once; the same count is not', () => {
+    const { c, over, st } = compacting(2)
+    c.begin()
+    c.transcript(2)
+    expect(over).not.toHaveBeenCalled()
+    c.transcript(3)
+    c.transcript(4)
+    vi.advanceTimersByTime(LIMIT_MS)
+    expect(over).toHaveBeenCalledTimes(1)
+    expect(st.status).toBe('ready')
+  })
+
+  it('Claude Code refusing or failing it in its terminal: over, even split across chunks', async () => {
+    const failure = await claudeFailure()
+    const refused = compacting(0, failure)
+    refused.c.terminal('\r\n\x1b[2mNot enough\x1b[1Cmessages ')
+    expect(refused.over).not.toHaveBeenCalled()
+    refused.c.terminal('to compact.\x1b[0m\r\n')
+    expect(refused.over).toHaveBeenCalledTimes(1)
+    const failed = compacting(0, failure)
+    failed.c.begin()
+    failed.c.terminal('Error during compaction: Error: API Error: 500')
+    expect(failed.over).toHaveBeenCalledTimes(1)
+    // Other output doesn't, nor does any for a CLI without a refusal to look for (Codex).
+    const busy = compacting(0, failure)
+    busy.c.terminal('Compacting conversation…')
+    const codex = compacting(0, null)
+    codex.c.terminal('Not enough messages to compact.')
+    expect([busy.over.mock.calls.length, codex.over.mock.calls.length]).toEqual([0, 0])
+  })
+
+  it('ended by a hook (or the session exiting): no timer or later sign fires it', async () => {
+    const { c, over } = compacting(0, await claudeFailure())
+    c.begin()
+    c.end()
+    expect(vi.getTimerCount()).toBe(0)
+    c.transcript(5)
+    c.terminal('Not enough messages to compact.')
+    c.begin()
+    expect(vi.getTimerCount()).toBe(0)
+    vi.advanceTimersByTime(LIMIT_MS * 2)
+    expect(over).not.toHaveBeenCalled()
+  })
+
+  it('its end unsaid, a prompt began a turn: what Hive sees later leaves the turn working', () => {
+    const { c, st, over } = compacting()
+    c.begin()
+    const s: HookStatusInput = { ...st, askedAtStart: false, compacting: 'started', backgroundWakes: true, tasks: 0, attention: 'hooks', reviewed: false, titleAsks: false, open: [], waitingOn: null, question: false }
+    const step = hookStep({ kind: 'prompt' }, s)
+    applyStep(st, step)
+    expect(st).toEqual({ status: 'working', statusMessage: undefined })
+    expect(step.actions).toContain('compactEnded')
+    // Had the session carried on without the hook's end (say, ended by the transcript just after the prompt):
+    c.transcript(3)
+    expect(over).toHaveBeenCalledTimes(1)
+    expect(st).toEqual({ status: 'working', statusMessage: undefined })
+  })
+})
+
+describe('SessionManager.compact: typing the /compact', () => {
+  const ws = mkdtempSync(join(tmpdir(), 'hive-compact-'))
+  const project = join(ws, 'proj')
+  const FOCUS = 'x'.repeat(24_000) // 3,000 pieces of 8 every 10 ms: about 30 s, longer than BEGIN_MS
+
+  /** A running Claude Code agent, idle, as SessionManager keeps it (no process: what is typed is recorded). */
+  async function running(runId = 'run-1') {
+    const { sessions } = await import('../src/main/sessions')
+    const { claudeCode } = await import('../src/main/providers/claude/adapter')
+    const live = (sessions as unknown as { live: Map<string, unknown> }).live
+    const state = { provider: 'claude', runId, projectPath: project, agentId: 'a1', cwd: project, sessionId: '', status: 'ready' as SessionStatus, statusMessage: undefined as string | undefined, startedAt: '', launchSignature: '', unseen: false }
+    const l = { state, adapter: claudeCode, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null } as { state: typeof state; compacting?: Compaction }
+    live.set(`${project.toLowerCase()}#a1`, l)
+    return { sessions, live, l, state }
+  }
+
+  beforeEach(async () => {
+    typed.length = 0
+    const { createWorkspaceService, disposeWorkspaceService } = await import('../src/main/workspace')
+    const w = createWorkspaceService()
+    w.path = ws
+    vi.spyOn(w, 'isProjectPath').mockImplementation((p: string) => p.toLowerCase() === project.toLowerCase())
+    return async () => {
+      ;((await import('../src/main/sessions')).sessions as unknown as { live: Map<string, unknown> }).live.clear()
+      await disposeWorkspaceService(w)
+    }
+  })
+
+  it('a long focus: compacting while it is typed (a second Compact or a prompt refused), its limit from Enter', async () => {
+    const { sessions, l, state } = await running()
+    const compact = sessions.compact(project, FOCUS, 'a1')
+    const submitted = (): boolean => typed.at(-1)?.data === '\r'
+    await vi.advanceTimersByTimeAsync(BEGIN_MS + 5_000)
+    expect([submitted(), state.status, state.statusMessage, !!l.compacting]).toEqual([false, 'working', COMPACTING_MESSAGE, true])
+    expect(typed.some((t) => t.data === '\r')).toBe(false)
+    await expect(sessions.compact(project, undefined, 'a1')).rejects.toThrow(/already compacting/)
+    await expect(sessions.sendPrompt(project, 'a1', 'hello')).rejects.toThrow(/already typing/)
+    // Typed in full, then submitted.
+    while (!submitted()) await vi.advanceTimersByTimeAsync(10)
+    await compact
+    expect(typed.map((t) => t.data).join('')).toBe(`\x15/compact ${FOCUS}\r`)
+    // The CLI never begins it: BEGIN_MS from the submission (within the last 10 ms), not from the start of typing.
+    await vi.advanceTimersByTimeAsync(BEGIN_MS - 20)
+    expect([state.status, !!l.compacting]).toEqual(['working', true])
+    await vi.advanceTimersByTimeAsync(20)
+    expect([state.status, state.statusMessage, l.compacting]).toEqual(['ready', undefined, undefined])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('while Hive types a prompt into the agent, Compact is refused (the two would mix)', async () => {
+    const { sessions, l, state } = await running()
+    const prompt = sessions.sendPrompt(project, 'a1', FOCUS)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await expect(sessions.compact(project, undefined, 'a1')).rejects.toThrow(/already typing/)
+    expect([state.status, l.compacting]).toEqual(['ready', undefined])
+    while (typed.at(-1)?.data !== '\r') await vi.advanceTimersByTimeAsync(100)
+    await prompt
+  })
+
+  it('the agent restarts while it is typed: the rest goes nowhere, and nothing is left reserved', async () => {
+    const first = await running('run-1')
+    const compact = first.sessions.compact(project, FOCUS, 'a1')
+    const failed = expect(compact).rejects.toThrow(/stopped/)
+    await vi.advanceTimersByTimeAsync(2_000)
+    const sent = typed.length
+    // Restarted: a new run of the same agent (the same terminal key) takes its place.
+    const second = await running('run-2')
+    await vi.advanceTimersByTimeAsync(40_000)
+    await failed
+    // At most the piece already on its way when the run changed.
+    expect(typed.length - sent).toBeLessThanOrEqual(1)
+    expect(typed.some((t) => t.data === '\r')).toBe(false)
+    expect([first.l.compacting, first.state.status]).toEqual([undefined, 'working'])
+    expect([second.state.status, second.l.compacting]).toEqual(['ready', undefined])
+    expect(vi.getTimerCount()).toBe(0)
+    // The new run can be compacted.
+    const again = second.sessions.compact(project, 'short', 'a1')
+    await vi.advanceTimersByTimeAsync(1_000)
+    await again
+    expect(second.l.compacting?.started).toBe(false)
+  })
+})

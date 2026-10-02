@@ -1,6 +1,6 @@
 // A failed start's reason: the CLI's last error lines read out of raw terminal output, and each adapter's hint.
 import { describe, expect, it } from 'vitest'
-import { lastErrorLines, terminalLines } from '../src/shared/startFailure'
+import { failedStart, lastErrorLines, terminalLines, type ExitInput } from '../src/shared/startFailure'
 
 describe('the reason a CLI gave', () => {
   it('reads terminal output as plain lines: escapes gone, redrawn lines as their last text, frames dropped', () => {
@@ -40,5 +40,40 @@ describe("the adapters' hints", () => {
     expect(codex.startHint('The model `gpt-9` does not exist')?.hint).toMatch(/model/)
     expect(codex.startHint('Not logged in. Run codex login')?.fix).toBe('agent-setup')
     expect(codex.startHint('Bye')).toBeNull()
+  })
+})
+
+describe('an exit: a failed start, or a plain stop', () => {
+  const starting: ExitInput = { status: 'starting', stopRequested: false, backgroundJob: false, resumed: false }
+  const at = '2026-10-02T12:00:00.000Z'
+
+  it('each CLI exiting before its session started: failed, with what it said and its hint', async () => {
+    const { claudeCode } = await import('../src/main/providers/claude/adapter')
+    const { codex } = await import('../src/main/providers/codex/adapter')
+    for (const [adapter, output, fix] of [
+      [claudeCode, "\x1b[31merror:\x1b[0m unknown option '--nope'\r\n", 'agent-settings'],
+      [codex, 'Error loading config.toml:\r\nunknown variant `hgih`, expected one of `low`, `medium`, `high`\r\n', 'agent-settings']
+    ] as const) {
+      const cli = { name: adapter.descriptor.name, startHint: adapter.startHint.bind(adapter) }
+      const f = failedStart(starting, 1, output, cli, at)
+      expect(f, adapter.descriptor.name).toMatchObject({ exitCode: 1, resumed: false, at, fix })
+      expect(f?.reason, adapter.descriptor.name).toMatch(/unknown/)
+      expect(f?.hint, adapter.descriptor.name).toBeTruthy()
+      // A resume that failed is retried as a resume; a CLI that said nothing still gets a reason, and no hint.
+      expect(failedStart({ ...starting, resumed: true }, 1, output, cli, at)?.resumed).toBe(true)
+      expect(failedStart(starting, 3, '\x1b[2J\x1b[H', cli, at)).toEqual({ reason: `${adapter.descriptor.name} exited with code 3.`, exitCode: 3, resumed: false, at })
+    }
+  })
+
+  it('anything else is a plain stop: once started, stopped by the user or quitting, setting up, or a background job', async () => {
+    const { claudeCode } = await import('../src/main/providers/claude/adapter')
+    const cli = { name: 'Claude Code', startHint: claudeCode.startHint.bind(claudeCode) }
+    const out = 'error: unknown option'
+    for (const status of ['ready', 'working', 'waiting', 'background', 'finished', 'stopped'] as const) {
+      expect(failedStart({ ...starting, status }, 1, out, cli), status).toBeUndefined()
+    }
+    expect(failedStart({ ...starting, stopRequested: true }, 1, out, cli)).toBeUndefined()
+    expect(failedStart({ ...starting, settingUp: true }, 1, out, cli)).toBeUndefined()
+    expect(failedStart({ ...starting, backgroundJob: true }, 1, out, cli)).toBeUndefined()
   })
 })

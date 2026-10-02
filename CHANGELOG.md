@@ -9,6 +9,7 @@
 - **Agents can move cards to Done.** Ask an agent *"looks good, move #65 to done"* and it does; the Assistant can too. Agents still move finished work to Review by default, for you to check. Every move is in the card's history with who made it, and a card can be moved back out of Done from the board or by asking. Before, only you could move cards into or out of Done.
 
 ### Fixes
+- After **Compact**, an agent you had already given a new message could show as **Ready** while it worked on it, when the coding agent didn't report the compaction's end and Hive noticed it later. A new message after a compaction now counts as the compaction being over, and the agent stays **working**.
 - **Task board**: a card's number (#79) was hard to read, in faint grey on the card. It now has the same contrast as the rest of the card's text, in both themes and with column colours.
 - In a narrow agent pane, **Merge…**'s count spilled out of its button over its neighbour, and a long agent name, branch or card pushed the header's buttons (even ⋯) off its edge. The buttons now always fit: a count widens its button, and the agent's details shorten instead (hover for the full text).
 - **Compact**'s spinner in the agent header stood still while the conversation compacted. It now turns until the compaction has finished, in the Assistant's header too.

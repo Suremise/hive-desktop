@@ -3,6 +3,8 @@
  * error): the CLI's last error lines from its terminal, and a hint where its adapter recognises the error.
  */
 
+import type { SessionStatus } from './types'
+
 /** Where the hint's fix is: the agent's settings (model, extra arguments), Agent Setup (install, sign-in), or its terminal. */
 export type StartFix = 'agent-settings' | 'agent-setup' | 'terminal'
 
@@ -51,4 +53,27 @@ export function lastErrorLines(output: string): string {
   const picked = first >= 0 ? lines.slice(first, first + MAX_LINES) : lines.slice(-MAX_LINES)
   const text = picked.join('\n')
   return text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS - 1).trimEnd()}…` : text
+}
+
+/** What Hive knows of an agent when its CLI exits. */
+export interface ExitInput {
+  status: SessionStatus
+  /** Its worktree setup still ran: a setup failure is reported by itself. */
+  settingUp?: boolean
+  /** The user stopped it, or Hive is quitting. */
+  stopRequested: boolean
+  /** The CLI refused the conversation because it runs it as a background job (reported by itself). */
+  backgroundJob: boolean
+  /** The launch was a resume. */
+  resumed: boolean
+}
+
+/**
+ * A failed start: the CLI exited before its session started (still starting) and nobody stopped it. Its reason is
+ * what the CLI last said, and the hint its adapter (`cli`) gives for it. Any other exit is a plain stop: undefined.
+ */
+export function failedStart(s: ExitInput, code: number, output: string, cli: { name: string; startHint?(text: string): StartHint | null }, at = new Date().toISOString()): StartFailure | undefined {
+  if (s.status !== 'starting' || s.settingUp || s.stopRequested || s.backgroundJob) return undefined
+  const reason = lastErrorLines(output) || `${cli.name} exited with code ${code}.`
+  return { reason, exitCode: code, resumed: s.resumed, at, ...cli.startHint?.(terminalLines(output).slice(-12).join('\n')) }
 }
