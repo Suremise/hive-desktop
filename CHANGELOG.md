@@ -13,6 +13,7 @@
 - **Agents can move cards to Done.** Ask an agent *"looks good, move #65 to done"* and it does; the Assistant can too. Agents still move finished work to Review by default, for you to check. Every move is in the card's history with who made it, and a card can be moved back out of Done from the board or by asking. Before, only you could move cards into or out of Done.
 
 ### Fixes
+- Opening a file, a diff or a Markdown preview with code shrank the icons around the window (the activity bar's from 24 to 16 pixels, and those in the status bar, tabs and buttons) until Hive was restarted. They now keep their size.
 - The **Notifications** bell on the activity bar was easy to miss with unread notifications: only a small dot in a grey icon. It now turns orange as well, clearly visible in both themes, and screen readers hear how many are unread.
 - Turning off **Settings → Notifications → Flash the taskbar button when an agent needs input** didn't stop a flash that had already started; it went on until you switched to Hive. It now stops at once.
 - When several agents finished together, their notification came a few seconds later even if you had turned notifications off or come back to Hive's window meanwhile. It is now left out then; with agents in two windows, only those whose window you aren't looking at are told.

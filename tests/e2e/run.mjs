@@ -48,6 +48,7 @@ const SUITES = [
   { name: 'bursts' },
   { name: 'taskbar' },
   { name: 'bell' },
+  { name: 'icons' },
   { name: 'ctxpercent' },
   { name: 'donemove' },
   { name: 'boardscope' },
