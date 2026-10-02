@@ -56,7 +56,7 @@ export function InboxPopover() {
   if (!open) return null
   const row = (i: InboxItem) => (
     <div key={`${i.projectPath}#${i.agentId}`} className="inbox-row" role="button" onClick={() => openInboxItem(i)}>
-      <span className={cx('dot', i.kind === 'review' ? 'finished' : i.kind === 'failed' ? 'error' : i.kind, i.kind === 'finished' && 'unseen')} />
+      <span className={cx('dot', i.kind === 'review' ? 'finished' : i.kind === 'failed' ? 'error' : i.kind === 'question' ? 'waiting' : i.kind, i.kind === 'finished' && 'unseen')} />
       <div className="inbox-text">
         <div className="inbox-name">
           <strong>{i.projectName}</strong>

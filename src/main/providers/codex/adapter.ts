@@ -66,6 +66,19 @@ export function toToml(v: unknown): string {
 /** Keys used in hook trust records for hooks passed with -c (Codex's synthetic "session flags" layer). */
 const SESSION_FLAGS = process.platform === 'win32' ? 'C:\\<session-flags>\\config.toml' : '/<session-flags>/config.toml'
 
+/**
+ * Which tool call a hook is about, the same in its PermissionRequest and PostToolUse (Codex sends no call id, and
+ * adds a `description` to the request's input): the tool and its command, patch or questions.
+ */
+function toolCall(tool: string, input: Record<string, unknown>): string {
+  return `${tool}\n${typeof input.command === 'string' ? input.command : JSON.stringify(input.questions ?? input.patch ?? '')}`
+}
+
+/** The first Codex version seen to title its terminal "Action Required" while a person must act (titleAttention). */
+const ACTION_REQUIRED_SINCE = '0.160.0'
+/** Codex's own terminal title items, set for Hive's sessions so a user's [tui].terminal_title can't hide "Action Required". */
+const TITLE_ITEMS = ['activity', 'project-name']
+
 type HookEvent = 'SessionStart' | 'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'PermissionRequest' | 'Stop' | 'Interrupt' | 'PreCompact' | 'PostCompact' | 'SessionEnd'
 const HOOKS: { event: HookEvent; label: string; matcher?: string; timeout: number }[] = [
   { event: 'SessionStart', label: 'session_start', timeout: 5 },
@@ -548,6 +561,7 @@ export class CodexAdapter implements ProviderAdapter {
     args.push('--no-daemon')
     args.push(...hookOverrides(ctx.hookUrl, ctx.env.HIVE_HOOK_TOKEN ?? '', this.hashesByRun.get(ctx.runId)))
     this.hashesByRun.delete(ctx.runId)
+    args.push('-c', `tui.terminal_title=${toToml(TITLE_ITEMS)}`)
     if (ctx.model) args.push('-m', ctx.model)
     if (ctx.effort) args.push('-c', `model_reasoning_effort=${toToml(ctx.effort)}`)
     args.push(...(CODEX_MODE_FLAGS[ctx.permissionMode ?? ''] ?? CODEX_MODE_FLAGS[CODEX_DESCRIPTOR.defaultPermissionMode]))
@@ -597,20 +611,22 @@ export class CodexAdapter implements ProviderAdapter {
         out.event = { kind: 'prompt' }
         break
       case 'PreToolUse':
-        if (tool.startsWith('request_user_input')) {
+        if (tool === 'request_user_input' || tool === 'request_user_input_async') {
+          // The async one returns at once and Codex carries on; the answer comes later as a prompt.
           const q = Array.isArray(input.questions) ? input.questions[0] : null
-          out.event = { kind: 'needsInput', message: String(q?.question ?? q?.title ?? 'Codex is asking you something') }
+          out.event = { kind: 'ask', ask: { kind: 'question', blocking: tool === 'request_user_input', message: String(q?.question ?? q?.title ?? ''), call: toolCall(tool, input) } }
         } else {
           out.event = { kind: 'toolStart' }
           if (tool === 'apply_patch' || tool === 'Edit' || tool === 'Write') out.editedPaths = patchPaths(String(input.command ?? input.patch ?? ''))
         }
         break
       case 'PostToolUse':
-        out.event = { kind: 'toolEnd' }
+        out.event = { kind: 'toolEnd', call: toolCall(tool, input) }
         break
       case 'PermissionRequest': {
         const what = tool === 'apply_patch' ? `edit ${patchPaths(String(input.command ?? '')).join(', ')}` : tool === 'Bash' ? `run ${String(input.command ?? '').split('\n')[0].slice(0, 120)}` : tool ? `use ${tool}` : 'continue'
-        out.event = { kind: 'needsInput', message: `Codex asks to ${what}` }
+        // Sent before anyone answers it: in Approve for me, Codex's auto-reviewer does (ModeOption.reviewed).
+        out.event = { kind: 'ask', ask: { kind: 'permission', blocking: true, message: `Codex asks to ${what}`, call: toolCall(tool, input) } }
         break
       }
       case 'Stop':
@@ -635,6 +651,16 @@ export class CodexAdapter implements ProviderAdapter {
   lockReply(d: LockDecision): Record<string, unknown> {
     if (d.kind === 'warn') return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: d.context } }
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.kind, permissionDecisionReason: d.reason } }
+  }
+
+  /**
+   * Codex titles its terminal "[ ! ] Action Required | <project>" (blinking with "[ . ]") exactly while a person
+   * must act (an approval prompt, a question), and not while its auto-reviewer decides. Older versions than the one
+   * Hive was tested with go by the hooks.
+   */
+  titleAttention(version: string | null): ((title: string) => boolean) | null {
+    if (!version || compareVersions(version, ACTION_REQUIRED_SINCE) < 0) return null
+    return (title) => /^\[ [!.] \] Action Required\b/.test(title)
   }
 
   transcriptDetails(appended: string): LiveDetails {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { applyStep, hookStep, type HookAction, type HookStatusInput } from '../src/main/hookStatus'
-import type { ProviderAdapter } from '../src/main/providers/types'
+import { applyStep, hookStep, titleStep, type HookAction, type HookStatusInput, type HookStep } from '../src/main/hookStatus'
+import type { Ask, ProviderAdapter } from '../src/main/providers/types'
 import type { SessionStatus } from '../src/shared/types'
 
 /**
@@ -11,19 +11,42 @@ interface Agent {
   status: SessionStatus
   statusMessage?: string
   unseen?: boolean
+  question?: { text: string; since: string }
   askedAtStart: boolean
   compacting: HookStatusInput['compacting']
   tasks: number
+  attention: HookStatusInput['attention']
+  reviewed: boolean
+  titleAsks: boolean
+  open: Ask[]
+  waitingOn: Ask | null
   actions: HookAction[]
 }
 
-const agent = (status: SessionStatus, extra: Partial<Agent> = {}): Agent => ({ status, askedAtStart: false, compacting: null, tasks: 0, actions: [], ...extra })
+const agent = (status: SessionStatus, extra: Partial<Agent> = {}): Agent => ({ status, askedAtStart: false, compacting: null, tasks: 0, attention: 'hooks', reviewed: false, titleAsks: false, open: [], waitingOn: null, actions: [], ...extra })
+
+const input = (a: Agent, backgroundWakes = false): HookStatusInput => ({ ...a, question: !!a.question, backgroundWakes })
+
+/** What SessionManager.carryOut does with a step: the actions (recorded here), the open asks and the wait, the status. */
+function apply(a: Agent, step: HookStep): Agent {
+  a.actions.push(...step.actions)
+  if (step.open !== undefined) a.open = step.open
+  if (step.waitingOn !== undefined) a.waitingOn = step.waitingOn
+  applyStep(a, step)
+  return a
+}
+
+/** The CLI's title comes to say a person must act, or no longer (watchTitle). */
+function title(a: Agent, asks: boolean): Agent {
+  const step = titleStep(asks, input(a))
+  a.titleAsks = asks
+  return apply(a, step)
+}
 
 function send(adapter: ProviderAdapter, a: Agent, ...bodies: Record<string, unknown>[]): Agent {
   for (const body of bodies) {
-    const step = hookStep(adapter.normalizeHook(body).event, { ...a, backgroundWakes: adapter.descriptor.capabilities.backgroundWakes })
-    a.actions.push(...step.actions)
-    applyStep(a, step)
+    const step = hookStep(adapter.normalizeHook(body).event, input(a, adapter.descriptor.capabilities.backgroundWakes))
+    apply(a, step)
     if (step.actions.includes('compactBegan')) a.compacting = 'started'
     if (step.actions.includes('compactEnded')) {
       a.compacting = null
@@ -170,6 +193,316 @@ describe('hook → status, for each provider', () => {
   })
 })
 
+describe('Codex: who is asked', () => {
+  // The hooks as Codex 0.160.0 sent them (tests/e2e probes, Oct 2026): a permission request comes before anyone
+  // answers it, in every mode; the async question returns at once and its answer comes later as a prompt.
+  const pre = { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'curl.exe https://example.com' } }
+  const permission = { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'curl.exe https://example.com' } }
+  const post = { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'curl.exe https://example.com' } }
+  /** Another command, run beside the one asked about. */
+  const besidePre = { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } }
+  const besidePost = { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } }
+  const asyncQuestion = { hook_event_name: 'PreToolUse', tool_name: 'request_user_input_async', tool_input: { questions: [{ title: 'Which colour?', options: ['Red', 'Blue'] }] } }
+  const asyncAccepted = { hook_event_name: 'PostToolUse', tool_name: 'request_user_input_async' }
+  const question = { hook_event_name: 'PreToolUse', tool_name: 'request_user_input', tool_input: { questions: [{ question: 'Which language?' }] } }
+  const answer = { hook_event_name: 'UserPromptSubmit', prompt: '<send_user_message_question_reply>' }
+  const stop = { hook_event_name: 'Stop', last_assistant_message: 'Done.' }
+  const interrupt = { hook_event_name: 'Interrupt' }
+  const ASKS = 'Codex asks to run curl.exe https://example.com'
+
+  const codexAdapter = async (): Promise<ProviderAdapter> => (await import('../src/main/providers/codex/adapter')).codex
+  /** A Codex agent mid-turn, told by its title (0.160.0 and later), in Approve for me or Ask for approval. */
+  const codexAgent = (mode: 'approve-for-me' | 'ask', extra: Partial<Agent> = {}): Agent => agent('working', { attention: 'title', reviewed: mode === 'approve-for-me', ...extra })
+  const told = (a: Agent) => a.actions.filter((x) => x === 'notifyWaiting' || x === 'notifyQuestion')
+  const asked = (a: Agent) => [a.status, a.statusMessage, a.question?.text]
+
+  it('Approve for me: an auto-reviewed request never says you are needed, allowed or denied', async () => {
+    const codex = await codexAdapter()
+    const allowed = send(codex, codexAgent('approve-for-me'), pre, permission)
+    expect(asked(allowed)).toEqual(['working', `Auto-review: ${ASKS}`, undefined])
+    send(codex, allowed, post)
+    expect(asked(allowed)).toEqual(['working', undefined, undefined])
+    send(codex, allowed, stop)
+    expect([allowed.status, told(allowed)]).toEqual(['finished', []])
+    // Denied: no PostToolUse; the next tool shows the review is over, and the turn ends as usual.
+    const denied = send(codex, codexAgent('approve-for-me'), pre, permission, { ...pre, tool_input: { command: 'ls' } })
+    expect(asked(denied)).toEqual(['working', undefined, undefined])
+    expect([send(codex, denied, stop).status, told(denied)]).toEqual(['finished', []])
+    // Or the turn ends on the denial itself.
+    const ended = send(codex, codexAgent('approve-for-me'), pre, permission, stop)
+    expect([ended.status, ended.statusMessage, told(ended)]).toEqual(['finished', undefined, []])
+  })
+
+  it('Approve for me: if Codex did put the request to you (its title says so), you are told once', async () => {
+    const codex = await codexAdapter()
+    const a = send(codex, codexAgent('approve-for-me'), pre, permission)
+    title(a, true)
+    // Unsaid: a reviewed request is never taken for the title (a finished review could be taken for a later one).
+    expect([...asked(a), told(a)]).toEqual(['waiting', undefined, undefined, ['notifyWaiting']])
+    // The title blinks ("[ ! ]" / "[ . ]"): still the same need.
+    title(a, true)
+    expect(told(a)).toEqual(['notifyWaiting'])
+    title(a, false)
+    send(codex, a, post)
+    expect(asked(a)).toEqual(['working', undefined, undefined])
+  })
+
+  it('Ask for approval: waiting while the prompt is up, told once, and over when it is answered', async () => {
+    const codex = await codexAdapter()
+    // Approved.
+    const yes = send(codex, codexAgent('ask'), pre, permission)
+    expect(asked(yes)).toEqual(['working', undefined, undefined])
+    title(yes, true)
+    expect([...asked(yes), yes.unseen, told(yes)]).toEqual(['waiting', ASKS, undefined, true, ['notifyWaiting']])
+    title(yes, false)
+    expect(asked(yes)).toEqual(['working', undefined, undefined])
+    send(codex, yes, post, stop)
+    expect([yes.status, told(yes)]).toEqual(['finished', ['notifyWaiting']])
+    // Rejected (Esc): the prompt goes, and the turn is interrupted.
+    const no = title(send(codex, codexAgent('ask'), pre, permission), true)
+    send(codex, title(no, false), interrupt)
+    expect([no.status, no.statusMessage, no.open, no.waitingOn]).toEqual(['ready', undefined, [], null])
+    // Hooks in the other order: the title first (the hook is still on its way), then what was asked.
+    const late = title(codexAgent('ask'), true)
+    expect([...asked(late), told(late)]).toEqual(['waiting', undefined, undefined, ['notifyWaiting']])
+    send(codex, late, permission, permission)
+    expect([...asked(late), told(late)]).toEqual(['waiting', ASKS, undefined, ['notifyWaiting']])
+  })
+
+  it('a tool ending beside an open prompt does not answer it', async () => {
+    const codex = await codexAdapter()
+    const a = title(send(codex, codexAgent('ask'), pre, permission), true)
+    send(codex, a, besidePre, besidePost)
+    expect(a.status).toBe('waiting')
+    title(a, false)
+    expect(a.status).toBe('working')
+  })
+
+  it('a blocking question waits; it is answered when the title says so', async () => {
+    const codex = await codexAdapter()
+    const a = title(send(codex, codexAgent('approve-for-me'), question), true)
+    expect([...asked(a), told(a)]).toEqual(['waiting', 'Which language?', undefined, ['notifyWaiting']])
+    title(a, false)
+    expect(asked(a)).toEqual(['working', undefined, undefined])
+  })
+
+  it('an async question: working on, the question pending until it is answered, told once', async () => {
+    const codex = await codexAdapter()
+    // A call Codex rejected (bad arguments) shows nothing: only the title says a question is up.
+    const a = send(codex, codexAgent('approve-for-me'), asyncQuestion, asyncQuestion, asyncAccepted)
+    expect(asked(a)).toEqual(['working', undefined, undefined])
+    title(a, true)
+    expect([...asked(a), told(a)]).toEqual(['working', undefined, 'Which colour?', ['notifyQuestion']])
+    // It works on meanwhile; tools and other prompts don't answer it, nor does the title blinking.
+    send(codex, a, pre, post, { hook_event_name: 'UserPromptSubmit', prompt: 'also do x' })
+    title(a, true)
+    expect([...asked(a), told(a)]).toEqual(['working', undefined, 'Which colour?', ['notifyQuestion']])
+    // The answer: a prompt, and the title clears.
+    send(codex, a, answer)
+    title(a, false)
+    expect([...asked(a), told(a)]).toEqual(['working', undefined, undefined, ['notifyQuestion']])
+  })
+
+  it('an async question still open at the turn end stays until answered', async () => {
+    const codex = await codexAdapter()
+    const a = title(send(codex, codexAgent('ask'), asyncQuestion, asyncAccepted), true)
+    send(codex, a, stop)
+    expect([a.status, a.question?.text]).toEqual(['finished', 'Which colour?'])
+    title(a, false)
+    expect([a.status, a.question]).toEqual(['finished', undefined])
+  })
+
+  it('the title before the async question: told once, then shown as the question it is', async () => {
+    const codex = await codexAdapter()
+    const a = title(codexAgent('approve-for-me'), true)
+    send(codex, a, asyncQuestion, asyncAccepted)
+    expect([...asked(a), told(a)]).toEqual(['working', undefined, 'Which colour?', ['notifyWaiting']])
+  })
+
+  it('a blocking ask while a question is pending is told: it is a new need', async () => {
+    const codex = await codexAdapter()
+    const a = title(send(codex, codexAgent('ask'), asyncQuestion, asyncAccepted), true)
+    send(codex, a, pre, permission)
+    expect([...asked(a), told(a)]).toEqual(['waiting', ASKS, 'Which colour?', ['notifyQuestion', 'notifyWaiting']])
+  })
+
+  // The title is one for everything, so it can't say which of two asks it is for: a pending question keeps it on.
+  describe('with a question pending (the title already on)', () => {
+    /** A Codex agent working on with an async question pending, its title on. */
+    const withQuestion = async (mode: 'approve-for-me' | 'ask'): Promise<Agent> => {
+      const codex = await codexAdapter()
+      const a = title(send(codex, codexAgent(mode), asyncQuestion, asyncAccepted), true)
+      expect([...asked(a), told(a)]).toEqual(['working', undefined, 'Which colour?', ['notifyQuestion']])
+      return a
+    }
+
+    it('Approve for me: an auto-review allowed meanwhile is not you being asked', async () => {
+      const codex = await codexAdapter()
+      const a = send(codex, await withQuestion('approve-for-me'), pre, permission, permission)
+      title(a, true)
+      expect([...asked(a), told(a)]).toEqual(['working', `Auto-review: ${ASKS}`, 'Which colour?', ['notifyQuestion']])
+      send(codex, a, post)
+      expect([...asked(a), told(a)]).toEqual(['working', undefined, 'Which colour?', ['notifyQuestion']])
+      // The question is answered: a prompt, and the title goes back.
+      send(codex, a, answer)
+      title(a, false)
+      expect([...asked(a), told(a)]).toEqual(['working', undefined, undefined, ['notifyQuestion']])
+    })
+
+    it('Approve for me: nor one denied, which the next command shows is over', async () => {
+      const codex = await codexAdapter()
+      const a = send(codex, await withQuestion('approve-for-me'), pre, permission, besidePre, besidePost)
+      expect([...asked(a), told(a)]).toEqual(['working', undefined, 'Which colour?', ['notifyQuestion']])
+      send(codex, a, stop)
+      expect([a.status, a.question?.text, told(a)]).toEqual(['finished', 'Which colour?', ['notifyQuestion']])
+    })
+
+    it('Approve for me: a request the reviewer hands to you once the question is answered is told', async () => {
+      const codex = await codexAdapter()
+      const a = send(codex, await withQuestion('approve-for-me'), pre, permission, answer)
+      title(a, false)
+      title(a, true)
+      expect([a.status, told(a)]).toEqual(['waiting', ['notifyQuestion', 'notifyWaiting']])
+    })
+
+    it('Ask for approval: the prompt is a new need, and its own command ending answers it', async () => {
+      const codex = await codexAdapter()
+      const a = send(codex, await withQuestion('ask'), pre, permission, permission)
+      title(a, true)
+      expect([...asked(a), told(a)]).toEqual(['waiting', ASKS, 'Which colour?', ['notifyQuestion', 'notifyWaiting']])
+      // Another command ending doesn't; the one asked about does, though the question keeps the title on.
+      send(codex, a, besidePre, besidePost)
+      expect(a.status).toBe('waiting')
+      send(codex, a, post)
+      expect([...asked(a), told(a)]).toEqual(['working', undefined, 'Which colour?', ['notifyQuestion', 'notifyWaiting']])
+      send(codex, a, answer)
+      title(a, false)
+      expect(asked(a)).toEqual(['working', undefined, undefined])
+    })
+
+    it('Ask for approval: rejected (Esc), the turn ends and the question stays', async () => {
+      const codex = await codexAdapter()
+      const a = send(codex, await withQuestion('ask'), pre, permission, interrupt)
+      expect([a.status, a.question?.text]).toEqual(['ready', 'Which colour?'])
+    })
+
+    it('a blocking question meanwhile waits, and its own end answers it', async () => {
+      const codex = await codexAdapter()
+      const a = send(codex, await withQuestion('approve-for-me'), question)
+      expect([...asked(a), told(a)]).toEqual(['waiting', 'Which language?', 'Which colour?', ['notifyQuestion', 'notifyWaiting']])
+      send(codex, a, { hook_event_name: 'PostToolUse', tool_name: 'request_user_input', tool_input: question.tool_input })
+      expect(asked(a)).toEqual(['working', undefined, 'Which colour?'])
+    })
+  })
+
+  it('a question asked while a prompt waits leaves the wait, and is shown beside it', async () => {
+    const codex = await codexAdapter()
+    const a = title(send(codex, codexAgent('ask'), pre, permission), true)
+    send(codex, a, asyncQuestion, asyncAccepted)
+    expect([...asked(a), told(a)]).toEqual(['waiting', ASKS, 'Which colour?', ['notifyWaiting']])
+    send(codex, a, post)
+    expect(asked(a)).toEqual(['working', undefined, 'Which colour?'])
+  })
+
+  // What is asked is remembered from its hook until it is resolved; nothing resolved can explain a later title.
+  describe('the lifetime of what is asked', () => {
+    const titleFirst = async (a: Agent): Promise<Agent> => send(await codexAdapter(), title(a, true), asyncQuestion, asyncAccepted)
+    const hookFirst = async (a: Agent): Promise<Agent> => title(send(await codexAdapter(), a, asyncQuestion, asyncAccepted), true)
+
+    for (const [order, ask] of [['title before its hook', titleFirst], ['hook before its title', hookFirst]] as const) {
+      for (const outcome of ['allowed', 'denied'] as const) {
+        it(`a review ${outcome}, then a new question (${order}): the question, not the finished review`, async () => {
+          const codex = await codexAdapter()
+          // Duplicate request hooks, and for a denial the next command.
+          const a = send(codex, codexAgent('approve-for-me'), pre, permission, permission, ...(outcome === 'allowed' ? [post] : [besidePre, besidePost]))
+          expect([...asked(a), a.open]).toEqual(['working', undefined, undefined, []])
+          await ask(a)
+          expect([...asked(a), a.waitingOn]).toEqual(['working', undefined, 'Which colour?', null])
+          // Told once: of the question, or (title first) of a need its hook then named.
+          expect(told(a)).toEqual([order === 'title before its hook' ? 'notifyWaiting' : 'notifyQuestion'])
+          send(codex, a, answer)
+          title(a, false)
+          expect(asked(a)).toEqual(['working', undefined, undefined])
+        })
+      }
+
+      it(`a prompt approved, then a new question (${order}): the question, not the answered prompt`, async () => {
+        const codex = await codexAdapter()
+        const a = title(send(codex, codexAgent('ask'), pre, permission), true)
+        title(send(codex, a, post), false)
+        expect([a.status, a.open, a.waitingOn]).toEqual(['working', [], null])
+        await ask(a)
+        expect(asked(a)).toEqual(['working', undefined, 'Which colour?'])
+      })
+    }
+
+    it('an ask whose call ended before the title came is resolved: it is not what the title is about', async () => {
+      const codex = await codexAdapter()
+      // Ask for approval, but the call ends at once (approved by a rule of the user's): never asked.
+      const a = send(codex, codexAgent('ask'), pre, permission, post)
+      expect(a.open).toEqual([])
+      await titleFirst(a)
+      expect(asked(a)).toEqual(['working', undefined, 'Which colour?'])
+    })
+
+    it('a late or repeated hook of a resolved call changes nothing', async () => {
+      const codex = await codexAdapter()
+      const a = send(codex, codexAgent('approve-for-me'), pre, permission, post, post)
+      expect([...asked(a), a.open, told(a)]).toEqual(['working', undefined, undefined, [], []])
+    })
+
+    it('two prompts at once (calls side by side): the wait stays until both are answered', async () => {
+      const codex = await codexAdapter()
+      const other = { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } }
+      const a = title(send(codex, codexAgent('ask'), pre, permission, besidePre), true)
+      send(codex, a, other)
+      expect([a.status, a.statusMessage, told(a)]).toEqual(['waiting', 'Codex asks to run ls', ['notifyWaiting']])
+      // The newer one answered: still waiting, on the first, without telling again.
+      send(codex, a, besidePost)
+      expect([a.status, a.statusMessage, told(a)]).toEqual(['waiting', ASKS, ['notifyWaiting']])
+      send(codex, a, post)
+      title(a, false)
+      expect([a.status, a.open, a.waitingOn]).toEqual(['working', [], null])
+    })
+
+    it('a question and a prompt open before the title: it is about both, told once', async () => {
+      const codex = await codexAdapter()
+      const a = title(send(codex, codexAgent('ask'), asyncQuestion, asyncAccepted, pre, permission), true)
+      expect([...asked(a), told(a), a.open]).toEqual(['waiting', ASKS, 'Which colour?', ['notifyWaiting'], []])
+      // Its prompt answered, the title stays on for the question.
+      send(codex, a, post)
+      expect([...asked(a), told(a)]).toEqual(['working', undefined, 'Which colour?', ['notifyWaiting']])
+      title(a, false)
+      expect(asked(a)).toEqual(['working', undefined, undefined])
+    })
+  })
+
+  it('an older Codex (no title): by its hooks, where the mode says who answers', async () => {
+    const codex = await codexAdapter()
+    // Approve for me: its reviewer answers permission requests.
+    const reviewed = send(codex, agent('working', { reviewed: true }), pre, permission)
+    expect([...asked(reviewed), told(reviewed)]).toEqual(['working', `Auto-review: ${ASKS}`, undefined, []])
+    // Ask for approval: the request is the prompt.
+    const prompted = send(codex, agent('working'), pre, permission)
+    expect([...asked(prompted), told(prompted)]).toEqual(['waiting', ASKS, undefined, ['notifyWaiting']])
+    send(codex, prompted, post)
+    expect(prompted.status).toBe('working')
+    // A question, in any mode; the async one is answered by the next prompt.
+    const q = send(codex, agent('working', { reviewed: true }), asyncQuestion, asyncAccepted)
+    expect([...asked(q), told(q)]).toEqual(['working', undefined, 'Which colour?', ['notifyQuestion']])
+    send(codex, q, answer)
+    expect(q.question).toBeUndefined()
+    expect(send(codex, agent('working', { reviewed: true }), question).status).toBe('waiting')
+  })
+
+  it('the session ending clears a pending question', async () => {
+    const codex = await codexAdapter()
+    const a = title(send(codex, codexAgent('ask'), asyncQuestion), true)
+    send(codex, a, { hook_event_name: 'SessionEnd' })
+    expect([a.status, a.question, a.open, a.waitingOn]).toEqual(['stopped', undefined, [], null])
+  })
+})
+
 describe('background tasks at a turn end', () => {
   it('Claude Code (told when they end): background while any run, without a finished notification', async () => {
     const [[, claude, h]] = await providers()
@@ -177,7 +510,7 @@ describe('background tasks at a turn end', () => {
     expect(a.status).toBe('background')
     expect(a.actions).not.toContain('notifyFinished')
     // An interrupted turn with tasks still running is background too.
-    expect(hookStep({ kind: 'interrupt' }, { status: 'working', askedAtStart: false, compacting: null, backgroundWakes: true, tasks: 2 }).next).toBe('background')
+    expect(hookStep({ kind: 'interrupt' }, input(agent('working', { tasks: 2 }), true)).next).toBe('background')
   })
 
   it("Codex (not told): finished, since it won't carry on by itself", async () => {

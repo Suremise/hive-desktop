@@ -14,6 +14,8 @@ export interface ModeOption {
   description: string
   /** The provider's no-guardrails mode: hidden unless enabled in its settings, confirmed, and marked. */
   danger?: boolean
+  /** The CLI's own automatic reviewer, not the user, answers its permission requests (Codex's Approve for me). */
+  reviewed?: boolean
 }
 
 export interface ModelOption {

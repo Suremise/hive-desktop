@@ -13,12 +13,12 @@ describe('taskbar button', () => {
     expect(windowTitle('work — Hive', 0)).toBe('work — Hive')
   })
 
-  it('flashes when an agent starts waiting while the window is in the background, not on finishes or repeats', () => {
-    expect(shouldFlash('working', 'waiting', false, true)).toBe(true)
-    expect(shouldFlash(undefined, 'waiting', false, true)).toBe(true)
-    expect(shouldFlash('waiting', 'waiting', false, true)).toBe(false)
-    expect(shouldFlash('working', 'finished', false, true)).toBe(false)
-    expect(shouldFlash('working', 'waiting', true, true)).toBe(false)
-    expect(shouldFlash('working', 'waiting', false, false)).toBe(false)
+  it('flashes when an agent comes to ask you something while the window is in the background, not on repeats', () => {
+    // Asked: waiting, or a question it works on beside (asksYou); finishing isn't asking.
+    expect(shouldFlash(false, true, false, true)).toBe(true)
+    expect(shouldFlash(true, true, false, true)).toBe(false)
+    expect(shouldFlash(false, false, false, true)).toBe(false)
+    expect(shouldFlash(false, true, true, true)).toBe(false)
+    expect(shouldFlash(false, true, false, false)).toBe(false)
   })
 })

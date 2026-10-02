@@ -11,7 +11,7 @@ export const CODEX = 'codex'
 export const CODEX_PERMISSION_MODES: ModeOption[] = [
   { value: 'read-only', label: 'Read only', description: 'Reads workspace files; asks before any edit or internet access.' },
   { value: 'ask', label: 'Ask for approval', description: 'Reads and edits workspace files and runs commands in its sandbox; asks before internet access or edits outside the workspace.' },
-  { value: 'approve-for-me', label: 'Approve for me', description: 'An automatic reviewer approves safe actions itself and only asks about ones it thinks are risky.' },
+  { value: 'approve-for-me', label: 'Approve for me', description: 'An automatic reviewer approves safe actions itself and only asks about ones it thinks are risky.', reviewed: true },
   { value: 'full-access', label: 'Full access', description: 'No sandbox and no approvals: edits anything and uses the internet without asking. Use only in disposable environments.', danger: true }
 ]
 

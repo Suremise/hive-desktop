@@ -1,6 +1,6 @@
 /**
  * The taskbar button when agents need you (the attention inbox's count): a badge over Hive's icon, the count in
- * the window title (Alt+Tab, hover), and a flash when an agent starts waiting for your input while the window
+ * the window title (Alt+Tab, hover), and a flash when an agent comes to ask you something while the window
  * isn't focused. Each window shows its own workspace's count.
  */
 
@@ -20,7 +20,10 @@ export function badgeDescription(count: number): string {
   return count === 1 ? '1 agent needs you' : `${count} agents need you`
 }
 
-/** Whether a status change should flash the taskbar button: an agent starts waiting for input while the window isn't focused. */
-export function shouldFlash(before: string | undefined, after: string, windowFocused: boolean, enabled: boolean): boolean {
-  return enabled && !windowFocused && after === 'waiting' && before !== 'waiting'
+/**
+ * Whether a change should flash the taskbar button: an agent comes to ask you something (asksYou: it waits for an
+ * answer, or a question appears) while the window isn't focused.
+ */
+export function shouldFlash(askedBefore: boolean, askedNow: boolean, windowFocused: boolean, enabled: boolean): boolean {
+  return enabled && !windowFocused && askedNow && !askedBefore
 }
