@@ -9,7 +9,7 @@ import type { AssistantAction, AssistantControl, AssistantQuestion } from '../sh
 import { config } from './config'
 import { emit } from './events'
 import { hashText, writeJsonAtomic } from './fsutil'
-import { createLogger } from './logger'
+import { createLogger, userText } from './logger'
 
 /**
  * What the Hive Assistant may do through the Agent API, and what it did. Each workspace's Assistant gets its own
@@ -95,7 +95,7 @@ export function record(workspacePath: string, text: string, error?: string): voi
   const action: AssistantAction = { id: randomUUID(), at: new Date().toISOString(), text, ok: !error, ...(error ? { error } : {}) }
   s.actions.push(action)
   if (s.actions.length > MAX_LISTED) s.actions.splice(0, s.actions.length - MAX_LISTED)
-  log.info(`${workspacePath}: ${text}${error ? ` (refused: ${error})` : ''}`)
+  log.info(`${userText(workspacePath)}: ${userText(text)}${error ? ` (refused: ${userText(error)})` : ''}`)
   emit({ type: 'assistant-activity', projectPath: assistantHome(workspacePath), action })
 }
 

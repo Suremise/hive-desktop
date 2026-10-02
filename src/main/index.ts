@@ -10,6 +10,7 @@ import { handoverSession, hiveInstructions, projectHandovers, withLatestHandover
 import { notesTree } from './notes'
 import { assistantInstructions } from './personas'
 import { ASSISTANT_NAME, assistantPersona } from '../shared/assistant'
+import { MARKED_LOG } from '../shared/redact'
 import { PROVIDERS, projectProviderConfig, providerSettings } from '../shared/providers'
 import { projectAgents } from '../shared/defaults'
 import { SERVABLE_EXT, unwatchAll } from './files'
@@ -22,7 +23,7 @@ import { watchRenderer } from './rendererWatch'
 import { startPowerWatch } from './power'
 import { startTaskbarFlash } from './taskbar'
 import { startBranchWatch } from './branchWatch'
-import { createLogger, logsDir } from './logger'
+import { createLogger, userText, logsDir } from './logger'
 import { killAll } from './ptyHost'
 import { onCorruptFile } from './fsutil'
 import { apiEnv, assistantApiUrl, startApiServer, startHookServer } from './servers'
@@ -233,7 +234,7 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
 
   if (opts.workspacePath) {
     const path = opts.workspacePath
-    void inWorkspace(entry.ws, () => entry.ws.open(path)).catch((e) => log.warn(`Could not reopen ${path}`, e))
+    void inWorkspace(entry.ws, () => entry.ws.open(path)).catch((e) => log.warn(`Could not reopen ${userText(path)}`, e))
   }
   return entry
 }
@@ -517,7 +518,7 @@ async function revertDangerousModes(provider: string): Promise<void> {
 const corruptReports: [string, string, boolean][] = []
 let reportsReady = false
 function showCorrupt(file: string, aside: string, restored: boolean): void {
-  log.warn(`${file} could not be read; set aside as ${aside}${restored ? ', restored from its .bak copy' : ''}`)
+  log.warn(`${userText(file)} could not be read; set aside as ${userText(aside)}${restored ? ', restored from its .bak copy' : ''}`)
   toast(
     restored ? 'warning' : 'error',
     restored ? `${basename(file)} was damaged and has been restored` : `${basename(file)} was damaged`,
@@ -542,7 +543,8 @@ app.whenReady().then(async () => {
   })
   nativeTheme.themeSource = config.settings.appearance.theme
   Menu.setApplicationMenu(null)
-  log.info(`Hive ${app.getVersion()} starting (Electron ${process.versions.electron})`)
+  // Says the log marks the user's own text (userText()), so Copy Diagnostics can tell this run's lines from older ones.
+  log.info(`Hive ${app.getVersion()} starting (Electron ${process.versions.electron}; ${MARKED_LOG})`)
   watchMainStalls()
   setInterval(archiveOldDoneEverywhere, 3_600_000).unref()
 

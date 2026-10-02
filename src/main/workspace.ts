@@ -10,7 +10,7 @@ import type { AgentDef, AgentInfo, HiddenProject, HiveEvent, KeptUsage, LiveSess
 import { config } from './config'
 import { emit, emitTo } from './events'
 import { insideReal, isDir, readJson, readKeptJson, removePath, withFileLock, writeKeptJson } from './fsutil'
-import { createLogger } from './logger'
+import { createLogger, userText } from './logger'
 import { allProviders } from './providers'
 import { worktreesRoot } from './worktrees'
 
@@ -145,7 +145,7 @@ export class WorkspaceService {
       c.recentWorkspaces = [abs, ...c.recentWorkspaces.filter((p) => p.toLowerCase() !== abs.toLowerCase())].slice(0, 12)
       c.activeProjects[abs] ??= []
     })
-    for (const p of await this.listProjectPaths()) await this.ensureProject(p).catch((e) => log.warn(`ensureProject ${p}`, e))
+    for (const p of await this.listProjectPaths()) await this.ensureProject(p).catch((e) => log.warn(`ensureProject ${userText(p)}`, e))
     try {
       await this.ensureProject(this.assistantHome)
       // The Assistant's conversations and backups are this machine's: kept out of git if the workspace is a repository.
@@ -156,7 +156,7 @@ export class WorkspaceService {
     }
     await inWorkspace(this, async () => WorkspaceService.onOpened?.()).catch((e) => log.warn('opening the workspace', e))
     this.startWatching()
-    log.info(`Opened workspace ${abs}`)
+    log.info(`Opened workspace ${userText(abs)}`)
     return this.refresh()
   }
 
@@ -376,7 +376,7 @@ export class WorkspaceService {
     if (text.split(/\r?\n/).some((l) => l.trim() === `${HIVE_DIR}/` || l.trim() === `/${HIVE_DIR}/`)) return
     const prefix = text && !text.endsWith('\n') ? '\n' : ''
     await appendFile(f, `${prefix}# Hive project metadata (added by Hive)\n/${HIVE_DIR}/\n`)
-    log.info(`Excluded .hive from git in ${projectPath}`)
+    log.info(`Excluded .hive from git in ${userText(projectPath)}`)
   }
 
   async branch(projectPath: string): Promise<string | null> {

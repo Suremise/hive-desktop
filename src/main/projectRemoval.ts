@@ -8,7 +8,7 @@ import type { AgentDef, ProjectRemoval, ProjectRemovalInfo, TaskCard } from '../
 import { config } from './config'
 import { suspendWatching } from './files'
 import { readJson, realPath, removePath, writeJsonAtomic } from './fsutil'
-import { createLogger } from './logger'
+import { createLogger, userText } from './logger'
 import { notesTree } from './notes'
 import { sessions } from './sessions'
 import { archiveProjectCards, deleteProjectCards, importCards, projectCards, restoreProjectCards } from './tasks'
@@ -153,7 +153,7 @@ export async function removeProject(projectPath: string, how: ProjectRemoval): P
       ws.setActive(p, false)
       await archiveProjectCards(ws, name, 'project-hidden')
       await ws.setHidden(name, 'hidden')
-      log.info(`Hid ${name}`)
+      log.info(`Hid ${userText(name)}`)
       return { warnings: [] }
     }
     if (how === 'remove') return await removeFromHive(ws, p, info, agents)
@@ -184,12 +184,12 @@ async function removeFromHive(ws: WorkspaceService, p: string, info: ProjectRemo
   const warnings: string[] = []
   for (const rel of info.handovers) {
     await shell.trashItem(join(ws.sharedDir, rel)).catch((e) => {
-      log.warn(`Could not move ${rel} to the Recycle Bin`, e)
+      log.warn(`Could not move ${userText(rel)} to the Recycle Bin`, e)
       warnings.push(`${rel} stayed in the shared notes (a copy is packed in the folder): ${(e as Error).message}`)
     })
   }
   await ws.setHidden(name, 'removed')
-  log.info(`Removed ${name} from Hive (packed ${info.handovers.length} handovers and its cards)`)
+  log.info(`Removed ${userText(name)} from Hive (packed ${info.handovers.length} handovers and its cards)`)
   return { warnings }
 }
 
@@ -222,8 +222,8 @@ async function deleteProject(ws: WorkspaceService, p: string, info: ProjectRemov
   config.update((c) => {
     if (ws.path && c.activeProjects[ws.path]) c.activeProjects[ws.path] = c.activeProjects[ws.path].filter((n) => !same(n, name))
   })
-  for (const w of warnings) log.warn(`Deleting ${name}: ${w}`)
-  log.info(`Deleted ${name} (to the Recycle Bin)`)
+  for (const w of warnings) log.warn(`Deleting ${userText(name)}: ${userText(w)}`)
+  log.info(`Deleted ${userText(name)} (to the Recycle Bin)`)
   return { warnings }
 }
 
@@ -302,7 +302,7 @@ export async function restoreProject(name: string): Promise<{ handovers: number;
   // If unpacking fails, the project is back and its pack stays: its banner offers to restore it again.
   const result = entry.mode === 'removed' && existsSync(join(p, HIVE_DIR, REMOVED_DIR)) ? await unpack(ws, p) : { handovers: 0, cards: await restoreProjectCards(ws, entry.name) }
   await ws.ensureProject(p)
-  log.info(`Restored ${entry.name}`)
+  log.info(`Restored ${userText(entry.name)}`)
   await ws.refresh()
   return result
 }

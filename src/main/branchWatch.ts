@@ -1,6 +1,6 @@
 import type { AgentBranchStatus, HiveEvent, ProjectInfo } from '../shared/types'
 import { emit, onHiveEvent } from './events'
-import { createLogger } from './logger'
+import { createLogger, userText } from './logger'
 import { openWorkspaces, workspaceFor } from './workspace'
 import * as wt from './worktrees'
 
@@ -63,7 +63,7 @@ export function check(projectPath: string, agentId: string): Promise<void> {
     .then(
       (st) => record(found.project.path, agentId, st),
       (e) => {
-        log.warn(`Couldn't check ${found.worktree.branch}`, e)
+        log.warn(`Couldn't check ${userText(found.worktree.branch)}`, e)
         record(found.project.path, agentId, null)
       }
     )

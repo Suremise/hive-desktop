@@ -4,9 +4,16 @@ const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path')
 const scratch = lib.WORK, userData = path.join(scratch, 'about-profile')
 fs.rmSync(userData, { recursive: true, force: true })
-// A log with a secret and the home folder in it, for Copy Diagnostics to take out.
+// A log as after an upgrade: a run of 0.3.1 (which didn't mark the user's text) with a card title in it, then a run
+// that marks, with a secret and the home folder in it. Copy Diagnostics takes all three out.
 fs.mkdirSync(path.join(userData, 'logs'), { recursive: true })
-fs.writeFileSync(path.join(userData, 'logs', 'hive.log'), `2026-10-02T09:00:00.000Z [INFO] [test] token=SECRETVALUE123 at ${path.join(require('os').homedir(), 'x')}\n`)
+fs.writeFileSync(path.join(userData, 'logs', 'hive.log'), [
+  '2026-10-01T09:00:00.000Z [INFO] [main] Hive 0.3.1 starting (Electron 44.5.1)',
+  '2026-10-01T09:01:00.000Z [INFO] [tasks] #1 created by You: Legacy confidential takeover notes',
+  '2026-10-02T09:00:00.000Z [INFO] [main] Hive 0.3.1 starting (Electron 44.5.1; your text marked)',
+  `2026-10-02T09:00:01.000Z [INFO] [test] token=SECRETVALUE123 at ${path.join(require('os').homedir(), 'x')}`,
+  ''
+].join('\n'))
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let pass = 0, fail = 0
 const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
@@ -44,10 +51,28 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   for (let i = 0; i < 50 && !/### Log/.test(shown); i++) { await sleep(200); shown = await preview.innerText().catch(() => '') }
   check('Copy Diagnostics shows a preview', /## Hive diagnostics/.test(shown) && /### Coding agents/.test(shown) && /### Counts/.test(shown) && /### Log \(last 50 lines\)/.test(shown), shown.slice(0, 200))
   check('with the secret and home folder taken out', !shown.includes('SECRETVALUE123') && shown.includes('token=<redacted>') && !shown.toLowerCase().includes(require('os').homedir().toLowerCase()))
+  check("and the older version's card title", !shown.includes('takeover') && shown.includes('[tasks] <message left out: logged by an older version of Hive>'))
   await page.screenshot({ path: path.join(scratch, 'about-3-diagnostics.png') })
   await dialog.getByRole('button', { name: 'Copy' }).click(); await sleep(400)
   check('Copy copies exactly what was shown', ((await page.evaluate(() => window.__copied)) || '').trim() === shown.trim())
   check('and closes the dialog', (await dialog.count()) === 0)
+  check('Codex reports its Windows sandbox', /- \*\*Codex\*\*[^]*?\n {2}- Windows sandbox: (not set up|default \(admin\)|non-admin|not used on this system|[\w-]+)\n/.test(shown), shown.slice(shown.indexOf('**Codex**'), shown.indexOf('**Codex**') + 300))
+
+  // Review finding: card text and the workspaces opened before stayed in the log. A card in one workspace,
+  // then another workspace: neither the card's title nor the first workspace's names may be in the report.
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  const secretWs = path.join(scratch, 'about-ConfidentialWorkspace'), otherWs = path.join(scratch, 'about-OtherWorkspace')
+  for (const d of [secretWs, otherWs]) fs.rmSync(d, { recursive: true, force: true })
+  lib.gitProject(path.join(secretWs, 'PrivateProject'))
+  fs.mkdirSync(path.join(otherWs, 'demo'), { recursive: true })
+  await inv('workspace:open', secretWs); await sleep(1500)
+  await inv('tasks:create', { title: 'Confidential customer merger notes', project: 'PrivateProject' })
+  await inv('workspace:open', otherWs); await sleep(1500)
+  const log = fs.readFileSync(path.join(userData, 'logs', 'hive.log'), 'utf8')
+  check('the log has the card and the first workspace', log.includes('Confidential customer merger notes') && log.includes('PrivateProject'))
+  const report = await inv('app:diagnostics')
+  check('the report has neither', !/Confidential|merger|PrivateProject/i.test(report), report.split('\n').filter((l) => /Confidential|merger|PrivateProject/i.test(l)).join(' | '))
+  check('and says where they were', /created by <text>: <text>/.test(report) && /Opened workspace <(path|workspace)>/.test(report), report.slice(report.indexOf('### Log')))
   await app.close()
   console.log(`\n${pass} passed, ${fail} failed`)
   process.exit(fail ? 1 : 0)
