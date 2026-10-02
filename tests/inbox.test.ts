@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { branchSummary, inbox, inboxStateText, needsYou } from '../src/shared/inbox'
+import { asksYou, branchSummary, inbox, inboxStateText, needsYou } from '../src/shared/inbox'
 import type { AgentBranchStatus, AgentInfo, LiveSessionState, ProjectInfo, SessionStatus } from '../src/shared/types'
 
 const live = (status: SessionStatus, statusSince: string, unseen = false, extra: Partial<LiveSessionState> = {}): LiveSessionState =>
@@ -19,6 +19,22 @@ describe('attention inbox', () => {
     expect(needsYou(live('finished', 't', false))).toBe(false)
     expect(needsYou(live('working', 't', true))).toBe(false)
     expect(needsYou(null)).toBe(false)
+  })
+
+  it('a question the agent works on beside: it needs you, though it is working, until answered', () => {
+    const q = { text: 'Which colour?', since: '2026-10-02T09:30:00Z' }
+    expect(asksYou(live('working', 't', false, { question: q }))).toBe(true)
+    expect(asksYou(live('finished', 't', true))).toBe(false)
+    expect(needsYou(live('working', 't', false, { question: q }))).toBe(true)
+    // Waiting comes first: what it waits on is what it needs now.
+    const p = project('alpha', [
+      agent('asks', live('working', '2026-10-02T10:00:00Z', false, { question: q })),
+      agent('both', live('waiting', '2026-10-02T10:02:00Z', false, { statusMessage: 'Allow curl?', question: q })),
+      agent('late', live('finished', '2026-10-02T10:01:00Z', true, { question: { text: '', since: '2026-10-02T10:04:00Z' } }))
+    ])
+    const box = inbox([p], null, () => null)
+    expect(box.needYou.map((i) => `${i.agentId}/${i.kind}/${i.since}`)).toEqual(['asks/question/2026-10-02T09:30:00Z', 'both/waiting/2026-10-02T10:02:00Z', 'late/question/2026-10-02T10:04:00Z'])
+    expect(box.needYou.map(inboxStateText)).toEqual(['Asks: Which colour?', 'Needs input: Allow curl?', 'Asks you something'])
   })
 
   it('lists them across projects and the Assistant, oldest first', () => {

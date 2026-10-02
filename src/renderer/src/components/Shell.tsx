@@ -8,6 +8,7 @@ import { cx, formatKeybinding, resetsIn, timeAgo } from '../util'
 import { commandKeybinding } from '../commands'
 import { Icon, Tooltip } from './ui'
 import { UpdateStatusItem } from './Updates'
+import { asksYou } from '@shared/inbox'
 import { InboxStatusItem } from './Inbox'
 import { keepAwakeText } from '@shared/keepAwake'
 import { useInbox } from '../inbox'
@@ -79,7 +80,7 @@ export function StatusBar() {
 
   const live = workspace.projects.flatMap((p) => p.agents.map((a) => a.live).filter((l) => !!l))
   const working = live.filter((l) => l!.status === 'working').length
-  const waiting = live.filter((l) => l!.status === 'waiting').length
+  const waiting = live.filter((l) => asksYou(l)).length
   const background = live.filter((l) => l!.status === 'background').length
 
   return (
@@ -96,7 +97,7 @@ export function StatusBar() {
           </div>
         </Tooltip>
       )}
-      <Tooltip content={`${live.length} running session(s): ${working} working, ${background ? `${background} waiting on background tasks, ` : ''}${waiting} waiting for input`}>
+      <Tooltip content={`${live.length} running session(s): ${working} working, ${background ? `${background} waiting on background tasks, ` : ''}${waiting} waiting for you`}>
         <div className="status-item" onClick={() => runCommand('view.projects')}>
           <Icon name="pulse" /> {live.length}
         </div>

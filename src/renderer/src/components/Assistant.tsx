@@ -484,7 +484,7 @@ function WorkspaceOverview() {
   const attention = needYou.flatMap((i) => {
     const p = projects.find((x) => x.path === i.projectPath)
     const a = p?.agents.find((x) => x.id === i.agentId)
-    return p && a ? [{ p, a }] : []
+    return p && a ? [{ i, p, a }] : []
   })
   const running = projects.reduce((n, p) => n + p.agents.filter((a) => a.live).length, 0)
   const shown = projects.filter((p) => p.active || p.agents.some((a) => a.live))
@@ -517,13 +517,13 @@ function WorkspaceOverview() {
           {running} running · {projects.length} project{projects.length === 1 ? '' : 's'}
         </span>
       </div>
-      {attention.map(({ p, a }) => (
+      {attention.map(({ i, p, a }) => (
         <div key={`${p.path}#${a.id}`} className="assistant-attention" onClick={() => go(p, a.id)}>
-          <Icon name={a.live?.status === 'waiting' ? 'bell-dot' : 'check'} />
+          <Icon name={i.kind === 'finished' ? 'check' : 'bell-dot'} />
           <span>
             <strong>{p.name}</strong>
-            {p.agents.length > 1 ? ` · ${a.name}` : ''} {a.live?.status === 'waiting' ? 'is waiting for you' : 'has finished'}
-            {a.live?.statusMessage ? `: ${a.live.statusMessage}` : ''}
+            {p.agents.length > 1 ? ` · ${a.name}` : ''} {i.kind === 'waiting' ? 'is waiting for you' : i.kind === 'question' ? 'has a question for you' : 'has finished'}
+            {i.message ? `: ${i.message}` : ''}
           </span>
         </div>
       ))}

@@ -29,13 +29,15 @@ import { provider as providerAdapter, allProviders } from './providers'
 import { recacheEstimate } from './providers/common'
 import { estimateCost } from '../shared/prices'
 import { withDayCosts } from '../shared/usageDays'
-import type { LaunchSkill, ProviderAdapter, UsageParser } from './providers/types'
+import type { Ask, HookEvent, LaunchSkill, ProviderAdapter, UsageParser } from './providers/types'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, toast } from './events'
 import { hashDir, hashText, readJson, removePath, splitArgs, syncCopy, syncCopyLocked, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
-import { applyStep, expireTasks, hookStep, idleAfter } from './hookStatus'
+import { applyStep, expireTasks, hookStep, idleAfter, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
+import { lastTitle } from './terminalTitle'
+import { asksYou } from '../shared/inbox'
 import { FinishBatcher, finishedNotice } from '../shared/bursts'
 import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
@@ -105,6 +107,15 @@ interface LiveSession {
   initialPrompt?: string
   /** The CLI asked something before it started (e.g. whether to trust the folder): shown as waiting for the user. */
   askedAtStart?: boolean
+  /** For a CLI whose terminal title says when a person must act (ProviderAdapter.titleAttention): its test, for this launch. */
+  titleAttention?: (title: string) => boolean
+  /** The title says a person must act now. */
+  titleAsks?: boolean
+  /** The unfinished title sequence the last output ended with. */
+  titleCarry?: string
+  /** Asks its hooks reported that are still open, and the one it waits on (HookStatusInput). */
+  open?: Ask[]
+  waitingOn?: Ask | null
   /** Background tasks started in this launch that haven't ended: id → when it started, and when it expires. */
   tasks?: Map<string, { at: number; expiresAt?: number }>
   /** Tasks seen to end, so a start read late doesn't count one again. */
@@ -783,6 +794,7 @@ class SessionManager {
     if (l.stopRequested || this.live.get(id) !== l || this.starting.get(id)?.cancelled || !workspaceFor(projectPath) || this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error('The agent was stopped before it had started.')
     if (!isProviderEnabled(config.settings, adapter.id)) throw new Error(`${adapter.descriptor.name} was turned off while ${agent.name} was starting.`)
     const cmd = adapter.buildCommand(info.path, ctx)
+    l.titleAttention = adapter.titleAttention?.(info.version) ?? undefined
     state.launchSignature = this.signature(eff)
     l.defaultModel = !eff.model
 
@@ -797,6 +809,7 @@ class SessionManager {
         if (l.switchTail !== undefined) l.switchTail = (l.switchTail + data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ').replace(/\x1b\][^\x07]*\x07/g, ' ')).replace(/\s+/g, ' ').slice(-2000)
         this.watchCompactOutput(id, data)
         this.watchModeOutput(id, data)
+        this.watchTitle(id, data)
         this.watchReadyOutput(id, data)
       },
       onExit: (code, output) => void this.onExit(projectPath, agent.id, state.runId, code, output)
@@ -965,6 +978,23 @@ class SessionManager {
       l.state.statusMessage = undefined
       this.emitState(l.state)
     }
+  }
+
+  /**
+   * For CLIs whose terminal title says when a person must act (Codex): whether it says so changes the status
+   * (titleStep). Before the session has started, its question at start is the startup's to show.
+   */
+  private watchTitle(id: string, data: string): void {
+    const l = this.live.get(id)
+    if (!l?.titleAttention) return
+    const { title, carry } = lastTitle(l.titleCarry ?? '', data)
+    l.titleCarry = carry
+    if (title === null) return
+    const asks = l.titleAttention(title)
+    if (asks === !!l.titleAsks) return
+    const step = l.state.status === 'starting' || l.askedAtStart ? null : titleStep(asks, this.statusInput(l))
+    l.titleAsks = asks
+    if (step) this.carryOut(id, l, step, 'title')
   }
 
   /** For CLIs whose first hook waits for the first prompt: the prompt showing in the terminal means ready. */
@@ -1858,14 +1888,37 @@ class SessionManager {
       await this.refreshBackground(l)
       this.sweepTasks(l)
     }
-    const step = hookStep(ev, {
+    this.carryOut(id, l, hookStep(ev, this.statusInput(l)), String(body.hook_event_name ?? ''), ev, arrived)
+  }
+
+  /** What the status rules need to know of a running agent. */
+  private statusInput(l: LiveSession): HookStatusInput {
+    const st = l.state
+    return {
       status: st.status,
       statusMessage: st.statusMessage,
       askedAtStart: !!l.askedAtStart,
       compacting: l.compacting ? (l.compacting.started ? 'started' : 'requested') : null,
       backgroundWakes: l.adapter.descriptor.capabilities.backgroundWakes,
-      tasks: l.tasks?.size ?? 0
-    })
+      tasks: l.tasks?.size ?? 0,
+      attention: l.titleAttention ? 'title' : 'hooks',
+      reviewed: !!l.adapter.descriptor.permissionModes.find((m) => m.value === st.permissionMode)?.reviewed,
+      titleAsks: !!l.titleAsks,
+      open: l.open ?? [],
+      waitingOn: l.waitingOn ?? null,
+      question: !!st.question
+    }
+  }
+
+  /**
+   * Carries out a status step (from a hook, or the CLI's title: `cause` says which, for the log): its actions,
+   * then its status, message and question.
+   */
+  private carryOut(id: string, l: LiveSession, step: HookStep, cause: string, ev: HookEvent | null = null, arrived = this.lockSeq): void {
+    const st = l.state
+    const label = this.label(st)
+    if (step.open !== undefined) l.open = step.open
+    if (step.waitingOn !== undefined) l.waitingOn = step.waitingOn
     for (const action of step.actions) {
       switch (action) {
         case 'answered':
@@ -1887,10 +1940,13 @@ class SessionManager {
           toast('info', `${label}: compacting conversation`, `${l.adapter.descriptor.name} is summarising the context to free up space.`, undefined, st.projectPath)
           break
         case 'notifyWaiting':
-          this.notify(st.projectPath, `${label} needs your input`, step.message ?? 'Waiting for your input', 'waiting')
+          this.notify(st.projectPath, `${label} needs your input`, step.message || 'Waiting for your input', 'waiting')
+          break
+        case 'notifyQuestion':
+          this.notify(st.projectPath, `${label} has a question for you`, step.question || 'It carries on working meanwhile.', 'waiting')
           break
         case 'notifyFinished':
-          this.notify(st.projectPath, `${label} finished`, (ev.kind === 'stop' && ev.lastMessage?.slice(0, 180)) || 'The agent has finished its task.', 'finished', st.agentName)
+          this.notify(st.projectPath, `${label} finished`, (ev?.kind === 'stop' && ev.lastMessage?.slice(0, 180)) || 'The agent has finished its task.', 'finished', st.agentName)
           break
         case 'releaseLocks':
           this.releaseLocks(id, arrived)
@@ -1908,8 +1964,12 @@ class SessionManager {
           break
       }
     }
+    const needed = asksYou(st)
     // A turn's end is reported even when the status stays (its background task count may have changed).
     if (applyStep(st, step) || step.actions.includes('turnEnded')) this.emitState(st)
+    // Why you were told an agent needs you, and when it no longer does (Help → Copy Diagnostics): never what was asked.
+    const told = step.actions.includes('notifyWaiting') ? 'waits for you' : step.actions.includes('notifyQuestion') ? 'asks a question' : needed && !asksYou(st) ? 'no longer needs you' : null
+    if (told) log.debug(`${userText(label)}: ${told} (${cause})`)
   }
 
   /** Moves a running agent to the conversation the CLI switched to: the old one is backed up, the new one recorded. */

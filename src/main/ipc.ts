@@ -339,7 +339,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (err) throw new Error(err)
     },
     'files:reveal': (p, rel) => shell.showItemInFolder(files.absPath(p, rel)),
-    'files:areFiles': (p, rels) => files.areFiles(p, rels),
+    'files:linkFiles': (p, rels) => files.linkFiles(p, rels),
     'files:watch': (p) => files.watchProject(p),
     'files:setUnsaved': (paths) => quitControl.setUnsaved(win(), Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : []),
     'files:unwatch': (p) => files.unwatchProject(p),

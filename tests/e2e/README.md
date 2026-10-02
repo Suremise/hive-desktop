@@ -53,4 +53,6 @@ starts a turn by itself; `/compact [focus]` compacts (PreCompact, a compaction i
 `CLAUDE_CODE_*` variables). `assistant-control`, `context`, `background`, `longsession`, `resumeall`, `cardchip`, `reorder`, `busy`, `startfail`, `filelinks`, `quitwait`, `rendercrash`, `bursts`, `taskbar`, `ctxpercent`, `donemove`, `paneheader` and `board` use it (`board` also sends a small test folder to the Recycle Bin, as Delete Project does). `codex-background` checks Codex's background
 terminals with the real Codex (one short prompt).
 
+**A fake Codex** (`fake-codex/fake-codex.cmd`) does the same for Codex: set it as `settings.providers.codex.executablePath` and start Hive with `CODEX_HOME` pointing at a test folder (with `[windows] sandbox = "unelevated"` in its `config.toml`, so nothing is left to set up). It reports itself as Codex 0.160.0 (`FAKE_CODEX_VERSION` changes it) and sends Codex's hooks and terminal titles for a few prompts: `review allow` / `review deny` (its auto-reviewer answers a permission request), `approve` (an approval prompt: `y` approves, Esc rejects) and `question` (an async question it works on beside: `a` answers it). `attention` uses it.
+
 Print `PASS name` / `FAIL name` per check, and add the suite to `SUITES` in `run.mjs`.

@@ -420,6 +420,8 @@ Codex has its own presets:
 
 When you switch a running Codex agent's preset, the badge says **Switching to …** until Codex confirms it; if Codex doesn't, the badge goes back and Hive tells you.
 
+In **Approve for me**, Codex's reviewer decides on risky actions itself: while it does, the agent's status says **Auto-review: …** and Hive doesn't ask for you. Hive tells you an agent needs you only when Codex actually puts a question or an approval to you.
+
 ### Codex's Windows sandbox
 
 On Windows, Codex runs commands in a sandbox, which it sets up once. **Help → Agent Setup… → Codex → Set up** opens Codex's setup, which offers two choices. With either, Codex agents in **Ask for approval** or **Approve for me** edit files in their own folder (the project, or the agent's worktree) and run commands there without asking, and ask before going online or writing anywhere else. Hive's own features (status, file locks, handovers, shared notes) work the same with both.
@@ -455,12 +457,13 @@ Agents that finish together don't flood you: they chime once, and get one notifi
 
 With agents working in several projects, the status bar tells you who is waiting on you: **2 need you**. Click it for the list, oldest first, with how long each has been waiting:
 
-- **Needs input**: an agent asking you something, such as a permission. It stays in the list until you answer it.
+- **Needs input**: an agent waiting for your answer, such as a permission. It stays in the list until you answer it.
+- **Asks**: an agent that asked you a question but carries on working meanwhile (Codex can). Its pane says **has a question for you**, and it stays in the list until you answer the question in its terminal.
 - **Finished**: an agent that finished while you weren't looking at it: in another project, on another page of agents, on another tab, or while Hive was in the background. It leaves the list once its pane is on screen.
 
 Click a row to go to that agent (the Assistant's opens its panel). The **Projects** icon in the activity bar shows the same number, and each project in the sidebar shows how many of its agents need you.
 
-With Hive behind other windows, its **taskbar button** shows the count too: a red badge over the icon, and the number before the window's title (in Alt+Tab and when you hover the button). When an agent starts waiting for your answer while Hive is in the background, the button flashes until you switch to it. Turn either off in **Settings → Notifications**.
+With Hive behind other windows, its **taskbar button** shows the count too: a red badge over the icon, and the number before the window's title (in Alt+Tab and when you hover the button). When an agent comes to ask you something while Hive is in the background, the button flashes until you switch to it. Turn either off in **Settings → Notifications**.
 
 Below them, **To review** lists worktree agents that have stopped or finished with work not merged yet, with a summary such as *3 files, +120 −40 · 2 commits*, and buttons for **Changes** and **Merge…**. They don't add to the count; one leaves the list once its work is merged or it starts working again. When nothing needs you but there is work to review, the status bar says **1 to review**.
 
@@ -519,7 +522,7 @@ In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts th
 
 **Changing shortcuts.** **Settings → Keyboard Shortcuts** lists every command. Click the pencil (or double-click a shortcut) and press the keys you want; press a second combination straight after for a chord such as Ctrl+K Ctrl+S. You can remove a shortcut, reset one, or reset them all. Hive warns when a shortcut is already used, and won't take keys you need for typing and editing (a key without Ctrl or Alt, Ctrl+C/V/X/A/Z/Y, Shift+Tab). A project can have its own shortcuts for project and session commands in **Project Settings → Keyboard Shortcuts**; they apply while that project is selected.
 
-**Open a file from the terminal.** File paths an agent prints, like `src/main/app.ts:42`, are links: hover one to see it underlined, and **Ctrl+click** it to open the file in the project's [Files](#files) tab with the cursor on that line. A worktree agent's paths open in its worktree, and a path into another project in the workspace opens in that project. Only files that exist are linked; a plain click still just selects text.
+**Open a file from the terminal.** File paths an agent prints, like `src/main/app.ts:42`, are links: hover one to see it underlined, and **Ctrl+click** it to open the file in the project's [Files](#files) tab with the cursor on that line. A worktree agent's paths open in its worktree, and a path into another project in the workspace opens in that project. Only files that exist are linked; a plain click still just selects text. Paths with spaces are linked too, most reliably when they're in quotes (`"docs/my notes.md"`).
 
 **Screenshots and files.** With a screenshot on the clipboard (for example from Win+Shift+S), press **Ctrl+V** in a session: Hive saves the image in the project's `.hive/images` folder and pastes its path, and Claude Code attaches it as `[Image #1]`. You can also **drag files** from Explorer onto the terminal to paste their paths; images are copied into `.hive/images` first. The images are kept per session, so you can always see what was sent (see [Images](#images)).
 

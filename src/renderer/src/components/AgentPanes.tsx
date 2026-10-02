@@ -597,7 +597,13 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
           </span>
         </Tooltip>
       )}
-      <span className={cx('faint pane-status', !live && failure && 'failed')}>{live ? statusText(live) : failure ? 'Failed to start' : 'Not running'}</span>
+      {live?.question ? (
+        <Tooltip content={live.question.text ? `Asks: ${live.question.text}` : 'Asks you something'}>
+          <span className="faint pane-status asks">{statusText(live)}</span>
+        </Tooltip>
+      ) : (
+        <span className={cx('faint pane-status', !live && failure && 'failed')}>{live ? statusText(live) : failure ? 'Failed to start' : 'Not running'}</span>
+      )}
       <CardChip project={project} a={a} short={size === 'menu'} />
       <Locks a={a} />
       <div className="grow" />

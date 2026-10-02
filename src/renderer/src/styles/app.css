@@ -4874,6 +4874,9 @@ body.pane-resizing-v .monaco-editor {
 .pane-status.failed {
   color: var(--error);
 }
+.pane-status.asks {
+  color: var(--warning);
+}
 
 /* The tip card: bottom right above the status bar, under the toasts; it steps aside over a focused terminal. */
 .tip-card {

@@ -21,8 +21,23 @@ describe('Codex hooks', () => {
     const patch = '*** Begin Patch\n*** Update File: a.ts\n@@\n-x\n+y\n*** Add File: notes.txt\n+hi\n*** Delete File: gone.txt\n*** Update File: old.txt\n*** Move to: new.txt\n*** End Patch'
     expect(h({ hook_event_name: 'PreToolUse', tool_name: 'apply_patch', tool_input: { command: patch } })).toMatchObject({ event: { kind: 'toolStart' }, editedPaths: ['a.ts', 'notes.txt', 'gone.txt', 'old.txt', 'new.txt'] })
     expect(h({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'git status' } })).toMatchObject({ event: { kind: 'toolStart' }, editedPaths: [] })
-    expect(h({ hook_event_name: 'PreToolUse', tool_name: 'request_user_input_async', tool_input: { questions: [{ title: 'Which language?' }] } }).event).toEqual({ kind: 'needsInput', message: 'Which language?' })
-    expect(h({ hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'git status --short' } }).event).toEqual({ kind: 'needsInput', message: 'Codex asks to run git status --short' })
+    // The async question doesn't stop Codex; the other one does, as a permission request does until answered.
+    expect(h({ hook_event_name: 'PreToolUse', tool_name: 'request_user_input_async', tool_input: { questions: [{ title: 'Which language?' }] } }).event).toMatchObject({ kind: 'ask', ask: { kind: 'question', blocking: false, message: 'Which language?' } })
+    expect(h({ hook_event_name: 'PreToolUse', tool_name: 'request_user_input', tool_input: { questions: [{ question: 'Which language?' }] } }).event).toMatchObject({ kind: 'ask', ask: { kind: 'question', blocking: true, message: 'Which language?' } })
+    expect(h({ hook_event_name: 'PreToolUse', tool_name: 'request_user_input_later', tool_input: {} }).event).toEqual({ kind: 'toolStart' })
+    expect(h({ hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'git status --short' } }).event).toMatchObject({ kind: 'ask', ask: { kind: 'permission', blocking: true, message: 'Codex asks to run git status --short' } })
+    // A request and its own call's end name the same call (Codex adds a description to the request's input);
+    // another command's end doesn't.
+    const call = (body: Record<string, unknown>): string | undefined => {
+      const e = h(body).event
+      return e.kind === 'ask' ? e.ask.call : e.kind === 'toolEnd' ? e.call : undefined
+    }
+    const asked = call({ hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'curl.exe https://example.com', description: 'Check the network' } })
+    expect(asked).toBeTruthy()
+    expect(call({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'curl.exe https://example.com' } })).toBe(asked)
+    expect(call({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } })).not.toBe(asked)
+    const questions = [{ question: 'Which language?' }]
+    expect(call({ hook_event_name: 'PostToolUse', tool_name: 'request_user_input', tool_input: { questions } })).toBe(call({ hook_event_name: 'PreToolUse', tool_name: 'request_user_input', tool_input: { questions } }))
     expect(h({ hook_event_name: 'Interrupt' }).event).toEqual({ kind: 'interrupt' })
     expect(h({ hook_event_name: 'Stop', last_assistant_message: 'ok' }).event).toEqual({ kind: 'stop', lastMessage: 'ok' })
     expect(h({ hook_event_name: 'PreCompact', trigger: 'manual' }).event).toEqual({ kind: 'compactStart', trigger: 'manual' })
@@ -37,6 +52,46 @@ describe('Codex hooks', () => {
   it('reads the files of a patch', () => {
     expect(patchPaths('*** Begin Patch\n*** Add File: a b/c.ts\n+x\n*** End Patch')).toEqual(['a b/c.ts'])
     expect(patchPaths('no patch')).toEqual([])
+  })
+})
+
+describe('Codex: when a person must act', () => {
+  it('its title says so from 0.160.0 ("Action Required", blinking); older versions go by the hooks', async () => {
+    const { codex } = await import('../src/main/providers/codex/adapter')
+    expect(codex.titleAttention('0.159.9')).toBeNull()
+    expect(codex.titleAttention(null)).toBeNull()
+    for (const version of ['0.160.0', '0.161.2', '1.0.0']) {
+      const asks = codex.titleAttention(version)!
+      expect(asks('[ ! ] Action Required | demo'), version).toBe(true)
+      expect(asks('[ . ] Action Required | demo'), version).toBe(true)
+      expect(asks('demo'), version).toBe(false)
+      expect(asks('⠼ demo'), version).toBe(false)
+      // A project that happens to be called that isn't the prompt.
+      expect(asks('⠼ Action Required'), version).toBe(false)
+    }
+  })
+
+  it("pins the title's items for Hive's sessions, so a user's [tui].terminal_title can't hide it", async () => {
+    const { mkdtempSync, rmSync } = await import('fs')
+    const { join } = await import('path')
+    const { tmpdir } = await import('os')
+    const home = mkdtempSync(join(tmpdir(), 'hive-codex-home-'))
+    const before = process.env.CODEX_HOME
+    process.env.CODEX_HOME = home
+    try {
+      const { codex } = await import('../src/main/providers/codex/adapter')
+      const ctx = {
+        projectPath: home, agentId: 'a-1', executable: 'C:\\bin\\codex.exe', cwd: home, workspacePath: home, runId: 'r', sessionId: '',
+        resume: false, name: '', skills: [], mcpServers: {}, model: null, effort: null, permissionMode: null, extraArgs: [], hookUrl: 'http://127.0.0.1:1/hook?run=r', guidance: '', env: {}, allowBackgroundSessions: false, use200kContext: false
+      }
+      const { args } = codex.buildCommand(ctx.executable, ctx)
+      expect(args.join(' ')).toContain('tui.terminal_title=')
+      expect(args.find((a) => a.includes('tui.terminal_title='))).toMatch(/"activity".*"project-name"/)
+    } finally {
+      if (before === undefined) delete process.env.CODEX_HOME
+      else process.env.CODEX_HOME = before
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 })
 
