@@ -86,7 +86,7 @@ Hive can show several workspaces, each in its own window (**File → New Window*
 
 ```json
 {
-  "app": { "name": "Hive", "version": "0.3.0" },
+  "app": { "name": "Hive", "version": "0.3.1" },
   "agent": { "provider": "claude-code", "found": true, "version": "2.1.283", "source": "PATH", "updateAvailable": false, "loggedIn": true },
   "providers": [
     { "provider": "claude-code", "found": true, "version": "2.1.283", "source": "PATH", "updateAvailable": false, "loggedIn": true },

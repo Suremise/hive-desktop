@@ -1,5 +1,10 @@
 # Release Notes
 
+## 0.3.1 — 2 October 2026
+
+### Fixes
+- **Remove Project** refused a project whose agent worktree was saved under a short Windows folder name (such as `C:\Users\JOHNSM~1\…`), saying git didn't list it as one of the project's worktrees. **Add Agent → existing worktree** had the same problem. Paths are now compared by their real, full name.
+
 ## 0.3.0 — 2 October 2026
 
 ### Agent footer

@@ -5,7 +5,7 @@ import { agentProvider, isKnownProvider } from '../shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, MergeResult, ProjectGitInfo } from '../shared/types'
 import { config } from './config'
 import { toast } from './events'
-import { withFileLock } from './fsutil'
+import { realPath, withFileLock } from './fsutil'
 import { createLogger } from './logger'
 import { checkProject } from './branchWatch'
 import { sessions } from './sessions'
@@ -66,7 +66,7 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
   } else if (opts.location === 'existing-worktree') {
     if (!opts.worktreePath) throw new Error('Choose a worktree.')
     const target = resolve(opts.worktreePath).toLowerCase()
-    const found = (await wt.listWorktrees(projectPath)).find((w) => w.path.toLowerCase() === target)
+    const found = (await wt.listWorktrees(projectPath)).find((w) => realPath(w.path).toLowerCase() === realPath(target).toLowerCase())
     if (!found || target === resolve(projectPath).toLowerCase()) throw new Error('That folder is not a worktree of this project.')
     if (agents.some((a) => a.worktree?.path.toLowerCase() === target)) throw new Error('Another agent already works in that worktree.')
     if (!found.branch) throw new Error('That worktree is not on a branch (detached HEAD).')

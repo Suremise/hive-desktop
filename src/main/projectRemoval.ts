@@ -7,7 +7,7 @@ import { projectHandovers } from '../shared/hiveGuidance'
 import type { AgentDef, ProjectRemoval, ProjectRemovalInfo, TaskCard } from '../shared/types'
 import { config } from './config'
 import { suspendWatching } from './files'
-import { readJson, removePath, writeJsonAtomic } from './fsutil'
+import { readJson, realPath, removePath, writeJsonAtomic } from './fsutil'
 import { createLogger } from './logger'
 import { notesTree } from './notes'
 import { sessions } from './sessions'
@@ -61,14 +61,15 @@ function folderOf(ws: WorkspaceService, projectPath: string): string {
  * hand: a path it gives is never removed on its word alone. The rest come back as `refused`, with why.
  */
 async function checkedWorktrees(ws: WorkspaceService, p: string, agents: AgentDef[]): Promise<{ ok: AgentDef[]; refused: string[] }> {
-  const registered = new Set((await wt.listWorktrees(p)).map((w) => resolve(w.path).toLowerCase()))
+  // Real paths: git lists long names, while the agent's path may use a short (8.3) one such as RUNNER~1.
+  const registered = new Set((await wt.listWorktrees(p)).map((w) => realPath(w.path).toLowerCase()))
   const projects = (await allNames(ws)).map((n) => join(ws.path!, n))
   const ok: AgentDef[] = []
   const refused: string[] = []
   for (const a of agents) {
     if (!a.worktree) continue
     const t = resolve(a.worktree.path)
-    const why = !registered.has(t.toLowerCase())
+    const why = !registered.has(realPath(t).toLowerCase())
       ? "git doesn't list it as one of the project's worktrees"
       : contains(t, p) || contains(t, ws.path!)
         ? 'it contains the project or the workspace'
