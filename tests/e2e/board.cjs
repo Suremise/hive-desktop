@@ -175,12 +175,38 @@ const check = (name, ok, extra = '') => {
   const heading = (name) => column(name).locator('.board-column-label').evaluate((e) => getComputedStyle(e).color)
   check('column headings have their own colours', new Set([await heading('Todo'), await heading('Doing'), await heading('Review'), await heading('Done')]).size === 4)
   const doingBg = await bg(1)
+  // Each card's #number against its own background (WCAG contrast; tints come back as color(srgb …), 0–1 or 0–255).
+  const numberContrast = () =>
+    page.locator('.board-view .task-card').evaluateAll((els) => {
+      const parse = (s) => {
+        const v = (s.match(/[\d.]+/g) ?? []).map(Number).slice(0, 3)
+        return s.startsWith('color(') ? v.map((x) => x * 255) : v
+      }
+      const lum = (c) => {
+        const [r, g, b] = c.map((x) => ((x /= 255) <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4))
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+      }
+      return els.map((el) => {
+        const a = lum(parse(getComputedStyle(el.querySelector('.task-number')).color))
+        const b = lum(parse(getComputedStyle(el).backgroundColor))
+        return Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100
+      })
+    })
+  const readable = async (what) => {
+    const r = await numberContrast()
+    check(`card numbers are readable: ${what}`, r.length >= 4 && r.every((x) => x >= 4.5), JSON.stringify(r))
+  }
+  await readable('dark, coloured columns')
+  await tile(2).hover()
+  await lib.sleep(200)
+  await readable('dark, coloured, hovered')
   check('the state edges stay over the tint', (await edge(1)) !== (await edge(extra[1].number)) && (await edge(2)) === 'rgba(0, 0, 0, 0)', JSON.stringify([await edge(1), await edge(extra[1].number), await edge(2)]))
   await page.screenshot({ path: path.join(lib.WORK, 'board-colours-dark.png') })
   await inv('settings:update', { appearance: { theme: 'light' } })
   await lib.sleep(600)
   await page.screenshot({ path: path.join(lib.WORK, 'board-colours-light.png') })
   check('the tint follows the theme', (await bg(1)) !== doingBg)
+  await readable('light, coloured columns')
   await inv('settings:update', { appearance: { theme: 'dark' } })
   await inv('settings:update', { board: { colors: { doing: '#ff0000' } } })
   // Mixed colours come back as color(srgb r g b): red now leads.
@@ -191,6 +217,11 @@ const check = (name, ok, extra = '') => {
   }, 5000)), await bg(1))
   await inv('settings:update', { board: { columnColors: false } })
   check('Colour columns off: no tint', !!(await until(async () => !((await page.locator('.board').first().getAttribute('class')) ?? '').includes('colored') && (await bg(1)) === (await bg(2)), 5000)))
+  await readable('dark, plain')
+  await inv('settings:update', { appearance: { theme: 'light' } })
+  await lib.sleep(600)
+  await readable('light, plain')
+  await inv('settings:update', { appearance: { theme: 'dark' } })
   await inv('settings:update', { board: { columnColors: true, colors: { doing: '#3b82f6' } } })
   for (const c of extra) await inv('tasks:delete', c.number)
 

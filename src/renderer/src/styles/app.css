@@ -4561,6 +4561,11 @@ body.pane-resizing-v .monaco-editor {
   color: var(--fg-faint);
   font-variant-numeric: tabular-nums;
 }
+/* On a card the number is how it's referred to, so it reads like body text (at least 4.5:1 on any column's tint, in
+   both themes; --fg-muted falls short on dark tints); the archive and sidebar rows keep it faint beside the title. */
+.task-card .task-number {
+  color: var(--fg);
+}
 .task-project {
   color: var(--accent);
   font-size: 11px;
