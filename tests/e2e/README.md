@@ -48,9 +48,9 @@ the profile's Claude Code path (`settings.providers['claude-code'].executablePat
 `CLAUDE_CONFIG_DIR` pointing at a test folder. It goes through Hive's real Claude Code adapter: it asks to trust a
 new folder (Enter trusts it), sends Claude Code's hooks, writes its transcripts, starts on a task given on the
 command line, and answers each prompt after a second (`work N` takes N seconds; `edit <file>` makes an Edit, with
-its file lock; `pad N` adds N KB to its transcript; `ask` sends a permission prompt; `window N` makes its status line report an N-token context window; `background N` starts a background command that ends after N seconds, whose task notification then
+its file lock; `pad N` adds N KB to its transcript; `ask` sends a permission prompt; `window N` makes its status line report an N-token context window; `boardmove N COLUMN` moves card N as its hive tools would (recording the answer in `fake-calls.jsonl`); `background N` starts a background command that ends after N seconds, whose task notification then
 starts a turn by itself; `--model fail-start` makes it refuse to start, printing an error and exiting with 1). Each launch is recorded in `fake-launches.jsonl` in `CLAUDE_CONFIG_DIR` (its options and
-`CLAUDE_CODE_*` variables). `assistant-control`, `context`, `background`, `longsession`, `resumeall`, `cardchip`, `reorder`, `busy`, `startfail`, `filelinks`, `quitwait`, `rendercrash`, `bursts`, `taskbar`, `ctxpercent` and `board` use it (`board` also sends a small test folder to the Recycle Bin, as Delete Project does). `codex-background` checks Codex's background
+`CLAUDE_CODE_*` variables). `assistant-control`, `context`, `background`, `longsession`, `resumeall`, `cardchip`, `reorder`, `busy`, `startfail`, `filelinks`, `quitwait`, `rendercrash`, `bursts`, `taskbar`, `ctxpercent`, `donemove` and `board` use it (`board` also sends a small test folder to the Recycle Bin, as Delete Project does). `codex-background` checks Codex's background
 terminals with the real Codex (one short prompt).
 
 Print `PASS name` / `FAIL name` per check, and add the suite to `SUITES` in `run.mjs`.

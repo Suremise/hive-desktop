@@ -54,7 +54,7 @@ Errors return a non-2xx status and `{ "error": "message" }`.
 |---|---|
 | 400 | Invalid request (missing field, bad JSON, invalid session ID, `agent` needed because the project has several) |
 | 401 | Missing or wrong token |
-| 403 | Blocked (cross-origin request, a disabled feature such as session input, or a change only the user makes, such as moving a card to Done) |
+| 403 | Blocked (cross-origin request, a disabled feature such as session input, or a change only the user makes, such as archiving a card or putting Done in order) |
 | 404 | Unknown route, project, card or file |
 | 409 | Conflict with the current state (no workspace open, the project has no agents, agent already running or starting or busy, conversation open in another agent, session archived, provider turned off or not installed…) |
 | 500 | Unexpected error; details are in Hive's log |
@@ -258,7 +258,7 @@ Returns `{ ok: true, path }`. Hive shows a notification with a link to the note.
 
 ### Task board
 
-The workspace's board: cards in four columns, `todo`, `doing`, `review` and `done`, kept in `.hive/tasks`. Every caller can read and change cards; **moving a card into or out of `done` is the user's**, so other callers get `403` (the Hive Assistant's request instead asks the user in its panel and waits for the answer: `409` if they say no). Archived cards can't be changed (`403`), and archiving and deleting are only in Hive.
+The workspace's board: cards in four columns, `todo`, `doing`, `review` and `done`, kept in `.hive/tasks`. Every caller can read and change cards and move them between all four columns, `done` included; each move is in the card's history with who made it. Agents are asked to move finished work to `review` and to `done` only when the user asks. Creating a card in `done` and putting `done` in order are the user's (`403`). Archived cards can't be changed (`403`), and archiving and deleting are only in Hive.
 
 `GET /v1/tasks[?project=web][&column=review][&archived=true]` — the cards on the board in order (by column, then position), or the archived ones. A card:
 

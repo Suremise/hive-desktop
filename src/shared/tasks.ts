@@ -56,7 +56,7 @@ export function taskPrompt(card: TaskCard, withTools: boolean): string {
   if (card.blockedBy.length) parts.push(`It depends on ${card.blockedBy.map((n) => `#${n}`).join(', ')}.`)
   if (withTools) {
     parts.push(
-      `${card.comments.length ? 'Read its comments first with hive_read_task. ' : ''}Keep the card up to date with hive_update_task: comment on progress worth knowing, set blocked with a reason if you can't go on, and when the work is done, move it to review with a comment saying what you did. Never move it to done: the user does that.`
+      `${card.comments.length ? 'Read its comments first with hive_read_task. ' : ''}Keep the card up to date with hive_update_task: comment on progress worth knowing, set blocked with a reason if you can't go on, and when the work is done, move it to review with a comment saying what you did. Move it to done only if the user asks you to.`
     )
   }
   return parts.join('\n\n')

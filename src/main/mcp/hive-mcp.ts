@@ -343,7 +343,7 @@ const tools: Tool[] = [
   {
     name: 'hive_update_task',
     description:
-      `Change a card on the task board and/or comment on it: move it between todo, doing and review, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on, or its place in its column (position top or bottom, or before another card in that column; with or without a column change). Moving a card that has no agent into doing, without agent, gives it to you. When you finish a card's work, move it to review with a comment saying what you did. Only the user moves cards to or from done${ASSISTANT ? ' (you can ask: Hive puts the question to the user and waits for the answer)' : ''}; archived cards can't be changed. Replies with what changed and where the card is now (column, place, project, agent).`,
+      `Change a card on the task board and/or comment on it: move it between todo, doing, review and done, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on, or its place in its column (position top or bottom, or before another card in that column; with or without a column change). Moving a card that has no agent into doing, without agent, gives it to you. When you finish a card's work, move it to review with a comment saying what you did; move it to done only when the user asks (every move is in the card's history, and the user can move it back). Archived cards can't be changed. Replies with what changed and where the card is now (column, place, project, agent).`,
     inputSchema: {
       type: 'object',
       properties: {

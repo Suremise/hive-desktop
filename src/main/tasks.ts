@@ -328,10 +328,10 @@ export async function createTask(
 }
 
 /**
- * Changes a card. Moving it into or out of Done is the user's: `allowDone` says the user did it (or said yes to
- * the Assistant). An archived card only changes once the user brings it back.
+ * Changes a card. Anyone moves it between columns, Done included (each move is in its history, with who made it);
+ * putting Done in order is the user's. An archived card only changes once the user brings it back.
  */
-export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, opts: { allowDone?: boolean; check?: (card: TaskCard) => void; said?: string[] } = {}): Promise<TaskCard> {
+export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, opts: { check?: (card: TaskCard) => void; said?: string[] } = {}): Promise<TaskCard> {
   const ws = workspace
   const by = actorName(actor)
   const result = await withFileLock(cardFile(n, ws), async () => {
@@ -383,9 +383,6 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
     if (patch.column !== undefined || patch.before !== undefined || patch.position !== undefined) {
       const column = patch.column ?? card.column
       if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": todo, doing, review or done.`)
-      if ((column === 'done') !== (card.column === 'done') && actor.kind !== 'user' && !opts.allowDone) {
-        throw new TaskPermissionError(column === 'done' ? 'Only the user moves cards to Done.' : `#${n} is done: only the user moves it out of Done.`)
-      }
       const all = await allTasks(ws)
       const place = placement(all, card, column, patch, actor)
       if (column !== card.column) said.push(place.said ?? `Moved to ${COLUMN_WORD[column]}`)

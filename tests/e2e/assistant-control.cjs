@@ -181,7 +181,7 @@ const check = (name, ok, extra = '') => {
   const asAssistant = (await inv('assistant:actions')).some((x) => x.ok && x.text === 'Activated alpha')
   check("its hive tools act as the Assistant with the Agent API on", !toolReply?.isError && asAssistant, JSON.stringify(toolReply).slice(0, 300))
 
-  // The task board: the Assistant adds and starts cards; moving one to Done asks the user first.
+  // The task board: the Assistant adds and starts cards, and moves one to Done without a question.
   const added2 = await api('POST', '/v1/tasks', { title: 'Write the README', project: 'alpha', description: 'work 1' })
   check('the Assistant adds a card', added2.status === 200 && added2.body?.createdBy === 'Assistant', JSON.stringify(added2.body))
   const cardNo = added2.body?.number
@@ -190,12 +190,10 @@ const check = (name, ok, extra = '') => {
   const writer = (await inv('workspace:get')).projects.find((x) => x.name === 'alpha').agents.find((a) => a.name === 'Writer')
   check('which runs the card', !!writer && !!(await until(async () => (await live(alpha, writer.id))?.status === 'finished', 30000)))
   await api('PATCH', `/v1/tasks/${cardNo}`, { column: 'review', comment: 'Ready.' })
-  const moving = api('PATCH', `/v1/tasks/${cardNo}`, { column: 'done' })
-  const doneCard = page.locator('.assistant-question', { hasText: `Move #${cardNo} to Done?` })
-  check('moving a card to Done asks the user', !!(await doneCard.waitFor({ timeout: 10000 }).then(() => true).catch(() => false)))
-  await doneCard.locator('button', { hasText: 'Move it' }).click()
-  const moved = await moving
-  check("and moves it on the user's yes", moved.status === 200 && moved.body?.column === 'done', JSON.stringify(moved.body))
+  const moved = await api('PATCH', `/v1/tasks/${cardNo}`, { column: 'done' })
+  check('the Assistant moves it to Done', moved.status === 200 && moved.body?.column === 'done', JSON.stringify(moved.body))
+  check('without asking the user', (await page.locator('.assistant-question').count()) === 0)
+  check('its history says the Assistant did it', moved.body?.history?.at(-1)?.by === 'Assistant' && moved.body.history.at(-1).what === 'Moved to Done', JSON.stringify(moved.body?.history?.at(-1)))
   check('the board changes are listed', (await inv('assistant:actions')).some((x) => x.ok && x.text.startsWith(`Started #${cardNo} on a new agent, Writer`)))
   // Putting cards in order: listed in Done by the Assistant; the order of Done is the user's, refused without asking.
   const o1 = (await api('POST', '/v1/tasks', { title: 'Order one', project: 'alpha' })).body.number

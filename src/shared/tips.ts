@@ -52,6 +52,7 @@ export const TIPS: Tip[] = [
   // Board
   { id: 'board', group: 'Board', title: 'Plan work on the task board', text: 'Cards in Todo, Doing, Review and Done, each for a project. Start… gives a card to an agent with the card as its prompt. {key:view.board}', docs: 'Task board', command: 'view.board' },
   { id: 'board-order', group: 'Board', title: "A column's order is its priority", text: 'Drag the most important cards to the top, or ask the Assistant or an agent to prioritise: they reorder the board itself.', docs: 'Task board', command: 'view.board', knownBy: [] },
+  { id: 'board-done', group: 'Board', title: 'Ask an agent to move a card to Done', text: 'Agents put finished work in Review for you to check. Say "looks good, move #65 to done" and they move it to Done; the card\'s history shows who moved it.', docs: 'Task board', command: 'view.board', knownBy: [] },
   { id: 'new-card', group: 'Board', title: 'Jot down a card', text: 'Press {key:task.new} for a new card for the project you are in, without leaving what you are doing.', docs: 'Task board', command: 'task.new' },
   // Assistant
   { id: 'assistant', group: 'Assistant', title: 'Ask the Hive Assistant', text: 'The panel on the right oversees the workspace: ask what the agents are doing, what things cost, or for a plan. {key:assistant.toggle}', docs: 'Hive Assistant', command: 'assistant.toggle' },

@@ -78,17 +78,19 @@ describe('task board', () => {
     await run(() => tasks.updateTask(1, { project: 'alpha' }, user))
   })
 
-  it('keeps Done for the user, and archived cards for the user too', async () => {
+  it("anyone moves cards into and out of Done; archived cards stay the user's", async () => {
     const c = await run(() => tasks.createTask({ title: 'Done-ish', project: 'alpha' }, agent))
+    // A new card starts in Done only from the user.
     await expect(run(() => tasks.createTask({ title: 'x', column: 'done' }, agent))).rejects.toBeInstanceOf(tasks.TaskPermissionError)
     await run(() => tasks.updateTask(c.number, { column: 'review' }, agent))
-    await expect(run(() => tasks.updateTask(c.number, { column: 'done' }, agent))).rejects.toThrow(/Only the user/)
-    await expect(run(() => tasks.updateTask(c.number, { column: 'done' }, assistant))).rejects.toThrow(/Only the user/)
-    // The Assistant, once the user said yes.
-    await run(() => tasks.updateTask(c.number, { column: 'done' }, assistant, { allowDone: true }))
-    await expect(run(() => tasks.updateTask(c.number, { column: 'doing' }, agent))).rejects.toThrow(/out of Done/)
+    expect((await run(() => tasks.updateTask(c.number, { column: 'done' }, agent))).column).toBe('done')
+    // Back out of Done, by an agent, the Assistant or the user, with no special step.
+    expect((await run(() => tasks.updateTask(c.number, { column: 'review' }, agent))).column).toBe('review')
+    expect((await run(() => tasks.updateTask(c.number, { column: 'done' }, assistant))).column).toBe('done')
     const back = await run(() => tasks.updateTask(c.number, { column: 'doing' }, user))
     expect(back.column).toBe('doing')
+    const moves = back.history.filter((h) => h.what.startsWith('Moved to')).map((h) => `${h.by}: ${h.what}`)
+    expect(moves).toEqual(['Agent 1 (alpha): Moved to Review', 'Agent 1 (alpha): Moved to Done', 'Agent 1 (alpha): Moved to Review', 'Assistant: Moved to Done', 'You: Moved to Doing'])
     await run(() => tasks.archiveTask(c.number, true))
     await expect(run(() => tasks.commentTask(c.number, 'hi', agent))).rejects.toThrow(/archived/)
     await expect(run(() => tasks.updateTask(c.number, { title: 'x' }, agent))).rejects.toThrow(/archived/)
@@ -161,7 +163,7 @@ describe('task board', () => {
       await expect(run(() => tasks.updateTask(a.number, { position: 'middle' as never }, agent))).rejects.toThrow('Unknown position')
       await expect(run(() => tasks.updateTask(d.number, { position: 'top' }, agent))).rejects.toThrow(tasks.TaskPermissionError)
       // The Assistant, even when the user agreed to the move into Done, doesn't choose its place there.
-      await expect(run(() => tasks.updateTask(b.number, { column: 'done', position: 'top' }, assistant, { allowDone: true }))).rejects.toThrow('Only the user puts the cards in Done in order')
+      await expect(run(() => tasks.updateTask(b.number, { column: 'done', position: 'top' }, assistant))).rejects.toThrow('Only the user puts the cards in Done in order')
       // The user may (a drop whose card moved meanwhile goes to the end).
       await run(() => tasks.updateTask(d.number, { position: 'top' }, user))
       await run(() => tasks.updateTask(a.number, { before: b.number }, user))

@@ -1,0 +1,111 @@
+// Agents move cards into and out of Done like any other column: an agent's hive tools (the fake Claude Code's
+// "boardmove N COLUMN", which calls the API as they do) move a card to Done with no question, its history names the
+// agent, and the move is undone from the board (right-click → Move to) or by the agent. The card's prompt asks for
+// Review when the work is done. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+
+const userData = path.join(lib.WORK, 'donemove-profile')
+const ws = path.join(lib.WORK, 'donemove-ws')
+const claudeHome = path.join(lib.WORK, 'donemove-claude-home')
+const alpha = path.join(ws, 'alpha')
+const calls = path.join(claudeHome, 'fake-calls.jsonl')
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+const until = async (fn, ms = 10000) => {
+  const t = Date.now()
+  let v
+  while (!(v = await fn()) && Date.now() - t < ms) await lib.sleep(200)
+  return v
+}
+
+;(async () => {
+  for (const d of [userData, ws, claudeHome]) fs.rmSync(d, { recursive: true, force: true })
+  for (const d of [alpha, claudeHome]) fs.mkdirSync(d, { recursive: true })
+  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase()]))
+  lib.enableProviders(userData)
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  cfg.settings.notifications = { ...cfg.settings.notifications, desktopNotifications: false, chimeEnabled: false }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47906', CLAUDE_CONFIG_DIR: claudeHome }
+  delete env.ELECTRON_RUN_AS_NODE
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.fitWindow(app, page, { width: 1300, height: 800 })
+  await lib.sleep(1500)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await inv('workspace:open', ws)
+  await lib.sleep(800)
+  await page.getByText('alpha', { exact: true }).first().click()
+  const agent = await lib.addAgent(inv, alpha, { name: 'Mover' })
+  const key = lib.ptyKey(alpha, agent.id)
+  const live = async () => (await inv('session:live')).find((s) => s.agentId === agent.id)
+  await inv('session:start', alpha, { agentId: agent.id })
+  check('the agent starts', !!(await until(async () => (await live())?.status === 'ready', 20000)))
+
+  const card = async (n) => (await inv('tasks:list')).find((c) => c.number === n)
+  await inv('tasks:create', { title: 'Greeting', project: 'alpha', column: 'review' })
+  const callsSoFar = () => (fs.existsSync(calls) ? fs.readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).length : 0)
+  const lastCall = () => JSON.parse(fs.readFileSync(calls, 'utf8').trim().split('\n').at(-1))
+  const run = async (text) => {
+    const before = callsSoFar()
+    await inv('pty:write', key, text)
+    await lib.sleep(100)
+    await inv('pty:write', key, '\r')
+    await until(async () => callsSoFar() > before, 15000)
+    await until(async () => (await live())?.status === 'finished', 10000)
+    return callsSoFar() > before ? lastCall() : null
+  }
+  const moves = async (n) => (await card(n)).history.filter((h) => h.what.startsWith('Moved to')).map((h) => `${h.by}: ${h.what}`)
+
+  // --- The agent moves the card to Done: no question, and its history says who did it.
+  let call = await run('boardmove 1 done')
+  check('an agent moves a card to Done', call?.status === 200 && (await card(1)).column === 'done', JSON.stringify(call))
+  check('with no question', (await page.locator('.dialog').count()) === 0 && (await page.locator('.assistant-question').count()) === 0)
+  check('its history names the agent and the column', (await moves(1)).at(-1) === 'Mover (alpha): Moved to Done', JSON.stringify(await moves(1)))
+
+  // --- Undone from the board: right-click → Move to → Review.
+  await page.getByRole('button', { name: 'Task Board' }).click()
+  const tile = page.locator('.task-card[data-task="1"]')
+  await tile.waitFor({ timeout: 5000 })
+  await tile.click({ button: 'right' })
+  await page.locator('.menu .menu-item', { hasText: 'Review' }).click()
+  check('the user moves it back to Review from the board', !!(await until(async () => (await card(1)).column === 'review', 5000)))
+  check('…and that is in its history too', (await moves(1)).at(-1) === 'You: Moved to Review', JSON.stringify(await moves(1)))
+  await page.screenshot({ path: path.join(lib.WORK, 'donemove-board.png') })
+
+  // --- And by the agent: into Done and back out again.
+  await run('boardmove 1 done')
+  call = await run('boardmove 1 doing')
+  check('an agent moves a card back out of Done', call?.status === 200 && (await card(1)).column === 'doing', JSON.stringify(call))
+  check('every move is in its history', JSON.stringify((await moves(1)).slice(-2)) === JSON.stringify(['Mover (alpha): Moved to Done', 'Mover (alpha): Moved to Doing']), JSON.stringify(await moves(1)))
+
+  // --- The card's prompt still asks for Review when the work is done (and Done only when the user asks).
+  const n = (await inv('tasks:create', { title: 'Docs', project: 'alpha' })).number
+  await inv('tasks:start', n, { kind: 'agent', agentId: agent.id })
+  check('Start puts the card in Doing', !!(await until(async () => (await card(n)).column === 'doing', 10000)))
+  const transcript = path.join(claudeHome, 'projects', alpha.replace(/[^a-zA-Z0-9]/g, '-'), `${(await live()).sessionId}.jsonl`)
+  const prompt = await until(async () => {
+    const lines = fs.existsSync(transcript) ? fs.readFileSync(transcript, 'utf8').split('\n').filter((l) => l.includes(`task #${n} `)) : []
+    return lines.length ? JSON.parse(lines.at(-1)).message.content : null
+  }, 15000)
+  check('the card prompt says Review when done, Done only if the user asks', typeof prompt === 'string' && prompt.includes('move it to review') && prompt.includes('Move it to done only if the user asks'), String(prompt))
+
+  await inv('session:stop', alpha, agent.id).catch(() => undefined)
+  await app.close()
+  console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

@@ -11,6 +11,8 @@
 //   an Edit of that file and records the tool call. "background N" starts a background command that ends after
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
 //   transcript. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
+//   "boardmove N COLUMN" moves card N as hive_update_task does (the hive tools' API, token and agent, from
+//   --mcp-config) and records the answer in fake-calls.jsonl.
 // - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does.
 // - Ctrl+C twice, or "/exit", ends it with SessionEnd.
 // - `--model fail-start` makes it refuse to start, printing an error and exiting with 1, as Claude Code does for an
@@ -99,6 +101,8 @@ async function runPrompt(text) {
   // "pad N": N KB more transcript, as a long conversation has.
   const pad = /\bpad\s+(\d+)/i.exec(text)
   if (pad) write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_pad', content: 'x'.repeat(Number(pad[1]) * 1024) }] } })
+  const move = /\bboardmove\s+(\d+)\s+(\w+)/i.exec(text)
+  if (move) await boardMove(Number(move[1]), move[2].toLowerCase())
   const background = /\bbackground\s+(\d+)/i.exec(text)
   if (background) await startBackgroundTask(Number(background[1]))
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
@@ -113,6 +117,24 @@ async function runPrompt(text) {
       body: JSON.stringify({ session_id: sessionId, context_window: { context_window_size: Number(contextWindow[1]) } })
     }).catch(() => undefined)
   }
+}
+
+/** Moves a card through the Agent API as the hive tools do, naming this agent. */
+async function boardMove(n, column) {
+  let record
+  try {
+    const env = JSON.parse(fs.readFileSync(opts['--mcp-config'], 'utf8')).mcpServers.hive.env
+    const apiToken = JSON.parse(fs.readFileSync(env.HIVE_API_TOKEN_FILE, 'utf8')).token
+    const res = await fetch(`${env.HIVE_API_URL}/v1/tasks/${n}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json', 'X-Hive-Workspace': encodeURIComponent(env.HIVE_WORKSPACE) },
+      body: JSON.stringify({ column, byAgent: env.HIVE_AGENT_ID, agentProject: env.HIVE_PROJECT, reply: 'short' })
+    })
+    record = { n, column, status: res.status, body: await res.json().catch(() => null) }
+  } catch (e) {
+    record = { n, column, error: String(e) }
+  }
+  fs.appendFileSync(path.join(home, 'fake-calls.jsonl'), JSON.stringify(record) + '\n')
 }
 
 async function endTurn(answer) {

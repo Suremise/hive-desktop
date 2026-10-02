@@ -801,8 +801,8 @@ route('POST', '/v1/shared/handovers', async ({ body }) => {
 })
 
 // ---------------------------------------------------------------------------
-// The task board. Agents and the Assistant read and change cards; moving one into or out of Done is the user's
-// (the Assistant asks them first), and so are archiving and deleting. Only the Assistant starts cards on agents.
+// The task board. Agents and the Assistant read, change and move cards (Done included); archiving and deleting are
+// the user's. Only the Assistant starts cards on agents.
 // ---------------------------------------------------------------------------
 
 /** Who is changing a card: the Assistant, the agent whose hive tools sent it (agent and agentProject), or a script. */
@@ -918,9 +918,9 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
   const comment = typeof body?.comment === 'string' ? body.comment.trim() : ''
   const actor = await taskActor(body)
   const changes: string[] = []
-  const apply = async (allowDone: boolean): Promise<TaskCard> => {
+  const apply = async (): Promise<TaskCard> => {
     let c = await tasks.getTask(n)
-    if (Object.keys(patch).length) c = await tasks.updateTask(n, patch, actor, { allowDone, said: changes })
+    if (Object.keys(patch).length) c = await tasks.updateTask(n, patch, actor, { said: changes })
     if (comment) {
       c = await tasks.commentTask(n, comment, actor)
       changes.push('Commented')
@@ -928,26 +928,11 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
     return c
   }
   const reply = async (c: TaskCard) => (shortReply(body) ? taskChange(c, changes) : taskView(c))
-  if (actor.kind !== 'assistant') return reply(await apply(false))
-  const ws = assistantCaller()!
+  if (actor.kind !== 'assistant') return reply(await apply())
   return assistantChange('agents', `change #${n} on the board`, async () => {
     const before = await tasks.getTask(n)
     const placed = (patch.before !== undefined && patch.before !== null) || patch.position !== undefined
-    // Refused before asking about Done, so the user isn't asked for a move that then fails.
-    if (placed && (patch.column ?? before.column) === 'done') throw new tasks.TaskPermissionError('Only the user puts the cards in Done in order.')
-    let allowDone = false
-    // Done is the user's word: the Assistant asks, and this waits for the answer.
-    if (patch.column && (patch.column === 'done') !== (before.column === 'done')) {
-      const yes = await assistant.ask(ws, {
-        title: patch.column === 'done' ? `Move #${n} to Done?` : `Take #${n} out of Done?`,
-        message: `The Assistant wants to move "${clip(before.title, 120)}" from ${columnLabel(before.column)} to ${columnLabel(patch.column)}.${comment ? ` Its note: ${clip(comment, 300)}` : ''}`,
-        yes: 'Move it',
-        no: 'Leave it'
-      })
-      if (!yes) throw new HttpError(409, `The user chose not to move #${n} to ${columnLabel(patch.column)}. Leave it where it is.`)
-      allowDone = true
-    }
-    const c = await apply(allowDone)
+    const c = await apply()
     const at = patch.position ? `at the ${patch.position}` : placed ? `before #${patch.before}` : ''
     const what = [
       patch.column && patch.column !== before.column

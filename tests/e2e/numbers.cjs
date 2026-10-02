@@ -98,6 +98,26 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `number
     delete process.env.HIVE_TEST_FAIL_IPC
   })
 
+  // Saves don't overlap: a number left by clicking Never (its slow save first, then Never's) ends as Never.
+  await app.evaluate(() => {
+    process.env.HIVE_TEST_SLOW_IPC = 'settings:update=2000*1'
+  })
+  await box.click()
+  await box.press('Control+A')
+  await page.keyboard.type('120000')
+  await never.click()
+  check('overlapping saves: Never ticks at once', await never.isChecked())
+  await lib.sleep(3000)
+  check('overlapping saves: the last choice wins', (await sessions()).compactSuggestTokens === 0, String((await sessions()).compactSuggestTokens))
+  check('overlapping saves: Never stays ticked', await never.isChecked())
+  await app.evaluate(() => {
+    delete process.env.HIVE_TEST_SLOW_IPC
+  })
+  await never.uncheck()
+  await lib.sleep(500)
+  check('…unticking brings back the number', (await sessions()).compactSuggestTokens === 120000, String((await sessions()).compactSuggestTokens))
+  await enter('150000')
+
   // The other settings that 0 turns off have their checkbox too.
   await page.locator('.settings-nav .row', { hasText: 'Board' }).first().click()
   await lib.sleep(400)
@@ -151,6 +171,21 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `number
   await pnever.uncheck()
   await lib.sleep(700)
   check('project: unticking Never after inheriting brings back its last value', (await projectCfg()).compactSuggestTokens === 5000)
+
+  // The same for the project, whose saves could finish in either order.
+  await app.evaluate(() => {
+    process.env.HIVE_TEST_SLOW_IPC = 'project:updateConfig=2000*1'
+  })
+  await pbox.click()
+  await pbox.press('Control+A')
+  await page.keyboard.type('8000')
+  await pnever.click()
+  await lib.sleep(3000)
+  check('project: overlapping saves end as Never', (await projectCfg()).compactSuggestTokens === 0, String((await projectCfg()).compactSuggestTokens))
+  check('project: Never stays ticked', await pnever.isChecked())
+  await app.evaluate(() => {
+    delete process.env.HIVE_TEST_SLOW_IPC
+  })
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')

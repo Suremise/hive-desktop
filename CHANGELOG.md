@@ -1,5 +1,13 @@
 # Release Notes
 
+## Unreleased
+
+### Task board
+- **Agents can move cards to Done.** Ask an agent *"looks good, move #65 to done"* and it does; the Assistant can too. Agents still move finished work to Review by default, for you to check. Every move is in the card's history with who made it, and a card can be moved back out of Done from the board or by asking. Before, only you could move cards into or out of Done.
+
+### Fixes
+- Changing a number setting and then ticking **Never** straight away could leave the number saved and Never unticked, mostly in Project Settings. A number box now saves one change at a time, and your last choice wins.
+
 ## 0.3.1 — 2 October 2026
 
 ### Fixes

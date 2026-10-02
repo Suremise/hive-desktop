@@ -360,7 +360,7 @@ export function BoardView() {
         <h1>
           Task Board{project !== null && <span className="faint"> · {project || 'workspace cards'}</span>}
         </h1>
-        <span className="faint">Plan work as cards, start them on agents, and see where each one is. Only you move cards to Done.</span>
+        <span className="faint">Plan work as cards, start them on agents, and see where each one is. Agents put finished work in Review for you.</span>
       </div>
       <BoardToolbar project={project} query={query} setQuery={(q) => set({ boardQuery: q })} archived={archived} setArchived={(v) => set({ boardArchived: v })} />
       <Board project={project} query={query} archived={archived} />
@@ -399,7 +399,7 @@ export function BoardPanel() {
     <>
       <div className="pane-header">
         Task Board
-        <InfoTip text="The workspace's cards, in .hive/tasks. Agents and the Assistant read and change them through Hive's tools; only you move cards to Done, archive or delete them." />
+        <InfoTip text="The workspace's cards, in .hive/tasks. Agents and the Assistant read, change and move them through Hive's tools (finished work goes to Review); only you archive or delete them." />
         <div className="actions">
           <IconButton icon="add" title="New card" onClick={() => set({ taskOpen: { project: chosen ?? '' } })} />
           <IconButton icon="refresh" title="Refresh" onClick={() => void loadTasks()} />

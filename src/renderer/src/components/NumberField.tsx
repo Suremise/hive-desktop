@@ -46,17 +46,28 @@ export function NumberField({
     // A number box holding text it can't read reports "", so React may not see a change to put right.
     if (input.current) input.current.value = shown(current.current)
   }
-  const save = async (v: number | null): Promise<void> => {
+  // Saves go one at a time, so an older one can't finish last (a blur's number, then Never at once); a choice
+  // replaced before its turn is skipped.
+  const queue = useRef({ tail: Promise.resolve(), latest: 0, done: 0 })
+  const save = (v: number | null): void => {
     setError(null)
-    if (v === current.current) return reset()
+    const q = queue.current
+    if (q.done === q.latest && v === current.current) return reset()
+    const n = ++q.latest
     setSaving({ value: v })
-    try {
-      await onCommit(v)
-    } finally {
-      setSaving(null)
-    }
-    // A failed save leaves the setting as it was: show that, not the draft.
-    reset()
+    q.tail = q.tail.then(async () => {
+      if (n !== q.latest) return
+      try {
+        if (v !== current.current) await onCommit(v)
+      } finally {
+        if (n === q.latest) {
+          q.done = n
+          setSaving(null)
+          // A failed save leaves the setting as it was: show that, not the draft.
+          reset()
+        }
+      }
+    }).catch(() => undefined)
   }
   const commit = (): void => {
     const r = parseNumberDraft(draft, { min, max }, { badInput: input.current?.validity.badInput, off: !!off })
@@ -64,12 +75,12 @@ export function NumberField({
       setError(r.message)
       reset()
     } else if (r.kind === 'blank') {
-      if (inherit !== undefined) void save(null)
+      if (inherit !== undefined) save(null)
       else {
         setError(null)
         reset()
       }
-    } else void save(r.value)
+    } else save(r.value)
   }
 
   return (
@@ -101,7 +112,7 @@ export function NumberField({
         />
         {off && (
           <label className="flex muted number-field-off">
-            <input type="checkbox" className="checkbox" checked={isOff} onChange={(e) => void save(e.target.checked ? 0 : (lastOn.current ?? off.restore))} /> {off.label}
+            <input type="checkbox" className="checkbox" checked={isOff} onChange={(e) => save(e.target.checked ? 0 : (lastOn.current ?? off.restore))} /> {off.label}
           </label>
         )}
       </div>

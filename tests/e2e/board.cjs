@@ -73,12 +73,16 @@ const check = (name, ok, extra = '') => {
   const c1 = await card(1)
   check('with its project and description', c1?.project === 'alpha' && c1.description.includes('hello()') && c1.createdBy === 'You', JSON.stringify(c1))
 
-  // As an agent: add a card, try Done (refused), move to Review with a comment.
+  // As an agent: add a card, move it to Done and back out of it, then to Review with a comment.
   const made = await api('POST', '/v1/tasks', { title: 'Follow-up: docs', project: 'alpha', labels: ['docs'] })
   check('an agent adds a card through the Agent API', made.status === 200 && made.body.number === 2, JSON.stringify(made))
   check('it shows on the board', !!(await until(async () => (await tile(2).count()) === 1, 5000)))
   const done = await api('PATCH', '/v1/tasks/2', { column: 'done' })
-  check('an agent may not move a card to Done', done.status === 403 && /Only the user/.test(done.body?.error), JSON.stringify(done))
+  check('an Agent API caller moves a card to Done', done.status === 200 && done.body.column === 'done', JSON.stringify(done))
+  check('it shows in Done', !!(await until(async () => (await column('Done').locator('.task-card[data-task="2"]').count()) === 1, 5000)))
+  const out = await api('PATCH', '/v1/tasks/2', { column: 'todo' })
+  check('and back out of Done, with no approval step', out.status === 200 && out.body.column === 'todo', JSON.stringify(out))
+  check('both moves are in its history', JSON.stringify((await card(2)).history.filter((h) => h.what.startsWith('Moved to')).map((h) => [h.by, h.what])) === JSON.stringify([['Agent API', 'Moved to Done'], ['Agent API', 'Moved to Todo']]), JSON.stringify((await card(2)).history))
   const review = await api('PATCH', '/v1/tasks/2', { column: 'review', comment: 'Docs drafted.' })
   check('an agent moves it to Review with a comment', review.status === 200 && review.body.column === 'review' && review.body.comments.length === 1, JSON.stringify(review.body))
   const badge = page.locator('.activity-btn[aria-label="Task Board"] .activity-badge')
