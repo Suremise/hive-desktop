@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, readFileSync, statSync } from 'fs'
 import { parse as parseToml } from 'smol-toml'
 import type { AgentInstallInfo, McpServerDef, MemorySource, PermissionMode, ReadinessIssue } from '../../../shared/types'
 import { assertSessionId, isSessionId } from '../../../shared/defaults'
+import type { StartHint } from '../../../shared/startFailure'
 import { CODEX, CODEX_DESCRIPTOR, CODEX_MODE_FLAGS, CODEX_PERMISSION_MODES } from '../../../shared/codex'
 import { providerSettings } from '../../../shared/providers'
 import { config } from '../../config'
@@ -260,6 +261,15 @@ export class CodexAdapter implements ProviderAdapter {
   // Before a folder's first session: "Trust this folder? Codex can read, edit, and run files here…".
   readonly startupQuestion = /trust this folder/i
   readonly planToggleKey = '\x1b[Z'
+
+  startHint(text: string): StartHint | null {
+    if (/\bmodel\b/i.test(text) && /not found|invalid|unknown|not supported|does not exist/i.test(text)) return { hint: 'Codex doesn\'t know this model: choose another in Agent Settings.', fix: 'agent-settings' }
+    // Hive's -c overrides and the user's own config.toml.
+    if (/error loading config|config\.toml|error parsing -c|invalid value for|unknown variant|unexpected argument|unrecognized|for more information, try '--help'/i.test(text)) return { hint: 'Codex refused its settings: check Extra arguments in Agent Settings and Settings → Codex, and your config.toml.', fix: 'agent-settings' }
+    if (/not logged in|codex login|please (sign|log) in|unauthorized|401/i.test(text)) return { hint: 'Codex isn\'t signed in: sign in in Agent Setup, then start it again.', fix: 'agent-setup' }
+    if (/is not recognized|ENOENT|cannot find|sandbox/i.test(text)) return { hint: 'Codex looks broken or not set up: check it in Agent Setup.', fix: 'agent-setup' }
+    return null
+  }
   /** Codex versions whose hook hashes Hive has checked against Codex itself: true = Hive's own hash matches. */
   private hashCheck = new Map<string, boolean>()
   /** Versions whose app server didn't answer this run (not asked again until Hive restarts). */

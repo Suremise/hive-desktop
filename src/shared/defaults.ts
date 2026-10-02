@@ -30,7 +30,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     startMinimized: false,
     launchAtLogin: false,
     reopenLastWorkspace: true,
-    confirmOnQuit: 'working'
+    confirmOnQuit: 'working',
+    showTips: true
   },
   appearance: {
     theme: 'dark',

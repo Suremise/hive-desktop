@@ -526,6 +526,7 @@ export async function moveAgent(path: string, agentId: string, index: number): P
   }))
   focusAgent(path, agentId)
   const saved = await attempt('Could not move the agent', () => call('agents:move', path, agentId, index))
+  // Puts the tabs back as saved; the move's own error was already shown, and the next refresh catches up anyway.
   if (!saved) await call('workspace:refresh').then((ws) => set({ workspace: ws })).catch(() => undefined)
 }
 

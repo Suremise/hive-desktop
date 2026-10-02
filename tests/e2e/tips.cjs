@@ -1,0 +1,123 @@
+// Tips: the day's tip in a card when Hive starts (once a day), Next tip, Learn more (the user guide at its
+// heading), closing it, a moment's tip once (a second agent), Help → Tips… (grouped, searchable, Try it runs the
+// command), and Don't show tips. No agents run. Dev build, throwaway profile and workspace with tips turned on.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+
+const userData = path.join(lib.WORK, 'tips-profile')
+const ws = path.join(lib.WORK, 'tips-ws')
+const alpha = path.join(ws, 'alpha')
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+
+;(async () => {
+  for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
+  fs.mkdirSync(alpha, { recursive: true })
+  lib.enableProviders(userData)
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  // On, as for a new user (the suites turn tips off by default).
+  cfg.settings.general = { ...cfg.settings.general, showTips: true }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+
+  const env = { ...process.env, HIVE_USER_DATA: userData }
+  delete env.ELECTRON_RUN_AS_NODE
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.fitWindow(app, page, { width: 1400, height: 860 })
+  await lib.sleep(1000)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await inv('workspace:open', ws)
+  await lib.sleep(800)
+  await page.getByText('alpha', { exact: true }).first().click()
+  const until = async (fn, ms = 10000) => {
+    const t = Date.now()
+    let v
+    while (!(v = await fn()) && Date.now() - t < ms) await lib.sleep(150)
+    return v
+  }
+  const card = page.locator('.tip-card')
+  const title = () => card.locator('.tip-title').innerText().catch(() => '')
+  const saved = () => JSON.parse(fs.readFileSync(cfgFile, 'utf8')).ui?.tips ?? {}
+
+  // --- The day's tip.
+  check('a tip shows when Hive starts', !!(await until(async () => (await card.count()) === 1, 10000)))
+  check('the first tip, numbered', (await title()) === 'Compact with a focus' && /Tip · 1 of \d+/.test(await card.locator('.tip-head').innerText()), await title())
+  check('its shortcut is shown', (await card.locator('.tip-text kbd').count()) === 1)
+  check('it is not a dialog: the window works around it', (await page.locator('[role="dialog"]').count()) === 0)
+  await page.screenshot({ path: path.join(lib.WORK, 'tips-1-card.png') })
+  await card.getByRole('button', { name: 'Next tip' }).click()
+  check('Next tip shows the next one', !!(await until(async () => (await title()) === 'A long conversation? Hand it over to itself', 3000)), await title())
+
+  // --- Learn more: the user guide at the tip's heading.
+  await card.getByRole('button', { name: 'Learn more' }).click()
+  const target = page.locator('.docs-target')
+  check('Learn more opens the user guide at its heading', !!(await until(async () => (await target.count()) === 1 && (await target.innerText()).trim() === 'Long conversations', 3000)))
+  await page.keyboard.press('Control+Shift+E')
+  await card.getByRole('button', { name: 'Close' }).click()
+  check('✕ closes the card', !!(await until(async () => (await card.count()) === 0, 2000)))
+  await until(async () => (saved().seen ?? []).length >= 2, 3000)
+  const s1 = saved()
+  check('what was shown is remembered', s1.seen?.includes('compact-focus') && s1.seen.includes('handover-self') && /^\d{4}-\d\d-\d\d$/.test(s1.shownOn ?? ''), JSON.stringify(s1))
+
+  // --- A moment: the second agent, once.
+  await lib.addAgent(inv, alpha, { name: 'One' })
+  await lib.addAgent(inv, alpha, { name: 'Two' })
+  check('a second agent brings its tip', !!(await until(async () => (await title()) === 'Several agents side by side', 6000)), await title())
+  await page.screenshot({ path: path.join(lib.WORK, 'tips-2-moment.png') })
+  await card.getByRole('button', { name: 'Close' }).click()
+  await lib.addAgent(inv, alpha, { name: 'Three' })
+  await lib.sleep(1500)
+  check('only once', (await card.count()) === 0)
+
+  // --- Reloading the window the same day: no tip again.
+  await lib.sleep(800)
+  await page.reload()
+  await lib.sleep(6000)
+  check('one tip a day: none after a reload', (await card.count()) === 0)
+
+  // --- Help → Tips….
+  await page.locator('.menubar-item', { hasText: 'Help' }).first().click()
+  await page.locator('.menu .menu-item', { hasText: 'Tips…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Tips' })
+  check('Help → Tips… lists them by group', !!(await until(async () => (await dialog.count()) === 1, 3000)) && (await dialog.locator('h3').count()) >= 5 && (await dialog.locator('.tips-item').count()) >= 25)
+  await dialog.getByPlaceholder('Search tips').fill('worktree')
+  const found = await dialog.locator('.tips-item').count()
+  check('search narrows them', found >= 1 && found < 6, String(found))
+  await page.screenshot({ path: path.join(lib.WORK, 'tips-3-dialog.png') })
+  await dialog.getByPlaceholder('Search tips').fill('task board')
+  await dialog.locator('.tips-item', { hasText: 'Plan work on the task board' }).getByRole('button', { name: 'Try it' }).click()
+  check('Try it runs the command (the board opens) and closes the list', !!(await until(async () => (await dialog.count()) === 0 && (await page.locator('h1', { hasText: 'Task Board' }).count()) === 1, 3000)))
+
+  // --- Don't show tips, from the card.
+  await page.keyboard.press('Control+Shift+E')
+  await page.locator('.menubar-item', { hasText: 'Help' }).first().click()
+  await page.locator('.menu .menu-item', { hasText: 'Tips…' }).click()
+  const sw = dialog.getByRole('switch', { name: 'Show a tip when Hive starts' })
+  check('the list has the setting, on', (await sw.getAttribute('aria-checked')) === 'true')
+  await dialog.getByRole('button', { name: 'Close' }).last().click()
+  // The next day: as if the last tip showed long ago.
+  await inv('ui:set', { tips: { ...saved(), shownOn: '2000-01-01' } })
+  await page.reload()
+  check('the next day, a tip again', !!(await until(async () => (await card.count()) === 1, 10000)))
+  await card.getByRole('button', { name: "Don't show tips" }).click()
+  check("Don't show tips closes it and says where they are", !!(await until(async () => (await card.count()) === 0 && (await page.locator('.toast', { hasText: 'Tips are off' }).count()) === 1, 3000)))
+  check('and turns the setting off', !!(await until(async () => JSON.parse(fs.readFileSync(cfgFile, 'utf8')).settings.general.showTips === false, 3000)))
+  await inv('ui:set', { tips: { ...saved(), shownOn: '2000-01-01' } })
+  await page.reload()
+  await lib.sleep(6000)
+  check('with tips off, none shows on start', (await card.count()) === 0)
+
+  await app.close()
+  console.log(failed ? `${failed} check(s) failed` : 'All checks passed')
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

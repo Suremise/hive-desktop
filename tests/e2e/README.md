@@ -39,7 +39,9 @@ Start from an existing suite and use `lib.cjs`:
 - `addAgent()` / `soloAgent()`: projects start without agents;
 - `acceptClaudeTrust()`, `trustForCodex()`, `gitProject()`, `samplePng()`.
 
-**Slow or failing calls** (unpackaged builds only): `HIVE_TEST_SLOW_IPC="tasks:start=2000,git:diff=3000*1"` delays those IPC calls (`*n`: only the first n) and `HIVE_TEST_FAIL_IPC="git:status*1"` makes them fail. Hive reads them again when they change, so a suite can set them in the main process while it runs (`app.evaluate(() => { process.env.HIVE_TEST_SLOW_IPC = '…' })`). `busy` and `changes` use them.
+**Slow or failing calls** (unpackaged builds only): `HIVE_TEST_SLOW_IPC="tasks:start=2000,git:diff=3000*1"` delays those IPC calls (`*n`: only the first n) and `HIVE_TEST_FAIL_IPC="git:status*1"` makes them fail. Hive reads them again when they change, so a suite can set them in the main process while it runs (`app.evaluate(() => { process.env.HIVE_TEST_SLOW_IPC = '…' })`). `busy`, `changes` and `loadfail` use them.
+
+**Tips** are off in suites run by `run.mjs` (`HIVE_TEST_TIPS=off`, unpackaged builds only: a profile that doesn't set *Show a tip when Hive starts* gets it off), so no tip card covers what a suite clicks. A suite about tips (`tips`) turns them on in its profile.
 
 **A fake Claude Code** (`fake-claude/fake-claude.cmd`) runs agents without signing in or spending tokens: set it as
 the profile's Claude Code path (`settings.providers['claude-code'].executablePath`) and start Hive with
@@ -47,8 +49,8 @@ the profile's Claude Code path (`settings.providers['claude-code'].executablePat
 new folder (Enter trusts it), sends Claude Code's hooks, writes its transcripts, starts on a task given on the
 command line, and answers each prompt after a second (`work N` takes N seconds; `edit <file>` makes an Edit, with
 its file lock; `pad N` adds N KB to its transcript; `background N` starts a background command that ends after N seconds, whose task notification then
-starts a turn by itself). Each launch is recorded in `fake-launches.jsonl` in `CLAUDE_CONFIG_DIR` (its options and
-`CLAUDE_CODE_*` variables). `assistant-control`, `context`, `background`, `longsession`, `resumeall`, `cardchip`, `reorder`, `busy` and `board` use it (`board` also sends a small test folder to the Recycle Bin, as Delete Project does). `codex-background` checks Codex's background
+starts a turn by itself; `--model fail-start` makes it refuse to start, printing an error and exiting with 1). Each launch is recorded in `fake-launches.jsonl` in `CLAUDE_CONFIG_DIR` (its options and
+`CLAUDE_CODE_*` variables). `assistant-control`, `context`, `background`, `longsession`, `resumeall`, `cardchip`, `reorder`, `busy`, `startfail` and `board` use it (`board` also sends a small test folder to the Recycle Bin, as Delete Project does). `codex-background` checks Codex's background
 terminals with the real Codex (one short prompt).
 
 Print `PASS name` / `FAIL name` per check, and add the suite to `SUITES` in `run.mjs`.

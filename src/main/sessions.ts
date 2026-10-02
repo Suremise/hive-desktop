@@ -3,6 +3,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { existsSync, realpathSync } from 'fs'
 import { typedText } from '../shared/terminalInput'
+import { lastErrorLines, terminalLines, type StartFailure } from '../shared/startFailure'
 import { BrowserWindow, Notification, app, clipboard, shell } from 'electron'
 import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { assistantTools } from '../shared/assistantTools'
@@ -109,6 +110,8 @@ interface LiveSession {
   tasksOffset?: number
   /** The conversation already warned about for its transcript's size (once each). */
   sizeWarned?: string
+  /** This launch resumes a conversation (a failed start's Retry resumes it again). */
+  resumed?: boolean
 }
 
 export interface EffectiveSettings {
@@ -613,7 +616,7 @@ class SessionManager {
       launchSignature: '',
       unseen: false
     }
-    this.live.set(id, { state, adapter, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined })
+    this.live.set(id, { state, adapter, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined, resumed: !!opts.resumeId })
     this.runs.set(runId, id)
 
     const setup = cfg.worktreeSetup.trim()
@@ -1343,6 +1346,15 @@ class SessionManager {
         projectPath
       )
     }
+    // Exited before its session started, and nobody stopped it: a failed start, whose reason the pane shows.
+    const failure: StartFailure | undefined =
+      l && !job && !l.stopRequested && !this.shuttingDown && l.state.status === 'starting' && !l.state.settingUp
+        ? (() => {
+            const reason = lastErrorLines(output) || `${l.adapter.descriptor.name} exited with code ${code}.`
+            return { reason, exitCode: code, resumed: !!l.resumed, at: new Date().toISOString(), ...l.adapter.startHint?.(terminalLines(output).slice(-12).join('\n')) }
+          })()
+        : undefined
+    if (failure) log.warn(`${this.label(l!.state)}: exited with code ${code} before it started: ${failure.reason.replace(/\n/g, ' | ')}`)
     if (l) {
       if (l.backupTimer) clearInterval(l.backupTimer)
       if (l.compacting) clearTimeout(l.compacting.timer)
@@ -1365,7 +1377,7 @@ class SessionManager {
           .catch(() => undefined)
       }
     }
-    emit({ type: 'session-exit', projectPath, agentId, sessionId, exitCode: code })
+    emit({ type: 'session-exit', projectPath, agentId, sessionId, exitCode: code, ...(failure ? { failure } : {}) })
     this.exitWaiters.get(id)?.()
     this.exitWaiters.delete(id)
     emit({

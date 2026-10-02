@@ -36,6 +36,9 @@ const SUITES = [
   { name: 'replysize' },
   { name: 'busy' },
   { name: 'changes' },
+  { name: 'loadfail' },
+  { name: 'startfail' },
+  { name: 'tips' },
   { name: 'board' },
   { name: 'rail' },
   { name: 'resize' },
@@ -82,7 +85,8 @@ if (!existsSync(join(root, 'out', 'main', 'index.js'))) {
 const run = (name) =>
   new Promise((resolve) => {
     const started = Date.now()
-    const child = spawn(process.execPath, [join(here, `${name}.cjs`)], { cwd: root, env: process.env })
+    // No tip card over what a suite clicks, unless its profile turns tips on (tips does).
+    const child = spawn(process.execPath, [join(here, `${name}.cjs`)], { cwd: root, env: { HIVE_TEST_TIPS: 'off', ...process.env } })
     let out = ''
     const add = (d) => (out += d)
     child.stdout.on('data', add)

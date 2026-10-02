@@ -35,6 +35,7 @@ export function usePersonas(): PersonaInfo[] {
     let current = true
     void call('personas:list')
       .then((l) => current && setList(l))
+      // Personas only add choices to the Assistant's menus: without them, it still works.
       .catch(() => current && setList([]))
     return () => {
       current = false

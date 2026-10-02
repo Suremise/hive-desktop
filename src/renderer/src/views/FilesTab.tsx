@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FileEntry, ProjectInfo, SessionImage, SessionImageGroup } from '@shared/types'
 import * as actions from '../actions'
-import { call } from '../api'
+import { call, errorMessage } from '../api'
 import { discardDrafts, draftsUnder, FileView, hasDraft, moveDrafts, useDraftVersion } from '../components/FileView'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { pasteIntoTerminal } from '../components/TerminalView'
-import { Icon, IconButton, InfoTip, Modal, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
+import { Icon, IconButton, InfoTip, LoadFailed, Modal, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
 import { confirm, filesListeners, focusedAgentId, get, projectKey, set, setProjectTab, showAgent, useStore } from '../store'
 import { cx, formatBytes, HIVE_FILES_MIME, IMAGE_EXT, imageUrl, quotePath, timeAgo } from '../util'
 
@@ -18,6 +18,7 @@ function useFileEvents(projectPath: string, onChange: (dirs: string[]) => void):
   const ref = useRef(onChange)
   ref.current = onChange
   useEffect(() => {
+    // Live updates only: without a watch the tree still loads, and Refresh reads it again.
     void call('files:watch', projectPath).catch(() => undefined)
     const listener = (p: string, dirs: string[]): void => {
       if (p.toLowerCase() === projectPath.toLowerCase()) ref.current(dirs)
@@ -135,6 +136,9 @@ function FilesBrowser({ project, selector }: { project: ProjectInfo; selector: R
   const [editing, setEditing] = useState<Editing | null>(null)
   const [filter, setFilter] = useState('')
   const [results, setResults] = useState<FileEntry[] | null>(null)
+  // The filter's search failed: said, with Retry, rather than "No files match".
+  const [findError, setFindError] = useState<string | null>(null)
+  const [findTry, setFindTry] = useState(0)
   const [git, setGit] = useState<Record<string, string>>({})
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [, setClipVersion] = useState(0)
@@ -172,6 +176,7 @@ function FilesBrowser({ project, selector }: { project: ProjectInfo; selector: R
         }
         setGit(map)
       })
+      // Only the tree's change colours: without git's status the files are still all there.
       .catch(() => setGit({}))
   }, [project.path])
 
@@ -202,14 +207,24 @@ function FilesBrowser({ project, selector }: { project: ProjectInfo; selector: R
   // Filter: search the whole project by path.
   useEffect(() => {
     const q = filter.trim()
+    setFindError(null)
     if (!q) return setResults(null)
+    let current = true
     const t = window.setTimeout(() => {
-      void call('files:find', project.path, q)
-        .then(setResults)
-        .catch(() => setResults([]))
+      void call('files:find', project.path, q).then(
+        (r) => current && setResults(r),
+        (e) => {
+          if (!current) return
+          setResults([])
+          setFindError(errorMessage(e))
+        }
+      )
     }, 180)
-    return () => window.clearTimeout(t)
-  }, [filter, project.path])
+    return () => {
+      current = false
+      window.clearTimeout(t)
+    }
+  }, [filter, project.path, findTry])
 
   const rows = useMemo<Row[]>(() => {
     if (results) return results.map((entry) => ({ entry, depth: 0 }))
@@ -559,7 +574,8 @@ function FilesBrowser({ project, selector }: { project: ProjectInfo; selector: R
           onDragLeave={(e) => e.currentTarget === e.target && setDropTarget(null)}
           onDrop={(e) => void dropOn(e, '')}
         >
-          {results && results.length === 0 && <div className="pane-empty">No files match “{filter}”.</div>}
+          {findError && <LoadFailed inline what="the matching files" error={findError} onRetry={() => setFindTry((n) => n + 1)} />}
+          {results && results.length === 0 && !findError && <div className="pane-empty">No files match “{filter}”.</div>}
           {!results && dirs[''] && dirs[''].length === 0 && !editing && <div className="pane-empty">This project folder is empty.</div>}
           {rows.map((r, i) =>
             'edit' in r ? (
@@ -793,11 +809,19 @@ export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
   const [groups, setGroups] = useState<SessionImageGroup[] | null>(null)
   const [viewing, setViewing] = useState<SessionImage | null>(null)
   const menu = useContextMenu()
+  // A failed read: said in place of the images (or over the last ones), not "No images yet".
+  const [error, setError] = useState<{ error: string; at: number } | null>(null)
+  const loadedAt = useRef(0)
 
   const load = useCallback(() => {
-    void call('images:list', project.path)
-      .then(setGroups)
-      .catch(() => setGroups([]))
+    void call('images:list', project.path).then(
+      (g) => {
+        setGroups(g)
+        setError(null)
+        loadedAt.current = Date.now()
+      },
+      (e) => setError({ error: errorMessage(e), at: loadedAt.current })
+    )
   }, [project.path])
   useEffect(load, [load])
   useFileEvents(project.path, (dirs) => {
@@ -830,8 +854,8 @@ export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
     { label: 'Delete', icon: 'trash', danger: true, onClick: () => void remove(img) }
   ]
 
-  if (!groups) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
-  if (!groups.length) {
+  if (!groups) return error ? <LoadFailed what="the images" error={error.error} onRetry={load} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+  if (!groups.length && !error) {
     return (
       <div className="empty-state" style={{ paddingTop: '15vh' }}>
         <Icon name="file-media" />
@@ -888,6 +912,7 @@ export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
         <IconButton icon="refresh" title="Refresh" onClick={load} />
         <IconButton icon="folder-opened" title="Open Images Folder" onClick={() => void call('app:openPath', `${project.path}\\.hive\\images`)} />
       </div>
+      {error && <StaleNote what="the images" error={error.error} at={error.at} onRetry={load} />}
       {current.map(renderGroup)}
       {archived.length > 0 && (
         <>

@@ -6,7 +6,7 @@ import { ProviderIcon } from '../components/ProviderIcon'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
-import { Icon, IconButton, InfoTip, Markdown, Modal, Tooltip, useContextMenu } from '../components/ui'
+import { Icon, IconButton, InfoTip, LoadFailed, Markdown, Modal, StaleNote, Tooltip, useContextMenu } from '../components/ui'
 import { confirm, notify, openInSessionsTab, prompt, revealAgent, set, setAssistantOpen, useStore } from '../store'
 import { cx, formatDuration, formatTokens, sessionLabel, timeAgo } from '../util'
 import { useSessions } from './ProjectTabs'
@@ -23,7 +23,7 @@ type Jump = { sessionId: string; itemId: number; nonce: number }
 const copyText = (text: string): void => void navigator.clipboard.writeText(text)
 
 export function SessionsTab({ project, assistant = false }: { project: ProjectInfo; assistant?: boolean }) {
-  const { items, reload } = useSessions(project)
+  const { items, reload, error: listError, loadedAt } = useSessions(project)
   const listWidth = usePaneSize('sessions', 320)
   const [showArchived, setShowArchived] = useState(false)
   const [showExternal, setShowExternal] = useState(!assistant)
@@ -36,6 +36,9 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<Scope>('this')
   const [results, setResults] = useState<TranscriptSearchResult[] | null>(null)
+  // A search that failed: said in place of the results (not "No matches"), with Retry.
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [searchTry, setSearchTry] = useState(0)
   const [jump, setJump] = useState<Jump | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   // Running sessions of all the project's agents, by session id.
@@ -68,19 +71,29 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
   useEffect(() => {
     if (!q || (scope === 'this' && !selectedId)) {
       setResults(null)
+      setSearchError(null)
       return
     }
     let cancelled = false
     const t = setTimeout(() => {
-      void call('transcript:search', project.path, q, scope === 'this' ? selectedId : null)
-        .then((r) => !cancelled && setResults(r))
-        .catch(() => !cancelled && setResults([]))
+      void call('transcript:search', project.path, q, scope === 'this' ? selectedId : null).then(
+        (r) => {
+          if (cancelled) return
+          setResults(r)
+          setSearchError(null)
+        },
+        (e) => {
+          if (cancelled) return
+          setResults(null)
+          setSearchError(errorMessage(e))
+        }
+      )
     }, 250)
     return () => {
       cancelled = true
       clearTimeout(t)
     }
-  }, [q, scope, selectedId, project.path])
+  }, [q, scope, selectedId, project.path, searchTry])
 
   const open = (sessionId: string, itemId?: number): void => {
     setSelectedId(sessionId)
@@ -117,7 +130,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
     reload()
   }
 
-  if (!items) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+  if (!items) return listError ? <LoadFailed what={`the ${noun}s`} error={listError} onRetry={reload} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
 
   const byId = new Map(items.map((i) => [i.id, i]))
   const hitCount = results?.reduce((n, r) => n + r.hits.length, 0) ?? 0
@@ -175,7 +188,10 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
           </div>
           {q && results && <span className="faint">{hitCount === 0 ? 'No matches' : `${hitCount}${results.some((r) => r.more) ? '+' : ''} match${hitCount === 1 ? '' : 'es'}`}</span>}
         </div>
-        {q && results ? (
+        {listError && <StaleNote what={`the ${noun}s`} error={listError} at={loadedAt} onRetry={reload} />}
+        {q && searchError ? (
+          <LoadFailed inline what="the search results" error={searchError} onRetry={() => setSearchTry((n) => n + 1)} />
+        ) : q && results ? (
           <div className="pane-body search-results">
             {results.map((r) => {
               const s = byId.get(r.sessionId)
@@ -842,6 +858,7 @@ function useTranscriptImage(project: ProjectInfo, sessionId: string, id: number,
         imageCache.set(key, url)
         if (!cancelled) setSrc(url)
       })
+      // The transcript says an image was there; without its copy, the placeholder stays.
       .catch(() => undefined)
     return () => {
       cancelled = true

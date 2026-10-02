@@ -160,7 +160,8 @@ export function AddAgentDialog() {
   const path = useStore((s) => s.addAgentFor)
   const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.addAgentFor) ?? null)
   const settings = useStore((s) => s.settings)
-  const [git, setGit] = useState<ProjectGitInfo | null>(null)
+  // `error`: git couldn't be read, which isn't the same as "not a repository".
+  const [git, setGit] = useState<(ProjectGitInfo & { error?: string }) | null>(null)
   const [name, setName] = useState('')
   const [location, setLocation] = useState<AddAgentOptions['location']>('project')
   const [branch, setBranch] = useState('')
@@ -202,7 +203,7 @@ export function AddAgentDialog() {
         setBase(g.current ?? g.branches[0] ?? '')
         setExisting(g.worktrees.find((w) => !w.used)?.path ?? '')
       })
-      .catch(() => setGit({ isRepo: false, current: null, branches: [], worktrees: [], worktreesRoot: '' }))
+      .catch((e) => setGit({ isRepo: false, current: null, branches: [], worktrees: [], worktreesRoot: '', error: errorMessage(e) }))
     // Only when the dialog opens for a project.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
@@ -301,7 +302,7 @@ export function AddAgentDialog() {
           <input type="radio" disabled={!git?.isRepo} checked={location === 'new-worktree'} onChange={() => setLocation('new-worktree')} />
           <div>
             <strong>New worktree</strong>
-            <div className="faint">{git?.isRepo === false ? 'Needs a git repository.' : 'Its own checkout on its own branch. Review and merge its work when it is done.'}</div>
+            <div className="faint">{git?.error ? `Could not read the git repository: ${git.error}` : git?.isRepo === false ? 'Needs a git repository.' : 'Its own checkout on its own branch. Review and merge its work when it is done.'}</div>
             {location === 'new-worktree' && (
               <div className="agent-form nested">
                 <label>Branch</label>

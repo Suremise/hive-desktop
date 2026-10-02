@@ -14,7 +14,7 @@ import { call, errorMessage } from '../api'
 import { DocEditor } from '../components/DocEditor'
 import { DiffView } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
-import { Icon, IconButton, InfoTip, statusText, StatusDot, Switch, Tooltip } from '../components/ui'
+import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, statusText, StatusDot, Switch, Tooltip } from '../components/ui'
 import { languageFor } from '../monacoLang'
 import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
 import { RootSelector } from './FilesTab'
@@ -43,6 +43,8 @@ export function useSessions(project: ProjectInfo) {
   // Deleted sessions' usage: totals count it, lists don't show it.
   const [kept, setKept] = useState<SessionListItem[]>([])
   const [loadedAt, setLoadedAt] = useState(0)
+  // The last load failed: views say so (with the sessions from before, if any), not "no sessions".
+  const [error, setError] = useState<string | null>(null)
   const last = useRef(0)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const current = useRef(project.path)
@@ -55,6 +57,7 @@ export function useSessions(project: ProjectInfo) {
     last.current = Date.now()
     const path = project.path
     const n = ++loads.current
+    // Deleted sessions' usage only adds to the totals: without it they are a little low, which beats no list.
     void Promise.all([call('session:list', path), call('session:keptUsage', path).catch(() => [])])
       .then(([list, deleted]) => {
         // Another project shown meanwhile, or a newer load started: theirs is the one to show.
@@ -62,10 +65,11 @@ export function useSessions(project: ProjectInfo) {
         setItems(list)
         setKept(deleted)
         setLoadedAt(Date.now())
+        setError(null)
       })
       .catch((e) => {
-        setItems([])
-        notify('error', 'Could not load sessions', errorMessage(e))
+        if (current.current !== path || n !== loads.current) return
+        setError(errorMessage(e))
       })
   }, [project.path])
   useEffect(() => {
@@ -90,7 +94,7 @@ export function useSessions(project: ProjectInfo) {
     const t = setInterval(load, 60_000)
     return () => clearInterval(t)
   }, [mode, load, shown])
-  return { items, kept, reload: load, loadedAt }
+  return { items, kept, reload: load, loadedAt, error }
 }
 
 
@@ -140,11 +144,11 @@ function sessionAgent(project: ProjectInfo, s: SessionListItem): string {
 
 /** The project's usage for a period: one summary, what runs now, each provider, each agent, then one agent's session. */
 export function OverviewTab({ project }: { project: ProjectInfo }) {
-  const { items, kept, reload, loadedAt } = useSessions(project)
+  const { items, kept, reload, loadedAt, error } = useSessions(project)
   const settings = useStore((s) => s.settings)
   const [period, setPeriod] = useState<Period>('all')
   const now = useNow(60000)
-  if (!items) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+  if (!items) return error ? <LoadFailed what="the sessions" error={error} onRetry={reload} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
 
   const from = periodFrom(period, now)
   const inPeriod = activeIn([...items.filter((i) => i.source === 'hive'), ...kept], from)
@@ -174,6 +178,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
             ))}
           </div>
         </div>
+        {error && <StaleNote what="the sessions" error={error} at={loadedAt} onRetry={reload} />}
         <p className="hint">What was used in the period across every provider, by calendar day: a session that ran over several days counts only its part in the period.</p>
         <div className="cards">
           <Card accent title="Tokens" value={formatTokens(tokens(total))} sub={`${formatTokens(total.input + total.cacheWrite)} in · ${formatTokens(total.cached)} cached · ${formatTokens(total.output)} out`} tip="All tokens: new input, cache writes, input read from cache, and output." />
@@ -680,12 +685,17 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
   const listWidth = usePaneSize('memory', 280)
   const [sources, setSources] = useState<MemorySource[]>([])
   const [selected, setSelected] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const load = useCallback(() => {
-    void call('memory:list', project.path).then((s) => {
-      setSources(s)
-      const key = (x: MemorySource): string => `${x.provider}:${x.id}`
-      setSelected((cur) => cur ?? (s.find((x) => x.exists) ?? s[0] ? key(s.find((x) => x.exists) ?? s[0]) : null))
-    })
+    void call('memory:list', project.path).then(
+      (s) => {
+        setSources(s)
+        setError(null)
+        const key = (x: MemorySource): string => `${x.provider}:${x.id}`
+        setSelected((cur) => cur ?? (s.find((x) => x.exists) ?? s[0] ? key(s.find((x) => x.exists) ?? s[0]) : null))
+      },
+      (e) => setError(errorMessage(e))
+    )
   }, [project.path])
   useEffect(load, [load])
   const sel = sources.find((s) => `${s.provider}:${s.id}` === selected)
@@ -698,6 +708,7 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
   const [shared, setShared] = useState(true)
   useEffect(() => {
     if (usedIds.length < 2) return setShared(true)
+    // Only decides whether to offer sharing one AGENTS.md: unknown, it isn't offered.
     void call('memory:instructionsShared', project.path, usedIds).then(setShared).catch(() => setShared(true))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.path, usedIds.join(), sources])
@@ -732,6 +743,7 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
           </div>
         </div>
         <div className="pane-body">
+          {error && <LoadFailed inline what="the instructions and memory" error={error} onRetry={load} />}
           {!shared && (
             <div className="memory-share">
               <Icon name="info" /> Each provider reads its own instructions file.
@@ -740,7 +752,8 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
               </button>
             </div>
           )}
-          {groups.map(([title, list]) => (
+          {!error &&
+            groups.map(([title, list]) => (
             <div key={title}>
               <div className="section-header" style={{ cursor: 'default' }}>{title}</div>
               {list.length === 0 && <div className="pane-empty" style={{ paddingTop: 6 }}>{title.endsWith('memory') ? 'Nothing saved for this project yet.' : ''}</div>}
@@ -792,7 +805,19 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
   const listWidth = usePaneSize('projectSkills', 320)
   const [skills, setSkills] = useState<SkillInfo[] | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
-  const load = useCallback(() => void call('skills:list', project.path).then(setSkills).catch(() => setSkills([])), [project.path])
+  // A failed read: said, with Retry (and the skills from before, if any), rather than looking like no skills.
+  const [error, setError] = useState<{ error: string; at: number } | null>(null)
+  const loadedAt = useRef(0)
+  const load = useCallback(() => {
+    void call('skills:list', project.path).then(
+      (s) => {
+        setSkills(s)
+        setError(null)
+        loadedAt.current = Date.now()
+      },
+      (e) => setError({ error: errorMessage(e), at: loadedAt.current })
+    )
+  }, [project.path])
   useEffect(load, [load, version])
 
   const providers = PROVIDERS.filter((p) => isProviderEnabled(settings, p.id))
@@ -826,15 +851,18 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
             <IconButton icon="refresh" title="Refresh" onClick={load} />
           </div>
         </div>
+        {error && skills && <StaleNote what="the skills" error={error.error} at={error.at} onRetry={load} />}
         <div className="pane-body">
-          {group('Hive', SKILL_LEVEL_TIP.hive, hive, undefined, 'No Hive skills in this workspace.')}
+          {error && !skills && <LoadFailed inline what="the skills" error={error.error} onRetry={load} />}
+          {skills && group('Hive', SKILL_LEVEL_TIP.hive, hive, undefined, 'No Hive skills in this workspace.')}
           {hive.map((sk) =>
             row(
               sk,
               <IconButton icon="go-to-file" title="Edit in the workspace's Skills view (Hive skills are shared by every project)" onClick={() => editInWorkspace(sk)} />
             )
           )}
-          {providers.map((p) => {
+          {skills &&
+            providers.map((p) => {
             const mine = all.filter((sk) => sk.provider === p.id)
             const local = mine.filter((sk) => sk.level === 'local')
             const user = mine.filter((sk) => sk.level === 'machine')
@@ -886,7 +914,16 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
   const settings = useStore((s) => s.settings)
   const api = useStore((s) => s.api)
   const [servers, setServers] = useState<McpServerInfo[]>([])
-  const load = useCallback(() => void call('mcp:list').then(setServers), [])
+  const [error, setError] = useState<string | null>(null)
+  const load = useCallback(() => {
+    void call('mcp:list').then(
+      (s) => {
+        setServers(s)
+        setError(null)
+      },
+      (e) => setError(errorMessage(e))
+    )
+  }, [])
   useEffect(load, [load, version])
   const disabled = new Set(project.config.mcp.disabled)
   const toggle = async (name: string, enabled: boolean): Promise<void> => {
@@ -899,7 +936,9 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
       <div className="page-narrow">
         <h2 className="section">Workspace MCP servers</h2>
         <ChangesApplyNote project={project} />
-        {servers.length === 0 ? (
+        {error ? (
+          <LoadFailed inline what="the workspace's MCP servers" error={error} onRetry={load} />
+        ) : servers.length === 0 ? (
           <p className="hint">
             No MCP servers in this workspace. <a onClick={() => setActivity('mcp')}>Manage MCP servers</a>
           </p>

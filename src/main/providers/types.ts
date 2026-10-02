@@ -1,5 +1,6 @@
 import type { AgentInstallInfo, EffortLevel, McpServerDef, MemorySource, PermissionMode, PlanUsage, ProviderId, ReadinessIssue, SessionUsage, TranscriptImageRef, TranscriptItem } from '../../shared/types'
 import type { ProviderDescriptor } from '../../shared/providers'
+import type { StartHint } from '../../shared/startFailure'
 
 export interface LaunchSkill {
   name: string
@@ -233,6 +234,12 @@ export interface ProviderAdapter {
   skillRoots(): SkillRoots
   /** MCP servers a project defines in the CLI's own config, which Hive leaves off until copied to the workspace. */
   projectMcpServers(projectPath: string): Promise<Record<string, McpServerDef>>
+
+  /**
+   * What to do about the CLI exiting before its session started, from the lines it printed last (escapes removed):
+   * e.g. an argument it refused, a model it doesn't know, no sign-in. Null when it doesn't recognise the error.
+   */
+  startHint?(text: string): StartHint | null
 
   // Background sessions (capabilities.backgroundSessions)
   /** The CLI's background job named in what it printed when it refused to resume a session held there; null if none. */

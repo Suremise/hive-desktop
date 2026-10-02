@@ -5,11 +5,11 @@ import { cardText } from './CardChip'
 import { agentLaunchSettings, modeOption } from '@shared/providers'
 import { agentsToResume } from '@shared/resumeAll'
 import * as actions from '../actions'
-import { call } from '../api'
+import { call, errorMessage } from '../api'
 import { commandKeybinding, runCommand } from '../commands'
 import { get, notify, projectState, prompt, set, setProjectTab, toggleCompactSidebar, useStore } from '../store'
 import { cx, formatKeybinding } from '../util'
-import { Icon, IconButton, InfoTip, StatusDot, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, InfoTip, LoadFailed, StatusDot, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
 import { addSkill, deleteSkill, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
 import { hasEditorDraftsUnder } from '../editorDrafts'
 import { AssistantSidePanel } from './AssistantView'
@@ -508,9 +508,16 @@ function SkillsPanel() {
   const selectedSkill = useStore((s) => s.selectedSkill)
   const [skills, setSkills] = useState<SkillInfo[]>([])
   const [filter, setFilter] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(() => {
-    void call('skills:workspace').then(setSkills).catch(() => setSkills([]))
+    void call('skills:workspace').then(
+      (s) => {
+        setSkills(s)
+        setError(null)
+      },
+      (e) => setError(errorMessage(e))
+    )
   }, [])
   // Another workspace has other skills.
   useEffect(load, [load, version, workspace?.path])
@@ -542,7 +549,8 @@ function SkillsPanel() {
       <div className="pane-body">
         <Section title="Hive" count={skills.length - missing} tip={SKILL_LEVEL_TIP.hive}>
           {!workspace && <div className="pane-empty">Open a workspace to manage Hive skills.</div>}
-          {workspace && skills.length === 0 && <div className="pane-empty">No Hive skills yet. Create one with +, or add one from a .md or .zip.</div>}
+          {workspace && error && <LoadFailed inline what="the skills" error={error} onRetry={load} />}
+          {workspace && !error && skills.length === 0 && <div className="pane-empty">No Hive skills yet. Create one with +, or add one from a .md or .zip.</div>}
           {shown.map((s) => (
             <SkillRow
               key={s.path}

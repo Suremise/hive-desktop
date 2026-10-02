@@ -14,7 +14,7 @@ import { runCommand, commandKeybinding } from '../commands'
 import { DocEditor } from '../components/DocEditor'
 import { CodeEditor } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
-import { Icon, IconButton, Markdown, Switch } from '../components/ui'
+import { Icon, IconButton, LoadFailed, Markdown, Switch } from '../components/ui'
 import { SkillDetail } from '../components/Skills'
 import { confirm, notify, set, useStore } from '../store'
 import { basename, cx, formatKeybinding } from '../util'
@@ -145,12 +145,22 @@ export function SkillView() {
   const version = useStore((s) => s.skillsVersion)
   const workspace = useStore((s) => s.workspace)
   const [list, setList] = useState<SkillInfo[] | null>(null)
+  // A failed read isn't "this skill no longer exists".
+  const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
-    void call('skills:workspace').then(setList).catch(() => setList([]))
-  }, [version, workspace?.path])
+    void call('skills:workspace').then(
+      (l) => {
+        setList(l)
+        setError(null)
+      },
+      (e) => setError(errorMessage(e))
+    )
+  }, [version, workspace?.path, attempt])
 
   const skill = selected ? list?.find((s) => s.path === selected) : undefined
+  if (selected && error) return <LoadFailed what="the skill" error={error} onRetry={() => setAttempt((n) => n + 1)} />
   if (!selected || !list) {
     return (
       <div className="empty-state" style={{ paddingTop: '18vh' }}>
@@ -404,6 +414,22 @@ export function DocsView() {
   const doc = DOCS.find((d) => d.id === page) ?? DOCS[0]
   const api = useStore((s) => s.api)
   const source = api?.url ? doc.source.replace(/http:\/\/127\.0\.0\.1:47821/g, api.url) : doc.source
+  // Opened at a heading (a tip's Learn more): scroll to it once the page has rendered, and mark it briefly.
+  const anchor = useStore((s) => s.docsAnchor)
+  const pageRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!anchor) return
+    const t = setTimeout(() => {
+      const h = [...(pageRef.current?.querySelectorAll('h1, h2, h3, h4') ?? [])].find((x) => x.textContent?.trim() === anchor)
+      if (h) {
+        h.scrollIntoView({ block: 'start' })
+        h.classList.add('docs-target')
+        setTimeout(() => h.classList.remove('docs-target'), 2000)
+      }
+      set({ docsAnchor: null })
+    }, 50)
+    return () => clearTimeout(t)
+  }, [anchor, doc.id])
   return (
     <div className="split">
       <div className="split-list" style={{ width: listWidth }}>
@@ -426,7 +452,7 @@ export function DocsView() {
         </div>
       </div>
       <div className="split-main">
-        <div className="scroll-page" style={{ position: 'relative', flex: 1 }}>
+        <div ref={pageRef} className="scroll-page" style={{ position: 'relative', flex: 1 }}>
           <Markdown
             source={source}
             onLink={(href) => {

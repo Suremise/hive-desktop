@@ -4,10 +4,10 @@ import { PROVIDERS, isProviderEnabled } from '@shared/providers'
 import { PERIODS, activeIn, money, periodFrom, stackedDaily, sumUsage, totalTokens, type DayTotal, type Totals, type UsageGroup } from '@shared/usageTotals'
 import { call, errorMessage } from '../api'
 import { selectProject } from '../actions'
-import { NO_PROJECTS, get, notify, revealAgent, set, setAssistantOpen, setProjectTab, showView, useStore } from '../store'
+import { NO_PROJECTS, get, revealAgent, set, setAssistantOpen, setProjectTab, showView, useStore } from '../store'
 import { cx, formatNumber, formatTokens, timeAgo } from '../util'
 import { useNow } from '../usage'
-import { Icon, IconButton, InfoTip, Tooltip } from '../components/ui'
+import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip } from '../components/ui'
 import { ProviderIcon } from '../components/ProviderIcon'
 import { cardStalled } from '../components/Board'
 import { PlanLimits, RunningAgent } from './ProjectTabs'
@@ -41,13 +41,15 @@ function useWorkspaceUsage(): () => void {
     timer.current = null
     last.current = Date.now()
     const n = ++loads.current
+    const asked = get().workspace?.path ?? ''
     call('workspace:usage')
       .then((u) => {
         // A newer load, or another workspace in this window meanwhile: not this one's to show.
         if (n !== loads.current || u.workspacePath !== get().workspace?.path) return
-        set({ workspaceUsage: u, workspaceUsageAt: Date.now() })
+        set({ workspaceUsage: u, workspaceUsageAt: Date.now(), workspaceUsageError: null })
       })
-      .catch((e) => notify('error', 'Could not load the workspace usage', errorMessage(e)))
+      // Said in the view (in place of the figures, or over the last ones), not a toast on every live refresh.
+      .catch((e) => n === loads.current && asked === get().workspace?.path && set({ workspaceUsageError: { workspacePath: asked, error: errorMessage(e) } }))
   }, [])
   useEffect(() => {
     load()
@@ -189,6 +191,7 @@ export function WorkspaceOverviewView() {
   const reload = useWorkspaceUsage()
   const usage = useStore((s) => s.workspaceUsage)
   const loadedAt = useStore((s) => s.workspaceUsageAt)
+  const failed = useStore((s) => (s.workspaceUsageError && s.workspaceUsageError.workspacePath === s.workspace?.path ? s.workspaceUsageError.error : null))
   const period = useStore((s) => s.overviewPeriod)
   const workspace = useStore((s) => s.workspace)
   const settings = useStore((s) => s.settings)
@@ -197,6 +200,7 @@ export function WorkspaceOverviewView() {
   const groups = useMemo(() => (usage ? usageGroups() : []), [usage])
   if (!workspace) return <div className="empty-state">Open a workspace to see its overview.</div>
   if (!usage || usage.workspacePath !== workspace.path) {
+    if (failed) return <LoadFailed what="the workspace's usage" error={failed} onRetry={reload} />
     return (
       <div className="empty-state">
         <Icon name="loading" spin />
@@ -258,6 +262,7 @@ export function WorkspaceOverviewView() {
             ))}
           </div>
         </div>
+        {failed && <StaleNote what="the usage" error={failed} at={loadedAt} onRetry={reload} />}
         <p className="hint">Every project and the Assistant, by calendar day: a session that ran over several days counts only its part in the period.</p>
         <div className="cards">
           <Card accent title="Tokens" value={formatTokens(all$)} sub={`${formatTokens(total.input + total.cacheWrite)} in · ${formatTokens(total.cached)} cached · ${formatTokens(total.output)} out`} tip="All tokens: new input, cache writes, input read from cache, and output." />

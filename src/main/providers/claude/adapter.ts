@@ -10,6 +10,7 @@ import { config } from '../../config'
 import { claudeFileAllowed, copyDir, hashDir, isDir, readJson, removePath, writeJsonAtomic } from '../../fsutil'
 import { createLogger } from '../../logger'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, toSpawnable } from '../common'
+import type { StartHint } from '../../../shared/startFailure'
 import type { BackgroundTaskEvent, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillRoots } from '../types'
 import { claudeBackgroundTasks } from './background'
 import { ConversationParser, claudeImageData } from './conversation'
@@ -280,6 +281,15 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
 
   backgroundTasks(appended: string): BackgroundTaskEvent[] {
     return claudeBackgroundTasks(appended)
+  }
+
+  startHint(text: string): StartHint | null {
+    if (/\bmodel\b/i.test(text) && /not found|invalid|unknown|not available|does not exist|isn't available/i.test(text)) return { hint: 'Claude Code doesn\'t know this model: choose another in Agent Settings.', fix: 'agent-settings' }
+    // Its argument parser: "error: unknown option '--x'", "error: option '--effort <level>' argument 'x' is invalid".
+    if (/unknown option|unknown command|error: option|too many arguments|missing required argument|is invalid\. Allowed choices/i.test(text)) return { hint: 'Claude Code refused an argument: check Extra arguments in Agent Settings and Settings → Claude Code.', fix: 'agent-settings' }
+    if (/not logged in|please (run )?\/?login|invalid api key|authentication|OAuth/i.test(text)) return { hint: 'Claude Code isn\'t signed in: start it again and sign in in its terminal.', fix: 'terminal' }
+    if (/is not recognized|ENOENT|cannot find module|MODULE_NOT_FOUND/i.test(text)) return { hint: 'Claude Code looks broken or missing: reinstall or update it in Agent Setup.', fix: 'agent-setup' }
+    return null
   }
 
   backgroundJobIn(output: string): string | null {

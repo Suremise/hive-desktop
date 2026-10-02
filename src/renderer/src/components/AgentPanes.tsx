@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { CardChip, useAgentCards } from './CardChip'
 import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, effectiveModelLabel, effortLabel, formatBytes, layoutPanes, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import type { AgentInfo, LiveSessionState, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
+import type { StartFailure } from '@shared/startFailure'
 import * as actions from '../actions'
 import { call } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, focusAgent, focusedAgentId, isAssistantPath, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showInOverview, showPage, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showInOverview, showPage, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
+import { offerTip } from '../tips'
 import { ModeBadge } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { isProviderEnabled, projectDefaultProvider, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
@@ -362,7 +364,8 @@ function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const cards = useAgentCards(project, a.id)
   const unmerged = useUnmerged(project, a)
   const live = a.live
-  const lines = [`${a.name} (${providerName(agentProviderOf(project, a))}): ${live ? statusText(live) : 'not running'}`]
+  const failure = useStartFailure(project, a)
+  const lines = [`${a.name} (${providerName(agentProviderOf(project, a))}): ${live ? statusText(live) : failure ? `failed to start: ${failure.reason.split('\n')[0]}` : 'not running'}`]
   for (const c of cards) lines.push(`Working on #${c.number} ${c.title}`)
   if (live) lines.push(`Session: ${liveSessionLabel(project, live, usage)}`)
   else if (a.resume) lines.push(`Resume opens: ${sessionLabel(a.resume, project.name)} (${timeAgo(a.resume.lastActiveAt)})`)
@@ -373,6 +376,9 @@ function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
 
 export function AgentStrip({ project }: { project: ProjectInfo }) {
   const panes = usePanes(project)
+  // A second agent: the tip about layouts and file locks, the first time.
+  const several = project.agents.length >= 2
+  useEffect(() => void (several && offerTip('second-agent')), [several])
   const focused = useStore((s) => s.focusedAgent[project.path]) ?? project.agents[0]?.id
   const menu = useContextMenu()
   const picker = useSessionPicker()
@@ -435,7 +441,7 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
               menu.open(e, agentMenu(project, a, () => void picker.openAt(project, a, x, y)))
             }}
           >
-            {removing[`removeAgent:${project.path}#${a.id}`] ? <Icon name="loading" spin title="Removing…" /> : <span className={cx('dot', a.live?.status ?? (project.active ? 'idle' : 'stopped'), a.live?.unseen && 'unseen')} />}
+            {removing[`removeAgent:${project.path}#${a.id}`] ? <Icon name="loading" spin title="Removing…" /> : <AgentDot project={project} a={a} />}
             <ProviderIcon provider={agentProviderOf(project, a)} />
             <span className="agent-name">{a.name}</span>
             {a.worktree && (
@@ -530,6 +536,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   const usage = useLiveUsage(project, a.id)
   const unmerged = useUnmerged(project, a)
   const live = a.live
+  const failure = useStartFailure(project, a)
   const idle = live && (live.status === 'ready' || live.status === 'finished')
   // Compact: while idle and there's a conversation; highlighted once the context passes the threshold.
   const threshold = compactThreshold(project.config, settings?.sessions.compactSuggestTokens ?? 0)
@@ -560,7 +567,13 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   )
   return (
     <div ref={ref} className={cx('pane-header-bar', focused && 'focused')} {...agentDragProps(project, a)} onMouseDown={() => focusAgent(project.path, a.id)} onContextMenu={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))}>
-      <StatusDot live={live} active={project.active} />
+      {!live && failure ? (
+        <Tooltip content={`Failed to start: ${failure.reason}`}>
+          <span className="dot error" />
+        </Tooltip>
+      ) : (
+        <StatusDot live={live} active={project.active} />
+      )}
       <Tooltip content={providerName(agentProviderOf(project, a))}>
         <span>
           <ProviderIcon provider={agentProviderOf(project, a)} />
@@ -574,7 +587,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
           </span>
         </Tooltip>
       )}
-      <span className="faint pane-status">{live ? statusText(live) : 'Not running'}</span>
+      <span className={cx('faint pane-status', !live && failure && 'failed')}>{live ? statusText(live) : failure ? 'Failed to start' : 'Not running'}</span>
       <CardChip project={project} a={a} short={size === 'menu'} />
       <Locks a={a} />
       <div className="grow" />
@@ -646,6 +659,9 @@ export function PaneFooter({
   const bytes = live?.transcriptBytes
   const sizeLimit = transcriptWarnLimit(project.config, settings?.sessions.transcriptWarnMB ?? 0)
   const long = bytes !== undefined && sizeLimit > 0 && bytes >= sizeLimit * 1024 * 1024
+  // The first time either turns amber: the tip about what to do.
+  useEffect(() => void (long && offerTip('transcript-long')), [long])
+  useEffect(() => void (over && offerTip('compact-suggested')), [over])
   return (
     <div className="pane-footer-bar" onMouseDown={() => focusAgent(project.path, a.id)}>
       <Tooltip content={`${providerName(provider)} model${effort ? ' and effort' : ''} ${live ? 'of this session' : 'for new sessions'}${live?.effort ? ' (effort as the session reports it)' : ''}. Change them in ${settingsName}.`}>
@@ -693,8 +709,51 @@ export function PaneFooter({
   )
 }
 
+/** Why an agent's CLI exited before its session started, if it did (until its next launch or ✕). */
+function useStartFailure(project: ProjectInfo, a: AgentInfo | null): StartFailure | undefined {
+  return useStore((s) => (a ? s.startFailures[projectKey(project.path, a.id)] : undefined))
+}
+
+/** An agent tab's status dot: red when its last launch failed to start. */
+function AgentDot({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
+  const failure = useStartFailure(project, a)
+  return <span className={cx('dot', a.live?.status ?? (failure ? 'error' : project.active ? 'idle' : 'stopped'), a.live?.unseen && 'unseen')} />
+}
+
+/** In place of "Session ended": why the CLI didn't start, what to do about it, Retry. The terminal above keeps the full output. */
+function StartFailedBar({ project, a, failure, single }: { project: ProjectInfo; a: AgentInfo; failure: StartFailure; single: boolean }) {
+  const retry = (): void => void (failure.resumed ? actions.resumeLast(project.path, a.id) : actions.newSession(project.path, a.id))
+  return (
+    <div className={cx('session-ended start-failed', !single && 'compact')} role="alert">
+      <Icon name="error" />
+      <div className="grow start-failed-text">
+        <div className="start-failed-reason">
+          <strong>Couldn't start:</strong> {failure.reason}
+        </div>
+        {failure.hint && <div className="start-failed-hint">{failure.hint}</div>}
+      </div>
+      <div className="start-failed-actions">
+        <button className="btn small primary" onClick={retry}>
+          <Icon name="refresh" /> Retry
+        </button>
+        {failure.fix === 'agent-setup' ? (
+          <button className="btn small subtle" onClick={() => set({ setupOpen: agentProviderOf(project, a) })}>
+            Agent Setup…
+          </button>
+        ) : (
+          <button className="btn small subtle" onClick={() => set({ agentSettingsFor: { project: project.path, agentId: a.id } })}>
+            Agent Settings…
+          </button>
+        )}
+        <IconButton icon="close" title="Dismiss (the terminal keeps the output)" onClick={() => clearStartFailure(project.path, a.id)} />
+      </div>
+    </div>
+  )
+}
+
 /** What a pane shows when its agent has no terminal yet, or when the pane is empty. */
 function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a: AgentInfo | null; hasTerminal: boolean; single: boolean }) {
+  const failure = useStartFailure(project, a)
   if (!a) {
     return (
       <div className="pane-placeholder">
@@ -705,6 +764,7 @@ function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a
   }
   const setupPending = !!a.worktree && a.needsSetup && !!project.config.worktreeSetup.trim()
   if (a.live) return null
+  if (hasTerminal && failure && !setupPending) return <StartFailedBar project={project} a={a} failure={failure} single={single} />
   if (hasTerminal) {
     // The session ended: its output stays visible above this bar.
     return (

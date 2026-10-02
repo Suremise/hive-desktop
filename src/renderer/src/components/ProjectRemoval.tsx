@@ -4,7 +4,7 @@ import { call, errorMessage } from '../api'
 import { clearEditorDraftsUnder, hasEditorDraftsUnder } from '../editorDrafts'
 import { loadTasks, notify, set, useStore } from '../store'
 import { cx, timeAgo } from '../util'
-import { BusyButton, Icon, Modal, useBusy } from './ui'
+import { BusyButton, Icon, LoadFailed, Modal, useBusy } from './ui'
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`
 
@@ -164,12 +164,20 @@ export function RemoveProjectDialog() {
 export function HiddenProjectsList() {
   const workspace = useStore((s) => s.workspace)
   const [list, setList] = useState<(HiddenProject & { present: boolean })[]>([])
+  const [error, setError] = useState<string | null>(null)
   const load = useCallback(() => {
-    if (workspace) void call('project:hidden').then(setList).catch(() => setList([]))
-    else setList([])
+    if (!workspace) return setList([])
+    void call('project:hidden').then(
+      (l) => {
+        setList(l)
+        setError(null)
+      },
+      (e) => setError(errorMessage(e))
+    )
   }, [workspace])
   useEffect(load, [load])
   if (!workspace) return <div className="faint">Open a workspace to see its hidden projects.</div>
+  if (error) return <LoadFailed inline what="the hidden projects" error={error} onRetry={load} />
   if (!list.length) return <div className="faint">None. Project → Remove Project… hides a project or removes it from Hive.</div>
 
   const restore = async (h: HiddenProject): Promise<void> => {

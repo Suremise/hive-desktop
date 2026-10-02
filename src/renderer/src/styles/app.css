@@ -1047,6 +1047,15 @@ textarea.input {
 .banner .btn {
   margin-left: auto;
 }
+/* A failed refresh over a page (the Overviews), not a pane's top edge. */
+.page-narrow > .load-stale {
+  border: none;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+.load-failed .btn {
+  margin-top: 10px;
+}
 
 .tab-body {
   flex: 1;
@@ -1574,7 +1583,8 @@ p.hint {
 .toasts {
   position: fixed;
   right: 14px;
-  bottom: 36px;
+  /* Above the tip card, when one shows. */
+  bottom: calc(36px + var(--tip-space, 0px));
   z-index: 2500;
   display: flex;
   flex-direction: column;
@@ -4770,4 +4780,137 @@ body.pane-resizing-v .monaco-editor {
   display: block;
   height: 100%;
   background: var(--accent);
+}
+
+/* A failed start, in place of "Session ended": the CLI's reason, a hint, Retry. */
+.session-ended.start-failed {
+  align-items: flex-start;
+  background: color-mix(in srgb, var(--error) 12%, var(--bg-sidebar));
+  border-top-color: color-mix(in srgb, var(--error) 50%, var(--border));
+}
+.session-ended.start-failed > .codicon {
+  color: var(--error);
+  margin-top: 2px;
+}
+.start-failed-text {
+  min-width: 0;
+}
+.start-failed-reason {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--fg-strong);
+}
+.start-failed-hint {
+  margin-top: 4px;
+  color: var(--fg-muted);
+}
+.start-failed-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.pane-status.failed {
+  color: var(--error);
+}
+
+/* The tip card: bottom right above the status bar, under the toasts; it steps aside over a focused terminal. */
+.tip-card {
+  position: fixed;
+  right: 14px;
+  bottom: 36px;
+  z-index: 2400;
+  width: 320px;
+  max-width: calc(100vw - 28px);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  padding: 8px 12px 10px;
+  font-size: 12px;
+}
+.tip-card.stepped-aside {
+  visibility: hidden;
+}
+.tip-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+.tip-head .codicon-lightbulb {
+  color: var(--accent);
+}
+.tip-title {
+  font-weight: 600;
+  color: var(--fg-strong);
+  margin: 4px 0 2px;
+}
+.tip-text {
+  color: var(--fg);
+  line-height: 1.5;
+}
+.tip-text kbd {
+  font-size: 11px;
+}
+.tip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.tip-off {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 8px;
+  color: var(--fg-faint);
+  font-size: 11px;
+  cursor: pointer;
+}
+.tip-off:hover {
+  color: var(--fg-muted);
+  text-decoration: underline;
+}
+.tips-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.tips-top .input {
+  flex: 1;
+}
+.tips-switch {
+  gap: 8px;
+  white-space: nowrap;
+}
+.tips-list {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.tips-list h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  margin: 12px 0 4px;
+}
+.tips-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.tips-item .tip-actions {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+/* A heading the Docs view was opened at (a tip's Learn more). */
+.docs-target {
+  background: var(--accent-soft);
+  transition: background 1.5s;
 }

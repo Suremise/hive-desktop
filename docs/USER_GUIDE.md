@@ -10,6 +10,10 @@ Hive is a desktop workspace for coding with AI agents. It runs coding agents (**
 4. **Mark the projects you're working on** with the toggle next to each project.
 5. **Add an agent and start it.** A new project has no agents: **New Session** (Ctrl+Shift+N) adds one with your default provider and starts it, or use **Add Agent** above the terminal. The agent opens in the Session tab. Switch to another project and start another — sessions keep running in the background.
 
+### Tips
+
+Hive shows a **tip** about something it can do when it starts, at most one a day, in a small card in the bottom-right corner: **Try it** does it, **Learn more** opens the part of this guide about it, and **Next tip** shows another. A few tips come at the moment they help, once each: the first time a transcript turns amber, the context passes your Compact threshold, you add a second agent, or you paste a screenshot. Tips about things you already do are skipped. The card never blocks anything, and steps aside while you type in a terminal under it. **Don't show tips** turns them off (**Settings → General → Show a tip when Hive starts** turns them back on); **Help → Tips…** lists them all, searchable, either way.
+
 ## Coding agents: Claude Code and Codex
 
 Hive calls the coding agents it can run **providers**. Each agent in a project chooses its own, so a project can have a Claude Code agent and a Codex agent working side by side. Hive shows each CLI's own terminal, exactly as it looks when you run it yourself.
@@ -146,7 +150,7 @@ The sidebar keeps one status dot per project, showing the most urgent agent (nee
 
 **File locks.** Agents sharing the project folder could otherwise edit the same file at the same time. When an agent edits a file, Hive notes that it is working on it; if another agent then tries to edit that file, Hive tells it to wait or work on something else, and it carries on with other work. The claim ends when the first agent finishes its task. The files an agent holds show as a lock with a count on its tab. **Settings → Agents & Worktrees → File locks** (or per project) chooses what happens: **Block** (default), **Ask me** (you approve the edit; Codex can't show its own approval for this, so Hive holds the edit back and shows a notification with **Allow**, and Codex waits until you allow it), **Warn** (the edit goes ahead, the agent is told), or **Off**. Locks cover the agents' file edits, not shell commands (formatters, `npm install`, `git checkout`), and not files agents share outside the project such as the CLIs' own settings or memory — keep that in mind when several agents work in one folder. Agents in their own worktrees never get in each other's way.
 
-If git can't read the changes, the **Changes** tab says why, with **Retry**.
+If git can't read the changes, the **Changes** tab says why, with **Retry**. The same goes for every list and search: if one can't be read, Hive says so with **Retry** rather than showing nothing, and if a refresh fails the last results stay, with a note saying when they're from.
 
 **Reviewing and merging a worktree agent's work.** In the **Changes** and **Files** tabs, the selector at the top switches between the project folder and each agent's worktree. For a worktree, Changes lists everything the agent changed since its branch started (its commits and uncommitted edits). When it is done, choose **Merge** (pane header, agent menu or Changes tab):
 
@@ -501,6 +505,7 @@ In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts th
 - **"Claude Code is required" / "Codex is required"** — install the CLI from **Help → Agent Setup…**, or set its path in the provider's settings page. Having the VS Code extension isn't enough; Hive needs the standalone CLI.
 - **"… is turned off"** — turn the provider on in **Settings → Providers**.
 - **Codex asks before every command** — its Windows sandbox isn't set up: **Help → Agent Setup… → Codex → Set up**.
+- **An agent couldn't start** — when its CLI quits before it has started (a setting it refuses, a broken install), the bar under its terminal turns red with **Couldn't start:** and what the CLI said, a hint where Hive recognises the problem, **Retry** and **Agent Settings…** (or **Agent Setup…**). Its tab and header turn red, and if its pane isn't on screen a notification says so. Fix the setting, then Retry; the terminal above keeps everything the CLI printed.
 - **Status dots don't change** — status comes from the CLI's hooks. A Codex agent shows **Ready** once its prompt appears, and reports its session with your first message. Restart the session; if it persists, check **Help → Open Logs Folder**.
 - **Agent API port in use** — change the port in Settings → Agent API.
 - **"This tab ran into a problem"** — something in that view failed, for example on an unusual file. Your sessions keep running. Click **Try Again** or switch to another tab; if it keeps happening, **Open Logs** has the details for a bug report.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Tips
+- **A tip when Hive starts**: once a day, a small card in the bottom-right corner shows something Hive can do, with **Try it**, **Learn more** (the user guide at that section) and **Next tip**. It never gets in the way, and steps aside while you type in a terminal under it.
+- **Tips at the right moment**, once each: the first time a transcript turns amber, the context passes your Compact threshold, you add a second agent or you paste a screenshot. Tips about things you already do are skipped.
+- **Help → Tips…** lists them all, grouped and searchable. **Don't show tips** on the card, or **Settings → General → Show a tip when Hive starts**, turns them off.
+
 ### Agent header
 - **Archive & New** moved from the agent header into its **⋯** menu, as **Archive and Start New…**, leaving more room for the agent's name, card and session.
 - **Compact** and **Stop** are small icon buttons, like the Assistant's (hover for what they do).
@@ -35,6 +40,7 @@
 - **Project → Remove Project…**: **Hide** a project (Hive leaves it out until you restore it), **Remove** it from Hive (the folder stays, with its handovers and cards packed into it, so it can move to another workspace and bring them along), or **Delete** it (the folder, its worktrees and its handovers to the Recycle Bin). **Settings → Workspace** lists hidden and removed projects, with **Restore**.
 
 ### Agents
+- **See why an agent couldn't start**: when its CLI quits before it has started (an argument or setting it refuses, a broken install), the bar under its terminal turns red with what the CLI said and, where Hive recognises it, what to do, with **Retry** and **Agent Settings…**. Its tab and header turn red ("Failed to start"), and a notification tells you if its pane isn't on screen. Before, the reason was only in the terminal.
 - **Arrange a project's agents**: drag a tab in the agent strip or a pane by its header to move an agent, drop a tab on a page button to move it to that page, or use **Move Left / Move Right** (agent menu, Ctrl+Alt+Shift+Left/Right). The order is saved with the project, and running agents carry on.
 - **Resume All Agents** in the project header (and the project's right-click menu): resumes every stopped agent's last session in one go, leaving running agents alone. If one can't resume, a notification names it and says why, and the others still resume.
 - **Agents waiting on background tasks aren't shown as finished.** When a Claude Code agent ends its turn while a task it started is still running (a test run, say), it shows as **waiting on background tasks** ("Waiting on 1 background task", a slow, faint dot) and carries on by itself when the task ends. The chime and the "finished" notification wait until it really has finished. Codex isn't told when its background terminals end, so Codex agents show as finished with the count next to them.
@@ -57,6 +63,7 @@
 - **Actions that take a moment show it and can't be interrupted by mistake**: Start (on a card), Remove Project, Save, Delete, Archive and Comment on a card, Compact, Agent Settings, Stop All Agents, and deleting a note or an MCP server show a spinner and what they're doing (**Starting…**, **Deleting…**); while they run the dialog can't be closed (Escape, ×, a click outside) and a second click does nothing. If one fails, the dialog stays open with the error, so you can try again. **Resume All** shows a spinner on its button, and an agent being removed shows one on its tab.
 
 ### Fixes
+- **A failed load says so, with Retry**, instead of looking like there's nothing: a transcript search that fails no longer shows *No matches*, the Skills tab no longer shows no skills, the Workspace Overview no longer spins forever, and the same goes for the Images, Memory and MCP tabs, the Files tab's filter, the workspace's Skills view and the hidden projects in Settings. When a refresh fails, the last results stay with a note saying when they're from. In **Add Agent**, a git error no longer reads as *Needs a git repository*.
 - **Number settings**: clearing a box such as *Suggest compacting above* and clicking away saved 0, which turned the feature off without a word. A cleared box now keeps the saved value (in Project Settings it inherits, as before). A number out of range, or text that isn't a number, shows the range under the box instead of a passing message. Settings that 0 turns off (*Suggest compacting above*, *Warn when a transcript is over*, *Archive Done cards after*, *Pause after you type*) have a **Never** (or **No pause**) checkbox; untick it to get your last number back.
 - **Agent Settings** and **Add Agent**: a long model, effort or permission mode name no longer pushes the boxes past the dialog's right edge.
 - **Start… on a card you've edited** used the card as last saved, so the agent got the old description. It now reads **Save and Start…** and saves your edits first; if the save fails, nothing starts and the dialog says why.

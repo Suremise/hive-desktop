@@ -14,9 +14,12 @@ import { ActivityBar, StatusBar } from './components/Shell'
 import { Sidebar } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
 import { isProviderEnabled } from '@shared/providers'
+import { tipsState } from '@shared/tips'
+import { TipCard, TipsDialog } from './components/Tips'
+import { showTodaysTip } from './tips'
 import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
 import { AssistantMain } from './components/AssistantView'
-import { applyLiveState, assistantWasOpen, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, projectState, pushToast, set, useStore } from './store'
+import { agentOnScreen, applyLiveState, assistantWasOpen, clearStartFailure, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, projectState, pushToast, set, useStore } from './store'
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
 import { ProjectView } from './views/ProjectView'
 import { SettingsView } from './views/SettingsView'
@@ -70,14 +73,34 @@ function handleEvent(e: HiveEvent): void {
       const key = projectKey(path, e.state.agentId)
       const prev = findProject(get(), path)?.agents.find((a) => a.id === e.state.agentId)?.live
       if (e.state.status === 'starting' && !prev?.settingUp) set((s) => ({ sessionEpoch: { ...s.sessionEpoch, [key]: (s.sessionEpoch[key] ?? 0) + 1 } }))
+      // A new launch: the last one's failure no longer applies.
+      if (e.state.status === 'starting') clearStartFailure(path, e.state.agentId)
       applyLiveState(e.state)
       // Viewing the project that just finished counts as seeing it.
       if (e.state.unseen && get().selectedProject === path && get().windowFocused && get().activity === 'projects') void call('session:markSeen', path)
       break
     }
-    case 'session-exit':
+    case 'session-exit': {
       set((s) => ({ usageVersion: { ...s.usageVersion, [e.projectPath]: (s.usageVersion[e.projectPath] ?? 0) + 1 } }))
+      if (!e.failure) break
+      const p = findProject(get(), e.projectPath)
+      const path = p?.path ?? e.projectPath
+      const failure = e.failure
+      set((s) => ({ startFailures: { ...s.startFailures, [projectKey(path, e.agentId)]: failure } }))
+      // Its pane says why; a toast only when the pane isn't on screen.
+      const name = p?.agents.find((a) => a.id === e.agentId)?.name ?? 'An agent'
+      const shown = get().workspace?.projects.some((x) => x.path === path)
+      if (!agentOnScreen(path, e.agentId))
+        pushToast({
+          id: `start-failed-${projectKey(path, e.agentId)}`,
+          level: 'error',
+          title: `${p ? `${p.name} · ` : ''}${name} couldn't start`,
+          message: failure.hint ?? failure.reason,
+          actions: shown ? [{ label: 'Show', command: 'agent.show', args: [path, e.agentId] }] : undefined,
+          timestamp: failure.at
+        })
       break
+    }
     case 'usage-changed': {
       const path = findProject(get(), e.projectPath)?.path ?? e.projectPath
       set((s) => ({ usageVersion: { ...s.usageVersion, [path]: (s.usageVersion[path] ?? 0) + 1 } }))
@@ -193,7 +216,7 @@ export function App() {
         call('app:info'),
         call('session:live')
       ])
-      set({ settings: s, sidebarWidth: ui.sidebarWidth, sidebarVisible: ui.sidebarVisible, sidebarCompact: !!ui.sidebarCompact, panes: ui.panes ?? {}, workspace: ws, recent, providers: ag, api, appInfo: info })
+      set({ settings: s, sidebarWidth: ui.sidebarWidth, sidebarVisible: ui.sidebarVisible, sidebarCompact: !!ui.sidebarCompact, panes: ui.panes ?? {}, tips: tipsState(ui.tips), workspace: ws, recent, providers: ag, api, appInfo: info })
       set({ assistantOpen: assistantWasOpen(ws?.path) })
       if (ws) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
       for (const l of live) applyLiveState(l)
@@ -207,6 +230,8 @@ export function App() {
       set({ quitRequest: q.request, quitUnsaved: q.unsaved, quitScope: q.scope, quitPending: q.pending ? { working: q.working } : null })
       applyTheme()
       noticeUnmanagedMcp()
+      // The day's tip, once the window has settled.
+      setTimeout(showTodaysTip, 4000)
     })()
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     mq.addEventListener('change', applyTheme)
@@ -301,6 +326,7 @@ export function App() {
         )}
       </div>
       <StatusBar />
+      <TipCard />
       <Toasts />
       <NotificationCenter />
       <CommandPalette />
@@ -318,6 +344,7 @@ export function App() {
       <UpdateDialog />
       <ModeMenuHost />
       <ShortcutsDialog />
+      <TipsDialog />
       <AgentSetupDialog />
       {/* Last: its questions (confirm, choose, prompt) are often asked from another dialog, so they go on top. */}
       <Dialogs />

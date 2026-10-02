@@ -5,6 +5,7 @@ import { marked } from 'marked'
 import type { LiveSessionState, SessionStatus } from '@shared/types'
 import { cx } from '../util'
 import { errorMessage } from '../api'
+import { shortStartTime } from '@shared/defaults'
 
 export function Icon({ name, className, title, spin }: { name: string; className?: string; title?: string; spin?: boolean }) {
   return <i className={cx('codicon', `codicon-${name}`, spin && 'spin', className)} title={title} aria-hidden={!title} />
@@ -50,6 +51,39 @@ export function InfoTip({ text }: { text: ReactNode }) {
     <Tooltip content={text} delay={100}>
       <Icon name="info" className="info-icon" />
     </Tooltip>
+  )
+}
+
+/**
+ * A load that failed with nothing to show: says so, with Retry, so it doesn't read as an empty result. `inline` fits
+ * a list pane; without it, the panel's empty state.
+ */
+export function LoadFailed({ what, error, onRetry, inline }: { what: string; error: string; onRetry: () => void; inline?: boolean }) {
+  return (
+    <div className={cx(inline ? 'pane-empty' : 'empty-state', 'load-failed')} role="alert">
+      <Icon name="error" /> Could not load {what}: {error}
+      <div>
+        <button className="btn small" onClick={onRetry}>
+          <Icon name="refresh" /> Retry
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** A refresh that failed while the last results stay on screen: when they're from (the error on hover), and Retry. */
+export function StaleNote({ what, error, at, onRetry }: { what: string; error: string; at: number; onRetry: () => void }) {
+  return (
+    <div className="banner warn load-stale" role="status">
+      <Tooltip content={error}>
+        <span>
+          <Icon name="warning" /> Could not refresh {what}{at ? `; last updated ${shortStartTime(new Date(at).toISOString())}` : ''}.
+        </span>
+      </Tooltip>
+      <button className="btn small" onClick={onRetry}>
+        Retry
+      </button>
+    </div>
   )
 }
 

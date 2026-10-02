@@ -13,6 +13,8 @@
 //   transcript.
 // - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does.
 // - Ctrl+C twice, or "/exit", ends it with SessionEnd.
+// - `--model fail-start` makes it refuse to start, printing an error and exiting with 1, as Claude Code does for an
+//   argument it rejects.
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
@@ -41,6 +43,10 @@ for (let i = 0; i < args.length; i++) {
   if (WITH_VALUE.has(args[i])) opts[args[i]] = args[++i]
   else if (args[i].startsWith('--')) opts[args[i]] = true
   else firstPrompt = args[i]
+}
+if (opts['--model'] === 'fail-start') {
+  console.error("error: option '--model <model>' argument 'fail-start' is invalid.")
+  process.exit(1)
 }
 const sessionId = opts['--resume'] || opts['--session-id'] || randomUUID()
 // What it was started with, for suites that check the launch: the options and Claude Code's own variables.

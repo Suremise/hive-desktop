@@ -25,7 +25,7 @@ const MENUS: MenuDef[] = [
   { label: 'Session', items: ['session.new', 'session.resume', 'session.stop', '-', 'session.compact', 'session.archive', '-', 'project.tab.sessions'] },
   {
     label: 'Help',
-    items: ['help.docs', 'help.api', 'help.shortcuts', 'help.releaseNotes', '-', 'help.agentSetup', 'help.checkProviders', '-', 'view.devTools', 'view.reload', 'help.logs', '-', 'help.checkUpdates', 'help.about']
+    items: ['help.docs', 'help.api', 'help.shortcuts', 'help.tips', 'help.releaseNotes', '-', 'help.agentSetup', 'help.checkProviders', '-', 'view.devTools', 'view.reload', 'help.logs', '-', 'help.checkUpdates', 'help.about']
   }
 ]
 

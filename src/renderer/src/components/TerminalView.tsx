@@ -8,6 +8,7 @@ import { attempt } from '../actions'
 import { call } from '../api'
 import { isAppShortcut } from '../commands'
 import { useStore } from '../store'
+import { offerTip } from '../tips'
 import type { ProviderId } from '@shared/types'
 import { carriesFiles, cx, HIVE_FILES_MIME, IMAGE_EXT, quotePath } from '../util'
 
@@ -208,7 +209,10 @@ export function TerminalView({
             // A screenshot: save it and paste its path, which the agent's CLI attaches as an image.
             const p = pathRef.current
             const saved = await attempt('Could not paste image', () => call('session:saveImage', p, undefined, agentRef.current))
-            if (saved) term.paste(quotePath(saved))
+            if (saved) {
+              term.paste(quotePath(saved))
+              offerTip('image-pasted')
+            }
           }
         })
         e.preventDefault()
@@ -258,6 +262,7 @@ export function TerminalView({
           const project = pathRef.current
           const keep = project && IMAGE_EXT.test(p) && !/[\\/]\.hive[\\/]images[\\/]/i.test(p)
           const saved = keep ? await attempt('Could not add image', () => call('session:saveImage', project, p, agentRef.current)) : null
+          if (saved) offerTip('image-pasted')
           paths.push(quotePath(saved || p))
         }
         if (paths.length) term.paste(paths.join(' ') + ' ')

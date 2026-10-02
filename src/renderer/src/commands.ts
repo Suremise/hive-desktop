@@ -5,6 +5,7 @@ import { call } from './api'
 import { checkForUpdates, openReleaseNotes } from './components/Updates'
 import { openModeMenu } from './components/PermissionMode'
 import * as actions from './actions'
+import { noteCommandUsed } from './tips'
 import { agentPage, focusedAgentId, get, notify, set, setActivity, setAssistantOpen, showAssistantView, showView, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
 
 export interface Command {
@@ -289,6 +290,7 @@ export const commands: Command[] = [
   { id: 'help.docs', label: 'Documentation', category: 'Help', keybinding: 'F1', run: () => { set({ docsPage: 'guide' }); setActivity('docs') } },
   { id: 'help.api', label: 'Agent API Reference', category: 'Help', run: () => { set({ docsPage: 'api' }); setActivity('docs') } },
   { id: 'help.shortcuts', label: 'Keyboard Shortcuts', category: 'Help', keybinding: 'Mod+K Mod+S', run: () => set({ shortcutsOpen: true }) },
+  { id: 'help.tips', label: 'Tips…', category: 'Help', run: () => set({ tipsOpen: true }) },
   { id: 'help.releaseNotes', label: 'Release Notes', category: 'Help', run: () => { set({ docsPage: 'changelog' }); setActivity('docs') } },
   { id: 'help.logs', label: 'Open Logs Folder', category: 'Help', run: () => call('app:openLogs') },
   { id: 'help.about', label: 'About Hive', category: 'Help', run: () => set({ aboutOpen: true }) },
@@ -303,6 +305,8 @@ export function runCommand(id: string, ...args: unknown[]): void {
   const c = commands.find((x) => x.id === id)
   if (!c) return
   if (c.when && !c.when()) return
+  // Tips skip what the user already does.
+  noteCommandUsed(id)
   void Promise.resolve(c.run(...args)).catch((e) => console.error(e))
 }
 

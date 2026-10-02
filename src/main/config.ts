@@ -31,10 +31,12 @@ class ConfigStore {
     const raw = readKeptJsonSync<Record<string, any> | null>(this.path, null)
     if (!raw || typeof raw !== 'object') {
       this.data = structuredClone(DEFAULT_APP_CONFIG)
-      return
+    } else {
+      this.backupBeforeSave = (raw.version ?? 1) < DEFAULT_APP_CONFIG.version
+      this.data = migrateConfig(mergeDefaults(structuredClone(DEFAULT_APP_CONFIG), raw), raw)
     }
-    this.backupBeforeSave = (raw.version ?? 1) < DEFAULT_APP_CONFIG.version
-    this.data = migrateConfig(mergeDefaults(structuredClone(DEFAULT_APP_CONFIG), raw), raw)
+    // Tests (unpackaged builds): no tip card over what a suite clicks, unless its profile turns tips on.
+    if (!app.isPackaged && process.env.HIVE_TEST_TIPS === 'off' && raw?.settings?.general?.showTips === undefined) this.data.settings.general.showTips = false
   }
 
   get(): AppConfig {

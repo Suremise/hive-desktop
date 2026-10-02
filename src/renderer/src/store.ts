@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import type { Period } from '@shared/usageTotals'
+import type { StartFailure } from '@shared/startFailure'
+import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
 import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageLayout, pageOfAgent } from '@shared/defaults'
 import { agentProvider } from '@shared/providers'
 import type { AgentBranchStatus, QuitScope, TaskCard, UpdateState, WorkspaceUsage } from '@shared/types'
@@ -75,6 +77,12 @@ interface State {
   planUsage: Record<ProviderId, PlanUsage>
   /** Worktree agents' unmerged work, by projectKey (null: git couldn't check it). */
   branchStatus: Record<string, AgentBranchStatus | null>
+  /** Agents whose CLI exited before its session started, by projectKey: why, until the next launch or ✕. */
+  startFailures: Record<string, StartFailure>
+  /** What the tips know (saved in the profile), the tip in the card, and whether Help → Tips… is open. */
+  tips: TipsState
+  tipShown: string | null
+  tipsOpen: boolean
   api: AgentApiInfo | null
   appInfo: AppInfo | null
 
@@ -110,6 +118,8 @@ interface State {
   newAgents: Record<string, string[]>
   personasVersion: number
   docsPage: string
+  /** A heading of the shown doc to scroll to (Learn more on a tip), cleared once there. */
+  docsAnchor: string | null
   settingsSection: string
   settingsQuery: string
 
@@ -172,6 +182,8 @@ interface State {
   overviewPeriod: Period
   workspaceUsage: WorkspaceUsage | null
   workspaceUsageAt: number
+  /** Why its last load failed (for that workspace), shown with Retry in place of, or over, the last figures. */
+  workspaceUsageError: { workspacePath: string; error: string } | null
   /** The Board view's filter: a project's folder name, '' for workspace cards, null for all. */
   boardProject: string | null
   boardQuery: string
@@ -199,6 +211,10 @@ export const useStore = create<State>(() => ({
   providers: {},
   planUsage: {},
   branchStatus: {},
+  startFailures: {},
+  tips: EMPTY_TIPS_STATE,
+  tipShown: null,
+  tipsOpen: false,
   api: null,
   appInfo: null,
 
@@ -224,6 +240,7 @@ export const useStore = create<State>(() => ({
   newAgents: {},
   personasVersion: 0,
   docsPage: 'guide',
+  docsAnchor: null,
   settingsSection: 'general',
   settingsQuery: '',
 
@@ -263,6 +280,7 @@ export const useStore = create<State>(() => ({
   overviewPeriod: 'week',
   workspaceUsage: null,
   workspaceUsageAt: 0,
+  workspaceUsageError: null,
   boardProject: null,
   boardQuery: '',
   boardArchived: false,
@@ -287,6 +305,24 @@ export interface AgentRef {
 }
 
 /** Terminal key of an agent's session. */
+/** Forgets an agent's failed start (✕, or a new launch). */
+export function clearStartFailure(path: string, agentId: string): void {
+  const key = projectKey(path, agentId)
+  if (!(key in get().startFailures)) return
+  set((s) => {
+    const { [key]: _gone, ...rest } = s.startFailures
+    return { startFailures: rest }
+  })
+}
+
+/** Whether an agent's pane is on screen now: its project's Session tab, on the page shown. */
+export function agentOnScreen(path: string, agentId: string): boolean {
+  const s = get()
+  const p = s.workspace?.projects.find((x) => x.path === path)
+  if (!p || s.activity !== 'projects' || s.selectedProject !== path || (s.projectTabs[path] ?? 'session') !== 'session') return false
+  return paneAssignment(p, focusedAgentId(p), s.paneAgents[path]).includes(agentId)
+}
+
 export function projectKey(path: string, agentId: string): string {
   return agentPtyKey(path, agentId)
 }

@@ -1,5 +1,8 @@
 // Types shared by the main process, preload bridge and renderer.
 
+import type { StartFailure } from './startFailure'
+import type { TipsState } from './tips'
+
 export type ThemeSetting = 'dark' | 'light' | 'system'
 /** A coding-agent CLI Hive can run ("claude-code", "codex"). See src/shared/providers.ts. */
 export type ProviderId = string
@@ -55,6 +58,8 @@ export interface AppSettings {
     reopenLastWorkspace: boolean
     /** When to ask before quitting while sessions run. Older configs stored a boolean (migrated on load). */
     confirmOnQuit: QuitConfirm
+    /** A tip when Hive starts (at most one a day), and at the moments a tip helps. Help → Tips… has them all. */
+    showTips: boolean
   }
   appearance: {
     theme: ThemeSetting
@@ -232,8 +237,8 @@ export interface AppConfig {
   window: WindowState
   /** The windows open when Hive last quit, each with its workspace (null: the welcome page), reopened at start. */
   windows?: (WindowState & { workspace: string | null })[]
-  /** `panes`: resizable pane sizes by key (pixels, or a fraction for split views). */
-  ui: { sidebarWidth: number; sidebarVisible: boolean; sidebarCompact?: boolean; panes?: Record<string, number> }
+  /** `panes`: resizable pane sizes by key (pixels, or a fraction for split views). `tips`: what the tips know (shared/tips.ts). */
+  ui: { sidebarWidth: number; sidebarVisible: boolean; sidebarCompact?: boolean; panes?: Record<string, number>; tips?: TipsState }
   /** Per provider: the model last seen in a session started without a model choice (the CLI's own default). */
   observedDefaultModel: Record<ProviderId, string>
   /** Per provider: the plan usage it last reported (account-wide). */
@@ -1018,7 +1023,8 @@ export interface AgentApiInfo {
 export type HiveEvent =
   | { type: 'workspace-changed'; workspace: WorkspaceInfo | null }
   | { type: 'session-status'; state: LiveSessionState }
-  | { type: 'session-exit'; projectPath: string; agentId: string; sessionId: string; exitCode: number }
+  /** `failure`: the CLI exited before its session started (and nobody stopped it): why, for the agent's pane. */
+  | { type: 'session-exit'; projectPath: string; agentId: string; sessionId: string; exitCode: number; failure?: StartFailure }
   | { type: 'toast'; toast: ToastMessage }
   | { type: 'chime'; projectPath: string }
   | { type: 'settings-changed'; settings: AppSettings }
