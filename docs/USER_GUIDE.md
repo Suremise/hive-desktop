@@ -420,7 +420,7 @@ Codex has its own presets:
 
 When you switch a running Codex agent's preset, the badge says **Switching to …** until Codex confirms it; if Codex doesn't, the badge goes back and Hive tells you.
 
-In **Approve for me**, Codex's reviewer decides on risky actions itself: while it does, the agent's status says **Auto-review: …** and Hive doesn't ask for you. Hive tells you an agent needs you only when Codex actually puts a question or an approval to you.
+In **Approve for me**, Codex's reviewer decides on risky actions itself: while it does, the agent stays **Working…** with a small shield beside its status (hover it to see what's being checked), and Hive doesn't ask for you. Hive tells you an agent needs you only when Codex actually puts a question or an approval to you.
 
 ### Codex's Windows sandbox
 
@@ -451,7 +451,9 @@ Updates are checked against their published checksum before they install.
 
 When an agent finishes (for one waiting on background tasks, once they have ended) or needs input, Hive can play a chime and show a Windows notification (click it to jump to the project). Configure both in **Settings → Notifications**; each project can override the chime.
 
-Agents that finish together don't flood you: they chime once, and get one notification (**3 agents finished in hive**: *Claude, Codex, Agent 3*, or across projects *hive (2), web (1)*), shown a few seconds after the last of them. An agent asking for your input is always told at once, on its own.
+Agents that finish together don't flood you: they chime once, and get one notification (**3 agents finished in hive**: *Claude, Codex, Agent 3*, or across projects *hive (2), web (1)*), shown a few seconds after the last of them. If you turn notifications off or come back to the window meanwhile, it isn't shown. An agent asking for your input is always told at once, on its own.
+
+Hive's own messages (warnings, what an action did) are kept in the **Notifications** panel: the bell at the bottom of the activity bar, or **Ctrl+Alt+U**. While some are unread the bell shows a dot and turns orange; opening the panel marks them read.
 
 ### Agents that need you
 
@@ -463,7 +465,7 @@ With agents working in several projects, the status bar tells you who is waiting
 
 Click a row to go to that agent (the Assistant's opens its panel). The **Projects** icon in the activity bar shows the same number, and each project in the sidebar shows how many of its agents need you.
 
-With Hive behind other windows, its **taskbar button** shows the count too: a red badge over the icon, and the number before the window's title (in Alt+Tab and when you hover the button). When an agent comes to ask you something while Hive is in the background, the button flashes until you switch to it. Turn either off in **Settings → Notifications**.
+With Hive behind other windows, its **taskbar button** shows the count too: a red badge over the icon, and the number before the window's title (in Alt+Tab and when you hover the button). When an agent comes to ask you something while Hive is in the background, the button flashes until you switch to it. Turn either off in **Settings → Notifications** (turning the flash off also stops one that has started).
 
 Below them, **To review** lists worktree agents that have stopped or finished with work not merged yet, with a summary such as *3 files, +120 −40 · 2 commits*, and buttons for **Changes** and **Merge…**. They don't add to the count; one leaves the list once its work is merged or it starts working again. When nothing needs you but there is work to review, the status bar says **1 to review**.
 

@@ -5,9 +5,15 @@ import { tmpdir } from 'os'
 export const app = { getPath: () => tmpdir(), getVersion: () => '0.0.0-test', isPackaged: false }
 export class BrowserWindow {}
 export class Notification {
+  // Tests that record notifications make it supported and spy on show().
+  constructor(readonly options?: { title?: string; body?: string }) {}
   static isSupported(): boolean {
     return false
   }
+  on(): this {
+    return this
+  }
+  show(): void {}
 }
 export const clipboard = {}
 export const shell = {}

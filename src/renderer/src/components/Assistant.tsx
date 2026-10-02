@@ -16,7 +16,7 @@ import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { PaneResizer, usePaneSize } from './Resizer'
 import { TerminalView } from './TerminalView'
-import { Icon, IconButton, Modal, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, Modal, ReviewMark, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
 /**
  * The Hive Assistant's side panel: the workspace's overseer. Its header (status, persona, controls), what is
@@ -379,6 +379,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
         </button>
       </Tooltip>
       <span className="faint pane-status">{live ? statusText(live) : 'Not running'}</span>
+      <ReviewMark live={live} />
       <div className="grow" />
       {buttons &&
         (live ? (
