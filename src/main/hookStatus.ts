@@ -51,7 +51,7 @@ export type HookAction =
   | 'answered'
   /** A prompt (the Assistant counts its changes per prompt). */
   | 'prompted'
-  /** Hive's Compact began, or ended. */
+  /** Hive's Compact began, or is over (PostCompact, or a prompt starting a new turn); the step sets the status. */
   | 'compactBegan'
   | 'compactEnded'
   /** The CLI compacts by itself: say so. */
@@ -129,13 +129,29 @@ export function idleAfter(s: Pick<HookStatusInput, 'backgroundWakes' | 'tasks'>,
   return s.backgroundWakes && s.tasks > 0 ? 'background' : idle
 }
 
+/**
+ * A compaction is over (its hook, or what Hive saw instead: the transcript, the CLI refusing it, a time limit):
+ * an agent still showing it is idle again; anything since (a prompt began a turn) stands.
+ */
+export function compactionOver(s: Pick<HookStatusInput, 'status' | 'statusMessage'>): HookStep {
+  return isCompacting(s) ? { next: 'ready', message: null, actions: [] } : { next: null, actions: [] }
+}
+
 export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
   switch (ev.kind) {
     case 'start':
       return { next: s.status === 'starting' || s.askedAtStart ? 'ready' : null, actions: ['answered'] }
     case 'prompt':
       // A question's answer comes as a prompt ('title' attention: the title says when it is answered).
-      return { next: 'working', ...reviewed(s), ...(s.attention === 'hooks' && s.question ? { question: null } : {}), actions: ['answered', 'prompted'] }
+      return {
+        next: 'working',
+        ...reviewed(s),
+        // A new turn once a compaction has begun (its end unsaid): the compaction is over, and what Hive learns
+        // of its end later must not make the turn idle. Before it begins, the prompt may be the /compact Hive typed.
+        ...(isCompacting(s) && s.compacting !== 'requested' ? { message: null } : {}),
+        ...(s.attention === 'hooks' && s.question ? { question: null } : {}),
+        actions: ['answered', 'prompted', ...(s.compacting === 'started' ? (['compactEnded'] as const) : [])]
+      }
     case 'toolStart':
       return { next: null, ...reviewed(s), actions: [] }
     case 'toolEnd': {
@@ -176,9 +192,8 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
       return s.status === 'working' ? { next: null, actions } : { next: 'working', message: COMPACTING_MESSAGE, actions }
     }
     case 'compactEnd':
-      if (s.compacting) return { next: null, actions: ['compactEnded'] }
-      // Compaction the CLI did by itself while idle (/compact typed in it): idle again.
-      return isCompacting(s) ? { next: 'ready', message: null, actions: [] } : { next: null, actions: [] }
+      // Hive's, or one the CLI did while idle (/compact typed in it): idle again. One mid-turn leaves the turn working.
+      return { ...compactionOver(s), actions: s.compacting ? ['compactEnded'] : [] }
     case 'end':
       return { next: 'stopped', question: null, ...RESOLVED, actions: ['releaseAllLocks', 'clearTasks'] }
     case 'ignore':

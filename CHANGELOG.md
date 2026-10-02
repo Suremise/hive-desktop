@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Sessions
+- **Long transcripts are flagged sooner: at 20 MB instead of 50 MB.** Well before 50 MB a long conversation slows down the coding agent and Hive. If you kept the old 50 MB default, it moves to 20 MB; a size you chose yourself, **Never** and project settings are kept. To go back, set **Settings → Sessions → Warn when a transcript is over** to 50.
+
 ### Task board
 - **Agents keep to their own project's cards.** An agent can see and change only its project's cards on the board: another project's cards are for that project's agents, the Assistant and you. Before, an agent in one project could list, read, comment on and move any card in the workspace. An agent also can't read or type into another project's agents' conversations any more, where those cards appear as their tasks. Each agent now calls Hive with a token of its own, so it can't get round this by saying it is someone else. The Assistant and your board still see everything.
 - **Moving a card to another project takes it from its agent**, and its history says whose it was. Give it to one of the new project's agents afterwards (the card dialog does this when you change both).
@@ -9,6 +12,7 @@
 - **Agents can move cards to Done.** Ask an agent *"looks good, move #65 to done"* and it does; the Assistant can too. Agents still move finished work to Review by default, for you to check. Every move is in the card's history with who made it, and a card can be moved back out of Done from the board or by asking. Before, only you could move cards into or out of Done.
 
 ### Fixes
+- After **Compact**, an agent you had already given a new message could show as **Ready** while it worked on it, when the coding agent didn't report the compaction's end and Hive noticed it later. A new message after a compaction now counts as the compaction being over, and the agent stays **working**.
 - **Task board**: a card's number (#79) was hard to read, in faint grey on the card. It now has the same contrast as the rest of the card's text, in both themes and with column colours.
 - In a narrow agent pane, **Merge…**'s count spilled out of its button over its neighbour, and a long agent name, branch or card pushed the header's buttons (even ⋯) off its edge. The buttons now always fit: a count widens its button, and the agent's details shorten instead (hover for the full text).
 - **Compact**'s spinner in the agent header stood still while the conversation compacted. It now turns until the compaction has finished, in the Assistant's header too.

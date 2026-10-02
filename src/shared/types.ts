@@ -233,7 +233,7 @@ export interface WindowState {
 
 export interface AppConfig {
   /** 3 since the Assistant uses the agents' model and effort (0.3.0); 2 since providers (0.2.0); 1 was Claude Code only. */
-  version: 4
+  version: 5
   settings: AppSettings
   recentWorkspaces: string[]
   /** The workspace of the window focused last (what 0.1 reopened); `windows` has every window. */

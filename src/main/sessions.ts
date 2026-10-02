@@ -3,7 +3,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 
 import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { existsSync, realpathSync } from 'fs'
 import { typedText } from '../shared/terminalInput'
-import { lastErrorLines, terminalLines, type StartFailure } from '../shared/startFailure'
+import { failedStart, type StartFailure } from '../shared/startFailure'
 import { BrowserWindow, Notification, app, clipboard, shell } from 'electron'
 import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { assistantTools } from '../shared/assistantTools'
@@ -35,7 +35,8 @@ import { config } from './config'
 import { emit, emitTo, toast } from './events'
 import { hashDir, hashText, readJson, removePath, splitArgs, syncCopy, syncCopyLocked, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
-import { applyStep, expireTasks, hookStep, idleAfter, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
+import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
+import { Compaction } from './compaction'
 import { lastTitle } from './terminalTitle'
 import { asksYou } from '../shared/inbox'
 import { FinishBatcher, finishedNotice } from '../shared/bursts'
@@ -81,8 +82,8 @@ interface LiveSession {
   backupMtime?: string
   /** Launched without a model choice, so its transcript shows the CLI's default model. */
   defaultModel: boolean
-  /** Set while a Hive-requested compaction runs: compactions in the transcript before it, and a safety timer. */
-  compacting?: { before: number; timer: NodeJS.Timeout; started: boolean; output: string }
+  /** Set while a compaction Hive asked for runs. */
+  compacting?: Compaction
   /** The user stopped it (e.g. during its worktree setup), so an early exit isn't reported as a failure. */
   stopRequested?: boolean
   /** Terminal output tail, to read the permission mode from the CLI's footer. */
@@ -807,7 +808,8 @@ class SessionManager {
       continueBuffer: true,
       onData: (data) => {
         if (l.switchTail !== undefined) l.switchTail = (l.switchTail + data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ').replace(/\x1b\][^\x07]*\x07/g, ' ')).replace(/\s+/g, ' ').slice(-2000)
-        this.watchCompactOutput(id, data)
+        // The CLI refusing or failing a compaction Hive asked for sends no hook ("Not enough messages to compact.").
+        this.live.get(id)?.compacting?.terminal(data)
         this.watchModeOutput(id, data)
         this.watchTitle(id, data)
         this.watchReadyOutput(id, data)
@@ -924,59 +926,61 @@ class SessionManager {
     projectPath = workspace.assertSessionHost(projectPath)
     agentId ||= await this.soleAgent(projectPath)
     const id = liveId(projectPath, agentId)
-    const l = this.live.get(id)
-    if (!l || l.state.settingUp) throw new Error('No session is running for this agent.')
-    if (l.compacting) throw new Error('This session is already compacting.')
-    if (l.state.status !== 'ready' && l.state.status !== 'finished') {
-      throw new Error(l.state.status === 'waiting' ? 'The agent is waiting for your answer. Compact after it has finished.' : 'The agent is busy. Compact once it has finished.')
+    const key = this.key(projectPath, agentId)
+    const check = (l: LiveSession | undefined): LiveSession => {
+      if (!l || l.state.settingUp) throw new Error('No session is running for this agent.')
+      if (l.compacting) throw new Error('This session is already compacting.')
+      if (this.delivering.has(key)) throw new Error('Hive is already typing a prompt into this agent; it is busy.')
+      if (l.state.status !== 'ready' && l.state.status !== 'finished') {
+        throw new Error(l.state.status === 'waiting' ? 'The agent is waiting for your answer. Compact after it has finished.' : 'The agent is busy. Compact once it has finished.')
+      }
+      return l
     }
+    const l = check(this.live.get(id))
     const src = await this.liveTranscript(l)
     const before = src ? ((await this.usageFor(src, l.state.sessionId, l.state.provider))?.compactions.length ?? 0) : 0
-    const key = this.key(projectPath, agentId)
-    writePty(key, '\x15')
-    await new Promise((r) => setTimeout(r, 150))
-    const text = l.adapter.descriptor.capabilities.compactFocus ? (focus ?? '').replace(/\s+/g, ' ').trim() : ''
-    // Written in one go, a long line counts as a paste, and pasted input is sent as a message even when
-    // it starts with "/compact". So type the command on its own, then the focus in small pieces.
-    writePty(key, '/compact')
-    await new Promise((r) => setTimeout(r, 150))
-    if (text) await typeInto(key, ` ${text}`)
-    await new Promise((r) => setTimeout(r, 150))
-    writePty(key, '\r')
-    // PreCompact comes as soon as a compaction starts. If it doesn't (e.g. "not enough messages to
-    // compact"), stop showing "Compacting…"; once started, allow up to 10 minutes.
-    const timer = setTimeout(() => {
-      if (!l.compacting?.started) this.finishCompacting(id)
-    }, 20_000)
-    l.compacting = { before, timer, started: false, output: '' }
+    // Again: a second Compact or a prompt may have come meanwhile (one at a time, only while idle).
+    if (this.live.get(id) !== l) throw new Error('No session is running for this agent.')
+    check(l)
+    // Reserved while Hive types the command (a long focus takes a while), so nothing else is typed or compacted
+    // meanwhile; Compaction's limits run from its submission.
+    const release = (): void => {
+      if (l.compacting !== c) return
+      l.compacting = undefined
+      // A session that has exited stays stopped.
+      if (this.live.get(id) === l && applyStep(l.state, compactionOver(l.state))) this.emitState(l.state)
+    }
+    const c: Compaction = new Compaction(before, l.adapter.compactFailure, release)
+    l.compacting = c
     l.state.status = 'working'
     l.state.statusMessage = COMPACTING_MESSAGE
     this.emitState(l.state)
-  }
-
-  /**
-   * While a Hive-started compaction runs, watch the terminal for the CLI refusing or failing it,
-   * which sends no hook ("Not enough messages to compact.").
-   */
-  private watchCompactOutput(id: string, data: string): void {
-    const l = this.live.get(id)
-    const c = l?.compacting
-    if (!l || !c || !l.adapter.compactFailure) return
-    // Terminal UIs draw spaces as cursor moves (ESC[1C), so control sequences become spaces. Keep a
-    // short tail so a message split across chunks still matches.
-    c.output = (c.output + data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ')).replace(/\s+/g, ' ').slice(-2000)
-    if (l.adapter.compactFailure.test(c.output)) this.finishCompacting(id)
-  }
-
-  private finishCompacting(id: string): void {
-    const l = this.live.get(id)
-    if (!l?.compacting) return
-    clearTimeout(l.compacting.timer)
-    l.compacting = undefined
-    if (l.state.status === 'working') {
-      l.state.status = 'ready'
-      l.state.statusMessage = undefined
-      this.emitState(l.state)
+    this.delivering.add(key)
+    const runId = l.state.runId
+    // The agent stopped or restarted meanwhile: the rest mustn't reach the new process.
+    const same = (): boolean => this.live.get(id) === l && l.state.runId === runId && l.compacting === c
+    const pause = async (ms: number): Promise<void> => {
+      await new Promise((r) => setTimeout(r, ms))
+      if (!same()) throw new Error('The agent stopped before Compact was sent.')
+    }
+    try {
+      writePty(key, '\x15')
+      await pause(150)
+      const text = l.adapter.descriptor.capabilities.compactFocus ? (focus ?? '').replace(/\s+/g, ' ').trim() : ''
+      // Written in one go, a long line counts as a paste, and pasted input is sent as a message even when
+      // it starts with "/compact". So type the command on its own, then the focus in small pieces.
+      writePty(key, '/compact')
+      await pause(150)
+      if (text) await typeInto(key, ` ${text}`, same)
+      await pause(150)
+      writePty(key, '\r')
+      c.submitted()
+    } catch (e) {
+      c.end()
+      release()
+      throw e
+    } finally {
+      this.delivering.delete(key)
     }
   }
 
@@ -1386,17 +1390,18 @@ class SessionManager {
       )
     }
     // Exited before its session started, and nobody stopped it: a failed start, whose reason the pane shows.
-    const failure: StartFailure | undefined =
-      l && !job && !l.stopRequested && !this.shuttingDown && l.state.status === 'starting' && !l.state.settingUp
-        ? (() => {
-            const reason = lastErrorLines(output) || `${l.adapter.descriptor.name} exited with code ${code}.`
-            return { reason, exitCode: code, resumed: !!l.resumed, at: new Date().toISOString(), ...l.adapter.startHint?.(terminalLines(output).slice(-12).join('\n')) }
-          })()
-        : undefined
+    const failure: StartFailure | undefined = l
+      ? failedStart(
+          { status: l.state.status, settingUp: l.state.settingUp, stopRequested: !!l.stopRequested || this.shuttingDown, backgroundJob: !!job, resumed: !!l.resumed },
+          code,
+          output,
+          { name: l.adapter.descriptor.name, startHint: l.adapter.startHint?.bind(l.adapter) }
+        )
+      : undefined
     if (failure) log.warn(`${userText(this.label(l!.state))}: exited with code ${code} before it started: ${userText(failure.reason.replace(/\n/g, ' | '))}`)
     if (l) {
       if (l.backupTimer) clearInterval(l.backupTimer)
-      if (l.compacting) clearTimeout(l.compacting.timer)
+      l.compacting?.end()
       await this.backup(projectPath, agentId, true).catch(() => undefined)
       this.live.delete(id)
     }
@@ -1501,7 +1506,7 @@ class SessionManager {
     if (l.compacting) {
       // Fallback if the compaction hooks never arrive: a new compaction in the transcript.
       const u = await this.usageFor(src, sessionId, l.state.provider)
-      if (u && u.compactions.length > l.compacting.before) this.finishCompacting(liveId(projectPath, agentId))
+      if (u) l.compacting?.transcript(u.compactions.length)
     }
     if (l.defaultModel) {
       const usage = await this.usageFor(src, sessionId, l.state.provider)
@@ -1928,12 +1933,11 @@ class SessionManager {
           if (workspace.isAssistantHome(st.projectPath)) this.onAssistantPrompt(st.projectPath)
           break
         case 'compactBegan':
-          clearTimeout(l.compacting!.timer)
-          l.compacting!.started = true
-          l.compacting!.timer = setTimeout(() => this.finishCompacting(id), 10 * 60_000)
+          l.compacting?.begin()
           break
         case 'compactEnded':
-          this.finishCompacting(id)
+          l.compacting?.end()
+          l.compacting = undefined
           break
         case 'autoCompact':
           // Compaction Hive started is already shown as "Compacting…".

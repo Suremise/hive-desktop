@@ -180,11 +180,11 @@ describe('providers migration', () => {
 
   it('a fresh install starts with every provider off', () => {
     expect(Object.values(DEFAULT_SETTINGS.providers).every((p) => !p.enabled)).toBe(true)
-    expect(DEFAULT_APP_CONFIG.version).toBe(4)
+    expect(DEFAULT_APP_CONFIG.version).toBe(5)
   })
   it('moves 0.1 Claude Code settings over and keeps Claude Code on', () => {
     const c = load(v1)
-    expect(c.version).toBe(4)
+    expect(c.version).toBe(5)
     expect(c.settings.defaultProvider).toBe('claude-code')
     expect(c.settings.providers['claude-code']).toMatchObject({ enabled: true, executablePath: 'C:\\x\\claude.exe', defaultModel: 'opus', defaultEffort: 'high', defaultPermissionMode: 'acceptEdits', enableDangerousMode: true, extraArgs: '--verbose', checkUpdatesOnLaunch: false })
     expect(c.observedDefaultModel).toEqual({ 'claude-code': 'claude-opus-5-5' })
@@ -213,6 +213,17 @@ describe('providers migration', () => {
     expect(style({ version: 3, settings: { agents: { mergeStyle: 'squash' } } })).toBe('merge')
     expect(style({ version: 2, settings: { agents: { mergeStyle: 'squash' } } })).toBe('merge')
     expect(style({ version: 4, settings: { agents: { mergeStyle: 'squash' } } })).toBe('squash')
+  })
+  it('moves the old 50 MB transcript warning default to 20 MB once, keeping any other choice', () => {
+    const warn = (raw: Record<string, unknown>) => load(raw).settings.sessions.transcriptWarnMB
+    const saved = (version: number, transcriptWarnMB?: number) => ({ version, settings: { sessions: transcriptWarnMB === undefined ? {} : { transcriptWarnMB } } })
+    expect(DEFAULT_SETTINGS.sessions.transcriptWarnMB).toBe(20)
+    expect(warn(saved(4, 50))).toBe(20)
+    expect(warn(saved(1, 50))).toBe(20)
+    // Another size, Never (0), or none saved (the default).
+    expect([warn(saved(4, 35)), warn(saved(4, 100)), warn(saved(4, 0)), warn(saved(4))]).toEqual([35, 100, 0, 20])
+    // Once migrated, 50 is the user's choice.
+    expect(warn(saved(5, 50))).toBe(50)
   })
   it('writes the Claude Code settings where 0.1 reads them', async () => {
     const { withLegacySettings } = await import('../src/shared/defaults')
