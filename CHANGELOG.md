@@ -10,6 +10,7 @@
 
 ### Task board
 - **Move an open card out of the way.** Drag a card's dialog by its header to see what's behind it; it stays within the window, and opens in the usual place next time.
+- **A project's Overview shows its cards at a glance**, as the Workspace Overview does for the whole board: how many of the project's cards are in Todo, Doing, Waiting for review and Done, and how many are stalled or blocked, updated as cards change. Click a number to open the project's Tasks tab.
 - **Agents keep to their own project's cards.** An agent can see and change only its project's cards on the board: another project's cards are for that project's agents, the Assistant and you. Before, an agent in one project could list, read, comment on and move any card in the workspace. An agent also can't read or type into another project's agents' conversations any more, where those cards appear as their tasks. Each agent now calls Hive with a token of its own, so it can't get round this by saying it is someone else. The Assistant and your board still see everything.
 - **Moving a card to another project takes it from its agent**, and its history says whose it was. Give it to one of the new project's agents afterwards (the card dialog does this when you change both).
 - **"Check the latest comment"**: agents can read just a card's newest comment instead of the whole card, which keeps long cards from filling their context.

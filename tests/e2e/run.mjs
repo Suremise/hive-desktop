@@ -56,6 +56,7 @@ const SUITES = [
   { name: 'doingmove' },
   { name: 'storage' },
   { name: 'boardscope' },
+  { name: 'taskoverview' },
   { name: 'board' },
   { name: 'boardscroll' },
   { name: 'rail' },

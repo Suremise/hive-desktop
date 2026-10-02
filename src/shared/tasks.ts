@@ -40,6 +40,24 @@ export function sortCards(cards: TaskCard[]): TaskCard[] {
   return [...cards].sort((a, b) => col(a) - col(b) || a.order - b.order || a.number - b.number)
 }
 
+/** The board at a glance (the Workspace and project Overviews): counts of the cards that aren't archived. */
+export interface TaskOverview {
+  total: number
+  todo: number
+  doing: number
+  review: number
+  done: number
+  stalled: number
+  blocked: number
+}
+
+/** The overview of one project's cards, or of the whole board (project null). */
+export function taskOverview(cards: readonly TaskCard[], project: string | null, stalled: (c: TaskCard) => boolean): TaskOverview {
+  const open = cards.filter((c) => !c.archived && (project === null || c.project.toLowerCase() === project.toLowerCase()))
+  const n = (col: TaskColumn): number => open.filter((c) => c.column === col).length
+  return { total: open.length, todo: n('todo'), doing: n('doing'), review: n('review'), done: n('done'), stalled: open.filter(stalled).length, blocked: open.filter((c) => c.blocked && c.column !== 'done').length }
+}
+
 /** The cards an agent of a project has in Doing (not archived), in board order: what it is working on now. */
 export function agentDoingCards(cards: readonly TaskCard[], project: string, agentId: string): TaskCard[] {
   const p = project.toLowerCase()

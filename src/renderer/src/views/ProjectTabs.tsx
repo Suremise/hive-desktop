@@ -8,6 +8,7 @@ import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel
 import { ModelPicker } from '../components/ModelPicker'
 import { NumberField } from '../components/NumberField'
 import { StorageView } from '../components/Storage'
+import { TaskStrip } from '../components/Board'
 import { ProviderIcon } from '../components/ProviderIcon'
 import { confirmDangerousMode } from '../components/PermissionMode'
 import * as actions from '../actions'
@@ -147,6 +148,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
   return (
     <div className="scroll-page">
       <div className="page-narrow">
+        <TaskStrip project={project} />
         <div className="overview-head">
           <h2 className="section">Project summary</h2>
           <Tooltip content={`Updated ${timeAgo(new Date(loadedAt).toISOString())}. How often it updates: Settings → Sessions → Overview updates.`}>
