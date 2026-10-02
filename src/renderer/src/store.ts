@@ -117,6 +117,8 @@ interface State {
   notifications: ToastMessage[]
   unread: number
   showNotifications: boolean
+  /** The status bar's attention inbox popover. */
+  inboxOpen: boolean
   paletteOpen: boolean
   /** What the palette lists: every command and project, or projects only (Go to Project). */
   paletteMode: 'commands' | 'projects'
@@ -231,6 +233,7 @@ export const useStore = create<State>(() => ({
   notifications: [],
   unread: 0,
   showNotifications: false,
+  inboxOpen: false,
   paletteOpen: false,
   paletteMode: 'commands',
   modeMenu: null,
@@ -345,6 +348,24 @@ export function paneAssignment(p: ProjectInfo, focused: string | null, stored: s
   for (const id of stored ?? []) if (ids.includes(id) && !out.includes(id) && out.length < n) out.push(id)
   for (const id of ids) if (out.length < n && !out.includes(id)) out.push(id)
   return [...out, ...Array<null>(n - out.length).fill(null)]
+}
+
+/**
+ * The agents the user can see now, by project path: the selected project's panes on its Session tab, and the
+ * Assistant's while its panel is open. None while the window isn't focused.
+ */
+export function agentsOnScreen(s: State = get()): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  if (!s.windowFocused || !s.workspace) return out
+  const p = s.activity === 'projects' ? s.workspace.projects.find((x) => x.path === s.selectedProject) : undefined
+  if (p && (s.projectTabs[p.path] ?? 'session') === 'session') {
+    const focused = s.focusedAgent[p.path]
+    const shown = paneAssignment(p, focused && p.agents.some((a) => a.id === focused) ? focused : (p.agents[0]?.id ?? null), s.paneAgents[p.path])
+    out.set(p.path, shown.filter((id): id is string => !!id))
+  }
+  const a = s.workspace.assistant
+  if (a && s.assistantOpen) out.set(a.path, a.agents.map((x) => x.id))
+  return out
 }
 
 /**

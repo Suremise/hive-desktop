@@ -79,6 +79,8 @@ Adding a provider: a descriptor added to `PROVIDERS`, an adapter added to the re
 
 Claude Code calls the hook server (URL `?run=<runId>`) for `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `Notification`, `Stop`, `PreCompact` and `SessionEnd`. The hook token is passed to the pty as `HIVE_HOOK_TOKEN` and referenced from `settings.json` through `allowedEnvVars`, so it is never written to disk. `handleHook()` maps the normalised events to `SessionStatus`, triggers the chime and desktop notifications, and marks events unseen when the window isn't in focus.
 
+**Seen and the attention inbox.** Every move to finished or waiting sets `unseen` in main, and `emitState()` stamps `statusSince` whenever the status changes. Main doesn't know what is on screen: the renderer does (`agentsOnScreen()` in `store.ts`: the selected project's panes on its Session tab, the Assistant's open panel, only while the window is focused). It marks those agents seen on every store change (`markOnScreenSeen()` in `renderer/inbox.ts`, `session:markSeen` with their ids), and applies a finish that is already on screen as seen so it never flickers. `shared/inbox.ts` turns projects, live states and worktree branch statuses (`branchWatch.ts`, with `worktrees.branchStatus()`'s diff summary) into the inbox: the status bar's popover, the Projects badge and sidebar counts in the renderer, and the tray menu in main (which overlays `sessions.liveStates()` on each window's cached workspace info).
+
 ## Usage
 
 Each adapter's `parseUsage()` reads its transcripts into `SessionUsage` (Codex: `codex/rollout.ts`). `providers/claude/usage.ts` parses Claude Code's JSONL transcripts (`~/.claude/projects/<encoded path>/<session>.jsonl`):

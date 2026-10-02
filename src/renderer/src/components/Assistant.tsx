@@ -6,6 +6,7 @@ import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { agentProviderOf, confirm, get, NO_PROJECTS, projectKey, revealAgent, runOnce, set, setActivity, setAssistantOpen, showAssistantView, showView, useStore } from '../store'
+import { useInbox } from '../inbox'
 import { useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
 import { Overrides, ProviderChoice, contextChoice, contextValue, type ContextChoice } from './AgentDialogs'
@@ -475,7 +476,13 @@ function WorkspaceOverview() {
     showView('projects')
     if (id) revealAgent(p, id)
   }
-  const attention = projects.flatMap((p) => p.agents.filter((a) => a.live?.status === 'waiting' || a.live?.status === 'error').map((a) => ({ p, a })))
+  // The inbox's agents that need you, oldest first (the Assistant itself isn't listed in its own panel).
+  const needYou = useInbox().needYou
+  const attention = needYou.flatMap((i) => {
+    const p = projects.find((x) => x.path === i.projectPath)
+    const a = p?.agents.find((x) => x.id === i.agentId)
+    return p && a ? [{ p, a }] : []
+  })
   const running = projects.reduce((n, p) => n + p.agents.filter((a) => a.live).length, 0)
   const shown = projects.filter((p) => p.active || p.agents.some((a) => a.live))
   const folded = projects.filter((p) => !shown.includes(p))
@@ -509,10 +516,10 @@ function WorkspaceOverview() {
       </div>
       {attention.map(({ p, a }) => (
         <div key={`${p.path}#${a.id}`} className="assistant-attention" onClick={() => go(p, a.id)}>
-          <Icon name={a.live?.status === 'error' ? 'error' : 'bell-dot'} />
+          <Icon name={a.live?.status === 'waiting' ? 'bell-dot' : 'check'} />
           <span>
             <strong>{p.name}</strong>
-            {p.agents.length > 1 ? ` · ${a.name}` : ''} {a.live?.status === 'error' ? 'has a problem' : 'is waiting for you'}
+            {p.agents.length > 1 ? ` · ${a.name}` : ''} {a.live?.status === 'waiting' ? 'is waiting for you' : 'has finished'}
             {a.live?.statusMessage ? `: ${a.live.statusMessage}` : ''}
           </span>
         </div>

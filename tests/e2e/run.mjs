@@ -32,6 +32,7 @@ const SUITES = [
   { name: 'cardchip' },
   { name: 'reorder' },
   { name: 'unmerged' },
+  { name: 'inbox' },
   { name: 'sessionname' },
   { name: 'busy' },
   { name: 'changes' },

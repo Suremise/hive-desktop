@@ -11,6 +11,11 @@
 - **Squash without the old commits coming back**: a squash that keeps the worktree now moves the agent's branch onto the squash commit (**Move the branch afterwards**, ticked), so its next merge doesn't conflict with its own earlier work.
 - **See when a worktree agent has work to merge**: **Merge…** turns orange with the number of commits not merged into the project folder's branch, and the agent's tab shows it too (↑2). A • means uncommitted files only; hover for the details. It updates when the agent finishes a turn, when you come back to Hive, and after a merge.
 
+### Agents that need you
+- **One list of the agents waiting on you.** The status bar says how many agents need you (**2 need you**): those asking you something, and those that finished while you weren't looking. Click it for the list, oldest first, with how long each has waited; click one to go to it. The tray menu has the same list, and the Projects icon and each project in the sidebar show the count.
+- **Finished means you haven't seen it.** An agent that finishes in another project, on another page of agents or while Hive is in the background now stays marked until its pane is on screen. Before, a finish only counted as unseen while Hive's window was in the background, and opening a project cleared all of its agents.
+- **Work to review**: worktree agents that have finished with work not merged are listed below, with what changed (*3 files, +120 −40 · 2 commits*) and buttons for **Changes** and **Merge…**.
+
 ### Task board
 - **A task board for the workspace**: cards in **Todo**, **Doing**, **Review** and **Done**, each for a project, with a description, labels, a blocked reason, the cards it depends on, comments and a history of who changed what. Open it from the activity bar (**Ctrl+Shift+J**); each project also has a **Tasks** tab. Drag cards between columns; a Doing card shows what its agent is doing right now.
 - **Start** gives a card to an agent (one that is stopped or idle, a new one, or a new one in its own worktree) with the card as its prompt.
