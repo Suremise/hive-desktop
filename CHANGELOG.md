@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Sessions
+- **Long transcripts are flagged sooner: at 20 MB instead of 50 MB.** Well before 50 MB a long conversation slows down the coding agent and Hive. If you kept the old 50 MB default, it moves to 20 MB; a size you chose yourself, **Never** and project settings are kept. To go back, set **Settings → Sessions → Warn when a transcript is over** to 50.
+
 ### Task board
 - **Agents keep to their own project's cards.** An agent can see and change only its project's cards on the board: another project's cards are for that project's agents, the Assistant and you. Before, an agent in one project could list, read, comment on and move any card in the workspace. An agent also can't read or type into another project's agents' conversations any more, where those cards appear as their tasks. Each agent now calls Hive with a token of its own, so it can't get round this by saying it is someone else. The Assistant and your board still see everything.
 - **Moving a card to another project takes it from its agent**, and its history says whose it was. Give it to one of the new project's agents afterwards (the card dialog does this when you change both).

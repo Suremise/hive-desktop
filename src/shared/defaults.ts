@@ -60,7 +60,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     cacheTtl: 'auto',
     confirmStop: true,
     compactSuggestTokens: 200000,
-    transcriptWarnMB: 50,
+    transcriptWarnMB: 20,
     usageCacheSize: 5000,
     followTranscripts: false,
     overviewRefresh: 'live'
@@ -94,7 +94,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
-  version: 4,
+  version: 5,
   settings: DEFAULT_SETTINGS,
   recentWorkspaces: [],
   lastWorkspace: null,
@@ -375,7 +375,12 @@ export function migrateConfig(cfg: AppConfig, raw?: Record<string, any>): AppCon
     // its next merge brings only what is new. Anyone who wants Squash chooses it again.
     cfg.settings.agents.mergeStyle = 'merge'
   }
-  cfg.version = 4
+  if (raw && (raw.version ?? 1) < 5 && cfg.settings.sessions.transcriptWarnMB === 50) {
+    // 50 MB was the default up to 0.3.x (saved into every config); long transcripts slow things well before that.
+    // Anyone who wants 50 sets it again.
+    cfg.settings.sessions.transcriptWarnMB = 20
+  }
+  cfg.version = 5
   // Settings for providers this version doesn't know are kept (a newer Hive wrote them), but never used.
   if (!isKnownProvider(cfg.settings.defaultProvider)) cfg.settings.defaultProvider = DEFAULT_PROVIDER
   return cfg

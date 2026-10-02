@@ -182,7 +182,7 @@ The **Overview** tab updates as sessions change (at most every 15 seconds; **Set
 
 ### Long conversations
 
-A conversation's transcript keeps everything that happened in it, and compacting doesn't make it smaller: it only shortens what the agent has in its context. A very long one (100 MB and more) slows down the CLI and Hive, and can make typing in the terminals stutter. The size shows in each agent's footer, next to the context, and turns amber past **Settings → Sessions → Warn when a transcript is over** (50 MB; projects can set their own). Hive also tells you once when a conversation passes it.
+A conversation's transcript keeps everything that happened in it, and compacting doesn't make it smaller: it only shortens what the agent has in its context. A very long one (100 MB and more) slows down the CLI and Hive, and can make typing in the terminals stutter. The size shows in each agent's footer, next to the context, and turns amber past **Settings → Sessions → Warn when a transcript is over** (20 MB; projects can set their own). Hive also tells you once when a conversation passes it.
 
 To start afresh without losing the thread, click the size (or choose **Hand Over to…** in the agent's menu) and pick the agent itself, **in a new conversation**: the agent writes a handover, Hive ends its conversation (it stays in the Sessions tab) and starts a new one that reads the handover and carries on. The Assistant sees each agent's transcript size too, and can suggest it.
 
