@@ -39,7 +39,7 @@ export function assistantProjectConfig(cfg: ProjectConfig, settings: Pick<AppSet
   const providers = {} as Record<ProviderId, ProjectProviderConfig>
   for (const p of PROVIDERS) {
     const s = a?.providers?.[p.id]
-    providers[p.id] = { model: s?.model || 'inherit', effort: s?.effort || 'inherit', permissionMode: s?.permissionMode || p.assistantMode, extraArgs: s?.extraArgs ?? '' }
+    providers[p.id] = { model: s?.model || 'inherit', effort: s?.effort || 'inherit', permissionMode: s?.permissionMode || p.assistantMode, extraArgs: s?.extraArgs ?? '', use200kContext: s?.use200kContext || 'inherit' }
   }
   const own = projectAgents(cfg).find((x) => x.id === ASSISTANT_AGENT_ID)
   return {

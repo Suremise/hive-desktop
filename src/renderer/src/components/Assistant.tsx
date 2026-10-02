@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { ASSISTANT_AGENT_ID, assistantPersona } from '@shared/assistant'
 import { agentProvider, providerDescriptor } from '@shared/providers'
-import type { AgentDef, AgentInfo, AssistantAction, EffortLevel, PermissionMode, PersonaInfo, ProjectInfo, ProviderId } from '@shared/types'
+import type { AgentInfo, AgentPatch, AssistantAction, EffortLevel, PermissionMode, PersonaInfo, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { agentProviderOf, confirm, get, NO_PROJECTS, projectKey, revealAgent, runOnce, set, setActivity, setAssistantOpen, showAssistantView, showView, useStore } from '../store'
 import { useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
-import { Overrides, ProviderChoice } from './AgentDialogs'
+import { Overrides, ProviderChoice, contextChoice, contextValue, type ContextChoice } from './AgentDialogs'
 import { PaneFooter, useWidth } from './AgentPanes'
 import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
@@ -44,7 +44,7 @@ export function usePersonas(): PersonaInfo[] {
 }
 
 /** Changes the Assistant's settings for this workspace; a change that needs a new conversation restarts it after asking. */
-async function changeAssistant(patch: Partial<Pick<AgentDef, 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona'>>, restart: { title: string; message: string } | null): Promise<boolean> {
+async function changeAssistant(patch: Omit<AgentPatch, 'name'>, restart: { title: string; message: string } | null): Promise<boolean> {
   const a = get().workspace?.assistant
   const agent = a?.agents[0]
   if (!a || !agent) return false
@@ -546,12 +546,14 @@ export function AssistantSettingsDialog() {
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
   const [permission, setPermission] = useState('')
+  const [context, setContext] = useState<ContextChoice>('')
   useEffect(() => {
     setProvider(current)
     setPersona(agent?.persona ?? '')
     setModel(agent?.model ?? '')
     setEffort(agent?.effort ?? '')
     setPermission(agent?.permissionMode ?? '')
+    setContext(contextChoice(agent?.use200kContext))
     // Reset each time the dialog opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openFlag])
@@ -563,6 +565,7 @@ export function AssistantSettingsDialog() {
       setModel('')
       setEffort('')
       setPermission('')
+      setContext('')
     }
   }
   const defaultPersona = personas.find((p) => p.id === (settings?.assistant.persona || 'overseer'))
@@ -576,7 +579,8 @@ export function AssistantSettingsDialog() {
         persona: persona || undefined,
         model: model || undefined,
         effort: (effort || undefined) as EffortLevel | undefined,
-        permissionMode: (permission || undefined) as PermissionMode | undefined
+        permissionMode: (permission || undefined) as PermissionMode | undefined,
+        use200kContext: contextValue(context)
       },
       providerChanged || personaChanged
         ? {
@@ -635,8 +639,8 @@ export function AssistantSettingsDialog() {
       <h3 className="agent-dialog-h">Coding agent</h3>
       <ProviderChoice value={provider} current={current} onChange={chooseProvider} />
       <h3 className="agent-dialog-h">Settings</h3>
-      <Overrides project={a} provider={provider} model={model} effort={effort} permission={permission} onModel={setModel} onEffort={setEffort} onPermission={setPermission} inherit="Default" />
-      {agent.live && <div className="detail">Model, effort and mode apply when the Assistant next starts. A new provider or persona restarts it now (after asking).</div>}
+      <Overrides project={a} provider={provider} model={model} effort={effort} permission={permission} context={context} onModel={setModel} onEffort={setEffort} onPermission={setPermission} onContext={setContext} inherit="Default" />
+      {agent.live && <div className="detail">Model, effort, mode and context apply when the Assistant next starts. A new provider or persona restarts it now (after asking).</div>}
     </Modal>
   )
 }

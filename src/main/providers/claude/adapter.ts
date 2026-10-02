@@ -4,7 +4,7 @@ import { mkdir, readdir, stat, writeFile } from 'fs/promises'
 import { existsSync, readFileSync } from 'fs'
 import type { AgentInstallInfo, McpServerDef, MemorySource, PlanLimit, PlanUsage, ReadinessIssue } from '../../../shared/types'
 import { HIVE_DIR, assertSessionId, isSessionId } from '../../../shared/defaults'
-import { CLAUDE_CODE, CLAUDE_DESCRIPTOR, canSwitchLive, footerMode, hookMode } from '../../../shared/claude'
+import { CLAUDE_CODE, CLAUDE_DESCRIPTOR, baseModel, canSwitchLive, footerMode, hookMode } from '../../../shared/claude'
 import { providerSettings } from '../../../shared/providers'
 import { config } from '../../config'
 import { claudeFileAllowed, copyDir, hashDir, isDir, readJson, removePath, writeJsonAtomic } from '../../fsutil'
@@ -262,7 +262,8 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     args.push('--settings', join(dir, 'settings.json'))
     if (ctx.instructions) args.push('--append-system-prompt-file', join(dir, 'instructions.md'))
     if (ctx.trustedHiveTools?.length && ctx.mcpServers.hive) args.push('--allowedTools', ctx.trustedHiveTools.map((t) => `mcp__hive__${t}`).join(','))
-    if (ctx.model) args.push('--model', ctx.model)
+    // With 1M turned off, Claude Code rejects a "[1m]" model as unrecognised (2.1.287): run the base model.
+    if (ctx.model) args.push('--model', ctx.use200kContext ? baseModel(ctx.model) : ctx.model)
     if (ctx.effort) args.push('--effort', ctx.effort)
     if (ctx.permissionMode) args.push('--permission-mode', ctx.permissionMode)
     args.push(...ctx.extraArgs)
@@ -271,7 +272,9 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     const s = toSpawnable(executable, args)
     // Agent view (← on an empty prompt) moves the session into Claude Code's background service, out of Hive's
     // reach: Stop would only close the terminal and the session would keep running. Off unless the user allows it.
-    const env = ctx.allowBackgroundSessions ? ctx.env : { ...ctx.env, CLAUDE_CODE_DISABLE_AGENT_VIEW: '1' }
+    const env = { ...ctx.env }
+    if (!ctx.allowBackgroundSessions) env.CLAUDE_CODE_DISABLE_AGENT_VIEW = '1'
+    if (ctx.use200kContext) env.CLAUDE_CODE_DISABLE_1M_CONTEXT = '1'
     return { file: s.file, args: s.args, env }
   }
 

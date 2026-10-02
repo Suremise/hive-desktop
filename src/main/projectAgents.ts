@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { basename, join, resolve } from 'path'
 import { MAX_AGENTS, moveAgentTo, projectAgents, slugify } from '../shared/defaults'
 import { agentProvider, isKnownProvider } from '../shared/providers'
-import type { AddAgentOptions, AgentBranchStatus, AgentDef, MergeResult, ProjectGitInfo } from '../shared/types'
+import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, MergeResult, ProjectGitInfo } from '../shared/types'
 import { config } from './config'
 import { toast } from './events'
 import { withFileLock } from './fsutil'
@@ -50,6 +50,7 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
   if (opts.model) def.model = opts.model
   if (opts.effort) def.effort = opts.effort
   if (opts.permissionMode) def.permissionMode = opts.permissionMode
+  if (typeof opts.use200kContext === 'boolean') def.use200kContext = opts.use200kContext
 
   if (opts.location === 'new-worktree') {
     const base = opts.base || (await wt.currentBranch(projectPath))
@@ -92,7 +93,7 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
   return def
 }
 
-export async function updateAgent(projectPath: string, agentId: string, patch: Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona'>>): Promise<AgentDef> {
+export async function updateAgent(projectPath: string, agentId: string, patch: AgentPatch): Promise<AgentDef> {
   // The Hive Assistant's settings for this workspace are its agent's, too (it keeps its name).
   projectPath = workspace.assertSessionHost(projectPath)
   if (workspace.isAssistantHome(projectPath)) delete patch.name
@@ -105,15 +106,17 @@ export async function updateAgent(projectPath: string, agentId: string, patch: P
     if (agents.some((a) => a.id !== agentId && a.name.toLowerCase() === patch.name!.toLowerCase())) throw new Error(`There is already an agent called "${patch.name}".`)
   }
   // Empty values clear an override so the agent follows the project again.
-  const clean: Partial<AgentDef> = { ...patch }
+  const { use200kContext, ...rest } = patch
+  const clean: Partial<AgentDef> = { ...rest }
   for (const k of ['model', 'effort', 'permissionMode', 'persona'] as const) if (k in clean && !clean[k]) clean[k] = undefined
+  if (use200kContext !== undefined) clean.use200kContext = typeof use200kContext === 'boolean' ? use200kContext : undefined
   if (patch.provider !== undefined) {
     const current = agents.find((a) => a.id === agentId)
     if (!isKnownProvider(patch.provider)) throw new Error(`Unknown provider "${patch.provider}".`)
     if (current && agentProvider(current, cfg, config.settings) !== patch.provider) {
       if (sessions.liveFor(projectPath, agentId)) throw new Error('Stop the agent before changing its provider.')
-      // Model, effort and mode belong to the old provider, and its conversations can't be resumed by the new one.
-      Object.assign(clean, { model: patch.model || undefined, effort: patch.effort || undefined, permissionMode: patch.permissionMode || undefined, lastSessionId: undefined })
+      // Model, effort, mode and context belong to the old provider, and its conversations can't be resumed by the new one.
+      Object.assign(clean, { model: patch.model || undefined, effort: patch.effort || undefined, permissionMode: patch.permissionMode || undefined, use200kContext: typeof use200kContext === 'boolean' ? use200kContext : undefined, lastSessionId: undefined })
     }
   }
   const def = await workspace.updateAgent(projectPath, agentId, clean)

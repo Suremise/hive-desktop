@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { MAX_AGENTS, effectiveModelLabel, formatBytes, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
-import { PROVIDERS, agentProvider, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerSettings } from '@shared/providers'
+import { PROVIDERS, agentProvider, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerSettings } from '@shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
@@ -53,16 +53,23 @@ export function ProviderChoice({ value, current, onChange }: { value: ProviderId
   )
 }
 
-/** The agent's own model, effort and permission mode for its provider; empty values follow the project (`inherit` names it). */
+/** An agent's 200K-context choice in a form: '' follows the project. */
+export type ContextChoice = '' | 'on' | 'off'
+export const contextChoice = (v: boolean | undefined): ContextChoice => (v === undefined ? '' : v ? 'on' : 'off')
+export const contextValue = (c: ContextChoice): boolean | null => (c ? c === 'on' : null)
+
+/** The agent's own model, effort, permission mode and context for its provider; empty values follow the project (`inherit` names it). */
 export function Overrides({
   project,
   provider,
   model,
   effort,
   permission,
+  context,
   onModel,
   onEffort,
   onPermission,
+  onContext,
   inherit = "Project's"
 }: {
   inherit?: string
@@ -71,9 +78,11 @@ export function Overrides({
   model: string
   effort: string
   permission: string
+  context: ContextChoice
   onModel: (v: string) => void
   onEffort: (v: string) => void
   onPermission: (v: string) => void
+  onContext: (v: ContextChoice) => void
 }) {
   const settings = useStore((s) => s.settings)
   const cliDefault = useStore((s) => s.providers[provider]?.defaultModel ?? null)
@@ -116,6 +125,18 @@ export function Overrides({
         ))}
       </select>
       <ModeCaveat provider={provider} mode={runMode} model={runModel} />
+      {p.capabilities.contextLimit && (
+        <>
+          <label>Use 200K context (instead of 1M)</label>
+          <select className="select" value={context} onChange={(e) => onContext(e.target.value as ContextChoice)}>
+            <option value="">
+              {inherit} ({projectUse200k(pc, g) ? 'On' : 'Off'})
+            </option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </>
+      )}
     </div>
   )
 }
@@ -149,6 +170,7 @@ export function AddAgentDialog() {
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
   const [permission, setPermission] = useState('')
+  const [context, setContext] = useState<ContextChoice>('')
   const [provider, setProvider] = useState<ProviderId>('')
   const [startNow, setStartNow] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -164,6 +186,7 @@ export function AddAgentDialog() {
     setModel('')
     setEffort('')
     setPermission('')
+    setContext('')
     // The project's default provider when it is on, else the first one that is.
     const s = useStore.getState().settings
     const preferred = projectDefaultProvider(project.config, s)
@@ -192,12 +215,13 @@ export function AddAgentDialog() {
   const setup = project.config.worktreeSetup.trim()
   const valid = !!name.trim() && !full && isProviderEnabled(settings, provider) && (location !== 'new-worktree' || (!!branch.trim() && !!base)) && (location !== 'existing-worktree' || !!existing)
   const chooseProvider = (v: ProviderId): void => {
-    // Model, effort and mode are the provider's own: another provider starts from the project's.
+    // Model, effort, mode and context are the provider's own: another provider starts from the project's.
     if (v === provider) return
     setProvider(v)
     setModel('')
     setEffort('')
     setPermission('')
+    setContext('')
   }
 
   const add = async (): Promise<void> => {
@@ -213,7 +237,8 @@ export function AddAgentDialog() {
         worktreePath: location === 'existing-worktree' ? existing : undefined,
         model: model || undefined,
         effort: (effort || undefined) as EffortLevel | undefined,
-        permissionMode: (permission || undefined) as PermissionMode | undefined
+        permissionMode: (permission || undefined) as PermissionMode | undefined,
+        use200kContext: contextValue(context) ?? undefined
       })
       await actions.refreshWorkspace()
       close()
@@ -338,7 +363,7 @@ export function AddAgentDialog() {
         </label>
       </div>
       <h3 className="agent-dialog-h">Settings</h3>
-      <Overrides project={project} provider={provider} model={model} effort={effort} permission={permission} onModel={setModel} onEffort={setEffort} onPermission={setPermission} />
+      <Overrides project={project} provider={provider} model={model} effort={effort} permission={permission} context={context} onModel={setModel} onEffort={setEffort} onPermission={setPermission} onContext={setContext} />
     </Modal>
   )
 }
@@ -355,6 +380,7 @@ export function AgentSettingsDialog() {
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
   const [permission, setPermission] = useState('')
+  const [context, setContext] = useState<ContextChoice>('')
   const settings = useStore((s) => s.settings)
   const current = project && agent ? (agent.live?.provider ?? agentProvider(agent, project.config, settings)) : ''
   const [provider, setProvider] = useState<ProviderId>(current)
@@ -365,6 +391,7 @@ export function AgentSettingsDialog() {
     setModel(agent?.model ?? '')
     setEffort(agent?.effort ?? '')
     setPermission(agent?.permissionMode ?? '')
+    setContext(contextChoice(agent?.use200kContext))
     setProvider(current)
     // Reset when another agent's dialog opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -378,6 +405,7 @@ export function AgentSettingsDialog() {
       setModel('')
       setEffort('')
       setPermission('')
+      setContext('')
     }
   }
   const save = async (): Promise<void> => {
@@ -397,7 +425,8 @@ export function AgentSettingsDialog() {
         ...(changed ? { provider } : {}),
         model: model || undefined,
         effort: (effort || undefined) as EffortLevel | undefined,
-        permissionMode: (permission || undefined) as PermissionMode | undefined
+        permissionMode: (permission || undefined) as PermissionMode | undefined,
+        use200kContext: contextValue(context)
       })
       await actions.refreshWorkspace()
     })
@@ -445,7 +474,7 @@ export function AgentSettingsDialog() {
         <ProviderChoice value={provider} current={current} onChange={chooseProvider} />
       )}
       <h3 className="agent-dialog-h">Settings</h3>
-      <Overrides project={project} provider={provider} model={model} effort={effort} permission={permission} onModel={setModel} onEffort={setEffort} onPermission={setPermission} />
+      <Overrides project={project} provider={provider} model={model} effort={effort} permission={permission} context={context} onModel={setModel} onEffort={setEffort} onPermission={setPermission} onContext={setContext} />
       {agent.live && <div className="detail">Changes apply the next time {agent.name} starts; the running session keeps its settings until then.</div>}
     </Modal>
   )

@@ -120,6 +120,7 @@ export interface EffectiveSettings {
   effort: EffortLevel | null
   permissionMode: PermissionMode | null
   extraArgs: string[]
+  use200kContext: boolean
   chime: boolean
 }
 
@@ -373,7 +374,7 @@ class SessionManager {
     const l = agentLaunchSettings(agent ?? projectAgents(pc)[0], pc, s)
     const extraArgs = l.extraArgs.flatMap((a) => splitArgs(a))
     const chime = pc.chime === 'inherit' ? s.notifications.chimeEnabled : pc.chime === 'on'
-    return { provider: l.provider, skills, skillHashes, mcpServers, model: l.model, effort: l.effort, permissionMode: l.permissionMode, extraArgs, chime }
+    return { provider: l.provider, skills, skillHashes, mcpServers, model: l.model, effort: l.effort, permissionMode: l.permissionMode, extraArgs, use200kContext: l.use200kContext, chime }
   }
 
   signature(e: EffectiveSettings): string {
@@ -732,6 +733,7 @@ class SessionManager {
       effort: eff.effort,
       permissionMode: mode,
       extraArgs: eff.extraArgs,
+      use200kContext: eff.use200kContext,
       hookUrl: `${this.hookUrl}?run=${state.runId}`,
       guidance: await this.hiveGuidance(projectPath).catch(() => ''),
       instructions: workspace.isAssistantHome(projectPath) ? (await this.assistantInstructions(projectPath, agent).catch(() => null))?.text : undefined,

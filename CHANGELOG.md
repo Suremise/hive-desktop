@@ -33,6 +33,8 @@
 - **Long conversations are flagged.** Each agent's footer shows the size of its conversation's transcript, which turns amber past **Settings → Sessions → Warn when a transcript is over** (50 MB), and Hive tells you once. A transcript keeps everything, compacting doesn't shrink it, and a very long one slows down the CLI and Hive. Click the size for **Hand Over to…**.
 - **Hand Over to… the agent itself, in a new conversation**: it writes a handover, and a new conversation of its own carries on from it. Hand Over to… is now available with only one agent.
 - Clicking the context count in an agent's footer opens the Overview scrolled to that agent's session.
+- **Use 200K context (instead of 1M)** for Claude Code: off by default in **Settings → Claude Code**, with Inherit/On/Off in Project Settings, a choice in **Add Agent** and **Agent Settings**, and one for the Assistant. Current Claude models have a 1M-token window; this holds sessions to 200K, so a long conversation compacts sooner. The Agent API and hive tools take it as `context200k`.
+- **The 1M context checkbox is gone** from the model pickers: Fable, Opus 4.7+ and Sonnet 5+ always have the 1M window, so it did nothing for them. For Opus 4.6 or Sonnet 4.6 with 1M, type a custom model ID such as `claude-opus-4-6[1m]`; models saved with `[1m]` keep working.
 
 ### Usage
 - **The Overview and session lists open faster after a restart**: Hive remembers each transcript's token counts on disk, and reads a transcript again only if it changed while Hive was closed. **Settings → Sessions → Usage cache size** (5,000 transcripts) and **Clear the usage cache**.

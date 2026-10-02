@@ -42,6 +42,9 @@ for (let i = 0; i < args.length; i++) {
   else firstPrompt = args[i]
 }
 const sessionId = opts['--resume'] || opts['--session-id'] || randomUUID()
+// What it was started with, for suites that check the launch: the options and Claude Code's own variables.
+const launchEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CLAUDE_CODE_')))
+fs.appendFileSync(path.join(home, 'fake-launches.jsonl'), JSON.stringify({ cwd: process.cwd(), sessionId, opts, env: launchEnv }) + '\n')
 const settings = opts['--settings'] ? JSON.parse(fs.readFileSync(opts['--settings'], 'utf8')) : {}
 const hookUrl = settings.hooks?.Stop?.[0]?.hooks?.[0]?.url
 const token = process.env.HIVE_HOOK_TOKEN || ''
