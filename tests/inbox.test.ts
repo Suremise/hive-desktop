@@ -53,3 +53,14 @@ describe('attention inbox', () => {
     expect(branchSummary({ ...work(1, 0), diff: undefined })).toBe('1 commit')
   })
 })
+
+describe('merging a worktree agent', () => {
+  it('waits until the agent is between tasks', async () => {
+    const { mergeBlocked } = await import('../src/shared/defaults')
+    expect(mergeBlocked('Two', 'working')).toBe('Two is working. Merge once it has finished.')
+    expect(mergeBlocked('Two', 'starting')).toContain('is working')
+    expect(mergeBlocked('Two', 'waiting')).toBe('Two is waiting for your answer. Merge once it has finished.')
+    expect(mergeBlocked('Two', 'background')).toContain('background tasks')
+    for (const s of ['finished', 'ready', 'stopped', null, undefined] as const) expect(mergeBlocked('Two', s)).toBeNull()
+  })
+})

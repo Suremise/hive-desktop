@@ -3,7 +3,7 @@ import { CardChip } from '../components/CardChip'
 import { KeybindingsEditor } from '../components/Keybindings'
 import type { GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
 import { PERIODS, activeIn, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
-import { FILE_LOCK_MODES, MAX_AGENTS, effectiveModelLabel, modelLabel } from '@shared/defaults'
+import { FILE_LOCK_MODES, MAX_AGENTS, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
 import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { ModelPicker } from '../components/ModelPicker'
 import { NumberField } from '../components/NumberField'
@@ -589,7 +589,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
         <div className="pane-header" style={{ paddingLeft: 14 }}>
           Changes <span className="badge" style={{ marginLeft: 6 }}>{status.files.length}</span>
           <div className="actions">
-            {agent && <IconButton icon="git-merge" title={`Merge ${agent.name}'s work…`} onClick={() => set({ mergeFor: { project: owner.path, agentId: agent.id } })} />}
+            {agent && <IconButton icon="git-merge" title={mergeBlocked(agent.name, agent.live?.status) ?? `Merge ${agent.name}'s work…`} disabled={!!mergeBlocked(agent.name, agent.live?.status)} onClick={() => set({ mergeFor: { project: owner.path, agentId: agent.id } })} />}
             <IconButton icon="refresh" title="Refresh" onClick={load} />
           </div>
         </div>
@@ -1046,7 +1046,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
               </div>
             </div>
             <IconButton icon="settings" title="Agent settings…" onClick={() => set({ agentSettingsFor: { project: project.path, agentId: a.id } })} />
-            {a.worktree && <IconButton icon="git-merge" title="Merge…" onClick={() => set({ mergeFor: { project: project.path, agentId: a.id } })} />}
+            {a.worktree && <IconButton icon="git-merge" title={mergeBlocked(a.name, a.live?.status) ?? 'Merge…'} disabled={!!mergeBlocked(a.name, a.live?.status)} onClick={() => set({ mergeFor: { project: project.path, agentId: a.id } })} />}
             <IconButton icon="close" title="Remove agent…" onClick={() => void actions.removeAgent(project.path, a.id)} />
           </div>
         )

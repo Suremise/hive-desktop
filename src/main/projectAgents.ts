@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import { basename, join, resolve } from 'path'
-import { MAX_AGENTS, moveAgentTo, projectAgents, slugify } from '../shared/defaults'
+import { MAX_AGENTS, mergeBlocked, moveAgentTo, projectAgents, slugify } from '../shared/defaults'
 import { agentProvider, isKnownProvider } from '../shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, MergeResult, ProjectGitInfo } from '../shared/types'
 import { config } from './config'
@@ -167,10 +167,9 @@ export async function merge(projectPath: string, agentId: string, opts: { squash
   projectPath = workspace.assertProject(projectPath)
   const { def, worktree } = await worktreeOf(projectPath, agentId)
   if (opts.cleanup && sessions.liveFor(projectPath, agentId)) throw new Error(`Stop ${def.name} before merging and removing its worktree.`)
-  // Its uncommitted work is committed first: not while it is still changing it.
-  const st = sessions.liveFor(projectPath, agentId)?.status
-  if (st === 'working' || st === 'starting') throw new Error(`${def.name} is working. Merge once it has finished.`)
-  if (st === 'background') throw new Error(`${def.name} is waiting on background tasks it started. Merge once it has finished.`)
+  // Its uncommitted work is committed first: not while it is still in the middle of a task.
+  const blocked = mergeBlocked(def.name, sessions.liveFor(projectPath, agentId)?.status)
+  if (blocked) throw new Error(blocked)
   // One merge at a time per project folder: two would stage and commit into each other.
   // A branch that is removed afterwards isn't moved.
   const result = await withFileLock(join(projectPath, '.git', 'hive-merge'), () => wt.mergeWorktree(projectPath, worktree, { ...opts, moveBranch: opts.moveBranch && !opts.cleanup }))

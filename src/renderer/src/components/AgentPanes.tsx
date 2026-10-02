@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { CardChip, useAgentCards } from './CardChip'
-import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, effectiveModelLabel, effortLabel, formatBytes, layoutPanes, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
+import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, effectiveModelLabel, effortLabel, formatBytes, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import type { AgentInfo, LiveSessionState, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
@@ -280,7 +280,7 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
     ...(worktree
       ? [
           { label: 'Review Changes', icon: 'git-compare', onClick: () => reviewChanges(project, a) },
-          ...(inHeader ? [] : [{ label: 'Merge…', icon: 'git-merge', onClick: () => set({ mergeFor: { project: project.path, agentId: a.id } }) }]),
+          ...(inHeader ? [] : [{ label: 'Merge…', icon: 'git-merge', disabled: !!mergeBlocked(a.name, a.live?.status), detail: mergeBlocked(a.name, a.live?.status) ?? undefined, onClick: () => set({ mergeFor: { project: project.path, agentId: a.id } }) }]),
           { separator: true },
           { label: 'Remove Agent…', icon: 'close', onClick: () => void actions.removeAgent(project.path, a.id) },
           { label: 'Discard Worktree and Branch…', icon: 'trash', danger: true, onClick: () => void actions.discardAgent(project.path, a.id) }
@@ -595,7 +595,9 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         size !== 'menu' &&
         btn('git-merge', 'Merge…', () => set({ mergeFor: { project: project.path, agentId: a.id } }), cx('subtle', unmerged?.badge && 'suggest'), {
           count: unmerged?.badge,
-          tip: unmerged ? `Merge ${a.worktree.branch}: ${unmerged.text}` : `Merge ${a.worktree.branch} into the project folder`
+          // Not while it is in the middle of a task; the count still shows what is waiting to be merged.
+          disabled: !!mergeBlocked(a.name, live?.status),
+          tip: [mergeBlocked(a.name, live?.status), unmerged ? `Merge ${a.worktree.branch}: ${unmerged.text}` : `Merge ${a.worktree.branch} into the project folder`].filter(Boolean).join(' ')
         })}
       <IconButton icon="ellipsis" title="More" onClick={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))} />
       {menu.element}
