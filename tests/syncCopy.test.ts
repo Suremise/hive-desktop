@@ -1,8 +1,39 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { appendFileSync, readFileSync } from 'fs'
 import { appendFile, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { syncCopy } from '../src/main/fsutil'
+import { SYNC_STEP, syncCopy, syncCopyNow } from '../src/main/fsutil'
+
+// Windows ending the session while an ordinary copy is under way: `interrupt` runs the shutdown copy just before the
+// ordinary copy's n-th file operation takes effect (as if that operation were still pending), so a test can try
+// every point in turn. `slow` makes each synchronous write take that long (a slow disk).
+const interrupt = vi.hoisted(() => ({ at: 0, calls: 0, fn: null as null | (() => void) }))
+const slow = vi.hoisted(() => ({ ms: 0 }))
+vi.mock('fs/promises', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('fs/promises')>()
+  const wrap =
+    <A extends unknown[], R>(f: (...a: A) => Promise<R>) =>
+    async (...a: A): Promise<R> => {
+      if (interrupt.fn && ++interrupt.calls === interrupt.at) {
+        const fn = interrupt.fn
+        interrupt.fn = null
+        fn()
+      }
+      return f(...a)
+    }
+  return { ...fs, stat: wrap(fs.stat), open: wrap(fs.open), copyFile: wrap(fs.copyFile), rename: wrap(fs.rename), rm: wrap(fs.rm), mkdir: wrap(fs.mkdir) }
+})
+vi.mock('fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('fs')>()
+  return {
+    ...fs,
+    writeSync: (fd: number, buf: Buffer, off: number, len: number, pos: number): number => {
+      for (const end = Date.now() + slow.ms; Date.now() < end; );
+      return fs.writeSync(fd, buf, off, len, pos)
+    }
+  }
+})
 
 let dir = ''
 beforeEach(async () => {
@@ -74,5 +105,116 @@ describe('syncCopy', () => {
     await Promise.all(runs)
     await syncCopy(src, dest)
     expect(await readFile(dest, 'utf8')).toBe(expected)
+  })
+})
+
+describe('syncCopyNow (Windows ending the session)', () => {
+  const soon = (): number => Date.now() + 2000
+  const temps = async (d: string): Promise<string[]> => (await readdir(d)).filter((f) => f.endsWith('.tmp'))
+
+  it('copies a new file, appends what the source gained, and copies a rewritten one whole', async () => {
+    const src = join(dir, 'n.jsonl')
+    const dest = join(dir, 'backup', 'n.jsonl')
+    await writeFile(src, line(1) + line(2))
+    expect(syncCopyNow(src, dest, soon())).toBe(true)
+    expect(await readFile(dest, 'utf8')).toBe(line(1) + line(2))
+    const before = (await stat(dest)).birthtimeMs
+    await appendFile(src, line(3))
+    expect(syncCopyNow(src, dest, soon())).toBe(true)
+    expect(await readFile(dest, 'utf8')).toBe(line(1) + line(2) + line(3))
+    expect((await stat(dest)).birthtimeMs).toBe(before)
+    await writeFile(src, line(9))
+    expect(syncCopyNow(src, dest, soon())).toBe(true)
+    expect(await readFile(dest, 'utf8')).toBe(line(9))
+    expect(await temps(join(dir, 'backup'))).toEqual([])
+  })
+
+  it('starts nothing once its time is up, and leaves the backup as it was', async () => {
+    const src = join(dir, 'd.jsonl')
+    const dest = join(dir, 'd-copy.jsonl')
+    await writeFile(src, line(1))
+    await writeFile(dest, 'old\n')
+    expect(syncCopyNow(src, dest, 0)).toBe(false)
+    expect(await readFile(dest, 'utf8')).toBe('old\n')
+    await writeFile(dest, line(1))
+    await appendFile(src, line(2))
+    expect(syncCopyNow(src, dest, 0)).toBe(false)
+    expect(await readFile(dest, 'utf8')).toBe(line(1))
+    expect(await temps(dir)).toEqual([])
+  })
+
+  describe('on a slow disk', () => {
+    afterEach(() => void (slow.ms = 0))
+    const big = Buffer.alloc(8 * SYNC_STEP, 'x')
+
+    it('stops an append after the step under way: a shorter backup, still the start of the transcript', async () => {
+      const src = join(dir, 's.jsonl')
+      const dest = join(dir, 's-copy.jsonl')
+      await writeFile(src, line(1))
+      await syncCopy(src, dest)
+      await appendFile(src, big)
+      slow.ms = 60
+      const t = Date.now()
+      expect(syncCopyNow(src, dest, Date.now() + 20)).toBe(false)
+      // One step of 60 ms, not eight.
+      expect(Date.now() - t).toBeLessThan(250)
+      const got = await readFile(dest)
+      expect(got.length).toBe(line(1).length + SYNC_STEP)
+      expect(got.equals((await readFile(src)).subarray(0, got.length))).toBe(true)
+    })
+
+    it("drops a whole copy it can't finish, and keeps the backup there", async () => {
+      const src = join(dir, 'r.jsonl')
+      const dest = join(dir, 'r-copy.jsonl')
+      await writeFile(src, big)
+      await writeFile(dest, 'old\n')
+      slow.ms = 60
+      expect(syncCopyNow(src, dest, Date.now() + 20)).toBe(false)
+      expect(await readFile(dest, 'utf8')).toBe('old\n')
+      expect(await temps(dir)).toEqual([])
+    })
+  })
+
+  // Every point an ordinary copy can be at when Windows ends the session, a pending rename included.
+  for (const [what, prior] of [
+    ['a whole copy', 'old\n'],
+    ['an append', 'new\n']
+  ] as const) {
+    it(`isn't undone by ${what} under way at any point`, async () => {
+      let points = 0
+      for (let n = 1; ; n++) {
+        const src = join(dir, `i${n}.jsonl`)
+        const dest = join(dir, `i${n}-copy.jsonl`)
+        await writeFile(src, 'new\n')
+        await writeFile(dest, prior)
+        if (prior === 'new\n') await appendFile(src, 'more\n')
+        const latest = readFileSync(src, 'utf8') + 'latest\n'
+        let fired = false
+        Object.assign(interrupt, { at: n, calls: 0 })
+        interrupt.fn = () => {
+          fired = true
+          appendFileSync(src, 'latest\n')
+          expect(syncCopyNow(src, dest, soon())).toBe(true)
+          expect(readFileSync(dest, 'utf8')).toBe(latest)
+        }
+        await syncCopy(src, dest)
+        interrupt.fn = null
+        if (!fired) break
+        points++
+        expect(await readFile(dest, 'utf8'), `interrupted at file operation ${n}`).toBe(latest)
+      }
+      expect(points).toBeGreaterThanOrEqual(3)
+      expect(await temps(dir)).toEqual([])
+    })
+  }
+
+  it('leaves ordinary copies working after it (shutdown cancelled)', async () => {
+    const src = join(dir, 'c.jsonl')
+    const dest = join(dir, 'c-copy.jsonl')
+    await writeFile(src, line(1))
+    syncCopyNow(src, dest, soon())
+    await appendFile(src, line(2))
+    await syncCopy(src, dest)
+    expect(await readFile(dest, 'utf8')).toBe(line(1) + line(2))
   })
 })

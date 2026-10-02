@@ -258,7 +258,7 @@ Returns `{ ok: true, path }`. Hive shows a notification with a link to the note.
 
 ### Task board
 
-The workspace's board: cards in four columns, `todo`, `doing`, `review` and `done`, kept in `.hive/tasks`. Callers can read and change cards and move them between all four columns, `done` included; each move is in the card's history with who made it. Agents are asked to move finished work to `review` and to `done` only when the user asks. Creating a card in `done` and putting `done` in order are the user's (`403`). Archived cards can't be changed (`403`), and archiving and deleting are only in Hive.
+The workspace's board: cards in four columns, `todo`, `doing`, `review` and `done`, kept in `.hive/tasks`. Callers can read and change cards and move them between all four columns, `done` included; each move is in the card's history with who made it. Agents are asked to move a card they were given to `doing` before they start on it (also one back from `review` with follow-up work), to move finished work to `review` with a comment saying what they did, and to `done` only when the user asks. Creating a card in `done` and putting `done` in order are the user's (`403`). Archived cards can't be changed (`403`), and archiving and deleting are only in Hive.
 
 **Who sees what.** The workspace token (scripts) and the Hive Assistant see and change the whole board, as the user does. A project agent, calling with its own token (`HIVE_API_TOKEN`), sees and changes only its project's cards; who it is comes from the token alone, never from the request:
 

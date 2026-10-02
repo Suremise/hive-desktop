@@ -33,7 +33,7 @@ import type { Ask, HookEvent, LaunchSkill, ProviderAdapter, UsageParser } from '
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, toast } from './events'
-import { hashDir, hashText, readJson, removePath, splitArgs, syncCopy, syncCopyLocked, withFileLock, writeJsonAtomic } from './fsutil'
+import { hashDir, hashText, readJson, removePath, splitArgs, syncCopy, syncCopyLocked, syncCopyNow, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
 import { Compaction } from './compaction'
@@ -1442,12 +1442,33 @@ class SessionManager {
   }
 
   /**
-   * Backs up every running session's transcript now, as quitting does (Windows is shutting down or signing out):
-   * waits at most `timeoutMs` in all, since Windows only gives a few seconds.
+   * Windows is shutting down or signing out: backs up every running session's transcript before returning, as its
+   * callbacks don't wait for a Promise. Only the bytes: usage, details and cost wait for the next start. Best effort
+   * within `budgetMs` in all (syncCopyNow says how closely): `incomplete` ran out of time part way, `skipped` were
+   * not tried (no transcript found yet, or no time left). Their backups are as of the last ordinary one, or a little
+   * further.
    */
-  async backupAll(timeoutMs = 3000): Promise<void> {
-    const all = Promise.all([...this.live.values()].map((l) => this.backup(l.state.projectPath, l.state.agentId, true).catch(() => undefined)))
-    await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))])
+  backupAllNow(budgetMs: number): { saved: number; incomplete: number; skipped: number; failed: number } {
+    const done = { saved: 0, incomplete: 0, skipped: 0, failed: 0 }
+    if (!config.settings.sessions.backupTranscripts) return done
+    const deadline = Date.now() + budgetMs
+    for (const l of this.live.values()) {
+      const src = l.transcriptPath
+      if (!l.state.sessionId || !src || Date.now() >= deadline) {
+        done.skipped++
+        continue
+      }
+      try {
+        if (syncCopyNow(src, this.backupPath(l.state.projectPath, l.state.sessionId), deadline)) {
+          l.lastBackupAt = Date.now()
+          done.saved++
+        } else done.incomplete++
+      } catch (e) {
+        log.warn('backup at shutdown failed', e)
+        done.failed++
+      }
+    }
+    return done
   }
 
   /** After the PC wakes up: read each running session's transcript again (usage, background tasks, plan usage) and report its state. */

@@ -9,6 +9,7 @@
 - **Agents keep to their own project's cards.** An agent can see and change only its project's cards on the board: another project's cards are for that project's agents, the Assistant and you. Before, an agent in one project could list, read, comment on and move any card in the workspace. An agent also can't read or type into another project's agents' conversations any more, where those cards appear as their tasks. Each agent now calls Hive with a token of its own, so it can't get round this by saying it is someone else. The Assistant and your board still see everything.
 - **Moving a card to another project takes it from its agent**, and its history says whose it was. Give it to one of the new project's agents afterwards (the card dialog does this when you change both).
 - **"Check the latest comment"**: agents can read just a card's newest comment instead of the whole card, which keeps long cards from filling their context.
+- **Agents move a card to Doing when they start on it.** Hand an agent a card in its conversation (*"task #59 please"*) and it moves the card to Doing before it starts, then to Review when it's done. This includes a card back from Review with follow-up work, which before stayed in Review while the agent changed it. (**Start…** on the board already moved cards to Doing.)
 - **Agents can move cards to Done.** Ask an agent *"looks good, move #65 to done"* and it does; the Assistant can too. Agents still move finished work to Review by default, for you to check. Every move is in the card's history with who made it, and a card can be moved back out of Done from the board or by asking. Before, only you could move cards into or out of Done.
 
 ### Fixes
@@ -38,7 +39,7 @@
 
 ### Sleep and shutdown
 - **The PC stays awake while agents work.** A PC set to sleep after a while idle no longer sleeps mid-task because nobody touched the keyboard; once no agent is working it may sleep again (the screen can still turn off and lock). The status bar says so while it lasts. **Settings → General → Keep the PC awake while agents work**: *When plugged in* (default), *Always* or *Never*.
-- **Windows shutting down or restarting** no longer loses the end of a transcript: Hive backs them up first, as quitting does.
+- **Windows shutting down, restarting or signing you out** no longer loses the end of a transcript: Hive backs them up first, without holding up the shutdown.
 - **After sleep**, agents' states and plan usage are read again straight away.
 
 ### When Hive's window crashes
