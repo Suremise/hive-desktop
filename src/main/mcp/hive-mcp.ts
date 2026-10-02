@@ -341,7 +341,7 @@ const tools: Tool[] = [
   {
     name: 'hive_update_task',
     description:
-      `Change a card on the task board${ASSISTANT ? '' : " (your project's cards only; a card stays in your project)"} and/or comment on it: move it between todo, doing, review and done, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on, or its place in its column (position top or bottom, or before another card in that column; with or without a column change). Moving a card into doing from another column, without agent, gives it to you. Move a card you were given to doing before you work on it, also when it is back from review or done. When you finish a card's work, move it to review with a comment saying what you did (also if it was in done before); move it to done only when the user asks (every move is in the card's history, and the user can move it back). Archived cards can't be changed. Replies with what changed and where the card is now (column, place, project, agent).`,
+      `Change a card on the task board${ASSISTANT ? '' : " (your project's cards only; a card stays in your project)"} and/or comment on it: move it between todo, doing, review and done, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on, or its place in its column (position top or bottom, or before another card in that column; with or without a column change). Moving a card into doing from another column, without agent, gives it to you. Move a card you were given to doing before you work on it, also when it is back from review or done for more work.${ASSISTANT ? '' : ' Reviewing a card (when asked to review, check or verify work, often another agent\'s) is not working on it: leave it in review with its agent, set review start, then review passed or failed with your verdict as the comment, which ends the review (a failed one leaves the fixes to whoever is asked to do them).'} When you finish a card's work, move it to review with a comment saying what you did (also if it was in done before); move it to done only when the user asks (every move is in the card's history, and the user can move it back). Archived cards can't be changed. Replies with what changed and where the card is now (column, place, project, agent).`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -357,13 +357,16 @@ const tools: Tool[] = [
         agent: { type: 'string', description: 'Agent name or id; empty takes it from its agent.' },
         labels: { type: 'array', items: { type: 'string' } },
         blockedBy: cardsArg('Cards that have to be done first (replaces the list).'),
-        links: cardsArg('Related cards (replaces the list).')
+        links: cardsArg('Related cards (replaces the list).'),
+        ...(ASSISTANT
+          ? {}
+          : { review: { type: 'string', enum: ['start', 'passed', 'failed'], description: 'Reviewing a card in review: start marks you as its reviewer; passed or failed (with the verdict as comment) ends it.' } })
       },
       required: ['number']
     },
     run: async (a) => {
       const body: Record<string, unknown> = { reply: 'short' }
-      for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links']) if (a[k] !== undefined) body[k] = a[k]
+      for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links', 'review']) if (a[k] !== undefined) body[k] = a[k]
       return changedText((await api('PATCH', `/v1/tasks/${enc(String(a.number))}`, body)) as TaskChange)
     }
   },

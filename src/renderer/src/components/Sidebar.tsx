@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { McpServerInfo, NoteFile, ProjectInfo, SkillInfo, TaskCard } from '@shared/types'
-import { agentDoingCards } from '@shared/tasks'
+import { agentDoingCards, agentReviewCards } from '@shared/tasks'
 import { cardText } from './CardChip'
 import { agentLaunchSettings, modeOption } from '@shared/providers'
 import { agentsToResume } from '@shared/resumeAll'
@@ -120,10 +120,11 @@ function compactTip(): string {
   return kb ? ` (${formatKeybinding(kb)})` : ''
 }
 
-/** An agent's line in a project's tooltip: "Agent 2: working · #5 Prompt snippets". */
+/** An agent's line in a project's tooltip: "Agent 2: working · #5 Prompt snippets" (or "· reviewing #5 …"). */
 function agentTipLine(p: ProjectInfo, a: ProjectInfo['agents'][number], tasks: TaskCard[]): string {
   const card = cardText(agentDoingCards(tasks, p.name, a.id))
-  return `${a.name}: ${a.live ? statusText(a.live) : 'not running'}${card ? ` · ${card}` : ''}`
+  const review = card ? '' : cardText(agentReviewCards(tasks, p.name, a.id))
+  return `${a.name}: ${a.live ? statusText(a.live) : 'not running'}${card ? ` · ${card}` : review ? ` · reviewing ${review}` : ''}`
 }
 
 /** Right-click menu for a project, shared by the full list and the compact rail. */

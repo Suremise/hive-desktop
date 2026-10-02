@@ -17,6 +17,8 @@ Ask the user if it isn't clear. Common cases:
 
 `hive_project_status` shows the project's agents and where each one works, which helps when the user names an agent rather than a branch.
 
+**A card on the task board** (the user names one, #n): reviewing it isn't working on it. Leave it in Review with the agent that did the work (don't move it to Doing), and call `hive_update_task` with `review: "start"` so the board shows you as its reviewer. Its description and comments say what was meant and what was done.
+
 ## 2. Understand the intent
 
 Before judging the code, learn what it was meant to do: the user's request, a handover (`hive_read_latest_handover`), commit messages, or a plan in the shared notes. A change can be clean and still do the wrong thing.
@@ -38,3 +40,5 @@ Run the tests if you can, but don't commit or change files.
 List findings most serious first. For each: **file:line**, what's wrong, a concrete case where it goes wrong, and a suggested fix in a sentence. Say how sure you are when you aren't certain. End with a short verdict: ready, ready after small fixes, or needs more work.
 
 If you found nothing significant, say so plainly, and mention what you checked, so the user knows how far to trust it.
+
+For a card, end the review on the board: `hive_update_task` with `review: "passed"` or `"failed"` and your report as the `comment`. The card stays in Review either way; move it to Done only if the user asked you to (now or as a standing instruction), and leave the fixes to whoever the user asks to make them.

@@ -934,12 +934,23 @@ function TranscriptImageViewer({ project, sessionId, image, images, onNavigate, 
 
 /** "Worked on #5 Prompt snippets, #7 …": the board cards the session's agent had in Doing. A deleted card keeps its
  *  number and the title it had, without a link. */
+/** The cards a session worked on, and those it reviewed (each a line, when it has any). */
 function WorkedOn({ cards }: { cards: SessionListItem['cards'] }) {
-  const tasks = useStore((s) => s.tasks)
   if (!cards?.length) return null
   return (
+    <>
+      <CardsLine icon="project" label="Worked on" cards={cards.filter((c) => !c.review)} />
+      <CardsLine icon="eye" label="Reviewed" cards={cards.filter((c) => c.review)} />
+    </>
+  )
+}
+
+function CardsLine({ icon, label, cards }: { icon: string; label: string; cards: NonNullable<SessionListItem['cards']> }) {
+  const tasks = useStore((s) => s.tasks)
+  if (!cards.length) return null
+  return (
     <div className="worked-on faint">
-      <Icon name="project" /> Worked on{' '}
+      <Icon name={icon} /> {label}{' '}
       {cards.map((c, i) => {
         const card = tasks.find((t) => t.number === c.number)
         const text = `#${c.number} ${card?.title ?? c.title}`

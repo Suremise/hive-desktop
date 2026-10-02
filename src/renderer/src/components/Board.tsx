@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch, TaskStartTarget } from '@shared/types'
-import { TASK_COLUMNS, columnColor, columnLabel, stalledReason, taskOverview } from '@shared/tasks'
+import { TASK_COLUMNS, columnColor, columnLabel, reviewStalled, stalledReason, taskOverview } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
 import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useStore, type DoingRequest } from '../store'
@@ -119,6 +119,31 @@ function AgentLine({ c, projects, live }: { c: TaskCard; projects: ProjectInfo[]
   )
 }
 
+/** Who is reviewing the card now (TaskCard.review): click to show it; in amber when it has gone or isn't running. */
+function ReviewLine({ c, projects }: { c: TaskCard; projects: ProjectInfo[] }) {
+  if (!c.review) return null
+  const project = c.project ? (projects.find((p) => p.name.toLowerCase() === c.project.toLowerCase()) ?? null) : null
+  const reviewer = project?.agents.find((a) => a.id === c.review!.agent) ?? null
+  const name = reviewer?.name ?? c.review.agentName
+  const stalled = reviewStalled(c, reviewer ? { name: reviewer.name, running: !!reviewer.live } : null)
+  return (
+    <Tooltip content={stalled ? `${name} started reviewing it ${timeAgo(c.review.since)}, and ${stalled.charAt(0).toLowerCase()}${stalled.slice(1)}` : `${name} is reviewing it (since ${timeAgo(c.review.since)}). Click to show it.`}>
+      <div
+        className={cx('task-review', stalled && 'stalled')}
+        onClick={(e) => {
+          if (!project || !reviewer) return
+          e.stopPropagation()
+          selectProject(project.path)
+          revealAgent(project, reviewer.id)
+        }}
+      >
+        <Icon name="eye" /> Reviewing: {name}
+        {stalled ? ` (${reviewer ? 'not running' : 'removed'})` : ` · ${timeAgo(c.review.since)}`}
+      </div>
+    </Tooltip>
+  )
+}
+
 function CardTile({
   c,
   projects,
@@ -166,6 +191,7 @@ function CardTile({
             </div>
           </Tooltip>
         )}
+        <ReviewLine c={c} projects={projects} />
         {(c.labels.length > 0 || c.blockedBy.length > 0 || c.comments.length > 0) && (
           <div className="task-meta">
             {c.labels.map((l) => (

@@ -4654,6 +4654,18 @@ body.pane-resizing-v .monaco-editor {
   gap: 4px;
   align-items: flex-start;
 }
+/* Who is reviewing the card now: the accent while it goes on, amber once its reviewer has gone. */
+.task-review {
+  font-size: 12px;
+  color: var(--accent);
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  cursor: pointer;
+}
+.task-review.stalled {
+  color: var(--warning);
+}
 .task-card-top {
   display: flex;
   align-items: center;

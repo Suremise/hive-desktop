@@ -72,6 +72,9 @@ function clean(raw: Partial<TaskCard>, n: number): TaskCard {
     project: typeof raw.project === 'string' ? raw.project : '',
     agent: typeof raw.agent === 'string' && raw.agent ? raw.agent : null,
     ...(typeof raw.agentName === 'string' ? { agentName: raw.agentName } : {}),
+    ...(raw.review && typeof raw.review.agent === 'string' && raw.review.agent && typeof raw.review.since === 'string'
+      ? { review: { agent: raw.review.agent, agentName: typeof raw.review.agentName === 'string' ? raw.review.agentName : raw.review.agent, since: raw.review.since } }
+      : {}),
     column: isTaskColumn(raw.column) ? raw.column : 'todo',
     order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : n,
     labels: strs(raw.labels),
@@ -426,6 +429,10 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
         if (patch.agent) throw new Error('Move the card to the other project first, then give it to one of its agents.')
         said.push(p ? `Moved to ${p}` : 'Moved to the workspace')
         if (card.agent) said.push(`Taken from ${card.agentName ?? card.agent} of ${card.project || 'the workspace'}`)
+        if (card.review) {
+          said.push(`Review by ${card.review.agentName} stopped`)
+          delete card.review
+        }
         card.project = p
         card.agent = null
         delete card.agentName
@@ -448,6 +455,8 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
         delete card.agentName
       }
     }
+    // A review renewed by its reviewer changes the card (when it started) without a line in its history: saved too.
+    const reviewed = patch.review !== undefined && (await reviewChange(card, patch, actor, said))
     if (patch.column !== undefined || patch.before !== undefined || patch.position !== undefined) {
       const column = patch.column ?? card.column
       if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": todo, doing, review or done.`)
@@ -455,6 +464,11 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
       const place = placement(all, card, column, patch, actor)
       if (column !== card.column) said.push(place.said ?? `Moved to ${COLUMN_WORD[column]}`)
       else if (place.said) said.push(place.said)
+      // A review is of the card in Review: moved on without a verdict, it stops.
+      if (card.review && column !== 'review') {
+        said.push(`Review by ${card.review.agentName} stopped`)
+        delete card.review
+      }
       const order = place.order
       reordered = order !== card.order
       card.order = order
@@ -479,13 +493,70 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
     }
     // What changed, in the history's words, for a caller that confirms it (the hive tools' short replies).
     opts.said?.push(...said)
-    if (!said.length && !reordered) return card
+    if (!said.length && !reordered && !reviewed) return card
     for (const s of said) note(card, by, s)
     await writeJsonAtomic(cardFile(n, ws), card)
     return card
   })
   changed(ws)
   return result
+}
+
+/**
+ * A review (TaskPatch.review): the calling agent marks the card in Review that it reviews ("start"; the card keeps the
+ * agent that did the work), or ends its review with a verdict ("passed", "failed"). One reviewer at a time: another
+ * is refused, naming it; the same agent starting again only renews its mark. A verdict is only for the review the
+ * caller has going on the card now: once the card has moved on (out of Review, say, for fixes, which ends the review)
+ * an old verdict can't settle newer work. The user, the Assistant and scripts don't review through this (they have no
+ * agent of the project to mark the card with). Returns whether the card changed (a renewal changes it without a line in
+ * its history). Runs under the card's lock, with the card as it is now.
+ */
+async function reviewChange(card: TaskCard, patch: TaskPatch, actor: TaskActor, said: string[]): Promise<boolean> {
+  const me = selfIn(actor, card.project)
+  if (!me) throw new TaskPermissionError("Only an agent of the card's project reviews it, through its own hive tools.")
+  const since = (r: NonNullable<TaskCard['review']>): string => r.since.slice(0, 16).replace('T', ' ')
+  if (patch.review === 'start') {
+    if (patch.column !== undefined || patch.agent !== undefined) throw new Error('Start a review on its own: the card stays where it is, with its agent.')
+    if (card.column !== 'review') throw new Error(`#${card.number} is in ${COLUMN_WORD[card.column]}. A card is reviewed in Review; if it needs more work, that is work on it (move it to doing).`)
+    if (card.review && card.review.agent !== me) throw new Error(`${card.review.agentName} is already reviewing #${card.number} (since ${since(card.review)} UTC).`)
+    const a = await agentOf(card.project, me)
+    if (!card.review) said.push('Started reviewing')
+    card.review = { agent: a.id, agentName: a.name, since: new Date().toISOString() }
+    return true
+  }
+  if (patch.review !== 'passed' && patch.review !== 'failed') throw new Error(`Unknown review "${String(patch.review)}": start, passed or failed.`)
+  if (card.review && card.review.agent !== me) throw new Error(`${card.review.agentName} is reviewing #${card.number}: its verdict is its own.`)
+  if (!card.review || card.column !== 'review') {
+    throw new Error(`You aren't reviewing #${card.number} now: its review ended (the card moved, or your session ended) or never started. Start one with review "start" if it is in Review.`)
+  }
+  said.push(patch.review === 'passed' ? 'Review passed' : 'Review failed')
+  delete card.review
+  return true
+}
+
+/**
+ * Stops the reviews an agent has going (its session ended, or it was removed), so a card never shows a reviewer that
+ * has gone. A review started again meanwhile by another agent is left alone.
+ */
+export async function endReviews(project: string, agentId: string, why: string, ws: WorkspaceService = workspace): Promise<number[]> {
+  const mine = (await allTasks(ws)).filter((c) => c.review?.agent === agentId && c.project.toLowerCase() === project.toLowerCase())
+  const out: number[] = []
+  for (const c of mine) {
+    const ended = await withFileLock(cardFile(c.number, ws), async () => {
+      const card = await getTask(c.number, ws)
+      if (card.review?.agent !== agentId) return false
+      note(card, 'Hive', `Review by ${card.review.agentName} stopped: ${why}`)
+      delete card.review
+      await writeJsonAtomic(cardFile(c.number, ws), card)
+      return true
+    }).catch((e) => {
+      log.warn(`Could not end the review of #${c.number}`, e)
+      return false
+    })
+    if (ended) out.push(c.number)
+  }
+  if (out.length) changed(ws)
+  return out
 }
 
 /**

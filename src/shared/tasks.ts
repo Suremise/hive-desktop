@@ -64,6 +64,20 @@ export function agentDoingCards(cards: readonly TaskCard[], project: string, age
   return sortCards(cards.filter((c) => !c.archived && c.column === 'doing' && c.agent === agentId && c.project.toLowerCase() === p))
 }
 
+/** The cards an agent of a project is reviewing (TaskCard.review), in board order. */
+export function agentReviewCards(cards: readonly TaskCard[], project: string, agentId: string): TaskCard[] {
+  const p = project.toLowerCase()
+  return sortCards(cards.filter((c) => !c.archived && c.review?.agent === agentId && c.project.toLowerCase() === p))
+}
+
+/** Why a card's review isn't going on (its reviewer removed, or not running), or null while it is or there's none. */
+export function reviewStalled(card: Pick<TaskCard, 'review' | 'archived'>, reviewerNow: { name: string; running: boolean } | null): string | null {
+  if (!card.review || card.archived) return null
+  if (!reviewerNow) return `${card.review.agentName} was removed.`
+  if (!reviewerNow.running) return `${reviewerNow.name} isn't running.`
+  return null
+}
+
 /**
  * What an agent is given when a card is started: the card in full, and what to do with it on the board. With
  * Hive's tools it can read the comments and move the card itself; without them, the card is all it has. from: the

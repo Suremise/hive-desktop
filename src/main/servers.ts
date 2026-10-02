@@ -8,7 +8,7 @@ import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessio
 import { DEFAULT_API_PORT, projectAgents, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
-import { columnLabel, isTaskColumn, stalledReason } from '../shared/tasks'
+import { columnLabel, isTaskColumn, reviewStalled, stalledReason } from '../shared/tasks'
 import type { HandoverAuthor } from '../shared/hiveGuidance'
 import { taskRow, withoutHistory, type ProjectRow, type TaskChange, type TaskReorder, type TaskView } from '../shared/toolReplies'
 import { CLAUDE_CODE } from '../shared/claude'
@@ -886,6 +886,19 @@ async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType
   }
   // Nobody working on a Doing card: the Assistant reports these and suggests who could take them.
   const view: TaskView = { ...c, agent, stalled: stalledReason(c, now) }
+  // A review whose reviewer has gone or isn't running (Hive ends those, but one can show while that happens).
+  if (c.review && c.project) {
+    try {
+      const p = projectByName(c.project)
+      const key = p.toLowerCase()
+      if (!agents.has(key)) agents.set(key, workspace.projectConfig(p).then(projectAgents))
+      const def = (await agents.get(key)!).find((a) => a.id === c.review!.agent)
+      const why = reviewStalled(c, def ? { name: def.name, running: !!sessions.liveFor(p, def.id) } : null)
+      if (why) view.reviewStalled = why
+    } catch {
+      view.reviewStalled = `${c.review.agentName} was removed.`
+    }
+  }
   // A project agent sees the cards of other projects it links to or waits for as numbers, marked as such.
   const scope = callerScope()
   const elsewhere = await tasks.refsOutside([...new Set([...c.blockedBy, ...c.links])], scope)
@@ -932,6 +945,10 @@ function taskPatch(body: any): TaskPatch {
     out.position = body.position
   }
   for (const k of ['labels', 'blockedBy', 'links'] as const) if (body?.[k] !== undefined) out[k] = body[k]
+  if (body?.review !== undefined && body.review !== null && body.review !== '') {
+    if (body.review !== 'start' && body.review !== 'passed' && body.review !== 'failed') throw new HttpError(400, `Unknown review "${String(body.review)}": start, passed or failed.`)
+    out.review = body.review
+  }
   return out
 }
 

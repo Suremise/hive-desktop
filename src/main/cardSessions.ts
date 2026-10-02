@@ -1,7 +1,8 @@
 // Which board cards a session worked on: each card in Doing for an agent is added to its running session's record
-// (sessions.json `cards`, in order, with the title it had then), so the Sessions tab can say "Worked on #5 …".
+// (sessions.json `cards`, in order, with the title it had then), so the Sessions tab can say "Worked on #5 …"; and each
+// card it reviews (TaskCard.review), marked as reviewed, for "Reviewed #5 …".
 import { basename } from 'path'
-import { agentDoingCards } from '../shared/tasks'
+import { agentDoingCards, agentReviewCards } from '../shared/tasks'
 import type { LiveSessionState } from '../shared/types'
 import { createLogger } from './logger'
 import { allTasks } from './tasks'
@@ -9,19 +10,26 @@ import { workspaceFor, type WorkspaceService } from './workspace'
 
 const log = createLogger('cards')
 
-/** Adds the agent's Doing cards to its session's record (only an existing record: one Hive has recorded). */
+/** Adds the agent's Doing cards, and those it reviews, to its session's record (only one Hive has recorded). */
 export async function recordCards(ws: WorkspaceService, projectPath: string, agentId: string, sessionId: string): Promise<void> {
   if (ws.isAssistantHome(projectPath)) return
-  const doing = agentDoingCards(await allTasks(ws), basename(projectPath), agentId)
-  if (!doing.length) return
+  const all = await allTasks(ws)
+  const project = basename(projectPath)
+  const cards = [
+    ...agentDoingCards(all, project, agentId).map((c) => ({ number: c.number, title: c.title })),
+    ...agentReviewCards(all, project, agentId).map((c) => ({ number: c.number, title: c.title, review: true as const }))
+  ]
+  if (!cards.length) return
+  // Worked on and reviewed are kept apart: an agent can review a card it once worked on.
+  const has = (list: { number: number; review?: true }[] | undefined, c: { number: number; review?: true }): boolean => !!list?.some((h) => h.number === c.number && !!h.review === !!c.review)
   // Most board changes add nothing (a comment, another agent's card): check before taking the file's lock.
   const now = (await ws.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
-  if (!now || doing.every((c) => now.cards?.some((h) => h.number === c.number))) return
+  if (!now || cards.every((c) => has(now.cards, c))) return
   await ws.mutateSessions(projectPath, (f) => {
     const rec = f.sessions.find((s) => s.id === sessionId)
     if (!rec) return
     const had = rec.cards ?? []
-    const add = doing.filter((c) => !had.some((h) => h.number === c.number)).map((c) => ({ number: c.number, title: c.title }))
+    const add = cards.filter((c) => !has(had, c))
     if (add.length) rec.cards = [...had, ...add]
   })
 }
