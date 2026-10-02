@@ -62,9 +62,10 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   check('guard refuses a conversation open in another agent', /already open in Agent 1/.test(err), err)
   check('Agent 2 still stopped', !(await project()).agents.find((a) => a.id === A2.id).live)
 
-  // Session tag in Agent 1's header.
+  // The session's name in Agent 1's footer.
   const h1 = page.locator('.pane-header-bar', { hasText: 'Agent 1' })
-  check('session tag shown', (await h1.locator('.session-tag').count()) === 1, await h1.locator('.session-tag').textContent().catch(() => ''))
+  const tag1 = page.locator('.agent-pane', { has: h1 }).locator('.pane-footer-bar .session-tag')
+  check('session tag shown', (await tag1.count()) === 1, await tag1.textContent().catch(() => ''))
 
   // Picker for Agent 2: Agent 1's open session greyed, old sessions resumable.
   await h2.locator('button[aria-label="Resume a Session…"]').click(); await sleep(1200)
@@ -80,7 +81,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   check('still only Agent 1 runs', (await project()).agents.filter((a) => a.live).length === 1)
 
   // Session tag → Sessions tab on that session, with Show instead of Resume.
-  await h1.locator('.session-tag').click(); await sleep(1500)
+  await tag1.click(); await sleep(1500)
   check('Sessions tab opened', await page.locator('.tabs .tab.active', { hasText: 'Sessions' }).count() === 1)
   check('live session selected', await page.locator('.session-row.selected').count() === 1)
   check('Show button for the running session', await page.locator('.transcript-toolbar button', { hasText: 'Show' }).count() === 1)
@@ -107,7 +108,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   // Rename the live session: the tag follows.
   await inv('session:rename', proj, st.sessionId, 'Renamed live')
   await sleep(600)
-  check('tag follows rename', /Renamed live/.test(await h1.locator('.session-tag').textContent()))
+  check('tag follows rename', /Renamed live/.test(await tag1.textContent()))
 
   await inv('session:stop', proj, A1.id); await sleep(2500)
   p = await project()

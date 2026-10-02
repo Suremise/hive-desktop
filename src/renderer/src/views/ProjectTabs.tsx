@@ -76,7 +76,7 @@ export function useSessions(project: ProjectInfo) {
   // Live: a change (usage, or an agent starting or stopping) reloads, at most every LIVE_REFRESH_MS.
   // A card moving into an agent's Doing too: its session records it ("Worked on #5").
   const doingKey = useStore((s) => s.tasks.filter((c) => c.column === 'doing' && c.agent && c.project.toLowerCase() === project.name.toLowerCase()).map((c) => `${c.number}:${c.agent}`).join(','))
-  const liveKey = `${usageVersion}|${doingKey}|${project.agents.map((a) => `${a.live?.sessionId ?? ''}:${a.live?.status ?? ''}`).join(',')}`
+  const liveKey = `${usageVersion}|${doingKey}|${project.agents.map((a) => `${a.live?.sessionId ?? ''}:${a.live?.status ?? ''}:${a.live?.sessionName ?? ''}`).join(',')}`
   useEffect(() => {
     if (mode !== 'live' || !last.current || !shown) return
     const wait = last.current + LIVE_REFRESH_MS - Date.now()

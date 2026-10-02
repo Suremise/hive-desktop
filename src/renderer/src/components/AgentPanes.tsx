@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { CardChip, useAgentCards } from './CardChip'
 import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, effectiveModelLabel, effortLabel, formatBytes, layoutPanes, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
-import type { AgentInfo, ProjectInfo, SessionLayout, SessionListItem } from '@shared/types'
+import type { AgentInfo, LiveSessionState, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, focusAgent, focusedAgentId, isAssistantPath, openInSessionsTab, paneAssignment, projectKey, revealAgent, seenAgents, set, setProjectTab, showAgent, showInOverview, showPage, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, focusAgent, focusedAgentId, isAssistantPath, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showInOverview, showPage, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -161,19 +161,49 @@ export function ResumeButton({ project, a, className, label = 'Resume' }: { proj
   )
 }
 
-/** The session an agent is running: its name, with details on hover; click to read it in the Sessions tab. */
-export function SessionTag({ project, a, badge }: { project: ProjectInfo; a: AgentInfo; badge?: boolean }) {
-  const usage = useLiveUsage(project, a.id)
+/** A running session's name (see sessionLabel): the latest rename, else its title, else when it started. */
+function liveSessionLabel(project: ProjectInfo, live: LiveSessionState, usage: SessionUsage | null | undefined): string {
+  return sessionLabel({ id: live.sessionId, name: live.sessionName, title: usage?.title, customTitle: usage?.customTitle, titleAtRename: live.titleAtRename, startedAt: live.startedAt }, project.name)
+}
+
+async function renameSession(project: ProjectInfo, sessionId: string, current: string): Promise<void> {
+  const name = (await prompt({ title: 'Rename session', initial: current, confirmLabel: 'Rename' }))?.trim()
+  if (!name || name === current) return
+  await actions.attempt('Could not rename', () => call('session:rename', project.path, sessionId, name))
+}
+
+/**
+ * The session an agent is running, in its footer: its name, with details on hover. Click to read it in the
+ * Sessions tab; right-click to rename it.
+ */
+function SessionName({ project, a, usage }: { project: ProjectInfo; a: AgentInfo; usage: SessionUsage | null | undefined }) {
+  const menu = useContextMenu()
   const live = a.live
-  if (!live || live.settingUp) return null
-  const label = sessionLabel({ id: live.sessionId, name: live.sessionName, title: usage?.title }, project.name)
-  const tip = `${label}\nRunning since ${new Date(live.startedAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}\nSession ${live.sessionId}\nClick to read it in the Sessions tab.`
+  if (!live || live.settingUp || !live.sessionId) return null
+  const label = liveSessionLabel(project, live, usage)
+  const tip = `${label}
+Running since ${new Date(live.startedAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+Session ${live.sessionId}
+Click to read it in the Sessions tab; right-click to rename it.`
+  const open = (): void => openInSessionsTab(project.path, live.sessionId)
   return (
-    <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
-      <span className={cx('session-tag', badge && 'badge')} onClick={() => openInSessionsTab(project.path, live.sessionId)}>
-        <Icon name="comment-discussion" /> <span className="session-tag-text">{label}</span>
-      </span>
-    </Tooltip>
+    <>
+      <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
+        <span
+          className="pane-foot-item session-tag"
+          onClick={open}
+          onContextMenu={(e) =>
+            menu.open(e, [
+              { label: 'Rename…', icon: 'tag', onClick: () => void renameSession(project, live.sessionId, label) },
+              { label: 'Open in Sessions Tab', icon: 'history', onClick: open }
+            ])
+          }
+        >
+          <Icon name="comment-discussion" /> <span className="session-tag-text">{label}</span>
+        </span>
+      </Tooltip>
+      {menu.element}
+    </>
   )
 }
 
@@ -332,7 +362,7 @@ function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const live = a.live
   const lines = [`${a.name} (${providerName(agentProviderOf(project, a))}): ${live ? statusText(live) : 'not running'}`]
   for (const c of cards) lines.push(`Working on #${c.number} ${c.title}`)
-  if (live) lines.push(`Session: ${sessionLabel({ id: live.sessionId, name: live.sessionName, title: usage?.title }, project.name)}`)
+  if (live) lines.push(`Session: ${liveSessionLabel(project, live, usage)}`)
   else if (a.resume) lines.push(`Resume opens: ${sessionLabel(a.resume, project.name)} (${timeAgo(a.resume.lastActiveAt)})`)
   if (a.worktree) lines.push(`Worktree ${a.worktree.path} on ${a.worktree.branch}, branched from ${a.worktree.base}`)
   if (unmerged?.badge) lines.push(`To merge: ${unmerged.text}`)
@@ -544,7 +574,6 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       )}
       <span className="faint pane-status">{live ? statusText(live) : 'Not running'}</span>
       <CardChip project={project} a={a} short={size === 'menu'} />
-      <SessionTag project={project} a={a} />
       <Locks a={a} />
       <div className="grow" />
       {size !== 'menu' &&
@@ -574,7 +603,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
 }
 
 /**
- * The agent's session details: model and effort, permission mode, context used and cost. Clicking the model
+ * The agent's session details: model and effort, permission mode, the session's name, context used and cost. Clicking the model
  * opens the agent's settings (or `onSettings`), the context its session in the project's Overview (or `onContext`), the
  * transcript size Hand Over to… (or `onTranscript`, with `transcriptAdvice` in its tooltip).
  */
@@ -585,7 +614,8 @@ export function PaneFooter({
   onContext,
   onTranscript,
   transcriptAdvice = 'Hand it over to a new conversation: click for Hand Over to…, and choose the agent itself.',
-  settingsName = 'Agent Settings or Project Settings'
+  settingsName = 'Agent Settings or Project Settings',
+  showSession = true
 }: {
   project: ProjectInfo
   a: AgentInfo
@@ -594,6 +624,8 @@ export function PaneFooter({
   onTranscript?: () => void
   transcriptAdvice?: string
   settingsName?: string
+  /** The running session's name, right-aligned before the context (agents; the Assistant shows its own). */
+  showSession?: boolean
 }) {
   const settings = useStore((s) => s.settings)
   const providers = useStore((s) => s.providers)
@@ -622,6 +654,7 @@ export function PaneFooter({
       </Tooltip>
       <ModeBadge project={project} a={a} variant="pane" />
       <div className="grow" />
+      {showSession && <SessionName project={project} a={a} usage={usage} />}
       {usage ? (
         <Tooltip content={`Context: ${ctx.toLocaleString()} tokens${usage.contextWindow ? ` of ${usage.contextWindow.toLocaleString()}` : ''} · ${usage.compactions.length} compaction(s)${over ? ' — consider compacting' : ''}${usage.stale ? '\nCouldn’t read it again just now: this may be behind.' : ''}`}>
           <span className={cx('pane-foot-item', over && 'warn', usage.stale && 'stale')} onClick={() => (onContext ? onContext() : showInOverview(project.path, a.id))}>

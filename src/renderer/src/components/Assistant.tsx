@@ -171,6 +171,7 @@ export function AssistantPanel() {
           onTranscript={() => undefined}
           transcriptAdvice="Start a new conversation (⋯ → New Conversation) to keep things quick."
           settingsName="Assistant Settings"
+          showSession={false}
         />
       </div>
     </div>

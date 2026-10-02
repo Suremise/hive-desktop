@@ -3621,28 +3621,20 @@ body.pane-resizing .monaco-editor {
 .menu-item.muted > .codicon {
   color: var(--fg-faint);
 }
-.session-tag {
+/* The running session's name in the agent's footer: short of room, it gives way first, down to its icon. */
+.pane-footer-bar > .tip-wrap:has(> .session-tag) {
   display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  max-width: 280px;
-  cursor: pointer;
+  min-width: 14px;
+  max-width: 45%;
+  flex-shrink: 100;
+}
+.pane-footer-bar .session-tag {
+  max-width: 100%;
 }
 .session-tag .session-tag-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.pane-header-bar > .tip-wrap:has(> .session-tag) {
-  display: inline-flex;
-  min-width: 0;
-  max-width: 45%;
-}
-.pane-header-bar .session-tag {
-  color: var(--fg-muted);
-  font-size: 12px;
-  max-width: 100%;
 }
 /* Footer usage that couldn't be refreshed: shown, but faded (its tooltip says why). */
 .pane-foot-item.stale {
@@ -3667,7 +3659,6 @@ body.pane-resizing .monaco-editor {
   cursor: grab;
 }
 .pane-header-bar[draggable='true'] button,
-.pane-header-bar[draggable='true'] .session-tag,
 .pane-header-bar[draggable='true'] .card-chip {
   cursor: pointer;
 }
@@ -3746,14 +3737,11 @@ body.pane-resizing .monaco-editor {
 .card-chip-more {
   color: var(--fg-muted);
 }
-/* Short of room, the session name gives way first, then the card's title, before the agent's status. */
+/* Short of room, the card's title gives way before the agent's status. */
 .pane-header-bar > .tip-wrap:has(> .card-chip) {
   display: inline-flex;
   min-width: 0;
   flex-shrink: 4;
-}
-.pane-header-bar > .tip-wrap:has(> .session-tag) {
-  flex-shrink: 8;
 }
 .pane-header-bar .card-chip {
   flex-shrink: 1;
@@ -3773,10 +3761,6 @@ body.pane-resizing .monaco-editor {
 }
 .worked-on .link:hover {
   text-decoration: underline;
-}
-.pane-header-bar .session-tag:hover,
-.badge.session-tag:hover {
-  color: var(--fg-strong);
 }
 
 .about-licence {

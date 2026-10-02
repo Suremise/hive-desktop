@@ -464,6 +464,8 @@ export interface ResumeTarget {
   id: string
   name: string
   lastActiveAt: string
+  createdAt?: string
+  titleAtRename?: string | null
 }
 
 export interface AddAgentOptions {
@@ -534,6 +536,11 @@ export interface SessionRecord {
   handedOverFrom?: string
   /** Board cards its agent had in Doing while it ran, in order, with the title each had then. */
   cards?: { number: number; title: string }[]
+  /**
+   * The CLI's own name for the session (SessionUsage.customTitle) when it was last renamed in Hive, null when it had
+   * none. Once the CLI's name changes from this (a /rename since), it is the newer rename and wins (sessionLabel).
+   */
+  titleAtRename?: string | null
 }
 
 /** background: the agent's turn has ended, but it has background tasks that will start it again when they end. */
@@ -553,8 +560,10 @@ export interface LiveSessionState {
   sessionId: string
   /** The mode the session is actually in: from launch, Hive's live switches, Shift+Tab in the terminal (its footer) and hooks. */
   permissionMode?: PermissionMode
-  /** The session's name in Hive (renamable in the Sessions tab). */
+  /** The session's name in Hive (renamable in the Sessions tab and the agent's footer). */
   sessionName?: string
+  /** See SessionRecord.titleAtRename. */
+  titleAtRename?: string | null
   status: SessionStatus
   statusMessage?: string
   pid?: number
@@ -668,7 +677,10 @@ export interface CompactionEvent {
 export interface SessionUsage {
   provider: ProviderId
   sessionId: string
+  /** The session's title: the name the user gave it in the CLI, else one the CLI made up. */
   title: string | null
+  /** A name the user gave the session in the CLI (Claude Code's /rename, Codex's thread name); absent when unknown. */
+  customTitle?: string | null
   model: string | null
   cliVersion: string | null
   inputTokens: number

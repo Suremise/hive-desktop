@@ -6,7 +6,7 @@ import { typedText } from '../shared/terminalInput'
 import { BrowserWindow, Notification, app, clipboard, shell } from 'electron'
 import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { assistantTools } from '../shared/assistantTools'
-import { HIVE_DIR, agentPtyKey, assertSessionId, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
+import { HIVE_DIR, agentPtyKey, assertSessionId, cliRename, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
 import { agentLaunchSettings, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
 import type {
   AgentDef,
@@ -405,7 +405,7 @@ class SessionManager {
       // The Assistant's sessions ran in the workspace folder, not its home.
       const folder = workspace.isAssistantHome(projectPath) ? (workspaceOf(projectPath).path ?? projectPath) : projectPath
       const r = l ? null : resumeRecord(folder, a, records.filter((x) => recordProvider(x) === provider), openIds, ids)
-      agents.push({ ...a, live: l?.state ?? null, restartNeeded, resume: r && { id: r.id, name: r.name, lastActiveAt: r.lastActiveAt } })
+      agents.push({ ...a, live: l?.state ?? null, restartNeeded, resume: r && { id: r.id, name: r.name, lastActiveAt: r.lastActiveAt, createdAt: r.createdAt, titleAtRename: r.titleAtRename } })
     }
     const primary = agents.find((a) => a.live)
     return { live: primary?.live ?? null, restartNeeded: primary?.restartNeeded ?? false, agents }
@@ -584,7 +584,18 @@ class SessionManager {
     const sessionId = opts.resumeId ?? (adapter.descriptor.capabilities.fixedSessionId ? randomUUID() : '')
 
     const persona = assistant ? (await this.assistantInstructions(projectPath, agent).catch(() => null))?.persona : undefined
-    const sessionName = opts.name?.trim() || existing?.name || (assistant ? `${ASSISTANT_NAME}${persona ? ` · ${persona}` : ''} · ${new Date().toLocaleString()}` : autoName(projectPath, agent, count))
+    // A /rename in the CLI since the session was last named in Hive is the newer name: Hive takes it, and so passes
+    // it back with --name rather than its own.
+    let adopted: string | null = null
+    if (opts.resumeId && existing && (!opts.name?.trim() || opts.name.trim() === existing.name)) {
+      const usage = await this.usage(projectPath, opts.resumeId).catch(() => null)
+      adopted = cliRename({ ...existing, usage }, assistant ? ASSISTANT_NAME : basename(projectPath))
+      if (adopted) {
+        await workspace.upsertSession(projectPath, { id: existing.id, name: adopted, titleAtRename: adopted })
+        log.info(`Session ${existing.id} takes the name "${adopted}" it was given in the CLI`)
+      }
+    }
+    const sessionName = adopted || opts.name?.trim() || existing?.name || (assistant ? `${ASSISTANT_NAME}${persona ? ` · ${persona}` : ''} · ${new Date().toLocaleString()}` : autoName(projectPath, agent, count))
     const key = this.key(projectPath, agentId)
     const runId = randomBytes(12).toString('hex')
     const state: LiveSessionState = {
@@ -596,6 +607,7 @@ class SessionManager {
       cwd,
       sessionId,
       sessionName,
+      titleAtRename: adopted ?? (existing ? existing.titleAtRename : opts.name?.trim() ? null : undefined),
       status: 'starting',
       startedAt: new Date().toISOString(),
       launchSignature: '',
@@ -806,6 +818,7 @@ class SessionManager {
       id: sessionId,
       agent: state.provider,
       name: l.name,
+      ...(state.titleAtRename !== undefined ? { titleAtRename: state.titleAtRename } : {}),
       lastActiveAt: new Date().toISOString(),
       // The agent running it now; a session can move between agents that share a folder.
       agentId: agent.id,
@@ -1890,6 +1903,7 @@ class SessionManager {
       st.sessionId = sessionId
       l.name = existing?.name || autoName(st.projectPath, agent, count)
       st.sessionName = l.name
+      st.titleAtRename = existing?.titleAtRename
       l.transcriptPath = transcriptPath ?? existing?.transcriptPath
       l.transcriptMtime = ''
       l.detailsOffset = 0
@@ -2252,10 +2266,16 @@ class SessionManager {
   async rename(projectPath: string, sessionId: string, name: string): Promise<void> {
     projectPath = workspace.assertSessionHost(projectPath)
     assertSessionId(sessionId)
-    await workspace.upsertSession(projectPath, { id: sessionId, name: name.trim() })
-    const live = this.projectStates(projectPath).find((s) => s.sessionId === sessionId)
-    if (live) {
+    // The CLI's name now: a /rename after this one changes it, and then wins (sessionLabel).
+    const titleAtRename = (await this.usage(projectPath, sessionId).catch(() => null))?.customTitle ?? null
+    await workspace.upsertSession(projectPath, { id: sessionId, name: name.trim(), titleAtRename })
+    const l = [...this.live.values()].find((x) => x.state.sessionId === sessionId && x.state.projectPath.toLowerCase() === projectPath.toLowerCase())
+    if (l) {
+      // Also the name its record is written with when the CLI starts the session again (a compaction, say).
+      l.name = name.trim()
+      const live = l.state
       live.sessionName = name.trim()
+      live.titleAtRename = titleAtRename
       this.emitState(live)
     }
   }
@@ -2270,6 +2290,7 @@ class SessionManager {
       id: sessionId,
       agent: provider,
       name: usage?.title ?? `Adopted session ${sessionId.slice(0, 8)}`,
+      titleAtRename: usage?.customTitle ?? null,
       createdAt: usage?.firstActivity ?? new Date().toISOString(),
       lastActiveAt: usage?.lastActivity ?? new Date().toISOString(),
       ...(src && !providerDescriptor(provider).capabilities.fixedSessionId ? { transcriptPath: src.path } : {})

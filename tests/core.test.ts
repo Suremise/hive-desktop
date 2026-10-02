@@ -558,8 +558,44 @@ describe('sessionLabel', () => {
     expect(sessionLabel({ id: 'abc12345x', name: 'hive · 29/09/2026, 10:00:00', title: 'Fix the tray' }, 'hive')).toBe('Fix the tray')
     expect(sessionLabel({ id: 'abc12345x', name: 'hive · Agent 2 · 9/29/2026, 10:00 AM', title: 'Docs' }, 'hive')).toBe('Docs')
     expect(sessionLabel({ id: 'abc12345x', name: 'My refactor', title: 'Fix the tray' }, 'hive')).toBe('My refactor')
-    expect(sessionLabel({ id: 'abc12345x', name: 'hive · 29/09/2026, 10:00:00', title: null }, 'hive')).toBe('hive · 29/09/2026, 10:00:00')
     expect(sessionLabel({ id: 'abc12345x' }, 'hive')).toBe('Session abc12345')
+  })
+
+  it('shows when it started, not the project and agent, until it has a name or title', async () => {
+    const { sessionLabel, shortStartTime } = await import('../src/shared/defaults')
+    const now = new Date(2026, 9, 2, 15, 0)
+    const today = new Date(2026, 9, 2, 14, 5).toISOString()
+    const earlier = new Date(2026, 8, 29, 9, 30).toISOString()
+    const auto = 'hive · Claudette · 02/10/2026, 14:05:00'
+    // Hive passes its automatic name to Claude Code (--name), which keeps it as the session's title.
+    expect(sessionLabel({ id: 'abc12345x', name: auto, title: auto, customTitle: auto, startedAt: today }, 'hive', now)).toBe(shortStartTime(today, now))
+    expect(shortStartTime(today, now)).not.toMatch(/Oct/)
+    expect(sessionLabel({ id: 'abc12345x', name: auto, title: null, createdAt: earlier }, 'hive', now)).toBe(shortStartTime(earlier, now))
+    expect(shortStartTime(earlier, now)).toMatch(/29/)
+    expect(sessionLabel({ id: 'abc12345x', name: auto, usage: { firstActivity: earlier } }, 'hive', now)).toBe(shortStartTime(earlier, now))
+    expect(sessionLabel({ id: 'abc12345x', name: auto, startedAt: 'not a date' }, 'hive', now)).toBe('Session abc12345')
+  })
+
+  it('the latest rename wins, in Hive or with /rename', async () => {
+    const { sessionLabel, cliRename } = await import('../src/shared/defaults')
+    const auto = 'hive · Claudette · 02/10/2026, 14:05:00'
+    // /rename on a session Hive named automatically.
+    expect(sessionLabel({ id: 'a', name: auto, title: 'Tray fix', customTitle: 'Tray fix' }, 'hive')).toBe('Tray fix')
+    // Renamed in Hive while running: Claude Code still has Hive's automatic name, which is no rename.
+    expect(sessionLabel({ id: 'a', name: 'Docs pass', customTitle: auto, titleAtRename: auto }, 'hive')).toBe('Docs pass')
+    // Then /rename: Claude Code's name changed since Hive's rename, so it is the newer one.
+    expect(sessionLabel({ id: 'a', name: 'Docs pass', customTitle: 'Guide only', titleAtRename: auto }, 'hive')).toBe('Guide only')
+    expect(cliRename({ id: 'a', name: 'Docs pass', customTitle: 'Guide only', titleAtRename: auto }, 'hive')).toBe('Guide only')
+    // Renamed in Hive again: Claude Code's name is the one it had then, so Hive's wins.
+    expect(sessionLabel({ id: 'a', name: 'Final docs', customTitle: 'Guide only', titleAtRename: 'Guide only' }, 'hive')).toBe('Final docs')
+    // Resumed with --name: Claude Code's name is Hive's.
+    expect(sessionLabel({ id: 'a', name: 'Final docs', customTitle: 'Final docs', titleAtRename: 'Guide only' }, 'hive')).toBe('Final docs')
+    // Claude Code's name from a list item's usage.
+    expect(sessionLabel({ id: 'a', name: 'Docs pass', titleAtRename: null, usage: { customTitle: 'Guide only' } }, 'hive')).toBe('Guide only')
+    // Renamed in Hive by an earlier version (no titleAtRename), or Claude Code's name not known: Hive's stands.
+    expect(sessionLabel({ id: 'a', name: 'Docs pass', customTitle: 'Guide only' }, 'hive')).toBe('Docs pass')
+    expect(sessionLabel({ id: 'a', name: 'Docs pass', titleAtRename: auto }, 'hive')).toBe('Docs pass')
+    expect(cliRename({ id: 'a', name: 'Docs pass', customTitle: auto, titleAtRename: null }, 'hive')).toBeNull()
   })
 })
 

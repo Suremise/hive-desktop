@@ -43,7 +43,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
   const liveId = project.live?.sessionId
   const isLive = (id: string): boolean => liveById.has(id)
   const many = project.agents.length > 1
-  const sessionName = (s: Pick<SessionListItem, 'name' | 'title' | 'id'>): string => sessionLabel(s, project.name)
+  const sessionName = (s: SessionListItem): string => sessionLabel(s, project.name)
   const resumeMenu = useContextMenu()
 
   // Opened on a session from elsewhere (e.g. clicking the session name above an agent's terminal).
@@ -88,8 +88,9 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
   }
 
   const rename = async (s: SessionListItem): Promise<void> => {
-    const name = await prompt({ title: 'Rename session', initial: s.name || s.title || '', confirmLabel: 'Rename' })
-    if (name === null) return
+    const current = sessionName(s)
+    const name = (await prompt({ title: 'Rename session', initial: current, confirmLabel: 'Rename' }))?.trim()
+    if (!name || name === current) return
     await actions.attempt('Could not rename', () => call('session:rename', project.path, s.id, name))
     reload()
   }

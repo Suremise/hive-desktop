@@ -455,16 +455,60 @@ export function resumeRecord<R extends Pick<SessionRecord, 'id' | 'archived' | '
   )
 }
 
-/**
- * A session's display name: its Hive name, unless that is still the automatic "<project> · <date>"
- * one and the provider has titled the conversation.
- */
-export function sessionLabel(s: { id: string; name?: string | null; title?: string | null }, projectName: string): string {
-  const auto = !s.name || (s.name.startsWith(`${projectName} · `) && /\d{1,4}[/.-]\d{1,2}/.test(s.name))
-  return (auto ? s.title || s.name : s.name) || `Session ${s.id.slice(0, 8)}`
+/** What sessionLabel reads: a session record, list item, live session or resume target, with what is known of its titles. */
+export interface SessionNaming {
+  id: string
+  /** Hive's name for it. */
+  name?: string | null
+  /** The CLI's title (a /rename, else its own). */
+  title?: string | null
+  /** The CLI's /rename name; undefined when not known (then it doesn't override Hive's name). */
+  customTitle?: string | null
+  titleAtRename?: string | null
+  /** When it started, for sessions with no name yet: the live session's start, else the record's creation. */
+  startedAt?: string | null
+  createdAt?: string | null
+  usage?: { customTitle?: string | null; firstActivity?: string | null } | null
 }
 
-/** Where Hive's releases (and its update feed) are published. */
+/** Hive's automatic name for a new session ("<project> · <agent> · <date>"), which counts as no name. */
+export function isAutoSessionName(name: string | null | undefined, projectName: string): boolean {
+  return !name || (name.startsWith(`${projectName} · `) && /\d{1,4}[/.-]\d{1,2}/.test(name))
+}
+
+/** A start time, short: "14:05" today, else "2 Oct, 14:05". */
+export function shortStartTime(iso: string, now = new Date()): string | null {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return null
+  const time: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
+  return d.toDateString() === now.toDateString() ? d.toLocaleTimeString([], time) : d.toLocaleString([], { day: 'numeric', month: 'short', ...time })
+}
+
+/**
+ * The name the session was given in the CLI (/rename) when it is newer than Hive's: Hive's name is automatic, or
+ * the CLI's changed after the session was last renamed in Hive. Null when Hive's name stands. Hive passes its own
+ * name to the CLI at launch (Claude Code's --name), so a CLI name that is Hive's, or automatic, is no rename.
+ */
+export function cliRename(s: SessionNaming, projectName: string): string | null {
+  const custom = s.customTitle !== undefined ? s.customTitle : s.usage?.customTitle
+  if (!custom || custom === s.name || isAutoSessionName(custom, projectName)) return null
+  if (isAutoSessionName(s.name, projectName)) return custom
+  return s.titleAtRename !== undefined && custom !== s.titleAtRename ? custom : null
+}
+
+/**
+ * A session's display name. The latest rename wins: a name given in Hive, until the CLI's own name (/rename)
+ * changes after it; then the CLI's. Without either, the CLI's title, else when the session started.
+ */
+export function sessionLabel(s: SessionNaming, projectName: string, now = new Date()): string {
+  const cli = cliRename(s, projectName)
+  if (cli) return cli
+  if (!isAutoSessionName(s.name, projectName)) return s.name!
+  if (s.title && !isAutoSessionName(s.title, projectName)) return s.title
+  const at = s.startedAt || s.createdAt || s.usage?.firstActivity
+  return (at && shortStartTime(at, now)) || `Session ${s.id.slice(0, 8)}`
+}
+
 /**
  * A worktree agent's work not yet merged, for its Merge… button and tab: `badge` is the number of commits
  * (• when there are only uncommitted files, null when there is nothing to merge) and `text` says it in words.
@@ -479,6 +523,7 @@ export function unmergedWork(st: AgentBranchStatus | null | undefined): { badge:
   return { badge: st.ahead > 0 ? String(st.ahead) : '•', text: parts.join(' · ') }
 }
 
+/** Where Hive's releases (and its update feed) are published. */
 export const RELEASES_URL = 'https://github.com/Suremise/hive-desktop/releases'
 
 // ---------------------------------------------------------------------------

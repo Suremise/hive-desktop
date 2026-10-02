@@ -11,6 +11,7 @@
 //   an Edit of that file and records the tool call. "background N" starts a background command that ends after
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
 //   transcript.
+// - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does.
 // - Ctrl+C twice, or "/exit", ends it with SessionEnd.
 const fs = require('fs')
 const path = require('path')
@@ -157,6 +158,11 @@ process.stdin.on('data', (data) => {
         onEnter = null
         f()
       } else if (text === '/exit') void quit()
+      // /rename: the session's name, as Claude Code keeps it (no hook; Hive sees it in the transcript).
+      else if (text.startsWith('/rename ')) {
+        write({ type: 'custom-title', customTitle: text.slice(8).trim() })
+        promptLine()
+      }
       else if (text && !busy) void runPrompt(text)
     } else if (ch === '\x7f' || ch === '\b') line = line.slice(0, -1)
     else if (ch >= ' ') line += ch
@@ -172,6 +178,8 @@ async function main() {
     await new Promise((r) => (onEnter = r))
     fs.writeFileSync(trustFile, JSON.stringify([...trusted, cwd.toLowerCase()]))
   }
+  // --name: Claude Code keeps it as the session's name (a custom title, as /rename does).
+  if (opts['--name']) write({ type: 'custom-title', customTitle: opts['--name'] })
   await hook('SessionStart', { source: opts['--resume'] ? 'resume' : 'startup' })
   promptLine()
   if (firstPrompt) await runPrompt(firstPrompt)

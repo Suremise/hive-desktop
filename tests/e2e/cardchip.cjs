@@ -113,7 +113,7 @@ const check = (name, ok, extra = '') => {
 
   // The Sessions tab: "Worked on", linked; a deleted card stays, unlinked.
   await inv('tasks:delete', second.number)
-  await header.locator('.session-tag').click()
+  await page.locator('.agent-pane', { has: header }).locator('.pane-footer-bar .session-tag').click()
   const worked = page.locator('.worked-on')
   check('the Sessions tab says what the session worked on', !!(await until(async () => /Worked on #\d+ Attention inbox, #\d+ Prompt snippets/.test(await worked.innerText().catch(() => '')), 8000)), await worked.innerText().catch(() => ''))
   check('a card still there is a link, a deleted one is not', !!(await until(async () => (await worked.locator('a.link').count()) === 1, 5000)))

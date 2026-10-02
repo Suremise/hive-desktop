@@ -214,7 +214,7 @@ export class CodexUsageParser {
   result(title: string | null = null): SessionUsage {
     const days: Record<string, DayUsage> = {}
     for (const [k, d] of Object.entries(this.days)) days[k] = { ...d }
-    return { ...this.usage, title, compactions: this.usage.compactions.map((c) => ({ ...c })), days }
+    return { ...this.usage, title, customTitle: title, compactions: this.usage.compactions.map((c) => ({ ...c })), days }
   }
 }
 

@@ -190,6 +190,7 @@ export class ClaudeUsageParser {
     }
     usage.requests = this.byRequest.size
     usage.title = this.customTitle ?? this.aiTitle
+    usage.customTitle = this.customTitle
     usage.cacheTtlSeconds = this.saw1h ? 3600 : 300
     return usage
   }
