@@ -3194,9 +3194,17 @@ body.pane-resizing .monaco-editor {
 }
 .agent-form {
   display: grid;
-  grid-template-columns: 130px 1fr;
+  /* minmax(0, …): a select's longest option mustn't widen the column past the dialog's edge. */
+  grid-template-columns: 130px minmax(0, 1fr);
   gap: 8px 12px;
   align-items: center;
+}
+/* In a form the model choice fills the column, with 1M context beside it. */
+.agent-form .model-picker > .flex {
+  align-self: stretch;
+}
+.agent-form .model-picker .select {
+  flex: 1;
 }
 /* A mode the CLI may not run with the chosen model (the provider's modeCaveat), under the mode choice. */
 .mode-caveat {
@@ -3321,7 +3329,7 @@ body.pane-resizing .monaco-editor {
 }
 .agent-form.nested {
   margin-top: 10px;
-  grid-template-columns: 90px 1fr;
+  grid-template-columns: 90px minmax(0, 1fr);
 }
 .agent-form .span2 {
   grid-column: 1 / -1;

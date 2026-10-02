@@ -44,6 +44,7 @@
 - **Actions that take a moment show it and can't be interrupted by mistake**: Start (on a card), Remove Project, Save, Delete, Archive and Comment on a card, Compact, Agent Settings, Stop All Agents, and deleting a note or an MCP server show a spinner and what they're doing (**Starting…**, **Deleting…**); while they run the dialog can't be closed (Escape, ×, a click outside) and a second click does nothing. If one fails, the dialog stays open with the error, so you can try again. **Resume All** shows a spinner on its button, and an agent being removed shows one on its tab.
 
 ### Fixes
+- **Agent Settings** and **Add Agent**: a long model, effort or permission mode name no longer pushes the boxes past the dialog's right edge.
 - **Start… on a card you've edited** used the card as last saved, so the agent got the old description. It now reads **Save and Start…** and saves your edits first; if the save fails, nothing starts and the dialog says why.
 - **Closing a card with unsaved changes** (Escape, ×, a click outside, Cancel) lost them without a word, including a comment being written. Hive now asks **Keep Editing** or **Discard**; a card with nothing changed closes at once. **Save** also posts a comment you were writing.
 - A question asked from inside a dialog (Delete on a card, say) could appear underneath it; questions now always come on top, and Escape closes only the top one.
