@@ -40,6 +40,8 @@ export interface LaunchContext {
   env: Record<string, string>
   /** The user lets sessions move into the CLI's own background service (see capabilities.backgroundSessions). */
   allowBackgroundSessions: boolean
+  /** A 200K context window instead of the model's 1M one (capabilities.contextLimit). */
+  use200kContext: boolean
 }
 
 export interface CommandSpec {

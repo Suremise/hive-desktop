@@ -40,8 +40,11 @@ export interface ProviderCapabilities {
   reportsCost: boolean
   /** Compacting takes focus instructions. */
   compactFocus: boolean
-  /** Models have a 1M-context variant chosen with a suffix. */
-  oneMContext: boolean
+  /**
+   * Sessions can be held to a 200K context window instead of the model's 1M one (Claude Code's
+   * CLAUDE_CODE_DISABLE_1M_CONTEXT): the "Use 200K context" setting.
+   */
+  contextLimit: boolean
   /** A pasted image path is attached as an image. */
   imagePaste: boolean
   /** Hooks can hand an edit to the CLI's own approval prompt (the "Ask me" file lock). Without it, Hive asks the user itself. */
@@ -150,11 +153,12 @@ export function defaultProviderSettings(p: ProviderDescriptor): ProviderSettings
     extraArgs: '',
     checkUpdatesOnLaunch: true,
     allowBackgroundSessions: false,
+    use200kContext: false,
     prices: {}
   }
 }
 
-export const DEFAULT_PROJECT_PROVIDER: ProjectProviderConfig = { model: 'inherit', effort: 'inherit', permissionMode: 'inherit', extraArgs: '' }
+export const DEFAULT_PROJECT_PROVIDER: ProjectProviderConfig = { model: 'inherit', effort: 'inherit', permissionMode: 'inherit', extraArgs: '', use200kContext: 'inherit' }
 
 /** A provider's global settings, with defaults for anything missing. */
 export function providerSettings(settings: Pick<AppSettings, 'providers'> | null | undefined, id: ProviderId): ProviderSettings {
@@ -216,10 +220,12 @@ export interface AgentLaunchSettings {
   permissionMode: PermissionMode
   /** Global then project extra arguments, as typed (split by the main process). */
   extraArgs: string[]
+  /** A 200K context window instead of 1M (only for providers with capabilities.contextLimit). */
+  use200kContext: boolean
 }
 
 /** What an agent launches with: its own overrides, else the project's (for its provider), else the global defaults. */
-export function agentLaunchSettings(agent: Pick<AgentDef, 'provider' | 'model' | 'effort' | 'permissionMode'> | null | undefined, cfg: Pick<ProjectConfig, 'providers' | 'defaultProvider'>, settings: Pick<AppSettings, 'providers' | 'defaultProvider'>): AgentLaunchSettings {
+export function agentLaunchSettings(agent: Pick<AgentDef, 'provider' | 'model' | 'effort' | 'permissionMode' | 'use200kContext'> | null | undefined, cfg: Pick<ProjectConfig, 'providers' | 'defaultProvider'>, settings: Pick<AppSettings, 'providers' | 'defaultProvider'>): AgentLaunchSettings {
   const provider = agentProvider(agent, cfg, settings)
   const g = providerSettings(settings, provider)
   const pc = projectProviderConfig(cfg, provider)
@@ -229,5 +235,11 @@ export function agentLaunchSettings(agent: Pick<AgentDef, 'provider' | 'model' |
   if (!modeAllowed(provider, permissionMode, settings)) permissionMode = modeAllowed(provider, projectMode, settings) ? projectMode : fallbackMode
   const model = agent?.model || (pc.model && pc.model !== 'inherit' ? pc.model : g.defaultModel || null)
   const effort = agent?.effort || (pc.effort !== 'inherit' ? pc.effort : g.defaultEffort || null)
-  return { provider, model, effort, permissionMode, extraArgs: [g.extraArgs, pc.extraArgs].filter((a) => a && a.trim()) }
+  const use200kContext = providerDescriptor(provider).capabilities.contextLimit && (agent?.use200kContext ?? projectUse200k(pc, g))
+  return { provider, model, effort, permissionMode, extraArgs: [g.extraArgs, pc.extraArgs].filter((a) => a && a.trim()), use200kContext }
+}
+
+/** Whether a project's agents (without their own choice) use a 200K context: the project's choice, else the global one. */
+export function projectUse200k(pc: Pick<ProjectProviderConfig, 'use200kContext'>, g: Pick<ProviderSettings, 'use200kContext'>): boolean {
+  return pc.use200kContext === 'inherit' || !pc.use200kContext ? !!g.use200kContext : pc.use200kContext === 'on'
 }

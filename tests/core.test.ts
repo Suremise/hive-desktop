@@ -229,13 +229,31 @@ describe('providers migration', () => {
   it('resolves an agent from its own, the project and the global settings', async () => {
     const { agentLaunchSettings } = await import('../src/shared/providers')
     const settings = mergeDefaults(DEFAULT_SETTINGS, { providers: { 'claude-code': { enabled: true, defaultModel: 'opus', defaultPermissionMode: 'auto' } } })
-    const cfg = { defaultProvider: 'inherit', providers: { 'claude-code': { model: 'sonnet', effort: 'inherit', permissionMode: 'inherit', extraArgs: '--x' } } }
+    const cfg = { defaultProvider: 'inherit', providers: { 'claude-code': { model: 'sonnet', effort: 'inherit', permissionMode: 'inherit', extraArgs: '--x', use200kContext: 'inherit' as const } } }
     expect(agentLaunchSettings({}, cfg, settings)).toMatchObject({ provider: 'claude-code', model: 'sonnet', permissionMode: 'auto', extraArgs: ['--x'] })
     expect(agentLaunchSettings({ model: 'haiku', permissionMode: 'plan' }, cfg, settings)).toMatchObject({ model: 'haiku', permissionMode: 'plan' })
     // The dangerous mode needs enabling; otherwise the project's mode is used.
     expect(agentLaunchSettings({ permissionMode: 'bypassPermissions' }, cfg, settings).permissionMode).toBe('auto')
     // A mode from another provider falls back too.
     expect(agentLaunchSettings({ permissionMode: 'full-access' }, cfg, settings).permissionMode).toBe('auto')
+  })
+  it('resolves the 200K context from the agent, the project and the global setting', async () => {
+    const { agentLaunchSettings } = await import('../src/shared/providers')
+    const base = { model: 'inherit', effort: 'inherit', permissionMode: 'inherit', extraArgs: '' }
+    const project = (use200kContext: 'inherit' | 'on' | 'off') => ({ defaultProvider: 'inherit', providers: { 'claude-code': { ...base, use200kContext }, codex: { ...base, use200kContext } } })
+    const on = mergeDefaults(DEFAULT_SETTINGS, { providers: { 'claude-code': { enabled: true, use200kContext: true }, codex: { enabled: true, use200kContext: true } } })
+    const off = mergeDefaults(DEFAULT_SETTINGS, { providers: { 'claude-code': { enabled: true } } })
+    // Off by default; the global setting, then the project's, then the agent's own choice.
+    expect(agentLaunchSettings({}, project('inherit'), off).use200kContext).toBe(false)
+    expect(agentLaunchSettings({}, project('inherit'), on).use200kContext).toBe(true)
+    expect(agentLaunchSettings({}, project('off'), on).use200kContext).toBe(false)
+    expect(agentLaunchSettings({}, project('on'), off).use200kContext).toBe(true)
+    expect(agentLaunchSettings({ use200kContext: false }, project('on'), on).use200kContext).toBe(false)
+    expect(agentLaunchSettings({ use200kContext: true }, project('off'), off).use200kContext).toBe(true)
+    // A project.json from before the setting inherits.
+    expect(agentLaunchSettings({}, { defaultProvider: 'inherit', providers: { 'claude-code': base as never } }, on).use200kContext).toBe(true)
+    // Only for providers that can limit the context.
+    expect(agentLaunchSettings({ provider: 'codex', use200kContext: true }, project('on'), on).use200kContext).toBe(false)
   })
 })
 
@@ -300,6 +318,20 @@ describe('Claude Code hooks', () => {
     expect(claudeCode.backgroundJobIn('\x1b[31mSession a0292106 is still running in the background.\x1b[0m\r\nRun \x1b[1mclaude attach d98cd28c\x1b[0m to open it.')).toBe('d98cd28c')
     expect(claudeCode.backgroundJobIn('Run claude attach d98cd28c')).toBeNull()
     expect(claudeCode.backgroundJobIn('No conversation found with session ID a0292106')).toBeNull()
+  })
+
+  it('turns off 1M context for a 200K launch, without the "[1m]" Claude Code then rejects', async () => {
+    const { claudeCode } = await import('../src/main/providers/claude/adapter')
+    const ctx = {
+      projectPath: 'C:\\ws\\p', agentId: 'a-1', executable: 'C:\\bin\\claude.exe', cwd: 'C:\\ws\\p', workspacePath: 'C:\\ws', runId: 'r', sessionId: '00000000-0000-4000-8000-000000000000',
+      resume: false, name: '', skills: [], mcpServers: {}, model: 'opus[1m]', effort: null, permissionMode: null, extraArgs: [], hookUrl: '', guidance: '', env: { A: '1' }, allowBackgroundSessions: true, use200kContext: false
+    }
+    const full = claudeCode.buildCommand(ctx.executable, ctx)
+    expect(full.args).toContain('opus[1m]')
+    expect(full.env?.CLAUDE_CODE_DISABLE_1M_CONTEXT).toBeUndefined()
+    const small = claudeCode.buildCommand(ctx.executable, { ...ctx, use200kContext: true })
+    expect(small.args[small.args.indexOf('--model') + 1]).toBe('opus')
+    expect(small.env).toMatchObject({ A: '1', CLAUDE_CODE_DISABLE_1M_CONTEXT: '1' })
   })
 })
 
@@ -383,18 +415,10 @@ describe('toolSummary', () => {
 })
 
 describe('model choices', () => {
-  it('knows which models have a 1M-context version', async () => {
-    const { supportsOneM, withOneM, isOlderModel, baseModel } = await import('../src/shared/claude')
-    expect(supportsOneM('opus')).toBe(true)
-    expect(supportsOneM('haiku')).toBe(false)
-    expect(supportsOneM('claude-opus-5-5')).toBe(true)
-    expect(supportsOneM('claude-opus-4-5')).toBe(false)
-    expect(supportsOneM('claude-sonnet-4-5')).toBe(true)
-    expect(supportsOneM('claude-haiku-4-5')).toBe(false)
-    expect(withOneM('claude-sonnet-5', true)).toBe('claude-sonnet-5[1m]')
-    expect(withOneM('claude-sonnet-5[1m]', false)).toBe('claude-sonnet-5')
-    expect(withOneM('haiku', true)).toBe('haiku')
+  it('knows older models, with or without the 1M suffix', async () => {
+    const { isOlderModel, baseModel } = await import('../src/shared/claude')
     expect(baseModel('opus[1m]')).toBe('opus')
+    expect(baseModel('claude-opus-4-6')).toBe('claude-opus-4-6')
     expect(isOlderModel('claude-opus-4-8[1m]')).toBe(true)
     expect(isOlderModel('claude-opus-5-5')).toBe(false)
   })

@@ -1018,7 +1018,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
       {project.agents.map((a) => {
         const provider = agentProviderOf(project, a)
         const model = a.model ? modelLabel(a.model, provider) : effectiveModelLabel(provider, projectProviderConfig(cfg, provider).model, providerSettings(settings, provider).defaultModel, providers[provider]?.defaultModel ?? null)
-        const overrides = [a.model && `model ${modelLabel(a.model, provider)}`, a.effort && `effort ${a.effort}`, a.permissionMode && permissionLabel(provider, a.permissionMode)].filter(Boolean)
+        const overrides = [a.model && `model ${modelLabel(a.model, provider)}`, a.effort && `effort ${a.effort}`, a.permissionMode && permissionLabel(provider, a.permissionMode), a.use200kContext !== undefined && `200K context ${a.use200kContext ? 'on' : 'off'}`].filter(Boolean)
         const off = !isProviderEnabled(settings, provider)
         return (
           <div key={a.id} className={cx('agent-list-row', off && 'off')}>
@@ -1136,6 +1136,25 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
           </select>
         )
       },
+      ...(p.capabilities.contextLimit
+        ? [
+            {
+              section: sect,
+              key: `${id}.use200kContext`,
+              title: 'Use 200K context (instead of 1M)',
+              desc: `A 200K-token context window for this project's ${p.name} agents instead of the model's 1M one. Inherit uses the global setting (${g.use200kContext ? 'On' : 'Off'}).`,
+              tip: 'Applies to sessions started afterwards. Agents can choose for themselves.',
+              modified: (pc.use200kContext ?? 'inherit') !== 'inherit',
+              render: () => (
+                <select className="select" value={pc.use200kContext ?? 'inherit'} onChange={(e) => void save({ use200kContext: e.target.value as 'inherit' | 'on' | 'off' })}>
+                  <option value="inherit">Inherit ({g.use200kContext ? 'On' : 'Off'})</option>
+                  <option value="on">On</option>
+                  <option value="off">Off</option>
+                </select>
+              )
+            }
+          ]
+        : []),
       {
         section: sect,
         key: `${id}.extraArgs`,
@@ -1302,7 +1321,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
         <button
           className="btn subtle"
           onClick={async () => {
-            if (await confirm({ title: 'Reset project settings?', message: 'The default provider, each provider’s model, effort, permission mode and extra arguments, the chime, the compact threshold, the transcript size warning, file locks and worktree setup go back to Inherit. Agents and skill and MCP opt-outs are kept.', confirmLabel: 'Reset' }))
+            if (await confirm({ title: 'Reset project settings?', message: 'The default provider, each provider’s model, effort, permission mode, context and extra arguments, the chime, the compact threshold, the transcript size warning, file locks and worktree setup go back to Inherit. Agents and skill and MCP opt-outs are kept.', confirmLabel: 'Reset' }))
               void update({ defaultProvider: 'inherit', providers: {}, chime: 'inherit', compactSuggestTokens: null, transcriptWarnMB: null, fileLocks: 'inherit', worktreeCopy: null, worktreeSetup: '' })
           }}
         >

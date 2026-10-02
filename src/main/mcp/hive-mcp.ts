@@ -58,7 +58,8 @@ const settingsArgs = {
   provider: { type: 'string', description: 'Provider id (hive_list_providers). Default: the project\'s default provider.' },
   model: { type: 'string', description: 'Model (hive_list_providers). Empty follows the project.' },
   effort: { type: 'string', description: 'Effort level (hive_list_providers). Empty follows the project.' },
-  mode: { type: 'string', description: 'Permission mode (hive_list_providers). Empty follows the project.' }
+  mode: { type: 'string', description: 'Permission mode (hive_list_providers). Empty follows the project.' },
+  context200k: { type: 'string', enum: ['on', 'off', ''], description: "Use a 200K context window instead of the model's 1M one, for providers with context200k (hive_list_providers). Empty follows the project." }
 }
 const agentPath = (a: Record<string, any>): string => `/v1/projects/${proj(a)}/agents/${enc(a.agent || '')}`
 /** Which agent is changing a card, for its history (Hive fills in the name). */
@@ -231,13 +232,13 @@ const tools: Tool[] = [
       },
       required: ['project']
     },
-    run: (a) => api('POST', `/v1/projects/${proj(a)}/agents`, { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, worktree: a.worktree, branch: a.branch, base: a.base, start: a.start, prompt: a.prompt })
+    run: (a) => api('POST', `/v1/projects/${proj(a)}/agents`, { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k, worktree: a.worktree, branch: a.branch, base: a.base, start: a.start, prompt: a.prompt })
   },
   {
     name: 'hive_update_agent',
-    description: "Change an agent's name, provider, model, effort or permission mode. A running agent applies the change when restarted (its provider only while stopped).",
+    description: "Change an agent's name, provider, model, effort, permission mode or 200K context. A running agent applies the change when restarted (its provider only while stopped).",
     inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, name: { type: 'string' }, ...settingsArgs }, required: ['project', 'agent'] },
-    run: (a) => api('PATCH', agentPath(a), { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode })
+    run: (a) => api('PATCH', agentPath(a), { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k })
   },
   {
     name: 'hive_start_agent',

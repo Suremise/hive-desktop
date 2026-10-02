@@ -35,12 +35,13 @@ describe('Assistant settings', () => {
   })
 
   it("lets the workspace override the defaults, and the agents' own settings don't leak in", () => {
-    const s = settings({ provider: 'codex', providers: { ...DEFAULT_SETTINGS.assistant.providers, 'claude-code': { model: 'haiku', effort: 'medium', permissionMode: '', extraArgs: '--verbose' } } })
+    const s = settings({ provider: 'codex', providers: { ...DEFAULT_SETTINGS.assistant.providers, 'claude-code': { model: 'haiku', effort: 'medium', permissionMode: '', extraArgs: '--verbose', use200kContext: 'on' } } })
     s.providers['claude-code'] = { ...s.providers['claude-code'], defaultModel: 'fable', defaultPermissionMode: 'acceptEdits' }
     const c = assistantProjectConfig(cfg([{ id: 'assistant', name: 'Assistant', provider: 'claude-code' }]), s)
     const l = agentLaunchSettings(c.agents[0], c, s)
     expect(l).toMatchObject({ provider: 'claude-code', model: 'haiku', effort: 'medium', permissionMode: 'auto' })
     expect(l.extraArgs).toContain('--verbose')
+    expect(l.use200kContext).toBe(true)
   })
 
   it("picks the persona: the workspace's, else the default in Settings", () => {

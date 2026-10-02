@@ -471,6 +471,8 @@ route('GET', '/v1/providers', async () => {
       defaultModel: info.defaultModel ?? null,
       models: info.models?.length ? info.models : p.modelGroups.flatMap((g) => g.models.map((m) => ({ value: m.value, label: m.label }))),
       efforts: p.effortLevels,
+      // Whether agents can be given context200k (a 200K window instead of the model's 1M).
+      context200k: p.capabilities.contextLimit,
       modes: offeredModes(p.id, s).map((m) => ({ value: m.value, label: m.label, description: m.description }))
     }
   })
@@ -508,9 +510,9 @@ async function agentDefOf(p: string, agentId: string) {
   return a
 }
 
-/** Settings from a request body: an agent's provider, model, effort and mode (empty clears an override). */
-function agentSettings(body: any): { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode } {
-  const out: { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode } = {}
+/** Settings from a request body: an agent's provider, model, effort, mode and 200K context (empty clears an override). */
+function agentSettings(body: any): { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode; use200kContext?: boolean | null } {
+  const out: { provider?: ProviderId; model?: string; effort?: EffortLevel; permissionMode?: PermissionMode; use200kContext?: boolean | null } = {}
   if (body?.provider !== undefined) {
     if (!isKnownProvider(String(body.provider))) throw new HttpError(400, `Unknown provider "${body.provider}". hive_list_providers lists them.`)
     out.provider = String(body.provider) as ProviderId
@@ -518,6 +520,13 @@ function agentSettings(body: any): { provider?: ProviderId; model?: string; effo
   if (body?.model !== undefined) out.model = String(body.model)
   if (body?.effort !== undefined) out.effort = String(body.effort) as EffortLevel
   if (body?.mode !== undefined) out.permissionMode = String(body.mode) as PermissionMode
+  const c = body?.context200k
+  if (c !== undefined) {
+    if (c === true || c === 'on') out.use200kContext = true
+    else if (c === false || c === 'off') out.use200kContext = false
+    else if (c === null || c === '') out.use200kContext = null
+    else throw new HttpError(400, 'context200k is "on", "off" or "" (follow the project).')
+  }
   return out
 }
 
@@ -534,6 +543,7 @@ route('POST', '/v1/projects/:name/agents', async ({ params, body }) => {
       branch: body?.branch ? String(body.branch) : undefined,
       base: body?.base ? String(body.base) : undefined,
       ...set,
+      use200kContext: set.use200kContext ?? undefined,
       provider
     })
     // The view stays where the user has it; the new agent is marked for them.

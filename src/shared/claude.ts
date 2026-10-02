@@ -59,23 +59,11 @@ export const CLAUDE_MODEL_GROUPS: ModelGroup[] = [
   }
 ]
 
-const ONE_M = /\[1m\]$/i
-
-/** The model without its 1M-context suffix. */
-export const baseModel = (model: string): string => model.replace(ONE_M, '')
-export const isOneM = (model: string): boolean => ONE_M.test(model)
-
-/** Whether Claude Code offers a 1M-context variant: Fable, Opus 4.6+ and Sonnet 4.5+ (and their aliases). */
-export function supportsOneM(model: string): boolean {
-  const id = baseModel(model).toLowerCase()
-  if (id === 'fable' || id === 'opus' || id === 'sonnet' || id.startsWith('claude-fable-')) return true
-  const m = /^claude-(opus|sonnet)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(id)
-  if (!m) return false
-  const version = Number(m[2]) + Number(m[3] ?? 0) / 10
-  return m[1] === 'opus' ? version >= 4.6 : version >= 4.5
-}
-
-export const withOneM = (model: string, on: boolean): string => (on && supportsOneM(model) ? `${baseModel(model)}[1m]` : baseModel(model))
+/**
+ * The model without its 1M-context suffix. Current models have the 1M window without it; only Opus 4.6 and
+ * Sonnet 4.6 need "[1m]" (typed as a custom model ID), and Claude Code rejects it when 1M is turned off.
+ */
+export const baseModel = (model: string): string => model.replace(/\[1m\]$/i, '')
 
 export const isOlderModel = (model: string): boolean => CLAUDE_MODEL_GROUPS.some((g) => g.older && g.models.some((m) => m.value === baseModel(model)))
 
@@ -148,7 +136,7 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
     { value: 'max', label: 'Max' }
   ],
   modelGroups: CLAUDE_MODEL_GROUPS,
-  modelPlaceholder: 'Full model ID, e.g. claude-opus-5-5',
+  modelPlaceholder: 'Full model ID, e.g. claude-opus-5-5 or claude-opus-4-6[1m]',
   capabilities: {
     fixedSessionId: true,
     liveModeSwitch: 'cycle',
@@ -156,7 +144,7 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
     promptCacheTtl: true,
     reportsCost: true,
     compactFocus: true,
-    oneMContext: true,
+    contextLimit: true,
     imagePaste: true,
     lockAsk: true,
     backgroundSessions: true,

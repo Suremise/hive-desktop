@@ -158,7 +158,7 @@ const SETTINGS: SettingDef[] = [
       section: 'assistant',
       key: `provider:${p.id}`,
       title: `With ${p.name}`,
-      desc: `The model, effort, permission mode and extra arguments when the Assistant runs ${p.name}. Default follows ${p.name}'s own settings, except the mode: ${permissionLabel(p.id, p.assistantMode)}, where ${p.name} approves safe actions itself and only asks about risky ones.`,
+      desc: `The model, effort, permission mode${p.capabilities.contextLimit ? ', context' : ''} and extra arguments when the Assistant runs ${p.name}. Default follows ${p.name}'s own settings, except the mode: ${permissionLabel(p.id, p.assistantMode)}, where ${p.name} approves safe actions itself and only asks about risky ones.`,
       tip: "By default it uses the same model and effort as your agents. A lighter model or low effort saves tokens but makes it careless (for example, saying it will check on an agent later and never doing so). Its default mode is the one your agents default to, so it rarely asks. Hive's own tools never ask: what they may do is set by Control above.",
       type: 'custom',
       wide: true,
@@ -225,6 +225,17 @@ function providerSettingDefs(p: ProviderDescriptor): SettingDef[] {
         message: `Projects will be able to run sessions where ${p.name} executes every command, file edit and network request without asking.`,
         detail: 'Recommended only for disposable environments. Each project still has to choose it, and doing so asks for confirmation.'
       }
+    })
+  }
+  if (p.capabilities.contextLimit) {
+    defs.push({
+      section,
+      provider: p.id,
+      key: 'use200kContext',
+      title: 'Use 200K context (instead of 1M)',
+      desc: `Run ${p.name} sessions with a 200K-token context window instead of the model's 1M one, unless a project or agent chooses otherwise. Applies to sessions started afterwards.`,
+      tip: `Current models have a 1M window at no extra price per token, but a long conversation sends more tokens with every message, and answers slow down as the context fills. With 200K, ${p.name} compacts the conversation sooner.`,
+      type: 'boolean'
     })
   }
   if (p.capabilities.backgroundSessions) {
@@ -552,7 +563,7 @@ function AssistantPersonaPicker() {
 function AssistantProviderDefaults({ provider }: { provider: ProviderId }) {
   const settings = useStore((s) => s.settings)
   const p = providerDescriptor(provider)
-  const a = settings?.assistant.providers[provider] ?? { model: '', effort: '', permissionMode: '', extraArgs: '' }
+  const a = settings?.assistant.providers[provider] ?? { model: '', effort: '', permissionMode: '', extraArgs: '', use200kContext: '' as const }
   const g = providerSettings(settings, provider)
   const [args, setArgs] = useState(a.extraArgs)
   useEffect(() => setArgs(a.extraArgs), [a.extraArgs])
@@ -584,6 +595,16 @@ function AssistantProviderDefaults({ provider }: { provider: ProviderId }) {
           ))}
       </select>
       <ModeCaveat provider={provider} mode={a.permissionMode || p.assistantMode} model={a.model || g.defaultModel || cliDefault} />
+      {p.capabilities.contextLimit && (
+        <>
+          <label>Use 200K context (instead of 1M)</label>
+          <select className="select" value={a.use200kContext ?? ''} onChange={(e) => save({ use200kContext: e.target.value as '' | 'on' | 'off' })}>
+            <option value="">Default ({g.use200kContext ? 'On' : 'Off'})</option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </>
+      )}
       <label>Extra arguments</label>
       <input className="input" value={args} placeholder="e.g. --verbose" onChange={(e) => setArgs(e.target.value)} onBlur={() => args !== a.extraArgs && save({ extraArgs: args.trim() })} />
     </div>
