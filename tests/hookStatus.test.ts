@@ -13,6 +13,7 @@ interface Agent {
   statusMessage?: string
   unseen?: boolean
   question?: { text: string; since: string }
+  review?: string
   askedAtStart: boolean
   compacting: HookStatusInput['compacting']
   tasks: number
@@ -26,7 +27,7 @@ interface Agent {
 
 const agent = (status: SessionStatus, extra: Partial<Agent> = {}): Agent => ({ status, askedAtStart: false, compacting: null, tasks: 0, attention: 'hooks', reviewed: false, titleAsks: false, open: [], waitingOn: null, actions: [], ...extra })
 
-const input = (a: Agent, backgroundWakes = false): HookStatusInput => ({ ...a, question: !!a.question, backgroundWakes })
+const input = (a: Agent, backgroundWakes = false): HookStatusInput => ({ ...a, question: !!a.question, reviewing: !!a.review, backgroundWakes })
 
 /** What SessionManager.carryOut does with a step: the actions (recorded here), the open asks and the wait, the status. */
 function apply(a: Agent, step: HookStep): Agent {
@@ -175,7 +176,7 @@ describe('hook → status, for each provider', () => {
     const shown = agent('working', { statusMessage: COMPACTING_MESSAGE })
     expect(applyStep(shown, compactionOver(shown))).toBe(true)
     expect([shown.status, shown.statusMessage]).toEqual(['ready', undefined])
-    for (const other of [agent('working'), agent('working', { statusMessage: 'Auto-review: x' }), agent('waiting', { statusMessage: COMPACTING_MESSAGE }), agent('stopped')]) {
+    for (const other of [agent('working'), agent('working', { statusMessage: 'Setting up the worktree: x' }), agent('waiting', { statusMessage: COMPACTING_MESSAGE }), agent('stopped')]) {
       const before = { ...other }
       expect(applyStep(other, compactionOver(other))).toBe(false)
       expect(other).toEqual(before)
@@ -251,14 +252,15 @@ describe('Codex: who is asked', () => {
   it('Approve for me: an auto-reviewed request never says you are needed, allowed or denied', async () => {
     const codex = await codexAdapter()
     const allowed = send(codex, codexAgent('approve-for-me'), pre, permission)
-    expect(asked(allowed)).toEqual(['working', `Auto-review: ${ASKS}`, undefined])
+    // Under review beside the status (which stays working, its message unset), what is asked as its details.
+    expect([...asked(allowed), allowed.review]).toEqual(['working', undefined, undefined, ASKS])
     send(codex, allowed, post)
-    expect(asked(allowed)).toEqual(['working', undefined, undefined])
+    expect([...asked(allowed), allowed.review]).toEqual(['working', undefined, undefined, undefined])
     send(codex, allowed, stop)
     expect([allowed.status, told(allowed)]).toEqual(['finished', []])
     // Denied: no PostToolUse; the next tool shows the review is over, and the turn ends as usual.
     const denied = send(codex, codexAgent('approve-for-me'), pre, permission, { ...pre, tool_input: { command: 'ls' } })
-    expect(asked(denied)).toEqual(['working', undefined, undefined])
+    expect([...asked(denied), denied.review]).toEqual(['working', undefined, undefined, undefined])
     expect([send(codex, denied, stop).status, told(denied)]).toEqual(['finished', []])
     // Or the turn ends on the denial itself.
     const ended = send(codex, codexAgent('approve-for-me'), pre, permission, stop)
@@ -372,9 +374,9 @@ describe('Codex: who is asked', () => {
       const codex = await codexAdapter()
       const a = send(codex, await withQuestion('approve-for-me'), pre, permission, permission)
       title(a, true)
-      expect([...asked(a), told(a)]).toEqual(['working', `Auto-review: ${ASKS}`, 'Which colour?', ['notifyQuestion']])
+      expect([...asked(a), a.review, told(a)]).toEqual(['working', undefined, 'Which colour?', ASKS, ['notifyQuestion']])
       send(codex, a, post)
-      expect([...asked(a), told(a)]).toEqual(['working', undefined, 'Which colour?', ['notifyQuestion']])
+      expect([...asked(a), a.review, told(a)]).toEqual(['working', undefined, 'Which colour?', undefined, ['notifyQuestion']])
       // The question is answered: a prompt, and the title goes back.
       send(codex, a, answer)
       title(a, false)
@@ -513,7 +515,7 @@ describe('Codex: who is asked', () => {
     const codex = await codexAdapter()
     // Approve for me: its reviewer answers permission requests.
     const reviewed = send(codex, agent('working', { reviewed: true }), pre, permission)
-    expect([...asked(reviewed), told(reviewed)]).toEqual(['working', `Auto-review: ${ASKS}`, undefined, []])
+    expect([...asked(reviewed), reviewed.review, told(reviewed)]).toEqual(['working', undefined, undefined, ASKS, []])
     // Ask for approval: the request is the prompt.
     const prompted = send(codex, agent('working'), pre, permission)
     expect([...asked(prompted), told(prompted)]).toEqual(['waiting', ASKS, undefined, ['notifyWaiting']])
@@ -525,6 +527,59 @@ describe('Codex: who is asked', () => {
     send(codex, q, answer)
     expect(q.question).toBeUndefined()
     expect(send(codex, agent('working', { reviewed: true }), question).status).toBe('waiting')
+  })
+
+  // An action under Codex's own review is shown beside the status, never as it: the status stays working, nobody is
+  // told, and it goes as soon as the review is over, the turn ends, or a person is asked after all.
+  describe('automatic review (Approve for me)', () => {
+    const other = { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'npm.cmd run e2e -- icons' } }
+    const otherPre = { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'npm.cmd run e2e -- icons' } }
+    const view = (a: Agent) => [a.status, a.statusMessage, a.review]
+
+    it('repeated and successive requests: the latest is shown, never as the status, never told', async () => {
+      const codex = await codexAdapter()
+      const a = send(codex, codexAgent('approve-for-me'), pre, permission, permission)
+      expect(view(a)).toEqual(['working', undefined, ASKS])
+      send(codex, a, post, otherPre, other)
+      expect(view(a)).toEqual(['working', undefined, 'Codex asks to run npm.cmd run e2e -- icons'])
+      expect([told(a), a.actions.includes('notifyFinished')]).toEqual([[], false])
+    })
+
+    it('it goes at the turn end, an interruption, a prompt and the session end', async () => {
+      const codex = await codexAdapter()
+      for (const end of [stop, interrupt, { hook_event_name: 'UserPromptSubmit', prompt: 'also' }, { hook_event_name: 'SessionEnd' }]) {
+        const a = send(codex, codexAgent('approve-for-me'), pre, permission, end)
+        expect(a.review, end.hook_event_name).toBeUndefined()
+      }
+    })
+
+    it('the reviewer hands it to you (the title asks): waiting, told once, the review gone', async () => {
+      const codex = await codexAdapter()
+      const a = title(send(codex, codexAgent('approve-for-me'), pre, permission), true)
+      expect([...view(a), told(a)]).toEqual(['waiting', undefined, undefined, ['notifyWaiting']])
+      // A late repeat of the request while you are asked doesn't put it back.
+      send(codex, a, permission)
+      expect(view(a)).toEqual(['waiting', undefined, undefined])
+    })
+
+    it('a request while a person is already asked (a blocking question) shows no review over the wait', async () => {
+      const codex = await codexAdapter()
+      const a = title(send(codex, codexAgent('approve-for-me'), question), true)
+      send(codex, a, pre, permission)
+      expect([...view(a), a.question?.text]).toEqual(['waiting', 'Which language?', undefined, undefined])
+    })
+
+    it('Ask for approval: the request is put to you, never shown as under review', async () => {
+      const codex = await codexAdapter()
+      const a = title(send(codex, codexAgent('ask'), pre, permission), true)
+      expect([...view(a), told(a)]).toEqual(['waiting', ASKS, undefined, ['notifyWaiting']])
+    })
+
+    it('Claude Code: its modes have no automatic review in hooks, so a permission prompt is always a wait', async () => {
+      const [[, claude, h]] = await providers()
+      const a = send(claude, agent('working', { reviewed: false }), h.ask)
+      expect(view(a)).toEqual(['waiting', 'Claude needs your permission to use Bash', undefined])
+    })
   })
 
   it('the session ending clears a pending question', async () => {

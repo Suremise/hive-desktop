@@ -624,7 +624,8 @@ export class CodexAdapter implements ProviderAdapter {
         out.event = { kind: 'toolEnd', call: toolCall(tool, input) }
         break
       case 'PermissionRequest': {
-        const what = tool === 'apply_patch' ? `edit ${patchPaths(String(input.command ?? '')).join(', ')}` : tool === 'Bash' ? `run ${String(input.command ?? '').split('\n')[0].slice(0, 120)}` : tool ? `use ${tool}` : 'continue'
+        const line = String(input.command ?? '').split('\n')[0]
+        const what = tool === 'apply_patch' ? `edit ${patchPaths(String(input.command ?? '')).join(', ')}` : tool === 'Bash' ? `run ${line.length > 120 ? `${line.slice(0, 119)}…` : line}` : tool ? `use ${tool}` : 'continue'
         // Sent before anyone answers it: in Approve for me, Codex's auto-reviewer does (ModeOption.reviewed).
         out.event = { kind: 'ask', ask: { kind: 'permission', blocking: true, message: `Codex asks to ${what}`, call: toolCall(tool, input) } }
         break

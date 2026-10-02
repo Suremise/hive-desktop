@@ -28,6 +28,18 @@ export default defineConfig({
     plugins: [
       react(),
       {
+        // Codicons' base rule (.codicon[class*='codicon-'] { font: 16px/1 codicon }) comes twice: from
+        // @vscode/codicons at start, and from Monaco when an editor first loads. As plain CSS it ties with Hive's own
+        // icon sizes (.activity-btn .codicon …), so whichever loaded last won and every shell icon fell to 16px. Both
+        // copies go in a cascade layer, below Hive's (unlayered) styles: Hive's icon rules win whatever loads when.
+        name: 'hive-codicons-layer',
+        enforce: 'pre',
+        transform(code: string, id: string) {
+          if (!/[\\/](?:@vscode[\\/]codicons[\\/]dist|ui[\\/]codicons[\\/]codicon)[\\/]codicon\.css(?:\?|$)/.test(id)) return null
+          return { code: `@layer codicons {\n${code}\n}\n`, map: null }
+        }
+      },
+      {
         // The dev server's hot reload needs ws: and localhost; a build connects to nothing.
         name: 'hive-production-csp',
         apply: 'build',

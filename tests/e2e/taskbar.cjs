@@ -92,7 +92,9 @@ const until = async (fn, ms = 10000) => {
   if (badge?.png) fs.writeFileSync(path.join(lib.WORK, 'taskbar-badge-1.png'), Buffer.from(badge.png, 'base64'))
   check('finishing never flashes the button', (await flashes()).length === 0)
 
-  // --- Looking at it clears both.
+  // --- Looking at it clears both (the window really focused: an agent is seen once its pane shows in a focused window).
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].focus())
+  await page.bringToFront()
   await page.getByText('beta', { exact: true }).first().click()
   check('looking at the agent clears the count', !!(await until(async () => !/^\(\d/.test(await title()), 8000)), await title())
   check('and the badge', !!(await until(async () => (await overlay())?.png === null, 5000)))
@@ -103,8 +105,9 @@ const until = async (fn, ms = 10000) => {
   check('a question in the background flashes the button', !!(await until(async () => (await flashes()).includes(true), 8000)), JSON.stringify(await flashes()))
   await until(async () => (await live(alpha, one))?.status === 'finished', 10000)
 
-  // --- Both settings turn them off.
+  // --- Both settings turn them off; turning the flash off stops the one under way (the window was never focused).
   await inv('settings:update', { notifications: { taskbarCount: false, flashOnWaiting: false } })
+  check('turning the flash off stops it', !!(await until(async () => (await flashes()).at(-1) === false, 3000)), JSON.stringify(await flashes()))
   await app.evaluate(() => (globalThis.__flash = []))
   await page.getByText('alpha', { exact: true }).first().click()
   await send(beta, two, 'ask go')

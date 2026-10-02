@@ -159,6 +159,8 @@ Changes emit `tasks-changed` (routed by workspace path); the workspace watcher e
 
 Terminals use xterm.js's WebGL renderer with `rescaleOverlappingGlyphs`, so symbols drawn from a wider fallback font (such as the close button in Claude Code's panels) are squeezed into their cell instead of being half painted over; the DOM renderer is the fallback if WebGL is unavailable. The terminal mounts in an unpadded child of its host, because the fit addon measures the parent.
 
+**Styles and third-party CSS.** Hive's own styles (`styles/app.css`) are unlayered. The Codicons base rule (`.codicon[class*='codicon-'] { font: 16px/1 codicon }`) comes twice, from `@vscode/codicons` at start and from Monaco when an editor first loads, and would tie with Hive's icon sizes (`.activity-btn .codicon`…), so whichever loaded last won. The `hive-codicons-layer` plugin in `electron.vite.config.ts` puts both copies in `@layer codicons`, which unlayered rules always beat: size icons in `app.css` as usual, whatever loads when. The two fonts it declares must agree on codepoints (`tests/codicons.test.ts`); `tests/e2e/icons.cjs` measures shell icons before and after each way Monaco loads.
+
 Terminals for every project that has had a session stay mounted (hidden) so switching projects is instant and keeps scrollback.
 
 ## Windows app identity

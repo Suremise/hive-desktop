@@ -218,7 +218,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
           </Tooltip>
           {resumable.length > 0 && (
             <Tooltip content={resumable.length === 1 ? `Resume ${resumable[0].name}'s last session` : `Resume all ${resumable.length} stopped agents (running ones are left alone)`}>
-              <button className="btn subtle" disabled={resuming} aria-busy={resuming || undefined} onClick={() => void actions.resumeAllAgents(project.path)}>
+              <button className="btn tint-amber" disabled={resuming} aria-busy={resuming || undefined} onClick={() => void actions.resumeAllAgents(project.path)}>
                 <Icon name={resuming ? 'loading' : 'debug-continue'} spin={resuming} /> {resuming ? 'Resuming…' : resumable.length === 1 ? 'Resume Agent' : narrow ? 'Resume All' : 'Resume All Agents'}
               </button>
             </Tooltip>

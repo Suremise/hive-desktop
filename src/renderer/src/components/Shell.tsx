@@ -48,8 +48,13 @@ export function ActivityBar() {
     <div className="activitybar">
       {ACTIVITIES.map((a) => button(a.id, a.icon, a.label, a.command, a.id === 'projects' ? attention : a.id === 'board' ? review : undefined))}
       <div className="activity-spacer" />
-      <Tooltip content="Notifications">
-        <button className="activity-btn" onClick={() => set((s) => ({ showNotifications: !s.showNotifications, unread: 0 }))} aria-label="Notifications">
+      <Tooltip content={unread ? `Notifications (${unread} unread)` : 'Notifications'}>
+        <button
+          className={cx('activity-btn', unread > 0 && 'unread')}
+          onClick={() => set((s) => ({ showNotifications: !s.showNotifications, unread: 0 }))}
+          aria-label="Notifications"
+          aria-description={unread ? `${unread} unread` : undefined}
+        >
           <Icon name={unread ? 'bell-dot' : 'bell'} />
         </button>
       </Tooltip>

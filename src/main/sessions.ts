@@ -39,7 +39,7 @@ import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, titleStep,
 import { Compaction } from './compaction'
 import { lastTitle } from './terminalTitle'
 import { asksYou } from '../shared/inbox'
-import { FinishBatcher, finishedNotice } from '../shared/bursts'
+import { FinishBatcher, finishedNotice, notificationAllowed } from '../shared/bursts'
 import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
 import { childEnv, killPty, spawnPty, writePty } from './ptyHost'
@@ -830,7 +830,7 @@ class SessionManager {
   }
 
   /** Records the running session in sessions.json and as the agent's session to resume. */
-  private async recordSession(projectPath: string, agent: Pick<AgentDef, 'id' | 'worktree'>, l: LiveSession): Promise<void> {
+  private async recordSession(projectPath: string, agent: Pick<AgentDef, 'id' | 'name' | 'worktree'>, l: LiveSession): Promise<void> {
     const { state } = l
     const sessionId = state.sessionId
     // Images pasted before the provider named the session wait in the launch's folder: move them to the session's.
@@ -847,8 +847,9 @@ class SessionManager {
       name: l.name,
       ...(state.titleAtRename !== undefined ? { titleAtRename: state.titleAtRename } : {}),
       lastActiveAt: new Date().toISOString(),
-      // The agent running it now; a session can move between agents that share a folder.
+      // The agent running it now; a session can move between agents that share a folder. Its name too, for once it's gone.
       agentId: agent.id,
+      agentName: agent.name,
       // Providers that choose their own ids file transcripts by date, not folder: remember where.
       ...(l.transcriptPath && !l.adapter.descriptor.capabilities.fixedSessionId ? { transcriptPath: l.transcriptPath } : {}),
       // Where it ran, when not the project folder (a worktree, or the Assistant's workspace folder).
@@ -1947,7 +1948,8 @@ class SessionManager {
       titleAsks: !!l.titleAsks,
       open: l.open ?? [],
       waitingOn: l.waitingOn ?? null,
-      question: !!st.question
+      question: !!st.question,
+      reviewing: !!st.review
     }
   }
 
@@ -2045,7 +2047,6 @@ class SessionManager {
 
   /** A desktop notification (and for finished/waiting, the chime): a notice is a warning that needs no sound. */
   private notify(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting' | 'notice', agentName?: string): void {
-    const n = config.settings.notifications
     if (kind !== 'notice') {
       // The window plays at most one chime every 2 seconds, so agents finishing together chime once.
       void this.effective(projectPath)
@@ -2054,10 +2055,7 @@ class SessionManager {
         })
         .catch((e) => log.warn('chime: settings unavailable', e))
     }
-    if (!n.desktopNotifications) return
-    if (kind === 'finished' && !n.notifyOnFinished) return
-    if (kind === 'waiting' && !n.notifyOnWaiting) return
-    if (n.onlyWhenUnfocused && this.windowAttentive(projectPath)) return
+    if (!this.mayNotify(projectPath, kind)) return
     // Finishes that come together are told in one notification ("3 agents finished in hive"); a question is told at once.
     if (kind === 'finished') {
       const assistant = workspace.isAssistantHome(projectPath)
@@ -2067,8 +2065,18 @@ class SessionManager {
     this.showNotification(projectPath, title, body)
   }
 
-  /** Finishes collected by `finishes`, in one notification. */
-  private readonly finishes = new FinishBatcher((items) => {
+  /** Whether a notification about this project may be shown now (the settings, and its own window's focus). */
+  private mayNotify(projectPath: string, kind: 'finished' | 'waiting' | 'notice'): boolean {
+    return notificationAllowed(config.settings.notifications, kind, this.windowAttentive(projectPath))
+  }
+
+  /**
+   * Finishes collected by `finishes`, in one notification: those that may still be shown (notifications turned
+   * off meanwhile, or their window focused), counted and opened from what is left.
+   */
+  private readonly finishes = new FinishBatcher((all) => {
+    const items = all.filter((i) => this.mayNotify(i.projectPath, 'finished'))
+    if (!items.length) return
     const { title, body } = finishedNotice(items)
     this.showNotification(items[0].projectPath, title, body)
   })

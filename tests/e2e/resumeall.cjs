@@ -79,6 +79,27 @@ const check = (name, ok, extra = '') => {
   const button = page.locator('.project-header button', { hasText: 'Resume All' })
   check('Resume All shows while agents are stopped', !!(await until(async () => (await button.count()) === 1, 5000)))
   await page.screenshot({ path: path.join(lib.WORK, 'resumeall-1-header.png') })
+  // Its colours are those of the agent header's Resume button (an icon in a narrow pane), in both themes and on hover.
+  const agentResume = page.locator('.pane-header-bar button.tint-amber').first()
+  const colours = (b) => b.evaluate((el) => ['color', 'background-color', 'border-color'].map((k) => getComputedStyle(el).getPropertyValue(k)).join(' | '))
+  const seen = []
+  for (const theme of ['dark', 'light']) {
+    await inv('settings:update', { appearance: { theme } })
+    await page.mouse.move(0, 0)
+    await lib.sleep(400)
+    const [all, one] = [await colours(button), await colours(agentResume)]
+    seen.push(all)
+    check(`${theme}: Resume All has the Resume button's colours`, all === one, `${all} vs ${one}`)
+    await agentResume.hover()
+    const oneHover = await colours(agentResume)
+    await button.hover()
+    const allHover = await colours(button)
+    check(`${theme}: and on hover`, allHover === oneHover && allHover !== all, `${allHover} vs ${oneHover}`)
+    await page.screenshot({ path: path.join(lib.WORK, `resumeall-colours-${theme}.png`) })
+  }
+  check('the light theme has its own colours', seen[0] !== seen[1], seen.join(' / '))
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await page.mouse.move(0, 0)
   await button.click()
 
   check('Two resumed', !!(await until(async () => !!(await live(two.id)))))

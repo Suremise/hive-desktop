@@ -14,7 +14,8 @@ import { runCommand, commandKeybinding } from '../commands'
 import { DocEditor } from '../components/DocEditor'
 import { CodeEditor } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
-import { Icon, IconButton, LoadFailed, Markdown, Switch } from '../components/ui'
+import { Icon, IconButton, LoadFailed, Markdown, StaleNote, Switch } from '../components/ui'
+import { useScopedLoad } from '../scopedLoad'
 import { SkillDetail } from '../components/Skills'
 import { confirm, notify, set, useStore } from '../store'
 import { basename, cx, formatKeybinding } from '../util'
@@ -144,23 +145,20 @@ export function SkillView() {
   const selected = useStore((s) => s.selectedSkill)
   const version = useStore((s) => s.skillsVersion)
   const workspace = useStore((s) => s.workspace)
-  const [list, setList] = useState<SkillInfo[] | null>(null)
-  // A failed read isn't "this skill no longer exists".
-  const [error, setError] = useState<string | null>(null)
+  // This workspace's skills. A failed read isn't "this skill no longer exists".
+  const wsPath = workspace?.path ?? ''
+  const loaded = useScopedLoad<SkillInfo[]>(wsPath)
+  const list = loaded.data
+  const error = loaded.error
   const [attempt, setAttempt] = useState(0)
+  const { load } = loaded
 
-  useEffect(() => {
-    void call('skills:workspace').then(
-      (l) => {
-        setList(l)
-        setError(null)
-      },
-      (e) => setError(errorMessage(e))
-    )
-  }, [version, workspace?.path, attempt])
+  useEffect(() => load(wsPath, () => call('skills:workspace')), [version, wsPath, attempt, load])
 
   const skill = selected ? list?.find((s) => s.path === selected) : undefined
-  if (selected && error) return <LoadFailed what="the skill" error={error} onRetry={() => setAttempt((n) => n + 1)} />
+  const retry = (): void => setAttempt((n) => n + 1)
+  // Not read, or not found in a list that failed to refresh: unknown, so not "no longer exists".
+  if (selected && error && !list?.some((s) => s.path === selected)) return <LoadFailed what="the skill" error={error} onRetry={retry} />
   if (!selected || !list) {
     return (
       <div className="empty-state" style={{ paddingTop: '18vh' }}>
@@ -184,9 +182,16 @@ export function SkillView() {
       </div>
     )
   }
+  // A refresh that failed: the skill stays open, as last read, under the note. The same tree either way, so the
+  // editor (and any edits in it) stays.
   return (
-    <div className="split">
-      <SkillDetail skill={skill} where="workspace" onDeleted={() => set({ selectedSkill: null })} onRestored={(r) => set({ selectedSkill: r.path })} />
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+      {error && <StaleNote what="the skill" error={error} at={loaded.at} onRetry={retry} />}
+      <div style={{ position: 'relative', flex: 1 }}>
+        <div className="split">
+          <SkillDetail skill={skill} where="workspace" onDeleted={() => set({ selectedSkill: null })} onRestored={(r) => set({ selectedSkill: r.path })} />
+        </div>
+      </div>
     </div>
   )
 }

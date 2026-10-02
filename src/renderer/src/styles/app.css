@@ -8,6 +8,8 @@
   --accent-soft: rgba(245, 158, 11, 0.16);
   --accent-fg: #1b1b1b;
   --honey-light: #ffc444;
+  /* The accent as an icon on the activity bar: at least 3:1 against it (6.5:1 here). */
+  --accent-on-activity: var(--accent);
 
   --bg: #1e1e1e;
   --bg-sidebar: #252526;
@@ -48,6 +50,8 @@
   --accent-soft: rgba(217, 119, 6, 0.14);
   --accent-fg: #ffffff;
   --honey-light: #f59e0b;
+  /* --accent is 2.6:1 on the light activity bar; the stronger one is 4.1:1. */
+  --accent-on-activity: var(--accent-strong);
 
   --bg: #ffffff;
   --bg-sidebar: #f3f3f3;
@@ -332,6 +336,25 @@ kbd {
 }
 .activity-btn.active {
   color: var(--fg-strong);
+}
+/* Unread notifications: the bell (with its dot) in the accent, also on hover and focus; muted again once read. */
+.activity-btn.unread,
+.activity-btn.unread:hover {
+  color: var(--accent-on-activity);
+}
+/* An action under the CLI's automatic review, beside an agent's status (ReviewMark). */
+.review-mark {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--fg-muted);
+}
+.review-mark .codicon {
+  font-size: 13px;
+}
+.review-mark-detail {
+  margin-top: 2px;
+  word-break: break-word;
 }
 .activity-btn.active::before {
   content: '';
@@ -3900,7 +3923,8 @@ body.pane-resizing .monaco-editor {
 .agent-tab .card-chip {
   margin-left: 2px;
 }
-.worked-on {
+.worked-on,
+.session-ran-in {
   padding: 4px 12px;
   font-size: 12px;
   border-bottom: 1px solid var(--border-subtle);

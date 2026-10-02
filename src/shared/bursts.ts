@@ -3,12 +3,30 @@
  * pop-up each. Waiting for input is never grouped or delayed (main/sessions.ts notify()).
  */
 
+import type { AppSettings } from './types'
+
 /** At most one chime this often (per window). */
 export const CHIME_GAP_MS = 2000
 /** Finishes within this long of the last one are told together. */
 export const FINISH_GROUP_MS = 3000
 /** A steady stream of finishes is told at least this often. */
 export const FINISH_GROUP_MAX_MS = 10_000
+
+/**
+ * Whether a notification may be shown now (Settings → Notifications): checked when it happens and again when a
+ * group of finishes is shown, since the settings or the window's focus may have changed while it was collected.
+ * `attentive`: the window showing its project is visible and focused.
+ */
+export function notificationAllowed(
+  n: Pick<AppSettings['notifications'], 'desktopNotifications' | 'notifyOnFinished' | 'notifyOnWaiting' | 'onlyWhenUnfocused'>,
+  kind: 'finished' | 'waiting' | 'notice',
+  attentive: boolean
+): boolean {
+  if (!n.desktopNotifications) return false
+  if (kind === 'finished' && !n.notifyOnFinished) return false
+  if (kind === 'waiting' && !n.notifyOnWaiting) return false
+  return !(n.onlyWhenUnfocused && attentive)
+}
 
 export function chimeAllowed(lastAt: number | null, now: number): boolean {
   return lastAt === null || now - lastAt >= CHIME_GAP_MS

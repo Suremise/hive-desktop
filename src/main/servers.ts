@@ -285,6 +285,8 @@ async function projectSummary(p: string) {
       status: a.live?.status ?? 'stopped',
       sessionId: a.live?.sessionId ?? null,
       statusMessage: a.live?.statusMessage ?? null,
+      // An action under the CLI's automatic review (as asked); never a question for the user.
+      reviewing: a.live?.review ?? null,
       backgroundTasks: a.live?.backgroundTasks ?? 0
     })),
     settings: info.config
@@ -724,6 +726,7 @@ async function agentActivity(p: string, agentId: string) {
     provider: st?.provider ?? agentProvider(a, info.config, config.settings),
     status: st?.status ?? 'stopped',
     statusMessage: st?.statusMessage ?? null,
+    reviewing: st?.review ?? null,
     backgroundTasks: st?.backgroundTasks ?? 0,
     branch: a.worktree?.branch ?? null,
     worktree: a.worktree?.path ?? null,

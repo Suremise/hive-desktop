@@ -1,7 +1,7 @@
 import { Menu, nativeImage, Tray, type BrowserWindow } from 'electron'
 import { basename, join } from 'path'
 import { mostUrgent } from '../shared/defaults'
-import { branchSummary, inbox, inboxStateText, type Inbox, type InboxItem } from '../shared/inbox'
+import { branchSummary, firstAcross, inbox, inboxStateText, type Inbox, type InboxItem } from '../shared/inbox'
 import type { LiveSessionState, ProjectInfo, SessionStatus } from '../shared/types'
 import { knownStatus } from './branchWatch'
 import { emitTo, onHiveEvent } from './events'
@@ -86,11 +86,11 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
     tray.setToolTip(
       `Hive${open.length ? ` — ${open.map((w) => basename(w.path!)).join(', ')}` : ''}${live.length ? `\n${working} working, ${needYou} need${needYou === 1 ? 's' : ''} you` : ''}${pendingQuit ? '\nWill quit when agents finish' : ''}`
     )
-    // The inbox, oldest first: each item shows its agent in the window showing its workspace.
+    // The inbox, oldest first across every window: each item shows its agent in the window showing its workspace.
     const inboxSection = (title: string, pick: (b: Inbox) => InboxItem[]): Electron.MenuItemConstructorOptions[] => {
-      const all = boxes.flatMap(({ w, box }) => pick(box).map((item) => ({ w, item })))
-      if (!all.length) return []
-      const items: Electron.MenuItemConstructorOptions[] = all.slice(0, TRAY_ITEMS).map(({ w, item }) => ({
+      const { shown, total } = firstAcross(boxes.map(({ w, box }) => ({ owner: w, items: pick(box) })), TRAY_ITEMS)
+      if (!total) return []
+      const items: Electron.MenuItemConstructorOptions[] = shown.map(({ owner: w, item }) => ({
         label: `${item.assistant ? item.projectName : `${item.projectName} · ${item.agentName}`}  —  ${item.kind === 'review' && item.branch ? branchSummary(item.branch) : inboxStateText(item)}`.slice(0, 120),
         click: () => {
           const win = w.window ?? getWindow()
@@ -99,8 +99,8 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
           emitTo(win, { type: 'menu-command', command: 'agent.show', args: [item.projectPath, item.agentId] })
         }
       }))
-      if (all.length > TRAY_ITEMS) items.push({ label: `and ${all.length - TRAY_ITEMS} more`, enabled: false })
-      return [{ label: `${title} (${all.length})`, enabled: false }, ...items, { type: 'separator' }]
+      if (total > shown.length) items.push({ label: `and ${total - shown.length} more`, enabled: false })
+      return [{ label: `${title} (${total})`, enabled: false }, ...items, { type: 'separator' }]
     }
     // Each window's active projects; a project opens in the window showing its workspace.
     const projectItems: Electron.MenuItemConstructorOptions[] = []
