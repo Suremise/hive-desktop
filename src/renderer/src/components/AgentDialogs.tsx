@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { MAX_AGENTS, effectiveModelLabel, formatBytes, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
+import { MAX_AGENTS, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
 import { PROVIDERS, agentProvider, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerSettings } from '@shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
@@ -643,6 +643,8 @@ export function MergeDialog() {
   if (!target || !project || !agent?.worktree) return null
   const close = (): void => set({ mergeFor: null })
   const running = !!agent.live
+  // The agent started a task while the dialog was open.
+  const blocked = mergeBlocked(agent.name, agent.live?.status)
   const nothing = status && status.ahead === 0 && status.dirty === 0
   const folderAgent = project.agents.find((a) => !a.worktree && a.live && (a.live.status === 'ready' || a.live.status === 'finished'))
 
@@ -686,7 +688,7 @@ export function MergeDialog() {
             {result?.conflicts ? 'Close' : 'Cancel'}
           </button>
           {!result?.conflicts && (
-            <button className="btn primary" disabled={busy || !status || !!nothing || !status.into} onClick={() => void merge()}>
+            <button className="btn primary" disabled={busy || !status || !!nothing || !status.into || !!blocked} onClick={() => void merge()}>
               <Icon name={busy ? 'loading' : 'git-merge'} spin={busy} /> Merge
             </button>
           )}
@@ -753,6 +755,11 @@ export function MergeDialog() {
               </>
             )}
           </p>
+          {blocked && (
+            <div className="banner warn">
+              <Icon name="warning" /> {blocked}
+            </div>
+          )}
           {!status.into && <div className="banner warn">The project folder is not on a branch. Check one out first.</div>}
           {status.into && status.into !== agent.worktree.base && (
             <div className="banner warn">

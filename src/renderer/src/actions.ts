@@ -100,7 +100,6 @@ export async function createProject(): Promise<void> {
 export function selectProject(path: string): void {
   set({ selectedProject: path })
   if (get().activity !== 'projects') setActivity('projects')
-  void call('session:markSeen', path)
 }
 
 const project = (path: string): ProjectInfo | undefined => findProject(get(), path) ?? undefined

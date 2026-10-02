@@ -262,6 +262,8 @@ class SessionManager {
   private live = new Map<string, LiveSession>()
   /** runId → liveId: hooks name their launch, so they reach the right agent even before the session id is known. */
   private runs = new Map<string, string>()
+  /** The status each state was last sent with, so statusSince moves only when the status changes. */
+  private statusSent = new WeakMap<LiveSessionState, SessionStatus>()
   private locks = new Map<string, FileLock>()
   /** "Ask me" locks for CLIs without an approval reply: `<liveId>|<path>` the user allowed, or was asked about. */
   /** Counts lock claims, approvals and questions, so they can be told apart from a turn's end in order. */
@@ -970,6 +972,7 @@ class SessionManager {
       l.askedAtStart = true
       l.modeTail = ''
       l.state.status = 'waiting'
+      l.state.unseen = true
       l.state.statusMessage = asked[0].includes('trust') ? 'Asks whether to trust this folder' : 'Asks something before it starts'
       this.notify(l.state.projectPath, `${this.label(l.state)} needs your input`, l.state.statusMessage, 'waiting')
       this.emitState(l.state)
@@ -1572,7 +1575,7 @@ class SessionManager {
         else {
           st.status = 'finished'
           st.statusMessage = dropped ? `Stopped counting its background tasks after ${taskMinutes()} minutes` : undefined
-          st.unseen = !this.windowAttentive(st.projectPath)
+          st.unseen = true
           this.notify(st.projectPath, `${this.label(st)} finished`, st.statusMessage ?? 'Its background tasks have ended.', 'finished')
         }
         changed = true
@@ -1620,6 +1623,10 @@ class SessionManager {
   }
 
   private emitState(state: LiveSessionState): void {
+    if (this.statusSent.get(state) !== state.status) {
+      this.statusSent.set(state, state.status)
+      state.statusSince = new Date().toISOString()
+    }
     emit({ type: 'session-status', state: { ...state } })
   }
 
@@ -1897,7 +1904,8 @@ class SessionManager {
     if (next && next !== st.status) {
       st.status = next
       if (next === 'working' || next === 'ready') st.statusMessage = undefined
-      if (next === 'finished' || next === 'waiting') st.unseen = !this.windowAttentive(st.projectPath)
+      // Unseen until the window shows its pane (the renderer marks it seen, at once when it is on screen).
+      if (next === 'finished' || next === 'waiting') st.unseen = true
       this.emitState(st)
     }
   }
@@ -1966,9 +1974,10 @@ class SessionManager {
     note.show()
   }
 
-  markSeen(projectPath: string): void {
+  /** The window showed these agents (all of the project's when none are named). */
+  markSeen(projectPath: string, agentIds?: string[]): void {
     for (const st of this.projectStates(projectPath)) {
-      if (st.unseen) {
+      if (st.unseen && (!agentIds || agentIds.includes(st.agentId))) {
         st.unseen = false
         this.emitState(st)
       }

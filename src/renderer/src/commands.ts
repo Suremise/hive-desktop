@@ -6,7 +6,7 @@ import { checkForUpdates, openReleaseNotes } from './components/Updates'
 import { openModeMenu } from './components/PermissionMode'
 import * as actions from './actions'
 import { noteCommandUsed } from './tips'
-import { agentPage, focusedAgentId, get, notify, set, setActivity, setAssistantOpen, showAssistantView, showView, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
+import { agentPage, focusedAgentId, get, isAssistantPath, notify, set, setActivity, setAssistantOpen, showAssistantView, showView, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
 
 export interface Command {
   id: string
@@ -243,9 +243,10 @@ export const commands: Command[] = [
     id: 'agent.show',
     label: 'Show Agent',
     category: 'Session',
-    // From a notification, which names the agent.
+    // From a notification or the tray, which name the agent; the Assistant's opens its panel.
     internal: true,
     run: (path?: unknown, agentId?: unknown) => {
+      if (typeof path === 'string' && isAssistantPath(path)) return setAssistantOpen(true)
       const p = get().workspace?.projects.find((x) => x.path === path)
       if (!p || typeof agentId !== 'string') return
       actions.selectProject(p.path)

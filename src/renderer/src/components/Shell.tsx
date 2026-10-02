@@ -1,13 +1,15 @@
 import type { PlanLimit } from '@shared/types'
 import { useNow } from '../usage'
 import { runCommand } from '../commands'
-import { NO_PROJECTS, setActivity, set, useStore, type Activity } from '../store'
+import { setActivity, set, useStore, type Activity } from '../store'
 import { enabledProviders } from '@shared/providers'
 import { ProviderIcon } from './ProviderIcon'
 import { cx, formatKeybinding, resetsIn, timeAgo } from '../util'
 import { commandKeybinding } from '../commands'
 import { Icon, Tooltip } from './ui'
 import { UpdateStatusItem } from './Updates'
+import { InboxStatusItem } from './Inbox'
+import { useInbox } from '../inbox'
 
 const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }[] = [
   { id: 'projects', icon: 'files', label: 'Projects', command: 'view.projects' },
@@ -22,9 +24,9 @@ const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }
 export function ActivityBar() {
   const activity = useStore((s) => s.activity)
   const sidebarVisible = useStore((s) => s.sidebarVisible)
-  const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   const unread = useStore((s) => s.unread)
-  const attention = projects.filter((p) => p.agents.some((a) => a.live?.unseen && (a.live.status === 'finished' || a.live.status === 'waiting'))).length
+  // Agents that need you (the inbox's count).
+  const attention = useInbox().needYou.length
   // Cards waiting for the user to look at them.
   const review = useStore((s) => s.tasks.filter((c) => !c.archived && c.column === 'review').length)
 
@@ -96,13 +98,9 @@ export function StatusBar() {
       <Tooltip content={`${live.length} running session(s): ${working} working, ${background ? `${background} waiting on background tasks, ` : ''}${waiting} waiting for input`}>
         <div className="status-item" onClick={() => runCommand('view.projects')}>
           <Icon name="pulse" /> {live.length}
-          {waiting > 0 && (
-            <>
-              <Icon name="bell-dot" /> {waiting}
-            </>
-          )}
         </div>
       </Tooltip>
+      <InboxStatusItem />
       <div className="status-spacer" />
       {/* App-wide items only: each agent's model, effort, mode and context are in its pane's footer. */}
       <PlanUsageStatus />

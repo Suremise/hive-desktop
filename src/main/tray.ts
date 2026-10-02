@@ -1,12 +1,14 @@
 import { Menu, nativeImage, Tray, type BrowserWindow } from 'electron'
 import { basename, join } from 'path'
 import { mostUrgent } from '../shared/defaults'
-import type { SessionStatus } from '../shared/types'
+import { branchSummary, inbox, inboxStateText, type Inbox, type InboxItem } from '../shared/inbox'
+import type { LiveSessionState, ProjectInfo, SessionStatus } from '../shared/types'
+import { knownStatus } from './branchWatch'
 import { emitTo, onHiveEvent } from './events'
 import { resourcesDir } from './paths'
 import { sessions } from './sessions'
 import { restartAndInstall, updateState } from './updater'
-import { openWorkspaces } from './workspace'
+import { openWorkspaces, type WorkspaceService } from './workspace'
 
 let tray: Tray | null = null
 let attention = false
@@ -51,6 +53,18 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   error: 'Error'
 }
 
+/** Items the tray lists per section; the rest are counted. */
+const TRAY_ITEMS = 10
+
+/** A window's inbox, with each agent's state as it is now (the workspace's cached info has it as of its last refresh). */
+function windowInbox(w: WorkspaceService, live: LiveSessionState[]): Inbox {
+  const info = w.info()
+  if (!info) return { needYou: [], toReview: [] }
+  const now = new Map(live.map((s) => [`${s.projectPath.toLowerCase()}#${s.agentId}`, s]))
+  const fresh = (p: ProjectInfo): ProjectInfo => ({ ...p, agents: p.agents.map((a) => ({ ...a, live: now.get(`${p.path.toLowerCase()}#${a.id}`) ?? null })) })
+  return inbox(info.projects.map(fresh), info.assistant ? fresh(info.assistant) : null, knownStatus)
+}
+
 export function showWindow(win: BrowserWindow): void {
   if (win.isMinimized()) win.restore()
   win.show()
@@ -63,14 +77,31 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
   const rebuild = (): void => {
     if (!tray) return
     const live = sessions.liveStates()
-    attention = live.some((s) => s.unseen && (s.status === 'finished' || s.status === 'waiting'))
-    tray.setImage(icon(attention ? 'tray-attention' : 'tray'))
-    const waiting = live.filter((s) => s.status === 'waiting').length
-    const working = live.filter((s) => s.status === 'working' || s.status === 'background').length
     const open = openWorkspaces()
+    const boxes = open.map((w) => ({ w, box: windowInbox(w, live) }))
+    const needYou = boxes.reduce((n, b) => n + b.box.needYou.length, 0)
+    attention = needYou > 0
+    tray.setImage(icon(attention ? 'tray-attention' : 'tray'))
+    const working = live.filter((s) => s.status === 'working' || s.status === 'background').length
     tray.setToolTip(
-      `Hive${open.length ? ` — ${open.map((w) => basename(w.path!)).join(', ')}` : ''}${live.length ? `\n${working} working, ${waiting} need input` : ''}${pendingQuit ? '\nWill quit when agents finish' : ''}`
+      `Hive${open.length ? ` — ${open.map((w) => basename(w.path!)).join(', ')}` : ''}${live.length ? `\n${working} working, ${needYou} need${needYou === 1 ? 's' : ''} you` : ''}${pendingQuit ? '\nWill quit when agents finish' : ''}`
     )
+    // The inbox, oldest first: each item shows its agent in the window showing its workspace.
+    const inboxSection = (title: string, pick: (b: Inbox) => InboxItem[]): Electron.MenuItemConstructorOptions[] => {
+      const all = boxes.flatMap(({ w, box }) => pick(box).map((item) => ({ w, item })))
+      if (!all.length) return []
+      const items: Electron.MenuItemConstructorOptions[] = all.slice(0, TRAY_ITEMS).map(({ w, item }) => ({
+        label: `${item.assistant ? item.projectName : `${item.projectName} · ${item.agentName}`}  —  ${item.kind === 'review' && item.branch ? branchSummary(item.branch) : inboxStateText(item)}`.slice(0, 120),
+        click: () => {
+          const win = w.window ?? getWindow()
+          if (!win) return
+          showWindow(win)
+          emitTo(win, { type: 'menu-command', command: 'agent.show', args: [item.projectPath, item.agentId] })
+        }
+      }))
+      if (all.length > TRAY_ITEMS) items.push({ label: `and ${all.length - TRAY_ITEMS} more`, enabled: false })
+      return [{ label: `${title} (${all.length})`, enabled: false }, ...items, { type: 'separator' }]
+    }
     // Each window's active projects; a project opens in the window showing its workspace.
     const projectItems: Electron.MenuItemConstructorOptions[] = []
     for (const w of open) {
@@ -96,6 +127,8 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
       Menu.buildFromTemplate([
         { label: 'Show Hive', click: () => { const w = getWindow(); if (w) showWindow(w) } },
         { type: 'separator' },
+        ...inboxSection('Need you', (b) => b.needYou),
+        ...inboxSection('To review', (b) => b.toReview),
         { label: 'Active projects', enabled: false },
         ...projectItems,
         { type: 'separator' },
@@ -121,7 +154,7 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
   // A working agent's status changes many times a minute (its cost with every status line): rebuild at most every 500 ms.
   let pending: NodeJS.Timeout | null = null
   onHiveEvent((e) => {
-    if (e.type !== 'session-status' && e.type !== 'session-exit' && e.type !== 'workspace-changed' && e.type !== 'update-state') return
+    if (e.type !== 'session-status' && e.type !== 'session-exit' && e.type !== 'workspace-changed' && e.type !== 'update-state' && e.type !== 'branch-status') return
     pending ??= setTimeout(() => {
       pending = null
       rebuild()

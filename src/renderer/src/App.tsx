@@ -19,11 +19,13 @@ import { TipCard, TipsDialog } from './components/Tips'
 import { showTodaysTip } from './tips'
 import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
 import { AssistantMain } from './components/AssistantView'
-import { agentOnScreen, applyLiveState, assistantWasOpen, clearStartFailure, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, projectState, pushToast, set, useStore } from './store'
+import { agentOnScreen, applyLiveState, assistantWasOpen, clearStartFailure, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, pushToast, set, useStore } from './store'
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
 import { ProjectView } from './views/ProjectView'
 import { SettingsView } from './views/SettingsView'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { markOnScreenSeen, onScreen } from './inbox'
+import { InboxPopover } from './components/Inbox'
 
 function applyTheme(): void {
   const s = get().settings
@@ -75,9 +77,11 @@ function handleEvent(e: HiveEvent): void {
       if (e.state.status === 'starting' && !prev?.settingUp) set((s) => ({ sessionEpoch: { ...s.sessionEpoch, [key]: (s.sessionEpoch[key] ?? 0) + 1 } }))
       // A new launch: the last one's failure no longer applies.
       if (e.state.status === 'starting') clearStartFailure(path, e.state.agentId)
-      applyLiveState(e.state)
-      // Viewing the project that just finished counts as seeing it.
-      if (e.state.unseen && get().selectedProject === path && get().windowFocused && get().activity === 'projects') void call('session:markSeen', path)
+      // An agent on screen is seen as it finishes: it never shows as unseen.
+      if (e.state.unseen && onScreen(path, e.state.agentId)) {
+        applyLiveState({ ...e.state, unseen: false })
+        void call('session:markSeen', path, [e.state.agentId]).catch(() => undefined)
+      } else applyLiveState(e.state)
       break
     }
     case 'session-exit': {
@@ -176,12 +180,8 @@ function handleEvent(e: HiveEvent): void {
       set((st) => ({ branchStatus: { ...st.branchStatus, [projectKey(e.projectPath, e.agentId)]: e.status } }))
       break
     case 'window-state':
+      // Focusing the window marks the agents on screen seen (markOnScreenSeen).
       set({ maximized: e.maximized, windowFocused: e.focused })
-      if (e.focused) {
-        const sel = get().selectedProject
-        const p = get().workspace?.projects.find((x) => x.path === sel)
-        if (projectState(p)?.unseen && get().activity === 'projects') void call('session:markSeen', p!.path)
-      }
       break
   }
 }
@@ -198,7 +198,6 @@ export function App() {
   const activity = useStore((s) => s.activity)
   const settings = useStore((s) => s.settings)
   const providers = useStore((s) => s.providers)
-  const selected = useStore((s) => s.selectedProject)
   const sidebarVisible = useStore((s) => s.sidebarVisible)
   const sidebarCompact = useStore((s) => s.sidebarCompact)
   const setupShown = useRef(false)
@@ -264,9 +263,8 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  useEffect(() => {
-    if (selected && activity === 'projects') void call('session:markSeen', selected)
-  }, [selected, activity])
+  // Agents whose panes come on screen (a project, page, tab or the window shown) are seen.
+  useEffect(() => useStore.subscribe(markOnScreenSeen), [])
 
   useEffect(() => {
     void call('ui:set', { sidebarVisible })
@@ -329,6 +327,7 @@ export function App() {
       <TipCard />
       <Toasts />
       <NotificationCenter />
+      <InboxPopover />
       <CommandPalette />
       <QuitDialog />
       <CompactDialog />

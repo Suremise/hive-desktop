@@ -69,7 +69,7 @@ Status dots:
 | Pulsing yellow | Agent needs your input (e.g. a permission prompt) |
 | Slow, faint orange | Agent is waiting on background tasks it started (e.g. a test run) and carries on when they end |
 | Green | Agent finished its task |
-| Glow | Something happened you haven't looked at yet |
+| Glow | Something happened you haven't looked at yet (it goes once the agent's pane has been on screen) |
 
 The sidebar and the lists in the Sessions, Files, Changes and Memory tabs can be made wider or narrower by dragging their right-hand edge, as can the two halves of a split view in the Files tab. Double-click the edge to reset it. Hive remembers the sizes.
 
@@ -94,7 +94,7 @@ Each agent of a project runs one session at a time (most projects have just one 
 - **The agent header**: its status, provider, name, worktree branch and card, then its buttons: **Compact** and **Stop** while it runs; **Resume**, **Resume a Session…** and **New Session** when it doesn't; **Merge…** for a worktree agent; and **⋯** with everything else. Compact and Stop are always small icon buttons (hover for what they do); as the pane gets narrower the other buttons show only their icons too, then they all fold into **⋯**.
 - **The agent footer**: its model and effort (click for Agent Settings), its permission mode (click to switch), and on the right the name of the session it's running, the context it uses (amber past your Compact threshold; click to see the session in the Overview), the size of the conversation's transcript (amber past **Settings → Sessions → Warn when a transcript is over**; click for Hand Over to…) and the session's cost.
 
-The status bar keeps what concerns the whole app: the workspace, branch, running agents, plan limits, the Agent API, each CLI's version and Hive's updates.
+The status bar keeps what concerns the whole app: the workspace, branch, running agents, the agents that need you (see [Agents that need you](#agents-that-need-you)), plan limits, the Agent API, each CLI's version and Hive's updates.
 
 An agent's header and the **Session** menu let you:
 
@@ -162,7 +162,7 @@ If git can't read the changes, the **Changes** tab says why, with **Retry**. The
 
 **Working with one agent for a while.** With **Merge** and the worktree kept, an agent can do a task and merge it, then the next task and merge again, or several tasks and one merge. When the project folder's branch moves on (another agent's work was merged), ask the agent to merge it into its branch before its next task, so it works on current code.
 
-**Work not merged yet** shows on the agent: **Merge…** in its header turns orange with the number of commits on its branch that aren't in the project folder's branch, and its tab in the agent strip shows the same number with an up arrow. A **•** instead of a number means uncommitted files only. Hover either for the details ("2 commits not merged into main · 1 uncommitted file"). Hive checks when the agent finishes a turn or stops, when you come back to Hive's window, after a merge, and every minute while something is left to merge.
+**Work not merged yet** shows on the agent: **Merge…** in its header turns orange with the number of commits on its branch that aren't in the project folder's branch, and its tab in the agent strip shows the same number with an up arrow. A **•** instead of a number means uncommitted files only. Hover either for the details ("2 commits not merged into main · 1 uncommitted file"). Hive checks when the agent finishes a turn or stops, when you come back to Hive's window, after a merge, and every minute while something is left to merge. **Merge…** is greyed out while the agent is in the middle of a task (working, asking you something, or waiting on background tasks it started), because merging commits its unfinished files; hover it to see why, and merge once it has finished.
 
 **Remove Agent** asks whether to keep a worktree agent's worktree and branch or delete them; **Discard** deletes them straight away. Their sessions stay in the Sessions tab, labelled with the agent and branch. Two dev servers from different agents can clash on the same port; give them different ports.
 
@@ -448,9 +448,20 @@ Updates are checked against their published checksum before they install.
 
 When an agent finishes (for one waiting on background tasks, once they have ended) or needs input, Hive can play a chime and show a Windows notification (click it to jump to the project). Configure both in **Settings → Notifications**; each project can override the chime.
 
+### Agents that need you
+
+With agents working in several projects, the status bar tells you who is waiting on you: **2 need you**. Click it for the list, oldest first, with how long each has been waiting:
+
+- **Needs input**: an agent asking you something, such as a permission. It stays in the list until you answer it.
+- **Finished**: an agent that finished while you weren't looking at it: in another project, on another page of agents, on another tab, or while Hive was in the background. It leaves the list once its pane is on screen.
+
+Click a row to go to that agent (the Assistant's opens its panel). The **Projects** icon in the activity bar shows the same number, and each project in the sidebar shows how many of its agents need you.
+
+Below them, **To review** lists worktree agents that have stopped or finished with work not merged yet, with a summary such as *3 files, +120 −40 · 2 commits*, and buttons for **Changes** and **Merge…**. They don't add to the count; one leaves the list once its work is merged or it starts working again. When nothing needs you but there is work to review, the status bar says **1 to review**.
+
 ## The system tray
 
-Closing the (last) window keeps Hive running in the tray so sessions continue. The tray icon shows a red dot when an agent has finished or needs you, and its menu lists your active projects, grouped by workspace when several windows are open. Quit from the tray menu or **File → Exit**.
+Closing the (last) window keeps Hive running in the tray so sessions continue. The tray icon shows a red dot when an agent needs you. Its menu lists the agents that need you and those with work to review, from every window (click one to go to it), then your active projects, grouped by workspace when several windows are open. Quit from the tray menu or **File → Exit**.
 
 ### Quitting
 
@@ -505,7 +516,7 @@ In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts th
 - **"Claude Code is required" / "Codex is required"** — install the CLI from **Help → Agent Setup…**, or set its path in the provider's settings page. Having the VS Code extension isn't enough; Hive needs the standalone CLI.
 - **"… is turned off"** — turn the provider on in **Settings → Providers**.
 - **Codex asks before every command** — its Windows sandbox isn't set up: **Help → Agent Setup… → Codex → Set up**.
-- **An agent couldn't start** — when its CLI quits before it has started (a setting it refuses, a broken install), the bar under its terminal turns red with **Couldn't start:** and what the CLI said, a hint where Hive recognises the problem, **Retry** and **Agent Settings…** (or **Agent Setup…**). Its tab and header turn red, and if its pane isn't on screen a notification says so. Fix the setting, then Retry; the terminal above keeps everything the CLI printed.
+- **An agent couldn't start** — when its CLI quits before it has started (a setting it refuses, a broken install), the bar under its terminal turns red with **Couldn't start:** and what the CLI said, a hint where Hive recognises the problem, **Retry** and **Agent Settings…** (or **Agent Setup…**). Its tab and header turn red, the attention inbox lists it, and if its pane isn't on screen a notification says so. Fix the setting, then Retry; the terminal above keeps everything the CLI printed.
 - **Status dots don't change** — status comes from the CLI's hooks. A Codex agent shows **Ready** once its prompt appears, and reports its session with your first message. Restart the session; if it persists, check **Help → Open Logs Folder**.
 - **Agent API port in use** — change the port in Settings → Agent API.
 - **"This tab ran into a problem"** — something in that view failed, for example on an unusual file. Your sessions keep running. Click **Try Again** or switch to another tab; if it keeps happening, **Open Logs** has the details for a bug report.

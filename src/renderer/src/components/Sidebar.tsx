@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { McpServerInfo, NoteFile, ProjectInfo, SkillInfo, TaskCard } from '@shared/types'
 import { agentDoingCards } from '@shared/tasks'
 import { cardText } from './CardChip'
@@ -12,6 +12,7 @@ import { cx, formatKeybinding } from '../util'
 import { Icon, IconButton, InfoTip, LoadFailed, StatusDot, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
 import { addSkill, deleteSkill, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
 import { hasEditorDraftsUnder } from '../editorDrafts'
+import { useInbox } from '../inbox'
 import { AssistantSidePanel } from './AssistantView'
 import { BoardPanel } from './Board'
 import { WorkspaceOverviewPanel } from '../views/WorkspaceOverview'
@@ -175,8 +176,31 @@ export function projectInitials(name: string): string {
 }
 
 /** The Projects sidebar collapsed to one status dot per project. */
+/** How many of each project's agents need you (the inbox's count), by path. */
+function useNeedCounts(): Map<string, number> {
+  const { needYou } = useInbox()
+  return useMemo(() => {
+    const m = new Map<string, number>()
+    for (const i of needYou) m.set(i.projectPath, (m.get(i.projectPath) ?? 0) + 1)
+    return m
+  }, [needYou])
+}
+
+function NeedCount({ n }: { n: number | undefined }) {
+  if (!n) return null
+  return (
+    <Tooltip content={`${n} agent${n === 1 ? '' : 's'} need${n === 1 ? 's' : ''} you`}>
+      <span className="project-needs">
+        <Icon name="bell-dot" />
+        {n}
+      </span>
+    </Tooltip>
+  )
+}
+
 function ProjectsRail() {
   const workspace = useStore((s) => s.workspace)
+  const needs = useNeedCounts()
   const tasks = useStore((s) => s.tasks)
   const selected = useStore((s) => s.selectedProject)
   const menu = useContextMenu()
@@ -236,6 +260,7 @@ function ProjectsRail() {
         >
           <span className="rail-initials">{projectInitials(p.name)}</span>
           <span className={cx('dot', state?.status ?? (p.active ? 'idle' : 'stopped'), state?.unseen && 'unseen')} />
+          {!!needs.get(p.path) && <span className="project-need-count">{needs.get(p.path)}</span>}
         </div>
       </Tooltip>
     )
@@ -263,6 +288,7 @@ function ProjectsRail() {
 
 function ProjectsPanel() {
   const workspace = useStore((s) => s.workspace)
+  const needs = useNeedCounts()
   const tasks = useStore((s) => s.tasks)
   const selected = useStore((s) => s.selectedProject)
   const settings = useStore((s) => s.settings)
@@ -323,6 +349,7 @@ function ProjectsPanel() {
                 <Icon name="plug" />
               </Tooltip>
             )}
+            <NeedCount n={needs.get(p.path)} />
           </div>
           <div className="project-sub">
             {p.branch && (

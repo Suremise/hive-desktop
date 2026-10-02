@@ -134,7 +134,26 @@ export async function branchStatus(projectPath: string, wt: AgentWorktree, opts:
   }
   let ahead = count.ok ? parseInt(count.out.trim(), 10) || 0 : 0
   if (ahead > 0 && (await alreadyMerged(projectPath, into ?? wt.base, wt.branch))) ahead = 0
-  return { branch: wt.branch, base: wt.base, into, ahead, dirty: dirty ?? 0 }
+  const diff = ahead > 0 || dirty ? await diffSummary(wt.path, ahead > 0 ? (into ?? wt.base) : null) : undefined
+  return { branch: wt.branch, base: wt.base, into, ahead, dirty: dirty ?? 0, ...(diff ? { diff } : {}) }
+}
+
+/**
+ * Files, lines added and lines removed in a worktree compared with where its branch left `into` (its commits and its
+ * tracked uncommitted changes), or with its own last commit when `into` is null. Null when git can't say.
+ */
+async function diffSummary(cwd: string, into: string | null): Promise<AgentBranchStatus['diff'] | null> {
+  if (!existsSync(cwd)) return null
+  let from = 'HEAD'
+  if (into) {
+    const base = await git(cwd, ['merge-base', into, 'HEAD'])
+    if (!base.ok) return null
+    from = base.out.trim()
+  }
+  const r = await git(cwd, ['diff', '--shortstat', from])
+  if (!r.ok) return null
+  const n = (re: RegExp): number => parseInt(re.exec(r.out)?.[1] ?? '0', 10)
+  return { files: n(/(\d+) files? changed/), insertions: n(/(\d+) insertions?/), deletions: n(/(\d+) deletions?/) }
 }
 
 /**
