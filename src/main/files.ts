@@ -7,7 +7,7 @@ import type { FileContent, FileEntry, SessionImage, SessionImageGroup } from '..
 import { emit } from './events'
 import { insideReal, withFileLock } from './fsutil'
 import { git } from './git'
-import { createLogger } from './logger'
+import { createLogger, userText } from './logger'
 import { workspace } from './workspace'
 
 const log = createLogger('files')
@@ -300,7 +300,7 @@ export function watchProject(projectPath: string): void {
     entry.w.on('error', (e) => log.warn('watch error', e))
     watchers.set(key, entry)
   } catch (e) {
-    log.warn(`Could not watch ${projectPath}`, e)
+    log.warn(`Could not watch ${userText(projectPath)}`, e)
   }
 }
 

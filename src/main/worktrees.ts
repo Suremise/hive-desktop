@@ -4,7 +4,7 @@ import { existsSync } from 'fs'
 import type { AgentBranchStatus, AgentWorktree, MergeResult } from '../shared/types'
 import { copyDir, isDir } from './fsutil'
 import { git } from './git'
-import { createLogger } from './logger'
+import { createLogger, userText } from './logger'
 
 const log = createLogger('worktrees')
 
@@ -56,7 +56,7 @@ export async function createWorktree(projectPath: string, dest: string, branch: 
   await mkdir(dirname(dest), { recursive: true })
   const r = await git(projectPath, ['worktree', 'add', '-b', branch, dest, base])
   if (!r.ok) throw new Error(r.err || 'git worktree add failed')
-  log.info(`Created worktree ${dest} on ${branch} from ${base}`)
+  log.info(`Created worktree ${userText(dest)} on ${userText(branch)} from ${userText(base)}`)
 }
 
 export async function removeWorktree(projectPath: string, wt: AgentWorktree, deleteBranch: boolean): Promise<void> {
@@ -70,7 +70,7 @@ export async function removeWorktree(projectPath: string, wt: AgentWorktree, del
     const b = await git(projectPath, ['branch', '-D', wt.branch])
     if (!b.ok && !/not found/i.test(b.err)) throw new Error(b.err || `Could not delete branch ${wt.branch}`)
   }
-  log.info(`Removed worktree ${wt.path}${deleteBranch ? ` and branch ${wt.branch}` : ''}`)
+  log.info(`Removed worktree ${userText(wt.path)}${deleteBranch ? ` and branch ${userText(wt.branch)}` : ''}`)
 }
 
 /** Glob patterns (one per line or comma separated) as regular expressions. A pattern without "/" matches any file or folder name. */
@@ -109,7 +109,7 @@ export async function copyIgnored(projectPath: string, dest: string, patterns: s
       else await copyFile(src, target)
       copied.push(rel)
     } catch (e) {
-      log.warn(`Could not copy ${rel} into the worktree`, e)
+      log.warn(`Could not copy ${userText(rel)} into the worktree`, e)
     }
   }
   return copied
@@ -216,7 +216,7 @@ export async function mergeWorktree(projectPath: string, wt: AgentWorktree, opts
       return { ok: false, error: m.err || m.out || 'git merge failed' }
     }
   }
-  log.info(`Merged ${wt.branch} into ${into}${opts.squash ? ' (squash)' : ''}`)
+  log.info(`Merged ${userText(wt.branch)} into ${userText(into)}${opts.squash ? ' (squash)' : ''}`)
   if (!opts.squash || !opts.moveBranch) return { ok: true }
   const moved = await moveBranchTo(projectPath, wt, into)
   return moved === true ? { ok: true, branchMoved: true } : { ok: true, moveError: moved }
@@ -235,6 +235,6 @@ export async function moveBranchTo(projectPath: string, wt: AgentWorktree, into:
   if (!(await alreadyMerged(projectPath, into, wt.branch))) return `${into} doesn't have everything on ${wt.branch}.`
   const r = await git(wt.path, ['reset', '--keep', into])
   if (!r.ok) return r.err || r.out || 'git reset failed'
-  log.info(`Moved ${wt.branch} to ${into} after the squash merge`)
+  log.info(`Moved ${userText(wt.branch)} to ${userText(into)} after the squash merge`)
   return true
 }

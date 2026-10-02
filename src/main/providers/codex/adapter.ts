@@ -12,7 +12,7 @@ import { CODEX, CODEX_DESCRIPTOR, CODEX_MODE_FLAGS, CODEX_PERMISSION_MODES } fro
 import { providerSettings } from '../../../shared/providers'
 import { config } from '../../config'
 import { copyDir, hashDir, removePath, withFileLock } from '../../fsutil'
-import { createLogger } from '../../logger'
+import { createLogger, userText } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, toSpawnable } from '../common'
 import type { BackgroundTaskEvent, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillRoots, UsageParser } from '../types'
@@ -348,6 +348,12 @@ export class CodexAdapter implements ProviderAdapter {
     return typeof w?.sandbox === 'string' && w.sandbox ? w.sandbox : null
   }
 
+  diagnostics(): string[] {
+    const kind = this.sandboxKind()
+    const named: Record<string, string> = { elevated: 'default (admin)', unelevated: 'non-admin', 'n/a': 'not used on this system' }
+    return [`Windows sandbox: ${kind === null ? 'not set up' : (named[kind] ?? (/^[\w-]{1,24}$/.test(kind) ? kind : 'unknown'))}`]
+  }
+
   readiness(info: AgentInstallInfo): ReadinessIssue[] {
     if (!info.found) return [{ id: 'not-installed', level: 'error', message: 'Codex is not installed.', action: { label: 'Install', task: 'install' } }]
     const out: ReadinessIssue[] = []
@@ -489,7 +495,7 @@ export class CodexAdapter implements ProviderAdapter {
       if (had === null) {
         // Not marked: the user's own folder, unless it is an unchanged copy from before markers.
         if ((await hashDir(dest).catch(() => '')) !== hash) {
-          log.warn(`Not copying skill "${s.name}" for Codex: ${dest} is not Hive's copy.`)
+          log.warn(`Not copying skill ${userText(s.name)} for Codex: ${userText(dest)} is not Hive's copy.`)
           continue
         }
       } else {
@@ -558,7 +564,7 @@ export class CodexAdapter implements ProviderAdapter {
     for (const name of theirs) {
       if (own.has(name)) continue
       if (/^[A-Za-z0-9_-]+$/.test(name)) args.push('-c', `mcp_servers.${name}.enabled=false`)
-      else log.warn(`Codex MCP server "${name}" can't be turned off for Hive sessions (its name needs quoting).`)
+      else log.warn(`Codex MCP server ${userText(name)} can't be turned off for Hive sessions (its name needs quoting).`)
     }
     args.push(...ctx.extraArgs)
     // Codex takes a first prompt as its last argument (after "resume <id>" too) and starts on it.
