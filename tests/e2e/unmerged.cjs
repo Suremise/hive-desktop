@@ -1,0 +1,112 @@
+// A worktree agent's unmerged work on its Merge… button and agent tab: none at first, the count once a turn
+// ends with a commit on its branch, gone after the merge, and • for uncommitted files alone. The agent runs the
+// fake Claude Code (fake-claude/). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+const { execFileSync } = require('child_process')
+
+const userData = path.join(lib.WORK, 'unmerged-profile')
+const ws = path.join(lib.WORK, 'unmerged-ws')
+const claudeHome = path.join(lib.WORK, 'unmerged-claude-home')
+const alpha = path.join(ws, 'alpha')
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+const git = (cwd, ...a) => execFileSync('git', a, { cwd }).toString()
+
+;(async () => {
+  for (const d of [userData, ws, ws + '.worktrees', claudeHome]) fs.rmSync(d, { recursive: true, force: true })
+  fs.mkdirSync(claudeHome, { recursive: true })
+  lib.gitProject(alpha)
+  git(alpha, 'config', 'user.email', 't@t')
+  git(alpha, 'config', 'user.name', 't')
+  lib.enableProviders(userData)
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47897', CLAUDE_CONFIG_DIR: claudeHome }
+  delete env.ELECTRON_RUN_AS_NODE
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.fitWindow(app, page, { width: 1400, height: 850 })
+  await lib.sleep(1500)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await inv('workspace:open', ws)
+  await lib.sleep(1000)
+  const until = async (fn, ms = 10000) => {
+    const t = Date.now()
+    let v
+    while (!(v = await fn()) && Date.now() - t < ms) await lib.sleep(200)
+    return v
+  }
+  const live = async (id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === id)
+
+  await page.getByText('alpha', { exact: true }).first().click()
+  const two = await lib.addAgent(inv, alpha, { name: 'Two', location: 'new-worktree' })
+  const wt = two.worktree.path
+  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase(), wt.toLowerCase()]))
+  await inv('session:start', alpha, { agentId: two.id })
+  check('the agent starts in its worktree', !!(await until(async () => (await live(two.id))?.status === 'ready', 15000)))
+
+  /** A prompt to the agent, and the end of its turn. */
+  let turns = 0
+  const turn = async () => {
+    turns++
+    await inv('pty:write', lib.ptyKey(alpha, two.id), `turn ${turns}`)
+    await lib.sleep(300)
+    await inv('pty:write', lib.ptyKey(alpha, two.id), '\r')
+    await until(async () => String(await inv('pty:buffer', lib.ptyKey(alpha, two.id))).includes(`Done: turn ${turns}`), 15000)
+    await until(async () => (await live(two.id))?.status === 'finished', 15000)
+  }
+  const merge = page.locator('.pane-header-bar').getByRole('button', { name: 'Merge…' })
+  const count = async () => ((await merge.locator('.btn-count').count()) ? await merge.locator('.btn-count').innerText() : '')
+  const tabBadge = async () => ((await page.locator('.agent-tab .agent-unmerged').count()) ? await page.locator('.agent-tab .agent-unmerged').innerText() : '')
+  const highlighted = async () => /\bsuggest\b/.test((await merge.getAttribute('class')) ?? '')
+
+  await turn()
+  await lib.sleep(2500)
+  check('nothing to merge: Merge… is plain', (await count()) === '' && !(await highlighted()) && (await tabBadge()) === '', `${await count()} ${await tabBadge()}`)
+
+  // The agent commits on its branch during a turn: the count shows once the turn ends.
+  fs.writeFileSync(path.join(wt, 'b.ts'), 'export const b = 2\n')
+  git(wt, 'add', '-A')
+  git(wt, 'commit', '-q', '-m', 'b')
+  await turn()
+  check('a commit shows on Merge… once the turn ends', !!(await until(async () => (await count()) === '1', 8000)), await count())
+  check('Merge… is highlighted', await highlighted())
+  check('and the tab shows ↑1', (await tabBadge()) === '1' && (await page.locator('.agent-tab .agent-unmerged .codicon-arrow-up').count()) === 1, await tabBadge())
+  await merge.hover()
+  const tip = page.locator('.tip').filter({ hasText: 'not merged' })
+  check('its tooltip says what is unmerged', !!(await until(async () => (await tip.count()) > 0, 3000)))
+  await page.screenshot({ path: path.join(lib.WORK, 'unmerged-1-commit.png') })
+  await page.mouse.move(5, 400)
+
+  // Merged: the count goes.
+  const r = await inv('agents:merge', alpha, two.id, { squash: false, message: 'Merge Two', cleanup: false })
+  check('the merge succeeds', r.ok, JSON.stringify(r))
+  check('after the merge Merge… is plain again', !!(await until(async () => (await count()) === '' && (await tabBadge()) === '', 8000)), `${await count()} ${await tabBadge()}`)
+
+  // Uncommitted files alone: a dot.
+  fs.writeFileSync(path.join(wt, 'c.ts'), 'export const c = 3\n')
+  await turn()
+  check('uncommitted files alone show •', !!(await until(async () => (await count()) === '•' && (await tabBadge()) === '•', 8000)), `${await count()} ${await tabBadge()}`)
+  const st = (await inv('agents:branchStatuses')).find((b) => b.agentId === two.id)?.status
+  check('the window was told the counts', st?.ahead === 0 && st?.dirty === 1, JSON.stringify(st))
+  await page.screenshot({ path: path.join(lib.WORK, 'unmerged-2-dirty.png') })
+
+  await inv('session:stop', alpha, two.id).catch(() => undefined)
+  await app.close()
+  console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

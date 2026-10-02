@@ -150,6 +150,9 @@ If git can't read the changes, the **Changes** tab says why, with **Retry**.
 
 **Reviewing and merging a worktree agent's work.** In the **Changes** and **Files** tabs, the selector at the top switches between the project folder and each agent's worktree. For a worktree, Changes lists everything the agent changed since its branch started (its commits and uncommitted edits). When it is done, choose **Merge** (pane header, agent menu or Changes tab):
 
+**Work not merged yet** shows on the agent: **Merge…** in its header turns orange with the number of commits on its branch that aren't in the project folder's branch, and its tab in the agent strip shows the same number with an up arrow. A **•** instead of a number means uncommitted files only. Hover either for the details ("2 commits not merged into main · 1 uncommitted file"). Hive checks when the agent finishes a turn or stops, when you come back to Hive's window, after a merge, and every minute while something is left to merge.
+
+
 - Uncommitted changes are committed on the agent's branch first, with the message you enter.
 - The branch is merged into the branch checked out in the project folder: **Squash** (one commit, the default; **Settings → Agents & Worktrees → Default merge style**) or **Merge** (keeps the agent's commits).
 - If the same files changed on both sides, nothing is merged. Hive lists the files and can send an agent in the project folder instructions to do the merge and resolve the conflicts, or copy them for you.

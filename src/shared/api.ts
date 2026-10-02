@@ -192,6 +192,8 @@ export interface HiveRequests {
   /** Branches and worktrees, for the Add Agent dialog. */
   'agents:gitInfo': (projectPath: string) => ProjectGitInfo
   'agents:branchStatus': (projectPath: string, agentId: string) => AgentBranchStatus
+  /** Every worktree agent's unmerged work known so far (then `branch-status` events as it changes). */
+  'agents:branchStatuses': () => { projectPath: string; agentId: string; status: AgentBranchStatus | null }[]
   /** Commits the worktree's changes and merges its branch into the project folder's current branch. */
   'agents:merge': (projectPath: string, agentId: string, opts: { squash: boolean; message: string; cleanup: boolean }) => MergeResult
 

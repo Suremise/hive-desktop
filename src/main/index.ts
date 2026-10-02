@@ -18,6 +18,7 @@ import { archiveOldDone } from './tasks'
 import { emit, emitTo, onHiveEvent, toast } from './events'
 import { recordLiveCards } from './cardSessions'
 import { registerIpc } from './ipc'
+import { startBranchWatch } from './branchWatch'
 import { createLogger, logsDir } from './logger'
 import { killAll } from './ptyHost'
 import { onCorruptFile } from './fsutil'
@@ -622,6 +623,7 @@ app.whenReady().then(async () => {
   await startHookServer()
   await startApiServer()
   wireSettingsEffects()
+  startBranchWatch()
 
   registerIpc(appInfo, {
     quit: () => void requestQuit(),

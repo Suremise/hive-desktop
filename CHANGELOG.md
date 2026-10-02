@@ -5,6 +5,7 @@
 ### Agent header
 - **Archive & New** moved from the agent header into its **⋯** menu, as **Archive and Start New…**, leaving more room for the agent's name, card and session.
 - **Compact** and **Stop** are small icon buttons, like the Assistant's (hover for what they do).
+- **See when a worktree agent has work to merge**: **Merge…** turns orange with the number of commits not merged into the project folder's branch, and the agent's tab shows it too (↑2). A • means uncommitted files only; hover for the details. It updates when the agent finishes a turn, when you come back to Hive, and after a merge.
 
 ### Task board
 - **A task board for the workspace**: cards in **Todo**, **Doing**, **Review** and **Done**, each for a project, with a description, labels, a blocked reason, the cards it depends on, comments and a history of who changed what. Open it from the activity bar (**Ctrl+Shift+J**); each project also has a **Tasks** tab. Drag cards between columns; a Doing card shows what its agent is doing right now.

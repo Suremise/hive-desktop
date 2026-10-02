@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { CardChip, useAgentCards } from './CardChip'
-import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, effectiveModelLabel, effortLabel, formatBytes, layoutPanes, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit } from '@shared/defaults'
+import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, effectiveModelLabel, effortLabel, formatBytes, layoutPanes, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import type { AgentInfo, ProjectInfo, SessionLayout, SessionListItem } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
@@ -295,6 +295,23 @@ function reviewChanges(project: ProjectInfo, a: AgentInfo): void {
   setProjectTab(project.path, 'changes')
 }
 
+/** A worktree agent's work not merged into the project folder yet (null: not a worktree agent, or not checked yet). */
+function useUnmerged(project: ProjectInfo, a: AgentInfo): ReturnType<typeof unmergedWork> {
+  const st = useStore((s) => (a.worktree ? s.branchStatus[projectKey(project.path, a.id)] : undefined))
+  return a.worktree ? unmergedWork(st) : null
+}
+
+/** On an agent's tab: ↑ and its unmerged commits (• for only uncommitted files). */
+function UnmergedBadge({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
+  const work = useUnmerged(project, a)
+  if (!work?.badge) return null
+  return (
+    <span className="agent-unmerged" aria-label={work.text}>
+      {work.badge === '•' ? '•' : <><Icon name="arrow-up" />{work.badge}</>}
+    </span>
+  )
+}
+
 function Locks({ a }: { a: AgentInfo }) {
   const files = a.live?.lockedFiles
   if (!files?.length) return null
@@ -311,12 +328,14 @@ function Locks({ a }: { a: AgentInfo }) {
 function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const usage = useLiveUsage(project, a.live ? a.id : undefined)
   const cards = useAgentCards(project, a.id)
+  const unmerged = useUnmerged(project, a)
   const live = a.live
   const lines = [`${a.name} (${providerName(agentProviderOf(project, a))}): ${live ? statusText(live) : 'not running'}`]
   for (const c of cards) lines.push(`Working on #${c.number} ${c.title}`)
   if (live) lines.push(`Session: ${sessionLabel({ id: live.sessionId, name: live.sessionName, title: usage?.title }, project.name)}`)
   else if (a.resume) lines.push(`Resume opens: ${sessionLabel(a.resume, project.name)} (${timeAgo(a.resume.lastActiveAt)})`)
   if (a.worktree) lines.push(`Worktree ${a.worktree.path} on ${a.worktree.branch}, branched from ${a.worktree.base}`)
+  if (unmerged?.badge) lines.push(`To merge: ${unmerged.text}`)
   return <span style={{ whiteSpace: 'pre-line' }}>{lines.join('\n')}</span>
 }
 
@@ -394,6 +413,7 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
             )}
             <CardChip project={project} a={a} short tip={false} />
             <Locks a={a} />
+            <UnmergedBadge project={project} a={a} />
           </div>
         </Tooltip>
       ))}
@@ -476,6 +496,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   const [ref, width] = useWidth<HTMLDivElement>()
   const settings = useStore((s) => s.settings)
   const usage = useLiveUsage(project, a.id)
+  const unmerged = useUnmerged(project, a)
   const live = a.live
   const idle = live && (live.status === 'ready' || live.status === 'finished')
   // Compact: while idle and there's a conversation; highlighted once the context passes the threshold.
@@ -496,11 +517,12 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   const pick = (x: number, y: number) => () => void picker.openAt(project, a, x, y)
   const size = width >= LABELS_FROM ? 'labels' : width >= ICONS_FROM ? 'icons' : 'menu'
   /** A header button: labelled or an icon with a tooltip, by the pane's width (`iconOnly`: always an icon, like the Assistant's). */
-  const btn = (icon: string, label: string, onClick: (e: React.MouseEvent<HTMLButtonElement>) => void, tone: string, opts: { disabled?: boolean; tip?: string; iconOnly?: boolean } = {}) => (
+  const btn = (icon: string, label: string, onClick: (e: React.MouseEvent<HTMLButtonElement>) => void, tone: string, opts: { disabled?: boolean; tip?: string; iconOnly?: boolean; count?: string | null } = {}) => (
     <Tooltip key={label} content={opts.tip ?? label}>
       <button type="button" className={cx('btn small pane-btn', tone, (size === 'icons' || opts.iconOnly) && 'icon-only')} disabled={opts.disabled} aria-label={label} onClick={(e) => { e.stopPropagation(); onClick(e) }}>
         <Icon name={icon} />
         {size === 'labels' && !opts.iconOnly && <span>{label}</span>}
+        {opts.count && <span className="btn-count">{opts.count}</span>}
       </button>
     </Tooltip>
   )
@@ -538,7 +560,12 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
             {btn('add', 'New Session', () => void actions.newSession(project.path, a.id), 'primary')}
           </>
         ))}
-      {a.worktree && size !== 'menu' && btn('git-merge', 'Merge…', () => set({ mergeFor: { project: project.path, agentId: a.id } }), 'subtle')}
+      {a.worktree &&
+        size !== 'menu' &&
+        btn('git-merge', 'Merge…', () => set({ mergeFor: { project: project.path, agentId: a.id } }), cx('subtle', unmerged?.badge && 'suggest'), {
+          count: unmerged?.badge,
+          tip: unmerged ? `Merge ${a.worktree.branch}: ${unmerged.text}` : `Merge ${a.worktree.branch} into the project folder`
+        })}
       <IconButton icon="ellipsis" title="More" onClick={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))} />
       {menu.element}
       {picker.element}

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { Period } from '@shared/usageTotals'
 import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageLayout, pageOfAgent } from '@shared/defaults'
 import { agentProvider } from '@shared/providers'
-import type { QuitScope, TaskCard, UpdateState, WorkspaceUsage } from '@shared/types'
+import type { AgentBranchStatus, QuitScope, TaskCard, UpdateState, WorkspaceUsage } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
@@ -73,6 +73,8 @@ interface State {
   providers: Record<ProviderId, AgentInstallInfo>
   /** Subscription limits each provider last reported (account-wide), by provider. */
   planUsage: Record<ProviderId, PlanUsage>
+  /** Worktree agents' unmerged work, by projectKey (null: git couldn't check it). */
+  branchStatus: Record<string, AgentBranchStatus | null>
   api: AgentApiInfo | null
   appInfo: AppInfo | null
 
@@ -196,6 +198,7 @@ export const useStore = create<State>(() => ({
   recent: [],
   providers: {},
   planUsage: {},
+  branchStatus: {},
   api: null,
   appInfo: null,
 

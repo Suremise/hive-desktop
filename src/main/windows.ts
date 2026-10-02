@@ -84,6 +84,7 @@ function forEvent(e: HiveEvent): BrowserWindow[] {
     case 'assistant-activity':
     case 'assistant-questions':
     case 'agent-added':
+    case 'branch-status':
       return wins([windowForPath(e.projectPath)])
     case 'tasks-changed':
       return wins([windowForPath(e.workspacePath)])

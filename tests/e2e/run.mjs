@@ -29,6 +29,7 @@ const SUITES = [
   { name: 'resumeall' },
   { name: 'cardchip' },
   { name: 'reorder' },
+  { name: 'unmerged' },
   { name: 'busy' },
   { name: 'changes' },
   { name: 'board' },

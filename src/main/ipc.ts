@@ -26,6 +26,7 @@ import * as personas from './personas'
 import { killPty, ptyBuffer, resizePty, writePty } from './ptyHost'
 import { apiInfo, regenerateToken } from './servers'
 import * as projectAgents from './projectAgents'
+import * as branchWatch from './branchWatch'
 import { sessions } from './sessions'
 import { transcripts } from './transcripts'
 import * as skills from './skills'
@@ -304,7 +305,12 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'agents:remove': (p, id, opts) => projectAgents.removeAgent(p, id, opts),
     'agents:move': (p, id, index) => projectAgents.moveAgent(p, id, index),
     'agents:gitInfo': (p) => projectAgents.gitInfo(p),
-    'agents:branchStatus': (p, id) => projectAgents.branchStatus(p, id),
+    'agents:branchStatus': async (p, id) => {
+      const st = await projectAgents.branchStatus(p, id)
+      branchWatch.record(p, id, st)
+      return st
+    },
+    'agents:branchStatuses': () => branchWatch.statuses(),
     'agents:merge': (p, id, opts) => projectAgents.merge(p, id, opts),
 
     'files:list': (p, rel) => files.listDir(p, rel),

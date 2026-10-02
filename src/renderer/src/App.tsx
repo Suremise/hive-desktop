@@ -149,6 +149,9 @@ function handleEvent(e: HiveEvent): void {
     case 'agent-added':
       noteAgentAdded(e.projectPath, e.agentId)
       break
+    case 'branch-status':
+      set((st) => ({ branchStatus: { ...st.branchStatus, [projectKey(e.projectPath, e.agentId)]: e.status } }))
+      break
     case 'window-state':
       set({ maximized: e.maximized, windowFocused: e.focused })
       if (e.focused) {
@@ -195,6 +198,9 @@ export function App() {
       if (ws) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
       for (const l of live) applyLiveState(l)
       void loadTasks()
+      void call('agents:branchStatuses').then((list) =>
+        set((st) => ({ branchStatus: { ...Object.fromEntries(list.map((b) => [projectKey(b.projectPath, b.agentId), b.status])), ...st.branchStatus } }))
+      )
       // A reloaded window picks up a quit dialog or pending quit that was already in progress.
       set({ planUsage: await call('app:planUsage'), update: await call('update:state') })
       const q = await call('app:quitState')

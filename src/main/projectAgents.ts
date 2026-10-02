@@ -7,6 +7,7 @@ import { config } from './config'
 import { toast } from './events'
 import { withFileLock } from './fsutil'
 import { createLogger } from './logger'
+import { checkProject } from './branchWatch'
 import { sessions } from './sessions'
 import { releaseAgentCards } from './tasks'
 import { workspace, workspaceOf } from './workspace'
@@ -169,14 +170,17 @@ export async function merge(projectPath: string, agentId: string, opts: { squash
   if (st === 'background') throw new Error(`${def.name} is waiting on background tasks it started. Merge once it has finished.`)
   // One merge at a time per project folder: two would stage and commit into each other.
   const result = await withFileLock(join(projectPath, '.git', 'hive-merge'), () => wt.mergeWorktree(projectPath, worktree, opts))
+  // The project folder's branch moved on: every worktree agent's unmerged work is counted again.
   if (!result.ok || !opts.cleanup) {
     workspaceOf(projectPath).scheduleRefresh()
+    void checkProject(projectPath)
     return result
   }
   try {
     await wt.removeWorktree(projectPath, worktree, true)
     await workspace.mutateProjectConfig(projectPath, (now) => ({ agents: now.agents.filter((a) => a.id !== agentId) }))
     await workspaceOf(projectPath).refresh()
+    void checkProject(projectPath)
     return { ...result, cleanedUp: true }
   } catch (e) {
     toast('warning', 'Merged, but the worktree was not removed', (e as Error).message, undefined, projectPath)

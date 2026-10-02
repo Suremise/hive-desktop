@@ -1014,6 +1014,8 @@ export type HiveEvent =
   | { type: 'assistant-questions'; projectPath: string; questions: AssistantQuestion[] }
   /** An agent was added by the Hive Assistant: the view doesn't move to it. */
   | { type: 'agent-added'; projectPath: string; agentId: string }
+  /** A worktree agent's unmerged work changed (null: git couldn't check it). */
+  | { type: 'branch-status'; projectPath: string; agentId: string; status: AgentBranchStatus | null }
   | { type: 'plan-usage'; provider: ProviderId; usage: PlanUsage }
   | { type: 'window-state'; maximized: boolean; focused: boolean }
   | { type: 'update-state'; state: UpdateState }

@@ -1,4 +1,4 @@
-import type { AgentDef, AppConfig, AppSettings, KeybindingOverrides, FileLockMode, PageLayout, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderSettings, SessionLayout, SessionRecord, WorkspaceConfig } from './types'
+import type { AgentBranchStatus, AgentDef, AppConfig, AppSettings, KeybindingOverrides, FileLockMode, PageLayout, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderSettings, SessionLayout, SessionRecord, WorkspaceConfig } from './types'
 import { CLAUDE_CODE } from './claude'
 import { DEFAULT_COLUMN_COLORS } from './tasks'
 import { DEFAULT_PROVIDER, PROVIDERS, defaultProviderSettings, isKnownProvider, providerDescriptor } from './providers'
@@ -460,6 +460,20 @@ export function sessionLabel(s: { id: string; name?: string | null; title?: stri
 }
 
 /** Where Hive's releases (and its update feed) are published. */
+/**
+ * A worktree agent's work not yet merged, for its Merge… button and tab: `badge` is the number of commits
+ * (• when there are only uncommitted files, null when there is nothing to merge) and `text` says it in words.
+ */
+export function unmergedWork(st: AgentBranchStatus | null | undefined): { badge: string | null; text: string } | null {
+  if (!st) return null
+  const into = st.into ?? st.base
+  const parts: string[] = []
+  if (st.ahead > 0) parts.push(`${st.ahead} commit${st.ahead === 1 ? '' : 's'} not merged into ${into}`)
+  if (st.dirty > 0) parts.push(`${st.dirty} uncommitted file${st.dirty === 1 ? '' : 's'}`)
+  if (!parts.length) return { badge: null, text: `Nothing to merge into ${into}` }
+  return { badge: st.ahead > 0 ? String(st.ahead) : '•', text: parts.join(' · ') }
+}
+
 export const RELEASES_URL = 'https://github.com/Suremise/hive-desktop/releases'
 
 // ---------------------------------------------------------------------------
