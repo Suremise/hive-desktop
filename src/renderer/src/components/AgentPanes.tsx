@@ -495,12 +495,12 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         : `Summarise the conversation to shrink its context${usage ? ` (now ${formatTokens(tokens)} tokens)` : ''}. The full history stays in the transcript.${suggested ? ' Recommended: the context is over your threshold.' : ''}`
   const pick = (x: number, y: number) => () => void picker.openAt(project, a, x, y)
   const size = width >= LABELS_FROM ? 'labels' : width >= ICONS_FROM ? 'icons' : 'menu'
-  /** A header button: labelled or an icon with a tooltip, by the pane's width. */
-  const btn = (icon: string, label: string, onClick: (e: React.MouseEvent<HTMLButtonElement>) => void, tone: string, opts: { disabled?: boolean; tip?: string } = {}) => (
+  /** A header button: labelled or an icon with a tooltip, by the pane's width (`iconOnly`: always an icon, like the Assistant's). */
+  const btn = (icon: string, label: string, onClick: (e: React.MouseEvent<HTMLButtonElement>) => void, tone: string, opts: { disabled?: boolean; tip?: string; iconOnly?: boolean } = {}) => (
     <Tooltip key={label} content={opts.tip ?? label}>
-      <button type="button" className={cx('btn small pane-btn', tone, size === 'icons' && 'icon-only')} disabled={opts.disabled} aria-label={label} onClick={(e) => { e.stopPropagation(); onClick(e) }}>
+      <button type="button" className={cx('btn small pane-btn', tone, (size === 'icons' || opts.iconOnly) && 'icon-only')} disabled={opts.disabled} aria-label={label} onClick={(e) => { e.stopPropagation(); onClick(e) }}>
         <Icon name={icon} />
-        {size === 'labels' && <span>{label}</span>}
+        {size === 'labels' && !opts.iconOnly && <span>{label}</span>}
       </button>
     </Tooltip>
   )
@@ -528,8 +528,8 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       {size !== 'menu' &&
         (live ? (
           <>
-            {btn(compacting ? 'loading' : 'fold', 'Compact', () => set({ compactFor: { project: project.path, agentId: a.id } }), cx('subtle', suggested && idle && 'suggest'), { disabled: !idle || empty, tip: compactTip })}
-            {btn('stop-circle', 'Stop', () => void actions.stopSession(project.path, a.id), 'tint-red', { tip: 'Stop this agent (the conversation is kept; resume it any time)' })}
+            {btn(compacting ? 'loading' : 'fold', 'Compact', () => set({ compactFor: { project: project.path, agentId: a.id } }), cx('subtle', suggested && idle && 'suggest'), { disabled: !idle || empty, tip: compactTip, iconOnly: true })}
+            {btn('stop-circle', 'Stop', () => void actions.stopSession(project.path, a.id), 'tint-red', { tip: 'Stop this agent (the conversation is kept; resume it any time)', iconOnly: true })}
           </>
         ) : (
           <>
