@@ -34,7 +34,7 @@ import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, toast } from './events'
 import { hashDir, hashText, readJson, removePath, splitArgs, syncCopy, syncCopyLocked, withFileLock, writeJsonAtomic } from './fsutil'
-import { createLogger } from './logger'
+import { createLogger, userText } from './logger'
 import { applyStep, expireTasks, hookStep, idleAfter } from './hookStatus'
 import { FinishBatcher, finishedNotice } from '../shared/bursts'
 import { recordCards } from './cardSessions'
@@ -599,7 +599,7 @@ class SessionManager {
       adopted = cliRename({ ...existing, usage }, assistant ? ASSISTANT_NAME : basename(projectPath))
       if (adopted) {
         await workspace.upsertSession(projectPath, { id: existing.id, name: adopted, titleAtRename: adopted })
-        log.info(`Session ${existing.id} takes the name "${adopted}" it was given in the CLI`)
+        log.info(`Session ${existing.id} takes the name ${userText(adopted)} it was given in the CLI`)
       }
     }
     const sessionName = adopted || opts.name?.trim() || existing?.name || (assistant ? `${ASSISTANT_NAME}${persona ? ` · ${persona}` : ''} · ${new Date().toLocaleString()}` : autoName(projectPath, agent, count))
@@ -801,7 +801,7 @@ class SessionManager {
     l.initialPrompt = undefined
     l.backupTimer = setInterval(() => void this.backup(projectPath, agent.id), 5000)
     // The process runs now: failing to record it (a full disk) must not leave it untracked.
-    if (state.sessionId) await this.recordSession(projectPath, agent, l).catch((e) => log.warn(`${this.label(state)}: could not record session ${state.sessionId}`, e))
+    if (state.sessionId) await this.recordSession(projectPath, agent, l).catch((e) => log.warn(`${userText(this.label(state))}: could not record session ${state.sessionId}`, e))
 
     // Launched as active: starting a session implies working on the project.
     if (!workspace.isAssistantHome(projectPath) && !workspaceOf(projectPath).activeNames().includes(basename(projectPath))) workspace.setActive(projectPath, true)
@@ -818,7 +818,7 @@ class SessionManager {
     if (existsSync(early)) {
       const dest = join(projectPath, HIVE_DIR, 'images', sessionId)
       await mkdir(dest, { recursive: true }).catch(() => undefined)
-      for (const f of await readdir(early).catch(() => [] as string[])) await rename(join(early, f), join(dest, f)).catch((e) => log.warn(`Could not move ${f}`, e))
+      for (const f of await readdir(early).catch(() => [] as string[])) await rename(join(early, f), join(dest, f)).catch((e) => log.warn(`Could not move ${userText(f)}`, e))
       await rm(early, { recursive: true, force: true }).catch(() => undefined)
     }
     await workspace.upsertSession(projectPath, {
@@ -1063,11 +1063,11 @@ class SessionManager {
       if (st.permissionMode !== mode) {
         st.permissionMode = before
         this.emitState(st)
-        log.warn(`${this.label(st)}: ${name} didn't confirm switching to ${mode}`)
+        log.warn(`${userText(this.label(st))}: ${name} didn't confirm switching to ${mode}`)
         return { ok: false, message: `${name} didn't confirm switching to ${permissionLabel(p, mode)}. Check its terminal, or use /permissions there.` }
       }
       this.emitState(st)
-      log.info(`${this.label(st)}: switched to ${mode} with the mode menu (confirmed)`)
+      log.info(`${userText(this.label(st))}: switched to ${mode} with the mode menu (confirmed)`)
       return { ok: true }
     }
     const seen = new Set<PermissionMode>()
@@ -1078,7 +1078,7 @@ class SessionManager {
       const t = Date.now()
       while (Date.now() - t < 1500 && st.permissionMode === before) await new Promise((r) => setTimeout(r, 50))
       if (st.permissionMode === mode) {
-        log.info(`${this.label(st)}: switched to ${mode}`)
+        log.info(`${userText(this.label(st))}: switched to ${mode}`)
         return { ok: true }
       }
       if (st.permissionMode === before) break
@@ -1359,7 +1359,7 @@ class SessionManager {
             return { reason, exitCode: code, resumed: !!l.resumed, at: new Date().toISOString(), ...l.adapter.startHint?.(terminalLines(output).slice(-12).join('\n')) }
           })()
         : undefined
-    if (failure) log.warn(`${this.label(l!.state)}: exited with code ${code} before it started: ${failure.reason.replace(/\n/g, ' | ')}`)
+    if (failure) log.warn(`${userText(this.label(l!.state))}: exited with code ${code} before it started: ${userText(failure.reason.replace(/\n/g, ' | '))}`)
     if (l) {
       if (l.backupTimer) clearInterval(l.backupTimer)
       if (l.compacting) clearTimeout(l.compacting.timer)
@@ -1562,7 +1562,7 @@ class SessionManager {
   private sweepTasks(l: LiveSession): boolean {
     const minutes = taskMinutes()
     const dropped = l.tasks ? expireTasks(l.tasks, Date.now(), minutes) : []
-    for (const id of dropped) log.info(`${this.label(l.state)}: stopped counting background task ${id} after ${minutes} minutes`)
+    for (const id of dropped) log.info(`${userText(this.label(l.state))}: stopped counting background task ${id} after ${minutes} minutes`)
     l.state.backgroundTasks = l.tasks?.size || undefined
     return dropped.length > 0
   }
@@ -1629,7 +1629,7 @@ class SessionManager {
     const advice = assistant
       ? 'Start a new conversation (⋯ → New Conversation) to keep things quick.'
       : 'Hand it over to a new conversation (Hand Over to…) to keep things quick. Compacting doesn\'t shrink the file.'
-    log.info(`${label}: transcript is ${formatBytes(bytes)}, over ${limitMB} MB`)
+    log.info(`${userText(label)}: transcript is ${formatBytes(bytes)}, over ${limitMB} MB`)
     toast('warning', `${label}: long conversation`, `Its transcript is ${formatBytes(bytes)}, which slows down the CLI and Hive. ${advice}`, assistant ? undefined : [{ label: 'Hand Over to…', command: 'session.handOverTo', args: [st.projectPath, st.agentId] }], st.projectPath)
     this.notify(st.projectPath, `${label}: long conversation`, `Its transcript is ${formatBytes(bytes)}. ${advice}`, 'notice')
   }
@@ -1729,7 +1729,7 @@ class SessionManager {
       if (!holder || now - held!.at >= LOCK_TTL_MS) continue
       const rel = relative(holder.state.cwd, abs) || basename(abs)
       const who = holder.state.agentName ?? 'Another agent'
-      log.info(`Lock: ${l.state.agentName} → ${rel} held by ${who} (${mode})`)
+      log.info(`Lock: ${userText(l.state.agentName)} → ${userText(rel)} held by ${userText(who)} (${mode})`)
       if (mode === 'warn') {
         return l.adapter.lockReply({ kind: 'warn', context: `Note: ${who} is also editing ${rel} right now. Check the file's current content before changing it, and keep your edit small.` })
       }
@@ -1840,7 +1840,7 @@ class SessionManager {
         this.emitState(st)
         workspaceOf(st.projectPath).scheduleRefresh()
       } catch (e) {
-        log.warn(`${label}: could not record session ${hook.sessionId}`, e)
+        log.warn(`${userText(label)}: could not record session ${hook.sessionId}`, e)
       }
     }
     if (hook.mode && hook.mode !== st.permissionMode) {
@@ -1913,7 +1913,7 @@ class SessionManager {
     const old = st.sessionId
     await this.backup(st.projectPath, st.agentId, true).catch(() => undefined)
     await workspace.upsertSession(st.projectPath, { id: old, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
-    log.info(`${this.label(st)}: the CLI moved from session ${old} to ${sessionId}`)
+    log.info(`${userText(this.label(st))}: the CLI moved from session ${old} to ${sessionId}`)
     try {
       const { agent, count } = await this.agentDef(st.projectPath, st.agentId)
       const existing = (await workspace.sessionsFile(st.projectPath)).sessions.find((s) => s.id === sessionId)
@@ -1932,7 +1932,7 @@ class SessionManager {
       this.releaseLocks(liveId(st.projectPath, st.agentId))
       await this.recordSession(st.projectPath, agent, l)
     } catch (e) {
-      log.warn(`${this.label(st)}: could not record session ${sessionId}`, e)
+      log.warn(`${userText(this.label(st))}: could not record session ${sessionId}`, e)
     }
     this.emitState(st)
     workspaceOf(st.projectPath).scheduleRefresh()
@@ -2243,7 +2243,7 @@ class SessionManager {
     for (const a of projectAgents(await workspace.projectConfig(projectPath))) {
       if (a.lastSessionId === sessionId) await workspace.updateAgent(projectPath, a.id, { lastSessionId: undefined }).catch(() => undefined)
     }
-    log.info(`Deleted session ${sessionId} in ${projectPath}`)
+    log.info(`Deleted session ${sessionId} in ${userText(projectPath)}`)
     workspaceOf(projectPath).scheduleRefresh()
   }
 

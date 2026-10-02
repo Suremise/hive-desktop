@@ -1,20 +1,22 @@
 import { app, screen } from 'electron'
 import { existsSync } from 'fs'
-import { open } from 'fs/promises'
+import { open, readdir } from 'fs/promises'
 import { homedir, release, version as osVersion } from 'os'
-import { join } from 'path'
-import { redact, type RedactContext } from '../shared/redact'
+import { basename, join } from 'path'
+import { redact, redactLog, type RedactContext } from '../shared/redact'
 import { providerName } from '../shared/providers'
 import type { AgentInstallInfo, ProviderId } from '../shared/types'
 import { config } from './config'
 import { logsDir } from './logger'
+import { provider } from './providers'
 import { providerService } from './providerService'
 import { hiveWindows } from './windows'
 
 /** How much of Hive's log a report carries. */
 const LOG_LINES = 50
 
-async function logTail(lines: number): Promise<string[]> {
+/** The end of Hive's log (64 KB, whole lines). */
+async function logTail(): Promise<string[]> {
   const file = join(logsDir(), 'hive.log')
   if (!existsSync(file)) return []
   const f = await open(file, 'r')
@@ -23,10 +25,23 @@ async function logTail(lines: number): Promise<string[]> {
     const length = Math.min(size, 64 * 1024)
     const buf = Buffer.alloc(length)
     await f.read(buf, 0, length, size - length)
-    return buf.toString('utf8').split(/\r?\n/).filter(Boolean).slice(-lines)
+    const lines = buf.toString('utf8').split(/\r?\n/)
+    return (length < size ? lines.slice(1) : lines).filter(Boolean)
   } finally {
     await f.close()
   }
+}
+
+/** Workspaces opened before (Hive's recent list) and their project folders: the log names them too. */
+async function earlierWork(): Promise<{ folders: string[]; names: string[] }> {
+  const folders = config.get().recentWorkspaces
+  const names: string[] = []
+  for (const f of folders) {
+    names.push(basename(f))
+    const entries = await readdir(f, { withFileTypes: true }).catch(() => [])
+    for (const e of entries) if (e.isDirectory() && !e.name.startsWith('.')) names.push(e.name)
+  }
+  return { folders, names }
 }
 
 const yesNo = (v: boolean | null | undefined): string => (v === true ? 'yes' : v === false ? 'no' : 'unknown')
@@ -53,6 +68,7 @@ export async function diagnostics(): Promise<string> {
       ...(set?.executablePath ? ['  - its path is set in Settings'] : []),
       ...(set?.extraArgs ? ['  - extra arguments are set'] : []),
       ...(info.editorExtensionOnly ? ["  - only an editor extension's copy was found"] : []),
+      ...(provider(id).diagnostics?.() ?? []).map((l) => `  - ${l}`),
       ...(info.readiness ?? []).map((r) => `  - ${r.level}: ${r.message}`)
     ]
     return [head, ...extra]
@@ -86,16 +102,22 @@ export async function diagnostics(): Promise<string> {
     `- Theme: ${s.appearance.theme}`
   ].join('\n')
 
+  // The log goes back further than what is open now: earlier workspaces and their projects are taken out too.
+  // Hive marks the user's own text as it logs it (logger.ts userText()); this catches older lines and the rest.
+  const earlier = await earlierWork()
   const ctx: RedactContext = {
     home: homedir(),
-    folders: [...workspaces.map((w) => w.path), ...agents.flatMap((a) => (a.worktree ? [a.worktree.path] : []))],
+    app: app.isPackaged ? undefined : app.getAppPath(),
+    folders: [...workspaces.map((w) => w.path), ...agents.flatMap((a) => (a.worktree ? [a.worktree.path] : [])), ...earlier.folders],
     names: [
       ...workspaces.map((w) => ({ name: w.name, as: '<workspace>' })),
       ...projects.map((p) => ({ name: p.name, as: '<project>' })),
-      ...agents.flatMap((a) => [{ name: a.name, as: '<agent>' }, { name: a.id, as: '<agent>' }, ...(a.worktree ? [{ name: a.worktree.branch, as: '<branch>' }] : [])])
+      ...agents.flatMap((a) => [{ name: a.name, as: '<agent>' }, { name: a.id, as: '<agent>' }, ...(a.worktree ? [{ name: a.worktree.branch, as: '<branch>' }] : [])]),
+      ...earlier.names.map((name) => ({ name, as: '<name>' }))
     ]
   }
   // Names are only taken out of the log: the summary above has none, and a project called "Hive" would take Hive's own name with it.
-  const log = redact((await logTail(LOG_LINES)).join('\n'), ctx)
+  // The whole tail is redacted first: which run of Hive a line is from depends on the start lines before it.
+  const log = redactLog((await logTail()).join('\n'), ctx).split('\n').slice(-LOG_LINES).join('\n')
   return `${redact(header, { ...ctx, names: [] })}\n\n### Log (last ${LOG_LINES} lines)\n\n\`\`\`\n${log}\n\`\`\`\n`
 }

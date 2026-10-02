@@ -6,7 +6,7 @@ import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, MergeRes
 import { config } from './config'
 import { toast } from './events'
 import { realPath, withFileLock } from './fsutil'
-import { createLogger } from './logger'
+import { createLogger, userText } from './logger'
 import { checkProject } from './branchWatch'
 import { sessions } from './sessions'
 import { releaseAgentCards } from './tasks'
@@ -60,7 +60,7 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
     await wt.createWorktree(projectPath, dest, branch, base)
     const s = config.settings.agents
     const copied = await wt.copyIgnored(projectPath, dest, cfg.worktreeCopy ?? s.worktreeCopy)
-    if (copied.length) log.info(`Copied into ${dest}: ${copied.join(', ')}`)
+    if (copied.length) log.info(`Copied into ${userText(dest)}: ${userText(copied.join(', '))}`)
     def.worktree = { path: dest, branch, base }
     if (cfg.worktreeSetup.trim()) def.needsSetup = true
   } else if (opts.location === 'existing-worktree') {

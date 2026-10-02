@@ -6,7 +6,7 @@ import { emit } from './events'
 import { addAgent, removeAgent } from './projectAgents'
 import { sessions } from './sessions'
 import { getTask, updateTask, type TaskActor } from './tasks'
-import { createLogger } from './logger'
+import { createLogger, userText } from './logger'
 import { workspace } from './workspace'
 
 const log = createLogger('tasks')
@@ -68,7 +68,7 @@ async function startReserved(n: number, target: TaskStartTarget, actor: TaskActo
   }
   const added = target.kind !== 'agent'
   const undoAgent = async (): Promise<void> => {
-    if (added) await removeAgent(p, agentId, { deleteWorktree: true }).catch((e) => log.warn(`Could not remove ${agentName} after #${n} didn't start`, e))
+    if (added) await removeAgent(p, agentId, { deleteWorktree: true }).catch((e) => log.warn(`Could not remove ${userText(agentName)} after #${n} didn't start`, e))
   }
 
   // Taken first, on the card as it is now: it must still be in this project and startable.

@@ -7,6 +7,7 @@
 
 ### Fixes
 - Changing a number setting and then ticking **Never** straight away could leave the number saved and Never unticked, mostly in Project Settings. A number box now saves one change at a time, and your last choice wins.
+- **Help → Copy Diagnostics…** left some of your own text in the log lines it copied: card titles, what the Hive Assistant did, session names, and the names and folders of workspaces you had opened before. Hive now marks your text as it writes its log and the report leaves it out, including what an agent was started with; lines an older version wrote show only their time and source, and folders that aren't Hive's or the coding agents' own are hidden. The report also says which Windows sandbox Codex uses.
 
 ## 0.3.1 — 2 October 2026
 

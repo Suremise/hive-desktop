@@ -9,7 +9,7 @@ import type { TaskCard, TaskColumn, TaskPatch } from '../shared/types'
 import { config } from './config'
 import { emit } from './events'
 import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
-import { createLogger } from './logger'
+import { createLogger, userText } from './logger'
 import { workspace, type WorkspaceService } from './workspace'
 
 const log = createLogger('tasks')
@@ -267,7 +267,7 @@ export async function reorderTasks(column: TaskColumn, numbers: unknown, actor: 
       throw e
     })
   }
-  log.info(`${W} put in order by ${by}: ${nums.map((x) => `#${x}`).join(', ')}`)
+  log.info(`${W} put in order by ${userText(by)}: ${nums.map((x) => `#${x}`).join(', ')}`)
   changed(ws)
   return (await allTasks(ws)).filter((c) => c.column === column && !c.archived)
 }
@@ -322,7 +322,7 @@ export async function createTask(
     updatedAt: now
   }
   await writeJsonAtomic(cardFile(n, ws), card)
-  log.info(`#${n} created by ${by}: ${title}`)
+  log.info(`#${n} created by ${userText(by)}: ${userText(title)}`)
   changed(ws)
   return card
 }
@@ -476,7 +476,7 @@ export async function releaseAgentCards(project: string, agentId: string, actor:
       })
       out.push(c.number)
     } catch (e) {
-      log.info(`#${c.number} left as it is: ${(e as Error).message}`)
+      log.info(`#${c.number} left as it is: ${userText((e as Error).message)}`)
     }
   }
   return out

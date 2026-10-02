@@ -1,7 +1,7 @@
 import * as pty from '@lydell/node-pty'
 import type { IPty } from '@lydell/node-pty'
 import { sendPty } from './events'
-import { createLogger } from './logger'
+import { argsForLog, createLogger, userText } from './logger'
 import { allProviders } from './providers'
 
 const log = createLogger('pty')
@@ -57,7 +57,7 @@ export function forLog(arg: string): string {
 
 export function spawnPty(key: string, opts: SpawnOptions): IPty {
   if (entries.has(key)) throw new Error(`A process is already running for ${key}`)
-  log.info(`spawn ${key}: ${opts.file} ${JSON.stringify(opts.args.map(forLog))}`)
+  log.info(`spawn ${userText(key)}: ${opts.file} ${JSON.stringify(argsForLog(opts.args.map(forLog)))}`)
   const proc = pty.spawn(opts.file, opts.args, {
     name: 'xterm-256color',
     cols: opts.cols ?? 120,
@@ -78,7 +78,7 @@ export function spawnPty(key: string, opts: SpawnOptions): IPty {
     opts.onData?.(data)
   })
   proc.onExit(({ exitCode }) => {
-    log.info(`exit ${key}: ${exitCode}`)
+    log.info(`exit ${userText(key)}: ${exitCode}`)
     if (entries.get(key)?.proc === proc) entries.delete(key)
     if (opts.quietExit) carried.set(key, entry.buffer)
     else sendPty('pty:exit', key, exitCode)
@@ -97,7 +97,7 @@ export function resizePty(key: string, cols: number, rows: number): void {
   try {
     e.proc.resize(Math.floor(cols), Math.floor(rows))
   } catch (err) {
-    log.warn(`resize ${key} failed`, err)
+    log.warn(`resize ${userText(key)} failed`, err)
   }
 }
 
@@ -115,7 +115,7 @@ export function killPty(key: string): void {
   try {
     e.proc.kill()
   } catch (err) {
-    log.warn(`kill ${key} failed`, err)
+    log.warn(`kill ${userText(key)} failed`, err)
   }
 }
 

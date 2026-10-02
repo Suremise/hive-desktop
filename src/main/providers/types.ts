@@ -171,6 +171,8 @@ export interface ProviderAdapter {
   setupCommand?(executable: string): CommandSpec
   /** What still keeps agents from running, given what locate() found. */
   readiness(info: AgentInstallInfo): ReadinessIssue[]
+  /** Extra lines for Help → Copy Diagnostics (Codex: its Windows sandbox), with no paths or names in them. */
+  diagnostics?(): string[]
   /** The CLI's own default model from its settings, if set. */
   configuredDefaultModel(): string | null
   /** Whether a model seen in a transcript is this provider's (to learn the CLI's default). */
