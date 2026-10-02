@@ -829,7 +829,7 @@ class SessionManager {
   }
 
   /** Records the running session in sessions.json and as the agent's session to resume. */
-  private async recordSession(projectPath: string, agent: Pick<AgentDef, 'id' | 'worktree'>, l: LiveSession): Promise<void> {
+  private async recordSession(projectPath: string, agent: Pick<AgentDef, 'id' | 'name' | 'worktree'>, l: LiveSession): Promise<void> {
     const { state } = l
     const sessionId = state.sessionId
     // Images pasted before the provider named the session wait in the launch's folder: move them to the session's.
@@ -846,8 +846,9 @@ class SessionManager {
       name: l.name,
       ...(state.titleAtRename !== undefined ? { titleAtRename: state.titleAtRename } : {}),
       lastActiveAt: new Date().toISOString(),
-      // The agent running it now; a session can move between agents that share a folder.
+      // The agent running it now; a session can move between agents that share a folder. Its name too, for once it's gone.
       agentId: agent.id,
+      agentName: agent.name,
       // Providers that choose their own ids file transcripts by date, not folder: remember where.
       ...(l.transcriptPath && !l.adapter.descriptor.capabilities.fixedSessionId ? { transcriptPath: l.transcriptPath } : {}),
       // Where it ran, when not the project folder (a worktree, or the Assistant's workspace folder).

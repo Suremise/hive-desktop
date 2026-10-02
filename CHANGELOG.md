@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Sessions
+- **The Sessions tab says where each session ran and which agent ran it**: *Coder · Project folder*, *Reviewer · Worktree · hive/reviewer*, on every session and in a **Ran in** line over its transcript (hover for the full folder). A session keeps its own agent: one you removed shows as *Coder (removed)*, and an agent added later with the same name or worktree no longer takes over its old sessions' label. **Resume in ▾** shows where each agent works, running ones too.
 - **Long transcripts are flagged sooner: at 20 MB instead of 50 MB.** Well before 50 MB a long conversation slows down the coding agent and Hive. If you kept the old 50 MB default, it moves to 20 MB; a size you chose yourself, **Never** and project settings are kept. To go back, set **Settings → Sessions → Warn when a transcript is over** to 50.
 
 ### Task board

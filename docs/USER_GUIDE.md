@@ -107,7 +107,7 @@ An agent's header and the **Session** menu let you:
 
 ### Reading past sessions
 
-The **Sessions** tab lists every session of the project on the left, newest first, with when it was last used and its context size. Sessions started outside Hive (in VS Code or a terminal) appear as *external*; **Adopt** them to manage them in Hive. Tick **Archived** to include archived sessions.
+The **Sessions** tab lists every session of the project on the left, newest first, with when it was last used and its context size. Each one says where it ran and which agent ran it, such as **Coder · Project folder** or **Reviewer · Worktree · hive/reviewer** (hover for the full folder), and so does the **Ran in** line over its transcript. A session keeps its own agent: if you remove an agent and add another with the same name, the old sessions show **Coder (removed)** (or **Removed agent**, for sessions from before Hive kept agents' names). **Resume in …** says which agent would resume it now, and its ▾ menu shows where each agent works. Sessions started outside Hive (in VS Code or a terminal) appear as *external*; **Adopt** them to manage them in Hive. Tick **Archived** to include archived sessions.
 
 Select a session to read its transcript on the right, including everything before each compaction. It opens at the latest messages; scroll up to load earlier ones. A running session doesn't update on its own unless you switch on **Follow** (the Session tab always shows the agent working); otherwise click **Refresh**. **Settings → Sessions → Follow running sessions** sets the default.
 

@@ -539,8 +539,10 @@ export interface SessionRecord {
   createdAt: string
   lastActiveAt: string
   archived: boolean
-  /** The agent that ran it (absent in records from 0.1's Agent 1). */
+  /** The agent that ran it (absent in records from 0.1's Agent 1, and in adopted sessions). */
   agentId?: string
+  /** That agent's name then, so a session still says whose it was after the agent is removed (absent in older records). */
+  agentName?: string
   /** Folder it ran in, when not the project folder (a worktree). Claude Code files transcripts by folder. */
   cwd?: string
   branch?: string

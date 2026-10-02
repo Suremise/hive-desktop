@@ -11,6 +11,7 @@ import { confirm, notify, openInSessionsTab, prompt, revealAgent, set, setAssist
 import { cx, formatDuration, formatTokens, sessionLabel, timeAgo } from '../util'
 import { useSessions } from './ProjectTabs'
 import { useScopedLoad } from '../scopedLoad'
+import { sessionOrigin, type SessionOrigin } from '@shared/sessionOrigin'
 
 /**
  * Sessions tab: the project's sessions on the left and a read-only transcript on the right,
@@ -44,6 +45,8 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
   const liveId = project.live?.sessionId
   const isLive = (id: string): boolean => liveById.has(id)
   const many = project.agents.length > 1
+  // Where each session ran and whose it was, as it recorded (the Assistant's conversations have one place to run).
+  const origin = (s: SessionListItem): SessionOrigin | null => (assistant ? null : sessionOrigin(project.path, project.agents, s))
   const sessionName = (s: SessionListItem): string => sessionLabel(s, project.name)
   const resumeMenu = useContextMenu()
 
@@ -226,7 +229,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
                   s={s}
                   name={sessionName(s)}
                   live={liveById.get(s.id)?.status ?? null}
-                  agent={many || s.cwd ? agentLabel(project, s) : null}
+                  origin={origin(s)}
                   selected={s.id === selectedId}
                   onClick={() => open(s.id)}
                   buttons={
@@ -247,6 +250,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
             key={`${project.path}|${selected.id}`}
             project={project}
             session={selected}
+            origin={origin(selected)}
             live={isLive(selected.id)}
             jump={jump?.sessionId === selected.id ? jump : null}
             query={q}
@@ -301,7 +305,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
                               ...agents.map((a) => ({
                                 label: a.name,
                                 icon: a.id === target ? 'debug-continue' : 'person',
-                                detail: a.live ? `running — its current session stops first` : a.worktree ? `worktree · ${a.worktree.branch}` : 'project folder',
+                                detail: `${a.worktree ? `worktree · ${a.worktree.branch}` : 'project folder'}${a.live ? ' · running, its current session stops first' : ''}`,
                                 onClick: () => void actions.resumeSession(project.path, selected, a.id)
                               }))
                             ])
@@ -350,17 +354,7 @@ function Highlight({ text, query }: { text: string; query: string }) {
   )
 }
 
-/** Which agent ran a session: its worktree's agent, else the agent recorded for it (null when it no longer exists). */
-function agentLabel(project: ProjectInfo, s: SessionListItem): string | null {
-  if (s.source !== 'hive') return null
-  if (s.cwd && s.cwd.toLowerCase() !== project.path.toLowerCase()) {
-    const a = project.agents.find((x) => x.worktree?.path.toLowerCase() === s.cwd!.toLowerCase())
-    return a ? `${a.name} · ${s.branch ?? a.worktree!.branch}` : s.branch ?? 'worktree'
-  }
-  return project.agents.find((a) => a.id === s.agentId)?.name ?? null
-}
-
-function SessionRow({ s, name, live, agent, selected, onClick, buttons }: { s: SessionListItem; name: string; live: string | null; agent: string | null; selected: boolean; onClick: () => void; buttons: React.ReactNode }) {
+function SessionRow({ s, name, live, origin, selected, onClick, buttons }: { s: SessionListItem; name: string; live: string | null; origin: SessionOrigin | null; selected: boolean; onClick: () => void; buttons: React.ReactNode }) {
   return (
     <div className={cx('session-row', selected && 'selected', s.archived && 'archived')} onClick={onClick}>
       <div className="session-row-title">
@@ -375,7 +369,11 @@ function SessionRow({ s, name, live, agent, selected, onClick, buttons }: { s: S
       <div className="session-row-meta">
         <span>{timeAgo(s.lastActivity)}</span>
         {s.usage && <span>{formatTokens(s.usage.contextTokens)} context</span>}
-        {agent && <span className="badge">{agent}</span>}
+        {origin && (
+          <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{origin.detail}</span>}>
+            <span className="badge session-origin">{origin.label}</span>
+          </Tooltip>
+        )}
         {s.source === 'external' && (
           <Tooltip content="Started outside Hive (e.g. in VS Code or a terminal). Adopt it to manage it here.">
             <span className="badge info">external</span>
@@ -420,7 +418,7 @@ function toBlocks(items: TranscriptItem[]): Block[] {
 
 const time = (ts: string | null): string => (ts ? new Date(ts).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '')
 
-function TranscriptView({ project, session, live, jump, query, toolbar }: { project: ProjectInfo; session: SessionListItem; live: boolean; jump: Jump | null; query: string; toolbar: React.ReactNode }) {
+function TranscriptView({ project, session, origin, live, jump, query, toolbar }: { project: ProjectInfo; session: SessionListItem; origin: SessionOrigin | null; live: boolean; jump: Jump | null; query: string; toolbar: React.ReactNode }) {
   const [transcript, setTranscript] = useState<Transcript | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set())
@@ -610,6 +608,14 @@ function TranscriptView({ project, session, live, jump, query, toolbar }: { proj
         {!follow && <IconButton icon="refresh" title="Refresh (load new messages)" onClick={() => void load({ force: true })} />}
         {toolbar}
       </div>
+      {origin && (
+        <div className="session-ran-in faint">
+          <Icon name={origin.location === 'Project folder' ? 'folder' : 'git-branch'} /> Ran in{' '}
+          <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{origin.detail}</span>}>
+            <span>{origin.label}</span>
+          </Tooltip>
+        </div>
+      )}
       <WorkedOn cards={session.cards} />
       <div
         className="transcript"
