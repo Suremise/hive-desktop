@@ -4,7 +4,7 @@ import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { LiveSessionState, SessionStatus } from '@shared/types'
 import { cx } from '../util'
-import { errorMessage } from '../api'
+import { call, errorMessage } from '../api'
 import { shortStartTime } from '@shared/defaults'
 import { providerName } from '@shared/providers'
 
@@ -260,12 +260,54 @@ export function BusyButton({
   )
 }
 
-/** The dialogs open, oldest first. */
-const openModals: symbol[] = []
+/** The backdrops up in this window, oldest first: dialogs, nested or not, and the command palette. */
+const backdrops: symbol[] = []
+
+/**
+ * A backdrop is up while the calling component is mounted: the window is dimmed (once more for each backdrop, as their
+ * layers stack), and its native buttons (painted by Windows over the page, where the backdrop can't reach) are dimmed
+ * to match, as each comes and goes. Returns whether it is the top one: only that one answers Escape.
+ */
+export function useBackdrop(): () => boolean {
+  const me = useRef(Symbol('backdrop'))
+  useEffect(() => {
+    const id = me.current
+    backdrops.push(id)
+    void call('window:setBackdrops', backdrops.length).catch(() => undefined)
+    return () => {
+      const i = backdrops.lastIndexOf(id)
+      if (i >= 0) backdrops.splice(i, 1)
+      void call('window:setBackdrops', backdrops.length).catch(() => undefined)
+    }
+  }, [])
+  return useCallback(() => backdrops[backdrops.length - 1] === me.current, [])
+}
+
+/** Where a moved dialog may go: its header wholly in the window, below Hive's title bar (whose native buttons would cover its ×). */
+function clampOffset(dialog: HTMLElement, offset: { x: number; y: number }, want: { x: number; y: number }): { x: number; y: number } {
+  const header = dialog.querySelector('.dialog-header')
+  if (!header) return want
+  const r = dialog.getBoundingClientRect()
+  const h = header.getBoundingClientRect()
+  // Where it sits unmoved.
+  const left = r.left - offset.x
+  const top = r.top - offset.y
+  const minTop = document.querySelector('.titlebar')?.getBoundingClientRect().bottom ?? 0
+  // Wider than the window: its right edge (the ×) stays in it.
+  const maxLeft = window.innerWidth - r.width
+  const x = Math.min(Math.max(left + want.x, Math.min(0, maxLeft)), maxLeft) - left
+  // The header's bottom (below the dialog's border) stays in the window.
+  const y = Math.min(Math.max(top + want.y, minTop), Math.max(minTop, window.innerHeight - (h.bottom - r.top))) - top
+  return { x: Math.round(x), y: Math.round(y) }
+}
+
+/** What a press on a dialog's header leaves alone: its buttons and anything typed in or selected. */
+const NOT_A_HANDLE = 'button, a, input, textarea, select, [contenteditable=""], [contenteditable="true"]'
 
 /**
  * A dialog. While `busy` (an action it started is running) it can't be closed (Escape, outside, ×) and its fields and
- * other buttons are disabled; `error` shows the action's failure above the buttons.
+ * other buttons are disabled; `error` shows the action's failure above the buttons. `movable`: dragged by its header
+ * within the window (Escape while dragging puts it back); it opens in the usual place each time.
  */
 export function Modal({
   title,
@@ -275,7 +317,8 @@ export function Modal({
   footer,
   wide,
   busy,
-  error
+  error,
+  movable
 }: {
   title: string
   icon?: string
@@ -285,28 +328,45 @@ export function Modal({
   wide?: boolean
   busy?: boolean
   error?: string | null
+  movable?: boolean
 }) {
   const busyNow = useRef(busy)
   busyNow.current = busy
-  // Dialogs open over each other (a question over a card): Escape is for the top one only.
-  const me = useRef(Symbol('dialog'))
+  // Dialogs open over each other (a question over a card), and the command palette over them: Escape is for the top one.
+  const isTop = useBackdrop()
+  const dialog = useRef<HTMLDivElement>(null)
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const offsetNow = useRef(offset)
+  offsetNow.current = offset
+  const drag = useRef<{ pointer: number; x: number; y: number; from: { x: number; y: number }; header: HTMLElement } | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const endDrag = (back: boolean): void => {
+    const d = drag.current
+    if (!d) return
+    drag.current = null
+    setDragging(false)
+    // Back where the drag began, as far as the window allows now (it may have shrunk meanwhile).
+    if (back) setOffset(dialog.current ? clampOffset(dialog.current, offsetNow.current, d.from) : d.from)
+    if (d.header.hasPointerCapture(d.pointer)) d.header.releasePointerCapture(d.pointer)
+  }
+  // The window got smaller (or was restored): moved back in, so its header and × stay reachable.
   useEffect(() => {
-    const id = me.current
-    openModals.push(id)
-    return () => {
-      const i = openModals.lastIndexOf(id)
-      if (i >= 0) openModals.splice(i, 1)
-    }
-  }, [])
+    if (!movable) return
+    const onResize = (): void => setOffset((o) => (dialog.current ? clampOffset(dialog.current, o, o) : o))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [movable])
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape' || openModals[openModals.length - 1] !== me.current) return
+      if (e.key !== 'Escape' || !isTop()) return
       e.stopPropagation()
+      // While it is being dragged, Escape puts it back instead.
+      if (drag.current) return endDrag(true)
       if (!busyNow.current) onClose()
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [onClose])
+  }, [onClose, isTop])
   // Closed, it gives the keyboard back to what had it (a terminal, a list): noted while rendering for the
   // first time, before a field inside takes the focus.
   const opener = useRef(document.activeElement)
@@ -318,8 +378,33 @@ export function Modal({
   }, [])
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
-      <div className={cx('dialog', wide && 'wide', busy && 'busy')} role="dialog" aria-modal="true" aria-label={title} aria-busy={busy || undefined}>
-        <div className="dialog-header">
+      <div
+        ref={dialog}
+        className={cx('dialog', wide && 'wide', busy && 'busy', movable && 'movable', dragging && 'dragging')}
+        style={offset.x || offset.y ? { translate: `${offset.x}px ${offset.y}px` } : undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        aria-busy={busy || undefined}
+      >
+        <div
+          className="dialog-header"
+          onPointerDown={(e) => {
+            if (!movable || e.button !== 0 || (e.target as Element).closest(NOT_A_HANDLE)) return
+            e.preventDefault()
+            e.currentTarget.setPointerCapture(e.pointerId)
+            drag.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, from: offsetNow.current, header: e.currentTarget }
+            setDragging(true)
+          }}
+          onPointerMove={(e) => {
+            const d = drag.current
+            if (!d || d.pointer !== e.pointerId || !dialog.current) return
+            setOffset(clampOffset(dialog.current, offsetNow.current, { x: d.from.x + e.clientX - d.x, y: d.from.y + e.clientY - d.y }))
+          }}
+          onPointerUp={() => endDrag(false)}
+          onPointerCancel={() => endDrag(false)}
+          onLostPointerCapture={() => endDrag(false)}
+        >
           {icon && <Icon name={icon} />}
           <h2>{title}</h2>
           <IconButton icon="close" title={busy ? 'Wait for it to finish' : 'Close (Esc)'} disabled={busy} onClick={onClose} />

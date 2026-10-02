@@ -11,7 +11,7 @@ import { discardDrafts, saveAllDrafts, unsavedFiles } from './FileView'
 import type { ProviderId, ProviderTask, QuitChoice, SessionStatus } from '@shared/types'
 import { PROVIDERS, enabledProviders, isProviderEnabled, providerDescriptor } from '@shared/providers'
 import { ProviderIcon } from './ProviderIcon'
-import { BusyButton, Icon, IconButton, LoadFailed, Modal, STATUS_TEXT, useBusy } from './ui'
+import { BusyButton, Icon, IconButton, LoadFailed, Modal, STATUS_TEXT, useBackdrop, useBusy } from './ui'
 
 const LEVEL_ICON = { info: 'info', success: 'pass', warning: 'warning', error: 'error' } as const
 
@@ -214,6 +214,7 @@ export function CommandPalette() {
   }
   return (
     <div className="overlay" style={{ paddingTop: 60 }} onMouseDown={(e) => e.target === e.currentTarget && close()}>
+      <Backdrop />
       <div className="palette">
         <input
           autoFocus
@@ -282,6 +283,12 @@ export function Toasts() {
       ))}
     </div>
   )
+}
+
+/** The window is dimmed (its native buttons too) while this is shown. */
+function Backdrop(): null {
+  useBackdrop()
+  return null
 }
 
 export function NotificationCenter() {

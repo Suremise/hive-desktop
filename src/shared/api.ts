@@ -101,6 +101,8 @@ export interface HiveRequests {
   'window:toggleFullScreen': () => void
   'window:edit': (role: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll') => void
   'window:setTitleBarColors': (color: string, symbolColor: string) => void
+  /** How many backdrops (dialogs, nested or not, the command palette) are up in this window: dims the window buttons to match. */
+  'window:setBackdrops': (count: number) => void
   /** The taskbar button's badge: a PNG (base64) drawn at `scale`, or none at 0. */
   'window:setBadge': (count: number, png: string | null, scale: number) => void
 

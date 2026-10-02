@@ -9,6 +9,7 @@
 - **See what Hive keeps for a project, and clean it up.** **Project Settings → Storage** shows how much space the project's transcript backups, archive, images and agents' worktrees take, measured in the background; **Settings → Workspace** shows the workspace's total and its biggest projects. **Clean Up…** moves images and backups of old archived sessions, and images of deleted sessions, to the Recycle Bin, after showing you exactly which files go. Nothing is cleaned up automatically, running and non-archived sessions are never touched, and what the sessions used still counts in the totals.
 
 ### Task board
+- **Move an open card out of the way.** Drag a card's dialog by its header to see what's behind it; it stays within the window, and opens in the usual place next time.
 - **Agents keep to their own project's cards.** An agent can see and change only its project's cards on the board: another project's cards are for that project's agents, the Assistant and you. Before, an agent in one project could list, read, comment on and move any card in the workspace. An agent also can't read or type into another project's agents' conversations any more, where those cards appear as their tasks. Each agent now calls Hive with a token of its own, so it can't get round this by saying it is someone else. The Assistant and your board still see everything.
 - **Moving a card to another project takes it from its agent**, and its history says whose it was. Give it to one of the new project's agents afterwards (the card dialog does this when you change both).
 - **"Check the latest comment"**: agents can read just a card's newest comment instead of the whole card, which keeps long cards from filling their context.
@@ -20,6 +21,8 @@
 - **Agents can move cards to Done.** Ask an agent *"looks good, move #65 to done"* and it does; the Assistant can too. Agents still move finished work to Review by default, for you to check. Every move is in the card's history with who made it, and a card can be moved back out of Done from the board or by asking. Before, only you could move cards into or out of Done.
 
 ### Fixes
+- With a dialog open, the window's minimise, maximise and close buttons stayed bright while the rest of the window dimmed. They now dim with it, as much as the window behind (more with a question over a card), and still work.
+- With the command palette open over a dialog, Escape closed the dialog underneath and left the palette open. It now closes the palette.
 - In **Approve for me**, while Codex's reviewer checked an action, the agent's header filled with the whole command (*Auto-review: Codex asks to run $env:… npm.cmd run …*). The agent now stays **Working…** with a small shield beside it; hover the shield to see what's being checked. Hive still doesn't ask for you, and agents reading Hive's status see it as `reviewing`.
 - Opening a file, a diff or a Markdown preview with code shrank the icons around the window (the activity bar's from 24 to 16 pixels, and those in the status bar, tabs and buttons) until Hive was restarted. They now keep their size.
 - The **Notifications** bell on the activity bar was easy to miss with unread notifications: only a small dot in a grey icon. It now turns orange as well, clearly visible in both themes, and screen readers hear how many are unread.

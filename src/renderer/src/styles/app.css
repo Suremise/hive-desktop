@@ -1488,6 +1488,19 @@ p.hint {
   gap: 10px;
   padding: 14px 16px 6px;
 }
+/* A dialog moved by its header (Modal movable): it shows it can be dragged; its buttons are still buttons. */
+.dialog.movable .dialog-header {
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+.dialog.movable .dialog-header :is(button, a) {
+  cursor: pointer;
+}
+.dialog.movable.dragging,
+.dialog.movable.dragging .dialog-header {
+  cursor: move;
+}
 .dialog-header h2 {
   margin: 0;
   font-size: 15px;

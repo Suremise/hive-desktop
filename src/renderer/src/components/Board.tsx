@@ -713,6 +713,7 @@ export function TaskDialog() {
       title={isNew ? 'New Card' : `#${card!.number}`}
       icon="checklist"
       wide
+      movable
       onClose={() => void tryClose()}
       busy={!!action.busy}
       error={action.error}
