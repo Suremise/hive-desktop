@@ -44,6 +44,8 @@ export interface HookStatusInput {
   waitingOn: Ask | null
   /** A question is pending (LiveSessionState.question). */
   question: boolean
+  /** An action is under the CLI's automatic review (LiveSessionState.review). */
+  reviewing: boolean
 }
 
 export type HookAction =
@@ -74,15 +76,14 @@ export interface HookStep {
   message?: string | null
   /** The pending question: a string sets it, null clears it, undefined leaves it. */
   question?: string | null
+  /** The action under the CLI's automatic review (what it asks to do): a string sets it, null clears it, undefined leaves it. */
+  review?: string | null
   /** The open asks from now on; undefined leaves them. */
   open?: Ask[]
   /** The ask the agent waits on from now on; undefined leaves it. */
   waitingOn?: Ask | null
   actions: HookAction[]
 }
-
-/** The status message while the CLI's own reviewer considers a permission request. */
-export const REVIEWING = 'Auto-review: '
 
 /** At most this many asks are kept open (an agent rarely has more than two). */
 const MAX_OPEN = 8
@@ -97,7 +98,8 @@ const RESOLVED = { open: [] as Ask[], waitingOn: null }
  */
 function raise(ask: Ask | null, s: HookStatusInput): HookStep {
   const waiting = s.status === 'waiting'
-  if (!ask || ask.blocking) return { next: 'waiting', message: ask?.message || null, waitingOn: ask, actions: waiting ? [] : ['notifyWaiting'] }
+  // A person is asked now: no review of it is shown beside the wait.
+  if (!ask || ask.blocking) return { next: 'waiting', message: ask?.message || null, waitingOn: ask, review: null, actions: waiting ? [] : ['notifyWaiting'] }
   const unsaid = waiting && !s.waitingOn
   return { next: unsaid ? 'working' : null, ...(unsaid ? { message: null } : {}), question: ask.message, actions: waiting || s.question ? [] : ['notifyQuestion'] }
 }
@@ -107,8 +109,8 @@ function lower(s: HookStatusInput): HookStep {
   return { next: s.status === 'waiting' ? 'working' : null, ...(s.status === 'waiting' ? { message: null } : {}), question: null, ...RESOLVED, actions: [] }
 }
 
-/** A tool started or ended: the reviewer's decision is in, so its message goes. */
-const reviewed = (s: HookStatusInput): Partial<HookStep> => (s.statusMessage?.startsWith(REVIEWING) ? { message: null } : {})
+/** A tool started or ended, or a prompt came: the reviewer's decision is in, so the review goes. */
+const reviewed = (s: HookStatusInput): Partial<HookStep> => (s.reviewing ? { review: null } : {})
 
 /** The same call (Ask.call), when the CLI names calls. */
 const sameCall = (a: Ask, call: string | undefined): boolean => !!call && a.call === call
@@ -169,7 +171,8 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
     }
     case 'ask': {
       // In a reviewed mode a permission request is the CLI's reviewer's: never open, never a person asked.
-      if (ev.ask.kind === 'permission' && s.reviewed) return { next: null, ...(s.status === 'waiting' ? {} : { message: `${REVIEWING}${ev.ask.message}` }), actions: [] }
+      // It is shown as under review (beside the status, not as it), with what is asked for its details.
+      if (ev.ask.kind === 'permission' && s.reviewed) return { next: null, ...(s.status === 'waiting' ? {} : { review: ev.ask.message }), actions: [] }
       // Anything else is put to a person: once the title says so, or at once (the hooks say so, or the title
       // already asks, so this is a new need).
       if (s.attention === 'title' && !s.titleAsks) return { next: null, open: [...s.open.filter((a) => !sameCall(a, ev.ask.call)), ev.ask].slice(-MAX_OPEN), actions: [] }
@@ -182,11 +185,11 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
       const next = idleAfter(s, 'finished')
       // An agent waiting on background tasks isn't done: it is told when they end and carries on.
       const notify = next === 'finished' && s.status !== 'finished'
-      return { next, message: null, ...RESOLVED, actions: ['releaseLocks', ...(notify ? (['notifyFinished'] as const) : []), 'turnEnded'] }
+      return { next, message: null, review: null, ...RESOLVED, actions: ['releaseLocks', ...(notify ? (['notifyFinished'] as const) : []), 'turnEnded'] }
     }
     case 'interrupt':
       // Interrupted turns end without Stop: the agent is idle again, and its claims go.
-      return { next: idleAfter(s, 'ready'), message: null, ...RESOLVED, actions: ['releaseLocks'] }
+      return { next: idleAfter(s, 'ready'), message: null, review: null, ...RESOLVED, actions: ['releaseLocks'] }
     case 'compactStart': {
       const actions: HookAction[] = s.compacting === 'requested' ? ['compactBegan'] : s.compacting ? [] : ['autoCompact']
       return s.status === 'working' ? { next: null, actions } : { next: 'working', message: COMPACTING_MESSAGE, actions }
@@ -195,15 +198,19 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
       // Hive's, or one the CLI did while idle (/compact typed in it): idle again. One mid-turn leaves the turn working.
       return { ...compactionOver(s), actions: s.compacting ? ['compactEnded'] : [] }
     case 'end':
-      return { next: 'stopped', question: null, ...RESOLVED, actions: ['releaseAllLocks', 'clearTasks'] }
+      return { next: 'stopped', question: null, review: null, ...RESOLVED, actions: ['releaseAllLocks', 'clearTasks'] }
     case 'ignore':
       return { next: null, actions: [] }
   }
 }
 
-/** Applies a step's status, message and question to an agent's state. True when any of them changed (the state needs sending). */
-export function applyStep(st: { status: SessionStatus; statusMessage?: string; unseen?: boolean; question?: { text: string; since: string } }, step: HookStep, now = new Date().toISOString()): boolean {
+/** Applies a step's status, message, question and review to an agent's state. True when any of them changed (the state needs sending). */
+export function applyStep(st: { status: SessionStatus; statusMessage?: string; unseen?: boolean; question?: { text: string; since: string }; review?: string }, step: HookStep, now = new Date().toISOString()): boolean {
   let changed = false
+  if (step.review !== undefined && (step.review ?? undefined) !== st.review) {
+    st.review = step.review ?? undefined
+    changed = true
+  }
   if (step.message !== undefined && (step.message ?? undefined) !== st.statusMessage) {
     st.statusMessage = step.message ?? undefined
     changed = true

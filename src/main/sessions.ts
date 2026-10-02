@@ -1932,7 +1932,8 @@ class SessionManager {
       titleAsks: !!l.titleAsks,
       open: l.open ?? [],
       waitingOn: l.waitingOn ?? null,
-      question: !!st.question
+      question: !!st.question,
+      reviewing: !!st.review
     }
   }
 

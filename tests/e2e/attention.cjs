@@ -60,13 +60,13 @@ const check = (name, ok, extra = '') => {
   check('the agents start', !!(await until(async () => (await live(reviewed.id))?.status === 'ready' && (await live(asking.id))?.status === 'ready', 20000)))
   check('in their modes', (await live(reviewed.id))?.permissionMode === 'approve-for-me' && (await live(asking.id))?.permissionMode === 'ask', `${(await live(reviewed.id))?.permissionMode} ${(await live(asking.id))?.permissionMode}`)
 
-  // Every state an agent goes through (status | message | question), and the times Hive says it needs you (the log).
+  // Every state an agent goes through (status | message | question | review), and the times Hive says it needs you (the log).
   const seen = new Map()
   const watch = setInterval(async () => {
     try {
       for (const s of await inv('session:live')) {
         const list = seen.get(s.agentId) ?? []
-        const now = `${s.status}|${s.statusMessage ?? ''}|${s.question?.text ?? ''}`
+        const now = `${s.status}|${s.statusMessage ?? ''}|${s.question?.text ?? ''}|${s.review ?? ''}`
         if (list[list.length - 1] !== now) list.push(now)
         seen.set(s.agentId, list)
       }
@@ -82,20 +82,54 @@ const check = (name, ok, extra = '') => {
     await inv('pty:write', key, text)
     await lib.sleep(150)
     await inv('pty:write', key, '\r')
+    // Under way, so a wait for it to finish isn't answered by the turn before.
+    await until(async () => states(a).some((s) => s.startsWith('working')), 5000)
   }
   const finished = (a, ms = 15000) => until(async () => (await live(a.id))?.status === 'finished', ms)
   const states = (a) => seen.get(a.id) ?? []
 
-  // --- Approve for me: the auto-reviewer answers; nobody is asked.
+  // --- Approve for me: the auto-reviewer answers; nobody is asked. Its pane says Working…, with a review mark whose
+  // details (what is asked) show on hover; the request is never the status.
+  const header = page.locator('.pane-header-bar', { hasText: 'Reviewed' })
+  const mark = header.locator('.review-mark')
+  const status = () => header.locator('.pane-status').innerText().catch(() => '')
+  const underReview = (s) => /^working\|\|[^|]*\|Codex asks to run /.test(s)
+  const neverStatus = (a) => !states(a).some((s) => s.split('|')[1].includes('Codex asks'))
   await turn(reviewed, 'review allow')
-  check('its pane says it is under review', !!(await until(() => page.locator('.pane-status', { hasText: 'Auto-review: Codex asks to run curl.exe' }).isVisible().catch(() => false), 3000)))
+  check('under review: its status still says Working…, with the review mark', !!(await until(async () => (await mark.isVisible().catch(() => false)) && (await status()) === 'Working…', 3000)), await status())
   check('an approved auto-review finishes the turn', !!(await finished(reviewed)))
-  check('and its pane no longer says so', !(await page.locator('.pane-status', { hasText: 'Auto-review' }).isVisible().catch(() => false)))
-  check('it said it was under review', states(reviewed).some((s) => s.startsWith('working|Auto-review: Codex asks to run curl.exe')), states(reviewed).join(' > '))
+  check('and the mark goes', (await mark.count()) === 0)
+  check('it was under review, with what was asked', states(reviewed).some(underReview), states(reviewed).join(' > '))
+  check('never as its status message', neverStatus(reviewed), states(reviewed).join(' > '))
   check('and never that it needed you', !states(reviewed).some((s) => s.startsWith('waiting')) && told('Reviewed') === 0, states(reviewed).join(' > '))
   await turn(reviewed, 'review deny')
   check('a denied one too', !!(await finished(reviewed)) && !states(reviewed).some((s) => s.startsWith('waiting')) && told('Reviewed') === 0, states(reviewed).join(' > '))
-  check('its review message gone with the next command', (await live(reviewed.id))?.statusMessage === undefined)
+  check('its review gone with the next command', (await live(reviewed.id))?.review === undefined && (await mark.count()) === 0)
+
+  // --- A long command under review (an environment variable, a path): the header stays short and readable, wide
+  // and narrow, dark and light; the command is only in the mark's tooltip.
+  for (const [width, theme] of [[1400, 'dark'], [820, 'light']]) {
+    await inv('settings:update', { appearance: { theme } })
+    await lib.fitWindow(app, page, { width, height: 850 })
+    await turn(reviewed, 'review long')
+    const t0 = Date.now()
+    const shown = await until(async () => mark.isVisible().catch(() => false), 4000)
+    const text = await header.innerText().catch(() => '')
+    check(`${width}px ${theme}: the long request is under review`, !!shown && (await status()) === 'Working…', await status())
+    check(`${width}px ${theme}: none of it in the header`, !/\$env|npm\.cmd|hive-test|Codex asks/.test(text), text.replace(/\s+/g, ' '))
+    check(`${width}px ${theme}: the header fits, its buttons inside it`, await header.evaluate((h) => h.scrollWidth <= h.clientWidth + 1 && [...h.querySelectorAll('button')].every((b) => b.getBoundingClientRect().right <= h.getBoundingClientRect().right + 1)))
+    const tip = page.locator('.tip', { hasText: 'npm.cmd run e2e' })
+    const hovered = await until(async () => {
+      await mark.hover({ timeout: 500 }).catch(() => undefined)
+      return (await tip.count()) === 1
+    }, 2500)
+    check(`${width}px ${theme}: the details on hover: the reviewer, and what it asks`, !!hovered && /reviewer is checking/.test(await tip.innerText()), `mark visible: ${await mark.isVisible().catch(() => false)}; tips: ${await page.locator('.tip').allInnerTexts().then((t) => t.join(' | '))}; ${Date.now() - t0} ms; ${states(reviewed).join(' > ')}`)
+    await page.screenshot({ path: path.join(lib.WORK, `attention-review-${width}-${theme}.png`) })
+    await page.mouse.move(5, 5)
+    check(`${width}px ${theme}: approved, the mark goes`, !!(await finished(reviewed)) && (await mark.count()) === 0)
+  }
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await lib.fitWindow(app, page, { width: 1400, height: 850 })
 
   // --- Ask for approval: the prompt is up: waiting, told once (the title blinks meanwhile), over when answered.
   const askKey = lib.ptyKey(proj, asking.id)
@@ -143,7 +177,7 @@ const check = (name, ok, extra = '') => {
     await turn(reviewed, `question then review ${outcome}`)
     check(`question + auto-review ${outcome}: the question is pending`, !!(await until(async () => (await live(reviewed.id))?.question?.text === 'Which colour?', 5000)))
     // The review comes and goes; the agent works on, the question pending, and you aren't told again.
-    await until(async () => (await live(reviewed.id))?.statusMessage === undefined && states(reviewed).some((s) => s.includes('Auto-review')), 5000)
+    await until(async () => (await live(reviewed.id))?.review === undefined && states(reviewed).some(underReview), 5000)
     await lib.sleep(1200)
     check(`question + auto-review ${outcome}: never waiting, told only of the question`, !states(reviewed).some((s) => s.startsWith('waiting')) && told('Reviewed') === before + 1, `${told('Reviewed') - before} · ${states(reviewed).join(' > ')}`)
     check(`question + auto-review ${outcome}: still working, the question still pending`, (await live(reviewed.id))?.status === 'working' && (await live(reviewed.id))?.question?.text === 'Which colour?')

@@ -342,6 +342,20 @@ kbd {
 .activity-btn.unread:hover {
   color: var(--accent-on-activity);
 }
+/* An action under the CLI's automatic review, beside an agent's status (ReviewMark). */
+.review-mark {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--fg-muted);
+}
+.review-mark .codicon {
+  font-size: 13px;
+}
+.review-mark-detail {
+  margin-top: 2px;
+  word-break: break-word;
+}
 .activity-btn.active::before {
   content: '';
   position: absolute;

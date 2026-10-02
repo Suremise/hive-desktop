@@ -6,6 +6,7 @@ import type { LiveSessionState, SessionStatus } from '@shared/types'
 import { cx } from '../util'
 import { errorMessage } from '../api'
 import { shortStartTime } from '@shared/defaults'
+import { providerName } from '@shared/providers'
 
 export function Icon({ name, className, title, spin }: { name: string; className?: string; title?: string; spin?: boolean }) {
   return <i className={cx('codicon', `codicon-${name}`, spin && 'spin', className)} title={title} aria-hidden={!title} />
@@ -161,9 +162,32 @@ export function statusText(live: Pick<LiveSessionState, 'status' | 'statusMessag
   return live.question && live.status !== 'waiting' ? `${text} · has a question for you` : text
 }
 
+/**
+ * An action under the CLI's automatic review (Codex's Approve for me): a small shield beside the status, which stays
+ * Working…. What is asked shows on hover only; the status, other labels and what is announced never carry it.
+ */
+export function ReviewMark({ live }: { live: Pick<LiveSessionState, 'review' | 'provider'> | null | undefined }) {
+  if (!live?.review) return null
+  return (
+    <Tooltip
+      content={
+        <>
+          <div>{providerName(live.provider)}'s reviewer is checking an action; you aren't needed.</div>
+          <div className="faint review-mark-detail">{live.review}</div>
+        </>
+      }
+    >
+      <span className="review-mark" role="img" aria-label="An action is being reviewed automatically">
+        <Icon name="shield" />
+      </span>
+    </Tooltip>
+  )
+}
+
 export function StatusDot({ live, active }: { live: LiveSessionState | null; active: boolean }) {
   const status = live?.status ?? (active ? 'idle' : 'stopped')
-  const text = !live ? STATUS_TEXT[status] : live.statusMessage ? `${STATUS_TEXT[status]} — ${live.statusMessage}` : statusText(live)
+  const base = !live ? STATUS_TEXT[status] : live.statusMessage ? `${STATUS_TEXT[status]} — ${live.statusMessage}` : statusText(live)
+  const text = live?.review ? `${base} · an action is being reviewed automatically` : base
   return (
     <Tooltip content={text}>
       <span className={cx('dot', status, live?.unseen && 'unseen')} />

@@ -7,7 +7,8 @@
 //   person must act: one title for everything asked. It sends SessionStart with the first prompt, as Codex does.
 // - Prompts, typed and sent with Enter:
 //   "review allow" / "review deny": a command its auto-reviewer approves (it runs) or denies (it doesn't, and
-//   another command runs next). PermissionRequest comes either way; nobody is asked.
+//   another command runs next). PermissionRequest comes either way; nobody is asked. "review long": a long
+//   PowerShell command (an environment variable, a path) under review for 4 s, then approved.
 //   "approve": the request is put to you: "y" approves it (another command ends beside it first), Esc rejects
 //   it (the turn is interrupted).
 //   "question": an async question (request_user_input_async): it works on meanwhile; "a" answers it, which it
@@ -87,13 +88,16 @@ const CURL_REQUEST = { ...CURL, tool_input: { ...CURL.tool_input, description: '
 const bash = (command) => ({ tool_name: 'Bash', tool_input: { command } })
 let busy = false
 
+/** A long command, the kind that used to fill an agent's header while under review. */
+const LONG = bash("$env:HIVE_E2E_DIR = 'C:\\Users\\someone\\AppData\\Local\\hive-test\\e2e'; npm.cmd run e2e -- icons bell resumeall --reporter verbose")
+
 /** A permission request its auto-reviewer answers: nobody is asked, and the title doesn't change. */
-async function review(allow) {
-  await hook('PreToolUse', CURL)
-  await hook('PermissionRequest', CURL_REQUEST)
+async function review(allow, call = CURL, ms = 1500) {
+  await hook('PreToolUse', call)
+  await hook('PermissionRequest', call === CURL ? CURL_REQUEST : call)
   out('  Reviewing the request…\r\n')
-  await sleep(1500)
-  if (allow) return hook('PostToolUse', CURL)
+  await sleep(ms)
+  if (allow) return hook('PostToolUse', call)
   out('  Rejected by the auto-reviewer.\r\n')
   await hook('PreToolUse', bash('ls'))
   await hook('PostToolUse', bash('ls'))
@@ -138,6 +142,7 @@ async function runPrompt(text) {
   let questions = 0
   for (const step of text.split(' then ')) {
     if (step === 'review allow' || step === 'review deny') await review(step === 'review allow')
+    else if (step === 'review long') await review(true, LONG, 4000)
     else if (step === 'question' || step === 'late question') {
       await question(step === 'late question')
       questions++

@@ -112,7 +112,7 @@ describe('a compaction Hive asked for', () => {
   it('its end unsaid, a prompt began a turn: what Hive sees later leaves the turn working', () => {
     const { c, st, over } = compacting()
     c.begin()
-    const s: HookStatusInput = { ...st, askedAtStart: false, compacting: 'started', backgroundWakes: true, tasks: 0, attention: 'hooks', reviewed: false, titleAsks: false, open: [], waitingOn: null, question: false }
+    const s: HookStatusInput = { ...st, askedAtStart: false, compacting: 'started', backgroundWakes: true, tasks: 0, attention: 'hooks', reviewed: false, titleAsks: false, open: [], waitingOn: null, question: false, reviewing: false }
     const step = hookStep({ kind: 'prompt' }, s)
     applyStep(st, step)
     expect(st).toEqual({ status: 'working', statusMessage: undefined })

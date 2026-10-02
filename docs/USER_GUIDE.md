@@ -420,7 +420,7 @@ Codex has its own presets:
 
 When you switch a running Codex agent's preset, the badge says **Switching to …** until Codex confirms it; if Codex doesn't, the badge goes back and Hive tells you.
 
-In **Approve for me**, Codex's reviewer decides on risky actions itself: while it does, the agent's status says **Auto-review: …** and Hive doesn't ask for you. Hive tells you an agent needs you only when Codex actually puts a question or an approval to you.
+In **Approve for me**, Codex's reviewer decides on risky actions itself: while it does, the agent stays **Working…** with a small shield beside its status (hover it to see what's being checked), and Hive doesn't ask for you. Hive tells you an agent needs you only when Codex actually puts a question or an approval to you.
 
 ### Codex's Windows sandbox
 

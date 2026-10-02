@@ -14,7 +14,7 @@ import { offerTip } from '../tips'
 import { ModeBadge } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { isProviderEnabled, projectDefaultProvider, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
-import { Icon, IconButton, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, ReviewMark, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
 /** Height of an agent pane's header (who it is, its controls) and footer (its session's details). */
 export const PANE_HEADER = 30
@@ -604,6 +604,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       ) : (
         <span className={cx('faint pane-status', !live && failure && 'failed')}>{live ? statusText(live) : failure ? 'Failed to start' : 'Not running'}</span>
       )}
+      <ReviewMark live={live} />
       <CardChip project={project} a={a} short={size === 'menu'} />
       <Locks a={a} />
       <div className="grow" />
