@@ -35,7 +35,8 @@ import { transcripts } from './transcripts'
 import * as skills from './skills'
 import * as storage from './storage'
 import { contextWorkspace, inWorkspace, workspace, workspaceFor, WorkspaceService } from './workspace'
-import { TITLE_BAR_OVERLAY, windowOf, windowShowing } from './windows'
+import { windowOf, windowShowing } from './windows'
+import { setTitleBarBackdrops, setTitleBarColors } from './titleBar'
 import { showWindow } from './tray'
 
 /** The instruction files of the given providers in a project, with their content. */
@@ -172,13 +173,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       const img = count > 0 && typeof png === 'string' ? nativeImage.createFromBuffer(Buffer.from(png, 'base64'), { scaleFactor: Number(scale) || 1 }) : null
       w.setOverlayIcon(img && !img.isEmpty() ? img : null, count > 0 ? badgeDescription(count) : '')
     },
-    'window:setTitleBarColors': (color, symbolColor) => {
-      try {
-        win().setTitleBarOverlay({ color, symbolColor, height: TITLE_BAR_OVERLAY })
-      } catch {
-        // Not supported on this platform.
-      }
-    },
+    'window:setTitleBarColors': (color, symbolColor) => setTitleBarColors(win(), { color, symbolColor }),
+    'window:setBackdrops': (count) => setTitleBarBackdrops(win(), count),
 
     'settings:get': () => config.settings,
     'settings:update': (patch) => config.updateSettings(patch),

@@ -50,6 +50,7 @@ const SUITES = [
   { name: 'taskbar' },
   { name: 'bell' },
   { name: 'icons' },
+  { name: 'carddialog' },
   { name: 'ctxpercent' },
   { name: 'donemove' },
   { name: 'doingmove' },

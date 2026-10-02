@@ -22,6 +22,7 @@ import { registerIpc } from './ipc'
 import { watchRenderer } from './rendererWatch'
 import { startPowerWatch } from './power'
 import { startTaskbarFlash } from './taskbar'
+import { setTitleBarColors, trackTitleBar } from './titleBar'
 import { startBranchWatch } from './branchWatch'
 import { createLogger, userText, logsDir } from './logger'
 import { killAll } from './ptyHost'
@@ -162,6 +163,7 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
       spellcheck: false
     }
   })
+  trackTitleBar(win, titleBarColors())
   if (b.maximized) win.maximize()
   if (process.platform === 'win32') {
     // Taskbar identity for this window: the installed exe's icon, or the repo icon for dev builds.
@@ -465,11 +467,7 @@ function wireSettingsEffects(): void {
     if (s.appearance.theme !== prev.appearance.theme) {
       nativeTheme.themeSource = s.appearance.theme
       for (const e of hiveWindows()) {
-        try {
-          e.win.setTitleBarOverlay({ ...titleBarColors(), height: TITLE_BAR_OVERLAY })
-        } catch {
-          // ignore
-        }
+        setTitleBarColors(e.win, titleBarColors())
       }
     }
     const refreshAll = (): void => {
