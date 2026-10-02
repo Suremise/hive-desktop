@@ -191,6 +191,22 @@ describe('task board', () => {
     })
   })
 
+  it('says what a change did, for the hive tools to confirm it', async () => {
+    const a = await run(() => tasks.createTask({ title: 'Said', project: 'alpha' }, agent))
+    const b = await run(() => tasks.createTask({ title: 'Other', project: 'alpha' }, agent))
+    const said: string[] = []
+    await run(() => tasks.updateTask(a.number, { column: 'review', labels: ['bug'], blocked: 'needs a key' }, agent, { said }))
+    expect(said).toEqual(['Moved to Review', 'Labels: bug', 'Blocked: needs a key'])
+    // Nothing to do: nothing said.
+    const none: string[] = []
+    await run(() => tasks.updateTask(a.number, { column: 'review', blocked: 'needs a key' }, agent, { said: none }))
+    expect(none).toEqual([])
+    const placed: string[] = []
+    await run(() => tasks.updateTask(b.number, { column: 'review', position: 'top' }, agent, { said: placed }))
+    expect(placed).toEqual(['Moved to the top of Review'])
+    for (const n of [a.number, b.number]) await run(() => tasks.deleteTask(n))
+  })
+
   it('drops references to a deleted card', async () => {
     const a = await run(() => tasks.createTask({ title: 'Base' }, user))
     const b = await run(() => tasks.createTask({ title: 'Depends', blockedBy: [a.number], links: [a.number] }, user))

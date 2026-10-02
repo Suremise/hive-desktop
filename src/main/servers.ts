@@ -10,6 +10,7 @@ import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredMo
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { columnLabel, isTaskColumn, stalledReason } from '../shared/tasks'
 import type { HandoverAuthor } from '../shared/hiveGuidance'
+import { taskRow, withoutHistory, type ProjectRow, type TaskChange, type TaskReorder, type TaskView } from '../shared/toolReplies'
 import { CLAUDE_CODE } from '../shared/claude'
 import * as assistant from './assistantControl'
 import { addAgent, updateAgent } from './projectAgents'
@@ -346,11 +347,18 @@ route('GET', '/v1/workspace', async () => {
 
 route('GET', '/v1/workspaces', async () => openWorkspaces().map((w) => ({ name: basename(w.path!), path: w.path })))
 
-route('GET', '/v1/projects', async () => {
+/** A project in a short listing (?view=short): its state and agents, without ids, paths or settings. */
+async function projectRow(p: string): Promise<ProjectRow> {
+  const s = await projectSummary(p)
+  return { name: s.name, workspace: s.workspace, active: s.active, branch: s.branch, agents: s.agents.map((a) => ({ name: a.name, provider: a.provider, status: a.status, branch: a.branch, backgroundTasks: a.backgroundTasks })) }
+}
+
+route('GET', '/v1/projects', async ({ query }) => {
   // The request's workspace, else every open workspace's projects (each says its workspace).
   const ctx = contextWorkspace()
+  const short = query.get('view') === 'short'
   const out = []
-  for (const w of ctx ? [ctx] : openWorkspaces()) for (const p of await w.listProjectPaths()) out.push(await projectSummary(p))
+  for (const w of ctx ? [ctx] : openWorkspaces()) for (const p of await w.listProjectPaths()) out.push(short ? await projectRow(p) : await projectSummary(p))
   return out
 })
 
@@ -400,7 +408,13 @@ route('GET', '/v1/projects/:name/usage', async ({ params, query }) => {
   const agent = query.get('agent')
   const id = query.get('sessionId') ?? sessions.liveFor(p, agent ? await agentParam(p, agent) : undefined)?.sessionId ??(await sessions.list(p)).find((s) => s.source === 'hive')?.id
   if (!id) throw new HttpError(404, 'No sessions for this project')
-  return sessions.usage(p, id)
+  const usage = await sessions.usage(p, id)
+  // ?days=false: without the usage by day, which grows with every day the session runs.
+  if (usage && query.get('days') === 'false') {
+    const { days: _days, ...rest } = usage
+    return rest
+  }
+  return usage
 })
 
 route('POST', '/v1/projects/:name/input', async ({ params, body }) => {
@@ -810,7 +824,7 @@ async function taskActor(body: any): Promise<tasks.TaskActor> {
  * A card with what its agent is doing now (and its name now), for callers deciding what to do next. `agents` keeps
  * each project's agents for a whole list, so a long board reads each project.json once.
  */
-async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType<typeof projectAgents>>>()) {
+async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType<typeof projectAgents>>>()): Promise<TaskView> {
   let agent: { id: string; name: string; status: string; backgroundTasks: number } | null = null
   let now: { name: string; running: boolean } | null = null
   if (c.agent && c.project) {
@@ -828,6 +842,16 @@ async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType
   }
   // Nobody working on a Doing card: the Assistant reports these and suggests who could take them.
   return { ...c, agent, stalled: stalledReason(c, now) }
+}
+
+/** The short reply a hive tool asks for (reply: "short") instead of the whole card or column. */
+const shortReply = (body: any): boolean => body?.reply === 'short'
+
+/** A change to a card, for a short reply: what changed (in its history's words) and where the card is now. */
+async function taskChange(c: TaskCard, changes: string[]): Promise<TaskChange> {
+  const list = c.archived ? [] : await tasks.listTasks({ column: c.column })
+  const i = list.findIndex((x) => x.number === c.number)
+  return { number: c.number, title: c.title, column: c.column, position: i >= 0 ? i + 1 : null, of: list.length, project: c.project, agent: c.agent ? (c.agentName ?? c.agent) : null, changes }
 }
 
 const taskNumber = (v: string): number => {
@@ -862,12 +886,15 @@ route('GET', '/v1/tasks', async ({ query }) => {
   const project = query.get('project') ?? undefined
   const cards = await tasks.listTasks({ project: project ? basename(projectByName(project)) : undefined, column: columnParam(query.get('column')), archived: query.get('archived') === 'true' ? true : undefined })
   const agents = new Map<string, Promise<ReturnType<typeof projectAgents>>>()
-  return Promise.all(cards.map((c) => taskView(c, agents)))
+  const views = await Promise.all(cards.map((c) => taskView(c, agents)))
+  // ?view=short: a row per card, without its description, comments and history.
+  return query.get('view') === 'short' ? views.map(taskRow) : views
 })
 
-route('GET', '/v1/tasks/:n', async ({ params }) => {
+route('GET', '/v1/tasks/:n', async ({ params, query }) => {
   requireWorkspace()
-  return taskView(await tasks.getTask(taskNumber(params[0])))
+  const view = await taskView(await tasks.getTask(taskNumber(params[0])))
+  return query.get('history') === 'false' ? withoutHistory(view) : view
 })
 
 route('POST', '/v1/tasks', async ({ body }) => {
@@ -876,10 +903,11 @@ route('POST', '/v1/tasks', async ({ body }) => {
   if (!title) throw new HttpError(400, 'title is required')
   const input = { title, description: body?.description, project: body?.project, agent: body?.agent, column: columnParam(body?.column), labels: body?.labels, blocked: body?.blocked, blockedBy: body?.blockedBy, links: body?.links }
   const actor = await taskActor(body)
-  if (actor.kind !== 'assistant') return taskView(await tasks.createTask(input, actor))
+  const reply = async (c: TaskCard) => (shortReply(body) ? taskChange(c, []) : taskView(c))
+  if (actor.kind !== 'assistant') return reply(await tasks.createTask(input, actor))
   return assistantChange('agents', `add the task "${clip(title, 60)}" to the board`, async () => {
     const c = await tasks.createTask(input, actor)
-    return { done: `Added #${c.number} to the board${c.project ? ` (${c.project})` : ''}: ${clip(c.title, 80)}`, result: await taskView(c) }
+    return { done: `Added #${c.number} to the board${c.project ? ` (${c.project})` : ''}: ${clip(c.title, 80)}`, result: await reply(c) }
   })
 })
 
@@ -889,13 +917,18 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
   const patch = taskPatch(body)
   const comment = typeof body?.comment === 'string' ? body.comment.trim() : ''
   const actor = await taskActor(body)
+  const changes: string[] = []
   const apply = async (allowDone: boolean): Promise<TaskCard> => {
     let c = await tasks.getTask(n)
-    if (Object.keys(patch).length) c = await tasks.updateTask(n, patch, actor, { allowDone })
-    if (comment) c = await tasks.commentTask(n, comment, actor)
+    if (Object.keys(patch).length) c = await tasks.updateTask(n, patch, actor, { allowDone, said: changes })
+    if (comment) {
+      c = await tasks.commentTask(n, comment, actor)
+      changes.push('Commented')
+    }
     return c
   }
-  if (actor.kind !== 'assistant') return taskView(await apply(false))
+  const reply = async (c: TaskCard) => (shortReply(body) ? taskChange(c, changes) : taskView(c))
+  if (actor.kind !== 'assistant') return reply(await apply(false))
   const ws = assistantCaller()!
   return assistantChange('agents', `change #${n} on the board`, async () => {
     const before = await tasks.getTask(n)
@@ -929,7 +962,7 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
     ]
       .filter(Boolean)
       .join(', ')
-    return { done: `#${n} ${clip(c.title, 60)}: ${what || 'no change'}`, result: await taskView(c) }
+    return { done: `#${n} ${clip(c.title, 60)}: ${what || 'no change'}`, result: await reply(c) }
   })
 })
 
@@ -939,7 +972,9 @@ route('POST', '/v1/tasks/reorder', async ({ body }) => {
   if (!column) throw new HttpError(400, 'column is required: todo, doing or review')
   const cards = body?.cards
   const actor = await taskActor(body)
-  const view = async (list: TaskCard[]) => {
+  const view = async (list: TaskCard[]): Promise<TaskView[] | TaskReorder> => {
+    // Short: the agent chose the cards and their order; it only needs to know it worked.
+    if (shortReply(body)) return { column, top: (cards as unknown[]).map((x) => Number(String(x).replace(/^#/, ''))), count: list.length }
     const agents = new Map<string, Promise<ReturnType<typeof projectAgents>>>()
     return Promise.all(list.map((c) => taskView(c, agents)))
   }
@@ -957,8 +992,9 @@ route('POST', '/v1/tasks/:n/comments', async ({ params, body }) => {
   const n = taskNumber(params[0])
   const text = typeof body?.text === 'string' ? body.text : ''
   const actor = await taskActor(body)
-  if (actor.kind !== 'assistant') return taskView(await tasks.commentTask(n, text, actor))
-  return assistantChange('agents', `comment on #${n}`, async () => ({ done: `Commented on #${n}`, result: await taskView(await tasks.commentTask(n, text, actor)) }))
+  const reply = async (c: TaskCard) => (shortReply(body) ? taskChange(c, ['Commented']) : taskView(c))
+  if (actor.kind !== 'assistant') return reply(await tasks.commentTask(n, text, actor))
+  return assistantChange('agents', `comment on #${n}`, async () => ({ done: `Commented on #${n}`, result: await reply(await tasks.commentTask(n, text, actor)) }))
 })
 
 route('POST', '/v1/tasks/:n/start', async ({ params, body }) => {
@@ -973,7 +1009,7 @@ route('POST', '/v1/tasks/:n/start', async ({ params, body }) => {
     const r = await startTask(n, target, { kind: 'assistant' })
     return {
       done: `Started #${n} on ${r.added ? 'a new agent, ' : ''}${r.agentName} in ${card.project}: ${clip(card.title, 80)}`,
-      result: { ok: true, agent: r.agentName, added: r.added, card: await taskView(r.card), note: 'Follow it with hive_wait_for_agents; the agent keeps the card up to date if it has Hive tools.' }
+      result: { ok: true, agent: r.agentName, added: r.added, card: shortReply(body) ? taskRow(await taskView(r.card)) : await taskView(r.card), note: 'Follow it with hive_wait_for_agents; the agent keeps the card up to date if it has Hive tools.' }
     }
   })
 })

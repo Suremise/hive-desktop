@@ -11,6 +11,11 @@
 - **Squash without the old commits coming back**: a squash that keeps the worktree now moves the agent's branch onto the squash commit (**Move the branch afterwards**, ticked), so its next merge doesn't conflict with its own earlier work.
 - **See when a worktree agent has work to merge**: **Merge…** turns orange with the number of commits not merged into the project folder's branch, and the agent's tab shows it too (↑2). A • means uncommitted files only; hover for the details. It updates when the agent finishes a turn, when you come back to Hive, and after a merge.
 
+### Lean replies from Hive's tools
+- **Hive's tools reply in a few lines, not whole objects**, so agents and the Assistant use far fewer tokens. Listing the board gives one line per card (number, title, project, agent, labels, blocked, comments) instead of every card in full: about 7,500 characters for 76 cards, where it was over 300,000 and too big for Claude Code to take. Changing, commenting on or reordering cards confirms what changed and where the card is now, in about 100 characters instead of the whole card or column. Projects, shared notes, new agents and started agents reply in a line or two too.
+- **Full detail on request**: `hive_list_tasks` with `details: true`, `hive_read_task` with `history: true` (the description and comments are always there), `hive_session_usage` with `days: true`. Notes and handovers read as their text, and other structured replies are compact JSON.
+- **Agent API**: replies are unchanged unless you ask for the short ones: `GET /v1/tasks?view=short`, `GET /v1/tasks/{n}?history=false`, `"reply": "short"` on card changes, reorders and comments, `GET /v1/projects?view=short` and `GET /v1/projects/{name}/usage?days=false` (AGENT_API.md).
+
 ### Task board
 - **A task board for the workspace**: cards in **Todo**, **Doing**, **Review** and **Done**, each for a project, with a description, labels, a blocked reason, the cards it depends on, comments and a history of who changed what. Open it from the activity bar (**Ctrl+Shift+J**); each project also has a **Tasks** tab. Drag cards between columns; a Doing card shows what its agent is doing right now.
 - **Start** gives a card to an agent (one that is stopped or idle, a new one, or a new one in its own worktree) with the card as its prompt.

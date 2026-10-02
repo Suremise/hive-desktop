@@ -4,6 +4,7 @@ import { existsSync } from 'fs'
 import { shell } from 'electron'
 import { projectAgents } from '../shared/defaults'
 import { isTaskColumn, sortCards } from '../shared/tasks'
+import { ordinal } from '../shared/toolReplies'
 import type { TaskCard, TaskColumn, TaskPatch } from '../shared/types'
 import { config } from './config'
 import { emit } from './events'
@@ -217,11 +218,6 @@ function placement(all: TaskCard[], card: TaskCard, column: TaskColumn, patch: T
   return { order, said }
 }
 
-const ordinal = (n: number): string => {
-  const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')
-  return `${n}${s}`
-}
-
 /**
  * Puts cards at the top of a column in the order given; the column's other cards keep their order below them. The
  * listed cards have to be in that column already (this never moves cards between columns), and only the user puts
@@ -326,7 +322,7 @@ export async function createTask(
  * Changes a card. Moving it into or out of Done is the user's: `allowDone` says the user did it (or said yes to
  * the Assistant). An archived card only changes once the user brings it back.
  */
-export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, opts: { allowDone?: boolean; check?: (card: TaskCard) => void } = {}): Promise<TaskCard> {
+export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, opts: { allowDone?: boolean; check?: (card: TaskCard) => void; said?: string[] } = {}): Promise<TaskCard> {
   const ws = workspace
   const by = actorName(actor)
   const result = await withFileLock(cardFile(n, ws), async () => {
@@ -404,6 +400,8 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
       card.links = await cardRefs(patch.links, n, 'links')
       said.push(card.links.length ? `Linked to ${card.links.map((x) => `#${x}`).join(', ')}` : 'Removed the links')
     }
+    // What changed, in the history's words, for a caller that confirms it (the hive tools' short replies).
+    opts.said?.push(...said)
     if (!said.length && !reordered) return card
     for (const s of said) note(card, by, s)
     await writeJsonAtomic(cardFile(n, ws), card)

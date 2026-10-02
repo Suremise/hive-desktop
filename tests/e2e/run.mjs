@@ -32,6 +32,7 @@ const SUITES = [
   { name: 'reorder' },
   { name: 'unmerged' },
   { name: 'sessionname' },
+  { name: 'replysize' },
   { name: 'busy' },
   { name: 'changes' },
   { name: 'board' },
