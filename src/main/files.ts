@@ -180,15 +180,33 @@ export function absPath(projectPath: string, rel: string): string {
   return inProject(workspace.assertRoot(projectPath), rel, true, true)
 }
 
-/** Which of these entries are files (not folders, not missing), for the terminal's file links. */
-export async function areFiles(projectPath: string, rels: string[]): Promise<boolean[]> {
+/** A path inside the project as it is spelled on disk (Windows ignores case; the Files tree doesn't). */
+async function spelledOnDisk(projectPath: string, rel: string): Promise<string> {
+  const parts = rel.split(/[\\/]+/).filter((p) => p && p !== '.')
+  let dir = resolve(projectPath)
+  const out: string[] = []
+  for (const part of parts) {
+    const names = await readdir(dir).catch(() => [] as string[])
+    const name = names.includes(part) ? part : (names.find((n) => n.toLowerCase() === part.toLowerCase()) ?? part)
+    out.push(name)
+    dir = join(dir, name)
+  }
+  return out.join('/')
+}
+
+/**
+ * For the terminal's file links: each entry's path as spelled on disk when it is a file, or null (a folder,
+ * missing, outside the project).
+ */
+export async function linkFiles(projectPath: string, rels: string[]): Promise<(string | null)[]> {
   projectPath = workspace.assertRoot(projectPath)
   return Promise.all(
     (Array.isArray(rels) ? rels : []).slice(0, 100).map(async (rel) => {
       try {
-        return typeof rel === 'string' && (await stat(inProject(projectPath, rel))).isFile()
+        if (typeof rel !== 'string' || !(await stat(inProject(projectPath, rel))).isFile()) return null
+        return await spelledOnDisk(projectPath, rel)
       } catch {
-        return false
+        return null
       }
     })
   )

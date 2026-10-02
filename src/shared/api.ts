@@ -290,7 +290,7 @@ export interface HiveRequests {
   'files:open': (projectPath: string, rel: string) => void
   'files:reveal': (projectPath: string, rel: string) => void
   /** Which entries are files that exist (folders and missing paths are false); for the terminal's file links. */
-  'files:areFiles': (projectPath: string, rels: string[]) => boolean[]
+  'files:linkFiles': (projectPath: string, rels: string[]) => (string | null)[]
   /** Starts/stops live 'files-changed' events for a project (reference counted). */
   'files:watch': (projectPath: string) => void
   /** The files with unsaved edits in the renderer (absolute paths), so quitting can ask about them. */

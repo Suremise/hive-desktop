@@ -1,5 +1,5 @@
 import type { IBufferLine, ILink, ILinkProvider, Terminal } from '@xterm/xterm'
-import { findPaths, resolveLink, type LinkRoot, type LinkTarget } from '@shared/fileLinks'
+import { findPaths, pathCandidates, resolveLink, type LinkRoot, type LinkTarget, type PathMatch } from '@shared/fileLinks'
 import { call } from './api'
 import { get, isAssistantPath, set, setProjectTab, showView } from './store'
 
@@ -21,11 +21,12 @@ function linkBase(projectPath: string, agentId: string | undefined): string | nu
   return p?.agents.find((a) => a.id === agentId)?.worktree?.path ?? p?.path ?? null
 }
 
-/** Whether a file exists, remembered for a few seconds so hovering doesn't ask main on every move. */
-const known = new Map<string, { ok: boolean; at: number }>()
+/** Each file's path as spelled on disk (null: not a file), remembered for a few seconds so hovering doesn't ask main on every move. */
+const known = new Map<string, { rel: string | null; at: number }>()
 const KNOWN_MS = 5000
 
-async function existing(targets: LinkTarget[]): Promise<boolean[]> {
+/** The targets that are files, with their paths as spelled on disk (the Files tree matches them exactly). */
+async function existing(targets: LinkTarget[]): Promise<(LinkTarget | null)[]> {
   const key = (t: LinkTarget): string => `${t.root}|${t.rel}`.toLowerCase()
   const now = Date.now()
   const ask = new Map<string, LinkTarget[]>()
@@ -36,12 +37,15 @@ async function existing(targets: LinkTarget[]): Promise<boolean[]> {
   }
   await Promise.all(
     [...ask].map(async ([root, ts]) => {
-      const ok = await call('files:areFiles', root, ts.map((t) => t.rel)).catch(() => ts.map(() => false))
-      ts.forEach((t, i) => known.set(key(t), { ok: !!ok[i], at: now }))
+      const rels = await call('files:linkFiles', root, ts.map((t) => t.rel)).catch(() => ts.map(() => null))
+      ts.forEach((t, i) => known.set(key(t), { rel: rels[i] ?? null, at: now }))
     })
   )
   if (known.size > 2000) for (const [k, v] of known) if (now - v.at >= KNOWN_MS) known.delete(k)
-  return targets.map((t) => !!known.get(key(t))?.ok)
+  return targets.map((t) => {
+    const rel = known.get(key(t))?.rel
+    return rel ? { ...t, rel } : null
+  })
 }
 
 /** Shows a file in its project's Files tab (the worktree's folder for a worktree), at a line. */
@@ -83,14 +87,18 @@ export function fileLinkProvider(term: Terminal, context: () => { projectPath?: 
       if (!base || !line) return callback(undefined)
       const { text, colOf } = lineText(line, term.cols)
       const roots = linkRoots()
-      const found = findPaths(text).flatMap((m) => {
+      // Every way the line may hold a path (a path with spaces is also its shorter beginnings); the files among
+      // them decide which become links.
+      const found = pathCandidates(text).flatMap((m) => {
         const target = resolveLink(m.path, base, roots)
         return target ? [{ m, target }] : []
       })
       if (!found.length) return callback(undefined)
-      void existing(found.map((f) => f.target)).then((ok) => {
-        const links: ILink[] = found
-          .filter((_, i) => ok[i])
+      const at = (m: PathMatch): string => `${m.start}:${m.end}:${m.path}`
+      void existing(found.map((f) => f.target)).then((files) => {
+        const fileAt = new Map(found.flatMap((f, i) => (files[i] ? [[at(f.m), files[i]] as const] : [])))
+        const links: ILink[] = findPaths(text, (m) => fileAt.has(at(m)))
+          .map((m) => ({ m, target: fileAt.get(at(m))! }))
           .map(({ m, target }) => ({
             text: text.slice(m.start, m.end),
             range: { start: { x: colOf[m.start] + 1, y }, end: { x: colOf[m.end - 1] + 1, y } },
