@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## 0.3.0 — 2 October 2026
 
 ### Agent footer
 - **Context as a percentage of the window**: the footer shows *84k · 42%* once the CLI has reported the session's context window, so you can see how close it is to needing Compact whether the model has 200K or 1M. In a narrow pane only the percentage shows; the tooltip has both numbers.
