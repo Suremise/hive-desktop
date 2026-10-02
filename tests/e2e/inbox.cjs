@@ -1,0 +1,190 @@
+// The attention inbox: the status bar's "n need you" and its popover (oldest first, a click goes to the agent), the
+// Projects badge and the project list's counts. A finish on screen is seen at once; one in another project stays
+// until its pane is shown; a waiting agent stays until answered; an idle worktree agent with unmerged work is listed
+// to review, not counted. The agents run the fake Claude Code (fake-claude/). Dev build, throwaway profile, workspace
+// and CLAUDE_CONFIG_DIR.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+const { execFileSync } = require('child_process')
+
+const userData = path.join(lib.WORK, 'inbox-profile')
+const ws = path.join(lib.WORK, 'inbox-ws')
+const claudeHome = path.join(lib.WORK, 'inbox-claude-home')
+const alpha = path.join(ws, 'alpha')
+const beta = path.join(ws, 'beta')
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+const git = (cwd, ...a) => execFileSync('git', a, { cwd }).toString()
+const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `inbox-${name}.png`) })
+
+;(async () => {
+  for (const d of [userData, ws, ws + '.worktrees', claudeHome]) fs.rmSync(d, { recursive: true, force: true })
+  fs.mkdirSync(claudeHome, { recursive: true })
+  for (const p of [alpha, beta]) {
+    lib.gitProject(p)
+    git(p, 'config', 'user.email', 't@t')
+    git(p, 'config', 'user.name', 't')
+  }
+  lib.enableProviders(userData)
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  cfg.settings.notifications = { ...cfg.settings.notifications, desktopNotifications: false }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47891', CLAUDE_CONFIG_DIR: claudeHome }
+  delete env.ELECTRON_RUN_AS_NODE
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.fitWindow(app, page, { width: 1400, height: 850 })
+  await lib.sleep(1500)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await inv('workspace:open', ws)
+  await lib.sleep(1000)
+  const until = async (fn, ms = 10000) => {
+    const t = Date.now()
+    let v
+    while (!(v = await fn()) && Date.now() - t < ms) await lib.sleep(200)
+    return v
+  }
+  const focusWindow = () =>
+    app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      if (w.isMinimized()) w.restore()
+      w.focus()
+    })
+  const live = async (proj, id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === proj.toLowerCase() && s.agentId === id)
+  const turns = {}
+  /** A prompt to an agent, and the end of its turn. */
+  const turn = async (proj, id) => {
+    const n = (turns[id] = (turns[id] ?? 0) + 1)
+    await inv('pty:write', lib.ptyKey(proj, id), `${id} turn ${n}`)
+    await lib.sleep(300)
+    await inv('pty:write', lib.ptyKey(proj, id), '\r')
+    await until(async () => String(await inv('pty:buffer', lib.ptyKey(proj, id))).includes(`Done: ${id} turn ${n}`), 15000)
+    await until(async () => (await live(proj, id))?.status === 'finished', 15000)
+    await lib.sleep(600)
+  }
+  const item = page.locator('.statusbar .inbox-item')
+  const itemText = async () => ((await item.count()) ? (await item.innerText()).trim() : '')
+  const rows = page.locator('.inbox-panel .inbox-row')
+  const rowNames = async () => (await rows.locator('.inbox-name').allInnerTexts()).map((t) => t.trim())
+  const projectsBadge = async () => {
+    const b = page.locator('.activity-btn[aria-label="Projects"] .activity-badge')
+    return (await b.count()) ? (await b.innerText()).trim() : ''
+  }
+  const needCount = async (name) => {
+    const c = page.locator('.project-row', { hasText: name }).locator('.project-needs')
+    return (await c.count()) ? (await c.innerText()).trim() : ''
+  }
+  const openProject = async (name) => {
+    await page.locator('.project-row', { hasText: name }).first().click()
+    await lib.sleep(600)
+  }
+
+  const one = await lib.addAgent(inv, alpha, { name: 'One' })
+  const two = await lib.addAgent(inv, alpha, { name: 'Two', location: 'new-worktree' })
+  const three = await lib.addAgent(inv, beta, { name: 'Three' })
+  // beta isn't trusted: Three asks first, so it waits for you.
+  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase(), two.worktree.path.toLowerCase()]))
+  await inv('session:start', alpha, { agentId: one.id })
+  await inv('session:start', alpha, { agentId: two.id })
+  check('alpha\'s agents start', !!(await until(async () => (await live(alpha, one.id))?.status === 'ready' && (await live(alpha, two.id))?.status === 'ready', 20000)))
+  await openProject('alpha')
+  await focusWindow()
+  await lib.sleep(500)
+  check('the window has focus', await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused()))
+
+  // A finish on screen is seen as it happens.
+  await turn(alpha, one.id)
+  check('a finish on screen: not unseen', (await live(alpha, one.id))?.unseen === false)
+  check('…and nothing needs you', (await itemText()) === '', await itemText())
+  check('…no Projects badge', (await projectsBadge()) === '')
+
+  // Another project on screen: Three waits (it stays, seen or not), then One finishes unseen.
+  await openProject('beta')
+  await inv('session:start', beta, { agentId: three.id })
+  check('Three asks whether to trust its folder', !!(await until(async () => (await live(beta, three.id))?.status === 'waiting', 15000)))
+  await lib.sleep(800)
+  check('a waiting agent on screen still needs you', !!(await until(async () => (await itemText()) === '1 needs you', 5000)), await itemText())
+  await turn(alpha, one.id)
+  check('a finish in another project stays unseen', (await live(alpha, one.id))?.unseen === true)
+  check('the status bar says 2 need you', !!(await until(async () => (await itemText()) === '2 need you', 5000)), await itemText())
+  check('the Projects badge says 2', (await projectsBadge()) === '2', await projectsBadge())
+  check('each project shows its count', (await needCount('alpha')) === '1' && (await needCount('beta')) === '1', `${await needCount('alpha')} ${await needCount('beta')}`)
+
+  // The compact sidebar: a count on each project's square.
+  await page.keyboard.press('Control+Alt+B')
+  await lib.sleep(500)
+  const railCounts = await page.locator('.rail-project .project-need-count').allInnerTexts()
+  check('the compact sidebar shows the counts too', JSON.stringify(railCounts) === '["1","1"]', JSON.stringify(railCounts))
+  await shot(page, '0-rail')
+  await page.keyboard.press('Control+Alt+B')
+  await lib.sleep(500)
+
+  await item.click()
+  await lib.sleep(400)
+  check('the popover lists them oldest first', JSON.stringify(await rowNames()) === JSON.stringify(['beta · Three', 'alpha · One']), JSON.stringify(await rowNames()))
+  check('…saying what each is doing', (await rows.nth(0).locator('.inbox-state').innerText()).startsWith('Needs input') && (await rows.nth(1).locator('.inbox-state').innerText()) === 'Finished')
+  check('…and how long ago', (await rows.nth(1).locator('.inbox-time').innerText()) === 'just now')
+  await shot(page, '1-popover')
+
+  // A click goes to the agent, which is then seen.
+  await rows.nth(1).click()
+  await lib.sleep(800)
+  check('the popover closes', (await page.locator('.inbox-panel').count()) === 0)
+  check('alpha is shown', (await page.locator('.project-row.selected', { hasText: 'alpha' }).count()) === 1)
+  check('One is seen once shown', !!(await until(async () => (await live(alpha, one.id))?.unseen === false, 5000)))
+  check('one left: Three, still waiting', !!(await until(async () => (await itemText()) === '1 needs you', 5000)), await itemText())
+
+  // A finish while the window is minimised is unseen until the window comes back.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize())
+  const backgrounded = await until(async () => !(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused())), 5000)
+  if (backgrounded) {
+    await turn(alpha, one.id)
+    check('a finish while the window is in the background is unseen', (await live(alpha, one.id))?.unseen === true)
+    await focusWindow()
+    check('…and seen once the window has focus again', !!(await until(async () => (await live(alpha, one.id))?.unseen === false, 5000)))
+  } else console.log('SKIP the window could not be minimised')
+
+  // A worktree agent with unmerged work, idle and seen: to review, not counted.
+  fs.writeFileSync(path.join(two.worktree.path, 'b.ts'), 'export const b = 2\n')
+  git(two.worktree.path, 'add', '-A')
+  git(two.worktree.path, 'commit', '-q', '-m', 'b')
+  await focusWindow()
+  await turn(alpha, two.id)
+  check('Two finished on screen is seen', (await live(alpha, two.id))?.unseen === false)
+  const branch = await until(async () => (await inv('agents:branchStatuses')).find((b) => b.agentId === two.id && b.status?.ahead === 1)?.status, 8000)
+  check('its branch has a diff summary', branch?.diff?.files === 1 && branch.diff.insertions === 1, JSON.stringify(branch))
+  await item.click()
+  await lib.sleep(400)
+  const review = page.locator('.inbox-panel .inbox-row', { hasText: 'alpha · Two' })
+  check('Two is listed to review', !!(await until(async () => (await review.count()) === 1, 5000)))
+  check('…with its summary', (await review.locator('.inbox-state').innerText().catch(() => '')) === '1 file, +1 −0 · 1 commit', await review.locator('.inbox-state').innerText().catch(() => ''))
+  check('…not counted', (await itemText()) === '1 needs you', await itemText())
+  await shot(page, '2-review')
+  await review.getByRole('button', { name: 'Changes' }).click()
+  await lib.sleep(600)
+  check('Changes opens the Changes tab', (await page.locator('.tab.active', { hasText: 'Changes' }).count()) === 1)
+
+  // Answering Three: nothing needs you, and the status bar says what is left to review.
+  await lib.acceptClaudeTrust(inv, beta, three.id)
+  check('Three is answered', !!(await until(async () => (await live(beta, three.id))?.status === 'ready', 15000)))
+  check('the status bar shows 1 to review', !!(await until(async () => (await itemText()) === '1 to review', 5000)), await itemText())
+  check('no Projects badge', (await projectsBadge()) === '')
+  await shot(page, '3-review-only')
+
+  await app.close()
+  console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

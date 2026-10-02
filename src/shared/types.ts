@@ -503,6 +503,8 @@ export interface AgentBranchStatus {
   ahead: number
   /** Uncommitted changes in the worktree. */
   dirty: number
+  /** What a merge would bring (unmerged commits and tracked uncommitted changes): files changed, lines added and removed. */
+  diff?: { files: number; insertions: number; deletions: number }
 }
 
 export interface MergeResult {
@@ -565,11 +567,14 @@ export interface LiveSessionState {
   /** See SessionRecord.titleAtRename. */
   titleAtRename?: string | null
   status: SessionStatus
+  /** When the status last changed (ISO): how long an agent has been waiting or finished. */
+  statusSince?: string
   statusMessage?: string
   pid?: number
   startedAt: string
   /** Effective settings the session launched with — used to detect "restart to apply". */
   launchSignature: string
+  /** Finished or waiting since its pane was last on screen in a focused window (the renderer marks it seen). */
   unseen: boolean
   /** Reported by the provider once the session has started. */
   effort?: string

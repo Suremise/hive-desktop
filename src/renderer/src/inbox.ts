@@ -1,0 +1,59 @@
+import { useMemo } from 'react'
+import { inbox, type Inbox, type InboxItem } from '@shared/inbox'
+import { call } from './api'
+import { NO_PROJECTS, agentsOnScreen, findProject, get, projectKey, revealAgent, set, setAssistantOpen, setProjectTab, showView, useStore } from './store'
+
+/** The window's attention inbox (shared/inbox.ts): agents that need you, and worktree agents with work to review. */
+export function useInbox(): Inbox {
+  const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
+  const assistant = useStore((s) => s.workspace?.assistant ?? null)
+  const branches = useStore((s) => s.branchStatus)
+  return useMemo(() => inbox(projects, assistant, (path, id) => branches[projectKey(path, id)]), [projects, assistant, branches])
+}
+
+/** Goes to an inbox item's agent; the Assistant's opens its panel. */
+export function openInboxItem(item: InboxItem): void {
+  set({ inboxOpen: false })
+  if (item.assistant) return setAssistantOpen(true)
+  const p = get().workspace?.projects.find((x) => x.path === item.projectPath)
+  if (!p) return
+  set({ selectedProject: p.path })
+  showView('projects')
+  revealAgent(p, item.agentId)
+}
+
+/** A worktree agent's changes in its project's Changes tab. */
+export function openInboxChanges(item: InboxItem): void {
+  set((s) => ({ inboxOpen: false, selectedProject: item.projectPath, changesRoot: { ...s.changesRoot, [item.projectPath]: item.agentId } }))
+  showView('projects')
+  setProjectTab(item.projectPath, 'changes')
+}
+
+export function openInboxMerge(item: InboxItem): void {
+  set({ inboxOpen: false, mergeFor: { project: item.projectPath, agentId: item.agentId } })
+}
+
+/** Agents already being marked seen, so a burst of store changes asks once. */
+const marking = new Set<string>()
+
+/** Marks the agents on screen (agentsOnScreen) seen; run on every store change. */
+export function markOnScreenSeen(): void {
+  const s = get()
+  for (const [path, ids] of agentsOnScreen(s)) {
+    const host = findProject(s, path)
+    const unseen = ids.filter((id) => host?.agents.find((a) => a.id === id)?.live?.unseen && !marking.has(projectKey(path, id)))
+    if (!unseen.length) continue
+    for (const id of unseen) marking.add(projectKey(path, id))
+    void call('session:markSeen', path, unseen)
+      .catch(() => undefined)
+      .finally(() => {
+        for (const id of unseen) marking.delete(projectKey(path, id))
+      })
+  }
+}
+
+/** Whether an agent is on screen now (its finish is seen as it happens). */
+export function onScreen(path: string, agentId: string): boolean {
+  const host = findProject(get(), path)
+  return !!host && !!agentsOnScreen().get(host.path)?.includes(agentId)
+}

@@ -24,7 +24,7 @@ let lastFocusCheck = 0
 const keyOf = (projectPath: string, agentId: string): string => `${projectPath.toLowerCase()}#${agentId}`
 
 function same(a: AgentBranchStatus | null, b: AgentBranchStatus | null): boolean {
-  return a === b || (!!a && !!b && a.ahead === b.ahead && a.dirty === b.dirty && a.into === b.into && a.branch === b.branch && a.base === b.base)
+  return a === b || (!!a && !!b && a.ahead === b.ahead && a.dirty === b.dirty && a.into === b.into && a.branch === b.branch && a.base === b.base && JSON.stringify(a.diff) === JSON.stringify(b.diff))
 }
 
 function projectsOf(ws = openWorkspaces()): ProjectInfo[] {
@@ -117,6 +117,11 @@ function forget(key: string): void {
 export function statuses(): { projectPath: string; agentId: string; status: AgentBranchStatus | null }[] {
   checkAll(true)
   return [...known.values()]
+}
+
+/** The last known status of one worktree agent, without asking git. */
+export function knownStatus(projectPath: string, agentId: string): AgentBranchStatus | null {
+  return known.get(keyOf(projectPath, agentId))?.status ?? null
 }
 
 function onEvent(e: HiveEvent): void {

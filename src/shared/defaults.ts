@@ -1,4 +1,4 @@
-import type { AgentBranchStatus, AgentDef, AppConfig, AppSettings, KeybindingOverrides, FileLockMode, PageLayout, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderSettings, SessionLayout, SessionRecord, WorkspaceConfig } from './types'
+import type { AgentBranchStatus, AgentDef, AppConfig, AppSettings, KeybindingOverrides, FileLockMode, PageLayout, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderSettings, SessionLayout, SessionRecord, SessionStatus, WorkspaceConfig } from './types'
 import { CLAUDE_CODE } from './claude'
 import { DEFAULT_COLUMN_COLORS } from './tasks'
 import { DEFAULT_PROVIDER, PROVIDERS, defaultProviderSettings, isKnownProvider, providerDescriptor } from './providers'
@@ -231,6 +231,24 @@ export function mostUrgent<T extends { status: string; unseen?: boolean }>(state
   if (!list.length) return null
   const top = list.reduce((a, b) => ((URGENCY[b.status] ?? 0) > (URGENCY[a.status] ?? 0) ? b : a))
   return list.some((s) => s.unseen) && !top.unseen ? { ...top, unseen: true } : top
+}
+
+/**
+ * Why a worktree agent's work can't be merged now, or null. A merge commits the worktree's uncommitted files first,
+ * so not while the agent is in the middle of a task (working, asking you something, or waiting on background tasks).
+ */
+export function mergeBlocked(name: string, status: SessionStatus | null | undefined): string | null {
+  switch (status) {
+    case 'starting':
+    case 'working':
+      return `${name} is working. Merge once it has finished.`
+    case 'waiting':
+      return `${name} is waiting for your answer. Merge once it has finished.`
+    case 'background':
+      return `${name} is waiting on background tasks it started. Merge once it has finished.`
+    default:
+      return null
+  }
 }
 
 /** Folder-safe slug for branch and worktree names: "Agent 2" → "agent-2". */

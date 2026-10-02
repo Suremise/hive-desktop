@@ -162,7 +162,8 @@ export interface HiveRequests {
   'session:clearUsageCache': () => void
   'session:adopt': (projectPath: string, sessionId: string) => void
   'session:usage': (projectPath: string, sessionId: string) => SessionUsage | null
-  'session:markSeen': (projectPath: string) => void
+  /** The window showed these agents' panes (all of the project's agents when none are named). */
+  'session:markSeen': (projectPath: string, agentIds?: string[]) => void
   'session:live': () => LiveSessionState[]
   /** Runs the CLI's /compact in the agent's session (only while the agent is idle). */
   'session:compact': (projectPath: string, focus?: string, agentId?: string) => void
