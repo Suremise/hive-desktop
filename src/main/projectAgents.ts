@@ -9,7 +9,7 @@ import { realPath, withFileLock } from './fsutil'
 import { createLogger, userText } from './logger'
 import { checkProject } from './branchWatch'
 import { sessions } from './sessions'
-import { releaseAgentCards } from './tasks'
+import { endReviews, releaseAgentCards } from './tasks'
 import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
 
@@ -136,6 +136,8 @@ export async function removeAgent(projectPath: string, agentId: string, opts: { 
   if (def.worktree && opts.deleteWorktree) await wt.removeWorktree(projectPath, def.worktree, true)
   await workspace.mutateProjectConfig(projectPath, (now) => ({ agents: now.agents.filter((a) => a.id !== agentId) }))
   if (opts.releaseCards) await releaseAgentCards(basename(projectPath), agentId, { kind: 'user' })
+  // A review it left going (from before Hive last started) ends with it.
+  await endReviews(basename(projectPath), agentId, 'the agent was removed', workspaceOf(projectPath))
   await workspaceOf(projectPath).refresh()
 }
 

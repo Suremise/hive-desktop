@@ -15,7 +15,7 @@ import { PROVIDERS, projectProviderConfig, providerSettings } from '../shared/pr
 import { projectAgents } from '../shared/defaults'
 import { SERVABLE_EXT, unwatchAll } from './files'
 import { config } from './config'
-import { archiveOldDone } from './tasks'
+import { archiveOldDone, endReviews } from './tasks'
 import { emit, emitTo, onHiveEvent, toast } from './events'
 import { recordLiveCards } from './cardSessions'
 import { registerIpc } from './ipc'
@@ -681,6 +681,10 @@ app.whenReady().then(async () => {
     if (e.type === 'workspace-changed') saveWindowsSoon()
     // A card moved to Doing (or was given to a running agent): its session records it.
     if (e.type === 'tasks-changed') void recordLiveCards(e.workspacePath, sessions.liveStates())
+    // A reviewer whose session ended isn't reviewing any more: its cards stop showing it.
+    if (e.type === 'session-exit' && !workspaceOf(e.projectPath).isAssistantHome(e.projectPath)) {
+      void endReviews(basename(e.projectPath), e.agentId, 'its session ended', workspaceOf(e.projectPath)).catch(() => undefined)
+    }
   })
   initUpdater({
     restart: () => {

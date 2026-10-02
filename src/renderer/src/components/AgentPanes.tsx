@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { CardChip, useAgentCards } from './CardChip'
+import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
 import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, contextPercent, effectiveModelLabel, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import type { AgentInfo, LiveSessionState, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import type { StartFailure } from '@shared/startFailure'
@@ -362,11 +362,13 @@ function Locks({ a }: { a: AgentInfo }) {
 function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const usage = useLiveUsage(project, a.live ? a.id : undefined)
   const cards = useAgentCards(project, a.id)
+  const reviewing = useAgentReviews(project, a.id)
   const unmerged = useUnmerged(project, a)
   const live = a.live
   const failure = useStartFailure(project, a)
   const lines = [`${a.name} (${providerName(agentProviderOf(project, a))}): ${live ? statusText(live) : failure ? `failed to start: ${failure.reason.split('\n')[0]}` : 'not running'}`]
   for (const c of cards) lines.push(`Working on #${c.number} ${c.title}`)
+  for (const c of reviewing) lines.push(`Reviewing #${c.number} ${c.title}`)
   if (live) lines.push(`Session: ${liveSessionLabel(project, live, usage)}`)
   else if (a.resume) lines.push(`Resume opens: ${sessionLabel(a.resume, project.name)} (${timeAgo(a.resume.lastActiveAt)})`)
   if (a.worktree) lines.push(`Worktree ${a.worktree.path} on ${a.worktree.branch}, branched from ${a.worktree.base}`)

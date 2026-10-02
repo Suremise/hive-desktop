@@ -1,0 +1,211 @@
+// Reviewing a card on the task board: the card stays in Review with the agent that did the work, while the reviewing
+// agent's mark shows who is reviewing it; one reviewer at a time; the verdict, a move out of Review, the reviewer's
+// session ending or its removal end the review; sessions record the cards they reviewed apart from those worked on.
+import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import * as electron from 'electron'
+
+const base = mkdtempSync(join(tmpdir(), 'hive-review-'))
+;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
+
+const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
+const tasks = await import('../src/main/tasks')
+const { recordCards } = await import('../src/main/cardSessions')
+type WS = ReturnType<typeof createWorkspaceService>
+
+const user = { kind: 'user' } as const
+const assistant = { kind: 'assistant' } as const
+const script = { kind: 'agent', name: 'Agent API' } as const
+const as = (agentId: string, name: string, own = 'alpha') => ({ kind: 'agent', name: `${name} (${own})`, self: { project: own, agentId }, scope: own }) as const
+const coder = as('c1', 'Coder')
+const reviewer = as('r1', 'Reviewer')
+const third = as('t1', 'Third')
+const betaAgent = as('b1', 'Beta', 'beta')
+
+function project(ws: string, name: string, agents: { id: string; name: string }[]): string {
+  const p = join(ws, name)
+  mkdirSync(join(p, '.hive'), { recursive: true })
+  writeFileSync(join(p, '.hive', 'project.json'), JSON.stringify({ version: 2, agents }))
+  return p
+}
+
+describe('reviewing a card', () => {
+  let w: WS
+  const wsPath = join(base, 'ws')
+  let alpha = ''
+  beforeAll(async () => {
+    alpha = project(wsPath, 'alpha', [
+      { id: 'c1', name: 'Coder' },
+      { id: 'r1', name: 'Reviewer' },
+      { id: 't1', name: 'Third' }
+    ])
+    project(wsPath, 'beta', [{ id: 'b1', name: 'Beta' }])
+    w = createWorkspaceService()
+    await w.open(wsPath)
+  })
+  afterAll(async () => disposeWorkspaceService(w))
+  const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
+  /** A card Coder did, waiting in Review. */
+  const done = (title = 'Fix it') => run(() => tasks.createTask({ title, project: 'alpha', agent: 'c1', column: 'review' }, user))
+  const history = (c: { history: { by: string; what: string }[] }) => c.history.map((h) => `${h.by}: ${h.what}`)
+
+  it('a reviewer marks the card it reviews; the card stays in Review with the agent that did the work', async () => {
+    const c = await done()
+    const r = await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+    expect([r.column, r.agent, r.agentName]).toEqual(['review', 'c1', 'Coder'])
+    expect(r.review).toMatchObject({ agent: 'r1', agentName: 'Reviewer' })
+    expect(history(r).at(-1)).toBe('Reviewer (alpha): Started reviewing')
+  })
+
+  it('one reviewer at a time: another is refused, naming it; the same one starting again only renews its mark', async () => {
+    const c = await done()
+    const first = await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+    await expect(run(() => tasks.updateTask(c.number, { review: 'start' }, third))).rejects.toThrow(/Reviewer is already reviewing/)
+    await new Promise((r) => setTimeout(r, 5))
+    const again = await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+    expect(again.review!.since > first.review!.since).toBe(true)
+    // Saved, not only returned; and still one line in the history.
+    const saved = await run(() => tasks.getTask(c.number))
+    expect(saved.review?.since).toBe(again.review!.since)
+    expect(saved.history.filter((h) => h.what === 'Started reviewing')).toHaveLength(1)
+    // Its verdict is its own.
+    await expect(run(() => tasks.updateTask(c.number, { review: 'failed' }, third))).rejects.toThrow(/Reviewer is reviewing/)
+  })
+
+  it('the verdict ends the review; the card stays in Review, or goes to Done when asked in the same change', async () => {
+    const a = await done()
+    await run(() => tasks.updateTask(a.number, { review: 'start' }, reviewer))
+    const failed = await run(() => tasks.updateTask(a.number, { review: 'failed' }, reviewer))
+    expect([failed.column, failed.agent, failed.review]).toEqual(['review', 'c1', undefined])
+    expect(history(failed).at(-1)).toBe('Reviewer (alpha): Review failed')
+    const b = await done()
+    await run(() => tasks.updateTask(b.number, { review: 'start' }, reviewer))
+    const passed = await run(() => tasks.updateTask(b.number, { review: 'passed', column: 'done' }, reviewer))
+    expect([passed.column, passed.agent, passed.review]).toEqual(['done', 'c1', undefined])
+    expect(history(passed).slice(-2)).toEqual(['Reviewer (alpha): Review passed', 'Reviewer (alpha): Moved to Done'])
+  })
+
+  it("an old verdict can't settle newer work: once the card moved on, the reviewer's verdict is refused", async () => {
+    const c = await done('Moved on')
+    await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+    // Another agent takes it for fixes (which ends the review)…
+    await run(() => tasks.updateTask(c.number, { column: 'doing' }, third))
+    // …and the old reviewer's verdict comes after.
+    await expect(run(() => tasks.updateTask(c.number, { review: 'passed', column: 'done' }, reviewer))).rejects.toThrow(/aren't reviewing/)
+    const now = await run(() => tasks.getTask(c.number))
+    expect([now.column, now.agent, now.review]).toEqual(['doing', 't1', undefined])
+    // Back in Review after the fixes: the old verdict is still refused…
+    await run(() => tasks.updateTask(c.number, { column: 'review' }, third))
+    await expect(run(() => tasks.updateTask(c.number, { review: 'passed' }, reviewer))).rejects.toThrow(/aren't reviewing/)
+    // …and a new review cycle gives its verdict.
+    await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+    const passed = await run(() => tasks.updateTask(c.number, { review: 'passed' }, reviewer))
+    expect([passed.column, passed.agent, passed.review]).toEqual(['review', 't1', undefined])
+  })
+
+  it('a verdict needs a review: none started, or one ended with its session', async () => {
+    const c = await done('Never started')
+    await expect(run(() => tasks.updateTask(c.number, { review: 'failed' }, reviewer))).rejects.toThrow(/aren't reviewing/)
+    await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+    await run(() => tasks.endReviews('alpha', 'r1', 'its session ended', w))
+    await expect(run(() => tasks.updateTask(c.number, { review: 'passed', column: 'done' }, reviewer))).rejects.toThrow(/aren't reviewing/)
+    expect((await run(() => tasks.getTask(c.number))).column).toBe('review')
+  })
+
+  it('two reviewers starting at once: one gets it, the other is told who has it', async () => {
+    const c = await done('Race')
+    const [a, b] = await Promise.allSettled([run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer)), run(() => tasks.updateTask(c.number, { review: 'start' }, third))])
+    expect([a.status, b.status].sort()).toEqual(['fulfilled', 'rejected'])
+    const lost = (a.status === 'rejected' ? a : b) as PromiseRejectedResult
+    const won = await run(() => tasks.getTask(c.number))
+    expect(String(lost.reason)).toContain(`${won.review!.agentName} is already reviewing`)
+  })
+
+  it('a card is reviewed in Review, on its own', async () => {
+    const doing = await run(() => tasks.createTask({ title: 'Still going', project: 'alpha', agent: 'c1', column: 'doing' }, user))
+    await expect(run(() => tasks.updateTask(doing.number, { review: 'start' }, reviewer))).rejects.toThrow(/reviewed in Review/)
+    const c = await done()
+    await expect(run(() => tasks.updateTask(c.number, { review: 'start', column: 'doing' }, reviewer))).rejects.toThrow(/on its own/)
+    await expect(run(() => tasks.updateTask(c.number, { review: 'start', agent: 'r1' }, reviewer))).rejects.toThrow(/on its own/)
+    expect((await run(() => tasks.getTask(c.number))).review).toBeUndefined()
+  })
+
+  it('only an agent of the card\'s project reviews it', async () => {
+    const c = await done()
+    for (const who of [user, assistant, script]) await expect(run(() => tasks.updateTask(c.number, { review: 'start' }, who))).rejects.toThrow(/Only an agent/)
+    // Another project's agent doesn't see the card at all.
+    await expect(run(() => tasks.updateTask(c.number, { review: 'start' }, betaAgent))).rejects.toThrow(/Unknown task/)
+  })
+
+  it('an unassigned card can be reviewed too, and keeps having nobody', async () => {
+    const c = await run(() => tasks.createTask({ title: 'Nobody did it', project: 'alpha', column: 'review' }, user))
+    const r = await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+    expect([r.agent, r.review?.agent]).toEqual([null, 'r1'])
+  })
+
+  it('the same agent can review its own card (it stays its card)', async () => {
+    const c = await done()
+    const r = await run(() => tasks.updateTask(c.number, { review: 'start' }, coder))
+    expect([r.agent, r.review?.agent]).toEqual(['c1', 'c1'])
+  })
+
+  it('moving the card out of Review (to fix it, say) stops the review; the fixer takes it as before', async () => {
+    const c = await done()
+    await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+    const fixing = await run(() => tasks.updateTask(c.number, { column: 'doing' }, third))
+    expect([fixing.column, fixing.agent, fixing.review]).toEqual(['doing', 't1', undefined])
+    expect(history(fixing)).toContain('Third (alpha): Review by Reviewer stopped')
+    expect(history(fixing)).toContain('Third (alpha): Given to Third')
+  })
+
+  it('moving the card to another project stops the review', async () => {
+    const c = await done()
+    await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+    const moved = await run(() => tasks.updateTask(c.number, { project: 'beta' }, user))
+    expect(moved.review).toBeUndefined()
+    expect(history(moved)).toContain('You: Review by Reviewer stopped')
+  })
+
+  it("a reviewer's session ending, or its removal, ends its reviews only", async () => {
+    const mine = await done('Mine')
+    const theirs = await done('Theirs')
+    await run(() => tasks.updateTask(mine.number, { review: 'start' }, reviewer))
+    await run(() => tasks.updateTask(theirs.number, { review: 'start' }, third))
+    const ended = await run(() => tasks.endReviews('alpha', 'r1', 'its session ended', w))
+    expect(ended).toContain(mine.number)
+    const a = await run(() => tasks.getTask(mine.number))
+    expect([a.review, a.column, a.agent]).toEqual([undefined, 'review', 'c1'])
+    expect(history(a).at(-1)).toBe('Hive: Review by Reviewer stopped: its session ended')
+    expect((await run(() => tasks.getTask(theirs.number))).review?.agent).toBe('t1')
+    // Ending again does nothing.
+    expect(await run(() => tasks.endReviews('alpha', 'r1', 'its session ended', w))).toEqual([])
+  })
+
+  it('a card file from before reviews, or with a damaged review, reads as not being reviewed', async () => {
+    const c = await done('Old')
+    const file = join(wsPath, '.hive', 'tasks', `${c.number}.json`)
+    const raw = JSON.parse((await import('fs')).readFileSync(file, 'utf8'))
+    writeFileSync(file, JSON.stringify({ ...raw, review: { agent: 42 } }))
+    expect((await run(() => tasks.getTask(c.number))).review).toBeUndefined()
+    delete raw.review
+    writeFileSync(file, JSON.stringify(raw))
+    expect((await run(() => tasks.getTask(c.number))).review).toBeUndefined()
+  })
+
+  it("a reviewer's session records the card as reviewed, apart from the cards it worked on", async () => {
+    const sid = '0f5c2a8e-1111-4222-8333-944455550001'
+    await w.mutateSessions(alpha, (f) => {
+      f.sessions.push({ id: sid, agent: 'claude-code', name: 'Review', createdAt: '', lastActiveAt: '', archived: false, agentId: 'r1' })
+    })
+    const c = await done('Recorded')
+    await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+    const own = await run(() => tasks.createTask({ title: 'Its own work', project: 'alpha', agent: 'r1', column: 'doing' }, user))
+    await recordCards(w, alpha, 'r1', sid)
+    await recordCards(w, alpha, 'r1', sid)
+    const cards = (await w.sessionsFile(alpha)).sessions.find((s) => s.id === sid)?.cards ?? []
+    expect(cards.filter((x) => x.number === c.number)).toEqual([{ number: c.number, title: 'Recorded', review: true }])
+    expect(cards.filter((x) => x.number === own.number)).toEqual([{ number: own.number, title: 'Its own work' }])
+  })
+})

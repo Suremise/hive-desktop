@@ -12,7 +12,8 @@
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
 //   transcript. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
 //   "boardmove N COLUMN" moves card N as hive_update_task does (the hive tools' API, token and agent, from
-//   --mcp-config) and records the answer in fake-calls.jsonl.
+//   --mcp-config) and records the answer in fake-calls.jsonl; "boardreview N ACTION [COLUMN]" reviews it the same way
+//   (review: start, passed or failed; a column with the verdict).
 // - "/compact [focus]" compacts as Claude Code does: PreCompact, a compaction boundary in the transcript after 1 s (N
 //   seconds when the focus has "hold N"), then PostCompact. With no messages yet it says "Not enough messages to compact."
 //   and sends no hook; with "compactfail" in the focus it fails after PreCompact with "Error during compaction".
@@ -106,7 +107,9 @@ async function runPrompt(text) {
   const pad = /\bpad\s+(\d+)/i.exec(text)
   if (pad) write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_pad', content: 'x'.repeat(Number(pad[1]) * 1024) }] } })
   const move = /\bboardmove\s+(\d+)\s+(\w+)/i.exec(text)
-  if (move) await boardMove(Number(move[1]), move[2].toLowerCase())
+  if (move) await boardPatch(Number(move[1]), { column: move[2].toLowerCase() })
+  const review = /\bboardreview\s+(\d+)\s+(\w+)(?:\s+(todo|doing|review|done)\b)?/i.exec(text)
+  if (review) await boardPatch(Number(review[1]), { review: review[2].toLowerCase(), ...(review[3] ? { column: review[3].toLowerCase(), comment: 'Fake review: passed.' } : {}) })
   const background = /\bbackground\s+(\d+)/i.exec(text)
   if (background) await startBackgroundTask(Number(background[1]))
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
@@ -124,7 +127,8 @@ async function runPrompt(text) {
 }
 
 /** Moves a card through the Agent API as the hive tools do, naming this agent. */
-async function boardMove(n, column) {
+/** Changes card n as hive_update_task does: the hive tools' API, with this agent's token. */
+async function boardPatch(n, change) {
   let record
   try {
     const env = JSON.parse(fs.readFileSync(opts['--mcp-config'], 'utf8')).mcpServers.hive.env
@@ -132,11 +136,11 @@ async function boardMove(n, column) {
     const res = await fetch(`${env.HIVE_API_URL}/v1/tasks/${n}`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json', 'X-Hive-Workspace': encodeURIComponent(env.HIVE_WORKSPACE) },
-      body: JSON.stringify({ column, reply: 'short' })
+      body: JSON.stringify({ ...change, reply: 'short' })
     })
-    record = { n, column, status: res.status, body: await res.json().catch(() => null) }
+    record = { n, ...change, status: res.status, body: await res.json().catch(() => null) }
   } catch (e) {
-    record = { n, column, error: String(e) }
+    record = { n, ...change, error: String(e) }
   }
   fs.appendFileSync(path.join(home, 'fake-calls.jsonl'), JSON.stringify(record) + '\n')
 }

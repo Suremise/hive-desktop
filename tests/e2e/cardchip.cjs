@@ -115,8 +115,11 @@ const check = (name, ok, extra = '') => {
   await inv('tasks:delete', second.number)
   await page.locator('.agent-pane', { has: header }).locator('.pane-footer-bar .session-tag').click()
   const worked = page.locator('.worked-on')
-  check('the Sessions tab says what the session worked on', !!(await until(async () => /Worked on #\d+ Attention inbox, #\d+ Prompt snippets/.test(await worked.innerText().catch(() => '')), 8000)), await worked.innerText().catch(() => ''))
-  check('a card still there is a link, a deleted one is not', !!(await until(async () => (await worked.locator('a.link').count()) === 1, 5000)))
+  // Once the board has caught up with the deletion: the deleted card is unlinked (in a tooltip's wrapper, whose
+  // layout puts a line break in innerText), so the words are compared with their spacing evened out.
+  check('a card still there is a link, a deleted one is not', !!(await until(async () => (await worked.locator('a.link').count()) === 1 && (await worked.locator('.tip-wrap').count()) === 1, 8000)))
+  const words = async () => (await worked.innerText().catch(() => '')).replace(/\s+/g, ' ').trim()
+  check('the Sessions tab says what the session worked on', /Worked on #\d+ Attention inbox, #\d+ Prompt snippets/.test(await words()), await words())
   await page.screenshot({ path: path.join(lib.WORK, 'cardchip-4-sessions.png') })
   await worked.locator('a.link').click()
   check('the link opens the card', !!(await until(async () => (await dialog.count()) === 1, 5000)))

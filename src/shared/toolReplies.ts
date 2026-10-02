@@ -12,6 +12,8 @@ import { columnLabel } from './tasks'
 export interface TaskView extends Omit<TaskCard, 'agent'> {
   agent: { id: string; name: string; status: string; backgroundTasks: number } | null
   stalled: string | null
+  /** With a review going on (TaskCard.review): why it has stalled (its reviewer removed or not running), if it has. */
+  reviewStalled?: string
   /** For a project agent: the cards in blockedBy and links that are another project's (it sees only their numbers). */
   elsewhere?: number[]
 }
@@ -29,6 +31,8 @@ export interface TaskRow {
   /** Cards in blockedBy that are another project's (a project agent sees only their numbers). */
   elsewhere?: number[]
   stalled: string | null
+  /** The agent reviewing it now (TaskCard.review), and why that has stalled if it has. */
+  reviewing?: { name: string; stalled?: string }
   comments: number
   archived: boolean
 }
@@ -45,6 +49,7 @@ export function taskRow(v: TaskView): TaskRow {
     blockedBy: v.blockedBy,
     ...(v.elsewhere?.length ? { elsewhere: v.elsewhere } : {}),
     stalled: v.stalled,
+    ...(v.review ? { reviewing: { name: v.review.agentName, ...(v.reviewStalled ? { stalled: v.reviewStalled } : {}) } } : {}),
     comments: v.comments.length,
     archived: v.archived
   }
@@ -110,7 +115,7 @@ function agentText(a: TaskRow['agent']): string {
   return `${a.name} (${bits.join(', ')})`
 }
 
-/** "#35 Number settings · alpha · Coder (working) · bug · blocked: … · after #12 · 3 comments". */
+/** "#35 Number settings · alpha · Coder (working) · bug · blocked: … · after #12 · reviewing: Codex · 3 comments". */
 export function taskRowText(r: TaskRow): string {
   const bits = [`#${r.number} ${r.title}`]
   if (r.project) bits.push(r.project)
@@ -119,6 +124,7 @@ export function taskRowText(r: TaskRow): string {
   if (r.blocked) bits.push(`blocked: ${r.blocked}`)
   if (r.blockedBy.length) bits.push(`after ${r.blockedBy.map((n) => (r.elsewhere?.includes(n) ? `#${n} (another project)` : `#${n}`)).join(', ')}`)
   if (r.stalled) bits.push(`stalled: ${r.stalled}`)
+  if (r.reviewing) bits.push(`reviewing: ${r.reviewing.name}${r.reviewing.stalled ? ` (stalled: ${r.reviewing.stalled})` : ''}`)
   if (r.comments) bits.push(`${r.comments} comment${r.comments === 1 ? '' : 's'}`)
   return bits.join(' · ')
 }

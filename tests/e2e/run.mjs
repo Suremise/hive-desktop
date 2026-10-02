@@ -34,6 +34,7 @@ const SUITES = [
   { name: 'sessionorigin' },
   { name: 'assistantend' },
   { name: 'tipcorner' },
+  { name: 'review' },
   { name: 'reorder' },
   { name: 'unmerged' },
   { name: 'paneheader' },

@@ -324,6 +324,11 @@ export interface TaskCard {
   agent: string | null
   /** The agent's name when it was assigned, for when the agent is gone. */
   agentName?: string
+  /**
+   * An agent reviewing it now, apart from the agent that has it (who did the work): from its review "start" to its
+   * verdict, while the card stays in Review. Absent when nobody is (and in cards from before reviews were marked).
+   */
+  review?: TaskReview
   column: TaskColumn
   /** Position in its column, smallest first. */
   order: number
@@ -348,8 +353,22 @@ export interface TaskCard {
   updatedAt: string
 }
 
+/** An agent reviewing a card (TaskCard.review). */
+export interface TaskReview {
+  /** The reviewing agent's id in the card's project, and its name then. */
+  agent: string
+  agentName: string
+  /** When it started (ISO). */
+  since: string
+}
+
 /** What a change to a card may set (the board's own fields: number, history and dates are Hive's). */
 export interface TaskPatch {
+  /**
+   * An agent reviewing the card (in Review): "start" marks it as reviewing it, "passed" or "failed" ends the review
+   * with its verdict. The card keeps the agent that did the work.
+   */
+  review?: 'start' | 'passed' | 'failed'
   title?: string
   description?: string
   project?: string
@@ -550,8 +569,11 @@ export interface SessionRecord {
   transcriptPath?: string
   /** The session whose work was handed over to this one ("Hand Over to…"). */
   handedOverFrom?: string
-  /** Board cards its agent had in Doing while it ran, in order, with the title each had then. */
-  cards?: { number: number; title: string }[]
+  /**
+   * Board cards its agent had in Doing while it ran, in order, with the title each had then; `review`: one it reviewed
+   * (TaskCard.review) rather than worked on.
+   */
+  cards?: { number: number; title: string; review?: true }[]
   /**
    * The CLI's own name for the session (SessionUsage.customTitle) when it was last renamed in Hive, null when it had
    * none. Once the CLI's name changes from this (a /rename since), it is the newer rename and wins (sessionLabel).
