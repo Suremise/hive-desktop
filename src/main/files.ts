@@ -180,6 +180,20 @@ export function absPath(projectPath: string, rel: string): string {
   return inProject(workspace.assertRoot(projectPath), rel, true, true)
 }
 
+/** Which of these entries are files (not folders, not missing), for the terminal's file links. */
+export async function areFiles(projectPath: string, rels: string[]): Promise<boolean[]> {
+  projectPath = workspace.assertRoot(projectPath)
+  return Promise.all(
+    (Array.isArray(rels) ? rels : []).slice(0, 100).map(async (rel) => {
+      try {
+        return typeof rel === 'string' && (await stat(inProject(projectPath, rel))).isFile()
+      } catch {
+        return false
+      }
+    })
+  )
+}
+
 const MAX_EDIT_BYTES = 5 * 1024 * 1024
 
 export async function readText(projectPath: string, rel: string): Promise<FileContent> {

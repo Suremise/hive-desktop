@@ -11,7 +11,7 @@ import { discardDrafts, saveAllDrafts, unsavedFiles } from './FileView'
 import type { ProviderId, ProviderTask, QuitChoice, SessionStatus } from '@shared/types'
 import { PROVIDERS, enabledProviders, isProviderEnabled, providerDescriptor } from '@shared/providers'
 import { ProviderIcon } from './ProviderIcon'
-import { BusyButton, Icon, IconButton, Modal, STATUS_TEXT, useBusy } from './ui'
+import { BusyButton, Icon, IconButton, LoadFailed, Modal, STATUS_TEXT, useBusy } from './ui'
 
 const LEVEL_ICON = { info: 'info', success: 'pass', warning: 'warning', error: 'error' } as const
 
@@ -392,6 +392,67 @@ export function AboutDialog() {
           © 2026 Darren Marshall. {PROVIDERS.map((p) => `${p.name} is a product of ${p.company}`).join('; ')}. Hive is not affiliated with {[...new Set(PROVIDERS.map((p) => p.company))].join(' or ')}.
         </p>
       </div>
+    </Modal>
+  )
+}
+
+/** Help → Copy Diagnostics: shows exactly what will be copied (redacted in main), then copies it. */
+export function DiagnosticsDialog() {
+  const open = useStore((s) => s.diagnosticsOpen)
+  const [text, setText] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => {
+    if (!open) return
+    setText(null)
+    setError(null)
+    let current = true
+    void call('app:diagnostics').then(
+      (t) => current && setText(t),
+      (e) => current && setError(errorMessage(e))
+    )
+    return () => {
+      current = false
+    }
+  }, [open, attempt])
+  if (!open) return null
+  const close = (): void => set({ diagnosticsOpen: false })
+  const copy = (): void => {
+    if (!text) return
+    void navigator.clipboard.writeText(text).then(
+      () => {
+        notify('success', 'Diagnostics copied', 'Paste them into your bug report.')
+        close()
+      },
+      (e) => notify('error', 'Could not copy the diagnostics', errorMessage(e))
+    )
+  }
+  return (
+    <Modal
+      title="Copy Diagnostics"
+      icon="bug"
+      wide
+      onClose={close}
+      footer={
+        <>
+          <button className="btn subtle" onClick={close}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={!text} onClick={copy}>
+            <Icon name="copy" /> Copy
+          </button>
+        </>
+      }
+    >
+      <p className="muted">
+        For a bug report: Hive's version, your coding agents, counts, the settings that change how Hive behaves and the end of its log. Folders, workspace, project and agent names, and
+        anything that looks like a key or token are taken out. This is exactly what will be copied.
+      </p>
+      {error ? (
+        <LoadFailed what="the diagnostics" error={error} onRetry={() => setAttempt((n) => n + 1)} />
+      ) : (
+        <pre className="diagnostics-preview">{text ?? 'Collecting…'}</pre>
+      )}
     </Modal>
   )
 }

@@ -28,6 +28,9 @@ const baseOptions: Monaco.editor.IStandaloneEditorConstructionOptions = {
   fixedOverflowWidgets: true
 }
 
+/** A line (and column) to put the cursor on; a new nonce goes there again. */
+export type EditorGoto = { line: number; col?: number; nonce: number }
+
 /** Monaco text editor. Calls onSave on Ctrl+S. */
 export function CodeEditor({
   value,
@@ -35,7 +38,8 @@ export function CodeEditor({
   onChange,
   onSave,
   readOnly,
-  wordWrap = true
+  wordWrap = true,
+  goto
 }: {
   value: string
   language: string
@@ -43,9 +47,11 @@ export function CodeEditor({
   onSave?: () => void
   readOnly?: boolean
   wordWrap?: boolean
+  goto?: EditorGoto
 }) {
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
+  const [ready, setReady] = useState(false)
   const theme = useEditorTheme()
   const cbs = useRef({ onChange, onSave })
   cbs.current = { onChange, onSave }
@@ -75,6 +81,7 @@ export function CodeEditor({
       })
       ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => cbs.current.onSave?.())
       editor.current = ed
+      setReady(true)
     })
     return () => {
       disposed = true
@@ -104,6 +111,18 @@ export function CodeEditor({
   }, [language, theme])
 
   useEffect(() => editor.current?.updateOptions({ readOnly, wordWrap: wordWrap ? 'on' : 'off' }), [readOnly, wordWrap])
+
+  useEffect(() => {
+    const ed = editor.current
+    const model = ed?.getModel()
+    if (!ed || !model || !goto) return
+    const lineNumber = Math.min(Math.max(1, goto.line), model.getLineCount())
+    const column = Math.min(Math.max(1, goto.col ?? 1), model.getLineMaxColumn(lineNumber))
+    ed.setPosition({ lineNumber, column })
+    ed.revealLineInCenter(lineNumber)
+    ed.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, goto?.nonce])
 
   return <div className="monaco" ref={host} />
 }

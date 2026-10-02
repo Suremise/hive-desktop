@@ -18,6 +18,9 @@ import { archiveOldDone } from './tasks'
 import { emit, emitTo, onHiveEvent, toast } from './events'
 import { recordLiveCards } from './cardSessions'
 import { registerIpc } from './ipc'
+import { watchRenderer } from './rendererWatch'
+import { startPowerWatch } from './power'
+import { startTaskbarFlash } from './taskbar'
 import { startBranchWatch } from './branchWatch'
 import { createLogger, logsDir } from './logger'
 import { killAll } from './ptyHost'
@@ -168,6 +171,8 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
     })
   }
   const entry = registerWindow(win, createWorkspaceService())
+  // A page that crashes or hangs is reloaded (or the user asked); agents run here and keep going.
+  watchRenderer(entry, { quitting: () => quitting, openLogs: () => void shell.openPath(logsDir()), quit: () => void quitNow(true) })
 
   win.once('ready-to-show', () => {
     if (!opts.hidden) win.show()
@@ -648,6 +653,9 @@ app.whenReady().then(async () => {
     }
   })
 
+  // Keeps the PC awake while agents work, backs up transcripts when Windows shuts down, refreshes after sleep.
+  startPowerWatch()
+  startTaskbarFlash()
   const hidden = config.settings.general.startMinimized || process.argv.includes('--hidden')
   const restore = windowsToRestore()
   for (const w of restore) createWindow({ ...w, hidden })

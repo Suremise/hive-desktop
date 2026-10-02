@@ -31,7 +31,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     launchAtLogin: false,
     reopenLastWorkspace: true,
     confirmOnQuit: 'working',
-    showTips: true
+    showTips: true,
+    keepAwake: 'plugged-in'
   },
   appearance: {
     theme: 'dark',
@@ -50,7 +51,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     desktopNotifications: true,
     notifyOnFinished: true,
     notifyOnWaiting: true,
-    onlyWhenUnfocused: true
+    onlyWhenUnfocused: true,
+    taskbarCount: true,
+    flashOnWaiting: true
   },
   sessions: {
     backupTranscripts: true,
@@ -276,6 +279,16 @@ export function effectiveModelLabel(provider: string, chosen: string | undefined
 export function compactThreshold(project: { compactSuggestTokens?: number | null } | null | undefined, globalTokens: number): number {
   const p = project?.compactSuggestTokens
   return typeof p === 'number' && p >= 0 ? p : globalTokens
+}
+
+/**
+ * How full the context window is, in whole percent (0–100), or null when the window isn't known. The window is
+ * only ever what the CLI reports for the session (Claude Code's status line, Codex's rollout), never guessed from
+ * the model: Claude Code's 1M window depends on the model and the plan.
+ */
+export function contextPercent(tokens: number, window: number | null | undefined): number | null {
+  if (!window || window <= 0) return null
+  return Math.min(100, Math.round((Math.max(0, tokens) / window) * 100))
 }
 
 /** The transcript size (MB) past which a session is flagged in a project (its own setting, else the global one); 0 never. */

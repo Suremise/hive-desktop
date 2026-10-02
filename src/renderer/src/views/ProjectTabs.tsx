@@ -3,7 +3,7 @@ import { CardChip } from '../components/CardChip'
 import { KeybindingsEditor } from '../components/Keybindings'
 import type { GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
 import { PERIODS, activeIn, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
-import { FILE_LOCK_MODES, MAX_AGENTS, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
+import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
 import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { ModelPicker } from '../components/ModelPicker'
 import { NumberField } from '../components/NumberField'
@@ -269,7 +269,7 @@ export function RunningAgent({ project, a, label, onOpen }: { project: ProjectIn
   const usage = useLiveUsage(project, a.id)
   const window = usage?.contextWindow ?? null
   const ctx = usage?.contextTokens ?? 0
-  const pct = window ? Math.min(100, (ctx / window) * 100) : null
+  const pct = contextPercent(ctx, window)
   const cost = live.costUsd ?? usage?.costUsd ?? null
   const estimated = live.costUsd !== undefined ? !!live.costEstimated : !!usage?.costEstimated
   return (
@@ -286,7 +286,7 @@ export function RunningAgent({ project, a, label, onOpen }: { project: ProjectIn
       </div>
       <Tooltip content={window ? `${ctx.toLocaleString()} of ${window.toLocaleString()} tokens of context` : `${ctx.toLocaleString()} tokens of context`}>
         <div className="running-ctx">
-          <span className="small">{formatTokens(ctx)} context{pct !== null ? ` · ${Math.round(pct)}%` : ''}</span>
+          <span className="small">{formatTokens(ctx)} context{pct !== null ? ` · ${pct}%` : ''}</span>
           {pct !== null && (
             <div className={cx('meter', pct >= 90 ? 'danger' : pct >= 75 && 'caution')}>
               <div style={{ width: `${pct}%` }} />

@@ -97,9 +97,14 @@ export function FilesTab({ project }: { project: ProjectInfo }) {
   const root = useStore((s) => s.filesRoot[project.path])
   useStore((s) => s.focusedAgent[project.path])
   const view = projectView(project, root)
+  // A file to show (a terminal's file link), once the folder it's in is the one shown.
+  const shown = view.path === project.path ? '' : root
+  const jump = useStore((s) => (s.filesJump?.project === project.path && s.filesJump.root === shown ? s.filesJump : null))
   const selector = <RootSelector project={project} value={root} onChange={(id) => set((s) => ({ filesRoot: { ...s.filesRoot, [project.path]: id } }))} />
-  return <FilesBrowser key={view.path} project={view} selector={selector} />
+  return <FilesBrowser key={view.path} project={view} selector={selector} jump={jump} />
 }
+
+type Goto = { rel: string; line?: number; col?: number; nonce: number }
 
 const copyText = (text: string): void => void navigator.clipboard.writeText(text)
 
@@ -127,7 +132,7 @@ type Row = { entry: FileEntry; depth: number } | { edit: true; depth: number; is
 // Files
 // ---------------------------------------------------------------------------
 
-function FilesBrowser({ project, selector }: { project: ProjectInfo; selector: React.ReactNode }) {
+function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selector: React.ReactNode; jump: Goto | null }) {
   const listWidth = usePaneSize('files', 360)
   const [dirs, setDirs] = useState<Record<string, FileEntry[]>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -277,12 +282,35 @@ function FilesBrowser({ project, selector }: { project: ProjectInfo; selector: R
     setAnchor(rel)
   }
 
+  // The row to scroll to once it's in the tree (its folders may still be loading).
+  const scrollTo = useRef<string | null>(null)
+  const scrollToRow = (): void => {
+    const rel = scrollTo.current
+    const row = rel !== null ? treeRef.current?.querySelector(`[data-rel="${CSS.escape(rel)}"]`) : null
+    if (!row) return
+    scrollTo.current = null
+    row.scrollIntoView({ block: 'nearest' })
+  }
   const reveal = (rel: string): void => {
     for (let p = parentOf(rel); p; p = parentOf(p)) expand(p)
     setSelected([rel])
     setAnchor(rel)
-    window.setTimeout(() => treeRef.current?.querySelector(`[data-rel="${CSS.escape(rel)}"]`)?.scrollIntoView({ block: 'nearest' }), 50)
+    scrollTo.current = rel
+    window.setTimeout(scrollToRow, 50)
   }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(scrollToRow, [rows])
+
+  // A terminal's file link: show the file, then go to its line.
+  const [goto, setGoto] = useState<Goto | null>(null)
+  useEffect(() => {
+    if (!jump) return
+    setFilter('')
+    reveal(jump.rel)
+    setGoto(jump)
+    set({ filesJump: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jump?.nonce])
 
   const startNew = (isDir: boolean, parent = targetDir()): void => {
     setFilter('')
@@ -619,6 +647,7 @@ function FilesBrowser({ project, selector }: { project: ProjectInfo; selector: R
             rel={one.relPath}
             changeTick={dirTicks[parentOf(one.relPath)] ?? 0}
             onOpenRel={reveal}
+            goto={goto?.rel === one.relPath && goto.line ? { line: goto.line, col: goto.col, nonce: goto.nonce } : undefined}
             toolbarExtra={
               <>
                 <IconButton icon="link-external" title="Open in Default App" onClick={() => openExternally(one.relPath)} />

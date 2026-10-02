@@ -15,6 +15,9 @@ import { emit, emitTo } from './events'
 import { insideReal, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { createLogger, logsDir } from './logger'
+import { diagnostics } from './diagnostics'
+import { keepAwakeCount } from './power'
+import { badgeDescription } from '../shared/taskbar'
 import * as files from './files'
 import * as mcp from './mcp'
 import * as notes from './notes'
@@ -134,6 +137,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'app:openPath': (p) => void shell.openPath(guardFile(p)),
     'app:showInFolder': (p) => shell.showItemInFolder(guardFile(p)),
     'app:openLogs': () => void shell.openPath(logsDir()),
+    'app:diagnostics': () => diagnostics(),
+    'app:keepAwake': () => keepAwakeCount(),
     'update:state': () => updater.updateState(),
     'update:check': () => updater.check(true),
     'update:download': () => updater.download(),
@@ -159,6 +164,12 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'window:edit': (role) => {
       const wc = win().webContents
       ;({ undo: () => wc.undo(), redo: () => wc.redo(), cut: () => wc.cut(), copy: () => wc.copy(), paste: () => wc.paste(), selectAll: () => wc.selectAll() })[role]()
+    },
+    'window:setBadge': (count, png, scale) => {
+      const w = win()
+      if (w.isDestroyed()) return
+      const img = count > 0 && typeof png === 'string' ? nativeImage.createFromBuffer(Buffer.from(png, 'base64'), { scaleFactor: Number(scale) || 1 }) : null
+      w.setOverlayIcon(img && !img.isEmpty() ? img : null, count > 0 ? badgeDescription(count) : '')
     },
     'window:setTitleBarColors': (color, symbolColor) => {
       try {
@@ -328,6 +339,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (err) throw new Error(err)
     },
     'files:reveal': (p, rel) => shell.showItemInFolder(files.absPath(p, rel)),
+    'files:areFiles': (p, rels) => files.areFiles(p, rels),
     'files:watch': (p) => files.watchProject(p),
     'files:setUnsaved': (paths) => quitControl.setUnsaved(win(), Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : []),
     'files:unwatch': (p) => files.unwatchProject(p),

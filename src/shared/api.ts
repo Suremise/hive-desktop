@@ -72,6 +72,10 @@ export interface HiveRequests {
   'app:openPath': (path: string) => void
   'app:showInFolder': (path: string) => void
   'app:openLogs': () => void
+  /** Help → Copy Diagnostics: versions, coding agents, counts, key settings and the end of the log, redacted, as Markdown. */
+  'app:diagnostics': () => string
+  /** How many working agents keep the PC awake now (0: none, or the setting doesn't). */
+  'app:keepAwake': () => number
   'update:state': () => UpdateState
   /** A check started by the user; resolves with the result. */
   'update:check': () => UpdateState
@@ -92,6 +96,8 @@ export interface HiveRequests {
   'window:toggleFullScreen': () => void
   'window:edit': (role: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll') => void
   'window:setTitleBarColors': (color: string, symbolColor: string) => void
+  /** The taskbar button's badge: a PNG (base64) drawn at `scale`, or none at 0. */
+  'window:setBadge': (count: number, png: string | null, scale: number) => void
 
   'settings:get': () => AppSettings
   'settings:update': (patch: SettingsPatch) => AppSettings
@@ -283,6 +289,8 @@ export interface HiveRequests {
   'files:write': (projectPath: string, rel: string, text: string, expectedModified: string | null, bom: boolean) => { modified: string; size: number }
   'files:open': (projectPath: string, rel: string) => void
   'files:reveal': (projectPath: string, rel: string) => void
+  /** Which entries are files that exist (folders and missing paths are false); for the terminal's file links. */
+  'files:areFiles': (projectPath: string, rels: string[]) => boolean[]
   /** Starts/stops live 'files-changed' events for a project (reference counted). */
   'files:watch': (projectPath: string) => void
   /** The files with unsaved edits in the renderer (absolute paths), so quitting can ask about them. */

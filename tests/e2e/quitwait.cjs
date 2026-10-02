@@ -1,0 +1,131 @@
+// Quit when agents finish, with an agent working: Hive hides its window and waits, quits once the agent finishes,
+// and Cancel Pending Quit keeps it running. Also: while an agent works, Hive keeps the PC awake (when plugged in,
+// by default) and says so in the status bar, and stops once it finishes or the setting is Never. The agent is the fake Claude Code (fake-claude/), kept busy with
+// "work N" (N seconds), so no real session or sign-in. Dev build, throwaway profiles, workspaces and CLAUDE_CONFIG_DIR.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+
+async function launch(name) {
+  const userData = path.join(lib.WORK, `quitwait-${name}-profile`)
+  const ws = path.join(lib.WORK, `quitwait-${name}-ws`)
+  const claudeHome = path.join(lib.WORK, `quitwait-${name}-claude-home`)
+  const alpha = path.join(ws, 'alpha')
+  for (const d of [userData, ws, claudeHome]) fs.rmSync(d, { recursive: true, force: true })
+  fs.mkdirSync(alpha, { recursive: true })
+  fs.mkdirSync(claudeHome, { recursive: true })
+  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase()]))
+  lib.enableProviders(userData)
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'working', closeToTray: false }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: name === 'wait' ? '47899' : '47900', CLAUDE_CONFIG_DIR: claudeHome }
+  delete env.ELECTRON_RUN_AS_NODE
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.fitWindow(app, page, { width: 1300, height: 800 })
+  await lib.sleep(1500)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await inv('workspace:open', ws)
+  await lib.sleep(800)
+  const agent = await lib.addAgent(inv, alpha, { name: 'Busy' })
+  const live = async () => (await inv('session:live')).find((s) => s.agentId === agent.id)
+  await inv('session:start', alpha, { agentId: agent.id })
+  const ready = await until(async () => (await live())?.status === 'ready', 20000)
+  return { app, page, inv, alpha, agent, live, ready }
+}
+
+const until = async (fn, ms = 10000) => {
+  const t = Date.now()
+  let v
+  while (!(v = await fn()) && Date.now() - t < ms) await lib.sleep(200)
+  return v
+}
+const exited = (app, ms) => app.waitForEvent('close', { timeout: ms }).then(() => true, () => false)
+const visible = (app) => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((w) => w.isVisible())).catch(() => false)
+
+/** Sets the agent working for `secs` seconds. */
+async function keepBusy(inv, alpha, agent, live, secs) {
+  const key = lib.ptyKey(alpha, agent.id)
+  await inv('pty:write', key, `please work ${secs}`)
+  await lib.sleep(200)
+  await inv('pty:write', key, '\r')
+  return until(async () => (await live())?.status === 'working', 5000)
+}
+
+;(async () => {
+  // --- Quit when agents finish: hidden while it works, quits when it finishes.
+  {
+    const { app, page, inv, alpha, agent, live, ready } = await launch('wait')
+    check('the agent starts', !!ready)
+    check('it is working', !!(await keepBusy(inv, alpha, agent, live, 8)))
+    await page.evaluate(() => window.hive.invoke('app:quit'))
+    const dialog = page.locator('.dialog', { hasText: 'Quit Hive?' })
+    check('Quit asks, since an agent is working', !!(await until(async () => (await dialog.count()) === 1, 5000)))
+    const waitButton = dialog.locator('button', { hasText: 'Quit when' })
+    check('and offers to quit when it finishes', (await waitButton.count()) === 1)
+    await page.screenshot({ path: path.join(lib.WORK, 'quitwait-1-dialog.png') })
+    const closing = exited(app, 30000)
+    const t0 = Date.now()
+    await waitButton.click()
+    check('the window hides', !!(await until(async () => !(await visible(app)), 5000)))
+    const state = await inv('app:quitState').catch(() => null)
+    check('a quit is pending (the tray shows it), with one agent working', state?.pending === true && state?.working === 1, JSON.stringify(state))
+    await lib.sleep(2000)
+    check("it doesn't quit while the agent works", (await live().catch(() => null))?.status === 'working')
+    check('it quits once the agent finishes', await closing)
+    check('not before the agent was done (about 8 s)', Date.now() - t0 > 4000, `${Date.now() - t0} ms`)
+  }
+
+  // --- Cancel Pending Quit: Hive keeps running after the agent finishes.
+  {
+    const { app, page, inv, alpha, agent, live, ready } = await launch('cancel')
+    check('the second agent starts', !!ready)
+    const onBattery = await app.evaluate(({ powerMonitor }) => powerMonitor.isOnBatteryPower())
+    const awakeItem = page.locator('.status-item.keep-awake')
+    check('nothing keeps the PC awake while it is idle', (await inv('app:keepAwake')) === 0 && (await awakeItem.count()) === 0)
+    check('it is working', !!(await keepBusy(inv, alpha, agent, live, 4)))
+    if (onBattery) console.log('(on battery: the PC is not kept awake by default, so those checks are skipped)')
+    else {
+      check('while it works, the PC is kept awake', !!(await until(async () => (await inv('app:keepAwake')) === 1, 3000)))
+      check('and the status bar says so', !!(await until(async () => /Keeping the PC awake: 1 agent working/.test(await awakeItem.innerText().catch(() => '')), 3000)))
+      await page.screenshot({ path: path.join(lib.WORK, 'quitwait-2-awake.png') })
+    }
+    await page.evaluate(() => window.hive.invoke('app:quit'))
+    const dialog = page.locator('.dialog', { hasText: 'Quit Hive?' })
+    await until(async () => (await dialog.count()) === 1, 5000)
+    await dialog.locator('button', { hasText: 'Quit when' }).click()
+    check('a quit is pending', !!(await until(async () => (await inv('app:quitState')).pending === true, 5000)))
+    await inv('app:cancelPendingQuit')
+    check('Cancel Pending Quit clears it', (await inv('app:quitState')).pending === false)
+    const closing = exited(app, 9000)
+    check('the agent finishes', !!(await until(async () => (await live())?.status === 'finished', 10000)))
+    check('and Hive is still running', !(await closing))
+    check('once it has finished, the PC may sleep again', (await inv('app:keepAwake')) === 0 && (await page.locator('.status-item.keep-awake').count()) === 0)
+    // Never: not even while it works.
+    await inv('settings:update', { general: { keepAwake: 'never' } })
+    await keepBusy(inv, alpha, agent, live, 3)
+    await lib.sleep(500)
+    check("set to Never, a working agent doesn't keep it awake", (await live())?.status === 'working' && (await inv('app:keepAwake')) === 0)
+    await until(async () => (await live())?.status === 'finished', 8000)
+    await inv('session:stop', alpha, agent.id).catch(() => undefined)
+    await inv('settings:update', { general: { confirmOnQuit: 'never' } }).catch(() => undefined)
+    await app.close().catch(() => undefined)
+  }
+
+  console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

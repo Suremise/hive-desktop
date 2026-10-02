@@ -3,7 +3,7 @@ import type { HiveEvent } from '@shared/types'
 import { call } from './api'
 import { playChime } from './chime'
 import { matchKeybinding, runCommand } from './commands'
-import { AboutDialog, AgentSetupDialog, CommandPalette, CompactDialog, Dialogs, NotificationCenter, ProvidersBanner, QuitDialog, QuitPendingBanner, ShortcutsDialog, Toasts } from './components/Overlays'
+import { AboutDialog, AgentSetupDialog, DiagnosticsDialog, CommandPalette, CompactDialog, Dialogs, NotificationCenter, ProvidersBanner, QuitDialog, QuitPendingBanner, ShortcutsDialog, Toasts } from './components/Overlays'
 import { AddAgentDialog, AgentSettingsDialog, HandOverDialog, MergeDialog } from './components/AgentDialogs'
 import { BoardView, TaskDialog, TaskStartDialog } from './components/Board'
 import { WorkspaceOverviewView } from './views/WorkspaceOverview'
@@ -26,6 +26,7 @@ import { SettingsView } from './views/SettingsView'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { markOnScreenSeen, onScreen } from './inbox'
 import { InboxPopover } from './components/Inbox'
+import { chimeAllowed } from '@shared/bursts'
 
 function applyTheme(): void {
   const s = get().settings
@@ -52,6 +53,11 @@ function noticeUnmanagedMcp(): void {
     })
   }
 }
+
+/** When the last chime played, and how many have (for tests). */
+let lastChimeAt: number | null = null
+let chimesPlayed = 0
+;(window as unknown as { __hiveChimes?: () => number }).__hiveChimes = () => chimesPlayed
 
 function handleEvent(e: HiveEvent): void {
   switch (e.type) {
@@ -114,8 +120,12 @@ function handleEvent(e: HiveEvent): void {
       pushToast(e.toast)
       break
     case 'chime': {
+      // Agents finishing together chime once: at most one every 2 seconds.
       const n = get().settings?.notifications
-      if (n) playChime(n.chimeSound, n.chimeVolume)
+      if (!n || !chimeAllowed(lastChimeAt, Date.now())) break
+      lastChimeAt = Date.now()
+      chimesPlayed++
+      playChime(n.chimeSound, n.chimeVolume)
       break
     }
     case 'settings-changed':
@@ -134,6 +144,9 @@ function handleEvent(e: HiveEvent): void {
       break
     case 'quit-pending':
       set({ quitPending: e.pending ? { working: e.working } : null })
+      break
+    case 'keep-awake':
+      set({ keepAwake: e.working })
       break
     case 'files-changed':
       filesListeners.forEach((l) => l(e.projectPath, e.dirs))
@@ -224,7 +237,7 @@ export function App() {
         set((st) => ({ branchStatus: { ...Object.fromEntries(list.map((b) => [projectKey(b.projectPath, b.agentId), b.status])), ...st.branchStatus } }))
       )
       // A reloaded window picks up a quit dialog or pending quit that was already in progress.
-      set({ planUsage: await call('app:planUsage'), update: await call('update:state') })
+      set({ planUsage: await call('app:planUsage'), update: await call('update:state'), keepAwake: await call('app:keepAwake') })
       const q = await call('app:quitState')
       set({ quitRequest: q.request, quitUnsaved: q.unsaved, quitScope: q.scope, quitPending: q.pending ? { working: q.working } : null })
       applyTheme()
@@ -340,6 +353,7 @@ export function App() {
       <TaskStartDialog />
       <RemoveProjectDialog />
       <AboutDialog />
+      <DiagnosticsDialog />
       <UpdateDialog />
       <ModeMenuHost />
       <ShortcutsDialog />

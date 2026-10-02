@@ -35,6 +35,8 @@ import { config } from './config'
 import { emit, emitTo, toast } from './events'
 import { hashDir, hashText, readJson, removePath, splitArgs, syncCopy, syncCopyLocked, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger } from './logger'
+import { applyStep, expireTasks, hookStep, idleAfter } from './hookStatus'
+import { FinishBatcher, finishedNotice } from '../shared/bursts'
 import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
 import { childEnv, killPty, spawnPty, writePty } from './ptyHost'
@@ -1399,6 +1401,24 @@ class SessionManager {
     return t
   }
 
+  /**
+   * Backs up every running session's transcript now, as quitting does (Windows is shutting down or signing out):
+   * waits at most `timeoutMs` in all, since Windows only gives a few seconds.
+   */
+  async backupAll(timeoutMs = 3000): Promise<void> {
+    const all = Promise.all([...this.live.values()].map((l) => this.backup(l.state.projectPath, l.state.agentId, true).catch(() => undefined)))
+    await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))])
+  }
+
+  /** After the PC wakes up: read each running session's transcript again (usage, background tasks, plan usage) and report its state. */
+  refreshAfterResume(): void {
+    for (const l of this.live.values()) {
+      void this.backup(l.state.projectPath, l.state.agentId, true)
+        .catch(() => undefined)
+        .finally(() => this.emitState(l.state))
+    }
+  }
+
   /** Copies the live transcript into <project>/.hive/sessions so it survives the CLI's own cleanup. */
   private async backup(projectPath: string, agentId: string, force = false): Promise<void> {
     const l = this.live.get(liveId(projectPath, agentId))
@@ -1540,24 +1560,16 @@ class SessionManager {
 
   /** Drops tasks past their expiry or the time limit and updates the count. True if the limit dropped one. */
   private sweepTasks(l: LiveSession): boolean {
-    const now = Date.now()
     const minutes = taskMinutes()
-    let dropped = false
-    for (const [id, t] of l.tasks ?? []) {
-      if (t.expiresAt && t.expiresAt <= now) l.tasks!.delete(id)
-      else if (now - t.at >= minutes * 60_000) {
-        l.tasks!.delete(id)
-        dropped = true
-        log.info(`${this.label(l.state)}: stopped counting background task ${id} after ${minutes} minutes`)
-      }
-    }
+    const dropped = l.tasks ? expireTasks(l.tasks, Date.now(), minutes) : []
+    for (const id of dropped) log.info(`${this.label(l.state)}: stopped counting background task ${id} after ${minutes} minutes`)
     l.state.backgroundTasks = l.tasks?.size || undefined
-    return dropped
+    return dropped.length > 0
   }
 
   /** The status a turn's end (or an interruption) leaves: background while tasks will start the agent again. */
   private idleStatus(l: LiveSession, idle: 'finished' | 'ready'): SessionStatus {
-    return l.adapter.descriptor.capabilities.backgroundWakes && l.tasks?.size ? 'background' : idle
+    return idleAfter({ backgroundWakes: l.adapter.descriptor.capabilities.backgroundWakes, tasks: l.tasks?.size ?? 0 }, idle)
   }
 
   /**
@@ -1576,7 +1588,7 @@ class SessionManager {
           st.status = 'finished'
           st.statusMessage = dropped ? `Stopped counting its background tasks after ${taskMinutes()} minutes` : undefined
           st.unseen = true
-          this.notify(st.projectPath, `${this.label(st)} finished`, st.statusMessage ?? 'Its background tasks have ended.', 'finished')
+          this.notify(st.projectPath, `${this.label(st)} finished`, st.statusMessage ?? 'Its background tasks have ended.', 'finished', st.agentName)
         }
         changed = true
       } else if (st.status === 'finished' && l.tasks?.size) {
@@ -1836,78 +1848,63 @@ class SessionManager {
       this.emitState(st)
     }
     const ev = hook.event
-    let next: SessionStatus | null = null
-    switch (ev.kind) {
-      case 'start':
-        next = st.status === 'starting' || l.askedAtStart ? 'ready' : null
-        this.startupAnswered(l)
-        break
-      case 'compactEnd':
-        if (l.compacting) this.finishCompacting(id)
-        else if (st.status === 'working' && st.statusMessage?.startsWith('Compacting')) {
-          next = 'ready'
-          st.statusMessage = undefined
-        }
-        break
-      case 'prompt':
-        next = 'working'
-        this.startupAnswered(l)
-        if (workspace.isAssistantHome(st.projectPath)) this.onAssistantPrompt(st.projectPath)
-        break
-      case 'toolEnd':
-        next = st.status === 'waiting' || st.status === 'ready' || st.status === 'finished' || st.status === 'background' ? 'working' : null
-        break
-      case 'needsInput':
-        next = 'waiting'
-        st.statusMessage = ev.message
-        this.notify(st.projectPath, `${label} needs your input`, st.statusMessage, 'waiting')
-        break
-      case 'stop':
-        // Hooks are handled in order, so the next one waits for this read.
-        await this.refreshBackground(l)
-        this.sweepTasks(l)
-        next = this.idleStatus(l, 'finished')
-        st.statusMessage = undefined
-        this.releaseLocks(id, arrived)
-        // Not awaited: a prompt arriving meanwhile must not be overwritten by this older Stop.
-        if (st.sessionId) void workspace.upsertSession(st.projectPath, { id: st.sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
-        // An agent waiting on background tasks isn't done: it is told when they end and carries on.
-        if (next === 'finished') this.notify(st.projectPath, `${label} finished`, ev.lastMessage?.slice(0, 180) ?? 'The agent has finished its task.', 'finished')
-        void this.backup(st.projectPath, st.agentId, true)
-        if (next === st.status) this.emitState(st)
-        break
-      case 'interrupt':
-        // Interrupted turns end without Stop: the agent is idle again, and its claims go.
-        next = this.idleStatus(l, 'ready')
-        st.statusMessage = undefined
-        this.releaseLocks(id, arrived)
-        break
-      case 'compactStart':
-        if (l.compacting && !l.compacting.started) {
-          clearTimeout(l.compacting.timer)
-          l.compacting.started = true
-          l.compacting.timer = setTimeout(() => this.finishCompacting(id), 10 * 60_000)
-        }
-        // Automatic compaction gets a heads-up; one Hive started is already shown as "Compacting…".
-        if (!l.compacting) toast('info', `${label}: compacting conversation`, `${l.adapter.descriptor.name} is summarising the context to free up space.`, undefined, st.projectPath)
-        if (st.status !== 'working') {
-          next = 'working'
-          st.statusMessage = 'Compacting the conversation…'
-        }
-        break
-      case 'end':
-        this.releaseLocks(id)
-        this.clearTasks(l)
-        next = 'stopped'
-        break
+    // Hooks are handled in order, so the next one waits for this read: a turn's end counts the tasks it started.
+    if (ev.kind === 'stop') {
+      await this.refreshBackground(l)
+      this.sweepTasks(l)
     }
-    if (next && next !== st.status) {
-      st.status = next
-      if (next === 'working' || next === 'ready') st.statusMessage = undefined
-      // Unseen until the window shows its pane (the renderer marks it seen, at once when it is on screen).
-      if (next === 'finished' || next === 'waiting') st.unseen = true
-      this.emitState(st)
+    const step = hookStep(ev, {
+      status: st.status,
+      statusMessage: st.statusMessage,
+      askedAtStart: !!l.askedAtStart,
+      compacting: l.compacting ? (l.compacting.started ? 'started' : 'requested') : null,
+      backgroundWakes: l.adapter.descriptor.capabilities.backgroundWakes,
+      tasks: l.tasks?.size ?? 0
+    })
+    for (const action of step.actions) {
+      switch (action) {
+        case 'answered':
+          this.startupAnswered(l)
+          break
+        case 'prompted':
+          if (workspace.isAssistantHome(st.projectPath)) this.onAssistantPrompt(st.projectPath)
+          break
+        case 'compactBegan':
+          clearTimeout(l.compacting!.timer)
+          l.compacting!.started = true
+          l.compacting!.timer = setTimeout(() => this.finishCompacting(id), 10 * 60_000)
+          break
+        case 'compactEnded':
+          this.finishCompacting(id)
+          break
+        case 'autoCompact':
+          // Compaction Hive started is already shown as "Compacting…".
+          toast('info', `${label}: compacting conversation`, `${l.adapter.descriptor.name} is summarising the context to free up space.`, undefined, st.projectPath)
+          break
+        case 'notifyWaiting':
+          this.notify(st.projectPath, `${label} needs your input`, step.message ?? 'Waiting for your input', 'waiting')
+          break
+        case 'notifyFinished':
+          this.notify(st.projectPath, `${label} finished`, (ev.kind === 'stop' && ev.lastMessage?.slice(0, 180)) || 'The agent has finished its task.', 'finished', st.agentName)
+          break
+        case 'releaseLocks':
+          this.releaseLocks(id, arrived)
+          break
+        case 'releaseAllLocks':
+          this.releaseLocks(id)
+          break
+        case 'clearTasks':
+          this.clearTasks(l)
+          break
+        case 'turnEnded':
+          // Not awaited: a prompt arriving meanwhile must not be overwritten by this older Stop.
+          if (st.sessionId) void workspace.upsertSession(st.projectPath, { id: st.sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
+          void this.backup(st.projectPath, st.agentId, true)
+          break
+      }
     }
+    // A turn's end is reported even when the status stays (its background task count may have changed).
+    if (applyStep(st, step) || step.actions.includes('turnEnded')) this.emitState(st)
   }
 
   /** Moves a running agent to the conversation the CLI switched to: the old one is backed up, the new one recorded. */
@@ -1942,9 +1939,10 @@ class SessionManager {
   }
 
   /** A desktop notification (and for finished/waiting, the chime): a notice is a warning that needs no sound. */
-  private notify(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting' | 'notice'): void {
+  private notify(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting' | 'notice', agentName?: string): void {
     const n = config.settings.notifications
     if (kind !== 'notice') {
+      // The window plays at most one chime every 2 seconds, so agents finishing together chime once.
       void this.effective(projectPath)
         .then((eff) => {
           if (eff.chime) emit({ type: 'chime', projectPath })
@@ -1955,9 +1953,25 @@ class SessionManager {
     if (kind === 'finished' && !n.notifyOnFinished) return
     if (kind === 'waiting' && !n.notifyOnWaiting) return
     if (n.onlyWhenUnfocused && this.windowAttentive(projectPath)) return
+    // Finishes that come together are told in one notification ("3 agents finished in hive"); a question is told at once.
+    if (kind === 'finished') {
+      const assistant = workspace.isAssistantHome(projectPath)
+      this.finishes.add({ projectPath, project: assistant ? ASSISTANT_NAME : basename(projectPath), agent: assistant ? ASSISTANT_NAME : (agentName ?? 'Agent'), title, body })
+      return
+    }
+    this.showNotification(projectPath, title, body)
+  }
+
+  /** Finishes collected by `finishes`, in one notification. */
+  private readonly finishes = new FinishBatcher((items) => {
+    const { title, body } = finishedNotice(items)
+    this.showNotification(items[0].projectPath, title, body)
+  })
+
+  /** A Windows notification; clicking it shows the project (the first one's, for finishes in several). */
+  private showNotification(projectPath: string, title: string, body: string): void {
     if (!Notification.isSupported()) return
     const note = new Notification({ title, body, silent: true, icon: notificationIcon() })
-    // Each event gets its own notification, so several agents finishing together stack in Windows.
     // Keep a reference: a garbage-collected Notification no longer delivers its click.
     shownNotifications.add(note)
     if (shownNotifications.size > 50) shownNotifications.delete(shownNotifications.values().next().value!)

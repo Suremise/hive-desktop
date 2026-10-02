@@ -10,7 +10,7 @@
 //   (1 s, or N seconds for "work N"), and ends with a reply and Stop. "edit <file>" first sends PreToolUse for
 //   an Edit of that file and records the tool call. "background N" starts a background command that ends after
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
-//   transcript.
+//   transcript. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
 // - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does.
 // - Ctrl+C twice, or "/exit", ends it with SessionEnd.
 // - `--model fail-start` makes it refuse to start, printing an error and exiting with 1, as Claude Code does for an
@@ -95,6 +95,7 @@ async function runPrompt(text) {
     write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: denied ? 'Blocked by a hook' : 'The file has been updated.', is_error: denied }] } })
     await hook('PostToolUse', { tool_name: 'Edit', tool_input: { file_path: file }, tool_use_id: id })
   }
+  if (/\bask\b/i.test(text)) await hook('Notification', { notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' })
   // "pad N": N KB more transcript, as a long conversation has.
   const pad = /\bpad\s+(\d+)/i.exec(text)
   if (pad) write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_pad', content: 'x'.repeat(Number(pad[1]) * 1024) }] } })
@@ -103,6 +104,15 @@ async function runPrompt(text) {
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
   await sleep(secs * 1000)
   await endTurn(`Done: ${text}`)
+  // "window N": the status line reports a context window of N tokens, as Claude Code's does.
+  const contextWindow = /\bwindow\s+(\d+)/i.exec(text)
+  if (contextWindow && hookUrl) {
+    await fetch(`${hookUrl}&statusline`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, context_window: { context_window_size: Number(contextWindow[1]) } })
+    }).catch(() => undefined)
+  }
 }
 
 async function endTurn(answer) {

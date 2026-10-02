@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Agent footer
+- **Context as a percentage of the window**: the footer shows *84k · 42%* once the CLI has reported the session's context window, so you can see how close it is to needing Compact whether the model has 200K or 1M. In a narrow pane only the percentage shows; the tooltip has both numbers.
+
+### Notifications
+- **The taskbar button shows when agents need you**: a badge with the count over Hive's icon, the count before the window title (Alt+Tab), and a flash when an agent starts waiting for your answer while Hive is in the background. Each window shows its own workspace. Both can be turned off in **Settings → Notifications**.
+- **Agents finishing together chime once and get one notification**: "3 agents finished in hive" naming them, or "3 agents finished" with how many in each project, instead of a chime and a pop-up each. An agent asking for your input is still told at once, on its own.
+
+### Sleep and shutdown
+- **The PC stays awake while agents work.** A PC set to sleep after a while idle no longer sleeps mid-task because nobody touched the keyboard; once no agent is working it may sleep again (the screen can still turn off and lock). The status bar says so while it lasts. **Settings → General → Keep the PC awake while agents work**: *When plugged in* (default), *Always* or *Never*.
+- **Windows shutting down or restarting** no longer loses the end of a transcript: Hive backs them up first, as quitting does.
+- **After sleep**, agents' states and plan usage are read again straight away.
+
+### When Hive's window crashes
+- **A crashed window reloads by itself**, and says your agents kept running (they run outside the window, so they always did). Before, the window just went blank, and quitting Hive to fix it stopped the agents. If it crashes again within a minute, Hive asks: **Reload**, **Open Logs** or **Quit Hive**.
+- **A window that stops responding** gets **Wait** or **Reload** after a few seconds; the question goes away if it recovers.
+
+### Bug reports
+- **Help → Copy Diagnostics…** gathers what a bug report needs (Hive's and Windows' versions, your coding agents and whether they're signed in, counts, the settings that change how Hive behaves, and the end of Hive's log) and shows it before copying. Folders, names, keys and tokens are taken out.
+
+### Terminal
+- **Ctrl+click a file path to open it.** File paths in an agent's or the Assistant's terminal (`src/app.ts`, `tests/x.test.ts:42:7`, stack traces) are links: Ctrl+click opens the file in the project's Files tab with the cursor on that line, in the agent's worktree for a worktree agent, or in another project of the workspace when the path leads there. Only files that exist are underlined.
+
 ### Tips
 - **A tip when Hive starts**: once a day, a small card in the bottom-right corner shows something Hive can do, with **Try it**, **Learn more** (the user guide at that section) and **Next tip**. It never gets in the way, and steps aside while you type in a terminal under it.
 - **Tips at the right moment**, once each: the first time a transcript turns amber, the context passes your Compact threshold, you add a second agent or you paste a screenshot. Tips about things you already do are skipped.
@@ -69,6 +91,8 @@
 - **Actions that take a moment show it and can't be interrupted by mistake**: Start (on a card), Remove Project, Save, Delete, Archive and Comment on a card, Compact, Agent Settings, Stop All Agents, and deleting a note or an MCP server show a spinner and what they're doing (**Starting…**, **Deleting…**); while they run the dialog can't be closed (Escape, ×, a click outside) and a second click does nothing. If one fails, the dialog stays open with the error, so you can try again. **Resume All** shows a spinner on its button, and an agent being removed shows one on its tab.
 
 ### Fixes
+- **`/compact` typed into an idle agent** left it shown as working after the compaction ended, until its next turn. It now shows **Compacting the conversation…** while it compacts and **Ready** afterwards.
+- An agent that asked the same question twice, or reported its turn's end twice, now notifies (and chimes) once.
 - **A failed load says so, with Retry**, instead of looking like there's nothing: a transcript search that fails no longer shows *No matches*, the Skills tab no longer shows no skills, the Workspace Overview no longer spins forever, and the same goes for the Images, Memory and MCP tabs, the Files tab's filter, the workspace's Skills view and the hidden projects in Settings. When a refresh fails, the last results stay with a note saying when they're from. In **Add Agent**, a git error no longer reads as *Needs a git repository*.
 - **Number settings**: clearing a box such as *Suggest compacting above* and clicking away saved 0, which turned the feature off without a word. A cleared box now keeps the saved value (in Project Settings it inherits, as before). A number out of range, or text that isn't a number, shows the range under the box instead of a passing message. Settings that 0 turns off (*Suggest compacting above*, *Warn when a transcript is over*, *Archive Done cards after*, *Pause after you type*) have a **Never** (or **No pause**) checkbox; untick it to get your last number back.
 - **Agent Settings** and **Add Agent**: a long model, effort or permission mode name no longer pushes the boxes past the dialog's right edge.

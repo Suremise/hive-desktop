@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { CardChip, useAgentCards } from './CardChip'
-import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, effectiveModelLabel, effortLabel, formatBytes, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
+import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, contextPercent, effectiveModelLabel, effortLabel, formatBytes, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import type { AgentInfo, LiveSessionState, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import type { StartFailure } from '@shared/startFailure'
 import * as actions from '../actions'
@@ -655,6 +655,7 @@ export function PaneFooter({
   const effort = effortLabel(provider, live?.effort, a.effort ?? pc.effort, ps.defaultEffort)
   const threshold = compactThreshold(project.config, settings?.sessions.compactSuggestTokens ?? 0)
   const ctx = usage?.contextTokens ?? 0
+  const pct = contextPercent(ctx, usage?.contextWindow)
   const over = threshold > 0 && ctx >= threshold
   const cost = live?.costUsd ?? usage?.costUsd ?? null
   const estimated = live?.costUsd !== undefined ? !!live.costEstimated : !!usage?.costEstimated
@@ -678,7 +679,16 @@ export function PaneFooter({
       {usage ? (
         <Tooltip content={`Context: ${ctx.toLocaleString()} tokens${usage.contextWindow ? ` of ${usage.contextWindow.toLocaleString()}` : ''} · ${usage.compactions.length} compaction(s)${over ? ' — consider compacting' : ''}${usage.stale ? '\nCouldn’t read it again just now: this may be behind.' : ''}`}>
           <span className={cx('pane-foot-item', over && 'warn', usage.stale && 'stale')} onClick={() => (onContext ? onContext() : showInOverview(project.path, a.id))}>
-            <Icon name="dashboard" /> {formatTokens(ctx)} ctx
+            <Icon name="dashboard" />
+            {pct === null ? (
+              `${formatTokens(ctx)} ctx`
+            ) : (
+              // In a narrow footer the tokens give way and the percentage stays.
+              <>
+                <span className="ctx-tokens">{formatTokens(ctx)} · </span>
+                {pct}%
+              </>
+            )}
           </span>
         </Tooltip>
       ) : (

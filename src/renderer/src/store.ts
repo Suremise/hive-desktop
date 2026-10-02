@@ -94,6 +94,8 @@ interface State {
   sidebarCompact: boolean
   /** Set to select a session in its project's Sessions tab. */
   sessionsJump: { project: string; id: string; nonce: number } | null
+  /** A file to show in a project's Files tab (a terminal's file link): whose folder (`root`, a worktree agent's id or ''), the file and the line. */
+  filesJump: { project: string; root: string; rel: string; line?: number; col?: number; nonce: number } | null
   /** Resizable pane sizes, saved with the window layout. */
   panes: Record<string, number>
   selectedProject: string | null
@@ -137,6 +139,8 @@ interface State {
   /** A shortcut is being recorded in the keyboard shortcuts editor: app shortcuts are paused. */
   recordingKeys: boolean
   aboutOpen: boolean
+  /** Help → Copy Diagnostics: the preview dialog. */
+  diagnosticsOpen: boolean
   /** Hive's own update state, and whether its dialog is open. */
   update: UpdateState | null
   updateOpen: boolean
@@ -152,6 +156,8 @@ interface State {
   quitScope: QuitScope
   /** Hive will quit once no agent is working. */
   quitPending: { working: number } | null
+  /** Working agents keeping the PC awake (0: none). */
+  keepAwake: number
   /** The agent whose Compact dialog is open. */
   compactFor: AgentRef | null
   /** Project whose Add Agent dialog is open. */
@@ -226,6 +232,7 @@ export const useStore = create<State>(() => ({
   sidebarWidth: 280,
   sidebarCompact: false,
   sessionsJump: null,
+  filesJump: null,
   panes: {},
   selectedProject: null,
   projectTabs: {},
@@ -256,6 +263,7 @@ export const useStore = create<State>(() => ({
   modeMenu: null,
   recordingKeys: false,
   aboutOpen: false,
+  diagnosticsOpen: false,
   update: null,
   updateOpen: false,
   setupOpen: false,
@@ -265,6 +273,7 @@ export const useStore = create<State>(() => ({
   quitUnsaved: [],
   quitScope: 'app',
   quitPending: null,
+  keepAwake: 0,
   compactFor: null,
   addAgentFor: null,
   agentSettingsFor: null,

@@ -9,6 +9,7 @@ import { commandKeybinding } from '../commands'
 import { Icon, Tooltip } from './ui'
 import { UpdateStatusItem } from './Updates'
 import { InboxStatusItem } from './Inbox'
+import { keepAwakeText } from '@shared/keepAwake'
 import { useInbox } from '../inbox'
 
 const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }[] = [
@@ -102,6 +103,7 @@ export function StatusBar() {
       </Tooltip>
       <InboxStatusItem />
       <div className="status-spacer" />
+      <KeepAwakeStatusItem />
       {/* App-wide items only: each agent's model, effort, mode and context are in its pane's footer. */}
       <PlanUsageStatus />
       <Tooltip content={api?.running ? `Agent API listening on ${api.url}` : api?.error ? `Agent API: ${api.error}` : 'Agent API is off'}>
@@ -115,6 +117,22 @@ export function StatusBar() {
       <ProviderStatusItems />
       <UpdateStatusItem />
     </div>
+  )
+}
+
+/** While working agents keep the PC from sleeping (Settings → General). */
+function KeepAwakeStatusItem() {
+  const working = useStore((s) => s.keepAwake)
+  if (!working) return null
+  return (
+    <Tooltip content="Windows won't sleep until the agents finish (the screen may still turn off). Settings → General → Keep the PC awake while agents work.">
+      <div className="status-item keep-awake" onClick={() => {
+          set({ settingsSection: 'general' })
+          setActivity('settings')
+        }}>
+        <Icon name="coffee" /> {keepAwakeText(working)}
+      </div>
+    </Tooltip>
   )
 }
 

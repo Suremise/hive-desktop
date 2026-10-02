@@ -6,7 +6,7 @@ import { languageFor } from '../monacoLang'
 import { clearEditorDrafts, editorDraftList, onEditorDrafts, saveEditorDrafts } from '../editorDrafts'
 import { confirm, notify } from '../store'
 import { cx, formatBytes, imageUrl, timeAgo } from '../util'
-import { CodeEditor } from './Editors'
+import { CodeEditor, type EditorGoto } from './Editors'
 import { PaneResizer, usePaneSize } from './Resizer'
 import { Icon, Markdown, Tooltip } from './ui'
 
@@ -185,7 +185,8 @@ export function FileView({
   rel,
   changeTick,
   onOpenRel,
-  toolbarExtra
+  toolbarExtra,
+  goto
 }: {
   project: ProjectInfo
   rel: string
@@ -193,6 +194,8 @@ export function FileView({
   changeTick: number
   onOpenRel: (rel: string) => void
   toolbarExtra?: React.ReactNode
+  /** A line to go to (a terminal's file link); a new nonce goes there again. */
+  goto?: EditorGoto
 }) {
   const abs = `${project.path}\\${rel.replace(/\//g, '\\')}`
   const name = rel.split('/').pop()!
@@ -239,6 +242,13 @@ export function FileView({
     setModeState(modeMemory.get(abs) ?? (pv?.preferred ? 'preview' : 'edit'))
     void load(true)
   }, [abs, load, pv])
+
+  // Going to a line needs the text: a preview shows it alongside, or gives way to the editor.
+  useEffect(() => {
+    const shown = modeMemory.get(abs) ?? (pv?.preferred ? 'preview' : 'edit')
+    if (goto && pv?.editable && shown === 'preview') setModeState(pv.split ? 'split' : 'edit')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goto?.nonce])
 
   // Keep the draft in step with the editor so it survives unmounting.
   useEffect(() => {
@@ -381,6 +391,7 @@ export function FileView({
       onChange={setText}
       onSave={() => void save()}
       wordWrap={/\.(md|markdown|mdx|txt)$/i.test(name)}
+      goto={goto}
     />
   )
   return (

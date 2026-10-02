@@ -2,6 +2,7 @@
 
 import type { StartFailure } from './startFailure'
 import type { TipsState } from './tips'
+import type { KeepAwakeSetting } from './keepAwake'
 
 export type ThemeSetting = 'dark' | 'light' | 'system'
 /** A coding-agent CLI Hive can run ("claude-code", "codex"). See src/shared/providers.ts. */
@@ -60,6 +61,8 @@ export interface AppSettings {
     confirmOnQuit: QuitConfirm
     /** A tip when Hive starts (at most one a day), and at the moments a tip helps. Help → Tips… has them all. */
     showTips: boolean
+    /** Keep Windows from sleeping while agents work: only on mains power, always, or never. */
+    keepAwake: KeepAwakeSetting
   }
   appearance: {
     theme: ThemeSetting
@@ -81,6 +84,10 @@ export interface AppSettings {
     notifyOnFinished: boolean
     notifyOnWaiting: boolean
     onlyWhenUnfocused: boolean
+    /** A badge with the count of agents that need you on the window's taskbar button, and the count in its title. */
+    taskbarCount: boolean
+    /** Flash the taskbar button when an agent starts waiting for your input and the window isn't focused. */
+    flashOnWaiting: boolean
   }
   sessions: {
     backupTranscripts: boolean
@@ -1043,6 +1050,8 @@ export type HiveEvent =
   | { type: 'quit-request'; sessions: QuitSession[]; unsaved: string[]; /** Anything but 'app' stops only this window's workspace's sessions. */ scope?: QuitScope }
   /** Hive is waiting for working agents to finish before quitting (or stopped waiting). */
   | { type: 'quit-pending'; pending: boolean; working: number }
+  /** How many working agents keep the PC awake (0: it may sleep). */
+  | { type: 'keep-awake'; working: number }
   /** Files changed in a project that has a Files or Images tab open. dirs are relative, '' is the root. */
   | { type: 'files-changed'; projectPath: string; dirs: string[] }
   | { type: 'skills-changed' }

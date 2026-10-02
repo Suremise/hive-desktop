@@ -7,6 +7,7 @@ import '@xterm/xterm/css/xterm.css'
 import { attempt } from '../actions'
 import { call } from '../api'
 import { isAppShortcut } from '../commands'
+import { fileLinkProvider } from '../fileLinks'
 import { useStore } from '../store'
 import { offerTip } from '../tips'
 import type { ProviderId } from '@shared/types'
@@ -38,6 +39,20 @@ function makeRoomForWebgl(key: string): void {
 
 /** How many terminals hold a WebGL context (for tests). */
 ;(window as unknown as { __hiveWebglCount?: () => number }).__hiveWebglCount = () => webglHolders.size
+
+/** Where some text is on screen in a terminal (the middle of its first character), for tests that point at it. */
+;(window as unknown as { __hiveTerminalTextAt?: (key: string, text: string) => { x: number; y: number } | null }).__hiveTerminalTextAt = (key, text) => {
+  const term = terminals.get(key)
+  const screen = term?.element?.querySelector('.xterm-screen')
+  if (!term || !screen) return null
+  const box = screen.getBoundingClientRect()
+  const buf = term.buffer.active
+  for (let row = 0; row < term.rows; row++) {
+    const col = buf.getLine(buf.viewportY + row)?.translateToString(true).indexOf(text) ?? -1
+    if (col >= 0) return { x: box.left + ((col + 0.5) * box.width) / term.cols, y: box.top + ((row + 0.5) * box.height) / term.rows }
+  }
+  return null
+}
 
 /**
  * Pastes text into a mounted terminal as a real paste (bracketed when the program asked for it),
@@ -185,6 +200,8 @@ export function TerminalView({
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.loadAddon(new WebLinksAddon((_e, uri) => void call('app:openExternal', uri)))
+    // A session's file paths: Ctrl+click opens them in the Files tab.
+    term.registerLinkProvider(fileLinkProvider(term, () => ({ projectPath: pathRef.current, agentId: agentRef.current }), () => host.current))
     // xterm's fit addon measures the terminal's parent. With border-box sizing a padded parent reports
     // its padding as usable space, so the padding lives on the host and the terminal mounts in an
     // unpadded child — otherwise the last row/column can spill over the status bar or off the edge.

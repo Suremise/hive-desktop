@@ -5,6 +5,47 @@ import { commandKeybinding, commands, runCommand } from '../commands'
 import { useStore } from '../store'
 import { basename, cx, formatKeybinding } from '../util'
 import { Icon } from './ui'
+import { useInbox } from '../inbox'
+import { badgeText, windowTitle } from '@shared/taskbar'
+import { call } from '../api'
+
+/** The taskbar badge: a red disc with the count, drawn at the screen's scale (Windows shows it at 16 px). */
+function drawBadge(count: number, scale: number): string {
+  const size = Math.round(16 * scale)
+  const c = document.createElement('canvas')
+  c.width = c.height = size
+  const g = c.getContext('2d')!
+  const r = size / 2
+  g.beginPath()
+  g.arc(r, r, r - 0.5 * scale, 0, Math.PI * 2)
+  g.fillStyle = '#d13438'
+  g.fill()
+  // A light rim keeps it apart from the icon under it on dark and light taskbars.
+  g.lineWidth = scale
+  g.strokeStyle = 'rgba(255,255,255,0.9)'
+  g.stroke()
+  const text = badgeText(count)
+  g.fillStyle = '#ffffff'
+  g.font = `600 ${Math.round((text.length > 1 ? 8.5 : 11) * scale)}px "Segoe UI", sans-serif`
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  g.fillText(text, r, r + 0.5 * scale)
+  return c.toDataURL('image/png').split(',')[1]
+}
+
+/** The window title (Alt+Tab, the taskbar) and the taskbar badge, with how many agents need you in this window. */
+function useTaskbarCount(title: string): void {
+  const needYou = useInbox().needYou.length
+  const on = useStore((s) => s.settings?.notifications.taskbarCount ?? true)
+  const count = on ? needYou : 0
+  useEffect(() => {
+    document.title = windowTitle(title, count)
+  }, [title, count])
+  useEffect(() => {
+    const scale = window.devicePixelRatio || 1
+    void call('window:setBadge', count, count ? drawBadge(count, scale) : null, scale).catch(() => undefined)
+  }, [count])
+}
 
 type MenuDef = { label: string; items: (string | '-' | { submenu: 'recent' })[] }
 
@@ -25,7 +66,7 @@ const MENUS: MenuDef[] = [
   { label: 'Session', items: ['session.new', 'session.resume', 'session.stop', '-', 'session.compact', 'session.archive', '-', 'project.tab.sessions'] },
   {
     label: 'Help',
-    items: ['help.docs', 'help.api', 'help.shortcuts', 'help.tips', 'help.releaseNotes', '-', 'help.agentSetup', 'help.checkProviders', '-', 'view.devTools', 'view.reload', 'help.logs', '-', 'help.checkUpdates', 'help.about']
+    items: ['help.docs', 'help.api', 'help.shortcuts', 'help.tips', 'help.releaseNotes', '-', 'help.agentSetup', 'help.checkProviders', '-', 'view.devTools', 'view.reload', 'help.logs', 'help.diagnostics', '-', 'help.checkUpdates', 'help.about']
   }
 ]
 
@@ -75,6 +116,7 @@ export function TitleBar() {
 
   const appName = useStore((s) => (s.appInfo && !s.appInfo.isPackaged ? 'Hive Dev' : 'Hive'))
   const title = [selected ? basename(selected) : null, workspace?.name, appName].filter(Boolean).join(' — ')
+  useTaskbarCount(title)
 
   return (
     <div className="titlebar" onDoubleClick={(e) => e.target === e.currentTarget && void window.hive.invoke('window:toggleMaximize')}>

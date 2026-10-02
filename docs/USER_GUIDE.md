@@ -92,7 +92,7 @@ Each agent of a project runs one session at a time (most projects have just one 
 **Where things are.** The project header is about the project: its name and combined status, the **Active** switch, **Explorer** (reveal the folder), **Terminal** (open an external terminal there), **Resume All Agents** while any stopped agent has a session to resume (running agents are left alone; if one can't resume, a notification says which and why, and the others still resume), **Stop All Agents** while any runs (it lists them and asks first), and **⋯** for Changes and Project Settings. Agents are added from the agent strip's **Add Agent** button. Everything about one agent is on its own pane, whether a project has one agent or four:
 
 - **The agent header**: its status, provider, name, worktree branch and card, then its buttons: **Compact** and **Stop** while it runs; **Resume**, **Resume a Session…** and **New Session** when it doesn't; **Merge…** for a worktree agent; and **⋯** with everything else. Compact and Stop are always small icon buttons (hover for what they do); as the pane gets narrower the other buttons show only their icons too, then they all fold into **⋯**.
-- **The agent footer**: its model and effort (click for Agent Settings), its permission mode (click to switch), and on the right the name of the session it's running, the context it uses (amber past your Compact threshold; click to see the session in the Overview), the size of the conversation's transcript (amber past **Settings → Sessions → Warn when a transcript is over**; click for Hand Over to…) and the session's cost.
+- **The agent footer**: its model and effort (click for Agent Settings), its permission mode (click to switch), and on the right the name of the session it's running, the context it uses, with how full the model's context window is once the CLI has said (*84k · 42%*; just the percentage in a narrow pane; amber past your Compact threshold; click to see the session in the Overview), the size of the conversation's transcript (amber past **Settings → Sessions → Warn when a transcript is over**; click for Hand Over to…) and the session's cost.
 
 The status bar keeps what concerns the whole app: the workspace, branch, running agents, the agents that need you (see [Agents that need you](#agents-that-need-you)), plan limits, the Agent API, each CLI's version and Hive's updates.
 
@@ -448,6 +448,8 @@ Updates are checked against their published checksum before they install.
 
 When an agent finishes (for one waiting on background tasks, once they have ended) or needs input, Hive can play a chime and show a Windows notification (click it to jump to the project). Configure both in **Settings → Notifications**; each project can override the chime.
 
+Agents that finish together don't flood you: they chime once, and get one notification (**3 agents finished in hive**: *Claude, Codex, Agent 3*, or across projects *hive (2), web (1)*), shown a few seconds after the last of them. An agent asking for your input is always told at once, on its own.
+
 ### Agents that need you
 
 With agents working in several projects, the status bar tells you who is waiting on you: **2 need you**. Click it for the list, oldest first, with how long each has been waiting:
@@ -457,7 +459,15 @@ With agents working in several projects, the status bar tells you who is waiting
 
 Click a row to go to that agent (the Assistant's opens its panel). The **Projects** icon in the activity bar shows the same number, and each project in the sidebar shows how many of its agents need you.
 
+With Hive behind other windows, its **taskbar button** shows the count too: a red badge over the icon, and the number before the window's title (in Alt+Tab and when you hover the button). When an agent starts waiting for your answer while Hive is in the background, the button flashes until you switch to it. Turn either off in **Settings → Notifications**.
+
 Below them, **To review** lists worktree agents that have stopped or finished with work not merged yet, with a summary such as *3 files, +120 −40 · 2 commits*, and buttons for **Changes** and **Merge…**. They don't add to the count; one leaves the list once its work is merged or it starts working again. When nothing needs you but there is work to review, the status bar says **1 to review**.
+
+### Sleep and shutdown
+
+Agents work while you're away from the keyboard, so Hive keeps Windows from **sleeping** while any agent is working or waiting on background tasks, and lets it sleep again as soon as none is. The screen can still turn off and lock. The status bar says **Keeping the PC awake: 2 agents working** while it does. **Settings → General → Keep the PC awake while agents work** chooses *When plugged in* (the default: on a laptop's battery, it may sleep), *Always, on battery too* or *Never*.
+
+When Windows shuts down, restarts or signs you out, Hive backs up the agents' transcripts first, as quitting does. After the PC wakes from sleep, Hive reads each agent's state and plan usage again.
 
 ## The system tray
 
@@ -508,6 +518,8 @@ In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts th
 
 **Changing shortcuts.** **Settings → Keyboard Shortcuts** lists every command. Click the pencil (or double-click a shortcut) and press the keys you want; press a second combination straight after for a chord such as Ctrl+K Ctrl+S. You can remove a shortcut, reset one, or reset them all. Hive warns when a shortcut is already used, and won't take keys you need for typing and editing (a key without Ctrl or Alt, Ctrl+C/V/X/A/Z/Y, Shift+Tab). A project can have its own shortcuts for project and session commands in **Project Settings → Keyboard Shortcuts**; they apply while that project is selected.
 
+**Open a file from the terminal.** File paths an agent prints, like `src/main/app.ts:42`, are links: hover one to see it underlined, and **Ctrl+click** it to open the file in the project's [Files](#files) tab with the cursor on that line. A worktree agent's paths open in its worktree, and a path into another project in the workspace opens in that project. Only files that exist are linked; a plain click still just selects text.
+
 **Screenshots and files.** With a screenshot on the clipboard (for example from Win+Shift+S), press **Ctrl+V** in a session: Hive saves the image in the project's `.hive/images` folder and pastes its path, and Claude Code attaches it as `[Image #1]`. You can also **drag files** from Explorer onto the terminal to paste their paths; images are copied into `.hive/images` first. The images are kept per session, so you can always see what was sent (see [Images](#images)).
 
 ## Troubleshooting
@@ -519,7 +531,9 @@ In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts th
 - **An agent couldn't start** — when its CLI quits before it has started (a setting it refuses, a broken install), the bar under its terminal turns red with **Couldn't start:** and what the CLI said, a hint where Hive recognises the problem, **Retry** and **Agent Settings…** (or **Agent Setup…**). Its tab and header turn red, the attention inbox lists it, and if its pane isn't on screen a notification says so. Fix the setting, then Retry; the terminal above keeps everything the CLI printed.
 - **Status dots don't change** — status comes from the CLI's hooks. A Codex agent shows **Ready** once its prompt appears, and reports its session with your first message. Restart the session; if it persists, check **Help → Open Logs Folder**.
 - **Agent API port in use** — change the port in Settings → Agent API.
+- **"Hive's window stopped and was reloaded"** — the window's page crashed (memory, a graphics driver, a bug). Your agents run outside it, so they kept going: Hive reloaded the window, which reconnects to their terminals as **View → Reload** does. Unsaved edits in the Files tab are lost, and the note says how many. If it crashes again within a minute, Hive asks instead: **Reload**, **Open Logs** or **Quit Hive**. If the window stops responding, after a few seconds Hive offers **Wait** or **Reload**, and the question goes away if the window recovers.
 - **"This tab ran into a problem"** — something in that view failed, for example on an unusual file. Your sessions keep running. Click **Try Again** or switch to another tab; if it keeps happening, **Open Logs** has the details for a bug report.
+- **Reporting a bug** — **Help → Copy Diagnostics…** shows a summary for a bug report: Hive's and Windows' versions, your coding agents, counts of projects and agents, the settings that change how Hive behaves and the last 50 lines of its log. Your folders, workspace, project and agent names, and anything that looks like a key or token are taken out, and the dialog shows exactly what will be copied. Click **Copy** and paste it into the report.
 - **Where is my data?** — app settings in `%APPDATA%\Hive`, workspace data in `Workspace/.hive`, project data in `Project/.hive`.
 - **How many sessions can run?** — as many as your machine can handle, across any number of projects. Each is a CLI process; Hive only draws the terminals you can see with the graphics card, so dozens of background sessions don't slow the window down.
 

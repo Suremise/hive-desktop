@@ -294,6 +294,7 @@ export const commands: Command[] = [
   { id: 'help.tips', label: 'Tips…', category: 'Help', run: () => set({ tipsOpen: true }) },
   { id: 'help.releaseNotes', label: 'Release Notes', category: 'Help', run: () => { set({ docsPage: 'changelog' }); setActivity('docs') } },
   { id: 'help.logs', label: 'Open Logs Folder', category: 'Help', run: () => call('app:openLogs') },
+  { id: 'help.diagnostics', label: 'Copy Diagnostics…', category: 'Help', run: () => set({ diagnosticsOpen: true }) },
   { id: 'help.about', label: 'About Hive', category: 'Help', run: () => set({ aboutOpen: true }) },
   { id: 'help.checkUpdates', label: 'Check for Updates…', category: 'Help', run: () => checkForUpdates() },
   { id: 'update.show', label: 'Show Hive Update', category: 'Help', when: () => ['available', 'downloading', 'ready'].includes(get().update?.status ?? ''), run: () => set({ updateOpen: true }) },
