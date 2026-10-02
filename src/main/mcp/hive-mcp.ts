@@ -341,7 +341,7 @@ const tools: Tool[] = [
   {
     name: 'hive_update_task',
     description:
-      `Change a card on the task board${ASSISTANT ? '' : " (your project's cards only; a card stays in your project)"} and/or comment on it: move it between todo, doing, review and done, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on, or its place in its column (position top or bottom, or before another card in that column; with or without a column change). Moving a card that has no agent into doing, without agent, gives it to you. Move a card you were given to doing before you work on it, also when it is back from review. When you finish a card's work, move it to review with a comment saying what you did; move it to done only when the user asks (every move is in the card's history, and the user can move it back). Archived cards can't be changed. Replies with what changed and where the card is now (column, place, project, agent).`,
+      `Change a card on the task board${ASSISTANT ? '' : " (your project's cards only; a card stays in your project)"} and/or comment on it: move it between todo, doing, review and done, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on, or its place in its column (position top or bottom, or before another card in that column; with or without a column change). Moving a card into doing from another column, without agent, gives it to you. Move a card you were given to doing before you work on it, also when it is back from review or done. When you finish a card's work, move it to review with a comment saying what you did (also if it was in done before); move it to done only when the user asks (every move is in the card's history, and the user can move it back). Archived cards can't be changed. Replies with what changed and where the card is now (column, place, project, agent).`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -385,14 +385,14 @@ const tools: Tool[] = [
   {
     name: 'hive_start_task',
     description:
-      "Start a card: Hive gives it to an agent of its project with the card as the prompt and moves it to doing. agent: an existing agent that is stopped or idle; without agent, Hive adds a new one (worktree=true: in its own git worktree, only if the user asked for one). Follow with hive_wait_for_agents. Replies with the agent that has it.",
+      "Start a card: Hive gives it to an agent of its project with the card as the prompt and moves it to doing. Use it for any work on a card, also more work on one in review or done (such as review feedback): note says what to do now and is added to the prompt. agent: an existing agent that is stopped or idle; without agent, Hive adds a new one (worktree=true: in its own git worktree, only if the user asked for one). Follow with hive_wait_for_agents. Replies with the agent that has it.",
     inputSchema: {
       type: 'object',
-      properties: { number: { type: 'number' }, agent: agentArg, worktree: { type: 'boolean' }, name: { type: 'string', description: 'A new agent\'s name.' }, provider: settingsArgs.provider },
+      properties: { number: { type: 'number' }, agent: agentArg, note: { type: 'string', description: 'What to do now, added to the card in the prompt.' }, worktree: { type: 'boolean' }, name: { type: 'string', description: 'A new agent\'s name.' }, provider: settingsArgs.provider },
       required: ['number']
     },
     run: async (a) => {
-      const r = (await api('POST', `/v1/tasks/${enc(String(a.number))}/start`, { agent: a.agent, worktree: a.worktree, name: a.name, provider: a.provider, reply: 'short' })) as { agent: string; added: boolean; card: TaskRow; note: string }
+      const r = (await api('POST', `/v1/tasks/${enc(String(a.number))}/start`, { agent: a.agent, note: a.note, worktree: a.worktree, name: a.name, provider: a.provider, reply: 'short' })) as { agent: string; added: boolean; card: TaskRow; note: string }
       return `Started #${r.card.number} ${r.card.title} on ${r.added ? 'a new agent, ' : ''}${r.agent}${r.card.project ? ` in ${r.card.project}` : ''}; the card is in ${r.card.column === 'doing' ? 'Doing' : r.card.column}. ${r.note}`
     }
   },

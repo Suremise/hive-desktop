@@ -18,6 +18,7 @@ import { Icon, IconButton, InfoTip, Switch, Tooltip } from '../components/ui'
 import { UpdateStatusRow } from '../components/Updates'
 import { KeybindingsEditor } from '../components/Keybindings'
 import { HiddenProjectsList } from '../components/ProjectRemoval'
+import { WorkspaceStorageList } from '../components/Storage'
 import { choose, confirm, get, notify, set, useStore } from '../store'
 import { cx } from '../util'
 
@@ -58,7 +59,7 @@ const SECTIONS: { id: Section; label: string; icon: string; desc: string; provid
   { id: 'notifications', label: 'Notifications', icon: 'bell', desc: 'Chimes and desktop notifications when agents finish or need you.' },
   { id: 'sessions', label: 'Sessions', icon: 'history', desc: 'Transcript backups, cache estimates and session behaviour.' },
   { id: 'assistant', label: 'Assistant', icon: 'person', desc: "The Hive Assistant's defaults: the side panel's overseer of each workspace (Ctrl+Alt+I). Each workspace can change them in the panel's Assistant Settings." },
-  { id: 'workspace', label: 'Workspace', icon: 'root-folder', desc: "The open workspace's projects that Hive leaves out: hidden, or removed from Hive with their handovers and cards packed into the folder." },
+  { id: 'workspace', label: 'Workspace', icon: 'root-folder', desc: "The open workspace's projects that Hive leaves out (hidden, or removed from Hive with their handovers and cards packed into the folder), and how much Hive keeps for each project." },
   { id: 'board', label: 'Board', icon: 'project', desc: "The task board's colours and housekeeping, the same in every workspace." },
   { id: 'agents', label: 'Agents & Worktrees', icon: 'organization', desc: 'Defaults for projects running several agents: file locks, new worktrees and merging (projects can override them), and how long background tasks count.' },
   { id: 'keybindings', label: 'Keyboard Shortcuts', icon: 'keyboard', desc: 'Change, remove or add shortcuts for any command. Projects can set their own for project and session commands (Project Settings → Keyboard Shortcuts).' },
@@ -125,6 +126,16 @@ const SETTINGS: SettingDef[] = [
     type: 'custom',
     wide: true,
     render: () => <HiddenProjectsList />
+  },
+  {
+    section: 'workspace',
+    key: 'storage',
+    title: 'Storage',
+    desc: "What Hive keeps for the workspace's biggest projects and the Hive Assistant: transcript backups, archived sessions, images and worktrees. Storage opens a project's page, with Clean Up….",
+    tip: "Measured in the background, a project at a time. The coding agents' own transcripts (in ~/.claude and ~/.codex) aren't counted. Hidden projects aren't included.",
+    type: 'custom',
+    wide: true,
+    render: () => <WorkspaceStorageList />
   },
   // Agents
   {

@@ -555,6 +555,11 @@ export interface SessionRecord {
    * none. Once the CLI's name changes from this (a /rename since), it is the newer rename and wins (sessionLabel).
    */
   titleAtRename?: string | null
+  /**
+   * What it used, saved when Clean Up removed Hive's backup of it (the CLI still had the transcript): totals keep
+   * counting it once the CLI's copy is gone too.
+   */
+  keptUsage?: SessionUsage
 }
 
 /** background: the agent's turn has ended, but it has background tasks that will start it again when they end. */
@@ -767,6 +772,55 @@ export interface KeptUsage {
   cwd?: string
   name: string
   usage: SessionUsage
+}
+
+/** What Hive keeps for a project or the Assistant (Project Settings → Storage), in bytes. */
+export interface ProjectStorage {
+  path: string
+  name: string
+  assistant?: boolean
+  /** Transcript backups (.hive/sessions). */
+  sessions: number
+  /** Archived sessions' backups (.hive/archive). */
+  archive: number
+  /** Images pasted or dropped into sessions (.hive/images). */
+  images: number
+  /** The agents' worktree folders. */
+  worktrees: { agent: string; path: string; bytes: number }[]
+  total: number
+  computedAt: string
+}
+
+export interface WorkspaceStorage {
+  /** Projects and the Assistant, biggest first. */
+  projects: ProjectStorage[]
+  total: number
+}
+
+/** What Clean Up… removes; a days value of null leaves that kind out. */
+export interface CleanupOptions {
+  archivedImagesDays: number | null
+  /** Images of deleted sessions, and of launches that never got a session id. */
+  orphanImages: boolean
+  /** Hive's backups of archived sessions the CLI still has. */
+  archivedBackupsDays: number | null
+  /** Backups of archived sessions the CLI no longer has: the session is deleted (its usage still counts). */
+  goneBackups: boolean
+}
+
+export interface CleanupItem {
+  kind: 'archived-images' | 'orphan-images' | 'archived-backup' | 'gone-backup'
+  path: string
+  bytes: number
+  sessionId?: string
+  label: string
+}
+
+export interface CleanupResult {
+  removed: number
+  bytes: number
+  /** Listed items that no longer qualified, or couldn't be moved (with why). */
+  skipped: string[]
 }
 
 export interface SessionListItem extends Partial<SessionRecord> {

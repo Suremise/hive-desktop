@@ -1050,7 +1050,7 @@ route('POST', '/v1/tasks/:n/start', async ({ params, body }) => {
     : { kind: 'new-agent', worktree: body?.worktree === true, name: body?.name ? String(body.name) : undefined, provider: body?.provider && isKnownProvider(String(body.provider)) ? (String(body.provider) as ProviderId) : undefined }
   return assistantChange('agents', `start #${n} ${target.kind === 'agent' ? `on ${target.agentId}` : 'on a new agent'}${card.project ? ` in ${card.project}` : ''}`, async () => {
     if (target.kind === 'new-agent' && body?.provider && !isKnownProvider(String(body.provider))) throw new HttpError(400, `Unknown provider "${body.provider}". hive_list_providers lists them.`)
-    const r = await startTask(n, target, { kind: 'assistant' })
+    const r = await startTask(n, target, { kind: 'assistant' }, typeof body?.note === 'string' ? body.note : undefined)
     return {
       done: `Started #${n} on ${r.added ? 'a new agent, ' : ''}${r.agentName} in ${card.project}: ${clip(card.title, 80)}`,
       result: { ok: true, agent: r.agentName, added: r.added, card: shortReply(body) ? taskRow(await taskView(r.card)) : await taskView(r.card), note: 'Follow it with hive_wait_for_agents; the agent keeps the card up to date if it has Hive tools.' }

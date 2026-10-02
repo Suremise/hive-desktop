@@ -3448,6 +3448,69 @@ body.pane-resizing .monaco-editor {
   margin-top: 3px;
   accent-color: var(--accent);
 }
+/* Move to Doing: what an option needs (its agent), under it. */
+.doing-sub {
+  margin: 0 0 4px 24px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-subtle);
+}
+.doing-sub > .choice-list {
+  margin-top: 0;
+}
+.agent-form.nested.doing-sub {
+  margin-top: 0;
+}
+/* Storage (Project Settings, Settings → Workspace) and Clean Up…. */
+.storage-table td.num {
+  width: 90px;
+}
+.storage-table .storage-total td {
+  font-weight: 600;
+  border-bottom: none;
+}
+.storage-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.storage-actions > :first-child {
+  margin-right: auto;
+}
+.storage-assistant {
+  margin-top: 12px;
+}
+.choice input[type='checkbox'] {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.choice.selected.danger {
+  border-color: var(--error);
+}
+.days-input {
+  display: inline-block;
+  width: 64px;
+  padding: 1px 4px;
+  margin: 0 2px;
+}
+.cleanup-options {
+  margin-bottom: 8px;
+}
+.cleanup-preview {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+.cleanup-kind {
+  padding: 6px 10px;
+  font-weight: 600;
+  background: var(--bg-hover);
+}
+.cleanup-preview .table td {
+  padding: 4px 10px;
+}
 .conflict-list {
   margin: 4px 0 10px;
   padding-left: 20px;

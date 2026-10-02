@@ -49,6 +49,8 @@ const SUITES = [
   { name: 'taskbar' },
   { name: 'ctxpercent' },
   { name: 'donemove' },
+  { name: 'doingmove' },
+  { name: 'storage' },
   { name: 'boardscope' },
   { name: 'board' },
   { name: 'rail' },

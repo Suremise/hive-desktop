@@ -110,8 +110,14 @@ const check = (name, ok, extra = '') => {
   for (const n of [rA, rB]) await inv('tasks:delete', n)
 
   // Dragging a card to another column.
+  await tile(1).dragTo(column('Review').locator('.board-column-body'))
+  check('a card drags to another column', !!(await until(async () => (await card(1))?.column === 'review', 5000)), (await card(1))?.column)
+  // Into Doing, it asks who works on it first (doingmove has the rest).
   await tile(1).dragTo(column('Doing').locator('.board-column-body'))
-  check('a card drags to another column', !!(await until(async () => (await card(1))?.column === 'doing', 5000)), (await card(1))?.column)
+  const toDoing = page.locator('.dialog', { hasText: 'Move #1 to Doing' })
+  check('dragging into Doing asks who works on it', !!(await until(async () => (await toDoing.count()) === 1, 5000)))
+  await toDoing.getByRole('button', { name: 'Move to Doing' }).click()
+  check('and moves it when confirmed', !!(await until(async () => (await card(1))?.column === 'doing', 5000)), (await card(1))?.column)
   await inv('tasks:update', 1, { column: 'todo' })
 
   // The card dialog saves only what the user changed: an agent's move meanwhile stays.
@@ -163,6 +169,24 @@ const check = (name, ok, extra = '') => {
   const viaApi = await api('GET', '/v1/tasks/1')
   check('the Agent API says why it is stalled', /isn't running/.test(viaApi.body?.stalled ?? ''), JSON.stringify(viaApi.body?.stalled))
   await page.screenshot({ path: path.join(lib.WORK, 'board-stalled.png') })
+
+  // More work on a Done card: right-click → Start… on its stopped agent; Doing again, and the prompt says it's back.
+  await inv('tasks:update', 1, { column: 'done' })
+  await until(async () => (await column('Done').locator('.task-card[data-task="1"]').count()) === 1, 5000)
+  await tile(1).click({ button: 'right' })
+  const startItem = page.locator('.menu .menu-item', { hasText: 'Start…' })
+  check('Start… is on for a Done card', (await startItem.count()) === 1 && !(await startItem.evaluate((e) => e.classList.contains('disabled') || e.hasAttribute('disabled') || e.getAttribute('aria-disabled') === 'true')))
+  await startItem.click()
+  const again = page.locator('.dialog', { hasText: 'Start #1' })
+  await again.waitFor({ timeout: 5000 })
+  await again.getByRole('button', { name: 'Start' }).click()
+  const reran = !!(await until(async () => (await live())?.status === 'finished', 30000))
+  const c1c = await card(1)
+  check('a Done card started again is in Doing with its agent', reran && c1c.column === 'doing' && c1c.agent === agent.id, JSON.stringify({ reran, column: c1c.column, agent: c1c.agent }))
+  const tr2 = fs.readdirSync(path.join(claudeHome, 'projects'), { recursive: true }).filter((f) => String(f).endsWith('.jsonl'))
+  check('its prompt says it is back for more work', tr2.some((f) => fs.readFileSync(path.join(claudeHome, 'projects', String(f)), 'utf8').includes('It was in Done and is back in Doing for more work.')))
+  await inv('session:stop', alpha, agent.id)
+  await until(async () => !(await live()), 10000)
 
   // Column colours (Settings → Board): each column's heading and a tint on its cards, in both themes; a picked colour;
   // turned off. Two workspace cards fill Done and show a blocked card.

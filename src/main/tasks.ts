@@ -432,8 +432,9 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
         transferred = true
       }
     }
-    // An agent that moves a card nobody has into Doing, naming no agent, is taking it (not in a project change).
-    const own = !transferred && patch.agent === undefined && !card.agent && patch.column === 'doing' && card.column !== 'doing' ? selfIn(actor, card.project) : null
+    // An agent that moves a card into Doing from another column, naming no agent, is taking it (not in a project
+    // change): also from another agent, who wasn't working on it since it wasn't in Doing ("Given to …" in its history).
+    const own = !transferred && patch.agent === undefined && patch.column === 'doing' && card.column !== 'doing' ? selfIn(actor, card.project) : null
     const agent = patch.agent !== undefined ? patch.agent : (own ?? undefined)
     if (agent !== undefined && !(transferred && !agent)) {
       if (agent) {

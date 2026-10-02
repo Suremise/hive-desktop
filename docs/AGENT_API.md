@@ -258,7 +258,7 @@ Returns `{ ok: true, path }`. Hive shows a notification with a link to the note.
 
 ### Task board
 
-The workspace's board: cards in four columns, `todo`, `doing`, `review` and `done`, kept in `.hive/tasks`. Callers can read and change cards and move them between all four columns, `done` included; each move is in the card's history with who made it. Agents are asked to move a card they were given to `doing` before they start on it (also one back from `review` with follow-up work), to move finished work to `review` with a comment saying what they did, and to `done` only when the user asks. Creating a card in `done` and putting `done` in order are the user's (`403`). Archived cards can't be changed (`403`), and archiving and deleting are only in Hive.
+The workspace's board: cards in four columns, `todo`, `doing`, `review` and `done`, kept in `.hive/tasks`. Callers can read and change cards and move them between all four columns, `done` included; each move is in the card's history with who made it. Agents are asked to move a card they were given to `doing` before they start on it (also one back from `review` or `done` with more work), to move finished work to `review` with a comment saying what they did (also a card that was in `done`), and to `done` only when the user asks. Creating a card in `done` and putting `done` in order are the user's (`403`). Archived cards can't be changed (`403`), and archiving and deleting are only in Hive.
 
 **Who sees what.** The workspace token (scripts) and the Hive Assistant see and change the whole board, as the user does. A project agent, calling with its own token (`HIVE_API_TOKEN`), sees and changes only its project's cards; who it is comes from the token alone, never from the request:
 
@@ -299,7 +299,7 @@ An agent runs as the user, so it could read the workspace token from disk: this 
 { "title": "Add tests for the redirect", "project": "web", "description": "…", "labels": ["tests"], "blockedBy": [12] }
 ```
 
-`PATCH /v1/tasks/{n}` — change a card and/or comment on it: any of `title`, `description`, `project` (a card that changes project always leaves its agent, and the history says whose it was; naming an `agent` in the same change is `400`: give it to one of the new project's agents in a change of its own), `agent` (empty takes it from its agent), `column`, `position` (`top` or `bottom` of its column) or `before` (the card it goes in front of, which has to be in the column the card ends up in; `null` the end), `labels`, `blocked` (empty clears it), `blockedBy`, `links`, and `comment`. When an agent moves a card that has no agent into `doing` without `agent`, it is given to that agent (the history says "Given to …"); an explicit `agent`, including empty, wins, and the Assistant and other callers give it to nobody.
+`PATCH /v1/tasks/{n}` — change a card and/or comment on it: any of `title`, `description`, `project` (a card that changes project always leaves its agent, and the history says whose it was; naming an `agent` in the same change is `400`: give it to one of the new project's agents in a change of its own), `agent` (empty takes it from its agent), `column`, `position` (`top` or `bottom` of its column) or `before` (the card it goes in front of, which has to be in the column the card ends up in; `null` the end), `labels`, `blocked` (empty clears it), `blockedBy`, `links`, and `comment`. When an agent moves a card into `doing` from another column without `agent`, it is given to that agent (the history says "Given to …"), also when another agent had it; a card already in `doing` keeps its agent. An explicit `agent`, including empty, wins, and the Assistant and other callers give it to nobody.
 
 ```json
 { "column": "review", "comment": "Fixed in auth/callback.ts; tests pass." }
@@ -324,7 +324,7 @@ Placing a card with `position` or `before` adds a line to its history when it mo
 
 `POST /v1/tasks/{n}/comments` `{ "text" }` — add a comment.
 
-`POST /v1/tasks/{n}/start` — **the Hive Assistant only** (Control agents): gives the card to an agent of its project, with the card as its prompt, and moves it to `doing`. `agent` (name or id): an existing agent that is stopped (a new conversation) or idle (its next message); `409` if it is busy. Without `agent`, Hive adds one: `name`, `provider`, and `worktree: true` for its own git worktree. Returns `{ ok, agent, added, card }`.
+`POST /v1/tasks/{n}/start` — **the Hive Assistant only** (Control agents): gives the card to an agent of its project, with the card as its prompt, and moves it to `doing`. A card in `review` or `done` can be started again for more work; the prompt says it is back, and the agent is asked to move it to `review` when done. `note`: what to do now (up to 4000 characters, such as "address the latest review comment"), added to the prompt before the card. If the card is moved to `done` while the start is under way, it stays there and the start fails. `agent` (name or id): an existing agent that is stopped (a new conversation) or idle (its next message); `409` if it is busy. Without `agent`, Hive adds one: `name`, `provider`, and `worktree: true` for its own git worktree. Returns `{ ok, agent, added, card }`.
 
 ### Skills and MCP
 
