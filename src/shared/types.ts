@@ -582,6 +582,11 @@ export interface LiveSessionState {
   /** When the status last changed (ISO): how long an agent has been waiting or finished. */
   statusSince?: string
   statusMessage?: string
+  /**
+   * A question the agent asked without stopping for it (Codex's request_user_input_async): it carries on working
+   * and takes the answer when it comes. It needs you (the attention inbox) until answered.
+   */
+  question?: { text: string; since: string }
   pid?: number
   startedAt: string
   /** Effective settings the session launched with — used to detect "restart to apply". */

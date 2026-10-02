@@ -71,14 +71,27 @@ export interface ExternalSession {
   modified: string
 }
 
+/** Something the CLI asks the user, from its hooks. */
+export interface Ask {
+  /** A permission request (in a reviewed mode the CLI's own reviewer answers it), or a question. */
+  kind: 'permission' | 'question'
+  /** The agent stops until it is answered; otherwise it carries on, and the answer comes later as a prompt. */
+  blocking: boolean
+  /** What it asks, for the status and the notification ('' when the CLI doesn't say). */
+  message: string
+  /** The tool call it is about (ToolEnd's `call`), when the CLI says: that call ending answers it. */
+  call?: string
+}
+
 /** A provider's hook call, turned into what Hive tracks. */
 export type HookEvent =
   | { kind: 'start'; source: string | null }
   | { kind: 'prompt' }
   | { kind: 'toolStart' }
-  | { kind: 'toolEnd' }
-  /** The agent waits for the user: a permission prompt or a question. */
-  | { kind: 'needsInput'; message: string }
+  /** `call`: which tool call ended, when the CLI says (see Ask.call). */
+  | { kind: 'toolEnd'; call?: string }
+  /** The CLI asks the user something (whether a person is asked now is the status rules' call: see hookStatus). */
+  | { kind: 'ask'; ask: Ask }
   | { kind: 'stop'; lastMessage: string | null }
   | { kind: 'interrupt' }
   | { kind: 'compactStart'; trigger: string }
@@ -186,6 +199,11 @@ export interface ProviderAdapter {
 
   // Hooks and live details
   normalizeHook(body: Record<string, any>): NormalizedHook
+  /**
+   * For CLIs whose terminal title says when a person must act (Codex's "Action Required"): a test of a title, for
+   * this version of the CLI. Null (or absent) when its title doesn't say: its hooks then tell Hive (see hookStatus).
+   */
+  titleAttention?(version: string | null): ((title: string) => boolean) | null
   lockReply(decision: LockDecision): Record<string, unknown>
   /** Claude Code's status-line JSON. */
   statusLine?(body: Record<string, any>): LiveDetails

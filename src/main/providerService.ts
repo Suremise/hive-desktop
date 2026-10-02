@@ -8,6 +8,7 @@ import { config } from './config'
 import { emit, toast } from './events'
 import { createLogger } from './logger'
 import { childEnv, hasPty, killPty, spawnPty, writePty } from './ptyHost'
+import { lastTitle } from './terminalTitle'
 
 const log = createLogger('providers')
 
@@ -114,6 +115,7 @@ class ProviderService {
     let finished = false
     let ready = false
     let busy = false
+    let titleCarry = ''
     /** When the program last showed or stopped showing that it is busy. */
     let busyChanged = 0
     let typeTimer: NodeJS.Timeout | null = null
@@ -161,9 +163,9 @@ class ProviderService {
       onData: (d) => {
         if (!typed?.ready || finished) return
         if (typed.busyTitle) {
-          const titles = [...d.matchAll(/\x1b\][02];([^\x07\x1b]*)(?:\x07|\x1b\\)/g)]
-          const last = titles.at(-1)?.[1]
-          if (last !== undefined && typed.busyTitle.test(last) !== busy) {
+          const { title, carry } = lastTitle(titleCarry, d)
+          titleCarry = carry
+          if (title !== null && typed.busyTitle.test(title) !== busy) {
             busy = !busy
             busyChanged = Date.now()
           }

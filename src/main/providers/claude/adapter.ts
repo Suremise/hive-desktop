@@ -337,7 +337,8 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
         const kind: string = body.notification_type ?? body.type ?? ''
         const message: string = body.message ?? ''
         if (kind !== 'idle_prompt' && (kind === 'permission_prompt' || /permission|approve|waiting for your input/i.test(message))) {
-          out.event = { kind: 'needsInput', message: message || 'Waiting for your input' }
+          // Claude Code sends this when it shows the user a prompt, so none of its modes is `reviewed`.
+          out.event = { kind: 'ask', ask: { kind: kind === 'permission_prompt' ? 'permission' : 'question', blocking: true, message: message || 'Waiting for your input' } }
         }
         break
       }
