@@ -5,7 +5,7 @@ import { shell } from 'electron'
 import { projectAgents } from '../shared/defaults'
 import { isTaskColumn, sortCards } from '../shared/tasks'
 import { ordinal } from '../shared/toolReplies'
-import type { TaskCard, TaskColumn, TaskPatch } from '../shared/types'
+import type { TaskCard, TaskColumn, TaskComment, TaskPatch } from '../shared/types'
 import { config } from './config'
 import { emit } from './events'
 import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
@@ -21,9 +21,19 @@ const log = createLogger('tasks')
 
 /**
  * Who changes a card: the user (Hive's window), the Hive Assistant, or an agent or script through the Agent API.
- * `self` is the agent whose hive tools made the call (its project's folder name and id); scripts have none.
+ * `self` is the agent whose call it is (its project's folder name and id); scripts have none. `scope` confines a
+ * project agent to its project's cards: others are "unknown" to it, as if they didn't exist.
  */
-export type TaskActor = { kind: 'user' } | { kind: 'assistant' } | { kind: 'agent'; name: string; self?: { project: string; agentId: string } }
+export type TaskActor = { kind: 'user' } | { kind: 'assistant' } | { kind: 'agent'; name: string; self?: { project: string; agentId: string }; scope?: string }
+
+/** The project an actor is confined to on the board (a project agent's own), or null for the whole workspace. */
+export const scopeOf = (a: TaskActor): string | null => (a.kind === 'agent' && a.scope !== undefined ? a.scope : null)
+
+/** Whether a card is one the scope may see: every card without a scope, else only its project's (not the workspace's). */
+export const inScope = (c: { project: string }, scope: string | null): boolean => scope === null || (!!c.project && c.project.toLowerCase() === scope.toLowerCase())
+
+/** What a confined agent is told about a card outside its project: the same as for one that doesn't exist. */
+const unknownTask = (n: number): Error => new Error(`Unknown task #${n}`)
 
 /** The calling agent, when a card of `project` going into Doing with no agent named should be given to it. */
 const selfIn = (actor: TaskActor, project: string): string | null =>
@@ -102,13 +112,34 @@ export async function allTasks(ws: WorkspaceService = workspace): Promise<TaskCa
   return sortCards(out)
 }
 
-export async function listTasks(opts: { project?: string; column?: TaskColumn; archived?: boolean } = {}): Promise<TaskCard[]> {
+/** Cards on the board, filtered; with `scope`, only that project's (asking for another project is refused). */
+export async function listTasks(opts: { project?: string; column?: TaskColumn; archived?: boolean; scope?: string | null } = {}): Promise<TaskCard[]> {
+  const scope = opts.scope ?? null
+  if (scope !== null && opts.project !== undefined && opts.project.toLowerCase() !== scope.toLowerCase()) {
+    throw new TaskPermissionError(`You can see only your project's cards (${scope}).`)
+  }
   return (await allTasks()).filter(
     (c) =>
       (opts.archived === undefined ? !c.archived : c.archived === opts.archived) &&
       (opts.project === undefined || c.project.toLowerCase() === opts.project.toLowerCase()) &&
-      (!opts.column || c.column === opts.column)
+      (!opts.column || c.column === opts.column) &&
+      inScope(c, scope)
   )
+}
+
+/** A card, as an actor may see it: a confined agent gets "Unknown task" for another project's. */
+export async function readTask(n: number, actor: TaskActor): Promise<TaskCard> {
+  const c = await getTask(n)
+  if (!inScope(c, scopeOf(actor))) throw unknownTask(n)
+  return c
+}
+
+/** The cards `refs` names that are outside the scope (another project's, or the workspace's): a confined agent sees only their numbers. */
+export async function refsOutside(refs: number[], scope: string | null): Promise<number[]> {
+  if (scope === null) return []
+  const out: number[] = []
+  for (const n of refs) if (!inScope(await getTask(n).catch(() => ({ project: '' })), scope)) out.push(n)
+  return out
 }
 
 export async function getTask(n: number, ws: WorkspaceService = workspace): Promise<TaskCard> {
@@ -161,15 +192,21 @@ function labelsOf(v: unknown): string[] {
   return out
 }
 
-async function cardRefs(v: unknown, self: number | null, what: string): Promise<number[]> {
+/**
+ * The cards a list names (blockedBy, links), checked. A confined agent can only name its project's cards; when it
+ * changes a card's list, the cards from other projects already on it (`kept`, which it sees only as numbers) stay.
+ */
+async function cardRefs(v: unknown, self: number | null, what: string, scope: string | null = null, kept: number[] = []): Promise<number[]> {
   if (!Array.isArray(v)) throw new Error(`${what} must be a list of card numbers`)
   const nums = [...new Set(v.map((x) => Number(String(x).replace(/^#/, ''))))]
+  const hidden = await refsOutside(kept, scope)
   for (const n of nums) {
     if (!Number.isInteger(n) || n < 1) throw new Error(`${what}: "${n}" is not a card number`)
     if (n === self) throw new Error(`${what}: a card can't refer to itself`)
     if (!existsSync(cardFile(n))) throw new Error(`${what}: there is no card #${n}`)
+    if (!hidden.includes(n) && !inScope(await getTask(n), scope)) throw new Error(`${what}: there is no card #${n}`)
   }
-  return nums
+  return [...nums, ...hidden.filter((n) => !nums.includes(n))]
 }
 
 /** The order that puts a card before `before` in `column` (at the end without one). */
@@ -195,10 +232,13 @@ function placement(all: TaskCard[], card: TaskCard, column: TaskColumn, patch: T
   if (placed && before !== undefined && before !== null && position !== undefined) throw new Error('Give before or position, not both.')
   const list = all.filter((c) => c.column === column && !c.archived && c.number !== card.number)
   const W = COLUMN_WORD[column]
+  // A confined agent places its card among its project's cards: the top and bottom of those, never past another project's.
+  const scope = scopeOf(actor)
+  const own = list.filter((c) => inScope(c, scope))
   if (placed && actor.kind !== 'user') {
     if (column === 'done') throw new TaskPermissionError(OUT_OF_DONE)
-    if (before != null && !list.some((c) => c.number === before)) {
-      const other = all.find((c) => c.number === before)
+    if (before != null && !own.some((c) => c.number === before)) {
+      const other = all.find((c) => c.number === before && inScope(c, scope))
       throw new Error(
         before === card.number
           ? "A card can't go before itself."
@@ -208,7 +248,16 @@ function placement(all: TaskCard[], card: TaskCard, column: TaskColumn, patch: T
       )
     }
   }
-  const order = position === 'top' ? (list.length ? list[0].order - 1 : 1) : orderIn(all, column, card.number, position === 'bottom' ? null : before)
+  const order =
+    scope !== null && position === 'top'
+      ? orderIn(all, column, card.number, own[0]?.number ?? null)
+      : scope !== null && position === 'bottom'
+        ? orderIn(all, column, card.number, own.length ? (list[list.indexOf(own[own.length - 1]) + 1]?.number ?? null) : null)
+        : position === 'top'
+          ? list.length
+            ? list[0].order - 1
+            : 1
+          : orderIn(all, column, card.number, position === 'bottom' ? null : before)
   if (!placed || actor.kind === 'user') return { order }
   const moved = column !== card.column
   // Within its column, a placement that leaves it where it was isn't worth a line.
@@ -247,19 +296,28 @@ export async function reorderTasks(column: TaskColumn, numbers: unknown, actor: 
   const W = COLUMN_WORD[column]
   const all = await allTasks(ws)
   const list = all.filter((c) => c.column === column && !c.archived)
+  // A confined agent orders its project's cards only, and they stay where the project's cards are in the column.
+  const scope = scopeOf(actor)
+  const own = list.filter((c) => inScope(c, scope))
   for (const x of nums) {
-    if (list.some((c) => c.number === x)) continue
-    const other = all.find((c) => c.number === x)
+    if (own.some((c) => c.number === x)) continue
+    const other = all.find((c) => c.number === x && inScope(c, scope))
     throw new Error(!other ? `There is no card #${x}.` : `#${x} is ${other.archived ? 'archived' : `in ${COLUMN_WORD[other.column]}`}, not in ${W}. Only cards already in ${W} can be put in order there.`)
   }
-  const top = list[0].order
+  // The listed cards take the place of the first of the cards in view, in the order given; the rest keep theirs below.
+  const first = own[0]
+  const above = list[list.indexOf(first) - 1]
+  const orderAt = (i: number): number => (above ? above.order + ((first.order - above.order) * (i + 1)) / (nums.length + 1) : first.order - nums.length + i)
   for (const [i, x] of nums.entries()) {
-    const was = list.findIndex((c) => c.number === x)
+    const was = own.findIndex((c) => c.number === x)
     await withFileLock(cardFile(x, ws), async () => {
       const card = await getTask(x, ws)
+      // Every write is the caller's to make on the card as it is now: moved to another project since the list was
+      // read, it is unknown to a confined agent (its order and history stay as they are).
+      if (!inScope(card, scope)) throw unknownTask(x)
       // Moved or archived since the list was read: the order asked for no longer holds.
       if (card.column !== column || card.archived) throw new Error(`#${x} changed while the cards were being put in order; read the board again.`)
-      card.order = top - nums.length + i
+      card.order = orderAt(i)
       if (was !== i && actor.kind !== 'user') note(card, by, i === 0 ? `Moved to the top of ${W}` : `Placed ${ordinal(i + 1)} in ${W}`)
       await writeJsonAtomic(cardFile(x, ws), card)
     }).catch((e) => {
@@ -269,7 +327,7 @@ export async function reorderTasks(column: TaskColumn, numbers: unknown, actor: 
   }
   log.info(`${W} put in order by ${userText(by)}: ${nums.map((x) => `#${x}`).join(', ')}`)
   changed(ws)
-  return (await allTasks(ws)).filter((c) => c.column === column && !c.archived)
+  return (await allTasks(ws)).filter((c) => c.column === column && !c.archived && inScope(c, scope))
 }
 
 function note(card: TaskCard, by: string, what: string): void {
@@ -290,7 +348,10 @@ export async function createTask(
   const column = input.column ?? 'todo'
   if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": todo, doing, review or done.`)
   if (column === 'done' && actor.kind !== 'user') throw new TaskPermissionError('Only the user puts cards in Done.')
-  const project = await projectName(input.project)
+  // A confined agent's cards are its project's (by default too); never another project's or the workspace's.
+  const scope = scopeOf(actor)
+  const project = await projectName(scope !== null && input.project === undefined ? scope : input.project)
+  if (!inScope({ project }, scope)) throw new TaskPermissionError(`You can add cards only to your project (${scope}).`)
   // An agent that puts a new card straight into Doing, naming no agent, is taking it.
   const own = column === 'doing' && input.agent === undefined ? selfIn(actor, project) : null
   const agent = input.agent ? await agentOf(project, input.agent) : own ? await agentOf(project, own) : null
@@ -298,8 +359,8 @@ export async function createTask(
   await mkdir(tasksDir(ws), { recursive: true })
   const by = actorName(actor)
   const now = new Date().toISOString()
-  const blockedBy = input.blockedBy ? await cardRefs(input.blockedBy, null, 'blockedBy') : []
-  const links = input.links ? await cardRefs(input.links, null, 'links') : []
+  const blockedBy = input.blockedBy ? await cardRefs(input.blockedBy, null, 'blockedBy', scope) : []
+  const links = input.links ? await cardRefs(input.links, null, 'links', scope) : []
   const n = await nextNumber(ws)
   const card: TaskCard = {
     number: n,
@@ -336,12 +397,15 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
   const by = actorName(actor)
   const result = await withFileLock(cardFile(n, ws), async () => {
     const card = await getTask(n, ws)
+    const scope = scopeOf(actor)
+    if (!inScope(card, scope)) throw unknownTask(n)
     // The caller's own conditions, on the card as it is now (Start: not archived or done meanwhile).
     opts.check?.(card)
     if (card.archived && actor.kind !== 'user') throw new TaskPermissionError(`#${n} is archived. Only the user can bring it back.`)
     const said: string[] = []
     // A card moved within its column: saved, but not worth a line in its history.
     let reordered = false
+    let transferred = false
     if (patch.title !== undefined) {
       const t = text(patch.title, MAX_TITLE, 'title').trim()
       if (!t) throw new Error('A task needs a title.')
@@ -355,20 +419,23 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
     }
     if (patch.project !== undefined) {
       const p = await projectName(patch.project)
+      if (!inScope({ project: p }, scope)) throw new TaskPermissionError(`Cards stay in your project (${scope}).`)
       if (p !== card.project) {
+        // A card that changes project always leaves its agent (of the old project): giving it to one of the new
+        // project's agents is a change of its own, after this one.
+        if (patch.agent) throw new Error('Move the card to the other project first, then give it to one of its agents.')
         said.push(p ? `Moved to ${p}` : 'Moved to the workspace')
+        if (card.agent) said.push(`Taken from ${card.agentName ?? card.agent} of ${card.project || 'the workspace'}`)
         card.project = p
-        // Its agent belongs to the old project.
-        if (patch.agent === undefined && card.agent) {
-          card.agent = null
-          delete card.agentName
-        }
+        card.agent = null
+        delete card.agentName
+        transferred = true
       }
     }
-    // An agent that moves a card nobody has into Doing, naming no agent, is taking it.
-    const own = patch.agent === undefined && !card.agent && patch.column === 'doing' && card.column !== 'doing' ? selfIn(actor, card.project) : null
+    // An agent that moves a card nobody has into Doing, naming no agent, is taking it (not in a project change).
+    const own = !transferred && patch.agent === undefined && !card.agent && patch.column === 'doing' && card.column !== 'doing' ? selfIn(actor, card.project) : null
     const agent = patch.agent !== undefined ? patch.agent : (own ?? undefined)
-    if (agent !== undefined) {
+    if (agent !== undefined && !(transferred && !agent)) {
       if (agent) {
         const a = await agentOf(card.project, agent)
         if (a.id !== card.agent) said.push(`Given to ${a.name}`)
@@ -402,11 +469,11 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
       card.blocked = b
     }
     if (patch.blockedBy !== undefined) {
-      card.blockedBy = await cardRefs(patch.blockedBy, n, 'blockedBy')
+      card.blockedBy = await cardRefs(patch.blockedBy, n, 'blockedBy', scope, card.blockedBy)
       said.push(card.blockedBy.length ? `Depends on ${card.blockedBy.map((x) => `#${x}`).join(', ')}` : 'No longer depends on other cards')
     }
     if (patch.links !== undefined) {
-      card.links = await cardRefs(patch.links, n, 'links')
+      card.links = await cardRefs(patch.links, n, 'links', scope, card.links)
       said.push(card.links.length ? `Linked to ${card.links.map((x) => `#${x}`).join(', ')}` : 'Removed the links')
     }
     // What changed, in the history's words, for a caller that confirms it (the hive tools' short replies).
@@ -420,12 +487,22 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
   return result
 }
 
+/**
+ * A card's newest comment (the last one added; comments are kept in the order they were added, so equal times
+ * don't matter), or null when it has none. Read as `readTask` reads: a confined agent can't read another project's.
+ */
+export async function latestComment(n: number, actor: TaskActor): Promise<{ number: number; comment: TaskComment | null }> {
+  const c = await readTask(n, actor)
+  return { number: c.number, comment: c.comments.at(-1) ?? null }
+}
+
 export async function commentTask(n: number, comment: string, actor: TaskActor): Promise<TaskCard> {
   const ws = workspace
   const t = text(comment, MAX_TEXT, 'comment').trim()
   if (!t) throw new Error('The comment is empty.')
   const card = await withFileLock(cardFile(n, ws), async () => {
     const c = await getTask(n, ws)
+    if (!inScope(c, scopeOf(actor))) throw unknownTask(n)
     if (c.archived && actor.kind !== 'user') throw new TaskPermissionError(`#${n} is archived. Only the user can bring it back.`)
     const at = new Date().toISOString()
     c.comments = [...c.comments, { at, by: actorName(actor), text: t }].slice(-MAX_COMMENTS)

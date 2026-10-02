@@ -237,6 +237,14 @@ export function mostUrgent<T extends { status: string; unseen?: boolean }>(state
   return list.some((s) => s.unseen) && !top.unseen ? { ...top, unseen: true } : top
 }
 
+/** The status message of a session while it compacts its conversation (started from Hive or by the CLI itself). */
+export const COMPACTING_MESSAGE = 'Compacting the conversation…'
+
+/** Whether a session is compacting its conversation now. */
+export function isCompacting(live: { status: SessionStatus; statusMessage?: string } | null | undefined): boolean {
+  return live?.status === 'working' && live.statusMessage === COMPACTING_MESSAGE
+}
+
 /**
  * Why a worktree agent's work can't be merged now, or null. A merge commits the worktree's uncommitted files first,
  * so not while the agent is in the middle of a task (working, asking you something, or waiting on background tasks).

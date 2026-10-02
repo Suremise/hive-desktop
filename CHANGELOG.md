@@ -3,9 +3,15 @@
 ## Unreleased
 
 ### Task board
+- **Agents keep to their own project's cards.** An agent can see and change only its project's cards on the board: another project's cards are for that project's agents, the Assistant and you. Before, an agent in one project could list, read, comment on and move any card in the workspace. An agent also can't read or type into another project's agents' conversations any more, where those cards appear as their tasks. Each agent now calls Hive with a token of its own, so it can't get round this by saying it is someone else. The Assistant and your board still see everything.
+- **Moving a card to another project takes it from its agent**, and its history says whose it was. Give it to one of the new project's agents afterwards (the card dialog does this when you change both).
+- **"Check the latest comment"**: agents can read just a card's newest comment instead of the whole card, which keeps long cards from filling their context.
 - **Agents can move cards to Done.** Ask an agent *"looks good, move #65 to done"* and it does; the Assistant can too. Agents still move finished work to Review by default, for you to check. Every move is in the card's history with who made it, and a card can be moved back out of Done from the board or by asking. Before, only you could move cards into or out of Done.
 
 ### Fixes
+- In a narrow agent pane, **Merge…**'s count spilled out of its button over its neighbour, and a long agent name, branch or card pushed the header's buttons (even ⋯) off its edge. The buttons now always fit: a count widens its button, and the agent's details shorten instead (hover for the full text).
+- **Compact**'s spinner in the agent header stood still while the conversation compacted. It now turns until the compaction has finished, in the Assistant's header too.
+- In the compact Projects sidebar, a project's count of agents needing you was cut off at the top of the first tile (and at the side at larger zoom), and could cover the status dot of the project above. The badges and dots now always show in full.
 - Changing a number setting and then ticking **Never** straight away could leave the number saved and Never unticked, mostly in Project Settings. A number box now saves one change at a time, and your last choice wins.
 - **Help → Copy Diagnostics…** left some of your own text in the log lines it copied: card titles, what the Hive Assistant did, session names, and the names and folders of workspaces you had opened before. Hive now marks your text as it writes its log and the report leaves it out, including what an agent was started with; lines an older version wrote show only their time and source, and folders that aren't Hive's or the coding agents' own are hidden. The report also says which Windows sandbox Codex uses.
 

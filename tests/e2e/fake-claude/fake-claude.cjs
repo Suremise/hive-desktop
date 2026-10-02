@@ -13,6 +13,9 @@
 //   transcript. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
 //   "boardmove N COLUMN" moves card N as hive_update_task does (the hive tools' API, token and agent, from
 //   --mcp-config) and records the answer in fake-calls.jsonl.
+// - "/compact [focus]" compacts as Claude Code does: PreCompact, a compaction boundary in the transcript after 1 s (N
+//   seconds when the focus has "hold N"), then PostCompact. With no messages yet it says "Not enough messages to compact."
+//   and sends no hook; with "compactfail" in the focus it fails after PreCompact with "Error during compaction".
 // - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does.
 // - Ctrl+C twice, or "/exit", ends it with SessionEnd.
 // - `--model fail-start` makes it refuse to start, printing an error and exiting with 1, as Claude Code does for an
@@ -51,8 +54,9 @@ if (opts['--model'] === 'fail-start') {
   process.exit(1)
 }
 const sessionId = opts['--resume'] || opts['--session-id'] || randomUUID()
-// What it was started with, for suites that check the launch: the options and Claude Code's own variables.
-const launchEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CLAUDE_CODE_')))
+// What it was started with, for suites that check the launch: the options, Claude Code's own variables and the
+// Agent API token Hive gave it.
+const launchEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CLAUDE_CODE_') || k.startsWith('HIVE_API_TOKEN')))
 fs.appendFileSync(path.join(home, 'fake-launches.jsonl'), JSON.stringify({ cwd: process.cwd(), sessionId, opts, env: launchEnv }) + '\n')
 const settings = opts['--settings'] ? JSON.parse(fs.readFileSync(opts['--settings'], 'utf8')) : {}
 const hookUrl = settings.hooks?.Stop?.[0]?.hooks?.[0]?.url
@@ -128,7 +132,7 @@ async function boardMove(n, column) {
     const res = await fetch(`${env.HIVE_API_URL}/v1/tasks/${n}`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json', 'X-Hive-Workspace': encodeURIComponent(env.HIVE_WORKSPACE) },
-      body: JSON.stringify({ column, byAgent: env.HIVE_AGENT_ID, agentProject: env.HIVE_PROJECT, reply: 'short' })
+      body: JSON.stringify({ column, reply: 'short' })
     })
     record = { n, column, status: res.status, body: await res.json().catch(() => null) }
   } catch (e) {
@@ -169,6 +173,29 @@ async function startBackgroundTask(secs) {
 
 const promptLine = () => out('\r\n> \r\n  ? for shortcuts\r\n')
 
+/** "/compact [focus]", as Claude Code runs it. */
+async function compact(focus) {
+  const messages = fs.existsSync(transcript) && fs.readFileSync(transcript, 'utf8').includes('"type":"user"')
+  if (!messages) {
+    out('\r\nNot enough messages to compact.\r\n')
+    promptLine()
+    return
+  }
+  busy = true
+  await hook('PreCompact', { trigger: 'manual', custom_instructions: focus })
+  out('\r\nCompacting conversation…\r\n')
+  await sleep(Number(/\bhold\s+(\d+)/i.exec(focus)?.[1] ?? 1) * 1000)
+  if (/\bcompactfail\b/i.test(focus)) {
+    out('\r\nError during compaction: Error: API Error: 500\r\n')
+  } else {
+    write({ type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted', compactMetadata: { trigger: 'manual', preTokens: 30, postTokens: 10 } })
+    out('\r\nConversation compacted.\r\n')
+    await hook('PostCompact', { trigger: 'manual' })
+  }
+  busy = false
+  promptLine()
+}
+
 async function quit() {
   await hook('SessionEnd', { reason: 'prompt_input_exit' })
   process.exit(0)
@@ -197,6 +224,7 @@ process.stdin.on('data', (data) => {
         f()
       } else if (text === '/exit') void quit()
       // /rename: the session's name, as Claude Code keeps it (no hook; Hive sees it in the transcript).
+      else if ((text === '/compact' || text.startsWith('/compact ')) && !busy) void compact(text.slice(8).trim())
       else if (text.startsWith('/rename ')) {
         write({ type: 'custom-title', customTitle: text.slice(8).trim() })
         promptLine()

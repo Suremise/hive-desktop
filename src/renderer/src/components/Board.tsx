@@ -572,7 +572,11 @@ export function TaskDialog() {
         links: card.links.map((n) => `#${n}`).join(' ')
       }
       const clashed = Object.keys(patch).filter((k) => now[k] !== was[k])
+      // A card that changes project leaves its agent; one of the new project's agents is given it afterwards.
+      const give = patch.project !== undefined && patch.agent ? patch.agent : null
+      if (give) delete patch.agent
       if (Object.keys(patch).length) await call('tasks:update', card.number, patch)
+      if (give) await call('tasks:update', card.number, { agent: give })
       if (clashed.length) notify('warning', `#${card.number} was also changed while you edited it`, `Your ${clashed.join(', ')} replaced the change made meanwhile (see its history).`)
     }
     orig.current = { ...fields }

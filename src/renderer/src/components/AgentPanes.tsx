@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { CardChip, useAgentCards } from './CardChip'
-import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, contextPercent, effectiveModelLabel, effortLabel, formatBytes, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
+import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, contextPercent, effectiveModelLabel, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import type { AgentInfo, LiveSessionState, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import type { StartFailure } from '@shared/startFailure'
 import * as actions from '../actions'
@@ -524,7 +524,12 @@ export function useWidth<T extends HTMLElement>(): [(el: T | null) => void, numb
   return [ref, w]
 }
 
-/** Header buttons with labels while the pane is wide, icons when narrower, and only in ⋯ (which has them all) when narrow. */
+/**
+ * Header buttons with labels while the pane is wide, icons when narrower, and only in ⋯ (which has them all) when narrow.
+ * The mode follows the header's width both ways. The agent's details (name, branch, status, card) give way to the buttons,
+ * so each mode only has to fit its widest set of buttons: a stopped worktree agent's, with a four-digit Merge count, and room
+ * for the status dot and provider icon (tests/e2e/paneheader.cjs measures it at both widths).
+ */
 const LABELS_FROM = 620
 const ICONS_FROM = 340
 
@@ -543,7 +548,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   const tokens = usage?.contextTokens ?? 0
   const suggested = threshold > 0 && tokens >= threshold
   const empty = !usage || usage.userMessages === 0 || tokens === 0
-  const compacting = live?.status === 'working' && !!live.statusMessage?.startsWith('Compacting')
+  const compacting = isCompacting(live)
   const compactTip = compacting
     ? 'Compacting the conversation…'
     : idle && empty
@@ -555,11 +560,14 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         : `Summarise the conversation to shrink its context${usage ? ` (now ${formatTokens(tokens)} tokens)` : ''}. The full history stays in the transcript.${suggested ? ' Recommended: the context is over your threshold.' : ''}`
   const pick = (x: number, y: number) => () => void picker.openAt(project, a, x, y)
   const size = width >= LABELS_FROM ? 'labels' : width >= ICONS_FROM ? 'icons' : 'menu'
-  /** A header button: labelled or an icon with a tooltip, by the pane's width (`iconOnly`: always an icon, like the Assistant's). */
-  const btn = (icon: string, label: string, onClick: (e: React.MouseEvent<HTMLButtonElement>) => void, tone: string, opts: { disabled?: boolean; tip?: string; iconOnly?: boolean; count?: string | null } = {}) => (
+  /**
+   * A header button: labelled or an icon with a tooltip, by the pane's width (`iconOnly`: always an icon, like the Assistant's).
+   * A count stays inside the button, which widens for it; `spin` turns the icon while its action runs.
+   */
+  const btn = (icon: string, label: string, onClick: (e: React.MouseEvent<HTMLButtonElement>) => void, tone: string, opts: { disabled?: boolean; tip?: string; iconOnly?: boolean; count?: string | null; spin?: boolean } = {}) => (
     <Tooltip key={label} content={opts.tip ?? label}>
       <button type="button" className={cx('btn small pane-btn', tone, (size === 'icons' || opts.iconOnly) && 'icon-only')} disabled={opts.disabled} aria-label={label} onClick={(e) => { e.stopPropagation(); onClick(e) }}>
-        <Icon name={icon} />
+        <Icon name={icon} spin={opts.spin} />
         {size === 'labels' && !opts.iconOnly && <span>{label}</span>}
         {opts.count && <span className="btn-count">{opts.count}</span>}
       </button>
@@ -579,11 +587,13 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
           <ProviderIcon provider={agentProviderOf(project, a)} />
         </span>
       </Tooltip>
-      <span className="agent-name">{a.name}</span>
+      <span className="agent-name" title={a.name}>
+        {a.name}
+      </span>
       {a.worktree && (
         <Tooltip content={`Worktree ${a.worktree.path}, branched from ${a.worktree.base}`}>
           <span className="agent-branch">
-            <Icon name="git-branch" /> {a.worktree.branch}
+            <Icon name="git-branch" /> <span className="agent-branch-name">{a.worktree.branch}</span>
           </span>
         </Tooltip>
       )}
@@ -594,7 +604,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       {size !== 'menu' &&
         (live ? (
           <>
-            {btn(compacting ? 'loading' : 'fold', 'Compact', () => set({ compactFor: { project: project.path, agentId: a.id } }), cx('subtle', suggested && idle && 'suggest'), { disabled: !idle || empty, tip: compactTip, iconOnly: true })}
+            {btn(compacting ? 'loading' : 'fold', 'Compact', () => set({ compactFor: { project: project.path, agentId: a.id } }), cx('subtle', suggested && idle && 'suggest'), { disabled: !idle || empty, tip: compactTip, iconOnly: true, spin: compacting })}
             {btn('stop-circle', 'Stop', () => void actions.stopSession(project.path, a.id), 'tint-red', { tip: 'Stop this agent (the conversation is kept; resume it any time)', iconOnly: true })}
           </>
         ) : (

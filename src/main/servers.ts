@@ -28,6 +28,7 @@ import { startTask } from './taskStart'
 import { listSkills } from './skills'
 import { transcripts } from './transcripts'
 import { contextWorkspace, inWorkspace, openWorkspaces, workspace, workspaceOf, type WorkspaceService } from './workspace'
+import { agentForToken, agentToken, agentTokenFile, type AgentIdentity } from './agentTokens'
 
 const log = createLogger('servers')
 const MAX_BODY = 2 * 1024 * 1024
@@ -119,15 +120,23 @@ let apiToken = ''
  * Who made a request: a caller with the Agent API's token (agents' hive tools, scripts), which Settings → Agent
  * API governs, or a workspace's Hive Assistant with its own token, which Settings → Assistant → Control governs.
  */
-type Caller = { kind: 'api' } | { kind: 'assistant'; workspace: string }
+/** Who is calling: a script with the workspace token, the Assistant, or a project agent (by its own token). */
+type Caller = { kind: 'api' } | { kind: 'assistant'; workspace: string } | ({ kind: 'agent' } & AgentIdentity)
 const callerStore = new AsyncLocalStorage<Caller>()
+
+/** The project agent making the call (known by its token), or null. */
+function agentCaller(): AgentIdentity | null {
+  const c = callerStore.getStore()
+  return c?.kind === 'agent' ? c : null
+}
 
 function assistantCaller(): string | null {
   const c = callerStore.getStore()
   return c?.kind === 'assistant' ? c.workspace : null
 }
 let apiError: string | undefined
-const sseClients = new Set<ServerResponse>()
+/** Event-stream clients, with the project agent each is (null: a script, which gets every event). */
+const sseClients = new Map<ServerResponse, AgentIdentity | null>()
 
 function tokenFile(): string {
   return join(app.getPath('userData'), 'agent-api.json')
@@ -171,11 +180,15 @@ export function assistantApiUrl(): string | null {
   return apiServer?.listening ? `http://127.0.0.1:${apiPort()}` : null
 }
 
-/** Environment passed to sessions so agents (and the Hive MCP server) can reach the API. */
-export function apiEnv(): Record<string, string> {
+/**
+ * Environment passed to an agent's session so it (and its hive tools) can reach the API: with the agent's own token
+ * for this launch (agentTokens.ts), never the workspace's, so the API knows which project's agent is calling.
+ */
+export function apiEnv(projectPath: string, agentId: string): Record<string, string> {
   const info = apiInfo()
-  if (!info.running || !info.url) return {}
-  return { HIVE_API_URL: info.url, HIVE_API_TOKEN: apiToken, HIVE_API_TOKEN_FILE: tokenFile() }
+  const token = agentToken(projectPath, agentId)
+  if (!info.running || !info.url || !token) return {}
+  return { HIVE_API_URL: info.url, HIVE_API_TOKEN: token, HIVE_API_TOKEN_FILE: agentTokenFile(projectPath, agentId) }
 }
 
 /** An open workspace by its folder path or its name. A name two open workspaces share is refused (409): use the path. */
@@ -195,6 +208,13 @@ function requestWorkspace(req: IncomingMessage, url: URL): WorkspaceService | nu
   if (own) {
     const w = openWorkspaces().find((x) => x.path!.toLowerCase() === own)
     if (!w) throw new HttpError(409, "The Assistant's workspace isn't open in Hive")
+    return w
+  }
+  // An agent's calls are about its own workspace, whatever the request names.
+  const agent = agentCaller()
+  if (agent) {
+    const w = openWorkspaces().find((x) => x.path!.toLowerCase() === agent.workspace.toLowerCase())
+    if (!w) throw new HttpError(409, "The agent's workspace isn't open in Hive")
     return w
   }
   const header = req.headers['x-hive-workspace']
@@ -387,7 +407,23 @@ route('POST', '/v1/projects/:name/deactivate', async ({ params }) => {
   return projectSummary(p)
 })
 
-route('GET', '/v1/projects/:name/sessions', async ({ params }) => sessions.list(projectByName(params[0])))
+/**
+ * A project agent (by its own token) looks into and types into only its own project's agents: another project's
+ * conversations can hold that project's cards (a card started on an agent is its prompt), which are not its to see.
+ * Status stays open to it (projects, project status, waiting for agents); the Assistant and scripts see everything.
+ */
+function ownProjectOnly(p: string, what: string): void {
+  const a = agentCaller()
+  if (a && resolvePath(a.projectPath).toLowerCase() !== resolvePath(p).toLowerCase()) {
+    throw new HttpError(403, `${what} is only for your own project's agents (${basename(a.projectPath)}). Another project's work is for its own agents, the Hive Assistant and the user.`)
+  }
+}
+
+route('GET', '/v1/projects/:name/sessions', async ({ params }) => {
+  const p = projectByName(params[0])
+  ownProjectOnly(p, "Reading an agent's sessions")
+  return sessions.list(p)
+})
 
 route('POST', '/v1/projects/:name/sessions', async ({ params, body }) => {
   const p = projectByName(params[0])
@@ -421,6 +457,7 @@ route('POST', '/v1/projects/:name/input', async ({ params, body }) => {
   if (assistantCaller()) throw new HttpError(400, 'Use hive_prompt_agent (POST /v1/projects/{name}/agents/{agent}/prompt) to give agents work.')
   if (!config.settings.agentApi.allowSessionInput) throw new HttpError(403, 'Session input is disabled. Enable it in Settings → Agent API.')
   const p = projectByName(params[0])
+  ownProjectOnly(p, 'Typing into an agent')
   const agentId = await agentParam(p, body?.agent)
   if (!sessions.liveFor(p, agentId)) throw new HttpError(409, 'That agent is not running')
   const text = String(body?.text ?? '')
@@ -705,6 +742,7 @@ async function agentActivity(p: string, agentId: string) {
 
 route('GET', '/v1/projects/:name/agents/:agent/activity', async ({ params }) => {
   const p = projectByName(params[0])
+  ownProjectOnly(p, "Reading an agent's activity")
   return agentActivity(p, await agentParam(p, decodeURIComponent(params[1])))
 })
 
@@ -805,17 +843,20 @@ route('POST', '/v1/shared/handovers', async ({ body }) => {
 // the user's. Only the Assistant starts cards on agents.
 // ---------------------------------------------------------------------------
 
-/** Who is changing a card: the Assistant, the agent whose hive tools sent it (agent and agentProject), or a script. */
-async function taskActor(body: any): Promise<tasks.TaskActor> {
+/**
+ * Who is using the board: the Assistant, a project agent (known by its own token: confined to its project's cards,
+ * whatever the request says), or a script with the workspace token (the whole board, as the user's board).
+ */
+async function taskActor(): Promise<tasks.TaskActor> {
   if (assistantCaller()) return { kind: 'assistant' }
-  if (typeof body?.byAgent === 'string' && body.byAgent && typeof body?.agentProject === 'string') {
-    try {
-      const p = projectByName(body.agentProject)
-      const a = projectAgents(await workspace.projectConfig(p)).find((x) => x.id === body.byAgent)
-      if (a) return { kind: 'agent', name: `${a.name} (${basename(p)})`, self: { project: basename(p), agentId: a.id } }
-    } catch {
-      // An unknown agent is just a caller.
-    }
+  const agent = agentCaller()
+  if (agent) {
+    const project = basename(agent.projectPath)
+    const def = await workspace
+      .projectConfig(agent.projectPath)
+      .then((cfg) => projectAgents(cfg).find((x) => x.id === agent.agentId))
+      .catch(() => undefined)
+    return { kind: 'agent', name: `${def?.name ?? agent.agentId} (${project})`, self: { project, agentId: agent.agentId }, scope: project }
   }
   return { kind: 'agent', name: 'Agent API' }
 }
@@ -841,7 +882,17 @@ async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType
     }
   }
   // Nobody working on a Doing card: the Assistant reports these and suggests who could take them.
-  return { ...c, agent, stalled: stalledReason(c, now) }
+  const view: TaskView = { ...c, agent, stalled: stalledReason(c, now) }
+  // A project agent sees the cards of other projects it links to or waits for as numbers, marked as such.
+  const scope = callerScope()
+  const elsewhere = await tasks.refsOutside([...new Set([...c.blockedBy, ...c.links])], scope)
+  return elsewhere.length ? { ...view, elsewhere } : view
+}
+
+/** The project a project agent's calls are confined to on the board, or null (the Assistant and scripts see it all). */
+function callerScope(): string | null {
+  const a = agentCaller()
+  return a ? basename(a.projectPath) : null
 }
 
 /** The short reply a hive tool asks for (reply: "short") instead of the whole card or column. */
@@ -849,7 +900,7 @@ const shortReply = (body: any): boolean => body?.reply === 'short'
 
 /** A change to a card, for a short reply: what changed (in its history's words) and where the card is now. */
 async function taskChange(c: TaskCard, changes: string[]): Promise<TaskChange> {
-  const list = c.archived ? [] : await tasks.listTasks({ column: c.column })
+  const list = c.archived ? [] : await tasks.listTasks({ column: c.column, scope: callerScope() })
   const i = list.findIndex((x) => x.number === c.number)
   return { number: c.number, title: c.title, column: c.column, position: i >= 0 ? i + 1 : null, of: list.length, project: c.project, agent: c.agent ? (c.agentName ?? c.agent) : null, changes }
 }
@@ -884,7 +935,8 @@ function taskPatch(body: any): TaskPatch {
 route('GET', '/v1/tasks', async ({ query }) => {
   requireWorkspace()
   const project = query.get('project') ?? undefined
-  const cards = await tasks.listTasks({ project: project ? basename(projectByName(project)) : undefined, column: columnParam(query.get('column')), archived: query.get('archived') === 'true' ? true : undefined })
+  // A project agent's list is its project's cards; it can't ask for another project's.
+  const cards = await tasks.listTasks({ project: project ? basename(projectByName(project)) : undefined, column: columnParam(query.get('column')), archived: query.get('archived') === 'true' ? true : undefined, scope: callerScope() })
   const agents = new Map<string, Promise<ReturnType<typeof projectAgents>>>()
   const views = await Promise.all(cards.map((c) => taskView(c, agents)))
   // ?view=short: a row per card, without its description, comments and history.
@@ -893,7 +945,7 @@ route('GET', '/v1/tasks', async ({ query }) => {
 
 route('GET', '/v1/tasks/:n', async ({ params, query }) => {
   requireWorkspace()
-  const view = await taskView(await tasks.getTask(taskNumber(params[0])))
+  const view = await taskView(await tasks.readTask(taskNumber(params[0]), await taskActor()))
   return query.get('history') === 'false' ? withoutHistory(view) : view
 })
 
@@ -902,7 +954,7 @@ route('POST', '/v1/tasks', async ({ body }) => {
   const title = String(body?.title ?? '').trim()
   if (!title) throw new HttpError(400, 'title is required')
   const input = { title, description: body?.description, project: body?.project, agent: body?.agent, column: columnParam(body?.column), labels: body?.labels, blocked: body?.blocked, blockedBy: body?.blockedBy, links: body?.links }
-  const actor = await taskActor(body)
+  const actor = await taskActor()
   const reply = async (c: TaskCard) => (shortReply(body) ? taskChange(c, []) : taskView(c))
   if (actor.kind !== 'assistant') return reply(await tasks.createTask(input, actor))
   return assistantChange('agents', `add the task "${clip(title, 60)}" to the board`, async () => {
@@ -916,10 +968,10 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
   const n = taskNumber(params[0])
   const patch = taskPatch(body)
   const comment = typeof body?.comment === 'string' ? body.comment.trim() : ''
-  const actor = await taskActor(body)
+  const actor = await taskActor()
   const changes: string[] = []
   const apply = async (): Promise<TaskCard> => {
-    let c = await tasks.getTask(n)
+    let c = await tasks.readTask(n, actor)
     if (Object.keys(patch).length) c = await tasks.updateTask(n, patch, actor, { said: changes })
     if (comment) {
       c = await tasks.commentTask(n, comment, actor)
@@ -956,7 +1008,7 @@ route('POST', '/v1/tasks/reorder', async ({ body }) => {
   const column = columnParam(body?.column)
   if (!column) throw new HttpError(400, 'column is required: todo, doing or review')
   const cards = body?.cards
-  const actor = await taskActor(body)
+  const actor = await taskActor()
   const view = async (list: TaskCard[]): Promise<TaskView[] | TaskReorder> => {
     // Short: the agent chose the cards and their order; it only needs to know it worked.
     if (shortReply(body)) return { column, top: (cards as unknown[]).map((x) => Number(String(x).replace(/^#/, ''))), count: list.length }
@@ -972,11 +1024,18 @@ route('POST', '/v1/tasks/reorder', async ({ body }) => {
   })
 })
 
+// Only a card's newest comment (its author, time and whole text), for "check the latest comment": the card's
+// description, earlier comments and history stay out of the reply. A card without comments gives comment null.
+route('GET', '/v1/tasks/:n/comments/latest', async ({ params }) => {
+  requireWorkspace()
+  return tasks.latestComment(taskNumber(params[0]), await taskActor())
+})
+
 route('POST', '/v1/tasks/:n/comments', async ({ params, body }) => {
   requireWorkspace()
   const n = taskNumber(params[0])
   const text = typeof body?.text === 'string' ? body.text : ''
-  const actor = await taskActor(body)
+  const actor = await taskActor()
   const reply = async (c: TaskCard) => (shortReply(body) ? taskChange(c, ['Commented']) : taskView(c))
   if (actor.kind !== 'assistant') return reply(await tasks.commentTask(n, text, actor))
   return assistantChange('agents', `comment on #${n}`, async () => ({ done: `Commented on #${n}`, result: await reply(await tasks.commentTask(n, text, actor)) }))
@@ -985,7 +1044,7 @@ route('POST', '/v1/tasks/:n/comments', async ({ params, body }) => {
 route('POST', '/v1/tasks/:n/start', async ({ params, body }) => {
   requireWorkspace()
   const n = taskNumber(params[0])
-  const card = await tasks.getTask(n)
+  const card = await tasks.readTask(n, await taskActor())
   const target: TaskStartTarget = body?.agent
     ? { kind: 'agent', agentId: String(body.agent) }
     : { kind: 'new-agent', worktree: body?.worktree === true, name: body?.name ? String(body.name) : undefined, provider: body?.provider && isKnownProvider(String(body.provider)) ? (String(body.provider) as ProviderId) : undefined }
@@ -1025,7 +1084,15 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
   if (url.pathname === '/v1/health' && enabled) return send(res, 200, { ok: true, app: 'Hive', version: app.getVersion() })
   const bearer = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')
   const ownWorkspace = bearer ? assistant.assistantForToken(bearer) : null
-  const caller: Caller | null = ownWorkspace ? { kind: 'assistant', workspace: ownWorkspace } : enabled && tokenMatches(req.headers.authorization, apiToken) ? { kind: 'api' } : null
+  // A project agent's own token works while the Agent API is on, as the workspace token does.
+  const agent = enabled && bearer && !ownWorkspace ? agentForToken(bearer) : null
+  const caller: Caller | null = ownWorkspace
+    ? { kind: 'assistant', workspace: ownWorkspace }
+    : agent
+      ? { kind: 'agent', ...agent }
+      : enabled && tokenMatches(req.headers.authorization, apiToken)
+        ? { kind: 'api' }
+        : null
   if (!caller) return send(res, enabled ? 401 : 403, { error: enabled ? 'Missing or invalid bearer token' : 'The Agent API is turned off in Settings → Agent API' })
   return callerStore.run(caller, () => serveApi(req, res, url))
 }
@@ -1038,7 +1105,7 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     if (assistantCaller()) return send(res, 403, { error: 'The event stream is for Agent API callers. Use hive_wait_for_agents to follow agents.' })
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
     res.write(': connected\n\n')
-    sseClients.add(res)
+    sseClients.set(res, agentCaller())
     req.on('close', () => sseClients.delete(res))
     return
   }
@@ -1075,7 +1142,7 @@ function statusFor(e: Error): number {
   if (/already running|already open|already being opened|is starting|Stop it first|Stop the|archived|No session is running|ran in .* Resume it|is required to run|is turned off|no agents yet|No workspace|busy|no handover|changed while the cards/i.test(m)) return 409
   if (/several agents: choose/i.test(m)) return 400
   if (/Not a project|Unknown (project|agent|task)|no longer exists/i.test(m)) return 404
-  if (/is archived|is done\.|has no project|needs a title|is too long|Unknown column|labels must|up to \d+ labels|^(blockedBy|links):|Choose a project|comment is empty|Unknown position|before or position|can't go before|, not in (Todo|Doing|Review|Done)|There is no card #|^cards:/i.test(m)) return 400
+  if (/is archived|is done\.|has no project|needs a title|is too long|Unknown column|labels must|up to \d+ labels|^(blockedBy|links):|Choose a project|comment is empty|Unknown position|before or position|can't go before|, not in (Todo|Doing|Review|Done)|There is no card #|^cards:|other project first/i.test(m)) return 400
   return 500
 }
 
@@ -1085,7 +1152,11 @@ function broadcast(event: HiveEvent): void {
   if (!allowed.includes(event.type)) return
   const payload = event.type === 'workspace-changed' ? { type: event.type, workspace: event.workspace?.path ?? null } : event
   const line = `event: ${event.type}\ndata: ${JSON.stringify(payload)}\n\n`
-  for (const c of sseClients) {
+  // A project agent hears about its own project's sessions only: another project's (their names, what they are
+  // doing) can tell it about that project's cards. The other events carry no more than a path.
+  const about = event.type === 'session-status' ? event.state.projectPath : event.type === 'session-exit' ? event.projectPath : null
+  for (const [c, agent] of sseClients) {
+    if (agent && about !== null && resolvePath(about).toLowerCase() !== resolvePath(agent.projectPath).toLowerCase()) continue
     // A client that stopped reading would make Hive hold every event for it: it is disconnected instead.
     if (c.writableLength > SSE_MAX_BUFFERED) {
       sseClients.delete(c)
@@ -1130,7 +1201,7 @@ async function startApiServerNow(): Promise<AgentApiInfo> {
 }
 
 export async function stopApiServer(): Promise<void> {
-  for (const c of sseClients) c.end()
+  for (const c of sseClients.keys()) c.end()
   sseClients.clear()
   if (apiServer) await new Promise<void>((resolve) => apiServer!.close(() => resolve()))
   apiServer = null

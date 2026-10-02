@@ -34,6 +34,7 @@ import { createTray, destroyTray, resourcesDir, setTrayPendingQuit, showWindow }
 import { initUpdater, installNow } from './updater'
 import { createWorkspaceService, disposeWorkspaceService, inWorkspace, openWorkspaces, workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
 import { hiveWindows, lastFocused, TITLE_BAR_OVERLAY, registerWindow, unregisterWindow, windowForPath, type HiveWindow } from './windows'
+import { agentTokenFile } from './agentTokens'
 
 const log = createLogger('main')
 let quitting = false
@@ -552,7 +553,6 @@ app.whenReady().then(async () => {
   sessions.apiEnv = apiEnv
   sessions.hiveMcp = (projectPath, agentId): McpServerDef | null => {
     const s = config.settings.agentApi
-    const env = apiEnv()
     // The Hive Assistant always has Hive's tools, with its own token and its control level (Settings → Assistant).
     if (workspace.isAssistantHome(projectPath)) {
       const url = assistantApiUrl()
@@ -572,14 +572,16 @@ app.whenReady().then(async () => {
         }
       }
     }
-    if (!s.enabled || !s.provideHiveMcp || !env.HIVE_API_URL) return null
+    const url = assistantApiUrl()
+    if (!s.enabled || !s.provideHiveMcp || !url) return null
     return {
       command: process.execPath,
       args: [hiveMcpScript()],
       env: {
         ELECTRON_RUN_AS_NODE: '1',
-        HIVE_API_URL: env.HIVE_API_URL,
-        HIVE_API_TOKEN_FILE: env.HIVE_API_TOKEN_FILE,
+        HIVE_API_URL: url,
+        // The agent's own token (made at each launch), which confines its board calls to its project.
+        HIVE_API_TOKEN_FILE: agentId ? agentTokenFile(projectPath, agentId) : '',
         // The Assistant looks after the whole workspace: its tools have no project of their own.
         HIVE_PROJECT: workspace.isAssistantHome(projectPath) ? '' : basename(projectPath),
         // With several windows, the API answers the session's tools for its own workspace.

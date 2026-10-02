@@ -68,7 +68,6 @@ const settingsArgs = {
 }
 const agentPath = (a: Record<string, any>): string => `/v1/projects/${proj(a)}/agents/${enc(a.agent || '')}`
 /** Which agent is changing a card, for its history (Hive fills in the name). */
-const byAgent = (): Record<string, string> => (process.env.HIVE_AGENT_ID && PROJECT ? { byAgent: process.env.HIVE_AGENT_ID, agentProject: PROJECT } : {})
 const columnArg = { type: 'string', enum: ['todo', 'doing', 'review', 'done'] }
 const cardsArg = (what: string) => ({ type: 'array', items: { type: 'number' }, description: what })
 
@@ -304,9 +303,8 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_list_tasks',
-    description:
-      "The workspace's task board: cards in columns todo, doing, review and done, in board order (top of each column first: the order is their priority). One line per card: number, title, project, the agent it's given to and what that agent is doing now, labels, whether it's blocked or stalled, and how many comments it has. hive_read_task gives a card's description and comments; details=true lists every card in full as JSON (large: only when you need all of them). Without project, every project's cards; archived=true lists the archived ones instead. At most 200 lines: narrow it with project or column.",
-    inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Only this project\'s cards.' }, column: columnArg, archived: { type: 'boolean' }, details: { type: 'boolean', description: 'Every card in full (descriptions, comments, history).' } } },
+    description: `${ASSISTANT ? "The workspace's task board" : "Your project's cards on the workspace's task board (other projects' cards are for their own agents, the Hive Assistant and the user: you can't see or change them)"}: cards in columns todo, doing, review and done, in board order (top of each column first: the order is their priority). One line per card: number, title, project, the agent it's given to and what that agent is doing now, labels, whether it's blocked or stalled, and how many comments it has. hive_read_task gives a card's description and comments; details=true lists every card in full as JSON (large: only when you need all of them). ${ASSISTANT ? "Without project, every project's cards; " : 'A card you wait for or link to in another project shows as its number only (elsewhere lists them). '}archived=true lists the archived ones instead. At most 200 lines: narrow it with ${ASSISTANT ? 'project or column' : 'column'}.`,
+    inputSchema: { type: 'object', properties: { ...(ASSISTANT ? { project: { type: 'string', description: 'Only this project\'s cards.' } } : {}), column: columnArg, archived: { type: 'boolean' }, details: { type: 'boolean', description: 'Every card in full (descriptions, comments, history).' } } },
     run: async (a) => {
       const q = [a.project ? `project=${enc(a.project)}` : '', a.column ? `column=${enc(a.column)}` : '', a.archived ? 'archived=true' : '', a.details ? '' : 'view=short'].filter(Boolean).join('&')
       const list = await api('GET', `/v1/tasks${q ? `?${q}` : ''}`)
@@ -315,14 +313,14 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_read_task',
-    description: 'One card in full, as JSON: its description, comments, links and agent. Its change history (who moved it when) only with history=true; historyEntries says how long it is.',
-    inputSchema: { type: 'object', properties: { number: { type: 'number', description: 'The card number (#12 is 12).' }, history: { type: 'boolean' } }, required: ['number'] },
-    run: (a) => api('GET', `/v1/tasks/${enc(String(a.number))}${a.history ? '' : '?history=false'}`)
+    description:
+      "One card in full, as JSON: its description, comments, links and agent. Its change history (who moved it when) only with history=true; historyEntries says how long it is. latestComment=true gives only its newest comment (author, time, whole text; comment null if it has none): use it when asked to check the latest comment, and read the whole card when you need more of it.",
+    inputSchema: { type: 'object', properties: { number: { type: 'number', description: 'The card number (#12 is 12).' }, history: { type: 'boolean' }, latestComment: { type: 'boolean', description: 'Only the newest comment.' } }, required: ['number'] },
+    run: (a) => (a.latestComment ? api('GET', `/v1/tasks/${enc(String(a.number))}/comments/latest`) : api('GET', `/v1/tasks/${enc(String(a.number))}${a.history ? '' : '?history=false'}`))
   },
   {
     name: 'hive_create_task',
-    description:
-      "Add a card to the workspace's task board (in todo unless column says otherwise; never done). Use it for follow-up work you find but shouldn't do now, or when the user asks. Give it a project (folder name) so it can be started on that project's agents. Created in doing with no agent, it is given to you. Replies with its number and place on the board.",
+    description: `Add a card to the workspace's task board (in todo unless column says otherwise; never done). Use it for follow-up work you find but shouldn't do now, or when the user asks. ${ASSISTANT ? "Give it a project (folder name) so it can be started on that project's agents." : "It is your project's: you can't add cards for other projects or the whole workspace (tell the user, or the Hive Assistant can)."} Created in doing with no agent, it is given to you. Replies with its number and place on the board.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -338,19 +336,19 @@ const tools: Tool[] = [
       },
       required: ['title']
     },
-    run: async (a) => createdText((await api('POST', '/v1/tasks', { title: a.title, description: a.description, project: a.project ?? PROJECT, agent: a.agent, column: a.column, labels: a.labels, blocked: a.blocked, blockedBy: a.blockedBy, links: a.links, ...byAgent(), reply: 'short' })) as TaskChange)
+    run: async (a) => createdText((await api('POST', '/v1/tasks', { title: a.title, description: a.description, project: a.project ?? PROJECT, agent: a.agent, column: a.column, labels: a.labels, blocked: a.blocked, blockedBy: a.blockedBy, links: a.links, reply: 'short' })) as TaskChange)
   },
   {
     name: 'hive_update_task',
     description:
-      `Change a card on the task board and/or comment on it: move it between todo, doing, review and done, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on, or its place in its column (position top or bottom, or before another card in that column; with or without a column change). Moving a card that has no agent into doing, without agent, gives it to you. When you finish a card's work, move it to review with a comment saying what you did; move it to done only when the user asks (every move is in the card's history, and the user can move it back). Archived cards can't be changed. Replies with what changed and where the card is now (column, place, project, agent).`,
+      `Change a card on the task board${ASSISTANT ? '' : " (your project's cards only; a card stays in your project)"} and/or comment on it: move it between todo, doing, review and done, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on, or its place in its column (position top or bottom, or before another card in that column; with or without a column change). Moving a card that has no agent into doing, without agent, gives it to you. When you finish a card's work, move it to review with a comment saying what you did; move it to done only when the user asks (every move is in the card's history, and the user can move it back). Archived cards can't be changed. Replies with what changed and where the card is now (column, place, project, agent).`,
     inputSchema: {
       type: 'object',
       properties: {
         number: { type: 'number' },
         comment: { type: 'string', description: 'Added to its comments.' },
         column: columnArg,
-        position: { type: 'string', enum: ['top', 'bottom'], description: 'Put it at the top (highest priority) or bottom of its column.' },
+        position: { type: 'string', enum: ['top', 'bottom'], description: ASSISTANT ? 'Put it at the top (highest priority) or bottom of its column.' : "Put it at the top (highest priority) or bottom of your project's cards in its column." },
         before: { type: 'number', description: 'Put it just above this card, which must be in the same column.' },
         blocked: { type: 'string' },
         title: { type: 'string' },
@@ -364,7 +362,7 @@ const tools: Tool[] = [
       required: ['number']
     },
     run: async (a) => {
-      const body: Record<string, unknown> = { ...byAgent(), reply: 'short' }
+      const body: Record<string, unknown> = { reply: 'short' }
       for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links']) if (a[k] !== undefined) body[k] = a[k]
       return changedText((await api('PATCH', `/v1/tasks/${enc(String(a.number))}`, body)) as TaskChange)
     }
@@ -372,6 +370,7 @@ const tools: Tool[] = [
   {
     name: 'hive_reorder_tasks',
     description:
+      (ASSISTANT ? '' : "Your project's cards only: they go above your project's other cards in the column, and other projects' cards keep their places. ") +
       "Put cards in priority order in one call: the listed cards go to the top of the column in the order given, and the column's other cards keep their order below them. The cards must already be in that column (move them first with hive_update_task); only the user orders done. Use this when asked to prioritise, rather than only listing an order. Replies with a confirmation, not the column.",
     inputSchema: {
       type: 'object',
@@ -381,7 +380,7 @@ const tools: Tool[] = [
       },
       required: ['column', 'cards']
     },
-    run: async (a) => reorderText((await api('POST', '/v1/tasks/reorder', { column: a.column, cards: a.cards, ...byAgent(), reply: 'short' })) as TaskReorder)
+    run: async (a) => reorderText((await api('POST', '/v1/tasks/reorder', { column: a.column, cards: a.cards, reply: 'short' })) as TaskReorder)
   },
   {
     name: 'hive_start_task',

@@ -70,6 +70,46 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   // Persists across reload
   await page.reload(); await sleep(2500)
   check('kept after reload', (await sbWidth()) === 48)
+
+  // Count badges and status dots stick out of the tiles: fully visible (outline included) inside the scrolling list,
+  // and a badge clear of the dot of the tile above, at the zoom levels Hive offers and with a two-digit count.
+  await page.evaluate(() => {
+    document.querySelectorAll('.rail-project').forEach((t, i) => {
+      const b = document.createElement('span')
+      b.className = 'project-need-count'
+      b.textContent = i === 1 ? '12' : '1'
+      t.appendChild(b)
+    })
+  })
+  for (const zoom of [1, 1.25, 1.5]) {
+    await app.evaluate(({ BrowserWindow }, z) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(z), zoom)
+    await sleep(400)
+    const bad = await page.evaluate(() => {
+      const list = document.querySelector('.rail-list').getBoundingClientRect()
+      const out = (r, pad) => r.top - pad < list.top - 0.5 || r.bottom + pad > list.bottom + 0.5 || r.left - pad < list.left - 0.5 || r.right + pad > list.right + 0.5
+      const overlap = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+      const tiles = [...document.querySelectorAll('.rail-project')]
+      const problems = []
+      tiles.forEach((t, i) => {
+        const badge = t.querySelector('.project-need-count').getBoundingClientRect()
+        const dot = t.querySelector('.dot').getBoundingClientRect()
+        // The 2px outline each has, in CSS pixels (zoom scales both alike).
+        if (out(badge, 2)) problems.push(`badge ${i} clipped`)
+        if (out(dot, 2) && i < 2) problems.push(`dot ${i} clipped`)
+        if (i > 0) {
+          const above = tiles[i - 1].querySelector('.dot').getBoundingClientRect()
+          const grown = { left: above.left - 2, right: above.right + 2, top: above.top - 2, bottom: above.bottom + 2 }
+          if (overlap({ left: badge.left - 2, right: badge.right + 2, top: badge.top - 2, bottom: badge.bottom + 2 }, grown)) problems.push(`badge ${i} on dot ${i - 1}`)
+        }
+      })
+      return problems
+    })
+    check(`badges and dots fully visible and apart at ${zoom * 100}%`, bad.length === 0, JSON.stringify(bad))
+    if (zoom === 1.5) await page.screenshot({ path: path.join(scratch, 'rail-badges-150.png'), clip: { x: 0, y: 0, width: 160, height: 320 } })
+    if (zoom === 1) await page.screenshot({ path: path.join(scratch, 'rail-badges.png'), clip: { x: 0, y: 0, width: 120, height: 260 } })
+  }
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
+  await page.evaluate(() => document.querySelectorAll('.rail-project .project-need-count').forEach((b) => b.remove()))
   await page.screenshot({ path: path.join(scratch, 'rail-2.png') })
   await page.locator('.rail-btn[aria-label="Expand Sidebar"]').click(); await sleep(400)
   check('expand button', (await sbWidth()) > 200)

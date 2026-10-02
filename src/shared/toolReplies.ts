@@ -12,6 +12,8 @@ import { columnLabel } from './tasks'
 export interface TaskView extends Omit<TaskCard, 'agent'> {
   agent: { id: string; name: string; status: string; backgroundTasks: number } | null
   stalled: string | null
+  /** For a project agent: the cards in blockedBy and links that are another project's (it sees only their numbers). */
+  elsewhere?: number[]
 }
 
 /** A card in a listing (GET /v1/tasks?view=short): what it is and where it stands, without its text. */
@@ -24,6 +26,8 @@ export interface TaskRow {
   labels: string[]
   blocked: string | null
   blockedBy: number[]
+  /** Cards in blockedBy that are another project's (a project agent sees only their numbers). */
+  elsewhere?: number[]
   stalled: string | null
   comments: number
   archived: boolean
@@ -39,6 +43,7 @@ export function taskRow(v: TaskView): TaskRow {
     labels: v.labels,
     blocked: v.blocked,
     blockedBy: v.blockedBy,
+    ...(v.elsewhere?.length ? { elsewhere: v.elsewhere } : {}),
     stalled: v.stalled,
     comments: v.comments.length,
     archived: v.archived
@@ -112,7 +117,7 @@ export function taskRowText(r: TaskRow): string {
   if (r.agent) bits.push(agentText(r.agent))
   if (r.labels.length) bits.push(r.labels.join(', '))
   if (r.blocked) bits.push(`blocked: ${r.blocked}`)
-  if (r.blockedBy.length) bits.push(`after ${r.blockedBy.map((n) => `#${n}`).join(', ')}`)
+  if (r.blockedBy.length) bits.push(`after ${r.blockedBy.map((n) => (r.elsewhere?.includes(n) ? `#${n} (another project)` : `#${n}`)).join(', ')}`)
   if (r.stalled) bits.push(`stalled: ${r.stalled}`)
   if (r.comments) bits.push(`${r.comments} comment${r.comments === 1 ? '' : 's'}`)
   return bits.join(' · ')

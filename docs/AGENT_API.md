@@ -18,13 +18,13 @@ There are two ways to use it:
 | Token | Settings → Agent API → Access token, or `%APPDATA%\Hive\agent-api.json` |
 | Format | JSON request and response bodies (`Content-Type: application/json`) |
 
-Sessions started from Hive receive these environment variables, so an agent can call the API with no configuration:
+Sessions started from Hive receive these environment variables, so an agent can call the API with no configuration. An agent's token works like the workspace token, except on the task board, where it confines the agent to its own project's cards (see **Task board**):
 
 | Variable | Value |
 |---|---|
 | `HIVE_API_URL` | Base URL of the API |
-| `HIVE_API_TOKEN` | Bearer token |
-| `HIVE_API_TOKEN_FILE` | Path of the file holding the token (`agent-api.json`), which stays current if the token is regenerated |
+| `HIVE_API_TOKEN` | The agent's own bearer token for this launch (not the workspace token in `agent-api.json`): the API knows from it which project's agent is calling, and it stops working when the agent stops |
+| `HIVE_API_TOKEN_FILE` | Path of the file holding that token, which Hive rewrites at each launch |
 | `HIVE_PROJECT` | Name of the project the session belongs to |
 | `HIVE_AGENT` | Name of the agent running the session (e.g. `Agent 1`) |
 | `HIVE_PROJECT_PATH` | Full path of the project |
@@ -258,7 +258,18 @@ Returns `{ ok: true, path }`. Hive shows a notification with a link to the note.
 
 ### Task board
 
-The workspace's board: cards in four columns, `todo`, `doing`, `review` and `done`, kept in `.hive/tasks`. Every caller can read and change cards and move them between all four columns, `done` included; each move is in the card's history with who made it. Agents are asked to move finished work to `review` and to `done` only when the user asks. Creating a card in `done` and putting `done` in order are the user's (`403`). Archived cards can't be changed (`403`), and archiving and deleting are only in Hive.
+The workspace's board: cards in four columns, `todo`, `doing`, `review` and `done`, kept in `.hive/tasks`. Callers can read and change cards and move them between all four columns, `done` included; each move is in the card's history with who made it. Agents are asked to move finished work to `review` and to `done` only when the user asks. Creating a card in `done` and putting `done` in order are the user's (`403`). Archived cards can't be changed (`403`), and archiving and deleting are only in Hive.
+
+**Who sees what.** The workspace token (scripts) and the Hive Assistant see and change the whole board, as the user does. A project agent, calling with its own token (`HIVE_API_TOKEN`), sees and changes only its project's cards; who it is comes from the token alone, never from the request:
+
+- `GET /v1/tasks` lists its project's cards; asking for another project (`?project=`) is `403`.
+- Another project's card, or one with no project, answers as if it didn't exist: reading, changing, commenting on or moving it is `404` (`Unknown task #63`), and naming it in `blockedBy`, `links`, `before` or a reorder is `400` (`there is no card #63`).
+- A new card is its project's (also when `project` is left out); another project, or `""`, is `403`, and so is changing a card's `project`.
+- A card of its own that waits for or links to another project's card shows that card as a number, listed in `elsewhere`; changing `blockedBy` or `links` keeps those.
+- `position` and a reorder place its cards among its project's cards in the column (the top or bottom of those); other projects' cards keep their places. The place a short reply gives (`3rd of 5`) counts its project's cards.
+- Another project's agents' conversations hold that project's cards (a card started on an agent is its prompt), so for another project, `GET /v1/projects/{name}/agents/{agent}/activity`, `GET /v1/projects/{name}/sessions` and `POST /v1/projects/{name}/input` are `403`, and the event stream (`/v1/events`) leaves out their session events. Their status (`/v1/projects`, `/v1/projects/{name}`, `/v1/agents/wait`) stays open.
+
+An agent runs as the user, so it could read the workspace token from disk: this keeps agents to their own project's work rather than containing a hostile one.
 
 `GET /v1/tasks[?project=web][&column=review][&archived=true]` — the cards on the board in order (by column, then position), or the archived ones. A card:
 
@@ -276,17 +287,19 @@ The workspace's board: cards in four columns, `todo`, `doing`, `review` and `don
 }
 ```
 
-`agent` is the agent the card is given to, with what it is doing now (`status` is `removed` if the agent no longer exists), or `null`. `stalled` says why nobody is working on a card in `doing` ("Agent 1 isn't running.", "Agent 2 was removed.", or that no agent has it), and is `null` otherwise; an agent that has finished its turn doesn't make its card stalled. `project` is the project's folder name, or `""` for a card about the workspace. `by` and `createdBy` say who: `You`, `Assistant`, an agent (`"Agent 1 (web)"`, when its `hive` tools made the change) or `Agent API` (any other caller).
+`agent` is the agent the card is given to, with what it is doing now (`status` is `removed` if the agent no longer exists), or `null`. `stalled` says why nobody is working on a card in `doing` ("Agent 1 isn't running.", "Agent 2 was removed.", or that no agent has it), and is `null` otherwise; an agent that has finished its turn doesn't make its card stalled. `project` is the project's folder name, or `""` for a card about the workspace. `by` and `createdBy` say who: `You`, `Assistant`, an agent (`"Agent 1 (web)"`, calling with its own token) or `Agent API` (the workspace token).
 
 `GET /v1/tasks/{n}[?history=false]` — one card (`#12` or `12`). `history=false` leaves out its history and gives `historyEntries`, how many entries it has; the description and comments stay.
 
-`POST /v1/tasks` — add a card. `title` is required; `description`, `project`, `agent` (name or id, in that project), `column` (not `done`), `labels`, `blocked` (a reason), `blockedBy` and `links` (card numbers) are optional. Created in `doing` by an agent's hive tools without `agent`, it is given to that agent (when it is of the card's project).
+`GET /v1/tasks/{n}/comments/latest` — only the card's newest comment, for "check the latest comment" without the whole card: `{ "number": 12, "comment": { "at": "…", "by": "Codex (web)", "text": "…the whole comment…" } }`, or `"comment": null` when it has none. The newest is the last one added (comments are kept in the order they were added, so equal times don't matter). The description, earlier comments and history are left out. Who may read it is as for the card (`404` for a card a project agent can't see, as for a missing one). The hive tools' `hive_read_task` gives it with `latestComment: true`.
+
+`POST /v1/tasks` — add a card. `title` is required; `description`, `project`, `agent` (name or id, in that project), `column` (not `done`), `labels`, `blocked` (a reason), `blockedBy` and `links` (card numbers) are optional. Created in `doing` by an agent without `agent`, it is given to that agent.
 
 ```json
 { "title": "Add tests for the redirect", "project": "web", "description": "…", "labels": ["tests"], "blockedBy": [12] }
 ```
 
-`PATCH /v1/tasks/{n}` — change a card and/or comment on it: any of `title`, `description`, `project` (its agent is cleared unless `agent` is given), `agent` (empty takes it from its agent), `column`, `position` (`top` or `bottom` of its column) or `before` (the card it goes in front of, which has to be in the column the card ends up in; `null` the end), `labels`, `blocked` (empty clears it), `blockedBy`, `links`, and `comment`. When an agent's hive tools move a card that has no agent into `doing` without `agent`, it is given to that agent (when it is of the card's project; the history says "Given to …"); an explicit `agent`, including empty, wins, and the Assistant and other callers give it to nobody.
+`PATCH /v1/tasks/{n}` — change a card and/or comment on it: any of `title`, `description`, `project` (a card that changes project always leaves its agent, and the history says whose it was; naming an `agent` in the same change is `400`: give it to one of the new project's agents in a change of its own), `agent` (empty takes it from its agent), `column`, `position` (`top` or `bottom` of its column) or `before` (the card it goes in front of, which has to be in the column the card ends up in; `null` the end), `labels`, `blocked` (empty clears it), `blockedBy`, `links`, and `comment`. When an agent moves a card that has no agent into `doing` without `agent`, it is given to that agent (the history says "Given to …"); an explicit `agent`, including empty, wins, and the Assistant and other callers give it to nobody.
 
 ```json
 { "column": "review", "comment": "Fixed in auth/callback.ts; tests pass." }
@@ -338,7 +351,7 @@ event: session-status
 data: {"type":"session-status","state":{"projectPath":"D:\\work\\api","sessionId":"6f1c…","status":"finished",…}}
 ```
 
-Event types: `session-status`, `session-exit`, `workspace-changed`, `notes-changed`, `skills-changed`, `tasks-changed` (`{ workspacePath }`: read the board again). Events cover every open workspace, so the Hive Assistant's token is refused here (403); it follows agents with `hive_wait_for_agents`. A client that stops reading (more than 1 MB of events waiting) is disconnected.
+Event types: `session-status`, `session-exit`, `workspace-changed`, `notes-changed`, `skills-changed`, `tasks-changed` (`{ workspacePath }`: read the board again). Events cover every open workspace, so the Hive Assistant's token is refused here (403); it follows agents with `hive_wait_for_agents`. A project agent's own token gets `session-status` and `session-exit` for its own project's sessions only (another project's carry their session names, which can name their cards); the other events carry no more than a path and come to it as to anyone. A client that stops reading (more than 1 MB of events waiting) is disconnected.
 
 ```bash
 curl -N -H "Authorization: Bearer $HIVE_API_TOKEN" "$HIVE_API_URL/v1/events"

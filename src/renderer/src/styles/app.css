@@ -610,8 +610,10 @@ kbd {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding-bottom: 8px;
+  /* Room for each tile's count badge (top right) and status dot (bottom right), which stick out of the tile: the
+     list scrolls, so it clips anything outside it, and a badge mustn't reach the dot of the tile above. */
+  gap: 10px;
+  padding: 8px 0;
   scrollbar-width: none;
 }
 .rail-list .tip-wrap {
@@ -647,8 +649,8 @@ kbd {
 }
 .rail-project .dot {
   position: absolute;
-  right: -3px;
-  bottom: -3px;
+  right: -2px;
+  bottom: -2px;
   width: 10px;
   height: 10px;
   outline: 2px solid var(--bg-sidebar);
@@ -3131,10 +3133,27 @@ body.pane-resizing .monaco-editor {
 .pane-header-bar .icon-btn {
   flex-shrink: 0;
 }
-.pane-header-bar .agent-name {
-  flex-shrink: 0;
+/* Short of room, the agent's details give way to its controls: the card first, then the status, the branch and the name
+   (they shorten with an ellipsis; each has the full text in a tooltip). */
+.pane-header-bar .agent-name,
+.pane-header-bar .agent-branch-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-/* The agent's controls: labelled while the pane is wide, icons when narrower (see PaneHeader). */
+.pane-header-bar .agent-name {
+  flex-shrink: 0.25;
+}
+.pane-header-bar .tip-wrap:has(> .agent-branch) {
+  display: inline-flex;
+  min-width: 0;
+  flex-shrink: 0.5;
+}
+.pane-header-bar .agent-branch {
+  min-width: 0;
+}
+/* The agent's controls: labelled while the pane is wide, icons when narrower (see PaneHeader). They never shrink, and a
+   count widens its button rather than spilling out of it. */
 .pane-header-bar .pane-btn,
 .assistant-header .pane-btn {
   flex-shrink: 0;
@@ -3143,9 +3162,13 @@ body.pane-resizing .monaco-editor {
 }
 .pane-header-bar .pane-btn.icon-only,
 .assistant-header .pane-btn.icon-only {
-  width: 26px;
-  padding: 0;
+  min-width: 26px;
+  padding: 0 4px;
   justify-content: center;
+}
+.pane-btn .btn-count {
+  flex-shrink: 0;
+  line-height: 16px;
 }
 .pane-header-bar .pane-btn.subtle,
 .assistant-header .pane-btn.subtle {
@@ -3785,11 +3808,27 @@ body.pane-resizing .monaco-editor {
 .card-chip-more {
   color: var(--fg-muted);
 }
-/* Short of room, the card's title gives way before the agent's status. */
+/* Short of room, the card's title gives way before the agent's status, down to the chip's icon and number. The title's
+   column may shrink to nothing (minmax(0, …)), so the chip's narrowest is its number and it never spills out of its place. */
 .pane-header-bar > .tip-wrap:has(> .card-chip) {
   display: inline-flex;
-  min-width: 0;
   flex-shrink: 4;
+}
+.pane-header-bar .card-chip {
+  display: inline-grid;
+  grid-template-columns: auto auto minmax(0, max-content) auto;
+  column-gap: 0;
+}
+.pane-header-bar .card-chip-number {
+  margin-left: 4px;
+}
+.pane-header-bar .card-chip-title {
+  grid-column: 3;
+  margin-left: 4px;
+}
+.pane-header-bar .card-chip-more {
+  grid-column: 4;
+  margin-left: 4px;
 }
 .pane-header-bar .card-chip {
   flex-shrink: 1;
@@ -5023,7 +5062,7 @@ body.pane-resizing-v .monaco-editor {
 }
 .rail-project .project-need-count {
   position: absolute;
-  top: -6px;
-  right: -6px;
+  top: -4px;
+  right: -4px;
   outline: 2px solid var(--bg-sidebar);
 }

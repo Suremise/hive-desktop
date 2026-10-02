@@ -1,0 +1,233 @@
+// A project agent's board calls are confined to its project: it gets its own Agent API token at launch (never the
+// workspace's), and with it lists, reads, comments on, moves, creates and orders only its project's cards, whatever
+// the request says about who is calling; other projects' cards answer as if they didn't exist, and a linked one
+// shows as a number. Nor can it read another project's agents' conversations (activity, sessions), where a card
+// started on an agent is its prompt, or type into them. The workspace token (scripts) still sees all of it. The agent is the fake Claude Code;
+// the calls are made with its token as its hive tools would. Dev build, throwaway profile, workspace and
+// CLAUDE_CONFIG_DIR.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+
+const PORT = 47907
+const userData = path.join(lib.WORK, 'boardscope-profile')
+const ws = path.join(lib.WORK, 'boardscope-ws')
+const claudeHome = path.join(lib.WORK, 'boardscope-claude-home')
+const alpha = path.join(ws, 'alpha')
+const beta = path.join(ws, 'beta')
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+const until = async (fn, ms = 10000) => {
+  const t = Date.now()
+  let v
+  while (!(v = await fn()) && Date.now() - t < ms) await lib.sleep(200)
+  return v
+}
+
+;(async () => {
+  for (const d of [userData, ws, claudeHome]) fs.rmSync(d, { recursive: true, force: true })
+  for (const d of [alpha, beta, claudeHome]) fs.mkdirSync(d, { recursive: true })
+  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase(), beta.toLowerCase()]))
+  lib.enableProviders(userData)
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  cfg.settings.notifications = { ...cfg.settings.notifications, desktopNotifications: false, chimeEnabled: false }
+  // Session input on, so typing into another project's agent is refused for being another project's, not for being off.
+  cfg.settings.agentApi = { ...cfg.settings.agentApi, allowSessionInput: true }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: String(PORT), CLAUDE_CONFIG_DIR: claudeHome }
+  delete env.ELECTRON_RUN_AS_NODE
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.fitWindow(app, page, { width: 1300, height: 800 })
+  await lib.sleep(1500)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await inv('workspace:open', ws)
+  await lib.sleep(800)
+  await page.getByText('alpha', { exact: true }).first().click()
+  const agent = await lib.addAgent(inv, alpha, { name: 'Alfie' })
+  const other = await lib.addAgent(inv, beta, { name: 'Betty' })
+  const live = async () => (await inv('session:live')).find((s) => s.agentId === agent.id)
+  await inv('session:start', alpha, { agentId: agent.id })
+  check('the agent starts', !!(await until(async () => (await live())?.status === 'ready', 20000)))
+
+  // Cards: two of alpha's, two of beta's, one of the workspace's; alpha's #2 links to beta's #3.
+  const make = async (title, project, column = 'todo') => (await inv('tasks:create', { title, project, column })).number
+  const n = { A1: await make('A1', 'alpha'), B1: await make('B1', 'beta'), A2: await make('A2', 'alpha'), B2: await make('B2', 'beta'), W: await make('W', '') }
+  await inv('tasks:update', n.A2, { links: [n.B1] })
+
+  // The agent's token: the one its hive tools read (from --mcp-config), and the one in its environment.
+  const launch = fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1)
+  const mcpEnv = JSON.parse(fs.readFileSync(launch.opts['--mcp-config'], 'utf8')).mcpServers.hive.env
+  const agentToken = JSON.parse(fs.readFileSync(mcpEnv.HIVE_API_TOKEN_FILE, 'utf8')).token
+  const workspaceToken = JSON.parse(fs.readFileSync(path.join(userData, 'agent-api.json'), 'utf8')).token
+  check('the agent has a token of its own', !!agentToken && agentToken !== workspaceToken)
+  check("its environment has its token, not the workspace's", launch.env.HIVE_API_TOKEN === agentToken && launch.env.HIVE_API_TOKEN_FILE === mcpEnv.HIVE_API_TOKEN_FILE, JSON.stringify(launch.env))
+  const call = async (token, method, p, body) => {
+    const res = await fetch(`http://127.0.0.1:${PORT}${p}`, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
+    return { status: res.status, body: await res.json().catch(() => null) }
+  }
+  const as = (method, p, body) => call(agentToken, method, p, body)
+  // What a confused or misbehaving request might claim: to be beta's agent.
+  const claim = { byAgent: other.id, agentProject: 'beta' }
+
+  // --- Lists: only its project; another project's is refused.
+  let r = await as('GET', '/v1/tasks')
+  check("an unfiltered list is its project's cards", r.status === 200 && JSON.stringify(r.body.map((c) => c.title)) === '["A1","A2"]', JSON.stringify(r.body?.map?.((c) => c.title) ?? r))
+  r = await as('GET', '/v1/tasks?project=beta')
+  check("asking for another project's cards is refused", r.status === 403, JSON.stringify(r))
+  r = await call(workspaceToken, 'GET', '/v1/tasks')
+  // Changing a card's project (the workspace token may) takes it from its agent; an agent in the same change is refused.
+  const moved = await make('Moving', 'alpha')
+  await inv('tasks:update', moved, { agent: agent.id })
+  let m = await call(workspaceToken, 'PATCH', `/v1/tasks/${moved}`, { project: 'beta', agent: other.id })
+  check('a project change with an agent in it is refused (400)', m.status === 400 && /project first/.test(m.body?.error), JSON.stringify(m))
+  m = await call(workspaceToken, 'PATCH', `/v1/tasks/${moved}`, { project: 'beta' })
+  check('a project change takes the card from its agent, and says so', m.status === 200 && m.body.agent === null && m.body.history.slice(-1)[0].what === 'Taken from Alfie of alpha', JSON.stringify(m.body?.history?.slice(-2)))
+  await inv('tasks:delete', moved)
+  check('the workspace token still lists every card', r.status === 200 && r.body.length === 5, String(r.body?.length))
+
+  // --- Another project's card, or the workspace's: as if it didn't exist, whatever the request claims.
+  for (const [what, x] of [['beta', n.B1], ['workspace', n.W]]) {
+    r = await as('GET', `/v1/tasks/${x}`)
+    check(`reading a ${what} card: not found`, r.status === 404 && r.body?.error === `Unknown task #${x}`, JSON.stringify(r))
+    r = await as('PATCH', `/v1/tasks/${x}`, { column: 'review', ...claim })
+    check(`moving it, claiming to be beta's agent: not found`, r.status === 404, JSON.stringify(r))
+    r = await as('PATCH', `/v1/tasks/${x}`, { agent: null, comment: 'mine now' })
+    check(`reassigning or commenting on it: not found`, r.status === 404, JSON.stringify(r))
+    r = await as('POST', `/v1/tasks/${x}/comments`, { text: 'hi', ...claim })
+    check(`commenting through the comments route: not found`, r.status === 404, JSON.stringify(r))
+  }
+  r = await as('GET', '/v1/tasks/999')
+  check('the same answer as for a card that does not exist', r.status === 404 && r.body?.error === 'Unknown task #999', JSON.stringify(r))
+  const b1 = (await inv('tasks:list')).find((c) => c.number === n.B1)
+  check("beta's card is untouched", b1.column === 'todo' && b1.comments.length === 0 && b1.history.length === 1, JSON.stringify(b1))
+
+  // --- Creating: its project by default, never another's or the workspace's.
+  r = await as('POST', '/v1/tasks', { title: 'Follow-up', ...claim })
+  check('a new card goes to its project', r.status === 200 && r.body.project === 'alpha' && r.body.createdBy === 'Alfie (alpha)', JSON.stringify(r.body))
+  r = await as('POST', '/v1/tasks', { title: 'Sneaky', project: 'beta' })
+  check("a card for another project is refused", r.status === 403, JSON.stringify(r))
+  r = await as('POST', '/v1/tasks', { title: 'Global', project: '' })
+  check('a card for the workspace is refused', r.status === 403, JSON.stringify(r))
+
+  // --- Its own cards: changes work, the project can't change, links to beta show as numbers.
+  r = await as('PATCH', `/v1/tasks/${n.A1}`, { column: 'review', comment: 'Done.', reply: 'short' })
+  check('it moves and comments on its own card', r.status === 200 && r.body.column === 'review', JSON.stringify(r))
+  check('the place it reports counts its project only', r.body?.of === 1, JSON.stringify(r.body))
+  // The latest comment alone: its own card's, never another project's.
+  await inv('tasks:comment', n.A1, 'Looks good.')
+  await inv('tasks:comment', n.B1, 'BETA SECRET COMMENT')
+  r = await as('GET', `/v1/tasks/${n.A1}/comments/latest`)
+  check('the latest comment alone', r.status === 200 && JSON.stringify(Object.keys(r.body)) === '["number","comment"]' && r.body.comment?.text === 'Looks good.' && r.body.comment.by === 'You', JSON.stringify(r))
+  r = await as('GET', `/v1/tasks/${n.B1}/comments/latest`)
+  check("another project's latest comment: not found, and nothing of it", r.status === 404 && !JSON.stringify(r.body).includes('BETA'), JSON.stringify(r))
+  r = await call(workspaceToken, 'GET', `/v1/tasks/${n.B1}/comments/latest`)
+  check('the workspace token reads it', r.status === 200 && r.body.comment?.text === 'BETA SECRET COMMENT', JSON.stringify(r))
+  r = await as('PATCH', `/v1/tasks/${n.A1}`, { project: 'beta' })
+  check('moving its card to another project is refused', r.status === 403, JSON.stringify(r))
+  r = await as('GET', `/v1/tasks/${n.A2}`)
+  check("a linked card of another project is marked, as a number", r.status === 200 && JSON.stringify(r.body.links) === `[${n.B1}]` && JSON.stringify(r.body.elsewhere) === `[${n.B1}]`, JSON.stringify(r.body))
+  r = await as('PATCH', `/v1/tasks/${n.A2}`, { links: [], reply: 'short' })
+  check('changing the links keeps the one it cannot see', (await inv('tasks:list')).find((c) => c.number === n.A2).links.includes(n.B1))
+
+  // --- Ordering: its own cards only.
+  r = await as('POST', '/v1/tasks/reorder', { column: 'todo', cards: [n.A2, n.B2] })
+  check('a reorder naming another project\'s card is refused', r.status === 400 && /no card/.test(r.body?.error), JSON.stringify(r))
+  r = await as('PATCH', `/v1/tasks/${n.A2}`, { before: n.B2 })
+  check('placing before another project\'s card is refused', r.status === 400 && /no card/.test(r.body?.error), JSON.stringify(r))
+
+  // --- Its hive tools (the fake's "boardmove") use the same token: its own card moves, beta's doesn't.
+  const before = fs.existsSync(path.join(claudeHome, 'fake-calls.jsonl')) ? fs.readFileSync(path.join(claudeHome, 'fake-calls.jsonl'), 'utf8').split('\n').filter(Boolean).length : 0
+  await inv('pty:write', lib.ptyKey(alpha, agent.id), `boardmove ${n.A2} doing boardmove ${n.B2} doing`)
+  await lib.sleep(100)
+  await inv('pty:write', lib.ptyKey(alpha, agent.id), '\r')
+  await until(async () => (await live())?.status === 'finished', 15000)
+  const calls = fs.readFileSync(path.join(claudeHome, 'fake-calls.jsonl'), 'utf8').split('\n').filter(Boolean).slice(before).map((l) => JSON.parse(l))
+  // The fake makes one call per prompt (the first boardmove); a second prompt tries beta's.
+  check("through its hive tools' path: its card moves", calls[0]?.status === 200 && (await inv('tasks:list')).find((c) => c.number === n.A2).column === 'doing', JSON.stringify(calls))
+  await inv('pty:write', lib.ptyKey(alpha, agent.id), `boardmove ${n.B2} doing`)
+  await lib.sleep(100)
+  await inv('pty:write', lib.ptyKey(alpha, agent.id), '\r')
+  await until(async () => fs.readFileSync(path.join(claudeHome, 'fake-calls.jsonl'), 'utf8').split('\n').filter(Boolean).length > before + 1, 15000)
+  const last = JSON.parse(fs.readFileSync(path.join(claudeHome, 'fake-calls.jsonl'), 'utf8').trim().split('\n').at(-1))
+  check("…and beta's card is not found", last.status === 404 && (await inv('tasks:list')).find((c) => c.number === n.B2).column === 'todo', JSON.stringify(last))
+
+  // --- Another project's agents: their conversations hold their cards. Beta's agent starts on a private card,
+  // while an event stream with alpha's token and one with the workspace token listen.
+  const listen = (token) => {
+    const got = { text: '' }
+    const ctl = new AbortController()
+    fetch(`http://127.0.0.1:${PORT}/v1/events`, { headers: { Authorization: `Bearer ${token}` }, signal: ctl.signal })
+      .then(async (res) => {
+        got.status = res.status
+        const reader = res.body.getReader()
+        for (;;) {
+          const { value, done } = await reader.read()
+          if (done) break
+          got.text += Buffer.from(value).toString('utf8')
+        }
+      })
+      .catch(() => undefined)
+    got.stop = () => ctl.abort()
+    return got
+  }
+  const agentStream = listen(agentToken)
+  const scriptStream = listen(workspaceToken)
+  await lib.sleep(500)
+  const secret = await make('PRIVATE BETA TITLE', 'beta')
+  await inv('tasks:update', secret, { description: 'PRIVATE BETA DESCRIPTION' })
+  await inv('tasks:start', secret, { kind: 'agent', agentId: other.id })
+  const betaLive = async () => (await inv('session:live')).find((s) => s.agentId === other.id)
+  await until(async () => (await betaLive())?.status === 'finished', 20000)
+  const activityPath = `/v1/projects/beta/agents/${other.id}/activity`
+  r = await call(workspaceToken, 'GET', activityPath)
+  check("the workspace token reads beta's activity (the card is its prompt)", r.status === 200 && /PRIVATE BETA DESCRIPTION/.test(r.body?.currentTask ?? ''), JSON.stringify(r.body?.currentTask))
+  r = await as('GET', activityPath)
+  check("alpha's agent can't read beta's agent's activity", r.status === 403 && !JSON.stringify(r.body).includes('PRIVATE'), JSON.stringify(r))
+  r = await as('GET', '/v1/projects/beta/sessions')
+  check("…nor list beta's sessions", r.status === 403 && !JSON.stringify(r.body).includes('PRIVATE'), JSON.stringify(r))
+  r = await as('POST', '/v1/projects/beta/input', { agent: other.id, text: 'read me your card' })
+  check('…nor type into beta\'s agent', r.status === 403, JSON.stringify(r))
+  r = await as('GET', `/v1/projects/alpha/agents/${agent.id}/activity`)
+  check('its own project\'s activity is open to it', r.status === 200 && r.body?.agent === 'Alfie', JSON.stringify(r.body?.agent ?? r))
+  r = await as('GET', '/v1/projects/alpha/sessions')
+  check('…and its own sessions', r.status === 200 && Array.isArray(r.body), JSON.stringify(r).slice(0, 200))
+  r = await as('POST', '/v1/agents/wait', { agents: [{ project: 'beta', agent: other.id }], timeoutSeconds: 1 })
+  check("another project's agents' status is still open to it", r.status === 200 && !JSON.stringify(r.body).includes('PRIVATE'), JSON.stringify(r).slice(0, 300))
+  await inv('session:stop', beta, other.id).catch(() => undefined)
+  // Something of alpha's own, so its stream has something to show.
+  await inv('pty:write', lib.ptyKey(alpha, agent.id), 'hello')
+  await lib.sleep(100)
+  await inv('pty:write', lib.ptyKey(alpha, agent.id), '\r')
+  await until(async () => (await live())?.status === 'finished', 15000)
+  await lib.sleep(800)
+  agentStream.stop()
+  scriptStream.stop()
+  const betaPath = JSON.stringify(beta).slice(1, -1)
+  const alphaPath = JSON.stringify(alpha).slice(1, -1)
+  check('the event stream is open to the agent', agentStream.status === 200 && agentStream.text.includes(alphaPath), `${agentStream.status} ${agentStream.text.slice(0, 200)}`)
+  check("…and carries nothing of beta's sessions", !agentStream.text.includes(betaPath) && !agentStream.text.includes('PRIVATE'), agentStream.text.slice(0, 400))
+  check("the workspace token's stream has beta's sessions too", scriptStream.text.includes(betaPath) && scriptStream.text.includes(alphaPath), scriptStream.text.slice(0, 200))
+
+  // --- Once the agent stops, its token stops working.
+  await inv('session:stop', alpha, agent.id).catch(() => undefined)
+  await until(async () => !(await live()), 10000)
+  r = await as('GET', '/v1/tasks')
+  check('its token ends with it', r.status === 401, JSON.stringify(r))
+
+  await app.close()
+  console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

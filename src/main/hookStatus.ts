@@ -1,3 +1,4 @@
+import { COMPACTING_MESSAGE, isCompacting } from '../shared/defaults'
 import type { SessionStatus } from '../shared/types'
 import type { HookEvent } from './providers/types'
 
@@ -77,12 +78,12 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
       return { next: idleAfter(s, 'ready'), message: null, actions: ['releaseLocks'] }
     case 'compactStart': {
       const actions: HookAction[] = s.compacting === 'requested' ? ['compactBegan'] : s.compacting ? [] : ['autoCompact']
-      return s.status === 'working' ? { next: null, actions } : { next: 'working', message: 'Compacting the conversation…', actions }
+      return s.status === 'working' ? { next: null, actions } : { next: 'working', message: COMPACTING_MESSAGE, actions }
     }
     case 'compactEnd':
       if (s.compacting) return { next: null, actions: ['compactEnded'] }
       // Compaction the CLI did by itself while idle (/compact typed in it): idle again.
-      return s.status === 'working' && s.statusMessage?.startsWith('Compacting') ? { next: 'ready', message: null, actions: [] } : { next: null, actions: [] }
+      return isCompacting(s) ? { next: 'ready', message: null, actions: [] } : { next: null, actions: [] }
     case 'end':
       return { next: 'stopped', actions: ['releaseAllLocks', 'clearTasks'] }
     case 'toolStart':

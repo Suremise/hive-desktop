@@ -339,6 +339,178 @@ describe('task board', () => {
   })
 })
 
+// A project agent (known by its own token) is confined to its project's cards; the user, the Assistant and scripts
+// see the whole board.
+describe("a project agent's board", () => {
+  let w: WS
+  const wsPath = join(base, 'ws-scope')
+  const alphaAgent = { kind: 'agent', name: 'Agent 1 (alpha)', self: { project: 'alpha', agentId: 'a1' }, scope: 'alpha' } as const
+  const script = { kind: 'agent', name: 'Agent API' } as const
+  const n: Record<string, number> = {}
+  beforeAll(async () => {
+    project(wsPath, 'alpha', [{ id: 'a1', name: 'Agent 1' }])
+    project(wsPath, 'beta', [{ id: 'b1', name: 'Agent B' }])
+    w = await open(wsPath)
+    // Todo, top to bottom: A1, B1, A2, B2, A3; and a workspace card and an archived beta card.
+    for (const [k, proj] of [['A1', 'alpha'], ['B1', 'beta'], ['A2', 'alpha'], ['B2', 'beta'], ['A3', 'alpha'], ['W', ''], ['Bx', 'beta']]) {
+      n[k] = (await inWorkspace(w, () => tasks.createTask({ title: k, project: proj }, user))).number
+    }
+    await inWorkspace(w, () => tasks.archiveTask(n.Bx, true))
+  })
+  afterAll(async () => disposeWorkspaceService(w))
+  const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
+  const titles = (cards: { title: string }[]): string[] => cards.map((c) => c.title)
+  const betaOrders = async (): Promise<number[]> => (await run(() => tasks.listTasks({ project: 'beta' }))).map((c) => c.order)
+
+  it('lists only its project, and refuses another project', async () => {
+    expect(titles(await run(() => tasks.listTasks({ column: 'todo' })))).toEqual(['A1', 'B1', 'A2', 'B2', 'A3', 'W'])
+    expect(titles(await run(() => tasks.listTasks({ scope: 'alpha' })))).toEqual(['A1', 'A2', 'A3'])
+    expect(titles(await run(() => tasks.listTasks({ project: 'alpha', scope: 'alpha' })))).toEqual(['A1', 'A2', 'A3'])
+    await expect(run(() => tasks.listTasks({ project: 'beta', scope: 'alpha' }))).rejects.toBeInstanceOf(tasks.TaskPermissionError)
+    expect(await run(() => tasks.listTasks({ archived: true, scope: 'alpha' }))).toEqual([])
+  })
+
+  it("another project's card, or the workspace's, is unknown to it: read, change, comment, move", async () => {
+    expect((await run(() => tasks.readTask(n.A1, alphaAgent))).title).toBe('A1')
+    for (const x of [n.B1, n.W, n.Bx]) {
+      await expect(run(() => tasks.readTask(x, alphaAgent))).rejects.toThrow(`Unknown task #${x}`)
+      await expect(run(() => tasks.updateTask(x, { column: 'review' }, alphaAgent))).rejects.toThrow(`Unknown task #${x}`)
+      await expect(run(() => tasks.updateTask(x, { agent: null }, alphaAgent))).rejects.toThrow(`Unknown task #${x}`)
+      await expect(run(() => tasks.commentTask(x, 'hi', alphaAgent))).rejects.toThrow(`Unknown task #${x}`)
+    }
+    // The same answer as for a card that doesn't exist (the archived one doesn't say "archived").
+    await expect(run(() => tasks.readTask(999, alphaAgent))).rejects.toThrow('Unknown task #999')
+    expect((await run(() => tasks.getTask(n.B1))).comments).toEqual([])
+    // The Assistant and scripts reach every card.
+    expect((await run(() => tasks.commentTask(n.B1, 'from the Assistant', assistant))).comments).toHaveLength(1)
+    expect((await run(() => tasks.readTask(n.W, script))).title).toBe('W')
+  })
+
+  it('creates cards only in its project, which is the default', async () => {
+    const c = await run(() => tasks.createTask({ title: 'Mine' }, alphaAgent))
+    expect(c.project).toBe('alpha')
+    await expect(run(() => tasks.createTask({ title: 'x', project: 'beta' }, alphaAgent))).rejects.toThrow(/only to your project \(alpha\)/)
+    await expect(run(() => tasks.createTask({ title: 'x', project: '' }, alphaAgent))).rejects.toBeInstanceOf(tasks.TaskPermissionError)
+    await expect(run(() => tasks.createTask({ title: 'x', blockedBy: [n.B1] }, alphaAgent))).rejects.toThrow(`there is no card #${n.B1}`)
+    await run(() => tasks.deleteTask(c.number))
+  })
+
+  it("can't move a card out of its project", async () => {
+    await expect(run(() => tasks.updateTask(n.A1, { project: 'beta' }, alphaAgent))).rejects.toThrow(/stay in your project \(alpha\)/)
+    await expect(run(() => tasks.updateTask(n.A1, { project: '' }, alphaAgent))).rejects.toBeInstanceOf(tasks.TaskPermissionError)
+    expect((await run(() => tasks.getTask(n.A1))).project).toBe('alpha')
+  })
+
+  it("sees other projects' linked cards as numbers, and keeps them when it changes the links", async () => {
+    await run(() => tasks.updateTask(n.A2, { links: [n.B1], blockedBy: [n.B2] }, user))
+    expect(await run(() => tasks.refsOutside([n.B1, n.A1], 'alpha'))).toEqual([n.B1])
+    expect(await run(() => tasks.refsOutside([n.B1], null))).toEqual([])
+    await expect(run(() => tasks.updateTask(n.A2, { links: [n.B2] }, alphaAgent))).rejects.toThrow(`there is no card #${n.B2}`)
+    const c = await run(() => tasks.updateTask(n.A2, { links: [n.A1], blockedBy: [] }, alphaAgent))
+    expect(c.links).toEqual([n.A1, n.B1])
+    expect(c.blockedBy).toEqual([n.B2])
+    await run(() => tasks.updateTask(n.A2, { links: [], blockedBy: [] }, user))
+  })
+
+  it("places and orders its cards among its project's, leaving other projects' cards as they are", async () => {
+    const before = await betaOrders()
+    await expect(run(() => tasks.updateTask(n.A1, { before: n.B2 }, alphaAgent))).rejects.toThrow(`There is no card #${n.B2}`)
+    await run(() => tasks.updateTask(n.A3, { position: 'top' }, alphaAgent))
+    expect(titles(await run(() => tasks.listTasks({ scope: 'alpha' })))).toEqual(['A3', 'A1', 'A2'])
+    await run(() => tasks.updateTask(n.A3, { position: 'bottom' }, alphaAgent))
+    expect(titles(await run(() => tasks.listTasks({ scope: 'alpha' })))).toEqual(['A1', 'A2', 'A3'])
+    await expect(run(() => tasks.reorderTasks('todo', [n.A2, n.B1], alphaAgent))).rejects.toThrow(`There is no card #${n.B1}`)
+    const listed = await run(() => tasks.reorderTasks('todo', [n.A3, n.A2], alphaAgent))
+    expect(titles(listed)).toEqual(['A3', 'A2', 'A1'])
+    expect(await betaOrders()).toEqual(before)
+    // Still in the column where the project's cards were: below nothing it couldn't see before.
+    expect(titles(await run(() => tasks.listTasks({ column: 'todo' })))[0]).toBe('A3')
+  })
+
+  it('a project change clears the agent, says so, and takes no agent with it', async () => {
+    const t = await run(() => tasks.createTask({ title: 'Transfer', project: 'alpha', agent: 'a1' }, user))
+    const moved = await run(() => tasks.updateTask(t.number, { project: 'beta' }, user))
+    expect(moved.agent).toBeNull()
+    expect(moved.agentName).toBeUndefined()
+    expect(moved.history.slice(-2).map((h) => h.what)).toEqual(['Moved to beta', 'Taken from Agent 1 of alpha'])
+    // An agent named in the same change doesn't come along (nor does it get round the rule).
+    await expect(run(() => tasks.updateTask(t.number, { project: 'alpha', agent: 'a1' }, user))).rejects.toThrow(/project first, then give it/)
+    await expect(run(() => tasks.updateTask(t.number, { project: 'alpha', agent: 'a1' }, assistant))).rejects.toThrow(/project first/)
+    expect((await run(() => tasks.getTask(t.number))).project).toBe('beta')
+    // Back, then given to an agent as a change of its own.
+    await run(() => tasks.updateTask(t.number, { project: 'alpha' }, assistant))
+    expect((await run(() => tasks.updateTask(t.number, { agent: 'a1' }, assistant))).agent).toBe('a1')
+    // A project agent can't move it at all.
+    await expect(run(() => tasks.updateTask(t.number, { project: 'beta' }, alphaAgent))).rejects.toBeInstanceOf(tasks.TaskPermissionError)
+    await run(() => tasks.deleteTask(t.number))
+  })
+
+  it('authorises every write on the card as it is under its lock (a project change while a write waits)', async () => {
+    const { withFileLock } = await import('../src/main/fsutil')
+    const file = (x: number): string => join(wsPath, '.hive', 'tasks', `${x}.json`)
+    // Someone (the user, the Assistant) moves the card to beta while the agent's write waits for the card.
+    const toBeta = (x: number): void => {
+      const c = JSON.parse(readFileSync(file(x), 'utf8'))
+      writeFileSync(file(x), JSON.stringify({ ...c, project: 'beta', agent: null }))
+    }
+    const c1 = (await run(() => tasks.createTask({ title: 'C1', project: 'alpha' }, user))).number
+    const c2 = (await run(() => tasks.createTask({ title: 'C2', project: 'alpha' }, user))).number
+    const before2 = await run(() => tasks.getTask(c2))
+    // A later card in a reorder: the first is written, the moved one is refused and left as it was.
+    let reorder!: Promise<unknown>
+    await withFileLock(file(c2), async () => {
+      reorder = run(() => tasks.reorderTasks('todo', [c1, c2], alphaAgent))
+      await new Promise((r) => setTimeout(r, 150))
+      toBeta(c2)
+    })
+    await expect(reorder).rejects.toThrow(`Unknown task #${c2}`)
+    const after2 = await run(() => tasks.getTask(c2))
+    expect(after2.order).toBe(before2.order)
+    expect(after2.history).toEqual(before2.history)
+    // The first card in a reorder, an update and a comment, likewise.
+    const before1 = await run(() => tasks.getTask(c1))
+    // Each outcome is caught as it happens: they are refused together, once the card is free.
+    let pending: Promise<unknown>[] = []
+    await withFileLock(file(c1), async () => {
+      pending = [
+        run(() => tasks.reorderTasks('todo', [c1], alphaAgent)),
+        run(() => tasks.updateTask(c1, { column: 'review', blocked: 'mine' }, alphaAgent)),
+        run(() => tasks.commentTask(c1, 'mine', alphaAgent))
+      ].map((p) => p.then(() => 'written', (e: Error) => e.message))
+      await new Promise((r) => setTimeout(r, 150))
+      toBeta(c1)
+    })
+    expect(await Promise.all(pending)).toEqual(Array(3).fill(`Unknown task #${c1}`))
+    const after1 = await run(() => tasks.getTask(c1))
+    expect([after1.column, after1.blocked, after1.comments.length, after1.order]).toEqual(['todo', null, 0, before1.order])
+    expect(after1.history).toEqual(before1.history)
+    for (const x of [c1, c2]) await run(() => tasks.deleteTask(x))
+  })
+
+  it('reads only the latest comment, as far as it may read the card', async () => {
+    const l = (await run(() => tasks.createTask({ title: 'Long', description: 'x'.repeat(5000), project: 'alpha' }, user))).number
+    expect(await run(() => tasks.latestComment(l, alphaAgent))).toEqual({ number: l, comment: null })
+    await run(() => tasks.commentTask(l, 'first', user))
+    await run(() => tasks.commentTask(l, 'second', assistant))
+    await run(() => tasks.commentTask(l, 'third, '.repeat(400), alphaAgent))
+    const got = await run(() => tasks.latestComment(l, alphaAgent))
+    expect(Object.keys(got)).toEqual(['number', 'comment'])
+    expect(got.comment?.by).toBe('Agent 1 (alpha)')
+    expect(got.comment?.text).toBe('third, '.repeat(400).trim())
+    expect(JSON.stringify(got)).not.toMatch(/first|second|xxxx/)
+    // Equal times: the last added is the latest.
+    const f = join(wsPath, '.hive', 'tasks', `${l}.json`)
+    const c = JSON.parse(readFileSync(f, 'utf8'))
+    writeFileSync(f, JSON.stringify({ ...c, comments: c.comments.map((x: { text: string }) => ({ ...x, at: '2026-10-02T10:00:00.000Z' })) }))
+    expect((await run(() => tasks.latestComment(l, alphaAgent))).comment?.by).toBe('Agent 1 (alpha)')
+    // Another project's card, the workspace's or a missing one: unknown to the agent, readable for the others.
+    for (const x of [n.B1, n.W, 999]) await expect(run(() => tasks.latestComment(x, alphaAgent))).rejects.toThrow(`Unknown task #${x}`)
+    expect((await run(() => tasks.latestComment(n.B1, assistant))).comment?.text).toBe('from the Assistant')
+    expect(await run(() => tasks.latestComment(n.W, script))).toEqual({ number: n.W, comment: null })
+    await run(() => tasks.deleteTask(l))
+  })
+})
+
 describe('removing projects', () => {
   let w: WS
   const wsPath = join(base, 'ws2')

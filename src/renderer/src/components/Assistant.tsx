@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ASSISTANT_AGENT_ID, assistantPersona } from '@shared/assistant'
+import { isCompacting } from '@shared/defaults'
 import { agentProvider, providerDescriptor } from '@shared/providers'
 import type { AgentInfo, AgentPatch, AssistantAction, EffortLevel, PermissionMode, PersonaInfo, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
@@ -325,12 +326,13 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
   const start = (): void => void actions.newSession(project.path, AGENT)
   const stop = (): void => void actions.stopSession(project.path, AGENT)
   const compact = (): void => set({ compactFor: { project: project.path, agentId: AGENT } })
-  const compactTip = empty ? 'Nothing to compact yet' : idle ? `Compact the conversation${usage ? ` (now ${formatTokens(usage.contextTokens ?? 0)} tokens)` : ''}` : 'Compact once the Assistant has finished'
+  const compacting = isCompacting(live)
+  const compactTip = compacting ? 'Compacting the conversation…' : empty ? 'Nothing to compact yet' : idle ? `Compact the conversation${usage ? ` (now ${formatTokens(usage.contextTokens ?? 0)} tokens)` : ''}` : 'Compact once the Assistant has finished'
   /** A header button: an icon with a tooltip, like an agent pane's in its icon size. */
-  const btn = (icon: string, label: string, onClick: () => void, tone: string, tip: string, disabled = false) => (
+  const btn = (icon: string, label: string, onClick: () => void, tone: string, tip: string, disabled = false, spin = false) => (
     <Tooltip content={tip}>
       <button type="button" className={cx('btn small pane-btn icon-only', tone)} disabled={disabled} aria-label={label} onClick={onClick}>
-        <Icon name={icon} />
+        <Icon name={icon} spin={spin} />
       </button>
     </Tooltip>
   )
@@ -381,7 +383,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
       {buttons &&
         (live ? (
           <>
-            {btn('fold', 'Compact', compact, 'subtle', compactTip, !idle || empty)}
+            {btn(compacting ? 'loading' : 'fold', 'Compact', compact, 'subtle', compactTip, !idle || empty, compacting)}
             {btn('stop-circle', 'Stop', stop, 'tint-red', 'Stop the Assistant (the conversation is kept)')}
           </>
         ) : (

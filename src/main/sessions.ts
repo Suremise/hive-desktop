@@ -7,7 +7,7 @@ import { lastErrorLines, terminalLines, type StartFailure } from '../shared/star
 import { BrowserWindow, Notification, app, clipboard, shell } from 'electron'
 import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { assistantTools } from '../shared/assistantTools'
-import { HIVE_DIR, agentPtyKey, assertSessionId, cliRename, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
+import { COMPACTING_MESSAGE, HIVE_DIR, agentPtyKey, assertSessionId, cliRename, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
 import { agentLaunchSettings, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
 import type {
   AgentDef,
@@ -44,6 +44,7 @@ import { hiveSkills } from './skills'
 import { notificationIcon } from './paths'
 import { reportPlanUsage } from './planUsage'
 import { inWorkspace, workspace, workspaceFor, workspaceOf } from './workspace'
+import { endAgentToken, newAgentToken } from './agentTokens'
 
 const log = createLogger('sessions')
 
@@ -275,7 +276,7 @@ class SessionManager {
   private lockAsked = new Map<string, number>()
   readonly hookToken = randomBytes(24).toString('hex')
   hookUrl = ''
-  apiEnv: () => Record<string, string> = () => ({})
+  apiEnv: (projectPath: string, agentId: string) => Record<string, string> = () => ({})
   hiveMcp: HiveMcpProvider = () => null
   /** Hive's guidance for agents (the hive MCP server's instructions), for providers that need it at launch. */
   hiveGuidance: (projectPath: string) => Promise<string> = async () => ''
@@ -663,6 +664,7 @@ class SessionManager {
     if (l) this.runs.delete(l.state.runId)
     // An Assistant that didn't start: the token made for this launch stops working too.
     if (l && basename(l.state.projectPath) === ASSISTANT_DIR) this.onAssistantExit(l.state.projectPath)
+    else if (l) endAgentToken(l.state.projectPath, l.state.agentId, l.state.runId)
     this.live.delete(id)
     // A start given up before its process spawned has no exit to wait for.
     this.exitWaiters.get(id)?.()
@@ -736,6 +738,8 @@ class SessionManager {
     if (l.modeOverride && modeAllowed(adapter.id, l.modeOverride, config.settings)) mode = l.modeOverride
     l.launchMode = mode
     state.permissionMode = mode ?? undefined
+    // Its own Agent API token for this launch, which confines its board calls to its project (the Assistant has its own).
+    if (!workspace.isAssistantHome(projectPath)) await newAgentToken({ workspace: workspaceOf(projectPath).path!, projectPath, agentId: agent.id }, state.runId)
     const ctx = {
       projectPath,
       agentId: agent.id,
@@ -769,7 +773,7 @@ class SessionManager {
         HIVE_AGENT: agent.name,
         HIVE_PROVIDER: adapter.id,
         // Not for the Assistant: it reaches the API through its hive tools, with its own token.
-        ...(workspace.isAssistantHome(projectPath) ? {} : this.apiEnv())
+        ...(workspace.isAssistantHome(projectPath) ? {} : this.apiEnv(projectPath, agent.id))
       })
     }
     await adapter.prepareLaunch(ctx)
@@ -933,7 +937,7 @@ class SessionManager {
     }, 20_000)
     l.compacting = { before, timer, started: false, output: '' }
     l.state.status = 'working'
-    l.state.statusMessage = 'Compacting the conversation…'
+    l.state.statusMessage = COMPACTING_MESSAGE
     this.emitState(l.state)
   }
 
@@ -1370,6 +1374,7 @@ class SessionManager {
     this.releaseLocks(id)
     // Even when its workspace has just closed.
     if (basename(projectPath) === ASSISTANT_DIR) this.onAssistantExit(projectPath)
+    else endAgentToken(projectPath, agentId, runId)
     if (sessionId) {
       if (await this.anyTranscript(projectPath, sessionId)) {
         await workspace.upsertSession(projectPath, { id: sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
