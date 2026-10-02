@@ -6,6 +6,7 @@ import { PERIODS, activeIn, dailyTotals, money, periodFrom, sumUsage, type DayTo
 import { FILE_LOCK_MODES, MAX_AGENTS, effectiveModelLabel, modelLabel } from '@shared/defaults'
 import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { ModelPicker } from '../components/ModelPicker'
+import { NumberField } from '../components/NumberField'
 import { ProviderIcon } from '../components/ProviderIcon'
 import { confirmDangerousMode } from '../components/PermissionMode'
 import * as actions from '../actions'
@@ -1070,6 +1071,8 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
   const globalLock = FILE_LOCK_MODES.find((m) => m.value === settings.agents.fileLocks)
   const lockMode = cfg.fileLocks === 'inherit' ? settings.agents.fileLocks : cfg.fileLocks
   const globalDefault = providerName(settings.defaultProvider)
+  const globalCompact = settings.sessions.compactSuggestTokens ? settings.sessions.compactSuggestTokens.toLocaleString() : 'never'
+  const globalWarn = settings.sessions.transcriptWarnMB ? `${settings.sessions.transcriptWarnMB} MB` : 'never'
 
   /** A project's model, effort, mode and arguments for one provider. */
   const providerDefs = (id: ProviderId): ProjectSettingDef[] => {
@@ -1192,21 +1195,19 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       section: 'sessions',
       key: 'compactSuggestTokens',
       title: 'Suggest compacting above',
-      desc: `Context size (tokens) at which Compact is highlighted for this project. Empty inherits the global value (${settings.sessions.compactSuggestTokens.toLocaleString()}); 0 never suggests it.`,
+      desc: `Context size (tokens) at which Compact is highlighted for this project. Empty inherits the global value (${globalCompact}).`,
       tip: 'Only changes when the Compact button turns orange; compacting is always available once the agent has finished.',
       modified: cfg.compactSuggestTokens !== null,
       render: () => (
-        <DraftInput
-          className="input"
-          type="number"
-          min={0}
+        <NumberField
+          value={cfg.compactSuggestTokens}
+          min={1000}
+          max={2000000}
           step={10000}
-          value={cfg.compactSuggestTokens === null ? '' : String(cfg.compactSuggestTokens)}
-          placeholder={`Inherit (${settings.sessions.compactSuggestTokens.toLocaleString()})`}
-          onCommit={(t) => {
-            const v = t.trim() === '' ? null : Math.max(0, Math.round(Number(t)))
-            if (v === null || Number.isFinite(v)) void update({ compactSuggestTokens: v })
-          }}
+          label="Suggest compacting above"
+          inherit={`Inherit (${globalCompact})`}
+          off={{ label: 'Never', restore: null }}
+          onCommit={(v) => update({ compactSuggestTokens: v })}
         />
       )
     },
@@ -1214,21 +1215,19 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       section: 'sessions',
       key: 'transcriptWarnMB',
       title: 'Warn when a transcript is over',
-      desc: `Size, in MB, at which a running conversation's transcript is flagged for this project. Empty inherits the global value (${settings.sessions.transcriptWarnMB} MB); 0 never warns.`,
+      desc: `Size, in MB, at which a running conversation's transcript is flagged for this project. Empty inherits the global value (${globalWarn}).`,
       tip: "A long conversation slows down the CLI and Hive; handing the work over to a new conversation makes it short again.",
       modified: cfg.transcriptWarnMB !== null,
       render: () => (
-        <DraftInput
-          className="input"
-          type="number"
-          min={0}
+        <NumberField
+          value={cfg.transcriptWarnMB ?? null}
+          min={1}
+          max={2000}
           step={10}
-          value={cfg.transcriptWarnMB === null || cfg.transcriptWarnMB === undefined ? '' : String(cfg.transcriptWarnMB)}
-          placeholder={`Inherit (${settings.sessions.transcriptWarnMB} MB)`}
-          onCommit={(t) => {
-            const v = t.trim() === '' ? null : Math.max(0, Math.round(Number(t)))
-            if (v === null || Number.isFinite(v)) void update({ transcriptWarnMB: v })
-          }}
+          label="Warn when a transcript is over"
+          inherit={`Inherit (${globalWarn})`}
+          off={{ label: 'Never', restore: null }}
+          onCommit={(v) => update({ transcriptWarnMB: v })}
         />
       )
     },
