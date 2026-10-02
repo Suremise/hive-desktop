@@ -36,8 +36,11 @@ function TipText({ text }: { text: string }) {
   )
 }
 
-/** Try it and Learn more, for the card and the list. */
-function TipActions({ tip, onTry }: { tip: Tip; onTry?: () => void }) {
+/**
+ * Try it and Learn more, for the card and the list. Each calls its callback before it goes: Help → Tips… closes
+ * for both, as it's modal; the card closes for Try it and stays beside the guide for Learn more.
+ */
+function TipActions({ tip, onTry, onLearn }: { tip: Tip; onTry?: () => void; onLearn?: () => void }) {
   return (
     <>
       {runnable(tip) && (
@@ -52,7 +55,13 @@ function TipActions({ tip, onTry }: { tip: Tip; onTry?: () => void }) {
         </button>
       )}
       {tip.docs && (
-        <button className="btn small subtle" onClick={() => openGuideAt(tip.docs!)}>
+        <button
+          className="btn small subtle"
+          onClick={() => {
+            onLearn?.()
+            openGuideAt(tip.docs!)
+          }}
+        >
           Learn more
         </button>
       )}
@@ -171,7 +180,7 @@ export function TipsDialog() {
                     </div>
                   </div>
                   <div className="tip-actions">
-                    <TipActions tip={t} onTry={close} />
+                    <TipActions tip={t} onTry={close} onLearn={close} />
                   </div>
                 </div>
               ))}

@@ -1,6 +1,6 @@
 // Tips: the day's tip in a card when Hive starts (once a day), Next tip, Learn more (the user guide at its
 // heading), closing it, a moment's tip once (a second agent), Help → Tips… (grouped, searchable, Try it runs the
-// command), and Don't show tips. No agents run. Dev build, throwaway profile and workspace with tips turned on.
+// command, Learn more closes it), and Don't show tips. No agents run. Dev build, throwaway profile and workspace with tips turned on.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -59,6 +59,7 @@ const check = (name, ok, extra = '') => {
   await card.getByRole('button', { name: 'Learn more' }).click()
   const target = page.locator('.docs-target')
   check('Learn more opens the user guide at its heading', !!(await until(async () => (await target.count()) === 1 && (await target.innerText()).trim() === 'Long conversations', 3000)))
+  check('and the card stays beside it', (await card.count()) === 1)
   await page.keyboard.press('Control+Shift+E')
   await card.getByRole('button', { name: 'Close' }).click()
   check('✕ closes the card', !!(await until(async () => (await card.count()) === 0, 2000)))
@@ -94,6 +95,21 @@ const check = (name, ok, extra = '') => {
   await dialog.getByPlaceholder('Search tips').fill('task board')
   await dialog.locator('.tips-item', { hasText: 'Plan work on the task board' }).getByRole('button', { name: 'Try it' }).click()
   check('Try it runs the command (the board opens) and closes the list', !!(await until(async () => (await dialog.count()) === 0 && (await page.locator('h1', { hasText: 'Task Board' }).count()) === 1, 3000)))
+
+  // --- Learn more from the list: the list closes, and the guide at the heading is in front and usable.
+  await page.locator('.menubar-item', { hasText: 'Help' }).first().click()
+  await page.locator('.menu .menu-item', { hasText: 'Tips…' }).click()
+  await until(async () => (await dialog.count()) === 1, 3000)
+  await dialog.getByPlaceholder('Search tips').fill('quit')
+  await dialog.locator('.tips-item', { hasText: 'Quit when agents finish' }).getByRole('button', { name: 'Learn more' }).click()
+  check('Learn more closes the list', !!(await until(async () => (await dialog.count()) === 0 && (await page.locator('.overlay').count()) === 0, 3000)))
+  check('and shows the guide at its heading', !!(await until(async () => (await target.count()) === 1 && (await target.innerText()).trim() === 'Quitting' && (await target.isVisible()), 3000)))
+  // Nothing covers it: what's under the heading's middle is the heading.
+  const onTop = (await target.count()) === 1 && (await target.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2))
+  }))
+  check('nothing covers the guide', onTop)
 
   // --- Don't show tips, from the card.
   await page.keyboard.press('Control+Shift+E')
