@@ -453,6 +453,8 @@ When an agent finishes (for one waiting on background tasks, once they have ende
 
 Agents that finish together don't flood you: they chime once, and get one notification (**3 agents finished in hive**: *Claude, Codex, Agent 3*, or across projects *hive (2), web (1)*), shown a few seconds after the last of them. If you turn notifications off or come back to the window meanwhile, it isn't shown. An agent asking for your input is always told at once, on its own.
 
+Hive's own messages (warnings, what an action did) are kept in the **Notifications** panel: the bell at the bottom of the activity bar, or **Ctrl+Alt+U**. While some are unread the bell shows a dot and turns orange; opening the panel marks them read.
+
 ### Agents that need you
 
 With agents working in several projects, the status bar tells you who is waiting on you: **2 need you**. Click it for the list, oldest first, with how long each has been waiting:
