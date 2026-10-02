@@ -34,6 +34,7 @@ const SUITES = [
   { name: 'unmerged' },
   { name: 'inbox' },
   { name: 'sessionname' },
+  { name: 'replysize' },
   { name: 'busy' },
   { name: 'changes' },
   { name: 'board' },

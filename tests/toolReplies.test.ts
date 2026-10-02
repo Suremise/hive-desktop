@@ -1,0 +1,136 @@
+// The hive tools' short replies (shared/toolReplies.ts): a change confirms what changed and where the card is now,
+// a listing is one line per item, and nothing echoes a card's description, comments or history.
+import { describe, expect, it } from 'vitest'
+import {
+  MAX_ROWS,
+  changedText,
+  createdText,
+  noteText,
+  notesListText,
+  projectListText,
+  reorderText,
+  taskListText,
+  taskRow,
+  withoutHistory,
+  type TaskRow,
+  type TaskView
+} from '../src/shared/toolReplies'
+
+const LONG = 'x'.repeat(5000)
+
+function view(n: number, extra: Partial<TaskView> = {}): TaskView {
+  return {
+    number: n,
+    title: `Card ${n}`,
+    description: LONG,
+    project: 'alpha',
+    agent: null,
+    column: 'todo',
+    order: n,
+    labels: [],
+    blocked: null,
+    blockedBy: [],
+    links: [],
+    comments: [{ at: '2026-10-02T00:00:00Z', by: 'You', text: LONG }],
+    history: [{ at: '2026-10-02T00:00:00Z', by: 'You', what: 'Created in Todo' }],
+    archived: false,
+    createdAt: '2026-10-02T00:00:00Z',
+    createdBy: 'You',
+    updatedAt: '2026-10-02T00:00:00Z',
+    stalled: null,
+    ...extra
+  }
+}
+
+describe('task rows', () => {
+  it('keep what a card is and where it stands, not its text', () => {
+    const r = taskRow(view(35, { agent: { id: 'a1', name: 'Coder', status: 'working', backgroundTasks: 0 }, labels: ['bug'], blocked: 'waiting on the API', blockedBy: [12] }))
+    expect(r).toEqual({ number: 35, title: 'Card 35', column: 'todo', project: 'alpha', agent: { name: 'Coder', status: 'working', backgroundTasks: 0 }, labels: ['bug'], blocked: 'waiting on the API', blockedBy: [12], stalled: null, comments: 1, archived: false })
+    expect(JSON.stringify(r)).not.toContain('xxxx')
+  })
+
+  it('list as one line each, by column, top first', () => {
+    const rows: TaskRow[] = [
+      taskRow(view(3, { agent: { id: 'a1', name: 'Coder', status: 'finished', backgroundTasks: 2 }, labels: ['bug', 'polish'] })),
+      taskRow(view(1)),
+      taskRow(view(7, { column: 'doing', stalled: "Coder isn't running." }))
+    ]
+    const text = taskListText(rows)
+    expect(text).toBe(
+      [
+        'Todo (2, top first):',
+        '#3 Card 3 · alpha · Coder (idle, 2 background tasks) · bug, polish · 1 comment',
+        '#1 Card 1 · alpha · 1 comment',
+        '',
+        'Doing (1, top first):',
+        "#7 Card 7 · alpha · stalled: Coder isn't running. · 1 comment",
+        '',
+        'hive_read_task gives a card in full.'
+      ].join('\n')
+    )
+  })
+
+  it('stop at the row limit and say how many more there are', () => {
+    const rows = Array.from({ length: MAX_ROWS + 25 }, (_, i) => taskRow(view(i + 1)))
+    const text = taskListText(rows)
+    expect(text.split('\n').filter((l) => l.startsWith('#'))).toHaveLength(MAX_ROWS)
+    expect(text).toContain('…and 25 more. Narrow it with project or column.')
+    expect(text).toContain(`Todo (${MAX_ROWS + 25}, top first):`)
+  })
+
+  it('say when there are none', () => {
+    expect(taskListText([])).toBe('No cards.')
+    expect(taskListText([], { archived: true })).toBe('No archived cards.')
+  })
+})
+
+describe('task changes', () => {
+  it('a new card: its number and place', () => {
+    expect(createdText({ number: 61, title: 'Lean replies', column: 'todo', position: 51, of: 51, project: 'hive', agent: 'Coder', changes: [] })).toBe('#61 created in Todo (51st of 51) for hive, given to Coder: Lean replies')
+  })
+
+  it('a change: what changed and where the card is now', () => {
+    expect(changedText({ number: 60, title: 'Reorder', column: 'review', position: 1, of: 4, project: 'hive', agent: null, changes: ['Moved to Review', 'Commented'] })).toBe('#60 Reorder: Moved to Review; Commented. Now in Review (1st of 4), hive.')
+    expect(changedText({ number: 8, title: 'T', column: 'todo', position: 12, of: 12, project: '', agent: null, changes: [] })).toBe('#8 T: No change. Now in Todo (12th of 12).')
+  })
+
+  it('a reorder: the new top, not the column', () => {
+    expect(reorderText({ column: 'todo', top: [11, 6, 8], count: 50 })).toBe('Todo now starts #11, #6, #8; its other 47 cards keep their order below.')
+    expect(reorderText({ column: 'review', top: [2, 1], count: 2 })).toBe('Review now starts #2, #1.')
+  })
+
+  it('a read without history says how long it is', () => {
+    const v = withoutHistory(view(4))
+    expect('history' in v).toBe(false)
+    expect(v.historyEntries).toBe(1)
+    expect(v.description).toBe(LONG)
+    expect(v.comments).toHaveLength(1)
+  })
+})
+
+describe('projects and notes', () => {
+  it('projects: one line each, with their agents', () => {
+    const text = projectListText([
+      { name: 'alpha', workspace: 'ws', active: true, branch: 'main', agents: [{ name: 'Coder', provider: 'claude-code', status: 'working', branch: null, backgroundTasks: 0 }, { name: 'Two', provider: 'codex', status: 'finished', branch: 'hive/two', backgroundTasks: 1 }] },
+      { name: 'beta', workspace: 'ws', active: false, branch: null, agents: [] }
+    ])
+    expect(text.split('\n').slice(0, 2)).toEqual(['alpha (on, main): Coder [claude-code] working; Two [codex, hive/two] idle (1 background)', 'beta (off): no agents'])
+  })
+
+  it('projects from several workspaces name their workspace', () => {
+    expect(projectListText([{ name: 'a', workspace: 'one', active: true, branch: null, agents: [] }, { name: 'b', workspace: 'two', active: true, branch: null, agents: [] }])).toMatch(/^one\/a \(on\): no agents\ntwo\/b/)
+  })
+
+  it('notes: a flat list of paths with dates', () => {
+    const text = notesListText([
+      { relPath: 'handovers', isDir: true, children: [{ relPath: 'handovers/2026-10-01-a.md', isDir: false, modified: '2026-10-01T12:00:00.000Z' }] },
+      { relPath: 'conventions.md', isDir: false }
+    ])
+    expect(text).toBe('handovers/2026-10-01-a.md (2026-10-01)\nconventions.md\n\nhive_read_shared_note reads one.')
+    expect(notesListText([])).toBe('No shared notes yet.')
+  })
+
+  it('a note reads as its text, not a JSON string', () => {
+    expect(noteText({ path: 'notes/a.md', content: '# A\n\n"quoted"' })).toBe('notes/a.md\n\n# A\n\n"quoted"')
+  })
+})

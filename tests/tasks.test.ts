@@ -191,6 +191,55 @@ describe('task board', () => {
     })
   })
 
+  it('says what a change did, for the hive tools to confirm it', async () => {
+    const a = await run(() => tasks.createTask({ title: 'Said', project: 'alpha' }, agent))
+    const b = await run(() => tasks.createTask({ title: 'Other', project: 'alpha' }, agent))
+    const said: string[] = []
+    await run(() => tasks.updateTask(a.number, { column: 'review', labels: ['bug'], blocked: 'needs a key' }, agent, { said }))
+    expect(said).toEqual(['Moved to Review', 'Labels: bug', 'Blocked: needs a key'])
+    // Nothing to do: nothing said.
+    const none: string[] = []
+    await run(() => tasks.updateTask(a.number, { column: 'review', blocked: 'needs a key' }, agent, { said: none }))
+    expect(none).toEqual([])
+    const placed: string[] = []
+    await run(() => tasks.updateTask(b.number, { column: 'review', position: 'top' }, agent, { said: placed }))
+    expect(placed).toEqual(['Moved to the top of Review'])
+    for (const n of [a.number, b.number]) await run(() => tasks.deleteTask(n))
+  })
+
+  it('gives a card an agent moves into Doing to that agent, when nobody has it and no agent is named', async () => {
+    const me = { kind: 'agent', name: 'Agent 1 (alpha)', self: { project: 'alpha', agentId: 'a1' } } as const
+    // Another agent of alpha, not in project.json: giving it a card would fail, so a test that passes never did.
+    const other = { kind: 'agent', name: 'Other (alpha)', self: { project: 'alpha', agentId: 'zz' } } as const
+    const fresh = () => run(() => tasks.createTask({ title: 'Take me', project: 'alpha' }, user))
+
+    const said: string[] = []
+    const taken = await run(async () => tasks.updateTask((await fresh()).number, { column: 'doing' }, me, { said }))
+    expect([taken.agent, taken.agentName, taken.column]).toEqual(['a1', 'Agent 1', 'doing'])
+    expect(said).toEqual(['Given to Agent 1', 'Moved to Doing'])
+
+    // A card someone has keeps them.
+    const held = await run(async () => tasks.updateTask((await fresh()).number, { agent: 'a1' }, user))
+    expect((await run(() => tasks.updateTask(held.number, { column: 'doing' }, other))).agent).toBe('a1')
+    // An agent named (or none, with empty) wins.
+    const named = await run(async () => tasks.updateTask((await fresh()).number, { column: 'doing', agent: '' }, me))
+    expect(named.agent).toBeNull()
+    // The Assistant, the user, a plain Agent API caller and an agent of another project give it to nobody.
+    for (const who of [assistant, user, agent, { kind: 'agent', name: 'B (beta)', self: { project: 'beta', agentId: 'b1' } } as const]) {
+      expect((await run(async () => tasks.updateTask((await fresh()).number, { column: 'doing' }, who))).agent).toBeNull()
+    }
+    // Already in Doing: a move within it isn't taking it.
+    expect((await run(() => tasks.updateTask(named.number, { position: 'top' }, me))).agent).toBeNull()
+
+    // Created straight into Doing: the same.
+    expect((await run(() => tasks.createTask({ title: 'Mine', project: 'alpha', column: 'doing' }, me))).agent).toBe('a1')
+    expect((await run(() => tasks.createTask({ title: 'Todo', project: 'alpha' }, me))).agent).toBeNull()
+    expect((await run(() => tasks.createTask({ title: 'Nobody', project: 'alpha', column: 'doing', agent: '' }, me))).agent).toBeNull()
+    expect((await run(() => tasks.createTask({ title: 'Theirs', project: 'alpha', column: 'doing' }, assistant))).agent).toBeNull()
+
+    for (const c of await run(() => tasks.allTasks())) if (['Take me', 'Mine', 'Todo', 'Nobody', 'Theirs'].includes(c.title)) await run(() => tasks.deleteTask(c.number))
+  })
+
   it('drops references to a deleted card', async () => {
     const a = await run(() => tasks.createTask({ title: 'Base' }, user))
     const b = await run(() => tasks.createTask({ title: 'Depends', blockedBy: [a.number], links: [a.number] }, user))

@@ -3,11 +3,16 @@
  * executable with ELECTRON_RUN_AS_NODE=1. It exposes the Hive Agent API as MCP tools.
  *
  * Self-contained on purpose: only Node built-ins, so it runs from the packaged app without extra files.
+ *
+ * Replies are lean (shared/toolReplies.ts): every character goes into the agent's context and is paid for again on
+ * each later turn. A change confirms what changed, a listing returns a short line per item, full detail comes on
+ * request; structured reads are compact JSON. Each tool's description says what its reply holds and how to get more.
  */
 import { readFileSync } from 'fs'
 import { createInterface } from 'readline'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../../shared/hiveGuidance'
 import { ASSISTANT_ONLY_TOOLS, assistantTools } from '../../shared/assistantTools'
+import { changedText, createdText, noteText, notesListText, projectListText, reorderText, taskListText, type NoteEntry, type ProjectRow, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 
 const VERSION = '1.0.0'
 const API = (process.env.HIVE_API_URL || 'http://127.0.0.1:47821').replace(/\/$/, '')
@@ -104,43 +109,50 @@ const proj = (a: Record<string, any>): string => {
 const tools: Tool[] = [
   {
     name: 'hive_list_projects',
-    description: 'List all projects in the open Hive workspace with their session status (working, waiting, finished, stopped).',
+    description: 'List all projects in the open Hive workspace: one line each with whether it is on, its branch, and its agents with their provider and status (working, waiting, idle, stopped). hive_project_status gives one project in full.',
     inputSchema: { type: 'object', properties: {} },
-    run: () => api('GET', '/v1/projects')
+    run: async () => projectListText((await api('GET', '/v1/projects?view=short')) as ProjectRow[])
   },
   {
     name: 'hive_project_status',
-    description: "Get the status and settings of one project, and its agents (up to twelve, each in the project folder or a git worktree) with their running sessions.",
+    description: "Get the status and settings of one project, and its agents (up to twelve, each in the project folder or a git worktree) with their ids and running sessions (JSON).",
     inputSchema: { type: 'object', properties: { project: projectArg } },
     run: (a) => api('GET', `/v1/projects/${proj(a)}`)
   },
   {
     name: 'hive_session_usage',
-    description: 'Token usage, cache use and compaction history for a project session (the live one by default).',
-    inputSchema: { type: 'object', properties: { project: projectArg, sessionId: { type: 'string' } } },
-    run: (a) => api('GET', `/v1/projects/${proj(a)}/usage${a.sessionId ? `?sessionId=${enc(a.sessionId)}` : ''}`)
+    description: 'Token usage, cache use and compaction history for a project session (the live one by default), as JSON. days=true adds its usage by day.',
+    inputSchema: { type: 'object', properties: { project: projectArg, sessionId: { type: 'string' }, days: { type: 'boolean' } } },
+    run: (a) => {
+      const q = [a.sessionId ? `sessionId=${enc(a.sessionId)}` : '', a.days ? '' : 'days=false'].filter(Boolean).join('&')
+      return api('GET', `/v1/projects/${proj(a)}/usage${q ? `?${q}` : ''}`)
+    }
   },
   {
     name: 'hive_list_shared_notes',
-    description: 'List the shared notes, instructions and handovers stored in the workspace (.hive/shared).',
+    description: 'List the shared notes, instructions and handovers stored in the workspace (.hive/shared): one path per line, with the date it last changed. hive_read_shared_note reads one.',
     inputSchema: { type: 'object', properties: {} },
-    run: () => api('GET', '/v1/shared')
+    run: async () => notesListText((await api('GET', '/v1/shared')) as NoteEntry[])
   },
   {
     name: 'hive_read_shared_note',
     description: 'Read a shared note by its path relative to .hive/shared (e.g. "handovers/2026-01-01-auth.md").',
     inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
-    run: (a) => api('GET', `/v1/shared/file?path=${enc(a.path)}`)
+    run: async (a) => noteText((await api('GET', `/v1/shared/file?path=${enc(a.path)}`)) as { path: string; content: string })
   },
   {
     name: 'hive_write_shared_note',
-    description: 'Create or overwrite a shared note (markdown) in .hive/shared. Set append=true to add to the end instead.',
+    description: 'Create or overwrite a shared note (markdown) in .hive/shared. Set append=true to add to the end instead. Replies with the path and how much was written.',
     inputSchema: {
       type: 'object',
       properties: { path: { type: 'string' }, content: { type: 'string' }, append: { type: 'boolean' } },
       required: ['path', 'content']
     },
-    run: (a) => api('PUT', `/v1/shared/file?path=${enc(a.path)}`, { content: a.content, append: !!a.append })
+    run: async (a) => {
+      const r = (await api('PUT', `/v1/shared/file?path=${enc(a.path)}`, { content: a.content, append: !!a.append })) as { path: string }
+      const n = String(a.content ?? '').length.toLocaleString('en')
+      return a.append ? `Appended ${n} characters to ${r.path}.` : `Wrote ${r.path} (${n} characters).`
+    }
   },
   {
     name: 'hive_read_latest_handover',
@@ -151,20 +163,24 @@ const tools: Tool[] = [
       const project = a.project || PROJECT
       const [latest] = await handovers(project)
       if (!latest) return `No handover found for ${project ? `"${project}"` : 'the workspace'}. Use hive_list_shared_notes to see all shared notes.`
-      return api('GET', `/v1/shared/file?path=${enc(latest.relPath)}`)
+      return noteText((await api('GET', `/v1/shared/file?path=${enc(latest.relPath)}`)) as { path: string; content: string })
     }
   },
   {
     name: 'hive_create_handover',
     description:
-      'Write a handover note so a future session or another project can continue this work. Include goal, current state, decisions, open issues and next steps.',
+      'Write a handover note so a future session or another project can continue this work. Include goal, current state, decisions, open issues and next steps. Replies with the path it was saved as.',
     inputSchema: {
       type: 'object',
       properties: { title: { type: 'string' }, content: { type: 'string' }, project: projectArg },
       required: ['title', 'content']
     },
     // Hive writes the header (project, author, session, date) from the agent these tools belong to.
-    run: (a) => api('POST', '/v1/shared/handovers', { title: a.title, content: a.content, project: a.project || PROJECT, ...(process.env.HIVE_AGENT_ID ? { agent: process.env.HIVE_AGENT_ID, agentProject: PROJECT } : {}) })
+    run: async (a) => {
+      const r = (await api('POST', '/v1/shared/handovers', { title: a.title, content: a.content, project: a.project || PROJECT, ...(process.env.HIVE_AGENT_ID ? { agent: process.env.HIVE_AGENT_ID, agentProject: PROJECT } : {}) })) as { path: string }
+      // Its path in the shared notes, as hive_read_shared_note takes it.
+      return `Handover saved as ${r.path.replace(/\\/g, '/').replace(/^.*\/\.hive\/shared\//, '')}.`
+    }
   },
   {
     name: 'hive_notify',
@@ -174,7 +190,10 @@ const tools: Tool[] = [
       properties: { title: { type: 'string' }, message: { type: 'string' }, level: { type: 'string', enum: ['info', 'success', 'warning', 'error'] } },
       required: ['title']
     },
-    run: (a) => api('POST', '/v1/notify', { title: a.title, message: a.message, level: a.level, source: PROJECT || 'agent' })
+    run: async (a) => {
+      await api('POST', '/v1/notify', { title: a.title, message: a.message, level: a.level, source: PROJECT || 'agent' })
+      return 'Notification shown.'
+    }
   },
   {
     name: 'hive_list_providers',
@@ -204,20 +223,26 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_create_project',
-    description: 'Create a project: a new folder in the workspace (turned on). Only when the user asked for one.',
+    description: 'Create a project: a new folder in the workspace (turned on). Only when the user asked for one. Replies with a confirmation.',
     inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Folder name.' } }, required: ['name'] },
-    run: (a) => api('POST', '/v1/projects', { name: a.name })
+    run: async (a) => {
+      const p = (await api('POST', '/v1/projects', { name: a.name })) as { name: string }
+      return `Created the project ${p.name} (on). It has no agents yet: add one with hive_add_agent.`
+    }
   },
   {
     name: 'hive_activate_project',
-    description: 'Turn a project on (it shows under Working On in Hive). Starting an agent does this too.',
+    description: 'Turn a project on (it shows under Working On in Hive). Starting an agent does this too. Replies with a confirmation.',
     inputSchema: { type: 'object', properties: { project: projectArg }, required: ['project'] },
-    run: (a) => api('POST', `/v1/projects/${proj(a)}/activate`)
+    run: async (a) => {
+      const p = (await api('POST', `/v1/projects/${proj(a)}/activate`)) as { name: string }
+      return `${p.name} is on.`
+    }
   },
   {
     name: 'hive_add_agent',
     description:
-      "Add an agent to a project (up to 12). It works in the project folder; set worktree only if the user asked for one, or after asking them (its own git branch and folder). With prompt, it starts at once on that task (given on the CLI's command line); with start and no prompt, it starts idle. Hive doesn't move the user's view to it.",
+      "Add an agent to a project (up to 12). It works in the project folder; set worktree only if the user asked for one, or after asking them (its own git branch and folder). With prompt, it starts at once on that task (given on the CLI's command line); with start and no prompt, it starts idle. Hive doesn't move the user's view to it. Replies with its name, id, provider, folder and status.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -232,7 +257,15 @@ const tools: Tool[] = [
       },
       required: ['project']
     },
-    run: (a) => api('POST', `/v1/projects/${proj(a)}/agents`, { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k, worktree: a.worktree, branch: a.branch, base: a.base, start: a.start, prompt: a.prompt })
+    run: async (a) => {
+      const r = (await api('POST', `/v1/projects/${proj(a)}/agents`, { name: a.name, provider: a.provider, model: a.model, effort: a.effort, mode: a.mode, context200k: a.context200k, worktree: a.worktree, branch: a.branch, base: a.base, start: a.start, prompt: a.prompt })) as {
+        agent: { id: string; name: string; worktree?: { path: string; branch: string } | null }
+        project: { name: string; agents: { id: string; provider: string; status: string }[] }
+      }
+      const now = r.project.agents.find((x) => x.id === r.agent.id)
+      const where = r.agent.worktree ? `its worktree ${r.agent.worktree.path} (branch ${r.agent.worktree.branch})` : 'the project folder'
+      return `Added ${r.agent.name} (id ${r.agent.id}) to ${r.project.name}: ${now?.provider ?? 'its provider'}, in ${where}, ${now?.status ?? 'stopped'}.`
+    }
   },
   {
     name: 'hive_update_agent',
@@ -242,9 +275,12 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_start_agent',
-    description: "Start a stopped agent: a new conversation, or resume=true for its last one. With prompt, it starts on that task (given on the CLI's command line). If its folder is new to the CLI, it first asks the user to trust it (the agent shows as waiting): tell the user.",
+    description: "Start a stopped agent: a new conversation, or resume=true for its last one. With prompt, it starts on that task (given on the CLI's command line). If its folder is new to the CLI, it first asks the user to trust it (the agent shows as waiting): tell the user. Replies with its status and session id.",
     inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, resume: { type: 'boolean' }, prompt: { type: 'string' } }, required: ['project', 'agent'] },
-    run: (a) => api('POST', `${agentPath(a)}/start`, { resume: a.resume, prompt: a.prompt })
+    run: async (a) => {
+      const st = (await api('POST', `${agentPath(a)}/start`, { resume: a.resume, prompt: a.prompt })) as { agentName?: string; status: string; sessionId?: string }
+      return `${a.resume ? 'Resumed' : 'Started'} ${st.agentName ?? a.agent} in ${a.project || PROJECT}: ${st.status}${st.sessionId ? `, session ${st.sessionId}` : ''}. Follow it with hive_wait_for_agents.`
+    }
   },
   {
     name: 'hive_stop_agent',
@@ -269,23 +305,24 @@ const tools: Tool[] = [
   {
     name: 'hive_list_tasks',
     description:
-      "The workspace's task board: cards in columns todo, doing, review and done, in board order (top of each column first: the order is their priority), each with its project, the agent it's given to (and what that agent is doing now), labels, and whether it's blocked. Without project, every project's cards; archived=true lists the archived ones instead.",
-    inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Only this project\'s cards.' }, column: columnArg, archived: { type: 'boolean' } } },
-    run: (a) => {
-      const q = [a.project ? `project=${enc(a.project)}` : '', a.column ? `column=${enc(a.column)}` : '', a.archived ? 'archived=true' : ''].filter(Boolean).join('&')
-      return api('GET', `/v1/tasks${q ? `?${q}` : ''}`)
+      "The workspace's task board: cards in columns todo, doing, review and done, in board order (top of each column first: the order is their priority). One line per card: number, title, project, the agent it's given to and what that agent is doing now, labels, whether it's blocked or stalled, and how many comments it has. hive_read_task gives a card's description and comments; details=true lists every card in full as JSON (large: only when you need all of them). Without project, every project's cards; archived=true lists the archived ones instead. At most 200 lines: narrow it with project or column.",
+    inputSchema: { type: 'object', properties: { project: { type: 'string', description: 'Only this project\'s cards.' }, column: columnArg, archived: { type: 'boolean' }, details: { type: 'boolean', description: 'Every card in full (descriptions, comments, history).' } } },
+    run: async (a) => {
+      const q = [a.project ? `project=${enc(a.project)}` : '', a.column ? `column=${enc(a.column)}` : '', a.archived ? 'archived=true' : '', a.details ? '' : 'view=short'].filter(Boolean).join('&')
+      const list = await api('GET', `/v1/tasks${q ? `?${q}` : ''}`)
+      return a.details ? list : taskListText(list as TaskRow[], { archived: !!a.archived })
     }
   },
   {
     name: 'hive_read_task',
-    description: 'One card in full: its description, comments and history.',
-    inputSchema: { type: 'object', properties: { number: { type: 'number', description: 'The card number (#12 is 12).' } }, required: ['number'] },
-    run: (a) => api('GET', `/v1/tasks/${enc(String(a.number))}`)
+    description: 'One card in full, as JSON: its description, comments, links and agent. Its change history (who moved it when) only with history=true; historyEntries says how long it is.',
+    inputSchema: { type: 'object', properties: { number: { type: 'number', description: 'The card number (#12 is 12).' }, history: { type: 'boolean' } }, required: ['number'] },
+    run: (a) => api('GET', `/v1/tasks/${enc(String(a.number))}${a.history ? '' : '?history=false'}`)
   },
   {
     name: 'hive_create_task',
     description:
-      "Add a card to the workspace's task board (in todo unless column says otherwise; never done). Use it for follow-up work you find but shouldn't do now, or when the user asks. Give it a project (folder name) so it can be started on that project's agents.",
+      "Add a card to the workspace's task board (in todo unless column says otherwise; never done). Use it for follow-up work you find but shouldn't do now, or when the user asks. Give it a project (folder name) so it can be started on that project's agents. Created in doing with no agent, it is given to you. Replies with its number and place on the board.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -301,12 +338,12 @@ const tools: Tool[] = [
       },
       required: ['title']
     },
-    run: (a) => api('POST', '/v1/tasks', { title: a.title, description: a.description, project: a.project ?? PROJECT, agent: a.agent, column: a.column, labels: a.labels, blocked: a.blocked, blockedBy: a.blockedBy, links: a.links, ...byAgent() })
+    run: async (a) => createdText((await api('POST', '/v1/tasks', { title: a.title, description: a.description, project: a.project ?? PROJECT, agent: a.agent, column: a.column, labels: a.labels, blocked: a.blocked, blockedBy: a.blockedBy, links: a.links, ...byAgent(), reply: 'short' })) as TaskChange)
   },
   {
     name: 'hive_update_task',
     description:
-      `Change a card on the task board and/or comment on it: move it between todo, doing and review, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on, or its place in its column (position top or bottom, or before another card in that column; with or without a column change). When you finish a card's work, move it to review with a comment saying what you did. Only the user moves cards to or from done${ASSISTANT ? ' (you can ask: Hive puts the question to the user and waits for the answer)' : ''}; archived cards can't be changed.`,
+      `Change a card on the task board and/or comment on it: move it between todo, doing and review, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on, or its place in its column (position top or bottom, or before another card in that column; with or without a column change). Moving a card that has no agent into doing, without agent, gives it to you. When you finish a card's work, move it to review with a comment saying what you did. Only the user moves cards to or from done${ASSISTANT ? ' (you can ask: Hive puts the question to the user and waits for the answer)' : ''}; archived cards can't be changed. Replies with what changed and where the card is now (column, place, project, agent).`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -326,16 +363,16 @@ const tools: Tool[] = [
       },
       required: ['number']
     },
-    run: (a) => {
-      const body: Record<string, unknown> = { ...byAgent() }
+    run: async (a) => {
+      const body: Record<string, unknown> = { ...byAgent(), reply: 'short' }
       for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links']) if (a[k] !== undefined) body[k] = a[k]
-      return api('PATCH', `/v1/tasks/${enc(String(a.number))}`, body)
+      return changedText((await api('PATCH', `/v1/tasks/${enc(String(a.number))}`, body)) as TaskChange)
     }
   },
   {
     name: 'hive_reorder_tasks',
     description:
-      "Put cards in priority order in one call: the listed cards go to the top of the column in the order given, and the column's other cards keep their order below them. The cards must already be in that column (move them first with hive_update_task); only the user orders done. Use this when asked to prioritise, rather than only listing an order.",
+      "Put cards in priority order in one call: the listed cards go to the top of the column in the order given, and the column's other cards keep their order below them. The cards must already be in that column (move them first with hive_update_task); only the user orders done. Use this when asked to prioritise, rather than only listing an order. Replies with a confirmation, not the column.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -344,18 +381,21 @@ const tools: Tool[] = [
       },
       required: ['column', 'cards']
     },
-    run: (a) => api('POST', '/v1/tasks/reorder', { column: a.column, cards: a.cards, ...byAgent() })
+    run: async (a) => reorderText((await api('POST', '/v1/tasks/reorder', { column: a.column, cards: a.cards, ...byAgent(), reply: 'short' })) as TaskReorder)
   },
   {
     name: 'hive_start_task',
     description:
-      "Start a card: Hive gives it to an agent of its project with the card as the prompt and moves it to doing. agent: an existing agent that is stopped or idle; without agent, Hive adds a new one (worktree=true: in its own git worktree, only if the user asked for one). Follow with hive_wait_for_agents.",
+      "Start a card: Hive gives it to an agent of its project with the card as the prompt and moves it to doing. agent: an existing agent that is stopped or idle; without agent, Hive adds a new one (worktree=true: in its own git worktree, only if the user asked for one). Follow with hive_wait_for_agents. Replies with the agent that has it.",
     inputSchema: {
       type: 'object',
       properties: { number: { type: 'number' }, agent: agentArg, worktree: { type: 'boolean' }, name: { type: 'string', description: 'A new agent\'s name.' }, provider: settingsArgs.provider },
       required: ['number']
     },
-    run: (a) => api('POST', `/v1/tasks/${enc(String(a.number))}/start`, { agent: a.agent, worktree: a.worktree, name: a.name, provider: a.provider })
+    run: async (a) => {
+      const r = (await api('POST', `/v1/tasks/${enc(String(a.number))}/start`, { agent: a.agent, worktree: a.worktree, name: a.name, provider: a.provider, reply: 'short' })) as { agent: string; added: boolean; card: TaskRow; note: string }
+      return `Started #${r.card.number} ${r.card.title} on ${r.added ? 'a new agent, ' : ''}${r.agent}${r.card.project ? ` in ${r.card.project}` : ''}; the card is in ${r.card.column === 'doing' ? 'Doing' : r.card.column}. ${r.note}`
+    }
   },
   {
     name: 'hive_list_skills',
@@ -412,7 +452,8 @@ async function handle(msg: { id?: unknown; method?: string; params?: any }): Pro
       if (!tool) return replyError(id, -32602, `Unknown tool: ${params?.name}`)
       try {
         const result = await tool.run(params?.arguments ?? {})
-        return reply(id, { content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result, null, 2) }] })
+        // Compact: indenting JSON makes it about a third bigger for the model, and no easier for it to read.
+        return reply(id, { content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result) }] })
       } catch (e) {
         return reply(id, { content: [{ type: 'text', text: `Hive error: ${(e as Error).message}` }], isError: true })
       }

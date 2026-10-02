@@ -110,7 +110,7 @@ A workspace's Hive Assistant is listed in `liveSessions` with `"project": null` 
 
 ### Projects
 
-`GET /v1/projects` — every project in the request's workspace; with several windows open and none named, every open workspace's projects. Each has `workspace` (its workspace's name). Projects hidden or removed from Hive (Project → Remove Project…) aren't listed and can't be named.
+`GET /v1/projects` — every project in the request's workspace; with several windows open and none named, every open workspace's projects. Each has `workspace` (its workspace's name). Projects hidden or removed from Hive (Project → Remove Project…) aren't listed and can't be named. `?view=short` lists each project without its path, ids, sessions and settings: `{ name, workspace, active, branch, agents: [{ name, provider, status, branch, backgroundTasks }] }`.
 
 `GET /v1/projects/{name}` — one project.
 
@@ -152,7 +152,7 @@ Omit `resumeId` to start a new session. Returns the live session state (which in
 
 `POST /v1/projects/{name}/stop[?agent=…]` — stop one agent's session, or every running agent of the project when `agent` is omitted.
 
-`GET /v1/projects/{name}/usage[?sessionId=…][&agent=…]` — usage for the agent's live session (see above for which agent), else the most recent Hive session, or the one given. `days` breaks it down by local calendar day (`YYYY-MM-DD`): tokens, requests, prompts, compactions and that day's API-equivalent cost (`costUsd`, `costEstimated`). Session lists include the same.
+`GET /v1/projects/{name}/usage[?sessionId=…][&agent=…][&days=false]` — usage for the agent's live session (see above for which agent), else the most recent Hive session, or the one given. `days` breaks it down by local calendar day (`YYYY-MM-DD`): tokens, requests, prompts, compactions and that day's API-equivalent cost (`costUsd`, `costEstimated`); `days=false` leaves it out (it grows with every day the session runs). Session lists include the same.
 
 ```json
 {
@@ -278,15 +278,15 @@ The workspace's board: cards in four columns, `todo`, `doing`, `review` and `don
 
 `agent` is the agent the card is given to, with what it is doing now (`status` is `removed` if the agent no longer exists), or `null`. `stalled` says why nobody is working on a card in `doing` ("Agent 1 isn't running.", "Agent 2 was removed.", or that no agent has it), and is `null` otherwise; an agent that has finished its turn doesn't make its card stalled. `project` is the project's folder name, or `""` for a card about the workspace. `by` and `createdBy` say who: `You`, `Assistant`, an agent (`"Agent 1 (web)"`, when its `hive` tools made the change) or `Agent API` (any other caller).
 
-`GET /v1/tasks/{n}` — one card (`#12` or `12`).
+`GET /v1/tasks/{n}[?history=false]` — one card (`#12` or `12`). `history=false` leaves out its history and gives `historyEntries`, how many entries it has; the description and comments stay.
 
-`POST /v1/tasks` — add a card. `title` is required; `description`, `project`, `agent` (name or id, in that project), `column` (not `done`), `labels`, `blocked` (a reason), `blockedBy` and `links` (card numbers) are optional.
+`POST /v1/tasks` — add a card. `title` is required; `description`, `project`, `agent` (name or id, in that project), `column` (not `done`), `labels`, `blocked` (a reason), `blockedBy` and `links` (card numbers) are optional. Created in `doing` by an agent's hive tools without `agent`, it is given to that agent (when it is of the card's project).
 
 ```json
 { "title": "Add tests for the redirect", "project": "web", "description": "…", "labels": ["tests"], "blockedBy": [12] }
 ```
 
-`PATCH /v1/tasks/{n}` — change a card and/or comment on it: any of `title`, `description`, `project` (its agent is cleared unless `agent` is given), `agent` (empty takes it from its agent), `column`, `position` (`top` or `bottom` of its column) or `before` (the card it goes in front of, which has to be in the column the card ends up in; `null` the end), `labels`, `blocked` (empty clears it), `blockedBy`, `links`, and `comment`.
+`PATCH /v1/tasks/{n}` — change a card and/or comment on it: any of `title`, `description`, `project` (its agent is cleared unless `agent` is given), `agent` (empty takes it from its agent), `column`, `position` (`top` or `bottom` of its column) or `before` (the card it goes in front of, which has to be in the column the card ends up in; `null` the end), `labels`, `blocked` (empty clears it), `blockedBy`, `links`, and `comment`. When an agent's hive tools move a card that has no agent into `doing` without `agent`, it is given to that agent (when it is of the card's project; the history says "Given to …"); an explicit `agent`, including empty, wins, and the Assistant and other callers give it to nobody.
 
 ```json
 { "column": "review", "comment": "Fixed in auth/callback.ts; tests pass." }
@@ -301,6 +301,13 @@ Placing a card with `position` or `before` adds a line to its history when it mo
 ```json
 { "column": "todo", "cards": [14, 9, 12] }
 ```
+
+**Short replies.** Every caller gets the replies above unless it asks for short ones, which is what Hive's own tools do (an agent pays for each character of a reply on every later turn):
+
+- `GET /v1/tasks?view=short` — a row per card: `{ number, title, column, project, agent: { name, status, backgroundTasks } | null, labels, blocked, blockedBy, stalled, comments (how many), archived }`, without descriptions, comments or history.
+- `"reply": "short"` in the body of `POST /v1/tasks`, `PATCH /v1/tasks/{n}` and `POST /v1/tasks/{n}/comments` — what changed and where the card is now, instead of the card: `{ number, title, column, position (1 at the top; null when archived), of (cards in the column), project, agent (its name or null), changes }`. `changes` is in the words of the card's history (`"Moved to Review"`, `"Commented"`; empty when nothing changed).
+- `"reply": "short"` in `POST /v1/tasks/reorder` — `{ column, top (the cards put at the top, in order), count (cards in the column) }` instead of the column.
+- `"reply": "short"` in `POST /v1/tasks/{n}/start` — its `card` as a short row.
 
 `POST /v1/tasks/{n}/comments` `{ "text" }` — add a comment.
 
@@ -341,25 +348,25 @@ curl -N -H "Authorization: Bearer $HIVE_API_TOKEN" "$HIVE_API_URL/v1/events"
 
 ## The built-in `hive` MCP server
 
-When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP server named `hive` to every session it starts, whatever its provider. It wraps the API above:
+When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP server named `hive` to every session it starts, whatever its provider. It wraps the API above. Its replies are kept short, since everything a tool returns goes into the agent's context: a change confirms what changed and what the agent can't already know (a new card's number, where a card is now), a listing gives one line per item, and full detail comes from the matching read tool or on request (`hive_list_tasks` with `details: true`, `hive_read_task` with `history: true`, `hive_session_usage` with `days: true`). Structured reads such as `hive_project_status` are compact JSON; notes and handovers are read as their text.
 
 | Tool | Endpoint |
 |---|---|
-| `hive_list_projects` | `GET /v1/projects` |
+| `hive_list_projects` | `GET /v1/projects?view=short`, a line per project |
 | `hive_project_status` | `GET /v1/projects/{name}` |
-| `hive_session_usage` | `GET /v1/projects/{name}/usage` |
-| `hive_list_shared_notes` | `GET /v1/shared` |
+| `hive_session_usage` | `GET /v1/projects/{name}/usage` (`days=false` unless `days: true`) |
+| `hive_list_shared_notes` | `GET /v1/shared`, a path per line |
 | `hive_read_shared_note` | `GET /v1/shared/file` |
 | `hive_write_shared_note` | `PUT /v1/shared/file` |
 | `hive_read_latest_handover` | `GET /v1/shared`, then `GET /v1/shared/file` for the project's newest handover (see below) |
 | `hive_create_handover` | `POST /v1/shared/handovers` |
 | `hive_notify` | `POST /v1/notify` |
 | `hive_list_skills` | `GET /v1/skills` |
-| `hive_list_tasks` | `GET /v1/tasks` |
-| `hive_read_task` | `GET /v1/tasks/{n}` |
-| `hive_create_task` | `POST /v1/tasks` (the session's project by default) |
-| `hive_update_task` | `PATCH /v1/tasks/{n}` (with `comment`) |
-| `hive_reorder_tasks` | `POST /v1/tasks/reorder` |
+| `hive_list_tasks` | `GET /v1/tasks?view=short`, a line per card by column (at most 200; `details: true` for whole cards) |
+| `hive_read_task` | `GET /v1/tasks/{n}?history=false` (`history: true` for its history) |
+| `hive_create_task` | `POST /v1/tasks` (the session's project by default), short reply |
+| `hive_update_task` | `PATCH /v1/tasks/{n}` (with `comment`), short reply |
+| `hive_reorder_tasks` | `POST /v1/tasks/reorder`, short reply |
 
 Tools default to the session's own project, so an agent can simply say *"create a handover"*. The board tools send the agent's id and project, so a card's history and comments name the agent.
 
