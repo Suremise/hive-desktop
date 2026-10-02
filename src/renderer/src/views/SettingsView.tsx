@@ -414,6 +414,11 @@ function Control({ def, settings }: { def: SettingDef; settings: AppSettings }) 
       )
     case 'number': {
       const commit = (): void => {
+        // A cleared box is an unfinished edit, not 0 (which turns some features off): keep the saved value.
+        if (!draft.trim()) {
+          setDraft(String(value))
+          return
+        }
         const n = Math.round(Number(draft))
         if (!Number.isFinite(n) || (def.min !== undefined && n < def.min) || (def.max !== undefined && n > def.max)) {
           notify('warning', `${def.title} must be between ${def.min} and ${def.max}`)

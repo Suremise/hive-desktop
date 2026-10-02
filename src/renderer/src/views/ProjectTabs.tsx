@@ -628,6 +628,15 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
               <IconButton icon={inline ? 'split-horizontal' : 'list-flat'} title={inline ? 'Side by side' : 'Inline'} onClick={() => setInline(!inline)} />
               <IconButton icon="go-to-file" title="Open file" onClick={() => void call('app:openPath', `${project.path}\\${diff.path.replace(/\//g, '\\')}`)} />
             </div>
+            {/* A refresh of the shown file failed: its last diff stays, but it may be out of date. */}
+            {diffError && (
+              <div className="banner warn">
+                <Icon name="warning" /> Could not refresh the diff, so this may be out of date: {diffError}
+                <button className="btn small" onClick={() => setDiffTry((n) => n + 1)}>
+                  Retry
+                </button>
+              </div>
+            )}
             <div className="editor-host">
               {diff.binary ? (
                 <div className="empty-state">{diff.modified || 'Binary file — no text diff.'}</div>

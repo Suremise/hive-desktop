@@ -59,6 +59,18 @@ const check = (name, ok, extra = '') => {
   await row('a.ts').click()
   check('the other file still loads when chosen', !!(await until(async () => (await shown()) === 'a.ts', 5000)), await shown())
 
+  // Refreshing a.ts fails: its last diff stays, with the error and Retry over it; Retry reads it again.
+  await app.evaluate(() => {
+    process.env.HIVE_TEST_FAIL_IPC = 'git:diff*1'
+  })
+  await page.locator('.split-list .pane-header').getByRole('button', { name: 'Refresh' }).click()
+  const stale = page.locator('.split-main .banner', { hasText: 'Could not refresh the diff' })
+  check('a failed refresh of the shown diff says so, with Retry', !!(await until(async () => (await stale.count()) === 1 && (await stale.getByRole('button', { name: 'Retry' }).count()) === 1, 5000)))
+  check('and keeps the last diff under it', (await shown()) === 'a.ts', await shown())
+  await page.screenshot({ path: path.join(lib.WORK, 'changes-3-refresh-failed.png') })
+  await stale.getByRole('button', { name: 'Retry' }).click()
+  check('Retry reads it again and clears the error', !!(await until(async () => (await stale.count()) === 0 && (await shown()) === 'a.ts', 5000)))
+
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
   process.exit(failed ? 1 : 0)

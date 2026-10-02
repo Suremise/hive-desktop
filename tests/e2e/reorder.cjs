@@ -108,6 +108,16 @@ const check = (name, ok, extra = '') => {
   check('the running agent kept its session', (await live(one.id))?.sessionId === session)
   check('and its terminal', String(await inv('pty:buffer', lib.ptyKey(alpha, one.id))).includes('Done: hello'))
 
+  // The running agent's header: Compact and Stop; Archive and Start New… is in its ⋯ menu.
+  const oneBar = page.locator('.pane-header-bar', { hasText: 'One' })
+  check('the header has Stop but no archive button', (await oneBar.getByRole('button', { name: 'Stop', exact: true }).count()) === 1 && (await oneBar.locator('button[aria-label*="Archive"]').count()) === 0)
+  await oneBar.getByRole('button', { name: 'More', exact: true }).click()
+  const archiveItem = page.locator('.menu .menu-item', { hasText: 'Archive and Start New…' })
+  check("its ⋯ menu has Archive and Start New…", !!(await until(async () => (await archiveItem.count()) === 1, 3000)))
+  await page.screenshot({ path: path.join(lib.WORK, 'reorder-archive-menu.png') })
+  await page.keyboard.press('Escape')
+  await until(async () => (await page.locator('.menu').count()) === 0, 3000)
+
   // The shortcut moves the focused agent: One (last) to the left.
   await page.locator('.agent-tab', { hasText: 'One' }).click()
   await lib.sleep(300)

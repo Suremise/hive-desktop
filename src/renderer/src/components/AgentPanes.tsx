@@ -225,14 +225,18 @@ function moveItems(project: ProjectInfo, a: AgentInfo): MenuEntry[] {
 /** An agent's menu. `inHeader`: the pane's header shows the session and Merge buttons, so the menu leaves them out. */
 function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeader = false): MenuEntry[] {
   const worktree = !!a.worktree
+  const archiveItem = { label: 'Archive and Start New…', icon: 'archive', onClick: () => void actions.archiveCurrent(project.path, a.id) }
   return [
     ...(inHeader
-      ? []
+      ? // The header's buttons are Compact and Stop; archiving is used less often, so it's here.
+        a.live
+        ? [archiveItem]
+        : []
       : a.live
       ? [
           { label: 'Stop', icon: 'debug-stop', onClick: () => void actions.stopSession(project.path, a.id) },
           { label: 'Compact…', icon: 'fold', disabled: !(a.live.status === 'ready' || a.live.status === 'finished'), onClick: () => set({ compactFor: { project: project.path, agentId: a.id } }) },
-          { label: 'Archive Session and Start New', icon: 'archive', onClick: () => void actions.archiveCurrent(project.path, a.id) }
+          archiveItem
         ]
       : [
           { label: 'Resume', icon: 'debug-continue', disabled: !a.resume, onClick: () => void actions.resumeLast(project.path, a.id) },
@@ -526,7 +530,6 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
           <>
             {btn(compacting ? 'loading' : 'fold', 'Compact', () => set({ compactFor: { project: project.path, agentId: a.id } }), cx('subtle', suggested && idle && 'suggest'), { disabled: !idle || empty, tip: compactTip })}
             {btn('stop-circle', 'Stop', () => void actions.stopSession(project.path, a.id), 'tint-red', { tip: 'Stop this agent (the conversation is kept; resume it any time)' })}
-            {btn('archive', 'Archive & New', () => void actions.archiveCurrent(project.path, a.id), 'subtle', { tip: 'Archive this session and start a new one' })}
           </>
         ) : (
           <>

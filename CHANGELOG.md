@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Agent header
+- **Archive & New** moved from the agent header into its **⋯** menu, as **Archive and Start New…**, leaving more room for the agent's name, card and session.
+
 ### Task board
 - **A task board for the workspace**: cards in **Todo**, **Doing**, **Review** and **Done**, each for a project, with a description, labels, a blocked reason, the cards it depends on, comments and a history of who changed what. Open it from the activity bar (**Ctrl+Shift+J**); each project also has a **Tasks** tab. Drag cards between columns; a Doing card shows what its agent is doing right now.
 - **Start** gives a card to an agent (one that is stopped or idle, a new one, or a new one in its own worktree) with the card as its prompt.
@@ -43,7 +46,7 @@
 - **Start… on a card you've edited** used the card as last saved, so the agent got the old description. It now reads **Save and Start…** and saves your edits first; if the save fails, nothing starts and the dialog says why.
 - **Closing a card with unsaved changes** (Escape, ×, a click outside, Cancel) lost them without a word, including a comment being written. Hive now asks **Keep Editing** or **Discard**; a card with nothing changed closes at once. **Save** also posts a comment you were writing.
 - A question asked from inside a dialog (Delete on a card, say) could appear underneath it; questions now always come on top, and Escape closes only the top one.
-- The **Changes** tab could show the previous file's diff after you picked another while it loaded, and a git error left it stuck loading or showing another folder's files. It now always shows the selected file's diff, and a failure shows the error with **Retry**.
+- The **Changes** tab could show the previous file's diff after you picked another while it loaded, and a git error left it stuck loading or showing another folder's files. It now always shows the selected file's diff, and a failure shows the error with **Retry**; when refreshing a diff already shown fails, the last diff stays with a warning above it that it may be out of date.
 - After switching an agent to another conversation, its footer could show the **previous conversation's** context and cost until the new numbers arrived, or for good if reading them failed. It now shows a placeholder until the conversation's own usage is read, and a refresh that fails keeps that conversation's numbers, faded.
 - **Merge** refuses when git can't check a worktree for uncommitted changes (a damaged index, say), instead of merging and, with clean-up, removing the worktree with them.
 - The **Changes** tab no longer shows the contents of a file outside the project reached through a link (a link is shown as the path it points to, as git stores it).

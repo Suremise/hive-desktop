@@ -221,7 +221,7 @@ export const commands: Command[] = [
   layoutCommand('columns3', 3),
   layoutCommand('grid', 4),
   layoutCommand('grid6', 5),
-  { id: 'session.archive', label: 'Archive Session and Start New', category: 'Session', when: hasProject, run: () => actions.archiveCurrent() },
+  { id: 'session.archive', label: 'Archive Session and Start New…', category: 'Session', when: hasProject, run: () => actions.archiveCurrent() },
   { id: 'view.projects', label: 'Show Projects', category: 'View', keybinding: 'Mod+Shift+E', run: () => setActivity('projects') },
   { id: 'view.overview', label: 'Show Workspace Overview', category: 'View', keybinding: 'Mod+Shift+O', run: () => setActivity('overview') },
   { id: 'view.board', label: 'Show Task Board', category: 'View', keybinding: 'Mod+Shift+J', run: () => setActivity('board') },
