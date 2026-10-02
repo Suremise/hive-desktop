@@ -198,7 +198,7 @@ With `handover` (the default), `from` must be running and idle: it is asked to w
 
 These read-only calls are open to every caller:
 
-`GET /v1/providers` — the coding-agent providers: whether each is turned on and installed (`enabled`, `installed`, `version`, `problem`), whether it's the default, and the `models`, `efforts` and `modes` an agent can use.
+`GET /v1/providers` — the coding-agent providers: whether each is turned on and installed (`enabled`, `installed`, `version`, `problem`), whether it's the default, and the `models`, `efforts` and `modes` an agent can use, and whether its agents can take `context200k`.
 
 `GET /v1/projects/{name}/agents/{agent}/activity` — what one agent is doing: `status`, `statusMessage` and `backgroundTasks`, `transcriptMB` (its conversation's transcript, or null) and `transcriptWarnMB` (the size past which Hive flags it, or null), `currentTask` (its last prompt), `latestReply`, `recentTools` (tool calls since that prompt), `lockedFiles` (relative to its folder), its branch and worktree, its session, and `userTypedSecondsAgo` (when the user last typed in its terminal). `{agent}` is the agent's name or id.
 
@@ -220,8 +220,8 @@ The changes below are the Assistant's only: other callers get `403`.
 |---|---|---|
 | `POST /v1/projects` `{ "name" }` | Control agents and create projects | Creates a project folder in the workspace and turns it on |
 | `POST /v1/projects/{name}/activate` | Control agents | Turns a project on (other callers: no restriction, as before) |
-| `POST /v1/projects/{name}/agents` | Control agents | Adds an agent: `name`, `provider`, `model`, `effort`, `mode`, `worktree` (with `branch`, `base`); `start` starts it, and `prompt` starts it on that task, given on the CLI's command line |
-| `PATCH /v1/projects/{name}/agents/{agent}` | Control agents | Changes `name`, `provider`, `model`, `effort` or `mode` (empty clears an override) |
+| `POST /v1/projects/{name}/agents` | Control agents | Adds an agent: `name`, `provider`, `model`, `effort`, `mode`, `context200k` (`"on"` or `"off"`: a 200K context window instead of the model's 1M, for providers with `context200k`), `worktree` (with `branch`, `base`); `start` starts it, and `prompt` starts it on that task, given on the CLI's command line |
+| `PATCH /v1/projects/{name}/agents/{agent}` | Control agents | Changes `name`, `provider`, `model`, `effort`, `mode` or `context200k` (empty clears an override) |
 | `POST /v1/projects/{name}/agents/{agent}/start` | Control agents | Starts a stopped agent: a new conversation, or `resume: true` (its last) or a session id; `prompt` as above |
 | `POST /v1/projects/{name}/agents/{agent}/stop` | Control agents | Stops it. If it is working, waiting or starting, Hive asks the user in the Assistant's panel (with the optional `reason`) and the call waits for the answer: `409` if they say no |
 | `POST /v1/projects/{name}/agents/{agent}/prompt` `{ "text" }` | Control agents | Types a task into an idle agent and sends it. `409` while it is working, starting, waiting on its background tasks or waiting for the user, or when the user has just typed in its terminal (Settings → Assistant → Pause after you type) |

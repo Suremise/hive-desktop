@@ -7,6 +7,7 @@ import type {
   AgentApiInfo,
   AgentBranchStatus,
   AgentDef,
+  AgentPatch,
   PersonaInfo,
   AgentInstallInfo,
   AppConfig,
@@ -184,7 +185,7 @@ export interface HiveRequests {
   'agents:add': (projectPath: string, opts: AddAgentOptions) => AgentDef
   /** Changing provider clears the agent's model, effort and mode, and its session to resume (conversations can't move between providers). */
   /** Changes an agent's name and settings; for the Hive Assistant's home, its settings for this workspace (persona too). */
-  'agents:update': (projectPath: string, agentId: string, patch: Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona'>>) => AgentDef
+  'agents:update': (projectPath: string, agentId: string, patch: AgentPatch) => AgentDef
   /** Removes an agent (its session must be stopped). deleteWorktree also removes its worktree and branch. */
   'agents:remove': (projectPath: string, agentId: string, opts: { deleteWorktree: boolean; releaseCards?: boolean }) => void
   /** Moves an agent to `index` in the project's order (its position afterwards); returns the agents' ids in order. */

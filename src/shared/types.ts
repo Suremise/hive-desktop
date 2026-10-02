@@ -167,6 +167,8 @@ export interface AssistantProviderSettings {
   effort: EffortLevel | ''
   permissionMode: PermissionMode | ''
   extraArgs: string
+  /** Run with a 200K context window instead of the model's 1M one (capabilities.contextLimit); '' follows the provider's settings. */
+  use200kContext: '' | 'on' | 'off'
 }
 
 /** A persona the Hive Assistant can take: a Markdown file of instructions in the workspace's .hive/personas. */
@@ -203,6 +205,8 @@ export interface ProviderSettings {
   checkUpdatesOnLaunch: boolean
   /** Let sessions move into the CLI's own background service (capabilities.backgroundSessions). Off: Hive turns it off. */
   allowBackgroundSessions: boolean
+  /** Run sessions with a 200K context window instead of the model's 1M one (capabilities.contextLimit). */
+  use200kContext: boolean
   /** The user's price overrides by model id; missing models use the prices Hive ships. */
   prices: Record<string, ModelPrice>
 }
@@ -413,6 +417,8 @@ export interface ProjectProviderConfig {
   effort: Inherit<EffortLevel>
   permissionMode: Inherit<PermissionMode>
   extraArgs: string
+  /** 200K context instead of 1M (capabilities.contextLimit). */
+  use200kContext: Inherit<'on' | 'off'>
 }
 
 /** A worktree an agent works in: its own checkout of the project on its own branch. */
@@ -434,6 +440,8 @@ export interface AgentDef {
   model?: string
   effort?: EffortLevel
   permissionMode?: PermissionMode
+  /** 200K context instead of 1M (capabilities.contextLimit). */
+  use200kContext?: boolean
   /** Session to resume for this agent. */
   lastSessionId?: string
   /** The worktree's setup command hasn't run successfully yet. */
@@ -441,6 +449,9 @@ export interface AgentDef {
   /** The Hive Assistant only: this workspace's persona, over Settings → Assistant. */
   persona?: string
 }
+
+/** A change to an agent's settings: empty values (null for use200kContext) clear an override so it follows the project. */
+export type AgentPatch = Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona'>> & { use200kContext?: boolean | null }
 
 export interface AgentInfo extends AgentDef {
   live: LiveSessionState | null
@@ -467,6 +478,7 @@ export interface AddAgentOptions {
   model?: string
   effort?: EffortLevel
   permissionMode?: PermissionMode
+  use200kContext?: boolean
 }
 
 export interface ProjectGitInfo {

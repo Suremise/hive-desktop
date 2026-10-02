@@ -27,6 +27,7 @@ const SUITES = [
   { name: 'background' },
   { name: 'longsession' },
   { name: 'resumeall' },
+  { name: 'context' },
   { name: 'cardchip' },
   { name: 'reorder' },
   { name: 'unmerged' },
