@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch, TaskStartTarget } from '@shared/types'
-import { TASK_COLUMNS, columnColor, columnLabel, stalledReason } from '@shared/tasks'
+import { TASK_COLUMNS, columnColor, columnLabel, stalledReason, taskOverview } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
-import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, useStore, type DoingRequest } from '../store'
+import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useStore, type DoingRequest } from '../store'
 import { selectProject } from '../actions'
 import { cx, timeAgo } from '../util'
 import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
@@ -416,6 +416,51 @@ export function BoardToolbar({ project, query, setQuery, archived, setArchived }
       <button className="btn primary" onClick={() => set({ taskOpen: { project: project ?? '' } })}>
         <Icon name="add" /> New Card
       </button>
+    </div>
+  )
+}
+
+/**
+ * The board at a glance, on the Workspace Overview (every card; each number opens the Task Board) and a project's
+ * Overview (its cards only; each number opens its Tasks tab).
+ */
+export function TaskStrip({ project }: { project: ProjectInfo | null }) {
+  const tasks = useStore((s) => s.tasks)
+  const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
+  const o = useMemo(() => taskOverview(tasks, project?.name ?? null, (c) => !!cardStalled(projects, c)), [tasks, projects, project?.name])
+  const open = (): void => {
+    if (project) return setProjectTab(project.path, 'tasks')
+    set({ boardProject: null, boardArchived: false, boardQuery: '' })
+    showView('board')
+  }
+  if (!o.total) {
+    if (!project) return null
+    return (
+      <div className="board-strip" data-project={project.name}>
+        <Icon name="project" />
+        <span>No cards for this project.</span>
+        <button className="board-strip-item" onClick={open}>
+          Open Tasks
+        </button>
+      </div>
+    )
+  }
+  const items: { label: string; n: number; tone?: string }[] = [
+    { label: 'Todo', n: o.todo },
+    { label: 'Doing', n: o.doing },
+    { label: 'Waiting for review', n: o.review, tone: 'accent' },
+    { label: 'Done', n: o.done },
+    { label: 'Stalled', n: o.stalled, tone: 'warning' },
+    { label: 'Blocked', n: o.blocked, tone: 'error' }
+  ]
+  return (
+    <div className="board-strip" data-project={project?.name}>
+      <Icon name="project" />
+      {items.map((x) => (
+        <button key={x.label} className={cx('board-strip-item', x.n > 0 && x.tone)} onClick={open}>
+          <span className="n">{x.n}</span> {x.label}
+        </button>
+      ))}
     </div>
   )
 }

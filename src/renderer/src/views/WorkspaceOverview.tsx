@@ -4,12 +4,12 @@ import { PROVIDERS, isProviderEnabled } from '@shared/providers'
 import { PERIODS, activeIn, money, periodFrom, stackedDaily, sumUsage, totalTokens, type DayTotal, type Totals, type UsageGroup } from '@shared/usageTotals'
 import { call, errorMessage } from '../api'
 import { selectProject } from '../actions'
-import { NO_PROJECTS, get, revealAgent, set, setAssistantOpen, setProjectTab, showView, useStore } from '../store'
+import { get, revealAgent, set, setAssistantOpen, setProjectTab, showView, useStore } from '../store'
 import { cx, formatNumber, formatTokens, timeAgo } from '../util'
 import { useNow } from '../usage'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip } from '../components/ui'
 import { ProviderIcon } from '../components/ProviderIcon'
-import { cardStalled } from '../components/Board'
+import { TaskStrip } from '../components/Board'
 import { PlanLimits, RunningAgent } from './ProjectTabs'
 
 /** Live updates come at most this often (each checks every project's transcripts against the usage cache). */
@@ -151,39 +151,6 @@ function StackedChart({ series, days }: { series: { key: string; label: string }
   )
 }
 
-/** The board at a glance: each number opens the board. */
-function BoardStrip() {
-  const tasks = useStore((s) => s.tasks)
-  const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
-  const open = tasks.filter((c) => !c.archived)
-  if (!open.length) return null
-  const count = (col: string): number => open.filter((c) => c.column === col).length
-  const stalled = open.filter((c) => cardStalled(projects, c)).length
-  const blocked = open.filter((c) => c.blocked && c.column !== 'done').length
-  const items: { label: string; n: number; tone?: string }[] = [
-    { label: 'Todo', n: count('todo') },
-    { label: 'Doing', n: count('doing') },
-    { label: 'Waiting for review', n: count('review'), tone: 'accent' },
-    { label: 'Done', n: count('done') },
-    { label: 'Stalled', n: stalled, tone: 'warning' },
-    { label: 'Blocked', n: blocked, tone: 'error' }
-  ]
-  const toBoard = (): void => {
-    set({ boardProject: null, boardArchived: false, boardQuery: '' })
-    showView('board')
-  }
-  return (
-    <div className="board-strip">
-      <Icon name="project" />
-      {items.map((x) => (
-        <button key={x.label} className={cx('board-strip-item', x.n > 0 && x.tone)} onClick={toBoard}>
-          <span className="n">{x.n}</span> {x.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 type SortKey = 'name' | 'sessions' | 'tokens' | 'cost' | 'last'
 
 /** The Workspace Overview (activity bar): the whole workspace's usage for a period, what runs now, each project and provider. */
@@ -245,7 +212,7 @@ export function WorkspaceOverviewView() {
           <h1>Workspace Overview</h1>
           <span className="faint">What every project and the Assistant used, what runs now, and the board at a glance.</span>
         </div>
-        <BoardStrip />
+        <TaskStrip project={null} />
         <div className="overview-head">
           <h2 className="section">Summary</h2>
           <Tooltip content={`Updated ${timeAgo(new Date(loadedAt).toISOString())}. How often it updates: Settings → Sessions → Overview updates.`}>
