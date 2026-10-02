@@ -322,7 +322,7 @@ const tools: Tool[] = [
   {
     name: 'hive_create_task',
     description:
-      "Add a card to the workspace's task board (in todo unless column says otherwise; never done). Use it for follow-up work you find but shouldn't do now, or when the user asks. Give it a project (folder name) so it can be started on that project's agents. Replies with its number and place on the board.",
+      "Add a card to the workspace's task board (in todo unless column says otherwise; never done). Use it for follow-up work you find but shouldn't do now, or when the user asks. Give it a project (folder name) so it can be started on that project's agents. Created in doing with no agent, it is given to you. Replies with its number and place on the board.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -343,7 +343,7 @@ const tools: Tool[] = [
   {
     name: 'hive_update_task',
     description:
-      `Change a card on the task board and/or comment on it: move it between todo, doing and review, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on, or its place in its column (position top or bottom, or before another card in that column; with or without a column change). When you finish a card's work, move it to review with a comment saying what you did. Only the user moves cards to or from done${ASSISTANT ? ' (you can ask: Hive puts the question to the user and waits for the answer)' : ''}; archived cards can't be changed. Replies with what changed and where the card is now (column, place, project, agent).`,
+      `Change a card on the task board and/or comment on it: move it between todo, doing and review, set blocked with a reason (empty clears it), change its title, description, project, agent, labels or the cards it depends on, or its place in its column (position top or bottom, or before another card in that column; with or without a column change). Moving a card that has no agent into doing, without agent, gives it to you. When you finish a card's work, move it to review with a comment saying what you did. Only the user moves cards to or from done${ASSISTANT ? ' (you can ask: Hive puts the question to the user and waits for the answer)' : ''}; archived cards can't be changed. Replies with what changed and where the card is now (column, place, project, agent).`,
     inputSchema: {
       type: 'object',
       properties: {

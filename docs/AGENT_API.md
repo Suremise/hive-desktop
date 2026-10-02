@@ -280,13 +280,13 @@ The workspace's board: cards in four columns, `todo`, `doing`, `review` and `don
 
 `GET /v1/tasks/{n}[?history=false]` — one card (`#12` or `12`). `history=false` leaves out its history and gives `historyEntries`, how many entries it has; the description and comments stay.
 
-`POST /v1/tasks` — add a card. `title` is required; `description`, `project`, `agent` (name or id, in that project), `column` (not `done`), `labels`, `blocked` (a reason), `blockedBy` and `links` (card numbers) are optional.
+`POST /v1/tasks` — add a card. `title` is required; `description`, `project`, `agent` (name or id, in that project), `column` (not `done`), `labels`, `blocked` (a reason), `blockedBy` and `links` (card numbers) are optional. Created in `doing` by an agent's hive tools without `agent`, it is given to that agent (when it is of the card's project).
 
 ```json
 { "title": "Add tests for the redirect", "project": "web", "description": "…", "labels": ["tests"], "blockedBy": [12] }
 ```
 
-`PATCH /v1/tasks/{n}` — change a card and/or comment on it: any of `title`, `description`, `project` (its agent is cleared unless `agent` is given), `agent` (empty takes it from its agent), `column`, `position` (`top` or `bottom` of its column) or `before` (the card it goes in front of, which has to be in the column the card ends up in; `null` the end), `labels`, `blocked` (empty clears it), `blockedBy`, `links`, and `comment`.
+`PATCH /v1/tasks/{n}` — change a card and/or comment on it: any of `title`, `description`, `project` (its agent is cleared unless `agent` is given), `agent` (empty takes it from its agent), `column`, `position` (`top` or `bottom` of its column) or `before` (the card it goes in front of, which has to be in the column the card ends up in; `null` the end), `labels`, `blocked` (empty clears it), `blockedBy`, `links`, and `comment`. When an agent's hive tools move a card that has no agent into `doing` without `agent`, it is given to that agent (when it is of the card's project; the history says "Given to …"); an explicit `agent`, including empty, wins, and the Assistant and other callers give it to nobody.
 
 ```json
 { "column": "review", "comment": "Fixed in auth/callback.ts; tests pass." }

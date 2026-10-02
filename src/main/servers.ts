@@ -812,7 +812,7 @@ async function taskActor(body: any): Promise<tasks.TaskActor> {
     try {
       const p = projectByName(body.agentProject)
       const a = projectAgents(await workspace.projectConfig(p)).find((x) => x.id === body.byAgent)
-      if (a) return { kind: 'agent', name: `${a.name} (${basename(p)})` }
+      if (a) return { kind: 'agent', name: `${a.name} (${basename(p)})`, self: { project: basename(p), agentId: a.id } }
     } catch {
       // An unknown agent is just a caller.
     }
