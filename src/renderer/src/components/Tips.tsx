@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { cornerPlacement } from '@shared/corner'
 import { TIP_GROUPS, TIPS, type Tip } from '@shared/tips'
 import { commandKeybinding, commands, runCommand } from '../commands'
 import { call } from '../api'
@@ -95,6 +96,45 @@ function useOverTerminal(ref: RefObject<HTMLDivElement | null>, on: boolean): bo
     }
   }, [on, ref])
   return over
+}
+
+/**
+ * Keeps the bottom-right corner's tip card and toasts out of the way (@shared/corner): left of the Assistant's panel
+ * while it is open, and just above an ended or couldn't-start bar under them, so its buttons can always be clicked.
+ * Sets --corner-right and --corner-lift, which both use; worked out again (at most once a frame) as the window, the
+ * panel or the bars change.
+ */
+export function CornerPlacement() {
+  useEffect(() => {
+    const root = document.documentElement
+    let frame = 0
+    const measure = (): void => {
+      frame = 0
+      const panel = document.querySelector<HTMLElement>('.assistant-panel')
+      const bars = [...document.querySelectorAll<HTMLElement>('.session-ended')].map((b) => b.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0)
+      const card = document.querySelector<HTMLElement>('.tip-card')
+      const toasts = document.querySelector<HTMLElement>('.toasts')
+      // The card is the lowest; with none, the toasts are.
+      const w = card?.offsetWidth || toasts?.offsetWidth || 320
+      const h = card?.offsetHeight || toasts?.offsetHeight || 0
+      const { right, lift } = cornerPlacement(window.innerWidth, window.innerHeight, panel ? panel.getBoundingClientRect().left : null, bars, w, h)
+      root.style.setProperty('--corner-right', `${right}px`)
+      root.style.setProperty('--corner-lift', `${lift}px`)
+    }
+    const soon = (): void => {
+      if (!frame) frame = requestAnimationFrame(measure)
+    }
+    measure()
+    const watch = new MutationObserver(soon)
+    watch.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] })
+    window.addEventListener('resize', soon)
+    return () => {
+      watch.disconnect()
+      window.removeEventListener('resize', soon)
+      if (frame) cancelAnimationFrame(frame)
+    }
+  }, [])
+  return null
 }
 
 export function TipCard() {

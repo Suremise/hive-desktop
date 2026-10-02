@@ -15,7 +15,7 @@ import { Sidebar } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
 import { isProviderEnabled } from '@shared/providers'
 import { tipsState } from '@shared/tips'
-import { TipCard, TipsDialog } from './components/Tips'
+import { CornerPlacement, TipCard, TipsDialog } from './components/Tips'
 import { showTodaysTip } from './tips'
 import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
 import { AssistantMain } from './components/AssistantView'
@@ -337,6 +337,7 @@ export function App() {
         )}
       </div>
       <StatusBar />
+      <CornerPlacement />
       <TipCard />
       <Toasts />
       <NotificationCenter />

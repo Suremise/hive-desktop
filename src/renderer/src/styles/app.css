@@ -1623,9 +1623,9 @@ p.hint {
 
 .toasts {
   position: fixed;
-  right: 14px;
-  /* Above the tip card, when one shows. */
-  bottom: calc(36px + var(--tip-space, 0px));
+  /* Above the tip card, when one shows; both keep clear of the Assistant's panel and of a bar's buttons (CornerPlacement). */
+  right: var(--corner-right, 14px);
+  bottom: calc(36px + var(--corner-lift, 0px) + var(--tip-space, 0px));
   z-index: 2500;
   display: flex;
   flex-direction: column;
@@ -4989,11 +4989,11 @@ body.pane-resizing-v .monaco-editor {
 /* The tip card: bottom right above the status bar, under the toasts; it steps aside over a focused terminal. */
 .tip-card {
   position: fixed;
-  right: 14px;
-  bottom: 36px;
+  right: var(--corner-right, 14px);
+  bottom: calc(36px + var(--corner-lift, 0px));
   z-index: 2400;
   width: 320px;
-  max-width: calc(100vw - 28px);
+  max-width: calc(100vw - var(--corner-right, 14px) - 14px);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
