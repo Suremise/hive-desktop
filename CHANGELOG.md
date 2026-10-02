@@ -35,7 +35,7 @@
 
 ### Sleep and shutdown
 - **The PC stays awake while agents work.** A PC set to sleep after a while idle no longer sleeps mid-task because nobody touched the keyboard; once no agent is working it may sleep again (the screen can still turn off and lock). The status bar says so while it lasts. **Settings → General → Keep the PC awake while agents work**: *When plugged in* (default), *Always* or *Never*.
-- **Windows shutting down or restarting** no longer loses the end of a transcript: Hive backs them up first, as quitting does.
+- **Windows shutting down, restarting or signing you out** no longer loses the end of a transcript: Hive backs them up first, without holding up the shutdown.
 - **After sleep**, agents' states and plan usage are read again straight away.
 
 ### When Hive's window crashes

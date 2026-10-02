@@ -471,7 +471,7 @@ Below them, **To review** lists worktree agents that have stopped or finished wi
 
 Agents work while you're away from the keyboard, so Hive keeps Windows from **sleeping** while any agent is working or waiting on background tasks, and lets it sleep again as soon as none is. The screen can still turn off and lock. The status bar says **Keeping the PC awake: 2 agents working** while it does. **Settings → General → Keep the PC awake while agents work** chooses *When plugged in* (the default: on a laptop's battery, it may sleep), *Always, on battery too* or *Never*.
 
-When Windows shuts down, restarts or signs you out, Hive backs up the agents' transcripts first, as quitting does. After the PC wakes from sleep, Hive reads each agent's state and plan usage again.
+When Windows shuts down, restarts or signs you out, Hive backs up the agents' transcripts first, in the moment Windows gives it, without holding up the shutdown. After the PC wakes from sleep, Hive reads each agent's state and plan usage again.
 
 ## The system tray
 

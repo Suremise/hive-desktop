@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'fs'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Stats } from 'fs'
 import { copyFile, mkdir, open, readFile, rename, writeFile, stat, cp, rm } from 'fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'path'
 import { createHash } from 'crypto'
@@ -210,7 +210,36 @@ export async function syncCopyLocked(src: string, dest: string): Promise<void> {
     await rm(tmp, { force: true }).catch(() => undefined)
     throw e
   }
-  await renameIntoPlace(tmp, dest)
+  await publishCopy(tmp, dest, identity(d))
+}
+
+/** Which file is at a path and how far it has been written, to tell whether it changed: replaced, or written to. */
+const identity = (s: Stats | null): string => (s ? `${s.ino}:${s.size}:${s.mtimeMs}` : '')
+
+/**
+ * Puts a finished whole copy in place of dest, unless dest changed since the copy began: the shutdown copy
+ * (syncCopyNow) got there first, and it is newer, so it stays. The check and the rename are made together, at once,
+ * on the main thread like the shutdown copy, so it can't come between them, and no rename is left under way while
+ * it runs. Each retry (Windows briefly refuses a rename while another process holds the file) checks again.
+ */
+async function publishCopy(tmp: string, dest: string, began: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      if (identity(statOrNull(dest)) !== began) {
+        rmSync(tmp, { force: true })
+        return
+      }
+      renameSync(tmp, dest)
+      return
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (attempt >= 20 || !(code === 'EPERM' || code === 'EACCES' || code === 'EBUSY')) {
+        rmSync(tmp, { force: true })
+        throw e
+      }
+      await new Promise((r) => setTimeout(r, 15 + attempt * 10))
+    }
+  }
 }
 
 async function readRange(path: string, from: number, length: number): Promise<Buffer> {
@@ -237,18 +266,21 @@ async function samePrefix(a: string, b: string, len: number): Promise<boolean> {
   return true
 }
 
-/** Appends bytes [from, to) of src to dest, a piece at a time. */
+/**
+ * Copies src's bytes [from, to) to the same place in dest. Each byte goes at its own offset, not the end, so a
+ * copy that overlaps another (the shutdown copy, syncCopyNow) writes the same bytes to the same place.
+ */
 async function appendRange(src: string, dest: string, from: number, to: number): Promise<void> {
   const r = await open(src, 'r')
   try {
-    const w = await open(dest, 'a')
+    const w = await open(dest, 'r+')
     try {
       const buf = Buffer.alloc(Math.min(4 * 1024 * 1024, to - from))
       for (let pos = from; pos < to; ) {
         const { bytesRead } = await r.read(buf, 0, Math.min(buf.length, to - pos), pos)
         if (!bytesRead) throw new Error(`${src} ended before ${to} bytes`)
         // A write can take less than it was given: the rest follows.
-        for (let off = 0; off < bytesRead; ) off += (await w.write(buf, off, bytesRead - off)).bytesWritten
+        for (let off = 0; off < bytesRead; ) off += (await w.write(buf, off, bytesRead - off, pos + off)).bytesWritten
         pos += bytesRead
       }
     } finally {
@@ -257,8 +289,93 @@ async function appendRange(src: string, dest: string, from: number, to: number):
   } finally {
     await r.close()
   }
+  // At least `to`: an overlapping copy may have gone further.
   const got = (await stat(dest)).size
-  if (got !== to) throw new Error(`The copy of ${src} is ${got} bytes, not ${to}`)
+  if (got < to) throw new Error(`The copy of ${src} is ${got} bytes, not ${to}`)
+}
+
+/**
+ * syncCopy done at once, for Windows ending the session: its callbacks don't wait for a Promise, so this blocks until
+ * the copy is made or `deadline` (Date.now()) passes. It works in steps of SYNC_STEP bytes and starts none after the
+ * deadline; a single step can't be cut short, so it can run over by about one. Out of time, a whole copy is dropped
+ * (the backup stays as it was) and an append stops where it got to (a shorter backup, still the transcript's start).
+ * It can overlap an ordinary syncCopy: appends write each byte at its own offset, and a whole copy of syncCopy's
+ * doesn't replace a backup that changed after it began (publishCopy). Returns whether the copy has all of src.
+ */
+export function syncCopyNow(src: string, dest: string, deadline: number): boolean {
+  const size = statSync(src).size
+  const d = statOrNull(dest)
+  if (d && d.size > 0 && d.size <= size && samePrefixSync(src, dest, d.size)) return copyRangeSync(src, dest, 'r+', d.size, size, deadline)
+  mkdirSync(dirname(dest), { recursive: true })
+  const tmp = `${dest}.${process.pid}-${++tmpCounter}.tmp`
+  try {
+    if (!copyRangeSync(src, tmp, 'w', 0, size, deadline)) {
+      rmSync(tmp, { force: true })
+      return false
+    }
+    renameSync(tmp, dest)
+    return true
+  } catch (e) {
+    rmSync(tmp, { force: true })
+    throw e
+  }
+}
+
+/** How much syncCopyNow reads and writes at a time, between looks at the time. */
+export const SYNC_STEP = 1024 * 1024
+
+function statOrNull(path: string): Stats | null {
+  try {
+    return statSync(path)
+  } catch {
+    return null
+  }
+}
+
+function readRangeSync(path: string, from: number, length: number): Buffer {
+  const fd = openSync(path, 'r')
+  try {
+    const buf = Buffer.alloc(length)
+    return buf.subarray(0, readSync(fd, buf, 0, length, from))
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/** samePrefix, at once. */
+function samePrefixSync(a: string, b: string, len: number): boolean {
+  const n = Math.min(4096, len)
+  for (const from of len > n ? [0, Math.floor((len - n) / 2), len - n] : [0]) {
+    const x = readRangeSync(a, from, n)
+    if (x.length !== n || !x.equals(readRangeSync(b, from, n))) return false
+  }
+  return true
+}
+
+/**
+ * Copies src's bytes [from, to) to the same place in dest (opened with `flags`), a step at a time, starting none
+ * after `deadline`. Returns whether it got to `to`.
+ */
+function copyRangeSync(src: string, dest: string, flags: 'r+' | 'w', from: number, to: number, deadline: number): boolean {
+  const r = openSync(src, 'r')
+  try {
+    const w = openSync(dest, flags)
+    try {
+      const buf = Buffer.alloc(Math.max(1, Math.min(SYNC_STEP, to - from)))
+      for (let pos = from; pos < to; ) {
+        if (Date.now() >= deadline) return false
+        const bytesRead = readSync(r, buf, 0, Math.min(buf.length, to - pos), pos)
+        if (!bytesRead) throw new Error(`${src} ended before ${to} bytes`)
+        for (let off = 0; off < bytesRead; ) off += writeSync(w, buf, off, bytesRead - off, pos + off)
+        pos += bytesRead
+      }
+      return true
+    } finally {
+      closeSync(w)
+    }
+  } finally {
+    closeSync(r)
+  }
 }
 
 const fileLocks = new Map<string, Promise<unknown>>()
