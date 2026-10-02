@@ -1104,6 +1104,9 @@ textarea.input {
   inset: 0;
   padding: 6px 0 0 10px;
   background: var(--terminal-bg, #1a1a1a);
+  /* xterm's layers (its canvases have z-indexes of their own) stay inside: what a pane shows over its terminal
+     (the ended bar's Resume and New) is on top, and gets the clicks. */
+  isolation: isolate;
 }
 .terminal-host.hidden {
   visibility: hidden;

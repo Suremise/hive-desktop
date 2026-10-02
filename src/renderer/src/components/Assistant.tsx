@@ -324,6 +324,8 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
     ])
   }
   const start = (): void => void actions.newSession(project.path, AGENT)
+  const resume = (): void => void actions.resumeLast(project.path, AGENT)
+  const resumeTip = a.resume ? `Resume "${sessionLabel(a.resume, 'Assistant')}", ${timeAgo(a.resume.lastActiveAt)}` : ''
   const stop = (): void => void actions.stopSession(project.path, AGENT)
   const compact = (): void => set({ compactFor: { project: project.path, agentId: AGENT } })
   const compacting = isCompacting(live)
@@ -338,7 +340,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
   )
   const moreMenu = (e: React.MouseEvent): void => {
     const { clientX: x, clientY: y } = e
-    // Start, Compact and Stop are the header's buttons until it gets too narrow for them.
+    // Start, Compact and Stop are the header's buttons until it gets too narrow for them (Resume always is one).
     const folded: MenuEntry[] = buttons
       ? []
       : live
@@ -346,12 +348,12 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
             { label: 'Compact…', icon: 'fold', disabled: !idle || empty, onClick: compact },
             { label: 'Stop', icon: 'debug-stop', onClick: stop }
           ]
-        : [{ label: 'Start', icon: 'play', onClick: start }]
+        : [a.resume ? { label: 'New Conversation', icon: 'add', onClick: start } : { label: 'Start', icon: 'play', onClick: start }]
     menu.openAt(x, y, [
       ...folded,
       live
         ? { label: 'New Conversation', icon: 'add', onClick: start }
-        : { label: 'Resume', icon: 'debug-continue', disabled: !a.resume, onClick: () => void actions.resumeLast(project.path, AGENT) },
+        : { label: 'Resume', icon: 'debug-continue', disabled: !a.resume, onClick: resume },
       { label: 'Resume a Conversation…', icon: 'history', onClick: () => void picker.openAt(project, x, y) },
       { label: 'All Conversations…', icon: 'comment-discussion', onClick: () => showAssistantView('conversations') },
       { separator: true },
@@ -381,15 +383,22 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
       <span className="faint pane-status">{live ? statusText(live) : 'Not running'}</span>
       <ReviewMark live={live} />
       <div className="grow" />
-      {buttons &&
-        (live ? (
+      {live ? (
+        buttons && (
           <>
             {btn(compacting ? 'loading' : 'fold', 'Compact', compact, 'subtle', compactTip, !idle || empty, compacting)}
             {btn('stop-circle', 'Stop', stop, 'tint-red', 'Stop the Assistant (the conversation is kept)')}
           </>
-        ) : (
-          btn('play', 'Start', start, 'primary', 'Start the Assistant')
-        ))}
+        )
+      ) : a.resume ? (
+        // A conversation to go back to: Resume first, and stays when the header narrows; New folds into ⋯.
+        <>
+          {btn('debug-continue', 'Resume', resume, 'primary', resumeTip)}
+          {buttons && btn('add', 'New conversation', start, 'subtle', 'Start a new conversation')}
+        </>
+      ) : (
+        buttons && btn('play', 'Start', start, 'primary', 'Start the Assistant')
+      )}
       <IconButton icon="ellipsis" title="More" onClick={moreMenu} />
       <IconButton icon="chevron-right" title={`Hide the Assistant (it keeps running)${kb ? ` (${formatKeybinding(kb)})` : ''}`} onClick={() => setAssistantOpen(false)} />
       {menu.element}
