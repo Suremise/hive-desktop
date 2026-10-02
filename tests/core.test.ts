@@ -180,11 +180,11 @@ describe('providers migration', () => {
 
   it('a fresh install starts with every provider off', () => {
     expect(Object.values(DEFAULT_SETTINGS.providers).every((p) => !p.enabled)).toBe(true)
-    expect(DEFAULT_APP_CONFIG.version).toBe(3)
+    expect(DEFAULT_APP_CONFIG.version).toBe(4)
   })
   it('moves 0.1 Claude Code settings over and keeps Claude Code on', () => {
     const c = load(v1)
-    expect(c.version).toBe(3)
+    expect(c.version).toBe(4)
     expect(c.settings.defaultProvider).toBe('claude-code')
     expect(c.settings.providers['claude-code']).toMatchObject({ enabled: true, executablePath: 'C:\\x\\claude.exe', defaultModel: 'opus', defaultEffort: 'high', defaultPermissionMode: 'acceptEdits', enableDangerousMode: true, extraArgs: '--verbose', checkUpdatesOnLaunch: false })
     expect(c.observedDefaultModel).toEqual({ 'claude-code': 'claude-opus-5-5' })
@@ -206,6 +206,13 @@ describe('providers migration', () => {
     // Once migrated, the same values are the user's choice.
     expect(load({ version: 3, ...assistant({ 'claude-code': { model: 'sonnet', effort: 'low', permissionMode: '', extraArgs: '' } }) }).settings.assistant.providers['claude-code']).toMatchObject({ model: 'sonnet', effort: 'low' })
     expect(DEFAULT_SETTINGS.assistant.providers['claude-code']).toMatchObject({ model: '', effort: '' })
+  })
+  it('moves a saved Squash merge style to Merge once, then keeps the choice', () => {
+    const style = (raw: Record<string, unknown>) => load(raw).settings.agents.mergeStyle
+    expect(DEFAULT_SETTINGS.agents.mergeStyle).toBe('merge')
+    expect(style({ version: 3, settings: { agents: { mergeStyle: 'squash' } } })).toBe('merge')
+    expect(style({ version: 2, settings: { agents: { mergeStyle: 'squash' } } })).toBe('merge')
+    expect(style({ version: 4, settings: { agents: { mergeStyle: 'squash' } } })).toBe('squash')
   })
   it('writes the Claude Code settings where 0.1 reads them', async () => {
     const { withLegacySettings } = await import('../src/shared/defaults')

@@ -217,7 +217,7 @@ export interface WindowState {
 
 export interface AppConfig {
   /** 3 since the Assistant uses the agents' model and effort (0.3.0); 2 since providers (0.2.0); 1 was Claude Code only. */
-  version: 3
+  version: 4
   settings: AppSettings
   recentWorkspaces: string[]
   /** The workspace of the window focused last (what 0.1 reopened); `windows` has every window. */
@@ -498,6 +498,9 @@ export interface MergeResult {
   error?: string
   /** The worktree and branch were removed afterwards. */
   cleanedUp?: boolean
+  /** After a squash merge, the agent's branch was moved to the merged branch; or why it wasn't. */
+  branchMoved?: boolean
+  moveError?: string
 }
 
 export interface SessionRecord {

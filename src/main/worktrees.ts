@@ -154,7 +154,7 @@ async function alreadyMerged(projectPath: string, into: string, branch: string):
  * the worktree is committed first. Conflicts are detected before anything in the project folder
  * changes (git merge-tree); if there are any, nothing is merged and the files are returned.
  */
-export async function mergeWorktree(projectPath: string, wt: AgentWorktree, opts: { squash: boolean; message: string }): Promise<MergeResult> {
+export async function mergeWorktree(projectPath: string, wt: AgentWorktree, opts: { squash: boolean; message: string; moveBranch?: boolean }): Promise<MergeResult> {
   const message = opts.message.trim() || `Merge ${wt.branch}`
   const dirty = existsSync(wt.path) ? await dirtyCount(wt.path) : 0
   // Git can't say what is uncommitted there: merging (and removing the worktree afterwards) could lose it.
@@ -198,5 +198,24 @@ export async function mergeWorktree(projectPath: string, wt: AgentWorktree, opts
     }
   }
   log.info(`Merged ${wt.branch} into ${into}${opts.squash ? ' (squash)' : ''}`)
-  return { ok: true }
+  if (!opts.squash || !opts.moveBranch) return { ok: true }
+  const moved = await moveBranchTo(projectPath, wt, into)
+  return moved === true ? { ok: true, branchMoved: true } : { ok: true, moveError: moved }
+}
+
+/**
+ * After a squash merge that keeps the worktree: moves the agent's branch to `into`, which now holds all its
+ * work in the squash commit, so its next merge brings only what is new instead of conflicting with its own
+ * old commits. Only when merging the branch again would change nothing (git merge-tree), and with
+ * `reset --keep`, which refuses rather than lose uncommitted changes. Returns true, or why it didn't.
+ */
+export async function moveBranchTo(projectPath: string, wt: AgentWorktree, into: string): Promise<true | string> {
+  if (!existsSync(wt.path)) return `${wt.path} is missing.`
+  const head = await git(wt.path, ['symbolic-ref', '--short', 'HEAD'])
+  if (!head.ok || head.out.trim() !== wt.branch) return `The worktree isn't on ${wt.branch}.`
+  if (!(await alreadyMerged(projectPath, into, wt.branch))) return `${into} doesn't have everything on ${wt.branch}.`
+  const r = await git(wt.path, ['reset', '--keep', into])
+  if (!r.ok) return r.err || r.out || 'git reset failed'
+  log.info(`Moved ${wt.branch} to ${into} after the squash merge`)
+  return true
 }

@@ -589,7 +589,8 @@ export function MergeDialog() {
   const [status, setStatus] = useState<AgentBranchStatus | null>(null)
   const [squash, setSquash] = useState(true)
   const [message, setMessage] = useState('')
-  const [cleanup, setCleanup] = useState(true)
+  const [cleanup, setCleanup] = useState(false)
+  const [moveBranch, setMoveBranch] = useState(true)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<MergeResult | null>(null)
 
@@ -598,9 +599,10 @@ export function MergeDialog() {
     setResult(null)
     setBusy(false)
     if (!target || !agent?.worktree) return
-    setSquash((settings?.agents.mergeStyle ?? 'squash') === 'squash')
+    setSquash((settings?.agents.mergeStyle ?? 'merge') === 'squash')
     setMessage(`${agent.name}: work from ${agent.worktree.branch}`)
-    setCleanup(true)
+    setCleanup(false)
+    setMoveBranch(true)
     void call('agents:branchStatus', target.project, target.agentId)
       .then(setStatus)
       .catch((e) => notify('error', 'Could not read the branch', errorMessage(e)))
@@ -617,10 +619,17 @@ export function MergeDialog() {
   const merge = async (): Promise<void> => {
     setBusy(true)
     try {
-      const r = await call('agents:merge', project.path, agent.id, { squash, message, cleanup: cleanup && !running })
+      const removing = cleanup && !running
+      const r = await call('agents:merge', project.path, agent.id, { squash, message, cleanup: removing, moveBranch: squash && !removing && moveBranch })
       setResult(r)
       if (r.ok) {
-        notify('success', `Merged ${agent.worktree!.branch} into ${status?.into ?? 'the project folder'}`, r.cleanedUp ? `${agent.name}'s worktree and branch were removed.` : undefined)
+        const into = status?.into ?? 'the project folder'
+        notify(
+          'success',
+          `Merged ${agent.worktree!.branch} into ${into}`,
+          r.cleanedUp ? `${agent.name}'s worktree and branch were removed.` : r.branchMoved ? `${agent.worktree!.branch} was moved to ${into}, ready for ${agent.name}'s next task.` : undefined
+        )
+        if (r.moveError) notify('warning', `${agent.worktree!.branch} was not moved to ${into}`, `${r.moveError} Its old commits are still on it, so its next merge may conflict with them: ask ${agent.name} to run git rebase ${into}.`)
         if (r.cleanedUp) focusAfterRemoving(project, agent.id)
         await actions.refreshWorkspace()
         close()
@@ -722,18 +731,18 @@ export function MergeDialog() {
           )}
           {status.dirty > 0 && <div className="detail">The uncommitted changes are committed on {agent.worktree.branch} first, with the message below.</div>}
           <div className="choice-list">
-            <label className={cx('choice', squash && 'selected')}>
-              <input type="radio" checked={squash} onChange={() => setSquash(true)} />
-              <div>
-                <strong>Squash</strong>
-                <div className="faint">One commit with everything the agent did.</div>
-              </div>
-            </label>
             <label className={cx('choice', !squash && 'selected')}>
               <input type="radio" checked={!squash} onChange={() => setSquash(false)} />
               <div>
                 <strong>Merge</strong>
-                <div className="faint">Keeps the agent's individual commits, plus a merge commit.</div>
+                <div className="faint">Keeps the agent's commits and their messages, plus a merge commit. Its next merge brings only what is new.</div>
+              </div>
+            </label>
+            <label className={cx('choice', squash && 'selected')}>
+              <input type="radio" checked={squash} onChange={() => setSquash(true)} />
+              <div>
+                <strong>Squash</strong>
+                <div className="faint">One commit with everything the agent did, with the message below.</div>
               </div>
             </label>
           </div>
@@ -746,6 +755,19 @@ export function MergeDialog() {
             (and the agent)
           </label>
           {running && <div className="detail">{agent.name} is running, so its worktree stays. Stop it first to remove the worktree after merging.</div>}
+          {/* A squashed branch that stays would bring its old commits to its next merge: move it to the squash. */}
+          {squash && !(cleanup && !running) && (
+            <>
+              <label className="flex muted" style={{ marginTop: 6 }}>
+                <input type="checkbox" className="checkbox" checked={moveBranch} onChange={(e) => setMoveBranch(e.target.checked)} /> Move {agent.worktree.branch} to {status.into ?? 'the merged branch'} afterwards
+              </label>
+              <div className="detail">
+                {moveBranch
+                  ? `Its work is all in the squash commit, so ${agent.name}'s next merge brings only what is new.`
+                  : `Its old commits stay on it, and its next merge may conflict with them.`}
+              </div>
+            </>
+          )}
           {result?.error && <div className="field-error">{result.error}</div>}
         </>
       )}

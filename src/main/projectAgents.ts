@@ -160,7 +160,7 @@ export async function branchStatus(projectPath: string, agentId: string): Promis
   return wt.branchStatus(projectPath, (await worktreeOf(projectPath, agentId)).worktree)
 }
 
-export async function merge(projectPath: string, agentId: string, opts: { squash: boolean; message: string; cleanup: boolean }): Promise<MergeResult> {
+export async function merge(projectPath: string, agentId: string, opts: { squash: boolean; message: string; cleanup: boolean; moveBranch?: boolean }): Promise<MergeResult> {
   projectPath = workspace.assertProject(projectPath)
   const { def, worktree } = await worktreeOf(projectPath, agentId)
   if (opts.cleanup && sessions.liveFor(projectPath, agentId)) throw new Error(`Stop ${def.name} before merging and removing its worktree.`)
@@ -169,7 +169,8 @@ export async function merge(projectPath: string, agentId: string, opts: { squash
   if (st === 'working' || st === 'starting') throw new Error(`${def.name} is working. Merge once it has finished.`)
   if (st === 'background') throw new Error(`${def.name} is waiting on background tasks it started. Merge once it has finished.`)
   // One merge at a time per project folder: two would stage and commit into each other.
-  const result = await withFileLock(join(projectPath, '.git', 'hive-merge'), () => wt.mergeWorktree(projectPath, worktree, opts))
+  // A branch that is removed afterwards isn't moved.
+  const result = await withFileLock(join(projectPath, '.git', 'hive-merge'), () => wt.mergeWorktree(projectPath, worktree, { ...opts, moveBranch: opts.moveBranch && !opts.cleanup }))
   // The project folder's branch moved on: every worktree agent's unmerged work is counted again.
   if (!result.ok || !opts.cleanup) {
     workspaceOf(projectPath).scheduleRefresh()

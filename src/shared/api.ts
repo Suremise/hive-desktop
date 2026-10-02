@@ -195,7 +195,7 @@ export interface HiveRequests {
   /** Every worktree agent's unmerged work known so far (then `branch-status` events as it changes). */
   'agents:branchStatuses': () => { projectPath: string; agentId: string; status: AgentBranchStatus | null }[]
   /** Commits the worktree's changes and merges its branch into the project folder's current branch. */
-  'agents:merge': (projectPath: string, agentId: string, opts: { squash: boolean; message: string; cleanup: boolean }) => MergeResult
+  'agents:merge': (projectPath: string, agentId: string, opts: { squash: boolean; message: string; cleanup: boolean; moveBranch?: boolean }) => MergeResult
 
   /** The conversation for the transcript viewer; null when the file has not grown since knownSize. Long tool input/output is shortened. */
   /** The conversation from item `from` on (default: the last TRANSCRIPT_WINDOW items); null when the file hasn't grown since knownSize and `from` is unchanged. */

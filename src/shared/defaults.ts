@@ -79,7 +79,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   agents: {
     fileLocks: 'block',
     worktreeCopy: '.env*',
-    mergeStyle: 'squash',
+    mergeStyle: 'merge',
     backgroundTaskMinutes: 60
   },
   board: {
@@ -90,7 +90,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
-  version: 3,
+  version: 4,
   settings: DEFAULT_SETTINGS,
   recentWorkspaces: [],
   lastWorkspace: null,
@@ -330,7 +330,12 @@ export function migrateConfig(cfg: AppConfig, raw?: Record<string, any>): AppCon
       if (a.effort === old.effort) a.effort = ''
     }
   }
-  cfg.version = 3
+  if (raw && (raw.version ?? 1) < 4 && cfg.settings.agents.mergeStyle === 'squash') {
+    // Squash was the default until 0.3 (saved into every config): merging keeps a long-lived agent's commits, so
+    // its next merge brings only what is new. Anyone who wants Squash chooses it again.
+    cfg.settings.agents.mergeStyle = 'merge'
+  }
+  cfg.version = 4
   // Settings for providers this version doesn't know are kept (a newer Hive wrote them), but never used.
   if (!isKnownProvider(cfg.settings.defaultProvider)) cfg.settings.defaultProvider = DEFAULT_PROVIDER
   return cfg

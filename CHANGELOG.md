@@ -5,6 +5,8 @@
 ### Agent header
 - **Archive & New** moved from the agent header into its **⋯** menu, as **Archive and Start New…**, leaving more room for the agent's name, card and session.
 - **Compact** and **Stop** are small icon buttons, like the Assistant's (hover for what they do).
+- **Merge keeps your agent's commits by default.** The Merge dialog's default is now **Merge** (the agent's commits and their messages, plus a merge commit) instead of Squash, and it no longer removes the worktree unless you tick it, so one agent can merge task after task. If you had Squash saved, it's switched to Merge once; choose Squash again in **Settings → Agents & Worktrees → Default merge style** if you want it.
+- **Squash without the old commits coming back**: a squash that keeps the worktree now moves the agent's branch onto the squash commit (**Move the branch afterwards**, ticked), so its next merge doesn't conflict with its own earlier work.
 - **See when a worktree agent has work to merge**: **Merge…** turns orange with the number of commits not merged into the project folder's branch, and the agent's tab shows it too (↑2). A • means uncommitted files only; hover for the details. It updates when the agent finishes a turn, when you come back to Hive, and after a merge.
 
 ### Task board

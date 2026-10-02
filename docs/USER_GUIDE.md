@@ -150,13 +150,15 @@ If git can't read the changes, the **Changes** tab says why, with **Retry**.
 
 **Reviewing and merging a worktree agent's work.** In the **Changes** and **Files** tabs, the selector at the top switches between the project folder and each agent's worktree. For a worktree, Changes lists everything the agent changed since its branch started (its commits and uncommitted edits). When it is done, choose **Merge** (pane header, agent menu or Changes tab):
 
-**Work not merged yet** shows on the agent: **Merge…** in its header turns orange with the number of commits on its branch that aren't in the project folder's branch, and its tab in the agent strip shows the same number with an up arrow. A **•** instead of a number means uncommitted files only. Hover either for the details ("2 commits not merged into main · 1 uncommitted file"). Hive checks when the agent finishes a turn or stops, when you come back to Hive's window, after a merge, and every minute while something is left to merge.
-
-
 - Uncommitted changes are committed on the agent's branch first, with the message you enter.
-- The branch is merged into the branch checked out in the project folder: **Squash** (one commit, the default; **Settings → Agents & Worktrees → Default merge style**) or **Merge** (keeps the agent's commits).
+- The branch is merged into the branch checked out in the project folder: **Merge** (the default; keeps the agent's commits and their messages, plus a merge commit) or **Squash** (one commit, with the message you enter). Change the default in **Settings → Agents & Worktrees → Default merge style**.
 - If the same files changed on both sides, nothing is merged. Hive lists the files and can send an agent in the project folder instructions to do the merge and resolve the conflicts, or copy them for you.
-- **Remove the worktree and branch afterwards** is ticked by default (stop the agent first).
+- **Remove the worktree and branch afterwards** (and the agent) is off by default: an agent can keep its worktree and work on task after task, merging as it goes. Tick it when its work is finished (stop the agent first).
+- **Squash** with the worktree kept offers **Move the branch to main afterwards** (ticked). The squash commit holds all the branch's work, so the branch is moved there and the agent's next merge brings only what is new. Without it, the branch keeps its old commits and its next merge may conflict with its own earlier work. Hive only moves it when nothing would be lost, and tells you if it couldn't.
+
+**Working with one agent for a while.** With **Merge** and the worktree kept, an agent can do a task and merge it, then the next task and merge again, or several tasks and one merge. When the project folder's branch moves on (another agent's work was merged), ask the agent to merge it into its branch before its next task, so it works on current code.
+
+**Work not merged yet** shows on the agent: **Merge…** in its header turns orange with the number of commits on its branch that aren't in the project folder's branch, and its tab in the agent strip shows the same number with an up arrow. A **•** instead of a number means uncommitted files only. Hover either for the details ("2 commits not merged into main · 1 uncommitted file"). Hive checks when the agent finishes a turn or stops, when you come back to Hive's window, after a merge, and every minute while something is left to merge.
 
 **Remove Agent** asks whether to keep a worktree agent's worktree and branch or delete them; **Discard** deletes them straight away. Their sessions stay in the Sessions tab, labelled with the agent and branch. Two dev servers from different agents can clash on the same port; give them different ports.
 
