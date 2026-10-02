@@ -102,6 +102,18 @@ const git = (cwd, ...a) => execFileSync('git', a, { cwd }).toString()
   check('the window was told the counts', st?.ahead === 0 && st?.dirty === 1, JSON.stringify(st))
   await page.screenshot({ path: path.join(lib.WORK, 'unmerged-2-dirty.png') })
 
+  // A squash merge that keeps the worktree: the branch's commits aren't in master, but their changes are.
+  const sq = await inv('agents:merge', alpha, two.id, { squash: true, message: 'Squash Two', cleanup: false })
+  check('the squash merge succeeds', sq.ok, JSON.stringify(sq))
+  check('git still counts the commit as not merged', git(alpha, 'rev-list', '--count', `master..${two.worktree.branch}`).trim() !== '0')
+  check('but after a squash merge Merge… is plain again', !!(await until(async () => (await count()) === '' && (await tabBadge()) === '', 8000)), `${await count()} ${await tabBadge()}`)
+  // New work on top of it counts again.
+  fs.writeFileSync(path.join(wt, 'd.ts'), 'export const d = 4\n')
+  git(wt, 'add', '-A')
+  git(wt, 'commit', '-q', '-m', 'd')
+  await turn()
+  check('new work after a squash merge shows again', !!(await until(async () => (await count()) !== '' && (await highlighted()), 8000)), await count())
+
   await inv('session:stop', alpha, two.id).catch(() => undefined)
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')

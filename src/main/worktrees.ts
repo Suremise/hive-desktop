@@ -132,7 +132,21 @@ export async function branchStatus(projectPath: string, wt: AgentWorktree, opts:
   if (opts.strict && (!count.ok || dirty === null)) {
     throw new Error(`Git couldn't check ${wt.branch}: ${(count.ok ? 'git status failed in its folder' : count.err.trim()) || 'unknown error'}.`)
   }
-  return { branch: wt.branch, base: wt.base, into, ahead: count.ok ? parseInt(count.out.trim(), 10) || 0 : 0, dirty: dirty ?? 0 }
+  let ahead = count.ok ? parseInt(count.out.trim(), 10) || 0 : 0
+  if (ahead > 0 && (await alreadyMerged(projectPath, into ?? wt.base, wt.branch))) ahead = 0
+  return { branch: wt.branch, base: wt.base, into, ahead, dirty: dirty ?? 0 }
+}
+
+/**
+ * Whether merging `branch` would leave `into` as it is: its commits were squash-merged (or their changes
+ * made) already, though git still counts them as not merged. A conflict or a git error counts as not merged.
+ */
+async function alreadyMerged(projectPath: string, into: string, branch: string): Promise<boolean> {
+  const [merged, tree] = await Promise.all([
+    git(projectPath, ['merge-tree', '--write-tree', '--no-messages', into, branch]),
+    git(projectPath, ['rev-parse', `${into}^{tree}`])
+  ])
+  return merged.ok && tree.ok && merged.out.split('\n')[0].trim() === tree.out.trim()
 }
 
 /**
