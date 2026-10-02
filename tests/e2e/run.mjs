@@ -52,6 +52,7 @@ const SUITES = [
   { name: 'donemove' },
   { name: 'boardscope' },
   { name: 'board' },
+  { name: 'boardscroll' },
   { name: 'rail' },
   { name: 'resize' },
   { name: 'keys' },

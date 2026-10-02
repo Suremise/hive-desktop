@@ -6,6 +6,7 @@ import { call, errorMessage } from '../api'
 import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, useStore } from '../store'
 import { selectProject } from '../actions'
 import { cx, timeAgo } from '../util'
+import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
 import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, STATUS_TEXT, statusText, Tooltip, useBusy, useContextMenu, type MenuEntry } from './ui'
 import { ProviderIcon } from './ProviderIcon'
 
@@ -123,14 +124,12 @@ function CardTile({
   projects,
   showProject,
   onDragStart,
-  onDragOver,
   dropHere
 }: {
   c: TaskCard
   projects: ProjectInfo[]
   showProject: boolean
   onDragStart: (e: React.DragEvent) => void
-  onDragOver: (e: React.DragEvent) => void
   dropHere: boolean
 }) {
   const menu = useContextMenu()
@@ -145,7 +144,6 @@ function CardTile({
         className={cx('task-card', c.blocked && 'blocked', finished && 'finished', stalled && !c.blocked && 'stalled')}
         draggable={!c.archived}
         onDragStart={onDragStart}
-        onDragOver={onDragOver}
         onClick={() => set({ taskOpen: c.number })}
         onContextMenu={(e) => menu.open(e, cardMenu(c))}
         data-task={c.number}
@@ -219,6 +217,97 @@ export function Board({ project, query, archived }: { project: string | null; qu
     () => all.filter((c) => c.archived === archived && (project === null || c.project.toLowerCase() === project.toLowerCase()) && matches(c, query)),
     [all, project, query, archived]
   )
+  const boardRef = useRef<HTMLDivElement>(null)
+
+  /**
+   * Where the dragged card would land with the pointer at (x, y), from what is under it now: over a card, before it
+   * (its top half) or the next one; below a column's last card (or in an empty column), at the end; in a gap between
+   * cards, where it was. Called on every dragover, and after each step of scrolling, so the marker follows what
+   * scrolling brings under the pointer.
+   */
+  const place = (x: number, y: number): void => {
+    const d = dragNow.current
+    if (!d) return
+    const at = document.elementFromPoint(x, y) as HTMLElement | null
+    const colEl = at?.closest<HTMLElement>('.board-column')
+    const column = colEl?.dataset.column as TaskColumn | undefined
+    if (!at || !colEl || !column || !boardRef.current?.contains(colEl)) return
+    const list = cards.filter((c) => c.column === column)
+    const tile = at.closest<HTMLElement>('.task-card')
+    let before: number | null
+    if (tile) {
+      const n = Number(tile.dataset.task)
+      const r = tile.getBoundingClientRect()
+      const i = list.findIndex((c) => c.number === n)
+      before = y < r.top + r.height / 2 ? n : (list[i + 1]?.number ?? null)
+    } else {
+      const tiles = colEl.querySelectorAll('.task-card')
+      const last = tiles[tiles.length - 1]?.getBoundingClientRect()
+      if (!last || y > last.bottom || d.column !== column) before = null
+      else return
+    }
+    if (d.column !== column || d.before !== before) setDrag({ ...d, column, before })
+  }
+  const placeNow = useRef(place)
+  placeNow.current = place
+
+  // While a card is dragged: near the top or bottom of a column's cards (or over its heading), that column scrolls;
+  // near the board's sides, the board does. Every frame, so it keeps going with the pointer held still (dragover
+  // doesn't come at a steady rate, or at all without a move). Stops when the drag ends, is dropped or cancelled, or
+  // the pointer leaves the board.
+  const dragging = !!drag
+  const pointer = useRef<{ x: number; y: number } | null>(null)
+  useEffect(() => {
+    if (!dragging) return
+    const over = (e: DragEvent): void => {
+      pointer.current = boardRef.current?.contains(e.target as Node) ? { x: e.clientX, y: e.clientY } : null
+    }
+    const stop = (): void => {
+      pointer.current = null
+    }
+    // Out of the window: no more dragovers, so the last place would go on scrolling.
+    const leave = (e: DragEvent): void => {
+      if (!e.relatedTarget) stop()
+    }
+    document.addEventListener('dragover', over, true)
+    document.addEventListener('drop', stop, true)
+    document.addEventListener('dragleave', leave, true)
+    let frame = 0
+    let last = performance.now()
+    const step = (now: number): void => {
+      // As far as the time since the last frame allows: as fast however often the window draws.
+      const ms = now - last
+      last = now
+      const p = pointer.current
+      const board = boardRef.current
+      if (p && board) {
+        let moved = false
+        const body = (document.elementFromPoint(p.x, p.y) as HTMLElement | null)?.closest('.board-column')?.querySelector<HTMLElement>('.board-column-body')
+        if (body && body.scrollHeight > body.clientHeight) {
+          const r = body.getBoundingClientRect()
+          const top = body.scrollTop
+          body.scrollTop = clampScroll(top, frameStep(edgeSpeed(p.y, r.top, r.bottom), ms), body.scrollHeight - body.clientHeight)
+          moved = body.scrollTop !== top
+        }
+        if (board.scrollWidth > board.clientWidth) {
+          const r = board.getBoundingClientRect()
+          const left = board.scrollLeft
+          board.scrollLeft = clampScroll(left, frameStep(edgeSpeed(p.x, r.left, r.right), ms), board.scrollWidth - board.clientWidth)
+          moved ||= board.scrollLeft !== left
+        }
+        if (moved) placeNow.current(p.x, p.y)
+      }
+      frame = requestAnimationFrame(step)
+    }
+    frame = requestAnimationFrame(step)
+    return () => {
+      cancelAnimationFrame(frame)
+      document.removeEventListener('dragover', over, true)
+      document.removeEventListener('drop', stop, true)
+      document.removeEventListener('dragleave', leave, true)
+      pointer.current = null
+    }
+  }, [dragging])
 
   if (archived) {
     return (
@@ -258,7 +347,7 @@ export function Board({ project, query, archived }: { project: string | null; qu
   }
 
   return (
-    <div className={cx('board', colored && 'colored')} onDragEnd={() => setDrag(null)}>
+    <div ref={boardRef} className={cx('board', colored && 'colored')} onDragEnd={() => setDrag(null)}>
       {TASK_COLUMNS.map((col) => {
         const list = cards.filter((c) => c.column === col.id)
         return (
@@ -268,16 +357,9 @@ export function Board({ project, query, archived }: { project: string | null; qu
             data-column={col.id}
             style={colored ? ({ '--col': columnColor(colors, col.id) } as React.CSSProperties) : undefined}
             onDragOver={(e) => {
-              const d = dragNow.current
-              if (!d) return
+              if (!dragNow.current) return
               e.preventDefault()
-              // Below its last card (or an empty column): to the end. Gaps between cards keep the marker where it is.
-              if ((e.target as HTMLElement).closest('.task-card')) return
-              const tiles = (e.currentTarget as HTMLElement).querySelectorAll('.task-card')
-              const last = tiles[tiles.length - 1]?.getBoundingClientRect()
-              const past = !last || e.clientY > last.bottom
-              if (past && (d.column !== col.id || d.before !== null)) setDrag({ ...d, column: col.id, before: null })
-              else if (!past && d.column !== col.id) setDrag({ ...d, column: col.id, before: null })
+              place(e.clientX, e.clientY)
             }}
             onDrop={(e) => {
               e.preventDefault()
@@ -303,16 +385,6 @@ export function Board({ project, query, archived }: { project: string | null; qu
                     e.dataTransfer.effectAllowed = 'move'
                     e.dataTransfer.setData('text/plain', `#${c.number}`)
                     setDrag({ n: c.number, column: c.column, before: c.number })
-                  }}
-                  onDragOver={(e) => {
-                    const d = dragNow.current
-                    if (!d) return
-                    e.preventDefault()
-                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                    // The top half drops before this card, the bottom half before the next one.
-                    const i = list.findIndex((x) => x.number === c.number)
-                    const before = e.clientY < r.top + r.height / 2 ? c.number : (list[i + 1]?.number ?? null)
-                    if (d.column !== col.id || d.before !== before) setDrag({ ...d, column: col.id, before })
                   }}
                 />
               ))}
