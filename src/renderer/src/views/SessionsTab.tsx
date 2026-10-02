@@ -10,6 +10,7 @@ import { Icon, IconButton, InfoTip, LoadFailed, Markdown, Modal, StaleNote, Tool
 import { confirm, notify, openInSessionsTab, prompt, revealAgent, set, setAssistantOpen, useStore } from '../store'
 import { cx, formatDuration, formatTokens, sessionLabel, timeAgo } from '../util'
 import { useSessions } from './ProjectTabs'
+import { useScopedLoad } from '../scopedLoad'
 
 /**
  * Sessions tab: the project's sessions on the left and a read-only transcript on the right,
@@ -35,9 +36,6 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<Scope>('this')
-  const [results, setResults] = useState<TranscriptSearchResult[] | null>(null)
-  // A search that failed: said in place of the results (not "No matches"), with Retry.
-  const [searchError, setSearchError] = useState<string | null>(null)
   const [searchTry, setSearchTry] = useState(0)
   const [jump, setJump] = useState<Jump | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -67,33 +65,24 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
   }, [items, selectedId, liveId])
 
   // Search as you type (debounced). "This session" searches the selected transcript.
+  // Results belong to their project, scope and query: never shown for another. A search that failed is said in place
+  // of the results (not "No matches"), with Retry.
   const q = query.trim()
+  const searchTarget = scope === 'this' ? selectedId : null
+  const searching = !!q && (scope === 'all' || !!selectedId)
+  const searchKey = searching ? JSON.stringify([project.path, scope, searchTarget, q]) : ''
+  const search = useScopedLoad<TranscriptSearchResult[]>(searchKey)
+  const results = searching ? search.data : null
+  const searchError = searching ? search.error : null
+  const { load: loadSearch } = search
   useEffect(() => {
-    if (!q || (scope === 'this' && !selectedId)) {
-      setResults(null)
-      setSearchError(null)
-      return
-    }
-    let cancelled = false
-    const t = setTimeout(() => {
-      void call('transcript:search', project.path, q, scope === 'this' ? selectedId : null).then(
-        (r) => {
-          if (cancelled) return
-          setResults(r)
-          setSearchError(null)
-        },
-        (e) => {
-          if (cancelled) return
-          setResults(null)
-          setSearchError(errorMessage(e))
-        }
-      )
-    }, 250)
-    return () => {
-      cancelled = true
-      clearTimeout(t)
-    }
-  }, [q, scope, selectedId, project.path, searchTry])
+    if (!searchKey) return
+    const path = project.path
+    const t = setTimeout(() => loadSearch(searchKey, () => call('transcript:search', path, q, searchTarget)), 250)
+    return () => clearTimeout(t)
+    // The key holds the project, scope, session and query.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchKey, searchTry, loadSearch])
 
   const open = (sessionId: string, itemId?: number): void => {
     setSelectedId(sessionId)
@@ -189,7 +178,11 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
           {q && results && <span className="faint">{hitCount === 0 ? 'No matches' : `${hitCount}${results.some((r) => r.more) ? '+' : ''} match${hitCount === 1 ? '' : 'es'}`}</span>}
         </div>
         {listError && <StaleNote what={`the ${noun}s`} error={listError} at={loadedAt} onRetry={reload} />}
-        {q && searchError ? (
+        {searching && !searchError && !results ? (
+          <div className="pane-empty">
+            <Icon name="loading" spin /> Searching…
+          </div>
+        ) : q && searchError ? (
           <LoadFailed inline what="the search results" error={searchError} onRetry={() => setSearchTry((n) => n + 1)} />
         ) : q && results ? (
           <div className="pane-body search-results">

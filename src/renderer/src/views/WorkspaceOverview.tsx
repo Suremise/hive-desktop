@@ -364,7 +364,9 @@ export function WorkspaceOverviewPanel() {
   const workspace = useStore((s) => s.workspace)
   const now = useNow(60000)
   const from = periodFrom(period, now)
-  const groups = useMemo(() => (usage ? usageGroups() : []), [usage])
+  // Another workspace's figures (opened in this window before) aren't this one's: none until this one's load.
+  const mine = !!usage && usage.workspacePath === workspace?.path
+  const groups = useMemo(() => (mine && usage ? usageGroups() : []), [usage, mine])
   const live = (key: string): number => [...(workspace?.projects ?? []), ...(workspace?.assistant ? [workspace.assistant] : [])].find((p) => (key === 'assistant' ? p.path === workspace?.assistant?.path : p.path === key))?.agents.filter((a) => a.live).length ?? 0
   return (
     <>

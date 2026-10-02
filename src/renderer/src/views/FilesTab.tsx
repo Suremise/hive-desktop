@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FileEntry, ProjectInfo, SessionImage, SessionImageGroup } from '@shared/types'
 import * as actions from '../actions'
-import { call, errorMessage } from '../api'
+import { call } from '../api'
 import { discardDrafts, draftsUnder, FileView, hasDraft, moveDrafts, useDraftVersion } from '../components/FileView'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { pasteIntoTerminal } from '../components/TerminalView'
 import { Icon, IconButton, InfoTip, LoadFailed, Modal, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
 import { confirm, filesListeners, focusedAgentId, get, projectKey, set, setProjectTab, showAgent, useStore } from '../store'
+import { useScopedLoad } from '../scopedLoad'
 import { cx, formatBytes, HIVE_FILES_MIME, IMAGE_EXT, imageUrl, quotePath, timeAgo } from '../util'
 
 const parentOf = (rel: string): string => (rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '')
@@ -140,9 +141,14 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
   const [anchor, setAnchor] = useState<string | null>(null)
   const [editing, setEditing] = useState<Editing | null>(null)
   const [filter, setFilter] = useState('')
-  const [results, setResults] = useState<FileEntry[] | null>(null)
-  // The filter's search failed: said, with Retry, rather than "No files match".
-  const [findError, setFindError] = useState<string | null>(null)
+  // The filter searches the whole folder by path. Its matches belong to the folder and the filter: never shown for
+  // another. A failed search is said, with Retry, rather than "No files match".
+  const q = filter.trim()
+  const filtering = !!q
+  const findKey = filtering ? JSON.stringify([project.path, q]) : ''
+  const find = useScopedLoad<FileEntry[]>(findKey)
+  const results = filtering ? find.data : null
+  const findError = filtering ? find.error : null
   const [findTry, setFindTry] = useState(0)
   const [git, setGit] = useState<Record<string, string>>({})
   const [dropTarget, setDropTarget] = useState<string | null>(null)
@@ -209,30 +215,19 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
     gitTimer.current = window.setTimeout(loadGit, 400)
   })
 
-  // Filter: search the whole project by path.
+  const { load: loadFind } = find
   useEffect(() => {
-    const q = filter.trim()
-    setFindError(null)
-    if (!q) return setResults(null)
-    let current = true
-    const t = window.setTimeout(() => {
-      void call('files:find', project.path, q).then(
-        (r) => current && setResults(r),
-        (e) => {
-          if (!current) return
-          setResults([])
-          setFindError(errorMessage(e))
-        }
-      )
-    }, 180)
-    return () => {
-      current = false
-      window.clearTimeout(t)
-    }
-  }, [filter, project.path, findTry])
+    if (!findKey) return
+    const path = project.path
+    const t = window.setTimeout(() => loadFind(findKey, () => call('files:find', path, q)), 180)
+    return () => window.clearTimeout(t)
+    // The key holds the folder and the filter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [findKey, findTry, loadFind])
 
   const rows = useMemo<Row[]>(() => {
-    if (results) return results.map((entry) => ({ entry, depth: 0 }))
+    // Filtering: the matches, none while they're found.
+    if (filtering) return (results ?? []).map((entry) => ({ entry, depth: 0 }))
     const out: Row[] = []
     const walk = (rel: string, depth: number): void => {
       if (editing && editing.kind !== 'rename' && editing.parent === rel) out.push({ edit: true, depth, isDir: editing.kind === 'new-folder' })
@@ -243,7 +238,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
     }
     walk('', 0)
     return out
-  }, [dirs, expanded, editing, results])
+  }, [dirs, expanded, editing, filtering, results])
 
   const entries = useMemo(() => rows.flatMap((r) => ('entry' in r ? [r.entry] : [])), [rows])
   const byRel = useMemo(() => new Map(entries.map((e) => [e.relPath, e])), [entries])
@@ -476,10 +471,10 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
     else if (ev.key === 'ArrowUp') moveTo(idx < 0 ? 0 : idx - 1)
     else if (ev.key === 'Home') moveTo(0)
     else if (ev.key === 'End') moveTo(entries.length - 1)
-    else if (ev.key === 'ArrowRight' && cur?.isDir && !results) {
+    else if (ev.key === 'ArrowRight' && cur?.isDir && !filtering) {
       if (!expanded[cur.relPath]) expand(cur.relPath)
       else moveTo(idx + 1)
-    } else if (ev.key === 'ArrowLeft' && cur && !results) {
+    } else if (ev.key === 'ArrowLeft' && cur && !filtering) {
       if (cur.isDir && expanded[cur.relPath]) expand(cur.relPath, false)
       else if (parentOf(cur.relPath)) select(parentOf(cur.relPath))
     } else if (ev.key === 'Enter' && cur?.isDir) open(cur)
@@ -603,8 +598,13 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
           onDrop={(e) => void dropOn(e, '')}
         >
           {findError && <LoadFailed inline what="the matching files" error={findError} onRetry={() => setFindTry((n) => n + 1)} />}
+          {filtering && !results && !findError && (
+            <div className="pane-empty">
+              <Icon name="loading" spin /> Searching…
+            </div>
+          )}
           {results && results.length === 0 && !findError && <div className="pane-empty">No files match “{filter}”.</div>}
-          {!results && dirs[''] && dirs[''].length === 0 && !editing && <div className="pane-empty">This project folder is empty.</div>}
+          {!filtering && dirs[''] && dirs[''].length === 0 && !editing && <div className="pane-empty">This project folder is empty.</div>}
           {rows.map((r, i) =>
             'edit' in r ? (
               <NameInput key={`edit-${i}`} depth={r.depth} icon={r.isDir ? 'folder' : 'file'} initial="" onDone={(v) => void commitEdit(v)} />
@@ -615,7 +615,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
                 key={r.entry.relPath}
                 entry={r.entry}
                 depth={r.depth}
-                flat={!!results}
+                flat={filtering}
                 open={!!expanded[r.entry.relPath]}
                 selected={selected.includes(r.entry.relPath)}
                 git={git[r.entry.relPath]}
@@ -835,23 +835,21 @@ const imageTime = (img: SessionImage): string => new Date(img.modified).toLocale
 export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
   useStore((s) => s.focusedAgent[owner.path])
   const project = projectView(owner)
-  const [groups, setGroups] = useState<SessionImageGroup[] | null>(null)
+  // This project's images only. A failed read: said in place of the images (or over this project's last ones), not
+  // "No images yet".
+  const loaded = useScopedLoad<SessionImageGroup[]>(project.path)
+  const groups = loaded.data
+  const error = loaded.error
   const [viewing, setViewing] = useState<SessionImage | null>(null)
+  // An image open in the viewer is the last project's.
+  useEffect(() => setViewing(null), [project.path])
   const menu = useContextMenu()
-  // A failed read: said in place of the images (or over the last ones), not "No images yet".
-  const [error, setError] = useState<{ error: string; at: number } | null>(null)
-  const loadedAt = useRef(0)
 
+  const { load: loadScoped } = loaded
   const load = useCallback(() => {
-    void call('images:list', project.path).then(
-      (g) => {
-        setGroups(g)
-        setError(null)
-        loadedAt.current = Date.now()
-      },
-      (e) => setError({ error: errorMessage(e), at: loadedAt.current })
-    )
-  }, [project.path])
+    const path = project.path
+    loadScoped(path, () => call('images:list', path))
+  }, [project.path, loadScoped])
   useEffect(load, [load])
   useFileEvents(project.path, (dirs) => {
     if (dirs.some((d) => d === '.hive' || d.startsWith('.hive/images'))) load()
@@ -883,7 +881,7 @@ export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
     { label: 'Delete', icon: 'trash', danger: true, onClick: () => void remove(img) }
   ]
 
-  if (!groups) return error ? <LoadFailed what="the images" error={error.error} onRetry={load} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+  if (!groups) return error ? <LoadFailed what="the images" error={error} onRetry={load} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
   if (!groups.length && !error) {
     return (
       <div className="empty-state" style={{ paddingTop: '15vh' }}>
@@ -941,7 +939,7 @@ export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
         <IconButton icon="refresh" title="Refresh" onClick={load} />
         <IconButton icon="folder-opened" title="Open Images Folder" onClick={() => void call('app:openPath', `${project.path}\\.hive\\images`)} />
       </div>
-      {error && <StaleNote what="the images" error={error.error} at={error.at} onRetry={load} />}
+      {error && <StaleNote what="the images" error={error} at={loaded.at} onRetry={load} />}
       {current.map(renderGroup)}
       {archived.length > 0 && (
         <>

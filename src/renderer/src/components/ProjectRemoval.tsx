@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { HiddenProject, ProjectInfo, ProjectRemoval, ProjectRemovalInfo } from '@shared/types'
 import { call, errorMessage } from '../api'
 import { clearEditorDraftsUnder, hasEditorDraftsUnder } from '../editorDrafts'
+import { useScopedLoad } from '../scopedLoad'
 import { loadTasks, notify, set, useStore } from '../store'
 import { cx, timeAgo } from '../util'
 import { BusyButton, Icon, LoadFailed, Modal, useBusy } from './ui'
@@ -163,21 +164,19 @@ export function RemoveProjectDialog() {
 /** Settings → Workspace: projects hidden or removed from Hive, to restore (or forget, once the folder is gone). */
 export function HiddenProjectsList() {
   const workspace = useStore((s) => s.workspace)
-  const [list, setList] = useState<(HiddenProject & { present: boolean })[]>([])
-  const [error, setError] = useState<string | null>(null)
+  // This workspace's hidden projects: another workspace's never show (or restore) here.
+  const wsPath = workspace?.path ?? ''
+  const loaded = useScopedLoad<(HiddenProject & { present: boolean })[]>(wsPath)
+  const list = loaded.data ?? []
+  const error = loaded.error
+  const { load: loadScoped } = loaded
   const load = useCallback(() => {
-    if (!workspace) return setList([])
-    void call('project:hidden').then(
-      (l) => {
-        setList(l)
-        setError(null)
-      },
-      (e) => setError(errorMessage(e))
-    )
-  }, [workspace])
+    if (wsPath) loadScoped(wsPath, () => call('project:hidden'))
+  }, [wsPath, loadScoped])
   useEffect(load, [load])
   if (!workspace) return <div className="faint">Open a workspace to see its hidden projects.</div>
   if (error) return <LoadFailed inline what="the hidden projects" error={error} onRetry={load} />
+  if (!loaded.data) return <div className="faint">Loading…</div>
   if (!list.length) return <div className="faint">None. Project → Remove Project… hides a project or removes it from Hive.</div>
 
   const restore = async (h: HiddenProject): Promise<void> => {
