@@ -28,6 +28,7 @@ const SUITES = [
   { name: 'longsession' },
   { name: 'resumeall' },
   { name: 'context' },
+  { name: 'numbers' },
   { name: 'cardchip' },
   { name: 'reorder' },
   { name: 'unmerged' },

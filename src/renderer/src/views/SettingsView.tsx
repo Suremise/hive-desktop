@@ -9,6 +9,7 @@ import { PROVIDERS, defaultProviderSettings, enabledProviders, isProviderEnabled
 import { usePersonas } from '../components/Assistant'
 import { ModeCaveat } from '../components/AgentDialogs'
 import { ModelPicker } from '../components/ModelPicker'
+import { NumberField } from '../components/NumberField'
 import { ProviderIcon } from '../components/ProviderIcon'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
@@ -36,6 +37,8 @@ interface SettingDef {
   min?: number
   max?: number
   step?: number
+  /** A number setting that 0 turns off: the label of its Off checkbox ("Never"). */
+  off?: string
   placeholder?: string
   danger?: boolean
   render?: () => React.ReactNode
@@ -101,8 +104,8 @@ const SETTINGS: SettingDef[] = [
   // Sessions
   { section: 'sessions', key: 'backupTranscripts', title: 'Back up transcripts', desc: "Copy each session's transcript into the project's .hive/sessions folder.", tip: 'Agents delete old transcripts after a while (Claude Code: 30 days by default). Backups let you resume and review sessions later. Archived sessions are always preserved.', type: 'boolean' },
   { section: 'sessions', key: 'cacheTtl', title: 'Prompt cache lifetime', desc: 'Used to estimate whether resuming a session needs to re-cache its context.', tip: 'Auto detects the cache type from the transcript (5 minutes or 1 hour).', type: 'select', options: [{ value: 'auto', label: 'Auto-detect' }, { value: '5m', label: '5 minutes' }, { value: '1h', label: '1 hour' }] },
-  { section: 'sessions', key: 'compactSuggestTokens', title: 'Suggest compacting above', desc: 'Context size, in tokens, at which the Compact button and the context count in the status bar turn orange. 0 never suggests it.', tip: 'Compacting summarises the conversation so every later message is cheaper; the full history stays in the transcript. Projects can set their own value in Project Settings. Compact is always available once the agent has finished.', type: 'number', min: 0, max: 2000000, step: 10000 },
-  { section: 'sessions', key: 'transcriptWarnMB', title: 'Warn when a transcript is over', desc: "Size, in MB, at which a running conversation's transcript turns orange in its footer and Hive notifies you once. 0 never warns.", tip: "A long conversation slows down the CLI and Hive: each turn, resume and transcript view has more to read. Compacting doesn't shrink the file, which keeps the whole history; handing the work over to a new conversation does (click the size in the footer for Hand Over to…, and choose the agent itself). Projects can set their own value in Project Settings.", type: 'number', min: 0, max: 2000, step: 10 },
+  { section: 'sessions', key: 'compactSuggestTokens', title: 'Suggest compacting above', desc: 'Context size, in tokens, at which the Compact button and the context count in the status bar turn orange. Never: the button never turns orange.', tip: 'Compacting summarises the conversation so every later message is cheaper; the full history stays in the transcript. Projects can set their own value in Project Settings. Compact is always available once the agent has finished.', type: 'number', min: 1000, max: 2000000, step: 10000, off: 'Never' },
+  { section: 'sessions', key: 'transcriptWarnMB', title: 'Warn when a transcript is over', desc: "Size, in MB, at which a running conversation's transcript turns orange in its footer and Hive notifies you once.", tip: "A long conversation slows down the CLI and Hive: each turn, resume and transcript view has more to read. Compacting doesn't shrink the file, which keeps the whole history; handing the work over to a new conversation does (click the size in the footer for Hand Over to…, and choose the agent itself). Projects can set their own value in Project Settings.", type: 'number', min: 1, max: 2000, step: 10, off: 'Never' },
   { section: 'sessions', key: 'overviewRefresh', title: 'Overview updates', desc: 'How the Overview and the session lists update while agents work.', tip: 'Live updates as sessions change, at most every 15 seconds and only while the tab is shown. Each update reads the project\'s session files, so with many sessions or agents a slower choice keeps Hive lighter. Refresh always updates at once.', type: 'select', options: [{ value: 'live', label: 'Live (at most every 15 s)' }, { value: 'minute', label: 'Every minute' }, { value: 'manual', label: 'Only when I click Refresh' }] },
   { section: 'sessions', key: 'followTranscripts', title: 'Follow running sessions in the transcript viewer', desc: 'The Sessions tab shows new messages of a running session as they arrive.', tip: 'Off: the transcript shows what was there when you opened it; Refresh loads what is new. You can also switch following on in the viewer itself. The Session tab always shows the agent working.', type: 'boolean' },
   { section: 'sessions', key: 'usageCacheSize', title: 'Usage cache size', desc: 'How many transcripts Hive remembers the token use of, so the Overview and session lists open without reading them again, also after a restart.', tip: 'Kept in usage-cache.json in your Hive profile: a few KB per transcript. A transcript is read again only when it changed (for example, a session you continued outside Hive), and the cache starts afresh with each Hive version. The least recently used go first when it is full. 100 to 50,000.', type: 'number', min: 100, max: 50000, step: 100 },
@@ -131,7 +134,7 @@ const SETTINGS: SettingDef[] = [
   },
   { section: 'agents', key: 'worktreeCopy', title: 'Copy into new worktrees', desc: 'Git-ignored files copied from the project folder into each new worktree, comma separated (e.g. .env*, config/local.json).', tip: 'A new worktree only gets the files git tracks. Patterns without a slash match a file or folder name anywhere; with a slash they match a path from the project root. Projects can set their own list and a setup command (e.g. npm install) in Project Settings → Agents & Worktrees.', type: 'text', placeholder: '.env*' },
   { section: 'agents', key: 'mergeStyle', title: 'Default merge style', desc: "How a worktree agent's branch is merged back, unless you choose otherwise in the Merge dialog.", tip: "Merge keeps the agent's commits and their messages, plus a merge commit: right for an agent that keeps its worktree for task after task. Squash makes one commit with everything the agent did.", type: 'select', options: [{ value: 'merge', label: 'Merge commit' }, { value: 'squash', label: 'Squash' }] },
-  { section: 'board', key: 'archiveDoneDays', title: 'Archive Done cards after', desc: 'Days a card stays in Done before Hive archives it. 0 never archives them.', tip: "Counted from when the card last went into Done (or was brought back from the archive), not from its last change. An archived card is kept: the board's Archived list shows it, and you can bring it back. Hive checks when a workspace opens and every hour.", type: 'number', min: 0, max: 365, step: 1 },
+  { section: 'board', key: 'archiveDoneDays', title: 'Archive Done cards after', desc: 'Days a card stays in Done before Hive archives it.', tip: "Counted from when the card last went into Done (or was brought back from the archive), not from its last change. An archived card is kept: the board's Archived list shows it, and you can bring it back. Hive checks when a workspace opens and every hour.", type: 'number', min: 1, max: 365, step: 1, off: 'Never' },
   { section: 'board', key: 'columnColors', title: 'Colour columns', desc: "Give each column's heading its colour and tint its cards with it.", tip: 'A card takes the colour of the column it is in. Blocked, stalled and finished cards keep their red, amber and green edge, and their text, over the tint.', type: 'boolean' },
   { section: 'board', key: 'colors', title: 'Column colours', desc: 'Pick the colour of each column.', tip: 'The tint on cards is a light mix of the colour with the theme, so it works in light and dark themes. Reset puts back the default.', type: 'custom', render: () => <ColumnColors /> },
   { section: 'agents', key: 'backgroundTaskMinutes', title: 'Count background tasks for up to', desc: 'Minutes an agent waits on a background task it started (such as a test run) before Hive counts it as finished anyway.', tip: "An agent that ends its turn while a task it started is still running shows as waiting on background tasks, not finished: Claude Code carries on by itself when the task ends. Hive can't tell a test run from something that never ends, such as a dev server, so it stops counting a task after this long (a Monitor also when it expires). Codex isn't told when its background terminals end, so they are only counted and shown. 10 to 480 minutes.", type: 'number', min: 10, max: 480, step: 5 },
@@ -150,7 +153,7 @@ const SETTINGS: SettingDef[] = [
       { value: 'projects', label: 'Control agents and create projects' }
     ]
   },
-  { section: 'assistant', key: 'typingPause', title: 'Pause after you type', desc: "Seconds after you type in an agent's terminal before the Assistant may type there (give it a task or hand its work over). 0: no pause.", tip: "The Assistant types a task by clearing the agent's input line (Ctrl+U) and entering it, which would wipe or mix with something you were writing. During the pause it asks you instead.", type: 'number', min: 0, max: 600 },
+  { section: 'assistant', key: 'typingPause', title: 'Pause after you type', desc: "Seconds after you type in an agent's terminal before the Assistant may type there (give it a task or hand its work over).", tip: "The Assistant types a task by clearing the agent's input line (Ctrl+U) and entering it, which would wipe or mix with something you were writing. During the pause it asks you instead.", type: 'number', min: 1, max: 600, off: 'No pause' },
   { section: 'assistant', key: 'enterEndsPause', title: 'Enter ends the pause', desc: 'Once you press Enter in the terminal (you sent what you typed), the Assistant may type there at once.', tip: 'Turn this off if you often type a line and then keep writing (e.g. answering a question, then adding more).', type: 'boolean' },
   { section: 'assistant', key: 'persona', title: 'Default persona', desc: 'Who the Assistant is in a new conversation, unless a workspace chooses another.', tip: 'Personas are Markdown files in each workspace (.hive/personas): edit them, or add your own, in the Hive Assistant view (the robot on the left).', type: 'custom', render: () => <AssistantPersonaPicker /> },
   ...PROVIDERS.map(
@@ -423,23 +426,18 @@ function Control({ def, settings }: { def: SettingDef; settings: AppSettings }) 
           <span className="muted" style={{ width: 40, textAlign: 'right' }}>{Math.round(Number(value) * 100)}%</span>
         </div>
       )
-    case 'number': {
-      const commit = (): void => {
-        // A cleared box is an unfinished edit, not 0 (which turns some features off): keep the saved value.
-        if (!draft.trim()) {
-          setDraft(String(value))
-          return
-        }
-        const n = Math.round(Number(draft))
-        if (!Number.isFinite(n) || (def.min !== undefined && n < def.min) || (def.max !== undefined && n > def.max)) {
-          notify('warning', `${def.title} must be between ${def.min} and ${def.max}`)
-          setDraft(String(value))
-          return
-        }
-        if (n !== value) void update(def, n)
-      }
-      return <input className="input" type="number" min={def.min} max={def.max} step={def.step ?? 1} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />
-    }
+    case 'number':
+      return (
+        <NumberField
+          value={Number(value)}
+          min={def.min}
+          max={def.max}
+          step={def.step}
+          label={def.title}
+          off={def.off ? { label: def.off, restore: Number(defaultValue(def)) || null } : undefined}
+          onCommit={(v) => update(def, v)}
+        />
+      )
     case 'text': {
       const commit = (): void => {
         if (draft !== value) void update(def, draft.trim())

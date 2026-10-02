@@ -345,8 +345,10 @@ function UnmergedBadge({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
 function Locks({ a }: { a: AgentInfo }) {
   const files = a.live?.lockedFiles
   if (!files?.length) return null
+  // A worktree has one agent, so nobody waits for its files; in a shared folder the lock is what matters.
+  const title = a.worktree ? 'Files it is editing this turn:' : 'Files it is editing this turn. Other agents in this folder wait until it finishes with them:'
   return (
-    <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`Editing (other agents in this folder wait for these):\n${files.slice(0, 20).join('\n')}${files.length > 20 ? `\n…and ${files.length - 20} more` : ''}`}</span>}>
+    <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${title}\n${files.slice(0, 20).join('\n')}${files.length > 20 ? `\n…and ${files.length - 20} more` : ''}`}</span>}>
       <span className="agent-locks">
         <Icon name="lock" /> {files.length}
       </span>

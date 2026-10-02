@@ -382,9 +382,12 @@ Each project can override the global defaults in its **Settings** tab, which has
 | | Permission mode | How much the agent asks before acting (below) |
 | | Extra arguments | Additional command-line arguments for the CLI |
 | Sessions | Suggest compacting above | When the Compact button turns orange (see [Sessions](#sessions)) |
+| | Warn when a transcript is over | When a conversation's transcript size turns amber |
 | | Completion chime | On, off or inherit |
 | Agents & Worktrees | Agents, file locks, copy into new worktrees, setup command | See [Several agents in one project](#several-agents-in-one-project) |
 | Keyboard Shortcuts | | Shortcuts for project and session commands in this project (see [Keyboard shortcuts](#keyboard-shortcuts)) |
+
+**Number settings**, here and in Settings, save when you press Enter or click away. An empty box inherits the global value here; in Settings it just puts the saved value back. A number out of range, or text that isn't a number, isn't saved: the range shows under the box. Settings that can be turned off have a **Never** (or **No pause**) checkbox beside the number; untick it to get your last number back.
 
 Changes apply to new sessions. If you change something while a session is running, Hive shows **Restart session**, which restarts it with the new settings and continues the same conversation. The permission mode is the exception: it can be switched in a running session (below).
 

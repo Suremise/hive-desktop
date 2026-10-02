@@ -1511,6 +1511,22 @@ p.hint {
   font-size: 12px;
   margin-top: 6px;
 }
+.number-field {
+  width: 100%;
+}
+.number-field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.number-field-row .input {
+  flex: 1;
+  min-width: 0;
+}
+.number-field-off {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 
 .palette {
   width: 620px;
