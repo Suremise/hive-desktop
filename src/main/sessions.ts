@@ -154,7 +154,7 @@ interface PendingStart {
   done: Promise<unknown>
 }
 
-interface ListContext {
+export interface ListContext {
   records: SessionRecord[]
   cfg: ProjectConfig
 }
@@ -536,6 +536,7 @@ class SessionManager {
     if (this.live.has(id) || this.starting.has(id)) throw new Error('This agent is already running or starting. Stop it first.')
     // Two terminals on one conversation would both append to its transcript.
     if (opts.resumeId && [...this.starting.values()].some((p) => p.resumeId === opts.resumeId)) throw new Error('This conversation is already being opened in another agent.')
+    if (opts.resumeId && this.cleaning.has(`${projectPath.toLowerCase()}|${opts.resumeId.toLowerCase()}`)) throw new Error('Clean Up is removing files of this session. Try again in a moment.')
     const pending: PendingStart = { projectPath, resumeId: opts.resumeId, cancelled: false, done: Promise.resolve() }
     this.starting.set(id, pending)
     const run = this.startReserved(projectPath, agentId, id, opts)
@@ -1171,22 +1172,36 @@ class SessionManager {
 
   /**
    * Types a prompt into an agent and sends it, on one line (a new line would send it early in the CLI).
-   * Refused while another is being typed there; stops if the agent stops or restarts meanwhile.
+   * Refused while another is being typed there; stops if the agent stops or restarts meanwhile. `guard` throws if the
+   * prompt mustn't go in any more (the agent got busy, the user typed there): it is checked before the input is
+   * cleared, before each part is typed and before it is sent. Stopped part-way, what Hive typed is cleared again,
+   * unless the user has typed since (their input stays).
    */
-  async sendPrompt(projectPath: string, agentId: string, text: string): Promise<void> {
+  async sendPrompt(projectPath: string, agentId: string, text: string, guard?: () => void): Promise<void> {
     const key = this.key(projectPath, agentId)
     const runId = this.live.get(liveId(projectPath, agentId))?.state.runId
     if (this.delivering.has(key)) throw new Error('Hive is already typing a prompt into this agent; it is busy.')
     this.delivering.add(key)
     const same = (): boolean => !!runId && this.live.get(liveId(projectPath, agentId))?.state.runId === runId
+    const check = (): void => {
+      if (!same()) throw new Error('The agent stopped before the prompt was sent.')
+      guard?.()
+    }
+    const since = Date.now()
+    let typed = false
     try {
+      check()
       writePty(key, '\x15')
       await new Promise((r) => setTimeout(r, 150))
-      if (!same()) throw new Error('The agent stopped before the prompt was sent.')
-      await typeInto(key, text.replace(/\s+/g, ' ').trim(), same)
+      check()
+      typed = true
+      await typeInto(key, text.replace(/\s+/g, ' ').trim(), () => (check(), true))
       await new Promise((r) => setTimeout(r, 300))
-      if (!same()) throw new Error('The agent stopped before the prompt was sent.')
+      check()
       writePty(key, '\r')
+    } catch (e) {
+      if (typed && same() && this.userTypedAt(projectPath, agentId) < since) writePty(key, '\x15')
+      throw e
     } finally {
       this.delivering.delete(key)
     }
@@ -2234,7 +2249,9 @@ class SessionManager {
   async usage(projectPath: string, sessionId: string, ctx?: ListContext): Promise<SessionUsage | null> {
     assertSessionId(sessionId)
     const p = await this.anyTranscript(projectPath, sessionId, ctx)
-    const usage = p ? await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx)) : null
+    // No transcript left: what it used when Clean Up removed Hive's backup.
+    if (!p) return (ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions).find((s) => s.id === sessionId)?.keptUsage ?? null
+    const usage = await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
     // A transcript without the context window (Claude Code's): the running session's status line has it.
     if (usage && !usage.contextWindow) {
       const window = [...this.live.values()].find((l) => l.state.sessionId === sessionId)?.state.contextWindow
@@ -2262,8 +2279,9 @@ class SessionManager {
       }
       const hasBackup = existsSync(this.backupPath(projectPath, rec.id)) || existsSync(this.backupPath(projectPath, rec.id, true))
       const usage = await this.usage(projectPath, rec.id, ctx)
+      const { keptUsage: _kept, ...fields } = rec
       items.push({
-        ...rec,
+        ...fields,
         provider,
         source: 'hive',
         title: usage?.title ?? null,
@@ -2317,27 +2335,110 @@ class SessionManager {
     await workspace.upsertSession(projectPath, { id: sessionId, archived })
   }
 
+  /** Hive's copies of a session's transcript that exist (the active backup, the archived one). */
+  backupFiles(projectPath: string, sessionId: string): string[] {
+    return [false, true].map((archived) => this.backupPath(projectPath, sessionId, archived)).filter((b) => existsSync(b))
+  }
+
+  /** Sessions whose files Clean Up… is removing (`project|id`, lower-cased): none of them starts or resumes meanwhile. */
+  private cleaning = new Set<string>()
+
+  /** The session is running, or an agent is starting on it. */
+  private sessionOpen(projectPath: string, sessionId: string): boolean {
+    const id = sessionId.toLowerCase()
+    return this.projectStates(projectPath).some((s) => s.sessionId.toLowerCase() === id) || [...this.starting.values()].some((p) => p.projectPath.toLowerCase() === projectPath.toLowerCase() && p.resumeId?.toLowerCase() === id)
+  }
+
+  /**
+   * Runs fn (Clean Up… removing a session's files, or its image folder) with the session reserved: it isn't running
+   * or starting now, and start() refuses to resume it until fn is done, so no session crosses the removal.
+   */
+  async whileCleaning<T>(projectPath: string, sessionId: string, fn: () => Promise<T>): Promise<T> {
+    const k = `${projectPath.toLowerCase()}|${sessionId.toLowerCase()}`
+    if (this.cleaning.has(k)) throw new Error("Clean Up is already removing this session's files.")
+    if (this.sessionOpen(projectPath, sessionId)) throw new Error('The session is running.')
+    this.cleaning.add(k)
+    try {
+      return await fn()
+    } finally {
+      this.cleaning.delete(k)
+    }
+  }
+
+  /** Runs fn with both of a session's backups locked (the archive's first, as archive() does), so no backup or move runs into it. */
+  private withBackupsLocked<T>(projectPath: string, sessionId: string, fn: () => Promise<T>): Promise<T> {
+    return withFileLock(this.backupPath(projectPath, sessionId, true), () => withFileLock(this.backupPath(projectPath, sessionId), fn))
+  }
+
+  /**
+   * For Clean Up…, with the session's backups locked: it is still archived and not running, and `expected` (what the
+   * preview listed) are exactly its copies. Otherwise it changed since the preview and nothing of it goes.
+   */
+  private async assertCleanable(projectPath: string, sessionId: string, expected: string[]): Promise<void> {
+    const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
+    if (!rec?.archived) throw new Error('The session is no longer archived.')
+    if (this.sessionOpen(projectPath, sessionId)) throw new Error('The session is running.')
+    const want = new Set(expected.map((e) => e.toLowerCase()))
+    const has = this.backupFiles(projectPath, sessionId).map((b) => b.toLowerCase())
+    if (has.length !== want.size || !has.every((b) => want.has(b))) throw new Error("The session's copies changed since the preview.")
+  }
+
+  /**
+   * Moves Hive's backups of an archived session the CLI still has to the Recycle Bin (Clean Up…), keeping what it
+   * used on its record so totals still count it once the CLI's transcript goes too. `expected` is what the preview
+   * listed. Nothing goes unless the session is unchanged since (assertCleanable, again right before the files go) and
+   * what it used was read and saved; the session can't be resumed meanwhile (whileCleaning).
+   */
+  async removeBackups(projectPath: string, sessionId: string, expected: string[]): Promise<void> {
+    projectPath = workspace.assertSessionHost(projectPath)
+    assertSessionId(sessionId)
+    await this.whileCleaning(projectPath, sessionId, () =>
+      this.withBackupsLocked(projectPath, sessionId, async () => {
+        await this.assertCleanable(projectPath, sessionId, expected)
+        if (!(await this.providerTranscript(projectPath, sessionId))) throw new Error("The CLI no longer has this session's transcript.")
+        const used = await this.usage(projectPath, sessionId).catch(() => null)
+        if (!used) throw new Error("Hive couldn't read what the session used, so its backups are kept.")
+        await workspace.upsertSession(projectPath, { id: sessionId, keptUsage: { ...used, lastPrompt: null, costUnreported: undefined } })
+        await this.assertCleanable(projectPath, sessionId, expected)
+        for (const b of this.backupFiles(projectPath, sessionId)) await shell.trashItem(b)
+      })
+    )
+    log.info(`Clean Up: removed the backups of session ${sessionId} in ${userText(projectPath)}`)
+  }
+
   /**
    * Deletes a session from Hive: its record and Hive's copies of the transcript (to the Recycle Bin). The CLI's
    * own transcript is left alone (Hive doesn't change the CLIs' files), so Hive remembers the id to keep it hidden.
+   * Clean Up… passes `expected`, the copies its preview listed (see removeBackups).
    */
-  async delete(projectPath: string, sessionId: string): Promise<void> {
+  async delete(projectPath: string, sessionId: string, expected?: string[]): Promise<void> {
     projectPath = workspace.assertSessionHost(projectPath)
     assertSessionId(sessionId)
     if (this.projectStates(projectPath).some((s) => s.sessionId === sessionId)) throw new Error('Stop the session before deleting it.')
-    // What it used stays in the project's totals: read before its copies go.
-    const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
-    const used = rec ? await this.usage(projectPath, sessionId).catch(() => null) : null
-    const kept: KeptUsage | null = rec && used ? { id: sessionId, provider: recordProvider(rec), agentId: rec.agentId, cwd: rec.cwd, name: rec.name, usage: { ...used, lastPrompt: null, costUnreported: undefined } } : null
-    for (const archived of [false, true]) {
-      const b = this.backupPath(projectPath, sessionId, archived)
-      if (existsSync(b)) await shell.trashItem(b)
-    }
-    await workspace.mutateSessions(projectPath, (f) => {
-      f.sessions = f.sessions.filter((s) => s.id !== sessionId)
-      if (!f.deleted?.includes(sessionId)) f.deleted = [...(f.deleted ?? []), sessionId]
-      if (kept) f.deletedUsage = [...(f.deletedUsage ?? []).filter((k) => k.id !== sessionId), kept]
-    })
+    const remove = (): Promise<void> =>
+      this.withBackupsLocked(projectPath, sessionId, async () => {
+        // Clean Up… (a session whose only copies are Hive's): only as the preview listed it, and only once what it used is saved.
+        if (expected) {
+          await this.assertCleanable(projectPath, sessionId, expected)
+          if (await this.providerTranscript(projectPath, sessionId)) throw new Error("The CLI has this session's transcript again.")
+        }
+        // What it used stays in the project's totals: read, and saved on its record, before its copies go, so the
+        // totals survive a failure partway (a record without a transcript counts its keptUsage).
+        const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
+        const used = rec ? await this.usage(projectPath, sessionId).catch(() => null) : null
+        if (expected && !used) throw new Error("Hive couldn't read what the session used, so it is kept.")
+        const usage = used && { ...used, lastPrompt: null, costUnreported: undefined }
+        if (rec && usage) await workspace.upsertSession(projectPath, { id: sessionId, keptUsage: usage })
+        if (expected) await this.assertCleanable(projectPath, sessionId, expected)
+        const kept: KeptUsage | null = rec && usage ? { id: sessionId, provider: recordProvider(rec), agentId: rec.agentId, cwd: rec.cwd, name: rec.name, usage } : null
+        for (const b of this.backupFiles(projectPath, sessionId)) await shell.trashItem(b)
+        await workspace.mutateSessions(projectPath, (f) => {
+          f.sessions = f.sessions.filter((s) => s.id !== sessionId)
+          if (!f.deleted?.includes(sessionId)) f.deleted = [...(f.deleted ?? []), sessionId]
+          if (kept) f.deletedUsage = [...(f.deletedUsage ?? []).filter((k) => k.id !== sessionId), kept]
+        })
+      })
+    await (expected ? this.whileCleaning(projectPath, sessionId, remove) : remove())
     for (const a of projectAgents(await workspace.projectConfig(projectPath))) {
       if (a.lastSessionId === sessionId) await workspace.updateAgent(projectPath, a.id, { lastSessionId: undefined }).catch(() => undefined)
     }

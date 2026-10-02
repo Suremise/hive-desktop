@@ -133,6 +133,10 @@ const check = (name, ok, extra = '') => {
   check("Todo doesn't scroll meanwhile", (await scroll('Todo')).top === 0)
   check('the marker is before Doing\'s first card', (await marker('Doing')) === doing[0], String(await marker('Doing')))
   await release()
+  // Into Doing from another column asks who works on it (Move to Doing): the card has no agent, so Nobody yet.
+  const ask = page.locator('.dialog', { hasText: `Move #${moved} to Doing` })
+  await ask.waitFor({ timeout: 5000 })
+  await ask.locator('.dialog-footer .btn.primary').click()
   check('it lands first in Doing, where the marker was', !!(await until(async () => (await saved('doing'))[0] === moved, 5000)), (await saved('doing')).slice(0, 3).join(','))
 
   // --- Leaving the board stops the scrolling; afterwards the column scrolls as usual.

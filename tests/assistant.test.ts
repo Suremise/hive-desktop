@@ -98,6 +98,12 @@ describe('control', () => {
     expect(controlRules('projects')).toMatch(/replace anything your persona says/)
   })
 
+  it('asks which kind of move to Doing the user means, unless they said', () => {
+    const rules = controlRules('agents')
+    expect(rules).toMatch(/Asked only to move a card to Doing, ask the user which they mean: nobody yet \(hive_update_task with column doing and agent empty\), an agent of its project without starting anything \(column doing and that agent\), or an agent that starts on it \(hive_start_task\)/)
+    expect(rules).toMatch(/Don't ask when they've said \("have Claude start this" is a start; "assign it to Claude without starting" is an assignment only\)/)
+  })
+
   it('passes a first task as a safe last argument', () => {
     expect(promptArg('C:/x/claude.exe', 'Fix the tests\nin web')).toBe('Fix the tests\nin web')
     expect(promptArg('C:/x/claude.cmd', 'Fix "the" tests & 100%\nnow')).toBe('Fix the tests 100 now')

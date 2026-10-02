@@ -209,10 +209,8 @@ describe('task board', () => {
     for (const n of [a.number, b.number]) await run(() => tasks.deleteTask(n))
   })
 
-  it('gives a card an agent moves into Doing to that agent, when nobody has it and no agent is named', async () => {
+  it('gives a card an agent moves into Doing to that agent, when no agent is named', async () => {
     const me = { kind: 'agent', name: 'Agent 1 (alpha)', self: { project: 'alpha', agentId: 'a1' } } as const
-    // Another agent of alpha, not in project.json: giving it a card would fail, so a test that passes never did.
-    const other = { kind: 'agent', name: 'Other (alpha)', self: { project: 'alpha', agentId: 'zz' } } as const
     const fresh = () => run(() => tasks.createTask({ title: 'Take me', project: 'alpha' }, user))
 
     const said: string[] = []
@@ -220,9 +218,33 @@ describe('task board', () => {
     expect([taken.agent, taken.agentName, taken.column]).toEqual(['a1', 'Agent 1', 'doing'])
     expect(said).toEqual(['Given to Agent 1', 'Moved to Doing'])
 
-    // A card someone has keeps them.
-    const held = await run(async () => tasks.updateTask((await fresh()).number, { agent: 'a1' }, user))
-    expect((await run(() => tasks.updateTask(held.number, { column: 'doing' }, other))).agent).toBe('a1')
+    // Another agent's card, out of Doing (so nobody was working on it): taken, from each column, and said so.
+    const projectJson = join(wsPath, 'alpha', '.hive', 'project.json')
+    const saved = readFileSync(projectJson, 'utf8')
+    writeFileSync(projectJson, JSON.stringify({ version: 2, agents: [{ id: 'a1', name: 'Agent 1' }, { id: 'a2', name: 'Agent 2' }] }))
+    try {
+      const other = { kind: 'agent', name: 'Agent 2 (alpha)', self: { project: 'alpha', agentId: 'a2' } } as const
+      for (const column of ['todo', 'review', 'done'] as const) {
+        const held = await run(async () => tasks.updateTask((await fresh()).number, { agent: 'a1', column }, user))
+        const moved: string[] = []
+        const now = await run(() => tasks.updateTask(held.number, { column: 'doing' }, other, { said: moved }))
+        expect([column, now.agent, now.column, moved]).toEqual([column, 'a2', 'doing', ['Given to Agent 2', 'Moved to Doing']])
+        expect(now.history.slice(-2).map((h) => [h.by, h.what])).toEqual([
+          ['Agent 2 (alpha)', 'Given to Agent 2'],
+          ['Agent 2 (alpha)', 'Moved to Doing']
+        ])
+      }
+      // Its own card: nothing to give.
+      const mine = await run(async () => tasks.updateTask((await fresh()).number, { agent: 'a2', column: 'review' }, user))
+      const back: string[] = []
+      await run(() => tasks.updateTask(mine.number, { column: 'doing' }, other, { said: back }))
+      expect(back).toEqual(['Moved to Doing'])
+      // In Doing already, someone else's: a move or reorder within Doing leaves it theirs.
+      const busy = await run(async () => tasks.updateTask((await fresh()).number, { agent: 'a1', column: 'doing' }, user))
+      expect((await run(() => tasks.updateTask(busy.number, { column: 'doing', position: 'top' }, other))).agent).toBe('a1')
+    } finally {
+      writeFileSync(projectJson, saved)
+    }
     // An agent named (or none, with empty) wins.
     const named = await run(async () => tasks.updateTask((await fresh()).number, { column: 'doing', agent: '' }, me))
     expect(named.agent).toBeNull()
@@ -830,6 +852,234 @@ describe('removal and board under faults', () => {
       }
       expect((await run(() => tasks.getTask(c.number))).column).toBe(decision)
     }
+  })
+
+  it('starts more work on a card in Review or Done: Doing, then Review when its agent is done', async () => {
+    project(wsPath, 'resumer', [{ id: 'r1', name: 'Agent 1' }])
+    await w.refresh()
+    const { startTask } = await import('../src/main/taskStart')
+    const s = sessions as unknown as { start: (p: string, o: { agentId: string; prompt: string }) => Promise<unknown> }
+    const original = s.start
+    const prompts: string[] = []
+    s.start = async (_p, o) => void prompts.push(o.prompt)
+    const r1 = { kind: 'agent', name: 'Agent 1 (resumer)', self: { project: 'resumer', agentId: 'r1' }, scope: 'resumer' } as const
+    try {
+      for (const from of ['review', 'done'] as const) {
+        const c = await run(() => tasks.createTask({ title: `Back from ${from}`, project: 'resumer', agent: 'r1', column: from }, user))
+        const started = await run(() => startTask(c.number, { kind: 'agent', agentId: 'r1' }, assistant, '  Address the latest review comment.  '))
+        expect([started.card.column, started.card.agent]).toEqual(['doing', 'r1'])
+        expect(started.card.history.at(-1)).toMatchObject({ by: 'Assistant', what: 'Moved to Doing' })
+        expect(prompts.at(-1)).toBe(
+          `Work on task #${c.number} from the Hive task board: Back from ${from}\n\nIt was in ${from === 'review' ? 'Review' : 'Done'} and is back in Doing for more work.\n\nAddress the latest review comment.`
+        )
+        // Its agent finishes: Review, whatever it came from.
+        const finished = await run(() => tasks.updateTask(c.number, { column: 'review' }, r1))
+        expect(finished.column).toBe('review')
+        expect(finished.history.filter((h) => h.what.startsWith('Moved to')).map((h) => h.what).slice(-2)).toEqual(['Moved to Doing', 'Moved to Review'])
+      }
+      // Started again while in Doing with the same agent: no second move or hand-over in its history.
+      const c = await run(() => tasks.createTask({ title: 'Again', project: 'resumer' }, user))
+      await run(() => startTask(c.number, { kind: 'agent', agentId: 'r1' }, user))
+      const once = (await run(() => tasks.getTask(c.number))).history.length
+      await run(() => startTask(c.number, { kind: 'agent', agentId: 'r1' }, user))
+      const again = await run(() => tasks.getTask(c.number))
+      expect([again.column, again.agent, again.history.length]).toEqual(['doing', 'r1', once])
+      expect(prompts.at(-1)).not.toMatch(/back in Doing/)
+      // A note longer than a prompt should be is refused before anything changes.
+      await expect(run(() => startTask(c.number, { kind: 'agent', agentId: 'r1' }, assistant, 'x'.repeat(4001)))).rejects.toThrow(/too long/)
+    } finally {
+      s.start = original
+    }
+  })
+
+  it('refuses a Start whose card was moved to Done meanwhile, and leaves it there', async () => {
+    project(wsPath, 'racer', [{ id: 'x1', name: 'Agent 1' }])
+    await w.refresh()
+    const { startTask } = await import('../src/main/taskStart')
+    const s = sessions as unknown as { start: (...a: unknown[]) => Promise<unknown> }
+    const original = s.start
+    const ww = w as unknown as { projectConfig: (p: string) => Promise<unknown> }
+    const config = ww.projectConfig
+    let launches = 0
+    s.start = async () => void launches++
+    for (const from of ['todo', 'review'] as const) {
+      const c = await run(() => tasks.createTask({ title: `Race from ${from}`, project: 'racer', column: from }, user))
+      // The Start has read the card and is looking up the agent when the user puts the card in Done.
+      let release: () => void = () => undefined
+      const gate = new Promise<void>((r) => (release = r))
+      let reached: () => void = () => undefined
+      const atGate = new Promise<void>((r) => (reached = r))
+      ww.projectConfig = async (p) => {
+        ww.projectConfig = config
+        reached()
+        await gate
+        return config.call(w, p)
+      }
+      try {
+        const starting = run(() => startTask(c.number, { kind: 'agent', agentId: 'x1' }, user))
+        const handled = expect(starting).rejects.toThrow(/moved to Done meanwhile/)
+        await atGate
+        await run(() => tasks.updateTask(c.number, { column: 'done' }, user))
+        release()
+        await handled
+      } finally {
+        ww.projectConfig = config
+      }
+      const now = await run(() => tasks.getTask(c.number))
+      expect([now.column, now.agent]).toEqual(['done', null])
+    }
+    s.start = original
+    expect(launches).toBe(0)
+  })
+
+  /** Pauses the next Start where it looks up the project's agents (after it read the card), until released. */
+  function pauseAgentLookup(): { reached: Promise<void>; release: () => void; restore: () => void } {
+    const ww = w as unknown as { projectConfig: (p: string) => Promise<unknown> }
+    const config = ww.projectConfig
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((r) => (release = r))
+    let reached: () => void = () => undefined
+    const atGate = new Promise<void>((r) => (reached = r))
+    ww.projectConfig = async (p) => {
+      ww.projectConfig = config
+      reached()
+      await gate
+      return config.call(w, p)
+    }
+    return { reached: atGate, release, restore: () => (ww.projectConfig = config) }
+  }
+
+  it("refuses a Start whose card was reassigned or moved meanwhile, and keeps that decision", async () => {
+    project(wsPath, 'reassign', [{ id: 'x1', name: 'Agent 1' }, { id: 'x2', name: 'Agent 2' }])
+    await w.refresh()
+    const { startTask } = await import('../src/main/taskStart')
+    const s = sessions as unknown as { start: (...a: unknown[]) => Promise<unknown> }
+    const original = s.start
+    let launches = 0
+    s.start = async () => void launches++
+    const decisions = [
+      { from: 'review', change: { agent: 'x2' }, error: /given to another agent meanwhile/, after: ['review', 'x2'] },
+      { from: 'review', change: { agent: null }, error: /given to nobody meanwhile/, after: ['review', null] },
+      { from: 'todo', change: { column: 'review' }, error: /moved to Review meanwhile/, after: ['review', 'x1'] },
+      { from: 'done', change: { column: 'todo' }, error: /moved to Todo meanwhile/, after: ['todo', 'x1'] }
+    ] as const
+    try {
+      for (const d of decisions) {
+        const c = await run(() => tasks.createTask({ title: `Decided ${JSON.stringify(d.change)}`, project: 'reassign', agent: 'x1', column: d.from }, user))
+        const pause = pauseAgentLookup()
+        try {
+          const starting = run(() => startTask(c.number, { kind: 'agent', agentId: 'x1' }, user))
+          const handled = expect(starting).rejects.toThrow(d.error)
+          await pause.reached
+          await run(() => tasks.updateTask(c.number, d.change, user))
+          pause.release()
+          await handled
+        } finally {
+          pause.restore()
+        }
+        const now = await run(() => tasks.getTask(c.number))
+        expect([now.column, now.agent]).toEqual(d.after)
+        expect(now.history.filter((h) => h.by === 'You').length).toBe(now.history.length)
+      }
+      // Nothing changed meanwhile: a card in Done is still started, as asked.
+      const done = await run(() => tasks.createTask({ title: 'Done, more to do', project: 'reassign', agent: 'x1', column: 'done' }, user))
+      expect((await run(() => startTask(done.number, { kind: 'agent', agentId: 'x1' }, user))).card.column).toBe('doing')
+    } finally {
+      s.start = original
+    }
+    expect(launches).toBe(1)
+  })
+
+  it('checks the agent again just before the prompt goes in, and puts the card back if it is busy now', async () => {
+    project(wsPath, 'recheck', [{ id: 'k1', name: 'Agent 1' }])
+    await w.refresh()
+    const { startTask } = await import('../src/main/taskStart')
+    const s = sessions as unknown as {
+      liveFor: (...a: unknown[]) => unknown
+      userMayBeTyping: (...a: unknown[]) => boolean
+      sendPrompt: (...a: unknown[]) => Promise<void>
+      start: (...a: unknown[]) => Promise<unknown>
+    }
+    const saved = { liveFor: s.liveFor, userMayBeTyping: s.userMayBeTyping, sendPrompt: s.sendPrompt, start: s.start }
+    let typed = 0
+    let launched = 0
+    s.sendPrompt = async () => void typed++
+    s.start = async () => void launched++
+    try {
+      // Idle when the Start looks, working by the time the prompt would go in (it was taking the card).
+      const cases = [
+        { what: 'started working', actor: user, live: ['ready', 'working'], typing: [false, false], error: /is working/ },
+        { what: 'the user typed', actor: assistant, live: ['ready', 'ready'], typing: [false, true], error: /just typed/ }
+      ]
+      for (const k of cases) {
+        const c = await run(() => tasks.createTask({ title: k.what, project: 'recheck', agent: 'k1', column: 'review' }, user))
+        let looks = 0
+        let typingLooks = 0
+        s.liveFor = () => ({ status: k.live[Math.min(looks++, 1)] })
+        s.userMayBeTyping = () => k.typing[Math.min(typingLooks++, 1)]
+        await expect(run(() => startTask(c.number, { kind: 'agent', agentId: 'k1' }, k.actor))).rejects.toThrow(k.error)
+        const now = await run(() => tasks.getTask(c.number))
+        // It was taken (Doing), then put back where it was when the agent turned out to be busy.
+        expect([now.column, now.agent]).toEqual(['review', 'k1'])
+        expect(now.history.map((h) => h.what).slice(-2)).toEqual(['Moved to Doing', 'Moved to Review'])
+      }
+      expect(typed + launched).toBe(0)
+      // Stopped meanwhile: it is started with the card instead of typed into.
+      const c = await run(() => tasks.createTask({ title: 'Stopped meanwhile', project: 'recheck', agent: 'k1' }, user))
+      let looks = 0
+      s.liveFor = () => (looks++ === 0 ? { status: 'ready' } : null)
+      s.userMayBeTyping = () => false
+      await run(() => startTask(c.number, { kind: 'agent', agentId: 'k1' }, user))
+      expect([typed, launched]).toEqual([0, 1])
+    } finally {
+      Object.assign(s, saved)
+    }
+  })
+
+  it('gives an agent one card at a time: a Start of another card for it meanwhile is refused', async () => {
+    project(wsPath, 'oneatatime', [{ id: 'o1', name: 'Agent 1' }])
+    await w.refresh()
+    const { startTask } = await import('../src/main/taskStart')
+    const s = sessions as unknown as { liveFor: (...a: unknown[]) => unknown; sendPrompt: (...a: unknown[]) => Promise<void> }
+    const saved = { liveFor: s.liveFor, sendPrompt: s.sendPrompt }
+    const prompts: string[] = []
+    let release: () => void = () => undefined
+    const typing = new Promise<void>((r) => (release = r))
+    s.liveFor = () => ({ status: 'ready' })
+    s.sendPrompt = async (...a: unknown[]) => {
+      prompts.push(String(a[2]))
+      await typing
+    }
+    try {
+      const a = await run(() => tasks.createTask({ title: 'First card', project: 'oneatatime' }, user))
+      const b = await run(() => tasks.createTask({ title: 'Second card', project: 'oneatatime' }, user))
+      const first = run(() => startTask(a.number, { kind: 'agent', agentId: 'o1' }, user))
+      for (let i = 0; i < 50 && !prompts.length; i++) await new Promise((r) => setTimeout(r, 20))
+      await expect(run(() => startTask(b.number, { kind: 'agent', agentId: 'o1' }, user))).rejects.toThrow(/being given another card/)
+      release()
+      await first
+      // Its prompt has just gone in; the agent's hook hasn't said it's working yet: still refused.
+      await expect(run(() => startTask(b.number, { kind: 'agent', agentId: 'o1' }, user))).rejects.toThrow(/being given another card/)
+      expect(prompts.length).toBe(1)
+      expect(prompts[0]).toMatch(/First card/)
+      const second = await run(() => tasks.getTask(b.number))
+      expect([second.column, second.agent, second.history.length]).toEqual(['todo', null, 1])
+    } finally {
+      Object.assign(s, saved)
+    }
+  })
+})
+
+describe('task prompt', () => {
+  const card = { number: 7, title: 'Fix it', description: 'The details.', blockedBy: [], comments: [] } as unknown as import('../src/shared/types').TaskCard
+  it('says when a card is back for more work, and puts the note before the card', async () => {
+    const { taskPrompt } = await import('../src/shared/tasks')
+    expect(taskPrompt(card, false)).toBe('Work on task #7 from the Hive task board: Fix it\n\nThe details.')
+    expect(taskPrompt(card, false, { from: 'todo', note: ' ' })).toBe('Work on task #7 from the Hive task board: Fix it\n\nThe details.')
+    expect(taskPrompt(card, false, { from: 'done', note: 'Only the tests.' })).toBe(
+      'Work on task #7 from the Hive task board: Fix it\n\nIt was in Done and is back in Doing for more work.\n\nOnly the tests.\n\nThe details.'
+    )
+    expect(taskPrompt(card, true, { from: 'review' })).toMatch(/move it to review with a comment saying what you did \(also if it was in Done before\)\. Move it to done only if the user asks/)
   })
 })
 

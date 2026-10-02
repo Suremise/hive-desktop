@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { AgentInfo, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch } from '@shared/types'
+import type { AgentInfo, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch, TaskStartTarget } from '@shared/types'
 import { TASK_COLUMNS, columnColor, columnLabel, stalledReason } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
-import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, useStore } from '../store'
+import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, useStore, type DoingRequest } from '../store'
 import { selectProject } from '../actions'
 import { cx, timeAgo } from '../util'
 import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
@@ -81,10 +81,10 @@ function cardMenu(c: TaskCard): MenuEntry[] {
     ...(c.archived
       ? []
       : [
-          { label: 'Start…', icon: 'play', disabled: c.column === 'done' || !c.project, onClick: () => set({ taskStartFor: c.number }) },
+          { label: 'Start…', icon: 'play', disabled: !c.project, onClick: () => set({ taskStartFor: c.number }) },
           { separator: true },
           { header: true, label: 'Move to' },
-          ...TASK_COLUMNS.filter((x) => x.id !== c.column).map((x) => ({ label: x.label, icon: 'arrow-right', onClick: () => void change(c.number, { column: x.id }) })),
+          ...TASK_COLUMNS.filter((x) => x.id !== c.column).map((x) => ({ label: x.label, icon: 'arrow-right', onClick: () => (x.id === 'doing' ? moveToDoing({ n: c.number, project: c.project, agent: c.agent }) : void change(c.number, { column: x.id })) })),
           { separator: true }
         ]),
     { label: c.archived ? 'Bring Back' : 'Archive', icon: c.archived ? 'discard' : 'archive', onClick: () => void archive(c, !c.archived) },
@@ -341,6 +341,8 @@ export function Board({ project, query, archived }: { project: string | null; qu
     if (!d) return
     const card = all.find((c) => c.number === d.n)
     if (!card || (card.column === column && d.before === d.n)) return
+    // Into Doing from another column: who works on it is asked first, and the card stays put until then (Cancel).
+    if (column === 'doing' && card.column !== 'doing') return moveToDoing({ n: card.number, project: card.project, agent: card.agent, before: d.before })
     // Shown moved at once; the board is read again when the change lands.
     set((s) => ({ tasks: s.tasks.map((c) => (c.number === d.n ? { ...c, column } : c)) }))
     await change(d.n, { column, before: d.before }, 'Could not move the card')
@@ -609,8 +611,11 @@ export function TaskDialog() {
     close()
   }
 
-  /** Saves the card (creates a new one); the dialog's fields become the saved ones. */
-  const persist = async (): Promise<void> => {
+  /**
+   * Saves the card (creates a new one); the dialog's fields become the saved ones. hold: all but its column and agent,
+   * which the Move to Doing dialog sets (they stay unsaved here until it has).
+   */
+  const persist = async (hold = false): Promise<void> => {
     if (!title.trim()) throw new Error('A card needs a title.')
     if (isNew) {
       const c = await call('tasks:create', { title, description, project, agent: agent || null, column, labels: labelList })
@@ -625,8 +630,8 @@ export function TaskDialog() {
       if (title !== was.title) patch.title = title
       if (description !== was.description) patch.description = description
       if (project !== was.project) patch.project = project
-      if (agent !== was.agent) patch.agent = agent || null
-      if (column !== was.column) patch.column = column
+      if (agent !== was.agent && !hold) patch.agent = agent || null
+      if (column !== was.column && !hold) patch.column = column
       if (labels !== was.labels) patch.labels = labelList
       if (blocked !== was.blocked) patch.blocked = blocked.trim() || null
       if (blockedBy !== was.blockedBy) patch.blockedBy = refs(blockedBy)
@@ -651,19 +656,38 @@ export function TaskDialog() {
       if (give) await call('tasks:update', card.number, { agent: give })
       if (clashed.length) notify('warning', `#${card.number} was also changed while you edited it`, `Your ${clashed.join(', ')} replaced the change made meanwhile (see its history).`)
     }
-    orig.current = { ...fields }
+    orig.current = hold ? { ...fields, agent: orig.current.agent, column: orig.current.column } : { ...fields }
+    await loadTasks()
+  }
+
+  /** The comment being written, posted (Save leaves nothing in the dialog behind). */
+  const postComment = async (): Promise<void> => {
+    if (!card || !comment.trim()) return
+    await call('tasks:comment', card.number, comment)
+    setComment('')
     await loadTasks()
   }
 
   /** Save: the card's fields, and a comment being written (so nothing in the dialog is left behind). */
   const save = async (): Promise<void> => {
+    // Into Doing from another column: the Move to Doing dialog asks who works on it, and saves the rest when it is
+    // confirmed (Cancel there leaves this dialog open, nothing saved).
+    if (card && column === 'doing' && orig.current.column !== 'doing') {
+      if (!title.trim()) return action.setError('A card needs a title.')
+      return moveToDoing({
+        n: card.number,
+        project,
+        agent: agent || null,
+        prepare: async () => {
+          await persist(true)
+          await postComment()
+        },
+        done: close
+      })
+    }
     const r = await action.run('save', async () => {
       await persist()
-      if (card && comment.trim()) {
-        await call('tasks:comment', card.number, comment)
-        setComment('')
-        await loadTasks()
-      }
+      await postComment()
     })
     if (r) close()
   }
@@ -671,7 +695,7 @@ export function TaskDialog() {
   /** Start…: unsaved edits are saved first, so the agent gets the card as shown (a failed save starts nothing). */
   const start = async (): Promise<void> => {
     if (!card) return
-    if (edited.length && !(await action.run('start', persist))) return
+    if (edited.length && !(await action.run('start', () => persist()))) return
     set({ taskStartFor: card.number })
   }
 
@@ -715,8 +739,8 @@ export function TaskDialog() {
                 <Icon name={card.archived ? 'discard' : 'archive'} /> {card.archived ? 'Bring Back' : 'Archive'}
               </BusyButton>
               {!card.archived && (
-                <Tooltip content={!card.project ? 'Give it a project first: its agent works there.' : card.column === 'done' ? 'It is done.' : edited.length ? 'Save your changes, then give it to an agent with the card as its prompt.' : 'Give it to an agent, with the card as its prompt.'}>
-                  <BusyButton className="subtle" busy={action.busy === 'start'} busyLabel="Saving…" disabled={!card.project || card.column === 'done' || !title.trim()} onClick={() => void start()}>
+                <Tooltip content={!card.project ? 'Give it a project first: its agent works there.' : edited.length ? 'Save your changes, then give it to an agent with the card as its prompt.' : 'Give it to an agent, with the card as its prompt.'}>
+                  <BusyButton className="subtle" busy={action.busy === 'start'} busyLabel="Saving…" disabled={!card.project || !title.trim()} onClick={() => void start()}>
                     <Icon name="play" /> {edited.length ? 'Save and Start…' : 'Start…'}
                   </BusyButton>
                 </Tooltip>
@@ -848,82 +872,48 @@ export function TaskDialog() {
 
 type StartChoice = { kind: 'agent'; id: string } | { kind: 'new' } | { kind: 'worktree' }
 
-export function TaskStartDialog() {
-  const n = useStore((s) => s.taskStartFor)
-  const card = useStore((s) => s.tasks.find((c) => c.number === s.taskStartFor) ?? null)
+/** An agent that can take a card now: stopped, or running and idle (Start checks again). */
+const freeAgent = (a: AgentInfo): boolean => !a.live || a.live.status === 'ready' || a.live.status === 'finished' || a.live.status === 'stopped'
+
+/**
+ * Who starts a card, as the Start and Move to Doing dialogs ask it: an existing agent that can take it (the card's
+ * own first), a new agent, or a new agent in its own worktree. Agents are as the window knows them now, so one that
+ * gets busy while the dialog is open can no longer be chosen (and Start refuses it in any case).
+ */
+function useStartPick(project: ProjectInfo | null) {
   const settings = useStore((s) => s.settings)
-  const project = useStore((s) => (card ? (s.workspace?.projects.find((p) => p.name.toLowerCase() === card.project.toLowerCase()) ?? null) : null))
   const [choice, setChoice] = useState<StartChoice | null>(null)
   const [name, setName] = useState('')
   const [provider, setProvider] = useState<ProviderId | ''>('')
-  const action = useBusy()
-  const { setError: setStartError } = action
-
-  const free = (a: AgentInfo): boolean => !a.live || a.live.status === 'ready' || a.live.status === 'finished' || a.live.status === 'stopped'
-  useEffect(() => {
-    if (n === null || !project) return
-    const mine = card?.agent ? project.agents.find((a) => a.id === card.agent) : null
-    const first = mine && free(mine) ? mine : project.agents.find((a) => free(a) && isProviderEnabled(settings, agentProviderOf(project, a)))
+  const usable = (a: AgentInfo): boolean => !!project && freeAgent(a) && isProviderEnabled(settings, agentProviderOf(project, a))
+  /** Back to the first choice: the card's own agent if it can take it, else the first that can, else a new agent. */
+  const reset = (agentId: string | null): void => {
+    const mine = agentId && project ? project.agents.find((a) => a.id === agentId) : null
+    const first = mine && usable(mine) ? mine : project?.agents.find(usable)
     setChoice(first ? { kind: 'agent', id: first.id } : { kind: 'new' })
     setName('')
     setProvider('')
-    setStartError(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [n])
-
-  if (n === null || !card) return null
-  const close = (): void => set({ taskStartFor: null })
-  if (!project) {
-    return (
-      <Modal title={`Start #${card.number}`} icon="play" onClose={close} footer={<button className="btn primary" onClick={close}>OK</button>}>
-        <p>{card.project ? `${card.project} isn't a project in this workspace.` : 'The card has no project.'} Give it a project first: its agent works there.</p>
-      </Modal>
-    )
   }
+  const chosen = choice?.kind === 'agent' ? (project?.agents.find((a) => a.id === choice.id) ?? null) : null
+  const ready = !!project && !!choice && (choice.kind === 'agent' ? !!chosen && usable(chosen) : choice.kind === 'new' || project.isGitRepo)
+  const target = (): TaskStartTarget =>
+    choice?.kind === 'agent' ? { kind: 'agent', agentId: choice.id } : { kind: 'new-agent', worktree: choice?.kind === 'worktree', name: name.trim() || undefined, provider: provider || undefined }
+  return { settings, choice, setChoice, name, setName, provider, setProvider, reset, ready, target }
+}
+
+type StartPick = ReturnType<typeof useStartPick>
+
+function StartChoices({ project, pick }: { project: ProjectInfo; pick: StartPick }) {
+  const { settings, choice, setChoice, name, setName, provider, setProvider } = pick
   const providers = enabledProviders(settings)
   const def = projectDefaultProvider(project.config, settings)
-
-  const go = async (): Promise<void> => {
-    if (!choice) return
-    const target =
-      choice.kind === 'agent'
-        ? ({ kind: 'agent', agentId: choice.id } as const)
-        : ({ kind: 'new-agent', worktree: choice.kind === 'worktree', name: name.trim() || undefined, provider: provider || undefined } as const)
-    // The dialog stays open (no closing, a spinner) until the agent has the card; a failure shows here.
-    const r = await action.run('start', () => call('tasks:start', card.number, target))
-    if (!r) return
-    close()
-    set({ taskOpen: null })
-    await loadTasks()
-    notify('success', `#${card.number} started on ${r.value.agentName}`, card.title, [{ label: 'Show', command: 'agent.show', args: [project.path, r.value.agentId] }])
-  }
-
   return (
-    <Modal
-      title={`Start #${card.number}: ${card.title}`}
-      icon="play"
-      onClose={close}
-      busy={!!action.busy}
-      error={action.error}
-      footer={
-        <>
-          <button className="btn subtle" onClick={close}>
-            Cancel
-          </button>
-          <BusyButton className="primary" busy={action.busy === 'start'} busyLabel={choice?.kind === 'worktree' ? 'Creating the worktree…' : 'Starting…'} disabled={!choice} onClick={() => void go()}>
-            <Icon name="play" /> {action.error ? 'Try Again' : 'Start'}
-          </BusyButton>
-        </>
-      }
-    >
-      <p style={{ marginTop: 0 }}>
-        The agent gets the card as its prompt (title and description), and the card moves to Doing. A stopped agent starts a new conversation; an idle one gets it as its next message.
-      </p>
+    <>
       <div className="choice-list">
         {project.agents.map((a) => {
           const p = agentProviderOf(project, a)
           const enabled = isProviderEnabled(settings, p)
-          const ok = enabled && free(a)
+          const ok = enabled && freeAgent(a)
           return (
             <label key={a.id} className={cx('choice', choice?.kind === 'agent' && choice.id === a.id && 'selected', !ok && 'disabled')}>
               <input type="radio" disabled={!ok} checked={choice?.kind === 'agent' && choice.id === a.id} onChange={() => setChoice({ kind: 'agent', id: a.id })} />
@@ -931,7 +921,7 @@ export function TaskStartDialog() {
                 <strong>
                   <ProviderIcon provider={p} /> {a.name}
                 </strong>
-                <div className="faint">{!enabled ? `${providerName(p)} is turned off.` : a.live ? (free(a) ? `${statusText(a.live)}: gets the card as its next message.` : `${statusText(a.live)}. Choose it once it's idle.`) : 'Stopped: starts a new conversation on the card.'}</div>
+                <div className="faint">{!enabled ? `${providerName(p)} is turned off.` : a.live ? (freeAgent(a) ? `${statusText(a.live)}: gets the card as its next message.` : `${statusText(a.live).replace(/…$/, '')}. Choose it once it's idle.`) : 'Stopped: starts a new conversation on the card.'}</div>
               </div>
             </label>
           )
@@ -970,6 +960,207 @@ export function TaskStartDialog() {
           </select>
         </div>
       )}
+    </>
+  )
+}
+
+/** Starts a card (the Start and Move to Doing dialogs) and says so, with Show. */
+async function startCard(card: TaskCard, project: ProjectInfo, target: TaskStartTarget): Promise<void> {
+  const r = await call('tasks:start', card.number, target)
+  notify('success', `#${card.number} started on ${r.agentName}`, card.title, [{ label: 'Show', command: 'agent.show', args: [project.path, r.agentId] }])
+}
+
+export function TaskStartDialog() {
+  const n = useStore((s) => s.taskStartFor)
+  const card = useStore((s) => s.tasks.find((c) => c.number === s.taskStartFor) ?? null)
+  const project = useStore((s) => (card ? (s.workspace?.projects.find((p) => p.name.toLowerCase() === card.project.toLowerCase()) ?? null) : null))
+  const pick = useStartPick(project)
+  const action = useBusy()
+  const { setError: setStartError } = action
+
+  useEffect(() => {
+    if (n === null || !project) return
+    pick.reset(card?.agent ?? null)
+    setStartError(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [n])
+
+  if (n === null || !card) return null
+  const close = (): void => set({ taskStartFor: null })
+  if (!project) {
+    return (
+      <Modal title={`Start #${card.number}`} icon="play" onClose={close} footer={<button className="btn primary" onClick={close}>OK</button>}>
+        <p>{card.project ? `${card.project} isn't a project in this workspace.` : 'The card has no project.'} Give it a project first: its agent works there.</p>
+      </Modal>
+    )
+  }
+
+  const go = async (): Promise<void> => {
+    if (!pick.ready) return
+    // The dialog stays open (no closing, a spinner) until the agent has the card; a failure shows here.
+    const r = await action.run('start', () => startCard(card, project, pick.target()))
+    if (!r) return
+    close()
+    set({ taskOpen: null })
+    await loadTasks()
+  }
+
+  return (
+    <Modal
+      title={`Start #${card.number}: ${card.title}`}
+      icon="play"
+      onClose={close}
+      busy={!!action.busy}
+      error={action.error}
+      footer={
+        <>
+          <button className="btn subtle" onClick={close}>
+            Cancel
+          </button>
+          <BusyButton className="primary" busy={action.busy === 'start'} busyLabel={pick.choice?.kind === 'worktree' ? 'Creating the worktree…' : 'Starting…'} disabled={!pick.ready} onClick={() => void go()}>
+            <Icon name="play" /> {action.error ? 'Try Again' : 'Start'}
+          </BusyButton>
+        </>
+      }
+    >
+      <p style={{ marginTop: 0 }}>
+        The agent gets the card as its prompt (title and description), and the card moves to Doing. A stopped agent starts a new conversation; an idle one gets it as its next message.
+      </p>
+      <StartChoices project={project} pick={pick} />
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Move to Doing: nobody yet, an agent, or an agent that starts on it.
+// ---------------------------------------------------------------------------
+
+type DoingMode = 'nobody' | 'assign' | 'start'
+
+const doingProject = (req: DoingRequest): ProjectInfo | null => (req.project ? (get().workspace?.projects.find((p) => p.name.toLowerCase() === req.project.toLowerCase()) ?? null) : null)
+
+/**
+ * Moves a card into Doing from another column the way the user means it: the Move to Doing dialog asks (nobody yet,
+ * an agent, or an agent that starts on it). A card with no project in this workspace can only go there with its
+ * agent as it is, so it moves at once. Reordering within Doing never comes here.
+ */
+export function moveToDoing(req: DoingRequest): void {
+  if (doingProject(req)) return set({ taskDoing: req })
+  void (async () => {
+    try {
+      await req.prepare?.()
+      await call('tasks:update', req.n, { column: 'doing', ...(req.before !== undefined ? { before: req.before } : {}) })
+      await loadTasks()
+      req.done?.()
+    } catch (e) {
+      notify('error', 'Could not move the card', errorMessage(e))
+      await loadTasks()
+    }
+  })()
+}
+
+export function MoveToDoingDialog() {
+  const req = useStore((s) => s.taskDoing)
+  const card = useStore((s) => (s.taskDoing ? (s.tasks.find((c) => c.number === s.taskDoing!.n) ?? null) : null))
+  const project = useStore((s) => (s.taskDoing?.project ? (s.workspace?.projects.find((p) => p.name.toLowerCase() === s.taskDoing!.project.toLowerCase()) ?? null) : null))
+  const [mode, setMode] = useState<DoingMode>('nobody')
+  const [assignee, setAssignee] = useState('')
+  const pick = useStartPick(project)
+  const action = useBusy()
+  const { setError } = action
+
+  useEffect(() => {
+    if (!req) return
+    // The card's agent (or the one the card editor has) is the default: assigned, nothing started.
+    const own = req.agent && project?.agents.some((a) => a.id === req.agent) ? req.agent : null
+    setMode(own ? 'assign' : 'nobody')
+    setAssignee(own ?? project?.agents[0]?.id ?? '')
+    pick.reset(own)
+    setError(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [req])
+
+  if (!req || !card || !project) return null
+  const close = (): void => set({ taskDoing: null })
+  const assignable = project.agents.some((a) => a.id === assignee)
+  const ready = mode === 'nobody' || (mode === 'assign' ? assignable : pick.ready)
+  const before = req.before !== undefined ? { before: req.before } : {}
+  const holder = req.agent ? (project.agents.find((a) => a.id === req.agent)?.name ?? card.agentName ?? 'its agent') : null
+
+  const go = async (): Promise<void> => {
+    if (!ready) return
+    const r = await action.run(mode, async () => {
+      await req.prepare?.()
+      if (mode === 'start') {
+        await startCard(card, project, pick.target())
+        // Start doesn't place the card: where it was dropped, if it still can be (the order only).
+        if (req.before !== undefined) await call('tasks:update', card.number, before).catch(() => undefined)
+      } else {
+        await call('tasks:update', card.number, { column: 'doing', agent: mode === 'assign' ? assignee : null, ...before })
+      }
+    })
+    if (!r) return
+    close()
+    await loadTasks()
+    req.done?.()
+  }
+
+  const row = (m: DoingMode, icon: string, title: string, text: string, disabled = false) => (
+    <label className={cx('choice', mode === m && 'selected', disabled && 'disabled')}>
+      <input type="radio" name="doing-mode" disabled={disabled} checked={mode === m} onChange={() => setMode(m)} />
+      <div>
+        <strong>
+          <Icon name={icon} /> {title}
+        </strong>
+        <div className="faint">{text}</div>
+      </div>
+    </label>
+  )
+  const label = action.error ? 'Try Again' : mode === 'start' ? 'Start' : 'Move to Doing'
+
+  return (
+    <Modal
+      title={`Move #${card.number} to Doing`}
+      icon="arrow-right"
+      onClose={close}
+      busy={!!action.busy}
+      error={action.error}
+      footer={
+        <>
+          <button className="btn subtle" onClick={close}>
+            Cancel
+          </button>
+          <BusyButton className="primary" busy={!!action.busy} busyLabel={mode === 'start' ? (pick.choice?.kind === 'worktree' ? 'Creating the worktree…' : 'Starting…') : 'Moving…'} disabled={!ready} onClick={() => void go()}>
+            {mode === 'start' && <Icon name="play" />} {label}
+          </BusyButton>
+        </>
+      }
+    >
+      <p style={{ marginTop: 0 }}>
+        <strong>{card.title}</strong> · {project.name}
+      </p>
+      <div className="choice-list doing-modes">
+        {row('nobody', 'circle-large-outline', 'Nobody yet', holder ? `Moves it with no agent. Takes it from ${holder}.` : 'Moves it with no agent.')}
+        {row('assign', 'person', 'Assign an agent', project.agents.length ? 'Gives it to an agent of the project. Nothing is sent to the agent and nothing starts.' : 'The project has no agents yet.', !project.agents.length)}
+        {mode === 'assign' && (
+          <div className="agent-form nested doing-sub">
+            <label>Agent</label>
+            <select className="select" value={assignee} onChange={(e) => setAssignee(e.target.value)}>
+              {project.agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({a.live ? statusText(a.live) : 'Stopped'})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {row('start', 'play', 'Assign and start', 'The agent gets the card as its prompt: a stopped one starts a new conversation, an idle one gets it as its next message.')}
+        {mode === 'start' && (
+          <div className="doing-sub">
+            <StartChoices project={project} pick={pick} />
+          </div>
+        )}
+      </div>
     </Modal>
   )
 }

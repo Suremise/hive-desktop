@@ -67,6 +67,21 @@ export interface ChoiceRequest {
 
 export type DialogRequest = ConfirmRequest | PromptRequest | ChoiceRequest
 
+/**
+ * A card the user moves into Doing (a drag, Move to, or the card dialog's Column): the Move to Doing dialog asks
+ * whether nobody has it, an agent, or an agent that starts on it, and makes the change. project and agent: as the
+ * user has them (the card dialog's unsaved fields). before: where a drag dropped it. prepare: saves the card dialog's
+ * other edits first, once the user has chosen; done: after the change.
+ */
+export interface DoingRequest {
+  n: number
+  project: string
+  agent: string | null
+  before?: number | null
+  prepare?: () => Promise<void>
+  done?: () => void
+}
+
 interface State {
   settings: AppSettings | null
   workspace: WorkspaceInfo | null
@@ -170,6 +185,8 @@ interface State {
   handOverFor: AgentRef | null
   /** Shows this agent's session in its project's Overview and scrolls to it (the footer's context count); `at` makes each click count. */
   overviewJump: (AgentRef & { at: number }) | null
+  /** Opens Project Settings on this section (Settings → Workspace's Storage links); `at` makes each click count. */
+  projectSettingsJump: { project: string; section: string; at: number } | null
   /** Per project: the agent that session commands (header buttons, shortcuts, Insert into Session) act on. */
   focusedAgent: Record<string, string>
   /** Per project: which agent each pane of a multi-pane layout shows. */
@@ -200,6 +217,8 @@ interface State {
   taskOpen: number | { project: string } | null
   /** The card whose Start dialog is open. */
   taskStartFor: number | null
+  /** A card being moved to Doing: the Move to Doing dialog asks who has it. */
+  taskDoing: DoingRequest | null
   /** The project whose Remove Project dialog is open. */
   removeProjectFor: string | null
 
@@ -280,6 +299,7 @@ export const useStore = create<State>(() => ({
   mergeFor: null,
   handOverFor: null,
   overviewJump: null,
+  projectSettingsJump: null,
   focusedAgent: {},
   paneAgents: {},
   agentDrag: null,
@@ -298,6 +318,7 @@ export const useStore = create<State>(() => ({
   boardArchived: false,
   taskOpen: null,
   taskStartFor: null,
+  taskDoing: null,
   removeProjectFor: null,
 
   windowFocused: true,
@@ -495,6 +516,13 @@ export function toggleCompactSidebar(compact = !get().sidebarCompact): void {
     lastSideActivity: 'projects',
     activity: s.activity === 'docs' || s.activity === 'settings' ? s.activity : 'projects'
   }))
+}
+
+/** Shows a project's settings on one section (e.g. Storage). */
+export function openProjectSettings(path: string, section: string): void {
+  set({ selectedProject: path, projectSettingsJump: { project: path, section, at: Date.now() } })
+  showView('projects')
+  setProjectTab(path, 'settings')
 }
 
 /** Opens the Sessions tab on one session. */

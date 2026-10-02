@@ -7,6 +7,7 @@ import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, effectiveModelLabel, merge
 import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { ModelPicker } from '../components/ModelPicker'
 import { NumberField } from '../components/NumberField'
+import { StorageView } from '../components/Storage'
 import { ProviderIcon } from '../components/ProviderIcon'
 import { confirmDangerousMode } from '../components/PermissionMode'
 import * as actions from '../actions'
@@ -1013,12 +1014,13 @@ function SettingRow({ title, desc, tip, children, modified }: { title: string; d
   )
 }
 
-type ProjectSection = 'agents' | 'sessions' | 'keys' | 'advanced' | `provider:${string}`
+type ProjectSection = 'agents' | 'sessions' | 'storage' | 'keys' | 'advanced' | `provider:${string}`
 
 const PROJECT_SECTIONS: { id: ProjectSection; label: string; icon: string; desc: string; provider?: ProviderId }[] = [
   { id: 'agents', label: 'Agents & Worktrees', icon: 'organization', desc: 'The project’s agents and their providers, file locks between them, and how new worktrees are set up.' },
   ...PROVIDERS.map((p) => ({ id: `provider:${p.id}` as ProjectSection, label: p.name, icon: 'blank', provider: p.id, desc: `Model, effort and permissions for this project’s ${p.name} agents. Agents can override these for themselves.` })),
   { id: 'sessions', label: 'Sessions', icon: 'history', desc: 'Compacting and notifications for this project.' },
+  { id: 'storage', label: 'Storage', icon: 'database', desc: 'What Hive keeps for this project: transcript backups, archived sessions, images and the agents’ worktrees. Clean Up… moves old backups and images to the Recycle Bin.' },
   { id: 'keys', label: 'Keyboard Shortcuts', icon: 'keyboard', desc: 'Shortcuts for project and session commands while this project is selected, over the global ones.' },
   { id: 'advanced', label: 'Advanced', icon: 'tools', desc: 'Where the settings are stored, and resetting them.' }
 ]
@@ -1099,6 +1101,14 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
   const settings = useStore((s) => s.settings)
   const [section, setSection] = useState<ProjectSection>('agents')
   const [query, setQuery] = useState('')
+  // Opened on a section from elsewhere (Settings → Workspace's Storage links).
+  const jump = useStore((s) => s.projectSettingsJump)
+  useEffect(() => {
+    if (!jump || jump.project.toLowerCase() !== project.path.toLowerCase()) return
+    if (PROJECT_SECTIONS.some((x) => x.id === jump.section)) setSection(jump.section as ProjectSection)
+    setQuery('')
+    set({ projectSettingsJump: null })
+  }, [jump, project.path])
   const cfg = project.config
   if (!settings) return null
   const update = async (patch: Partial<ProjectConfig>): Promise<void> => {
@@ -1282,6 +1292,14 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
           <option value="off">Off</option>
         </select>
       )
+    },
+    {
+      section: 'storage',
+      key: 'storage',
+      title: 'What Hive keeps',
+      desc: 'Measured in the background; Refresh measures again. The coding agents’ own transcripts (in ~/.claude and ~/.codex) aren’t counted, and Clean Up… never touches them.',
+      wide: true,
+      render: () => <StorageView path={project.path} />
     },
     {
       section: 'keys',

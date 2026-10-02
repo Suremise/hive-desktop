@@ -33,6 +33,7 @@ import * as branchWatch from './branchWatch'
 import { sessions } from './sessions'
 import { transcripts } from './transcripts'
 import * as skills from './skills'
+import * as storage from './storage'
 import { contextWorkspace, inWorkspace, workspace, workspaceFor, WorkspaceService } from './workspace'
 import { TITLE_BAR_OVERLAY, windowOf, windowShowing } from './windows'
 import { showWindow } from './tray'
@@ -296,6 +297,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:rename': (p, id, name) => sessions.rename(p, id, name),
     'session:delete': (p, id) => sessions.delete(p, id),
     'session:keptUsage': (p) => sessions.keptUsage(p),
+    'storage:project': (p, refresh) => storage.projectStorage(p, refresh),
+    'storage:workspace': (refresh) => storage.workspaceStorage(refresh),
+    'storage:cleanupPreview': (p, opts) => storage.cleanupPreview(p, opts),
+    'storage:cleanup': (p, opts, listed) => storage.cleanup(p, opts, listed),
     'session:clearUsageCache': () => sessions.forgetUsageCache(),
     'session:adopt': (p, id) => sessions.adopt(p, id),
     'session:usage': (p, id) => sessions.usage(workspace.assertSessionHost(p), id),

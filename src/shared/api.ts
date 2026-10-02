@@ -8,6 +8,9 @@ import type {
   AgentBranchStatus,
   AgentDef,
   AgentPatch,
+  CleanupItem,
+  CleanupOptions,
+  CleanupResult,
   PersonaInfo,
   AgentInstallInfo,
   AppConfig,
@@ -33,12 +36,14 @@ import type {
   ProjectGitInfo,
   ProjectRemoval,
   ProjectRemovalInfo,
+  ProjectStorage,
   QuitChoice,
   QuitScope,
   QuitSession,
   SessionImageGroup,
   SessionListItem,
   WorkspaceUsage,
+  WorkspaceStorage,
   SessionUsage,
   SkillInfo,
   SkillTarget,
@@ -164,6 +169,14 @@ export interface HiveRequests {
   'session:delete': (projectPath: string, sessionId: string) => void
   /** Deleted sessions' usage (list items with deleted: true), which totals still count. */
   'session:keptUsage': (projectPath: string) => SessionListItem[]
+  /** What Hive keeps for a project or the Assistant (Project Settings → Storage); the last result unless refresh. */
+  'storage:project': (projectPath: string, refresh?: boolean) => ProjectStorage
+  /** Every project's storage and the Assistant's, biggest first (Settings → Workspace). */
+  'storage:workspace': (refresh?: boolean) => WorkspaceStorage
+  /** What Clean Up… would move to the Recycle Bin with these options. */
+  'storage:cleanupPreview': (projectPath: string, opts: CleanupOptions) => CleanupItem[]
+  /** Moves what the preview listed (its paths) to the Recycle Bin, skipping what no longer qualifies. */
+  'storage:cleanup': (projectPath: string, opts: CleanupOptions, listed: string[]) => CleanupResult
   /** Forgets every transcript's usage, in memory and in usage-cache.json (Settings → Sessions → Usage cache). */
   'session:clearUsageCache': () => void
   'session:adopt': (projectPath: string, sessionId: string) => void

@@ -6,7 +6,7 @@ import { checkForUpdates, openReleaseNotes } from './components/Updates'
 import { openModeMenu } from './components/PermissionMode'
 import * as actions from './actions'
 import { noteCommandUsed } from './tips'
-import { agentPage, focusedAgentId, get, isAssistantPath, notify, set, setActivity, setAssistantOpen, showAssistantView, showView, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
+import { agentPage, focusedAgentId, get, isAssistantPath, notify, openProjectSettings, set, setActivity, setAssistantOpen, showAssistantView, showView, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
 
 export interface Command {
   id: string
@@ -127,6 +127,7 @@ export const commands: Command[] = [
   { id: 'project.tab.skills', label: 'Go to Skills', category: 'Project', keybinding: 'Alt+8', when: hasProject, run: tab('skills') },
   { id: 'project.tab.mcp', label: 'Go to MCP', category: 'Project', keybinding: 'Alt+9', when: hasProject, run: tab('mcp') },
   { id: 'project.tab.settings', label: 'Go to Project Settings', category: 'Project', keybinding: 'Alt+0', when: hasProject, run: tab('settings') },
+  { id: 'project.storage', label: 'Project Storage and Clean Up…', category: 'Project', when: hasProject, run: () => openProjectSettings(get().selectedProject!, 'storage') },
   { id: 'project.tab.next', label: 'Next Project Tab', category: 'Project', keybinding: 'Mod+Tab', when: hasProject, run: () => cycleTab(1) },
   { id: 'project.tab.previous', label: 'Previous Project Tab', category: 'Project', keybinding: 'Mod+Shift+Tab', when: hasProject, run: () => cycleTab(-1) },
   { id: 'session.new', label: 'New Session', category: 'Session', keybinding: 'Mod+Shift+N', when: hasProject, run: () => actions.newSession() },

@@ -52,6 +52,8 @@ const SUITES = [
   { name: 'icons' },
   { name: 'ctxpercent' },
   { name: 'donemove' },
+  { name: 'doingmove' },
+  { name: 'storage' },
   { name: 'boardscope' },
   { name: 'board' },
   { name: 'boardscroll' },
