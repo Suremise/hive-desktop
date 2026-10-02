@@ -1,6 +1,8 @@
 // A failed load says so, with Retry, instead of looking like an empty result: the Sessions tab's search, the
-// project's Skills tab and the Workspace Overview (first load, and a refresh over the last figures). Uses the
-// test-only HIVE_TEST_FAIL_IPC (unpackaged builds), set in the main process as each step needs it.
+// project's Skills tab and the Workspace Overview (first load, and a refresh over the last figures). What a view
+// loaded belongs to its project: switching to another whose load fails, or whose load is overtaken by a late answer
+// for the last project, never shows the last project's results as its own. Uses the test-only HIVE_TEST_FAIL_IPC and
+// HIVE_TEST_SLOW_IPC (unpackaged builds), set in the main process as each step needs it.
 // No agents. Dev build, throwaway profile and workspace.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -10,6 +12,7 @@ const path = require('path')
 const userData = path.join(lib.WORK, 'loadfail-profile')
 const ws = path.join(lib.WORK, 'loadfail-ws')
 const alpha = path.join(ws, 'alpha')
+const beta = path.join(ws, 'beta')
 let failed = 0
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
@@ -19,6 +22,11 @@ const check = (name, ok, extra = '') => {
 ;(async () => {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
   lib.gitProject(alpha, { 'a.ts': 'export const a = 1\n' })
+  lib.gitProject(beta, { 'b.ts': 'export const b = 1\n' })
+  // A local skill only alpha has.
+  const only = path.join(alpha, '.claude', 'skills', 'alpha-only')
+  fs.mkdirSync(only, { recursive: true })
+  fs.writeFileSync(path.join(only, 'SKILL.md'), '---\nname: alpha-only\ndescription: Only in alpha.\n---\n\nAlpha.\n')
   lib.enableProviders(userData)
 
   const env = { ...process.env, HIVE_USER_DATA: userData }
@@ -32,6 +40,7 @@ const check = (name, ok, extra = '') => {
   // Each call to fail (a new value each time: the same one again isn't read as a change).
   let round = 0
   const failNext = (channel) => app.evaluate((_e, v) => (process.env.HIVE_TEST_FAIL_IPC = v), `${channel}*1,round${++round}`)
+  const slowNext = (channel, ms) => app.evaluate((_e, v) => (process.env.HIVE_TEST_SLOW_IPC = v), `${channel}=${ms}*1,round${++round}`)
   const until = async (fn, ms = 10000) => {
     const t = Date.now()
     let v
@@ -69,6 +78,40 @@ const check = (name, ok, extra = '') => {
   check('skills: a failed refresh keeps the list, with a note', !!(await until(async () => /Could not refresh the skills/.test(await text('.load-stale')) && (await page.locator('.skill-group').count()) > 0)))
   await page.locator('.load-stale').getByRole('button', { name: 'Retry' }).click()
   check('skills: Retry clears the note', !!(await until(async () => (await page.locator('.load-stale').count()) === 0)))
+
+  // --- A project's results are its own: another project whose load fails or is overtaken never shows them.
+  const project = (name) => page.locator('.sidebar').getByText(name, { exact: true }).first().click()
+  const alphaOnly = page.locator('.skill-row', { hasText: 'alpha-only' })
+  await project('beta')
+  await page.locator('.tab', { hasText: 'Skills' }).click()
+  await until(async () => (await page.locator('.skill-group').count()) > 0)
+  await project('alpha')
+  check('skills: alpha lists its own local skill', !!(await until(async () => (await alphaOnly.count()) === 1)))
+  // The Skills tab stays open (both projects show it) while beta's load fails.
+  await failNext('skills:list')
+  await project('beta')
+  check("skills: beta's failed load says so, without alpha's skills", !!(await until(async () => /Could not load the skills/.test(await text('.load-failed')))) && (await alphaOnly.count()) === 0)
+  check("skills: nor as beta's stale list", (await page.locator('.load-stale').count()) === 0)
+  await page.screenshot({ path: path.join(lib.WORK, 'loadfail-5-switch.png') })
+  // Whichever Retry shows, so the checks after this one still run if the error showed as a stale note.
+  await page.getByRole('button', { name: 'Retry' }).first().click()
+  check("skills: Retry loads beta's own", !!(await until(async () => (await failedBox.count()) === 0 && (await page.locator('.skill-group').count()) > 0)) && (await alphaOnly.count()) === 0)
+  // Alpha's answer arrives late, after beta is shown: it isn't shown as beta's.
+  await slowNext('skills:list', 2500)
+  await project('alpha')
+  await lib.sleep(300)
+  await project('beta')
+  await until(async () => (await page.locator('.skill-group').count()) > 0)
+  await lib.sleep(3500)
+  check("skills: alpha's late answer isn't shown in beta", (await alphaOnly.count()) === 0 && (await page.locator('.skill-group').count()) > 0)
+  await project('alpha')
+  check('skills: back in alpha, its own again', !!(await until(async () => (await alphaOnly.count()) === 1)))
+  // While beta's own load is slow, alpha's list isn't shown as beta's: beta is loading.
+  await slowNext('skills:list', 2500)
+  await project('beta')
+  await lib.sleep(600)
+  check("skills: while beta loads, alpha's skills aren't shown", (await alphaOnly.count()) === 0 && /Loading/.test(await text('.split-list .pane-body')))
+  check('skills: then beta has its own', !!(await until(async () => (await page.locator('.skill-group').count()) > 0)) && (await alphaOnly.count()) === 0)
 
   // --- Workspace Overview: a failed first load isn't a spinner forever.
   await failNext('workspace:usage')

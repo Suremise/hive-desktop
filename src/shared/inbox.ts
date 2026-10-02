@@ -87,6 +87,15 @@ export function inbox(
   return { needYou: needYou.sort(byAge), toReview: toReview.sort(byAge) }
 }
 
+/**
+ * Several inboxes' items (one inbox per window) as one list, oldest first across them all, each kept with its owner
+ * (the window to show it in), and cut to `limit`: the tray menu. Equal times keep the windows' order.
+ */
+export function firstAcross<O>(parts: readonly { owner: O; items: readonly InboxItem[] }[], limit: number): { shown: { owner: O; item: InboxItem }[]; total: number } {
+  const all = parts.flatMap(({ owner, items }) => items.map((item) => ({ owner, item }))).sort((x, y) => byAge(x.item, y.item))
+  return { shown: all.slice(0, limit), total: all.length }
+}
+
 const plural = (n: number, word: string): string => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
 
 /** "3 files, +120 −40 · 2 commits, 1 uncommitted file" */

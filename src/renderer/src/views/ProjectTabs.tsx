@@ -16,6 +16,7 @@ import { DiffView } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, statusText, StatusDot, Switch, Tooltip } from '../components/ui'
 import { languageFor } from '../monacoLang'
+import { useScopedLoad } from '../scopedLoad'
 import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
 import { RootSelector } from './FilesTab'
 import { agentProviderOf, confirm, notify, set, setActivity, useFocusedAgent, useStore } from '../store'
@@ -34,44 +35,27 @@ const LIVE_REFRESH_MS = 15_000
  * Settings → Sessions → Overview updates: live (as sessions change, at most every 15 s), every minute, or
  * only on reload(). Only while a view using it is shown.
  */
+const NO_SESSIONS: SessionListItem[] = []
+
 export function useSessions(project: ProjectInfo) {
   const mode = useStore((s) => s.settings?.sessions.overviewRefresh ?? 'live')
   const usageVersion = useStore((s) => s.usageVersion[project.path] ?? 0)
   // A project's tabs stay mounted while another view (Notes, Settings…) is shown: they don't update then.
   const shown = useStore((s) => s.activity === 'projects' || s.workspace?.assistant?.path === project.path)
-  const [items, setItems] = useState<SessionListItem[] | null>(null)
-  // Deleted sessions' usage: totals count it, lists don't show it.
-  const [kept, setKept] = useState<SessionListItem[]>([])
-  const [loadedAt, setLoadedAt] = useState(0)
-  // The last load failed: views say so (with the sessions from before, if any), not "no sessions".
-  const [error, setError] = useState<string | null>(null)
+  // This project's sessions, and deleted sessions' usage (totals count it, lists don't show it). A failed load: views
+  // say so (with this project's sessions from before, if any), not "no sessions".
+  const sessions = useScopedLoad<{ list: SessionListItem[]; kept: SessionListItem[] }>(project.path)
   const last = useRef(0)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const current = useRef(project.path)
-  current.current = project.path
-  // Loads are numbered: an older one finishing after a newer one is dropped.
-  const loads = useRef(0)
+  const { load: loadScoped } = sessions
   const load = useCallback(() => {
     if (timer.current) clearTimeout(timer.current)
     timer.current = null
     last.current = Date.now()
     const path = project.path
-    const n = ++loads.current
     // Deleted sessions' usage only adds to the totals: without it they are a little low, which beats no list.
-    void Promise.all([call('session:list', path), call('session:keptUsage', path).catch(() => [])])
-      .then(([list, deleted]) => {
-        // Another project shown meanwhile, or a newer load started: theirs is the one to show.
-        if (current.current !== path || n !== loads.current) return
-        setItems(list)
-        setKept(deleted)
-        setLoadedAt(Date.now())
-        setError(null)
-      })
-      .catch((e) => {
-        if (current.current !== path || n !== loads.current) return
-        setError(errorMessage(e))
-      })
-  }, [project.path])
+    loadScoped(path, () => Promise.all([call('session:list', path), call('session:keptUsage', path).catch(() => [])]).then(([list, kept]) => ({ list, kept })))
+  }, [project.path, loadScoped])
   useEffect(() => {
     load()
     return () => {
@@ -94,7 +78,7 @@ export function useSessions(project: ProjectInfo) {
     const t = setInterval(load, 60_000)
     return () => clearInterval(t)
   }, [mode, load, shown])
-  return { items, kept, reload: load, loadedAt, error }
+  return { items: sessions.data?.list ?? null, kept: sessions.data?.kept ?? NO_SESSIONS, reload: load, loadedAt: sessions.at, error: sessions.error }
 }
 
 
@@ -681,23 +665,27 @@ const memoryTip = (s: MemorySource): string => {
   return `Project instructions ${name} reads at the start of every session. Usually committed to git.`
 }
 
+const NO_SOURCES: MemorySource[] = []
+
 export function MemoryTab({ project }: { project: ProjectInfo }) {
   const listWidth = usePaneSize('memory', 280)
-  const [sources, setSources] = useState<MemorySource[]>([])
+  // This project's files only: another project's never show (or open for editing) here, even while this one loads.
+  const memory = useScopedLoad<MemorySource[]>(project.path)
+  const sources = memory.data ?? NO_SOURCES
+  const error = memory.error
   const [selected, setSelected] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { load: loadScoped } = memory
   const load = useCallback(() => {
-    void call('memory:list', project.path).then(
-      (s) => {
-        setSources(s)
-        setError(null)
-        const key = (x: MemorySource): string => `${x.provider}:${x.id}`
-        setSelected((cur) => cur ?? (s.find((x) => x.exists) ?? s[0] ? key(s.find((x) => x.exists) ?? s[0]) : null))
-      },
-      (e) => setError(errorMessage(e))
-    )
-  }, [project.path])
+    const path = project.path
+    loadScoped(path, () => call('memory:list', path))
+  }, [project.path, loadScoped])
   useEffect(load, [load])
+  // Start on the first file that exists.
+  useEffect(() => {
+    const s = memory.data
+    const first = s?.find((x) => x.exists) ?? s?.[0]
+    if (first) setSelected((cur) => cur ?? `${first.provider}:${first.id}`)
+  }, [memory.data])
   const sel = sources.find((s) => `${s.provider}:${s.id}` === selected)
   // One pair of groups per provider the project uses (or, with none yet, every enabled provider).
   const settings = useStore((s) => s.settings)
@@ -742,8 +730,14 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
             <IconButton icon="refresh" title="Refresh" onClick={load} />
           </div>
         </div>
+        {error && memory.data && <StaleNote what="the instructions and memory" error={error} at={memory.at} onRetry={load} />}
         <div className="pane-body">
-          {error && <LoadFailed inline what="the instructions and memory" error={error} onRetry={load} />}
+          {error && !memory.data && <LoadFailed inline what="the instructions and memory" error={error} onRetry={load} />}
+          {!error && !memory.data && (
+            <div className="pane-empty">
+              <Icon name="loading" spin /> Loading…
+            </div>
+          )}
           {!shared && (
             <div className="memory-share">
               <Icon name="info" /> Each provider reads its own instructions file.
@@ -752,7 +746,7 @@ export function MemoryTab({ project }: { project: ProjectInfo }) {
               </button>
             </div>
           )}
-          {!error &&
+          {memory.data &&
             groups.map(([title, list]) => (
             <div key={title}>
               <div className="section-header" style={{ cursor: 'default' }}>{title}</div>
@@ -803,21 +797,17 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
   const version = useStore((s) => s.skillsVersion)
   const settings = useStore((s) => s.settings)
   const listWidth = usePaneSize('projectSkills', 320)
-  const [skills, setSkills] = useState<SkillInfo[] | null>(null)
+  // This project's skills only. A failed read: said, with Retry (and this project's skills from before, if any),
+  // rather than looking like no skills.
+  const loaded = useScopedLoad<SkillInfo[]>(project.path)
+  const skills = loaded.data
+  const error = loaded.error
   const [selected, setSelected] = useState<string | null>(null)
-  // A failed read: said, with Retry (and the skills from before, if any), rather than looking like no skills.
-  const [error, setError] = useState<{ error: string; at: number } | null>(null)
-  const loadedAt = useRef(0)
+  const { load: loadScoped } = loaded
   const load = useCallback(() => {
-    void call('skills:list', project.path).then(
-      (s) => {
-        setSkills(s)
-        setError(null)
-        loadedAt.current = Date.now()
-      },
-      (e) => setError({ error: errorMessage(e), at: loadedAt.current })
-    )
-  }, [project.path])
+    const path = project.path
+    loadScoped(path, () => call('skills:list', path))
+  }, [project.path, loadScoped])
   useEffect(load, [load, version])
 
   const providers = PROVIDERS.filter((p) => isProviderEnabled(settings, p.id))
@@ -851,9 +841,14 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
             <IconButton icon="refresh" title="Refresh" onClick={load} />
           </div>
         </div>
-        {error && skills && <StaleNote what="the skills" error={error.error} at={error.at} onRetry={load} />}
+        {error && skills && <StaleNote what="the skills" error={error} at={loaded.at} onRetry={load} />}
         <div className="pane-body">
-          {error && !skills && <LoadFailed inline what="the skills" error={error.error} onRetry={load} />}
+          {error && !skills && <LoadFailed inline what="the skills" error={error} onRetry={load} />}
+          {!error && !skills && (
+            <div className="pane-empty">
+              <Icon name="loading" spin /> Loading…
+            </div>
+          )}
           {skills && group('Hive', SKILL_LEVEL_TIP.hive, hive, undefined, 'No Hive skills in this workspace.')}
           {hive.map((sk) =>
             row(
@@ -913,17 +908,13 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
   const version = useStore((s) => s.skillsVersion)
   const settings = useStore((s) => s.settings)
   const api = useStore((s) => s.api)
-  const [servers, setServers] = useState<McpServerInfo[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const load = useCallback(() => {
-    void call('mcp:list').then(
-      (s) => {
-        setServers(s)
-        setError(null)
-      },
-      (e) => setError(errorMessage(e))
-    )
-  }, [])
+  // The workspace's servers (the window's workspace): before they load, nothing is said about them.
+  const wsPath = useStore((s) => s.workspace?.path ?? '')
+  const loaded = useScopedLoad<McpServerInfo[]>(wsPath)
+  const servers = loaded.data
+  const error = loaded.error
+  const { load: loadScoped } = loaded
+  const load = useCallback(() => loadScoped(wsPath, () => call('mcp:list')), [wsPath, loadScoped])
   useEffect(load, [load, version])
   const disabled = new Set(project.config.mcp.disabled)
   const toggle = async (name: string, enabled: boolean): Promise<void> => {
@@ -936,8 +927,15 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
       <div className="page-narrow">
         <h2 className="section">Workspace MCP servers</h2>
         <ChangesApplyNote project={project} />
-        {error ? (
-          <LoadFailed inline what="the workspace's MCP servers" error={error} onRetry={load} />
+        {error && servers && <StaleNote what="the workspace's MCP servers" error={error} at={loaded.at} onRetry={load} />}
+        {!servers ? (
+          error ? (
+            <LoadFailed inline what="the workspace's MCP servers" error={error} onRetry={load} />
+          ) : (
+            <p className="hint">
+              <Icon name="loading" spin /> Loading…
+            </p>
+          )
         ) : servers.length === 0 ? (
           <p className="hint">
             No MCP servers in this workspace. <a onClick={() => setActivity('mcp')}>Manage MCP servers</a>

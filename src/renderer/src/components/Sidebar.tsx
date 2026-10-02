@@ -5,14 +5,15 @@ import { cardText } from './CardChip'
 import { agentLaunchSettings, modeOption } from '@shared/providers'
 import { agentsToResume } from '@shared/resumeAll'
 import * as actions from '../actions'
-import { call, errorMessage } from '../api'
+import { call } from '../api'
 import { commandKeybinding, runCommand } from '../commands'
 import { get, notify, projectState, prompt, set, setProjectTab, toggleCompactSidebar, useStore } from '../store'
 import { cx, formatKeybinding } from '../util'
-import { Icon, IconButton, InfoTip, LoadFailed, StatusDot, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, StatusDot, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
 import { addSkill, deleteSkill, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
 import { hasEditorDraftsUnder } from '../editorDrafts'
 import { useInbox } from '../inbox'
+import { useScopedLoad } from '../scopedLoad'
 import { AssistantSidePanel } from './AssistantView'
 import { BoardPanel } from './Board'
 import { WorkspaceOverviewPanel } from '../views/WorkspaceOverview'
@@ -529,25 +530,22 @@ function NotesPanel() {
 // Skills
 // ---------------------------------------------------------------------------
 
+const NO_SKILLS: SkillInfo[] = []
+
 function SkillsPanel() {
   const workspace = useStore((s) => s.workspace)
   const version = useStore((s) => s.skillsVersion)
   const selectedSkill = useStore((s) => s.selectedSkill)
-  const [skills, setSkills] = useState<SkillInfo[]>([])
+  // This workspace's skills: another workspace's (opened in this window before) never show here.
+  const wsPath = workspace?.path ?? ''
+  const loaded = useScopedLoad<SkillInfo[]>(wsPath)
+  const skills = loaded.data ?? NO_SKILLS
+  const error = loaded.error
   const [filter, setFilter] = useState('')
-  const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(() => {
-    void call('skills:workspace').then(
-      (s) => {
-        setSkills(s)
-        setError(null)
-      },
-      (e) => setError(errorMessage(e))
-    )
-  }, [])
-  // Another workspace has other skills.
-  useEffect(load, [load, version, workspace?.path])
+  const { load: loadScoped } = loaded
+  const load = useCallback(() => loadScoped(wsPath, () => call('skills:workspace')), [wsPath, loadScoped])
+  useEffect(load, [load, version])
 
   const add = async (mode: 'new' | 'file'): Promise<void> => {
     if (!workspace) return notify('warning', 'Open a workspace first')
@@ -576,8 +574,14 @@ function SkillsPanel() {
       <div className="pane-body">
         <Section title="Hive" count={skills.length - missing} tip={SKILL_LEVEL_TIP.hive}>
           {!workspace && <div className="pane-empty">Open a workspace to manage Hive skills.</div>}
-          {workspace && error && <LoadFailed inline what="the skills" error={error} onRetry={load} />}
-          {workspace && !error && skills.length === 0 && <div className="pane-empty">No Hive skills yet. Create one with +, or add one from a .md or .zip.</div>}
+          {workspace && error && loaded.data && <StaleNote what="the skills" error={error} at={loaded.at} onRetry={load} />}
+          {workspace && error && !loaded.data && <LoadFailed inline what="the skills" error={error} onRetry={load} />}
+          {workspace && !error && !loaded.data && (
+            <div className="pane-empty">
+              <Icon name="loading" spin /> Loading…
+            </div>
+          )}
+          {workspace && !error && loaded.data && skills.length === 0 && <div className="pane-empty">No Hive skills yet. Create one with +, or add one from a .md or .zip.</div>}
           {shown.map((s) => (
             <SkillRow
               key={s.path}

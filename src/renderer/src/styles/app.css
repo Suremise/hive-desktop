@@ -3837,7 +3837,8 @@ body.pane-resizing .monaco-editor {
 .agent-tab .card-chip {
   margin-left: 2px;
 }
-.worked-on {
+.worked-on,
+.session-ran-in {
   padding: 4px 12px;
   font-size: 12px;
   border-bottom: 1px solid var(--border-subtle);
