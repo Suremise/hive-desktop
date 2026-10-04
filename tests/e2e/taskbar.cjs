@@ -37,16 +37,15 @@ const until = async (fn, ms = 10000) => {
   cfg.settings.notifications = { ...cfg.settings.notifications, desktopNotifications: false, chimeEnabled: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47904', CLAUDE_CONFIG_DIR: claudeHome }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47904), CLAUDE_CONFIG_DIR: claudeHome }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1300, height: 800 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   // Record the badge and flashes; the window's focus can be faked.
   await app.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows()[0]
@@ -93,7 +92,13 @@ const until = async (fn, ms = 10000) => {
   check('finishing never flashes the button', (await flashes()).length === 0)
 
   // --- Looking at it clears both (the window really focused: an agent is seen once its pane shows in a focused window).
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].focus())
+  // Focused as the test says (Windows won't give a background app the focus while another window has it).
+  await app.evaluate(({ BrowserWindow }) => {
+    globalThis.__focused = true
+    const w = BrowserWindow.getAllWindows()[0]
+    w.focus()
+    w.emit('focus')
+  })
   await page.bringToFront()
   await page.getByText('beta', { exact: true }).first().click()
   check('looking at the agent clears the count', !!(await until(async () => !/^\(\d/.test(await title()), 8000)), await title())

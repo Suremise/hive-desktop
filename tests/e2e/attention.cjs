@@ -33,13 +33,13 @@ const check = (name, ok, extra = '') => {
   cfg.settings.notifications = { ...cfg.settings.notifications, desktopNotifications: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47897', CODEX_HOME: codexHome }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47897), CODEX_HOME: codexHome }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   const until = async (fn, ms = 10000) => {
     const t = Date.now()
@@ -49,8 +49,7 @@ const check = (name, ok, extra = '') => {
   }
   const info = await lib.waitForProvider(inv, 'codex')
   check('the fake Codex is found, signed in, as 0.160.0', info.version === '0.160.0' && info.loggedIn === true, JSON.stringify(info))
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   await page.getByText('alpha', { exact: true }).first().click()
 
   const reviewed = await lib.addAgent(inv, proj, { name: 'Reviewed', provider: 'codex', permissionMode: 'approve-for-me' })
@@ -136,7 +135,7 @@ const check = (name, ok, extra = '') => {
   await turn(asking, 'approve')
   check('an approval prompt is waiting for you', !!(await until(async () => (await live(asking.id))?.status === 'waiting', 5000)))
   check('with what it asks', (await live(asking.id))?.statusMessage === 'Codex asks to run curl.exe https://example.com', (await live(asking.id))?.statusMessage)
-  await lib.sleep(1600)
+  await lib.sleep(1600) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
   check('told once, though its title blinks', told('Asking') === 1, String(told('Asking')))
   // The inbox (finishes the window hasn't shown yet may be listed with it).
   await page.locator('[data-inbox-toggle]').click()
@@ -156,7 +155,7 @@ const check = (name, ok, extra = '') => {
   await turn(reviewed, 'question')
   check('a question is pending', !!(await until(async () => (await live(reviewed.id))?.question?.text === 'Which colour?', 5000)))
   check('while it works on', (await live(reviewed.id))?.status === 'working')
-  await lib.sleep(1600)
+  await lib.sleep(1600) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
   check('told once', told('Reviewed') === 1, String(told('Reviewed')))
   check('never waiting', !states(reviewed).some((s) => s.startsWith('waiting')), states(reviewed).join(' > '))
   check('its pane says so', !!(await until(() => page.locator('.pane-status.asks', { hasText: 'has a question for you' }).isVisible().catch(() => false), 3000)))
@@ -178,7 +177,7 @@ const check = (name, ok, extra = '') => {
     check(`question + auto-review ${outcome}: the question is pending`, !!(await until(async () => (await live(reviewed.id))?.question?.text === 'Which colour?', 5000)))
     // The review comes and goes; the agent works on, the question pending, and you aren't told again.
     await until(async () => (await live(reviewed.id))?.review === undefined && states(reviewed).some(underReview), 5000)
-    await lib.sleep(1200)
+    await lib.sleep(1200) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
     check(`question + auto-review ${outcome}: never waiting, told only of the question`, !states(reviewed).some((s) => s.startsWith('waiting')) && told('Reviewed') === before + 1, `${told('Reviewed') - before} · ${states(reviewed).join(' > ')}`)
     check(`question + auto-review ${outcome}: still working, the question still pending`, (await live(reviewed.id))?.status === 'working' && (await live(reviewed.id))?.question?.text === 'Which colour?')
     await inv('pty:write', reviewedKey, 'a')
@@ -189,7 +188,7 @@ const check = (name, ok, extra = '') => {
     const before = told('Reviewed')
     await turn(reviewed, `review ${outcome} then late question`)
     check(`auto-review ${outcome}, then a question titled before its hook: the question shows`, !!(await until(async () => (await live(reviewed.id))?.question?.text === 'Which colour?', 8000)))
-    await lib.sleep(1200)
+    await lib.sleep(1200) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
     const l = await live(reviewed.id)
     check(`auto-review ${outcome}, then a question: working, not waiting on the finished review`, l?.status === 'working' && !states(reviewed).some((x) => x.startsWith('waiting|Codex asks')), states(reviewed).join(' > '))
     check(`auto-review ${outcome}, then a question: told once`, told('Reviewed') === before + 1, String(told('Reviewed') - before))
@@ -200,7 +199,7 @@ const check = (name, ok, extra = '') => {
     const before = told('Asking')
     await turn(asking, 'question then approve')
     check('question + approval prompt: waiting, with the question beside it', !!(await until(async () => (await live(asking.id))?.status === 'waiting' && (await live(asking.id))?.question?.text === 'Which colour?', 5000)))
-    await lib.sleep(1200)
+    await lib.sleep(1200) // A fixed wait on purpose: the count must not rise past two, which no condition can show.
     check('told of both: the prompt is a new need', told('Asking') === before + 2, String(told('Asking') - before))
     await inv('pty:write', askKey, 'y')
     // Approved: its own command ends (after another beside it), though the question keeps the title on.

@@ -17,13 +17,13 @@ const check = (name, ok, extra = '') => {
 
 ;(async () => {
   fs.rmSync(userData, { recursive: true, force: true })
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47897', HIVE_TEST_TIPS: 'off' }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47897), HIVE_TEST_TIPS: 'off' }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1300, height: 850 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
 
   let n = 0

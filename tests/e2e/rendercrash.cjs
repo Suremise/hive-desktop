@@ -44,15 +44,14 @@ process.on('uncaughtException', (e) => {
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47901', CLAUDE_CONFIG_DIR: claudeHome }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47901), CLAUDE_CONFIG_DIR: claudeHome }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   await lib.fitWindow(app, page, { width: 1300, height: 800 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   await page.getByText('alpha', { exact: true }).first().click()
   const agent = await lib.addAgent(inv, alpha, { name: 'Steady' })
   const key = lib.ptyKey(alpha, agent.id)
@@ -91,7 +90,7 @@ process.on('uncaughtException', (e) => {
   const crash = async () => {
     console.log('(crashing the page)')
     await app.evaluate(({ BrowserWindow }) => void BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer())
-    await lib.sleep(1000)
+    await lib.sleep(1000) // A fixed wait on purpose: the crash has to take the page down first, so what follows sees the reloaded page, not the old one.
   }
   const pageBack = () => until(() => js("!!window.hive && !!document.querySelector('.menubar')"), 20000)
   const toastText = () => js(`[...document.querySelectorAll('.toast')].map((t) => t.innerText).find((t) => t.includes("Hive's window stopped and was reloaded")) ?? ''`)
@@ -131,7 +130,7 @@ process.on('uncaughtException', (e) => {
   const before = await js('performance.timeOrigin')
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].emit('unresponsive'))
   check('Reload reloads the page', !!(await until(async () => (await js('performance.timeOrigin')) !== before && (await pageBack()), 20000)))
-  await lib.sleep(2500)
+  await lib.sleep(2500) // A fixed wait on purpose: this checks that no crash note or second question appears.
   check('without a crash note or another question', (await toastText()) === '' && (await boxes()).length === 1)
   check('and the agent is still running', (await liveMain())?.status === 'finished')
 

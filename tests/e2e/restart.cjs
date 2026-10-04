@@ -12,7 +12,6 @@ for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
 fs.mkdirSync(path.join(ws, 'demo'), { recursive: true })
 fs.mkdirSync(shots, { recursive: true })
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 ;(async () => {
   lib.enableProviders(userData)
@@ -26,27 +25,28 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
   })
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
-  await sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
 
-  await inv('workspace:open', ws)
+  await lib.openWorkspace(inv, page, ws)
   const proj = path.join(ws, 'demo')
-  await sleep(1000)
   await page.getByText('demo', { exact: true }).first().click()
   const agent = await lib.soloAgent(inv, proj)
   await inv('workspace:refresh')
   const st = await inv('session:start', proj, { name: 'restart test', agentId: agent.id })
   await lib.acceptClaudeTrust(inv, proj, agent.id)
   console.log('started', st.sessionId)
-  await sleep(10000)
+  // Up and ready (SessionStart arrived), for the screenshot.
+  await lib.until(async () => (await inv('session:live')).some((l) => l.status === 'ready'), 30000)
   await page.screenshot({ path: path.join(shots, '1-started.png') })
 
   await inv('project:updateConfig', proj, { providers: { 'claude-code': { effort: 'low' } } })
   await inv('workspace:refresh')
-  await sleep(1500)
+  await lib.until(async () => (await page.getByRole('button', { name: 'Restart session' }).count()) > 0, 10000)
   await page.screenshot({ path: path.join(shots, '2-banner.png') })
   await page.getByRole('button', { name: 'Restart session' }).click()
-  await sleep(10000)
+  // Restarted: the banner gone and the session ready again.
+  await lib.until(async () => (await page.getByRole('button', { name: 'Restart session' }).count()) === 0 && (await inv('session:live')).some((l) => l.status === 'ready'), 30000)
   await page.screenshot({ path: path.join(shots, '3-after-restart.png') })
 
   const live = await inv('session:live')
@@ -57,7 +57,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
   if (fs.existsSync(logFile)) console.log(fs.readFileSync(logFile, 'utf8').split('\n').filter((l) => /transcript|fresh|exit/i.test(l)).join('\n'))
 
   await inv('session:stop', proj)
-  await sleep(1500)
+  await lib.until(async () => (await inv('session:live')).length === 0, 15000)
   await app.close()
 })().catch((e) => {
   console.error(e)

@@ -9,7 +9,7 @@ const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
 
-const PORT = 47911
+const PORT = Number(lib.port(47911))
 const userData = path.join(lib.WORK, 'progress-profile')
 const ws = path.join(lib.WORK, 'progress-ws')
 const claudeHome = path.join(lib.WORK, 'progress-claude-home')
@@ -55,10 +55,9 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   await page.getByText('alpha', { exact: true }).first().click()
   await lib.waitForProvider(inv)
   const alfie = await lib.addAgent(inv, alpha, { name: 'Alfie' })
@@ -142,7 +141,14 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   check('a failure turns the taskbar red', !!(await until(async () => taskbar()?.mode === 'error')), JSON.stringify(taskbar()))
   check('the strip shows the failed run', (await rail.locator('.progress-mini.failed').count()) === 1)
   await page.screenshot({ path: path.join(shots, 'dark-strip.png'), clip: { x: 1200, y: 30, width: 200, height: 300 } })
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].focus())
+  // Focused as the test says (Windows won't give a background app the focus while another window has it): the window's
+  // focus is stubbed and the event Hive listens for sent with it.
+  await app.evaluate(({ BrowserWindow }) => {
+    const w = BrowserWindow.getAllWindows()[0]
+    w.isFocused = () => true
+    w.focus()
+    w.emit('focus')
+  })
   await rail.click()
   check('opening the panel (window focused) clears the red', !!(await until(async () => taskbar()?.mode === 'none')), JSON.stringify(taskbar()))
   check('the failed run stays, with its summary', (await row2.locator('.progress-fail').count()) === 1 && /2 errors in src\/a\.ts/.test((await row2.textContent()) ?? ''))
@@ -195,8 +201,7 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   fs.mkdirSync(path.join(ws2, 'gamma'), { recursive: true })
   await inv('workspace:open', ws2)
   check('switching away clears the taskbar', !!(await until(async () => taskbar()?.mode === 'none')), JSON.stringify(taskbar()))
-  await inv('workspace:open', ws)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   check('reopened, the workspace has no runs', (await inv('progress:list')).length === 0)
   r = await call(workspaceToken, 'PATCH', `/v1/progress/${run4}`, { step: 1 })
   check("and the old run's id is unknown (404)", r.status === 404, JSON.stringify(r))

@@ -11,7 +11,7 @@ const userData = path.join(lib.WORK, 'progressreport-profile')
 const ws = path.join(lib.WORK, 'progressreport-ws')
 const claudeHome = path.join(lib.WORK, 'progressreport-claude-home')
 const alpha = path.join(ws, 'alpha')
-const PORT = 47913
+const PORT = Number(lib.port(47913))
 let failed = 0
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
@@ -37,10 +37,9 @@ const check = (name, ok, extra = '') => {
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const live = async (id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === id)
   const until = async (fn, ms = 30000) => {
     const t = Date.now()
@@ -125,16 +124,16 @@ const check = (name, ok, extra = '') => {
   known = (await runs()).map((r) => r.id)
   await shell(builder.id, unitCmd, 120000)
   const u2 = (await runs()).find((r) => !known.includes(r.id) && /^unit: 2 files$/.test(r.title))
-  check('…and the next time, with an estimate', u2?.estimateMs > 0, JSON.stringify(u2))
+  check('…and the next time, with an estimate', u2?.state === 'passed' && lib.hadEstimate(u2), JSON.stringify(u2))
   known = (await runs()).map((r) => r.id)
   const off = await shell(builder.id, `set HIVE_PROGRESS=0&& ${unitCmd}`, 120000)
-  await lib.sleep(1500)
+  await lib.sleep(1500) // A fixed wait on purpose: this checks that nothing is reported.
   check('HIVE_PROGRESS=0: the tests run, nothing is reported', off?.code === 0 && (await runs()).every((r) => known.includes(r.id)), JSON.stringify((await runs()).filter((r) => !known.includes(r.id))))
 
   known = (await runs()).map((r) => r.id)
   const e2e = await shell(builder.id, `cd /d "${root}" && node tests/e2e/run.mjs about`, 180000)
   const e1 = (await runs()).find((r) => !known.includes(r.id) && r.title === 'e2e: 1 suite')
-  check('npm run e2e reports "e2e: 1 suite" as the agent, with its step and the estimate from earlier runs', e2e?.code === 0 && e1?.agentName === 'Builder' && e1?.total === 1 && e1?.state === 'passed' && e1?.estimateMs > 0, JSON.stringify({ code: e2e?.code, out: e2e?.stdout?.slice(-300), e1 }))
+  check('npm run e2e reports "e2e: 1 suite" as the agent, with its step and the estimate from earlier runs', e2e?.code === 0 && e1?.agentName === 'Builder' && e1?.total === 1 && e1?.state === 'passed' && lib.hadEstimate(e1), JSON.stringify({ code: e2e?.code, out: e2e?.stdout?.slice(-300), e1 }))
   check('…and its output is the runner\'s usual', /about\s+pass/.test(e2e?.stdout ?? '') && /1 passed, 0 failed, 0 skipped/.test(e2e?.stdout ?? ''), e2e?.stdout)
   check('only those runs: the test Hive the suite started reported nothing here', (await runs()).filter((r) => !known.includes(r.id)).length === 1, JSON.stringify((await runs()).filter((r) => !known.includes(r.id))))
 

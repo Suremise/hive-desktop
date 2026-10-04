@@ -19,11 +19,11 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await sleep(1500)
+  await lib.appReady(page)
   await page.keyboard.press('Escape')
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   const live = async () => (await inv('session:live')).find((l) => l.projectPath.toLowerCase() === proj.toLowerCase())
-  const waitMode = async (m, ms = 6000) => { const t = Date.now(); while (Date.now() - t < ms) { if ((await live())?.permissionMode === m) return true; await sleep(200) } return false }
+  const waitMode = async (m, ms = 30000) => { const t = Date.now(); while (Date.now() - t < ms) { if ((await live())?.permissionMode === m) return true; await sleep(200) } return false }
   await inv('workspace:open', ws); await sleep(600)
   await inv('project:updateConfig', proj, { providers: {}, layouts: ['single'], keybindings: {} })
   const settings = await inv('settings:get')
@@ -75,18 +75,19 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   check("restarted in Don't ask (a new session: nothing to resume yet)", l2?.permissionMode === 'dontAsk' && l2?.status === 'ready' && l2?.sessionId !== sid, JSON.stringify({ m: l2?.permissionMode, status: l2?.status, same: l2?.sessionId === sid }))
 
   // Settings change: offered, not forced
-  await inv('project:updateConfig', proj, { providers: { 'claude-code': { model: 'inherit', effort: 'inherit', permissionMode: 'plan', extraArgs: '' } } }); await inv('workspace:refresh'); await sleep(1500)
+  await inv('project:updateConfig', proj, { providers: { 'claude-code': { model: 'inherit', effort: 'inherit', permissionMode: 'plan', extraArgs: '' } } }); await inv('workspace:refresh'); await sleep(1200) // A fixed wait on purpose: this checks the mode does NOT change until asked.
   check('mode unchanged until asked', (await live())?.permissionMode === 'dontAsk')
   const toast = page.locator('.toast', { hasText: 'Permission mode changed to Plan' })
   check('offer to switch running agents', (await toast.count()) === 1)
   await page.screenshot({ path: path.join(scratch, 'mode-3-offer.png') })
   // Don't ask → Plan is in the cycle (Shift+Tab from Don't ask goes to Manual first)
   await toast.locator('button', { hasText: 'Switch Now' }).click()
-  check('Switch Now moves it to Plan', await waitMode('plan', 10000), (await live())?.permissionMode)
-  await inv('workspace:refresh'); await sleep(1200)
+  // The real CLI takes longer to switch when the machine is busy (other suites run beside the CLI lane).
+  check('Switch Now moves it to Plan', await waitMode('plan', 30000), `${(await live())?.permissionMode}; toasts: ${JSON.stringify(await page.locator('.toast').allInnerTexts())}`)
+  await inv('workspace:refresh'); await sleep(1200) // A fixed wait on purpose: this checks that no second offer appears.
   check('no second offer', (await page.locator('.toast', { hasText: 'Permission mode changed' }).count()) <= 1)
 
-  await inv('session:stop', proj); await sleep(1500)
+  await inv('session:stop', proj); await lib.until(async () => (await inv('session:live')).length === 0, 15000)
   await inv('project:updateConfig', proj, { providers: {} })
   await app.close()
   console.log(`\n${pass} passed, ${fail} failed`)

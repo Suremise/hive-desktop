@@ -4,14 +4,53 @@ Each suite starts the dev build of Hive with Playwright's `_electron`, in a thro
 checks a feature the way a user would use it. They run on your machine, not in CI: they need the real CLIs.
 
 ```bash
-npx electron-vite build          # the suites run the dev build in out/
-npm run e2e                      # every suite (the packaged ones only with --packaged)
+npm run e2e -- --build          # build first, only if the dev build in out/ isn't from this source, then every suite
+npm run e2e                      # every suite (the packaged ones only with --packaged); same as --all
 npm run e2e -- agents transcript # just these
+npm run e2e -- --affected        # the suites the changes since main need (affected.mjs), uncommitted ones included
+npm run e2e -- <suites> --build --record # and print a run record for the card (saved with the run's logs, and the latest as logs/run-record.md)
+npm run e2e -- --fingerprint     # the code's fingerprint, to compare with a run record
 npm run dist && npm run e2e -- --packaged   # also the installed-app suites (dist/win-unpacked)
 ```
 
 A suite passes when it exits cleanly and prints no `FAIL` line. The runner prints a summary; each suite's output
-is kept in `logs/` under the work folder.
+is kept in a folder of its own for each run, `logs/run-<date>-<time>` under the work folder (the last ten runs are
+kept).
+
+**The build.** The suites run the dev build in `out/`. `--build` builds it first, only when it isn't from the source
+as it is now: a build made with `--build` is stamped with a hash of everything it was made from (the paths and contents
+of `src`, `resources`, `docs`, the root files the app bundles and the build config; `build.mjs`), so an added, changed
+or deleted file is noticed whatever its modification time. A build made another way (`npx electron-vite build`) has no
+stamp: the runner warns that it may hold other code, and a run record made with it is marked not valid. So use
+`--build` with `--record`.
+
+**Several at once.** Suites run four at a time (`--jobs N` for another number; `--jobs 1` runs them one after
+another). Each gets its own profile, folders and Agent API port: the runner sets `HIVE_E2E_PORT` and `HIVE_API_PORT`,
+and suites read the port with `lib.port(<default>)` (the default is used when a suite runs on its own). Suites that
+start the real Claude Code or use the Codex test home share those with each other, so they run one at a time in a lane
+of their own, beside the rest. Those marked `serial` in `suites.mjs` (with the reason: window focus, a shared test
+home) and the installer's run last, alone.
+
+## Which suites to run, and who runs them
+
+For a card in the builder/reviewer loop (the `card-loop` skill), so a round doesn't run the same suites twice on the
+same code while every required check still runs:
+
+- **The builder** runs the suites the card names and moves the card to Review with a **run record**
+  (`--build --record`): the code's fingerprint (HEAD, plus a hash of any uncommitted changes), each suite's result and time,
+  and the logs folder. Paste the printed block into the card comment.
+- **The reviewer** checks the record's fingerprint is the code it's reviewing (`npm run e2e -- --fingerprint` in the
+  builder's folder) and trusts it for those suites. It reruns the quick checks (`npm run typecheck`, `npm run lint`,
+  `npm test`) and the one or two suites closest to the riskiest change, and spends the rest of its time on its own
+  probes. It reruns more when there's no record, the fingerprint differs, or a result looks wrong.
+- **Follow-up rounds** run the suites the fixes affect (`--affected`). **Before a card passes**, every suite it names
+  has run on its final code (the builder's last record).
+- **Before a merge to main**, and before a release, run the **full set**: `npm run e2e -- --all --build --record` (with the
+  real CLIs signed in), so suites no card named still pass. CI runs only the unit tests.
+
+`--affected` errs towards more: a change to a file every part of Hive goes through (the IPC contract, types, the store,
+`lib.cjs`, the fake CLIs…) or to code no area names means every suite. Add an area to `affected.mjs` when you add a
+suite or a source file; `tests/e2esuites.test.ts` checks every suite and source file is covered.
 
 **Progress in Hive.** Run from an agent's session in Hive, the runner shows in that Hive's Progress panel: **e2e: N
 suites**, a step per suite, and the time left from how long each suite took before (kept in
@@ -48,6 +87,9 @@ workspaces, screenshots and logs. Nothing touches your Hive profile, your clipbo
 ## Writing one
 
 Start from an existing suite and use `lib.cjs`:
+- `port(<default>)` for its Agent API port (never a fixed number, so it can run beside others); add it to an area in
+  `affected.mjs` and to `suites.mjs` (sorted), with `serial: '<why>'` if it can't run beside others;
+- `until(fn, ms)` to wait for something to happen rather than a fixed `sleep()`, which is slower and flakier;
 - `enableProviders()` for the profile, `launch()`;
 - `addAgent()` / `soloAgent()`: projects start without agents;
 - `acceptClaudeTrust()`, `trustForCodex()`, `gitProject()`, `samplePng()`.

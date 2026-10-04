@@ -11,7 +11,7 @@ const { _electron } = require('playwright-core')
 const userData = path.join(lib.WORK, 'windows-profile')
 const wsA = path.join(lib.WORK, 'windows-ws-a')
 const wsB = path.join(lib.WORK, 'windows-ws-b')
-const PORT = 47893
+const PORT = Number(lib.port(47893))
 const sleep = lib.sleep
 let failed = 0
 const check = (name, ok, extra = '') => {
@@ -63,14 +63,14 @@ async function waitFor(fn, ms = 15000) {
   // --- Two windows, two workspaces.
   let app = await start()
   const p1 = await app.firstWindow()
-  await sleep(2000)
+  await lib.appReady(p1)
   const inv1 = invOn(p1)
   await inv1('workspace:open', wsA)
   const next = app.waitForEvent('window')
   await inv1('window:new')
   const p2 = await next
   await p2.waitForLoadState('domcontentloaded')
-  await sleep(2000)
+  await lib.appReady(p2)
   const inv2 = invOn(p2)
   check('New Window opens a second window on the welcome page', (await inv2('workspace:get')) === null)
   await inv2('workspace:open', wsB)
@@ -83,7 +83,7 @@ async function waitFor(fn, ms = 15000) {
 
   // A change in one window's workspace shows there only.
   await inv1('project:create', 'gamma')
-  await sleep(1200)
+  await lib.until(async () => (await p1.locator('.sidebar').innerText().catch(() => '')).includes('gamma'), 10000)
   const t1 = await p1.locator('.sidebar').innerText().catch(() => '')
   const t2 = await p2.locator('.sidebar').innerText().catch(() => '')
   check("a workspace's changes reach its own window", /gamma/.test(t1), t1.slice(0, 200))
@@ -113,7 +113,7 @@ async function waitFor(fn, ms = 15000) {
   app = await start()
   await app.firstWindow()
   await waitFor(async () => app.windows().length >= 2, 15000)
-  await sleep(3000)
+  await lib.until(async () => { const ws = app.windows(); if (ws.length < 2) return false; const paths = await Promise.all(ws.map((pg) => invOn(pg)('workspace:get').then((w) => w?.path ?? null).catch(() => null))); if (!paths.every(Boolean)) return false; const info = await invOn(ws[0])('provider:info').catch(() => null); return !!info && Object.values(info).every((p) => !p.checking) }, 60000) // both windows back, and the CLIs found again
   const pages = app.windows()
   const shown = []
   for (const pg of pages) shown.push((await invOn(pg)('workspace:get'))?.path ?? null)

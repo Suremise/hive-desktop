@@ -1,7 +1,8 @@
 {
   "skills": {
     "card-loop": [
-      "7fca2f34d9b1d72a"
+      "7fca2f34d9b1d72a",
+      "fef50c9d90ab9153"
     ],
     "coordinate-agents": [
       "148fcb5639058ac2",
@@ -24,7 +25,8 @@
     "review-agent-work": [
       "857a3bd37ac4cc00",
       "37dc8f0a66499983",
-      "933180c35b672963"
+      "933180c35b672963",
+      "9f4f1995db1d7443"
     ],
     "split-work": [
       "9f3b17bc4a73bdd1",
@@ -35,7 +37,8 @@
     ],
     "work-on-card": [
       "bc38bd6b1cfee0b6",
-      "98fce35fd3553303"
+      "98fce35fd3553303",
+      "b8787681faa01a4a"
     ],
     "workspace-note": [
       "5ecc6339b89ba668",

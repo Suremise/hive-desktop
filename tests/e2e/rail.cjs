@@ -16,7 +16,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   await lib.fitWindow(app, page, { width: 1300, height: 800 })
-  await sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await inv('workspace:open', ws); await sleep(800)
   await inv('project:setActive', path.join(ws, 'hive'), true)
@@ -68,7 +68,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   check('Ctrl+Alt+B compacts', (await sbWidth()) === 48)
 
   // Persists across reload
-  await page.reload(); await sleep(2500)
+  await page.reload(); await lib.appReady(page)
   check('kept after reload', (await sbWidth()) === 48)
 
   // Count badges and status dots stick out of the tiles: fully visible (outline included) inside the scrolling list,

@@ -38,28 +38,43 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `inbox-
   cfg.settings.notifications = { ...cfg.settings.notifications, desktopNotifications: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47891', CLAUDE_CONFIG_DIR: claudeHome }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47891), CLAUDE_CONFIG_DIR: claudeHome }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const until = async (fn, ms = 10000) => {
     const t = Date.now()
     let v
     while (!(v = await fn()) && Date.now() - t < ms) await lib.sleep(200)
     return v
   }
-  const focusWindow = () =>
-    app.evaluate(({ BrowserWindow }) => {
+  // Focus as the test says, not as Windows allows: Windows doesn't give a background app the focus while another window
+  // has it (focus-stealing protection), so the window's focus is stubbed (as taskbar.cjs does) and the event Hive
+  // listens for is sent with it.
+  const setFocus = (focused) =>
+    app.evaluate(({ BrowserWindow }, f) => {
       const w = BrowserWindow.getAllWindows()[0]
-      if (w.isMinimized()) w.restore()
-      w.focus()
-    })
+      if (!w.__focusStub) {
+        const real = w.isFocused.bind(w)
+        w.isFocused = () => (globalThis.__focused === undefined ? real() : globalThis.__focused)
+        w.__focusStub = true
+      }
+      globalThis.__focused = f
+      if (f) {
+        if (w.isMinimized()) w.restore()
+        w.focus()
+        w.emit('focus')
+      } else {
+        w.minimize()
+        w.emit('blur')
+      }
+    }, focused)
+  const focusWindow = () => setFocus(true)
   const live = async (proj, id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === proj.toLowerCase() && s.agentId === id)
   const turns = {}
   /** A prompt to an agent, and the end of its turn. */
@@ -99,7 +114,6 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `inbox-
   check('alpha\'s agents start', !!(await until(async () => (await live(alpha, one.id))?.status === 'ready' && (await live(alpha, two.id))?.status === 'ready', 20000)))
   await openProject('alpha')
   await focusWindow()
-  await lib.sleep(500)
   check('the window has focus', await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused()))
 
   // A finish on screen is seen as it happens.
@@ -145,7 +159,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `inbox-
   check('one left: Three, still waiting', !!(await until(async () => (await itemText()) === '1 needs you', 5000)), await itemText())
 
   // A finish while the window is minimised is unseen until the window comes back.
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize())
+  await setFocus(false)
   const backgrounded = await until(async () => !(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isFocused())), 5000)
   if (backgrounded) {
     await turn(alpha, one.id)

@@ -20,7 +20,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))
   await lib.fitWindow(app, page, { width: 1500, height: 950 })
-  await sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await inv('workspace:open', ws); await sleep(800)
   await page.getByText('demo', { exact: true }).first().click(); await sleep(500)
@@ -30,7 +30,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   let p0 = (await inv('workspace:refresh')).projects[0]
   check('new project has no agents', p0.agents.length === 0, String(p0.agents.length))
   check('empty Session tab offers Add Agent', (await page.getByText('No agents yet').count()) === 1)
-  await page.locator('.agent-add:not(.split-caret)').click(); await sleep(1200)
+  await page.locator('.agent-add:not(.split-caret)').click(); await lib.until(async () => (await inv('workspace:refresh')).projects[0].agents.length === 1, 10000)
   p0 = (await inv('workspace:refresh')).projects[0]
   check('quick add: Agent 1, default provider, project folder', p0.agents.length === 1 && p0.agents[0].name === 'Agent 1' && p0.agents[0].provider === 'claude-code' && !p0.agents[0].worktree, JSON.stringify(p0.agents))
   check('one agent: one pane, automatically', (p0.config.layouts[0] ?? 'auto') === 'auto' && (await page.locator('.agent-pane').count()) === 1, JSON.stringify(p0.config.layouts))
@@ -50,7 +50,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await page.locator('.dialog input.input').first().fill('Tester')
   check('branch follows name', (await page.locator('.agent-form.nested input').inputValue()) === 'hive/tester')
   await page.locator('.dialog label', { hasText: 'Start a session now' }).locator('input').uncheck()
-  await page.locator('.dialog .btn.primary', { hasText: 'Add Agent' }).click(); await sleep(2500)
+  await page.locator('.dialog .btn.primary', { hasText: 'Add Agent' }).click(); await lib.until(async () => (await inv('workspace:refresh')).projects[0].agents.some((a) => a.name === 'Tester'), 15000)
   let p = (await inv('workspace:refresh')).projects[0]
   check('agent created from the dialog', p.agents.some((a) => a.name === 'Tester' && a.worktree?.branch === 'hive/tester'))
   check('two agents: two columns, automatically', (p.config.layouts[0] ?? 'auto') === 'auto' && (await page.locator('.agent-pane').count()) === 2, JSON.stringify(p.config.layouts))
@@ -62,7 +62,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   fs.writeFileSync(path.join(t.worktree.path, 'b.txt'), 'b\n')
   await page.evaluate(([project, agentId]) => window.__hiveSet?.({ mergeFor: { project, agentId } }), [proj, t.id])
   await page.locator('.agent-tab', { hasText: 'Tester' }).click({ button: 'right' }); await sleep(300)
-  await page.locator('.menu-item', { hasText: 'Merge…' }).click(); await sleep(1500)
+  await page.locator('.menu-item', { hasText: 'Merge…' }).click(); await lib.until(async () => (await page.locator('.dialog', { hasText: '1 uncommitted change' }).count()) === 1, 10000)
   await page.screenshot({ path: path.join(scratch, 'ui-3-merge.png') })
   check('merge dialog counts changes', await page.locator('.dialog', { hasText: '1 uncommitted change' }).count() === 1)
   await page.keyboard.press('Escape'); await sleep(300)
@@ -77,7 +77,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
 
   // Files tab root selector
   await page.locator('.tabs .tab', { hasText: 'Files' }).click(); await sleep(600)
-  await page.locator('.root-select').selectOption(t.id); await sleep(1000)
+  await page.locator('.root-select').selectOption(t.id); await lib.until(async () => (await page.getByText('b.txt').count()) > 0, 10000)
   check('files shows worktree', await page.getByText('b.txt').count() > 0)
   await page.screenshot({ path: path.join(scratch, 'ui-5-files.png') })
 

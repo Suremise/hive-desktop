@@ -18,14 +18,13 @@ const check = (name, ok, extra = '') => {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
   fs.mkdirSync(proj, { recursive: true })
   lib.enableProviders(userData, ['claude-code'])
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47895' }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47895) }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   const agent = await lib.soloAgent(inv, proj)
 
   // Start and close in the same moment: the close must see the start in progress and cancel it.
@@ -38,7 +37,7 @@ const check = (name, ok, extra = '') => {
   )
   check('the workspace closed', close.ok && close.value === true, JSON.stringify(close))
   check('the start was cancelled', !start.ok && /stopped before it had started/.test(start.error), JSON.stringify(start).slice(0, 200))
-  await lib.sleep(4000)
+  await lib.sleep(4000) // A fixed wait on purpose: this checks that the cancelled start does NOT start an agent later.
   const live = await inv('session:live')
   check('no agent is running afterwards', live.length === 0, JSON.stringify(live).slice(0, 200))
 

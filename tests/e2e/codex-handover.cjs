@@ -28,15 +28,14 @@ const check = (name, ok, extra = '') => {
     path.join(hdir, '2026-09-30-demo-test.md'),
     '---\nproject: demo\n---\n# Handover: demo test\n\nGoal: reply with the single word PINEAPPLE and do nothing else. No files to change.\n'
   )
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47893', CODEX_HOME: lib.CODEX_HOME }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47893), CODEX_HOME: lib.CODEX_HOME }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
   const page = await app.firstWindow()
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await sleep(2000)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   await page.getByText('demo', { exact: true }).first().click()
   await sleep(500)
   const agents = () => inv('workspace:get').then((w) => w.projects.find((p) => p.name === 'demo').agents)
@@ -68,7 +67,7 @@ const check = (name, ok, extra = '') => {
   for (let i = 0; i < 120; i++) {
     const l = (await agents()).find((a) => a.id === cx.id).live
     if (l && l.sessionId && (l.status === 'finished' || l.status === 'ready') && Date.now() - t0 > 15000) break
-    await sleep(1000)
+    await sleep(1000) // The poll interval of the loop around it, which waits for a condition (not a fixed wait).
   }
   const l1 = (await agents()).find((a) => a.id === cx.id).live
   const sessions = JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8'))
@@ -96,7 +95,7 @@ const check = (name, ok, extra = '') => {
   for (let i = 0; i < 60; i++) {
     const l = (await agents()).find((a) => a.id === cx2.id).live
     if (l && l.sessionId && (l.status === 'finished' || l.status === 'ready') && Date.now() - t1 > 20000) break
-    await sleep(1000)
+    await sleep(1000) // The poll interval of the loop around it, which waits for a condition (not a fixed wait).
   }
   const l2 = (await agents()).find((a) => a.id === cx2.id).live
   const s2 = JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8'))
@@ -104,11 +103,11 @@ const check = (name, ok, extra = '') => {
   check('second session linked to the first', rec2?.handedOverFrom === l1.sessionId, JSON.stringify(rec2?.handedOverFrom))
   await page.screenshot({ path: path.join(scratch, 'cont-3-codex2.png') })
   await page.locator('.tab', { hasText: 'Sessions' }).first().click().catch(() => undefined)
-  await sleep(1500)
+  await lib.until(async () => (await page.locator('.tabs .tab.active', { hasText: 'Sessions' }).count()) === 1 && (await page.locator('.session-row').count()) > 0, 10000)
   await page.screenshot({ path: path.join(scratch, 'cont-4-sessions.png') })
 
   await inv('session:stop', proj)
-  await sleep(3000)
+  await lib.until(async () => (await inv('session:live')).length === 0, 15000)
   await app.close()
   console.log(`${results.filter(Boolean).length}/${results.length}`)
 })().catch((e) => {

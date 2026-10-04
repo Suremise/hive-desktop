@@ -17,7 +17,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await inv('workspace:open', ws); await sleep(800)
   await page.getByText('demo', { exact: true }).first().click(); await sleep(400)
@@ -51,8 +51,8 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
       check('Files max keeps main >= 320', main >= 318, `(main ${main})`)
       await page.locator(`${list} > .pane-resizer`).first().dblclick(); await sleep(300)
       // Markdown split view
-      await page.getByText('README.md', { exact: true }).first().click(); await sleep(1500)
-      await page.locator('.segmented button', { hasText: 'Split' }).first().click(); await sleep(1500)
+      await page.getByText('README.md', { exact: true }).first().click(); await lib.until(async () => (await page.locator('.tab-body:visible .segmented button', { hasText: 'Split' }).count()) > 0, 10000)
+      await page.locator('.segmented button', { hasText: 'Split' }).first().click(); await lib.until(async () => (await page.locator('.tab-body:visible .split-half').count()) === 2, 10000)
       const halves = page.locator('.tab-body:visible .split-half')
       const host = await width('.tab-body:visible .editor-host')
       const h0 = await halves.first().evaluate((e) => e.getBoundingClientRect().width)
@@ -74,7 +74,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   // Persistence across a reload
   await page.locator('.tabs .tab', { hasText: 'Changes' }).first().click(); await sleep(400)
   await drag(page.locator('.tab-body:visible .split-list > .pane-resizer').first(), 60)
-  await page.reload(); await sleep(2500)
+  await page.reload(); await lib.appReady(page)
   await page.getByText('demo', { exact: true }).first().click(); await sleep(400)
   await page.locator('.tabs .tab', { hasText: 'Changes' }).first().click(); await sleep(600)
   check('width kept after reload', Math.abs((await width('.tab-body:visible .split-list')) - 340) <= 3)

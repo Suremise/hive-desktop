@@ -22,6 +22,19 @@ const CODEX_HOME = process.env.HIVE_TEST_CODEX_HOME || path.join(LOCAL, 'hive-te
 fs.mkdirSync(WORK, { recursive: true })
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+/**
+ * A suite's Agent API port, as a string: the runner's (HIVE_E2E_PORT, one per suite running at the same time, so suites
+ * can run side by side), else the suite's own default when it runs alone (node tests/e2e/<suite>.cjs).
+ */
+const port = (fallback) => process.env.HIVE_E2E_PORT || String(fallback)
+
+/** Waits until fn() returns something truthy (checking every interval ms), up to ms; returns its last value. */
+async function until(fn, ms = 10000, interval = 100) {
+  const t = Date.now()
+  let v
+  while (!(v = await fn()) && Date.now() - t < ms) await sleep(interval)
+  return v
+}
 
 /** Turns providers on in a test profile's config before Hive starts (fresh profiles start with none). */
 function enableProviders(userData, providers = ['claude-code']) {
@@ -38,7 +51,8 @@ function enableProviders(userData, providers = ['claude-code']) {
   cfg.version = 2
   cfg.settings = cfg.settings ?? {}
   cfg.settings.providers = cfg.settings.providers ?? {}
-  for (const p of providers) cfg.settings.providers[p] = { ...cfg.settings.providers[p], enabled: true }
+  // No online check for a newer CLI at every launch: slow, needs the network, and no suite is about it.
+  for (const p of providers) cfg.settings.providers[p] = { checkUpdatesOnLaunch: false, ...cfg.settings.providers[p], enabled: true }
   fs.writeFileSync(file, JSON.stringify(cfg, null, 2))
 }
 
@@ -58,6 +72,32 @@ async function fitWindow(app, page, size) {
   await page.setViewportSize(size).catch(() => {})
 }
 
+/**
+ * Waits until Hive's window has rendered with its settings loaded, and Hive has finished looking for the providers'
+ * CLIs (it does that in the background after start; starting an agent before then fails with "… is required").
+ * Instead of a fixed wait after launch.
+ */
+async function appReady(page, ms = 90000) {
+  const ready = () =>
+    page
+      .evaluate(async () => {
+        if (!document.querySelector('.app .workbench')) return false
+        const info = await window.hive.invoke('provider:info')
+        return Object.values(info).every((p) => !p.checking)
+      })
+      .catch(() => false)
+  const ok = await until(ready, ms)
+  if (!ok) throw new Error("Hive's window wasn't ready (rendered, providers found) within " + ms / 1000 + ' s')
+}
+
+/** Opens a workspace and waits until the window shows it (its name in the title), instead of a fixed wait. */
+async function openWorkspace(inv, page, ws, ms = 20000) {
+  await inv('workspace:open', ws)
+  const name = path.basename(ws)
+  const ok = await until(() => page.evaluate((n) => document.title.includes(n), name).catch(() => false), ms)
+  if (!ok) throw new Error(`The window didn't show the workspace ${name} within ${ms / 1000} s`)
+}
+
 /** Starts the dev build with a test profile. Returns { app, page, inv } (inv calls an IPC channel). */
 async function launch({ userData, env = {}, viewport = { width: 1400, height: 850 } }) {
   const e = { ...process.env, HIVE_USER_DATA: userData, ...env }
@@ -65,7 +105,7 @@ async function launch({ userData, env = {}, viewport = { width: 1400, height: 85
   const app = await _electron.launch({ executablePath: ELECTRON, args: [ROOT], cwd: ROOT, env: e })
   const page = await app.firstWindow()
   await fitWindow(app, page, viewport)
-  await sleep(2000)
+  await appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, args]) => window.hive.invoke(c, ...args), [ch, a])
   return { app, page, inv }
 }
@@ -74,7 +114,7 @@ async function launch({ userData, env = {}, viewport = { width: 1400, height: 85
  * Waits until Hive has finished looking for a provider's CLI (it does so in the background after start): starting
  * an agent before then fails with "Claude Code is required". Throws if it isn't found.
  */
-async function waitForProvider(inv, provider = 'claude-code', timeoutMs = 30000) {
+async function waitForProvider(inv, provider = 'claude-code', timeoutMs = 60000) {
   const t = Date.now()
   while (Date.now() - t < timeoutMs) {
     const info = (await inv('provider:info').catch(() => ({})))[provider]
@@ -196,4 +236,12 @@ function samplePng(w = 64, h = 40) {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng }
+/**
+ * Whether a progress run was given an estimate. Not whether time is left: Hive counts the estimate down as the run goes
+ * (timeLeft), so a run that outlasts it ends with 0, while one never given an estimate keeps null.
+ */
+function hadEstimate(run) {
+  return typeof run?.estimateMs === 'number'
+}
+
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng }

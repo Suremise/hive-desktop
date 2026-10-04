@@ -37,16 +37,15 @@ const until = async (fn, ms = 10000) => {
   cfg.settings.notifications = { ...cfg.settings.notifications, desktopNotifications: false, chimeEnabled: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47907', CLAUDE_CONFIG_DIR: claudeHome }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47907), CLAUDE_CONFIG_DIR: claudeHome }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, ws)
 
   // The agents: Idle running and ready, Busy working (for the whole suite), Sleepy stopped.
   const idle = await lib.addAgent(inv, alpha, { name: 'Idle' })
@@ -131,7 +130,7 @@ const until = async (fn, ms = 10000) => {
     const x = await card(c)
     return x.column === 'doing' && x.agent === busy.id
   }, 5000)))
-  await lib.sleep(1000)
+  await lib.sleep(1000) // A fixed wait on purpose: this checks that nothing starts.
   check('and starts nothing', !transcripts().includes(`task #${c} `) && (await live(busy))?.status === 'working' && !(await live(sleepy)))
 
   // --- Within Doing: reordering doesn't ask.

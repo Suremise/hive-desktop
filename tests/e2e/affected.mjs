@@ -1,0 +1,178 @@
+// Which e2e suites a change needs (npm run e2e -- --affected [base]): for review rounds that fixed a few things,
+// rather than the whole set. Errs towards more, never fewer: the files every part of Hive goes through, and any file
+// that isn't in an area or known to need no suite (DOCS_ONLY), mean every suite. The final round before Done still runs every suite
+// the card names, and the full set runs before a merge to main (tests/e2e/README.md). tests/e2esuites.test.ts checks
+// that every suite is in an area and every source file is covered.
+import { execFileSync } from 'child_process'
+
+/** Changes to these touch everything (the IPC contract, types, the store, the shell, the test harness): every suite. */
+export const EVERYTHING = [
+  'src/main/index.ts',
+  'src/main/ipc.ts',
+  'src/main/config.ts',
+  'src/main/events.ts',
+  'src/main/windows.ts',
+  'src/main/workspace.ts',
+  'src/main/sessions.ts',
+  'src/main/servers.ts',
+  'src/main/fsutil.ts',
+  'src/main/paths.ts',
+  'src/main/logger.ts',
+  'src/main/ptyHost.ts',
+  'src/main/raw.d.ts',
+  'src/preload/',
+  'src/renderer/index.html',
+  'src/renderer/src/main.tsx',
+  'src/renderer/src/App.tsx',
+  'src/renderer/src/store.ts',
+  'src/renderer/src/actions.ts',
+  'src/renderer/src/api.ts',
+  'src/renderer/src/util.ts',
+  'src/renderer/src/commands.ts',
+  'src/renderer/src/components/ui.tsx',
+  'src/renderer/src/components/Shell.tsx',
+  'src/renderer/src/components/ErrorBoundary.tsx',
+  'src/renderer/src/styles/app.css',
+  'src/shared/api.ts',
+  'src/shared/types.ts',
+  'src/shared/defaults.ts',
+  'src/shared/providers.ts',
+  'src/main/providers/',
+  'tests/e2e/lib.cjs',
+  'tests/e2e/run.mjs',
+  'tests/e2e/fake-claude/',
+  'tests/e2e/fake-bridge.cjs',
+  'tests/e2e/suites.mjs',
+  'tests/e2e/affected.mjs',
+  'tests/e2e/record.mjs',
+  'tests/e2e/runner.mjs',
+  'tests/e2e/build.mjs',
+  'tests/progressReport.mts',
+  'package.json',
+  'package-lock.json',
+  'electron.vite.config.ts',
+  'electron-builder.yml'
+]
+
+/**
+ * Areas: source paths (a file, or a folder ending in /) and the suites that exercise them. A path may be in several.
+ * A suite's own file (tests/e2e/<suite>.cjs) always selects it.
+ */
+export const AREAS = [
+  { paths: ['src/main/agentTokens.ts'], suites: ['boardscope', 'review', 'progress', 'progressreport', 'cardloop', 'replysize'] },
+  { paths: ['src/main/assistantControl.ts', 'src/shared/assistant.ts', 'src/shared/assistantTools.ts', 'src/main/personas.ts', 'src/renderer/src/components/Assistant.tsx', 'src/renderer/src/components/AssistantView.tsx', 'src/renderer/src/components/Personas.tsx'], suites: ['assistant', 'assistant-control', 'assistantend', 'tipcorner', 'replysize'] },
+  { paths: ['src/main/benchmarks.ts', 'src/shared/benchmark.ts', 'src/renderer/src/views/PerformanceCompare.tsx'], suites: ['perfcompare'] },
+  { paths: ['src/main/metrics.ts', 'src/main/metricsUsage.ts', 'src/shared/metrics.ts', 'src/shared/metricsView.ts', 'src/renderer/src/views/Performance.tsx'], suites: ['performance', 'perfcompare', 'bridgereport'] },
+  { paths: ['src/main/branchWatch.ts', 'src/main/git.ts', 'src/main/worktrees.ts'], suites: ['unmerged', 'agents', 'changes', 'paneheader'] },
+  { paths: ['src/main/bundled.ts', 'src/main/bundledHistory.json', 'src/main/skills.ts', 'src/main/revisions.ts', 'src/renderer/src/components/Skills.tsx'], suites: ['skills', 'skillaudience', 'skilldelivery'] },
+  { paths: ['src/main/guidance.ts', 'src/shared/hiveGuidance.ts', 'src/shared/toolReplies.ts', 'src/main/mcp/'], suites: ['skilldelivery', 'replysize', 'mcp', 'bridgereport', 'cardloop'] },
+  { paths: ['src/main/cardSessions.ts', 'src/renderer/src/components/CardChip.tsx'], suites: ['cardchip', 'sessionorigin'] },
+  { paths: ['src/main/compaction.ts'], suites: ['compact', 'overview', 'paneheader'] },
+  { paths: ['src/main/diagnostics.ts', 'src/shared/redact.ts'], suites: ['about'] },
+  { paths: ['src/main/files.ts', 'src/renderer/src/views/FilesTab.tsx', 'src/renderer/src/components/FileView.tsx', 'src/renderer/src/components/DocEditor.tsx', 'src/renderer/src/components/Editors.tsx', 'src/renderer/src/editorDrafts.ts', 'src/renderer/src/monaco.ts', 'src/renderer/src/monacoLang.ts'], suites: ['files', 'editor', 'drafts', 'unsaved', 'icons', 'image'] },
+  { paths: ['src/main/hookStatus.ts', 'src/main/terminalTitle.ts', 'src/shared/terminalInput.ts'], suites: ['background', 'attention', 'mode', 'busy', 'codex', 'codex-background'] },
+  { paths: ['src/main/mcp.ts', 'src/main/mcpSecrets.ts'], suites: ['drafts', 'mcp'] },
+  { paths: ['src/main/notes.ts'], suites: ['drafts', 'codex-handover'] },
+  { paths: ['src/main/planUsage.ts', 'src/renderer/src/components/ModelPicker.tsx', 'src/shared/claude.ts', 'src/shared/codex.ts', 'src/shared/prices.ts'], suites: ['plan', 'providers', 'codex-setup', 'context'] },
+  { paths: ['src/main/power.ts', 'src/shared/keepAwake.ts'], suites: ['quitwait', 'quit'] },
+  { paths: ['src/main/progress.ts', 'src/main/progressService.ts', 'src/shared/progress.ts', 'src/renderer/src/components/Progress.tsx'], suites: ['progress', 'progressreport', 'replysize'] },
+  { paths: ['src/main/progressReporters/'], suites: ['progressreport', 'packaged-progress'] },
+  { paths: ['src/main/projectAgents.ts'], suites: ['agents', 'agents-ui', 'reorder', 'pages', 'unmerged'] },
+  { paths: ['src/main/projectRemoval.ts', 'src/renderer/src/components/ProjectRemoval.tsx'], suites: ['board', 'storage'] },
+  { paths: ['src/main/providerService.ts'], suites: ['providers', 'codex-setup', 'startfail'] },
+  { paths: ['src/main/rendererWatch.ts'], suites: ['rendercrash'] },
+  { paths: ['src/main/storage.ts', 'src/shared/storage.ts', 'src/renderer/src/components/Storage.tsx'], suites: ['storage'] },
+  { paths: ['src/main/taskStart.ts', 'src/main/tasks.ts', 'src/shared/tasks.ts', 'src/renderer/src/components/Board.tsx', 'src/shared/edgeScroll.ts'], suites: ['board', 'boardscope', 'boardscroll', 'review', 'donemove', 'doingmove', 'carddialog', 'cardchip', 'taskoverview', 'busy'] },
+  { paths: ['src/main/watches.ts', 'src/shared/watch.ts'], suites: ['cardloop', 'quitwait', 'replysize'] },
+  { paths: ['src/main/taskbar.ts', 'src/shared/taskbar.ts'], suites: ['taskbar', 'progress'] },
+  { paths: ['src/main/titleBar.ts', 'src/shared/titleBar.ts'], suites: ['carddialog'] },
+  { paths: ['src/main/transcripts.ts', 'src/renderer/src/views/SessionsTab.tsx', 'src/shared/sessionOrigin.ts'], suites: ['transcript', 'sessionorigin', 'loadfail', 'sessionname', 'packaged-transcript'] },
+  { paths: ['src/main/tray.ts', 'src/renderer/src/chime.ts', 'src/shared/bursts.ts'], suites: ['bursts', 'bell'] },
+  { paths: ['src/main/updater.ts', 'src/renderer/src/components/Updates.tsx'], suites: ['update', 'about'] },
+  { paths: ['src/renderer/src/components/AgentDialogs.tsx', 'src/renderer/src/components/PermissionMode.tsx'], suites: ['agents-ui', 'agents', 'mode', 'context', 'codex-handover'] },
+  { paths: ['src/renderer/src/components/AgentPanes.tsx'], suites: ['paneheader', 'pages', 'reorder', 'unmerged', 'sessionname', 'ctxpercent', 'longsession', 'startfail', 'cardchip', 'agents-ui'] },
+  { paths: ['src/renderer/src/components/TerminalView.tsx', 'src/renderer/src/fileLinks.ts', 'src/shared/fileLinks.ts'], suites: ['filelinks', 'image', 'restart', 'rendercrash'] },
+  { paths: ['src/renderer/src/components/Inbox.tsx', 'src/renderer/src/inbox.ts', 'src/shared/inbox.ts'], suites: ['inbox', 'attention', 'bell'] },
+  { paths: ['src/renderer/src/components/Keybindings.tsx'], suites: ['keys'] },
+  { paths: ['src/renderer/src/components/NumberField.tsx', 'src/shared/numberInput.ts'], suites: ['numbers'] },
+  { paths: ['src/renderer/src/components/Overlays.tsx'], suites: ['about', 'quit', 'carddialog', 'keys'] },
+  { paths: ['src/renderer/src/components/ProviderIcon.tsx'], suites: ['providers', 'agents-ui'] },
+  { paths: ['src/renderer/src/components/Resizer.tsx'], suites: ['resize', 'progress'] },
+  { paths: ['src/renderer/src/components/Sidebar.tsx'], suites: ['rail', 'windows'] },
+  { paths: ['src/renderer/src/components/Tips.tsx', 'src/renderer/src/tips.ts', 'src/shared/tips.ts', 'src/shared/corner.ts', 'docs/USER_GUIDE.md'], suites: ['tips', 'tipcorner'] },
+  { paths: ['src/renderer/src/components/TitleBar.tsx'], suites: ['windows', 'keys', 'carddialog'] },
+  { paths: ['src/renderer/src/scopedLoad.ts', 'src/shared/scoped.ts'], suites: ['loadfail'] },
+  { paths: ['src/renderer/src/usage.ts', 'src/shared/liveUsage.ts', 'src/shared/usageDays.ts', 'src/shared/usageTotals.ts'], suites: ['overview', 'wsoverview', 'ctxpercent', 'context'] },
+  { paths: ['src/renderer/src/views/OtherViews.tsx'], suites: ['about', 'skills', 'drafts', 'windows'] },
+  { paths: ['src/renderer/src/views/ProjectTabs.tsx'], suites: ['overview', 'taskoverview', 'skillaudience', 'numbers', 'storage'] },
+  { paths: ['src/renderer/src/views/ProjectView.tsx'], suites: ['agents-ui', 'resumeall', 'paneheader', 'rail'] },
+  { paths: ['src/renderer/src/views/SettingsView.tsx'], suites: ['numbers', 'keys', 'providers', 'context'] },
+  { paths: ['src/renderer/src/views/WorkspaceOverview.tsx'], suites: ['wsoverview', 'taskoverview', 'cardchip'] },
+  { paths: ['src/shared/instructions.ts'], suites: ['skilldelivery'] },
+  { paths: ['src/shared/resumeAll.ts'], suites: ['resumeall'] },
+  { paths: ['src/shared/startFailure.ts'], suites: ['startfail'] },
+  { paths: ['src/renderer/src/assets/'], suites: ['about', 'providers'] },
+  // The providers' adapters are under src/main/providers/ (every suite, above); these say which suites each mainly drives.
+  { paths: ['src/main/providers/claude/'], suites: ['agents', 'agentview', 'launchrace', 'restart', 'resume', 'mode', 'compact', 'image', 'plan'] },
+  { paths: ['src/main/providers/codex/'], suites: ['codex', 'codex-background', 'codex-extra', 'codex-handover', 'codex-setup', 'attention', 'skilldelivery'] },
+  // The fake Codex CLI: every suite that runs it.
+  { paths: ['tests/e2e/fake-codex/'], suites: ['attention', 'skilldelivery'] },
+  // Hive's bundled skills and personas, read at runtime (not documentation).
+  { paths: ['resources/skills/', 'src/main/bundledHistory.json'], suites: ['skills', 'skillaudience', 'skilldelivery', 'cardloop', 'replysize'] },
+  { paths: ['resources/personas/'], suites: ['assistant', 'assistant-control', 'assistantend'] },
+  // Bundled into the Docs view (About's licence pages, Release Notes, the Agent API reference).
+  { paths: ['docs/', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'scripts/licenses.mjs'], suites: ['about'] },
+  // The installer's copies (npm run dist first).
+  { paths: ['electron-builder.yml'], suites: ['packaged', 'packaged-mcp', 'packaged-progress', 'packaged-transcript'] }
+]
+
+/** Whether a repo path is under one of these paths (a file, or a folder ending in /). Case-insensitive, / separators. */
+export function under(file, paths) {
+  const f = file.replace(/\\/g, '/').toLowerCase()
+  return paths.some((p) => {
+    const q = p.toLowerCase()
+    return q.endsWith('/') ? f.startsWith(q) : f === q
+  })
+}
+
+/** Files that need no suite: notes for people and agents, and the unit tests (npm test runs those). */
+export const DOCS_ONLY = ['README.md', 'AGENTS.md', 'CLAUDE.md', 'RELEASING.md', 'tests/e2e/README.md', 'tests/scenarios/', 'reference/', '.gitattributes', '.gitignore']
+
+/** Whether a file is a unit test (tests/*.test.ts, their fixtures): npm test covers it, no e2e suite. */
+const unitTest = (f) => /^tests\/[^/]+\.test\.ts$/i.test(f) || /^tests\/fixtures\//i.test(f)
+
+/**
+ * The suites a set of changed files needs, from the known suite names: { all: true, why } when every suite is needed,
+ * else { suites, why } (why: a line per reason). Only DOCS_ONLY files and unit tests select nothing.
+ */
+export function affectedSuites(files, suiteNames) {
+  const picked = new Set()
+  const why = []
+  for (const raw of files) {
+    const file = raw.replace(/\\/g, '/')
+    const own = /^tests\/e2e\/([^/]+)\.cjs$/i.exec(file)
+    if (own && suiteNames.includes(own[1])) {
+      picked.add(own[1])
+      why.push(`${file}: its own suite`)
+      continue
+    }
+    if (under(file, EVERYTHING)) return { all: true, why: [`${file}: shared by every part of Hive`] }
+    const areas = AREAS.filter((a) => under(file, a.paths))
+    if (areas.length) {
+      for (const a of areas) for (const s of a.suites) picked.add(s)
+      why.push(`${file}: ${[...new Set(areas.flatMap((a) => a.suites))].join(', ')}`)
+      continue
+    }
+    if (under(file, DOCS_ONLY) || unitTest(file)) continue
+    // Anything else (code, resources, scripts, build files no area names): everything, rather than guess.
+    return { all: true, why: [`${file}: no area names it, so every suite`] }
+  }
+  return { suites: suiteNames.filter((n) => picked.has(n)), why }
+}
+
+/** The files changed against a base (default main): committed since the merge base, uncommitted and untracked. */
+export function changedFiles(base = 'main', cwd = process.cwd()) {
+  const git = (...a) => execFileSync('git', a, { cwd, encoding: 'utf8' }).split(/\r?\n/).filter(Boolean)
+  const mergeBase = git('merge-base', base, 'HEAD')[0]
+  return [...new Set([...git('diff', '--name-only', mergeBase), ...git('ls-files', '--others', '--exclude-standard')])]
+}

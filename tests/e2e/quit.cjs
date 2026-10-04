@@ -33,10 +33,9 @@ async function launch(name, config) {
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => results.push(`PAGEERROR ${e.message}`))
-  await sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   // Starting an agent before Claude Code has been found fails (it did now and then on a busy machine).
   await lib.waitForProvider(inv)
   return { app, page, inv, ws }
@@ -51,7 +50,8 @@ const exited = (app, ms = 10000) => app.waitForEvent('close', { timeout: ms }).t
     await inv('settings:update', { general: { confirmOnQuit: 'always' } })
     await startIn(inv, path.join(ws, 'alpha'))
     await startIn(inv, path.join(ws, 'beta'))
-    await sleep(4000)
+    // Its sessions up (past starting), so quitting finds them running.
+    await lib.until(async () => (await inv('session:live')).filter((l) => l.status !== 'starting').length >= 2, 30000)
     await page.evaluate(() => window.hive.invoke('app:quit')) // same entry point as the tray's Quit Hive
     await sleep(800)
     check('dialog: shown in-app', (await page.locator('.dialog', { hasText: 'Quit Hive?' }).count()) === 1)
@@ -84,7 +84,8 @@ const exited = (app, ms = 10000) => app.waitForEvent('close', { timeout: ms }).t
   {
     const { app, inv, ws } = await launch('idle')
     await startIn(inv, path.join(ws, 'alpha'))
-    await sleep(4000)
+    // Its sessions up (past starting), so quitting finds them running.
+    await lib.until(async () => (await inv('session:live')).filter((l) => l.status !== 'starting').length >= 1, 30000)
     const closing = exited(app)
     const t0 = Date.now()
     await inv('app:quit').catch(() => undefined)
@@ -96,7 +97,8 @@ const exited = (app, ms = 10000) => app.waitForEvent('close', { timeout: ms }).t
   {
     const { app, page, inv, ws } = await launch('pending', { settings: { general: { confirmOnQuit: 'always' } } })
     await startIn(inv, path.join(ws, 'alpha'))
-    await sleep(4000)
+    // Its sessions up (past starting), so quitting finds them running.
+    await lib.until(async () => (await inv('session:live')).filter((l) => l.status !== 'starting').length >= 1, 30000)
     await page.evaluate(() => window.hive.invoke('app:quit'))
     await sleep(600)
     const closing = exited(app)

@@ -23,8 +23,7 @@ const check = (name, ok, extra = '') => {
 ;(async () => {
   const { app, page, inv } = await lib.launch({ userData, viewport: { width: 1400, height: 950 } })
   page.on('pageerror', (e) => check('no page errors', false, e.message))
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const until = async (fn, ms = 10000) => {
     const t = Date.now()
     let v
@@ -76,7 +75,7 @@ const check = (name, ok, extra = '') => {
     process.env.HIVE_TEST_SLOW_IPC = ''
   })
   await page.locator(`${pageSel} select[aria-label="Run"]`).selectOption({ label: 'fake, fixtures v5 (smaller replies)' })
-  await lib.sleep(3000)
+  await lib.sleep(3000) // A fixed wait on purpose: the slowed answer for the old choice arrives later, and this checks it doesn't replace the new one.
   check("a pair switched during a slow read shows the new pair, not the old one's late answer", (await statusOf('card-detail')) === 'Smaller, still correct', await statusOf('card-detail'))
   check('the choice is remembered for the scope', (await inv('benchmarks:list', { kind: 'workspace' })).run !== null)
   check('the table shows the checks themselves: passed and skipped, baseline → run', /4✓ 1– → 4✓ 1–/.test(await page.locator(`${pageSel} .perf-scenarios tbody tr`, { hasText: 'card-detail' }).first().innerText()), await page.locator(`${pageSel} .perf-scenarios tbody tr`, { hasText: 'card-detail' }).first().innerText())

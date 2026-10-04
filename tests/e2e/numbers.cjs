@@ -22,16 +22,15 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `number
   lib.gitProject(proj)
   lib.enableProviders(userData)
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47898' }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47898) }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 900 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const sessions = async () => (await inv('settings:get')).sessions
   const projectCfg = async () => (await inv('workspace:refresh')).projects.find((p) => p.path.toLowerCase() === proj.toLowerCase()).config
 
@@ -107,7 +106,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `number
   await page.keyboard.type('120000')
   await never.click()
   check('overlapping saves: Never ticks at once', await never.isChecked())
-  await lib.sleep(3000)
+  await lib.sleep(3000) // A fixed wait on purpose: a stale save landing late is what this checks, so it waits for the saves to finish rather than for the first right value.
   check('overlapping saves: the last choice wins', (await sessions()).compactSuggestTokens === 0, String((await sessions()).compactSuggestTokens))
   check('overlapping saves: Never stays ticked', await never.isChecked())
   await app.evaluate(() => {
@@ -180,7 +179,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `number
   await pbox.press('Control+A')
   await page.keyboard.type('8000')
   await pnever.click()
-  await lib.sleep(3000)
+  await lib.sleep(3000) // A fixed wait on purpose: a stale save landing late is what this checks, so it waits for the saves to finish rather than for the first right value.
   check('project: overlapping saves end as Never', (await projectCfg()).compactSuggestTokens === 0, String((await projectCfg()).compactSuggestTokens))
   check('project: Never stays ticked', await pnever.isChecked())
   await app.evaluate(() => {

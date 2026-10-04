@@ -23,7 +23,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))
   await lib.fitWindow(app, page, { width: 1300, height: 850 })
-  await sleep(2000)
+  await lib.appReady(page)
   // Setup dialog may show on a fresh profile; close any modal first.
   await page.keyboard.press('Escape'); await sleep(300)
   await page.evaluate(() => window.hive.invoke('app:info')) // warm
@@ -65,9 +65,9 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   for (const d of [secretWs, otherWs]) fs.rmSync(d, { recursive: true, force: true })
   lib.gitProject(path.join(secretWs, 'PrivateProject'))
   fs.mkdirSync(path.join(otherWs, 'demo'), { recursive: true })
-  await inv('workspace:open', secretWs); await sleep(1500)
+  await inv('workspace:open', secretWs); await lib.until(async () => page.evaluate((n) => document.title.includes(n), path.basename(secretWs)), 20000)
   await inv('tasks:create', { title: 'Confidential customer merger notes', project: 'PrivateProject' })
-  await inv('workspace:open', otherWs); await sleep(1500)
+  await inv('workspace:open', otherWs); await lib.until(async () => page.evaluate((n) => document.title.includes(n), path.basename(otherWs)), 20000)
   const log = fs.readFileSync(path.join(userData, 'logs', 'hive.log'), 'utf8')
   check('the log has the card and the first workspace', log.includes('Confidential customer merger notes') && log.includes('PrivateProject'))
   const report = await inv('app:diagnostics')

@@ -42,6 +42,8 @@ For each card, in order:
 3. **Passed** (a passing verdict, or moved to Done): take the next card.
 4. **Failed**: fix the **blocking** findings, comment on what changed, start the watch again, and move it to Review. That is one round. Suggestions that aren't blocking can become follow-up cards (`hive_create_task`) rather than another round.
 
+**Checks in a round:** each move to Review carries a run record (work-on-card). After a round's fixes, rerun the checks those fixes affect (the project's notes may have a way to pick them), not every check again; but before a card can pass, the card's full checks must have run on its final code. The reviewer trusts the record and adds its own probes (review-agent-work).
+
 ## Reviewer
 
 For each card, in order:

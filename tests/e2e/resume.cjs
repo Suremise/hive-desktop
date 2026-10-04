@@ -27,7 +27,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
-  await sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   const project = async () => (await inv('workspace:refresh')).projects.find((p) => p.name === 'demo')
   await inv('workspace:open', ws); await sleep(800)
@@ -53,7 +53,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   // Start Agent 1 fresh (no prompt sent).
   const st = await inv('session:start', proj, { agentId: A1.id })
   await lib.acceptClaudeTrust(inv, proj, A1.id)
-  await sleep(4000)
+  await lib.until(async () => (await inv('session:live')).some((l) => l.agentId === A1.id && l.status !== 'starting'), 30000)
   p = await project()
   check('Agent 1 running', !!a1().live)
 
@@ -68,7 +68,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   check('session tag shown', (await tag1.count()) === 1, await tag1.textContent().catch(() => ''))
 
   // Picker for Agent 2: Agent 1's open session greyed, old sessions resumable.
-  await h2.locator('button[aria-label="Resume a Session…"]').click(); await sleep(1200)
+  await h2.locator('button[aria-label="Resume a Session…"]').click(); await lib.until(async () => (await page.locator('.menu .menu-item.two-line').count()) > 0, 10000)
   const rows = page.locator('.menu .menu-item.two-line')
   const texts = await rows.allTextContents()
   check('picker lists 3 sessions', texts.length === 3, JSON.stringify(texts))
@@ -81,7 +81,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   check('still only Agent 1 runs', (await project()).agents.filter((a) => a.live).length === 1)
 
   // Session tag → Sessions tab on that session, with Show instead of Resume.
-  await tag1.click(); await sleep(1500)
+  await tag1.click(); await lib.until(async () => (await page.locator('.tabs .tab.active', { hasText: 'Sessions' }).count()) === 1 && (await page.locator('.session-row.selected').count()) === 1, 10000)
   check('Sessions tab opened', await page.locator('.tabs .tab.active', { hasText: 'Sessions' }).count() === 1)
   check('live session selected', await page.locator('.session-row.selected').count() === 1)
   check('Show button for the running session', await page.locator('.transcript-toolbar button', { hasText: 'Show' }).count() === 1)
@@ -100,7 +100,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   await page.locator('.tabs .tab', { hasText: 'Session' }).first().click(); await sleep(500)
   await page.locator('.pane-header-bar', { hasText: 'Agent 2' }).click(); await sleep(300)
   check('header Resume disabled for Agent 2', await page.locator('.pane-header-bar', { hasText: 'Agent 2' }).locator('button[aria-label="Resume"]').isDisabled())
-  await page.locator('.pane-header-bar', { hasText: 'Agent 2' }).locator('button[aria-label="Resume a Session…"]').click(); await sleep(1000)
+  await page.locator('.pane-header-bar', { hasText: 'Agent 2' }).locator('button[aria-label="Resume a Session…"]').click(); await lib.until(async () => (await page.locator('.menu .menu-header').textContent().catch(() => '')) === 'Resume in Agent 2', 10000)
   check('header picker opens', (await page.locator('.menu .menu-header').textContent()) === 'Resume in Agent 2')
   await shot(page, '4-header')
   await page.keyboard.press('Escape')
@@ -110,7 +110,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   await sleep(600)
   check('tag follows rename', /Renamed live/.test(await tag1.textContent()))
 
-  await inv('session:stop', proj, A1.id); await sleep(2500)
+  await inv('session:stop', proj, A1.id); await lib.until(async () => !(await inv('session:live')).some((l) => l.agentId === A1.id), 15000)
   p = await project()
   check('after stop Agent 1 resume is back', !!a1().resume, JSON.stringify(a1().resume))
   await app.close()

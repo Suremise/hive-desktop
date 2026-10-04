@@ -54,7 +54,7 @@ function commits(wt, n) {
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47908', CLAUDE_CONFIG_DIR: claudeHome }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47908), CLAUDE_CONFIG_DIR: claudeHome }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
@@ -62,10 +62,9 @@ function commits(wt, n) {
   const HEIGHT = 850
   let viewport = 1400
   await lib.fitWindow(app, page, { width: viewport, height: HEIGHT })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const until = async (fn, ms = 10000) => {
     const t = Date.now()
     let v
@@ -300,7 +299,7 @@ function commits(wt, n) {
     await until(async () => (await spinning()).running, 3000)
     const s1 = await spinning()
     check(`${w}px: after the dialog closes, Compact's spinner turns`, s1.loading && s1.running && s1.turned, JSON.stringify(s1))
-    await lib.sleep(2000)
+    await lib.sleep(2000) // A fixed wait on purpose: this checks the spinner is still turning 2 s later, so the time is the point.
     const s2 = await spinning()
     check(`${w}px: and is still turning 2 s later`, s2.loading && s2.running && s2.turned, JSON.stringify(s2))
     check(`${w}px: Compact is disabled meanwhile`, await compactBtn.isDisabled())

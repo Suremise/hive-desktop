@@ -30,16 +30,15 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
 ;(async () => {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
   lib.gitProject(path.join(ws, 'alpha'))
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47895', HIVE_TEST_TIPS: 'off' }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47895), HIVE_TEST_TIPS: 'off' }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 860 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, ws)
 
   // Every window's button colours, as main sets them.
   const record = () =>
@@ -269,13 +268,13 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
   await open()
   await buttonsAre(DARK.dim)
   await page.reload()
-  await lib.sleep(2000)
+  await lib.appReady(page)
   check('a reload with a card open leaves the window buttons bright', !!(await buttonsAre(DARK.color)), await buttons())
 
   // --- Each window on its own: a card in one doesn't dim the other's buttons.
   await inv('window:new')
   await until(async () => (await app.windows()).length === 2, 8000)
-  await lib.sleep(1500)
+  await lib.until(async () => { const w = (await app.windows())[1]; return !!w && (await w.evaluate(() => !!document.querySelector('.app .workbench')).catch(() => false)) }, 15000)
   await record()
   const ids = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w) => w.id))
   const otherId = ids.find((i) => i !== firstId)

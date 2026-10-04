@@ -19,16 +19,15 @@ const check = (name, ok, extra = '') => {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
   fs.mkdirSync(proj, { recursive: true })
   lib.enableProviders(userData)
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47897' }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47897) }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1600, height: 900 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   await page.getByText('crowd', { exact: true }).first().click()
   await lib.sleep(500)
   const panes = () => page.locator('.agent-pane').count()
@@ -46,7 +45,7 @@ const check = (name, ok, extra = '') => {
 
   // The seventh (added here) opens page 2, on its own, with a note about memory.
   await page.locator('.agent-add:not(.split-caret)').click()
-  await lib.sleep(1500)
+  await lib.until(async () => ((await page.locator('.page-switch button.active').innerText().catch(() => '')).trim()) === '2', 10000)
   check('the seventh agent opens page 2', (await page.locator('.page-switch button.active').innerText()).trim() === '2')
   check('page 2 shows it alone', (await panes()) === 1 && (await page.locator('.pane-header-bar', { hasText: 'Agent 7' }).count()) === 1)
   check('a note on what seven agents cost', (await page.locator('.toast', { hasText: '7 agents in this project' }).count()) === 1)
@@ -87,7 +86,8 @@ const check = (name, ok, extra = '') => {
     await page.locator('.agent-tab', { hasText: name }).click({ button: 'right' })
     await page.locator('.menu-item', { hasText: 'Remove Agent…' }).click()
     await page.locator('.dialog-footer button', { hasText: /^Remove$/ }).click()
-    await lib.sleep(1000)
+    // Gone from Hive and from the strip (the dialog closes before the removal has finished).
+    await lib.until(async () => !(await inv('workspace:refresh')).projects[0].agents.some((a) => a.name === name) && !(await page.locator('.agent-tab').allInnerTexts()).some((t) => t.trim() === name), 10000)
   }
   await page.locator('.agent-tab', { hasText: 'Agent 9' }).click()
   await lib.sleep(300)

@@ -12,7 +12,7 @@ const userData = path.join(lib.WORK, 'bg-profile')
 const ws = path.join(lib.WORK, 'bg-ws')
 const claudeHome = path.join(lib.WORK, 'bg-claude-home')
 const alpha = path.join(ws, 'alpha')
-const PORT = '47896'
+const PORT = Number(lib.port(47896))
 const API = `http://127.0.0.1:${PORT}`
 let failed = 0
 const check = (name, ok, extra = '') => {
@@ -38,10 +38,9 @@ const check = (name, ok, extra = '') => {
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const live = async (p, agentId) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === p.toLowerCase() && s.agentId === agentId)
   const until = async (fn, ms = 20000) => {
     const t = Date.now()

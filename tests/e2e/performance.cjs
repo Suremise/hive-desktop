@@ -57,8 +57,7 @@ const check = (name, ok, extra = '') => {
 ;(async () => {
   const { app, page, inv } = await lib.launch({ userData, viewport: { width: 1400, height: 950 } })
   page.on('pageerror', (e) => check('no page errors', false, e.message))
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const until = async (fn, ms = 10000) => {
     const t = Date.now()
     let v
@@ -131,7 +130,7 @@ const check = (name, ok, extra = '') => {
   await lib.sleep(300)
   await page.locator('.sidebar .row', { hasText: 'beta' }).click()
   check('a scope switched during a slow query shows the new scope', !!(await until(async () => (await requests()) === '12')), await requests())
-  await lib.sleep(3000)
+  await lib.sleep(3000) // A fixed wait on purpose: the slowed answer for the old choice arrives later, and this checks it doesn't replace the new one.
   check("…and the old scope's late reply doesn't replace it", (await requests()) === '12', await requests())
   await app.evaluate(() => {
     process.env.HIVE_TEST_SLOW_IPC = ''
