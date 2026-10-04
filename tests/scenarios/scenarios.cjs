@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 6
+const FIXTURES_VERSION = 7
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -23,6 +23,22 @@ const movedInto = (card, column, last = false) => {
   const hit = (w) => new RegExp(`^Moved to (the (top|bottom) of )?${column}\\b`).test(w)
   return last ? h.findLastIndex(hit) : h.findIndex(hit)
 }
+/** How many times a card moved into Review (the setup's own move counts). */
+const reviewMoves = (card) => history(card).filter((w) => /^Moved to (the (top|bottom) of )?Review\b/.test(w)).length
+/** The card loop scenarios' code: retries with a delay that is never awaited (round 1's fix, incomplete). */
+const SYNC_JS = `const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+module.exports = async function sync(run) {
+  for (let i = 0; i < 3; i++) {
+    try {
+      return await run()
+    } catch (e) {
+      if (i === 2) throw e
+      wait(1000)
+    }
+  }
+}
+`
 /** The hive tool calls in the transcript (mcp__hive__x, hive.x, Hive's "hive · x"), with their replies. */
 const hiveReplies = (o, tool) => o.tools.filter((t) => new RegExp(`(^|__|\\.|\\s)${tool}$`).test(t.name) && !t.isError)
 
@@ -458,7 +474,91 @@ module.exports.SCENARIOS = [
       ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
       ['asked the user (hive_notify)', ran(o, 'hive_notify').length >= 1, o.hiveCalls.map((x) => x.tool).join(',')],
       // Only the setup's own move into Review: no round three sent, and not Done.
-      ["didn't send it round three (not back to Review, not Done)", history(o.cards.w).filter((w) => /^Moved to (the (top|bottom) of )?Review\b/.test(w)).length === 1 && o.cards.w?.column === 'review', history(o.cards.w).join(' | ')]
+      ["didn't send it round three (not back to Review, not Done)", reviewMoves(o.cards.w) === 1 && o.cards.w?.column === 'review', history(o.cards.w).join(' | ')]
+    ]
+  },
+  {
+    id: 'card-loop-recurring',
+    title: 'A card loop builder given a recurring finding (rounds left): fixes it and sends it back, without asking the user',
+    files: { 'sync.js': SYNC_JS },
+    async setup(c) {
+      await c.card('r', {
+        title: 'Retry the sync',
+        description: 'sync.js: retry the sync three times, 1 s apart, before giving up.',
+        column: 'review',
+        agent: 'coder',
+        comments: [
+          'Done: retries added. Ready for review.',
+          'Review round 1: FAILED. 1. The retries have no delay between them.',
+          'Fixed: a 1 s delay between retries.',
+          'Review round 2: FAILED. 1. The delay is never awaited: `wait(1000)` needs `await` (recurring from round 1).'
+        ]
+      })
+    },
+    prompt: (c) => `Work through card #${c.cards.r} as its builder (rounds: 5). It has been through two review rounds already; the latest review is its last comment.`,
+    fake: (c) => `skill card-loop boardmove ${c.cards.r} doing then boardmove ${c.cards.r} review then boardcomment ${c.cards.r}`,
+    expect: (o, c) => [
+      ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+      ["didn't ask the user (no hive_notify)", called(o, 'hive_notify').length === 0, o.hiveCalls.map((x) => x.tool).join(',')],
+      ['through Doing, back to Review for round three', movedInto(o.cards.r, 'Doing') >= 0 && reviewMoves(o.cards.r) === 2 && o.cards.r?.column === 'review', history(o.cards.r).join(' | ')],
+      ['fixed it: the delay is awaited', /await\s+wait\(/.test(c.read('sync.js') ?? ''), c.read('sync.js')],
+      ['not Done', o.cards.r?.column !== 'done']
+    ],
+    fakeSkips: ['fixed it: the delay is awaited']
+  },
+  {
+    id: 'card-loop-recurring-review',
+    title: 'A card loop reviewer finding a fix incomplete again (rounds left): fails it marked recurring, without asking the user',
+    files: { 'sync.js': SYNC_JS },
+    async setup(c) {
+      await c.card('q', {
+        title: 'Retry the sync',
+        description: 'sync.js: retry the sync three times, 1 s apart, before giving up.',
+        column: 'review',
+        agent: 'implementer',
+        comments: ['Done: retries added. Ready for review.', 'Review round 1: FAILED. 1. The retries have no delay between them.', 'Fixed: a 1 s delay between retries. Ready for review.']
+      })
+    },
+    prompt: (c) => `Review card #${c.cards.q} as the reviewer of a card loop (rounds: 5). It is back for its second review; the earlier review and the fix are in its comments.`,
+    fake: (c) => `skill card-loop boardreview ${c.cards.q} start then boardreview ${c.cards.q} failed`,
+    expect: (o, c) => {
+      const verdict = [...(o.cards.q?.comments ?? [])].reverse().find((x) => !/implementer/i.test(x.by ?? ''))?.text ?? ''
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        ['failed it (the delay still isn’t awaited)', history(o.cards.q).includes('Review failed'), history(o.cards.q).join(' | ')],
+        ['the verdict says the finding came back', /recurr|again|round 1|still/i.test(verdict), verdict.slice(0, 300)],
+        ["didn't ask the user (no hive_notify)", called(o, 'hive_notify').length === 0, o.hiveCalls.map((x) => x.tool).join(',')],
+        ['the card stays in Review with the implementer', o.cards.q?.column === 'review' && o.cards.q?.agent?.id === c.agents.implementer.id, `${o.cards.q?.column} / ${o.cards.q?.agent?.name}`],
+        ['changed no files', o.gitStatus.trim() === '', o.gitStatus]
+      ]
+    },
+    fakeSkips: ['the verdict says the finding came back']
+  },
+  {
+    id: 'card-loop-disputed',
+    title: 'A card loop reviewer whose finding the builder disputes: stops and asks the user instead of failing it again',
+    files: { 'sync.js': SYNC_JS.replace('wait(1000)', 'await wait(1000)') },
+    async setup(c) {
+      await c.card('p', {
+        title: 'Retry the sync',
+        description: 'sync.js: retry the sync three times before giving up.',
+        column: 'review',
+        agent: 'implementer',
+        comments: [
+          'Done: retries added, 1 s apart. Ready for review.',
+          'Review round 1: FAILED. 1. Use exponential backoff between retries (1 s, 2 s, 4 s), not a fixed delay.',
+          'Not changed, I dispute finding 1: the card asks for three retries and says nothing about backoff, and the sync server limits clients itself, so a fixed 1 s delay is what we want. Back for review.'
+        ]
+      })
+    },
+    prompt: (c) => `Review card #${c.cards.p} as the reviewer of a card loop (rounds: 5). It is back for its second review; the earlier review and the builder's reply are in its comments.`,
+    fake: () => 'skill card-loop hive hive_notify {"title":"#1: a disputed finding","message":"The builder disputes round 1\'s finding (backoff instead of a fixed delay); the card doesn\'t say. Which do you want?"}',
+    expect: (o) => [
+      ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+      ['asked the user (hive_notify)', ran(o, 'hive_notify').length >= 1, o.hiveCalls.map((x) => x.tool).join(',')],
+      ["didn't fail it again over the disputed finding", !history(o.cards.p).includes('Review failed'), history(o.cards.p).join(' | ')],
+      ['not Done', o.cards.p?.column !== 'done'],
+      ['changed no files', o.gitStatus.trim() === '', o.gitStatus]
     ]
   },
   {

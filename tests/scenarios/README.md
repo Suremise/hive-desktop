@@ -38,6 +38,9 @@ The checks are positive and negative:
 - **A script against the API** runs with the agent's own token, lists its project's card, is refused for another
   project's, and never prints a token.
 - **Ordinary coding** reads no Hive skill.
+- **Card loops**: at the round limit the builder asks the user. A finding that comes back is another round: the builder
+  fixes it without asking, and the reviewer fails it marked as recurring. A finding the builder disputes stops the reviewer
+  to ask.
 - **With `work-on-card` deleted**, the board rules still hold, and **an edited skill** is the one followed.
 - **The Assistant**:
   - at Look and advise, changes nothing;

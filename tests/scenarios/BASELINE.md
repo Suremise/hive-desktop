@@ -36,6 +36,21 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Card loops: Codex (`gpt-5.6-luna`, CLI 0.160.0), fixtures v7, 4 October 2026
+
+The card-loop scenarios only (#163), two samples each, against the card-loop skill before and after its "a finding that
+comes back" rule ($0.17 API-equivalent in all):
+- **card-loop-recurring**, **card-loop-recurring-review**, **card-loop-disputed**: 2 of 2 pass after the change
+  (`results/2026-10-04T20-51-42-codex`). The two recurring ones also pass 2 of 2 before it
+  (`results/2026-10-04T21-05-26-codex`): this model didn't stop early under the old rule either, so these runs show no
+  regression rather than the change's effect.
+- **card-loop-rounds** fails 2 of 2 both before and after (`results/2026-10-04T21-01-45-codex`): told *rounds: 2* with
+  two failed reviews, the builder sends the card round three instead of asking. By the skill's count (each time it goes
+  back to Review after failing) the card has had one round, so the scenario and the skill's counting disagree (#173).
+
+The default Codex model (`gpt-6.1-sol`) has no price in `prices.ts`, so a trial with it reports no cost and the budget
+stops the run after one trial: use `--model gpt-5.6-luna`, or `--allow-unknown-cost`.
+
 ## Codex (`gpt-5.6-luna`, CLI 0.160.0, its test home, Full access)
 
 **20 of 20 pass** under fixtures v2 (`results/2026-10-03T04-44-06-codex`; $0.18 API-equivalent, on a subscription
