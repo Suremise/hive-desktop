@@ -11,6 +11,7 @@ import type {
   AgentInfo,
   AssistantAction,
   AssistantQuestion,
+  ProgressRun,
   AgentInstallInfo,
   ProviderId,
   AppInfo,
@@ -127,6 +128,8 @@ interface State {
   assistantSection: 'conversations' | 'personas'
   /** The Hive Assistant's panel is shown (per workspace, saved in the pane sizes as assistant-open:<path>). */
   assistantOpen: boolean
+  /** This window's workspace's progress runs (newest first), for the Progress panel. */
+  progressRuns: ProgressRun[]
   /** Assistant Settings is open. */
   assistantSettingsOpen: boolean
   /** What the Hive Assistant did in this window's workspace (oldest first), and what it is asking the user. */
@@ -269,6 +272,7 @@ export const useStore = create<State>(() => ({
   selectedPersona: null,
   assistantSection: 'conversations',
   assistantOpen: false,
+  progressRuns: [],
   assistantSettingsOpen: false,
   assistantActions: [],
   assistantQuestions: [],
@@ -497,6 +501,27 @@ export function setAssistantOpen(open: boolean): void {
   if (!ws) return
   set((s) => ({ panes: { ...s.panes, [assistantOpenKey(ws)]: open ? 1 : 0 } }))
   void window.hive.invoke('ui:setPane', assistantOpenKey(ws), open ? 1 : 0)
+}
+
+const progressOpenKey = (ws: string): string => `progress-open:${ws.toLowerCase()}`
+
+/** Whether this window's workspace's Progress panel is open (else it is folded to its strip). */
+export function useProgressOpen(): boolean {
+  return useStore((s) => !!s.workspace && s.panes[progressOpenKey(s.workspace.path)] === 1)
+}
+
+/** Shows or folds the Progress panel, remembered per workspace. */
+export function setProgressOpen(open: boolean): void {
+  const ws = get().workspace?.path
+  if (!ws) return
+  set((s) => ({ panes: { ...s.panes, [progressOpenKey(ws)]: open ? 1 : 0 } }))
+  void window.hive.invoke('ui:setPane', progressOpenKey(ws), open ? 1 : 0)
+}
+
+/** Whether the Progress panel is open now (for commands). */
+export function progressIsOpen(): boolean {
+  const ws = get().workspace?.path
+  return !!ws && get().panes[progressOpenKey(ws)] === 1
 }
 
 /** Whether a workspace's Assistant panel was left open. */

@@ -67,6 +67,8 @@ export interface AppSettings {
     showTips: boolean
     /** Keep Windows from sleeping while agents work: only on mains power, always, or never. */
     keepAwake: KeepAwakeSetting
+    /** The Progress panel (long runs agents report, with taskbar progress). Off: reports are accepted and ignored. */
+    progressPanel: boolean
   }
   appearance: {
     theme: ThemeSetting
@@ -1189,3 +1191,40 @@ export type HiveEvent =
   | { type: 'plan-usage'; provider: ProviderId; usage: PlanUsage }
   | { type: 'window-state'; maximized: boolean; focused: boolean }
   | { type: 'update-state'; state: UpdateState }
+  /** A workspace's progress runs changed (all of them, newest first). */
+  | { type: 'progress-changed'; workspacePath: string; runs: ProgressRun[] }
+
+/** Who reported a progress run: a project agent (by its token), the Hive Assistant, or a script with the workspace token. */
+export type ProgressSource = 'agent' | 'assistant' | 'api'
+
+/**
+ * A long run an agent reports (tests, a build), for the Progress panel. `step` counts finished steps (0 to `total`),
+ * `stepName` is the one running now, and `estimateMs` the time left as of `updatedAt` (epoch ms throughout).
+ */
+export interface ProgressRun {
+  id: string
+  workspacePath: string
+  /** The reporting agent's project (null for the Assistant and scripts). */
+  projectPath: string | null
+  agentId: string | null
+  /** Its agent's name, "Hive Assistant", or "Script". */
+  agentName: string
+  provider: ProviderId | null
+  source: ProgressSource
+  title: string
+  command: string | null
+  total: number | null
+  step: number | null
+  stepName: string | null
+  estimateMs: number | null
+  startedAt: number
+  updatedAt: number
+  finishedAt: number | null
+  /** stale: running, but no report for longer than expected, or its agent stopped. */
+  state: 'running' | 'stale' | 'passed' | 'failed'
+  /** Why a stale run is stale: no report for too long, or its agent's session stopped. */
+  staleReason: 'quiet' | 'agent-stopped' | null
+  summary: string | null
+  /** The user dismissed it: listed under Recent only. */
+  dismissed: boolean
+}

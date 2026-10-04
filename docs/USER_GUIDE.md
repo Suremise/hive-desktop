@@ -267,6 +267,18 @@ traffic and guidance smaller while the work still got done:
   folder's `quarantine` subfolder instead of being deleted. A removal that can't finish (a file in use) is retried
   later, and the comparison doesn't come back to the list.
 
+### Progress panel
+
+Long runs, such as test suites and builds, can report their progress to Hive, and the **Progress panel** shows them: which agent is running what, how far along it is and about how long is left. It sits on the right, beside the Hive Assistant's panel. Show or fold it with **Ctrl+Alt+P** (Toggle Progress Panel); each workspace remembers whether it's open, and dragging its left edge makes it wider.
+
+- **Folded**, it is a narrow **Progress** strip down the right edge with a small bar for each run, so you can see something is going without giving it room. It never opens by itself; click the strip to open it.
+- **Each run** shows the agent and its project, what is running ("e2e: 12 suites"), a bar, the step ("4 of 12: carddialog"), how long it has taken and, once Hive has an estimate, about how long is left. A run that doesn't report steps shows a moving bar and the time. Click a run to show its agent.
+- **When a run ends:** a passed one shows ✓ and the time it took for a few seconds, then fades; a failed one shows ✗ and stays until you dismiss it. Both are kept under **Recent**. A run that stops reporting for longer than expected says **Stopped reporting**, and one whose agent stops says so; either can be dismissed.
+- **The taskbar:** while runs are going, Hive's taskbar button fills with their combined progress (a moving bar for runs without steps), and turns red when one fails, until you look at the panel. So you can keep an eye on a long run from another app or with Hive minimised.
+- **The Assistant** can see an agent's progress too, so you can ask it how long until an agent's tests finish.
+
+Runs come from what agents run: a tool or script reports through the Agent API (`/v1/progress`, see the Agent API reference), as the agent that started it. **Settings → General → Progress panel** turns it all off; agents can still report, and Hive ignores it.
+
 ## Task board
 
 The **Task Board** (in the activity bar, or **Ctrl+Shift+J**) is the workspace's list of work, as cards in four columns: **Todo**, **Doing**, **Review** and **Done**. You, the Hive Assistant and the agents all use it, so it's where you can see at a glance what is planned, what is being worked on and what is waiting for you.
@@ -607,6 +619,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Compact / expand the project list | Ctrl+Alt+B |
 | Notifications | Ctrl+Alt+U |
 | Show / hide the Hive Assistant | Ctrl+Alt+I |
+| Show / fold the Progress panel | Ctrl+Alt+P |
 | External terminal in the project | Ctrl+Shift+` |
 | Documentation | F1 |
 

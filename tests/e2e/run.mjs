@@ -70,6 +70,7 @@ const SUITES = [
   { name: 'perfcompare' },
   { name: 'performance' },
   { name: 'plan', needs: ['claude'] },
+  { name: 'progress' },
   { name: 'progressreport' },
   { name: 'providers' },
   { name: 'quit', needs: ['claude'] },

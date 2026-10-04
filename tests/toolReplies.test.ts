@@ -7,6 +7,7 @@ import {
   createdText,
   noteText,
   notesListText,
+  progressLabel,
   projectListText,
   reorderText,
   taskListText,
@@ -129,6 +130,16 @@ describe('projects and notes', () => {
   it('a watching agent says what it waits for', () => {
     const text = projectListText([{ name: 'alpha', workspace: 'ws', active: true, branch: null, agents: [{ name: 'Rev', provider: 'codex', status: 'watching', branch: null, backgroundTasks: 0, watching: 'Waiting for #12 → Review' }] }])
     expect(text.split('\n')[0]).toBe('alpha (on): Rev [codex] waiting for #12 → Review')
+  })
+
+  it("an agent with an open progress run says what it's running, how far and the time left, briefly", () => {
+    const label = progressLabel({ title: 'e2e: 12 suites', step: 4, total: 12, etaMs: 360_000 })
+    expect(label).toBe('e2e: 12 suites 4/12, about 6 min left')
+    expect(progressLabel({ title: 'build' })).toBe('build')
+    expect(progressLabel({ title: 'tests', step: 1, total: 3, etaMs: 5000, stale: true })).toBe('tests 1/3, stopped reporting')
+    expect(progressLabel({ title: 'y'.repeat(120) }).length).toBe(60)
+    const text = projectListText([{ name: 'alpha', workspace: 'ws', active: true, branch: null, agents: [{ name: 'Alfie', provider: 'claude-code', status: 'working', branch: null, backgroundTasks: 0, progress: label }] }])
+    expect(text.split('\n')[0]).toBe('alpha (on): Alfie [claude-code] working (running e2e: 12 suites 4/12, about 6 min left)')
   })
 
   it('projects from several workspaces name their workspace', () => {
