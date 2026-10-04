@@ -192,6 +192,8 @@ export interface WrapperIo {
   minIntervalMs?: number
   /** How long the run waits for a step line with the total before it is reported without (default 2 s). */
   startWaitMs?: number
+  /** Whether hive-progress runs in Hive's executable as Node (default: whether it does); tests set it. */
+  viaElectron?: boolean
 }
 
 /**
@@ -241,6 +243,22 @@ class WrappedRun {
   }
 }
 
+/**
+ * The command's environment: the caller's, without what hive-progress was started with. Run by Hive's executable as
+ * Node (its shims), ELECTRON_RUN_AS_NODE is the shims' own: the command gets the caller's value back (kept in
+ * HIVE_PROGRESS_RUN_AS_NODE; usually none), so an Electron app it starts runs as an app.
+ */
+export function commandEnv(env: Record<string, string | undefined>, viaElectron: boolean): Record<string, string | undefined> {
+  const out = { ...env }
+  if (viaElectron) {
+    delete out.ELECTRON_RUN_AS_NODE
+    if (env.HIVE_PROGRESS_RUN_AS_NODE) out.ELECTRON_RUN_AS_NODE = env.HIVE_PROGRESS_RUN_AS_NODE
+  }
+  delete out.HIVE_PROGRESS_RUN_AS_NODE
+  delete out.HIVE_PROGRESS_DATA
+  return out
+}
+
 /** Runs hive-progress with these arguments; resolves to the exit code to end with (the command's own). */
 export async function runWrapped(argv: string[], io: WrapperIo): Promise<number> {
   const parsed = parseArgs(argv)
@@ -254,7 +272,7 @@ export async function runWrapped(argv: string[], io: WrapperIo): Promise<number>
   }
   const target = progressTarget(io.env)
   const spec = spawnSpec(parsed.command, io.env, io.cwd)
-  const env = { ...io.env }
+  const env = commandEnv(io.env, io.viaElectron ?? !!process.versions.electron)
   const started = Date.now()
   // Not reporting: the command runs as if hive-progress weren't there (its own console, no filtering).
   if (!target) return run(spec, env, io, null)

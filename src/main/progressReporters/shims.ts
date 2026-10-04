@@ -13,7 +13,11 @@ export interface ShimPaths {
   data: string
 }
 
-/** The two shims' contents. */
+/**
+ * The two shims' contents. ELECTRON_RUN_AS_NODE makes Hive's executable run the script as Node; the caller's own value
+ * (usually none) is kept in HIVE_PROGRESS_RUN_AS_NODE, and the wrapper gives the command that one back
+ * (wrapper.ts commandEnv), so an Electron app it runs starts as an app.
+ */
 export function shimFiles(p: ShimPaths): Record<'hive-progress.cmd' | 'hive-progress', string> {
   const slash = (s: string): string => s.replace(/\\/g, '/')
   const sq = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`
@@ -21,13 +25,18 @@ export function shimFiles(p: ShimPaths): Record<'hive-progress.cmd' | 'hive-prog
     'hive-progress.cmd': [
       '@echo off',
       'setlocal',
+      'set "HIVE_PROGRESS_RUN_AS_NODE=%ELECTRON_RUN_AS_NODE%"',
       'set "ELECTRON_RUN_AS_NODE=1"',
       `set "HIVE_PROGRESS_DATA=${p.data}"`,
       `"${p.exec}" "${p.script}" %*`,
       'exit /b %ERRORLEVEL%',
       ''
     ].join('\r\n'),
-    'hive-progress': ['#!/bin/sh', `ELECTRON_RUN_AS_NODE=1 HIVE_PROGRESS_DATA=${sq(slash(p.data))} exec ${sq(slash(p.exec))} ${sq(slash(p.script))} "$@"`, ''].join('\n')
+    'hive-progress': [
+      '#!/bin/sh',
+      `HIVE_PROGRESS_RUN_AS_NODE="\${ELECTRON_RUN_AS_NODE-}" ELECTRON_RUN_AS_NODE=1 HIVE_PROGRESS_DATA=${sq(slash(p.data))} exec ${sq(slash(p.exec))} ${sq(slash(p.script))} "$@"`,
+      ''
+    ].join('\n')
   }
 }
 

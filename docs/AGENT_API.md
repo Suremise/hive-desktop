@@ -380,6 +380,26 @@ With **Settings → General → Progress panel** off, every call is accepted and
 
 An agent's open run shows in its status (`GET /v1/projects/{name}` agents, and its activity) as `progress`: `{ title, step?, total?, stepName?, etaMs?, stale? }`, `etaMs` being the time left now.
 
+#### Reporting a command: `hive-progress`
+
+Every session Hive starts has `hive-progress` on its `PATH` (cmd, PowerShell and Git Bash), so a command needs no code to report:
+
+```bash
+hive-progress [--title "e2e"] -- <command> [args...]
+```
+
+It runs the command with its output passed through unchanged and ends with its exit code, and reports it as the agent's run: the title (the command line when none is given), the finish (passed when the exit code is 0, otherwise failed with `exit code N`), and an estimate from how long the same command in the same folder took the last few times it passed (kept in Hive's data, never in the project). With no Hive variables, Hive unreachable or a refused call, it just runs the command, and it never fails because of Hive. `HIVE_PROGRESS=0` turns reporting off.
+
+**Steps.** A command (or any project's test runner) that prints lines like this gets real steps:
+
+```
+##hive-progress step=4 total=12 name=carddialog
+```
+
+`step` is the step starting now, from 1; `total` how many there are; `name` the rest of the line. The lines are taken out of the output. Since a run's `total` is set when it starts, `hive-progress` starts its run at the first step line that gives a total, or after 2 seconds: print the total in the first line, early. A total printed later isn't used; the steps still are.
+
+Hive's own test runners report the same way (`npm run e2e`, a step per suite; `npm test`, a step per file) when they run in an agent's session.
+
 ### Notifications
 
 `POST /v1/notify` — show a notification in Hive.

@@ -61,7 +61,7 @@ npm 11 blocks install scripts by default; esbuild and electron-winstaller are ap
 - **project.json / sessions.json**: change them with `workspace.mutateProjectConfig()`/`updateAgent()` and `workspace.mutateSessions()`/`upsertSession()`, which lock the file; computing a new value outside the lock and writing it loses concurrent changes (two agents finishing at once).
 - **Logging**: wrap the user's own text in a log line (names, paths, card titles, prompts, error text that may quote them) in `userText()` from `logger.ts`, so Help → Copy Diagnostics leaves it out (`redactLog()` in `shared/redact.ts`).
 - **Renderer errors**: a throw while rendering is caught by the nearest `ErrorBoundary`; don't rely on it — guard parsing of file content (e.g. `decodeURIComponent` on paths from Markdown) where it happens.
-- **hive-mcp.js** runs outside the asar (the CLIs start it), so it may only require Node built-ins and `out/main/chunks/*` (unpacked in `electron-builder.yml`); code it shares with main is split into those chunks. After `npm run dist`, check it with `npm run e2e -- packaged-mcp` (stdio calls against `dist/win-unpacked/resources/app.asar.unpacked/out/main/hive-mcp.js`).
+- **hive-mcp.js** and **hive-progress.js** run outside the asar (the CLIs start the first, the `hive-progress` shims on sessions' PATH the second), so they may only require Node built-ins and `out/main/chunks/*` (unpacked in `electron-builder.yml`); code they share with main is split into those chunks. After `npm run dist`, check them with `npm run e2e -- packaged-mcp packaged-progress` (against `dist/win-unpacked/resources/app.asar.unpacked/out/main/`).
 - **Monaco 0.57** deep imports drop the `esm/vs/` prefix: `monaco-editor/editor/editor.worker?worker`.
 - **CLI logins**: never automate key presses on Claude Code's or Codex's login screens in test sessions; warn the user before any test that may open a browser sign-in.
 - Hive must only use the **standalone CLIs** (Claude Code, Codex). Copies bundled in editor extensions are deliberately rejected (SPEC §11).
@@ -91,6 +91,7 @@ To test what the window does while an action is slow or fails, set `HIVE_TEST_SL
 | `src/main/servers.ts` | Hook server (random port) and Agent API |
 | `src/main/updater.ts`, `src/renderer/src/components/Updates.tsx` | Hive's own updates (electron-updater, GitHub Releases): state, status bar item, update dialog |
 | `src/main/mcp/hive-mcp.ts` | Built-in `hive` MCP server (Node built-ins only) |
+| `src/main/progressReporters/`, `tests/progressReport.mts` | `hive-progress` wrapper (shims on every session's PATH) and Hive's test runners reporting to the Progress panel (`src/main/progress.ts`) |
 | `src/main/workspace.ts` | Workspace/project discovery, `.hive` folders, git exclude; one `WorkspaceService` per window behind the `workspace` stand-in |
 | `src/main/windows.ts` | Hive's windows (one workspace each) and where each event and terminal's output goes |
 | `src/main/files.ts` | Files/Images tab back end: project file operations, find, live watch, session images |

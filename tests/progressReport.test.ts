@@ -8,7 +8,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { estimateFor, ProgressRun, progressTarget, recordTiming } from '../src/main/progressReporters/report.mts'
-import { cmdEscapeArgument, commandLabel, parseArgs, runWrapped, spawnSpec, StepFilter, stepLine, timingKey } from '../src/main/progressReporters/wrapper'
+import { cmdEscapeArgument, commandEnv, commandLabel, parseArgs, runWrapped, spawnSpec, StepFilter, stepLine, timingKey } from '../src/main/progressReporters/wrapper'
 import { installShims, shimFiles, withBinOnPath } from '../src/main/progressReporters/shims'
 
 const dir = mkdtempSync(join(tmpdir(), 'hive-progress-'))
@@ -239,28 +239,50 @@ describe("the hive-progress command on a session's PATH (main/progressReporters/
     const bin = join(dir, 'bin dir')
     // A stand-in for hive-progress.js: shows what it was given, and ends with the code it was asked for.
     const script = join(dir, 'echo args.js')
-    writeFileSync(script, "process.stdout.write(JSON.stringify({ args: process.argv.slice(2), data: process.env.HIVE_PROGRESS_DATA, node: process.env.ELECTRON_RUN_AS_NODE })); process.exit(Number(process.argv.at(-1)) || 0)")
+    writeFileSync(script, "process.stdout.write(JSON.stringify({ args: process.argv.slice(2), data: process.env.HIVE_PROGRESS_DATA, node: process.env.ELECTRON_RUN_AS_NODE, callers: process.env.HIVE_PROGRESS_RUN_AS_NODE || null })); process.exit(Number(process.argv.at(-1)) || 0)")
     const data = join(dir, 'data dir')
     expect(await installShims(bin, { exec: node, script, data })).toBe(bin)
     const args = ['--title', 'two words', '--', 'node', 'a&b', '7']
-    const want = { args, data, node: '1' }
-    if (process.platform === 'win32') {
-      // As typed at a cmd prompt.
-      const line = [join(bin, 'hive-progress.cmd'), ...args].map((a) => (/[\s&]/.test(a) ? `"${a}"` : a)).join(' ')
-      const r = spawnSync('cmd.exe', ['/d', '/s', '/c', `"${line}"`], { encoding: 'utf8', windowsVerbatimArguments: true })
-      expect([r.status, JSON.parse(r.stdout)]).toEqual([7, want])
-    }
-    const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : '/bin/sh'
-    if (existsSync(bash)) {
-      const r = spawnSync(bash, [join(bin, 'hive-progress').replace(/\\/g, '/'), ...args], { encoding: 'utf8' })
-      const got = JSON.parse(r.stdout)
-      expect([r.status, got.args, got.node, got.data.replace(/\//g, '\\')]).toEqual([7, args, '1', data])
+    // The caller's own ELECTRON_RUN_AS_NODE (usually none) is kept for the command, beside the shim's.
+    const base = { ...process.env }
+    delete base.ELECTRON_RUN_AS_NODE
+    for (const callers of [null, '1']) {
+      const callerEnv = callers ? { ...base, ELECTRON_RUN_AS_NODE: callers } : base
+      if (process.platform === 'win32') {
+        // As typed at a cmd prompt.
+        const line = [join(bin, 'hive-progress.cmd'), ...args].map((a) => (/[\s&]/.test(a) ? `"${a}"` : a)).join(' ')
+        const r = spawnSync('cmd.exe', ['/d', '/s', '/c', `"${line}"`], { encoding: 'utf8', windowsVerbatimArguments: true, env: callerEnv })
+        expect([r.status, JSON.parse(r.stdout)]).toEqual([7, { args, data, node: '1', callers }])
+      }
+      const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : '/bin/sh'
+      if (existsSync(bash)) {
+        const r = spawnSync(bash, [join(bin, 'hive-progress').replace(/\\/g, '/'), ...args], { encoding: 'utf8', env: callerEnv })
+        const got = JSON.parse(r.stdout)
+        expect([r.status, got.args, got.node, got.data.replace(/\//g, '\\'), got.callers]).toEqual([7, args, '1', data, callers])
+      }
     }
     // Written again only when they change.
     const { mtimeMs } = statSync(join(bin, 'hive-progress.cmd'))
     await installShims(bin, { exec: node, script, data })
     expect(statSync(join(bin, 'hive-progress.cmd')).mtimeMs).toBe(mtimeMs)
-    expect(shimFiles({ exec: 'C:\\H\\Hive.exe', script: 'C:\\H\\x.js', data: 'C:\\D' })['hive-progress']).toBe("#!/bin/sh\nELECTRON_RUN_AS_NODE=1 HIVE_PROGRESS_DATA='C:/D' exec 'C:/H/Hive.exe' 'C:/H/x.js' \"$@\"\n")
+    expect(shimFiles({ exec: 'C:\\H\\Hive.exe', script: 'C:\\H\\x.js', data: 'C:\\D' })['hive-progress']).toBe(
+      "#!/bin/sh\nHIVE_PROGRESS_RUN_AS_NODE=\"${ELECTRON_RUN_AS_NODE-}\" ELECTRON_RUN_AS_NODE=1 HIVE_PROGRESS_DATA='C:/D' exec 'C:/H/Hive.exe' 'C:/H/x.js' \"$@\"\n"
+    )
+  })
+
+  it("the command doesn't get what started hive-progress: in Hive's executable, ELECTRON_RUN_AS_NODE is the caller's own again", async () => {
+    const shimmed = { PATH: 'p', ELECTRON_RUN_AS_NODE: '1', HIVE_PROGRESS_DATA: 'd', HIVE_PROGRESS_RUN_AS_NODE: undefined, HIVE_API_URL: 'u' }
+    expect(commandEnv(shimmed, true)).toEqual({ PATH: 'p', HIVE_API_URL: 'u' })
+    expect(commandEnv({ ...shimmed, HIVE_PROGRESS_RUN_AS_NODE: '1' }, true)).toEqual({ PATH: 'p', HIVE_API_URL: 'u', ELECTRON_RUN_AS_NODE: '1' })
+    // Run by plain Node, the variable is the caller's: left alone.
+    expect(commandEnv(shimmed, false)).toEqual({ PATH: 'p', ELECTRON_RUN_AS_NODE: '1', HIVE_API_URL: 'u' })
+    // The command itself, reporting on, unavailable and off: no ELECTRON_RUN_AS_NODE, no HIVE_PROGRESS_DATA.
+    const probe = ['--', node, '-e', 'process.exit(process.env.ELECTRON_RUN_AS_NODE || process.env.HIVE_PROGRESS_DATA ? 23 : 0)']
+    const viaShim = { ELECTRON_RUN_AS_NODE: '1' }
+    for (const e of [env(viaShim), env({ ...viaShim, HIVE_API_URL: 'http://127.0.0.1:9' }), env({ ...viaShim, HIVE_PROGRESS: '0' })]) {
+      const code = await runWrapped(probe, { env: e, cwd: dir, stdout: { write: () => true }, stderr: { write: () => true }, stdin: 'ignore', startWaitMs: 50, viaElectron: true })
+      expect(code).toBe(0)
+    }
   })
 })
 
