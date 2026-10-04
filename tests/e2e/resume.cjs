@@ -1,14 +1,14 @@
 // Resume per agent: guard against one conversation in two agents, AgentInfo.resume, the Resume split
 // button + session picker, the session tag, Sessions tab Show / Resume in.
-// Throwaway profile and git project under the trusted test folder. A real Claude Code session starts
+// Throwaway profile and git project in the work folder. A real Claude Code session starts
 // in Agent 1, but no prompt is ever sent. Clipboard untouched.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path'), { execSync } = require('child_process')
 const scratch = lib.WORK, userData = path.join(scratch, 'resume-profile')
-const root = path.join(lib.ROOT, 'node_modules/.hive-test')
-const ws = path.join(root, 'ws')
-for (const d of [userData, root]) fs.rmSync(d, { recursive: true, force: true })
+// Outside the repository, so its CLAUDE.md (which imports AGENTS.md) doesn't apply to the test session (#174).
+const ws = path.join(scratch, 'resume-ws')
+for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
 const proj = path.join(ws, 'demo')
 fs.mkdirSync(proj, { recursive: true })
 const g = (cmd) => execSync(`git ${cmd}`, { cwd: proj, stdio: 'pipe' }).toString()

@@ -47,9 +47,9 @@ one. The runner prints its lane, its suites' folder and its logs folder when it 
 most: the eleventh stops and says so.
 A runner started inside a suite claims no lane: it takes ports 1000 above its parent suite's (`portBase` in
 `runner.mjs`) and its suites' folders in `nested` inside the parent's (`E2E_RUN_DIR`). Logs stay in one place for every
-lane (`logs/` below), so `.active` there shows every run still going. A few Claude Code suites (`agents`, `compact`,
-`plan`, `resume`) work in `node_modules\.hive-test` in the worktree, so two runners at once should be from different
-worktrees. `update` keeps its download cache per lane too (`%LOCALAPPDATA%\hive-test-updater-<k>`, through
+lane (`logs/` below), so `.active` there shows every run still going. Suites keep their test projects outside the
+repository, so its `CLAUDE.md` (which imports `AGENTS.md`) never applies to their Claude Code sessions: Claude Code
+would ask each session whether to allow the import. `update` keeps its download cache per lane too (`%LOCALAPPDATA%\hive-test-updater-<k>`, through
 `HIVE_UPDATE_CACHE`). The Codex test home stays shared: it holds the one sign-in, and copies of it would share a
 refresh token. Codex runs any number of sessions in one home. What the suites change there, the trusted folders in its
 `config.toml`, goes through `lib.trustForCodex`, under a lock beside the file (`config.toml.lock`, broken after 30 s
