@@ -57,7 +57,7 @@ For each card, in order:
 Count the review rounds of each card (each time it goes back to Review after failing).
 
 - At **rounds**: stop and ask, don't give up. `hive_notify` the user with a line per round (what was found, and whether it was fixed), and ask: carry on (how many more rounds), split the card, accept it with follow-up cards, or take it over.
-- **Ask early when a finding comes back**: a review raising again what the builder already fixed, even in round 2.
+- **A finding that comes back** (the fix missed part of it): the reviewer says so in the failed verdict ("recurring from round 2") and the loop carries on; the line per round at the limit shows it. A finding the builder **disputes**, rather than missed, is a design question: stop and ask.
 - **Stop and ask** on a design question the card doesn't answer, on a blocked card, or when the wait passes with no change (Hive wakes you to say so: tell the user with `hive_notify`).
 
 ## At the end
