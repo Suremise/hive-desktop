@@ -209,6 +209,70 @@ describe('task board', () => {
     for (const n of [a.number, b.number]) await run(() => tasks.deleteTask(n))
   })
 
+  it("refuses a project agent moving another agent's card in Doing on to Review or Done; its own, and everyone else, may", async () => {
+    const projectJson = join(wsPath, 'alpha', '.hive', 'project.json')
+    const saved = readFileSync(projectJson, 'utf8')
+    writeFileSync(projectJson, JSON.stringify({ version: 2, agents: [{ id: 'a1', name: 'Agent 1' }, { id: 'a2', name: 'Agent 2' }] }))
+    const a1 = { kind: 'agent', name: 'Agent 1 (alpha)', self: { project: 'alpha', agentId: 'a1' }, scope: 'alpha' } as const
+    const a2 = { kind: 'agent', name: 'Agent 2 (alpha)', self: { project: 'alpha', agentId: 'a2' }, scope: 'alpha' } as const
+    const doing = () => run(() => tasks.createTask({ title: 'In progress', project: 'alpha', column: 'doing', agent: 'a1' }, user))
+    const refused = async (n: number, patch: Parameters<typeof tasks.updateTask>[1]) => {
+      const before = await run(() => tasks.getTask(n))
+      const e = await run(() => tasks.updateTask(n, patch, a2)).then(() => null, (x: Error) => x)
+      const after = await run(() => tasks.getTask(n))
+      expect([after.column, after.agent, after.history.length]).toEqual([before.column, before.agent, before.history.length])
+      return e
+    }
+    try {
+      const c = await doing()
+      for (const column of ['done', 'review'] as const) {
+        const e = await refused(c.number, { column })
+        expect(e).toBeInstanceOf(tasks.TaskConflictError)
+        expect(e?.message).toMatch(/is in Doing with Agent 1, who is working on it: newer work is in progress/)
+      }
+      // Taking it and finishing it in one change: still refused (checked on the card as it was).
+      expect(await refused(c.number, { agent: 'a2', column: 'done' })).toBeInstanceOf(tasks.TaskConflictError)
+      expect(await refused(c.number, { column: 'done', comment: 'Looks good.' } as never)).toBeInstanceOf(tasks.TaskConflictError)
+      // Other changes to it, and moving it back to Todo, aren't finishing it.
+      expect((await run(() => tasks.updateTask(c.number, { labels: ['x'] }, a2))).labels).toEqual(['x'])
+
+      // Its own agent, the user, the Assistant and a script with the workspace token (no own token) may.
+      expect((await run(() => tasks.updateTask(c.number, { column: 'review' }, a1))).column).toBe('review')
+      for (const who of [user, assistant, agent]) {
+        const d = await doing()
+        expect((await run(() => tasks.updateTask(d.number, { column: 'done' }, who))).column).toBe('done')
+      }
+      // A card in Doing with no agent isn't anyone's work in progress.
+      const loose = await run(() => tasks.createTask({ title: 'Nobody', project: 'alpha', column: 'doing', agent: '' }, user))
+      expect((await run(() => tasks.updateTask(loose.number, { column: 'done' }, a2))).column).toBe('done')
+
+      // The stale review: a2 reviews, a1 takes the card back for more work (ending the review), and a2's verdict and a
+      // plain move to Done are both refused. In Review, a2 may move it to Done (when the user said so).
+      const r = await run(() => tasks.createTask({ title: 'Reviewed', project: 'alpha', column: 'review', agent: 'a1' }, user))
+      await run(() => tasks.updateTask(r.number, { review: 'start' }, a2))
+      await run(() => tasks.updateTask(r.number, { column: 'doing' }, a1))
+      await expect(run(() => tasks.updateTask(r.number, { review: 'passed', comment: 'Fine.' } as never, a2))).rejects.toThrow(/aren't reviewing/)
+      expect(await refused(r.number, { column: 'done' })).toBeInstanceOf(tasks.TaskConflictError)
+      await run(() => tasks.updateTask(r.number, { column: 'review' }, a1))
+      expect((await run(() => tasks.updateTask(r.number, { column: 'done' }, a2))).column).toBe('done')
+
+      // At the same time: a1 takes a card in Review back to Doing while a2 moves it to Done. Whichever goes first, the
+      // card ends in Doing with a1: a2's move either came first (then a1's) or is refused.
+      for (let i = 0; i < 5; i++) {
+        const t = await run(() => tasks.createTask({ title: `Race ${i}`, project: 'alpha', column: 'review', agent: 'a1' }, user))
+        const [, second] = await Promise.allSettled([run(() => tasks.updateTask(t.number, { column: 'doing' }, a1)), run(() => tasks.updateTask(t.number, { column: 'done' }, a2))])
+        const end = await run(() => tasks.getTask(t.number))
+        if (second.status === 'rejected') {
+          expect(second.reason).toBeInstanceOf(tasks.TaskConflictError)
+          expect([end.column, end.agent]).toEqual(['doing', 'a1'])
+        } else expect(end.history.map((h) => h.what)).toContain('Moved to Done')
+        expect(end.column).toBe('doing')
+      }
+    } finally {
+      writeFileSync(projectJson, saved)
+    }
+  })
+
   it('gives a card an agent moves into Doing to that agent, when no agent is named', async () => {
     const me = { kind: 'agent', name: 'Agent 1 (alpha)', self: { project: 'alpha', agentId: 'a1' } } as const
     const fresh = () => run(() => tasks.createTask({ title: 'Take me', project: 'alpha' }, user))
@@ -1079,7 +1143,24 @@ describe('task prompt', () => {
     expect(taskPrompt(card, false, { from: 'done', note: 'Only the tests.' })).toBe(
       'Work on task #7 from the Hive task board: Fix it\n\nIt was in Done and is back in Doing for more work.\n\nOnly the tests.\n\nThe details.'
     )
-    expect(taskPrompt(card, true, { from: 'review' })).toMatch(/move it to review with a comment saying what you did \(also if it was in Done before\)\. Move it to done only if the user asks/)
+    // With Hive's tools: the work-on-card skill says how to carry it through, and the comments are a read away.
+    expect(taskPrompt(card, true)).toBe('Work on task #7 from the Hive task board: Fix it\n\nThe details.\n\nUse the work-on-card skill.')
+    const commented = { ...card, comments: [{ at: '2026-10-01T10:00:00Z', by: 'You', text: 'First thoughts.' }, { at: '2026-10-02T10:00:00Z', by: 'Reviewer (alpha)', text: 'Failed: the redirect loops.' }] }
+    expect(taskPrompt(commented, true)).toMatch(/The card has 2 comments: read them with hive_read_task\.$/)
+    expect(taskPrompt(commented, true)).not.toContain('redirect loops')
+  })
+
+  it('brings the feedback a card came back with: its latest comment, after the note and the card', async () => {
+    const { taskPrompt } = await import('../src/shared/tasks')
+    const back = { ...card, comments: [{ at: '2026-10-01T10:00:00Z', by: 'You', text: 'First thoughts.' }, { at: '2026-10-02T10:00:00Z', by: 'Reviewer (alpha)', text: 'Failed: the redirect loops.' }] }
+    const text = taskPrompt(back, true, { from: 'review', note: 'Fix what the review found.' })
+    expect(text.indexOf('Fix what the review found.')).toBeLessThan(text.indexOf('The details.'))
+    expect(text).toContain('Its latest comment (Reviewer (alpha), 2026-10-02):\n\nFailed: the redirect loops.')
+    expect(text).not.toContain('First thoughts.')
+    expect(text).toMatch(/read the rest with hive_read_task/)
+    // Without tools it still has the card and the feedback; a long comment is cut, saying so.
+    const long = { ...back, comments: [{ at: '2026-10-02T10:00:00Z', by: 'You', text: 'x'.repeat(5000) }] }
+    expect(taskPrompt(long, false, { from: 'done' })).toMatch(/x{4000}… \(cut short: hive_read_task has it all\)$/)
   })
 })
 

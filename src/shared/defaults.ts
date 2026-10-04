@@ -63,7 +63,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     transcriptWarnMB: 20,
     usageCacheSize: 5000,
     followTranscripts: false,
-    overviewRefresh: 'live'
+    overviewRefresh: 'live',
+    recordPerformance: true
   },
   agentApi: {
     enabled: true,
@@ -108,13 +109,11 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
 
 export const DEFAULT_WORKSPACE_CONFIG: WorkspaceConfig = {
   version: 1,
-  skills: { enabled: [] },
   mcp: { enabled: [] }
 }
 
 export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   version: 2,
-  skills: { disabled: [] },
   mcp: { disabled: [] },
   chime: 'inherit',
   defaultProvider: 'inherit',
@@ -247,7 +246,7 @@ export function isCompacting(live: { status: SessionStatus; statusMessage?: stri
 
 /**
  * Why a worktree agent's work can't be merged now, or null. A merge commits the worktree's uncommitted files first,
- * so not while the agent is in the middle of a task (working, asking you something, or waiting on background tasks).
+ * so not while the agent is in the middle of a task (working, asking you something, waiting on background tasks or on cards).
  */
 export function mergeBlocked(name: string, status: SessionStatus | null | undefined): string | null {
   switch (status) {
@@ -258,10 +257,19 @@ export function mergeBlocked(name: string, status: SessionStatus | null | undefi
       return `${name} is waiting for your answer. Merge once it has finished.`
     case 'background':
       return `${name} is waiting on background tasks it started. Merge once it has finished.`
+    case 'watching':
+      return `${name} is waiting for cards to change (a card watch) and carries on when they do. Merge once it has finished, or cancel its watch first.`
     default:
       return null
   }
 }
+
+/**
+ * Whether stopping an agent at the Assistant's request asks the user first: when it is in the middle of something
+ * (starting, working, asking, waiting on background tasks, or on cards in a card loop).
+ */
+export const stopAsksUser = (status: SessionStatus | null | undefined): boolean =>
+  status === 'starting' || status === 'working' || status === 'waiting' || status === 'background' || status === 'watching'
 
 /** Folder-safe slug for branch and worktree names: "Agent 2" → "agent-2". */
 export function slugify(name: string): string {
@@ -417,7 +425,7 @@ export function withLegacySettings(cfg: AppConfig): AppConfig & { settings: AppS
  */
 export function migrateProjectConfig(raw: Record<string, any>): Record<string, any> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
-  let out = raw
+  let out = withoutSkillSwitches(raw)
   if (out.providers === undefined) {
     // 0.1's model, effort, mode and arguments were Claude Code's.
     const legacy: Partial<ProjectProviderConfig> = {}
@@ -445,6 +453,16 @@ export function migrateProjectConfig(raw: Record<string, any>): Record<string, a
 export function withLegacyProjectFields(cfg: ProjectConfig): ProjectConfig & Partial<ProjectProviderConfig> {
   const c = cfg.providers?.[CLAUDE_CODE]
   return c ? { ...cfg, model: c.model, effort: c.effort, permissionMode: c.permissionMode, extraArgs: c.extraArgs } : cfg
+}
+
+/**
+ * A workspace.json or project.json without the skill switches from before 0.2 (`skills.enabled` / `skills.disabled`),
+ * which nothing reads: every skill is available to its audience. They go when the file is next saved.
+ */
+export function withoutSkillSwitches<T extends Record<string, any>>(raw: T): T {
+  if (!raw || typeof raw !== 'object' || !('skills' in raw)) return raw
+  const { skills: _skills, ...rest } = raw
+  return rest as T
 }
 
 export function mergeDefaults<T>(defaults: T, saved: unknown): T {

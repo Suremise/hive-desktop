@@ -78,21 +78,28 @@ export function reviewStalled(card: Pick<TaskCard, 'review' | 'archived'>, revie
   return null
 }
 
+/** How much of a card's latest comment a restarted card's prompt carries (the rest is a hive_read_task away). */
+const PROMPT_COMMENT_MAX = 4000
+
 /**
- * What an agent is given when a card is started: the card in full, and what to do with it on the board. With
- * Hive's tools it can read the comments and move the card itself; without them, the card is all it has. from: the
- * column it was started from (a card back from Review or Done is more work on it); note: what to do now.
+ * What an agent is given when a card is started: the card's own words (title, description, what it depends on), and
+ * for more work on a card from Review or Done the feedback it came back with (the latest comment) and the user's note.
+ * How to carry a card through is the work-on-card skill's (and, briefly, Hive's session contract), so with Hive's
+ * tools the prompt only points there; without them the card is all the agent has. from: the column it was started
+ * from; note: what to do now.
  */
 export function taskPrompt(card: TaskCard, withTools: boolean, opts: { from?: TaskColumn; note?: string } = {}): string {
   const parts = [`Work on task #${card.number} from the Hive task board: ${card.title}`]
-  if (opts.from === 'review' || opts.from === 'done') parts.push(`It was in ${opts.from === 'review' ? 'Review' : 'Done'} and is back in Doing for more work.`)
+  const again = opts.from === 'review' || opts.from === 'done'
+  if (again) parts.push(`It was in ${opts.from === 'review' ? 'Review' : 'Done'} and is back in Doing for more work.`)
   if (opts.note?.trim()) parts.push(opts.note.trim())
   if (card.description.trim()) parts.push(card.description.trim())
   if (card.blockedBy.length) parts.push(`It depends on ${card.blockedBy.map((n) => `#${n}`).join(', ')}.`)
-  if (withTools) {
-    parts.push(
-      `${card.comments.length ? 'Read its comments first with hive_read_task. ' : ''}Keep the card up to date with hive_update_task: comment on progress worth knowing, set blocked with a reason if you can't go on, and when the work is done, move it to review with a comment saying what you did (also if it was in Done before). Move it to done only if the user asks you to.`
-    )
+  const latest = card.comments[card.comments.length - 1]
+  if (again && latest?.text.trim()) {
+    const text = latest.text.trim()
+    parts.push(`Its latest comment (${latest.by}, ${latest.at.slice(0, 10)}):\n\n${text.length > PROMPT_COMMENT_MAX ? `${text.slice(0, PROMPT_COMMENT_MAX)}… (cut short: hive_read_task has it all)` : text}`)
   }
+  if (withTools) parts.push(`Use the work-on-card skill.${card.comments.length ? ` The card has ${card.comments.length} comment${card.comments.length === 1 ? '' : 's'}: read ${again ? 'the rest' : 'them'} with hive_read_task.` : ''}`)
   return parts.join('\n\n')
 }

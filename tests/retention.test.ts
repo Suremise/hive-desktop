@@ -1,0 +1,119 @@
+// What a workspace's revision inventory keeps (src/main/revisions.ts RETENTION): at the largest supported catalog (the
+// skills folder's 1000 entries, plus personas), unchanged scans, one at a time or ten at once, read no file contents and
+// no headers; past the retention limits the least recently used entries go one at a time, never the whole inventory.
+// MEASURE=1 prints files, bytes, header bytes and time per scan (docs/ARCHITECTURE.md records them).
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { afterAll, describe, expect, it } from 'vitest'
+import * as electron from 'electron'
+
+const base = mkdtempSync(join(tmpdir(), 'hive-retention-'))
+;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
+afterAll(() => rmSync(base, { recursive: true, force: true }))
+
+const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
+const { syncBundled } = await import('../src/main/bundled')
+const { skillRevisions } = await import('../src/main/guidance')
+const { RETENTION, revisionOf } = await import('../src/main/revisions')
+const { readStats } = await import('../src/main/fsutil')
+type WS = ReturnType<typeof createWorkspaceService>
+
+/** A workspace with Hive's skills and personas, then skills up to `entries` in the skills folder, and `personas` more. */
+async function workspace(name: string, entries: number, personas: number, body = 'Step.\n'): Promise<{ w: WS; ws: string; personaPaths: string[] }> {
+  const ws = join(base, name)
+  mkdirSync(ws, { recursive: true })
+  const w = createWorkspaceService()
+  await w.open(ws)
+  await inWorkspace(w, () => syncBundled({ fresh: true }))
+  const skills = join(ws, '.hive', 'skills')
+  const have = (await import('fs')).readdirSync(skills).length
+  for (let i = 0; i < entries - have; i++) {
+    mkdirSync(join(skills, `s${i}`))
+    writeFileSync(join(skills, `s${i}`, 'SKILL.md'), `---\nname: s${i}\ndescription: Skill ${i}.\n---\n\n${body}`)
+  }
+  const dir = join(ws, '.hive', 'personas')
+  for (let i = 0; i < personas; i++) writeFileSync(join(dir, `p${i}.md`), `---\nname: P${i}\n---\n\nA persona.\n`)
+  const personaPaths = (await import('fs')).readdirSync(dir).map((f) => join(dir, f))
+  return { w, ws, personaPaths }
+}
+
+/** One scan as Hive does it: every skill's header and revision (the status), and every persona's revision. */
+const scan = (w: WS, personas: string[]) => inWorkspace(w, async () => {
+  await skillRevisions()
+  for (const p of personas) await revisionOf(p)
+})
+
+async function measure(label: string, fn: () => Promise<unknown>): Promise<{ files: number; bytes: number; metaBytes: number; ms: number }> {
+  const before = { ...readStats }
+  const t = performance.now()
+  await fn()
+  const r = { files: readStats.files - before.files, bytes: readStats.bytes - before.bytes, metaBytes: readStats.metaBytes - before.metaBytes, ms: performance.now() - t }
+  if (process.env.MEASURE) console.log(`${label}: hashed ${r.files} files, ${(r.bytes / 1024).toFixed(0)} KB; headers ${(r.metaBytes / 1024).toFixed(0)} KB; ${r.ms.toFixed(0)} ms`)
+  return r
+}
+const nothing = (m: { files: number; bytes: number; metaBytes: number }) => ({ files: m.files, bytes: m.bytes, metaBytes: m.metaBytes })
+
+describe('the largest supported catalog', () => {
+  for (const entries of [999, 1000]) {
+    it(`${entries} skill folders and 14 personas: warm scans read nothing, one at a time or ten at once`, async () => {
+      const { w, personaPaths } = await workspace(`full-${entries}`, entries, 10)
+      const cold = await measure(`${entries} skills, cold`, () => scan(w, personaPaths))
+      expect(cold.files).toBeGreaterThanOrEqual(entries)
+      expect(nothing(await measure(`${entries} skills, warm`, () => scan(w, personaPaths)))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
+      expect(nothing(await measure(`${entries} skills, warm again`, () => scan(w, personaPaths)))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
+      expect(nothing(await measure(`${entries} skills, 10 at once`, () => Promise.all(Array.from({ length: 10 }, () => scan(w, personaPaths)))))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
+      await disposeWorkspaceService(w)
+    }, 180_000)
+  }
+
+  it('with larger bodies (64 KB each, 300 skills): warm scans still read nothing', async () => {
+    const { w, personaPaths } = await workspace('bodies', 300, 0, 'Words. '.repeat(64 * 1024 / 7))
+    const cold = await measure('300 skills of 64 KB, cold', () => scan(w, personaPaths))
+    expect(cold.bytes).toBeGreaterThan(290 * 64 * 1024)
+    expect(nothing(await measure('300 skills of 64 KB, warm', () => scan(w, personaPaths)))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
+    await disposeWorkspaceService(w)
+  }, 180_000)
+})
+
+describe('past the retention limits', () => {
+  it('the least recently used go one at a time: the most recent stay, so the whole inventory is never cleared', async () => {
+    const { w, ws } = await workspace('overflow', 70, 0)
+    const saved = { ...RETENTION }
+    RETENTION.revisions = 50
+    try {
+      const paths = Array.from({ length: 60 }, (_, i) => join(ws, '.hive', 'skills', `s${i}`))
+      const hash = (ps: string[]) => measure('', () => inWorkspace(w, async () => { for (const p of ps) await revisionOf(p) }))
+      await hash(paths)
+      // The 50 most recent are still kept: nothing read.
+      expect((await hash(paths.slice(10))).files).toBe(0)
+      // The 10 oldest went (one each): read again, one file each.
+      expect((await hash(paths.slice(0, 10))).files).toBe(10)
+      // Which pushed out the 10 least recently used of the rest, not everything: the newest 40 are still kept.
+      expect((await hash(paths.slice(20))).files).toBe(0)
+    } finally {
+      Object.assign(RETENTION, saved)
+      await disposeWorkspaceService(w)
+    }
+  }, 60_000)
+
+  it('headers past their byte budget: the oldest go first, the most recent stay', async () => {
+    const { w, ws } = await workspace('header-bytes', 40, 0)
+    const { headerOf } = await import('../src/main/revisions')
+    const { parseSkillFrontmatter } = await import('../src/main/skills')
+    const saved = { ...RETENTION }
+    try {
+      // Room for about 10 of these headers.
+      RETENTION.headerBytes = 10 * 120
+      const files = Array.from({ length: 30 }, (_, i) => join(ws, '.hive', 'skills', `s${i}`, 'SKILL.md'))
+      const read = (fs: string[]) => measure('', () => inWorkspace(w, async () => { for (const f of fs) await headerOf(f, parseSkillFrontmatter) }))
+      await read(files)
+      // The most recent few are still kept; the oldest were dropped one by one to make room, and are read again.
+      expect((await read(files.slice(-5))).metaBytes).toBe(0)
+      expect((await read(files.slice(0, 5))).metaBytes).toBeGreaterThan(0)
+    } finally {
+      Object.assign(RETENTION, saved)
+      await disposeWorkspaceService(w)
+    }
+  }, 60_000)
+})

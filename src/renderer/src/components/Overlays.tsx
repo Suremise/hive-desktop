@@ -744,7 +744,7 @@ export function AgentSetupDialog() {
 // Quit
 // ---------------------------------------------------------------------------
 
-const BUSY: SessionStatus[] = ['working', 'waiting', 'background']
+const BUSY: SessionStatus[] = ['working', 'waiting', 'background', 'watching']
 
 /**
  * Asks what to do with running sessions and unsaved files when Hive quits. Main waits for
@@ -791,7 +791,8 @@ export function QuitDialog() {
     set({ quitRequest: null, quitUnsaved: [] })
     void call('app:quitDecision', choice, dontAsk)
   }
-  const working = sessions.filter((s) => s.status === 'working' || s.status === 'background').length
+  // What "when agents finish" waits for: working, background tasks, and a watcher whose card another agent is working on.
+  const working = sessions.filter((s) => s.status === 'working' || s.status === 'background' || s.keepsQuitWaiting).length
   const busy = sessions.filter((s) => BUSY.includes(s.status)).length
   const verb = closing ? (unsaved.length && keep === 'save' ? 'Save and close' : what) : unsaved.length && keep === 'save' ? 'Save and quit' : 'Quit'
   const parts = (p: string): string[] => p.split(/[\\/]/)
@@ -857,10 +858,11 @@ export function QuitDialog() {
           <div key={`${s.projectPath}:${s.agent ?? ''}`} className="quit-row">
             <span className={cx('dot', s.status)} />
             <strong>{s.project}</strong>{s.agent && <span className="muted">· {s.agent}</span>}
-            <span className="faint">{STATUS_TEXT[s.status]}</span>
+            <span className="faint">{s.status === 'watching' && s.watch ? s.watch : STATUS_TEXT[s.status]}</span>
             {s.status === 'working' && <span className="badge warn">Will be interrupted</span>}
             {s.status === 'background' && <span className="badge warn">Background tasks will stop</span>}
             {s.status === 'waiting' && <span className="badge warn">Waiting for you</span>}
+            {s.status === 'watching' && <span className="badge warn">Its card loop pauses until it is resumed</span>}
           </div>
         ))}
       </div>
@@ -948,7 +950,8 @@ export function CompactDialog() {
   if (!path || !project || !agent) return null
   const close = (): void => set({ compactFor: null })
   const live = agent.live
-  const idle = !!live && (live.status === 'ready' || live.status === 'finished')
+  // A watching agent can be compacted: its watch is kept, and a wake waits for the compaction to end.
+  const idle = !!live && (live.status === 'ready' || live.status === 'finished' || live.status === 'watching')
   const cache = usage && provider.capabilities.promptCacheTtl ? cacheState(usage, ttl) : null
   const focusOk = provider.capabilities.compactFocus
   const run = async (): Promise<void> => {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ProviderId, SkillInfo, SkillLevel, SkillTarget } from '@shared/types'
+import type { ProviderId, SkillAudience, SkillInfo, SkillLevel, SkillTarget } from '@shared/types'
 import { providerDescriptor } from '@shared/providers'
 import * as actions from '../actions'
 import { call } from '../api'
@@ -10,7 +10,8 @@ import { confirm, notify, prompt, set, showView, useStore } from '../store'
 import { cx } from '../util'
 
 /**
- * Skills in Hive: the workspace's Hive skills (given to every agent, edited in the Skills view), and, per
+ * Skills in Hive: the workspace's Hive skills (given to project agents, the Assistant or both, as each one's
+ * metadata.audience says; edited in the Skills view), and, per
  * provider in a project, its local skills (editable in the project) and the user's own and plugin skills
  * (view only). Shared by the Skills view and the project's Skills tab.
  */
@@ -18,13 +19,50 @@ import { cx } from '../util'
 export const SKILL_LEVEL_LABEL: Record<SkillLevel, string> = { hive: 'Hive', machine: 'User', plugin: 'Plugin', local: 'Local (User Managed)' }
 
 export const SKILL_LEVEL_TIP: Record<SkillLevel, string> = {
-  hive: "Hive skills live in the workspace (.hive/skills) and are given to every agent in every project, of every provider. Hive copies them into each session when it starts, so edits reach new sessions. Add, edit and delete them in the Skills view.",
+  hive: "Hive skills live in the workspace (.hive/skills). Each goes to the project agents (every agent in every project, of every provider), to the Hive Assistant, or to both, as the audience in its SKILL.md says (the project agents if it says none). Hive copies them for each session when it starts, so edits reach new sessions. Add, edit and delete them in the Skills view.",
   machine: "Skills in your user profile (~/.claude/skills for Claude Code, ~/.codex/skills for Codex). That provider's agents always load them, in every project. Listed for reference; manage them outside Hive.",
   plugin: "Skills from Claude Code plugins you've installed. Claude Code agents always load them. Listed for reference; manage plugins in Claude Code.",
   local: "Skills in the project folder for one provider (.claude/skills for Claude Code, .agents/skills for Codex). That provider's agents load them in this project. You manage them: add, edit and delete them here."
 }
 
 export const SKILL_ICON: Record<SkillLevel, string> = { hive: 'sparkle', machine: 'account', plugin: 'extensions', local: 'folder' }
+
+/** Who gets a Hive skill (SKILL.md's metadata.audience; none means the project agents), as a badge says it. */
+export const AUDIENCE_LABEL: Record<SkillAudience, string> = { agents: 'Project agents', assistant: 'Assistant', all: 'Agents + Assistant' }
+
+const AUDIENCE_TIP: Record<SkillAudience, string> = {
+  agents: "For the project agents: every agent in every project of this workspace gets it. The Hive Assistant doesn't. This is the default; to change it, set audience under metadata: in its SKILL.md's header (assistant, or all for both).",
+  assistant: "For the Hive Assistant only (audience: assistant in its SKILL.md's header). Project agents don't get it.",
+  all: "For both the project agents (every agent in every project) and the Hive Assistant (audience: all in its SKILL.md's header)."
+}
+
+/** Who gets a Hive skill, in a sentence: "the project agents", "the Hive Assistant", "the project agents and the Hive Assistant". */
+export function audienceWho(a: SkillAudience | undefined): string {
+  return a === 'assistant' ? 'the Hive Assistant' : a === 'all' ? 'the project agents and the Hive Assistant' : 'the project agents'
+}
+
+/** A Hive skill nobody gets, because its header can't be read or names an audience Hive doesn't know: why, and how to fix it. */
+export function ProblemBadge({ problem, small }: { problem: string; small?: boolean }) {
+  return (
+    <Tooltip content={`Nobody gets this skill until its header is fixed: ${problem}. A skill's header starts and ends with a --- line; for who gets it, put audience: agents, assistant or all under metadata:.`}>
+      <span className={cx('badge warn', small && 'audience')} data-audience="none">
+        <Icon name="warning" /> Not given
+      </span>
+    </Tooltip>
+  )
+}
+
+/** A Hive skill's audience as a badge, with what it means. */
+export function AudienceBadge({ audience, small }: { audience: SkillAudience | undefined; small?: boolean }) {
+  const a = audience ?? 'agents'
+  return (
+    <Tooltip content={AUDIENCE_TIP[a]}>
+      <span className={cx('badge', small && 'audience', a !== 'agents' && 'accent')} data-audience={a}>
+        <Icon name={a === 'agents' ? 'folder' : a === 'assistant' ? 'hubot' : 'organization'} /> {AUDIENCE_LABEL[a]}
+      </span>
+    </Tooltip>
+  )
+}
 
 const NAME_RULE = (v: string): string | null => (/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(v.trim()) ? null : 'Use letters, numbers, "-" and "_" (max 64)')
 
@@ -75,7 +113,9 @@ export async function deleteSkill(s: SkillInfo): Promise<boolean> {
     title: 'Delete skill?',
     message: `Move "${s.name}" to the Recycle Bin?`,
     detail: hive
-      ? "It's removed from the workspace, so new sessions of every agent no longer get it. Running sessions keep their copy."
+      ? s.problem
+        ? `It's removed from the workspace. Nobody gets it now (${s.problem}), so no session loses it.`
+        : `It's removed from the workspace, so new sessions of ${audienceWho(s.audience)} no longer get it. A running Claude Code session keeps its own copy until it restarts. Codex sessions share the copy in their folder: a running one loses it when another Codex session in that folder starts.`
       : `${s.provider ? providerDescriptor(s.provider).name : 'The'} agents in this project no longer load it in new sessions.`,
     confirmLabel: 'Delete',
     danger: true
@@ -113,11 +153,14 @@ export async function restoreBundled(s: SkillInfo): Promise<SkillInfo | null> {
 async function copyToWorkspace(s: SkillInfo): Promise<void> {
   const r = await actions.attempt('Could not copy skill', () => call('skills:copyToWorkspace', s.path))
   if (!r) return
-  notify(
-    'success',
-    `Copied "${s.name}" to the workspace`,
-    s.level === 'local' ? `Every agent now gets it as a Hive skill. ${s.provider ? providerDescriptor(s.provider).name : 'The'} agents also still load the local copy until you delete it.` : 'Every agent now gets it as a Hive skill.'
-  )
+  const local = s.level === 'local' ? ` ${s.provider ? providerDescriptor(s.provider).name : 'The'} agents here also still load the local copy until you delete it.` : ''
+  // Copied, but its header can't be read or names no audience Hive knows: nobody gets it until that's fixed.
+  if (r.problem) {
+    notify('warning', `Copied "${s.name}" to the workspace, but nobody gets it yet`, `Its header needs fixing first: ${r.problem}. Open it in the Skills view to edit it.${local}`)
+  } else {
+    const who = audienceWho(r.audience)
+    notify('success', `Copied "${s.name}" to the workspace`, `${who[0].toUpperCase()}${who.slice(1)} now ${r.audience === 'assistant' ? 'gets' : 'get'} it as a Hive skill, from their next session.${local}`)
+  }
   bump()
 }
 
@@ -135,7 +178,9 @@ export function SkillRow({ skill, selected, onSelect, actionsFor }: { skill: Ski
       <Icon name={missing ? 'circle-slash' : SKILL_ICON[skill.level]} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="label" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {skill.name} {skill.plugin && <span className="desc">· {skill.plugin}</span>} {missing && <span className="badge">deleted</span>}
+          {skill.name} {skill.plugin && <span className="desc">· {skill.plugin}</span>} {missing && <span className="badge">deleted</span>}{skill.updateAvailable && <span className="badge accent">update</span>}
+          {skill.level === 'hive' && skill.problem && <ProblemBadge problem={skill.problem} small />}
+          {skill.level === 'hive' && !skill.problem && skill.audience && skill.audience !== 'agents' && <AudienceBadge audience={skill.audience} small />}
         </div>
         {skill.description && (
           <div className="desc" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -182,6 +227,7 @@ export function SkillDetail({ skill, where: place, onDeleted, onRestored }: { sk
               {skill.plugin ? ` · ${skill.plugin}` : ''}
             </span>
           </Tooltip>
+          {skill.level === 'hive' && (skill.problem ? <ProblemBadge problem={skill.problem} /> : <AudienceBadge audience={skill.audience} />)}
           {missing && (
             <>
               <span className="badge warn">Deleted from this workspace</span>
@@ -191,11 +237,18 @@ export function SkillDetail({ skill, where: place, onDeleted, onRestored }: { sk
             </>
           )}
           {skill.bundled === 'changed' && place === 'workspace' && (
-            <Tooltip content="This skill ships with Hive, and this copy differs from the version in this Hive release: it was edited, or it's from an earlier version.">
-              <button className="btn small subtle" onClick={() => void restoreBundled(skill).then((s) => s && onRestored?.(s))}>
-                <Icon name="discard" /> Revert to default
-              </button>
-            </Tooltip>
+            <>
+              {skill.updateAvailable && (
+                <Tooltip content="This copy was edited, so Hive didn't update it. This Hive ships a newer version: Revert to default brings it in (your copy goes to the Recycle Bin).">
+                  <span className="badge accent">Update available</span>
+                </Tooltip>
+              )}
+              <Tooltip content="This skill ships with Hive, and this copy was edited. Hive keeps edited copies as they are; unedited ones it updates itself.">
+                <button className="btn small subtle" onClick={() => void restoreBundled(skill).then((s) => s && onRestored?.(s))}>
+                  <Icon name="discard" /> Revert to default
+                </button>
+              </Tooltip>
+            </>
           )}
           {skill.level === 'hive' && place === 'project' && (
             <Tooltip content="Hive skills are edited in the workspace's Skills view, since every project shares them. This takes you there.">
@@ -205,7 +258,7 @@ export function SkillDetail({ skill, where: place, onDeleted, onRestored }: { sk
             </Tooltip>
           )}
           {skill.level !== 'hive' && workspace && (
-            <Tooltip content="Copy it into the workspace's Hive skills, so every agent in every project gets it.">
+            <Tooltip content="Copy it into the workspace's Hive skills. The project agents in every project get it, unless its SKILL.md's header sets another audience.">
               <button className="btn small subtle" onClick={() => void copyToWorkspace(skill)}>
                 <Icon name="cloud-upload" /> Copy to workspace
               </button>

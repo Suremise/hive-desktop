@@ -244,6 +244,14 @@ describe('providers migration', () => {
     const cfg = mergeDefaults(structuredClone(DEFAULT_PROJECT_CONFIG), m)
     expect(withLegacyProjectFields(cfg)).toMatchObject({ model: 'sonnet', permissionMode: 'plan' })
   })
+  it('drops the skill switches from before 0.2, which nothing reads, keeping the MCP ones', async () => {
+    const { migrateProjectConfig, withoutSkillSwitches, DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG } = await import('../src/shared/defaults')
+    const project = migrateProjectConfig({ version: 2, providers: {}, layouts: ['auto'], skills: { disabled: ['handover'] }, mcp: { disabled: ['github'] } })
+    expect('skills' in project).toBe(false)
+    expect(mergeDefaults(structuredClone(DEFAULT_PROJECT_CONFIG), project).mcp).toEqual({ disabled: ['github'] })
+    const ws = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), withoutSkillSwitches({ version: 1, skills: { enabled: ['handover'] }, mcp: { enabled: ['github'] } }))
+    expect(ws).toEqual({ version: 1, mcp: { enabled: ['github'] } })
+  })
   it('resolves an agent from its own, the project and the global settings', async () => {
     const { agentLaunchSettings } = await import('../src/shared/providers')
     const settings = mergeDefaults(DEFAULT_SETTINGS, { providers: { 'claude-code': { enabled: true, defaultModel: 'opus', defaultPermissionMode: 'auto' } } })

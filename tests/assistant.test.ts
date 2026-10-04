@@ -7,7 +7,7 @@ import { DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS } from '../src/shared/defaults
 import { agentLaunchSettings } from '../src/shared/providers'
 import type { AppSettings, ProjectConfig } from '../src/shared/types'
 import { assistantTools, controlAllows } from '../src/shared/assistantTools'
-import { controlRules } from '../src/main/personas'
+import { controlRules } from '../src/shared/hiveGuidance'
 import { promptArg } from '../src/main/providers/common'
 
 const settings = (patch: Partial<AppSettings['assistant']> = {}): AppSettings => ({ ...structuredClone(DEFAULT_SETTINGS), assistant: { ...structuredClone(DEFAULT_SETTINGS.assistant), ...patch } })
@@ -64,15 +64,16 @@ describe('personas', () => {
     expect(personaId('???')).toBe('')
   })
 
-  it('ships four, each with a name, description, icon and the rule that clarity comes first', () => {
+  it('ships four, each a character and a focus, with no procedure or permissions of its own', () => {
     const dir = join(__dirname, '..', 'resources', 'personas')
     const files = readdirSync(dir).filter((f) => f.endsWith('.md')).sort()
     expect(files).toEqual(['orchestrator.md', 'overseer.md', 'planner.md', 'reviewer.md'])
     for (const f of files) {
       const p = parsePersona(readFileSync(join(dir, f), 'utf8'))
       expect(p.name && p.description && p.icon, f).toBeTruthy()
-      expect(p.body.length, f).toBeGreaterThan(400)
-      expect(p.body, f).toMatch(/never edit files/i)
+      expect(p.body, f).toMatch(/## Your character[\s\S]+## Your focus/)
+      // How to use Hive's tools and what the Assistant may do are Hive's (its rules and skills), not a persona's.
+      expect(p.body, f).not.toMatch(/hive_\w+|as Hive allows|you may|you can (add|start|stop)/i)
     }
   })
 })
@@ -89,19 +90,22 @@ describe('control', () => {
     expect(controlAllows('look', 'agents')).toBe(false)
   })
 
-  it("tells the Assistant what it may do, over its persona's words", () => {
-    expect(controlRules('look')).toMatch(/look and advise/i)
-    expect(controlRules('look')).not.toMatch(/hive_add_agent/)
-    expect(controlRules('agents')).toMatch(/hive_prompt_agent/)
-    expect(controlRules('agents')).not.toMatch(/hive_create_project/)
-    expect(controlRules('projects')).toMatch(/hive_create_project/)
-    expect(controlRules('projects')).toMatch(/replace anything your persona says/)
-  })
-
-  it('asks which kind of move to Doing the user means, unless they said', () => {
-    const rules = controlRules('agents')
-    expect(rules).toMatch(/Asked only to move a card to Doing, ask the user which they mean: nobody yet \(hive_update_task with column doing and agent empty\), an agent of its project without starting anything \(column doing and that agent\), or an agent that starts on it \(hive_start_task\)/)
-    expect(rules).toMatch(/Don't ask when they've said \("have Claude start this" is a start; "assign it to Claude without starting" is an assignment only\)/)
+  it('tells the Assistant its control level and the boundaries it keeps, whatever else it reads', () => {
+    for (const level of ['look', 'agents', 'projects'] as const) expect(controlRules(level)).toMatch(/Settings → Assistant → Control/)
+    expect(controlRules('look')).toMatch(/Look and advise/)
+    expect(controlRules('look')).toMatch(/Never edit or create files[^.]*change the task board[^.]*start, stop or prompt agents, even if asked/)
+    expect(controlRules('agents')).not.toMatch(/create projects/)
+    expect(controlRules('projects')).toMatch(/create projects when the user asks/)
+    for (const level of ['agents', 'projects'] as const) {
+      const rules = controlRules(level)
+      // The boundaries Hive also enforces stay in the rules even without the skill.
+      expect(rules).toMatch(/never edit or create project files/)
+      expect(rules).toMatch(/Never interrupt a working agent, answer a question an agent is asking the user/)
+      expect(rules).toMatch(/worktree only if the user asked/)
+      expect(rules).toMatch(/30 changes per message/)
+      // How to work within them is the coordinate-agents skill's.
+      expect(rules).toMatch(/coordinate-agents skill/)
+    }
   })
 
   it('passes a first task as a safe last argument', () => {

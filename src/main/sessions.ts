@@ -23,17 +23,18 @@ import type {
   SessionListItem,
   SessionRecord,
   SessionStatus,
-  SessionUsage
+  SessionUsage,
+  TaskWatchInfo
 } from '../shared/types'
 import { provider as providerAdapter, allProviders } from './providers'
 import { recacheEstimate } from './providers/common'
 import { estimateCost } from '../shared/prices'
 import { withDayCosts } from '../shared/usageDays'
-import type { Ask, HookEvent, LaunchSkill, ProviderAdapter, UsageParser } from './providers/types'
+import type { Ask, HookEvent, LaunchContext, LaunchSkill, ProviderAdapter, SkillDelivery, UsageParser } from './providers/types'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, toast } from './events'
-import { hashDir, hashText, readJson, removePath, splitArgs, syncCopy, syncCopyLocked, syncCopyNow, withFileLock, writeJsonAtomic } from './fsutil'
+import { hashText, readJson, removePath, treeSignature, splitArgs, syncCopy, syncCopyLocked, syncCopyNow, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
 import { Compaction } from './compaction'
@@ -43,9 +44,14 @@ import { FinishBatcher, finishedNotice, notificationAllowed } from '../shared/bu
 import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
 import { childEnv, killPty, spawnPty, writePty } from './ptyHost'
-import { hiveSkills } from './skills'
+import { hiveSkills, parseSkillFrontmatter, skillFor } from './skills'
+import { GUIDANCE_REVISION, launchParts, launchRecord } from './guidance'
 import { notificationIcon } from './paths'
 import { reportPlanUsage } from './planUsage'
+import { revisionOf } from './revisions'
+import { metricsHandle, recordLaunch } from './metrics'
+import { headerOf } from './revisions'
+import { utf8Bytes } from '../shared/metrics'
 import { inWorkspace, workspace, workspaceFor, workspaceOf } from './workspace'
 import { endAgentToken, newAgentToken } from './agentTokens'
 
@@ -133,6 +139,8 @@ export interface EffectiveSettings {
   provider: ProviderId
   skills: LaunchSkill[]
   skillHashes: Record<string, string>
+  /** Hive skills nobody gets because their header can't be read (name → why): in the launch's problems. */
+  skillProblems: Record<string, string>
   mcpServers: Record<string, McpServerDef>
   model: string | null
   effort: EffortLevel | null
@@ -273,6 +281,33 @@ const liveId = (projectPath: string, agentId: string): string => `${projectPath.
 /** The provider a session record belongs to (records from before providers are Claude Code's). */
 const recordProvider = (rec: Pick<SessionRecord, 'agent'> | undefined): ProviderId => rec?.agent || 'claude-code'
 
+/**
+ * The delivered skills' sizes, for metrics, measured on each copy its CLI reads: its catalog entry (its SKILL.md's name
+ * and description, from the header Hive reads anyway) and its bytes on disk (the bounded stat walk, no file read). A
+ * copy that can't be measured (gone, unreadable, no header) is counted as unmeasured and left out of both sums, never
+ * guessed as zero. Measuring never fails a launch.
+ */
+export async function deliveredSkillSizes(adapter: ProviderAdapter, ctx: LaunchContext, delivered: Record<string, SkillDelivery>): Promise<{ catalog: number; bytes: number; unmeasured: number }> {
+  let catalog = 0
+  let bytes = 0
+  let unmeasured = 0
+  for (const [name, d] of Object.entries(delivered)) {
+    if (!d.revision) continue
+    try {
+      const copy = adapter.skillCopyPath(ctx, name)
+      const head = await headerOf(join(copy, 'SKILL.md'), parseSkillFrontmatter)
+      const size = await treeSignature(copy)
+      // No header, or one that couldn't be read as a skill's (invalid YAML, a key twice, an unknown audience): unknown.
+      if (!head || head.problem) throw new Error('no readable SKILL.md header')
+      catalog += utf8Bytes(head.name ?? name) + utf8Bytes(head.description ?? '')
+      bytes += size.bytes
+    } catch {
+      unmeasured++
+    }
+  }
+  return { catalog, bytes, unmeasured }
+}
+
 class SessionManager {
   private live = new Map<string, LiveSession>()
   /** runId → liveId: hooks name their launch, so they reach the right agent even before the session id is known. */
@@ -301,7 +336,15 @@ class SessionManager {
   /** When the user last typed in each terminal (by pty key), so nothing else types over them. */
   private userInput = new Map<string, { at: number; enter: boolean }>()
   /** The Hive Assistant's instructions for a launch (who it is, and its persona's), and the persona's name. */
-  assistantInstructions: (projectPath: string, agent: AgentDef) => Promise<{ text: string; persona: string }> = async () => ({ text: '', persona: '' })
+  assistantInstructions: (projectPath: string, agent: AgentDef) => Promise<{ text: string; persona: string; personaText: string }> = async () => ({ text: '', persona: '', personaText: '' })
+  /** An agent's wake-on-change watch, if it has one (main/watches.ts sets this). */
+  watchFor: (projectPath: string, agentId: string) => TaskWatchInfo | null = () => null
+
+  /** A watch began or ended: the agent's status follows (watching, or finished again). */
+  watchChanged(projectPath: string, agentId: string): void {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (l) this.emitState(l.state)
+  }
   /** The project's newest handovers in the shared notes, newest first (at most `count`). */
   recentHandovers: (projectPath: string, count: number) => Promise<HandoverRef[]> = async () => []
 
@@ -370,12 +413,21 @@ class SessionManager {
   private async effectiveHere(projectPath: string, agent?: AgentDef): Promise<EffectiveSettings> {
     const s = config.settings
     const pc = await workspace.projectConfig(projectPath)
-    // Every Hive skill reaches every agent: there are no skill switches (the old enabled/disabled lists are ignored).
+    const assistant = workspace.isAssistantHome(projectPath)
+    // Every Hive skill for its audience (SKILL.md's metadata.audience) reaches the session: project agents get those for
+    // agents, the Assistant those for it. There are no skill switches.
+    // A skill whose header is broken or whose audience is unknown reaches nobody: the launch says why (its problems).
     const skills: LaunchSkill[] = []
     const skillHashes: Record<string, string> = {}
+    const skillProblems: Record<string, string> = {}
     for (const sk of await hiveSkills()) {
-      skills.push({ name: sk.name, sourcePath: sk.path })
-      skillHashes[sk.name] = await hashDir(sk.path).catch(() => '')
+      if (sk.problem) {
+        skillProblems[sk.name] = sk.problem
+        skillHashes[sk.name] = ''
+      } else if (skillFor(sk.audience, assistant ? 'assistant' : 'agent')) {
+        skills.push({ name: sk.name, sourcePath: sk.path })
+        skillHashes[sk.name] = await revisionOf(sk.path).catch(() => '')
+      }
     }
     const mcpDisabled = new Set(pc.mcp.disabled)
     const mcpServers: Record<string, McpServerDef> = {}
@@ -384,17 +436,13 @@ class SessionManager {
     }
     const hive = this.hiveMcp(projectPath, agent?.id)
     if (hive) mcpServers.hive = hive
-    // The Assistant looks after the workspace with Hive's own tools: no skills, and not the projects' MCP servers.
-    if (workspace.isAssistantHome(projectPath)) {
-      skills.length = 0
-      for (const k of Object.keys(skillHashes)) delete skillHashes[k]
-      for (const k of Object.keys(mcpServers)) if (k !== 'hive') delete mcpServers[k]
-    }
+    // The Assistant looks after the workspace with Hive's own tools, not the projects' MCP servers.
+    if (assistant) for (const k of Object.keys(mcpServers)) if (k !== 'hive') delete mcpServers[k]
 
     const l = agentLaunchSettings(agent ?? projectAgents(pc)[0], pc, s)
     const extraArgs = l.extraArgs.flatMap((a) => splitArgs(a))
     const chime = pc.chime === 'inherit' ? s.notifications.chimeEnabled : pc.chime === 'on'
-    return { provider: l.provider, skills, skillHashes, mcpServers, model: l.model, effort: l.effort, permissionMode: l.permissionMode, extraArgs, use200kContext: l.use200kContext, chime }
+    return { provider: l.provider, skills, skillHashes, skillProblems, mcpServers, model: l.model, effort: l.effort, permissionMode: l.permissionMode, extraArgs, use200kContext: l.use200kContext, chime }
   }
 
   signature(e: EffectiveSettings): string {
@@ -719,6 +767,8 @@ class SessionManager {
     const l = this.live.get(id)!
     const { state, adapter } = l
     const cwd = state.cwd
+    // Performance metrics for this launch go to the workspace it started in (none, if that closes meanwhile).
+    const metrics = metricsHandle(workspaceOf(projectPath))
     const { sessionId } = opts
     const info = providerService.info(adapter.id)
     if (!info.path) throw new Error(`${adapter.descriptor.name} is required to run sessions.`)
@@ -753,6 +803,7 @@ class SessionManager {
     state.permissionMode = mode ?? undefined
     // Its own Agent API token for this launch, which confines its board calls to its project (the Assistant has its own).
     if (!workspace.isAssistantHome(projectPath)) await newAgentToken({ workspace: workspaceOf(projectPath).path!, projectPath, agentId: agent.id }, state.runId)
+    const assistantText = workspace.isAssistantHome(projectPath) ? await this.assistantInstructions(projectPath, agent).catch(() => null) : null
     const ctx = {
       projectPath,
       agentId: agent.id,
@@ -772,7 +823,7 @@ class SessionManager {
       use200kContext: eff.use200kContext,
       hookUrl: `${this.hookUrl}?run=${state.runId}`,
       guidance: await this.hiveGuidance(projectPath).catch(() => ''),
-      instructions: workspace.isAssistantHome(projectPath) ? (await this.assistantInstructions(projectPath, agent).catch(() => null))?.text : undefined,
+      instructions: assistantText?.text,
       trustedHiveTools: workspace.isAssistantHome(projectPath) ? assistantTools(config.settings.assistant?.control) : undefined,
       initialPrompt: l.initialPrompt,
       allowBackgroundSessions: providerSettings(config.settings, adapter.id).allowBackgroundSessions,
@@ -789,7 +840,9 @@ class SessionManager {
         ...(workspace.isAssistantHome(projectPath) ? {} : this.apiEnv(projectPath, agent.id))
       })
     }
-    await adapter.prepareLaunch(ctx)
+    const delivered = await adapter.prepareLaunch(ctx)
+    // What the session got, measured on the copies its CLI reads (not their sources: a kept old copy is what it reads).
+    const deliveredSizes = await deliveredSkillSizes(adapter, ctx, delivered).catch(() => ({ catalog: 0, bytes: 0, unmeasured: Object.values(delivered).filter((d) => d.revision).length }))
     if (workspace.isAssistantHome(projectPath)) await this.onAssistantLaunch(projectPath)
     // Checked after the last await, just before spawning: stopped, its workspace closed or switched, or the
     // provider turned off while this launch was being prepared, it must not start a process.
@@ -797,7 +850,26 @@ class SessionManager {
     if (!isProviderEnabled(config.settings, adapter.id)) throw new Error(`${adapter.descriptor.name} was turned off while ${agent.name} was starting.`)
     const cmd = adapter.buildCommand(info.path, ctx)
     l.titleAttention = adapter.titleAttention?.(info.version) ?? undefined
-    state.launchSignature = this.signature(eff)
+    // What it was given: Hive's guidance revision and each skill as delivered (the Agent API's project status shows
+    // them). A skill not delivered as asked (kept old copy, failed copy) leaves it needing a restart.
+    const notGiven = Object.fromEntries(Object.entries(eff.skillProblems).map(([name, why]) => [name, { revision: null, problem: `nobody gets it: ${why}`, lasting: true as const }]))
+    const record = launchRecord(eff.skillHashes, { ...delivered, ...notGiven })
+    state.launchSignature = this.signature({ ...eff, skillHashes: record.settled })
+    state.launched = { guidance: GUIDANCE_REVISION, skills: record.skills, ...(record.problems ? { problems: record.problems } : {}) }
+    // Performance metrics: what Hive gave this session, exact sizes. The session contract once (whichever way the
+    // provider gets it); the skills that reached it, measured on their copies; the ones asked for that didn't.
+    const given = Object.keys(record.skills)
+    const parts = launchParts(ctx.guidance, workspace.isAssistantHome(projectPath) ? 'assistant' : 'agent', basename(projectPath), assistantText)
+    recordLaunch(metrics, workspace.isAssistantHome(projectPath) ? null : basename(projectPath), {
+      provider: adapter.id,
+      role: workspace.isAssistantHome(projectPath) ? 'assistant' : 'agent',
+      ...parts,
+      skills: given.length,
+      skillCatalogBytes: deliveredSizes.catalog,
+      skillBytes: deliveredSizes.bytes,
+      skillsNotDelivered: Object.keys(eff.skillHashes).length - given.length,
+      skillsUnmeasured: deliveredSizes.unmeasured
+    })
     l.defaultModel = !eff.model
 
     const proc = spawnPty(this.key(projectPath, agent.id), {
@@ -933,7 +1005,8 @@ class SessionManager {
       if (!l || l.state.settingUp) throw new Error('No session is running for this agent.')
       if (l.compacting) throw new Error('This session is already compacting.')
       if (this.delivering.has(key)) throw new Error('Hive is already typing a prompt into this agent; it is busy.')
-      if (l.state.status !== 'ready' && l.state.status !== 'finished') {
+      // Watching its cards (its turn has ended) may compact: the watch stays.
+      if (l.state.status !== 'ready' && l.state.status !== 'finished' && l.state.status !== 'watching') {
         throw new Error(l.state.status === 'waiting' ? 'The agent is waiting for your answer. Compact after it has finished.' : 'The agent is busy. Compact once it has finished.')
       }
       return l
@@ -1386,7 +1459,8 @@ class SessionManager {
 
   /** Sessions that would be interrupted by quitting: an agent is working or waiting on a prompt. */
   busyStates(): LiveSessionState[] {
-    return this.liveStates().filter((s) => s.status === 'working' || s.status === 'waiting' || s.status === 'background')
+    // A watching agent is in the middle of its work (waiting on cards it will carry on with): busy too.
+    return this.liveStates().filter((s) => s.status === 'working' || s.status === 'waiting' || s.status === 'background' || s.status === 'watching')
   }
 
   private async onExit(projectPath: string, agentId: string, runId: string, code: number, output = ''): Promise<void> {
@@ -1712,6 +1786,14 @@ class SessionManager {
   }
 
   private emitState(state: LiveSessionState): void {
+    // A wake-on-change watch (#128): an agent whose turn has ended waits on its cards (watching), never idle; without
+    // the watch, it is just finished again (not newly: nothing to look at, nothing to notify).
+    const watch = this.watchFor(state.projectPath, state.agentId)
+    state.watch = watch ?? undefined
+    if (watch && (state.status === 'ready' || state.status === 'finished')) {
+      state.status = 'watching'
+      state.unseen = false
+    } else if (!watch && state.status === 'watching') state.status = 'finished'
     if (this.statusSent.get(state) !== state.status) {
       this.statusSent.set(state, state.status)
       state.statusSince = new Date().toISOString()
@@ -1988,6 +2070,8 @@ class SessionManager {
           this.notify(st.projectPath, `${label} has a question for you`, step.question || 'It carries on working meanwhile.', 'waiting')
           break
         case 'notifyFinished':
+          // Watching its cards isn't finished: nothing for the user to look at.
+          if (this.watchFor(st.projectPath, st.agentId)) break
           this.notify(st.projectPath, `${label} finished`, (ev?.kind === 'stop' && ev.lastMessage?.slice(0, 180)) || 'The agent has finished its task.', 'finished', st.agentName)
           break
         case 'releaseLocks':

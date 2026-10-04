@@ -136,7 +136,7 @@ function trustForCodex(folder) {
 function gitProject(dir, files = { 'a.ts': 'export const a = 1\n' }) {
   fs.mkdirSync(dir, { recursive: true })
   for (const [f, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, f), text)
-  const git = (...a) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd: dir })
+  const git = (...a) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd: dir })
   git('init', '-q')
   git('add', '.')
   git('commit', '-qm', 'init')

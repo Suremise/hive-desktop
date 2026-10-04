@@ -97,7 +97,7 @@ export function WelcomeView() {
               <Icon name="sparkle" />
               <div>
                 <strong>Skills &amp; MCP</strong>
-                <p>Hive skills in the workspace reach every agent; each project also shows its own and your user skills. MCP servers are turned on for the workspace and off per project. Changes apply to new sessions.</p>
+                <p>Hive skills in the workspace reach the agents of every project (and the Hive Assistant, for those written for it); each project also shows its own and your user skills. MCP servers are turned on for the workspace and off per project. Changes apply to new sessions.</p>
               </div>
             </div>
             <div className="walkthrough">
@@ -163,7 +163,7 @@ export function SkillView() {
     return (
       <div className="empty-state" style={{ paddingTop: '18vh' }}>
         <Icon name="sparkle" />
-        Select a Hive skill to view or edit it. Every agent in every project of this workspace gets these skills.
+        Select a Hive skill to view or edit it. The agents in every project of this workspace get these skills, except those marked for the Hive Assistant.
       </div>
     )
   }

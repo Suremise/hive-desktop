@@ -218,6 +218,33 @@ const until = async (fn, ms = 10000) => {
   check("…and carries nothing of beta's sessions", !agentStream.text.includes(betaPath) && !agentStream.text.includes('PRIVATE'), agentStream.text.slice(0, 400))
   check("the workspace token's stream has beta's sessions too", scriptStream.text.includes(betaPath) && scriptStream.text.includes(alphaPath), scriptStream.text.slice(0, 200))
 
+  // --- Skills: another project's own skills are its agents' business; the workspace's Hive skills are everyone's.
+  fs.mkdirSync(path.join(beta, '.claude', 'skills', 'beta-secret'), { recursive: true })
+  fs.writeFileSync(path.join(beta, '.claude', 'skills', 'beta-secret', 'SKILL.md'), '---\nname: beta-secret\ndescription: PRIVATE beta skill.\n---\n')
+  r = await as('GET', '/v1/skills?project=beta')
+  check("alpha's agent can't list beta's skills", r.status === 403 && !JSON.stringify(r.body).includes('PRIVATE'), JSON.stringify(r).slice(0, 300))
+  r = await call(workspaceToken, 'GET', '/v1/skills?project=beta')
+  check("…the workspace token can, and listings carry no folder paths", r.status === 200 && r.body.some((s) => s.name === 'beta-secret') && !JSON.stringify(r.body).includes(JSON.stringify(ws).slice(1, -1)), JSON.stringify(r).slice(0, 300))
+  r = await as('GET', '/v1/skills?project=alpha')
+  check('its own project\'s skills are open to it', r.status === 200 && r.body.some((s) => s.name === 'work-on-card' && s.level === 'hive'), JSON.stringify(r).slice(0, 300))
+  r = await as('GET', '/v1/status')
+  check('the status says who it is to Hive', r.status === 200 && r.body.caller?.role === 'agent' && r.body.caller.project === 'alpha' && r.body.caller.agent === 'Alfie' && r.body.api?.version >= 2, JSON.stringify(r.body?.caller))
+
+  // --- Another agent's card in Doing is its work in progress: Alfie can't move it on (409), even taking it in the same
+  // change; the workspace token (a script, as the user's board) can.
+  const alma = await lib.addAgent(inv, alpha, { name: 'Alma' })
+  const busy = await make('Busy', 'alpha', 'doing')
+  await inv('tasks:update', busy, { agent: alma.id })
+  for (const patch of [{ column: 'done' }, { column: 'review' }, { column: 'done', agent: agent.id }]) {
+    r = await as('PATCH', `/v1/tasks/${busy}`, patch)
+    check(`another agent's card in Doing: ${JSON.stringify(patch)} is refused (409)`, r.status === 409 && /Alma, who is working on it: newer work is in progress/.test(r.body?.error), JSON.stringify(r))
+  }
+  const still = (await inv('tasks:list')).find((c) => c.number === busy)
+  check('…and the card is as it was', still.column === 'doing' && still.agent === alma.id, JSON.stringify([still.column, still.agent]))
+  r = await call(workspaceToken, 'PATCH', `/v1/tasks/${busy}`, { column: 'done' })
+  check('the workspace token can move it', r.status === 200 && r.body.column === 'done', JSON.stringify(r.body?.column ?? r))
+  await inv('tasks:delete', busy)
+
   // --- Once the agent stops, its token stops working.
   await inv('session:stop', alpha, agent.id).catch(() => undefined)
   await until(async () => !(await live()), 10000)

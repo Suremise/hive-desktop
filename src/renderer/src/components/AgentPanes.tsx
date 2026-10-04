@@ -5,7 +5,7 @@ import type { AgentInfo, LiveSessionState, ProjectInfo, SessionLayout, SessionLi
 import type { StartFailure } from '@shared/startFailure'
 import * as actions from '../actions'
 import { call } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showInOverview, showPage, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showInOverview, showPage, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -267,7 +267,7 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
       : a.live
       ? [
           { label: 'Stop', icon: 'debug-stop', onClick: () => void actions.stopSession(project.path, a.id) },
-          { label: 'Compact…', icon: 'fold', disabled: !(a.live.status === 'ready' || a.live.status === 'finished'), onClick: () => set({ compactFor: { project: project.path, agentId: a.id } }) },
+          { label: 'Compact…', icon: 'fold', disabled: !(a.live.status === 'ready' || a.live.status === 'finished' || a.live.status === 'watching'), onClick: () => set({ compactFor: { project: project.path, agentId: a.id } }) },
           archiveItem
         ]
       : [
@@ -275,6 +275,10 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
           { label: 'Resume a Session…', icon: 'history', onClick: pick },
           { label: 'New Session', icon: 'add', onClick: () => void actions.newSession(project.path, a.id) }
         ]),
+    // Also in the header; here too for a pane too narrow to show it.
+    ...(a.live?.status === 'watching'
+      ? [{ label: 'Cancel Card Watch', icon: 'eye-closed', onClick: () => void call('watch:cancel', project.path, a.id).catch((e) => notify('error', 'Could not cancel the watch', String((e as Error).message ?? e))) }]
+      : []),
     { label: 'Hand Over to…', icon: 'arrow-swap', onClick: () => set({ handOverFor: { project: project.path, agentId: a.id } }) },
     ...moveItems(project, a),
     { separator: true },
@@ -544,7 +548,8 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   const unmerged = useUnmerged(project, a)
   const live = a.live
   const failure = useStartFailure(project, a)
-  const idle = live && (live.status === 'ready' || live.status === 'finished')
+  // Idle for Compact: a watching agent too (its watch is kept; a wake waits for the compaction to end).
+  const idle = live && (live.status === 'ready' || live.status === 'finished' || live.status === 'watching')
   // Compact: while idle and there's a conversation; highlighted once the context passes the threshold.
   const threshold = compactThreshold(project.config, settings?.sessions.compactSuggestTokens ?? 0)
   const tokens = usage?.contextTokens ?? 0
@@ -603,6 +608,18 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         <Tooltip content={live.question.text ? `Asks: ${live.question.text}` : 'Asks you something'}>
           <span className="faint pane-status asks">{statusText(live)}</span>
         </Tooltip>
+      ) : live?.status === 'watching' && live.watch ? (
+        // Waiting on cards (a watch): what for, until when, and Cancel (it takes no other work while it waits).
+        <span className="pane-status watching">
+          <Tooltip content={`${live.watch.label}: Hive types a line into it when ${live.watch.cards.length === 1 ? 'the card changes' : 'one of them changes'}, or at ${new Date(live.watch.limitAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })} if nothing does. Nothing runs meanwhile, and it takes no other work.`}>
+            <span className="watch-label">
+              <Icon name="eye" /> {live.watch.label}
+            </span>
+          </Tooltip>
+          <button className="btn small subtle watch-cancel" aria-label="Cancel the card watch" onClick={() => void call('watch:cancel', project.path, a.id).catch((e) => notify('error', 'Could not cancel the watch', String((e as Error).message ?? e)))}>
+            Cancel
+          </button>
+        </span>
       ) : (
         <span className={cx('faint pane-status', !live && failure && 'failed')}>{live ? statusText(live) : failure ? 'Failed to start' : 'Not running'}</span>
       )}

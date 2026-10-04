@@ -1,4 +1,5 @@
-// Skills: the bundled skills in a new workspace (and not in an existing one), restore and revert, adding from
+// Skills: the bundled skills in a new workspace, and in an existing one only those it was never given (the ones it
+// had before are its own to keep or delete), restore, revert and "update available", adding from
 // a .md or a .zip, local skills per provider (and for both at once), the project's Skills tab, "Edit in
 // workspace", and the notice for a skill that no longer exists. Deleting moves folders to the Recycle Bin.
 const lib = require('./lib.cjs')
@@ -12,7 +13,10 @@ const oldWs = path.join(lib.WORK, 'skills-old-ws')
 const proj = path.join(ws, 'demo')
 const dump = path.join(lib.WORK, 'skills-dump')
 const sleep = lib.sleep
-const BUNDLED = ['handover', 'merge-ready', 'pick-up', 'review-agent-work', 'split-work', 'workspace-note']
+/** The bundled skills from before Hive kept track of them (an existing workspace without them deleted them), and the newer ones. */
+const EARLIER = ['handover', 'merge-ready', 'pick-up', 'review-agent-work', 'split-work', 'workspace-note']
+const NEWER = ['coordinate-agents', 'use-hive-api', 'work-on-card']
+const BUNDLED = [...EARLIER, ...NEWER]
 let failed = 0
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
@@ -40,18 +44,20 @@ const check = (name, ok, extra = '') => {
   const { app, page, inv } = await lib.launch({ userData, env: { CODEX_HOME: lib.CODEX_HOME }, viewport: { width: 1500, height: 950 } })
   page.on('pageerror', (e) => console.log('FAIL page error', e.message))
 
-  // An existing workspace (it already has .hive) doesn't get the bundled skills; they're listed as deleted.
+  // An existing workspace (it already has .hive) without the earlier bundled skills: the user deleted them, so they stay
+  // deleted (listed for Restore); the newer ones are added.
   await inv('workspace:open', oldWs)
   await sleep(500)
   let list = await inv('skills:workspace')
-  check('existing workspace: no bundled skills copied', !fs.existsSync(path.join(oldWs, '.hive', 'skills', 'handover')))
-  check('existing workspace: bundled skills listed as missing', BUNDLED.every((n) => list.find((s) => s.name === n)?.bundled === 'missing'), JSON.stringify(list.map((s) => [s.name, s.bundled])))
+  check('existing workspace: skills it had are not brought back', !fs.existsSync(path.join(oldWs, '.hive', 'skills', 'handover')))
+  check('existing workspace: they are listed as deleted', EARLIER.every((n) => list.find((s) => s.name === n)?.bundled === 'missing'), JSON.stringify(list.map((s) => [s.name, s.bundled])))
+  check('existing workspace: the newer bundled skills are added', NEWER.every((n) => list.find((s) => s.name === n)?.bundled === 'same'), JSON.stringify(list.map((s) => [s.name, s.bundled])))
 
   // A new workspace starts with them.
   await inv('workspace:open', ws)
   await sleep(800)
   const skillsDir = path.join(ws, '.hive', 'skills')
-  check('new workspace: the six bundled skills are copied', BUNDLED.every((n) => fs.existsSync(path.join(skillsDir, n, 'SKILL.md'))), fs.readdirSync(skillsDir).join(','))
+  check('new workspace: every bundled skill is copied', BUNDLED.every((n) => fs.existsSync(path.join(skillsDir, n, 'SKILL.md'))), fs.readdirSync(skillsDir).join(','))
   list = await inv('skills:workspace')
   check('new workspace: all match this version', BUNDLED.every((n) => list.find((s) => s.name === n)?.bundled === 'same'))
 
@@ -59,7 +65,7 @@ const check = (name, ok, extra = '') => {
   await page.keyboard.press('Control+Shift+K')
   await sleep(800)
   const rows = await page.locator('.skill-row').count()
-  check('Skills view lists the six', rows === 6, String(rows))
+  check('Skills view lists them', rows === BUNDLED.length, String(rows))
   await page.screenshot({ path: path.join(lib.WORK, 'skills-view.png') })
 
   // Edited → changed → Revert to default → same.
@@ -77,6 +83,28 @@ const check = (name, ok, extra = '') => {
   await sleep(1000)
   list = await inv('skills:workspace')
   check('reverted: "same" again, edit gone', list.find((s) => s.name === 'pick-up')?.bundled === 'same' && !fs.readFileSync(pickUp, 'utf8').includes('My own step'))
+
+  // An edited copy made from an older version: Hive leaves it, and says an update is there to take.
+  fs.appendFileSync(pickUp, '\nMy own step.\n')
+  const manifestFile = path.join(ws, '.hive', 'bundled.json')
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'))
+  // A version Hive shipped before this one (a made-up one wouldn't count: it could be a newer Hive's).
+  manifest.skills['pick-up'].from = require('../../src/main/bundledHistory.json').skills['pick-up'][0]
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest))
+  list = await inv('skills:workspace')
+  check('an edited copy of an older version: "update available"', list.find((s) => s.name === 'pick-up')?.updateAvailable === true)
+  await page.locator('.skill-row', { hasText: 'split-work' }).click()
+  await sleep(300)
+  await page.locator('.skill-row', { hasText: 'pick-up' }).click()
+  await sleep(800)
+  check('its page says so, beside Revert to default', (await page.locator('.editor-toolbar .badge', { hasText: 'Update available' }).count()) === 1)
+  await page.screenshot({ path: path.join(lib.WORK, 'skills-update.png') })
+  await page.getByText('Revert to default').click()
+  await sleep(400)
+  await page.locator('.dialog .btn.primary', { hasText: 'Revert' }).click()
+  await sleep(1000)
+  list = await inv('skills:workspace')
+  check('reverting takes the update', list.find((s) => s.name === 'pick-up')?.bundled === 'same' && !list.find((s) => s.name === 'pick-up')?.updateAvailable)
 
   // Deleted → greyed, "deleted" → Restore.
   await inv('skills:delete', path.join(skillsDir, 'split-work'))

@@ -1,0 +1,465 @@
+{
+  "schema": "hive-benchmark/1",
+  "kind": "scenarios",
+  "app": {
+    "name": "Hive",
+    "version": "0.3.1"
+  },
+  "createdAt": "2026-10-03T17:45:03.774Z",
+  "scope": {
+    "kind": "workspace"
+  },
+  "label": "fake, fixtures v5 (smaller but wrong)",
+  "run": {
+    "fixturesVersion": 5,
+    "provider": "fake",
+    "providerId": "claude-code",
+    "real": false,
+    "model": "(default)",
+    "effort": "(default)",
+    "mode": "bypassPermissions",
+    "cliVersions": [
+      "2.1.999"
+    ],
+    "repeats": 1,
+    "source": {
+      "head": "edb813e",
+      "dirty": "aaaaaaaaaaaa"
+    },
+    "sourceChangedDuringRun": false,
+    "guidance": "63db94808e669a5e",
+    "authorization": null,
+    "budgetUsd": null,
+    "spentUsd": 0,
+    "seconds": 65,
+    "metricsOverheadMs": 71
+  },
+  "scenarios": [
+    {
+      "id": "work-on-card",
+      "title": "Work on a card: Doing first, the work, then Review with a summary; never Done",
+      "role": "agent",
+      "samples": [
+        {
+          "ok": true,
+          "passed": 4,
+          "failed": 0,
+          "skipped": 1,
+          "checks": [
+            {
+              "name": "read the work-on-card skill",
+              "ok": true
+            },
+            {
+              "name": "moved it to Doing before Review",
+              "ok": true
+            },
+            {
+              "name": "it ends in Review, with a comment of the agent",
+              "ok": true
+            },
+            {
+              "name": "not Done (the user decides)",
+              "ok": true
+            },
+            {
+              "name": "the work is there",
+              "ok": null
+            }
+          ],
+          "failedChecks": [],
+          "coverage": {
+            "recording": true,
+            "dropped": 0,
+            "partial": []
+          },
+          "guidance": "63db94808e669a5e",
+          "skills": {
+            "handover": "a572f4d2c4e027bb",
+            "merge-ready": "a56a6daa8b10f075",
+            "pick-up": "82abbbadff06f698",
+            "review-agent-work": "933180c35b672963",
+            "split-work": "125641bf5c31d814",
+            "use-hive-api": "c0281b780bf4d213",
+            "work-on-card": "bc38bd6b1cfee0b6",
+            "workspace-note": "29f86ff346fbe4c1"
+          },
+          "stale": false,
+          "resumed": false,
+          "seconds": 16,
+          "measures": {
+            "apiRequests": 3,
+            "apiFailed": 0,
+            "apiCancelled": 0,
+            "apiRequestBytes": 125,
+            "apiResponseBytes": 441,
+            "apiMs": 24.897500000000036,
+            "toolCalls": 0,
+            "toolErrors": 0,
+            "toolDetailCalls": 0,
+            "toolChars": 0,
+            "toolBytes": 0,
+            "toolMs": 0,
+            "launches": 1,
+            "coreBytes": 1149,
+            "customBytes": 0,
+            "roleBytes": 0,
+            "personaBytes": 0,
+            "catalogBytes": 1387,
+            "coreChars": 1149,
+            "customChars": 0,
+            "roleChars": 0,
+            "personaChars": 0,
+            "skillBytes": 19702,
+            "skillsDelivered": 8,
+            "skillsNotDelivered": 0,
+            "skillsUnmeasured": 0,
+            "toolListBytes": 0,
+            "toolListStarts": 0,
+            "skillScans": 0,
+            "skillHits": 104,
+            "skillMisses": 0,
+            "skillInvalidations": 0,
+            "skillBytesRead": 0,
+            "skillTooLarge": 0,
+            "dropped": 0,
+            "hiveCalls": 3,
+            "hiveCallErrors": 0,
+            "repeatedCalls": 0,
+            "skillsRead": 1,
+            "usage": {
+              "inputTokens": 60,
+              "outputTokens": 30,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 0,
+              "requests": 5,
+              "contextTokens": 20,
+              "costEstimated": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "review-card",
+      "title": "Review a card: it stays in Review with the implementer; the reviewer's verdict ends the review",
+      "role": "agent",
+      "samples": [
+        {
+          "ok": true,
+          "passed": 6,
+          "failed": 0,
+          "skipped": 0,
+          "checks": [
+            {
+              "name": "read the review-agent-work skill",
+              "ok": true
+            },
+            {
+              "name": "marked itself as reviewer (review start)",
+              "ok": true
+            },
+            {
+              "name": "gave a verdict (passed or failed)",
+              "ok": true
+            },
+            {
+              "name": "the card stays in Review with the implementer",
+              "ok": true
+            },
+            {
+              "name": "never moved to Doing",
+              "ok": true
+            },
+            {
+              "name": "changed no files (a review only reads)",
+              "ok": true
+            }
+          ],
+          "failedChecks": [],
+          "coverage": {
+            "recording": true,
+            "dropped": 0,
+            "partial": []
+          },
+          "guidance": "63db94808e669a5e",
+          "skills": {
+            "handover": "a572f4d2c4e027bb",
+            "merge-ready": "a56a6daa8b10f075",
+            "pick-up": "82abbbadff06f698",
+            "review-agent-work": "933180c35b672963",
+            "split-work": "125641bf5c31d814",
+            "use-hive-api": "c0281b780bf4d213",
+            "work-on-card": "bc38bd6b1cfee0b6",
+            "workspace-note": "29f86ff346fbe4c1"
+          },
+          "stale": false,
+          "resumed": false,
+          "seconds": 16,
+          "measures": {
+            "apiRequests": 2,
+            "apiFailed": 0,
+            "apiCancelled": 0,
+            "apiRequestBytes": 69,
+            "apiResponseBytes": 292,
+            "apiMs": 17.839200000000346,
+            "toolCalls": 0,
+            "toolErrors": 0,
+            "toolDetailCalls": 0,
+            "toolChars": 0,
+            "toolBytes": 0,
+            "toolMs": 0,
+            "launches": 1,
+            "coreBytes": 1149,
+            "customBytes": 0,
+            "roleBytes": 0,
+            "personaBytes": 0,
+            "catalogBytes": 1734,
+            "coreChars": 1149,
+            "customChars": 0,
+            "roleChars": 0,
+            "personaChars": 0,
+            "skillBytes": 19702,
+            "skillsDelivered": 8,
+            "skillsNotDelivered": 0,
+            "skillsUnmeasured": 0,
+            "toolListBytes": 0,
+            "toolListStarts": 0,
+            "skillScans": 0,
+            "skillHits": 104,
+            "skillMisses": 0,
+            "skillInvalidations": 0,
+            "skillBytesRead": 0,
+            "skillTooLarge": 0,
+            "dropped": 0,
+            "hiveCalls": 2,
+            "hiveCallErrors": 0,
+            "repeatedCalls": 0,
+            "skillsRead": 1,
+            "usage": {
+              "inputTokens": 50,
+              "outputTokens": 25,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 0,
+              "requests": 4,
+              "contextTokens": 20,
+              "costEstimated": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "card-detail",
+      "title": "A card's details, exactly: the detail it asks for, read once, the board unchanged (a smaller reply missing them fails)",
+      "role": "agent",
+      "samples": [
+        {
+          "ok": false,
+          "passed": 3,
+          "failed": 1,
+          "skipped": 1,
+          "checks": [
+            {
+              "name": "read the card with hive_read_task",
+              "ok": true
+            },
+            {
+              "name": "its reply had the card's acceptance line",
+              "ok": false
+            },
+            {
+              "name": "quoted it",
+              "ok": null
+            },
+            {
+              "name": "read it once (no repeated identical calls)",
+              "ok": true
+            },
+            {
+              "name": "the card is unchanged",
+              "ok": true
+            }
+          ],
+          "failedChecks": [
+            "its reply had the card's acceptance line"
+          ],
+          "coverage": {
+            "recording": true,
+            "dropped": 0,
+            "partial": []
+          },
+          "guidance": "63db94808e669a5e",
+          "skills": {
+            "handover": "a572f4d2c4e027bb",
+            "merge-ready": "a56a6daa8b10f075",
+            "pick-up": "82abbbadff06f698",
+            "review-agent-work": "933180c35b672963",
+            "split-work": "125641bf5c31d814",
+            "use-hive-api": "c0281b780bf4d213",
+            "work-on-card": "bc38bd6b1cfee0b6",
+            "workspace-note": "29f86ff346fbe4c1"
+          },
+          "stale": false,
+          "resumed": false,
+          "seconds": 17,
+          "measures": {
+            "apiRequests": 3,
+            "apiFailed": 0,
+            "apiCancelled": 0,
+            "apiRequestBytes": 0,
+            "apiResponseBytes": 2534,
+            "apiMs": 12.0600000000004,
+            "toolCalls": 1,
+            "toolErrors": 0,
+            "toolDetailCalls": 1,
+            "toolChars": 351,
+            "toolBytes": 355,
+            "toolMs": 8.167299999999997,
+            "launches": 1,
+            "coreBytes": 1149,
+            "customBytes": 0,
+            "roleBytes": 0,
+            "personaBytes": 0,
+            "catalogBytes": 1734,
+            "coreChars": 1149,
+            "customChars": 0,
+            "roleChars": 0,
+            "personaChars": 0,
+            "skillBytes": 19702,
+            "skillsDelivered": 8,
+            "skillsNotDelivered": 0,
+            "skillsUnmeasured": 0,
+            "toolListBytes": 8475,
+            "toolListStarts": 1,
+            "skillScans": 0,
+            "skillHits": 130,
+            "skillMisses": 0,
+            "skillInvalidations": 0,
+            "skillBytesRead": 0,
+            "skillTooLarge": 0,
+            "dropped": 0,
+            "hiveCalls": 1,
+            "hiveCallErrors": 0,
+            "repeatedCalls": 0,
+            "skillsRead": 0,
+            "usage": {
+              "inputTokens": 30,
+              "outputTokens": 15,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 0,
+              "requests": 2,
+              "contextTokens": 20,
+              "costEstimated": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "oversize-skill",
+      "title": "A skill too big to check: nobody is given it, its launch counts it as not delivered, and the work goes on",
+      "role": "agent",
+      "samples": [
+        {
+          "ok": true,
+          "passed": 4,
+          "failed": 0,
+          "skipped": 0,
+          "checks": [
+            {
+              "name": "the session was not given team-archive",
+              "ok": true
+            },
+            {
+              "name": "its launch counted a skill asked for and not delivered",
+              "ok": true
+            },
+            {
+              "name": "still Doing first, then Review",
+              "ok": true
+            },
+            {
+              "name": "not Done",
+              "ok": true
+            }
+          ],
+          "failedChecks": [],
+          "coverage": {
+            "recording": true,
+            "dropped": 0,
+            "partial": []
+          },
+          "guidance": "63db94808e669a5e",
+          "skills": {
+            "handover": "a572f4d2c4e027bb",
+            "merge-ready": "a56a6daa8b10f075",
+            "pick-up": "82abbbadff06f698",
+            "review-agent-work": "933180c35b672963",
+            "split-work": "125641bf5c31d814",
+            "use-hive-api": "c0281b780bf4d213",
+            "work-on-card": "bc38bd6b1cfee0b6",
+            "workspace-note": "29f86ff346fbe4c1"
+          },
+          "stale": false,
+          "resumed": false,
+          "seconds": 16,
+          "measures": {
+            "apiRequests": 3,
+            "apiFailed": 0,
+            "apiCancelled": 0,
+            "apiRequestBytes": 125,
+            "apiResponseBytes": 429,
+            "apiMs": 25.823699999999917,
+            "toolCalls": 0,
+            "toolErrors": 0,
+            "toolDetailCalls": 0,
+            "toolChars": 0,
+            "toolBytes": 0,
+            "toolMs": 0,
+            "launches": 1,
+            "coreBytes": 1149,
+            "customBytes": 0,
+            "roleBytes": 0,
+            "personaBytes": 0,
+            "catalogBytes": 1734,
+            "coreChars": 1149,
+            "customChars": 0,
+            "roleChars": 0,
+            "personaChars": 0,
+            "skillBytes": 19702,
+            "skillsDelivered": 8,
+            "skillsNotDelivered": 1,
+            "skillsUnmeasured": 0,
+            "toolListBytes": 0,
+            "toolListStarts": 0,
+            "skillScans": 0,
+            "skillHits": 104,
+            "skillMisses": 0,
+            "skillInvalidations": 0,
+            "skillBytesRead": 0,
+            "skillTooLarge": 0,
+            "dropped": 0,
+            "hiveCalls": 3,
+            "hiveCallErrors": 0,
+            "repeatedCalls": 0,
+            "skillsRead": 1,
+            "usage": {
+              "inputTokens": 60,
+              "outputTokens": 30,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0,
+              "reasoningTokens": 0,
+              "requests": 5,
+              "contextTokens": 20,
+              "costEstimated": false
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

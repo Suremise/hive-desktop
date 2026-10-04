@@ -161,9 +161,14 @@ function mcp(config, msgs) {
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } },
     { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }
   ]).then((r) => [r.find((x) => x.id === 1), r.find((x) => x.id === 2)])
-  check("the agents' instructions tell reviewing from working on a card", /Asked to review a card/.test(init?.result?.instructions ?? ''), (init?.result?.instructions ?? '').slice(0, 120))
+  const instructions = init?.result?.instructions ?? ''
+  check("the agents' instructions tell reviewing from working on a card, and name the skill", /asked to review or check one, use review-agent-work/.test(instructions) && /Reviewing a card is not working on it/.test(instructions), instructions.slice(0, 400))
   const update = list?.result?.tools?.find((t) => t.name === 'hive_update_task')
-  check('hive_update_task describes reviewing, and takes review', /Reviewing a card/.test(update?.description ?? '') && JSON.stringify(update?.inputSchema?.properties?.review?.enum) === '["start","passed","failed"]', JSON.stringify(update?.inputSchema?.properties?.review))
+  check('hive_update_task describes reviewing, and takes review', /reviewing isn't working on it/.test(update?.description ?? '') && JSON.stringify(update?.inputSchema?.properties?.review?.enum) === '["start","passed","failed"]', JSON.stringify(update?.inputSchema?.properties?.review))
+  // The reviewer's launch carries the review skill (its own copy, in its launch plugin).
+  const skillFile = path.join(alpha, '.hive', `launch-${reviewer.id}`, 'plugin', 'skills', 'review-agent-work', 'SKILL.md')
+  check("the reviewer's launch has the review-agent-work skill", fs.existsSync(skillFile) && /review: "start"/.test(fs.readFileSync(skillFile, 'utf8')))
+  check('…but not the Assistant\'s coordinate-agents', !fs.existsSync(path.join(alpha, '.hive', `launch-${reviewer.id}`, 'plugin', 'skills', 'coordinate-agents')))
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'All checks passed')

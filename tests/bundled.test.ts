@@ -1,0 +1,459 @@
+// Hive's bundled skills and personas in a workspace (src/main/bundled.ts): new ones are added, untouched copies of
+// older versions updated, edited copies and same-name folders of the user's kept, deleted ones left deleted; a swap
+// never leaves a half-copied folder; the recorded versions cover what ships (scripts/bundled-history.mjs).
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { open } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import * as electron from 'electron'
+import { bundledAction, type BundledInput } from '../src/main/bundled'
+import { cleanSwaps, contentHash, copySkillTree, swapIn } from '../src/main/fsutil'
+import HISTORY from '../src/main/bundledHistory.json'
+
+const RES = join(__dirname, '..', 'resources')
+
+describe('what to do with a bundled item', () => {
+  const base: BundledInput = { shipped: 'v3', copy: 'v3', given: { from: 'v3' }, manifest: true, versions: ['v1', 'v2', 'v3'], shippedBefore: true, folder: true }
+  const act = (p: Partial<BundledInput>) => bundledAction({ ...base, ...p })
+
+  it('adds one the workspace was never given', () => {
+    expect(act({ copy: null, given: undefined })).toBe('add')
+    // A workspace from before the manifest gets the ones that are new since.
+    expect(act({ copy: null, given: undefined, manifest: false, shippedBefore: false })).toBe('add')
+    // A workspace from before personas has no personas folder: it was never given them.
+    expect(act({ copy: null, given: undefined, manifest: false, folder: false })).toBe('add')
+  })
+
+  it('leaves a deleted one deleted', () => {
+    expect(act({ copy: null })).toBe('deleted')
+    expect(act({ copy: null, given: { from: null } })).toBe('deleted')
+    // Without a manifest, one that shipped before was given, so it was deleted.
+    expect(act({ copy: null, given: undefined, manifest: false })).toBe('deleted')
+  })
+
+  it('updates an untouched copy of an older version, and only an older one', () => {
+    expect(act({ copy: 'v1', given: { from: 'v1' } })).toBe('update')
+    expect(act({ copy: 'v2', given: undefined, manifest: false })).toBe('update')
+    // A version reverted to (v1 → v2 → v1): the copy of v2 is older than this v1.
+    expect(act({ shipped: 'v1', copy: 'v2', versions: ['v1', 'v2', 'v1'] })).toBe('update')
+    // A copy of a version this Hive doesn't know (a newer Hive's, sharing the workspace) stays.
+    expect(act({ copy: 'v4' })).toBe('keep')
+    expect(act({ copy: 'v3' })).toBe('keep')
+  })
+
+  it('keeps an edited copy and a same-name folder of the user', () => {
+    expect(act({ copy: 'edited', given: { from: 'v2' } })).toBe('keep')
+    expect(act({ copy: 'mine', given: undefined, manifest: false })).toBe('keep')
+  })
+})
+
+describe('recorded versions', () => {
+  it('include the version of each bundled skill and persona that ships now, as its latest', async () => {
+    const history = HISTORY as Record<'skills' | 'personas', Record<string, string[]>>
+    for (const name of readdirSync(join(RES, 'skills'))) {
+      expect(history.skills[name]?.at(-1), `${name}: run npm run bundled-history`).toBe(await contentHash(join(RES, 'skills', name)))
+    }
+    for (const f of readdirSync(join(RES, 'personas'))) {
+      const id = f.replace(/\.md$/, '')
+      expect(history.personas[id]?.at(-1), `${id}: run npm run bundled-history`).toBe(await contentHash(join(RES, 'personas', f)))
+    }
+  })
+
+  it('counts a link by where it points, without following it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hive-hash-link-'))
+    const plain = join(dir, 'plain')
+    const linked = join(dir, 'linked')
+    const target = join(dir, 'target')
+    for (const d of [plain, linked, target]) mkdirSync(d, { recursive: true })
+    writeFileSync(join(plain, 'SKILL.md'), 'same')
+    writeFileSync(join(linked, 'SKILL.md'), 'same')
+    writeFileSync(join(target, 'custom.md'), 'mine')
+    const before = await contentHash(linked)
+    expect(before).toBe(await contentHash(plain))
+    symlinkSync(target, join(linked, 'references'), 'junction')
+    const withLink = await contentHash(linked)
+    expect(withLink).not.toBe(before)
+    // What the link points to isn't read: changing the target's files doesn't change the hash.
+    writeFileSync(join(target, 'custom.md'), 'mine, edited')
+    expect(await contentHash(linked)).toBe(withLink)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it("ignores line endings, so a checkout's CRLF is the same version", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hive-hash-'))
+    mkdirSync(join(dir, 'a', 'ref'), { recursive: true })
+    mkdirSync(join(dir, 'b', 'ref'), { recursive: true })
+    writeFileSync(join(dir, 'a', 'SKILL.md'), 'one\ntwo\n')
+    writeFileSync(join(dir, 'b', 'SKILL.md'), 'one\r\ntwo\r\n')
+    writeFileSync(join(dir, 'a', 'ref', 'x.md'), 'x')
+    writeFileSync(join(dir, 'b', 'ref', 'x.md'), 'x')
+    // Hive's copy marker isn't content.
+    writeFileSync(join(dir, 'b', '.hive-copy'), '{}')
+    expect(await contentHash(join(dir, 'a'))).toBe(await contentHash(join(dir, 'b')))
+    writeFileSync(join(dir, 'b', 'ref', 'x.md'), 'y')
+    expect(await contentHash(join(dir, 'a'))).not.toBe(await contentHash(join(dir, 'b')))
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('swapping a folder in', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hive-swap-'))
+  const src = join(dir, 'src')
+  mkdirSync(join(src, 'references'), { recursive: true })
+  writeFileSync(join(src, 'SKILL.md'), 'new')
+  writeFileSync(join(src, 'references', 'r.md'), 'new ref')
+  afterAll(() => rmSync(dir, { recursive: true, force: true }))
+
+  it('replaces the whole folder, references included, and adds to the copy before it goes in', async () => {
+    const dest = join(dir, 'skills', 'a')
+    mkdirSync(dest, { recursive: true })
+    writeFileSync(join(dest, 'SKILL.md'), 'old')
+    writeFileSync(join(dest, 'stale.md'), 'gone after')
+    await swapIn(src, dest, { prepare: async (copy) => writeFileSync(join(copy, '.hive-copy'), 'marker') })
+    expect(readdirSync(dest).sort()).toEqual(['.hive-copy', 'SKILL.md', 'references'])
+    expect(readFileSync(join(dest, 'references', 'r.md'), 'utf8')).toBe('new ref')
+    expect(readdirSync(join(dir, 'skills'))).toEqual(['a'])
+  })
+
+  it.runIf(process.platform === 'win32')('leaves the old folder as it was when a file in it is open', async () => {
+    const dest = join(dir, 'skills', 'busy')
+    mkdirSync(dest, { recursive: true })
+    writeFileSync(join(dest, 'SKILL.md'), 'old')
+    const handle = await open(join(dest, 'SKILL.md'), 'r')
+    try {
+      await expect(swapIn(src, dest)).rejects.toThrow()
+    } finally {
+      await handle.close()
+    }
+    expect(readFileSync(join(dest, 'SKILL.md'), 'utf8')).toBe('old')
+    expect(readdirSync(join(dir, 'skills')).sort()).toEqual(['a', 'busy'])
+  })
+
+  it('tidies what a crash between the steps leaves', async () => {
+    const parent = join(dir, 'crash')
+    mkdirSync(join(parent, '.x.hive-old-1-1'), { recursive: true })
+    writeFileSync(join(parent, '.x.hive-old-1-1', 'SKILL.md'), 'kept')
+    mkdirSync(join(parent, '.y.hive-new-1-2'), { recursive: true })
+    mkdirSync(join(parent, 'z'), { recursive: true })
+    mkdirSync(join(parent, '.z.hive-old-1-3'), { recursive: true })
+    await cleanSwaps(parent)
+    // x's place was empty: the old copy comes back. A copy not yet in place goes, as does an old one replaced.
+    expect(readdirSync(parent).sort()).toEqual(['x', 'z'])
+    expect(readFileSync(join(parent, 'x', 'SKILL.md'), 'utf8')).toBe('kept')
+  })
+})
+
+describe('a workspace', () => {
+  const base = mkdtempSync(join(tmpdir(), 'hive-bundled-'))
+  ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
+  // Trash is the Recycle Bin in Hive; here it deletes.
+  ;(electron.shell as unknown as { trashItem: (p: string) => Promise<void> }).trashItem = async (p) => rmSync(p, { recursive: true, force: true })
+  const skillsDir = (ws: string) => join(ws, '.hive', 'skills')
+  const OLD_HANDOVER = '---\nname: handover\ndescription: An older handover skill.\n---\n\nOld text.\n'
+  let mod: typeof import('../src/main/bundled')
+  let wsMod: typeof import('../src/main/workspace')
+  let skills: typeof import('../src/main/skills')
+  let oldHash = ''
+
+  beforeAll(async () => {
+    // The history this Hive "shipped": an older handover, then today's of each.
+    const old = join(base, 'old-handover')
+    mkdirSync(old, { recursive: true })
+    writeFileSync(join(old, 'SKILL.md'), OLD_HANDOVER)
+    const history = structuredClone(HISTORY) as Record<'skills' | 'personas', Record<string, string[]>>
+    oldHash = await contentHash(old)
+    history.skills.handover = [oldHash, ...history.skills.handover]
+    vi.resetModules()
+    vi.doMock('../src/main/bundledHistory.json', () => ({ default: history }))
+    mod = await import('../src/main/bundled')
+    wsMod = await import('../src/main/workspace')
+    skills = await import('../src/main/skills')
+  })
+  afterAll(() => rmSync(base, { recursive: true, force: true }))
+
+  const opened = async (path: string) => {
+    const w = wsMod.createWorkspaceService()
+    await w.open(path)
+    return w
+  }
+
+  it('a new one gets every bundled skill and persona, and the manifest records them', async () => {
+    const ws = join(base, 'fresh')
+    mkdirSync(ws, { recursive: true })
+    const w = await opened(ws)
+    try {
+      await wsMod.inWorkspace(w, () => mod.syncBundled({ fresh: true }))
+      expect(readdirSync(skillsDir(ws)).sort()).toEqual(readdirSync(join(RES, 'skills')).sort())
+      expect(readdirSync(join(ws, '.hive', 'personas')).sort()).toEqual(readdirSync(join(RES, 'personas')).sort())
+      const m = JSON.parse(readFileSync(join(ws, '.hive', 'bundled.json'), 'utf8'))
+      expect(m.skills['work-on-card'].from).toBe(await contentHash(join(RES, 'skills', 'work-on-card')))
+    } finally {
+      await wsMod.disposeWorkspaceService(w)
+    }
+  })
+
+  it('an older one: untouched copies updated, edited ones and the user’s kept, deleted ones left, new ones added', async () => {
+    const ws = join(base, 'older')
+    // Hive 0.3's workspace: skills (one untouched old, one edited, one deleted, one a user folder) and no personas folder.
+    mkdirSync(join(ws, '.hive', 'skills', 'handover'), { recursive: true })
+    writeFileSync(join(skillsDir(ws), 'handover', 'SKILL.md'), OLD_HANDOVER.replace(/\n/g, '\r\n'))
+    mkdirSync(join(skillsDir(ws), 'merge-ready'), { recursive: true })
+    writeFileSync(join(skillsDir(ws), 'merge-ready', 'SKILL.md'), '---\nname: merge-ready\ndescription: Mine now.\n---\n\nMy own steps.\n')
+    for (const n of ['review-agent-work', 'split-work', 'workspace-note']) mkdirSync(join(skillsDir(ws), n), { recursive: true })
+    for (const n of ['review-agent-work', 'split-work', 'workspace-note']) writeFileSync(join(skillsDir(ws), n, 'SKILL.md'), readFileSync(join(RES, 'skills', n, 'SKILL.md')))
+    // pick-up was deleted by the user.
+    const w = await opened(ws)
+    try {
+      await wsMod.inWorkspace(w, () => mod.syncBundled())
+      const text = (n: string) => readFileSync(join(skillsDir(ws), n, 'SKILL.md'), 'utf8')
+      expect(text('handover')).toBe(readFileSync(join(RES, 'skills', 'handover', 'SKILL.md'), 'utf8'))
+      expect(text('merge-ready')).toContain('My own steps.')
+      expect(existsSync(join(skillsDir(ws), 'pick-up'))).toBe(false)
+      expect(existsSync(join(skillsDir(ws), 'work-on-card', 'SKILL.md'))).toBe(true)
+      expect(readdirSync(join(ws, '.hive', 'personas')).length).toBe(readdirSync(join(RES, 'personas')).length)
+
+      // The views: the edited copy is "changed", the deleted one "missing" (Restore), the rest Hive's.
+      const listed = await wsMod.inWorkspace(w, () => skills.hiveSkills(true))
+      const state = Object.fromEntries(listed.map((s) => [s.name, s.bundled]))
+      expect(state).toMatchObject({ handover: 'same', 'merge-ready': 'changed', 'pick-up': 'missing', 'work-on-card': 'same' })
+
+      // Opening again changes nothing: a deleted skill isn't brought back, an edited one isn't touched.
+      rmSync(join(skillsDir(ws), 'work-on-card'), { recursive: true })
+      await wsMod.inWorkspace(w, () => mod.syncBundled())
+      expect(existsSync(join(skillsDir(ws), 'work-on-card'))).toBe(false)
+      expect(existsSync(join(skillsDir(ws), 'pick-up'))).toBe(false)
+      expect(text('merge-ready')).toContain('My own steps.')
+
+      // Restore puts one back as Hive's, and later updates follow it again.
+      await wsMod.inWorkspace(w, () => skills.restoreBundledSkill('pick-up'))
+      expect((await wsMod.inWorkspace(w, () => skills.hiveSkills(true))).find((s) => s.name === 'pick-up')?.bundled).toBe('same')
+    } finally {
+      await wsMod.disposeWorkspaceService(w)
+    }
+  })
+
+  it('says an edited copy has an update when it was made from an older version', async () => {
+    const ws = join(base, 'edited')
+    mkdirSync(join(ws, '.hive', 'skills', 'handover'), { recursive: true })
+    writeFileSync(join(skillsDir(ws), 'handover', 'SKILL.md'), OLD_HANDOVER)
+    const w = await opened(ws)
+    try {
+      // A copy made from the old version, which the user then edited: this Hive's version can't go in over the edit.
+      await wsMod.inWorkspace(w, () => mod.syncBundled())
+      writeFileSync(join(skillsDir(ws), 'handover', 'SKILL.md'), OLD_HANDOVER + 'My addition.\n')
+      const m = JSON.parse(readFileSync(join(ws, '.hive', 'bundled.json'), 'utf8'))
+      m.skills.handover.from = oldHash
+      writeFileSync(join(ws, '.hive', 'bundled.json'), JSON.stringify(m))
+      await wsMod.inWorkspace(w, () => mod.syncBundled())
+      const h = (await wsMod.inWorkspace(w, () => skills.hiveSkills(true))).find((s) => s.name === 'handover')!
+      expect(h.bundled).toBe('changed')
+      expect(h.updateAvailable).toBe(true)
+      expect(readFileSync(join(skillsDir(ws), 'handover', 'SKILL.md'), 'utf8')).toContain('My addition.')
+    } finally {
+      await wsMod.disposeWorkspaceService(w)
+    }
+  })
+
+  it("keeps an older copy the user linked files into, with its link, instead of updating it", async () => {
+    const ws = join(base, 'linked')
+    const target = join(base, 'linked-target')
+    mkdirSync(target, { recursive: true })
+    writeFileSync(join(target, 'custom.md'), 'My own reference.')
+    mkdirSync(join(skillsDir(ws), 'handover'), { recursive: true })
+    writeFileSync(join(skillsDir(ws), 'handover', 'SKILL.md'), OLD_HANDOVER)
+    symlinkSync(target, join(skillsDir(ws), 'handover', 'references'), 'junction')
+    const w = await opened(ws)
+    try {
+      await wsMod.inWorkspace(w, () => mod.syncBundled())
+      expect(readFileSync(join(skillsDir(ws), 'handover', 'SKILL.md'), 'utf8')).toBe(OLD_HANDOVER)
+      expect(readFileSync(join(skillsDir(ws), 'handover', 'references', 'custom.md'), 'utf8')).toBe('My own reference.')
+      expect((await wsMod.inWorkspace(w, () => skills.hiveSkills(true))).find((x) => x.name === 'handover')?.bundled).toBe('changed')
+    } finally {
+      await wsMod.disposeWorkspaceService(w)
+    }
+  })
+
+  it('offers an update only from an older version: not to a copy from a newer or unknown Hive', async () => {
+    const ws = join(base, 'newer')
+    mkdirSync(ws, { recursive: true })
+    const w = await opened(ws)
+    try {
+      await wsMod.inWorkspace(w, () => mod.syncBundled({ fresh: true }))
+      // Another Hive (newer, sharing the workspace) gave its own versions, which this one doesn't know.
+      writeFileSync(join(skillsDir(ws), 'handover', 'SKILL.md'), 'A newer handover.\n')
+      writeFileSync(join(ws, '.hive', 'personas', 'planner.md'), '---\nname: Planner\n---\nA newer planner.\n')
+      const m = JSON.parse(readFileSync(join(ws, '.hive', 'bundled.json'), 'utf8'))
+      m.skills.handover.from = 'feedfacefeedface'
+      m.personas.planner.from = 'feedfacefeedface'
+      writeFileSync(join(ws, '.hive', 'bundled.json'), JSON.stringify(m))
+      await wsMod.inWorkspace(w, () => mod.syncBundled())
+      expect(readFileSync(join(skillsDir(ws), 'handover', 'SKILL.md'), 'utf8')).toBe('A newer handover.\n')
+      const h = (await wsMod.inWorkspace(w, () => skills.hiveSkills(true))).find((x) => x.name === 'handover')!
+      expect([h.bundled, h.updateAvailable]).toEqual(['changed', undefined])
+      const status = await wsMod.inWorkspace(w, () => mod.bundledStatus('personas', 'planner', join(ws, '.hive', 'personas', 'planner.md')))
+      expect(status).toEqual({ bundled: 'changed' })
+      // From a version this Hive knows to be older, an update is offered (personas too).
+      m.personas.planner.from = (HISTORY as { personas: Record<string, string[]> }).personas.planner[0]
+      writeFileSync(join(ws, '.hive', 'bundled.json'), JSON.stringify(m))
+      expect(await wsMod.inWorkspace(w, () => mod.bundledStatus('personas', 'planner', join(ws, '.hive', 'personas', 'planner.md')))).toEqual({ bundled: 'changed', updateAvailable: true })
+    } finally {
+      await wsMod.disposeWorkspaceService(w)
+    }
+  })
+
+  it('gives project agents and the Assistant the skills for them (metadata.audience), agents by default', async () => {
+    const ws = join(base, 'fresh')
+    mkdirSync(join(skillsDir(ws), 'my-own'), { recursive: true })
+    writeFileSync(join(skillsDir(ws), 'my-own', 'SKILL.md'), '---\nname: my-own\ndescription: A user skill.\n---\n')
+    const w = await opened(ws)
+    try {
+      const names = async (role: 'agent' | 'assistant') => (await wsMod.inWorkspace(w, () => skills.hiveSkills(false, role))).map((s) => s.name)
+      const forAgents = await names('agent')
+      const forAssistant = await names('assistant')
+      expect(forAgents).toEqual(expect.arrayContaining(['my-own', 'work-on-card', 'review-agent-work', 'merge-ready', 'handover', 'split-work']))
+      expect(forAgents).not.toContain('coordinate-agents')
+      expect(forAssistant).toEqual(expect.arrayContaining(['coordinate-agents', 'split-work', 'handover', 'pick-up', 'workspace-note']))
+      for (const n of ['my-own', 'work-on-card', 'review-agent-work', 'merge-ready', 'use-hive-api']) expect(forAssistant).not.toContain(n)
+    } finally {
+      await wsMod.disposeWorkspaceService(w)
+    }
+  })
+})
+
+describe("Codex's copies of a session's skills", () => {
+  const base = mkdtempSync(join(tmpdir(), 'hive-codex-skills-'))
+  afterAll(() => rmSync(base, { recursive: true, force: true }))
+  const source = (name: string, text: string) => {
+    const d = join(base, 'workspace-skills', name)
+    mkdirSync(join(d, 'references'), { recursive: true })
+    writeFileSync(join(d, 'SKILL.md'), text)
+    writeFileSync(join(d, 'references', 'r.md'), `ref of ${name}`)
+    return d
+  }
+  const sync = async (cwd: string, skills: { name: string; sourcePath: string }[]) => {
+    const { codex } = await import('../src/main/providers/codex/adapter')
+    return (codex as unknown as { syncSkills: (ctx: unknown) => Promise<Record<string, import('../src/main/providers/types').SkillDelivery>> }).syncSkills({ cwd, skills })
+  }
+
+  it('tidies what a crash in a swap left before syncing, and the next launch has the new copy', async () => {
+    const cwd = join(base, 'crash')
+    const dir = join(cwd, '.agents', 'skills')
+    const example = source('example', 'v2')
+    // A crash after the old copy was renamed aside: its place is empty, the new copy half-made beside it.
+    mkdirSync(join(dir, '.hive-example.hive-old-1-1', 'references'), { recursive: true })
+    writeFileSync(join(dir, '.hive-example.hive-old-1-1', 'SKILL.md'), 'v1')
+    writeFileSync(join(dir, '.hive-example.hive-old-1-1', '.hive-copy'), JSON.stringify({ hash: 'old' }))
+    mkdirSync(join(dir, '.hive-example.hive-new-1-1'), { recursive: true })
+    // And one for a skill the session no longer gets: it comes back as Hive's copy, then goes like any such copy.
+    mkdirSync(join(dir, '.hive-gone.hive-old-1-2'), { recursive: true })
+    writeFileSync(join(dir, '.hive-gone.hive-old-1-2', '.hive-copy'), JSON.stringify({ hash: 'x' }))
+    const out = await sync(cwd, [{ name: 'example', sourcePath: example }])
+    expect(readdirSync(dir).sort()).toEqual(['hive-example'])
+    expect(readFileSync(join(dir, 'hive-example', 'SKILL.md'), 'utf8')).toBe('v2')
+    expect(readFileSync(join(dir, 'hive-example', 'references', 'r.md'), 'utf8')).toBe('ref of example')
+    expect(out.example).toEqual({ revision: await contentHash(example) })
+  })
+
+  it("says when a skill isn't delivered: a folder of the user's has its name, or the old copy is in use", async () => {
+    const cwd = join(base, 'deliver')
+    const dir = join(cwd, '.agents', 'skills')
+    const handover = source('handover', 'Hive handover')
+    const held = source('held', 'held v1')
+    mkdirSync(join(dir, 'hive-handover'), { recursive: true })
+    writeFileSync(join(dir, 'hive-handover', 'SKILL.md'), 'MY OWN')
+    let out = await sync(cwd, [{ name: 'handover', sourcePath: handover }, { name: 'held', sourcePath: held }])
+    expect(out.handover).toEqual({ revision: null, problem: expect.stringMatching(/folder of the user's/), lasting: true })
+    expect(readFileSync(join(dir, 'hive-handover', 'SKILL.md'), 'utf8')).toBe('MY OWN')
+    const v1 = await contentHash(join(dir, 'hive-held'))
+    expect(out.held).toEqual({ revision: v1 })
+    // The skill changes while a running session has a file of its copy open: that copy stays, and is reported as kept.
+    writeFileSync(join(held, 'SKILL.md'), 'held v2')
+    if (process.platform === 'win32') {
+      const handle = await open(join(dir, 'hive-held', 'SKILL.md'), 'r')
+      try {
+        out = await sync(cwd, [{ name: 'held', sourcePath: held }])
+      } finally {
+        await handle.close()
+      }
+      expect(out.held).toEqual({ revision: v1, problem: expect.stringMatching(/old copy was in use/) })
+      expect(readdirSync(dir).filter((f) => f.startsWith('.'))).toEqual([])
+    }
+    out = await sync(cwd, [{ name: 'held', sourcePath: held }])
+    expect(out.held).toEqual({ revision: await contentHash(held) })
+  })
+})
+
+describe('links in skills Hive copies', () => {
+  const base = mkdtempSync(join(tmpdir(), 'hive-skill-links-'))
+  afterAll(() => rmSync(base, { recursive: true, force: true }))
+  const target = join(base, 'my-references')
+  mkdirSync(target, { recursive: true })
+  writeFileSync(join(target, 'custom.md'), 'My own reference.')
+  const sync = async (cwd: string, skills: { name: string; sourcePath: string }[]) => {
+    const { codex } = await import('../src/main/providers/codex/adapter')
+    return (codex as unknown as { syncSkills: (ctx: unknown) => Promise<Record<string, import('../src/main/providers/types').SkillDelivery>> }).syncSkills({ cwd, skills })
+  }
+
+  it("copies a link as a link to the same place, so the copy is the same content as its source", async () => {
+    const src = join(base, 'copy-src')
+    mkdirSync(src, { recursive: true })
+    writeFileSync(join(src, 'SKILL.md'), 'skill')
+    symlinkSync(target, join(src, 'references'), 'junction')
+    const dest = join(base, 'copy-dest')
+    await copySkillTree(src, dest)
+    expect(lstatSync(join(dest, 'references')).isSymbolicLink()).toBe(true)
+    expect(readFileSync(join(dest, 'references', 'custom.md'), 'utf8')).toBe('My own reference.')
+    expect(await contentHash(dest)).toBe(await contentHash(src))
+  })
+
+  it('Codex: a link added to the workspace skill reaches the next launch, and then counts as delivered', async () => {
+    const cwd = join(base, 'added')
+    const src = join(base, 'added-src')
+    mkdirSync(src, { recursive: true })
+    writeFileSync(join(src, 'SKILL.md'), 'skill')
+    await sync(cwd, [{ name: 'example', sourcePath: src }])
+    symlinkSync(target, join(src, 'references'), 'junction')
+    const out = await sync(cwd, [{ name: 'example', sourcePath: src }])
+    const copy = join(cwd, '.agents', 'skills', 'hive-example')
+    expect(readFileSync(join(copy, 'references', 'custom.md'), 'utf8')).toBe('My own reference.')
+    expect(out.example).toEqual({ revision: await contentHash(src) })
+    // Nothing changed since: the copy stays as it is, still the one asked for (no restart asked for again and again).
+    const again = await sync(cwd, [{ name: 'example', sourcePath: src }])
+    expect(again.example).toEqual({ revision: await contentHash(src) })
+  })
+
+  it("Codex: a user's same-name folder with a linked reference is never taken for Hive's, nor replaced later", async () => {
+    const cwd = join(base, 'users')
+    const src = join(base, 'users-src')
+    mkdirSync(src, { recursive: true })
+    writeFileSync(join(src, 'SKILL.md'), 'skill')
+    const theirs = join(cwd, '.agents', 'skills', 'hive-example')
+    mkdirSync(theirs, { recursive: true })
+    writeFileSync(join(theirs, 'SKILL.md'), 'skill')
+    symlinkSync(target, join(theirs, 'references'), 'junction')
+    let out = await sync(cwd, [{ name: 'example', sourcePath: src }])
+    expect(out.example).toMatchObject({ revision: null, lasting: true })
+    expect(existsSync(join(theirs, '.hive-copy'))).toBe(false)
+    writeFileSync(join(src, 'SKILL.md'), 'skill, changed')
+    out = await sync(cwd, [{ name: 'example', sourcePath: src }])
+    expect(out.example).toMatchObject({ revision: null, lasting: true })
+    expect(readFileSync(join(theirs, 'SKILL.md'), 'utf8')).toBe('skill')
+    expect(lstatSync(join(theirs, 'references')).isSymbolicLink()).toBe(true)
+  })
+})
+
+describe('what a launch records', () => {
+  it('reports the delivered revisions and problems, and needs a restart only for what a restart would deliver', async () => {
+    const { launchRecord } = await import('../src/main/guidance')
+    const r = launchRecord(
+      { a: 'A2', mine: 'M1', held: 'H2', failed: 'F1' },
+      { a: { revision: 'A2' }, mine: { revision: null, problem: "a folder of the user's", lasting: true }, held: { revision: 'H1', problem: 'old copy in use' }, failed: { revision: null, problem: 'could not be copied' } }
+    )
+    expect(r.skills).toEqual({ a: 'A2', held: 'H1' })
+    expect(r.problems).toEqual({ mine: "a folder of the user's", held: 'old copy in use', failed: 'could not be copied' })
+    // Compared with the workspace's (A2, M1, H2, F1): "mine" matches (a restart can't change it); held and failed don't.
+    expect(r.settled).toEqual({ a: 'A2', mine: 'M1', held: 'H1', failed: '' })
+    expect(launchRecord({ a: 'A2' }, { a: { revision: 'A2' } })).toEqual({ skills: { a: 'A2' }, settled: { a: 'A2' } })
+  })
+})

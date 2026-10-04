@@ -56,6 +56,8 @@ import type {
   TranscriptTool,
   WorkspaceInfo
 } from './types'
+import type { MetricsQuery, MetricsReport } from './metrics'
+import type { Artifact, CompareScope, ImportResult, KeptEntry } from './benchmark'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
 export type SettingsPatch = DeepPartial<AppSettings>
@@ -126,6 +128,25 @@ export interface HiveRequests {
   'workspace:recent': () => string[]
   /** Every project's (and the Assistant's) sessions with their usage, for the Workspace Overview. */
   'workspace:usage': () => WorkspaceUsage
+  /** The workspace's performance metrics for a scope and range (metrics.ts; the Performance view and tab). */
+  'metrics:query': (q: MetricsQuery) => MetricsReport
+  /** Clears the workspace's performance metrics. */
+  'metrics:reset': () => void
+  /** Saves a report as a JSON file (a save dialog): the path, or null if cancelled. `sanitize` replaces project names. */
+  'metrics:export': (q: MetricsQuery, sanitize: boolean) => string | null
+  /** Ends an agent's card watch (#128: the Cancel in its header). Whether it had one. */
+  'watch:cancel': (projectPath: string, agentId: string) => boolean
+  /** Kept comparisons (Performance → Compare), for a scope only: a project's page sees its own project's. */
+  'benchmarks:list': (scope: CompareScope) => { entries: KeptEntry[]; base: string | null; run: string | null; notice?: string }
+  /** Imports a benchmark or export (an open dialog; or, with `token`, a file an earlier answer asked about). Null if cancelled. */
+  'benchmarks:import': (scope: CompareScope, answer?: { token: string; useProjectPart: boolean }) => ImportResult | null
+  /** Keeps the page's current report (its query: scope, range, filters) as a comparison. */
+  'benchmarks:keep': (q: MetricsQuery, label?: string) => KeptEntry
+  'benchmarks:read': (scope: CompareScope, id: string) => Artifact
+  'benchmarks:remove': (scope: CompareScope, id: string) => void
+  'benchmarks:pin': (scope: CompareScope, id: string, pinned: boolean) => void
+  /** Remembers a scope's chosen baseline and run. */
+  'benchmarks:select': (scope: CompareScope, base: string | null, run: string | null) => void
   'workspace:removeRecent': (path: string) => string[]
   'workspace:refresh': () => WorkspaceInfo | null
 

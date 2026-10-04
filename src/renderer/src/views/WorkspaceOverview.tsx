@@ -87,7 +87,7 @@ function openProjectOverview(path: string): void {
 /** The workspace's last activity in a group's sessions. */
 const lastActive = (items: SessionListItem[]): string | null => items.reduce<string | null>((m, s) => (s.lastActivity && (!m || s.lastActivity > m) ? s.lastActivity : m), null)
 
-function Card({ title, value, sub, tip, accent }: { title: string; value: React.ReactNode; sub?: React.ReactNode; tip?: string; accent?: boolean }) {
+export function Card({ title, value, sub, tip, accent }: { title: string; value: React.ReactNode; sub?: React.ReactNode; tip?: string; accent?: boolean }) {
   return (
     <div className={cx('card', accent && 'accent')}>
       <h3>

@@ -71,6 +71,12 @@ const check = (name, ok, extra = '') => {
   const token = JSON.parse(fs.readFileSync(tokenFile, 'utf8')).token
   const mcp = JSON.parse(fs.readFileSync(path.join(home, '.hive', 'launch-assistant', 'mcp.json'), 'utf8')).mcpServers.hive
   check("the Assistant's hive tools use its token and role", mcp?.env.HIVE_API_TOKEN_FILE === tokenFile && mcp.env.HIVE_ROLE === 'assistant' && mcp.env.HIVE_ASSISTANT_CONTROL === 'projects', JSON.stringify(mcp?.env))
+  // Its skills: the workspace's skills for the Assistant (coordinate-agents and the shared ones), none for agents only.
+  const assistantSkills = fs.readdirSync(path.join(home, '.hive', 'launch-assistant', 'plugin', 'skills')).sort()
+  check('the Assistant gets the skills for it', ['coordinate-agents', 'handover', 'pick-up', 'split-work', 'workspace-note'].every((n) => assistantSkills.includes(n)) && !['work-on-card', 'review-agent-work', 'merge-ready', 'use-hive-api'].some((n) => assistantSkills.includes(n)), assistantSkills.join(','))
+  // Its instructions: its control level and boundaries, the skill that says how, then the persona (character only).
+  const told = fs.readFileSync(path.join(home, '.hive', 'launch-assistant', 'instructions.md'), 'utf8')
+  check('its instructions give its control level and point to coordinate-agents, before the persona', /Control agents and create projects/.test(told) && told.indexOf('coordinate-agents skill') > 0 && told.indexOf('coordinate-agents skill') < told.indexOf('# Your persona'), told.slice(0, 300))
   const api = async (method, p, body, bearer = token) => {
     const res = await fetch(API + p, { method, headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' }, ...(body && method !== 'GET' ? { body: JSON.stringify(body) } : {}) })
     return { status: res.status, body: await res.json().catch(() => null) }

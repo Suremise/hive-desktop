@@ -166,7 +166,7 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
       // Another prompt still up (calls side by side, the title still on): the wait moves on to it, already told.
       const still = answered && s.attention === 'title' && s.titleAsks ? open.findLast((a) => a.blocking) : undefined
       if (still) return { next: null, message: still.message || null, waitingOn: still, open: open.filter((a) => a !== still), ...reviewed(s), actions: [] }
-      const next = answered || s.status === 'ready' || s.status === 'finished' || s.status === 'background' ? 'working' : null
+      const next = answered || s.status === 'ready' || s.status === 'finished' || s.status === 'watching' || s.status === 'background' ? 'working' : null
       return { next, ...(open.length !== s.open.length ? { open } : {}), ...(answered ? { waitingOn: null } : {}), ...reviewed(s), actions: [] }
     }
     case 'ask': {

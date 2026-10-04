@@ -11,11 +11,11 @@ import type { StartHint } from '../../../shared/startFailure'
 import { CODEX, CODEX_DESCRIPTOR, CODEX_MODE_FLAGS, CODEX_PERMISSION_MODES } from '../../../shared/codex'
 import { providerSettings } from '../../../shared/providers'
 import { config } from '../../config'
-import { copyDir, hashDir, removePath, withFileLock } from '../../fsutil'
+import { cleanSwaps, contentHash, ContentTooLarge, COPY_MARKER, CopyFailed, LinkNotCopied, sourceProblem, tooBigToDeliver, removePath, swapIn, withFileLock } from '../../fsutil'
 import { createLogger, userText } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, toSpawnable } from '../common'
-import type { BackgroundTaskEvent, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillRoots, UsageParser } from '../types'
+import type { BackgroundTaskEvent, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
 import { codexBackgroundTasks } from './background'
 import { CodexConversationParser, CodexUsageParser, codexImageData, parseRollout, patchPaths, rolloutDetails } from './rollout'
 
@@ -258,10 +258,28 @@ async function firstLine(path: string, max = 1 << 20): Promise<string> {
 }
 
 /** Marks Hive's copies of workspace skills in .agents/skills (so only those are ever replaced or removed). */
-const SKILL_MARKER = '.hive-copy'
+const SKILL_MARKER = COPY_MARKER
 
 /** Session id from a rollout file name (rollout-<local time>-<uuid>.jsonl). */
 const idFromFile = (f: string): string | null => /-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i.exec(f)?.[1] ?? null
+
+/** The hash in a Hive copy's marker ('' for one from before hashes), or null: not Hive's copy (or no folder). */
+async function skillMarker(folder: string): Promise<string | null> {
+  try {
+    return (JSON.parse(await readFile(join(folder, SKILL_MARKER), 'utf8')) as { hash?: string }).hash ?? ''
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A skill not delivered this time, for `problem`: what Codex reads of it is Hive's copy from an earlier launch, if one is
+ * there (its revision, and the problem says it kept it); a folder of the user's with its name is never Hive's delivery.
+ */
+async function keptCopy(dest: string, problem: string): Promise<SkillDelivery> {
+  const kept = existsSync(dest) && (await skillMarker(dest)) !== null ? await contentHash(dest).catch(() => null) : null
+  return { revision: kept, problem: kept ? `${problem}, so it kept its old copy` : problem }
+}
 
 export class CodexAdapter implements ProviderAdapter {
   readonly id = CODEX
@@ -475,61 +493,137 @@ export class CodexAdapter implements ProviderAdapter {
   private hashesByRun = new Map<string, Record<string, string> | undefined>()
 
   /**
-   * Copies the enabled workspace skills into <cwd>/.agents/skills/hive-<name> (Codex has no per-launch
-   * skills folder), removes Hive's copies that are no longer enabled, and keeps them out of git. Hive's
-   * copies carry a marker file (with the source's hash): folders without one are the user's and are never
-   * touched, and an unchanged skill isn't copied again (another agent may be reading it).
+   * Copies the session's Hive skills into <cwd>/.agents/skills/hive-<name> (Codex has no per-launch skills folder),
+   * removes Hive's copies of skills it no longer gets, and keeps them out of git. Hive's copies carry a marker file
+   * (with the source's hash): folders without one are the user's and are never touched. An unchanged skill isn't
+   * copied again, and a changed one is swapped in whole (swapIn), so another agent sharing the folder never reads
+   * one half-copied; it does read the new version from then on (Codex reads a skill's files when it uses it). What a
+   * swap interrupted by a crash left there is tidied first. Says what each skill's copy now is.
    */
-  private syncSkills(ctx: LaunchContext): Promise<void> {
+  private syncSkills(ctx: LaunchContext): Promise<Record<string, SkillDelivery>> {
     // Codex agents sharing a folder start together (resuming after a restart): one copies at a time.
     return withFileLock(join(ctx.cwd, '.agents', 'skills'), () => this.syncSkillsNow(ctx))
   }
 
-  private async syncSkillsNow(ctx: LaunchContext): Promise<void> {
+  private async syncSkillsNow(ctx: LaunchContext): Promise<Record<string, SkillDelivery>> {
     const dir = join(ctx.cwd, '.agents', 'skills')
+    const out: Record<string, SkillDelivery> = {}
     const wanted = new Map(ctx.skills.map((s) => [`hive-${s.name}`, s]))
-    if (!ctx.skills.length && !existsSync(dir)) return
+    if (!ctx.skills.length && !existsSync(dir)) return out
     await mkdir(dir, { recursive: true })
-    const marker = async (folder: string): Promise<string | null> => {
-      try {
-        return (JSON.parse(await readFile(join(folder, SKILL_MARKER), 'utf8')) as { hash?: string }).hash ?? ''
-      } catch {
-        return null
-      }
-    }
+    // Under the same lock as the swaps: Hive's own leftovers only (dot-folders named for a swap).
+    await cleanSwaps(dir)
     for (const f of await readdir(dir).catch(() => [] as string[])) {
-      if (f.startsWith('hive-') && !wanted.has(f) && (await marker(join(dir, f))) !== null) await removePath(join(dir, f))
+      // A copy Hive no longer gives that can't be removed now (a file in it open) goes at a later launch.
+      if (f.startsWith('hive-') && !wanted.has(f) && (await skillMarker(join(dir, f))) !== null) await removePath(join(dir, f)).catch((e) => log.warn(`Could not remove ${userText(f)} for Codex; trying again next time`, e))
     }
     for (const [folder, s] of wanted) {
-      const dest = join(dir, folder)
-      const hash = await hashDir(s.sourcePath)
-      const had = existsSync(dest) ? await marker(dest) : undefined
-      if (had === hash) continue
-      if (had === null) {
-        // Not marked: the user's own folder, unless it is an unchanged copy from before markers.
-        if ((await hashDir(dest).catch(() => '')) !== hash) {
-          log.warn(`Not copying skill ${userText(s.name)} for Codex: ${userText(dest)} is not Hive's copy.`)
-          continue
-        }
-      } else {
-        await removePath(dest)
-        await copyDir(s.sourcePath, dest)
+      // One skill's failure is its own: the others are still delivered, and each record says what Codex reads.
+      try {
+        out[s.name] = await this.deliverSkill(s, join(dir, folder), folder)
+      } catch (e) {
+        log.warn(`Could not copy skill ${userText(s.name)} for Codex`, e)
+        out[s.name] = await keptCopy(join(dir, folder), 'it could not be copied')
+      }
+    }
+    // Keeping the copies out of git: a failure here changes nothing about what was delivered.
+    await this.excludeCopies(ctx.cwd).catch((e) => log.warn('Could not add Hive\'s Codex skill copies to git\'s exclude file', e))
+    return out
+  }
+
+  /** One skill into its folder in .agents/skills (under syncSkills' lock): what Codex reads of it afterwards. */
+  private async deliverSkill(s: LaunchContext['skills'][number], dest: string, folder: string): Promise<SkillDelivery> {
+    // One identity for the source, Hive's copies and their markers: contentHash, which counts links (never following
+    // them) and leaves the marker out. A marker from before (another hash) just means one more copy.
+    let hash: string
+    try {
+      hash = await contentHash(s.sourcePath)
+    } catch (e) {
+      // Not copied. Hive's copy from an earlier launch stays, and is what Codex reads: its revision is what reached the
+      // session. A folder of the user's with the name is theirs, not a delivery. Too big lasts until the skill is
+      // smaller; a source that couldn't be read (gone, or being edited) may work at the next launch.
+      if (e instanceof ContentTooLarge) return { ...(await keptCopy(dest, tooBigToDeliver(e))), lasting: true }
+      log.warn(`Could not read skill ${userText(s.name)} for Codex`, e)
+      return keptCopy(dest, sourceProblem(e, s.sourcePath))
+    }
+    const revision = (): Promise<string | null> => contentHash(dest).catch(() => null)
+    // What Codex reads now: the copy's revision, or why it has none (never a silent null).
+    const current = async (): Promise<SkillDelivery> => {
+      try {
+        return { revision: await contentHash(dest) }
+      } catch (e) {
+        return e instanceof ContentTooLarge ? { revision: null, problem: tooBigToDeliver(e), lasting: true } : { revision: null, problem: 'its copy could not be read' }
+      }
+    }
+    const had = existsSync(dest) ? await skillMarker(dest) : undefined
+    if (had === hash) return current()
+    if (had === null) {
+      // Not marked: the user's own folder, unless it is an unchanged copy from before markers.
+      if ((await revision()) !== hash) {
+        log.warn(`Not copying skill ${userText(s.name)} for Codex: ${userText(dest)} is not Hive's copy.`)
+        return { revision: null, problem: `a folder of the user's in .agents/skills is named ${folder}`, lasting: true }
       }
       await writeFile(join(dest, SKILL_MARKER), JSON.stringify({ source: s.sourcePath, hash }) + '\n')
+      return current()
     }
-    const common = await run('git', ['-C', ctx.cwd, 'rev-parse', '--git-common-dir'], 5000)
-    const gitDir = common.code === 0 ? common.stdout.trim() : ''
-    if (!gitDir) return
-    const exclude = join(isAbsolute(gitDir) ? gitDir : resolve(ctx.cwd, gitDir), 'info', 'exclude')
-    const text = await readFile(exclude, 'utf8').catch(() => '')
-    if (!text.split(/\r?\n/).includes('/.agents/skills/hive-*/')) {
-      await mkdir(join(exclude, '..'), { recursive: true })
-      await appendFile(exclude, `${text && !text.endsWith('\n') ? '\n' : ''}# Hive's copies of workspace skills for Codex (added by Hive)\n/.agents/skills/hive-*/\n`)
+    try {
+      // The copy is checked before it goes in (within the limits, as the source is read), and its marker and the record
+      // are what was copied: the source may have changed since it was hashed above.
+      const copied = await swapIn(s.sourcePath, dest, { prepare: (copy, rev) => writeFile(join(copy, SKILL_MARKER), JSON.stringify({ source: s.sourcePath, hash: rev }) + '\n') })
+      return { revision: copied }
+    } catch (e) {
+      log.warn(`Could not update skill ${userText(s.name)} for Codex; it keeps the copy it has`, e)
+      // A link the skill has that can't be made here, or a source grown past the limits while it was copied: a restart
+      // won't change that. A source gone or unreadable while it was copied may work next time. Either way nothing was
+      // replaced: what Codex reads is the copy that was there.
+      if (e instanceof LinkNotCopied) return { ...(await keptCopy(dest, e.message)), lasting: true }
+      if (e instanceof ContentTooLarge) return { ...(await keptCopy(dest, tooBigToDeliver(e))), lasting: true }
+      if (e instanceof CopyFailed || !existsSync(s.sourcePath)) return keptCopy(dest, sourceProblem(e, s.sourcePath))
+      // With a file in the old copy open, that copy stays until a later launch.
+      const code = (e as NodeJS.ErrnoException).code
+      const kept = existsSync(dest) ? await revision() : null
+      if (!kept) return { revision: null, problem: 'it could not be copied' }
+      // Windows won't move a folder with a file in it open (EBUSY, EPERM, EACCES): a running session is reading it.
+      return { revision: kept, problem: code === 'EBUSY' || code === 'EPERM' || code === 'EACCES' ? 'its old copy was in use, so it kept that one' : `it could not be copied${code ? ` (${code})` : ''}, so it kept its old copy` }
     }
   }
 
-  async prepareLaunch(ctx: LaunchContext): Promise<void> {
-    await this.syncSkills(ctx).catch((e) => log.warn('Could not copy skills for Codex', e))
+  /** Keeps Hive's copies (and a swap's dot-folders) out of git, in the repository's info/exclude. */
+  private async excludeCopies(cwd: string): Promise<void> {
+    const common = await run('git', ['-C', cwd, 'rev-parse', '--git-common-dir'], 5000)
+    const gitDir = common.code === 0 ? common.stdout.trim() : ''
+    if (!gitDir) return
+    const exclude = join(isAbsolute(gitDir) ? gitDir : resolve(cwd, gitDir), 'info', 'exclude')
+    const text = await readFile(exclude, 'utf8').catch(() => '')
+    const lines = text.split(/\r?\n/)
+    // Hive's copies, and the dot-folders a swap uses for a moment (left behind only by a crash, until the next launch).
+    const missing = ['/.agents/skills/hive-*/', '/.agents/skills/.hive-*/'].filter((l) => !lines.includes(l))
+    if (missing.length) {
+      await mkdir(join(exclude, '..'), { recursive: true })
+      await appendFile(exclude, `${text && !text.endsWith('\n') ? '\n' : ''}${lines.some((l) => l.startsWith("# Hive's copies of workspace skills")) ? '' : "# Hive's copies of workspace skills for Codex (added by Hive)\n"}${missing.join('\n')}\n`)
+    }
+  }
+
+  skillCopyPath(ctx: LaunchContext, skill: string): string {
+    return join(ctx.cwd, '.agents', 'skills', `hive-${skill}`)
+  }
+
+  async prepareLaunch(ctx: LaunchContext): Promise<Record<string, SkillDelivery>> {
+    const delivered = await this.syncSkills(ctx).catch(async (e) => {
+      // The folder couldn't be set up or locked: nothing was copied, and each skill is what was there before (a copy
+      // Hive made at an earlier launch, read without the lock: another launch may be changing it).
+      log.warn('Could not copy skills for Codex', e)
+      const dir = join(ctx.cwd, '.agents', 'skills')
+      const out: Record<string, SkillDelivery> = {}
+      for (const s of ctx.skills) out[s.name] = await keptCopy(join(dir, `hive-${s.name}`), 'the skills could not be copied')
+      return out
+    })
+    await this.checkHookHashes(ctx)
+    return delivered
+  }
+
+  /** Which hook hashes to trust for this launch (hashesByRun): Hive's own, unless this Codex version hashes differently. */
+  private async checkHookHashes(ctx: LaunchContext): Promise<void> {
     const version = (await run(ctx.executable, ['--version'], 10000)).stdout.match(/(\d+\.\d+\.\d+[\w.-]*)/)?.[1] ?? 'unknown'
     const token = ctx.env.HIVE_HOOK_TOKEN ?? ''
     // Hooks only (without the trust records), to ask Codex what it calls and hashes them.

@@ -33,7 +33,7 @@ export const scopeOf = (a: TaskActor): string | null => (a.kind === 'agent' && a
 export const inScope = (c: { project: string }, scope: string | null): boolean => scope === null || (!!c.project && c.project.toLowerCase() === scope.toLowerCase())
 
 /** What a confined agent is told about a card outside its project: the same as for one that doesn't exist. */
-const unknownTask = (n: number): Error => new Error(`Unknown task #${n}`)
+export const unknownTask = (n: number): Error => new Error(`Unknown task #${n}`)
 
 /** The calling agent, when a card of `project` going into Doing with no agent named should be given to it. */
 const selfIn = (actor: TaskActor, project: string): string | null =>
@@ -43,6 +43,9 @@ export const actorName = (a: TaskActor): string => (a.kind === 'user' ? 'You' : 
 
 /** A change only the user may make (or the Assistant once the user said yes): thrown for others. */
 export class TaskPermissionError extends Error {}
+
+/** A change the card's state rules out now (another agent is working on it): the Agent API's 409. */
+export class TaskConflictError extends Error {}
 
 const MAX_TITLE = 200
 const MAX_TEXT = 20_000
@@ -405,6 +408,16 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
     // The caller's own conditions, on the card as it is now (Start: not archived or done meanwhile).
     opts.check?.(card)
     if (card.archived && actor.kind !== 'user') throw new TaskPermissionError(`#${n} is archived. Only the user can bring it back.`)
+    // A card in Doing with another agent is that agent's work in progress: a project agent can't move it on to Review or
+    // Done (a reviewer whose review ended when it came back for more work, say). Checked on the card as it is, before
+    // anything else in the change (giving it to itself in the same call doesn't get round it). A project agent is one
+    // calling with its own token (actor.self); the user, the Assistant and scripts with the workspace token can.
+    // A review verdict or start is refused on a card in Doing anyway (reviewChange), with its own reason.
+    const moving = patch.review === undefined && (patch.column === 'review' || patch.column === 'done')
+    if (actor.kind === 'agent' && actor.self && moving && card.column === 'doing' && card.agent && card.agent !== actor.self.agentId) {
+      const who = card.agentName ?? 'another agent'
+      throw new TaskConflictError(`#${n} is in Doing with ${who}, who is working on it: newer work is in progress, so it can't be moved to ${patch.column === 'done' ? 'Done' : 'Review'} by another agent. Leave it where it is; ${who} moves it to Review when done, and the user can move it.`)
+    }
     const said: string[] = []
     // A card moved within its column: saved, but not worth a line in its history.
     let reordered = false

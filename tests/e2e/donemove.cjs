@@ -99,7 +99,12 @@ const until = async (fn, ms = 10000) => {
     const lines = fs.existsSync(transcript) ? fs.readFileSync(transcript, 'utf8').split('\n').filter((l) => l.includes(`task #${n} `)) : []
     return lines.length ? JSON.parse(lines.at(-1)).message.content : null
   }, 15000)
-  check('the card prompt says Review when done, Done only if the user asks', typeof prompt === 'string' && prompt.includes('move it to review') && prompt.includes('Move it to done only if the user asks'), String(prompt))
+  // The prompt points to the work-on-card skill, which the agent's launch carries, and which says Review when done and
+  // Done only when the user asks (the session's Hive instructions say it too, for a session without the skill).
+  check('the card prompt points to the work-on-card skill', typeof prompt === 'string' && prompt.includes('Use the work-on-card skill.'), String(prompt))
+  const skill = path.join(alpha, '.hive', `launch-${agent.id}`, 'plugin', 'skills', 'work-on-card', 'SKILL.md')
+  const skillText = fs.existsSync(skill) ? fs.readFileSync(skill, 'utf8') : ''
+  check('…which says Review when the work is done, and Done only when the user asks', /Move it to `review`/.test(skillText) && /Move it to `done` only when the user asks/.test(skillText), skillText.slice(0, 200))
 
   await inv('session:stop', alpha, agent.id).catch(() => undefined)
   await app.close()
