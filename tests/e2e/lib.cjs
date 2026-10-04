@@ -163,13 +163,52 @@ async function acceptClaudeTrust(inv, proj, agentId, timeoutMs = 15000) {
   return false
 }
 
-/** Trusts a folder in the test Codex home (and makes sure its non-admin sandbox is set). */
-function trustForCodex(folder) {
-  const cfg = path.join(CODEX_HOME, 'config.toml')
-  let t = fs.existsSync(cfg) ? fs.readFileSync(cfg, 'utf8') : ''
-  if (!t.includes(folder)) t += `\n[projects.'${folder}']\ntrust_level = "trusted"\n`
-  if (!/^\[windows\]/m.test(t)) t += `\n[windows]\nsandbox = "unelevated"\n`
-  fs.writeFileSync(cfg, t)
+/**
+ * Runs fn holding a lock beside file (`<file>.lock`, a folder: creating one is atomic), for a change that reads the file
+ * and writes it back: runners in different worktrees share the Codex test home (e2e lanes don't split it: it holds the
+ * one sign-in), and two changes at once would otherwise lose one. A lock older than staleMs was left by a crash.
+ */
+function withFileLock(file, fn, { staleMs = 30_000, timeoutMs = 120_000 } = {}) {
+  const lock = `${file}.lock`
+  const start = Date.now()
+  for (;;) {
+    try {
+      fs.mkdirSync(lock)
+      break
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e
+      let age
+      try {
+        age = Date.now() - fs.statSync(lock).mtimeMs
+      } catch {
+        continue // Just released.
+      }
+      if (age > staleMs) fs.rmSync(lock, { recursive: true, force: true })
+      else if (Date.now() - start > timeoutMs) throw new Error(`${lock} is still held`, { cause: e })
+      else Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+    }
+  }
+  try {
+    return fn()
+  } finally {
+    fs.rmSync(lock, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Trusts a folder in the test Codex home (and makes sure its non-admin sandbox is set). Under withFileLock: suites of
+ * runners in different lanes trust their own folders in the same config.toml.
+ */
+function trustForCodex(folder, home = CODEX_HOME) {
+  fs.mkdirSync(home, { recursive: true })
+  const cfg = path.join(home, 'config.toml')
+  withFileLock(cfg, () => {
+    const before = fs.existsSync(cfg) ? fs.readFileSync(cfg, 'utf8') : ''
+    let t = before
+    if (!t.includes(`[projects.'${folder}']`)) t += `\n[projects.'${folder}']\ntrust_level = "trusted"\n`
+    if (!/^\[windows\]/m.test(t)) t += `\n[windows]\nsandbox = "unelevated"\n`
+    if (t !== before) fs.writeFileSync(cfg, t)
+  })
 }
 
 /** A git repository with one commit. */
@@ -244,4 +283,4 @@ function hadEstimate(run) {
   return typeof run?.estimateMs === 'number'
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng }

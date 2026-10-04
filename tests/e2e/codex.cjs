@@ -21,12 +21,8 @@ function prepare() {
   execFileSync('git', ['init', '-q'], { cwd: proj })
   execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '.'], { cwd: proj })
   execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init'], { cwd: proj })
-  // The test Codex home trusts the project folder and has the non-admin sandbox set up.
-  const cfg = path.join(codexHome, 'config.toml')
-  let t = fs.readFileSync(cfg, 'utf8')
-  if (!t.includes(proj)) t += `\n[projects.'${proj}']\ntrust_level = "trusted"\n`
-  if (!/^\[windows\]/m.test(t)) t += `\n[windows]\nsandbox = "unelevated"\n`
-  fs.writeFileSync(cfg, t)
+  // The test Codex home trusts the project folder and has the non-admin sandbox set up (under its lock: lib.cjs).
+  lib.trustForCodex(proj, codexHome)
   lib.enableProviders(userData, ['claude-code', 'codex'])
 }
 

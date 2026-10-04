@@ -1,12 +1,15 @@
 // Hive's updater against a local fake release feed (generic provider): automatic check + download,
 // status bar states, update dialog, manual download, skip, auto-check off, errors, dev-build
 // disabled state, Restart and Update through the quit flow (test mode never installs anything).
-// Throwaway profiles; the download cache is %LOCALAPPDATA%\hive-test-updater (deleted before/after).
+// Throwaway profiles; the download cache is %LOCALAPPDATA%\hive-test-updater (deleted before/after), or
+// hive-test-updater-<k> for a runner in e2e lane k (lanes.mjs), so runners at once don't share it.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path'), http = require('http'), crypto = require('crypto')
 const scratch = lib.WORK
-const cache = path.join(process.env.LOCALAPPDATA, 'hive-test-updater')
+const lane = /[\\/]lanes[\\/](\d+)$/.exec(scratch)?.[1]
+const cacheName = lane ? `hive-test-updater-${lane}` : 'hive-test-updater'
+const cache = path.join(process.env.LOCALAPPDATA, cacheName)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let pass = 0, fail = 0
 const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
@@ -36,7 +39,7 @@ const server = http.createServer(async (req, res) => {
 })
 
 async function launch(profile, extraEnv = {}) {
-  const env = { ...process.env, HIVE_USER_DATA: path.join(scratch, profile), ...extraEnv }
+  const env = { ...process.env, HIVE_USER_DATA: path.join(scratch, profile), HIVE_UPDATE_CACHE: cacheName, ...extraEnv }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
