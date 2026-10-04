@@ -11,6 +11,7 @@
 //   an Edit of that file and records the tool call. "background N" starts a background command that ends after
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
 //   transcript. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
+//   "shell: <command line>" runs a command in cmd with the session's environment (fake-shell.jsonl records it).
 //   "boardmove N COLUMN" moves card N as hive_update_task does (the hive tools' API, token and agent, from
 //   --mcp-config) and records the answer in fake-calls.jsonl; "boardreview N ACTION [COLUMN]" reviews it the same way
 //   (review: start, passed or failed; a column with the verdict), and "boardcomment N" comments on it. All are written to the transcript as the hive tool
@@ -31,6 +32,7 @@
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
+const { spawn } = require('child_process')
 const { callHiveTool, parseHiveStep } = require('../fake-bridge.cjs')
 
 const args = process.argv.slice(2)
@@ -98,6 +100,20 @@ async function hook(event, extra = {}) {
  * line, time), and answered with the next line of fake-wakes-<agent>.txt in its home, which a test writes: the steps
  * this agent takes next (a builder's fix, a reviewer's verdict). Null for any other prompt, or with no script line left.
  */
+function shell(cmd) {
+  return new Promise((resolve) => {
+    const p = spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${cmd}"`], { cwd: process.cwd(), env: process.env, windowsVerbatimArguments: true, windowsHide: true })
+    let stdout = ''
+    let stderr = ''
+    p.stdout.on('data', (d) => (stdout += d))
+    p.stderr.on('data', (d) => (stderr += d))
+    p.on('close', (code) => {
+      if (home) fs.appendFileSync(path.join(home, 'fake-shell.jsonl'), JSON.stringify({ agent: process.env.HIVE_AGENT || 'agent', cmd, code, stdout, stderr }) + '\n')
+      resolve()
+    })
+  })
+}
+
 function wakeScript(text) {
   if (!text.startsWith('[Hive]') || !home) return null
   const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
@@ -146,6 +162,10 @@ async function runPrompt(text) {
     if (comment) await boardPatch(Number(comment[1]), { comment: 'Fake: done, see the files.' })
     const call = parseHiveStep(step)
     if (call) await hiveCall(call.tool, call.args)
+    // "shell: <command line>": runs it in cmd with the session's environment (PATH, HIVE_*), as an agent's shell
+    // would; the agent, command, exit code and output go to fake-shell.jsonl in its home.
+    const sh = /\bshell:\s*(.+)$/i.exec(step)
+    if (sh) await shell(sh[1].trim())
     const pause = /\bwork\s+(\d+)/i.exec(step)
     if (pause && i < steps.length - 1) await sleep(Number(pause[1]) * 1000)
   }

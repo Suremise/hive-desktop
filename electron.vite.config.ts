@@ -9,7 +9,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
-          'hive-mcp': resolve(__dirname, 'src/main/mcp/hive-mcp.ts')
+          'hive-mcp': resolve(__dirname, 'src/main/mcp/hive-mcp.ts'),
+          'hive-progress': resolve(__dirname, 'src/main/progressReporters/hive-progress.ts')
         }
       }
     }

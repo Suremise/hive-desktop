@@ -14,7 +14,8 @@ extraResources:
 asarUnpack:
   - '**/node_modules/@lydell/node-pty*/**'
   - out/main/hive-mcp.js
-  # Code hive-mcp.js shares with the main process (e.g. shared/hiveGuidance.ts) is split into chunks,
+  - out/main/hive-progress.js
+  # Code hive-mcp.js (or hive-progress.js) shares with the main process (e.g. shared/hiveGuidance.ts) is split into chunks,
   # which the CLIs load from outside the asar too.
   - out/main/chunks/**
 npmRebuild: false

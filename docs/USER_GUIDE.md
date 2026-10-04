@@ -279,6 +279,12 @@ Long runs, such as test suites and builds, can report their progress to Hive, an
 
 Runs come from what agents run: a tool or script reports through the Agent API (`/v1/progress`, see the Agent API reference), as the agent that started it. **Settings → General → Progress panel** turns it all off; agents can still report, and Hive ignores it.
 
+#### Show progress for any command
+
+Any command can show in the panel: ask an agent to run it with **`hive-progress`** in front, for example *"run the tests with `hive-progress -- npm test`"*, or ask once for all long commands. The panel then shows it under the agent's name with the time it has taken and, from the second time, about how long is left (from how long the same command took before). The command's output and result are unchanged, and outside Hive it simply runs the command.
+
+A command shows real steps when it prints lines like `##hive-progress step=4 total=12 name=carddialog`; any project's test runner can print them (see the Agent API reference). `hive-progress` is on the path of every session Hive starts, in Claude Code's and Codex's shells. Agents use it only when you ask.
+
 ## Task board
 
 The **Task Board** (in the activity bar, or **Ctrl+Shift+J**) is the workspace's list of work, as cards in four columns: **Todo**, **Doing**, **Review** and **Done**. You, the Hive Assistant and the agents all use it, so it's where you can see at a glance what is planned, what is being worked on and what is waiting for you.

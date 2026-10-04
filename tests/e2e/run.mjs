@@ -1,11 +1,13 @@
-// Runs Hive's end-to-end suites one after another: npm run e2e [suite…] [--packaged]
+// Runs Hive's end-to-end suites one after another: npm run e2e [suite…] [--packaged] [--no-progress]
 // Needs a dev build (npx electron-vite build); the packaged suites need npm run dist (dist/win-unpacked).
 // A suite fails when it exits non-zero or prints a line starting with FAIL. See tests/e2e/README.md.
+// Run in a Hive agent's session, it shows in that Hive's Progress panel, one step per suite (../progressReport.mts).
 import { spawn } from 'child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
+import { e2eProgress } from '../progressReport.mts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
@@ -61,6 +63,7 @@ const SUITES = [
   { name: 'overview' },
   { name: 'packaged', needs: ['packaged'] },
   { name: 'packaged-mcp', needs: ['packaged'] },
+  { name: 'packaged-progress', needs: ['packaged'] },
   { name: 'packaged-transcript', needs: ['packaged'] },
   { name: 'pages' },
   { name: 'paneheader' },
@@ -68,6 +71,7 @@ const SUITES = [
   { name: 'performance' },
   { name: 'plan', needs: ['claude'] },
   { name: 'progress' },
+  { name: 'progressreport' },
   { name: 'providers' },
   { name: 'quit', needs: ['claude'] },
   { name: 'quitwait' },
@@ -112,11 +116,20 @@ if (!existsSync(join(root, 'out', 'main', 'index.js'))) {
   process.exit(2)
 }
 
+// Run from an agent's session, the variables that make it that agent (its Hive, token, project) stay out of the suites
+// and the test copies of Hive they start: those have their own profile, port and sessions.
+const SESSION_VARS = ['HIVE_API_URL', 'HIVE_API_TOKEN', 'HIVE_API_TOKEN_FILE', 'HIVE_HOOK_TOKEN', 'HIVE_PROJECT', 'HIVE_PROJECT_PATH', 'HIVE_WORKSPACE', 'HIVE_RUN_ID', 'HIVE_SESSION_ID', 'HIVE_AGENT', 'HIVE_PROVIDER', 'HIVE_PROGRESS_DATA']
+const suiteEnv = () => {
+  const env = { HIVE_TEST_TIPS: 'off', ...process.env }
+  for (const k of SESSION_VARS) delete env[k]
+  return env
+}
+
 const run = (name) =>
   new Promise((resolve) => {
     const started = Date.now()
     // No tip card over what a suite clicks, unless its profile turns tips on (tips does).
-    const child = spawn(process.execPath, [join(here, `${name}.cjs`)], { cwd: root, env: { HIVE_TEST_TIPS: 'off', ...process.env } })
+    const child = spawn(process.execPath, [join(here, `${name}.cjs`)], { cwd: root, env: suiteEnv() })
     let out = ''
     const add = (d) => (out += d)
     child.stdout.on('data', add)
@@ -135,10 +148,11 @@ const results = []
 // Each suite stands alone; the quick ones run first: those that need nothing, then Claude Code, Codex, the installer.
 const NEEDS = ['claude', 'codex', 'packaged']
 const rank = (s) => Math.max(-1, ...(s.needs ?? []).map((n) => NEEDS.indexOf(n)))
-for (const s of [...SUITES].sort((a, b) => rank(a) - rank(b))) {
-  if (named.length && !named.includes(s.name)) continue
+const chosen = [...SUITES].sort((a, b) => rank(a) - rank(b)).filter((s) => (!named.length || named.includes(s.name)) && (packaged || !(s.needs ?? []).includes('packaged')))
+const progress = e2eProgress(chosen.map((s) => s.name), args)
+for (const [i, s] of chosen.entries()) {
+  progress.suite(i, s.name)
   const needs = s.needs ?? []
-  if (needs.includes('packaged') && !packaged) continue
   if (needs.includes('packaged') && !existsSync(join(root, 'dist', 'win-unpacked'))) {
     results.push({ name: s.name, skipped: 'no dist/win-unpacked (npm run dist)' })
     continue
@@ -149,6 +163,7 @@ for (const s of [...SUITES].sort((a, b) => rank(a) - rank(b))) {
   }
   process.stdout.write(`${s.name.padEnd(22)}`)
   const r = await run(s.name)
+  progress.done(s.name, r.seconds * 1000, r.ok)
   writeFileSync(join(logDir, `${s.name}.log`), r.out)
   console.log(`${r.ok ? 'pass' : 'FAIL'}  ${r.seconds}s${r.ok ? '' : `  (exit ${r.code}${r.failed.length ? `; ${r.failed.length} failed check${r.failed.length === 1 ? '' : 's'}` : ''})`}`)
   for (const f of r.failed) console.log(`    ${f.trim()}`)
@@ -156,5 +171,7 @@ for (const s of [...SUITES].sort((a, b) => rank(a) - rank(b))) {
 }
 for (const r of results.filter((x) => x.skipped)) console.log(`${r.name.padEnd(22)}skipped: ${r.skipped}`)
 const failed = results.filter((r) => r.ok === false)
-console.log(`\n${results.filter((r) => r.ok).length} passed, ${failed.length} failed, ${results.filter((r) => r.skipped).length} skipped. Logs: ${logDir}`)
+const summary = `${results.filter((r) => r.ok).length} passed, ${failed.length} failed, ${results.filter((r) => r.skipped).length} skipped`
+console.log(`\n${summary}. Logs: ${logDir}`)
+await progress.finish(!failed.length, summary)
 process.exit(failed.length ? 1 : 0)

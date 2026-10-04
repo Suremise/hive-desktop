@@ -13,6 +13,16 @@ npm run dist && npm run e2e -- --packaged   # also the installed-app suites (dis
 A suite passes when it exits cleanly and prints no `FAIL` line. The runner prints a summary; each suite's output
 is kept in `logs/` under the work folder.
 
+**Progress in Hive.** Run from an agent's session in Hive, the runner shows in that Hive's Progress panel: **e2e: N
+suites**, a step per suite, and the time left from how long each suite took before (kept in
+`%LOCALAPPDATA%\hive-test\progress-timings.json`). `npm test` does the same, a step per test file. It reports to the
+Hive that launched the agent, never to the test copies the suites start (the session's `HIVE_*` variables aren't
+passed to them), and it never changes the output or the results. Turn it off with `--no-progress` (e2e) or
+`HIVE_PROGRESS=0` (both). The reporting is all in `tests/progressReport.mts`.
+
+`packaged-progress` checks the `hive-progress` wrapper as installed (`dist/win-unpacked`), against a stand-in for the
+Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` checks the dev build's copy.
+
 ## What they need
 
 - **Claude Code**, installed and signed in. Suites that start sessions (`agents`, `image`, `mode`, `plan`,
