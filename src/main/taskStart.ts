@@ -15,7 +15,8 @@ const STATUS_WORDS: Record<string, string> = {
   working: 'is working',
   starting: 'is starting',
   waiting: 'is waiting for the user',
-  background: 'is waiting on background tasks it started'
+  background: 'is waiting on background tasks it started',
+  watching: 'is waiting on cards (a card watch): it takes no other work until it is woken, or the watch is cancelled (Cancel in its header)'
 }
 
 /** Cards being started now ("<workspace>#<n>"): a second Start of the same card is refused, not run twice. */

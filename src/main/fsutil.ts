@@ -1,5 +1,5 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Stats } from 'fs'
-import { copyFile, mkdir, open, readFile, rename, writeFile, stat, cp, rm } from 'fs/promises'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Dirent, type Stats } from 'fs'
+import { copyFile, lstat, mkdir, open, opendir, readFile, readlink, rename, writeFile, stat, symlink, cp, rm } from 'fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'path'
 import { createHash } from 'crypto'
 import { readdir } from 'fs/promises'
@@ -169,16 +169,29 @@ export async function writeTextAtomic(path: string, text: string): Promise<void>
 
 /** Renames a finished temp file over its target, retrying while Windows holds the target; removes the temp file on failure. */
 async function renameIntoPlace(tmp: string, path: string): Promise<void> {
+  try {
+    await renameRetrying(tmp, path)
+  } catch (e) {
+    await rm(tmp, { force: true }).catch(() => undefined)
+    throw e
+  }
+}
+
+/**
+ * A rename that Windows may refuse for a moment (a virus scanner or the search indexer looking at a file just written,
+ * or another rename of the target): retried, waiting a little longer each time (about 2.3 s over 20 tries). `guard`,
+ * when given, runs before every attempt (after each wait too) and stops the rename by throwing: work whose owner went
+ * away meanwhile (a closed workspace) never renames late. `renameOnce` is the single rename (tests replace it).
+ */
+export async function renameRetrying(from: string, to: string, tries = 20, guard?: () => void, renameOnce: (a: string, b: string) => Promise<void> = rename): Promise<void> {
   for (let attempt = 0; ; attempt++) {
+    guard?.()
     try {
-      await rename(tmp, path)
+      await renameOnce(from, to)
       return
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code
-      if (attempt >= 20 || !(code === 'EPERM' || code === 'EACCES' || code === 'EBUSY')) {
-        await rm(tmp, { force: true }).catch(() => undefined)
-        throw e
-      }
+      if (attempt >= tries || !(code === 'EPERM' || code === 'EACCES' || code === 'EBUSY')) throw e
       await new Promise((r) => setTimeout(r, 15 + attempt * 10))
     }
   }
@@ -416,27 +429,471 @@ export async function copyDir(src: string, dest: string): Promise<void> {
   await cp(src, dest, { recursive: true, force: true })
 }
 
-export async function removePath(path: string): Promise<void> {
-  if (existsSync(path)) await rm(path, { recursive: true, force: true })
+let swapCounter = 0
+
+/** A swap that found its destination no longer as expected: nothing was replaced, and the destination is as it was. */
+export class SwapAbandoned extends Error {}
+
+/** A swap whose copy couldn't be made (its source gone, unreadable or changing): nothing was replaced. `cause` is why. */
+export class CopyFailed extends Error {}
+
+/**
+ * Why a skill's source couldn't be copied, without its path (the user's): gone, a file in it gone, not allowed, or
+ * another error's code.
+ */
+export function sourceProblem(e: unknown, source: string): string {
+  const code = ((e instanceof CopyFailed ? e.cause : e) as NodeJS.ErrnoException)?.code
+  if (code === 'ENOENT') return existsSync(source) ? 'a file in it went while it was being copied' : 'its folder in the workspace is gone'
+  if (code === 'EACCES' || code === 'EPERM') return 'its folder in the workspace could not be read (access denied)'
+  // Anything else (a disk full, a write that failed) is about making the copy, not the source.
+  return `it could not be copied${code ? ` (${code})` : ''}`
 }
 
-/** Stable hash of a directory tree (file paths + contents). */
-export async function hashDir(dir: string): Promise<string> {
-  const h = createHash('sha256')
-  const walk = async (d: string, rel: string): Promise<void> => {
-    const entries = (await readdir(d, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))
-    for (const e of entries) {
-      const p = join(d, e.name)
-      const r = rel ? `${rel}/${e.name}` : e.name
-      if (e.isDirectory()) await walk(p, r)
-      else if (e.isFile()) {
-        h.update(r)
-        h.update(await readFile(p))
+/** What a path holds, to compare with what a swap expects: its contentHash, null if nothing is there. */
+async function hashOrNone(path: string): Promise<string | null> {
+  const there = await lstat(path).then(
+    () => true,
+    (e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? false : Promise.reject(e))
+  )
+  return there ? contentHash(path).catch(() => '\0unreadable') : null
+}
+
+const exists = (path: string): Promise<boolean> => lstat(path).then(() => true, () => false)
+
+/** Runs fn holding Hive's own write lock (withFileLock, as its editors use) on each of `paths`, taken in order. */
+function withFileLocks<T>(paths: string[], fn: () => Promise<T>): Promise<T> {
+  const [first, ...rest] = [...new Set(paths)].sort()
+  return first === undefined ? fn() : withFileLock(first, () => withFileLocks(rest, fn))
+}
+
+/** A folder's files (or the file itself), as absolute paths: the ones an editor might be saving. */
+async function filesIn(path: string): Promise<string[]> {
+  try {
+    if (!(await lstat(path)).isDirectory()) return [path]
+    return (await treeEntries(path, {})).map((e) => e.abs)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Replaces `dest` (a folder, or a file) with a copy of `src` (copySkillTree for a folder: links stay links), so a reader
+ * never sees it half-copied: the copy is made beside it (a dot-name, which skill scans skip; `prepare` can add to it),
+ * then the old one is renamed aside and the copy renamed into place. If Windows refuses a rename (a file in the old one
+ * is open), the old one stays as it was and this throws. `cleanSwaps` tidies what a crash between the steps leaves.
+ *
+ * With `expected` (a contentHash, or null for nothing there), the swap is only for that destination: an automatic
+ * update, never a user's newer version. It is checked after the copy is made (under Hive's own editors' file locks), on
+ * the old one once it has been moved aside, and again before the old one is removed (a write through a file already
+ * open); any difference puts the user's version back and throws SwapAbandoned, leaving the destination as the user has
+ * it. What a rollback moves aside is removed only if it is still exactly what was staged, and anything a refused
+ * rename leaves out of place is kept as a `-conflict-` copy: nothing that may hold the user's work is removed unchecked.
+ * Without `expected` (Restore, Revert, Hive's own copies) it replaces whatever is there.
+ */
+export async function swapIn(src: string, dest: string, o: { prepare?: (copy: string, revision: string) => Promise<void>; expected?: string | null } = {}): Promise<string> {
+  const tag = `${process.pid}-${++swapCounter}`
+  const parent = dirname(dest)
+  const name = dest.slice(parent.length + 1)
+  const fresh = join(parent, `.${name}.hive-new-${tag}`)
+  const old = join(parent, `.${name}.hive-old-${tag}`)
+  const check = o.expected !== undefined
+  await mkdir(parent, { recursive: true })
+  // The copy, made within the limits as the source is read (it may change meanwhile), and checked before anything is
+  // published: its revision is what was copied, not what the source was earlier. A copy over the limits, missing a link
+  // or that couldn't be made replaces nothing.
+  let revision: string
+  try {
+    try {
+      if ((await lstat(src)).isDirectory()) {
+        // A swap is all or nothing: a copy missing a link doesn't replace the old one.
+        const skipped = await copySkillTree(src, fresh)
+        if (skipped.length) throw new LinkNotCopied(linksNotCopied(skipped))
+      } else await copyBounded(src, fresh, { bytes: HASH_LIMITS.bytes }, HASH_LIMITS.bytes)
+      revision = await contentHash(fresh)
+    } catch (e) {
+      if (e instanceof ContentTooLarge || e instanceof LinkNotCopied) throw e
+      throw new CopyFailed(`${name} could not be copied`, { cause: e })
+    }
+    await o.prepare?.(fresh, revision)
+  } catch (e) {
+    await rm(fresh, { recursive: true, force: true }).catch(() => undefined)
+    throw e
+  }
+  // What was staged: a rollback's backup of the destination is Hive's only while it is this (prepare adds only files
+  // contentHash leaves out, such as a copy's marker).
+  const staged = check ? revision : null
+  /** Removes `p` if it is still `ok` (Hive's: nothing of the user's in it), else keeps it as a visible conflict copy. */
+  const dispose = async (p: string, ok: string | null): Promise<void> => {
+    if (ok !== null && (await hashOrNone(p)) === ok) await rm(p, { recursive: true, force: true }).catch(() => undefined)
+    else await keepAsConflict(p, parent, name)
+  }
+  const publish = async (): Promise<void> => {
+    if (check && (await hashOrNone(dest)) !== o.expected) throw new SwapAbandoned(`${name} changed before it could be replaced`)
+    const had = await exists(dest)
+    // A file in the old one held open by a running session keeps it from moving: a few tries, then it stays.
+    if (had) await renameRetrying(dest, old, 5)
+    if (had && check && (await hashOrNone(old)) !== o.expected) {
+      await renameRetrying(old, dest).catch(() => keepAsConflict(old, parent, name))
+      throw new SwapAbandoned(`${name} changed while it was being replaced`)
+    }
+    try {
+      // Something new in its place meanwhile (the user's): it stays. On Windows the rename would fail anyway.
+      if (check && (await exists(dest))) throw new SwapAbandoned(`${name} was put back while it was being replaced`)
+      // The copy was just written: a scanner may be looking at it for a moment.
+      await renameRetrying(fresh, dest)
+    } catch (e) {
+      // The old one back in its place if that is empty. If the user made a new one, theirs stays, and the old one goes
+      // only if it is still the version this swap expected (else it is kept as a conflict copy).
+      if (had && !(await exists(dest))) await renameRetrying(old, dest).catch(() => (check ? keepAsConflict(old, parent, name) : undefined))
+      else if (had && check) await dispose(old, o.expected ?? null)
+      throw e
+    }
+    if (!had) return
+    // Written to through a file left open before the move: the user's version goes back in its place. What is in the
+    // place now is moved aside first, and removed only if it is still exactly what was staged; if it was edited too, it
+    // is kept as a conflict copy. Nothing that could hold the user's work is removed unchecked.
+    if (check && (await hashOrNone(old)) !== o.expected) {
+      const back = join(parent, `.${name}.hive-back-${tag}`)
+      try {
+        await renameRetrying(dest, back)
+      } catch {
+        // The new version can't move: it stays, and the user's edited old one is kept beside it.
+        await keepAsConflict(old, parent, name)
+        throw new SwapAbandoned(`${name} changed while it was being replaced; the edited copy is kept beside it`)
       }
+      try {
+        await renameRetrying(old, dest)
+      } catch {
+        await renameRetrying(back, dest).catch(() => keepAsConflict(back, parent, name))
+        await keepAsConflict(old, parent, name)
+        throw new SwapAbandoned(`${name} changed while it was being replaced; the edited copy is kept beside it`)
+      }
+      await dispose(back, staged)
+      throw new SwapAbandoned(`${name} changed while it was being replaced`)
+    }
+    await rm(old, { recursive: true, force: true }).catch(() => undefined)
+  }
+  try {
+    if (check) await withFileLocks([...(await filesIn(dest)), ...(await filesIn(fresh)).map((f) => join(dest, f.slice(fresh.length)))], publish)
+    else await publish()
+  } finally {
+    await rm(fresh, { recursive: true, force: true }).catch(() => undefined)
+  }
+  return revision
+}
+
+/**
+ * Keeps `p` (something a swap set aside that may hold the user's work) beside the item as `<name>-conflict-<time>`
+ * (`<base>-conflict-<time><ext>` for a file), where the user can find it; it stays where it is if even that fails.
+ */
+async function keepAsConflict(p: string, parent: string, name: string): Promise<void> {
+  if (!(await exists(p))) return
+  const dot = name.lastIndexOf('.')
+  const [base, ext] = dot > 0 && !(await lstat(p)).isDirectory() ? [name.slice(0, dot), name.slice(dot)] : [name, '']
+  const when = new Date().toISOString().replace(/[:.]/g, '-')
+  for (let i = 0; i < 100; i++) {
+    const to = join(parent, `${base}-conflict-${when}${i ? `-${i}` : ''}${ext}`)
+    if (await exists(to)) continue
+    await renameRetrying(p, to).catch(() => undefined)
+    return
+  }
+}
+
+/**
+ * After a crash during swapIn in `parent`: a staged copy never put in place goes; an old one (the destination moved
+ * aside) whose place is empty comes back. An old one whose place has been filled, and a rollback's backup (what was in
+ * the place when the user's version was being put back), are removed only if `disposable` says they hold nothing of the
+ * user's (Hive's own copies; a version Hive shipped); otherwise they are kept beside it as `<name>-conflict-<time>`, so
+ * they can be found and recovered. Old ones are handled first, so the user's original takes its place before a backup.
+ */
+export async function cleanSwaps(parent: string, disposable: (old: string, name: string) => Promise<boolean> = async () => true): Promise<void> {
+  let names: string[] = []
+  try {
+    names = await readdir(parent)
+  } catch {
+    return
+  }
+  const found = names.flatMap((n) => {
+    const m = /^\.(.+)\.hive-(new|old|back)-\d+-\d+$/.exec(n)
+    return m ? [{ n, name: m[1], kind: m[2] }] : []
+  })
+  const order = { old: 0, back: 1, new: 2 } as Record<string, number>
+  for (const { n, name, kind } of found.sort((a, b) => order[a.kind] - order[b.kind])) {
+    const p = join(parent, n)
+    if (kind === 'new') await rm(p, { recursive: true, force: true }).catch(() => undefined)
+    else if (!(await exists(join(parent, name)))) await renameRetrying(p, join(parent, name)).catch(() => undefined)
+    else if (await disposable(p, name).catch(() => false)) await rm(p, { recursive: true, force: true }).catch(() => undefined)
+    else await keepAsConflict(p, parent, name)
+  }
+}
+
+/** The marker file in a copy Hive made of a skill (Codex's .agents/skills copies): not part of the skill's content. */
+export const COPY_MARKER = '.hive-copy'
+
+/**
+ * What Hive has read to know its skills, since it started (for measurements and tests): files and bytes hashed
+ * (contentHash), directory entries listed (readDirBounded), and bytes of skills' headers read (SKILL.md frontmatter).
+ */
+export const readStats = { files: 0, bytes: 0, entries: 0, metaBytes: 0 }
+
+/**
+ * A folder's entries, read a batch at a time and no more than `max` of them: `more` when it has others (not read).
+ * A huge folder costs only what was read.
+ */
+export async function readDirBounded(path: string, max: number, signal?: AbortSignal, count?: { entries: number }): Promise<{ entries: Dirent[]; more: boolean }> {
+  const dir = await opendir(path, { bufferSize: 32 })
+  const entries: Dirent[] = []
+  try {
+    for (;;) {
+      signal?.throwIfAborted()
+      const e = await dir.read()
+      if (!e) return { entries, more: false }
+      readStats.entries++
+      if (count) count.entries++
+      if (entries.length >= max) return { entries, more: true }
+      entries.push(e)
+    }
+  } finally {
+    await dir.close().catch(() => undefined)
+  }
+}
+
+/**
+ * The most contentHash and treeSignature take on, for a skill or persona: entries (files, folders and links), folder
+ * depth, and bytes actually read. Past one they stop with ContentTooLarge rather than read on.
+ */
+export const HASH_LIMITS = { entries: 2000, depth: 12, bytes: 64 * 1024 * 1024 }
+
+/** A skill or persona over HASH_LIMITS: it has no revision. */
+export class ContentTooLarge extends Error {}
+
+/** ContentTooLarge's reason for content over the byte limit (the same whether a stat or the read found it). */
+export const overBytes = (limit: number): string => `it is over ${Math.round(limit / 1024 / 1024)} MB`
+
+/** A launch's problem for a skill over HASH_LIMITS. */
+export const tooBigToDeliver = (e: ContentTooLarge): string => `it is too big for Hive to check (${e.message})`
+
+export interface HashOptions {
+  /** Stops the work (a closed workspace): the call rejects with the signal's reason. */
+  signal?: AbortSignal
+  limits?: Partial<typeof HASH_LIMITS>
+  /** Also counts what this call read here (files, bytes, directory entries), for the caller's own metrics. */
+  count?: { files: number; bytes: number; entries: number }
+}
+
+interface TreeEntry {
+  rel: string
+  abs: string
+  link: boolean
+}
+
+/** A file's or folder's files and links (never following one), in code-point order of their paths, within the limits. */
+async function treeEntries(path: string, o: HashOptions): Promise<TreeEntry[]> {
+  const lim = { ...HASH_LIMITS, ...o.limits }
+  const top = await lstat(path)
+  if (top.isSymbolicLink()) return [{ rel: '', abs: path, link: true }]
+  if (top.isFile()) return [{ rel: '', abs: path, link: false }]
+  const entries: TreeEntry[] = []
+  let seen = 0
+  const walk = async (rel: string, depth: number): Promise<void> => {
+    o.signal?.throwIfAborted()
+    if (depth > lim.depth) throw new ContentTooLarge(`it has folders more than ${lim.depth} deep`)
+    // The limit is on the skill's own entries: Hive's copy marker (one a folder at most) comes on top, so a skill at the
+    // limit is still within it once Hive has marked its copy. The listing stays bounded: at most one more than allowed.
+    const list = await readDirBounded(rel ? join(path, rel) : path, lim.entries - seen + 1, o.signal, o.count)
+    const own = list.entries.length - (list.entries.some((e) => e.name === COPY_MARKER) ? 1 : 0)
+    if (list.more || seen + own > lim.entries) throw new ContentTooLarge(`it has more than ${lim.entries} files and folders`)
+    seen += own
+    for (const e of list.entries) {
+      const r = rel ? `${rel}/${e.name}` : e.name
+      if (e.isSymbolicLink()) entries.push({ rel: r, abs: join(path, r), link: true })
+      else if (e.isDirectory()) await walk(r, depth + 1)
+      else if (e.isFile()) {
+        if (!CONTENT_HASH_SKIP.has(e.name)) entries.push({ rel: r, abs: join(path, r), link: false })
+      } else entries.push({ rel: r, abs: join(path, r), link: true })
     }
   }
-  await walk(dir, '')
+  await walk('', 1)
+  return entries.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0))
+}
+
+/**
+ * A hash of a file's or folder's content that ignores line endings (a git checkout's CRLF is the same skill), for
+ * telling Hive's shipped versions of a skill or persona apart. Paths are compared as written, in code-point order.
+ * A link (symlink or junction) is never followed: it counts by its name and where it points, so a copy with a link
+ * the user added never hashes the same as a version Hive shipped (Hive ships none). Files are read in chunks, and
+ * no more than HASH_LIMITS allow (ContentTooLarge): what it read, not what a stat said, counts.
+ */
+export async function contentHash(path: string, o: HashOptions = {}): Promise<string> {
+  const limit = o.limits?.bytes ?? HASH_LIMITS.bytes
+  const h = createHash('sha256')
+  const buf = Buffer.allocUnsafe(64 * 1024)
+  let total = 0
+  for (const e of await treeEntries(path, o)) {
+    h.update(e.rel)
+    if (e.link) {
+      h.update('\0link\0')
+      h.update(await linkTarget(e.abs).catch(() => '?'))
+      h.update('\0')
+      continue
+    }
+    h.update('\0')
+    readStats.files++
+    if (o.count) o.count.files++
+    const fh = await open(e.abs, 'r')
+    try {
+      // A CR at the end of a chunk waits for the next one: CRLF split between chunks is still one line ending.
+      let cr = false
+      for (;;) {
+        o.signal?.throwIfAborted()
+        const { bytesRead } = await fh.read(buf, 0, buf.length, null)
+        if (!bytesRead) break
+        total += bytesRead
+        readStats.bytes += bytesRead
+        if (o.count) o.count.bytes += bytesRead
+        if (total > limit) throw new ContentTooLarge(overBytes(limit))
+        let text: string = (cr ? '\r' : '') + buf.toString('latin1', 0, bytesRead)
+        cr = text.endsWith('\r')
+        if (cr) text = text.slice(0, -1)
+        h.update(text.replace(/\r\n/g, '\n'), 'latin1')
+      }
+      if (cr) h.update('\r', 'latin1')
+    } finally {
+      await fh.close()
+    }
+    h.update('\0')
+  }
   return h.digest('hex').slice(0, 16)
+}
+
+/**
+ * What a file's or folder's content looks like without reading it: each entry's path, size, times and file id (a
+ * link's target), and the files' sizes added up (`bytes`, what contentHash would read). It changes whenever a file is
+ * written, added, removed or renamed, so a contentHash taken with the same signature is still that content's. Bounded
+ * like contentHash (entries, depth: past one it throws ContentTooLarge, having read no file).
+ */
+export async function treeSignature(path: string, o: HashOptions = {}): Promise<{ signature: string; bytes: number }> {
+  const h = createHash('sha256')
+  let bytes = 0
+  for (const e of await treeEntries(path, o)) {
+    h.update(e.rel)
+    if (e.link) h.update(`\0link\0${await linkTarget(e.abs).catch(() => '?')}\0`)
+    else {
+      const st = await lstat(e.abs, { bigint: true })
+      bytes += Number(st.size)
+      h.update(`\0${st.size}\0${st.mtimeNs}\0${st.ctimeNs}\0${st.ino}\0`)
+    }
+  }
+  return { signature: h.digest('hex'), bytes }
+}
+
+/**
+ * Up to `max` bytes of a file, and whether it has more: the limit is on what is read, so a file that grew since an
+ * earlier stat still isn't read past it.
+ */
+export async function readCapped(path: string, max: number): Promise<{ data: Buffer; more: boolean }> {
+  const fh = await open(path, 'r')
+  try {
+    const buf = Buffer.alloc(max + 1)
+    let n = 0
+    while (n < buf.length) {
+      const { bytesRead } = await fh.read(buf, n, buf.length - n, null)
+      if (!bytesRead) break
+      n += bytesRead
+    }
+    return { data: buf.subarray(0, Math.min(n, max)), more: n > max }
+  } finally {
+    await fh.close()
+  }
+}
+
+/**
+ * Where a link points, as one absolute path whatever form it was written in (relative, a junction's \\?\ prefix, a
+ * trailing separator; case on Windows), so a link and Hive's copy of it (copySkillTree) are the same content.
+ */
+export async function linkTarget(abs: string): Promise<string> {
+  const raw = (await readlink(abs)).replace(/^\\\\\?\\/, '')
+  const target = resolve(dirname(abs), raw).replace(/[\\/]+$/, '')
+  return process.platform === 'win32' ? target.toLowerCase() : target
+}
+
+/** A link in a skill that couldn't be made in the copy (Windows needs privileges for a link to a file). */
+export class LinkNotCopied extends Error {}
+
+/**
+ * Copies a skill's folder, keeping each link a link to the same place (a junction for a folder on Windows) rather than
+ * copying what it points to, so the copy is the same content as its source (contentHash) and the user's linked files
+ * stay theirs. A link that can't be made is left out and everything else is still copied; it returns those links'
+ * paths (relative, with /), for the caller to report. Any other failure throws.
+ */
+export async function copySkillTree(src: string, dest: string, o: HashOptions = {}): Promise<string[]> {
+  const lim = { ...HASH_LIMITS, ...o.limits }
+  const skipped: string[] = []
+  // The limits contentHash keeps, kept while copying (the source can change as it is copied): entries listed a batch
+  // at a time against what's left, depth, and bytes actually read; past one it stops with ContentTooLarge.
+  const budget = { entries: lim.entries, bytes: lim.bytes }
+  const walk = async (from: string, to: string, rel: string, depth: number): Promise<void> => {
+    o.signal?.throwIfAborted()
+    if (depth > lim.depth) throw new ContentTooLarge(`it has folders more than ${lim.depth} deep`)
+    await mkdir(to, { recursive: true })
+    const list = await readDirBounded(from, budget.entries, o.signal)
+    if (list.more) throw new ContentTooLarge(`it has more than ${lim.entries} files and folders`)
+    budget.entries -= list.entries.length
+    for (const e of list.entries) {
+      const f = join(from, e.name)
+      const t = join(to, e.name)
+      const r = rel ? `${rel}/${e.name}` : e.name
+      if (e.isSymbolicLink()) {
+        const made = await linkTarget(f)
+          .then(async (target) => symlink(target, t, (await stat(f).then((x) => x.isDirectory(), () => false)) ? 'junction' : 'file'))
+          .then(() => true, () => false)
+        if (!made) skipped.push(r)
+      } else if (e.isDirectory()) await walk(f, t, r, depth + 1)
+      else if (e.isFile()) await copyBounded(f, t, budget, lim.bytes, o.signal)
+    }
+  }
+  await walk(src, dest, '', 1)
+  return skipped
+}
+
+/** Copies a file a chunk at a time, taking what it reads from `budget.bytes`: over it, ContentTooLarge (whatever a stat said). */
+async function copyBounded(from: string, to: string, budget: { bytes: number }, limit: number, signal?: AbortSignal): Promise<void> {
+  const src = await open(from, 'r')
+  try {
+    const dst = await open(to, 'w')
+    try {
+      const buf = Buffer.allocUnsafe(64 * 1024)
+      for (;;) {
+        signal?.throwIfAborted()
+        const { bytesRead } = await src.read(buf, 0, buf.length, null)
+        if (!bytesRead) break
+        budget.bytes -= bytesRead
+        if (budget.bytes < 0) throw new ContentTooLarge(overBytes(limit))
+        // A write may take less than it was given: the rest of the chunk is written before the next read. One that
+        // takes nothing fails the copy (nothing half-written is ever published).
+        for (let done = 0; done < bytesRead; ) {
+          signal?.throwIfAborted()
+          const { bytesWritten } = await dst.write(buf, done, bytesRead - done)
+          if (bytesWritten <= 0) throw Object.assign(new Error('EIO: the copy could not be written'), { code: 'EIO' })
+          done += bytesWritten
+        }
+      }
+    } finally {
+      await dst.close()
+    }
+  } finally {
+    await src.close()
+  }
+}
+
+/** What a skill's links that couldn't be copied mean for the session that gets it. */
+export const linksNotCopied = (paths: string[]): string => `${paths.length === 1 ? `the link ${paths[0]} is` : `the links ${paths.join(', ')} are`} missing from its copy: Windows didn't let Hive make ${paths.length === 1 ? 'it' : 'them'} (a link to a file needs a privilege)`
+
+/** Files that aren't part of a skill's content: Hive's own copy marker and the operating systems' folder files. */
+const CONTENT_HASH_SKIP = new Set([COPY_MARKER, '.DS_Store', 'Thumbs.db', 'desktop.ini'])
+
+export async function removePath(path: string): Promise<void> {
+  if (existsSync(path)) await rm(path, { recursive: true, force: true })
 }
 
 export function hashText(text: string): string {

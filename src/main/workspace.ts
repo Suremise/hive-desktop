@@ -5,7 +5,7 @@ import { AsyncLocalStorage } from 'async_hooks'
 import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
 import { ASSISTANT_DIR, ASSISTANT_NAME, PERSONAS_DIR, assistantProjectConfig } from '../shared/assistant'
-import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields } from '../shared/defaults'
+import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields, withoutSkillSwitches } from '../shared/defaults'
 import type { AgentDef, AgentInfo, HiddenProject, HiveEvent, KeptUsage, LiveSessionState, ProjectConfig, ProjectInfo, RemovedData, SessionRecord, WorkspaceConfig, WorkspaceInfo } from '../shared/types'
 import { config } from './config'
 import { emit, emitTo } from './events'
@@ -51,10 +51,8 @@ export class WorkspaceService {
   private watcher: FSWatcher | null = null
   private refreshTimer: NodeJS.Timeout | null = null
   private static liveProvider: LiveProvider = async (_p, cfg) => ({ live: null, restartNeeded: false, agents: projectAgents(cfg).map((a) => ({ ...a, live: null, restartNeeded: false, resume: null })) })
-  /** Called once for a new workspace (a folder Hive hadn't set up yet), after its .hive folder is made. */
-  static onCreated: (() => Promise<unknown>) | null = null
-  /** Called each time a workspace opens, in its context (e.g. to give an older workspace Hive's personas). */
-  static onOpened: (() => Promise<unknown>) | null = null
+  /** Called each time a workspace opens, in its context; `fresh` when Hive set the folder up just now (it had no .hive). */
+  static onOpened: ((fresh: boolean) => Promise<unknown>) | null = null
   /** The window showing this workspace: its events go there. */
   window: BrowserWindow | null = null
   /** Agents' worktree folders (lower-cased) and the project each belongs to. */
@@ -62,11 +60,17 @@ export class WorkspaceService {
   private cached: WorkspaceInfo | null = null
   /** Goes up each time a workspace opens or closes, so work started for an earlier one doesn't touch this one. */
   private generation = 0
+  private life = new AbortController()
   /** Its agents are being stopped to close or switch it (or close its window): no new agent starts meanwhile. */
   closing = false
 
   setLiveProvider(p: LiveProvider): void {
     WorkspaceService.liveProvider = p
+  }
+
+  /** Aborted when this workspace closes (or the window opens another): work for it stops, and what it kept goes. */
+  get lifetime(): AbortSignal {
+    return this.life.signal
   }
 
   get hiveDir(): string {
@@ -136,10 +140,9 @@ export class WorkspaceService {
     })
     admission = admit.catch(() => undefined)
     await admit
-    const isNew = !existsSync(join(abs, HIVE_DIR))
+    const fresh = !existsSync(join(abs, HIVE_DIR))
     await this.ensureWorkspaceStructure()
-    if (isNew) await inWorkspace(this, async () => WorkspaceService.onCreated?.()).catch((e) => log.warn('setting up the new workspace', e))
-    this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), await readKeptJson(join(this.hiveDir, 'workspace.json'), {}))
+    this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), withoutSkillSwitches(await readKeptJson(join(this.hiveDir, 'workspace.json'), {})))
     config.update((c) => {
       c.lastWorkspace = abs
       c.recentWorkspaces = [abs, ...c.recentWorkspaces.filter((p) => p.toLowerCase() !== abs.toLowerCase())].slice(0, 12)
@@ -154,7 +157,7 @@ export class WorkspaceService {
     } catch (e) {
       log.warn('setting up the Assistant', e)
     }
-    await inWorkspace(this, async () => WorkspaceService.onOpened?.()).catch((e) => log.warn('opening the workspace', e))
+    await inWorkspace(this, async () => WorkspaceService.onOpened?.(fresh)).catch((e) => log.warn('opening the workspace', e))
     this.startWatching()
     log.info(`Opened workspace ${userText(abs)}`)
     return this.refresh()
@@ -162,6 +165,7 @@ export class WorkspaceService {
 
   async close(): Promise<void> {
     this.generation++
+    this.life.abort(new Error('The workspace was closed'))
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
     this.refreshTimer = null
     await this.watcher?.close()
@@ -171,6 +175,9 @@ export class WorkspaceService {
     // The closed workspace's agent worktrees and settings must not route to (or be allowed by) the next one.
     this.roots.clear()
     this.wsConfig = structuredClone(DEFAULT_WORKSPACE_CONFIG)
+    // A new lifetime only once it is fully closed: work started while it was closing (its path still set) belongs to the
+    // aborted one, so nothing can be admitted for a workspace that is going away.
+    this.life = new AbortController()
   }
 
   private async ensureWorkspaceStructure(): Promise<void> {
@@ -240,7 +247,7 @@ export class WorkspaceService {
     const text = await readFile(file, 'utf8').catch(() => '')
     // Hive's own save, or a save started meanwhile (its settings are newer), or another workspace opened since.
     if (text === this.configWritten || this.configSaves || generation !== this.generation) return
-    this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), await readKeptJson(file, {}))
+    this.wsConfig = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), withoutSkillSwitches(await readKeptJson(file, {})))
     this.emit({ type: 'skills-changed' })
     this.scheduleRefresh()
   }
@@ -663,8 +670,7 @@ export const workspace: WorkspaceService = new Proxy({} as WorkspaceService, {
     return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(w) : v
   },
   set(_t, key: string, value) {
-    if (key === 'onCreated') WorkspaceService.onCreated = value
-    else (currentWorkspace() as unknown as Record<string, unknown>)[key] = value
+    ;(currentWorkspace() as unknown as Record<string, unknown>)[key] = value
     return true
   }
 })

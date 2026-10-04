@@ -17,6 +17,7 @@ import { useScopedLoad } from '../scopedLoad'
 import { AssistantSidePanel } from './AssistantView'
 import { BoardPanel } from './Board'
 import { WorkspaceOverviewPanel } from '../views/WorkspaceOverview'
+import { PerformancePanel } from '../views/Performance'
 
 /** Width of the compact Projects rail, and how narrow a drag has to go before the sidebar snaps to it. */
 const RAIL_WIDTH = 48
@@ -60,6 +61,7 @@ export function Sidebar() {
     <div className={cx('sidebar', compact && 'compact')} style={{ width: compact ? RAIL_WIDTH : width }}>
       {view === 'projects' && (compact ? <ProjectsRail /> : <ProjectsPanel />)}
       {view === 'overview' && <WorkspaceOverviewPanel />}
+      {view === 'performance' && <PerformancePanel />}
       {view === 'board' && <BoardPanel />}
       {view === 'notes' && <NotesPanel />}
       {view === 'skills' && <SkillsPanel />}
@@ -601,7 +603,7 @@ function SkillsPanel() {
         </Section>
         {workspace && (
           <p className="hint" style={{ padding: '4px 14px' }}>
-            Every agent in every project gets these. A project's own skills, and your user and plugin skills, are in its <strong>Skills</strong> tab.
+            Each goes to the project agents in every project, unless it's marked <strong>Assistant</strong> (only the Hive Assistant gets it) or <strong>Agents + Assistant</strong>. A project's own skills, and your user and plugin skills, are in its <strong>Skills</strong> tab.
           </p>
         )}
       </div>

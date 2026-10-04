@@ -702,6 +702,8 @@ kbd {
 .dot.waiting { background: var(--warning); animation: pulse 0.8s ease-in-out infinite; }
 .dot.background { background: var(--accent); opacity: 0.6; animation: pulse 2.4s ease-in-out infinite; }
 .dot.finished { background: var(--success); }
+/* Waiting on cards (a watch): a ring, not a fill: it runs nothing, but it isn't idle either. */
+.dot.watching { background: transparent; box-shadow: inset 0 0 0 2px var(--info); }
 .dot.error { background: var(--error); }
 .dot.unseen { box-shadow: 0 0 0 3px var(--accent-soft); }
 
@@ -935,6 +937,9 @@ textarea.input {
 .badge.warn { background: rgba(245, 196, 81, 0.16); color: var(--warning); }
 .badge.error { background: rgba(242, 85, 90, 0.16); color: var(--error); }
 .badge.success { background: rgba(78, 201, 107, 0.16); color: var(--success); }
+/* Who gets a Hive skill (Skills.tsx AudienceBadge): in a row, after the name. */
+.badge[data-audience] .codicon { font-size: 12px; }
+.badge.audience { margin-left: 4px; vertical-align: 1px; }
 .badge.info { background: rgba(59, 158, 255, 0.14); color: var(--info); }
 .badge .codicon { font-size: 12px; }
 .badge.link { cursor: pointer; background: rgba(59, 158, 255, 0.14); color: var(--info); }
@@ -5188,4 +5193,182 @@ body.pane-resizing-v .monaco-editor {
   top: -4px;
   right: -4px;
   outline: 2px solid var(--bg-sidebar);
+}
+
+/* Performance (views/Performance.tsx): controls wrap on a narrow window; wide tables scroll on their own. */
+.perf-controls {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin: 12px 0;
+}
+.perf-controls .grow {
+  flex: 1;
+}
+.perf-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.perf-filter .input {
+  width: auto;
+  max-width: 220px;
+}
+.perf-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.perf-banner {
+  margin-bottom: 12px;
+}
+.perf-banner a {
+  cursor: pointer;
+}
+.perf-coverage {
+  margin: 0 0 12px;
+}
+.perf-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 0;
+}
+.perf-table {
+  overflow-x: auto;
+  margin-bottom: 8px;
+}
+.perf-table .table {
+  width: 100%;
+}
+.perf-table td:first-child {
+  overflow-wrap: anywhere;
+}
+.perf-limits {
+  margin: 24px 0 8px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.perf-limits summary {
+  cursor: pointer;
+}
+/* A trend slot Hive wasn't recording: hatched, so it reads as no data rather than zero. */
+.perf-trend .daily-col.unobserved,
+.perf-trend .swatch.unobserved {
+  background: repeating-linear-gradient(135deg, transparent 0 3px, var(--border-subtle) 3px 5px);
+}
+.perf-trend .daily-col.partial {
+  background: linear-gradient(to top, transparent, color-mix(in srgb, var(--border-subtle) 40%, transparent));
+}
+.perf-coverage p {
+  margin: 0 0 4px;
+}
+.perf-notes {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+.perf-unfiltered {
+  font-size: 12px;
+  font-weight: normal;
+}
+/* Performance → Compare (views/PerformanceCompare.tsx). */
+.good-text {
+  color: var(--success);
+}
+.perf-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+.perf-scenarios td:first-child {
+  white-space: nowrap;
+}
+.perf-detail > td {
+  background: var(--bg-elevated);
+  padding: 8px 12px 12px;
+}
+.perf-detail-body p {
+  margin: 0 0 6px;
+}
+.perf-kept {
+  margin: 16px 0;
+}
+.perf-kept summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+/* The Performance page's title row: title and scope, then Now / Compare at the right (wrapping on a narrow window). */
+.performance-page .board-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+.performance-page .board-header .grow {
+  flex: 1;
+}
+/* What each side of a comparison is (Compare: provider, model, fixtures, or an export's range and filters). */
+.perf-pair {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 8px 0;
+}
+.perf-pair dt {
+  font-weight: 600;
+}
+.perf-pair dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.perf-regressions ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+}
+.perf-compare-hint {
+  margin-top: 0;
+}
+/* An agent waiting on cards (a watch, #128): what for, and Cancel. */
+.pane-status.watching {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--info);
+}
+/* Short of room, only the label shortens (its tooltip has it all): Cancel keeps its size and stays in the pane. */
+.pane-header-bar .pane-status.watching {
+  flex-shrink: 8;
+  /* Room for the eye and Cancel, whatever the label's length. */
+  min-width: 80px;
+  overflow: visible;
+}
+.pane-status.watching > .tip-wrap {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 14px;
+  overflow: hidden;
+}
+.pane-status.watching .watch-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pane-status.watching .watch-cancel {
+  flex-shrink: 0;
+}
+.pane-status.watching .codicon {
+  font-size: 12px;
+}
+.pane-status.watching .btn {
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
 }

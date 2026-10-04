@@ -124,8 +124,13 @@ export function PersonaView() {
         onSaved={() => set((s) => ({ personasVersion: s.personasVersion + 1 }))}
         toolbarExtra={
           <>
+            {p.updateAvailable && (
+              <Tooltip content="This copy was edited, so Hive didn't update it. This Hive ships a newer version: Revert to Default brings it in.">
+                <span className="badge accent">Update available</span>
+              </Tooltip>
+            )}
             {p.bundled === 'changed' && (
-              <Tooltip content="Put back the persona as Hive ships it (your copy goes to the Recycle Bin)">
+              <Tooltip content="Put back the persona as Hive ships it (your copy goes to the Recycle Bin). Hive keeps edited copies as they are; unedited ones it updates itself.">
                 <button className="btn small subtle" onClick={() => void restorePersona(p)}>
                   <Icon name="discard" /> Revert to Default
                 </button>

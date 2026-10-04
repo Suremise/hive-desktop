@@ -49,6 +49,7 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   working: 'Working…',
   waiting: 'Needs input',
   background: 'Background tasks',
+  watching: 'Waiting on cards',
   finished: 'Finished',
   error: 'Error'
 }

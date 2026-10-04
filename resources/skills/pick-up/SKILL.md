@@ -1,27 +1,38 @@
 ---
 name: pick-up
-description: Pick up work where a previous session left off, from its handover. Use when the user says to continue, resume, pick up, or read the handover, or when a session starts on unfinished work.
+description: Continue earlier work from its handover, checking it against the current state. Use when asked to continue, resume or pick up previous work, or to read a handover. Not for every new session.
+metadata:
+  audience: all
 ---
 
 # Pick up
 
-A handover describes the state when it was written. Things may have changed since: other agents commit, the user edits, tests break. Check before you trust it.
+A handover describes the state when it was written. Others may have committed, the user may have edited, a card may have moved. Check before you trust it.
 
-## Steps
+## 1. Read the right handover
 
-1. **Read the handover.** Use `hive_read_latest_handover` (it finds the latest one for this project). If the Hive tools aren't available, look for `HANDOVER.md` in the project root, or ask the user where it is.
-2. **Compare it with reality.**
-   - `git status`, the current branch and `git log --oneline -15`: are the commits it mentions there? Is there new work since it was written?
-   - Run the checks it mentions (tests, typecheck, lint). Do they still pass or fail the same way?
-   - Open the files it names. Are the changes it describes actually there?
-3. **Report back briefly** before starting work:
-   - what the handover says the next step is;
-   - anything that no longer matches (new commits, different failures, missing changes);
-   - open questions it lists that still need the user;
-   - the step you propose to take first.
+- A handover the user names: `hive_read_shared_note` with its path (`hive_list_shared_notes` lists them).
+- Otherwise the latest for this project: `hive_read_latest_handover`.
+- Without Hive's tools: look for `HANDOVER.md` in the project root, or ask the user where it is.
 
-Then wait for the user to confirm, unless they've already told you to go ahead. If the handover and reality disagree in a way that changes the plan, say so plainly rather than quietly picking one.
+Its header says which project, agent and session wrote it, and when.
 
-## When there's no handover
+## 2. Compare it with now
 
-Say so, and offer to build a picture from `git log`, uncommitted changes and the project's notes instead. Use `hive_list_shared_notes` to check whether a note for this work exists under another name.
+Check only what the next step depends on:
+
+- **Code**: the branch and `git status`; `git log` since the handover's date. Are the commits it names there, and is there newer work?
+- **Cards** it mentions: `hive_read_task` (`latestComment: true` is often enough). Where are they now, and what was said since?
+- **Decisions and questions** it lists as open: has the user answered them since (a newer comment or note)?
+- **Checks**: re-run one only when the handover reports a failure you are about to work on, or the code it covers changed since.
+
+## 3. Go on
+
+- If the user already told you to continue, continue with the next step, and mention anything that no longer matches as you go.
+- Otherwise report briefly: the next step, what changed since, and any open question that still needs the user. Then wait for them.
+
+If the handover and the current state disagree in a way that changes the plan, say so plainly rather than quietly picking one.
+
+## No handover
+
+Say so. Offer to build a picture from `git log`, uncommitted changes, the project's cards (`hive_list_tasks`) and the shared notes instead.

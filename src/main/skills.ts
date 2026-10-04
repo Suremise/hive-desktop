@@ -1,37 +1,84 @@
 import { join, basename, dirname, extname, relative, resolve, sep } from 'path'
-import { mkdir, readdir, readFile, rm, writeFile } from 'fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { existsSync, type Dirent } from 'fs'
 import { shell } from 'electron'
 import { unzipSync } from 'fflate'
-import type { ProviderId, SkillInfo, SkillTarget } from '../shared/types'
+import yaml from 'js-yaml'
+import type { ProviderId, SkillAudience, SkillInfo, SkillTarget } from '../shared/types'
 import { allProviders, provider } from './providers'
-import { copyDir, isDir, isFile } from './fsutil'
-import { resourcesDir } from './paths'
+import { bundledDir, bundledIds, bundledStatus, restoreBundled } from './bundled'
+import { copyDir, COPY_MARKER, isDir, isFile, readDirBounded } from './fsutil'
+import { createLogger } from './logger'
+import { headerOf, SKILL_HEAD_MAX } from './revisions'
 import { workspace } from './workspace'
 
-/** Hive's copies of workspace skills in a project folder (Codex's .agents/skills) carry this marker file. */
-const HIVE_COPY_MARKER = '.hive-copy'
+const log = createLogger('skills')
 
-/** Reads `name` and `description` from a SKILL.md YAML frontmatter block. */
-export function parseSkillFrontmatter(text: string): { name?: string; description?: string } {
-  const m = text.match(/^﻿?---\r?\n([\s\S]*?)\r?\n---/)
-  if (!m) return {}
-  const out: Record<string, string> = {}
-  const lines = m[1].split(/\r?\n/)
-  for (let i = 0; i < lines.length; i++) {
-    const kv = lines[i].match(/^([A-Za-z_-]+):\s*(.*)$/)
-    if (!kv) continue
-    let value = kv[2].trim()
-    if (value === '|' || value === '>' || value === '|-' || value === '>-') {
-      const block: string[] = []
-      while (i + 1 < lines.length && /^\s+/.test(lines[i + 1])) block.push(lines[++i].trim())
-      value = block.join(value.startsWith('|') ? '\n' : ' ')
-    }
-    if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1).replace(/\\(["\\])/g, '$1')
-    else if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1).replace(/''/g, "'")
-    out[kv[1]] = value
+/** Hive's copies of workspace skills in a project folder (Codex's .agents/skills) carry this marker file. */
+const HIVE_COPY_MARKER = COPY_MARKER
+
+/** What a SKILL.md's header says: its name, description and (Hive skills) audience, or why it can't be read. */
+export interface SkillHeader {
+  name?: string
+  description?: string
+  audience?: SkillAudience
+  /**
+   * The header is broken (not closed, not YAML, not a mapping) or its audience isn't one Hive knows. A Hive skill with a
+   * problem is given to nobody until it is fixed, rather than to a recipient Hive would have to guess.
+   */
+  problem?: string
+}
+
+const AUDIENCES: readonly string[] = ['agents', 'assistant', 'all']
+
+/**
+ * Reads `name`, `description` and Hive's `metadata.audience` from a SKILL.md's YAML frontmatter (the Agent Skills
+ * format), with a YAML parser (js-yaml, its core schema: plain data, no custom types), so comments, flow mappings,
+ * quoting and block scalars mean what YAML says. Only those fields are taken, each only if it has the right type. No
+ * audience means the project agents; one that isn't agents, assistant or all is a problem, not a default. `truncated`:
+ * the text is only the start of the file (headerOf's cap): a header not closed within it is a problem too.
+ */
+export function parseSkillFrontmatter(text: string, truncated = false): SkillHeader {
+  const body = text.replace(/^﻿/, '')
+  if (!/^---\r?\n/.test(body)) return {}
+  const m = /^---\r?\n([\s\S]*?)(?:\r?\n)?^---[ \t]*(?:\r?\n|$)/m.exec(body)
+  if (!m) return { problem: truncated ? `its header isn't closed within its first ${Math.round(SKILL_HEAD_MAX / 1024)} KB` : "its header isn't closed (no line with --- after it)" }
+  let data: unknown
+  try {
+    // Not json mode: a key given twice is an error, not a silent last-one-wins.
+    data = yaml.load(m[1], { schema: yaml.CORE_SCHEMA })
+  } catch (e) {
+    const line = (e as { mark?: { line?: number } }).mark?.line
+    const reason = String((e as { reason?: string }).reason ?? (e as Error).message ?? 'unreadable').slice(0, 120)
+    return { problem: `its header isn't valid YAML${line !== undefined ? ` (line ${line + 2}: ${reason})` : ` (${reason})`}` }
   }
-  return { name: out.name, description: out.description }
+  if (data === null || data === undefined) return {}
+  if (typeof data !== 'object' || Array.isArray(data)) return { problem: "its header isn't a list of fields (name: …, description: …)" }
+  const d = data as Record<string, unknown>
+  const scalar = (v: unknown): string | undefined => (typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : undefined)
+  const out: SkillHeader = {}
+  const name = scalar(d.name)
+  if (name !== undefined) out.name = name.trim()
+  const description = scalar(d.description)
+  if (description !== undefined) out.description = description.trim()
+  const meta = d.metadata
+  if (meta === undefined || meta === null) return out
+  if (typeof meta !== 'object' || Array.isArray(meta)) return { ...out, problem: "its metadata isn't a set of fields (metadata:, then audience: … indented under it)" }
+  // Absent: the default. Present but empty (null, ~, nothing after the colon) is an audience Hive doesn't know.
+  if (!Object.hasOwn(meta, 'audience')) return out
+  const audience = (meta as Record<string, unknown>).audience
+  const a = typeof audience === 'string' ? audience.trim().toLowerCase() : undefined
+  if (a === undefined || !AUDIENCES.includes(a)) {
+    const shown = typeof audience === 'string' ? `"${audience.slice(0, 40)}"` : audience === null ? 'empty' : `a ${Array.isArray(audience) ? 'list' : typeof audience}`
+    return { ...out, problem: `its audience is ${shown}, not agents, assistant or all` }
+  }
+  return { ...out, audience: a as SkillAudience }
+}
+
+/** Whether a Hive skill reaches a session: project agents get skills for agents (the default), the Assistant those for it. */
+export function skillFor(audience: SkillAudience | undefined, role: 'agent' | 'assistant'): boolean {
+  const a = audience ?? 'agents'
+  return a === 'all' || (role === 'assistant' ? a === 'assistant' : a === 'agents')
 }
 
 /** A description as a YAML scalar: quoted when YAML would read it as something else ("Use for: x", "# notes", a leading quote…). */
@@ -62,11 +109,22 @@ export function skillText(text: string, name: string): string {
 }
 
 async function readSkill(dir: string, level: SkillInfo['level'], plugin?: string): Promise<SkillInfo | null> {
-  const f = join(dir, 'SKILL.md')
-  if (!(await isFile(f))) return null
-  const fm = parseSkillFrontmatter(await readFile(f, 'utf8').catch(() => ''))
-  return { name: fm.name || basename(dir), description: fm.description ?? '', level, path: dir, plugin }
+  // Only its header is read (at most SKILL_HEAD_MAX), and only again once the file has changed.
+  const fm = await headerOf(join(dir, 'SKILL.md'), parseSkillFrontmatter).catch(() => null)
+  if (!fm) return null
+  const s: SkillInfo = { name: fm.name || basename(dir), description: fm.description ?? '', level, path: dir, plugin }
+  // A Hive skill whose header can't be read, or whose audience isn't one Hive knows, has no audience: nobody gets it,
+  // and `problem` says why. Other skills only lend their name and description, so a broken header just leaves those out.
+  if (level === 'hive') {
+    if (fm.problem) s.problem = fm.problem
+    else s.audience = fm.audience ?? 'agents'
+  }
+  return s
 }
+
+/** Entries of a skills folder Hive looks at (the workspace's, a provider's): past this it uses the first it lists, and says so in its log. */
+export const MAX_SKILL_FOLDERS = 1000
+const warnedFull = new Set<string>()
 
 /** Recursively finds skill folders (containing SKILL.md) under a root, skipping dot-folders. */
 async function findSkills(root: string, level: SkillInfo['level'], maxDepth: number): Promise<SkillInfo[]> {
@@ -80,7 +138,7 @@ async function findSkills(root: string, level: SkillInfo['level'], maxDepth: num
     }
     let entries: Dirent[]
     try {
-      entries = await readdir(dir, { withFileTypes: true })
+      entries = (await readDirBounded(dir, MAX_SKILL_FOLDERS)).entries
     } catch {
       return
     }
@@ -123,61 +181,37 @@ async function machineSkills(): Promise<SkillInfo[]> {
   return all
 }
 
-/** Skills that ship with Hive (resources/skills), copied into new workspaces. */
+/** Skills that ship with Hive (resources/skills), kept up to date in each workspace (bundled.ts). */
 export function bundledSkillsDir(): string {
-  return join(resourcesDir(), 'skills')
+  return bundledDir('skills')
 }
 
-async function bundledNames(): Promise<string[]> {
-  try {
-    return (await readdir(bundledSkillsDir(), { withFileTypes: true })).filter((e) => e.isDirectory() && existsSync(join(bundledSkillsDir(), e.name, 'SKILL.md'))).map((e) => e.name)
-  } catch {
-    return []
-  }
-}
-
-/** A skill folder's files and their text with line endings made uniform, so a git checkout's CRLF doesn't count as a change. */
-async function skillFiles(dir: string, rel = ''): Promise<Map<string, string>> {
-  const out = new Map<string, string>()
-  let entries: Dirent[] = []
-  try {
-    entries = await readdir(join(dir, rel), { withFileTypes: true })
-  } catch {
-    return out
-  }
-  for (const e of entries) {
-    const r = rel ? `${rel}/${e.name}` : e.name
-    if (e.isDirectory()) for (const [k, v] of await skillFiles(dir, r)) out.set(k, v)
-    else if (e.isFile()) out.set(r, (await readFile(join(dir, r), 'latin1')).replace(/\r\n/g, '\n'))
-  }
-  return out
-}
-
-async function sameSkill(a: string, b: string): Promise<boolean> {
-  const [x, y] = await Promise.all([skillFiles(a), skillFiles(b)])
-  if (x.size !== y.size) return false
-  for (const [k, v] of x) if (y.get(k) !== v) return false
-  return true
-}
-
-/** The workspace's Hive skills. `withMissing` adds the bundled skills the workspace doesn't have (for the Skills view). */
-export async function hiveSkills(withMissing = false): Promise<SkillInfo[]> {
+/**
+ * The workspace's Hive skills. `withMissing` adds the bundled skills the workspace doesn't have (for the Skills
+ * view); `role` keeps only those for project agents or the Assistant (SKILL.md's metadata.audience).
+ */
+export async function hiveSkills(withMissing = false, role?: 'agent' | 'assistant'): Promise<SkillInfo[]> {
   if (!workspace.path) return []
   const out: SkillInfo[] = []
   let entries: Dirent[] = []
   try {
-    entries = await readdir(workspace.skillsDir, { withFileTypes: true })
+    const list = await readDirBounded(workspace.skillsDir, MAX_SKILL_FOLDERS)
+    entries = list.entries
+    if (list.more && !warnedFull.has(workspace.skillsDir)) {
+      warnedFull.add(workspace.skillsDir)
+      log.warn(`The workspace's skills folder has more than ${MAX_SKILL_FOLDERS} entries; Hive uses the first ${MAX_SKILL_FOLDERS} it lists`)
+    }
   } catch {
     entries = []
   }
-  const bundled = new Set(await bundledNames())
+  const bundled = new Set(await bundledIds('skills'))
   for (const e of entries) {
     if (!e.isDirectory() || e.name.startsWith('.')) continue
     const s = await readSkill(join(workspace.skillsDir, e.name), 'hive')
     if (!s) continue
     // The folder name is the identity Hive uses for copies and invocation.
     s.name = e.name
-    if (bundled.has(e.name)) s.bundled = (await sameSkill(s.path, join(bundledSkillsDir(), e.name))) ? 'same' : 'changed'
+    if (bundled.has(e.name)) Object.assign(s, await bundledStatus('skills', e.name, s.path))
     out.push(s)
   }
   if (withMissing) {
@@ -188,7 +222,40 @@ export async function hiveSkills(withMissing = false): Promise<SkillInfo[]> {
       if (s) out.push({ ...s, name, bundled: 'missing' })
     }
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name))
+  return out.filter((s) => !role || s.bundled === 'missing' || (!s.problem && skillFor(s.audience, role))).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** The most of a skill's folder skillFiles looks at: files listed, entries (files, folders, links) seen, folder depth. */
+export const SKILL_FILES_LIMITS = { files: 200, entries: 2000, depth: 8 }
+
+/**
+ * A skill folder's files (relative paths with /, in code-point order), skipping Hive's copy marker and never
+ * following a link. `truncated`: there may be more than `files` (over a limit); each can still be read by its path.
+ */
+export async function skillFiles(dir: string, lim = SKILL_FILES_LIMITS): Promise<{ files: string[]; truncated: boolean }> {
+  const files: string[] = []
+  let seen = 0
+  let truncated = false
+  const walk = async (rel: string, depth: number): Promise<void> => {
+    // Listed a batch at a time, up to what's left of the entries allowed: a huge folder isn't read whole.
+    const list = await readDirBounded(rel ? join(dir, rel) : dir, lim.entries - seen).catch(() => ({ entries: [], more: false }))
+    seen += list.entries.length
+    if (list.more) truncated = true
+    for (const e of list.entries) {
+      const r = rel ? `${rel}/${e.name}` : e.name
+      if (e.isDirectory()) {
+        if (depth < lim.depth) await walk(r, depth + 1)
+        else truncated = true
+      } else if (e.isFile() && e.name !== '.hive-copy') files.push(r)
+    }
+  }
+  await walk('', 1)
+  files.sort()
+  if (files.length > lim.files) {
+    truncated = true
+    files.length = lim.files
+  }
+  return { files, truncated }
 }
 
 /** The folder a provider loads local skills from in a project (e.g. <project>/.claude/skills). */
@@ -369,24 +436,12 @@ export async function deleteSkill(dir: string): Promise<void> {
   await shell.trashItem(dir)
 }
 
-/** Copies the bundled skills into a workspace that doesn't have them (a new workspace). */
-export async function addBundledSkills(): Promise<string[]> {
-  const added: string[] = []
-  for (const name of await bundledNames()) {
-    const dest = join(workspace.skillsDir, name)
-    if (existsSync(dest)) continue
-    await copyDir(join(bundledSkillsDir(), name), dest)
-    added.push(name)
-  }
-  return added
-}
-
-/** Puts back a bundled skill as this version of Hive ships it: the workspace copy (edited or older) goes to the Recycle Bin. */
+/** Puts back a bundled skill as this version of Hive ships it: the workspace copy (edited) goes to the Recycle Bin. */
 export async function restoreBundledSkill(name: string): Promise<SkillInfo> {
-  if (!(await bundledNames()).includes(name)) throw new Error(`"${name}" isn't one of Hive's bundled skills.`)
+  if (!(await bundledIds('skills')).includes(name)) throw new Error(`"${name}" isn't one of Hive's bundled skills.`)
   const dest = join(workspace.skillsDir, name)
   if (existsSync(dest)) await shell.trashItem(dest)
-  await copyDir(join(bundledSkillsDir(), name), dest)
+  await restoreBundled('skills', name)
   const s = (await readSkill(dest, 'hive'))!
   return { ...s, name, bundled: 'same' }
 }

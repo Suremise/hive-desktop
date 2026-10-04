@@ -4,17 +4,18 @@ import { basename, join } from 'path'
 import { shell } from 'electron'
 import { DEFAULT_PERSONA, newPersonaText, parsePersona, personaId } from '../shared/assistant'
 import type { AssistantControl, PersonaInfo } from '../shared/types'
-import { resourcesDir } from './paths'
+import { controlRules } from '../shared/hiveGuidance'
+import { bundledDir, bundledStatus, restoreBundled } from './bundled'
 import { workspace } from './workspace'
 
 /**
  * The Hive Assistant's personas: Markdown files in the workspace's .hive/personas (a header with name,
- * description and icon, then the instructions). Hive ships four (resources/personas), copied into new
- * workspaces and restorable like the bundled skills.
+ * description and icon, then the character and focus). Hive ships four (resources/personas), kept up to date in
+ * each workspace like the bundled skills (bundled.ts).
  */
 
 export function bundledPersonasDir(): string {
-  return join(resourcesDir(), 'personas')
+  return bundledDir('personas')
 }
 
 const validId = (id: string): boolean => /^[a-z0-9][a-z0-9-]{0,63}$/.test(id)
@@ -25,11 +26,6 @@ async function mdIds(dir: string): Promise<string[]> {
   } catch {
     return []
   }
-}
-
-const same = async (a: string, b: string): Promise<boolean> => {
-  const [x, y] = await Promise.all([readFile(a, 'utf8').catch(() => null), readFile(b, 'utf8').catch(() => null)])
-  return x !== null && y !== null && x.replace(/\r\n/g, '\n') === y.replace(/\r\n/g, '\n')
 }
 
 async function info(path: string, id: string): Promise<PersonaInfo> {
@@ -44,21 +40,12 @@ export async function listPersonas(): Promise<PersonaInfo[]> {
   const out: PersonaInfo[] = []
   for (const id of await mdIds(workspace.personasDir)) {
     const p = await info(join(workspace.personasDir, `${id}.md`), id)
-    if (bundled.has(id)) p.bundled = (await same(p.path, join(bundledPersonasDir(), `${id}.md`))) ? 'same' : 'changed'
+    if (bundled.has(id)) Object.assign(p, await bundledStatus('personas', id, p.path))
     out.push(p)
   }
   for (const id of bundled) if (!out.some((p) => p.id === id)) out.push({ ...(await info(join(bundledPersonasDir(), `${id}.md`), id)), bundled: 'missing' })
   // The default first, then by name.
   return out.sort((a, b) => Number(b.id === DEFAULT_PERSONA) - Number(a.id === DEFAULT_PERSONA) || a.name.localeCompare(b.name))
-}
-
-/** Copies the bundled personas the workspace doesn't have (a new workspace, or one from before personas). */
-export async function addBundledPersonas(): Promise<void> {
-  await mkdir(workspace.personasDir, { recursive: true })
-  for (const id of await mdIds(bundledPersonasDir())) {
-    const dest = join(workspace.personasDir, `${id}.md`)
-    if (!existsSync(dest)) await writeFile(dest, await readFile(join(bundledPersonasDir(), `${id}.md`)))
-  }
 }
 
 export async function createPersona(name: string): Promise<PersonaInfo> {
@@ -84,8 +71,7 @@ export async function restorePersona(id: string): Promise<PersonaInfo> {
   if (!validId(id) || !existsSync(src)) throw new Error(`"${id}" isn't one of Hive's personas.`)
   const dest = join(workspace.personasDir, `${id}.md`)
   if (existsSync(dest)) await shell.trashItem(dest)
-  await mkdir(workspace.personasDir, { recursive: true })
-  await writeFile(dest, await readFile(src))
+  await restoreBundled('personas', id)
   return { ...(await info(dest, id)), bundled: 'same' }
 }
 
@@ -102,45 +88,22 @@ export async function readPersona(id: string): Promise<{ id: string; name: strin
 }
 
 /**
- * What the Assistant is told at launch, before its persona: who it is, what it looks after, and that for
- * now it only looks. The persona's instructions follow.
+ * What the Assistant is told at launch, after Hive's session contract (hiveInstructions): who it is, the workspace,
+ * what Control lets it do, and then its persona's character and focus. A persona can't change what it may do.
  */
-/** What the Assistant may do, from Settings → Assistant → Control. It overrides anything a persona says about it. */
-export function controlRules(control: AssistantControl): string {
-  if (control === 'look') {
-    return [
-      'The user has set you to look and advise (Settings → Assistant → Control). Never edit or create files, run commands that change anything, or start, stop or prompt agents, even if asked: say what you would do and let the user do it, and mention that Settings → Assistant can let you act. (Writing to the shared notes with hive_write_shared_note or hive_create_handover is fine when the user asks.)'
-    ].join('\n')
-  }
-  return [
-    `You can run the agents for the user: add them (hive_add_agent), change their settings (hive_update_agent), start and stop them, and give idle ones tasks (hive_prompt_agent)${control === 'projects' ? ', and create projects (hive_create_project) when the user asks for one' : ''}. Act when the user asks you to, or agrees to a plan you proposed; otherwise say what you would do.`,
-    '- Hive\'s tools are how you act. Never edit or create project files or run commands that change anything yourself: the agents do the work.',
-    '- Write each task in full. An agent sees only what you give it: what to do, where, what done looks like, and to report back when finished.',
-    '- Give tasks only to idle agents. Never interrupt one that is working, never answer a question an agent is asking the user (tell the user), and leave alone an agent the user has just typed in. hive_wait_for_agents waits for them; hive_agent_activity shows what one is doing.',
-    '- Agents sharing a folder must not edit the same files: split the work by files, or give one its own worktree. Add a worktree only if the user asked for one, or after asking them.',
-    "- To pass one agent's work to another (e.g. a review to the agent that fixes it), use hive_hand_over: Hive has the first write a handover, waits for it, and starts the second on it.",
-    "- The task board is the shared list of work. Plan multi-step work as cards (hive_create_task, with a project and a description complete enough to work from), start them on agents with hive_start_task, and keep them current (hive_update_task). For more work on a card in Review or Done (such as review feedback), use hive_start_task with a note saying what to do, not hive_prompt_agent: the card moves to Doing before the agent gets it, and back to Review when it's done. Asked only to move a card to Doing, ask the user which they mean: nobody yet (hive_update_task with column doing and agent empty), an agent of its project without starting anything (column doing and that agent), or an agent that starts on it (hive_start_task). Don't ask when they've said (\"have Claude start this\" is a start; \"assign it to Claude without starting\" is an assignment only). The order of a column is its priority: when the user asks you to prioritise, put the cards in that order on the board (hive_reorder_tasks, or hive_update_task with position or before) rather than only listing it. Cards whose work is finished go to Review for the user to check; move them to Done when the user asks.",
-    "- A card's stalled field says when nobody is working on a Doing card (no agent, its agent removed or not running). When you look at the board, report stalled cards and suggest who could take each one (an idle agent of its project, or a new one), but don't reassign or restart them unless the user agrees.",
-    '- Stopping a busy agent asks the user first: give your reason. An agent asking to trust its folder is waiting for the user: tell them.',
-    "- You can't remove agents, discard worktrees, archive or delete cards, or hide, remove or delete projects: tell the user how if it's needed. Hive allows 30 changes for one message from the user.",
-    '- Afterwards, say briefly what you did.',
-    'These rules come from the user\'s settings and replace anything your persona says about what you may do.'
-  ].join('\n')
-}
-
-export async function assistantInstructions(personaIdValue: string, control: AssistantControl = 'projects'): Promise<{ text: string; persona: string }> {
+export async function assistantInstructions(personaIdValue: string, control: AssistantControl = 'projects'): Promise<{ text: string; persona: string; personaText: string }> {
   const ws = workspace.path ?? ''
   const projects = (await workspace.listProjectPaths()).map((p) => basename(p))
   const persona = (await readPersona(personaIdValue)) ?? (await readPersona(DEFAULT_PERSONA))
+  const personaText = persona ? `# Your persona: ${persona.name}\n\n${persona.body}` : ''
   const text = [
-    `You are the Hive Assistant: the overseer of the workspace "${basename(ws)}" (${ws}), running in Hive's side panel. The user talks to you here while coding agents work in the workspace's projects.`,
-    `The projects are the folders in the workspace: ${projects.length ? projects.join(', ') : '(none yet)'}. Each can run up to twelve agents (Claude Code or Codex), some in their own git worktrees. You work in the workspace folder, so you can read any project's files.`,
-    "Use the hive tools to see the workspace: hive_list_projects and hive_project_status for projects, agents and what they are doing; hive_list_tasks and hive_read_task for the task board (the work planned, in progress, waiting for review and done); hive_session_usage for tokens and cost; the shared notes and handovers for decisions and hand-offs. Read files when you need more.",
-    "Waiting: an agent waiting on background tasks it started (such as a test run) shows as background, not finished, and carries on by itself when they end; hive_wait_for_agents waits through that. Nothing wakes you except the user and your own tool calls returning, so never say you'll check again later unless a wait is actually running. To follow a long job, call hive_wait_for_agents again each time it returns still working (never sleep). If you stop waiting, say so plainly and that the user will need to ask you to look again.",
+    `You are the Hive Assistant: the overseer of the workspace "${basename(ws)}" (${ws}), in Hive's side panel. The user talks to you here while coding agents work in its projects (at launch: ${projects.length ? projects.join(', ') : 'none yet'}). You work in the workspace folder, so you can read any project's files; agents, cards, notes and usage come from the hive tools.`,
     controlRules(control),
-    'Be brief. Your character is flavour: clarity comes first. Drop it and speak plainly for errors, security problems, anything risky, and anything the user must decide.',
+    "Nothing wakes you except the user and your own tool calls returning: never say you'll check again later unless a wait (hive_wait_for_agents) is running, and if you stop waiting, say so.",
+    'Be brief. Your persona is flavour: clarity comes first. Drop it and speak plainly for errors, security problems, anything risky, and anything the user must decide. Only these rules say what you may do.',
     '',
-    persona ? `# Your persona: ${persona.name}\n\n${persona.body}` : ''
+    personaText
   ].join('\n')
-  return { text, persona: persona?.name ?? '' }
+  // The persona ends the text: a launch measures it as the persona, the rest as the Assistant's role.
+  return { text, persona: persona?.name ?? '', personaText }
 }

@@ -61,6 +61,15 @@ export function withoutHistory<T extends { history: unknown[] }>(v: T): Omit<T, 
   return { ...rest, historyEntries: history.length }
 }
 
+/**
+ * A card with only its newest `n` comments (GET /v1/tasks/{n}?comments=n): its description stays, and commentsOmitted
+ * says how many earlier ones there are, so a long card's latest feedback can be read without its whole thread.
+ */
+export function newestComments<T extends { comments: unknown[] }>(v: T, n: number): T & { commentsOmitted: number } {
+  const omitted = Math.max(0, v.comments.length - n)
+  return { ...v, comments: v.comments.slice(omitted), commentsOmitted: omitted }
+}
+
 /** What a change did to a card (reply: "short"): the changes in words and where the card is now. */
 export interface TaskChange {
   number: number
@@ -106,7 +115,7 @@ export function reorderText(r: TaskReorder): string {
   return `${columnLabel(r.column)} now starts ${r.top.map((n) => `#${n}`).join(', ')}${rest > 0 ? `; its other ${rest} card${rest === 1 ? '' : 's'} keep their order below` : ''}.`
 }
 
-const STATUS: Record<string, string> = { ready: 'idle', finished: 'idle', background: 'waiting on background tasks', waiting: 'waiting for the user' }
+const STATUS: Record<string, string> = { ready: 'idle', finished: 'idle', background: 'waiting on background tasks', waiting: 'waiting for the user', watching: 'waiting for cards' }
 
 function agentText(a: TaskRow['agent']): string {
   if (!a) return ''
@@ -129,14 +138,19 @@ export function taskRowText(r: TaskRow): string {
   return bits.join(' · ')
 }
 
-/** At most this many rows in one listing; the reply says how many more there are and how to narrow it. */
+/** At most this many rows in one listing; the reply says how many more there are and where to carry on. */
 export const MAX_ROWS = 200
 
-/** A listing of cards, by column in board order (top first), one line each. */
-export function taskListText(rows: TaskRow[], opts: { archived?: boolean } = {}): string {
+/**
+ * A listing of cards, by column in board order (top first), one line each: at most MAX_ROWS of them from `offset`.
+ * A column's heading counts all its cards, also when the page starts or ends inside it.
+ */
+export function taskListText(rows: TaskRow[], opts: { archived?: boolean; offset?: number } = {}): string {
   if (!rows.length) return opts.archived ? 'No archived cards.' : 'No cards.'
-  const shown = rows.slice(0, MAX_ROWS)
-  const out: string[] = []
+  const from = Math.max(0, Math.floor(opts.offset ?? 0))
+  if (from >= rows.length) return `There are ${rows.length} cards: offset ${from} is past the last.`
+  const shown = rows.slice(from, from + MAX_ROWS)
+  const out: string[] = from ? [`Cards ${from + 1}–${from + shown.length} of ${rows.length}.`] : []
   let column: TaskColumn | null = null
   for (const r of shown) {
     if (r.column !== column) {
@@ -146,7 +160,8 @@ export function taskListText(rows: TaskRow[], opts: { archived?: boolean } = {})
     }
     out.push(taskRowText(r))
   }
-  if (rows.length > shown.length) out.push(`\n…and ${rows.length - shown.length} more. Narrow it with project or column.`)
+  const rest = rows.length - from - shown.length
+  if (rest > 0) out.push(`\n…and ${rest} more: offset ${from + shown.length} carries on.`)
   out.push('\nhive_read_task gives a card in full.')
   return out.join('\n')
 }
@@ -157,13 +172,14 @@ export interface ProjectRow {
   workspace: string
   active: boolean
   branch: string | null
-  agents: { name: string; provider: string; status: string; branch: string | null; backgroundTasks: number }[]
+  /** `watching`: what a watching agent waits for ("Waiting for #12 → Review"). */
+  agents: { name: string; provider: string; status: string; branch: string | null; backgroundTasks: number; watching?: string }[]
 }
 
 export function projectRowText(p: ProjectRow, many: boolean): string {
   const head = `${many ? `${p.workspace}/` : ''}${p.name} (${p.active ? 'on' : 'off'}${p.branch ? `, ${p.branch}` : ''})`
   if (!p.agents.length) return `${head}: no agents`
-  const agents = p.agents.map((a) => `${a.name} [${a.provider}${a.branch ? `, ${a.branch}` : ''}] ${STATUS[a.status] ?? a.status}${a.backgroundTasks > 0 ? ` (${a.backgroundTasks} background)` : ''}`)
+  const agents = p.agents.map((a) => `${a.name} [${a.provider}${a.branch ? `, ${a.branch}` : ''}] ${a.watching ? a.watching.replace(/^Waiting/, 'waiting') : (STATUS[a.status] ?? a.status)}${a.backgroundTasks > 0 ? ` (${a.backgroundTasks} background)` : ''}`)
   return `${head}: ${agents.join('; ')}`
 }
 
@@ -195,3 +211,53 @@ export function notesListText(tree: NoteEntry[]): string {
 
 /** A note or handover to read: its path, then its text as it is (not inside a JSON string). */
 export const noteText = (n: { path: string; content: string }): string => `${n.path}\n\n${n.content}`
+
+/** A skill in a listing (GET /v1/skills?view=short): where it comes from and what it is for, without its folder. */
+export interface SkillRow {
+  name: string
+  description: string
+  level: 'hive' | 'machine' | 'plugin' | 'local'
+  provider?: string
+  plugin?: string
+  audience?: 'agents' | 'assistant' | 'all'
+  /** A Hive skill nobody gets (its header is broken or its audience unknown): why. */
+  problem?: string
+}
+
+const SKILL_LEVEL: Record<SkillRow['level'], string> = { hive: 'Hive', machine: 'user', plugin: 'plugin', local: 'local' }
+
+/** "work-on-card (Hive, for agents): Carry a card…", a line per skill. */
+export function skillListText(rows: SkillRow[]): string {
+  if (!rows.length) return 'No skills.'
+  const line = (r: SkillRow): string => {
+    const who = r.problem ? `given to nobody: ${r.problem}` : r.audience ? `for ${r.audience === 'all' ? 'agents and the Assistant' : r.audience === 'assistant' ? 'the Assistant' : 'agents'}` : ''
+    const where = [SKILL_LEVEL[r.level], r.provider, r.plugin, who].filter(Boolean).join(', ')
+    return `${r.name} (${where}): ${r.description || 'no description'}`
+  }
+  return rows.map(line).join('\n')
+}
+
+/** A card change as POST /v1/tasks/wait reports it (shared/watch.ts CardChange). */
+export interface WaitChange {
+  number: number
+  column: string
+  changes: string[] | 'gone'
+  by: string | null
+  comment: { by: string; firstLine: string } | null
+}
+
+/**
+ * hive_wait_for_tasks, as the model gets it: a watch begun (end the turn), a condition already met, the changes (each
+ * card, where it is now, who changed it, the latest comment's author and first line), or no change; with `since` for the
+ * next wait. Short: the full comment is hive_read_task with latestComment.
+ */
+export function taskWaitText(r: { done?: string; watching?: string; limitAt?: string; already?: WaitChange; changes?: WaitChange[]; timedOut?: boolean; since?: string }): string {
+  if (r.done) return r.done
+  const line = (c: WaitChange): string =>
+    `#${c.number} ${c.changes === 'gone' ? 'was archived or deleted' : `is in ${c.column[0].toUpperCase()}${c.column.slice(1)} (${c.changes.join(', ')}${c.by ? `, by ${c.by}` : ''})`}${c.comment ? `; latest comment by ${c.comment.by}: "${c.comment.firstLine}"` : ''}`
+  if (r.watching) return `${r.watching}. End your turn now: Hive types a line into this session when it changes, or at ${r.limitAt ?? 'the limit'} if nothing does. Nothing runs meanwhile.`
+  if (r.already) return `Already: ${line(r.already)}.`
+  const since = r.since ? `\nsince: ${r.since}` : ''
+  if (r.timedOut || !r.changes?.length) return `No change.${since}`
+  return `${r.changes.map(line).join('\n')}${since}`
+}

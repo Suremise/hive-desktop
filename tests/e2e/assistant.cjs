@@ -40,7 +40,7 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   check('its home is not listed as a project', info.projects.map((p) => p.name).sort().join(',') === 'api,web')
   check("its sessions are kept out of git", fs.readFileSync(path.join(home, '.gitignore'), 'utf8').includes('*'))
   check('Hive\'s four personas are in the workspace', fs.readdirSync(path.join(ws, '.hive', 'personas')).sort().join(',') === 'orchestrator.md,overseer.md,planner.md,reviewer.md')
-  check("it defaults to the agents' model and effort, and Auto mode", JSON.stringify(info.assistant.config.providers['claude-code']) === JSON.stringify({ model: 'inherit', effort: 'inherit', permissionMode: 'auto', extraArgs: '' }))
+  check("it defaults to the agents' model and effort, and Auto mode", JSON.stringify(info.assistant.config.providers['claude-code']) === JSON.stringify({ model: 'inherit', effort: 'inherit', permissionMode: 'auto', extraArgs: '', use200kContext: 'inherit' }), JSON.stringify(info.assistant.config.providers['claude-code']))
 
   // The panel: hidden at first, Ctrl+Alt+I shows it, and each workspace remembers it.
   check('the panel starts hidden, as a strip', (await page.locator('.assistant-panel').count()) === 0 && (await page.locator('.assistant-rail', { hasText: 'Hive Assistant' }).count()) === 1)
@@ -150,7 +150,8 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   check('it works in the workspace folder', live?.cwd.toLowerCase() === ws.toLowerCase(), live?.cwd)
   check('its conversation is named for the persona', (live?.sessionName ?? '').startsWith('Assistant · Planner · '), live?.sessionName)
   const log = fs.readFileSync(path.join(userData, 'logs', 'hive.log'), 'utf8')
-  const launch = log.split('\n').filter((l) => l.includes('spawn session:') && l.toLowerCase().includes('assistant#assistant')).pop() ?? ''
+  // The key is marked as the user's own text in the log (userText), so the line is found by its parts.
+  const launch = log.split('\n').filter((l) => / spawn \W?session:/.test(l) && l.toLowerCase().includes('assistant#assistant')).pop() ?? ''
   check('it launches in Auto', launch.includes('"--permission-mode","auto"'))
   // Claude Code runs Haiku (set above) in Manual instead, and Hive shows the mode it really runs in.
   await lib.sleep(1500)

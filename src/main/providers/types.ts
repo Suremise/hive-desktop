@@ -7,6 +7,17 @@ export interface LaunchSkill {
   sourcePath: string
 }
 
+/**
+ * What a launch gave the session of a skill it asked for: the content hash of the copy the CLI reads (null when there
+ * is no copy of Hive's), and why it isn't the skill as asked for, if it isn't. `lasting`: a restart won't change that
+ * (a folder of the user's has its name), as opposed to an old copy kept because it was in use.
+ */
+export interface SkillDelivery {
+  revision: string | null
+  problem?: string
+  lasting?: true
+}
+
 export interface LaunchContext {
   projectPath: string
   /** Which of the project's agents is launching; each gets its own launch folder. */
@@ -194,7 +205,10 @@ export interface ProviderAdapter {
   readonly envToStrip: string[]
 
   // Launch
-  prepareLaunch(ctx: LaunchContext): Promise<void>
+  /** Prepares the launch (skills, MCP, hooks) and says what it delivered of each skill in ctx.skills, by name. */
+  prepareLaunch(ctx: LaunchContext): Promise<Record<string, SkillDelivery>>
+  /** Where this launch's CLI reads a delivered Hive skill (its copy), for measuring what the session got. */
+  skillCopyPath(ctx: LaunchContext, skill: string): string
   buildCommand(executable: string, ctx: LaunchContext): CommandSpec
 
   // Hooks and live details

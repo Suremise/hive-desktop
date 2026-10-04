@@ -1,3 +1,4 @@
+import { initWatches, onWatchedCardsMoved, watchKeepsQuitWaiting } from './watches'
 import { app, BrowserWindow, Menu, nativeTheme, net, Notification, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
@@ -33,6 +34,7 @@ import { sessions } from './sessions'
 import { notificationIcon } from './paths'
 import { createTray, destroyTray, resourcesDir, setTrayPendingQuit, showWindow } from './tray'
 import { initUpdater, installNow } from './updater'
+import { flushMetrics } from './metrics'
 import { createWorkspaceService, disposeWorkspaceService, inWorkspace, openWorkspaces, workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
 import { hiveWindows, lastFocused, TITLE_BAR_OVERLAY, registerWindow, unregisterWindow, windowForPath, type HiveWindow } from './windows'
 import { agentTokenFile } from './agentTokens'
@@ -304,12 +306,15 @@ const quitSessions = (ws?: WorkspaceService): QuitSession[] =>
     .liveStates()
     .filter((s) => !ws || workspaceFor(s.projectPath) === ws)
     .map((s) => {
-      if (workspace.isAssistantHome(s.projectPath)) return { projectPath: s.projectPath, project: ASSISTANT_NAME, status: s.status, provider: s.provider }
+      // A watching agent says what for, and whether quitting when agents finish waits for it (the same rule as workingCount).
+      const watch = s.status === 'watching' && s.watch ? { watch: s.watch.label, ...(watchKeepsQuitWaiting(s) ? { keepsQuitWaiting: true } : {}) } : {}
+      if (workspace.isAssistantHome(s.projectPath)) return { projectPath: s.projectPath, project: ASSISTANT_NAME, status: s.status, provider: s.provider, ...watch }
       const agents = workspaceOf(s.projectPath).info()?.projects.find((p) => p.path.toLowerCase() === s.projectPath.toLowerCase())?.agents.length ?? 1
-      return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, provider: s.provider, ...(agents > 1 ? { agent: s.agentName } : {}) }
+      return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, provider: s.provider, ...(agents > 1 ? { agent: s.agentName } : {}), ...watch }
     })
 /** Agents that are working, or waiting on background tasks that will set them working again. */
-const workingCount = (): number => sessions.liveStates().filter((s) => s.status === 'working' || s.status === 'background').length
+// A watching agent whose card is being worked on by another agent isn't done either: it carries on when woken.
+const workingCount = (): number => sessions.liveStates().filter((s) => s.status === 'working' || s.status === 'background' || !!watchKeepsQuitWaiting(s)).length
 
 /** Shows the quit (or close) dialog in a window and waits for the answer. */
 function ask(e: HiveWindow, req: { sessions: QuitSession[]; unsaved: string[]; scope: QuitScope }): Promise<QuitChoice> {
@@ -358,7 +363,8 @@ async function requestQuit(opts: { force?: boolean } = {}): Promise<void> {
 /** Whether to ask before stopping these sessions: the Confirm on quit setting, the same for quitting, windows and workspaces. */
 function askBeforeStopping(mine: QuitSession[]): boolean {
   const mode = config.settings.general.confirmOnQuit
-  const busy = mine.some((s) => s.status === 'working' || s.status === 'waiting' || s.status === 'background')
+  // The same as quitting's (sessions.busyStates): a watching agent is in the middle of its card loop too.
+  const busy = mine.some((s) => s.status === 'working' || s.status === 'waiting' || s.status === 'background' || s.status === 'watching')
   return mine.length > 0 && (mode === 'always' || (mode === 'working' && busy))
 }
 
@@ -447,6 +453,7 @@ async function quitNow(tellUser: boolean): Promise<void> {
   }
   await sessions.stopAllAndWait(3000)
   await sessions.flushUsageCache()
+  await flushMetrics().catch(() => undefined)
   await config.flush()
   if (installOnQuit) installNow()
   else app.quit()
@@ -549,6 +556,8 @@ app.whenReady().then(async () => {
 
   workspace.setLiveProvider((p, cfg) => sessions.liveInfo(p, cfg))
   sessions.apiEnv = apiEnv
+  /** Tests only (development builds): where the hive MCP servers log the calls they ran (tests/scenarios). */
+  const testMcpLog = (): Record<string, string> => (!app.isPackaged && process.env.HIVE_TEST_MCP_LOG ? { HIVE_TEST_MCP_LOG: process.env.HIVE_TEST_MCP_LOG } : {})
   sessions.hiveMcp = (projectPath, agentId): McpServerDef | null => {
     const s = config.settings.agentApi
     // The Hive Assistant always has Hive's tools, with its own token and its control level (Settings → Assistant).
@@ -566,7 +575,8 @@ app.whenReady().then(async () => {
           HIVE_PROJECT: '',
           HIVE_WORKSPACE: ws,
           HIVE_ROLE: 'assistant',
-          HIVE_ASSISTANT_CONTROL: config.settings.assistant?.control ?? 'projects'
+          HIVE_ASSISTANT_CONTROL: config.settings.assistant?.control ?? 'projects',
+          ...testMcpLog()
         }
       }
     }
@@ -585,15 +595,19 @@ app.whenReady().then(async () => {
         // With several windows, the API answers the session's tools for its own workspace.
         HIVE_WORKSPACE: workspaceOf(projectPath).path ?? '',
         // Which agent's tools these are: Hive names it as the author of the handovers it writes.
-        ...(agentId ? { HIVE_AGENT_ID: agentId } : {})
+        ...(agentId ? { HIVE_AGENT_ID: agentId } : {}),
+        ...testMcpLog()
       }
     }
   }
   // The hive MCP server's instructions, for providers that don't show MCP instructions to the model (Codex).
+  initWatches()
+  // A watcher stops keeping a pending quit waiting when the card it waits on leaves another agent's work (no wake comes).
+  onWatchedCardsMoved(() => checkPendingQuit())
   sessions.hiveGuidance = (projectPath) =>
     inWorkspace(workspaceOf(projectPath), async () => {
       if (!sessions.hiveMcp(projectPath)) return ''
-      if (workspace.isAssistantHome(projectPath)) return hiveInstructions('')
+      if (workspace.isAssistantHome(projectPath)) return hiveInstructions('', 'assistant')
       const project = basename(projectPath)
       const names = (await workspace.listProjectPaths()).map((p) => basename(p))
       const latest = (await projectHandovers(await notesTree(), project, names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]

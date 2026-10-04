@@ -11,6 +11,7 @@ import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocus
 import { carriesFiles, cx, formatKeybinding } from '../util'
 import { FilesTab, ImagesTab } from './FilesTab'
 import { ChangesTab, MemoryTab, OverviewTab, ProjectMcpTab, ProjectSettingsTab, ProjectSkillsTab } from './ProjectTabs'
+import { PerformanceTab } from './Performance'
 import { SessionsTab } from './SessionsTab'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { ProjectTasksTab } from '../components/Board'
@@ -19,6 +20,7 @@ import { RemovedDataBanner } from '../components/ProjectRemoval'
 const TABS: { id: ProjectTab; label: string; icon: string }[] = [
   { id: 'session', label: 'Session', icon: 'terminal' },
   { id: 'overview', label: 'Overview', icon: 'dashboard' },
+  { id: 'performance', label: 'Performance', icon: 'pulse' },
   { id: 'tasks', label: 'Tasks', icon: 'project' },
   { id: 'sessions', label: 'Sessions', icon: 'history' },
   { id: 'files', label: 'Files', icon: 'files' },
@@ -296,6 +298,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
         </div>
         <ErrorBoundary label="This tab" resetKey={`${project.path}|${tab}`}>
           {tab === 'overview' && <OverviewTab project={project} />}
+          {tab === 'performance' && <PerformanceTab project={project} />}
           {tab === 'tasks' && <ProjectTasksTab project={project} />}
           {tab === 'sessions' && <SessionsTab project={project} />}
           {tab === 'files' && <FilesTab project={project} />}

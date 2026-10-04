@@ -144,6 +144,7 @@ export const STATUS_TEXT: Record<SessionStatus | 'idle', string> = {
   working: 'Working…',
   waiting: 'Needs your input',
   background: 'Background tasks',
+  watching: 'Waiting on cards',
   finished: 'Finished',
   error: 'Error'
 }
@@ -151,8 +152,10 @@ export const STATUS_TEXT: Record<SessionStatus | 'idle', string> = {
 const tasks = (n: number): string => `${n} background task${n === 1 ? '' : 's'}`
 
 /** What an agent is doing, in words: its status message, else its status with any background tasks it is running. */
-export function statusText(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'backgroundTasks' | 'question'>): string {
+export function statusText(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'backgroundTasks' | 'question' | 'watch'>): string {
   const text = ((): string => {
+    // Waiting on cards: what for ("Waiting for #12 → Review").
+    if (live.status === 'watching' && live.watch) return live.watch.label
     if (live.statusMessage) return live.statusMessage
     const n = live.backgroundTasks ?? 0
     if (live.status === 'background') return `Waiting on ${tasks(n)}`

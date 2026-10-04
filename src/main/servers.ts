@@ -3,21 +3,24 @@ import { AsyncLocalStorage } from 'async_hooks'
 import { randomBytes, timingSafeEqual } from 'crypto'
 import { app } from 'electron'
 import { basename, dirname, join, relative, resolve as resolvePath } from 'path'
-import { readFile } from 'fs/promises'
-import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
-import { DEFAULT_API_PORT, projectAgents, transcriptWarnLimit } from '../shared/defaults'
+import { readFile, stat } from 'fs/promises'
+import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
+import { DEFAULT_API_PORT, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { columnLabel, isTaskColumn, reviewStalled, stalledReason } from '../shared/tasks'
 import type { HandoverAuthor } from '../shared/hiveGuidance'
-import { taskRow, withoutHistory, type ProjectRow, type TaskChange, type TaskReorder, type TaskView } from '../shared/toolReplies'
-import { CLAUDE_CODE } from '../shared/claude'
+import { newestComments, taskRow, withoutHistory, type ProjectRow, type SkillRow, type TaskChange, type TaskReorder, type TaskView } from '../shared/toolReplies'
 import * as assistant from './assistantControl'
 import { addAgent, updateAgent } from './projectAgents'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, onHiveEvent, toast } from './events'
-import { readJson, withFileLock, writeJsonAtomic, writeTextAtomic } from './fsutil'
+import { cancelWatch, encodeSince, registerWatch, scopedCard } from './watches'
+import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
+import { insideReal, readCapped, readJson, withFileLock, writeJsonAtomic, writeTextAtomic } from './fsutil'
+import { GUIDANCE_REVISION, skillRevisions } from './guidance'
+import agentApiDoc from '../../docs/AGENT_API.md?raw'
 import { createLogger } from './logger'
 import { listMcp } from './mcp'
 import { assertInShared, createHandover, notesTree } from './notes'
@@ -25,9 +28,12 @@ import { writePty } from './ptyHost'
 import { sessions } from './sessions'
 import * as tasks from './tasks'
 import { startTask } from './taskStart'
-import { listSkills } from './skills'
+import { hiveSkills, listSkills, skillFiles, validSkillName } from './skills'
 import { transcripts } from './transcripts'
 import { contextWorkspace, inWorkspace, openWorkspaces, workspace, workspaceOf, type WorkspaceService } from './workspace'
+import { appMetrics, clock as metricsClock, knownRoute, metricsHandle, recordApi, recordCatalog, recordMcp, MCP_REPORT_LIMITS, type MetricsHandle } from './metrics'
+import { metricsReport } from './metricsUsage'
+import type { MetricOutcome, MetricsQuery } from '../shared/metrics'
 import { agentForToken, agentToken, agentTokenFile, type AgentIdentity } from './agentTokens'
 
 const log = createLogger('servers')
@@ -39,12 +45,14 @@ function tokenMatches(header: string | undefined, token: string): boolean {
   return got.length === want.length && timingSafeEqual(got, want)
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+/** A request's body as text. `onChunk` hears each chunk's bytes as they arrive (a partial or refused body too). */
+function readBody(req: IncomingMessage, onChunk?: (bytes: number) => void): Promise<string> {
   return new Promise((resolve, reject) => {
     let size = 0
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => {
       size += c.length
+      onChunk?.(c.length)
       if (size > MAX_BODY) {
         reject(new HttpError(413, 'Request body too large'))
         req.destroy()
@@ -66,6 +74,8 @@ class HttpError extends Error {
 
 function send(res: ServerResponse, status: number, body: unknown): void {
   const text = body === undefined ? '' : JSON.stringify(body)
+  const m = apiRequests.get(res)
+  if (m) m.responseBytes = Buffer.byteLength(text, 'utf8')
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   res.end(text)
 }
@@ -137,6 +147,28 @@ function assistantCaller(): string | null {
 let apiError: string | undefined
 /** Event-stream clients, with the project agent each is (null: a script, which gets every event). */
 const sseClients = new Map<ServerResponse, AgentIdentity | null>()
+
+/** What an Agent API request is measured as (metrics.ts), filled in as it is handled and recorded when it ends. */
+interface ApiRequest {
+  route: string
+  /** The workspace's metrics as they were when the request came in: recorded there, or not at all if it has closed. */
+  handle: MetricsHandle | null
+  project: string | null
+  role: 'agent' | 'assistant' | 'api' | 'unknown'
+  requestBytes: number
+  responseBytes: number
+  /** Not counted as API traffic: the bridge's own metrics reports, event streams (counted as streams), the health check. */
+  skip: boolean
+  authenticated: boolean
+}
+const apiRequests = new WeakMap<ServerResponse, ApiRequest>()
+
+/** How a request ended, for its metrics: an aborted one is cancelled, else by its status. */
+function outcomeOf(res: ServerResponse): MetricOutcome {
+  if (!res.writableFinished) return 'cancelled'
+  const s = res.statusCode
+  return s < 400 ? 'ok' : s === 401 || s === 403 ? 'denied' : s < 500 ? 'client-error' : 'server-error'
+}
 
 function tokenFile(): string {
   return join(app.getPath('userData'), 'agent-api.json')
@@ -264,6 +296,12 @@ function projectByName(name: string): string {
   return hits[0]
 }
 
+/** A watching agent's watch, as every status reply gives it (small: what for and until when); undefined otherwise. */
+const watchingOf = (live: LiveSessionState | null | undefined) =>
+  live?.status === 'watching' && live.watch ? { cards: live.watch.cards, ...(live.watch.column ? { column: live.watch.column } : {}), changes: live.watch.changes, label: live.watch.label, limitAt: live.watch.limitAt } : undefined
+/** An agent's status message: a watching agent's is what it waits for. */
+const statusMessageOf = (live: LiveSessionState | null | undefined): string | null => (live?.status === 'watching' ? (live.watch?.label ?? null) : (live?.statusMessage ?? null))
+
 async function projectSummary(p: string) {
   const info = await workspace.projectInfo(p)
   return {
@@ -274,7 +312,7 @@ async function projectSummary(p: string) {
     branch: info.branch,
     status: info.live?.status ?? 'stopped',
     sessionId: info.live?.sessionId ?? null,
-    statusMessage: info.live?.statusMessage ?? null,
+    statusMessage: statusMessageOf(info.live),
     restartNeeded: info.restartNeeded,
     agents: info.agents.map((a) => ({
       id: a.id,
@@ -284,10 +322,13 @@ async function projectSummary(p: string) {
       worktree: a.worktree?.path ?? null,
       status: a.live?.status ?? 'stopped',
       sessionId: a.live?.sessionId ?? null,
-      statusMessage: a.live?.statusMessage ?? null,
+      statusMessage: statusMessageOf(a.live),
+      ...(watchingOf(a.live) ? { watching: watchingOf(a.live) } : {}),
       // An action under the CLI's automatic review (as asked); never a question for the user.
       reviewing: a.live?.review ?? null,
-      backgroundTasks: a.live?.backgroundTasks ?? 0
+      backgroundTasks: a.live?.backgroundTasks ?? 0,
+      // The guidance and skill revisions it launched with (compare with GET /v1/status's to spot an old launch).
+      launched: a.live?.launched ?? null
     })),
     settings: info.config
   }
@@ -343,16 +384,38 @@ function assistantMay(need: AssistantControl, what: string): void {
   throw new HttpError(403, `The user's settings (Settings → Assistant → Control: ${LEVEL_NAME[assistant.controlLevel()]}) don't let you ${what}. Tell the user what you would do instead.`)
 }
 
-const routes: { method: string; pattern: RegExp; handler: Handler }[] = []
+const routes: { method: string; pattern: RegExp; template: string; handler: Handler }[] = []
 function route(method: string, path: string, handler: Handler): void {
   const pattern = new RegExp('^' + path.replace(/:[a-zA-Z]+/g, '([^/]+)') + '/?$')
-  routes.push({ method, pattern, handler })
+  routes.push({ method, pattern, template: path, handler })
+  // The template (/v1/tasks/:n), never the path asked for, is what a request is counted under.
+  knownRoute(path)
+}
+
+/** The Agent API's contract version: goes up when a route or field changes in a way a client would notice. */
+export const API_VERSION = 2
+
+/** Who Hive takes a request's caller for, and what it may reach (GET /v1/status). */
+async function callerInfo(): Promise<Record<string, unknown>> {
+  const own = assistantCaller()
+  if (own) return { role: 'assistant', workspace: basename(own), control: assistant.controlLevel() }
+  const a = agentCaller()
+  if (a) {
+    const def = await workspace
+      .projectConfig(a.projectPath)
+      .then((cfg) => projectAgents(cfg).find((x) => x.id === a.agentId))
+      .catch(() => undefined)
+    return { role: 'agent', project: basename(a.projectPath), agent: def?.name ?? a.agentId, scope: 'project' }
+  }
+  return { role: 'api', scope: 'workspace' }
 }
 
 route('GET', '/v1/status', async () => ({
   app: { name: 'Hive', version: app.getVersion() },
-  /** Claude Code's install info, as before providers; `providers` has every provider's. */
-  agent: providerService.info(CLAUDE_CODE),
+  api: { version: API_VERSION },
+  caller: await callerInfo(),
+  // The guidance this Hive gives sessions, and the request's workspace's Hive skills (null without one).
+  guidance: { revision: GUIDANCE_REVISION, skills: contextWorkspace() ? await inWorkspace(contextWorkspace()!, () => skillRevisions()) : null },
   providers: providerService.all(),
   /** The request's workspace (or the only open one); `workspaces` lists every window's. */
   workspace: contextWorkspace()?.path ? { name: basename(contextWorkspace()!.path!), path: contextWorkspace()!.path } : null,
@@ -372,7 +435,7 @@ route('GET', '/v1/workspaces', async () => openWorkspaces().map((w) => ({ name: 
 /** A project in a short listing (?view=short): its state and agents, without ids, paths or settings. */
 async function projectRow(p: string): Promise<ProjectRow> {
   const s = await projectSummary(p)
-  return { name: s.name, workspace: s.workspace, active: s.active, branch: s.branch, agents: s.agents.map((a) => ({ name: a.name, provider: a.provider, status: a.status, branch: a.branch, backgroundTasks: a.backgroundTasks })) }
+  return { name: s.name, workspace: s.workspace, active: s.active, branch: s.branch, agents: s.agents.map((a) => ({ name: a.name, provider: a.provider, status: a.status, branch: a.branch, backgroundTasks: a.backgroundTasks, ...(a.watching ? { watching: a.watching.label } : {}) })) }
 }
 
 route('GET', '/v1/projects', async ({ query }) => {
@@ -549,6 +612,7 @@ const STATUS_WORDS: Record<string, string> = {
   waiting: 'waiting for the user',
   starting: 'starting',
   background: 'waiting on background tasks it started',
+  watching: 'waiting for cards to change (a card watch: its card loop pauses until it is resumed)',
   ready: 'idle',
   finished: 'idle (finished its task)',
   error: 'in error',
@@ -652,13 +716,13 @@ route('POST', '/v1/projects/:name/agents/:agent/stop', async ({ params, body }) 
   return assistantChange('agents', `stop ${a.name} in ${basename(p)}`, async () => {
     const st = sessions.liveFor(p, agentId)
     if (!st) return { done: `${a.name} in ${basename(p)} wasn't running`, result: { ok: true, wasRunning: false } }
-    // Stopping an agent in the middle of something is the user's call.
-    if (busy(st) && ws) {
+    // Stopping an agent in the middle of something is the user's call: also one watching cards (its card loop stops).
+    if (stopAsksUser(st.status) && ws) {
       const said = typeof body?.reason === 'string' ? clip(body.reason.trim(), 300) : ''
       const reason = said ? ` Its reason: ${said}${/[.!?]$/.test(said) ? '' : '.'}` : ''
       const yes = await assistant.ask(ws, {
         title: `Stop ${a.name} in ${basename(p)}?`,
-        message: `The Assistant wants to stop ${a.name}, which is ${STATUS_WORDS[st.status] ?? st.status}.${reason} Its conversation is kept and can be resumed.`,
+        message: `The Assistant wants to stop ${a.name}, which is ${st.status === 'watching' && st.watch ? `${st.watch.label.replace(/^Waiting/, 'waiting')} (a card watch: its card loop pauses until it is resumed)` : (STATUS_WORDS[st.status] ?? st.status)}.${reason} Its conversation is kept and can be resumed.`,
         yes: 'Stop',
         no: "Don't stop"
       })
@@ -685,6 +749,7 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
     if (st.status === 'starting') throw new HttpError(409, `${a.name} is still starting. Wait for it (hive_wait_for_agents), then try again.`)
     if (st.status === 'waiting') throw new HttpError(409, `${a.name} is waiting for the user${st.statusMessage ? ` (${st.statusMessage})` : ''}. Tell the user; don't answer for them.`)
     if (st.status === 'working') throw new HttpError(409, `${a.name} is working. Wait until it's idle (hive_wait_for_agents), then give it the task.`)
+    if (st.status === 'watching') throw new HttpError(409, `${a.name} is ${st.watch?.label.replace(/^Waiting/, 'waiting') ?? 'waiting on cards'} (a card watch): it takes no other work until it is woken or the user cancels the watch.`)
     if (st.status === 'background') {
       throw new HttpError(409, `${a.name} is waiting on ${tasksWord(st.backgroundTasks ?? 0)} it started (such as a test run) and carries on by itself when they end. Wait for it (hive_wait_for_agents), then give it the task. If it seems stuck, tell the user.`)
     }
@@ -694,8 +759,13 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
   })
 })
 
+/** How much of an agent's last task and reply its activity shows without detail (GET …/activity?detail=true for all). */
+/** How much of an agent's activity a reply carries: the short form, and with detail. */
+const ACTIVITY_SHORT = { task: 300, reply: 500, tools: 3, summary: 100 }
+const ACTIVITY_DETAIL = { task: 2000, reply: 3000, tools: 10, summary: 200 }
+
 /** What an agent is doing: its status, the task it was last given, its latest reply, its recent tool calls, its locked files. */
-async function agentActivity(p: string, agentId: string) {
+async function agentActivity(p: string, agentId: string, detail = false) {
   const info = await workspace.projectInfo(p)
   const a = info.agents.find((x) => x.id === agentId)
   if (!a) throw new HttpError(404, 'Unknown agent')
@@ -704,18 +774,27 @@ async function agentActivity(p: string, agentId: string) {
   let currentTask: string | null = null
   let latestReply: string | null = null
   let recentTools: { tool: string; summary: string; failed: boolean }[] = []
+  let toolCalls = 0
+  // What was cut short, so the caller knows what it hasn't read: each text's whole length in characters.
+  const clipped: { currentTask?: number; latestReply?: number } = {}
+  const lim = detail ? ACTIVITY_DETAIL : ACTIVITY_SHORT
   if (sessionId) {
     const t = await transcripts.read(p, sessionId).catch(() => null)
     const items = t?.items ?? []
     const lastUser = items.map((x) => x.kind).lastIndexOf('user')
     const task = lastUser >= 0 ? items[lastUser] : null
-    if (task?.kind === 'user') currentTask = clip(task.text, 2000)
+    if (task?.kind === 'user') {
+      currentTask = clip(task.text, lim.task)
+      if (task.text.length > lim.task) clipped.currentTask = task.text.length
+    }
     const reply = [...items].reverse().find((x) => x.kind === 'assistant')
-    if (reply?.kind === 'assistant') latestReply = clip(reply.text, 3000)
-    recentTools = items
-      .slice(Math.max(0, lastUser))
-      .flatMap((x) => (x.kind === 'tool' ? [{ tool: x.tool.name, summary: clip(x.tool.summary, 200), failed: x.tool.isError }] : []))
-      .slice(-10)
+    if (reply?.kind === 'assistant') {
+      latestReply = clip(reply.text, lim.reply)
+      if (reply.text.length > lim.reply) clipped.latestReply = reply.text.length
+    }
+    const turn = items.slice(Math.max(0, lastUser)).flatMap((x) => (x.kind === 'tool' ? [{ tool: x.tool.name, summary: clip(x.tool.summary, lim.summary), failed: x.tool.isError }] : []))
+    toolCalls = turn.length
+    recentTools = turn.slice(-lim.tools)
   }
   const folder = a.worktree?.path ?? p
   const typed = sessions.userTypedAt(p, agentId)
@@ -725,7 +804,8 @@ async function agentActivity(p: string, agentId: string) {
     id: a.id,
     provider: st?.provider ?? agentProvider(a, info.config, config.settings),
     status: st?.status ?? 'stopped',
-    statusMessage: st?.statusMessage ?? null,
+    statusMessage: statusMessageOf(st),
+    ...(watchingOf(st) ? { watching: watchingOf(st) } : {}),
     reviewing: st?.review ?? null,
     backgroundTasks: st?.backgroundTasks ?? 0,
     branch: a.worktree?.branch ?? null,
@@ -737,16 +817,19 @@ async function agentActivity(p: string, agentId: string) {
     sessionName: st?.sessionName ?? null,
     currentTask,
     latestReply,
+    /** This turn's tool calls: how many, and the last few (three; ten with detail), each summary clipped. */
+    toolCalls,
     recentTools,
+    ...(Object.keys(clipped).length ? { clipped } : {}),
     lockedFiles: sessions.locksFor(p, agentId).map((f) => relative(folder, f) || f),
     userTypedSecondsAgo: typed ? Math.round((Date.now() - typed) / 1000) : null
   }
 }
 
-route('GET', '/v1/projects/:name/agents/:agent/activity', async ({ params }) => {
+route('GET', '/v1/projects/:name/agents/:agent/activity', async ({ params, query }) => {
   const p = projectByName(params[0])
   ownProjectOnly(p, "Reading an agent's activity")
-  return agentActivity(p, await agentParam(p, decodeURIComponent(params[1])))
+  return agentActivity(p, await agentParam(p, decodeURIComponent(params[1])), query.get('detail') === 'true')
 })
 
 /**
@@ -777,7 +860,7 @@ route('POST', '/v1/agents/wait', async ({ body }) => {
   for (const t of targets) {
     const def = projectAgents(await workspace.projectConfig(t.p)).find((a) => a.id === t.id)
     const s = sessions.liveFor(t.p, t.id)
-    agents.push({ project: basename(t.p), agent: def?.name ?? t.id, status: s?.status ?? 'stopped', statusMessage: s?.statusMessage ?? null, backgroundTasks: s?.backgroundTasks ?? 0 })
+    agents.push({ project: basename(t.p), agent: def?.name ?? t.id, status: s?.status ?? 'stopped', statusMessage: statusMessageOf(s), backgroundTasks: s?.backgroundTasks ?? 0, ...(watchingOf(s) ? { watching: watchingOf(s) } : {}) })
   }
   return { timedOut: working(), waitedSeconds: Math.round((Date.now() - t0) / 1000), agents }
 })
@@ -966,7 +1049,11 @@ route('GET', '/v1/tasks', async ({ query }) => {
 route('GET', '/v1/tasks/:n', async ({ params, query }) => {
   requireWorkspace()
   const view = await taskView(await tasks.readTask(taskNumber(params[0]), await taskActor()))
-  return query.get('history') === 'false' ? withoutHistory(view) : view
+  const raw = query.get('comments')
+  const n = raw === null ? null : Number(raw)
+  if (n !== null && (!Number.isInteger(n) || n < 1)) throw new HttpError(400, `comments must be a whole number from 1: "${raw}"`)
+  const lean = n === null ? view : newestComments(view, n)
+  return query.get('history') === 'false' ? withoutHistory(lean) : lean
 })
 
 route('POST', '/v1/tasks', async ({ body }) => {
@@ -1061,6 +1148,144 @@ route('POST', '/v1/tasks/:n/comments', async ({ params, body }) => {
   return assistantChange('agents', `comment on #${n}`, async () => ({ done: `Commented on #${n}`, result: await reply(await tasks.commentTask(n, text, actor)) }))
 })
 
+/** Bounded waits running now, per caller (an agent, the Assistant, a script): at most WAITS_PER_CALLER at a time. */
+const taskWaits = new Map<string, number>()
+const WAITS_PER_CALLER = 2
+
+/**
+ * Waiting on cards (#128). `wake: true`: the calling agent (or the Assistant) registers a watch and ends its turn; Hive
+ * types one line into it when a watched card changes (main/watches.ts). `cancel: true`: ends its watch. Otherwise the
+ * call waits itself, up to WAIT_MAX_SECONDS, for a change since `since` (or since the call), driven by the board's
+ * change events (no polling). A project agent waits only on its own project's cards.
+ */
+route('POST', '/v1/tasks/wait', async ({ body }) => {
+  const ws = requireWorkspace()
+  // The workspace as it is now: the call belongs to it, and stops (409) if it closes or the window opens another.
+  const wsPath = ws.path
+  const life = ws.lifetime
+  if (!wsPath) throw new HttpError(409, 'The workspace was closed')
+  const stillOpen = (): void => {
+    if (life.aborted || !ws.path || ws.path.toLowerCase() !== wsPath.toLowerCase()) throw new HttpError(409, 'The workspace was closed')
+  }
+  stillOpen()
+  const me = agentCaller()
+  const home = assistantCaller() ? ws.assistantHome : null
+  const who = me ? { projectPath: me.projectPath, agentId: me.agentId } : home ? { projectPath: home, agentId: 'assistant' } : null
+  if (body?.cancel === true) {
+    if (!who) throw new HttpError(400, 'Only an agent or the Assistant has a card watch to cancel.')
+    const had = await cancelWatch(ws, who.projectPath, who.agentId)
+    return { done: had ? 'Cancelled your card watch.' : 'You had no card watch.' }
+  }
+  const cond = readCondition(body ?? {})
+  if (typeof cond === 'string') throw new HttpError(400, cond)
+  // Each card must be one the caller may see (a project agent: its project's; others are unknown to it), and stays so:
+  // the caller's scope goes with the wait, and every later read is checked against it.
+  const actor = await taskActor()
+  const scope = tasks.scopeOf(actor)
+  for (const n of cond.cards) await tasks.readTask(n, actor)
+  stillOpen()
+  if (body?.wake === true) {
+    if (!who) throw new HttpError(400, 'Only an agent or the Assistant can be woken: a script waits without wake (timeoutSeconds).')
+    const limit = body?.limitMinutes === undefined ? WATCH_DEFAULT_LIMIT_MINUTES : Number(body.limitMinutes)
+    if (!Number.isFinite(limit) || limit < 1 || limit > WATCH_MAX_LIMIT_MINUTES) throw new HttpError(400, `limitMinutes must be from 1 to ${WATCH_MAX_LIMIT_MINUTES}`)
+    const r = await registerWatch(ws, who.projectPath, who.agentId, cond, limit)
+    if ('already' in r) return { already: r.already }
+    return { watching: r.watching.label, limitAt: r.watching.limitAt }
+  }
+  const seconds = body?.timeoutSeconds === undefined ? 300 : Number(body.timeoutSeconds)
+  if (!Number.isFinite(seconds) || seconds < 1) throw new HttpError(400, `timeoutSeconds must be from 1 to ${WAIT_MAX_SECONDS}`)
+  const limitMs = Math.min(WAIT_MAX_SECONDS, seconds) * 1000
+  let base: Map<number, CardMark> | null = null
+  let sinceAt = Date.now()
+  if (body?.since !== undefined) {
+    const d = decodeSince(String(body.since))
+    if (!d) throw new HttpError(400, 'since must be the since of an earlier reply')
+    base = d.marks
+    sinceAt = d.at
+  }
+  const sinceIso = new Date(sinceAt).toISOString()
+  const read = (n: number) => scopedCard(ws, wsPath, life, n, scope)
+  const marksOf = async (): Promise<Map<number, CardMark>> => {
+    const m = new Map<number, CardMark>()
+    for (const n of cond.cards) m.set(n, markOf(await read(n)))
+    return m
+  }
+  const callerKey = me ? `${me.projectPath.toLowerCase()}#${me.agentId}` : home ? `assistant:${wsPath}` : `api:${wsPath}`
+  const running = taskWaits.get(callerKey) ?? 0
+  if (running >= WAITS_PER_CALLER) throw new HttpError(429, `You already have ${running} card waits running: wait for them to end.`)
+  taskWaits.set(callerKey, running + 1)
+  try {
+    const start = await marksOf()
+    const from = new Map(cond.cards.map((n) => [n, base?.get(n) ?? start.get(n)!]))
+    // A column condition already met when the wait begins answers at once.
+    const met = cond.column && !base ? cond.cards.filter((n) => alreadyThere(start.get(n)!, cond)) : []
+    if (met.length) return { changes: await Promise.all(met.map(async (n) => cardChange(n, await read(n), ['column']))), timedOut: false, since: encodeSince(start) }
+    const check = async (): Promise<{ changes: CardChange[]; now: Map<number, CardMark> }> => {
+      const now = await marksOf()
+      const changes: CardChange[] = []
+      for (const n of cond.cards) {
+        const card = await read(n)
+        const kinds = changesBetween(from.get(n)!, now.get(n)!, cond, !!cond.moveInto && !!cond.column && movedIntoSince(card, cond.column, sinceIso))
+        const reached = alreadyThere(now.get(n)!, cond) && !alreadyThere(from.get(n)!, cond)
+        // A card gone (or out of the caller's view) is told as gone: nothing of its state.
+        if (kinds === 'gone' || kinds.length || reached) changes.push(cardChange(n, kinds === 'gone' ? null : card, kinds === 'gone' ? 'gone' : kinds.length ? kinds : ['column']))
+      }
+      return { changes, now }
+    }
+    // Listening first, then the first check: a change between the two is seen by one or the other.
+    const result = await new Promise<{ changes: CardChange[]; now: Map<number, CardMark> }>((resolve, reject) => {
+      // One check at a time; a board change during one checks again after it, so none is missed until the timeout.
+      let checking = false
+      let again = false
+      let ended = false
+      const finish = (): void => {
+        ended = true
+        clearTimeout(timer)
+        off()
+        life.removeEventListener('abort', onClose)
+      }
+      const done = (r: { changes: CardChange[]; now: Map<number, CardMark> }): void => {
+        if (ended) return
+        finish()
+        resolve(r)
+      }
+      const fail = (e: unknown): void => {
+        if (ended) return
+        finish()
+        reject(e)
+      }
+      const onClose = (): void => fail(new HttpError(409, 'The workspace was closed'))
+      const run = (): void => {
+        if (ended) return
+        if (checking) {
+          again = true
+          return
+        }
+        checking = true
+        again = false
+        void check()
+          .then((r) => (r.changes.length ? done(r) : undefined))
+          .catch((e) => (life.aborted ? onClose() : log.warn('checking a card wait', e)))
+          .finally(() => {
+            checking = false
+            if (again) run()
+          })
+      }
+      const timer = setTimeout(() => void check().then(done, () => (life.aborted ? onClose() : done({ changes: [], now: start }))), limitMs)
+      const off = onHiveEvent((e) => {
+        if (e.type === 'tasks-changed' && e.workspacePath.toLowerCase() === wsPath.toLowerCase()) run()
+      })
+      life.addEventListener('abort', onClose, { once: true })
+      run()
+    })
+    return result.changes.length ? { changes: result.changes, timedOut: false, since: encodeSince(result.now) } : { timedOut: true, since: encodeSince(result.now) }
+  } finally {
+    const left = (taskWaits.get(callerKey) ?? 1) - 1
+    if (left > 0) taskWaits.set(callerKey, left)
+    else taskWaits.delete(callerKey)
+  }
+})
+
 route('POST', '/v1/tasks/:n/start', async ({ params, body }) => {
   requireWorkspace()
   const n = taskNumber(params[0])
@@ -1073,18 +1298,107 @@ route('POST', '/v1/tasks/:n/start', async ({ params, body }) => {
     const r = await startTask(n, target, { kind: 'assistant' }, typeof body?.note === 'string' ? body.note : undefined)
     return {
       done: `Started #${n} on ${r.added ? 'a new agent, ' : ''}${r.agentName} in ${card.project}: ${clip(card.title, 80)}`,
-      result: { ok: true, agent: r.agentName, added: r.added, card: shortReply(body) ? taskRow(await taskView(r.card)) : await taskView(r.card), note: 'Follow it with hive_wait_for_agents; the agent keeps the card up to date if it has Hive tools.' }
+      result: { ok: true, agent: r.agentName, added: r.added, card: shortReply(body) ? taskRow(await taskView(r.card)) : await taskView(r.card) }
     }
   })
+})
+
+/** A skill in a listing: what it is and where it comes from, not where it is on disk. */
+const skillRow = (s: SkillInfo): SkillRow & Pick<SkillInfo, 'bundled' | 'updateAvailable'> => ({
+  name: s.name,
+  description: s.description,
+  level: s.level,
+  ...(s.provider ? { provider: s.provider } : {}),
+  ...(s.plugin ? { plugin: s.plugin } : {}),
+  ...(s.audience ? { audience: s.audience } : {}),
+  ...(s.problem ? { problem: s.problem } : {}),
+  ...(s.bundled ? { bundled: s.bundled } : {}),
+  ...(s.updateAvailable ? { updateAvailable: s.updateAvailable } : {})
 })
 
 route('GET', '/v1/skills', async ({ query }) => {
   const project = query.get('project')
   if (project) {
     const p = projectByName(project)
-    return inWorkspace(workspaceOf(p), () => listSkills(p))
+    // A project's own skills are its agents' business (like its sessions).
+    ownProjectOnly(p, "Listing a project's skills")
+    // What the project's agents are given: not the Hive skills for the Assistant alone (as its Skills tab).
+    return (await inWorkspace(workspaceOf(p), () => listSkills(p))).filter((s) => !(s.level === 'hive' && s.audience === 'assistant')).map(skillRow)
   }
-  return inWorkspace(requireWorkspace(), () => listSkills())
+  return (await inWorkspace(requireWorkspace(), () => listSkills())).map(skillRow)
+})
+
+/** Largest skill file the API returns; skills are instructions, not data. */
+const SKILL_FILE_MAX = 512 * 1024
+
+// One of the workspace's Hive skills: its SKILL.md and the files beside it, or (?file=) one of those files.
+route('GET', '/v1/skills/:name', async ({ params, query }) => inWorkspace(requireWorkspace(), async () => {
+  const name = decodeURIComponent(params[0])
+  const skill = validSkillName(name) ? (await hiveSkills()).find((s) => s.name.toLowerCase() === name.toLowerCase()) : undefined
+  if (!skill) throw new HttpError(404, `The workspace has no Hive skill "${name}"`)
+  const file = query.get('file') ?? 'SKILL.md'
+  // The whole path is checked before anything is read: relative, inside the skill's folder as written and as it
+  // really is (a link can't lead out), and a file.
+  const parts = file.replace(/\\/g, '/').split('/')
+  if (!file || /^[a-z]:|^\//i.test(file) || parts.some((x) => x === '' || x === '.' || x === '..')) throw new HttpError(400, `"${file}" isn't a path inside the skill's folder`)
+  const abs = join(skill.path, ...parts)
+  if (!insideReal(abs, [skill.path])) throw new HttpError(400, `"${file}" isn't a path inside the skill's folder`)
+  const info = await stat(abs).catch(() => null)
+  if (!info?.isFile()) throw new HttpError(404, `The skill "${skill.name}" has no file "${file}"`)
+  const tooBig = new HttpError(413, `"${file}" is larger than ${SKILL_FILE_MAX / 1024} KB`)
+  if (info.size > SKILL_FILE_MAX) throw tooBig
+  // What is read is capped too: the file may have grown since the stat.
+  const read = await readCapped(abs, SKILL_FILE_MAX)
+  if (read.more) throw tooBig
+  const out = { name: skill.name, audience: skill.audience ?? 'agents', file: parts.join('/'), content: read.data.toString('utf8') }
+  if (query.get('file')) return out
+  const list = await skillFiles(skill.path)
+  return { ...out, files: list.files, ...(list.truncated ? { filesTruncated: true } : {}) }
+}))
+
+// This Hive's own API reference (docs/AGENT_API.md as it shipped), for clients that need more than the status.
+route('GET', '/v1/docs/agent-api', async () => ({ version: app.getVersion(), api: API_VERSION, content: agentApiDoc }))
+
+/**
+ * The request's workspace's performance metrics (metrics.ts): ?scope=workspace (default) or ?scope=project&project=name,
+ * ?from and ?to as ISO times (default the last 24 hours), ?role, ?provider and ?own=1 (the workspace's own work) to
+ * narrow it, ?trend=1 for its trend. A project agent sees its own project's only.
+ */
+route('GET', '/v1/metrics', async ({ query }) => {
+  const w = requireWorkspace()
+  const agent = agentCaller()
+  const asked = query.get('project')
+  if (agent && (query.get('scope') !== 'project' || (asked && asked.toLowerCase() !== basename(agent.projectPath).toLowerCase()))) {
+    throw new HttpError(403, `An agent reads its own project's metrics: ?scope=project&project=${basename(agent.projectPath)}`)
+  }
+  const scope: MetricsQuery['scope'] = query.get('scope') === 'project' ? { kind: 'project', project: asked || (agent ? basename(agent.projectPath) : '') } : { kind: 'workspace' }
+  if (scope.kind === 'project' && !scope.project) throw new HttpError(400, 'scope=project needs project')
+  const role = query.get('role') ?? undefined
+  if (role !== undefined && role !== 'agent' && role !== 'assistant' && role !== 'api') throw new HttpError(400, 'role must be agent, assistant or api')
+  return metricsReport(w, { scope, from: query.get('from') ?? undefined, to: query.get('to') ?? undefined, trend: query.get('trend') === '1', role, provider: query.get('provider') || undefined, own: query.get('own') === '1' }).catch((e) => {
+    throw e instanceof HttpError ? e : new HttpError(400, (e as Error).message)
+  })
+})
+
+
+/**
+ * The hive MCP bridge's report of its tool calls (the final text each gave the model) and, once per start, its tool
+ * list and instructions. From an agent's or the Assistant's own token only, attributed by that token (an agent's
+ * project; the Assistant's workspace); checked and bounded: a report that isn't valid is refused, not stored.
+ */
+route('POST', '/v1/metrics/mcp', async ({ body }) => {
+  const agent = agentCaller()
+  const own = assistantCaller()
+  if (!agent && !own) throw new HttpError(403, "Only the hive MCP bridge reports its calls, with an agent's or the Assistant's token")
+  const h = metricsHandle(requireWorkspace())
+  const project = agent ? basename(agent.projectPath) : null
+  const role = agent ? 'agent' : 'assistant'
+  const calls: unknown[] = Array.isArray(body?.calls) ? body.calls : []
+  if (calls.length > MCP_REPORT_LIMITS.events) throw new HttpError(400, `At most ${MCP_REPORT_LIMITS.events} calls in one report`)
+  let accepted = 0
+  for (const c of calls) if (c && typeof c === 'object' && recordMcp(h, project, role, c as Record<string, unknown> as never)) accepted++
+  if (body?.catalog && typeof body.catalog === 'object' && recordCatalog(h, project, role, body.catalog)) accepted++
+  return { accepted, refused: calls.length + (body?.catalog ? 1 : 0) - accepted }
 })
 
 route('GET', '/v1/mcp', async () => (await inWorkspace(requireWorkspace(), () => listMcp())).map(({ name, def, globallyEnabled, error }) => ({ name, description: def?.description ?? '', globallyEnabled, error })))
@@ -1097,11 +1411,26 @@ route('POST', '/v1/notify', async ({ body }) => {
 })
 
 async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  // Measured from here to the response's end (or the client going away): latency on the monotonic clock, bodies'
+  // UTF-8 bytes, outcome. Recorded once it ends, never in the way of the request.
+  const started = metricsClock.mono()
+  const m: ApiRequest = { route: '(no route)', handle: null, project: null, role: 'unknown', requestBytes: 0, responseBytes: 0, skip: false, authenticated: false }
+  apiRequests.set(res, m)
+  appMetrics.requestStarted()
+  res.once('close', () => {
+    appMetrics.requestEnded()
+    if (!m.authenticated) appMetrics.unauthenticated()
+    else if (!m.skip && m.handle) recordApi(m.handle, m.project, { route: m.route, method: req.method ?? '', role: m.role, outcome: outcomeOf(res), requestBytes: m.requestBytes, responseBytes: m.responseBytes, ms: metricsClock.mono() - started })
+  })
   const url = new URL(req.url ?? '/', 'http://127.0.0.1')
   // Browsers must not be able to drive the API from a web page.
   if (req.headers.origin) return send(res, 403, { error: 'Cross-origin requests are not allowed' })
   const enabled = config.settings.agentApi.enabled
-  if (url.pathname === '/v1/health' && enabled) return send(res, 200, { ok: true, app: 'Hive', version: app.getVersion() })
+  if (url.pathname === '/v1/health' && enabled) {
+    m.authenticated = true
+    m.skip = true
+    return send(res, 200, { ok: true, app: 'Hive', version: app.getVersion() })
+  }
   const bearer = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')
   const ownWorkspace = bearer ? assistant.assistantForToken(bearer) : null
   // A project agent's own token works while the Agent API is on, as the workspace token does.
@@ -1114,11 +1443,19 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
         ? { kind: 'api' }
         : null
   if (!caller) return send(res, enabled ? 401 : 403, { error: enabled ? 'Missing or invalid bearer token' : 'The Agent API is turned off in Settings → Agent API' })
+  m.authenticated = true
+  m.role = caller.kind
+  // An agent's work is its project's; the Assistant's and scripts' are the workspace's own (not spread over projects).
+  if (caller.kind === 'agent') m.project = basename(caller.projectPath)
   return callerStore.run(caller, () => serveApi(req, res, url))
 }
 
 async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-  if (url.pathname === '/v1/health') return send(res, 200, { ok: true, app: 'Hive', version: app.getVersion() })
+  const m = apiRequests.get(res)!
+  if (url.pathname === '/v1/health') {
+    m.skip = true
+    return send(res, 200, { ok: true, app: 'Hive', version: app.getVersion() })
+  }
 
   if (req.method === 'GET' && url.pathname === '/v1/events') {
     // Events are about every open workspace: not for an Assistant, which sees only its own (it has hive_wait_for_agents).
@@ -1126,14 +1463,32 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' })
     res.write(': connected\n\n')
     sseClients.set(res, agentCaller())
-    req.on('close', () => sseClients.delete(res))
+    // A stream is counted as one (connections, events, bytes, how long it stayed open), not as a request's latency.
+    m.skip = true
+    const opened = metricsClock.mono()
+    appMetrics.stream({ connections: 1 })
+    req.on('close', () => {
+      sseClients.delete(res)
+      appMetrics.stream({ openMs: metricsClock.mono() - opened })
+    })
     return
   }
 
+  // Whose request it is, for metrics, known before the body is read: an unknown route or a client that goes away while
+  // sending its body is still counted for the workspace. (The request's own errors come below, in their usual order.)
+  try {
+    m.handle = metricsHandle(requestWorkspace(req, url))
+  } catch {
+    m.handle = null
+  }
   const r = routes.find((x) => x.method === req.method && x.pattern.test(url.pathname))
   if (!r) return send(res, 404, { error: `No route for ${req.method} ${url.pathname}` })
+  m.route = r.template
+  // The bridge's reports about its tool calls are bookkeeping, not traffic: counting them would count every call twice.
+  if (r.template === '/v1/metrics/mcp') m.skip = true
   try {
-    const raw = req.method === 'GET' ? '' : await readBody(req)
+    // Counted as received (a body the client stops sending, or one too large, is counted as far as it came).
+    const raw = req.method === 'GET' ? '' : await readBody(req, (bytes) => (m.requestBytes += bytes))
     let body: unknown = {}
     if (raw) {
       try {
@@ -1149,7 +1504,7 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     const result = ws ? await inWorkspace(ws, run) : await run()
     send(res, 200, result ?? null)
   } catch (e) {
-    const status = e instanceof HttpError ? e.status : e instanceof tasks.TaskPermissionError ? 403 : statusFor(e as Error)
+    const status = e instanceof HttpError ? e.status : e instanceof tasks.TaskPermissionError ? 403 : e instanceof tasks.TaskConflictError ? 409 : statusFor(e as Error)
     if (status === 500) log.error(`API ${req.method} ${url.pathname}`, e)
     send(res, status, { error: (e as Error).message })
   }
@@ -1159,7 +1514,7 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
 function statusFor(e: Error): number {
   const m = String(e?.message ?? '')
   if (/Invalid session id|URI malformed|Unknown provider|Project names cannot/i.test(m)) return 400
-  if (/already running|already open|already being opened|is starting|Stop it first|Stop the|archived|No session is running|ran in .* Resume it|is required to run|is turned off|no agents yet|No workspace|busy|no handover|changed while the cards/i.test(m)) return 409
+  if (/already running|already open|already being opened|is starting|Stop it first|Stop the|archived|No session is running|ran in .* Resume it|is required to run|is turned off|no agents yet|No workspace|busy|no handover|changed while the cards|workspace was closed|card watches/i.test(m)) return 409
   if (/several agents: choose/i.test(m)) return 400
   if (/Not a project|Unknown (project|agent|task)|no longer exists/i.test(m)) return 404
   if (/is archived|is done\.|has no project|needs a title|is too long|Unknown column|labels must|up to \d+ labels|^(blockedBy|links):|Choose a project|comment is empty|Unknown position|before or position|can't go before|, not in (Todo|Doing|Review|Done)|There is no card #|^cards:|other project first/i.test(m)) return 400
@@ -1181,7 +1536,10 @@ function broadcast(event: HiveEvent): void {
     if (c.writableLength > SSE_MAX_BUFFERED) {
       sseClients.delete(c)
       c.destroy()
-    } else c.write(line)
+    } else {
+      c.write(line)
+      appMetrics.stream({ events: 1, bytes: Buffer.byteLength(line, 'utf8') })
+    }
   }
 }
 

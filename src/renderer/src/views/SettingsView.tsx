@@ -115,6 +115,15 @@ const SETTINGS: SettingDef[] = [
   { section: 'sessions', key: 'followTranscripts', title: 'Follow running sessions in the transcript viewer', desc: 'The Sessions tab shows new messages of a running session as they arrive.', tip: 'Off: the transcript shows what was there when you opened it; Refresh loads what is new. You can also switch following on in the viewer itself. The Session tab always shows the agent working.', type: 'boolean' },
   { section: 'sessions', key: 'usageCacheSize', title: 'Usage cache size', desc: 'How many transcripts Hive remembers the token use of, so the Overview and session lists open without reading them again, also after a restart.', tip: 'Kept in usage-cache.json in your Hive profile: a few KB per transcript. A transcript is read again only when it changed (for example, a session you continued outside Hive), and the cache starts afresh with each Hive version. The least recently used go first when it is full. 100 to 50,000.', type: 'number', min: 100, max: 50000, step: 100 },
   { section: 'sessions', key: 'usageCacheClear', title: 'Clear the usage cache', desc: 'Forget what the cache holds; each transcript is read again the next time it is shown.', tip: 'Only needed if the token counts look wrong. Nothing else is lost: sessions, transcripts and backups stay as they are.', type: 'custom', render: () => <ClearUsageCacheButton /> },
+  {
+    section: 'sessions',
+    key: 'recordPerformance',
+    title: 'Record performance metrics',
+    desc: "Count what Hive's Agent API, tools, guidance and skills cost, for the Performance view.",
+    tip: "Only totals are kept: request and reply sizes, times and outcomes, the size of what each session was given, and the providers' own reported usage. Never prompts, replies, tokens or paths. Kept 30 days per workspace in .hive/metrics (git-ignored, this machine's). Turned off, nothing new is recorded; what was recorded stays until you reset it.",
+    type: 'boolean'
+  },
+  { section: 'sessions', key: 'resetPerformance', title: 'Reset performance metrics', desc: "Clear this workspace's recorded performance metrics.", tip: 'Starts the history again from now. Session usage and transcripts are not affected.', type: 'custom', render: () => <ResetMetricsButton /> },
   { section: 'sessions', key: 'confirmStop', title: 'Confirm before stopping', desc: 'Ask before stopping a running session.', tip: 'Stopped sessions can always be resumed.', type: 'boolean' },
   // Workspace
   {
@@ -656,6 +665,29 @@ function ClearUsageCacheButton() {
       }}
     >
       <Icon name="clear-all" /> Clear
+    </button>
+  )
+}
+
+function ResetMetricsButton() {
+  const [busy, setBusy] = useState(false)
+  const workspace = useStore((st) => st.workspace)
+  return (
+    <button
+      className="btn subtle"
+      disabled={busy || !workspace}
+      onClick={() => {
+        void confirm({ title: 'Reset performance metrics?', message: "Clear this workspace's recorded performance metrics?", detail: 'The history starts again from now.', confirmLabel: 'Reset', danger: true }).then((ok) => {
+          if (!ok) return
+          setBusy(true)
+          void call('metrics:reset')
+            .then(() => notify('info', 'Performance metrics reset'))
+            .catch((e) => notify('error', 'Could not reset the performance metrics', errorMessage(e)))
+            .finally(() => setBusy(false))
+        })
+      }}
+    >
+      <Icon name="discard" /> Reset
     </button>
   )
 }

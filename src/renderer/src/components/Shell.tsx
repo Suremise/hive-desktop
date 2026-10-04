@@ -16,6 +16,7 @@ import { useInbox } from '../inbox'
 const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }[] = [
   { id: 'projects', icon: 'files', label: 'Projects', command: 'view.projects' },
   { id: 'overview', icon: 'dashboard', label: 'Workspace Overview', command: 'view.overview' },
+  { id: 'performance', icon: 'pulse', label: 'Performance', command: 'view.performance' },
   { id: 'board', icon: 'project', label: 'Task Board', command: 'view.board' },
   { id: 'notes', icon: 'notebook', label: 'Shared Notes', command: 'view.notes' },
   { id: 'skills', icon: 'sparkle', label: 'Skills', command: 'view.skills' },

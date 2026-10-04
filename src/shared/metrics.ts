@@ -1,0 +1,324 @@
+/**
+ * Hive's performance metrics (#115): what the Agent API, the hive MCP bridge, Hive's launch guidance and its skill
+ * service cost, counted locally per workspace. Units are exact where Hive can measure them (UTF-8 bytes, characters as
+ * UTF-16 code units, i.e. JavaScript string length, milliseconds on a monotonic clock); provider token usage is what the
+ * provider reported. Hive estimates no tokens. Nothing here holds a prompt, a body, a token, a URL or a path.
+ */
+
+/** Latency histogram bounds (ms, inclusive upper bounds); a last bucket counts everything above the highest. */
+export const LATENCY_BOUNDS_MS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000] as const
+
+/** A count of something timed: how many, total and largest time, and a histogram over LATENCY_BOUNDS_MS (+1 overflow). */
+export interface Timed {
+  count: number
+  totalMs: number
+  maxMs: number
+  /** LATENCY_BOUNDS_MS.length + 1 counts. */
+  histogram: number[]
+}
+
+export type MetricOutcome = 'ok' | 'client-error' | 'denied' | 'server-error' | 'cancelled'
+
+/** Agent API requests, by route template, method, caller role and outcome. */
+export interface ApiSeries extends Timed {
+  route: string
+  method: string
+  role: 'agent' | 'assistant' | 'api' | 'unknown'
+  outcome: MetricOutcome
+  /** Request body and response body, UTF-8 bytes (JSON as sent; headers and transport not included). */
+  requestBytes: number
+  responseBytes: number
+}
+
+/** Hive tool calls as the MCP bridge answered them: the final text the model gets. */
+export interface McpSeries extends Timed {
+  tool: string
+  role: 'agent' | 'assistant'
+  /** The caller asked for the full form (detail, details, full card) or took the default compact one. */
+  mode: 'compact' | 'detail'
+  outcome: 'ok' | 'error'
+  /** The reply's text: characters (UTF-16 code units) and UTF-8 bytes. */
+  chars: number
+  bytes: number
+}
+
+/** What a launch gave a session from Hive (by provider and role), exact sizes of each part. */
+export interface GuidanceSeries {
+  provider: string
+  role: 'agent' | 'assistant'
+  launches: number
+  /**
+   * Each part of what Hive tells the session at launch, counted once a launch whichever way the provider gets it (the
+   * hive MCP server's instructions, Codex's developer_instructions, the Assistant's prompt):
+   * - core: Hive's session contract, the same text for every session of a role;
+   * - custom: what Hive adds for this project or workspace (the latest handover's pointer);
+   * - role: the Assistant's role (who it is, the workspace, what Control lets it do), none for project agents;
+   * - persona: the Assistant's persona, as the workspace has it, none for project agents.
+   */
+  guidanceBytes: number
+  guidanceChars: number
+  customBytes: number
+  customChars: number
+  roleBytes: number
+  roleChars: number
+  personaBytes: number
+  personaChars: number
+  /**
+   * Skills the session got, measured on the copies it reads (not their sources): how many, the bytes of their names
+   * and descriptions (the catalog a CLI shows), and their bytes on disk. A model reads a skill's body only when it uses
+   * it, which isn't observable.
+   */
+  skills: number
+  skillCatalogBytes: number
+  skillBytes: number
+  /** Skills asked for that the session didn't get (too big, a link that can't be made, a failed copy, a broken header). */
+  skillsNotDelivered: number
+  /**
+   * Skills the session got whose copy couldn't be measured (gone or unreadable when Hive looked): counted in `skills`,
+   * left out of `skillCatalogBytes` and `skillBytes`, which are the measured skills' only. Unknown, not zero.
+   */
+  skillsUnmeasured: number
+}
+
+/**
+ * The hive MCP bridge's tool list as one session start sent it to its CLI (tools/list: names, descriptions, schemas).
+ * Its instructions aren't counted here: they are Hive's session contract, counted once per launch in GuidanceSeries.
+ */
+export interface CatalogSeries {
+  role: 'agent' | 'assistant'
+  starts: number
+  tools: number
+  toolsBytes: number
+}
+
+/** The skill service (revisions.ts): scans, what they read and what the inventory saved. */
+export interface SkillServiceSeries {
+  scans: Timed
+  /** Callers that shared a scan running for someone else. */
+  sharedScans: number
+  hits: number
+  misses: number
+  /** Kept revisions found changed (a file written, added, removed). */
+  invalidations: number
+  tooLarge: number
+  files: number
+  bytes: number
+  headerBytes: number
+  entries: number
+}
+
+/** The event stream (/v1/events): connections, events and bytes sent, and how long streams stayed open. */
+export interface StreamSeries {
+  connections: number
+  events: number
+  bytes: number
+  openMs: number
+}
+
+/**
+ * Provider-reported usage (from the session transcripts' usage, as the Overview shows it), per provider and whose
+ * sessions they were: project agents' or the Assistant's. Scripts have no sessions, so no usage.
+ */
+export interface ProviderUsageSummary {
+  provider: string
+  role: 'agent' | 'assistant'
+  /** Sessions with activity in the range. Their usage is each session's cumulative total, not only the range's part. */
+  sessions: number
+  /** Of them, running now (the rest have ended). */
+  running: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  reasoningTokens: number
+  /** Sessions with no usage reported (unknown, not zero): left out of every total here, and counted in `costUnknown`. */
+  unknown: number
+  /** Provider requests, and compactions, the sessions reported. */
+  requests: number
+  compactions: number
+  /** API-equivalent cost (USD) of the sessions with one: reported by the provider, or Hive's estimate (`costEstimated` of them). Not a bill: a subscription isn't charged per request. */
+  costUsd: number
+  costEstimated: number
+  /** Sessions whose cost isn't known (no price for the model, or no usage reported). */
+  costUnknown: number
+  /**
+   * Context is a snapshot (each session's last request), not a sum: of the sessions that reported one, how many, their
+   * average and largest, and the largest context window reported (null: none was).
+   */
+  contextSessions: number
+  contextAvgTokens: number
+  contextMaxTokens: number
+  contextWindow: number | null
+}
+
+/** One point of a report's trend: its scope's totals in an hour (a range of up to 2 days) or a day. */
+export interface TrendPoint {
+  /** Where the hour or day starts (ISO). */
+  start: string
+  /**
+   * How much of the slot Hive was recording for this workspace (open, recording on, not since reset), ms. Zero: not
+   * observed, so its zeros mean nothing was seen, not that nothing happened.
+   */
+  observedMs: number
+  requests: number
+  /** Requests that didn't succeed (client or server error, refused, cancelled); `cancelled` of them, by the client. */
+  failed: number
+  cancelled: number
+  requestBytes: number
+  responseBytes: number
+  toolCalls: number
+  toolChars: number
+  launches: number
+  guidanceBytes: number
+}
+
+/** What a query is about: the whole workspace (with an optional project filter) or one project only. */
+export type MetricsScope = { kind: 'workspace' } | { kind: 'project'; project: string }
+
+/** Who did the work: project agents, the Assistant, or scripts (the workspace token). */
+export type MetricsRole = 'agent' | 'assistant' | 'api'
+
+export interface MetricsQuery {
+  scope: MetricsScope
+  /** Only this role's work (scripts have no launches or provider sessions). */
+  role?: MetricsRole
+  /** Only this provider's: applies to launches and provider usage; API requests and tool calls aren't per provider. */
+  provider?: string
+  /** A workspace scope only: just the workspace's own work (the Assistant, scripts, shared), no project's. */
+  own?: boolean
+  /** Also the scope's totals hour by hour (up to 2 days) or day by day (`trend`), at most 200 points. */
+  trend?: boolean
+  /** Range, as ISO times (default: the last 24 hours). Buckets are hourly for 7 days, daily to 30 days. */
+  from?: string
+  to?: string
+}
+
+/** A part of the totals: one project's, or the workspace's own (the Assistant, scripts, shared work). */
+export interface MetricsPart {
+  api: ApiSeries[]
+  mcp: McpSeries[]
+  guidance: GuidanceSeries[]
+  catalog: CatalogSeries[]
+}
+
+/** The filters a report was made with, and what they couldn't apply to (said, rather than implied). */
+export interface MetricsFilters {
+  role?: MetricsRole
+  provider?: string
+  own?: true
+  /** Parts of the report a filter doesn't narrow, each with why (e.g. API requests aren't recorded per provider). */
+  notFiltered: string[]
+}
+
+/**
+ * When Hive was recording for this workspace in the range: open in Hive, recording on, since the last reset (to within
+ * a few minutes). Outside it, nothing was seen: no data is not the same as zero.
+ */
+export interface MetricsCoverage {
+  rangeMs: number
+  observedMs: number
+  /** The earliest observed moment in the range (null: none). */
+  observedSince: string | null
+  /** Separate stretches of observation in the range (more than one: there were gaps). */
+  stretches: number
+  /**
+   * History removed to keep the metrics file under its size limit (not by age), through this time (ISO), when that is in
+   * the range: nothing before it is available, so it isn't counted as observed either.
+   */
+  evictedThrough?: string
+}
+
+export interface MetricsReport {
+  scope: MetricsScope
+  workspacePath: string
+  from: string
+  to: string
+  recording: boolean
+  filters: MetricsFilters
+  coverage: MetricsCoverage
+  /**
+   * The parts. A project scope has only that project's; a workspace scope has each project's and `workspace` (work not
+   * of any project: the Assistant, scripts, Hive's own). The totals are their sum, each counted once.
+   */
+  projects: Record<string, MetricsPart>
+  workspace?: MetricsPart
+  /** Skill service health (workspace scope only: it is shared, not any project's). */
+  skills?: SkillServiceSeries
+  /** Process-wide, not this workspace's: requests refused before Hive knew whose they were, and event streams. */
+  app?: { unauthenticated: number; streams: StreamSeries; inFlight: number }
+  providers: ProviderUsageSummary[]
+  /** Why provider usage is empty or partial for these filters, when it is (e.g. scripts have no sessions). */
+  providersNote?: string
+  /**
+   * Session hosts in the scope whose history couldn't be read (projects, the Assistant): a count only, never which. When
+   * set, `providers` is partial (or, if it is every host, unknown), not complete.
+   */
+  providersUnreadable?: number
+  /** How many session hosts the scope has (projects, the Assistant), to say how partial. */
+  providersHosts?: number
+  /** With `trend` asked for: the scope's totals per hour or day, oldest first, every slot of the range present. */
+  trend?: TrendPoint[]
+  trendStep?: 'hour' | 'day'
+  /** What isn't measured: said, rather than shown as zero. */
+  notMeasured: string[]
+  /**
+   * Measurements dropped because a cap was full, so totals may be low: the scope's own (a project scope: that project's
+   * only).
+   */
+  dropped: number
+  /** A workspace scope only: of `dropped`, those whose project wasn't tracked (the bookkeeping's own cap was full). */
+  droppedUntracked?: number
+  /**
+   * A project scope only: some losses in the range couldn't be attributed to a project, so this project's may be more
+   * than `dropped` (how many isn't known; the count is the workspace's).
+   */
+  lossesUnattributed?: true
+}
+
+export const emptyTimed = (): Timed => ({ count: 0, totalMs: 0, maxMs: 0, histogram: Array.from({ length: LATENCY_BOUNDS_MS.length + 1 }, () => 0) })
+
+/** Adds one timing to a Timed. */
+export function addTiming(t: Timed, ms: number): void {
+  const v = Number.isFinite(ms) && ms >= 0 ? ms : 0
+  t.count++
+  t.totalMs += v
+  if (v > t.maxMs) t.maxMs = v
+  let i = LATENCY_BOUNDS_MS.findIndex((b) => v <= b)
+  if (i < 0) i = LATENCY_BOUNDS_MS.length
+  t.histogram[i]++
+}
+
+/** Adds b into a. */
+export function mergeTimed(a: Timed, b: Timed): void {
+  a.count += b.count
+  a.totalMs += b.totalMs
+  a.maxMs = Math.max(a.maxMs, b.maxMs)
+  for (let i = 0; i < a.histogram.length; i++) a.histogram[i] += b.histogram[i] ?? 0
+}
+
+/** A latency percentile from a histogram: the upper bound of the bucket it falls in (null with no data or past the last bound). */
+export function percentile(t: Timed, p: number): number | null {
+  if (!t.count) return null
+  let seen = 0
+  const want = Math.ceil(t.count * p)
+  for (let i = 0; i < t.histogram.length; i++) {
+    seen += t.histogram[i]
+    if (seen >= want) return i < LATENCY_BOUNDS_MS.length ? LATENCY_BOUNDS_MS[i] : null
+  }
+  return null
+}
+
+/** UTF-8 bytes of a string, without encoding it. */
+export function utf8Bytes(s: string): number {
+  let n = 0
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    if (c < 0x80) n += 1
+    else if (c < 0x800) n += 2
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) {
+      n += 4
+      i++
+    } else n += 3
+  }
+  return n
+}

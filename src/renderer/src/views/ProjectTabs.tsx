@@ -21,7 +21,7 @@ import { languageFor } from '../monacoLang'
 import { useScopedLoad } from '../scopedLoad'
 import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
 import { RootSelector } from './FilesTab'
-import { agentProviderOf, confirm, notify, set, setActivity, useFocusedAgent, useStore } from '../store'
+import { agentProviderOf, confirm, notify, set, setActivity, showView, useFocusedAgent, useStore } from '../store'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
 import { useLiveUsage, useNow } from '../usage'
 
@@ -816,7 +816,9 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
   const providers = PROVIDERS.filter((p) => isProviderEnabled(settings, p.id))
   const ids = providers.map((p) => p.id)
   const all = skills ?? []
-  const hive = all.filter((s) => s.level === 'hive')
+  // This project's agents get the Hive skills for them; those for the Assistant alone are left out, and counted.
+  const hive = all.filter((s) => s.level === 'hive' && s.audience !== 'assistant')
+  const assistantOnly = all.filter((s) => s.level === 'hive' && s.audience === 'assistant').length
   const current = selected ? all.find((s) => s.path === selected) : undefined
 
   const add = async (mode: 'new' | 'file', provider: ProviderId): Promise<void> => {
@@ -859,6 +861,12 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
               <IconButton icon="go-to-file" title="Edit in the workspace's Skills view (Hive skills are shared by every project)" onClick={() => editInWorkspace(sk)} />
             )
           )}
+          {skills && assistantOnly > 0 && (
+            <div className="pane-empty assistant-only-note">
+              {assistantOnly === 1 ? "1 Hive skill is for the Hive Assistant only, so it isn't listed: this project's agents don't get it." : `${assistantOnly} Hive skills are for the Hive Assistant only, so they aren't listed: this project's agents don't get them.`}{' '}
+              <a onClick={() => showView('skills')}>See them in the Skills view</a>
+            </div>
+          )}
           {skills &&
             providers.map((p) => {
             const mine = all.filter((sk) => sk.provider === p.id)
@@ -898,7 +906,7 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
           <div className="empty-state" style={{ paddingTop: '14vh' }}>
             <Icon name="sparkle" />
             <div>
-              Select a skill to view it. <strong>Hive</strong> skills reach every agent and are edited in the workspace's Skills view; <strong>local</strong> skills belong to this project and one provider, and you can add, edit and delete them here.
+              Select a skill to view it. <strong>Hive</strong> skills reach every project's agents (those for the Hive Assistant alone aren't listed here) and are edited in the workspace's Skills view; <strong>local</strong> skills belong to this project and one provider, and you can add, edit and delete them here.
             </div>
           </div>
         )}

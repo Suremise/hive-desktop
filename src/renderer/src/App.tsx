@@ -7,6 +7,7 @@ import { AboutDialog, AgentSetupDialog, DiagnosticsDialog, CommandPalette, Compa
 import { AddAgentDialog, AgentSettingsDialog, HandOverDialog, MergeDialog } from './components/AgentDialogs'
 import { BoardView, MoveToDoingDialog, TaskDialog, TaskStartDialog } from './components/Board'
 import { WorkspaceOverviewView } from './views/WorkspaceOverview'
+import { PerformanceView } from './views/Performance'
 import { RemoveProjectDialog } from './components/ProjectRemoval'
 import { UpdateDialog } from './components/Updates'
 import { ModeMenuHost } from './components/PermissionMode'
@@ -307,6 +308,8 @@ export function App() {
         return <BoardView />
       case 'overview':
         return <WorkspaceOverviewView />
+      case 'performance':
+        return <PerformanceView />
       default:
         return workspace ? null : <WelcomeView />
     }

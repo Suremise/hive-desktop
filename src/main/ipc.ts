@@ -26,6 +26,7 @@ import * as tasks from './tasks'
 import { startTask } from './taskStart'
 import * as assistantControl from './assistantControl'
 import * as personas from './personas'
+import { syncBundled } from './bundled'
 import { killPty, ptyBuffer, resizePty, writePty } from './ptyHost'
 import { apiInfo, regenerateToken } from './servers'
 import * as projectAgents from './projectAgents'
@@ -34,10 +35,14 @@ import { sessions } from './sessions'
 import { transcripts } from './transcripts'
 import * as skills from './skills'
 import * as storage from './storage'
-import { contextWorkspace, inWorkspace, workspace, workspaceFor, WorkspaceService } from './workspace'
+import { contextWorkspace, currentWorkspace, inWorkspace, workspace, workspaceFor, workspaceOf, WorkspaceService } from './workspace'
 import { windowOf, windowShowing } from './windows'
 import { setTitleBarBackdrops, setTitleBarColors } from './titleBar'
 import { showWindow } from './tray'
+import { resetMetrics } from './metrics'
+import { metricsExport, metricsReport } from './metricsUsage'
+import { cancelWatch } from './watches'
+import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
 
 /** The instruction files of the given providers in a project, with their content. */
 async function projectInstructions(project: string, ids: ProviderId[]): Promise<InstructionsFile[]> {
@@ -104,11 +109,9 @@ async function openHere(path: string): ReturnType<WorkspaceService['open']> {
 const log = createLogger('ipc')
 
 export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info']>, quitControl: QuitControl): void {
-  // A new workspace starts with the skills that ship with Hive.
-  WorkspaceService.onCreated = () => skills.addBundledSkills()
-  // Every workspace gets Hive's personas the first time it opens with this version (an older one included).
-  WorkspaceService.onOpened = async () => {
-    if (!existsSync(workspace.personasDir)) await personas.addBundledPersonas()
+  // Each time a workspace opens: Hive's bundled skills and personas it hasn't got, or has untouched older copies of.
+  WorkspaceService.onOpened = async (fresh) => {
+    await syncBundled({ fresh }).catch((e) => log.warn("updating the workspace's bundled skills and personas", e))
     const ws = workspace
     void tasks.archiveOldDone(ws).catch((e) => log.warn('archiving old Done cards', e))
   }
@@ -240,6 +243,41 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       const assistant = existsSync(ws.assistantHome) ? await sessions.usageItems(ws.assistantHome).catch(() => []) : []
       return { workspacePath: ws.path, projects, assistant, hidden: ws.hiddenProjects().length }
     },
+    'metrics:query': (q) => metricsReport(currentWorkspace(), q),
+    'metrics:reset': () => resetMetrics(currentWorkspace()),
+    'metrics:export': async (q, sanitize) => {
+      // The report is taken before the dialog: the workspace this window shows now, not whatever it shows later.
+      const report = await metricsReport(currentWorkspace(), { ...q, trend: true })
+      const scope = q.scope.kind === 'project' && !sanitize ? q.scope.project.replace(/[<>:"/\\|?*\x00-\x1f]+/g, ' ').trim().slice(0, 60) : q.own ? 'own-work' : q.scope.kind
+      const r = await dialog.showSaveDialog(win(), {
+        title: 'Export Performance Metrics',
+        defaultPath: join(app.getPath('downloads'), `hive-performance-${scope}-${new Date().toISOString().slice(0, 10)}.json`),
+        filters: [{ name: 'JSON', extensions: ['json'] }]
+      })
+      if (r.canceled || !r.filePath) return null
+      await writeTextAtomic(r.filePath, JSON.stringify(metricsExport(report, app.getVersion(), sanitize), null, 2) + '\n')
+      return r.filePath
+    },
+    // Each takes the workspace's folder and lifetime before awaiting anything (benchContext): work whose workspace closes
+    // or switches meanwhile (a dialog left open, a slow read) is refused, never written into the next one.
+    'watch:cancel': (projectPath, agentId) => cancelWatch(workspaceOf(projectPath), projectPath, agentId),
+    'benchmarks:list': (scope) => listBenchmarks(benchContext(currentWorkspace()), scope),
+    'benchmarks:import': async (scope, answer) => {
+      const ctx = benchContext(currentWorkspace())
+      if (answer) return importBenchmark(ctx, scope, { token: answer.token, useProjectPart: answer.useProjectPart })
+      const r = await dialog.showOpenDialog(win(), { title: 'Import a Benchmark or Performance Export', properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }] })
+      if (r.canceled || !r.filePaths[0]) return null
+      return importBenchmark(ctx, scope, { path: r.filePaths[0] })
+    },
+    'benchmarks:keep': async (q, label) => {
+      const w = currentWorkspace()
+      const ctx = benchContext(w)
+      return keepReport(ctx, await metricsReport(w, q), app.getVersion(), label)
+    },
+    'benchmarks:read': (scope, id) => readBenchmark(benchContext(currentWorkspace()), scope, id),
+    'benchmarks:remove': (scope, id) => removeBenchmark(benchContext(currentWorkspace()), scope, id),
+    'benchmarks:pin': (scope, id, pinned) => pinBenchmark(benchContext(currentWorkspace()), scope, id, pinned),
+    'benchmarks:select': (scope, base, run) => selectBenchmarks(benchContext(currentWorkspace()), scope, base, run),
     'workspace:removeRecent': (p) => {
       config.update((c) => (c.recentWorkspaces = c.recentWorkspaces.filter((x) => x !== p)))
       return config.get().recentWorkspaces

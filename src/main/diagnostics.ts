@@ -11,6 +11,9 @@ import { logsDir } from './logger'
 import { provider } from './providers'
 import { providerService } from './providerService'
 import { hiveWindows } from './windows'
+import { GUIDANCE_REVISION } from './guidance'
+import { hiveSkills } from './skills'
+import { inWorkspace } from './workspace'
 
 /** How much of Hive's log a report carries. */
 const LOG_LINES = 50
@@ -74,6 +77,17 @@ export async function diagnostics(): Promise<string> {
     return [head, ...extra]
   })
 
+  // Bundled skills: Hive's own names, so they are shown; the user's own skills only as a count.
+  const skillLines: string[] = []
+  for (const w of windows) {
+    if (!w.ws.path) continue
+    const list = await inWorkspace(w.ws, () => hiveSkills(true)).catch(() => [])
+    const mark = (x: (typeof list)[number]): string => `${x.name} ${x.bundled}${x.updateAvailable ? ' (update available)' : ''}`
+    skillLines.push(`- Workspace ${skillLines.length + 1}: ${list.filter((x) => x.bundled).map(mark).join(', ') || 'no bundled skills'}; ${list.filter((x) => !x.bundled).length} of its own`)
+  }
+  const running = agents.flatMap((a) => (a.live ? [a.live] : []))
+  const older = running.filter((l) => l.launched && l.launched.guidance !== GUIDANCE_REVISION).length
+
   const header = [
     '## Hive diagnostics',
     '',
@@ -90,6 +104,11 @@ export async function diagnostics(): Promise<string> {
     `- Windows: ${windows.length}; projects: ${projects.filter((p) => p.active).length} active of ${projects.length}`,
     `- Agents: ${agents.length}, ${agents.filter((a) => a.live).length} running, ${agents.filter((a) => a.worktree).length} in worktrees`,
     `- Hive Assistant: ${assistants.some((a) => a.agents.some((x) => x.live)) ? 'running' : 'not running'}`,
+    '',
+    '### Guidance',
+    '',
+    `- Revision ${GUIDANCE_REVISION}${older ? `; ${older} running agent${older === 1 ? '' : 's'} launched with an older one` : ''}`,
+    ...skillLines,
     '',
     '### Settings',
     '',

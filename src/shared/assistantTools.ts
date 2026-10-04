@@ -19,7 +19,8 @@ export const ASSISTANT_READ_TOOLS = [
   'hive_wait_for_agents',
   'hive_list_providers',
   'hive_list_tasks',
-  'hive_read_task'
+  'hive_read_task',
+  'hive_wait_for_tasks'
 ]
 
 /** Running agents: add, change, start, stop, prompt; and turning projects on and off. Starting a board card runs an agent too. */
@@ -45,3 +46,11 @@ export function controlAllows(level: AssistantControlLevel | string | undefined,
 export function assistantTools(level: AssistantControlLevel | string | undefined): string[] {
   return [...ASSISTANT_READ_TOOLS, ...(controlAllows(level, 'agents') ? [...ASSISTANT_AGENT_TOOLS, ...TASK_TOOLS] : []), ...(controlAllows(level, 'projects') ? ASSISTANT_PROJECT_TOOLS : [])]
 }
+
+/** Every tool the hive MCP server has (a test checks it against hive-mcp.ts): the only tool names metrics record. */
+export const HIVE_TOOLS: readonly string[] = [
+  'hive_list_projects', 'hive_project_status', 'hive_session_usage', 'hive_list_shared_notes', 'hive_read_shared_note', 'hive_write_shared_note',
+  'hive_read_latest_handover', 'hive_create_handover', 'hive_notify', 'hive_list_providers', 'hive_agent_activity', 'hive_wait_for_agents',
+  'hive_create_project', 'hive_activate_project', 'hive_add_agent', 'hive_update_agent', 'hive_start_agent', 'hive_stop_agent', 'hive_prompt_agent',
+  'hive_hand_over', 'hive_list_tasks', 'hive_read_task', 'hive_create_task', 'hive_update_task', 'hive_reorder_tasks', 'hive_start_task', 'hive_list_skills', 'hive_wait_for_tasks'
+]

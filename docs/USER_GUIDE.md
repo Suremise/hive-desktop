@@ -23,7 +23,7 @@ Hive calls the coding agents it can run **providers**. Each agent in a project c
 - **Settings per provider.** Each provider has its own page (**Settings → Claude Code**, **Settings → Codex**): the CLI's path, default model, effort and permission mode, extra arguments, update checks and its price table. **Settings → Claude Code → Use 200K context (instead of 1M)** is off by default: current Claude models have a 1M-token context window, and turning this on holds sessions to 200K, so Claude Code compacts a long conversation sooner and each message sends less. Projects and agents can choose for themselves, and it applies to sessions started afterwards. **Settings → Claude Code → Allow background sessions** is off by default: in Claude Code, pressing ← on an empty prompt (easy to do while moving through text) opens its agent view and moves the session into Claude Code's background service, where Hive can no longer see or stop it. Hive turns that off for the sessions it starts; `claude` in your own terminals is unaffected. If a session is in the background anyway (you turned the setting on, or moved it there outside Hive), resuming it shows a notification with **Stop It and Resume**, which stops Claude Code's background job and resumes the conversation here. Projects override them per provider in Project Settings.
 - **The icons** on agent tabs, pane headers and the Sessions list show which provider each agent and session uses.
 - **Conversations stay with their provider.** A Claude Code session can only be resumed by a Claude Code agent, and a Codex session by a Codex agent. To move work to another provider, use **Hand Over to…** (see [Sessions](#sessions)).
-- **What both share.** The workspace's Hive skills and MCP servers and Hive's own `hive` tools reach every agent. Neither CLI loads MCP servers from your user settings in Hive sessions. Hive never changes either CLI's own configuration files.
+- **What both share.** The workspace's Hive skills (those for project agents), its MCP servers and Hive's own `hive` tools reach every agent, whichever provider it uses. Neither CLI loads MCP servers from your user settings in Hive sessions. Hive never changes either CLI's own configuration files.
 
 ## Workspaces and projects
 
@@ -33,7 +33,7 @@ A **workspace** is a folder of projects. When you open one, Hive creates a `.hiv
 MyWorkspace/
   .hive/
     shared/       notes, instructions and handovers for every project
-    skills/       Hive skills (one folder per skill; a new workspace starts with Hive's six)
+    skills/       Hive skills (one folder per skill, Hive's own included)
     mcp/          MCP server definitions (one .json per server)
     tasks/        the task board (one .json per card)
     workspace.json
@@ -68,6 +68,7 @@ Status dots:
 | Pulsing orange | Agent is working |
 | Pulsing yellow | Agent needs your input (e.g. a permission prompt) |
 | Slow, faint orange | Agent is waiting on background tasks it started (e.g. a test run) and carries on when they end |
+| Blue ring | Agent is waiting for cards on the board to change, and carries on when one does (see [Card loops](#card-loops)) |
 | Green | Agent finished its task |
 | Glow | Something happened you haven't looked at yet (it goes once the agent's pane has been on screen) |
 
@@ -218,6 +219,54 @@ If you use a subscription (a Claude plan for Claude Code, a ChatGPT plan for Cod
 
 Each agent's footer shows its model and **effort**, e.g. *Opus 5.5 (default) · High*: what the running session reports, otherwise what new sessions will use.
 
+### Performance metrics
+
+Hive counts what its own parts cost, for each workspace: its Agent API's requests (how many, how long, how big), its tools' replies as the agents got them, what each session was given at launch (Hive's guidance, the Assistant's persona, the skills), and its skill service's work, alongside the providers' own reported token usage. Only totals are kept, never prompts, replies, tokens or paths, for 30 days, in the workspace's `.hive/metrics` folder (kept out of git). Hive doesn't guess token counts: what it measures is exact bytes and characters, and token usage is what the providers report.
+
+It's on by default: **Settings → Sessions → Record performance metrics** turns it off (what was recorded stays), and **Reset performance metrics** clears the workspace's. Scripts can read them with the Agent API (`GET /v1/metrics`).
+
+### Performance view
+
+**Performance** in the activity bar shows these metrics for the whole workspace; each project's **Performance** tab (next to Overview) shows only that project's. Pick the last **24 hours**, **7 days** or **30 days**, and filter by who did the work (project agents, the Assistant, scripts) and by provider. In the activity bar view, the sidebar (or **Scope**) picks the whole workspace, its own work (the Assistant, scripts) or one project. Everything on the page follows the filters, the chart and Export too; where a filter can't apply (Hive doesn't record API requests per provider, for example) the page says so. You see:
+
+- how long Hive was recording in the range: metrics are only kept while the workspace is open in Hive with recording on, so time before that, while Hive was closed or recording was off, or before a reset is **not recorded** (no data, not zero), and so is history Hive removed to keep its metrics file small, which the page says;
+- cards: Agent API requests (per hour recorded) and how many failed or were cancelled, their latency (p50 and p95), the data sent and received, the characters Hive's tools gave the models, and what each session got at launch;
+- a chart of requests per hour (24 hours) or per day, failures in red and hours not recorded hatched; hover a bar for its tool calls and launches;
+- tables of Hive's tools (sorted by the characters they cost a model's context), Agent API routes, the guidance given at launch in parts (Hive's core instructions, what it adds for the project, the Assistant's role and persona, the skills' catalog), and the providers' own usage for project agents and the Assistant apart: tokens, requests, context (each session's latest, not added up), compactions and API-equivalent cost (≈ where Hive estimated it, **unknown** where a session reported nothing; not a bill). If a project's session history couldn't be read, the page says the totals are partial;
+- for the whole workspace, the skill service's scans and cache, and Hive-wide event streams.
+
+It refreshes every minute while you look at it (and **Refresh** at once); reading it doesn't add to the numbers. A note says when measurements were dropped because a limit was full, and **What isn't measured** lists what it can't see. **Export** saves what the page shows (its scope, range and filters) as a JSON file with its units, coverage and Hive's version; **Shift+click** Export to replace project names with project-1, project-2… and leave out the workspace's path, before sharing it.
+
+### Comparing before and after
+
+**Compare** (at the top of the Performance page) puts a baseline next to a run, to see whether a change made Hive's
+traffic and guidance smaller while the work still got done:
+
+- **Keep current view** saves what the page shows now (its scope, range and filters). Keep one before a change and
+  another after it, then pick them as **Baseline** and **Run**. They are compared per hour Hive was recording, with what
+  makes either partial noted. Real use isn't a controlled workload, so a difference can be the work that was done.
+- **Import…** reads a Performance export or a **scenario benchmark**: the `benchmark.json` that Hive's development
+  scenarios write (tests/scenarios in Hive's source). A benchmark compares scenario by scenario, **correctness first**:
+  *smaller, still correct* only if every check that passed still passes and still runs, and no more calls, failures or
+  retries were made. A smaller result that lost a check is *smaller but failing*, not an improvement. The table shows the
+  checks passed ✓, failed ✗ and skipped – on each side; click a scenario for every measure, its samples and spread, and
+  which checks changed. Something that wasn't measured shows as **unknown**, never as zero, and a scenario that wasn't
+  fully measured isn't judged.
+- If the two measured different things (other scenarios, provider, model or filters, or a fake against a real model), the
+  page says **Not comparable** and why.
+- The scope is the page's: the whole workspace, **Workspace's own work** or one project each keep their own list. A
+  project's Performance tab compares only that project's own kept views and exports; given a workspace export, it asks
+  before using that project's part, and an export that holds other projects' data is refused. Scenario benchmarks are
+  compared with the whole workspace selected.
+- While comparing, the range and filters of **Now** are hidden: each file keeps the ones it was made with (shown above the
+  table). They only shape what **Keep current view** saves.
+- A fake provider's token counts are simulated, so they're never compared; a model trial's are, when both report them.
+- Up to 20 are kept in the workspace's `.hive/metrics/benchmarks` folder (this machine's); when it's full, the oldest
+  unpinned one goes. **Pin** one to keep it. If the folder's list is damaged, Hive rebuilds it from the files it finds
+  (keeping the old list aside) and says so: nothing kept is deleted for it. Files Hive can't account for go to the
+  folder's `quarantine` subfolder instead of being deleted. A removal that can't finish (a file in use) is retried
+  later, and the comparison doesn't come back to the list.
+
 ## Task board
 
 The **Task Board** (in the activity bar, or **Ctrl+Shift+J**) is the workspace's list of work, as cards in four columns: **Todo**, **Doing**, **Review** and **Done**. You, the Hive Assistant and the agents all use it, so it's where you can see at a glance what is planned, what is being worked on and what is waiting for you.
@@ -229,12 +278,24 @@ The **Task Board** (in the activity bar, or **Ctrl+Shift+J**) is the workspace's
 - **Each agent works on its project's cards.** An agent sees and changes only its own project's cards: another project's are for that project's agents, the Assistant and you. A card it adds is its project's, and a card linked to another project's shows that card's number only. The Assistant and your board see everything. Moving a card to another project takes it from its agent (its history says whose it was), so give it to one of the new project's agents afterwards; the card dialog does that for you when you change both. Ask an agent to *"check the latest comment on #65"* and it reads just that comment, not the whole card.
 - **Review, then Done.** An agent you give a card to in its conversation (*"task #59 please"*) moves it to Doing when it starts, also when the card is back from Review or Done with more to do; when that work is done it goes to Review, even if it was in Done before. Agents move a card to Review when they finish its work, for you to check, and to Done when you ask them (*"looks good, move #65 to done"*); the Assistant too. Every move is in the card's history with who made it, and you can move a card back out of Done at any time, or ask an agent to. Putting Done in order, archiving and deleting stay yours. Archive a card when you no longer need to see it (**Archived** lists them, with **Bring Back**); deleting sends it to the Recycle Bin. A card in Doing that nobody is working on (no agent has it, or its agent was removed or isn't running) shows as **stalled**, in amber, and the board's sidebar lists these under **Stalled**; start it again or move it back. An agent that moves a card into Doing takes it, so its card doesn't show as stalled: also one another agent had in Todo, Review or Done (the history says so), but not one already in Doing with someone else. When you remove an agent that still has open cards, Hive asks whether to move them back (Doing ones to Todo, with nobody) or leave them. The Assistant points out stalled cards when it looks at the board and suggests who could take them, but asks before changing anything. Cards in Done are archived for you after 14 days there; change that, or turn it off with 0, in **Settings → Board → Archive Done cards after**.
 - **An agent reviews a card.** Ask an agent to review one (*"review #87"*): the card stays in **Review** with the agent that did the work, and shows **Reviewing: Codex** while it does (in amber if the reviewer has stopped or been removed). The reviewer's tab shows the card with an eye. Its verdict goes on the card as a comment, and the card stays in Review for you, or goes to Done if you asked. One agent reviews a card at a time, and the review ends by itself if the reviewer stops or the card is moved. If the review finds things to fix, ask an agent to fix them: that is work on the card, which moves it to Doing.
-- **Start.** **Start…** on a card gives it to an agent of its project, with the card as its prompt, and moves it to Doing. If you've changed the card, the button reads **Save and Start…**: your changes are saved first, so the agent gets the card as you see it. Choose an agent that is stopped (it starts a new conversation on the card) or idle (it gets the card as its next message), a new agent, or a new agent in its own worktree. The agent is told to keep the card up to date and to move it to Review when it's done. You can start a card in Review or Done again for more work: it moves to Doing, the agent is told it's back for more work, and it goes to Review when that's done. Asked to have an agent act on review feedback, the Assistant does the same, with a note saying what to do.
+- **Start.** **Start…** on a card gives it to an agent of its project, with the card as its prompt, and moves it to Doing. If you've changed the card, the button reads **Save and Start…**: your changes are saved first, so the agent gets the card as you see it. Choose an agent that is stopped (it starts a new conversation on the card) or idle (it gets the card as its next message), a new agent, or a new agent in its own worktree. The agent gets the card and Hive's **work-on-card** skill, which tells it to keep the card up to date and move it to Review when it's done. You can start a card in Review or Done again for more work: it moves to Doing, the agent is told it's back for more work and gets the card's latest comment (the feedback it came back with), and it goes to Review when that's done. Asked to have an agent act on review feedback, the Assistant does the same, with a note saying what to do.
 - **Nothing is lost by closing.** Closing a card with unsaved changes or a half-written comment asks **Keep Editing** or **Discard**. **Save** saves the comment you're writing too.
 - **One project.** The sidebar filters the board by project and lists the cards waiting for review; the badge on the activity bar counts them. Each project also has a **Tasks** tab with its own cards.
 - **With the Assistant.** Ask it to plan work as cards, start them on agents and follow them: *"split the login rework into cards for web and start the first two"*. Agents can add cards for follow-up work they find instead of doing it unasked.
 
 The cards are kept in `.hive/tasks`, one file each, so a workspace you commit shares its board.
+
+### Card loops
+
+Two agents can take a list of cards in turn, one building and one reviewing, without you passing each card between them. Tell one agent *"work through #111 to #117 as the builder"* and another *"review #111 to #117 as they come in"*. Both use Hive's **card-loop** skill. The builder does a card and moves it to Review. The reviewer reviews it and passes it, or sends it back with findings; the builder fixes them and moves it to Review again. When a card passes, the builder starts the next one.
+
+- **Waiting costs nothing.** While one agent waits for the other, it isn't running: it ends its turn and Hive wakes it with a short line when the card changes (*"[Hive] #112 is in Review; latest comment by Codex…"*). The agent shows a blue ring in the sidebar and **Waiting for #112 → Review** in its pane header.
+- **Cancel** in the pane header ends the wait (also **Cancel Card Watch** in the agent's **⋯** menu). Typing to the agent doesn't, and Hive doesn't wake it while you're typing there. A waiting agent takes no other work: the Assistant won't prompt it and **Start…** can't choose it.
+- **How long it waits.** With no change for two hours, Hive wakes the agent, which tells you. Say *"wait: 4h"* for longer, up to a day.
+- **Rounds.** After five review rounds on one card, the agents stop and ask you what to do. Say *"rounds: 10"* to allow more.
+- **Done.** The reviewer leaves a passed card in Review for you unless you said it may move cards to Done.
+- **Closing Hive or stopping an agent** keeps its wait: resume the agent and it is woken if its card changed meanwhile. Hive asks first, as it does for a working agent, and says what it waits for. **Quit when agents finish** waits for a waiting agent only while the other agent is working on its card.
+- **While it waits** you can still **Compact** it (it is woken once that's done). **Merge…** waits until it has finished, or until you cancel its wait.
 
 ## Hive Assistant
 
@@ -274,9 +335,9 @@ A **persona** is who the Assistant is: its role and its character, written as in
 - 🗼 **Overseer** (the default): a lighthouse keeper who keeps a watch log of the workspace. Projects are ships, and an agent waiting for you is signalling.
 - 🎩 **Planner**: plans every task like a heist, with the job, the crew, the vault and always the getaway.
 - 🦎 **Reviewer**: reviews code like a hushed wildlife documentary narrator, with real findings ranked by severity.
-- 🛫 **Orchestrator**: coordinates the agents like an air traffic controller. For now it writes the instructions for you to pass on.
+- 🛫 **Orchestrator**: coordinates the agents like an air traffic controller, sequencing who goes first and who holds.
 
-Whatever the character, they speak plainly about errors, security and anything you must decide.
+Whatever the character, they speak plainly about errors, security and anything you must decide. A persona is a character and a focus: what the Assistant may do is **Settings → Assistant → Control**, whatever a persona says, and how it runs agents and cards comes from Hive's own skills. Hive keeps its own personas up to date in each workspace as it does its skills (below): one you've edited stays as you wrote it.
 
 The **Personas** section of the Assistant view (below) lists them. Click one to read or edit it, **+** to write your own, and the bin (on hover, or at the top of an open one) to delete one. Hive's own come back with **Restore** or **Revert to Default**. **Use in This Workspace** makes one the Assistant's. Switching persona while the Assistant is running asks first, because it starts a new conversation. A conversation keeps the persona it started with.
 
@@ -296,18 +357,35 @@ Skills are instructions an agent loads when they're relevant. There are no switc
 
 | Level | Where | Who gets it | In Hive |
 |---|---|---|---|
-| **Hive** | `Workspace/.hive/skills/<name>/SKILL.md` | Every agent in every project, of every provider | Add, edit and delete in the **Skills** view |
+| **Hive** | `Workspace/.hive/skills/<name>/SKILL.md` | Its audience: the project agents (every agent in every project, of every provider; the default), the Hive Assistant, or both | Add, edit and delete in the **Skills** view |
 | **Local (User Managed)** | `Project/.claude/skills` (Claude Code), `Project/.agents/skills` (Codex) | That provider's agents, in that project | Add, edit and delete in the project's **Skills** tab |
 | **User** | `~/.claude/skills` (Claude Code), `~/.codex/skills` (Codex) | That provider's agents, everywhere | View only |
 | **Plugin** | Claude Code plugins you've installed | Claude Code agents, everywhere | View only |
 
 **The Skills view** (the sparkle in the activity bar) lists the workspace's Hive skills. **+** creates one from a starter `SKILL.md`; **Add Skill from File** adds a `.md` (it becomes the skill's `SKILL.md`) or a `.zip` (unpacked as the skill's folder: use a zip for a skill with scripts or other files). Select a skill to read it; **Edit** changes it, and the bin deletes it (to the Recycle Bin).
 
-**A project's Skills tab** lists everything its agents get: the Hive skills first, then a section per provider with its local skills, your user skills and plugin skills. Hive skills are shared by every project, so their **Edit in workspace** button takes you to the Skills view to edit them there. Local skills belong to the project: add (with **+** or from a `.md` or `.zip`), edit and delete them right there. When both Claude Code and Codex are on, adding a local skill offers to add it for the other provider too, since each reads its own folder. **Copy to workspace** turns a local or user skill into a Hive skill for every agent.
+**A project's Skills tab** lists everything its agents get: the Hive skills first (those for the Hive Assistant alone aren't listed; a note under them says how many there are), then a section per provider with its local skills, your user skills and plugin skills. Hive skills are shared by every project, so their **Edit in workspace** button takes you to the Skills view to edit them there. Local skills belong to the project: add (with **+** or from a `.md` or `.zip`), edit and delete them right there. When both Claude Code and Codex are on, adding a local skill offers to add it for the other provider too, since each reads its own folder. **Copy to workspace** turns a local or user skill into a Hive skill: the project agents in every project get it, unless its header names another audience (the notification says who).
 
-**Skills that come with Hive.** A new workspace starts with six Hive skills: `handover` (wrap up a session in a handover), `pick-up` (continue from the latest handover, checking it against the code first), `merge-ready` (get a worktree agent's branch ready to review and merge), `review-agent-work` (one agent reviews another's work without changing it), `split-work` (plan how several agents can work on one task side by side) and `workspace-note` (record a decision or convention in the shared notes). They're ordinary Hive skills: edit or delete them as you like. A bundled skill you've deleted stays in the Skills view, greyed out, with **Restore**. When your copy differs from the one in your version of Hive (because you edited it, or a newer Hive improved it), its page offers **Revert to default**; that's also how to bring an existing workspace's copies up to date after updating Hive. The replaced copy goes to the Recycle Bin.
+**Skills that come with Hive.** Hive gives every workspace its own skills for working with Hive:
 
-When a session starts, Hive copies the Hive skills into the project's `.hive/launch` folder and points Claude Code at it (Claude Code shows them as `hive:<name>`). Codex only reads skills from the project's `.agents/skills` folder, so for Codex agents Hive copies them there as `hive-<name>` folders (and keeps them out of git); those copies aren't listed as local skills. A running session keeps the version it started with; changes reach new sessions.
+- for agents: `work-on-card` (carry a card from Doing to Review), `review-agent-work` (review another agent's work without changing it, marking the card), `merge-ready` (get a branch ready to review and merge) and `use-hive-api` (scripts that call Hive's Agent API);
+- for the Hive Assistant: `coordinate-agents` (plan work as cards, brief and start agents, follow them);
+- for both: `handover` (wrap up for a later session), `pick-up` (carry on from a handover, checking it against the current state), `split-work` (plan how several agents can share a task) and `workspace-note` (record a decision or convention in the shared notes).
+
+They're ordinary Hive skills: edit or delete them as you like. **Hive keeps them up to date**: when a new version of Hive improves one, a copy you haven't changed is updated when the workspace next opens, and a skill new in that version is added. If you edit, delete or replace one while Hive is updating it, your version stays and the update waits for the next time (if Hive was interrupted mid-update, anything of yours it had set aside is kept beside the skill as `<name>-conflict-<date>`). A copy you've edited is left as you wrote it: its page offers **Revert to default** (with **Update available** when Hive has a newer version than the one you edited). A skill you've deleted stays deleted: it's listed greyed out, with **Restore**. Revert and Restore send your copy to the Recycle Bin.
+
+**Who gets a skill.** Each Hive skill's page shows who gets it: **Project agents**, **Assistant** or **Agents + Assistant** (in the list, the last two are marked). Your own Hive skills go to the project agents. If a skill's header can't be read, or its audience is misspelt, nobody gets it until you fix it: it's marked **Not given**, with the reason on hover. To write one for the Assistant, add `audience: assistant` (or `all`, for both) under `metadata:` in its `SKILL.md`'s header:
+
+```yaml
+---
+name: weekly-report
+description: Summarise the week's cards and agents for the user. Use when asked for a weekly report.
+metadata:
+  audience: assistant
+---
+```
+
+When a session starts, Hive copies the Hive skills into the agent's own launch folder in the project's `.hive` and points Claude Code at it (Claude Code shows them as `hive:<name>`), so a running Claude Code agent keeps the version it started with. Codex only reads skills from the folder it works in (`.agents/skills`), so for Codex agents Hive copies them there as `hive-<name>` folders (and keeps them out of git); those copies aren't listed as local skills. Codex agents sharing a folder share those copies, so after one starts with a changed skill, the others use the new version too. Either way, a restarted session has the current skills.
 
 ## MCP servers
 

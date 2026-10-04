@@ -13,7 +13,14 @@
 //   transcript. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
 //   "boardmove N COLUMN" moves card N as hive_update_task does (the hive tools' API, token and agent, from
 //   --mcp-config) and records the answer in fake-calls.jsonl; "boardreview N ACTION [COLUMN]" reviews it the same way
-//   (review: start, passed or failed; a column with the verdict).
+//   (review: start, passed or failed; a column with the verdict), and "boardcomment N" comments on it. All are written to the transcript as the hive tool
+//   call they stand for (mcp__hive__hive_update_task), as Claude Code writes an MCP call. "hive TOOL {json}" calls a
+//   hive tool through the real hive MCP server of the launch's --mcp-config (fake-bridge.cjs: logged and measured by
+//   Hive's performance metrics as a real call is), written to the transcript as that MCP call and its reply. A line
+//   Hive types to wake it ("[Hive] #12 is in Review…", a card watch) is logged in fake-wakes.jsonl and answered with
+//   the next line of fake-wakes-<agent>.txt (a test's script of what this agent does next). "skill NAME" reads a skill
+//   as Claude Code's Skill tool does: a Skill call in the transcript ("hive:NAME"), answered with the skill's SKILL.md
+//   from the launch's plugin folder (an error when it has none).
 // - "/compact [focus]" compacts as Claude Code does: PreCompact, a compaction boundary in the transcript after 1 s (N
 //   seconds when the focus has "hold N"), then PostCompact. With no messages yet it says "Not enough messages to compact."
 //   and sends no hook; with "compactfail" in the focus it fails after PreCompact with "Error during compaction".
@@ -24,6 +31,7 @@
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
+const { callHiveTool, parseHiveStep } = require('../fake-bridge.cjs')
 
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
@@ -85,6 +93,23 @@ async function hook(event, extra = {}) {
   }
 }
 
+/**
+ * A wake from Hive (a line starting "[Hive]", typed when a watched card changed): recorded in fake-wakes.jsonl (agent,
+ * line, time), and answered with the next line of fake-wakes-<agent>.txt in its home, which a test writes: the steps
+ * this agent takes next (a builder's fix, a reviewer's verdict). Null for any other prompt, or with no script line left.
+ */
+function wakeScript(text) {
+  if (!text.startsWith('[Hive]') || !home) return null
+  const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
+  fs.appendFileSync(path.join(home, 'fake-wakes.jsonl'), JSON.stringify({ agent, text, at: new Date().toISOString() }) + '\n')
+  const file = path.join(home, `fake-wakes-${agent}.txt`)
+  if (!fs.existsSync(file)) return null
+  const lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim())
+  const next = lines.shift()
+  fs.writeFileSync(file, lines.join('\n') + (lines.length ? '\n' : ''))
+  return next ?? null
+}
+
 let busy = false
 const isBusy = () => busy
 async function runPrompt(text) {
@@ -92,6 +117,9 @@ async function runPrompt(text) {
   out(`\r\n> ${text}\r\n`)
   write({ type: 'user', message: { role: 'user', content: text } })
   await hook('UserPromptSubmit', { prompt: text })
+  // A line Hive typed to wake it (a card watch): logged, and answered with the next line of its wake script.
+  const woken = wakeScript(text)
+  if (woken !== null) text = woken
   const edit = /\bedit\s+(\S+)/i.exec(text)
   if (edit) {
     const file = path.resolve(cwd, edit[1])
@@ -106,10 +134,21 @@ async function runPrompt(text) {
   // "pad N": N KB more transcript, as a long conversation has.
   const pad = /\bpad\s+(\d+)/i.exec(text)
   if (pad) write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_pad', content: 'x'.repeat(Number(pad[1]) * 1024) }] } })
-  const move = /\bboardmove\s+(\d+)\s+(\w+)/i.exec(text)
-  if (move) await boardPatch(Number(move[1]), { column: move[2].toLowerCase() })
-  const review = /\bboardreview\s+(\d+)\s+(\w+)(?:\s+(todo|doing|review|done)\b)?/i.exec(text)
-  if (review) await boardPatch(Number(review[1]), { review: review[2].toLowerCase(), ...(review[3] ? { column: review[3].toLowerCase(), comment: 'Fake review: passed.' } : {}) })
+  // Steps joined by "then" run in order ("work N" in a step waits N seconds before the next).
+  const steps = text.split(/\s+then\s+/i)
+  for (const [i, step] of steps.entries()) {
+    for (const m of step.matchAll(/\bskill\s+([a-z0-9][\w-]*)/gi)) readSkill(m[1])
+    const move = /\bboardmove\s+(\d+)\s+(\w+)/i.exec(step)
+    if (move) await boardPatch(Number(move[1]), { column: move[2].toLowerCase() })
+    const review = /\bboardreview\s+(\d+)\s+(\w+)(?:\s+(todo|doing|review|done)\b)?/i.exec(step)
+    if (review) await boardPatch(Number(review[1]), { review: review[2].toLowerCase(), ...(review[3] ? { column: review[3].toLowerCase(), comment: 'Fake review: passed.' } : {}) })
+    const comment = /\bboardcomment\s+(\d+)/i.exec(step)
+    if (comment) await boardPatch(Number(comment[1]), { comment: 'Fake: done, see the files.' })
+    const call = parseHiveStep(step)
+    if (call) await hiveCall(call.tool, call.args)
+    const pause = /\bwork\s+(\d+)/i.exec(step)
+    if (pause && i < steps.length - 1) await sleep(Number(pause[1]) * 1000)
+  }
   const background = /\bbackground\s+(\d+)/i.exec(text)
   if (background) await startBackgroundTask(Number(background[1]))
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
@@ -126,9 +165,32 @@ async function runPrompt(text) {
   }
 }
 
-/** Moves a card through the Agent API as the hive tools do, naming this agent. */
-/** Changes card n as hive_update_task does: the hive tools' API, with this agent's token. */
+/** Reads a Hive skill as Claude Code's Skill tool does, recording the call and its answer in the transcript. */
+function readSkill(name) {
+  const id = `toolu_skill_${randomUUID().slice(0, 8)}`
+  const file = path.join(opts['--plugin-dir'] ?? '', 'skills', name, 'SKILL.md')
+  const text = opts['--plugin-dir'] && fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
+  write({ type: 'assistant', requestId: `req_${id}`, message: { model: 'claude-fake', content: [{ type: 'tool_use', id, name: 'Skill', input: { skill: `hive:${name}` } }], usage: { input_tokens: 10, output_tokens: 5 } } })
+  write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: text ?? `Unknown skill: hive:${name}`, is_error: text === null }] } })
+}
+
+/** Calls a hive tool through the launch's own hive MCP server; the call and its reply go in the transcript. */
+async function hiveCall(tool, input) {
+  const id = `toolu_hive_${randomUUID().slice(0, 8)}`
+  write({ type: 'assistant', requestId: `req_${id}`, message: { model: 'claude-fake', content: [{ type: 'tool_use', id, name: `mcp__hive__${tool}`, input }], usage: { input_tokens: 10, output_tokens: 5 } } })
+  let r
+  try {
+    r = await callHiveTool(JSON.parse(fs.readFileSync(opts['--mcp-config'], 'utf8')).mcpServers.hive, tool, input)
+  } catch (e) {
+    r = { text: String(e), isError: true }
+  }
+  write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: r.text, is_error: r.isError }] } })
+}
+
+/** Changes card n as hive_update_task does: the hive tools' API, with this agent's token; the call is in the transcript. */
 async function boardPatch(n, change) {
+  const id = `toolu_board_${randomUUID().slice(0, 8)}`
+  write({ type: 'assistant', requestId: `req_${id}`, message: { model: 'claude-fake', content: [{ type: 'tool_use', id, name: 'mcp__hive__hive_update_task', input: { number: n, ...change } }], usage: { input_tokens: 10, output_tokens: 5 } } })
   let record
   try {
     const env = JSON.parse(fs.readFileSync(opts['--mcp-config'], 'utf8')).mcpServers.hive.env
@@ -143,6 +205,14 @@ async function boardPatch(n, change) {
     record = { n, ...change, error: String(e) }
   }
   fs.appendFileSync(path.join(home, 'fake-calls.jsonl'), JSON.stringify(record) + '\n')
+  write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: JSON.stringify(record.body ?? record.error ?? null), is_error: record.status !== 200 }] } })
+  // Where Hive's hive server logs the calls it runs (tests only), this call is logged too, as the server would.
+  try {
+    const env = JSON.parse(fs.readFileSync(opts['--mcp-config'], 'utf8')).mcpServers.hive.env
+    if (env.HIVE_TEST_MCP_LOG) fs.appendFileSync(env.HIVE_TEST_MCP_LOG, JSON.stringify({ at: new Date().toISOString(), tool: 'hive_update_task', role: env.HIVE_ROLE === 'assistant' ? 'assistant' : 'agent', project: env.HIVE_PROJECT, agent: env.HIVE_AGENT_ID ?? null, ok: record.status === 200, args: JSON.stringify({ number: n, ...change }) }) + '\n')
+  } catch {
+    // No log.
+  }
 }
 
 async function endTurn(answer) {

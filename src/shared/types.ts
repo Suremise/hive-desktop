@@ -34,6 +34,10 @@ export interface QuitSession {
   /** The agent's name, when the project has more than one. */
   agent?: string
   provider?: ProviderId
+  /** A watching agent: what it waits for ("Waiting for #12 → Review"). */
+  watch?: string
+  /** It keeps "Quit when agents finish" waiting: a card it watches is being worked on by another agent. */
+  keepsQuitWaiting?: boolean
 }
 
 export type UpdateInstallMode = 'auto' | 'manual'
@@ -103,6 +107,8 @@ export interface AppSettings {
     followTranscripts: boolean
     /** How the Overview and the session lists update: as sessions change (at most every 15 s), every minute, or on Refresh. */
     overviewRefresh: 'live' | 'minute' | 'manual'
+    /** Hive counts what its Agent API, tools, guidance and skill service cost (aggregates only), per workspace. */
+    recordPerformance: boolean
   }
   agentApi: {
     enabled: boolean
@@ -195,6 +201,8 @@ export interface PersonaInfo {
   path: string
   /** Personas that ship with Hive: the workspace copy matches Hive's, was changed, or isn't in the workspace. */
   bundled?: 'same' | 'changed' | 'missing'
+  /** A changed copy of an older version of Hive's: reverting it also brings in this version's. */
+  updateAvailable?: true
 }
 
 /** API prices for one model, in USD per million tokens (for estimated costs). */
@@ -279,7 +287,6 @@ export interface PlanUsage {
 
 export interface WorkspaceConfig {
   version: 1
-  skills: { enabled: string[] }
   mcp: { enabled: string[] }
   /** Project folders Hive leaves out (Hide, or Remove from Hive while the folder is still in the workspace), by folder name. */
   hiddenProjects?: HiddenProject[]
@@ -421,7 +428,6 @@ export interface ProjectConfig {
   version: 2
   /** Project-scoped shortcut overrides (project, session and agent commands), over the global ones. */
   keybindings?: KeybindingOverrides
-  skills: { disabled: string[] }
   mcp: { disabled: string[] }
   chime: 'inherit' | 'on' | 'off'
   /** The provider new agents get (Add Agent's quick add); inherit uses the global default. */
@@ -587,7 +593,23 @@ export interface SessionRecord {
 }
 
 /** background: the agent's turn has ended, but it has background tasks that will start it again when they end. */
-export type SessionStatus = 'stopped' | 'starting' | 'ready' | 'working' | 'waiting' | 'background' | 'finished' | 'error'
+/**
+ * `watching`: its turn has ended and it waits on cards (a wake-on-change watch, #128): Hive types one line to wake it
+ * when a watched card changes. It runs nothing meanwhile, but it isn't idle: nothing else is given to it.
+ */
+export type SessionStatus = 'stopped' | 'starting' | 'ready' | 'working' | 'waiting' | 'background' | 'watching' | 'finished' | 'error'
+
+/** An agent's wake-on-change watch, as its state shows it: the cards and condition, since when, and its overall limit. */
+export interface TaskWatchInfo {
+  cards: number[]
+  changes: ('column' | 'comment' | 'verdict' | 'agent')[]
+  column?: TaskColumn
+  /** "Waiting for #12 → Review". */
+  label: string
+  since: string
+  /** When Hive wakes it to say nothing changed (ISO). */
+  limitAt: string
+}
 
 export interface LiveSessionState {
   provider: ProviderId
@@ -622,8 +644,15 @@ export interface LiveSessionState {
   startedAt: string
   /** Effective settings the session launched with — used to detect "restart to apply". */
   launchSignature: string
+  /**
+   * What it was given at launch (GET /v1/projects/{name}): Hive's guidance revision, the content hash of each Hive skill's
+   * copy it reads, and why a skill isn't as asked for (a folder of the user's has its name, an old copy kept while in use).
+   */
+  launched?: { guidance: string; skills: Record<string, string>; problems?: Record<string, string> }
   /** Finished or waiting since its pane was last on screen in a focused window (the renderer marks it seen). */
   unseen: boolean
+  /** Its wake-on-change watch, while it has one (status `watching` while its turn has ended). */
+  watch?: TaskWatchInfo
   /** Reported by the provider once the session has started. */
   effort?: string
   modelName?: string
@@ -691,11 +720,20 @@ export interface SkillInfo {
   /** Plugin name for plugin skills. */
   plugin?: string
   /**
-   * Hive skills that ship with Hive: the workspace copy matches this version of Hive's ('same'), differs
-   * because it was edited or is from an older version ('changed'), or isn't in the workspace ('missing').
+   * Hive skills that ship with Hive: the workspace copy matches this version of Hive's ('same'), was edited
+   * ('changed'), or isn't in the workspace ('missing'). Untouched copies of older versions are updated by Hive.
    */
   bundled?: 'same' | 'changed' | 'missing'
+  /** A changed copy of an older version of Hive's: reverting it also brings in this version's. */
+  updateAvailable?: true
+  /** Hive skills: who gets it (SKILL.md's metadata.audience): project agents (the default), the Assistant, or both. */
+  audience?: SkillAudience
+  /** Hive skills: its header is broken or its audience unknown, so nobody gets it until it's fixed (why, in words). */
+  problem?: string
 }
+
+/** Who a Hive skill is for. */
+export type SkillAudience = 'agents' | 'assistant' | 'all'
 
 /** Where a new skill goes: the workspace's Hive skills, or a provider's local skills folder in a project. */
 export type SkillTarget = { kind: 'hive' } | { kind: 'local'; projectPath: string; provider: ProviderId }

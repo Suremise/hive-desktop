@@ -70,12 +70,21 @@ describe('task rows', () => {
     )
   })
 
-  it('stop at the row limit and say how many more there are', () => {
+  it('stop at the row limit, say how many more there are, and carry on from an offset', () => {
     const rows = Array.from({ length: MAX_ROWS + 25 }, (_, i) => taskRow(view(i + 1)))
     const text = taskListText(rows)
     expect(text.split('\n').filter((l) => l.startsWith('#'))).toHaveLength(MAX_ROWS)
-    expect(text).toContain('…and 25 more. Narrow it with project or column.')
+    expect(text).toContain(`…and 25 more: offset ${MAX_ROWS} carries on.`)
     expect(text).toContain(`Todo (${MAX_ROWS + 25}, top first):`)
+    // The next page: the rest, every card once, in board order, with the column's whole count.
+    const next = taskListText(rows, { offset: MAX_ROWS })
+    const shown = next.split('\n').filter((l) => l.startsWith('#'))
+    expect(shown).toHaveLength(25)
+    expect(shown[0]).toMatch(new RegExp(`^#${MAX_ROWS + 1} `))
+    expect(next).toContain(`Cards ${MAX_ROWS + 1}–${MAX_ROWS + 25} of ${MAX_ROWS + 25}.`)
+    expect(next).toContain(`Todo (${MAX_ROWS + 25}, top first):`)
+    expect(next).not.toContain('more:')
+    expect(taskListText(rows, { offset: 900 })).toBe(`There are ${MAX_ROWS + 25} cards: offset 900 is past the last.`)
   })
 
   it('say when there are none', () => {
@@ -115,6 +124,11 @@ describe('projects and notes', () => {
       { name: 'beta', workspace: 'ws', active: false, branch: null, agents: [] }
     ])
     expect(text.split('\n').slice(0, 2)).toEqual(['alpha (on, main): Coder [claude-code] working; Two [codex, hive/two] idle (1 background)', 'beta (off): no agents'])
+  })
+
+  it('a watching agent says what it waits for', () => {
+    const text = projectListText([{ name: 'alpha', workspace: 'ws', active: true, branch: null, agents: [{ name: 'Rev', provider: 'codex', status: 'watching', branch: null, backgroundTasks: 0, watching: 'Waiting for #12 → Review' }] }])
+    expect(text.split('\n')[0]).toBe('alpha (on): Rev [codex] waiting for #12 → Review')
   })
 
   it('projects from several workspaces name their workspace', () => {

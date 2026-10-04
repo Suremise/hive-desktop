@@ -1,3 +1,4 @@
+import { DEFAULT_PERF_FILTERS, type PerfFilters } from '@shared/metricsView'
 import { create } from 'zustand'
 import type { Period } from '@shared/usageTotals'
 import type { StartFailure } from '@shared/startFailure'
@@ -22,8 +23,8 @@ import type {
   WorkspaceInfo
 } from '@shared/types'
 
-export type Activity = 'projects' | 'overview' | 'board' | 'notes' | 'skills' | 'mcp' | 'assistant' | 'docs' | 'settings'
-export type ProjectTab = 'session' | 'overview' | 'tasks' | 'sessions' | 'files' | 'images' | 'changes' | 'memory' | 'skills' | 'mcp' | 'settings'
+export type Activity = 'projects' | 'overview' | 'performance' | 'board' | 'notes' | 'skills' | 'mcp' | 'assistant' | 'docs' | 'settings'
+export type ProjectTab = 'session' | 'overview' | 'performance' | 'tasks' | 'sessions' | 'files' | 'images' | 'changes' | 'memory' | 'skills' | 'mcp' | 'settings'
 
 export interface ConfirmRequest {
   kind: 'confirm'
@@ -203,6 +204,12 @@ interface State {
 
   /** The workspace's task board (archived cards too), and the board view's filters. */
   tasks: TaskCard[]
+  /**
+   * The Performance view's filters (activity bar: the workspace, a project filter) and each project's Performance tab's
+   * (fixed to that project), kept while you move around.
+   */
+  perfWorkspace: PerfFilters
+  perfProjects: Record<string, PerfFilters>
   /** The Workspace Overview's period, and the workspace's usage it last loaded (with when). */
   overviewPeriod: Period
   workspaceUsage: WorkspaceUsage | null
@@ -309,6 +316,8 @@ export const useStore = create<State>(() => ({
   filesRoot: {},
 
   tasks: [],
+  perfWorkspace: DEFAULT_PERF_FILTERS,
+  perfProjects: {},
   overviewPeriod: 'week',
   workspaceUsage: null,
   workspaceUsageAt: 0,

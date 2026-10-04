@@ -44,7 +44,7 @@ const tab = (t: ProjectTab) => () => {
   setProjectTab(p, t)
 }
 
-const TAB_ORDER: ProjectTab[] = ['session', 'overview', 'tasks', 'sessions', 'files', 'images', 'changes', 'memory', 'skills', 'mcp', 'settings']
+const TAB_ORDER: ProjectTab[] = ['session', 'overview', 'performance', 'tasks', 'sessions', 'files', 'images', 'changes', 'memory', 'skills', 'mcp', 'settings']
 
 function cycleTab(delta: number): void {
   const p = get().selectedProject
@@ -118,6 +118,7 @@ export const commands: Command[] = [
   { id: 'project.openTerminal', label: 'Open External Terminal Here', category: 'Project', keybinding: 'Mod+Shift+`', when: hasProject, run: () => call('project:openTerminal', get().selectedProject!) },
   { id: 'project.tab.session', label: 'Go to Session', category: 'Project', keybinding: 'Alt+1', when: hasProject, run: tab('session') },
   { id: 'project.tab.overview', label: 'Go to Overview', category: 'Project', keybinding: 'Alt+2', when: hasProject, run: tab('overview') },
+  { id: 'project.tab.performance', label: 'Go to Performance', category: 'Project', when: hasProject, run: tab('performance') },
   { id: 'project.tab.tasks', label: 'Go to Tasks', category: 'Project', when: hasProject, run: tab('tasks') },
   { id: 'project.tab.sessions', label: 'Go to Sessions', category: 'Project', keybinding: 'Alt+3', when: hasProject, run: tab('sessions') },
   { id: 'project.tab.files', label: 'Go to Files', category: 'Project', keybinding: 'Alt+4', when: hasProject, run: tab('files') },
@@ -226,6 +227,7 @@ export const commands: Command[] = [
   { id: 'session.archive', label: 'Archive Session and Start New…', category: 'Session', when: hasProject, run: () => actions.archiveCurrent() },
   { id: 'view.projects', label: 'Show Projects', category: 'View', keybinding: 'Mod+Shift+E', run: () => setActivity('projects') },
   { id: 'view.overview', label: 'Show Workspace Overview', category: 'View', keybinding: 'Mod+Shift+O', run: () => setActivity('overview') },
+  { id: 'view.performance', label: 'Show Performance', category: 'View', run: () => setActivity('performance') },
   { id: 'view.board', label: 'Show Task Board', category: 'View', keybinding: 'Mod+Shift+J', run: () => setActivity('board') },
   {
     id: 'task.new',
