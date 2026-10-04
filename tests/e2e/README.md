@@ -28,6 +28,9 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
 - **Claude Code**, installed and signed in. Suites that start sessions (`agents`, `image`, `mode`, `plan`,
   `compact`, `restart`, `resume`, `quit`, `agentview`, `windows`, `launchrace`, `assistant`) never send it a prompt. The first run in a test folder answers Claude
   Code's "trust this folder" question (never a sign-in screen), so later runs don't ask.
+  These suites (`needs: ['claude']` in `run.mjs`) aren't skipped automatically. Run them when what they test can't be
+  done with the fake Claude Code (below), and prefer the fake where it covers the case. Warn the user first if one could
+  reach a sign-in screen; never send key presses to one.
 - **Codex** for the `codex*` suites, signed in to the **test home** `%LOCALAPPDATA%\hive-test\codex` (never your
   own `~/.codex`). Sign in once:
   ```powershell
