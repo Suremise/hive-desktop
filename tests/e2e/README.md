@@ -36,6 +36,26 @@ start the real Claude Code or use the Codex test home share those with each othe
 of their own, beside the rest. Those marked `serial` in `suites.mjs` (with the reason: window focus, a shared test
 home) and the installer's run last, alone.
 
+**Several runners at once** (agents in different worktrees each checking their card). Each runner claims a **lane**
+when it starts (`lanes.mjs`): a range of ten Agent API ports (lane *k*'s first slot is 47940 + 20*k*, the CLI lane the
+port below) and a folder of its own for its suites' profiles, workspaces and screenshots (`lanes\<k>` in the work
+folder, below). Claims are files in `%LOCALAPPDATA%\hive-test\e2e-lanes`
+(`lane-<k>.json`, with the runner's process id), taken under a short lock and released when the runner ends; a crashed
+runner's claim expires (its process is gone, or it is a day old). A lane is only taken when nothing is listening on
+its ports, so anything else holding them (an older runner without lanes, another app) moves the runner to the next
+one. The runner prints its lane, its suites' folder and its logs folder when it starts. Ten runners at once is the
+most: the eleventh stops and says so.
+A runner started inside a suite claims no lane: it takes ports 1000 above its parent suite's (`portBase` in
+`runner.mjs`) and its suites' folders in `nested` inside the parent's (`E2E_RUN_DIR`). Logs stay in one place for every
+lane (`logs/` below), so `.active` there shows every run still going. A few Claude Code suites (`agents`, `compact`,
+`plan`, `resume`) work in `node_modules\.hive-test` in the worktree, so two runners at once should be from different
+worktrees. `update` keeps its download cache per lane too (`%LOCALAPPDATA%\hive-test-updater-<k>`, through
+`HIVE_UPDATE_CACHE`). The Codex test home stays shared: it holds the one sign-in, and copies of it would share a
+refresh token. Codex runs any number of sessions in one home. What the suites change there, the trusted folders in its
+`config.toml`, goes through `lib.trustForCodex`, under a lock beside the file (`config.toml.lock`, broken after 30 s
+as a crash's), so two runners trusting their lanes' folders at once never lose one. A suite that runs out of time (10 minutes) is stopped with everything it started, so its test
+Hive doesn't keep holding the lane's port.
+
 ## Which suites to run, and who runs them
 
 For a card in the builder/reviewer loop (the `card-loop` skill), so a round doesn't run the same suites twice on the
@@ -89,8 +109,17 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
 
 ## Where they work
 
-Everything goes in `%LOCALAPPDATA%\hive-test\e2e` (override with `HIVE_E2E_DIR`): profiles (`HIVE_USER_DATA`),
-workspaces, screenshots and logs. Nothing touches your Hive profile, your clipboard or your real Codex home.
+Everything goes in `%LOCALAPPDATA%\hive-test\e2e` (override with `HIVE_E2E_DIR`). In it:
+
+- `lanes\<k>`: the profiles (`HIVE_USER_DATA`), workspaces and screenshots of the suites a runner in lane *k* runs
+  (above). The runner gives each suite its lane's folder as `HIVE_E2E_DIR`, which `lib.WORK` reads. There are at most
+  ten, each reused by the next runner in that lane (each suite clears its own folders when it starts), so they don't
+  pile up.
+- `logs\run-<date>-<time>`: each run's logs and run record, from every lane (above); `logs\run-record.md` is the latest
+  record.
+- The work folder itself: suites run on their own (`node tests/e2e/<suite>.cjs`) keep their folders there.
+
+Nothing touches your Hive profile, your clipboard or your real Codex home.
 `HIVE_TEST_CODEX_HOME` points the Codex suites at another test home.
 
 ## Writing one

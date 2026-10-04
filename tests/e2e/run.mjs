@@ -14,10 +14,12 @@
 //   --build         build first (npx electron-vite build), only if the build isn't from this source (build.mjs).
 //   --packaged      include the installer's suites (need npm run dist); --no-progress: don't report to Hive.
 // Needs a dev build. A suite fails when it exits non-zero or prints a line starting with FAIL. Each suite gets its own
-// Agent API port (HIVE_E2E_PORT, read through lib.port()), so suites can run side by side.
+// Agent API port (HIVE_E2E_PORT, read through lib.port()), so suites can run side by side; each runner claims a lane
+// (lanes.mjs: ports and suite folders of its own), so runners in different worktrees can run at the same time.
 // Run in a Hive agent's session, it shows in that Hive's Progress panel, one step per suite (../progressReport.mts).
 import { spawn, spawnSync } from 'child_process'
 import { existsSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
@@ -25,9 +27,10 @@ import { e2eProgress } from '../progressReport.mts'
 import { SUITES } from './suites.mjs'
 import { affectedSuites, changedFiles } from './affected.mjs'
 import { fingerprint, recordMarkdown } from './record.mjs'
-import { parseArgs, portBase, repeatStatus, selectSuites } from './runner.mjs'
+import { parentSuite, parseArgs, portBase, repeatStatus, selectSuites } from './runner.mjs'
 import { ensureBuild } from './build.mjs'
 import { finishRunDirs, logsRootFor, newRunDir, pruneRunDirs } from './logs.mjs'
+import { LANES, claimLane, laneWork } from './lanes.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
@@ -76,6 +79,28 @@ if (!chosen.length) {
   process.exit(0)
 }
 
+// The runner's lane (lanes.mjs): ports and suite folders no other runner on this machine uses while this one runs, so
+// runners started at the same time from different worktrees don't take each other's. A runner started inside a suite
+// (progressreport runs one in its agent's shell) claims none: it takes ports well clear of its parent's (portBase).
+const nested = !!parentSuite()
+const lane = nested ? null : await claimLane(join(process.env.LOCALAPPDATA || tmpdir(), 'hive-test', 'e2e-lanes'), { root })
+if (!nested) {
+  if (!lane) {
+    console.error(`Every e2e lane (${LANES}) is taken by runners still going: wait for one to finish.`)
+    process.exit(2)
+  }
+  process.on('exit', lane.release)
+  process.on('SIGINT', () => process.exit(130))
+}
+/**
+ * Where the suites keep their profiles, workspaces and screenshots: the lane's folder (the logs stay in lib.WORK). A
+ * runner inside a suite uses nested/ in its parent's (E2E_RUN_DIR: Hive drops HIVE_E2E_DIR from an agent's shell).
+ */
+const suiteWork = lane ? laneWork(lib.WORK, lane.lane) : process.env.E2E_RUN_DIR ? join(process.env.E2E_RUN_DIR, 'nested') : null
+// Each slot has its own port, from the lane's: the CLI lane takes the one below the first slot's.
+const PORT_BASE = portBase(process.env, lane?.base)
+if (lane) console.log(`Lane ${lane.lane}: ports ${lane.first}–${lane.last}\n  suites' folders: ${suiteWork}\n  logs: ${logsRootFor(lib.WORK)}\n`)
+
 // Run from an agent's session, the variables that make it that agent (its Hive, token, project) stay out of the suites
 // and the test copies of Hive they start: those have their own profile, port and sessions.
 const SESSION_VARS = ['HIVE_API_URL', 'HIVE_API_TOKEN', 'HIVE_API_TOKEN_FILE', 'HIVE_HOOK_TOKEN', 'HIVE_PROJECT', 'HIVE_PROJECT_PATH', 'HIVE_WORKSPACE', 'HIVE_RUN_ID', 'HIVE_SESSION_ID', 'HIVE_AGENT', 'HIVE_PROVIDER', 'HIVE_PROGRESS_DATA']
@@ -85,7 +110,8 @@ const suiteEnv = (name, port) => {
   // flash or chime (src/main/testQuiet.ts). A suite can still turn either off in its own environment.
   const env = { HIVE_TEST_TIPS: 'off', HIVE_TEST_QUIET: '1', ...process.env }
   for (const k of SESSION_VARS) delete env[k]
-  // A suite run one at a time uses its own port, never one inherited from a runner that started this one.
+  if (suiteWork) env.HIVE_E2E_DIR = suiteWork
+  // Never a port inherited from a runner that started this one.
   delete env.HIVE_E2E_PORT
   delete env.HIVE_API_PORT
   delete env.E2E_RUN_PORT
@@ -96,6 +122,7 @@ const suiteEnv = (name, port) => {
   // Also said without the HIVE_ prefix, which Hive strips from its sessions: a runner started in an agent's shell inside
   // the suite's Hive (progressreport does) still knows it is inside a suite, and which port to keep clear of (runner.mjs).
   env.E2E_RUN_SUITE = name
+  env.E2E_RUN_DIR = suiteWork ?? lib.WORK
   if (port) env.E2E_RUN_PORT = String(port)
   return env
 }
@@ -109,7 +136,13 @@ const run = (name, port) =>
     const add = (d) => (out += d)
     child.stdout.on('data', add)
     child.stderr.on('data', add)
-    const timer = setTimeout(() => child.kill(), 10 * 60_000)
+    // Out of time: the suite and everything it started. Killing only the suite's node leaves its test copy of Hive running,
+    // holding the lane's port, and the lane's next suites can't start their Agent API.
+    const timer = setTimeout(() => {
+      out += '\nFAIL timed out after 10 minutes: the suite and the processes it started were stopped\n'
+      if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+      else child.kill()
+    }, 10 * 60_000)
     child.on('exit', (code) => {
       clearTimeout(timer)
       const failed = out.split(/\r?\n/).filter((l) => /^\s*FAIL/.test(l))
@@ -147,11 +180,6 @@ let finished = 0
 // Each run keeps its own logs (logs.mjs): a folder no other run shares, the last few kept; a runner started inside a
 // suite keeps its runs under logs/nested.
 const logsRoot = logsRootFor(lib.WORK)
-// Each slot has its own port, clear of the installed and dev Hives' (47821, 47822) and of the suites' own defaults
-// (478xx–479xx). The CLI lane takes one of the slots.
-// A runner started inside a suite (progressreport runs one in its agent's shell) takes ports well clear of its parent's.
-const PORT_BASE = portBase()
-
 /** Runs the chosen suites once (run k of the repeat): { ok, results, logDir, summary }. */
 async function runOnce(k) {
   const logDir = newRunDir(logsRoot)
@@ -174,7 +202,7 @@ async function runOnce(k) {
     report()
   }
 
-  /** Runs suites one after another (skipping those that can't run here), each with this port (null: its own). */
+  /** Runs suites one after another (skipping those that can't run here), each with this port. */
   async function inTurn(list, port) {
     for (const s of list) {
       const why = skipReason(s)
@@ -201,7 +229,8 @@ async function runOnce(k) {
       }
     })
   ])
-  await inTurn(last, jobs === 1 ? null : PORT_BASE)
+  // Also with --jobs 1: a suite's own default port could be another runner's suite's.
+  await inTurn(last, PORT_BASE)
 
   for (const r of results.filter((x) => x.skipped)) console.log(`${r.name.padEnd(22)}skipped: ${r.skipped}`)
   const failed = results.filter((r) => r.ok === false)

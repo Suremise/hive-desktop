@@ -73,10 +73,13 @@ export function parentSuite(env = process.env) {
   return { name: env.E2E_RUN_SUITE ?? null, port }
 }
 
-/** The first port the runner's slots use: 48300, or 1000 above the parent suite's port for a runner inside a suite. */
-export function portBase(env = process.env) {
+/**
+ * The first port the runner's slots use: its lane's (lanes.mjs), or 1000 above the parent suite's port for a runner
+ * inside a suite (which claims no lane).
+ */
+export function portBase(env = process.env, laneBase = 47940) {
   const parent = parentSuite(env)
-  return parent ? (parent.port ?? 48300) + 1000 : 48300
+  return parent ? (parent.port ?? laneBase) + 1000 : laneBase
 }
 
 /**

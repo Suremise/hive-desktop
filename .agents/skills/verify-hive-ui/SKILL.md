@@ -19,8 +19,8 @@ Unit tests don't show what the user sees. This is how to see it without touching
 
 - Pick the suites for the feature you changed (`board`, `review`, `cardchip` for the task board; `assistant*` for the Assistant; `skills` for skills). Not every suite for a CSS change.
 - Prefer the fake Claude Code and fake Codex (no sign-in, no tokens). Real-CLI suites cost tokens; Codex ones need the test home, which the user signs in to once. Warn the user before anything that may open a browser sign-in, and never press keys on a CLI's login screen.
-- Suites that share a port or a test folder run one after another: the runner does that, so don't start two runners at once.
-- Each suite works in `%LOCALAPPDATA%\hive-test\e2e` (`HIVE_E2E_DIR`), with its own `HIVE_USER_DATA` profile and workspace. Never point a test at the user's profile, clipboard, `~/.claude` or `~/.codex`.
+- Suites that share a test home or the real CLI run one after another: the runner does that. Runners in different worktrees can run at once: each claims a lane (its own ports and suite folders; `tests/e2e/lanes.mjs`).
+- Each suite works in `%LOCALAPPDATA%\hive-test\e2e` (`HIVE_E2E_DIR`; from the runner, its lane's `lanes\<k>` in it), with its own `HIVE_USER_DATA` profile and workspace. Never point a test at the user's profile, clipboard, `~/.claude` or `~/.codex`.
 
 ## A one-off check
 
@@ -32,7 +32,7 @@ Start from an existing suite and its `lib.cjs` helpers (`launch`, `fitWindow`, `
 
 ## Cleaning up
 
-Stop only what you started: test Electron processes are found by their test profile in the command line (`hive-test\e2e\<suite>-profile`) or Playwright's `--remote-debugging-port=0`. Never kill `Hive.exe` or `electron.exe` by name: the installed Hive hosting this session is one of them.
+Stop only what you started: test Electron processes are found by their test profile in the command line (`hive-test\e2e\lanes\<k>\<suite>-profile`, or `hive-test\e2e\<suite>-profile` for a suite run on its own) or Playwright's `--remote-debugging-port=0`. Never kill `Hive.exe` or `electron.exe` by name: the installed Hive hosting this session is one of them.
 
 ## Report
 

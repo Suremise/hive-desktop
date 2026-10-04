@@ -19,6 +19,8 @@ import { recordMarkdown } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { buildStamp, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
+import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
+// @ts-expect-error: plain .mjs modules without types
 import { KEEP_RUNS, finishRunDirs, logsRootFor, newRunDir, pruneRunDirs, runDirActive, runDirsInOrder } from './e2e/logs.mjs'
 import { createRequire } from 'module'
 import { ProgressStore } from '../src/main/progress'
@@ -449,7 +451,8 @@ describe("each run's own log folder (logs.mjs)", () => {
 
   it("a runner started inside a suite keeps its runs under logs/nested, and its ports clear of the suite's", () => {
     expect(logsRootFor('W', {})).toBe(join('W', 'logs'))
-    expect(portBase({})).toBe(48300)
+    // A runner of its own: its lane's ports (lanes.mjs).
+    expect(portBase({}, 47960)).toBe(47960)
     // In the suite itself: the runner set both.
     expect(logsRootFor('W', { HIVE_E2E_PORT: '48302', E2E_RUN_SUITE: 'progressreport', E2E_RUN_PORT: '48302' })).toBe(join('W', 'logs', 'nested'))
     // In an agent's shell in the Hive the suite started: Hive dropped the HIVE_ variables, E2E_RUN_* remain.
@@ -458,7 +461,7 @@ describe("each run's own log folder (logs.mjs)", () => {
     expect(logsRootFor('W', inSession)).toBe(join('W', 'logs', 'nested'))
     expect(portBase(inSession)).toBe(49302)
     // A suite run on its own, one at a time: no port, still inside a suite.
-    expect(portBase({ E2E_RUN_SUITE: 'progressreport' })).toBe(49300)
+    expect(portBase({ E2E_RUN_SUITE: 'progressreport' }, 47940)).toBe(48940)
     // An agent session in a real Hive (no suite): neither.
     expect(parentSuite({ HIVE_API_URL: 'http://127.0.0.1:47821' })).toBeNull()
   })
@@ -508,5 +511,179 @@ describe('--repeat N: runs until the first failure, one record for all (runner.m
     expect(md).toContain('| Suite | Run 1 | Run 2 |')
     expect(md).toContain('| board | pass 13s | pass 14s |')
     expect(md).toContain('| about | pass 6s | **FAIL** (1 check) 6s |')
+  })
+})
+
+describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
+  const alive = (pid: number) => pid === 100 || pid === 200
+  const now = Date.parse('2026-10-04T12:00:00Z')
+
+  it("lanes' ports are their own, clear of Hive's, of the suites' defaults and of Windows' dynamic range", () => {
+    const ranges = Array.from({ length: LANES }, (_, k) => lanePorts(k))
+    for (const [k, r] of ranges.entries()) {
+      expect(r.last - r.first + 1).toBe(LANE_PORTS)
+      // The CLI lane (base − 1) and eight slots (--jobs is at most 8).
+      expect(r.first).toBe(r.base - 1)
+      expect(r.last).toBeGreaterThanOrEqual(r.base + 7)
+      if (k) expect(r.first).toBeGreaterThan(ranges[k - 1].last)
+    }
+    // The suites' own defaults (lib.port(<default>)), the installed and dev Hives' ports and the scenarios' (harness.cjs).
+    const defaults = new Set([47821, 47822, 47930])
+    expect(readFileSync(join(__dirname, 'scenarios', 'harness.cjs'), 'utf8')).toContain('opts.port ?? 47930')
+    for (const f of readdirSync(dir).filter((n) => n.endsWith('.cjs'))) for (const m of readFileSync(join(dir, f), 'utf8').matchAll(/lib\.port\((\d+)\)/g)) defaults.add(Number(m[1]))
+    expect(defaults.size).toBeGreaterThan(10)
+    const top = ranges.at(-1)!.last
+    for (const p of defaults) expect(p < ranges[0].first || p > top).toBe(true)
+    // A runner inside a suite takes 1000 above its parent's slot: still below 49152, where Windows hands ports out.
+    expect(portBase({ E2E_RUN_SUITE: 's', E2E_RUN_PORT: String(top) })).toBeLessThan(49152)
+    expect(portBase({ E2E_RUN_SUITE: 's', E2E_RUN_PORT: String(top) }) - 1 + LANE_PORTS).toBeLessThan(49152)
+  })
+
+  it("each lane's suites have a folder of their own, never the work folder a suite run on its own uses", () => {
+    const folders = Array.from({ length: LANES }, (_, k) => laneWork('W', k))
+    expect(folders[0]).toBe(join('W', 'lanes', '0'))
+    expect(folders[3]).toBe(join('W', 'lanes', '3'))
+    expect(new Set(folders).size).toBe(LANES)
+    expect(folders).not.toContain('W')
+  })
+
+  it('takes the lowest lane no live claim holds and whose ports are free', () => {
+    expect(pickLane([], new Set(), alive, now)).toBe(0)
+    // Held by a running runner: skipped.
+    expect(pickLane([{ pid: 100, at: now - 60_000 }], new Set(), alive, now)).toBe(1)
+    // A crashed runner's claim (its process is gone), or a day-old one: free again.
+    expect(pickLane([{ pid: 999, at: now - 60_000 }], new Set(), alive, now)).toBe(0)
+    expect(pickLane([{ pid: 100, at: now - 25 * 3600_000 }], new Set(), alive, now)).toBe(0)
+    expect(claimHeld({ pid: 'x', at: now }, alive, now)).toBe(false)
+    // Ports in use (an older runner, another app): the next lane.
+    expect(pickLane([{ pid: 100, at: now }], new Set([1]), alive, now)).toBe(2)
+    // Every lane taken.
+    const all = Array.from({ length: LANES }, () => ({ pid: 200, at: now }))
+    expect(pickLane(all, new Set(), alive, now)).toBeNull()
+  })
+
+  it('runners claiming at the same time each get a lane of their own; a released lane is taken again', async () => {
+    const lanesDir = mkdtempSync(join(tmpdir(), 'hive-lanes-'))
+    try {
+      const free = async () => true
+      type Claim = { lane: number; base: number; release: () => void }
+      const claims: Claim[] = await Promise.all([101, 102, 103, 104].map((pid) => claimLane(lanesDir, { owner: pid, alive: () => true, free })))
+      expect(claims.map((c) => c.lane).sort()).toEqual([0, 1, 2, 3])
+      expect(new Set(claims.map((c) => c.base)).size).toBe(4)
+      const first = claims.find((c) => c.lane === 0)!
+      first.release()
+      expect(existsSync(join(lanesDir, 'lane-0.json'))).toBe(false)
+      expect((await claimLane(lanesDir, { owner: 105, alive: () => true, free })).lane).toBe(0)
+      // release() leaves a claim that is no longer its runner's.
+      first.release()
+      expect(existsSync(join(lanesDir, 'lane-0.json'))).toBe(true)
+      expect(readdirSync(lanesDir).includes('.claiming')).toBe(false)
+    } finally {
+      rmSync(lanesDir, { recursive: true, force: true })
+    }
+  })
+
+  it("skips a lane whose ports are busy, takes over a crashed runner's, and breaks a lock left by a crash", async () => {
+    const lanesDir = mkdtempSync(join(tmpdir(), 'hive-lanes-'))
+    try {
+      // Lane 0 claimed by a process that is gone: taken over.
+      writeFileSync(join(lanesDir, 'lane-0.json'), JSON.stringify({ pid: 999, at: Date.now() }))
+      const living = (pid: number) => pid !== 999
+      // Lane 1's ports are in use.
+      const busy = lanePorts(1).first + 3
+      const free = async (p: number) => p !== busy
+      // A lock from a runner that crashed while holding it.
+      mkdirSync(join(lanesDir, '.claiming'))
+      const old = new Date(Date.now() - 60_000)
+      utimesSync(join(lanesDir, '.claiming'), old, old)
+      const a = await claimLane(lanesDir, { owner: 300, alive: living, free })
+      expect(a.lane).toBe(0)
+      expect(JSON.parse(readFileSync(join(lanesDir, 'lane-0.json'), 'utf8')).pid).toBe(300)
+      const b = await claimLane(lanesDir, { owner: 301, alive: living, free })
+      expect(b.lane).toBe(2)
+      // Every lane held: none.
+      for (let k = 0; k < LANES; k++) writeFileSync(join(lanesDir, `lane-${k}.json`), JSON.stringify({ pid: 400 + k, at: Date.now() }))
+      expect(await claimLane(lanesDir, { owner: 302, alive: living, free })).toBeNull()
+    } finally {
+      rmSync(lanesDir, { recursive: true, force: true })
+    }
+  })
+
+  it('sees a port something listens on as busy (portFree)', async () => {
+    // A port the system picks, never a lane's: a runner may be using those while the unit tests run (progressreport
+    // runs this file inside a suite).
+    const { createServer } = await import('net')
+    const srv = createServer()
+    const port = await new Promise<number>((r) => srv.listen(0, '127.0.0.1', () => r((srv.address() as { port: number }).port)))
+    expect(await portFree(port)).toBe(false)
+    await new Promise((r) => srv.close(r))
+    expect(await portFree(port)).toBe(true)
+  })
+})
+
+describe('the shared Codex test home: changes to its config.toml under a lock (lib.cjs)', () => {
+  type Lib = { trustForCodex: (folder: string, home?: string) => void }
+  const { trustForCodex } = createRequire(import.meta.url)('./e2e/lib.cjs') as Lib
+  const libPath = join(dir, 'lib.cjs')
+  /** Another runner's suite trusting a folder in that home: a process of its own. */
+  const trustIn = async (home: string, folder: string) => {
+    const { spawn } = await import('child_process')
+    const env: Record<string, string | undefined> = { ...process.env, HIVE_TEST_CODEX_HOME: home, HIVE_E2E_DIR: join(home, 'work') }
+    delete env.ELECTRON_RUN_AS_NODE
+    const child = spawn(process.execPath, ['-e', `require(${JSON.stringify(libPath)}).trustForCodex(${JSON.stringify(folder)})`], { env, stdio: 'ignore' })
+    return new Promise<number | null>((resolve) => child.on('exit', resolve))
+  }
+  const entries = (home: string) => [...readFileSync(join(home, 'config.toml'), 'utf8').matchAll(/^\[projects\.'([^']+)'\]$/gm)].map((m) => m[1]).sort()
+
+  it("waits while another runner changes it, and keeps that runner's change", async () => {
+    const home = mkdtempSync(join(tmpdir(), 'hive-codex-home-'))
+    try {
+      writeFileSync(join(home, 'config.toml'), '[windows]\nsandbox = "unelevated"\n')
+      // This runner holds the lock (mid-change: it has read the file and not yet written it back).
+      mkdirSync(join(home, 'config.toml.lock'))
+      const other = trustIn(home, 'C:/lane1/codex-ws/demo')
+      await new Promise((r) => setTimeout(r, 1500))
+      // The other runner is waiting: the file is as this one read it.
+      expect(entries(home)).toEqual([])
+      writeFileSync(join(home, 'config.toml'), `${readFileSync(join(home, 'config.toml'), 'utf8')}\n[projects.'C:/lane0/codex-ws/demo']\ntrust_level = "trusted"\n`)
+      rmSync(join(home, 'config.toml.lock'), { recursive: true })
+      expect(await other).toBe(0)
+      // Neither change lost.
+      expect(entries(home)).toEqual(['C:/lane0/codex-ws/demo', 'C:/lane1/codex-ws/demo'])
+      expect(readFileSync(join(home, 'config.toml'), 'utf8').match(/^\[windows\]/gm)).toHaveLength(1)
+      expect(existsSync(join(home, 'config.toml.lock'))).toBe(false)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('several runners at once: every folder trusted once', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'hive-codex-home-'))
+    try {
+      const folders = Array.from({ length: 6 }, (_, k) => `C:/lanes/${k}/codex-ws/demo`)
+      expect(await Promise.all(folders.map((f) => trustIn(home, f)))).toEqual(folders.map(() => 0))
+      expect(entries(home)).toEqual([...folders].sort())
+      // Again: nothing added twice. A folder whose name starts with another's is its own entry.
+      trustForCodex(folders[0], home)
+      trustForCodex(`${folders[0]}2`, home)
+      expect(entries(home)).toEqual([...folders, `${folders[0]}2`].sort())
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('breaks a lock left by a runner that crashed while holding it', () => {
+    const home = mkdtempSync(join(tmpdir(), 'hive-codex-home-'))
+    try {
+      const lock = join(home, 'config.toml.lock')
+      mkdirSync(lock)
+      const old = new Date(Date.now() - 120_000)
+      utimesSync(lock, old, old)
+      trustForCodex('C:/ws/demo', home)
+      expect(entries(home)).toEqual(['C:/ws/demo'])
+      expect(existsSync(lock)).toBe(false)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 })

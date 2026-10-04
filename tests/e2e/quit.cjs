@@ -89,8 +89,11 @@ const exited = (app, ms = 10000) => app.waitForEvent('close', { timeout: ms }).t
     const closing = exited(app)
     const t0 = Date.now()
     await inv('app:quit').catch(() => undefined)
-    check('idle + default: quits without asking', await closing)
+    const closed = await closing
+    check('idle + default: quits without asking', closed)
     check('idle + default: shutdown under 5 s', Date.now() - t0 < 5000)
+    // It asked instead: close it, or it stays open (at the dialog) after the suite, holding the runner's port.
+    if (!closed) await app.close().catch(() => undefined)
   }
 
   // 3. Pending quit with nothing working quits at once; the banner and tray state appear while pending.

@@ -33,6 +33,11 @@ export function updateState(): UpdateState {
  * HIVE_UPDATE_FEED at a local server.
  */
 const testFeed = (): string | undefined => (app.isPackaged ? undefined : process.env.HIVE_UPDATE_FEED)
+/** The test download cache's folder in %LOCALAPPDATA%: hive-test-updater, or the one HIVE_UPDATE_CACHE names (an e2e lane's). */
+const testCache = (): string => {
+  const name = process.env.HIVE_UPDATE_CACHE ?? ''
+  return /^hive-test-updater-[\w-]+$/.test(name) ? name : 'hive-test-updater'
+}
 
 function enabledReason(): string | null {
   if (app.isPackaged) return null
@@ -140,7 +145,7 @@ export function initUpdater(opts: { restart: () => void }): void {
   if (feed) {
     // Tests: a generic feed, with its own download cache so the installed Hive's is never touched.
     const file = join(app.getPath('userData'), 'test-app-update.yml')
-    writeFileSync(file, `provider: generic\nurl: ${feed}\nupdaterCacheDirName: hive-test-updater\n`)
+    writeFileSync(file, `provider: generic\nurl: ${feed}\nupdaterCacheDirName: ${testCache()}\n`)
     autoUpdater.updateConfigPath = file
     autoUpdater.forceDevUpdateConfig = true
   }
