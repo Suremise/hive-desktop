@@ -69,36 +69,51 @@ function Banner({ notice }: { notice: Notice }) {
   const waitingStays = useStore((s) => s.settings?.notifications.waitingBannerStays ?? true)
   const stays = notice.kind === 'waiting' && waitingStays
   const [hovered, setHovered] = useState(false)
-  // Time left before it closes, kept while the pointer is on it.
+  // Keyboard focus in it holds it open like the pointer does, so it doesn't close under a keyboard user.
+  const [focused, setFocused] = useState(false)
+  // Time left before it closes, kept while the pointer (or the focus) is on it.
   const left = useRef(Math.max(1, seconds) * 1000)
   useEffect(() => {
-    if (stays || hovered) return
+    if (stays || hovered || focused) return
     const started = Date.now()
     const t = window.setTimeout(() => dismissNotice(notice.id), left.current)
     return () => {
       window.clearTimeout(t)
       left.current = Math.max(500, left.current - (Date.now() - started))
     }
-  }, [stays, hovered, notice.id])
+  }, [stays, hovered, focused, notice.id])
   const open = (): void => {
     dismissNotice(notice.id)
     void call('notice:open', notice.projectPath).catch(() => undefined)
   }
   const icon = notice.kind === 'waiting' ? 'question' : notice.kind === 'finished' ? 'pass' : 'info'
+  const text = (
+    <>
+      <div className="notice-title">{notice.title}</div>
+      {notice.body && <div className="notice-body">{notice.body}</div>}
+    </>
+  )
   return (
     <div
       className={cx('notice-banner', notice.kind)}
       role={notice.kind === 'waiting' ? 'alert' : 'status'}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setFocused(false)}
       onClick={open}
       title={notice.projectPath ? 'Show the project' : undefined}
     >
       <Icon name={icon} className="lead" />
-      <div className="notice-text">
-        <div className="notice-title">{notice.title}</div>
-        {notice.body && <div className="notice-body">{notice.body}</div>}
-      </div>
+      {/* The text is the project's button for the keyboard (Tab, then Enter or Space; its click reaches the banner's);
+          the banner keeps its live role, so it is still announced as it appears. */}
+      {notice.projectPath ? (
+        <button className="notice-text notice-open" aria-label={`Show the project: ${notice.title}`}>
+          {text}
+        </button>
+      ) : (
+        <div className="notice-text">{text}</div>
+      )}
       <button
         className="icon-btn notice-close"
         aria-label="Dismiss"

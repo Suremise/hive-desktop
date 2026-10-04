@@ -1730,6 +1730,21 @@ p.hint {
   flex: 1;
   min-width: 0;
 }
+.notice-open {
+  /* A button for the keyboard that looks like the banner's text. */
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.notice-open:focus-visible {
+  outline-offset: 2px;
+  border-radius: 3px;
+}
 .notice-title {
   font-weight: 600;
   color: var(--fg-strong);

@@ -576,7 +576,7 @@ Windows notifications always appear at the bottom right of the screen, over the 
 
 - **Where:** at the top centre, or wherever **Banner position** puts it (any corner, or the middle of the top or bottom edge). Several stack, the newest nearest the edge.
 - **How long:** a banner for an agent that finished goes after **6 seconds** (it stays while the pointer is on it). One for an agent **waiting for you** stays until you click it, dismiss it (×), or answer the agent, wherever you answer it. **Banners for an agent waiting for you stay until handled** can make them close like the others.
-- **Click** a banner to go to its project, in whichever window has it.
+- **Click** a banner to go to its project, in whichever window has it. From the keyboard, **Tab** to its text and press **Enter** (or Space) to go there, or Tab on to **×** to dismiss it; a banner stays while it has the focus, as it does under the pointer.
 - **Show banners for:** *All workspaces* (the default: the window you're in shows notices from every Hive window, and clicking one brings up that window), *This workspace*, or *This project* (the project the window shows). A notice it leaves out shows nothing at all, but it still counts in its own window's **Agents that need you** list and taskbar button.
 - **While Hive is focused:** *Show in Hive* (the default), *Show nothing*, or *Windows notification* (a Windows notification even while you use Hive, as before).
 
