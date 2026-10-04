@@ -32,13 +32,13 @@ function prepare() {
 
 ;(async () => {
   prepare()
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47892', CODEX_HOME: codexHome }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47892), CODEX_HOME: codexHome }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => results.push(`PAGEERROR ${e.message}`))
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await sleep(2000)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   const waitFor = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < ms) { const v = await fn(); if (v) return v; await sleep(500) } return null }
 
@@ -47,8 +47,7 @@ function prepare() {
   check('Codex signed in', info?.loggedIn === true, info?.authMethod)
   check('no readiness problems (sandbox set up in the test home)', !(info?.readiness ?? []).some((r) => r.level !== 'info'), JSON.stringify(info?.readiness))
 
-  await inv('workspace:open', ws)
-  await sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   const def = await inv('agents:add', proj, { name: 'Codex', provider: 'codex', location: 'project', model: 'gpt-6-luna', effort: 'low' })
   check('agent added with provider codex', def.provider === 'codex')
   await page.getByText('demo', { exact: true }).first().click()
@@ -78,7 +77,8 @@ function prepare() {
   const recs = JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8')).sessions
   const rec = recs.find((r) => r.id === sessionId)
   check('session recorded as Codex with its transcript path', rec?.agent === 'codex' && /rollout-.*\.jsonl$/.test(rec?.transcriptPath ?? ''), JSON.stringify(rec))
-  await sleep(6000) // the backup tick reads the transcript for live details
+  // The backup tick reads the transcript for live details.
+  await lib.until(async () => (await live())?.modelName === 'gpt-6-luna', 30000)
   const after = await live()
   check('live details: model from the transcript', after?.modelName === 'gpt-6-luna', after?.modelName)
   const plan = (await inv('app:planUsage')).codex
@@ -105,7 +105,7 @@ function prepare() {
   await inv('session:stop', proj, def.id)
   const stopped = await waitFor(async () => (!(await live()) ? true : null), 20000)
   check('stops', !!stopped)
-  await sleep(1500)
+  await sleep(1500) // A fixed wait on purpose: no condition Hive exposes says Codex's process has fully exited before the same thread is resumed.
   await inv('session:start', proj, { agentId: def.id, resumeId: sessionId })
   const resumed = await waitFor(async () => { const l = await live(); return l?.status === 'ready' ? l : null }, 60000)
   check('resumes the same conversation', resumed?.sessionId === sessionId, JSON.stringify(resumed && { s: resumed.sessionId, st: resumed.status }))

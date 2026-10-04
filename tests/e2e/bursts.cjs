@@ -36,16 +36,15 @@ const until = async (fn, ms = 10000) => {
   cfg.settings.notifications = { ...cfg.settings.notifications, chimeEnabled: true, chimeVolume: 0, desktopNotifications: true, notifyOnFinished: true, notifyOnWaiting: true, onlyWhenUnfocused: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47902', CLAUDE_CONFIG_DIR: claudeHome }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47902), CLAUDE_CONFIG_DIR: claudeHome }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1300, height: 800 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   await app.evaluate(({ Notification }) => {
     globalThis.__notes = []
     Notification.isSupported = () => true
@@ -73,7 +72,7 @@ const until = async (fn, ms = 10000) => {
   const chimesBefore = await chimes()
   for (const [p, a] of agents) await send(p, a, 'go work 2')
   check('they all finish', !!(await until(async () => (await Promise.all(agents.map(([p, a]) => live(p, a)))).every((s) => s?.status === 'finished'), 15000)))
-  await lib.sleep(4500)
+  await lib.sleep(4500) // A fixed wait on purpose: it waits out the burst window (agents finishing together are told in one notification, gathered over a few seconds) to show only one arrives.
   const burst = await notes()
   check('one notification for the three', burst.length === 1, JSON.stringify(burst))
   check('counted by project', burst[0]?.title === '3 agents finished' && burst[0]?.body === 'alpha (2), beta (1)', JSON.stringify(burst[0]))
@@ -81,7 +80,7 @@ const until = async (fn, ms = 10000) => {
 
   // --- Two in one project: named.
   await app.evaluate(() => (globalThis.__notes = []))
-  await lib.sleep(2500)
+  await lib.sleep(2500) // A fixed wait on purpose: the previous burst's window has to close first, or these finishes would join it.
   await send(alpha, one, 'go work 1')
   await send(alpha, two, 'go work 1')
   await until(async () => (await notes()).length > 0, 10000)

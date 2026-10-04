@@ -42,7 +42,7 @@ async function launch(profile, extraEnv = {}) {
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await sleep(1500)
+  await lib.appReady(page)
   await page.keyboard.press('Escape') // first-run setup dialog, if any
   return { app, page, inv: (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a]) }
 }
@@ -94,7 +94,7 @@ const log = (profile) => { try { return fs.readFileSync(path.join(scratch, profi
   fs.rmSync(cache, { recursive: true, force: true }); downloads = 0
   ;({ app, page, inv } = await launch('upd-b', { HIVE_UPDATE_FEED: feed, HIVE_UPDATE_DELAY: '1500' }))
   await waitFor(async () => (await inv('update:state')).status === 'available')
-  await sleep(1500)
+  await lib.sleep(1500) // A fixed wait on purpose: this checks that nothing downloads by itself (the feed answers after 1.5 s), which no condition can show.
   check('not downloaded automatically', (await inv('update:state')).status === 'available' && downloads === 0)
   check('status bar: available', /Hive 9.1.1 available/.test(await statusText(page)), await statusText(page))
   check('install mode manual logged', /download manual, install manual/.test(log('upd-b')))
@@ -129,7 +129,7 @@ const log = (profile) => { try { return fs.readFileSync(path.join(scratch, profi
   fs.mkdirSync(path.join(scratch, 'upd-c'), { recursive: true })
   fs.writeFileSync(path.join(scratch, 'upd-c', 'config.json'), JSON.stringify({ version: 1, settings: { updates: { checkAutomatically: false } } }))
   ;({ app, page, inv } = await launch('upd-c', { HIVE_UPDATE_FEED: feed, HIVE_UPDATE_DELAY: '1000' }))
-  await sleep(3000)
+  await lib.sleep(3000) // A fixed wait on purpose: this checks that no check starts by itself, which no condition can show.
   check('no automatic check when off', (await inv('update:state')).status === 'idle')
   // Settings → Updates renders
   await page.keyboard.press('Control+,'); await sleep(600)
@@ -139,7 +139,7 @@ const log = (profile) => { try { return fs.readFileSync(path.join(scratch, profi
   await page.screenshot({ path: path.join(scratch, 'upd-4-settings.png') })
   // 4. Errors: no release published (404).
   release = null
-  await page.locator('.settings button', { hasText: 'Check Now' }).click(); await sleep(1500)
+  await page.locator('.settings button', { hasText: 'Check Now' }).click(); await lib.until(async () => (await inv('update:state')).status === 'error', 10000)
   st = await inv('update:state')
   check('404 → "no release published yet"', st.status === 'error' && /No release of Hive has been published yet/.test(st.error), st.error)
   check('error dialog shown', await page.locator('.dialog', { hasText: 'No release of Hive has been published yet' }).count() === 1)

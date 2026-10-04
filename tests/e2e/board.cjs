@@ -12,7 +12,7 @@ const userData = path.join(lib.WORK, 'board-profile')
 const ws = path.join(lib.WORK, 'board-ws')
 const claudeHome = path.join(lib.WORK, 'board-claude-home')
 const alpha = path.join(ws, 'alpha')
-const PORT = 47897
+const PORT = Number(lib.port(47897))
 let failed = 0
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
@@ -40,10 +40,9 @@ const check = (name, ok, extra = '') => {
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const until = async (fn, ms = 20000) => {
     const t = Date.now()
     let v
@@ -67,7 +66,12 @@ const check = (name, ok, extra = '') => {
   const dialog = page.locator('.dialog', { hasText: 'New Card' })
   await dialog.locator('.task-title-input').fill('Add a greeting')
   await dialog.locator('select').first().selectOption('alpha')
-  await dialog.locator('textarea').first().fill('Write `hello()` in a.ts and test it.')
+  // Choosing the project re-renders the dialog: fill the description once its field is there, and check both fields
+  // hold what was typed before adding (under load, text typed into a field being replaced lands in the title).
+  const desc = dialog.locator('.task-description-input')
+  await desc.waitFor({ state: 'visible' })
+  await desc.fill('Write `hello()` in a.ts and test it.')
+  await lib.until(async () => (await dialog.locator('.task-title-input').inputValue()) === 'Add a greeting' && (await desc.inputValue()).startsWith('Write'), 5000)
   await dialog.getByRole('button', { name: 'Add Card' }).click()
   check('a new card shows in Todo', !!(await until(async () => (await column('Todo').locator('.task-card[data-task="1"]').count()) === 1, 5000)))
   const c1 = await card(1)

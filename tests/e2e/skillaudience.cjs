@@ -36,8 +36,7 @@ const skill = (dir, name, audience) => {
   lib.enableProviders(userData, ['claude-code'])
   const { app, page, inv } = await lib.launch({ userData, viewport: { width: 1300, height: 850 } })
   page.on('pageerror', (e) => console.log('FAIL page error', e.message))
-  await inv('workspace:open', ws)
-  await sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const skillsDir = path.join(ws, '.hive', 'skills')
   skill(skillsDir, 'weekly-report', 'assistant')
   skill(skillsDir, 'both-ways', 'all')
@@ -54,7 +53,7 @@ const skill = (dir, name, audience) => {
   check('audiences as launches read them', aud['weekly-report'] === 'assistant' && aud['both-ways'] === 'all' && aud.plain === 'agents' && aud['coordinate-agents'] === 'assistant' && aud['work-on-card'] === 'agents', JSON.stringify(aud))
 
   await page.keyboard.press('Control+Shift+K')
-  await sleep(1000)
+  await lib.until(async () => (await page.locator('.skill-row').count()) > 0, 10000)
   const rowBadge = async (name) => {
     const b = page.locator('.skill-row', { hasText: name }).first().locator('.badge[data-audience]')
     return (await b.count()) ? (await b.innerText()).trim() : null
@@ -123,7 +122,7 @@ const skill = (dir, name, audience) => {
   await page.getByText('demo', { exact: true }).first().click()
   await sleep(600)
   await page.keyboard.press('Alt+8')
-  await sleep(1200)
+  await lib.until(async () => (await page.locator('.split-list .skill-row').count()) > 0, 10000)
   const tabRows = await page.locator('.split-list .skill-row').allInnerTexts()
   const has = (n) => tabRows.some((t) => t.includes(n))
   check("project tab: the Assistant's skills aren't listed", !has('weekly-report') && !has('coordinate-agents'), tabRows.join(' | '))
@@ -141,7 +140,7 @@ const skill = (dir, name, audience) => {
     await sleep(500)
     const tip = await page.locator('.tip').innerText().catch(() => '')
     await page.locator('.editor-toolbar .btn', { hasText: 'Copy to workspace' }).click()
-    await sleep(1000)
+    await lib.until(async () => (await page.locator('.toast', { hasText: `Copied "${name}"` }).count()) > 0, 10000)
     const toast = await page.locator('.toast', { hasText: `Copied "${name}"` }).innerText().catch(() => '')
     return { tip, toast }
   }
@@ -181,7 +180,7 @@ const skill = (dir, name, audience) => {
   await page.keyboard.press('Control+Shift+E')
   await sleep(500)
   await page.keyboard.press('Alt+8')
-  await sleep(1000)
+  await lib.until(async () => (await page.locator('.split-list .skill-row').count()) > 0, 10000)
   await page.screenshot({ path: path.join(lib.WORK, 'skillaudience-narrow-project.png') })
 
   await app.close()

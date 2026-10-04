@@ -24,7 +24,7 @@ function fresh() {
 
 async function launch() {
   lib.enableProviders(userData)
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47897' }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47897) }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
   const page = await app.firstWindow()
@@ -32,9 +32,9 @@ async function launch() {
   page.on('close', () => console.log('DEBUG page closed at', new Date().toISOString()))
   app.process().on('exit', (c) => console.log('DEBUG exit', c, new Date().toISOString()))
   app.process().stderr.on('data', (d) => /error|quit/i.test(String(d)) && console.log('DEBUG stderr', String(d).slice(0, 300)))
-  await sleep(1500)
+  await lib.appReady(page)
   await page.evaluate((folder) => window.hive.invoke('workspace:open', folder), ws)
-  await sleep(1000)
+  await lib.until(async () => page.evaluate((n) => document.title.includes(n), path.basename(ws)), 20000)
   await page.getByText('demo', { exact: true }).first().click()
   await page.locator('.tab', { hasText: 'Files' }).click()
   await sleep(800)
@@ -59,7 +59,7 @@ const exited = (app, ms = 8000) =>
   const pane = { locator: (sel) => page.locator('.split-main').locator(sel) }
   const edit = async (rel, text) => {
     await row(rel).click()
-    await sleep(1200)
+    await lib.until(async () => (await pane.locator('.monaco .view-lines').count()) === 1, 10000)
     await pane.locator('.monaco').first().click({ position: { x: 300, y: 20 } })
     await page.keyboard.press('Control+End')
     await page.keyboard.type(text)
@@ -80,7 +80,7 @@ const exited = (app, ms = 8000) =>
   check('rename: file renamed on disk', exists('b.ts') && !exists('a.ts'))
   check('rename: b.ts carries the unsaved mark', (await row('b.ts').locator('.dirty-dot').count()) === 1)
   await row('b.ts').click()
-  await sleep(1200)
+  await lib.until(async () => (await pane.locator('.monaco').first().innerText().catch(() => '')).includes('edited'), 10000)
   check('rename: b.ts opens with the unsaved edits', (await pane.locator('.monaco').first().innerText()).includes('edited'))
 
   // Folder rename carries a draft inside it.
@@ -145,7 +145,7 @@ const exited = (app, ms = 8000) =>
   await page.evaluate(() => window.hive.invoke('app:quit'))
   await sleep(800)
   await page.getByRole('button', { name: 'Save and quit' }).click()
-  await sleep(1500)
+  await lib.sleep(1500) // A fixed wait on purpose: this checks that Hive does NOT quit, which no condition can show.
   check('conflict: Hive still open', !app.process().killed && app.process().exitCode === null)
   check('conflict: disk version kept', read('keep.ts').includes('theirs') && !read('keep.ts').includes('mine'))
   check('conflict: dialog still lists keep.ts', /keep\.ts/.test(await page.locator('.dialog').last().innerText().catch(() => '')))

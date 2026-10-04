@@ -45,8 +45,7 @@ const check = (name, ok, extra = '') => {
 ;(async () => {
   const { app, page, inv } = await lib.launch({ userData, viewport: { width: 1400, height: 950 } })
   page.on('pageerror', (e) => check('no page errors', false, e.message))
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const until = async (fn, ms = 10000) => {
     const t = Date.now()
     let v

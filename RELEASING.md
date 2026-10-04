@@ -18,7 +18,7 @@ The updater checks the downloaded installer against the SHA-512 in `latest.yml` 
 
 1. **Version.** Set `version` in `package.json` (semver: `0.2.0`, or `0.2.0-beta.1` for a pre-release) and run `npm install` so `package-lock.json` matches.
 2. **Release notes.** In `CHANGELOG.md`, turn the **Unreleased** section into `## <version> — <date>`. It is bundled into the app (Docs → Release Notes), and the same text goes in the GitHub release.
-3. **Commit** everything. The script refuses to run on a dirty tree.
+3. **Commit** everything. The script refuses to run on a dirty tree. Before building, run the **full e2e set** on that commit (`npm run e2e -- --all --build --record`, with the real CLIs signed in) and keep its run record: every suite passes, not just the ones the last cards named (tests/e2e/README.md).
 4. **Build and upload:** `npm run release`. It uses your `gh` login (`gh auth status` to check), builds, and creates or updates the draft release `v<version>` (titled **Hive <version>**, like the earlier releases) with the three files.
 5. **Review the draft** on GitHub: write the release notes (the updater shows them in Hive's update dialog; Markdown works), tick **Set as a pre-release** for a beta, then **Publish**. Publishing creates the tag.
 6. **Check** from an installed copy: Help → Check for Updates.

@@ -15,7 +15,7 @@ const dump = path.join(lib.WORK, 'skills-dump')
 const sleep = lib.sleep
 /** The bundled skills from before Hive kept track of them (an existing workspace without them deleted them), and the newer ones. */
 const EARLIER = ['handover', 'merge-ready', 'pick-up', 'review-agent-work', 'split-work', 'workspace-note']
-const NEWER = ['coordinate-agents', 'use-hive-api', 'work-on-card']
+const NEWER = ['card-loop', 'coordinate-agents', 'use-hive-api', 'work-on-card']
 const BUNDLED = [...EARLIER, ...NEWER]
 let failed = 0
 const check = (name, ok, extra = '') => {
@@ -46,16 +46,14 @@ const check = (name, ok, extra = '') => {
 
   // An existing workspace (it already has .hive) without the earlier bundled skills: the user deleted them, so they stay
   // deleted (listed for Restore); the newer ones are added.
-  await inv('workspace:open', oldWs)
-  await sleep(500)
+  await lib.openWorkspace(inv, page, oldWs)
   let list = await inv('skills:workspace')
   check('existing workspace: skills it had are not brought back', !fs.existsSync(path.join(oldWs, '.hive', 'skills', 'handover')))
   check('existing workspace: they are listed as deleted', EARLIER.every((n) => list.find((s) => s.name === n)?.bundled === 'missing'), JSON.stringify(list.map((s) => [s.name, s.bundled])))
   check('existing workspace: the newer bundled skills are added', NEWER.every((n) => list.find((s) => s.name === n)?.bundled === 'same'), JSON.stringify(list.map((s) => [s.name, s.bundled])))
 
   // A new workspace starts with them.
-  await inv('workspace:open', ws)
-  await sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   const skillsDir = path.join(ws, '.hive', 'skills')
   check('new workspace: every bundled skill is copied', BUNDLED.every((n) => fs.existsSync(path.join(skillsDir, n, 'SKILL.md'))), fs.readdirSync(skillsDir).join(','))
   list = await inv('skills:workspace')
@@ -80,7 +78,7 @@ const check = (name, ok, extra = '') => {
   await page.getByText('Revert to default').click()
   await sleep(400)
   await page.locator('.dialog .btn.primary', { hasText: 'Revert' }).click()
-  await sleep(1000)
+  await lib.until(async () => (await inv('skills:workspace')).find((s) => s.name === 'pick-up')?.bundled === 'same', 10000)
   list = await inv('skills:workspace')
   check('reverted: "same" again, edit gone', list.find((s) => s.name === 'pick-up')?.bundled === 'same' && !fs.readFileSync(pickUp, 'utf8').includes('My own step'))
 
@@ -102,7 +100,7 @@ const check = (name, ok, extra = '') => {
   await page.getByText('Revert to default').click()
   await sleep(400)
   await page.locator('.dialog .btn.primary', { hasText: 'Revert' }).click()
-  await sleep(1000)
+  await lib.until(async () => (await inv('skills:workspace')).find((s) => s.name === 'pick-up')?.bundled === 'same', 10000)
   list = await inv('skills:workspace')
   check('reverting takes the update', list.find((s) => s.name === 'pick-up')?.bundled === 'same' && !list.find((s) => s.name === 'pick-up')?.updateAvailable)
 
@@ -115,7 +113,7 @@ const check = (name, ok, extra = '') => {
   await sleep(800)
   await page.screenshot({ path: path.join(lib.WORK, 'skills-missing.png') })
   await page.locator('.editor-toolbar .btn', { hasText: 'Restore' }).click()
-  await sleep(1000)
+  await lib.until(async () => fs.existsSync(path.join(skillsDir, 'split-work', 'SKILL.md')) && (await page.locator('.skill-row.missing').count()) === 0, 10000)
   check('restored', fs.existsSync(path.join(skillsDir, 'split-work', 'SKILL.md')) && (await page.locator('.skill-row.missing').count()) === 0)
 
   // Adding from a .md (only that file) and a .zip (its folder, with the script).
@@ -133,7 +131,7 @@ const check = (name, ok, extra = '') => {
   await page.locator('.skill-row', { hasText: 'deploy' }).first().click()
   await sleep(600)
   fs.rmSync(path.join(skillsDir, 'deploy'), { recursive: true, force: true })
-  await sleep(1500)
+  await lib.until(async () => (await page.getByText('no longer exists in this workspace').count()) === 1, 10000)
   check('a skill deleted meanwhile: "no longer exists"', (await page.getByText('no longer exists in this workspace').count()) === 1)
 
   // Project Skills tab: Hive first, then a section per provider; local skills added for both at once.
@@ -142,7 +140,7 @@ const check = (name, ok, extra = '') => {
   await page.getByText('demo', { exact: true }).first().click()
   await sleep(600)
   await page.keyboard.press('Alt+8')
-  await sleep(1200)
+  await lib.until(async () => (await page.locator('.skill-provider-title').count()) === 2, 10000)
   const providersShown = await page.locator('.skill-provider-title').allInnerTexts()
   check('project tab: a section per provider', providersShown.length === 2 && /Claude Code/.test(providersShown[0]) && /Codex/.test(providersShown[1]), providersShown.join('|'))
   check("project tab: Hive's Codex copy isn't a local skill", (await page.locator('.skill-provider').nth(1).locator('.skill-row', { hasText: 'handover' }).count()) === 0)
@@ -151,7 +149,7 @@ const check = (name, ok, extra = '') => {
   await page.locator('.dialog input.input').fill('lint-rules')
   await page.locator('.dialog input[type=checkbox]').check()
   await page.locator('.dialog .btn.primary', { hasText: 'Create' }).click()
-  await sleep(1200)
+  await lib.until(async () => fs.existsSync(path.join(proj, '.claude', 'skills', 'lint-rules', 'SKILL.md')) && fs.existsSync(path.join(proj, '.agents', 'skills', 'lint-rules', 'SKILL.md')), 10000)
   check('local skill added for Claude Code', fs.existsSync(path.join(proj, '.claude', 'skills', 'lint-rules', 'SKILL.md')))
   check('…and for Codex (tick box)', fs.existsSync(path.join(proj, '.agents', 'skills', 'lint-rules', 'SKILL.md')))
   const all = await inv('skills:list', proj)
@@ -165,14 +163,14 @@ const check = (name, ok, extra = '') => {
   await localRow.locator('button[aria-label="Delete skill"]').click()
   await sleep(400)
   await page.locator('.dialog .btn.danger', { hasText: 'Delete' }).click()
-  await sleep(1000)
+  await lib.until(async () => !fs.existsSync(path.join(proj, '.agents', 'skills', 'lint-rules')), 10000)
   check('local skill deleted in the project tab', !fs.existsSync(path.join(proj, '.agents', 'skills', 'lint-rules')) && fs.existsSync(path.join(proj, '.claude', 'skills', 'lint-rules')))
 
   // "Edit in workspace" on a Hive skill opens it in the Skills view, in the editor.
   const hiveRow = page.locator('.skill-row', { hasText: 'workspace-note' }).first()
   await hiveRow.hover()
   await hiveRow.locator('button[aria-label^="Edit in the workspace"]').click()
-  await sleep(1500)
+  await lib.until(async () => (await page.locator('.skill-row.selected', { hasText: 'workspace-note' }).count()) === 1, 10000)
   const inSkillsView = (await page.locator('.skill-row.selected', { hasText: 'workspace-note' }).count()) === 1
   check('Edit in workspace: Skills view with the skill selected', inSkillsView)
   check('Edit in workspace: opens in the editor, not the preview', (await page.locator('.split .monaco-editor').count()) >= 1)

@@ -33,15 +33,14 @@ const post = (url, token, body) =>
   lib.trustForCodex(proj)
   fs.rmSync(userData, { recursive: true, force: true })
   lib.enableProviders(userData, ['claude-code', 'codex'])
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47894', CODEX_HOME: lib.CODEX_HOME }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47894), CODEX_HOME: lib.CODEX_HOME }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
   const page = await app.firstWindow()
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await sleep(2000)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   await inv('project:updateConfig', proj, { layouts: ['columns2'], fileLocks: 'ask' })
   await page.getByText('demo', { exact: true }).first().click()
   await sleep(500)
@@ -66,7 +65,7 @@ const post = (url, token, body) =>
   await inv('session:start', proj, { agentId: a1.id })
   await waitFor(a1.id, (l) => l?.status === 'ready', 60000)
   await inv('project:updateConfig', proj, { allowSessionInput: true }).catch(() => undefined)
-  await sleep(1000)
+  await lib.until(async () => (await inv('workspace:refresh')).projects.find((p) => p.path.toLowerCase() === proj.toLowerCase())?.config.allowSessionInput === true, 10000)
   // A first turn, so there is something to compact.
   const key1 = `session:${proj.toLowerCase()}#${a1.id}`
   const type = async (key, t) => {
@@ -83,7 +82,7 @@ const post = (url, token, body) =>
   check('status shows Compacting', /Compacting/i.test(sawCompacting?.statusMessage ?? ''), sawCompacting?.statusMessage)
   l = await waitFor(a1.id, (x) => !/Compacting/i.test(x?.statusMessage ?? '') && (x?.status === 'ready' || x?.status === 'finished'), 180000)
   check('compaction ends', !/Compacting/i.test(l?.statusMessage ?? ''), `${l?.status} ${l?.statusMessage ?? ''}`)
-  await sleep(3000)
+  await lib.until(async () => ((await inv('session:usage', proj, l.sessionId).catch(() => null))?.compactions?.length ?? 0) > (before?.compactions?.length ?? 0), 15000)
   const after = await inv('session:usage', proj, l.sessionId).catch(() => null)
   check('usage records the compaction', (after?.compactions?.length ?? 0) > (before?.compactions?.length ?? 0), JSON.stringify(after?.compactions))
   await page.screenshot({ path: path.join(scratch, 'cxe-1-compact.png') })
@@ -99,7 +98,7 @@ const post = (url, token, body) =>
   await page.mouse.click(600, 650)
   await sleep(300)
   await page.keyboard.press('Control+V')
-  await sleep(2500)
+  await lib.until(async () => { const d = path.join(proj, '.hive', 'images', l.sessionId); return fs.existsSync(d) && fs.readdirSync(d).length > 0 && /\[Image|image #|\.png/i.test((await text(a1.id)).slice(-600)) }, 15000) // the pasted image saved, and shown by Codex
   const t1 = await text(a1.id)
   const imgDir = path.join(proj, '.hive', 'images', l.sessionId)
   const saved = fs.existsSync(imgDir) ? fs.readdirSync(imgDir) : []
@@ -127,8 +126,17 @@ const post = (url, token, body) =>
   await sleep(800)
   const held = (await live(a2.id))?.lockedFiles ?? []
   check('lock shows on agent 2', held.some((f) => /notes\.txt$/i.test(f)), JSON.stringify(held))
-  await type(key1, 'Use apply_patch to add the line "from agent 1" at the end of notes.txt. Do nothing else.')
-  const w = await waitFor(a1.id, (x) => x?.status === 'finished' || x?.status === 'waiting', 120000)
+  const asking = page.locator('.toast', { hasText: 'wants to edit notes.txt' })
+  let w
+  // Hive asks only once Codex tries the edit. The small test model sometimes answers without trying (once it replied
+  // READY again, from the turn before the compaction): then it is asked again, more firmly, up to twice.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await type(key1, attempt ? 'Edit notes.txt now: call the apply_patch tool to append the line "from agent 1". Do not answer in text.' : 'Use apply_patch to add the line "from agent 1" at the end of notes.txt. Do nothing else.')
+    w = await waitFor(a1.id, (x) => x?.status === 'finished' || x?.status === 'waiting', 120000)
+    if (await lib.until(async () => (await asking.count()) > 0, 5000)) break
+    if (/from agent 1/.test(fs.readFileSync(path.join(proj, 'notes.txt'), 'utf8'))) break
+    console.log(`Codex didn't try the edit (attempt ${attempt + 1}): asking again`)
+  }
   await page.screenshot({ path: path.join(scratch, 'cxe-3-lock-ask.png') })
   const notes0 = fs.readFileSync(path.join(proj, 'notes.txt'), 'utf8')
   check('the locked edit is held back', !/from agent 1/.test(notes0), `${w?.status}`)
@@ -144,10 +152,10 @@ const post = (url, token, body) =>
   fs.writeFileSync(path.join(proj, 'notes.txt'), notes0)
   // Decline: Esc interrupts.
   await inv('pty:write', key1, '\x1b')
-  await sleep(2000)
+  await lib.until(async () => ['ready', 'finished'].includes((await inv('session:live')).find((x) => x.agentId === a1.id)?.status), 15000) // the interrupt landed
 
   await inv('session:stop', proj)
-  await sleep(3000)
+  await lib.until(async () => (await inv('session:live')).length === 0, 15000)
   await app.close()
   console.log(`${results.filter(Boolean).length}/${results.length}`)
 })().catch((e) => {

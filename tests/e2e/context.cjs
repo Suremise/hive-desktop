@@ -29,17 +29,16 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `contex
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47899', CLAUDE_CONFIG_DIR: claudeHome }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47899), CLAUDE_CONFIG_DIR: claudeHome }
   delete env.ELECTRON_RUN_AS_NODE
   delete env.CLAUDE_CODE_DISABLE_1M_CONTEXT
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1500, height: 950 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   await lib.waitForProvider(inv)
   const until = async (fn, ms = 20000) => {
     const t = Date.now()
@@ -90,7 +89,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `contex
   await shot(page, '2-add-agent')
   await dialog.locator('label', { hasText: 'Start a session now' }).locator('input').uncheck()
   await dialog.locator('.btn.primary', { hasText: 'Add Agent' }).click()
-  await lib.sleep(1500)
+  await lib.until(async () => (await project()).agents.some((a) => a.name === 'Small'), 10000)
   let small = (await project()).agents.find((a) => a.name === 'Small')
   check('agent stores use200kContext', small?.use200kContext === true, JSON.stringify(small))
 
@@ -151,7 +150,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `contex
   await shot(page, '4-agent-settings')
   await sdSelect.selectOption('')
   await sd.locator('.btn.primary', { hasText: 'Save' }).click()
-  await lib.sleep(1000)
+  await lib.until(async () => (await project()).agents.find((a) => a.id === small.id)?.use200kContext === undefined, 10000)
   check('Save with the project’s choice clears it', (await project()).agents.find((a) => a.id === small.id)?.use200kContext === undefined)
 
   // The Assistant: Settings → Assistant's choice reaches its launch.
@@ -169,7 +168,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `contex
   const { createHash } = require('crypto')
   const token = JSON.parse(fs.readFileSync(path.join(userData, 'assistant-api', `${createHash('sha256').update(ws.toLowerCase()).digest('hex').slice(0, 16)}.json`), 'utf8')).token
   const api = (method, url, body) =>
-    fetch(`http://127.0.0.1:47899${url}`, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, ...(body && method !== 'GET' ? { body: JSON.stringify(body) } : {}) }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }))
+    fetch(`http://127.0.0.1:${lib.port(47899)}${url}`, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, ...(body && method !== 'GET' ? { body: JSON.stringify(body) } : {}) }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }))
   const providers = await api('GET', '/v1/providers')
   check('GET /v1/providers says which take context200k', providers.body?.find?.((p) => p.id === 'claude-code')?.context200k === true && providers.body.find((p) => p.id === 'codex')?.context200k === false, JSON.stringify(providers.body?.map?.((p) => [p.id, p.context200k])))
   const added = await api('POST', '/v1/projects/demo/agents', { name: 'Api', context200k: 'on' })

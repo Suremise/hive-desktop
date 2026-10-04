@@ -14,7 +14,7 @@ const userData = path.join(lib.WORK, 'cardloop-profile')
 const ws = path.join(lib.WORK, 'cardloop-ws')
 const claudeHome = path.join(lib.WORK, 'cardloop-claude-home')
 const alpha = path.join(ws, 'alpha')
-const PORT = 47901
+const PORT = Number(lib.port(47901))
 let failed = 0
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
@@ -42,10 +42,9 @@ const check = (name, ok, extra = '') => {
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const apiToken = JSON.parse(fs.readFileSync(path.join(userData, 'agent-api.json'), 'utf8')).token
   const api = async (method, route, body) => {
     const r = await fetch(`http://127.0.0.1:${PORT}${route}`, { method, headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
@@ -188,7 +187,7 @@ const check = (name, ok, extra = '') => {
   // The user types (no Enter) in its terminal, then the card changes: no wake while the user may still be typing.
   await inv('pty:write', lib.ptyKey(alpha, third.id), 'half a thought')
   await inv('tasks:comment', c3, 'First change')
-  await lib.sleep(2000)
+  await lib.sleep(2000) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
   check('no wake while the user is typing there', wakes('Third').length === 0, JSON.stringify(wakes('Third')))
   const afterPause = await until(async () => wakes('Third').length === 1, 15000)
   check('…and one wake once the typing pause has passed', !!afterPause && wakes('Third').length === 1)
@@ -199,7 +198,7 @@ const check = (name, ok, extra = '') => {
   await say(third.id, 'work 4')
   await until(async () => (await live(third.id))?.status === 'working')
   await inv('tasks:comment', c3, 'Second change')
-  await lib.sleep(1500)
+  await lib.sleep(1500) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
   check('no wake while the agent is working', wakes('Third').length === 1)
   check('…and one wake when its turn ends', !!(await until(async () => wakes('Third').length === 2, 15000)))
   await until(async () => (await live(third.id))?.status === 'finished')
@@ -210,7 +209,7 @@ const check = (name, ok, extra = '') => {
   await inv('session:stop', alpha, third.id)
   await until(async () => !(await live(third.id)))
   await inv('tasks:comment', c3, 'Third change')
-  await lib.sleep(1500)
+  await lib.sleep(1500) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
   check('no wake while it is stopped', wakes('Third').length === 2)
   await inv('session:start', alpha, { agentId: third.id, resumeId: sid })
   check('…and one wake after it is resumed', !!(await until(async () => wakes('Third').length === 3, 30000)))
@@ -228,7 +227,7 @@ const check = (name, ok, extra = '') => {
   const compactingNow = await until(async () => (await live(third.id))?.status === 'working', 8000)
   check('…it compacts, its watch kept', !!compactingNow && !!(await live(third.id))?.watch, JSON.stringify(await live(third.id)))
   await inv('tasks:comment', c3, 'During the compaction')
-  await lib.sleep(1500)
+  await lib.sleep(1500) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
   check('no wake while it compacts', wakes('Third').length === 3, JSON.stringify(wakes('Third')))
   check('…and one wake once the compaction has ended', !!(await until(async () => wakes('Third').length === 4, 20000)))
   await until(async () => (await live(third.id))?.status === 'finished')
@@ -254,7 +253,7 @@ const check = (name, ok, extra = '') => {
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
   await lib.sleep(500)
   await inv('tasks:comment', c3, 'Fourth change')
-  await lib.sleep(2500)
+  await lib.sleep(2500) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
   check('…and a later change wakes nothing', wakes('Third').length === 4)
 
   // --- A bounded wait (no wake): it returns on a comment, a move and a verdict; times out; since misses nothing.
@@ -319,7 +318,7 @@ const check = (name, ok, extra = '') => {
   check('a quit is pending, waiting on the watcher', !!pendingNow && (await inv('app:quitState')).working === 1, JSON.stringify(await inv('app:quitState')))
   const exited = app.waitForEvent('close', { timeout: 20000 }).then(() => true, () => false)
   await inv('tasks:update', q1, { column: 'done' })
-  await lib.sleep(2500)
+  await lib.sleep(2500) // A fixed wait on purpose: this checks that Hive does NOT quit yet, which no condition can show.
   const still = await inv('app:quitState')
   check('…still waiting while the other card it watches is in Doing with the builder', still?.pending === true && still?.working === 1, JSON.stringify(still))
   await inv('tasks:update', q2, { column: 'todo' })

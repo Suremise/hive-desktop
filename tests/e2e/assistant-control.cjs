@@ -12,7 +12,7 @@ const userData = path.join(lib.WORK, 'control-profile')
 const ws = path.join(lib.WORK, 'control-ws')
 const claudeHome = path.join(lib.WORK, 'control-claude-home')
 const alpha = path.join(ws, 'alpha')
-const PORT = '47895'
+const PORT = Number(lib.port(47895))
 const API = `http://127.0.0.1:${PORT}`
 let failed = 0
 const check = (name, ok, extra = '') => {
@@ -43,10 +43,9 @@ const check = (name, ok, extra = '') => {
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const info = await inv('workspace:refresh')
   const home = info.assistant.path
   const live = async (p, agentId) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === p.toLowerCase() && s.agentId === agentId)
@@ -120,7 +119,7 @@ const check = (name, ok, extra = '') => {
   const given = await api('POST', '/v1/projects/alpha/agents/Fixer/prompt', { text: 'edit a.ts work 6' })
   check('an idle agent takes a task', given.status === 200, JSON.stringify(given.body))
   await until(async () => (await live(alpha, fixer))?.status === 'working')
-  await lib.sleep(1500)
+  await lib.until(async () => { const b = (await api('GET', '/v1/projects/alpha/agents/Fixer/activity')).body; return b?.recentTools?.some((t) => t.tool === 'Edit') && b.lockedFiles?.includes('a.ts') }, 10000)
   const working = (await api('GET', '/v1/projects/alpha/agents/Fixer/activity')).body
   check('its activity shows the edit and the locked file', working?.recentTools?.some((t) => t.tool === 'Edit') && working.lockedFiles?.includes('a.ts'), JSON.stringify(working))
 
@@ -166,7 +165,7 @@ const check = (name, ok, extra = '') => {
   const noTools = await api('POST', '/v1/projects/alpha/handover', { from: 'Builder', to: 'Fixer', handover: false })
   check("no hand-over while agents can't use Hive's tools", noTools.status === 409 && /Hive's tools/.test(noTools.body?.error), JSON.stringify(noTools.body))
   await inv('settings:update', { agentApi: { enabled: true } })
-  await lib.sleep(1000)
+  await lib.until(async () => (await api('GET', '/v1/status').catch(() => ({}))).status === 200, 10000)
   const typedIn = await api('POST', '/v1/projects/alpha/handover', { from: 'Builder', to: 'Fixer', handover: false })
   check('no hand-over from an agent the user just typed in', typedIn.status === 409 && /typed/.test(typedIn.body?.error), JSON.stringify(typedIn.body))
   await api('POST', '/v1/projects/alpha/agents', { name: 'Checker' })

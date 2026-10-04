@@ -35,7 +35,7 @@ const check = (name, ok, extra = '') => {
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 860 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   // Each call to fail (a new value each time: the same one again isn't read as a change).
   let round = 0
@@ -48,8 +48,7 @@ const check = (name, ok, extra = '') => {
     return v
   }
   const text = (sel) => page.locator(sel).first().innerText().catch(() => '')
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   await page.getByText('alpha', { exact: true }).first().click()
 
   // --- Sessions tab: a failed search isn't "No matches".
@@ -102,7 +101,7 @@ const check = (name, ok, extra = '') => {
   await lib.sleep(300)
   await project('beta')
   await until(async () => (await page.locator('.skill-group').count()) > 0)
-  await lib.sleep(3500)
+  await lib.sleep(3500) // A fixed wait on purpose: the slowed answer for the old choice arrives later, and this checks it doesn't replace the new one.
   check("skills: alpha's late answer isn't shown in beta", (await alphaOnly.count()) === 0 && (await page.locator('.skill-group').count()) > 0)
   await project('alpha')
   check('skills: back in alpha, its own again', !!(await until(async () => (await alphaOnly.count()) === 1)))

@@ -37,8 +37,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  $
 ;(async () => {
   const { app, page, inv } = await lib.launch({ userData })
   page.on('pageerror', (e) => results.push(`PAGEERROR ${e.message}`))
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const alpha = await lib.addAgent(inv, proj, { name: 'Alpha' })
   const beta = await lib.addAgent(inv, proj, { name: 'Beta' })
   const t = '2026-09-29T09:00:00.000Z'

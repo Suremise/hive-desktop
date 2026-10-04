@@ -14,7 +14,7 @@ const { execFileSync } = require('child_process')
 const userData = path.join(lib.WORK, 'replysize-profile')
 const ws = path.join(lib.WORK, 'replysize-ws')
 const claudeHome = path.join(lib.WORK, 'replysize-claude-home')
-const PORT = 47899
+const PORT = Number(lib.port(47899))
 const API = `http://127.0.0.1:${PORT}`
 const PROJECTS = ['alpha', 'beta', 'gamma', 'delta']
 let failed = 0
@@ -49,11 +49,14 @@ const prose = (seed, n) => {
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
+  // Once (4 Oct 2026) the page closed during a workspace switch, with nothing in Hive's log: say what happened, if again.
+  page.on('crash', () => console.log(`PAGE CRASHED ${new Date().toISOString()}`))
+  page.on('close', () => console.log(`PAGE CLOSED ${new Date().toISOString()}`))
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.on('close', () => console.log(`HIVE WINDOW CLOSING ${new Date().toISOString()}`)))
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const until = async (fn, ms = 15000) => {
     const t = Date.now()
     let v
@@ -242,7 +245,7 @@ const prose = (seed, n) => {
   check('a start: its status and session', /^Started Helper in beta: \w+, session [\w-]+\. Follow it with hive_wait_for_agents\.$/.test(started), started)
   await until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'ready')
   measure('hive_prompt_agent', tool('hive_prompt_agent', { project: 'beta', agent: 'Helper', text: 'turn 1' }, 'assistant'), 300)
-  await lib.sleep(2500)
+  await lib.until(async () => (await live(path.join(ws, 'beta'), (await inv('workspace:refresh')).projects.find((p) => p.name === 'beta').agents.find((a) => a.name === 'Helper').id))?.status === 'finished', 15000) // its turn over: stopping a working agent would ask the user
   measure('hive_stop_agent', tool('hive_stop_agent', { project: 'beta', agent: 'Helper' }, 'assistant'), 300)
   const startedCard = measure('hive_start_task', tool('hive_start_task', { number: todo[20], name: 'Starter' }, 'assistant'), 600)
   check('a started card: who has it', new RegExp(`^Started #${todo[20]} .+ on a new agent, Starter in \\w+; the card is in Doing\\.`).test(startedCard), startedCard)
@@ -399,8 +402,7 @@ const prose = (seed, n) => {
     })
   })
   await inv('session:stop', alpha, coder.id).catch(() => undefined)
-  await inv('workspace:open', nextWs)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, nextWs)
   pendingSock.destroy()
   await lib.sleep(500)
   const nextReport = await inv('metrics:query', { scope: { kind: 'workspace' } })

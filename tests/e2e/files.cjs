@@ -55,10 +55,9 @@ const check = (name, ok) => {
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => results.push(`PAGEERROR ${e.message}`))
-  await sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   await page.getByText('demo', { exact: true }).first().click()
   await page.locator('.tab', { hasText: 'Files' }).click()
   await sleep(800)
@@ -116,7 +115,7 @@ const check = (name, ok) => {
   await row('.gitignore copy').click()
   await page.keyboard.press('Delete')
   await page.getByRole('button', { name: 'Move to Recycle Bin' }).click()
-  await sleep(1200)
+  await lib.until(async () => !exists('.gitignore copy'), 10000)
   check('delete moves ".gitignore copy" to the Recycle Bin', !exists('.gitignore copy'))
 
   // Internal drag: move src/new.ts onto dist.
@@ -154,7 +153,7 @@ const check = (name, ok) => {
 
   // Live update from outside Hive.
   w('made-outside.txt', 'hi')
-  await sleep(1500)
+  await lib.until(async () => (await row('made-outside.txt').count()) === 1, 10000)
   check('file created outside Hive appears live', (await row('made-outside.txt').count()) === 1)
 
   // Filter.
@@ -174,7 +173,7 @@ const check = (name, ok) => {
 
   // Images tab.
   await page.locator('.tab', { hasText: 'Images' }).click()
-  await sleep(1200)
+  await lib.until(async () => (await page.locator('.thumb').count()) === 4, 10000)
   await page.screenshot({ path: path.join(shots, '4-images.png') })
   check('images: 4 thumbnails', (await page.locator('.thumb').count()) === 4)
   check('images: thumbnails load', await page.locator('.thumb img').first().evaluate((i) => i.complete && i.naturalWidth > 0))

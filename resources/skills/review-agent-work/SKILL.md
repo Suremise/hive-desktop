@@ -34,6 +34,8 @@ Read the whole change, and the code around it where needed. In order of importan
 
 Run the checks that matter (tests, typecheck, a repro of a suspected bug) without committing or changing files; scratch files go outside the project. Note what you ran.
 
+**Don't repeat the builder's run.** When the builder posted a run record (which checks ran on exactly which code, with results and logs), check it is for the code you are reviewing, and trust it for those checks. Rerun the quick ones (typecheck, lint, unit tests) and the one or two closest to the riskiest change, and spend the rest of your time on what the builder didn't test: your own probes find what a repeated run doesn't. Rerun more when there's no record, it is for other code, or something in it looks wrong (a flaky check, a pass that doesn't fit the change). The project's notes may say how to check a record.
+
 ## 4. Report
 
 Findings, most serious first. For each:

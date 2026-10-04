@@ -22,12 +22,12 @@ const read = (f) => fs.readFileSync(f, 'utf8')
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
   fs.mkdirSync(path.join(ws, 'demo'), { recursive: true })
   lib.enableProviders(userData)
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47896' }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47896) }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
-  await sleep(1500)
+  await lib.appReady(page)
   await page.evaluate((folder) => window.hive.invoke('workspace:open', folder), ws)
   await sleep(800)
   fs.writeFileSync(note, '# Plan\n')
@@ -46,13 +46,13 @@ const read = (f) => fs.readFileSync(f, 'utf8')
     await page.keyboard.press('Control+Shift+H')
     await sleep(600)
     await page.locator('.row', { hasText: 'plan.md' }).first().click()
-    await sleep(1000)
+    await lib.until(async () => ((await page.locator('.row', { hasText: 'plan.md' }).first().getAttribute('class')) ?? '').includes('selected'), 10000)
   }
   const openServer = async () => {
     await page.keyboard.press('Control+Shift+M')
     await sleep(600)
     await page.locator('.row', { hasText: 'demo' }).first().click()
-    await sleep(1000)
+    await lib.until(async () => ((await page.locator('.row', { hasText: 'demo' }).first().getAttribute('class')) ?? '').includes('selected'), 10000)
   }
 
   // A note's edits survive going to another view and back.

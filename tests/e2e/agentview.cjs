@@ -18,15 +18,14 @@ const check = (name, ok, extra = '') => {
   fs.rmSync(userData, { recursive: true, force: true })
   fs.mkdirSync(proj, { recursive: true })
   lib.enableProviders(userData, ['claude-code'])
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47894' }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47894) }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   await lib.fitWindow(app, page, { width: 1200, height: 750 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   const settings = await inv('settings:get')
   check('background sessions are off by default', settings.providers['claude-code'].allowBackgroundSessions === false)
   const agent = await lib.soloAgent(inv, proj)
@@ -44,9 +43,9 @@ const check = (name, ok, extra = '') => {
       return []
     }
   }
-  await lib.sleep(2000)
+  await lib.until(async () => (await inv('session:live')).find((s) => s.agentId === agent.id)?.status === 'ready', 15000)
   await inv('pty:write', lib.ptyKey(proj, agent.id), '\x1b[D')
-  await lib.sleep(6000)
+  await lib.sleep(6000) // A fixed wait on purpose: this checks that the session does NOT move into Claude Code's background view after ←.
   const left = jobs()
   check('← on an empty prompt keeps the session in Hive', left.length === 0, JSON.stringify(left))
   check('the session is still running in Hive', (await inv('session:live'))[0]?.status === 'ready')
@@ -59,7 +58,7 @@ const check = (name, ok, extra = '') => {
     }
   }
   await inv('session:stop', proj)
-  await lib.sleep(1500)
+  await lib.until(async () => (await inv('session:live')).length === 0, 15000)
   await app.close()
   console.log(failed ? `${failed} failed` : 'all passed')
   process.exit(failed ? 1 : 0)

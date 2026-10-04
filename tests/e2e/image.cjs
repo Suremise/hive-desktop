@@ -11,7 +11,6 @@ const shots = path.join(scratch, 'shots')
 for (const d of [userData, ws, shots]) fs.rmSync(d, { recursive: true, force: true })
 fs.mkdirSync(path.join(ws, 'demo'), { recursive: true })
 fs.mkdirSync(shots, { recursive: true })
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 ;(async () => {
   lib.enableProviders(userData)
@@ -25,17 +24,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
   })
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
-  await sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   const proj = path.join(ws, 'demo')
-  await inv('workspace:open', ws)
-  await sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   await page.getByText('demo', { exact: true }).first().click()
   const agent = await lib.soloAgent(inv, proj)
   await inv('workspace:refresh')
   const st = await inv('session:start', proj, { agentId: agent.id })
   await lib.acceptClaudeTrust(inv, proj, agent.id)
-  await sleep(8000)
+  await lib.until(async () => (await inv('session:live')).some((l) => l.status === 'ready'), 30000)
 
   // A fake clipboard holding a PNG, in the app only: the real clipboard is never read or written.
   const png = await page.screenshot({ path: path.join(shots, 'source.png'), clip: { x: 0, y: 0, width: 400, height: 200 } })
@@ -49,7 +47,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
   await page.locator('.terminal-host').first().click()
   await page.keyboard.press('Control+V')
-  await sleep(3000)
+  await lib.until(async () => (await inv('pty:buffer', lib.ptyKey(proj, agent.id))).split('.png').length - 1 >= 1, 10000) // the pasted image's path in the terminal
   await page.screenshot({ path: path.join(shots, '1-ctrl-v.png') })
 
   // Drop a real file: setInputFiles gives a path-backed File.
@@ -70,7 +68,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
     host.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }))
     host.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
   })
-  await sleep(3000)
+  await lib.until(async () => (await inv('pty:buffer', lib.ptyKey(proj, agent.id))).split('.png').length - 1 >= 2, 10000) // and the dropped one's
   await page.screenshot({ path: path.join(shots, '2-drop.png') })
 
 
@@ -79,7 +77,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
   // Ended bar: clear the input first so nothing is sent, then stop.
   await inv('session:stop', proj)
-  await sleep(2500)
+  await lib.until(async () => (await inv('session:live')).length === 0, 15000)
   await page.screenshot({ path: path.join(shots, '3-ended.png') })
   await app.close()
 })().catch((e) => {

@@ -28,16 +28,15 @@ const check = (name, ok, extra = '') => {
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47897', CODEX_HOME: lib.CODEX_HOME }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47897), CODEX_HOME: lib.CODEX_HOME }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await lib.sleep(2000)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   await page.getByText('demo', { exact: true }).first().click()
   await lib.addAgent(inv, proj, { name: 'Codex', provider: 'codex', model: 'gpt-6-luna', effort: 'low' })
   const agent = (await inv('workspace:get')).projects.find((p) => p.name === 'demo').agents.find((a) => a.name === 'Codex')
@@ -64,7 +63,7 @@ const check = (name, ok, extra = '') => {
     await inv('pty:write', key, prompt.slice(i, i + 8))
     await lib.sleep(15)
   }
-  await lib.sleep(1000)
+  await lib.until(async () => (await inv('pty:buffer', key)).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\s+/g, '').includes('endyourturn.'), 15000) // the whole prompt is in Codex's input
   await inv('pty:write', key, '\r')
   const ended = await until((s) => s?.status === 'finished' && s, 120000)
   const t0 = Date.now()
@@ -82,7 +81,7 @@ const check = (name, ok, extra = '') => {
   check('Codex stayed finished: no turn of its own when the command ended', after?.status === 'finished' && !seen.has('working'), JSON.stringify({ status: after?.status, seen: [...seen] }))
 
   await inv('session:stop', proj, agent.id).catch(() => undefined)
-  await lib.sleep(1500)
+  await lib.until(async () => (await inv('session:live')).length === 0, 15000)
   await app.close()
   process.exit(failed ? 1 : 0)
 })().catch((e) => {

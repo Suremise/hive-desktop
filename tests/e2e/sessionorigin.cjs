@@ -31,16 +31,15 @@ const check = (name, ok, extra = '') => {
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47897', CLAUDE_CONFIG_DIR: claudeHome }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47897), CLAUDE_CONFIG_DIR: claudeHome }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const live = async (id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === id)
   const until = async (fn, ms = 20000) => {
     const t = Date.now()
@@ -108,11 +107,12 @@ const check = (name, ok, extra = '') => {
   check('a worktree session of an agent that exists', (await badge('Reviewer work')) === `Reviewer · Worktree · ${reviewer.worktree.branch}`, await badge('Reviewer work'))
   check('an adopted session: its location only', (await badge('Adopted one')) === 'Project folder', await badge('Adopted one'))
   check('an archived session is labelled too', (await badge('Put away')) === 'Removed agent · Project folder', await badge('Put away'))
-  await row('Earlier spike').locator('.session-origin').hover()
+  // Hovered again on each try: under load a first hover can land before the row is ready, and the tip shows after a delay.
   check('hover gives the full folder and the agent id', !!(await until(async () => {
+    await row('Earlier spike').locator('.session-origin').hover().catch(() => undefined)
     const tip = await page.locator('.tip').last().innerText().catch(() => '')
     return tip.includes(reviewer.worktree.path) && tip.includes('a-5p1ke00')
-  }, 3000)))
+  }, 8000)))
   await page.screenshot({ path: path.join(lib.WORK, 'sessionorigin-1-list.png') })
 
   // --- The selected session: where it ran, apart from who resumes it now.

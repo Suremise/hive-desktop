@@ -1192,7 +1192,8 @@ class SessionManager {
       if (before) seen.add(before)
       writePty(key, '\x1b[Z')
       const t = Date.now()
-      while (Date.now() - t < 1500 && st.permissionMode === before) await new Promise((r) => setTimeout(r, 50))
+      // The footer redraw that shows the new mode can take a few seconds on a busy machine or just after the start.
+      while (Date.now() - t < 4000 && st.permissionMode === before) await new Promise((r) => setTimeout(r, 50))
       if (st.permissionMode === mode) {
         log.info(`${userText(this.label(st))}: switched to ${mode}`)
         return { ok: true }
@@ -1201,6 +1202,7 @@ class SessionManager {
       // Back round to a mode already seen: the target isn't in this session's cycle.
       if (st.permissionMode && seen.has(st.permissionMode)) break
     }
+    log.warn(`${userText(this.label(st))}: ${name} didn't reach ${mode} with Shift+Tab (now ${st.permissionMode ?? 'unknown'})`)
     return { ok: false, restart: true, message: `${name} didn't offer ${permissionLabel(p, mode)} with Shift+Tab (it is now in ${st.permissionMode ? permissionLabel(p, st.permissionMode) : 'an unknown mode'}). Restart the session in that mode instead.` }
   }
 

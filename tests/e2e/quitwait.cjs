@@ -28,16 +28,15 @@ async function launch(name) {
   cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'working', closeToTray: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: name === 'wait' ? '47899' : '47900', CLAUDE_CONFIG_DIR: claudeHome }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(name === 'wait' ? 47899 : 47900), CLAUDE_CONFIG_DIR: claudeHome }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1300, height: 800 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   const agent = await lib.addAgent(inv, alpha, { name: 'Busy' })
   const live = async () => (await inv('session:live')).find((s) => s.agentId === agent.id)
   await inv('session:start', alpha, { agentId: agent.id })
@@ -81,7 +80,7 @@ async function keepBusy(inv, alpha, agent, live, secs) {
     check('the window hides', !!(await until(async () => !(await visible(app)), 5000)))
     const state = await inv('app:quitState').catch(() => null)
     check('a quit is pending (the tray shows it), with one agent working', state?.pending === true && state?.working === 1, JSON.stringify(state))
-    await lib.sleep(2000)
+    await lib.sleep(2000) // A fixed wait on purpose: this checks that Hive does NOT quit while the agent works.
     check("it doesn't quit while the agent works", (await live().catch(() => null))?.status === 'working')
     check('it quits once the agent finishes', await closing)
     check('not before the agent was done (about 8 s)', Date.now() - t0 > 4000, `${Date.now() - t0} ms`)

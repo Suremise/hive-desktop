@@ -31,16 +31,15 @@ const git = (cwd, ...a) => execFileSync('git', a, { cwd }).toString()
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47897', CLAUDE_CONFIG_DIR: claudeHome }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47897), CLAUDE_CONFIG_DIR: claudeHome }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const until = async (fn, ms = 10000) => {
     const t = Date.now()
     let v
@@ -72,7 +71,7 @@ const git = (cwd, ...a) => execFileSync('git', a, { cwd }).toString()
   const highlighted = async () => /\bsuggest\b/.test((await merge.getAttribute('class')) ?? '')
 
   await turn()
-  await lib.sleep(2500)
+  await lib.sleep(2500) // A fixed wait on purpose: this checks that no count appears after a turn that changed nothing.
   check('nothing to merge: Merge… is plain', (await count()) === '' && !(await highlighted()) && (await tabBadge()) === '', `${await count()} ${await tabBadge()}`)
 
   // The agent commits on its branch during a turn: the count shows once the turn ends.

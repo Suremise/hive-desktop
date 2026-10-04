@@ -46,13 +46,13 @@ const BOTH = ['handover', 'pick-up', 'split-work', 'workspace-note']
   cfg.settings.assistant = { ...cfg.settings.assistant, provider: 'codex' }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47903', CLAUDE_CONFIG_DIR: claudeHome, CODEX_HOME: codexHome }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47903), CLAUDE_CONFIG_DIR: claudeHome, CODEX_HOME: codexHome }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   const until = async (fn, ms = 20000) => {
     const t = Date.now()
@@ -61,8 +61,7 @@ const BOTH = ['handover', 'pick-up', 'split-work', 'workspace-note']
     return v
   }
   await lib.waitForProvider(inv, 'codex')
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   await page.getByText('alpha', { exact: true }).first().click()
   const live = async (p, id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === p.toLowerCase() && s.agentId === id)
   const ready = (p, id) => until(async () => {
@@ -132,7 +131,7 @@ const BOTH = ['handover', 'pick-up', 'split-work', 'workspace-note']
 
   for (const id of [claude.id, codex.id]) await inv('session:stop', proj, id).catch(() => undefined)
   await inv('session:stop', home, 'assistant').catch(() => undefined)
-  await lib.sleep(1000)
+  await lib.until(async () => (await inv('session:live')).length === 0, 15000)
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
   process.exit(failed ? 1 : 0)

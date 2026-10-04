@@ -20,18 +20,18 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
     if (fs.existsSync(path.join(lib.CODEX_HOME, f))) fs.copyFileSync(path.join(lib.CODEX_HOME, f), path.join(home, f))
   }
   fs.writeFileSync(path.join(home, 'config.toml'), '')
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47890', CODEX_HOME: home }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47890), CODEX_HOME: home }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
   const page = await app.firstWindow()
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await sleep(3000)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   const key = await inv('provider:task', 'codex', 'setup')
   check('setup task starts', key === 'task:codex:setup', key)
   let text = ''
   for (let i = 0; i < 40 && !/Set up default sandbox|Unrecognized/i.test(text); i++) {
-    await sleep(1000)
+    await sleep(1000) // The poll interval of the loop around it, which waits for a condition (not a fixed wait).
     text = (await inv('pty:buffer', key)).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ').replace(/\s+/g, ' ')
   }
   check('Codex opened without a trust prompt', !/Trust this folder/.test(text))
@@ -42,12 +42,12 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${
   fs.writeFileSync(path.join(home, 'config.toml'), '[windows]\nsandbox = "unelevated"\n')
   let closed = false
   for (let i = 0; i < 15 && !closed; i++) {
-    await sleep(1000)
+    await sleep(1000) // The poll interval of the loop around it, which waits for a condition (not a fixed wait).
     closed = (await inv('pty:buffer', key)) === ''
   }
   check('Hive closes Codex once the sandbox is set up', closed)
   if (!closed) await inv('pty:kill', key)
-  await sleep(1500)
+  await lib.until(async () => (await inv('pty:buffer', key).catch(() => '')) === '', 10000)
   await app.close()
   console.log(results.join('\n'))
   console.log('TAIL:', text.slice(-600))

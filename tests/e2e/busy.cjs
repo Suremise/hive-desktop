@@ -34,7 +34,7 @@ const check = (name, ok, extra = '') => {
   const env = {
     ...process.env,
     HIVE_USER_DATA: userData,
-    HIVE_API_PORT: '47894',
+    HIVE_API_PORT: lib.port(47894),
     CLAUDE_CONFIG_DIR: claudeHome,
     HIVE_TEST_SLOW_IPC: 'tasks:start=2000,tasks:delete=1500,tasks:comment=1500,project:remove=2000'
   }
@@ -43,10 +43,9 @@ const check = (name, ok, extra = '') => {
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const until = async (fn, ms = 10000) => {
     const t = Date.now()
     let v
@@ -204,7 +203,7 @@ const check = (name, ok, extra = '') => {
   check('then beta is hidden', !!(await until(async () => !(await inv('workspace:get')).projects.some((p) => p.name === 'beta') && (await rd.count()) === 0, 8000)))
 
   await inv('session:stop', alpha)
-  await lib.sleep(1500)
+  await lib.until(async () => (await inv('session:live')).length === 0, 15000)
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
   process.exit(failed ? 1 : 0)

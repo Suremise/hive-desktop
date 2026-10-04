@@ -28,10 +28,9 @@ const check = (name, ok, extra = '') => {
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 860 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   const until = async (fn, ms = 10000) => {
     const t = Date.now()
     let v
@@ -53,7 +52,7 @@ const check = (name, ok, extra = '') => {
   await row('b.ts').click()
   const shown = () => page.locator('.split-main .editor-toolbar strong').innerText().catch(() => '')
   check("the selected file's diff shows", !!(await until(async () => (await shown()) === 'b.ts', 5000)), await shown())
-  await lib.sleep(3500)
+  await lib.sleep(3500) // A fixed wait on purpose: the slowed answer for the old choice arrives later, and this checks it doesn't replace the new one.
   check("a late answer for another file doesn't replace it", (await shown()) === 'b.ts' && (await row('b.ts').getAttribute('class')).includes('selected'), await shown())
   await page.screenshot({ path: path.join(lib.WORK, 'changes-2-diff.png') })
   await row('a.ts').click()

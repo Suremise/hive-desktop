@@ -23,16 +23,15 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   for (const p of ['api', 'web']) fs.mkdirSync(path.join(ws, p), { recursive: true })
   fs.mkdirSync(ws2, { recursive: true })
   lib.enableProviders(userData, ['claude-code'])
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: '47894' }
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47894) }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
-  await lib.sleep(1500)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(1200)
+  await lib.openWorkspace(inv, page, ws)
 
   // The workspace gets the Assistant's home and Hive's personas; the home is not a project.
   const info = await inv('workspace:get')
@@ -81,11 +80,9 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   await lib.sleep(300)
   check('and folding hides the rest again', (await page.locator('.assistant-project').count()) === 1)
   check('it offers to start the Assistant', (await page.locator('.assistant-idle', { hasText: 'Overseer' }).count()) === 1)
-  await inv('workspace:open', ws2)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws2)
   check('another workspace has its own (hidden) panel', (await page.locator('.assistant-panel').count()) === 0)
-  await inv('workspace:open', ws)
-  await lib.sleep(1000)
+  await lib.openWorkspace(inv, page, ws)
   check('coming back shows it again', (await page.locator('.assistant-panel').count()) === 1)
 
   // Switching persona (not running): saved for this workspace.
@@ -103,7 +100,7 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   check('the footer shows it', (await page.locator('.assistant-footer').innerText()).includes('Medium'))
   // Settings → Assistant: a new default model reaches the Assistant.
   await inv('settings:update', { assistant: { providers: { 'claude-code': { model: 'haiku' } } } })
-  await lib.sleep(1200)
+  await lib.until(async () => (await inv('workspace:get')).assistant.config.providers['claude-code'].model === 'haiku', 10000)
   check('Settings → Assistant changes its default model', (await inv('workspace:get')).assistant.config.providers['claude-code'].model === 'haiku')
   check('renaming the Assistant is ignored', (await inv('agents:update', home, 'assistant', { name: 'Bob' })).name === 'Assistant')
   // Haiku in Auto: Claude Code may run it in Manual, which Assistant Settings and Settings → Assistant say.
@@ -154,7 +151,7 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   const launch = log.split('\n').filter((l) => / spawn \W?session:/.test(l) && l.toLowerCase().includes('assistant#assistant')).pop() ?? ''
   check('it launches in Auto', launch.includes('"--permission-mode","auto"'))
   // Claude Code runs Haiku (set above) in Manual instead, and Hive shows the mode it really runs in.
-  await lib.sleep(1500)
+  await lib.until(async () => (await inv('session:live')).find((s) => s.agentId === 'assistant')?.permissionMode === 'manual', 10000)
   const mode = (await inv('session:live')).find((s) => s.agentId === 'assistant')?.permissionMode
   check('with Haiku, Claude Code falls back to Manual and Hive shows it', mode === 'manual', mode)
   check("its persona is appended to Claude Code's system prompt", launch.includes('--append-system-prompt-file'))
@@ -165,13 +162,13 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   await page.locator('.assistant-panel .assistant-header button[aria-label="More"]').click()
   await lib.sleep(300)
   await page.locator('.menu-item', { hasText: 'All Conversations…' }).click()
-  await lib.sleep(1500)
+  await lib.until(async () => (await page.locator('.session-row').count()) === 1, 10000)
   check('All Conversations… lists it', (await page.locator('.session-row').count()) === 1, String(await page.locator('.session-row').count()))
   check("it is the running one, with a Show button for the Assistant's panel", (await page.locator('.split-main button', { hasText: 'Show' }).count()) === 1)
   // Closing the workspace (Confirm on quit: always) lists it as "Assistant", then stops it.
   await inv('settings:update', { general: { confirmOnQuit: 'always' } })
   const closing = inv('workspace:close')
-  await lib.sleep(1000)
+  await lib.until(async () => (await page.locator('.dialog').count()) > 0, 10000)
   const dialog = await page.locator('.dialog').last().innerText().catch(() => '')
   check('the close dialog names it "Assistant"', /Assistant/.test(dialog) && !/\.hive|assistant ·/i.test(dialog), dialog.replace(/\s+/g, ' ').slice(0, 200))
   await page.locator('.dialog .btn', { hasText: 'Close workspace now' }).click()

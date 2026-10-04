@@ -31,10 +31,9 @@ const check = (name, ok, extra = '') => {
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.fitWindow(app, page, { width: 1400, height: 860 })
-  await lib.sleep(1000)
+  await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
-  await inv('workspace:open', ws)
-  await lib.sleep(800)
+  await lib.openWorkspace(inv, page, ws)
   await page.getByText('alpha', { exact: true }).first().click()
   const until = async (fn, ms = 10000) => {
     const t = Date.now()
@@ -74,13 +73,13 @@ const check = (name, ok, extra = '') => {
   await page.screenshot({ path: path.join(lib.WORK, 'tips-2-moment.png') })
   await card.getByRole('button', { name: 'Close' }).click()
   await lib.addAgent(inv, alpha, { name: 'Three' })
-  await lib.sleep(1500)
+  await lib.sleep(1500) // A fixed wait on purpose: this checks that the tip does NOT show again, which no condition can show.
   check('only once', (await card.count()) === 0)
 
   // --- Reloading the window the same day: no tip again.
   await lib.sleep(800)
   await page.reload()
-  await lib.sleep(6000)
+  await lib.sleep(6000) // A fixed wait on purpose: this checks that no tip shows after a reload (one would within 4 s of loading), which no condition can show.
   check('one tip a day: none after a reload', (await card.count()) === 0)
 
   // --- Help → Tips….
@@ -127,7 +126,7 @@ const check = (name, ok, extra = '') => {
   check('and turns the setting off', !!(await until(async () => JSON.parse(fs.readFileSync(cfgFile, 'utf8')).settings.general.showTips === false, 3000)))
   await inv('ui:set', { tips: { ...saved(), shownOn: '2000-01-01' } })
   await page.reload()
-  await lib.sleep(6000)
+  await lib.sleep(6000) // A fixed wait on purpose: this checks that no tip shows on start (one would within 4 s of loading), which no condition can show.
   check('with tips off, none shows on start', (await card.count()) === 0)
 
   await app.close()
