@@ -109,6 +109,12 @@ const both = async (page, on) => (await onTop(page)) === on && (await pinLit(pag
   check('the palette turns it on', !!(await lib.until(() => both(p1, true), 5000)))
   row = await palette()
   check('…and shows it checked', (await row.locator('.codicon-check').count()) === 1)
+  // #172: the open palette's check follows a change made elsewhere, without closing it.
+  await inv1('window:setAlwaysOnTop', false)
+  check('a change while the palette is open clears its check there', !!(await lib.until(async () => (await both(p1, false)) && (await row.locator('.codicon-check').count()) === 0, 5000)))
+  await inv1('window:setAlwaysOnTop', true)
+  check('…and sets it again', !!(await lib.until(async () => (await both(p1, true)) && (await row.locator('.codicon-check').count()) === 1, 5000)))
+  check('…with the palette still open on the same search', (await p1.locator('.palette input').inputValue()) === 'Always on Top')
   await p1.keyboard.press('Escape')
 
   // --- A second window: its own pin.
