@@ -34,6 +34,9 @@ import { assistantHome, assistantTokenFile, endAssistant, newAssistantToken, new
 import { sessions } from './sessions'
 import { notificationIcon } from './paths'
 import { createTray, destroyTray, resourcesDir, setTrayPendingQuit, showWindow } from './tray'
+import { keepOffScreen, offScreenOrigin, showOsNotification, testQuiet } from './testQuiet'
+import { pinFollower } from './pin'
+import { focusedHive, routeAppNotice, setFocusedHive, startNoticeResolver } from './notices'
 import { initUpdater, installNow } from './updater'
 import { flushMetrics } from './metrics'
 import { createWorkspaceService, disposeWorkspaceService, inWorkspace, openWorkspaces, workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
@@ -70,6 +73,9 @@ if (process.env.HIVE_USER_DATA) app.setPath('userData', process.env.HIVE_USER_DA
 else if (!app.isPackaged) app.setPath('userData', join(app.getPath('appData'), 'Hive-Dev'))
 
 // One Hive process, with a window per workspace (like VS Code): starting Hive again brings it forward.
+// A quiet test copy's windows are off screen (testQuiet): Chromium mustn't take them for covered and stop drawing them.
+if (testQuiet()) app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
   process.exit(0)
@@ -147,14 +153,19 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
     b = { x: r.x + 30, y: r.y + 30, width: r.width, height: r.height, maximized: false }
   }
   const visible = onScreen(b)
+  // A quiet test copy's windows open off screen, never over the user's (testQuiet).
+  const offScreen = testQuiet() ? offScreenOrigin(b.width) : null
   const win = new BrowserWindow({
     width: b.width,
     height: b.height,
-    x: visible ? b.x : undefined,
-    y: visible ? b.y : undefined,
+    x: offScreen ? offScreen.x : visible ? b.x : undefined,
+    y: offScreen ? offScreen.y : visible ? b.y : undefined,
     minWidth: 900,
     minHeight: 560,
     show: false,
+    // Off screen and never handed the focus either: when the user's active window closes, Windows passes the focus to
+    // the next window, and it mustn't be an invisible test window (testQuiet).
+    focusable: !offScreen,
     title: 'Hive',
     icon: join(resourcesDir(), 'icon.png'),
     backgroundColor: titleBarColors().color,
@@ -172,7 +183,9 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
     }
   })
   trackTitleBar(win, titleBarColors())
-  if (b.maximized) win.maximize()
+  // Maximising brings a window on screen and to the front: never for a quiet test copy, which stays off screen.
+  if (b.maximized && !offScreen) win.maximize()
+  if (offScreen) keepOffScreen(win)
   if (process.platform === 'win32') {
     // Taskbar identity for this window: the installed exe's icon, or the repo icon for dev builds.
     win.setAppDetails({
@@ -187,7 +200,10 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
   watchRenderer(entry, { quitting: () => quitting, openLogs: () => void shell.openPath(logsDir()), quit: () => void quitNow(true) })
 
   win.once('ready-to-show', () => {
-    if (!opts.hidden) win.show()
+    if (opts.hidden) return
+    // A quiet test copy (testQuiet) shows its window without taking focus from whatever the user is doing.
+    if (testQuiet()) win.showInactive()
+    else win.show()
   })
 
   const saveBounds = (): void => {
@@ -202,7 +218,12 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
   }
   win.on('resize', saveBounds)
   win.on('move', saveBounds)
-  const sendState = (): void => emitTo(win, { type: 'window-state', maximized: win.isMaximized(), focused: win.isFocused() })
+  const sendState = (): void => emitTo(win, { type: 'window-state', maximized: win.isMaximized(), focused: win.isFocused(), alwaysOnTop: win.isAlwaysOnTop() })
+  // Always on Top goes with the workspace the window shows (pin.ts): set when one opens in it, off on the welcome page.
+  const followPin = pinFollower(win)
+  const stopPin = onHiveEvent((e) => {
+    if (e.type === 'workspace-changed' && followPin(entry.ws.path)) sendState()
+  })
   win.on('maximize', sendState)
   win.on('unmaximize', sendState)
   win.on('focus', sendState)
@@ -223,6 +244,7 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
     void requestCloseWindow(entry)
   })
   win.on('closed', () => {
+    stopPin()
     unregisterWindow(entry)
     void disposeWorkspaceService(entry.ws)
     if (!quitting) saveWindows()
@@ -448,14 +470,14 @@ async function quitNow(tellUser: boolean): Promise<void> {
   saveWindows()
   quitting = true
   const stopped = sessions.liveCount()
-  // Quitting without a dialog (or after waiting): say where the sessions went.
-  if (tellUser && stopped > 0 && Notification.isSupported() && config.settings.notifications.desktopNotifications) {
-    new Notification({
-      title: 'Hive has closed',
-      icon: notificationIcon(),
-      body: `${stopped} session${stopped === 1 ? ' was' : 's were'} stopped. Resume ${stopped === 1 ? 'it' : 'them'} from Hive next time; nothing was lost.`,
-      silent: true
-    }).show()
+  // Quitting without a dialog (or after waiting): say where the sessions went, as other notices are told (a banner in
+  // the window you are using while it is still open, a Windows notification with Hive in the background, or nothing).
+  if (tellUser && stopped > 0) {
+    const title = 'Hive has closed'
+    const body = `${stopped} session${stopped === 1 ? ' was' : 's were'} stopped. Resume ${stopped === 1 ? 'it' : 'them'} from Hive next time; nothing was lost.`
+    routeAppNotice(title, body, () => {
+      if (Notification.isSupported()) showOsNotification(new Notification({ title, icon: notificationIcon(), body, silent: true }), title, body)
+    })
   }
   await sessions.stopAllAndWait(3000)
   await sessions.flushUsageCache()
@@ -650,6 +672,14 @@ app.whenReady().then(async () => {
   sessions.assistantInstructions = (projectPath, agent) => inWorkspace(workspaceOf(projectPath), () => assistantInstructions(assistantPersona(agent, config.settings), config.settings.assistant?.control ?? 'projects'))
   // A project's notifications and focus checks use the window showing it.
   sessions.setWindowProvider((projectPath) => (projectPath ? windowForPath(projectPath)?.win : null) ?? lastFocused()?.win ?? null)
+  // The window the user is using, for in-app banners (#157): visible, not minimised, focused.
+  setFocusedHive(() => {
+    const e = hiveWindows().find((x) => !x.win.isDestroyed() && x.win.isVisible() && !x.win.isMinimized() && x.win.isFocused())
+    return e ? { win: e.win, workspacePath: e.ws.path, projectPath: e.showing } : null
+  })
+  sessions.setFocusedWindowProvider(focusedHive)
+  // An agent no longer waiting for you: its waiting banner closes, in whichever window shows it.
+  startNoticeResolver()
   providerService.setLiveSessionCounter((p) => sessions.liveCount(p))
 
   await startHookServer()

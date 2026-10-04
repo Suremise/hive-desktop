@@ -55,6 +55,15 @@ Like VS Code, Hive can show several workspaces at once, each in its own window: 
 - **Quitting** stops the agents of every window. When Hive starts again, it reopens the windows that were open, each with its workspace, where they were.
 - Notifications and the tray menu take you to the window showing the project.
 
+### Always on Top
+
+Keep a Hive window above your other apps, so a test run, an emulator or a browser can work underneath without covering it: click the **pin** in the title bar, just left of the window buttons, or use **View → Always on Top** (Ctrl+Alt+O), or the command palette. The pin is lit, and the menu item checked, while the window stays on top; click it again to turn it off.
+
+- **Each window has its own.** Pinning one window leaves the others as they are.
+- **It's remembered with the workspace.** Reopen the workspace, or start Hive again, and its window is on top again. A new window, and a workspace you never pinned, start off; so does the welcome page.
+- It's your desk's preference, kept by Hive on this computer, not in the workspace's `.hive` folder: someone else opening the same workspace isn't affected.
+- On top means above other apps' windows. Windows' own system screens (sign-in prompts, the Start menu) still come in front.
+
 ### Working on a project
 
 The switch next to a project marks it as one you're **working on**. Only active projects run sessions, show live status and send notifications, so a workspace with dozens of projects stays quiet. Turning a project on never starts a session by itself.
@@ -557,9 +566,21 @@ Updates are checked against their published checksum before they install.
 
 ## Notifications
 
-When an agent finishes (for one waiting on background tasks, once they have ended) or needs input, Hive can play a chime and show a Windows notification (click it to jump to the project). Configure both in **Settings → Notifications**; each project can override the chime.
+When an agent finishes (for one waiting on background tasks, once they have ended) or needs input, Hive plays a chime and tells you: with a **banner in Hive** while you're using it, and with a **Windows notification** when Hive is in the background. Click either to jump to the project. Configure them in **Settings → Notifications**; each project can override the chime.
 
-Agents that finish together don't flood you: they chime once, and get one notification (**3 agents finished in hive**: *Claude, Codex, Agent 3*, or across projects *hive (2), web (1)*), shown a few seconds after the last of them. If you turn notifications off or come back to the window meanwhile, it isn't shown. An agent asking for your input is always told at once, on its own.
+Agents that finish together don't flood you: they chime once, and get one notice (**3 agents finished in hive**: *Claude, Codex, Agent 3*, or across projects *hive (2), web (1)*), shown a few seconds after the last of them. If you turn notifications off meanwhile, it isn't shown. An agent asking for your input is always told at once, on its own.
+
+### Banners in Hive
+
+Windows notifications always appear at the bottom right of the screen, over the Assistant's panel where you type, so while any Hive window is focused Hive shows its own **banner** in that window instead:
+
+- **Where:** at the top centre, or wherever **Banner position** puts it (any corner, or the middle of the top or bottom edge). Several stack, the newest nearest the edge.
+- **How long:** a banner for an agent that finished goes after **6 seconds** (it stays while the pointer is on it). One for an agent **waiting for you** stays until you click it, dismiss it (×), or answer the agent, wherever you answer it. **Banners for an agent waiting for you stay until handled** can make them close like the others.
+- **Click** a banner to go to its project, in whichever window has it.
+- **Show banners for:** *All workspaces* (the default: the window you're in shows notices from every Hive window, and clicking one brings up that window), *This workspace*, or *This project* (the project the window shows). A notice it leaves out shows nothing at all, but it still counts in its own window's **Agents that need you** list and taskbar button.
+- **While Hive is focused:** *Show in Hive* (the default), *Show nothing*, or *Windows notification* (a Windows notification even while you use Hive, as before).
+
+With no Hive window focused, you get Windows notifications as always. Plan usage warnings show in Hive as before, and as a Windows notification only when Hive is in the background. The chime, the taskbar count and the taskbar flash work the same either way.
 
 Hive's own messages (warnings, what an action did) are kept in the **Notifications** panel: the bell at the bottom of the activity bar, or **Ctrl+Alt+U**. While some are unread the bell shows a dot and turns orange; opening the panel marks them read.
 

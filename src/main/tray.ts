@@ -6,6 +6,7 @@ import type { LiveSessionState, ProjectInfo, SessionStatus } from '../shared/typ
 import { knownStatus } from './branchWatch'
 import { emitTo, onHiveEvent } from './events'
 import { resourcesDir } from './paths'
+import { presentWindow } from './testQuiet'
 import { sessions } from './sessions'
 import { restartAndInstall, updateState } from './updater'
 import { openWorkspaces, type WorkspaceService } from './workspace'
@@ -67,9 +68,7 @@ function windowInbox(w: WorkspaceService, live: LiveSessionState[]): Inbox {
 }
 
 export function showWindow(win: BrowserWindow): void {
-  if (win.isMinimized()) win.restore()
-  win.show()
-  win.focus()
+  presentWindow(win)
 }
 
 export function createTray(getWindow: () => BrowserWindow | null, actions: TrayActions): Tray {

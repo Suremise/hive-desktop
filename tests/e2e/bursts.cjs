@@ -1,6 +1,6 @@
 // Agents finishing together: one chime, and one Windows notification naming them ("3 agents finished": alpha (2),
-// beta (1)); an agent asking for input is told at once, on its own. Notifications are recorded by stubbing
-// Notification.show in the test build's main process; the chimes are counted in the page. The agents are the fake
+// beta (1)); an agent asking for input is told at once, on its own. The test build runs quiet (HIVE_TEST_QUIET) and
+// records each notification it would show to HIVE_TEST_NOTIFY_LOG; the chimes are counted in the page. The agents are the fake
 // Claude Code. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -36,7 +36,9 @@ const until = async (fn, ms = 10000) => {
   cfg.settings.notifications = { ...cfg.settings.notifications, chimeEnabled: true, chimeVolume: 0, desktopNotifications: true, notifyOnFinished: true, notifyOnWaiting: true, onlyWhenUnfocused: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47902), CLAUDE_CONFIG_DIR: claudeHome }
+  const notifyLog = path.join(lib.WORK, 'bursts-notify.log')
+  fs.rmSync(notifyLog, { force: true })
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47902), CLAUDE_CONFIG_DIR: claudeHome, HIVE_TEST_QUIET: '1', HIVE_TEST_NOTIFY_LOG: notifyLog }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
@@ -46,13 +48,13 @@ const until = async (fn, ms = 10000) => {
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await lib.openWorkspace(inv, page, ws)
   await app.evaluate(({ Notification }) => {
-    globalThis.__notes = []
     Notification.isSupported = () => true
-    Notification.prototype.show = function () {
-      globalThis.__notes.push({ title: this.title, body: this.body, at: Date.now() })
-    }
   })
-  const notes = () => app.evaluate(() => globalThis.__notes)
+  // The notifications Hive would have shown, since the last clearNotes().
+  const logged = () => (fs.existsSync(notifyLog) ? fs.readFileSync(notifyLog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((e) => e.kind === 'notification')
+  let notesFrom = 0
+  const notes = async () => logged().slice(notesFrom)
+  const clearNotes = () => (notesFrom = logged().length)
   const chimes = () => page.evaluate(() => window.__hiveChimes?.() ?? -1)
 
   const one = await lib.addAgent(inv, alpha, { name: 'One' })
@@ -79,7 +81,7 @@ const until = async (fn, ms = 10000) => {
   check('one chime', (await chimes()) - chimesBefore === 1, String((await chimes()) - chimesBefore))
 
   // --- Two in one project: named.
-  await app.evaluate(() => (globalThis.__notes = []))
+  clearNotes()
   await lib.sleep(2500) // A fixed wait on purpose: the previous burst's window has to close first, or these finishes would join it.
   await send(alpha, one, 'go work 1')
   await send(alpha, two, 'go work 1')
@@ -88,7 +90,7 @@ const until = async (fn, ms = 10000) => {
   check('two in one project: named', pair.length === 1 && pair[0].title === '2 agents finished in alpha' && pair[0].body === 'One, Two', JSON.stringify(pair))
 
   // --- Asking for input is told at once, on its own, while a finish is still being collected.
-  await app.evaluate(() => (globalThis.__notes = []))
+  clearNotes()
   await send(beta, three, 'go work 1')
   await send(alpha, one, 'ask work 4')
   const asked = await until(async () => (await notes()).find((n) => /needs your input/.test(n.title)), 2500)

@@ -3,6 +3,7 @@ import { asksYou } from '../shared/inbox'
 import { shouldFlash } from '../shared/taskbar'
 import { config } from './config'
 import { onHiveEvent } from './events'
+import { testNotifyLog, testQuiet } from './testQuiet'
 import { windowForPath } from './windows'
 
 /**
@@ -10,18 +11,24 @@ import { windowForPath } from './windows'
  * focused (Settings → Notifications). It stops when the window is focused or closed, or the setting is turned off.
  * The badge and title count are the window's own (renderer, from its attention inbox). Returns the unsubscribe.
  */
+/** Starts or stops a window's taskbar flash; a quiet test copy only records it (testQuiet). */
+function setFlash(win: BrowserWindow, on: boolean): void {
+  testNotifyLog({ kind: 'flash', on })
+  if (!testQuiet()) win.flashFrame(on)
+}
+
 export function startTaskbarFlash(): () => void {
   const last = new Map<string, boolean>()
   /** Windows whose button flashes now, and what stops it (one focus and one close listener each). */
   const flashing = new Map<BrowserWindow, () => void>()
   const flash = (win: BrowserWindow): void => {
-    win.flashFrame(true)
+    setFlash(win, true)
     if (flashing.has(win)) return
     const stop = (): void => {
       if (!flashing.delete(win)) return
       win.removeListener('focus', stop)
       win.removeListener('closed', stop)
-      if (!win.isDestroyed()) win.flashFrame(false)
+      if (!win.isDestroyed()) setFlash(win, false)
     }
     flashing.set(win, stop)
     win.once('focus', stop)

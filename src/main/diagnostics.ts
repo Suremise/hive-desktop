@@ -117,7 +117,7 @@ export async function diagnostics(): Promise<string> {
     `- Transcript backups: ${s.sessions.backupTranscripts ? 'on' : 'off'}; cache TTL: ${s.sessions.cacheTtl}; Overview refresh: ${s.sessions.overviewRefresh}`,
     `- Agent API: ${s.agentApi.enabled ? 'on' : 'off'}; built-in hive MCP server: ${s.agentApi.provideHiveMcp ? 'on' : 'off'}; session input: ${s.agentApi.allowSessionInput ? 'allowed' : 'off'}`,
     `- Assistant control: ${typeof s.assistant.control === 'string' ? s.assistant.control : 'custom'}`,
-    `- Notifications: ${s.notifications.desktopNotifications ? 'on' : 'off'}${s.notifications.onlyWhenUnfocused ? ' (only when Hive is in the background)' : ''}; chime ${s.notifications.chimeEnabled ? 'on' : 'off'}`,
+    `- Notifications: ${s.notifications.desktopNotifications ? 'on' : 'off'}; while Hive is focused: ${{ inApp: 'in Hive', nothing: 'nothing', windows: 'Windows notifications' }[s.notifications.whileFocused]}${s.notifications.whileFocused === 'inApp' ? ` (banners for ${{ all: 'all workspaces', workspace: 'this workspace', project: 'this project' }[s.notifications.bannerScope]}, ${s.notifications.bannerPosition}, ${s.notifications.bannerSeconds} s; waiting banners ${s.notifications.waitingBannerStays ? 'stay' : 'close too'})` : ''}; chime ${s.notifications.chimeEnabled ? 'on' : 'off'}`,
     `- Theme: ${s.appearance.theme}`
   ].join('\n')
 

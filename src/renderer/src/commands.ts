@@ -18,6 +18,8 @@ export interface Command {
   when?: () => boolean
   /** Needs arguments (e.g. a path), so it can't have a shortcut or appear in the palette. */
   internal?: boolean
+  /** A toggle: shown with a checkmark in the menus and the palette while it is on. */
+  checked?: () => boolean
 }
 
 const hasWorkspace = (): boolean => !!get().workspace
@@ -73,6 +75,11 @@ function focusAgentN(n: number): void {
   setProjectTab(p.path, 'session')
 }
 
+/** Always on Top for this window: the title bar's pin, View → Always on Top, the palette and Ctrl+Alt+O. */
+export function toggleAlwaysOnTop(): void {
+  void call('window:setAlwaysOnTop', !get().alwaysOnTop).then((on) => set({ alwaysOnTop: on }))
+}
+
 function focusTerminal(): void {
   const p = selected()
   if (!p) return
@@ -103,6 +110,7 @@ export const commands: Command[] = [
   { id: 'settings.open', label: 'Open Settings', category: 'Preferences', keybinding: 'Mod+,', run: () => setActivity('settings') },
   { id: 'settings.providers', label: 'Choose Coding Agents (Providers)', category: 'Preferences', run: () => { set({ settingsSection: 'providers', settingsQuery: '' }); setActivity('settings') } },
   { id: 'settings.keybindings', label: 'Customise Keyboard Shortcuts', category: 'Preferences', run: () => { set({ settingsSection: 'keybindings', settingsQuery: '' }); setActivity('settings') } },
+  { id: 'settings.notifications', label: 'Notification Settings', category: 'Preferences', run: () => { set({ settingsSection: 'notifications', settingsQuery: '' }); setActivity('settings') } },
   { id: 'window.new', label: 'New Window', category: 'File', keybinding: 'Mod+K Mod+N', run: () => call('window:new') },
   { id: 'workspace.open', label: 'Open Workspace…', category: 'File', keybinding: 'Mod+K Mod+O', run: (path?: string) => actions.openWorkspace(path) },
   { id: 'workspace.create', label: 'New Workspace…', category: 'File', run: () => actions.createWorkspace() },
@@ -293,6 +301,7 @@ export const commands: Command[] = [
   { id: 'view.zoomOut', label: 'Zoom Out', category: 'View', keybinding: 'Mod+-', run: () => call('window:zoom', 'out') },
   { id: 'view.zoomReset', label: 'Reset Zoom', category: 'View', keybinding: 'Mod+0', run: () => call('window:zoom', 'reset') },
   { id: 'view.fullScreen', label: 'Toggle Full Screen', category: 'View', keybinding: 'F11', run: () => call('window:toggleFullScreen') },
+  { id: 'view.alwaysOnTop', label: 'Always on Top', category: 'View', keybinding: 'Mod+Alt+O', checked: () => get().alwaysOnTop, run: () => toggleAlwaysOnTop() },
   { id: 'view.devTools', label: 'Toggle Developer Tools', category: 'Developer', keybinding: 'Mod+Shift+I', run: () => call('window:toggleDevTools') },
   { id: 'view.reload', label: 'Reload Window', category: 'Developer', run: () => void actions.saveUnsavedFirst('reload the window').then((ok) => ok && location.reload()) },
   { id: 'notes.open', label: 'Open Shared Note', category: 'Notes', internal: true, run: (path: string) => { showView('notes'); set({ selectedNote: path }) } },

@@ -21,6 +21,7 @@ import type {
   ProjectInfo,
   QuitSession,
   ToastMessage,
+  Notice,
   WorkspaceInfo
 } from '@shared/types'
 
@@ -145,6 +146,8 @@ interface State {
   settingsQuery: string
 
   toasts: ToastMessage[]
+  /** In-app banners showing in this window (components/NoticeBanners.tsx), the newest first. */
+  notices: Notice[]
   notifications: ToastMessage[]
   unread: number
   showNotifications: boolean
@@ -234,6 +237,8 @@ interface State {
 
   windowFocused: boolean
   maximized: boolean
+  /** This window is Always on Top (pin.ts in main). */
+  alwaysOnTop: boolean
   notesVersion: number
   skillsVersion: number
   usageVersion: Record<string, number>
@@ -284,6 +289,7 @@ export const useStore = create<State>(() => ({
   settingsQuery: '',
 
   toasts: [],
+  notices: [],
   notifications: [],
   unread: 0,
   showNotifications: false,
@@ -336,6 +342,7 @@ export const useStore = create<State>(() => ({
 
   windowFocused: true,
   maximized: false,
+  alwaysOnTop: false,
   notesVersion: 0,
   skillsVersion: 0,
   usageVersion: {},
@@ -619,10 +626,12 @@ export function applyLiveState(state: LiveSessionState): void {
 
 export function pushToast(t: ToastMessage): void {
   set((s) => ({
-    toasts: [...s.toasts.filter((x) => x.id !== t.id), t].slice(-5),
+    // A quiet one is for the Notifications panel only (told as a banner, a Windows notification, or not at all).
+    toasts: t.quiet ? s.toasts : [...s.toasts.filter((x) => x.id !== t.id), t].slice(-5),
     notifications: [t, ...s.notifications].slice(0, 100),
     unread: s.showNotifications ? s.unread : s.unread + 1
   }))
+  if (t.quiet) return
   const timeout = t.level === 'error' ? 12000 : t.actions?.length ? 15000 : 6000
   setTimeout(() => dismissToast(t.id), timeout)
 }

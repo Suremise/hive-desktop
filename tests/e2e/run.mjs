@@ -81,7 +81,9 @@ if (!chosen.length) {
 const SESSION_VARS = ['HIVE_API_URL', 'HIVE_API_TOKEN', 'HIVE_API_TOKEN_FILE', 'HIVE_HOOK_TOKEN', 'HIVE_PROJECT', 'HIVE_PROJECT_PATH', 'HIVE_WORKSPACE', 'HIVE_RUN_ID', 'HIVE_SESSION_ID', 'HIVE_AGENT', 'HIVE_PROVIDER', 'HIVE_PROGRESS_DATA']
 /** A suite's environment; side by side, its own Agent API port (suites read it with lib.port(), or inherit it). */
 const suiteEnv = (name, port) => {
-  const env = { HIVE_TEST_TIPS: 'off', ...process.env }
+  // Quiet: the test copies of Hive show their windows without taking focus and raise no Windows notification, taskbar
+  // flash or chime (src/main/testQuiet.ts). A suite can still turn either off in its own environment.
+  const env = { HIVE_TEST_TIPS: 'off', HIVE_TEST_QUIET: '1', ...process.env }
   for (const k of SESSION_VARS) delete env[k]
   // A suite run one at a time uses its own port, never one inherited from a runner that started this one.
   delete env.HIVE_E2E_PORT

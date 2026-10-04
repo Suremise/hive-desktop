@@ -299,7 +299,10 @@ function run(spec: { file: string; args: string[]; verbatim: boolean }, env: Rec
         env,
         stdio: [io.stdin ?? 'inherit', onStep ? 'pipe' : 'inherit', onStep ? 'pipe' : 'inherit'],
         windowsVerbatimArguments: spec.verbatim,
-        windowsHide: false
+        // The wrapper runs as Electron (a GUI program) with no console of its own, so the command gets a new one: shown,
+        // it is a terminal window popping up (Windows Terminal, when it is the default). Hidden, the output still comes
+        // through, and windows the command opens itself still show (only cmd's own window is hidden).
+        windowsHide: true
       })
     } catch (e) {
       io.stderr.write(`hive-progress: ${(e as Error).message}\n`)

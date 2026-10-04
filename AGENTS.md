@@ -78,6 +78,8 @@ Build with `npx electron-vite build`, then drive `node_modules/electron/dist/ele
 
 To test what the window does while an action is slow or fails, set `HIVE_TEST_SLOW_IPC` / `HIVE_TEST_FAIL_IPC` (unpackaged builds only; see `tests/e2e/README.md`).
 
+Test copies started by the e2e runner or `lib.launch` run quiet (`HIVE_TEST_QUIET=1`, unpackaged builds only): their windows never take the focus, and they raise no Windows notification, taskbar flash or chime, recording them to `HIVE_TEST_NOTIFY_LOG` when it is set. Check what a test copy would have notified with that log; never focus, maximise or `bringToFront()` a test window (stub the focus instead, as `inbox` does).
+
 ## Code map
 
 | Path | What |

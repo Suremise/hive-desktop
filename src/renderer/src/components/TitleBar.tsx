@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import iconUrl from '../assets/icon.svg'
-import { commandKeybinding, commands, runCommand } from '../commands'
+import { commandKeybinding, commands, runCommand, toggleAlwaysOnTop } from '../commands'
 import { useStore } from '../store'
 import { basename, cx, formatKeybinding } from '../util'
-import { Icon } from './ui'
+import { Icon, Tooltip } from './ui'
 import { useInbox } from '../inbox'
 import { badgeText, windowTitle } from '@shared/taskbar'
 import { call } from '../api'
@@ -57,7 +57,7 @@ const MENUS: MenuDef[] = [
   { label: 'Edit', items: ['edit.undo', 'edit.redo', '-', 'edit.cut', 'edit.copy', 'edit.paste', '-', 'edit.selectAll'] },
   {
     label: 'View',
-    items: ['palette.show', '-', 'view.projects', 'view.overview', 'view.board', 'view.notes', 'view.skills', 'view.mcp', 'view.personas', '-', 'assistant.toggle', 'assistant.settings', 'view.toggleSidebar', 'view.notifications', '-', 'view.zoomIn', 'view.zoomOut', 'view.zoomReset', 'view.fullScreen']
+    items: ['palette.show', '-', 'view.projects', 'view.overview', 'view.board', 'view.notes', 'view.skills', 'view.mcp', 'view.personas', '-', 'assistant.toggle', 'assistant.settings', 'view.toggleSidebar', 'view.notifications', '-', 'view.zoomIn', 'view.zoomOut', 'view.zoomReset', 'view.fullScreen', 'view.alwaysOnTop']
   },
   {
     label: 'Project',
@@ -115,6 +115,8 @@ export function TitleBar() {
   }
 
   const appName = useStore((s) => (s.appInfo && !s.appInfo.isPackaged ? 'Hive Dev' : 'Hive'))
+  const pinned = useStore((s) => s.alwaysOnTop)
+  const pinKey = commandKeybinding('view.alwaysOnTop')
   const title = [selected ? basename(selected) : null, workspace?.name, appName].filter(Boolean).join(' — ')
   useTaskbarCount(title)
 
@@ -136,6 +138,14 @@ export function TitleBar() {
         ))}
       </div>
       <div className="titlebar-title">{title}</div>
+      {/* Always on Top, just left of the window controls: lit while the window stays above other apps. */}
+      <div className="titlebar-actions">
+        <Tooltip content={`Always on Top (${pinned ? 'on' : 'off'})${pinKey ? `  ${formatKeybinding(pinKey)}` : ''}`}>
+          <button className={cx('titlebar-pin', pinned && 'on')} aria-label="Always on Top" aria-pressed={pinned} onClick={toggleAlwaysOnTop}>
+            <Icon name={pinned ? 'pinned' : 'pin'} />
+          </button>
+        </Tooltip>
+      </div>
       {open !== null &&
         createPortal(
           <div className="menu" ref={menuRef} style={{ left: anchor.x, top: anchor.y }}>
@@ -205,7 +215,7 @@ export function TitleBar() {
                     runCommand(item)
                   }}
                 >
-                  <Icon name="blank" />
+                  <Icon name={c.checked?.() ? 'check' : 'blank'} />
                   <span>{c.label}</span>
                   {kb && <span className="menu-key">{formatKeybinding(kb)}</span>}
                 </div>

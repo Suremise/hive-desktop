@@ -180,11 +180,11 @@ describe('providers migration', () => {
 
   it('a fresh install starts with every provider off', () => {
     expect(Object.values(DEFAULT_SETTINGS.providers).every((p) => !p.enabled)).toBe(true)
-    expect(DEFAULT_APP_CONFIG.version).toBe(5)
+    expect(DEFAULT_APP_CONFIG.version).toBe(6)
   })
   it('moves 0.1 Claude Code settings over and keeps Claude Code on', () => {
     const c = load(v1)
-    expect(c.version).toBe(5)
+    expect(c.version).toBe(6)
     expect(c.settings.defaultProvider).toBe('claude-code')
     expect(c.settings.providers['claude-code']).toMatchObject({ enabled: true, executablePath: 'C:\\x\\claude.exe', defaultModel: 'opus', defaultEffort: 'high', defaultPermissionMode: 'acceptEdits', enableDangerousMode: true, extraArgs: '--verbose', checkUpdatesOnLaunch: false })
     expect(c.observedDefaultModel).toEqual({ 'claude-code': 'claude-opus-5-5' })
@@ -224,6 +224,20 @@ describe('providers migration', () => {
     expect([warn(saved(4, 35)), warn(saved(4, 100)), warn(saved(4, 0)), warn(saved(4))]).toEqual([35, 100, 0, 20])
     // Once migrated, 50 is the user's choice.
     expect(warn(saved(5, 50))).toBe(50)
+  })
+  it('moves everyone to Show in Hive once (Only when Hive is in the background goes), then keeps the choice', () => {
+    const notifications = (raw: Record<string, unknown>) => load(raw).settings.notifications
+    expect(DEFAULT_SETTINGS.notifications.whileFocused).toBe('inApp')
+    for (const onlyWhenUnfocused of [true, false]) {
+      for (const version of [5, 1]) {
+        const n = notifications({ version, settings: { notifications: { onlyWhenUnfocused } } })
+        expect(n.whileFocused, `${version} ${onlyWhenUnfocused}`).toBe('inApp')
+        expect('onlyWhenUnfocused' in n).toBe(false)
+      }
+    }
+    // Chosen since: kept.
+    expect(notifications({ version: 6, settings: { notifications: { whileFocused: 'windows' } } }).whileFocused).toBe('windows')
+    expect(notifications({ version: 6, settings: { notifications: { whileFocused: 'nothing' } } }).whileFocused).toBe('nothing')
   })
   it('writes the Claude Code settings where 0.1 reads them', async () => {
     const { withLegacySettings } = await import('../src/shared/defaults')

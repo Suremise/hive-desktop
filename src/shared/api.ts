@@ -108,6 +108,13 @@ export interface HiveRequests {
   'window:setBackdrops': (count: number) => void
   /** The taskbar button's badge: a PNG (base64) drawn at `scale`, or none at 0. */
   'window:setBadge': (count: number, png: string | null, scale: number) => void
+  /** Always on Top for this window, remembered for its workspace (pin.ts). Returns the window's state now. */
+  'window:setAlwaysOnTop': (on: boolean) => boolean
+  'window:getAlwaysOnTop': () => boolean
+  /** The project this window's page shows (null: none), for banners shown for "This project". */
+  'window:showing': (projectPath: string | null) => void
+  /** A banner was clicked: brings up the window showing its project, and the project (as a Windows notification's click). */
+  'notice:open': (projectPath: string | null) => void
 
   'settings:get': () => AppSettings
   'settings:update': (patch: SettingsPatch) => AppSettings

@@ -56,6 +56,27 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
     })
   await record()
   const firstId = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].id)
+  // On Windows, maximising always brings the window on screen and to the front, taking the focus from whatever the user
+  // is doing (there is no maximise without it), and the test copies never do that (HIVE_TEST_QUIET: their windows stay
+  // off screen). So the window takes the size of a screen's work area, where it is, as maximising does, and says it is
+  // maximised, with the events Hive listens for.
+  const maximise = () =>
+    app.evaluate(({ BrowserWindow, screen }) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      const b = w.getBounds()
+      globalThis.__restoreBounds = b
+      const area = screen.getPrimaryDisplay().workArea
+      w.setBounds({ x: b.x, y: b.y, width: area.width, height: area.height })
+      w.isMaximized = () => true
+      w.emit('maximize')
+    })
+  const unmaximise = () =>
+    app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows()[0]
+      w.isMaximized = () => false
+      w.setBounds(globalThis.__restoreBounds)
+      w.emit('unmaximize')
+    })
   /** The colour the window's buttons were last given (null: never changed since recording began). */
   const buttons = (id = firstId) => app.evaluate((_e, i) => globalThis.__tb.get(i)?.at(-1) ?? null, id)
   const buttonsAre = (want, id) => until(async () => (await buttons(id)) === want, 3000)
@@ -162,13 +183,10 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
   const resizes = {
     'made smaller': async () => lib.fitWindow(app, page, { width: 900, height: 600 }),
     'maximised and restored smaller': async () => {
-      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].maximize())
+      await maximise()
       await lib.sleep(400)
-      await app.evaluate(({ BrowserWindow }) => {
-        const w = BrowserWindow.getAllWindows()[0]
-        w.unmaximize()
-        w.setSize(900, 600)
-      })
+      await unmaximise()
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(900, 600))
     }
   }
   for (const [what, resize] of Object.entries(resizes)) {
@@ -195,10 +213,10 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
   }
 
   // Maximised and restored: still in the window, the buttons still dimmed.
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].maximize())
+  await maximise()
   await lib.sleep(500)
   check('maximised: the header in the window, the buttons dimmed', (await inWindow()) && (await buttons()) === DARK.dim)
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].unmaximize())
+  await unmaximise()
   await lib.sleep(500)
   check('restored: the same', (await inWindow()) && (await buttons()) === DARK.dim)
 
@@ -278,7 +296,7 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
   await record()
   const ids = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w) => w.id))
   const otherId = ids.find((i) => i !== firstId)
-  await page.bringToFront()
+  // Keys go to this page whichever window has the OS focus (the test copies never take it: HIVE_TEST_QUIET).
   await page.keyboard.press('Control+Shift+J')
   await open()
   check('a card in one window dims its buttons', !!(await buttonsAre(DARK.dim)), await buttons())
