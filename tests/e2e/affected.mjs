@@ -19,6 +19,7 @@ export const EVERYTHING = [
   'src/main/paths.ts',
   'src/main/logger.ts',
   'src/main/ptyHost.ts',
+  'src/main/testQuiet.ts',
   'src/main/raw.d.ts',
   'src/preload/',
   'src/renderer/index.html',
