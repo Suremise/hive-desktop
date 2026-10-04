@@ -32,7 +32,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     reopenLastWorkspace: true,
     confirmOnQuit: 'working',
     showTips: true,
-    keepAwake: 'plugged-in'
+    keepAwake: 'plugged-in',
+    progressPanel: true
   },
   appearance: {
     theme: 'dark',

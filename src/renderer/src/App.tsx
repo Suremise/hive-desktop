@@ -19,6 +19,7 @@ import { tipsState } from '@shared/tips'
 import { CornerPlacement, TipCard, TipsDialog } from './components/Tips'
 import { showTodaysTip } from './tips'
 import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
+import { ProgressPanel } from './components/Progress'
 import { AssistantMain } from './components/AssistantView'
 import { agentOnScreen, applyLiveState, assistantWasOpen, clearStartFailure, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, pushToast, set, useStore } from './store'
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
@@ -172,6 +173,9 @@ function handleEvent(e: HiveEvent): void {
       break
     case 'assistant-activity':
       set((s) => ({ assistantActions: [...s.assistantActions, e.action].slice(-200) }))
+      break
+    case 'progress-changed':
+      if (e.workspacePath.toLowerCase() === get().workspace?.path.toLowerCase()) set({ progressRuns: e.runs })
       break
     case 'assistant-questions': {
       const before = get().assistantQuestions
@@ -333,6 +337,11 @@ export function App() {
             </div>
           )}
         </div>
+        {workspace && (
+          <ErrorBoundary label="The Progress panel">
+            <ProgressPanel />
+          </ErrorBoundary>
+        )}
         {workspace && (
           <ErrorBoundary label="The Assistant">
             <AssistantPanel />

@@ -53,6 +53,8 @@ export class WorkspaceService {
   private static liveProvider: LiveProvider = async (_p, cfg) => ({ live: null, restartNeeded: false, agents: projectAgents(cfg).map((a) => ({ ...a, live: null, restartNeeded: false, resume: null })) })
   /** Called each time a workspace opens, in its context; `fresh` when Hive set the folder up just now (it had no .hive). */
   static onOpened: ((fresh: boolean) => Promise<unknown>) | null = null
+  /** Told when a workspace starts closing (its path still set), so services drop what they keep for it. */
+  static readonly closingListeners = new Set<(path: string) => void>()
   /** The window showing this workspace: its events go there. */
   window: BrowserWindow | null = null
   /** Agents' worktree folders (lower-cased) and the project each belongs to. */
@@ -166,6 +168,16 @@ export class WorkspaceService {
   async close(): Promise<void> {
     this.generation++
     this.life.abort(new Error('The workspace was closed'))
+    const closing = this.path
+    if (closing) {
+      for (const l of WorkspaceService.closingListeners) {
+        try {
+          l(closing)
+        } catch (e) {
+          log.warn('closing the workspace', e)
+        }
+      }
+    }
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
     this.refreshTimer = null
     await this.watcher?.close()

@@ -7,6 +7,7 @@
  */
 import type { TaskCard, TaskColumn } from './types'
 import { columnLabel } from './tasks'
+import { shortDuration } from './progress'
 
 /** A card as the Agent API shows it: with what its agent is doing now, and why it is stalled. */
 export interface TaskView extends Omit<TaskCard, 'agent'> {
@@ -172,14 +173,25 @@ export interface ProjectRow {
   workspace: string
   active: boolean
   branch: string | null
-  /** `watching`: what a watching agent waits for ("Waiting for #12 → Review"). */
-  agents: { name: string; provider: string; status: string; branch: string | null; backgroundTasks: number; watching?: string }[]
+  /**
+   * `watching`: what a watching agent waits for ("Waiting for #12 → Review"). `progress`: its open progress run, short
+   * ("e2e: 12 suites 4/12, about 6 min left").
+   */
+  agents: { name: string; provider: string; status: string; branch: string | null; backgroundTasks: number; watching?: string; progress?: string }[]
+}
+
+/** An agent's open progress run in a few words, title clipped, for the short listing. */
+export function progressLabel(p: { title: string; step?: number; total?: number; etaMs?: number; stale?: boolean }): string {
+  const title = p.title.length > 60 ? `${p.title.slice(0, 59)}…` : p.title
+  const steps = p.total !== undefined ? ` ${p.step ?? 0}/${p.total}` : ''
+  const left = p.etaMs !== undefined ? `, about ${shortDuration(p.etaMs)} left` : ''
+  return `${title}${steps}${p.stale ? ', stopped reporting' : left}`
 }
 
 export function projectRowText(p: ProjectRow, many: boolean): string {
   const head = `${many ? `${p.workspace}/` : ''}${p.name} (${p.active ? 'on' : 'off'}${p.branch ? `, ${p.branch}` : ''})`
   if (!p.agents.length) return `${head}: no agents`
-  const agents = p.agents.map((a) => `${a.name} [${a.provider}${a.branch ? `, ${a.branch}` : ''}] ${a.watching ? a.watching.replace(/^Waiting/, 'waiting') : (STATUS[a.status] ?? a.status)}${a.backgroundTasks > 0 ? ` (${a.backgroundTasks} background)` : ''}`)
+  const agents = p.agents.map((a) => `${a.name} [${a.provider}${a.branch ? `, ${a.branch}` : ''}] ${a.watching ? a.watching.replace(/^Waiting/, 'waiting') : (STATUS[a.status] ?? a.status)}${a.backgroundTasks > 0 ? ` (${a.backgroundTasks} background)` : ''}${a.progress ? ` (running ${a.progress})` : ''}`)
   return `${head}: ${agents.join('; ')}`
 }
 

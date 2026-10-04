@@ -17,6 +17,7 @@ import { gitDiff, gitStatus } from './git'
 import { createLogger, logsDir } from './logger'
 import { diagnostics } from './diagnostics'
 import { keepAwakeCount } from './power'
+import { progress } from './progressService'
 import { badgeDescription } from '../shared/taskbar'
 import * as files from './files'
 import * as mcp from './mcp'
@@ -500,6 +501,13 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'assistant:actions': () => (workspace.path ? assistantControl.actions(workspace.path) : []),
     'assistant:questions': () => (workspace.path ? assistantControl.questions(workspace.path) : []),
     'assistant:answer': (id, yes) => assistantControl.answer(id, yes),
+    'progress:list': () => (workspace.path ? progress.list(workspace.path) : []),
+    'progress:dismiss': (id) => {
+      if (workspace.path) progress.dismiss(workspace.path, String(id))
+    },
+    'progress:seen': () => {
+      if (workspace.path) progress.seen(workspace.path)
+    },
     'personas:list': () => personas.listPersonas(),
     'personas:create': async (name) => {
       const p = await personas.createPersona(name)
