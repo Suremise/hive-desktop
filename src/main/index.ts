@@ -1,7 +1,7 @@
 import { initWatches, onWatchedCardsMoved, watchKeepsQuitWaiting } from './watches'
 import { app, BrowserWindow, Menu, nativeTheme, net, Notification, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'child_process'
-import { existsSync } from 'fs'
+import { appendFileSync, existsSync } from 'fs'
 import { basename, join, resolve, sep } from 'path'
 import { readFile } from 'fs/promises'
 import { pathToFileURL } from 'url'
@@ -38,6 +38,7 @@ import { flushMetrics } from './metrics'
 import { createWorkspaceService, disposeWorkspaceService, inWorkspace, openWorkspaces, workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
 import { hiveWindows, lastFocused, TITLE_BAR_OVERLAY, registerWindow, unregisterWindow, windowForPath, type HiveWindow } from './windows'
 import { agentTokenFile } from './agentTokens'
+import { setTaskbarTestHook, startProgress } from './progressService'
 
 const log = createLogger('main')
 let quitting = false
@@ -672,6 +673,13 @@ app.whenReady().then(async () => {
   // Keeps the PC awake while agents work, backs up transcripts when Windows shuts down, refreshes after sleep.
   startPowerWatch()
   startTaskbarFlash()
+  // Long runs agents report (the Progress panel): stale runs, and the setting.
+  startProgress()
+  // Test builds can record the taskbar's progress calls, which the page can't see.
+  if (!app.isPackaged && process.env.HIVE_TEST_TASKBAR_LOG) {
+    const file = process.env.HIVE_TEST_TASKBAR_LOG
+    setTaskbarTestHook((ws, bar) => appendFileSync(file, `${JSON.stringify({ ws, ...bar })}\n`))
+  }
   const hidden = config.settings.general.startMinimized || process.argv.includes('--hidden')
   const restore = windowsToRestore()
   for (const w of restore) createWindow({ ...w, hidden })

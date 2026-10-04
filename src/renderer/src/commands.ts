@@ -6,7 +6,7 @@ import { checkForUpdates, openReleaseNotes } from './components/Updates'
 import { openModeMenu } from './components/PermissionMode'
 import * as actions from './actions'
 import { noteCommandUsed } from './tips'
-import { agentPage, focusedAgentId, get, isAssistantPath, notify, openProjectSettings, set, setActivity, setAssistantOpen, showAssistantView, showView, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
+import { agentPage, focusedAgentId, get, isAssistantPath, notify, openProjectSettings, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
 
 export interface Command {
   id: string
@@ -265,6 +265,14 @@ export const commands: Command[] = [
   { id: 'view.personas', label: 'Show Assistant Personas', category: 'View', run: () => showAssistantView('personas') },
   { id: 'assistant.toggle', label: 'Toggle Hive Assistant', category: 'Assistant', keybinding: 'Mod+Alt+I', when: hasWorkspace, run: () => setAssistantOpen(!get().assistantOpen) },
   { id: 'assistant.settings', label: 'Assistant Settings…', category: 'Assistant', when: hasWorkspace, run: () => set({ assistantSettingsOpen: true }) },
+  {
+    id: 'progress.toggle',
+    label: 'Toggle Progress Panel',
+    category: 'View',
+    keybinding: 'Mod+Alt+P',
+    when: () => hasWorkspace() && get().settings?.general.progressPanel !== false,
+    run: () => setProgressOpen(!progressIsOpen())
+  },
   // The answer to a question the Assistant waits on (its card in the panel, or a notification).
   { id: 'assistant.answer', label: 'Answer the Hive Assistant', category: 'Assistant', internal: true, run: (id: string, yes: boolean) => void call('assistant:answer', id, yes) },
   {

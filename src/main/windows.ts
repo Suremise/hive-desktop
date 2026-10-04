@@ -88,6 +88,8 @@ function forEvent(e: HiveEvent): BrowserWindow[] {
       return wins([windowForPath(e.projectPath)])
     case 'tasks-changed':
       return wins([windowForPath(e.workspacePath)])
+    case 'progress-changed':
+      return wins([windowShowing(e.workspacePath)])
     case 'workspace-changed':
     case 'skills-changed':
     case 'notes-changed': {

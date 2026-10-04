@@ -1,5 +1,6 @@
 import type {
   UpdateState,
+  ProgressRun,
   PermissionMode,
   AddAgentOptions,
   AssistantAction,
@@ -293,6 +294,12 @@ export interface HiveRequests {
   'assistant:actions': () => AssistantAction[]
   'assistant:questions': () => AssistantQuestion[]
   'assistant:answer': (id: string, yes: boolean) => void
+  /** This window's workspace's progress runs, newest first. */
+  'progress:list': () => ProgressRun[]
+  /** Moves a finished or stale run to Recent. */
+  'progress:dismiss': (id: string) => void
+  /** The user looked at the Progress panel: the taskbar stops showing a failure in red. */
+  'progress:seen': () => void
   'personas:list': () => PersonaInfo[]
   'personas:create': (name: string) => PersonaInfo
   /** Moves the persona's file to the Recycle Bin. */

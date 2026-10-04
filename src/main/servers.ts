@@ -5,12 +5,15 @@ import { app } from 'electron'
 import { basename, dirname, join, relative, resolve as resolvePath } from 'path'
 import { readFile, stat } from 'fs/promises'
 import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
-import { DEFAULT_API_PORT, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
+import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
-import { ASSISTANT_AGENT_ID } from '../shared/assistant'
+import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
+import { timeLeft } from '../shared/progress'
+import { ProgressError, admitReport, type ProgressCaller } from './progress'
+import { progress, progressGate } from './progressService'
 import { columnLabel, isTaskColumn, reviewStalled, stalledReason } from '../shared/tasks'
 import type { HandoverAuthor } from '../shared/hiveGuidance'
-import { newestComments, taskRow, withoutHistory, type ProjectRow, type SkillRow, type TaskChange, type TaskReorder, type TaskView } from '../shared/toolReplies'
+import { newestComments, progressLabel, taskRow, withoutHistory, type ProjectRow, type SkillRow, type TaskChange, type TaskReorder, type TaskView } from '../shared/toolReplies'
 import * as assistant from './assistantControl'
 import { addAgent, updateAgent } from './projectAgents'
 import { providerService } from './providerService'
@@ -299,6 +302,14 @@ function projectByName(name: string): string {
 /** A watching agent's watch, as every status reply gives it (small: what for and until when); undefined otherwise. */
 const watchingOf = (live: LiveSessionState | null | undefined) =>
   live?.status === 'watching' && live.watch ? { cards: live.watch.cards, ...(live.watch.column ? { column: live.watch.column } : {}), changes: live.watch.changes, label: live.watch.label, limitAt: live.watch.limitAt } : undefined
+/** An agent's open progress run, as status replies give it (small: what, how far, time left); undefined without one. */
+function progressOf(projectPath: string, agentId: string) {
+  const r = progress.openRunOf(projectPath, agentId)
+  if (!r) return undefined
+  const etaMs = timeLeft(r, Date.now())
+  return { title: r.title, ...(r.total !== null ? { step: r.step ?? 0, total: r.total } : {}), ...(r.stepName ? { stepName: r.stepName } : {}), ...(etaMs !== null ? { etaMs } : {}), ...(r.state === 'stale' ? { stale: true } : {}) }
+}
+
 /** An agent's status message: a watching agent's is what it waits for. */
 const statusMessageOf = (live: LiveSessionState | null | undefined): string | null => (live?.status === 'watching' ? (live.watch?.label ?? null) : (live?.statusMessage ?? null))
 
@@ -324,6 +335,7 @@ async function projectSummary(p: string) {
       sessionId: a.live?.sessionId ?? null,
       statusMessage: statusMessageOf(a.live),
       ...(watchingOf(a.live) ? { watching: watchingOf(a.live) } : {}),
+      ...(progressOf(p, a.id) ? { progress: progressOf(p, a.id) } : {}),
       // An action under the CLI's automatic review (as asked); never a question for the user.
       reviewing: a.live?.review ?? null,
       backgroundTasks: a.live?.backgroundTasks ?? 0,
@@ -435,7 +447,7 @@ route('GET', '/v1/workspaces', async () => openWorkspaces().map((w) => ({ name: 
 /** A project in a short listing (?view=short): its state and agents, without ids, paths or settings. */
 async function projectRow(p: string): Promise<ProjectRow> {
   const s = await projectSummary(p)
-  return { name: s.name, workspace: s.workspace, active: s.active, branch: s.branch, agents: s.agents.map((a) => ({ name: a.name, provider: a.provider, status: a.status, branch: a.branch, backgroundTasks: a.backgroundTasks, ...(a.watching ? { watching: a.watching.label } : {}) })) }
+  return { name: s.name, workspace: s.workspace, active: s.active, branch: s.branch, agents: s.agents.map((a) => ({ name: a.name, provider: a.provider, status: a.status, branch: a.branch, backgroundTasks: a.backgroundTasks, ...(a.watching ? { watching: a.watching.label } : {}), ...(a.progress ? { progress: progressLabel(a.progress) } : {}) })) }
 }
 
 route('GET', '/v1/projects', async ({ query }) => {
@@ -806,6 +818,7 @@ async function agentActivity(p: string, agentId: string, detail = false) {
     status: st?.status ?? 'stopped',
     statusMessage: statusMessageOf(st),
     ...(watchingOf(st) ? { watching: watchingOf(st) } : {}),
+    ...(progressOf(p, a.id) ? { progress: progressOf(p, a.id) } : {}),
     reviewing: st?.review ?? null,
     backgroundTasks: st?.backgroundTasks ?? 0,
     branch: a.worktree?.branch ?? null,
@@ -1406,6 +1419,68 @@ route('POST', '/v1/notify', async ({ body }) => {
   toast(level, String(body.title).slice(0, 200), body.message ? String(body.message).slice(0, 2000) : undefined, undefined, body.source ? String(body.source) : 'agent')
   return { ok: true }
 })
+
+// ---------------------------------------------------------------------------
+// Progress: long runs (tests, builds) for the Progress panel
+// ---------------------------------------------------------------------------
+
+/** Who is reporting progress, by the caller's token: a project agent, this workspace's Assistant, or a script. */
+async function progressCaller(): Promise<ProgressCaller> {
+  const ws = requireWorkspace()
+  const workspacePath = ws.path!
+  const life = ws.lifetime
+  const caller = await progressCallerIn(workspacePath)
+  // Looking the agent up waited: a workspace that closed meanwhile (its runs cleared) must not get a run back.
+  if (life.aborted || ws.path?.toLowerCase() !== workspacePath.toLowerCase()) throw new HttpError(409, 'The workspace was closed')
+  return caller
+}
+
+async function progressCallerIn(workspacePath: string): Promise<ProgressCaller> {
+  const a = agentCaller()
+  if (a) {
+    const cfg = await workspace.projectConfig(a.projectPath)
+    const def = projectAgents(cfg).find((x) => x.id === a.agentId)
+    return { source: 'agent', workspacePath, projectPath: a.projectPath, agentId: a.agentId, agentName: def?.name ?? a.agentId, provider: def ? agentProvider(def, cfg, config.settings) : null }
+  }
+  if (assistantCaller()) {
+    const live = sessions.liveFor(join(workspacePath, HIVE_DIR, ASSISTANT_DIR), ASSISTANT_AGENT_ID)
+    return { source: 'assistant', workspacePath, agentName: `Hive ${ASSISTANT_NAME}`, provider: live?.provider ?? null }
+  }
+  return { source: 'api', workspacePath }
+}
+
+/** A JSON object body, or an empty one. */
+const bodyObject = (body: unknown): Record<string, unknown> => (body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {})
+
+/**
+ * Runs a progress call: with the panel off, or switched off (or off and on) while the caller was looked up, it is
+ * accepted and ignored, so a reporter never fails because of it and nothing lands in a store the setting cleared.
+ */
+async function progressCall<T>(ignored: T, change: (caller: ProgressCaller) => T): Promise<T> {
+  try {
+    return await admitReport(progressGate, ignored, progressCaller, change)
+  } catch (e) {
+    throw e instanceof ProgressError ? new HttpError(e.status, e.message) : e
+  }
+}
+
+route('POST', '/v1/progress', async ({ body }) =>
+  progressCall<{ id: string; ignored?: true }>({ id: `ignored-${randomBytes(6).toString('hex')}`, ignored: true }, (caller) => ({ id: progress.start(caller, bodyObject(body)).id }))
+)
+
+route('PATCH', '/v1/progress/:id', async ({ params, body }) =>
+  progressCall<{ ok: true; ignored?: true }>({ ok: true, ignored: true }, (caller) => {
+    progress.update(caller, decodeURIComponent(params[0]), bodyObject(body))
+    return { ok: true }
+  })
+)
+
+route('POST', '/v1/progress/:id/finish', async ({ params, body }) =>
+  progressCall<{ ok: true; ignored?: true }>({ ok: true, ignored: true }, (caller) => {
+    progress.finish(caller, decodeURIComponent(params[0]), bodyObject(body))
+    return { ok: true }
+  })
+)
 
 async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<void> {
   // Measured from here to the response's end (or the client going away): latency on the monotonic clock, bodies'
