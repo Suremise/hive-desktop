@@ -44,6 +44,7 @@ import { FinishBatcher, finishedNotice, notificationAllowed } from '../shared/bu
 import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
 import { childEnv, killPty, spawnPty, writePty } from './ptyHost'
+import { withBinOnPath } from './progressReporters/shims'
 import { hiveSkills, parseSkillFrontmatter, skillFor } from './skills'
 import { GUIDANCE_REVISION, launchParts, launchRecord } from './guidance'
 import { notificationIcon } from './paths'
@@ -324,6 +325,8 @@ class SessionManager {
   readonly hookToken = randomBytes(24).toString('hex')
   hookUrl = ''
   apiEnv: (projectPath: string, agentId: string) => Record<string, string> = () => ({})
+  /** Hive's bin folder (hive-progress), first on each session's PATH; null until written, or when it couldn't be. */
+  binDir: string | null = null
   hiveMcp: HiveMcpProvider = () => null
   /** Hive's guidance for agents (the hive MCP server's instructions), for providers that need it at launch. */
   hiveGuidance: (projectPath: string) => Promise<string> = async () => ''
@@ -827,7 +830,7 @@ class SessionManager {
       trustedHiveTools: workspace.isAssistantHome(projectPath) ? assistantTools(config.settings.assistant?.control) : undefined,
       initialPrompt: l.initialPrompt,
       allowBackgroundSessions: providerSettings(config.settings, adapter.id).allowBackgroundSessions,
-      env: childEnv({
+      env: withBinOnPath(childEnv({
         HIVE_HOOK_TOKEN: this.hookToken,
         HIVE_PROJECT: basename(projectPath),
         HIVE_PROJECT_PATH: projectPath,
@@ -838,7 +841,7 @@ class SessionManager {
         HIVE_PROVIDER: adapter.id,
         // Not for the Assistant: it reaches the API through its hive tools, with its own token.
         ...(workspace.isAssistantHome(projectPath) ? {} : this.apiEnv(projectPath, agent.id))
-      })
+      }), this.binDir)
     }
     const delivered = await adapter.prepareLaunch(ctx)
     // What the session got, measured on the copies its CLI reads (not their sources: a kept old copy is what it reads).

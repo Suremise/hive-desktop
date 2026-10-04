@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Sessions
+- **Show progress for any long command.** Ask an agent to run a long command as `hive-progress -- <command>` (for example `hive-progress -- npm test`) and the **Progress panel** shows it with the agent's name, the time it usually takes and, when the command prints step lines (`##hive-progress step=4 total=12 name=carddialog`), its steps. The command's output and exit code are unchanged, and outside Hive it just runs the command. It's on the path of every session Hive starts, in Claude Code's and Codex's shells.
 - **The Sessions tab says where each session ran and which agent ran it**: *Coder · Project folder*, *Reviewer · Worktree · hive/reviewer*, on every session and in a **Ran in** line over its transcript (hover for the full folder). A session keeps its own agent: one you removed shows as *Coder (removed)*, and an agent added later with the same name or worktree no longer takes over its old sessions' label. **Resume in ▾** shows where each agent works, running ones too.
 - **Long transcripts are flagged sooner: at 20 MB instead of 50 MB.** Well before 50 MB a long conversation slows down the coding agent and Hive. If you kept the old 50 MB default, it moves to 20 MB; a size you chose yourself, **Never** and project settings are kept. To go back, set **Settings → Sessions → Warn when a transcript is over** to 50.
 

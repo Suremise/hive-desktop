@@ -27,6 +27,7 @@ import { setTitleBarColors, trackTitleBar } from './titleBar'
 import { startBranchWatch } from './branchWatch'
 import { createLogger, userText, logsDir } from './logger'
 import { killAll } from './ptyHost'
+import { installShims } from './progressReporters/shims'
 import { onCorruptFile } from './fsutil'
 import { apiEnv, assistantApiUrl, startApiServer, startHookServer } from './servers'
 import { assistantHome, assistantTokenFile, endAssistant, newAssistantToken, newTurn } from './assistantControl'
@@ -90,10 +91,14 @@ function registerDevAppId(): void {
 // hive-img://img/<encoded absolute path> serves images inside the workspace to the renderer (Images tab thumbnails).
 protocol.registerSchemesAsPrivileged([{ scheme: 'hive-img', privileges: { standard: true, secure: true, supportFetchAPI: true } }])
 
-function hiveMcpScript(): string {
-  const p = join(__dirname, 'hive-mcp.js')
-  // The script is unpacked from the asar archive (see electron-builder.yml) so a plain Node process can run it.
+/** A script a plain Node process runs (hive-mcp.js, hive-progress.js): unpacked from the asar (electron-builder.yml). */
+function unpackedScript(name: string): string {
+  const p = join(__dirname, name)
   return app.isPackaged ? p.replace(`app.asar${sep}`, `app.asar.unpacked${sep}`) : p
+}
+
+function hiveMcpScript(): string {
+  return unpackedScript('hive-mcp.js')
 }
 
 function appInfo(): AppInfo {
@@ -556,6 +561,11 @@ app.whenReady().then(async () => {
 
   workspace.setLiveProvider((p, cfg) => sessions.liveInfo(p, cfg))
   sessions.apiEnv = apiEnv
+  // hive-progress on every session's PATH (#137): shims in Hive's bin folder, timings beside them.
+  void installShims(join(app.getPath('userData'), 'bin'), { exec: process.execPath, script: unpackedScript('hive-progress.js'), data: join(app.getPath('userData'), 'progress') }).then((dir) => {
+    sessions.binDir = dir
+    if (!dir) log.warn("Couldn't write the hive-progress command into Hive's bin folder; sessions start without it")
+  })
   /** Tests only (development builds): where the hive MCP servers log the calls they ran (tests/scenarios). */
   const testMcpLog = (): Record<string, string> => (!app.isPackaged && process.env.HIVE_TEST_MCP_LOG ? { HIVE_TEST_MCP_LOG: process.env.HIVE_TEST_MCP_LOG } : {})
   sessions.hiveMcp = (projectPath, agentId): McpServerDef | null => {
