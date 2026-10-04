@@ -66,8 +66,8 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `inbox-
       }
       globalThis.__focused = f
       if (f) {
-        if (w.isMinimized()) w.restore()
-        w.focus()
+        // Back from minimised without taking the OS focus (the test copies never do: HIVE_TEST_QUIET).
+        if (w.isMinimized()) w.showInactive()
         w.emit('focus')
       } else {
         w.minimize()

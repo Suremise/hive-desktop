@@ -46,6 +46,13 @@ export function sendPty(channel: 'pty:data' | 'pty:exit', key: string, payload: 
   send(router.forPty(key), channel, key, payload)
 }
 
+/** A message for the Notifications panel only (the bell's history), not shown as a toast: a notice told by routeAppNotice. */
+export function logNotice(level: ToastLevel, title: string, message?: string): ToastMessage {
+  const t: ToastMessage = { id: randomUUID(), level, title, message, timestamp: new Date().toISOString(), quiet: true }
+  emit({ type: 'toast', toast: t })
+  return t
+}
+
 export function toast(level: ToastLevel, title: string, message?: string, actions?: ToastAction[], source?: string): ToastMessage {
   const t: ToastMessage = { id: randomUUID(), level, title, message, actions, source, timestamp: new Date().toISOString() }
   emit({ type: 'toast', toast: t })

@@ -1,6 +1,6 @@
 // The taskbar button when agents need you: a badge with the count (setOverlayIcon, recorded in the test build's
 // main process) and the count in the window title; it clears once the agent has been looked at. An agent starting
-// to wait for input while the window is in the background flashes the button (flashFrame, recorded; the window's
+// to wait for input while the window is in the background flashes the button (recorded to the notify log; the window's
 // focus is faked), and both settings turn these off. The agents are the fake Claude Code. Dev build, throwaway
 // profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
@@ -37,7 +37,10 @@ const until = async (fn, ms = 10000) => {
   cfg.settings.notifications = { ...cfg.settings.notifications, desktopNotifications: false, chimeEnabled: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47904), CLAUDE_CONFIG_DIR: claudeHome }
+  // Quiet (HIVE_TEST_QUIET): the flashes are recorded to the notify log, not made.
+  const notifyLog = path.join(lib.WORK, 'taskbar-notify.log')
+  fs.rmSync(notifyLog, { force: true })
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47904), CLAUDE_CONFIG_DIR: claudeHome, HIVE_TEST_QUIET: '1', HIVE_TEST_NOTIFY_LOG: notifyLog }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
@@ -50,23 +53,21 @@ const until = async (fn, ms = 10000) => {
   await app.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows()[0]
     globalThis.__overlay = []
-    globalThis.__flash = []
     globalThis.__focused = null
     const set = w.setOverlayIcon.bind(w)
     w.setOverlayIcon = (img, desc) => {
       globalThis.__overlay.push({ png: img ? img.toPNG().toString('base64') : null, desc })
       set(img, desc)
     }
-    const flash = w.flashFrame.bind(w)
-    w.flashFrame = (on) => {
-      globalThis.__flash.push(on)
-      flash(on)
-    }
     const focused = w.isFocused.bind(w)
     w.isFocused = () => (globalThis.__focused === null ? focused() : globalThis.__focused)
   })
   const overlay = () => app.evaluate(() => globalThis.__overlay.at(-1) ?? null)
-  const flashes = () => app.evaluate(() => globalThis.__flash)
+  // Each flash started (true) or stopped (false), since the last clearFlashes().
+  const flashLog = () => (fs.existsSync(notifyLog) ? fs.readFileSync(notifyLog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((e) => e.kind === 'flash').map((e) => e.on)
+  let flashesFrom = 0
+  const flashes = async () => flashLog().slice(flashesFrom)
+  const clearFlashes = () => (flashesFrom = flashLog().length)
   const title = () => page.title()
 
   await page.getByText('alpha', { exact: true }).first().click()
@@ -95,11 +96,8 @@ const until = async (fn, ms = 10000) => {
   // Focused as the test says (Windows won't give a background app the focus while another window has it).
   await app.evaluate(({ BrowserWindow }) => {
     globalThis.__focused = true
-    const w = BrowserWindow.getAllWindows()[0]
-    w.focus()
-    w.emit('focus')
+    BrowserWindow.getAllWindows()[0].emit('focus')
   })
-  await page.bringToFront()
   await page.getByText('beta', { exact: true }).first().click()
   check('looking at the agent clears the count', !!(await until(async () => !/^\(\d/.test(await title()), 8000)), await title())
   check('and the badge', !!(await until(async () => (await overlay())?.png === null, 5000)))
@@ -113,7 +111,7 @@ const until = async (fn, ms = 10000) => {
   // --- Both settings turn them off; turning the flash off stops the one under way (the window was never focused).
   await inv('settings:update', { notifications: { taskbarCount: false, flashOnWaiting: false } })
   check('turning the flash off stops it', !!(await until(async () => (await flashes()).at(-1) === false, 3000)), JSON.stringify(await flashes()))
-  await app.evaluate(() => (globalThis.__flash = []))
+  clearFlashes()
   await page.getByText('alpha', { exact: true }).first().click()
   await send(beta, two, 'ask go')
   await until(async () => (await live(beta, two))?.status === 'finished', 10000)

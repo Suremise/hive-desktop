@@ -2,8 +2,10 @@ import { Notification } from 'electron'
 import type { PlanLimit, PlanUsage, ProviderId } from '../shared/types'
 import { providerName } from '../shared/providers'
 import { config } from './config'
-import { emit, toast } from './events'
+import { emit, logNotice } from './events'
 import { notificationIcon } from './paths'
+import { showOsNotification } from './testQuiet'
+import { routeAppNotice } from './notices'
 
 /**
  * Plan usage (a subscription's rolling limits, e.g. 5-hour and weekly) as each provider reports it:
@@ -78,12 +80,15 @@ export function reportPlanUsage(provider: ProviderId, usage: PlanUsage): void {
     config.update((c) => (c.planWarnings[key] = { resetsAt: l.resetsAt, level }))
     const title = `${Math.round(l.usedPercent)}% of your ${providerName(provider)} ${l.label} limit used`
     const body = `${level >= 95 ? 'Sessions will pause when it runs out.' : 'You are getting close to the limit.'}${resetText(l.resetsAt)}`
-    toast(level >= 95 ? 'error' : 'warning', title, body)
-    if (config.settings.notifications.desktopNotifications && Notification.isSupported()) {
+    // Kept in the Notifications panel, and told as agent notices are (routeAppNotice): a banner in the window you are
+    // using, a Windows notification with Hive in the background, or nothing (notifications off, or Show nothing).
+    logNotice(level >= 95 ? 'error' : 'warning', title, body)
+    routeAppNotice(title, body, () => {
+      if (!Notification.isSupported()) return
       const n = new Notification({ title, body, icon: notificationIcon() })
       shown.add(n)
       n.on('close', () => shown.delete(n))
-      n.show()
-    }
+      if (!showOsNotification(n, title, body)) shown.delete(n)
+    })
   }
 }

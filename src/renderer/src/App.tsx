@@ -28,6 +28,7 @@ import { SettingsView } from './views/SettingsView'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { markOnScreenSeen, onScreen } from './inbox'
 import { InboxPopover } from './components/Inbox'
+import { NoticeBanners, addNotice, resolveNotices } from './components/NoticeBanners'
 import { chimeAllowed } from '@shared/bursts'
 
 function applyTheme(): void {
@@ -127,7 +128,8 @@ function handleEvent(e: HiveEvent): void {
       if (!n || !chimeAllowed(lastChimeAt, Date.now())) break
       lastChimeAt = Date.now()
       chimesPlayed++
-      playChime(n.chimeSound, n.chimeVolume)
+      // Silent in a quiet test copy: counted, not heard.
+      if (!e.silent) playChime(n.chimeSound, n.chimeVolume)
       break
     }
     case 'settings-changed':
@@ -197,9 +199,15 @@ function handleEvent(e: HiveEvent): void {
     case 'branch-status':
       set((st) => ({ branchStatus: { ...st.branchStatus, [projectKey(e.projectPath, e.agentId)]: e.status } }))
       break
+    case 'notice':
+      addNotice(e.notice)
+      break
+    case 'notice-resolved':
+      resolveNotices(e.projectPath, e.agentId)
+      break
     case 'window-state':
       // Focusing the window marks the agents on screen seen (markOnScreenSeen).
-      set({ maximized: e.maximized, windowFocused: e.focused })
+      set({ maximized: e.maximized, windowFocused: e.focused, alwaysOnTop: e.alwaysOnTop })
       break
   }
 }
@@ -235,6 +243,8 @@ export function App() {
       ])
       set({ settings: s, sidebarWidth: ui.sidebarWidth, sidebarVisible: ui.sidebarVisible, sidebarCompact: !!ui.sidebarCompact, panes: ui.panes ?? {}, tips: tipsState(ui.tips), workspace: ws, recent, providers: ag, api, appInfo: info })
       set({ assistantOpen: assistantWasOpen(ws?.path) })
+      // A window restored on top (its workspace was left pinned) shows its pin lit from the start.
+      void call('window:getAlwaysOnTop').then((on) => set({ alwaysOnTop: on })).catch(() => undefined)
       if (ws) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
       for (const l of live) applyLiveState(l)
       void loadTasks()
@@ -283,6 +293,12 @@ export function App() {
 
   // Agents whose panes come on screen (a project, page, tab or the window shown) are seen.
   useEffect(() => useStore.subscribe(markOnScreenSeen), [])
+
+  // Main hears which project this window shows, for banners shown for "This project" (#157).
+  const showing = useStore((s) => (s.workspace ? s.selectedProject : null))
+  useEffect(() => {
+    void call('window:showing', showing).catch(() => undefined)
+  }, [showing])
 
   useEffect(() => {
     void call('ui:set', { sidebarVisible })
@@ -352,6 +368,7 @@ export function App() {
       <CornerPlacement />
       <TipCard />
       <Toasts />
+      <NoticeBanners />
       <NotificationCenter />
       <InboxPopover />
       <CommandPalette />

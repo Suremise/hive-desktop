@@ -12,6 +12,8 @@ import { allProviders } from './providers'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo } from './events'
+import { setPinned } from './pin'
+import { presentWindow } from './testQuiet'
 import { insideReal, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { createLogger, logsDir } from './logger'
@@ -37,7 +39,7 @@ import { transcripts } from './transcripts'
 import * as skills from './skills'
 import * as storage from './storage'
 import { contextWorkspace, currentWorkspace, inWorkspace, workspace, workspaceFor, workspaceOf, WorkspaceService } from './workspace'
-import { windowOf, windowShowing } from './windows'
+import { hiveWindows, windowForPath, windowOf, windowShowing } from './windows'
 import { setTitleBarBackdrops, setTitleBarColors } from './titleBar'
 import { showWindow } from './tray'
 import { resetMetrics } from './metrics'
@@ -167,6 +169,22 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       wc.setZoomLevel(dir === 'reset' ? 0 : Math.max(-3, Math.min(4, wc.getZoomLevel() + (dir === 'in' ? 0.5 : -0.5))))
     },
     'window:toggleFullScreen': () => win().setFullScreen(!win().isFullScreen()),
+    'window:setAlwaysOnTop': (on) => {
+      const w = win()
+      const now = setPinned(w, contextWorkspace()?.path ?? null, on)
+      emitTo(w, { type: 'window-state', maximized: w.isMaximized(), focused: w.isFocused(), alwaysOnTop: now })
+      return now
+    },
+    'window:getAlwaysOnTop': () => win().isAlwaysOnTop(),
+    'window:showing': (projectPath) => {
+      const e = hiveWindows().find((x) => x.win === win())
+      if (e) e.showing = projectPath
+    },
+    'notice:open': (projectPath) => {
+      const target = (projectPath ? windowForPath(projectPath)?.win : null) ?? win()
+      presentWindow(target)
+      if (projectPath) emitTo(target, { type: 'menu-command', command: 'project.focus', args: [projectPath] })
+    },
     'window:edit': (role) => {
       const wc = win().webContents
       ;({ undo: () => wc.undo(), redo: () => wc.redo(), cut: () => wc.cut(), copy: () => wc.copy(), paste: () => wc.paste(), selectAll: () => wc.selectAll() })[role]()

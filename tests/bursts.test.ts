@@ -3,7 +3,7 @@ import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { BrowserWindow } from 'electron'
-import { chimeAllowed, FINISH_GROUP_MAX_MS, FINISH_GROUP_MS, FinishBatcher, finishedNotice, notificationAllowed, type Finish } from '../src/shared/bursts'
+import { chimeAllowed, FINISH_GROUP_MAX_MS, FINISH_GROUP_MS, FinishBatcher, finishedNotice, keepNotices, MAX_BANNERS, noticeRoute, type Finish } from '../src/shared/bursts'
 import { DEFAULT_SETTINGS } from '../src/shared/defaults'
 
 const finish = (project: string, agent: string): Finish => ({ projectPath: `C:\\ws\\${project}`, project, agent, title: `${project} · ${agent} finished`, body: `${agent} is done.` })
@@ -59,19 +59,76 @@ describe('finished notifications', () => {
   })
 })
 
-describe('whether a notification may be shown', () => {
+describe('the banners a window keeps (keepNotices)', () => {
+  type N = { id: string; kind: 'finished' | 'waiting' }
+  const n = (id: string, kind: N['kind']): N => ({ id, kind })
+  const stays = (x: N) => x.kind === 'waiting'
+  const add = (list: N[], x: N, keep = stays) => keepNotices([x, ...list], keep)
+
+  it('more than four waiting for you: every one is kept, none pushed out', () => {
+    let list: N[] = []
+    for (let i = 1; i <= 6; i++) list = add(list, n(`w${i}`, 'waiting'))
+    expect(list.map((x) => x.id)).toEqual(['w6', 'w5', 'w4', 'w3', 'w2', 'w1'])
+  })
+
+  it('one waiting, then four finished: the waiting one stays, the finished keep the newest four', () => {
+    let list = add([], n('w1', 'waiting'))
+    for (let i = 1; i <= 5; i++) list = add(list, n(`f${i}`, 'finished'))
+    expect(list.map((x) => x.id)).toEqual(['f5', 'f4', 'f3', 'f2', 'w1'])
+    expect(list.filter((x) => x.kind === 'finished')).toHaveLength(MAX_BANNERS)
+  })
+
+  it('waiting banners set to close like the others: kept like them, the newest four', () => {
+    let list: N[] = []
+    for (let i = 1; i <= 6; i++) list = add(list, n(`w${i}`, 'waiting'), () => false)
+    expect(list.map((x) => x.id)).toEqual(['w6', 'w5', 'w4', 'w3'])
+  })
+})
+
+describe('where a notice goes (noticeRoute)', () => {
   const on = { ...DEFAULT_SETTINGS.notifications }
-  it('follows the settings, and only-when-unfocused the window', () => {
+  const wsA = 'C:\\Work\\A'
+  const from = { workspacePath: wsA, projectPath: `${wsA}\\alpha` }
+  const lookingAt = (workspacePath: string, projectPath: string | null) => ({ workspacePath, projectPath })
+
+  it('Hive in the background: a Windows notification; any Hive window focused: a banner in it (Show in Hive, the default)', () => {
+    expect(on.whileFocused).toBe('inApp')
     for (const kind of ['finished', 'waiting', 'notice'] as const) {
-      expect(notificationAllowed(on, kind, false), kind).toBe(true)
-      expect(notificationAllowed(on, kind, true), kind).toBe(false)
-      expect(notificationAllowed({ ...on, onlyWhenUnfocused: false }, kind, true), kind).toBe(true)
-      expect(notificationAllowed({ ...on, desktopNotifications: false }, kind, false), kind).toBe(false)
+      expect(noticeRoute(on, kind, null, from), kind).toBe('windows')
+      // Any Hive window, not only the one showing the project: another workspace's window focused is still Hive in use.
+      expect(noticeRoute(on, kind, lookingAt('C:\\Work\\B', null), from), kind).toBe('banner')
+      expect(noticeRoute(on, kind, lookingAt(wsA, `${wsA}\\alpha`), from), kind).toBe('banner')
     }
-    expect(notificationAllowed({ ...on, notifyOnFinished: false }, 'finished', false)).toBe(false)
-    expect(notificationAllowed({ ...on, notifyOnFinished: false }, 'waiting', false)).toBe(true)
-    expect(notificationAllowed({ ...on, notifyOnWaiting: false }, 'waiting', false)).toBe(false)
-    expect(notificationAllowed({ ...on, notifyOnWaiting: false }, 'notice', false)).toBe(true)
+  })
+
+  it('While Hive is focused: Show nothing, or a Windows notification; in the background always a Windows notification', () => {
+    expect(noticeRoute({ ...on, whileFocused: 'nothing' }, 'finished', lookingAt(wsA, null), from)).toBe('none')
+    expect(noticeRoute({ ...on, whileFocused: 'windows' }, 'finished', lookingAt(wsA, null), from)).toBe('windows')
+    expect(noticeRoute({ ...on, whileFocused: 'nothing' }, 'finished', null, from)).toBe('windows')
+  })
+
+  it('notifications, or that kind, off: nowhere, focused or not', () => {
+    for (const focused of [null, lookingAt(wsA, null)]) {
+      for (const kind of ['finished', 'waiting', 'notice'] as const) expect(noticeRoute({ ...on, desktopNotifications: false }, kind, focused, from), kind).toBe('none')
+      expect(noticeRoute({ ...on, notifyOnFinished: false }, 'finished', focused, from)).toBe('none')
+      expect(noticeRoute({ ...on, notifyOnFinished: false }, 'waiting', focused, from)).not.toBe('none')
+      expect(noticeRoute({ ...on, notifyOnWaiting: false }, 'waiting', focused, from)).toBe('none')
+      expect(noticeRoute({ ...on, notifyOnWaiting: false }, 'notice', focused, from)).not.toBe('none')
+    }
+  })
+
+  it('Show banners for: every window, this workspace, or this project; a notice left out shows nothing at all', () => {
+    const other = lookingAt('C:\\Work\\B', 'C:\\Work\\B\\beta')
+    const sameWsOtherProject = lookingAt('c:\\work\\a', 'c:\\work\\a\\gamma')
+    const sameProject = lookingAt('c:\\work\\a', 'c:\\work\\a\\ALPHA')
+    expect(noticeRoute({ ...on, bannerScope: 'all' }, 'finished', other, from)).toBe('banner')
+    expect(noticeRoute({ ...on, bannerScope: 'workspace' }, 'finished', other, from)).toBe('none')
+    expect(noticeRoute({ ...on, bannerScope: 'workspace' }, 'finished', sameWsOtherProject, from)).toBe('banner')
+    expect(noticeRoute({ ...on, bannerScope: 'project' }, 'finished', sameWsOtherProject, from)).toBe('none')
+    expect(noticeRoute({ ...on, bannerScope: 'project' }, 'waiting', sameProject, from)).toBe('banner')
+    expect(noticeRoute({ ...on, bannerScope: 'project' }, 'finished', lookingAt('c:\\work\\a', null), from)).toBe('none')
+    // A notice about no project (plan usage) is for every scope.
+    for (const bannerScope of ['all', 'workspace', 'project'] as const) expect(noticeRoute({ ...on, bannerScope }, 'notice', other, { workspacePath: null, projectPath: null }), bannerScope).toBe('banner')
   })
 })
 
@@ -84,6 +141,8 @@ describe('a group of finishes, when it is shown', () => {
   let focused: Set<string>
   let windows: Map<string, { focus: ReturnType<typeof vi.fn> }>
   let shown: { title?: string; body?: string; click: () => void }[]
+  /** Banners sent to the focused window: [window key, title, body]. */
+  let banners: [string, string, string][]
 
   beforeEach(async () => {
     vi.useFakeTimers()
@@ -97,6 +156,7 @@ describe('a group of finishes, when it is shown', () => {
     focused = new Set()
     windows = new Map()
     shown = []
+    banners = []
     vi.spyOn(electron.Notification, 'isSupported').mockReturnValue(true)
     const clicks = new WeakMap<object, () => void>()
     vi.spyOn(electron.Notification.prototype, 'on').mockImplementation(function (this: object, _ev: unknown, fn: unknown) {
@@ -107,17 +167,25 @@ describe('a group of finishes, when it is shown', () => {
       shown.push({ ...this.options, click: () => clicks.get(this)?.() })
     })
     // One window per project, visible; focused while the test says so.
-    sessions.setWindowProvider((p) => {
-      if (!p) return null
-      const key = p.toLowerCase()
+    const windowFor = (key: string): BrowserWindow => {
       if (!windows.has(key)) windows.set(key, { focus: vi.fn() })
-      const fake = { isVisible: () => true, isFocused: () => focused.has(key), isMinimized: () => false, isDestroyed: () => false, show: () => undefined, restore: () => undefined, focus: windows.get(key)!.focus, webContents: { send: () => undefined } }
+      const send = (_channel: string, e: { type: string; notice?: { title: string; body: string } }) => {
+        if (e?.type === 'notice' && e.notice) banners.push([key, e.notice.title, e.notice.body])
+      }
+      const fake = { isVisible: () => true, isFocused: () => focused.has(key), isMinimized: () => false, isDestroyed: () => false, show: () => undefined, restore: () => undefined, focus: windows.get(key)!.focus, webContents: { send } }
       return fake as unknown as BrowserWindow
+    }
+    sessions.setWindowProvider((p) => (p ? windowFor(p.toLowerCase()) : null))
+    // The Hive window in use: the one the test says is focused, showing its project (one window per project here).
+    sessions.setFocusedWindowProvider(() => {
+      const key = [...focused][0]
+      return key ? { win: windowFor(key), workspacePath: ws, projectPath: key } : null
     })
     return async () => {
       vi.restoreAllMocks()
       vi.useRealTimers()
       sessions.setWindowProvider(() => null)
+      sessions.setFocusedWindowProvider(() => null)
       Object.assign(config.settings.notifications, DEFAULT_SETTINGS.notifications)
       await disposeWorkspaceService(w)
     }
@@ -148,27 +216,44 @@ describe('a group of finishes, when it is shown', () => {
     }
   })
 
-  it('only when unfocused: the window focused meanwhile shows nothing; turned off meanwhile, it shows', async () => {
+  it('a Hive window focused meanwhile: the group is a banner in it, not a Windows notification; set to Windows notifications, one', async () => {
     await finished(alpha, 'One')
     focused.add(alpha.toLowerCase())
     await vi.advanceTimersByTimeAsync(FINISH_GROUP_MS)
     expect(titles()).toEqual([])
-    ;(await settings()).onlyWhenUnfocused = false
+    expect(banners).toEqual([[alpha.toLowerCase(), 'alpha · One finished', 'One is done.']])
+    ;(await settings()).whileFocused = 'windows'
     await finished(alpha, 'Two')
     await vi.advanceTimersByTimeAsync(FINISH_GROUP_MS)
     expect(titles()).toEqual(['alpha · Two finished'])
+    expect(banners).toHaveLength(1)
   })
 
-  it("finishes in two windows, one focused meanwhile: only the other's, counted and opened from what is left", async () => {
+  it("finishes in two windows, one focused meanwhile: one grouped banner in the focused window, counted from both; Hive in the background: a Windows notification opened from the first", async () => {
     await finished(alpha, 'One')
     await finished(beta, 'Two')
     await finished(beta, 'Three')
     focused.add(alpha.toLowerCase())
     await vi.advanceTimersByTimeAsync(FINISH_GROUP_MS)
+    expect(shown).toEqual([])
+    expect(banners).toEqual([[alpha.toLowerCase(), '3 agents finished', 'alpha (1), beta (2)']])
+    focused.clear()
+    await finished(beta, 'Two')
+    await finished(beta, 'Three')
+    await vi.advanceTimersByTimeAsync(FINISH_GROUP_MS)
     expect(shown.map((s) => [s.title, s.body])).toEqual([['2 agents finished in beta', 'Two, Three']])
     shown[0].click()
     expect(windows.get(beta.toLowerCase())?.focus).toHaveBeenCalled()
-    expect(windows.get(alpha.toLowerCase())?.focus).not.toHaveBeenCalled()
+  })
+
+  it('Show banners for This project: the focused window shows only its own project\'s; the rest show nothing at all', async () => {
+    ;(await settings()).bannerScope = 'project'
+    focused.add(alpha.toLowerCase())
+    await finished(alpha, 'One')
+    await finished(beta, 'Two')
+    await vi.advanceTimersByTimeAsync(FINISH_GROUP_MS)
+    expect(banners).toEqual([[alpha.toLowerCase(), 'alpha · One finished', 'One is done.']])
+    expect(shown).toEqual([])
   })
 
   it('waiting for input: shown at once and on its own, while a group of finishes is collected', async () => {
@@ -178,9 +263,11 @@ describe('a group of finishes, when it is shown', () => {
     expect(titles()).toEqual(['beta · Two needs your input'])
     await vi.advanceTimersByTimeAsync(FINISH_GROUP_MS)
     expect(titles()).toEqual(['beta · Two needs your input', 'alpha · One finished'])
-    // The same settings apply: its window focused, or waiting notifications off, it isn't shown.
+    // The same settings apply: a Hive window focused, it is a banner there, not a Windows notification; waiting
+    // notifications off, it isn't told at all.
     focused.add(beta.toLowerCase())
     ;(sessions as unknown as { notify: (...a: unknown[]) => void }).notify(beta, 'beta · Two needs your input', 'Allow Bash?', 'waiting')
+    expect(banners).toEqual([[beta.toLowerCase(), 'beta · Two needs your input', 'Allow Bash?']])
     focused.clear()
     ;(await settings()).notifyOnWaiting = false
     ;(sessions as unknown as { notify: (...a: unknown[]) => void }).notify(beta, 'beta · Two needs your input', 'Allow Bash?', 'waiting')

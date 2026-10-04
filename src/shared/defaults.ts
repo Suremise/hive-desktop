@@ -52,7 +52,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
     desktopNotifications: true,
     notifyOnFinished: true,
     notifyOnWaiting: true,
-    onlyWhenUnfocused: true,
+    whileFocused: 'inApp',
+    bannerScope: 'all',
+    bannerPosition: 'top-center',
+    bannerSeconds: 6,
+    waitingBannerStays: true,
     taskbarCount: true,
     flashOnWaiting: true
   },
@@ -96,7 +100,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
-  version: 5,
+  version: 6,
   settings: DEFAULT_SETTINGS,
   recentWorkspaces: [],
   lastWorkspace: null,
@@ -389,7 +393,13 @@ export function migrateConfig(cfg: AppConfig, raw?: Record<string, any>): AppCon
     // Anyone who wants 50 sets it again.
     cfg.settings.sessions.transcriptWarnMB = 20
   }
-  cfg.version = 5
+  if (raw && (raw.version ?? 1) < 6) {
+    // Up to 0.3.x, "Only when Hive is in the background" (onlyWhenUnfocused) decided whether a Windows notification
+    // showed while you used Hive. Now notices show in Hive instead, and everyone starts there, whatever it was.
+    cfg.settings.notifications.whileFocused = 'inApp'
+  }
+  delete (cfg.settings.notifications as unknown as Record<string, unknown>).onlyWhenUnfocused
+  cfg.version = 6
   // Settings for providers this version doesn't know are kept (a newer Hive wrote them), but never used.
   if (!isKnownProvider(cfg.settings.defaultProvider)) cfg.settings.defaultProvider = DEFAULT_PROVIDER
   return cfg

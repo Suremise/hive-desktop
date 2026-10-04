@@ -146,7 +146,6 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   await app.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows()[0]
     w.isFocused = () => true
-    w.focus()
     w.emit('focus')
   })
   await rail.click()

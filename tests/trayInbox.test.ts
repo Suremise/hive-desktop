@@ -35,6 +35,7 @@ describe('tray menu', () => {
     let menu: Template = []
     const shown: unknown[] = []
     vi.doMock('electron', () => ({
+      app: { isPackaged: false },
       Menu: { buildFromTemplate: (t: Template) => (menu = t) },
       Tray: class {
         setToolTip(): void {}

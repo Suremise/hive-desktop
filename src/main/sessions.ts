@@ -34,13 +34,14 @@ import type { Ask, HookEvent, LaunchContext, LaunchSkill, ProviderAdapter, Skill
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, toast } from './events'
+import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
 import { hashText, readJson, removePath, treeSignature, splitArgs, syncCopy, syncCopyLocked, syncCopyNow, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
 import { Compaction } from './compaction'
 import { lastTitle } from './terminalTitle'
 import { asksYou } from '../shared/inbox'
-import { FinishBatcher, finishedNotice, notificationAllowed } from '../shared/bursts'
+import { FinishBatcher, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
 import { childEnv, killPty, spawnPty, writePty } from './ptyHost'
@@ -368,6 +369,13 @@ class SessionManager {
 
   setWindowProvider(fn: (projectPath?: string) => BrowserWindow | null): void {
     this.getWindow = fn
+  }
+
+  /** The Hive window the user is using (visible, focused): where in-app banners go (#157). None while Hive is in the background. */
+  private focusedHive: () => (FocusedHive & { win: BrowserWindow }) | null = () => null
+
+  setFocusedWindowProvider(fn: () => (FocusedHive & { win: BrowserWindow }) | null): void {
+    this.focusedHive = fn
   }
 
   key(projectPath: string, agentId: string): string {
@@ -1092,7 +1100,7 @@ class SessionManager {
       l.state.status = 'waiting'
       l.state.unseen = true
       l.state.statusMessage = asked[0].includes('trust') ? 'Asks whether to trust this folder' : 'Asks something before it starts'
-      this.notify(l.state.projectPath, `${this.label(l.state)} needs your input`, l.state.statusMessage, 'waiting')
+      this.notify(l.state.projectPath, `${this.label(l.state)} needs your input`, l.state.statusMessage, 'waiting', undefined, l.state.agentId)
       this.emitState(l.state)
     } else if (l.adapter.readyOutput?.test(text)) {
       this.startupAnswered(l)
@@ -1806,12 +1814,6 @@ class SessionManager {
     emit({ type: 'session-status', state: { ...state } })
   }
 
-  /** Whether the user is looking at the window showing this project. */
-  private windowAttentive(projectPath: string): boolean {
-    const w = this.getWindow(projectPath)
-    return !!w && w.isVisible() && w.isFocused() && !w.isMinimized()
-  }
-
   /** The launch a hook call belongs to: named by its run id, else (older launch folders) by session id. */
   private findLaunch(runId: string | null, sessionId: unknown): [string, LiveSession] | null {
     if (runId) {
@@ -2069,10 +2071,10 @@ class SessionManager {
           toast('info', `${label}: compacting conversation`, `${l.adapter.descriptor.name} is summarising the context to free up space.`, undefined, st.projectPath)
           break
         case 'notifyWaiting':
-          this.notify(st.projectPath, `${label} needs your input`, step.message || 'Waiting for your input', 'waiting')
+          this.notify(st.projectPath, `${label} needs your input`, step.message || 'Waiting for your input', 'waiting', undefined, st.agentId)
           break
         case 'notifyQuestion':
-          this.notify(st.projectPath, `${label} has a question for you`, step.question || 'It carries on working meanwhile.', 'waiting')
+          this.notify(st.projectPath, `${label} has a question for you`, step.question || 'It carries on working meanwhile.', 'waiting', undefined, st.agentId)
           break
         case 'notifyFinished':
           // Watching its cards isn't finished: nothing for the user to look at.
@@ -2134,40 +2136,56 @@ class SessionManager {
     workspaceOf(st.projectPath).scheduleRefresh()
   }
 
-  /** A desktop notification (and for finished/waiting, the chime): a notice is a warning that needs no sound. */
-  private notify(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting' | 'notice', agentName?: string): void {
+  /**
+   * Tells the user (and for finished/waiting, the chime): a banner in the Hive window they are using, else a Windows
+   * notification (route()). A notice is a warning that needs no sound.
+   */
+  private notify(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting' | 'notice', agentName?: string, agentId?: string): void {
     if (kind !== 'notice') {
       // The window plays at most one chime every 2 seconds, so agents finishing together chime once.
       void this.effective(projectPath)
         .then((eff) => {
-          if (eff.chime) emit({ type: 'chime', projectPath })
+          if (!eff.chime) return
+          // A quiet test copy records the chime and the window counts it without playing a sound.
+          testNotifyLog({ kind: 'chime', projectPath })
+          emit({ type: 'chime', projectPath, ...(testQuiet() ? { silent: true } : {}) })
         })
         .catch((e) => log.warn('chime: settings unavailable', e))
     }
-    if (!this.mayNotify(projectPath, kind)) return
-    // Finishes that come together are told in one notification ("3 agents finished in hive"); a question is told at once.
+    if (this.route(projectPath, kind) === 'none') return
+    // Finishes that come together are told in one notice ("3 agents finished in hive"); a question is told at once.
     if (kind === 'finished') {
       const assistant = workspace.isAssistantHome(projectPath)
       this.finishes.add({ projectPath, project: assistant ? ASSISTANT_NAME : basename(projectPath), agent: assistant ? ASSISTANT_NAME : (agentName ?? 'Agent'), title, body })
       return
     }
-    this.showNotification(projectPath, title, body)
+    this.deliver(projectPath, title, body, kind, agentId)
   }
 
-  /** Whether a notification about this project may be shown now (the settings, and its own window's focus). */
-  private mayNotify(projectPath: string, kind: 'finished' | 'waiting' | 'notice'): boolean {
-    return notificationAllowed(config.settings.notifications, kind, this.windowAttentive(projectPath))
+  /** Where a notice about this project goes now: the settings, and the Hive window the user is using (noticeRoute). */
+  private route(projectPath: string, kind: 'finished' | 'waiting' | 'notice'): NoticeRoute {
+    return noticeRoute(config.settings.notifications, kind, this.focusedHive(), { workspacePath: workspaceOf(projectPath)?.path ?? null, projectPath })
+  }
+
+  /** A banner in the focused window, or a Windows notification, as route() says now. */
+  private deliver(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting' | 'notice', agentId?: string): void {
+    const route = this.route(projectPath, kind)
+    if (route === 'windows') return this.showNotification(projectPath, title, body)
+    const at = this.focusedHive()
+    if (route !== 'banner' || !at) return
+    emitTo(at.win, { type: 'notice', notice: { id: randomUUID(), kind, title, body, projectPath, ...(agentId ? { agentId } : {}) } })
   }
 
   /**
-   * Finishes collected by `finishes`, in one notification: those that may still be shown (notifications turned
-   * off meanwhile, or their window focused), counted and opened from what is left.
+   * Finishes collected by `finishes`, in one notice: those that may still be told (notifications turned off
+   * meanwhile, or left out by the banner scope), counted and opened from what is left, as a banner or a Windows
+   * notification as things are when it is shown.
    */
   private readonly finishes = new FinishBatcher((all) => {
-    const items = all.filter((i) => this.mayNotify(i.projectPath, 'finished'))
+    const items = all.filter((i) => this.route(i.projectPath, 'finished') !== 'none')
     if (!items.length) return
     const { title, body } = finishedNotice(items)
-    this.showNotification(items[0].projectPath, title, body)
+    this.deliver(items[0].projectPath, title, body, 'finished')
   })
 
   /** A Windows notification; clicking it shows the project (the first one's, for finishes in several). */
@@ -2181,13 +2199,11 @@ class SessionManager {
       shownNotifications.delete(note)
       const w = this.getWindow(projectPath)
       if (w) {
-        if (w.isMinimized()) w.restore()
-        w.show()
-        w.focus()
+        presentWindow(w)
         emitTo(w, { type: 'menu-command', command: 'project.focus', args: [projectPath] })
       }
     })
-    note.show()
+    if (!showOsNotification(note, title, body)) shownNotifications.delete(note)
   }
 
   /** The window showed these agents (all of the project's when none are named). */

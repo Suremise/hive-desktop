@@ -5,6 +5,17 @@
 
 import type { AppSettings } from './types'
 
+/** Where a notice goes: a banner in the focused Hive window, a Windows notification, or nowhere. */
+export type NoticeRoute = 'banner' | 'windows' | 'none'
+
+/** The Hive window you are using: the workspace it holds and the project it shows. */
+export interface FocusedHive {
+  workspacePath: string | null
+  projectPath: string | null
+}
+
+const samePath = (a: string | null, b: string | null): boolean => !!a && !!b && a.toLowerCase() === b.toLowerCase()
+
 /** At most one chime this often (per window). */
 export const CHIME_GAP_MS = 2000
 /** Finishes within this long of the last one are told together. */
@@ -13,19 +24,43 @@ export const FINISH_GROUP_MS = 3000
 export const FINISH_GROUP_MAX_MS = 10_000
 
 /**
- * Whether a notification may be shown now (Settings → Notifications): checked when it happens and again when a
- * group of finishes is shown, since the settings or the window's focus may have changed while it was collected.
- * `attentive`: the window showing its project is visible and focused.
+ * Where a notice goes now (Settings → Notifications): decided when it happens and again when a group of finishes is
+ * shown, since the settings or the focus may have changed while it was collected.
+ * - Notifications off, or that kind off: nowhere.
+ * - No Hive window focused: a Windows notification.
+ * - A Hive window focused (`focused`): per *While Hive is focused*: a banner in that window (Show in Hive), nothing, or
+ *   a Windows notification. A banner only for what *Show banners for* covers: every window's notices, the focused
+ *   window's workspace's, or the project it shows; one it leaves out shows nothing at all. A notice about no project
+ *   (plan usage) is for every scope.
  */
-export function notificationAllowed(
-  n: Pick<AppSettings['notifications'], 'desktopNotifications' | 'notifyOnFinished' | 'notifyOnWaiting' | 'onlyWhenUnfocused'>,
+export function noticeRoute(
+  n: Pick<AppSettings['notifications'], 'desktopNotifications' | 'notifyOnFinished' | 'notifyOnWaiting' | 'whileFocused' | 'bannerScope'>,
   kind: 'finished' | 'waiting' | 'notice',
-  attentive: boolean
-): boolean {
-  if (!n.desktopNotifications) return false
-  if (kind === 'finished' && !n.notifyOnFinished) return false
-  if (kind === 'waiting' && !n.notifyOnWaiting) return false
-  return !(n.onlyWhenUnfocused && attentive)
+  focused: FocusedHive | null,
+  from: { workspacePath: string | null; projectPath: string | null }
+): NoticeRoute {
+  if (!n.desktopNotifications) return 'none'
+  if (kind === 'finished' && !n.notifyOnFinished) return 'none'
+  if (kind === 'waiting' && !n.notifyOnWaiting) return 'none'
+  if (!focused) return 'windows'
+  if (n.whileFocused === 'nothing') return 'none'
+  if (n.whileFocused === 'windows') return 'windows'
+  if (!from.projectPath && !from.workspacePath) return 'banner'
+  if (n.bannerScope === 'workspace' && !samePath(focused.workspacePath, from.workspacePath)) return 'none'
+  if (n.bannerScope === 'project' && !samePath(focused.projectPath, from.projectPath)) return 'none'
+  return 'banner'
+}
+
+/** How many banners show at once (more are behind "+N more"), and how many that close by themselves are kept. */
+export const MAX_BANNERS = 4
+
+/**
+ * The banners a window keeps, newest first: every one that stays until handled (a waiting agent's, unless set to close
+ * like the others), however many, and the newest MAX_BANNERS of the rest. A new notice never pushes out one waiting.
+ */
+export function keepNotices<T>(newestFirst: readonly T[], staysUntilHandled: (n: T) => boolean, max = MAX_BANNERS): T[] {
+  let others = 0
+  return newestFirst.filter((n) => staysUntilHandled(n) || others++ < max)
 }
 
 export function chimeAllowed(lastAt: number | null, now: number): boolean {

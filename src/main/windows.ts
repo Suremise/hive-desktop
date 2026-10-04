@@ -22,12 +22,14 @@ export interface HiveWindow {
   question: { request: QuitSession[]; unsaved: string[]; scope: QuitScope; answer: (c: QuitChoice) => void } | null
   /** Closing was decided: let the window close. */
   closing: boolean
+  /** The project its page shows (reported by the page): for banners shown for "This project" (#157). */
+  showing: string | null
 }
 
 const entries = new Map<number, HiveWindow>()
 
 export function registerWindow(win: BrowserWindow, ws: WorkspaceService): HiveWindow {
-  const e: HiveWindow = { win, ws, unsaved: [], focusedAt: Date.now(), question: null, closing: false }
+  const e: HiveWindow = { win, ws, unsaved: [], focusedAt: Date.now(), question: null, closing: false, showing: null }
   entries.set(win.webContents.id, e)
   ws.window = win
   win.on('focus', () => (e.focusedAt = Date.now()))
@@ -105,6 +107,7 @@ function forEvent(e: HiveEvent): BrowserWindow[] {
     }
     case 'window-state':
     case 'quit-request':
+    case 'notice':
       // Sent to one window by emitTo.
       return []
     default:

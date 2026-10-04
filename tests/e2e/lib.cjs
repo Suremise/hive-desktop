@@ -100,7 +100,8 @@ async function openWorkspace(inv, page, ws, ms = 20000) {
 
 /** Starts the dev build with a test profile. Returns { app, page, inv } (inv calls an IPC channel). */
 async function launch({ userData, env = {}, viewport = { width: 1400, height: 850 } }) {
-  const e = { ...process.env, HIVE_USER_DATA: userData, ...env }
+  // Quiet (src/main/testQuiet.ts) unless the suite says otherwise: no focus taken, no Windows notifications.
+  const e = { HIVE_TEST_QUIET: '1', ...process.env, HIVE_USER_DATA: userData, ...env }
   delete e.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: ELECTRON, args: [ROOT], cwd: ROOT, env: e })
   const page = await app.firstWindow()

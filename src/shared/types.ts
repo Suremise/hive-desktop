@@ -12,6 +12,23 @@ export type PermissionMode = string
 /** A reasoning effort id from the agent's provider (e.g. "low", "high", "max"). */
 export type EffortLevel = string
 export type ChimeSound = 'chime' | 'bell' | 'soft' | 'pop'
+/** Settings → Notifications, *While Hive is focused*: Show in Hive, Show nothing, or a Windows notification. */
+export type WhileFocused = 'inApp' | 'nothing' | 'windows'
+/** Settings → Notifications, *Show banners for*. */
+export type BannerScope = 'all' | 'workspace' | 'project'
+export type BannerPosition = 'top-left' | 'top-center' | 'top-right' | 'bottom-left' | 'bottom-center' | 'bottom-right'
+
+/** A notice shown as a banner in the focused window (#157): an agent finished or waiting, or another notice. */
+export interface Notice {
+  id: string
+  kind: 'finished' | 'waiting' | 'notice'
+  title: string
+  body: string
+  /** The project it is about (null: app-wide, such as plan usage); clicking the banner shows it. */
+  projectPath: string | null
+  /** The agent waiting, for a waiting banner to close once it is answered. */
+  agentId?: string
+}
 export type CacheTtlSetting = 'auto' | '5m' | '1h'
 
 export type QuitConfirm = 'working' | 'always' | 'never'
@@ -89,7 +106,15 @@ export interface AppSettings {
     desktopNotifications: boolean
     notifyOnFinished: boolean
     notifyOnWaiting: boolean
-    onlyWhenUnfocused: boolean
+    /** While a Hive window is focused: a banner in it, nothing, or a Windows notification (shared/bursts.ts noticeRoute). */
+    whileFocused: WhileFocused
+    /** Which notices the focused window shows as banners: from every window, its workspace, or the project it shows. */
+    bannerScope: BannerScope
+    bannerPosition: BannerPosition
+    /** How long a banner for a finished agent (or another notice) stays, in seconds; kept while the pointer is on it. */
+    bannerSeconds: number
+    /** Banners for an agent waiting for you stay until handled (clicked, dismissed or answered); off: they close like the others. */
+    waitingBannerStays: boolean
     /** A badge with the count of agents that need you on the window's taskbar button, and the count in its title. */
     taskbarCount: boolean
     /** Flash the taskbar button when an agent starts waiting for your input and the window isn't focused. */
@@ -242,8 +267,8 @@ export interface WindowState {
 }
 
 export interface AppConfig {
-  /** 3 since the Assistant uses the agents' model and effort (0.3.0); 2 since providers (0.2.0); 1 was Claude Code only. */
-  version: 5
+  /** 6 since notices show in Hive while it is focused; 3 since the Assistant uses the agents' model and effort (0.3.0); 2 since providers (0.2.0); 1 was Claude Code only. */
+  version: 6
   settings: AppSettings
   recentWorkspaces: string[]
   /** The workspace of the window focused last (what 0.1 reopened); `windows` has every window. */
@@ -254,6 +279,8 @@ export interface AppConfig {
   window: WindowState
   /** The windows open when Hive last quit, each with its workspace (null: the welcome page), reopened at start. */
   windows?: (WindowState & { workspace: string | null })[]
+  /** Always on Top: the workspaces (lowercased paths) whose window was left pinned. This machine's, never in .hive. */
+  alwaysOnTop?: Record<string, true>
   /** `panes`: resizable pane sizes by key (pixels, or a fraction for split views). `tips`: what the tips know (shared/tips.ts). */
   ui: { sidebarWidth: number; sidebarVisible: boolean; sidebarCompact?: boolean; panes?: Record<string, number>; tips?: TipsState }
   /** Per provider: the model last seen in a session started without a model choice (the CLI's own default). */
@@ -1132,6 +1159,8 @@ export interface ToastMessage {
   actions?: ToastAction[]
   timestamp: string
   source?: string
+  /** Kept in the Notifications panel (the bell) only, not shown as a toast: a notice told another way, or not at all (#157). */
+  quiet?: boolean
 }
 
 export interface AppInfo {
@@ -1163,7 +1192,7 @@ export type HiveEvent =
   /** `failure`: the CLI exited before its session started (and nobody stopped it): why, for the agent's pane. */
   | { type: 'session-exit'; projectPath: string; agentId: string; sessionId: string; exitCode: number; failure?: StartFailure }
   | { type: 'toast'; toast: ToastMessage }
-  | { type: 'chime'; projectPath: string }
+  | { type: 'chime'; projectPath: string; silent?: boolean }
   | { type: 'settings-changed'; settings: AppSettings }
   | { type: 'provider-install'; provider: ProviderId; info: AgentInstallInfo }
   | { type: 'menu-command'; command: string; args?: unknown[] }
@@ -1189,7 +1218,10 @@ export type HiveEvent =
   /** A worktree agent's unmerged work changed (null: git couldn't check it). */
   | { type: 'branch-status'; projectPath: string; agentId: string; status: AgentBranchStatus | null }
   | { type: 'plan-usage'; provider: ProviderId; usage: PlanUsage }
-  | { type: 'window-state'; maximized: boolean; focused: boolean }
+  | { type: 'window-state'; maximized: boolean; focused: boolean; alwaysOnTop: boolean }
+  | { type: 'notice'; notice: Notice }
+  /** The agent no longer waits for you: its waiting banner closes, in whichever window shows it. */
+  | { type: 'notice-resolved'; projectPath: string; agentId: string }
   | { type: 'update-state'; state: UpdateState }
   /** A workspace's progress runs changed (all of them, newest first). */
   | { type: 'progress-changed'; workspacePath: string; runs: ProgressRun[] }
