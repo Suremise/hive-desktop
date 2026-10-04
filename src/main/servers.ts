@@ -1078,12 +1078,9 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
   const actor = await taskActor()
   const changes: string[] = []
   const apply = async (): Promise<TaskCard> => {
-    let c = await tasks.readTask(n, actor)
-    if (Object.keys(patch).length) c = await tasks.updateTask(n, patch, actor, { said: changes })
-    if (comment) {
-      c = await tasks.commentTask(n, comment, actor)
-      changes.push('Commented')
-    }
+    // A change and its comment are saved together: a card watch woken by the change names this comment.
+    const c = Object.keys(patch).length ? await tasks.updateTask(n, patch, actor, { said: changes, comment: comment || undefined }) : comment ? await tasks.commentTask(n, comment, actor) : await tasks.readTask(n, actor)
+    if (comment) changes.push('Commented')
     return c
   }
   const reply = async (c: TaskCard) => (shortReply(body) ? taskChange(c, changes) : taskView(c))
