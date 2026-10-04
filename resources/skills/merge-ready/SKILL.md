@@ -17,6 +17,7 @@ In Hive an agent often works in its own git worktree on its own branch. The user
 4. **Compare with the base** (usually `main` or `master`):
    - `git log --oneline <base>..HEAD` and `git diff --stat <base>...HEAD`. Look for files changed by accident, debug code, commented-out code and leftover TODOs.
    - If the base has moved on, check whether it merges cleanly, for example with `git merge-tree --write-tree <base> HEAD`, and say whether there are conflicts.
+   - Files that `.gitattributes` merges with `merge=union` (often a changelog) never conflict: git keeps both sides' lines. After merging the base, glance over them for an entry that appears twice in two wordings.
 5. **Summarise for the reviewer**:
    - **What**: the change in a few sentences.
    - **Why**: the problem it solves (and the card, if there is one).

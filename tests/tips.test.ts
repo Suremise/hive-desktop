@@ -3,9 +3,9 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { EMPTY_TIPS_STATE, TIP_GROUPS, TIP_MOMENTS, TIPS, localDay, nextTip, sawTip, tipForMoment, tipForToday, tipsState, usedCommand, type Tip, type TipsState } from '../src/shared/tips'
+import { EMPTY_TIPS_STATE, TIP_ENTRIES, TIP_GROUPS, TIP_MOMENTS, TIPS, localDay, nextTip, sawTip, tipForMoment, tipForToday, tipsState, usedCommand, type Tip, type TipsState } from '../src/shared/tips'
 
-const t = (id: string, command?: string, knownBy?: string[]): Tip => ({ id, group: 'Sessions', title: id, text: id, command, knownBy })
+const t = (id: string, command?: string, knownBy?: string[]): Tip => ({ id, group: 'Sessions', order: 0, title: id, text: id, command, knownBy })
 const tips = [t('a', 'cmd.a'), t('b'), t('c', 'cmd.c'), t('d', 'cmd.d', [])]
 
 describe('choosing a tip', () => {
@@ -63,6 +63,13 @@ describe('the tips', () => {
       expect(tip.text.length, tip.id).toBeLessThanOrEqual(260)
       if (tip.docs) expect(headings.has(tip.docs), `${tip.id}: "${tip.docs}"`).toBe(true)
     }
+  })
+
+  it('are listed in id order (fewer merge conflicts) and shown in their own order', () => {
+    const ids = TIP_ENTRIES.map((x) => x.id)
+    expect(ids).toEqual([...ids].sort())
+    expect(new Set(TIPS.map((x) => x.order)).size, 'two tips share an order').toBe(TIPS.length)
+    expect(TIPS.map((x) => x.order)).toEqual(TIP_ENTRIES.map((x) => x.order).sort((a, b) => a - b))
   })
 
   it('cover every moment', () => {

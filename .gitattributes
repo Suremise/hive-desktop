@@ -1,0 +1,3 @@
+# Branches all add CHANGELOG entries at the top of Unreleased: keep both sides instead of a conflict.
+# Only for the CHANGELOG (union keeps both versions of a changed line without warning). See CLAUDE.md.
+CHANGELOG.md merge=union
