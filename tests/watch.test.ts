@@ -153,6 +153,38 @@ describe('watches (main/watches.ts)', async () => {
     await disposeWorkspaceService(w)
   })
 
+  it("a verdict, move and comment in one call are saved together: the builder's wake names the reviewer's comment (#138)", async () => {
+    const { onHiveEvent } = await import('../src/main/events')
+    const { w, path, alpha } = await open()
+    const st = fake(alpha)
+    const reviewer = { kind: 'agent', name: 'Reviewer (alpha)', self: { project: 'alpha', agentId: 'a2' }, scope: 'alpha' } as const
+    const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha', agent: 'a1', column: 'review' }, user))
+    await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready for review (round 1)', { kind: 'agent', name: 'Builder (alpha)' }))
+    await inWorkspace(w, () => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['verdict', 'column'], column: 'done' })
+    // What anything reading the card sees the moment a change is announced (a watch waking its agent reads it then).
+    const seen: { column: string; latest: string | undefined }[] = []
+    const off = onHiveEvent((e) => {
+      if (e.type !== 'tasks-changed') return
+      const card = JSON.parse(readFileSync(join(path, '.hive', 'tasks', `${c.number}.json`), 'utf8')) as TaskCard
+      seen.push({ column: card.column, latest: card.comments.at(-1)?.text })
+    })
+    const said: string[] = []
+    await inWorkspace(w, () => tasks.updateTask(c.number, { review: 'passed', column: 'done' }, reviewer, { said, comment: 'Passed review, round 1.' }))
+    off()
+    // Before, the move was saved and announced, then the comment: the first announcement showed Done with the builder's comment.
+    expect(seen).toEqual([{ column: 'done', latest: 'Passed review, round 1.' }])
+    expect(said).toEqual(['Review passed', 'Moved to Done'])
+    await watches.evaluateWatches(w)
+    expect(st.typed).toHaveLength(1)
+    expect(st.typed[0]).toContain(`#${c.number} is in Done; latest comment by Reviewer (alpha): "Passed review, round 1."`)
+    // A comment that can't be saved stops the whole change: nothing moves without it.
+    const d = await inWorkspace(w, () => tasks.createTask({ title: 'B', project: 'alpha', column: 'review' }, user))
+    await expect(inWorkspace(w, () => tasks.updateTask(d.number, { column: 'done' }, user, { comment: '   ' }))).rejects.toThrow('The comment is empty.')
+    expect((await inWorkspace(w, () => tasks.getTask(d.number))).column).toBe('review')
+    await disposeWorkspaceService(w)
+  })
+
   it('not typed while the agent works or the user types: kept, fired, and typed when it can be', async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)

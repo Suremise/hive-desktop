@@ -166,6 +166,9 @@ const check = (name, ok, extra = '') => {
   const rw = wakes('Reviewer').map((w) => w.text)
   check('the builder was woken once per verdict: c1 passed, c2 failed, c2 passed', bw.length === 3 && bw[0].includes(`#${c1}`) && bw[1].includes(`#${c2}`) && bw[2].includes(`#${c2}`), JSON.stringify(bw))
   check('the reviewer was woken once per arrival: c1, c2, c2 again', rw.length === 3 && rw[0].includes(`#${c1} is in Review`) && rw[1].includes(`#${c2} is in Review`) && rw[2].includes(`#${c2} is in Review`), JSON.stringify(rw))
+  // A pass is one call (verdict, move to Done and comment): the wake names that comment, not the builder's before it (#138).
+  const passed = 'latest comment by Reviewer (alpha): "Fake review: passed."'
+  check("the builder's wakes on a pass name the reviewer's comment from the same call", bw.length === 3 && bw[0].includes(passed) && bw[2].includes(passed), JSON.stringify(bw))
   const h2 = (await card(c2)).history.map((h) => h.what)
   check('c2: failed once, then passed (two rounds)', h2.filter((x) => x === 'Review failed').length === 1 && h2.filter((x) => x === 'Review passed').length === 1, h2.join(' | '))
   check('c1 passed first time', (await card(c1)).history.filter((h) => h.what === 'Review failed').length === 0)

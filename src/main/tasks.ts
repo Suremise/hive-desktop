@@ -398,9 +398,14 @@ export async function createTask(
  * Changes a card. Anyone moves it between columns, Done included (each move is in its history, with who made it);
  * putting Done in order is the user's. An archived card only changes once the user brings it back.
  */
-export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, opts: { check?: (card: TaskCard) => void; said?: string[] } = {}): Promise<TaskCard> {
+/**
+ * Changes a card. `comment` is the same call's comment (the hive tools' and PATCH's): saved with the change in one write,
+ * so nothing that reads the card meanwhile (a card watch waking its agent, the board) sees the move without it.
+ */
+export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, opts: { check?: (card: TaskCard) => void; said?: string[]; comment?: string } = {}): Promise<TaskCard> {
   const ws = workspace
   const by = actorName(actor)
+  const comment = opts.comment === undefined ? null : commentText(opts.comment)
   const result = await withFileLock(cardFile(n, ws), async () => {
     const card = await getTask(n, ws)
     const scope = scopeOf(actor)
@@ -506,8 +511,9 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
     }
     // What changed, in the history's words, for a caller that confirms it (the hive tools' short replies).
     opts.said?.push(...said)
-    if (!said.length && !reordered && !reviewed) return card
+    if (!said.length && !reordered && !reviewed && !comment) return card
     for (const s of said) note(card, by, s)
+    if (comment) addComment(card, by, comment)
     await writeJsonAtomic(cardFile(n, ws), card)
     return card
   })
@@ -581,17 +587,27 @@ export async function latestComment(n: number, actor: TaskActor): Promise<{ numb
   return { number: c.number, comment: c.comments.at(-1) ?? null }
 }
 
-export async function commentTask(n: number, comment: string, actor: TaskActor): Promise<TaskCard> {
-  const ws = workspace
+/** A comment's text, checked: within the limit and not empty. */
+function commentText(comment: string): string {
   const t = text(comment, MAX_TEXT, 'comment').trim()
   if (!t) throw new Error('The comment is empty.')
+  return t
+}
+
+function addComment(c: TaskCard, by: string, t: string): void {
+  const at = new Date().toISOString()
+  c.comments = [...c.comments, { at, by, text: t }].slice(-MAX_COMMENTS)
+  c.updatedAt = at
+}
+
+export async function commentTask(n: number, comment: string, actor: TaskActor): Promise<TaskCard> {
+  const ws = workspace
+  const t = commentText(comment)
   const card = await withFileLock(cardFile(n, ws), async () => {
     const c = await getTask(n, ws)
     if (!inScope(c, scopeOf(actor))) throw unknownTask(n)
     if (c.archived && actor.kind !== 'user') throw new TaskPermissionError(`#${n} is archived. Only the user can bring it back.`)
-    const at = new Date().toISOString()
-    c.comments = [...c.comments, { at, by: actorName(actor), text: t }].slice(-MAX_COMMENTS)
-    c.updatedAt = at
+    addComment(c, actorName(actor), t)
     await writeJsonAtomic(cardFile(n, ws), c)
     return c
   })
