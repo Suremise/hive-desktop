@@ -2,7 +2,7 @@
 // names a suite that exists, and the runner's helpers: which suites a change needs (affected.mjs) and the code's
 // fingerprint in a run record (record.mjs).
 import { execFileSync } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -13,11 +13,13 @@ import { AREAS, EVERYTHING, affectedSuites, under } from './e2e/affected.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { fingerprint } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { parseArgs, recordStatus, selectSuites } from './e2e/runner.mjs'
+import { parentSuite, parseArgs, portBase, recordStatus, repeatStatus, selectSuites } from './e2e/runner.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { recordMarkdown } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { buildStamp, ensureBuild } from './e2e/build.mjs'
+// @ts-expect-error: plain .mjs modules without types
+import { KEEP_RUNS, finishRunDirs, logsRootFor, newRunDir, pruneRunDirs, runDirActive, runDirsInOrder } from './e2e/logs.mjs'
 import { createRequire } from 'module'
 import { ProgressStore } from '../src/main/progress'
 
@@ -302,5 +304,209 @@ describe("progressreport's estimate check (lib.hadEstimate)", () => {
     store.update(caller, first.id, { step: 2 })
     expect(hadEstimate(store.finish(caller, first.id, { ok: true }))).toBe(false)
     expect(hadEstimate(undefined)).toBe(false)
+  })
+})
+
+describe("each run's own log folder (logs.mjs)", () => {
+  const logsDir = mkdtempSync(join(tmpdir(), 'hive-logs-'))
+  afterAll(() => rmSync(logsDir, { recursive: true, force: true }))
+  const second = new Date(2026, 9, 4, 15, 0, 2)
+
+  it('two runs in the same second get folders of their own, and keep their records and logs', () => {
+    const a = newRunDir(logsDir, second)
+    const b = newRunDir(logsDir, second)
+    const c = newRunDir(logsDir, second)
+    expect([a, b, c].map((d) => d.slice(logsDir.length + 1))).toEqual(['run-20261004-150002', 'run-20261004-150002-2', 'run-20261004-150002-3'])
+    writeFileSync(join(a, 'run-record.md'), 'first')
+    writeFileSync(join(a, 'board.log'), 'first board')
+    writeFileSync(join(b, 'run-record.md'), 'second')
+    writeFileSync(join(b, 'board.log'), 'second board')
+    expect(readFileSync(join(a, 'run-record.md'), 'utf8')).toBe('first')
+    expect(readFileSync(join(a, 'board.log'), 'utf8')).toBe('first board')
+    expect(readFileSync(join(b, 'run-record.md'), 'utf8')).toBe('second')
+  })
+
+  it('keeps the newest ten in time order, suffixes after their base (and -10 after -9), and leaves nested/ alone', () => {
+    expect(runDirsInOrder(['run-20261004-150002-10', 'run-20261004-150003', 'nested', 'run-record.md', 'run-20261004-150002-9', 'run-20261004-150002'])).toEqual(['run-20261004-150002', 'run-20261004-150002-9', 'run-20261004-150002-10', 'run-20261004-150003'])
+    for (let i = 0; i < 12; i++) newRunDir(logsDir, new Date(2026, 9, 4, 16, 0, i))
+    mkdirSync(join(logsDir, 'nested', 'run-20261004-170000'), { recursive: true })
+    writeFileSync(join(logsDir, 'run-record.md'), 'latest')
+    finishRunDirs(runDirsInOrder(readdirSync(logsDir)).map((n: string) => join(logsDir, n)))
+    const removed = pruneRunDirs(logsDir)
+    expect(removed).toEqual(['run-20261004-150002', 'run-20261004-150002-2', 'run-20261004-150002-3', 'run-20261004-160000', 'run-20261004-160001'])
+    const left = readdirSync(logsDir)
+    expect(left.filter((n) => n.startsWith('run-2'))).toHaveLength(KEEP_RUNS)
+    expect(left).toContain('nested')
+    expect(left).toContain('run-record.md')
+    expect(left).toContain('run-20261004-160011')
+  })
+
+  it('a repeat of more than ten runs in one second keeps every one of its folders until its record is saved, then the next run trims to ten', () => {
+    const runsDir = mkdtempSync(join(tmpdir(), 'hive-repeat-'))
+    try {
+      // Older runs from before.
+      finishRunDirs(Array.from({ length: 4 }, (_, i) => newRunDir(runsDir, new Date(2026, 9, 4, 14, 0, i))))
+      // The repeat, as run.mjs does it: a folder per run (all in one second), each suite's log written as it ends, no
+      // pruning until the end.
+      const frozen = new Date(2026, 9, 4, 15, 0, 2)
+      const mine: string[] = []
+      for (let k = 1; k <= 11; k++) {
+        const runDir = newRunDir(runsDir, frozen)
+        writeFileSync(join(runDir, 'one.log'), `run ${k}`)
+        mine.push(runDir)
+      }
+      expect(new Set(mine).size).toBe(11)
+      // The one record for the repeat, saved into every run's folder, then the latest.
+      for (const runDir of mine) writeFileSync(join(runDir, 'run-record.md'), 'all 11 passed')
+      writeFileSync(join(runsDir, 'run-record.md'), 'all 11 passed')
+      finishRunDirs(mine)
+      const removed = pruneRunDirs(runsDir, KEEP_RUNS, mine)
+      expect(removed).toHaveLength(4)
+      for (const [k, runDir] of mine.entries()) {
+        expect(readFileSync(join(runDir, 'run-record.md'), 'utf8')).toBe('all 11 passed')
+        expect(readFileSync(join(runDir, 'one.log'), 'utf8')).toBe(`run ${k + 1}`)
+      }
+      expect(readdirSync(runsDir).filter((n) => n.startsWith('run-2'))).toHaveLength(11)
+      // The next runner, in the same second again: a new name above the others, and it trims to the newest ten.
+      const next = newRunDir(runsDir, frozen)
+      expect(next.endsWith('run-20261004-150002-12')).toBe(true)
+      finishRunDirs([next])
+      pruneRunDirs(runsDir, KEEP_RUNS, [next])
+      const left = runDirsInOrder(readdirSync(runsDir))
+      expect(left).toHaveLength(KEEP_RUNS)
+      expect(left.at(-1)).toBe('run-20261004-150002-12')
+      expect(left[0]).toBe('run-20261004-150002-3')
+    } finally {
+      rmSync(runsDir, { recursive: true, force: true })
+    }
+  })
+
+  it("a runner never prunes another runner's run still going: a slow run overlapping a fast repeat of more than ten", () => {
+    const shared = mkdtempSync(join(tmpdir(), 'hive-overlap-'))
+    try {
+      const A = 111
+      const B = 222
+      const running = new Set([A, B])
+      const alive = (pid: number): boolean => running.has(pid)
+      const sameSecond = new Date(2026, 9, 4, 15, 0, 2)
+      // A: a slow run, started first (the base name), still running its suite.
+      const a = newRunDir(shared, sameSecond, A)
+      // B: a fast repeat of 11 in the same sameSecond, then its record, then it finishes and prunes.
+      const b = Array.from({ length: 11 }, () => newRunDir(shared, sameSecond, B))
+      for (const runDir of b) writeFileSync(join(runDir, 'run-record.md'), 'B: 11 of 11 runs passed')
+      finishRunDirs(b)
+      running.delete(B)
+      expect(pruneRunDirs(shared, KEEP_RUNS, b, alive)).toEqual([])
+      // A finishes its suite and saves its record: its folder is still there.
+      writeFileSync(join(a, 'one.log'), 'A passed')
+      writeFileSync(join(a, 'run-record.md'), 'A: 1 passed')
+      expect(readFileSync(join(a, 'run-record.md'), 'utf8')).toBe('A: 1 passed')
+      for (const runDir of b) expect(readFileSync(join(runDir, 'run-record.md'), 'utf8')).toBe('B: 11 of 11 runs passed')
+      // A is done and prunes: the finished runs come down to the newest ten, A's own kept.
+      finishRunDirs([a])
+      running.delete(A)
+      // A's own run is the oldest but protected while A prunes: the newest ten finished runs plus A's.
+      expect(pruneRunDirs(shared, KEEP_RUNS, [a], alive)).toEqual(['run-20261004-150002-2'])
+      expect(runDirsInOrder(readdirSync(shared))).toHaveLength(KEEP_RUNS + 1)
+      expect(readFileSync(join(a, 'one.log'), 'utf8')).toBe('A passed')
+      // The next runner's prune keeps the newest ten finished runs.
+      expect(pruneRunDirs(shared, KEEP_RUNS, [], alive)).toEqual(['run-20261004-150002'])
+      expect(runDirsInOrder(readdirSync(shared))).toHaveLength(KEEP_RUNS)
+    } finally {
+      rmSync(shared, { recursive: true, force: true })
+    }
+  })
+
+  it("a run folder counts as still going only while its runner's process is alive (a crashed runner's is pruned)", () => {
+    const crashed = mkdtempSync(join(tmpdir(), 'hive-crash-'))
+    try {
+      const runDir = newRunDir(crashed, new Date(2026, 9, 4, 15, 0, 2), 333)
+      expect(runDirActive(runDir, () => true)).toBe(true)
+      expect(runDirActive(runDir, () => false)).toBe(false)
+      // A marker a day old is stale even if the process id is in use again.
+      expect(runDirActive(runDir, () => true, Date.now() + 25 * 60 * 60_000)).toBe(false)
+      expect(runDirActive(newRunDir(crashed, new Date(2026, 9, 4, 15, 0, 3)))).toBe(true)
+      expect(pruneRunDirs(crashed, 0, [], () => false)).toHaveLength(2)
+    } finally {
+      rmSync(crashed, { recursive: true, force: true })
+    }
+  })
+
+  it('a name pruned away is never given to a newer run in the same second (it would sort as the oldest)', () => {
+    const runsDir = mkdtempSync(join(tmpdir(), 'hive-reuse-'))
+    try {
+      const when = new Date(2026, 9, 4, 15, 0, 2)
+      const first = newRunDir(runsDir, when)
+      newRunDir(runsDir, when)
+      rmSync(first, { recursive: true })
+      const again = newRunDir(runsDir, when)
+      expect(again.endsWith('run-20261004-150002-3')).toBe(true)
+      expect(runDirsInOrder(readdirSync(runsDir)).at(-1)).toBe('run-20261004-150002-3')
+    } finally {
+      rmSync(runsDir, { recursive: true, force: true })
+    }
+  })
+
+  it("a runner started inside a suite keeps its runs under logs/nested, and its ports clear of the suite's", () => {
+    expect(logsRootFor('W', {})).toBe(join('W', 'logs'))
+    expect(portBase({})).toBe(48300)
+    // In the suite itself: the runner set both.
+    expect(logsRootFor('W', { HIVE_E2E_PORT: '48302', E2E_RUN_SUITE: 'progressreport', E2E_RUN_PORT: '48302' })).toBe(join('W', 'logs', 'nested'))
+    // In an agent's shell in the Hive the suite started: Hive dropped the HIVE_ variables, E2E_RUN_* remain.
+    const inSession = { E2E_RUN_SUITE: 'progressreport', E2E_RUN_PORT: '48302', HIVE_API_URL: undefined }
+    expect(parentSuite(inSession)).toEqual({ name: 'progressreport', port: 48302 })
+    expect(logsRootFor('W', inSession)).toBe(join('W', 'logs', 'nested'))
+    expect(portBase(inSession)).toBe(49302)
+    // A suite run on its own, one at a time: no port, still inside a suite.
+    expect(portBase({ E2E_RUN_SUITE: 'progressreport' })).toBe(49300)
+    // An agent session in a real Hive (no suite): neither.
+    expect(parentSuite({ HIVE_API_URL: 'http://127.0.0.1:47821' })).toBeNull()
+  })
+})
+
+describe('--repeat N: runs until the first failure, one record for all (runner.mjs, record.mjs)', () => {
+  const suiteNames = ['board', 'about']
+
+  it('parses --repeat: a whole number of 1 or more, 1 by default', () => {
+    expect(parseArgs(['board'], suiteNames).repeat).toBe(1)
+    expect(parseArgs(['--repeat', '3', 'board'], suiteNames)).toMatchObject({ repeat: 3, named: ['board'] })
+    expect(parseArgs(['board', '--repeat', '1'], suiteNames).repeat).toBe(1)
+    for (const bad of [['--repeat'], ['--repeat', 'board'], ['--repeat', 'two'], ['--repeat', '0'], ['--repeat', '-1'], ['--repeat', '1.5']]) expect(parseArgs(bad, suiteNames).error).toMatch(/--repeat needs a whole number/)
+  })
+
+  const run = (ok: boolean): { ok: boolean } => ({ ok })
+  const same = { before: 'abc+1', after: 'abc+1', buildStale: false }
+
+  it('is valid only when every run passed, on unchanged code, with a build from it', () => {
+    expect(repeatStatus({ repeat: 3, runs: [run(true), run(true), run(true)], ...same })).toEqual({ valid: true, problems: [] })
+    const stopped = repeatStatus({ repeat: 3, runs: [run(true), run(false)], ...same })
+    expect(stopped.valid).toBe(false)
+    expect(stopped.problems[0]).toBe('stopped after run 2 of 3 failed')
+    expect(repeatStatus({ repeat: 3, runs: [run(false)], ...same }).problems[0]).toBe('stopped after run 1 of 3 failed')
+    expect(repeatStatus({ repeat: 3, runs: [run(true), run(true), run(false)], ...same }).problems[0]).toBe('run 3 of 3 failed')
+    expect(repeatStatus({ repeat: 3, runs: [run(true), run(true)], ...same }).problems[0]).toBe('only 2 of 3 runs ran')
+    const changed = repeatStatus({ repeat: 3, runs: [run(true), run(true), run(true)], before: 'abc+1', after: 'abc+2', buildStale: false })
+    expect(changed.valid).toBe(false)
+    expect(changed.problems[0]).toMatch(/changed while the suites ran/)
+    expect(repeatStatus({ repeat: 2, runs: [run(true), run(true)], ...same, buildStale: true }).valid).toBe(false)
+    // One run: a failed suite shows in the record, which is still a true one.
+    expect(repeatStatus({ repeat: 1, runs: [run(false)], ...same }).valid).toBe(true)
+  })
+
+  it("the record lists each run (result, logs) and each suite's result in each run, and says first when it is not valid", () => {
+    const r = (ok: boolean, seconds: number) => [{ name: 'board', ok: true, seconds }, { name: 'about', ok, seconds: 6, failed: ok ? [] : ['FAIL x'] }]
+    const runs = Object.assign([
+      { ok: true, results: r(true, 13), logDir: 'L1', summary: '2 passed, 0 failed, 0 skipped in 0.3 min' },
+      { ok: false, results: r(false, 14), logDir: 'L2', summary: '1 passed, 1 failed, 0 skipped in 0.3 min' }
+    ], { repeat: 3 })
+    const md = recordMarkdown({ code: 'abc', when: 'now', jobs: 4, results: runs[1].results, logDir: 'L2', summary: '1 of 3 runs passed (stopped after run 2)', problems: ['stopped after run 2 of 3 failed'], runs })
+    const lines = md.split('\n')
+    expect(lines[0]).toBe("**Not valid — don't trust this record:** stopped after run 2 of 3 failed.")
+    expect(md).toContain('· 2 of 3 runs')
+    expect(md).toContain('| 1 | pass: 2 passed, 0 failed, 0 skipped in 0.3 min | `L1` |')
+    expect(md).toContain('| 2 | **FAIL**: 1 passed, 1 failed, 0 skipped in 0.3 min | `L2` |')
+    expect(md).toContain('| Suite | Run 1 | Run 2 |')
+    expect(md).toContain('| board | pass 13s | pass 14s |')
+    expect(md).toContain('| about | pass 6s | **FAIL** (1 check) 6s |')
   })
 })

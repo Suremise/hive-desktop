@@ -2,7 +2,7 @@
 // command line asks for (parseArgs), which suites that is (selectSuites), and whether a run record can be trusted
 // (recordStatus). run.mjs does the running.
 
-const VALUE_FLAGS = ['--jobs', '--affected']
+const VALUE_FLAGS = ['--jobs', '--affected', '--repeat']
 const PLAIN_FLAGS = ['--all', '--record', '--fingerprint', '--build', '--packaged', '--no-progress']
 
 /**
@@ -12,7 +12,7 @@ const PLAIN_FLAGS = ['--all', '--record', '--fingerprint', '--build', '--package
  * Every suite name given is kept.
  */
 export function parseArgs(argv, suiteNames) {
-  const o = { jobs: 4, all: false, affected: null, named: [], record: false, fingerprint: false, build: false, packaged: false }
+  const o = { jobs: 4, repeat: 1, all: false, affected: null, named: [], record: false, fingerprint: false, build: false, packaged: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     const next = argv[i + 1]
@@ -20,6 +20,11 @@ export function parseArgs(argv, suiteNames) {
       const n = Number(next)
       if (!next || !Number.isInteger(n) || n < 1) return { error: '--jobs needs a whole number of suites to run at once (1 runs them one after another)' }
       o.jobs = Math.min(8, n)
+      i++
+    } else if (a === '--repeat') {
+      const n = Number(next)
+      if (!next || !Number.isInteger(n) || n < 1) return { error: '--repeat needs a whole number of runs (1 or more)' }
+      o.repeat = n
       i++
     } else if (a === '--affected') {
       const isBase = next !== undefined && !next.startsWith('--') && !suiteNames.includes(next)
@@ -58,6 +63,37 @@ export function selectSuites(suites, { all, named, packaged }, affected = null) 
  * Whether a run record can be trusted for the code it names: the code didn't change while the suites ran (same
  * fingerprint before and after), and the dev build wasn't older than the source. Returns { valid, problems }.
  */
+/**
+ * The suite this runner was started inside, or null: the runner marks each suite's environment (E2E_RUN_SUITE, and
+ * HIVE_E2E_PORT), and E2E_RUN_SUITE survives into the sessions of the Hive a suite starts, which drop HIVE_ variables.
+ */
+export function parentSuite(env = process.env) {
+  if (!env.E2E_RUN_SUITE && !env.HIVE_E2E_PORT) return null
+  const port = Number(env.E2E_RUN_PORT || env.HIVE_E2E_PORT) || null
+  return { name: env.E2E_RUN_SUITE ?? null, port }
+}
+
+/** The first port the runner's slots use: 48300, or 1000 above the parent suite's port for a runner inside a suite. */
+export function portBase(env = process.env) {
+  const parent = parentSuite(env)
+  return parent ? (parent.port ?? 48300) + 1000 : 48300
+}
+
+/**
+ * A repeat's record (--repeat N): valid only if all N runs ran and passed, on the same code from the first run's start to
+ * the last one's end, with a build from that code. A repeat stops at its first failed run, so a later pass never makes up
+ * for it. With one run, a failed suite shows in the record but doesn't make it invalid (it is still a true record).
+ */
+export function repeatStatus({ repeat, runs, before, after, buildStale }) {
+  const { problems } = recordStatus({ before, after, buildStale })
+  if (repeat > 1) {
+    const failedAt = runs.findIndex((r) => !r.ok)
+    if (failedAt >= 0) problems.unshift(failedAt + 1 < repeat ? `stopped after run ${failedAt + 1} of ${repeat} failed` : `run ${repeat} of ${repeat} failed`)
+    else if (runs.length < repeat) problems.unshift(`only ${runs.length} of ${repeat} runs ran`)
+  }
+  return { valid: !problems.length, problems }
+}
+
 export function recordStatus({ before, after, buildStale }) {
   const problems = []
   if (before !== after) problems.push(`the code changed while the suites ran (${before} at the start, ${after} at the end): these results are for neither, run them again`)

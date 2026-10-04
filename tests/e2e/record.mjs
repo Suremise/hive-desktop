@@ -35,18 +35,29 @@ export function fingerprint(root = process.cwd()) {
 
 /** The record as Markdown, to paste into a card comment: the fingerprint, each suite's result and time, the logs; and
  * first, if it can't be trusted (recordStatus), why. */
-export function recordMarkdown({ code, when, jobs, results, logDir, summary, problems = [] }) {
-  const rows = results.map((r) => `| ${r.name} | ${r.skipped ? `skipped: ${r.skipped}` : r.ok ? 'pass' : `**FAIL**${r.failed?.length ? ` (${r.failed.length} check${r.failed.length === 1 ? '' : 's'})` : ''}`} | ${r.seconds ?? '–'}s |`)
+export function recordMarkdown({ code, when, jobs, results, logDir, summary, problems = [], runs = null }) {
+  const cell = (r) => (!r ? '–' : r.skipped ? `skipped: ${r.skipped}` : `${r.ok ? 'pass' : `**FAIL**${r.failed?.length ? ` (${r.failed.length} check${r.failed.length === 1 ? '' : 's'})` : ''}`} ${r.seconds ?? '–'}s`)
   // A record that can't be trusted says so first, so nobody matches its fingerprint by mistake.
   const warning = problems.length ? [`**Not valid — don't trust this record:** ${problems.join('; ')}.`, ''] : []
+  const head = `**e2e run record** · code \`${code}\` · ${when} · ${jobs > 1 ? `${jobs} at a time` : 'one at a time'}`
+  if (!runs) {
+    const rows = results.map((r) => `| ${r.name} | ${r.skipped ? `skipped: ${r.skipped}` : r.ok ? 'pass' : `**FAIL**${r.failed?.length ? ` (${r.failed.length} check${r.failed.length === 1 ? '' : 's'})` : ''}`} | ${r.seconds ?? '–'}s |`)
+    return [...warning, head, '', '| Suite | Result | Time |', '|---|---|---|', ...rows, '', `${summary}. Logs: \`${logDir}\``].join('\n')
+  }
+  // A repeat (--repeat N): each run's result, time and logs, then each suite's result in each run.
+  const names = results.map((r) => r.name)
   return [
     ...warning,
-    `**e2e run record** · code \`${code}\` · ${when} · ${jobs > 1 ? `${jobs} at a time` : 'one at a time'}`,
+    `${head} · ${runs.length} of ${runs.repeat ?? runs.length} runs`,
     '',
-    '| Suite | Result | Time |',
+    '| Run | Result | Logs |',
     '|---|---|---|',
-    ...rows,
+    ...runs.map((r, i) => `| ${i + 1} | ${r.ok ? 'pass' : '**FAIL**'}: ${r.summary} | \`${r.logDir}\` |`),
     '',
-    `${summary}. Logs: \`${logDir}\``
+    `| Suite | ${runs.map((_, i) => `Run ${i + 1}`).join(' | ')} |`,
+    `|---|${runs.map(() => '---|').join('')}`,
+    ...names.map((n) => `| ${n} | ${runs.map((r) => cell(r.results.find((x) => x.name === n))).join(' | ')} |`),
+    '',
+    summary
   ].join('\n')
 }

@@ -10,12 +10,17 @@ npm run e2e -- agents transcript # just these
 npm run e2e -- --affected        # the suites the changes since main need (affected.mjs), uncommitted ones included
 npm run e2e -- <suites> --build --record # and print a run record for the card (saved with the run's logs, and the latest as logs/run-record.md)
 npm run e2e -- --fingerprint     # the code's fingerprint, to compare with a run record
+npm run e2e -- <suites> --repeat 3 --build --record # three runs, stopping at the first that fails; one record for all
 npm run dist && npm run e2e -- --packaged   # also the installed-app suites (dist/win-unpacked)
 ```
 
 A suite passes when it exits cleanly and prints no `FAIL` line. The runner prints a summary; each suite's output
-is kept in a folder of its own for each run, `logs/run-<date>-<time>` under the work folder (the last ten runs are
-kept).
+is kept in a folder of its own for each run, `logs/run-<date>-<time>` under the work folder, with `-2`, `-3`… when
+another run started in the same second. The last ten finished runs are kept: a run still going (`.active` in its folder,
+with its runner's process id) is never pruned, so runners started side by side don't remove each other's logs. A runner started inside a suite (`progressreport`
+runs one) keeps its runs under `logs/nested`, so they never push real runs out (`logs.mjs`). It knows it is inside a
+suite from `E2E_RUN_SUITE`, which the runner sets for each suite: Hive drops `HIVE_` variables from its sessions, so
+`HIVE_E2E_PORT` doesn't reach an agent's shell.
 
 **The build.** The suites run the dev build in `out/`. `--build` builds it first, only when it isn't from the source
 as it is now: a build made with `--build` is stamped with a hash of everything it was made from (the paths and contents
@@ -47,6 +52,10 @@ same code while every required check still runs:
   has run on its final code (the builder's last record).
 - **Before a merge to main**, and before a release, run the **full set**: `npm run e2e -- --all --build --record` (with the
   real CLIs signed in), so suites no card named still pass. CI runs only the unit tests.
+- **When a change could make tests flaky** (the runner, `lib.cjs`, running suites side by side, waits), run it several
+  times: `npm run e2e -- --all --build --record --repeat 3`. The repeat stops at the first run that fails, and its one
+  record is valid only if every run passed on the same code. A failure means fix it and start a new repeat: a later
+  passing run doesn't make up for an earlier failure.
 
 `--affected` errs towards more: a change to a file every part of Hive goes through (the IPC contract, types, the store,
 `lib.cjs`, the fake CLIs…) or to code no area names means every suite. Add an area to `affected.mjs` when you add a
