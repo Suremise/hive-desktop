@@ -50,8 +50,30 @@ describe('parseTranscript', () => {
   })
 
   it('uses post-compaction size as the current context', () => {
-    expect(u.compactions).toEqual([{ timestamp: '2026-09-28T10:02:00.000Z', trigger: 'auto', preTokens: 900000, postTokens: 15000 }])
+    // The compaction keeps the last request before it: its input and output (#154).
+    expect(u.compactions).toEqual([{ timestamp: '2026-09-28T10:02:00.000Z', trigger: 'auto', preTokens: 900000, postTokens: 15000, lastInputTokens: 5302, lastOutputTokens: 50 }])
     expect(u.contextTokens).toBe(15000)
+    expect([u.contextInputTokens, u.lastOutputTokens]).toEqual([15000, 0])
+  })
+
+  it("counts the last turn's output in the context: what Claude Code compacts on (#154)", async () => {
+    const { turnPushedCompaction } = await import('../src/shared/defaults')
+    const { autoCompactAt, contextLines } = await import('../src/shared/providers')
+    // The Amiga session's first compaction: 116,144 in, then a turn of 72,443 output (mostly thinking), compacted at 189,560.
+    const turn = line({ type: 'assistant', requestId: 'big', timestamp: '2026-10-04T10:00:00Z', message: { model: 'claude-opus-5-5', usage: { input_tokens: 3, cache_read_input_tokens: 110_000, cache_creation_input_tokens: 6_141, output_tokens: 72_443 } } })
+    const before = parseTranscript(turn, 'amiga')
+    expect([before.contextInputTokens, before.lastOutputTokens, before.contextTokens]).toEqual([116_144, 72_443, 188_587])
+    const boundary = line({ type: 'system', subtype: 'compact_boundary', timestamp: '2026-10-04T10:01:00Z', compactMetadata: { trigger: 'auto', preTokens: 189_560, postTokens: 9_000 } })
+    const after = parseTranscript([turn, boundary].join('\n'), 'amiga')
+    expect(after.compactions[0]).toMatchObject({ preTokens: 189_560, lastInputTokens: 116_144, lastOutputTokens: 72_443 })
+    expect(turnPushedCompaction(after.compactions[0])).toBe(true)
+    // A small turn, or one that wasn't most of the jump, doesn't explain it.
+    expect(turnPushedCompaction({ preTokens: 189_560, lastInputTokens: 180_000, lastOutputTokens: 9_000 })).toBe(false)
+    expect(turnPushedCompaction({ preTokens: 189_560, lastInputTokens: 100_000, lastOutputTokens: 30_000 })).toBe(false)
+    expect(turnPushedCompaction({ preTokens: 189_560 })).toBe(false)
+    // Where Claude Code compacts by itself: about 167K of 200K, 967K of 1M; Codex's rule isn't known.
+    expect([autoCompactAt('claude-code', 200_000), autoCompactAt('claude-code', 1_000_000), autoCompactAt('claude-code', null), autoCompactAt('codex', 272_000), autoCompactAt('claude-code', 1000)]).toEqual([167_000, 967_000, null, null, null])
+    expect(contextLines({ ...before, contextWindow: 200_000 })).toEqual(['Context: 188,587 tokens of 200,000', '116,144 input + 72,443 output of the last turn (thinking included)', 'Claude Code compacts by itself at about 167,000'])
   })
 
   it('reads metadata', () => {
@@ -99,7 +121,8 @@ describe('recacheEstimate', () => {
     const r = recacheEstimate(base, 'auto', Date.parse('2026-09-28T10:03:00.000Z'))
     expect(r.warm).toBe(true)
     expect(r.secondsLeft).toBe(120)
-    expect(r.tokens).toBe(81005)
+    // The context: the last request's input and its output (#154).
+    expect(r.tokens).toBe(81006)
   })
 
   it('expires after the TTL and honours overrides', () => {

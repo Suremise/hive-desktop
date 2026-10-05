@@ -5,8 +5,8 @@ import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, 
 import { unpricedModel, unpricedText } from '@shared/prices'
 import { formatDateTime } from '@shared/dates'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
-import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
-import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
+import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
+import { PROVIDERS, contextLines, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { effortText } from '@shared/models'
 import { NumberField } from '../components/NumberField'
@@ -88,7 +88,7 @@ export function useSessions(project: ProjectInfo) {
 }
 
 
-function Card({ title, value, sub, tip, accent, children }: { title: string; value: React.ReactNode; sub?: React.ReactNode; tip?: string; accent?: boolean; children?: React.ReactNode }) {
+function Card({ title, value, sub, tip, accent, children }: { title: string; value: React.ReactNode; sub?: React.ReactNode; tip?: React.ReactNode; accent?: boolean; children?: React.ReactNode }) {
   return (
     <div className={cx('card', accent && 'accent')}>
       <h3>
@@ -305,8 +305,23 @@ const COMPACTION_COLUMNS: DataColumn<CompactionRow>[] = [
   { key: 'trigger', header: 'Trigger', cell: (c) => <span className={cx('badge', c.trigger === 'auto' ? 'accent' : 'info')}>{c.trigger}</span>, sortValue: (c) => c.trigger, filter: { kind: 'choice', value: (c) => c.trigger } },
   { key: 'before', header: 'Before', num: true, descFirst: true, cell: (c) => formatTokens(c.preTokens), sortValue: (c) => c.preTokens },
   { key: 'after', header: 'After', num: true, descFirst: true, cell: (c) => formatTokens(c.postTokens), sortValue: (c) => c.postTokens },
-  { key: 'freed', header: 'Freed', num: true, descFirst: true, cell: (c) => formatTokens(Math.max(0, c.preTokens - c.postTokens)), sortValue: (c) => Math.max(0, c.preTokens - c.postTokens) }
+  { key: 'freed', header: 'Freed', num: true, descFirst: true, cell: (c) => formatTokens(Math.max(0, c.preTokens - c.postTokens)), sortValue: (c) => Math.max(0, c.preTokens - c.postTokens) },
+  { key: 'turn', header: 'Last turn', num: true, descFirst: true, cell: (c) => <LastTurn c={c} />, sortValue: (c) => c.lastOutputTokens ?? null }
 ]
+
+/** What the last turn before a compaction added, said when it explains the compaction. */
+function LastTurn({ c }: { c: CompactionEvent }) {
+  if (c.lastOutputTokens === undefined) return <span className="faint">—</span>
+  const text = `+${formatTokens(c.lastOutputTokens)}`
+  if (!turnPushedCompaction(c)) return <span className="faint">{text}</span>
+  return (
+    <Tooltip content={`The last turn added ${formatTokens(c.lastOutputTokens)} of output (thinking included) to the ${formatTokens(c.lastInputTokens ?? 0)} the context showed before it, so it reached ${formatTokens(c.preTokens)} and was compacted.`}>
+      <span className="badge warn compaction-turn">
+        turn added {formatTokens(c.lastOutputTokens)} output
+      </span>
+    </Tooltip>
+  )
+}
 
 /**
  * A session's compactions as a data table (newest first, filters, pages). A row opens that compaction in the Sessions
@@ -400,8 +415,8 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
                 accent
                 title="Context"
                 value={formatTokens(u.contextTokens)}
-                sub={`${formatNumber(u.contextTokens)} tokens in the last request`}
-                tip="How many tokens the conversation currently occupies."
+                sub={u.contextInputTokens !== undefined && u.lastOutputTokens ? `${formatTokens(u.contextInputTokens)} input + ${formatTokens(u.lastOutputTokens)} output of the last turn` : `${formatNumber(u.contextTokens)} tokens in the last request`}
+                tip={<span style={{ whiteSpace: 'pre-line' }}>{`How many tokens the conversation occupies now: the last request's input and its output (thinking included), which stays in the context.\n${contextLines(u).slice(1).join('\n')}`.trim()}</span>}
               >
                 {u.contextWindow ? (
                   <div className="meter">

@@ -49,6 +49,11 @@ export interface ProviderCapabilities {
    * CLAUDE_CODE_DISABLE_1M_CONTEXT): the "Use 200K context" setting.
    */
   contextLimit: boolean
+  /**
+   * How far below the context window the CLI compacts by itself, in tokens (Claude Code: the output it keeps room for,
+   * 20K, and a 13K buffer: about 167K on a 200K window); null when Hive doesn't know.
+   */
+  autoCompactReserve: number | null
   /** A pasted image path is attached as an image. */
   imagePaste: boolean
   /** Hooks can hand an edit to the CLI's own approval prompt (the "Ask me" file lock). Without it, Hive asks the user itself. */
@@ -141,6 +146,25 @@ const UNKNOWN: ProviderDescriptor = {
   canSwitchLive: () => false,
   installNote: '',
   extensionNote: ''
+}
+
+/** Where a provider's CLI compacts by itself on a context window, in tokens; null when Hive doesn't know (no window, or no rule). */
+export function autoCompactAt(id: ProviderId | null | undefined, window: number | null | undefined): number | null {
+  const reserve = PROVIDERS.find((p) => p.id === id)?.capabilities.autoCompactReserve ?? null
+  return reserve !== null && window && window > reserve ? window - reserve : null
+}
+
+/**
+ * The context in words, for its tooltips: the total, then (when known) its parts: the last request's input and its
+ * output, thinking included; then where the CLI compacts by itself.
+ */
+export function contextLines(u: { provider: ProviderId; contextTokens: number; contextInputTokens?: number; lastOutputTokens?: number; contextWindow: number | null }): string[] {
+  const n = (x: number): string => x.toLocaleString()
+  const lines = [`Context: ${n(u.contextTokens)} tokens${u.contextWindow ? ` of ${n(u.contextWindow)}` : ''}`]
+  if (u.contextInputTokens !== undefined && u.lastOutputTokens) lines.push(`${n(u.contextInputTokens)} input + ${n(u.lastOutputTokens)} output of the last turn (thinking included)`)
+  const at = autoCompactAt(u.provider, u.contextWindow)
+  if (at !== null) lines.push(`${providerDescriptor(u.provider).name} compacts by itself at about ${n(at)}`)
+  return lines
 }
 
 export function providerDescriptor(id: ProviderId | null | undefined): ProviderDescriptor {

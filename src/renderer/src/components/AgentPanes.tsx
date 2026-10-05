@@ -15,7 +15,7 @@ import { TerminalView } from './TerminalView'
 import { offerTip } from '../tips'
 import { ModeBadge } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
-import { isProviderEnabled, projectDefaultProvider, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
+import { contextLines, isProviderEnabled, projectDefaultProvider, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
 import { unpricedModel, unpricedText } from '@shared/prices'
 import { Icon, IconButton, ReviewMark, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
@@ -796,7 +796,7 @@ export function PaneFooter({
           content={
             // A click opens the session in the Overview, with its compaction history (the Assistant's footer opens nothing).
             <span className="ctx-tip" style={{ whiteSpace: 'pre-line' }}>
-              {`Context: ${ctx.toLocaleString()} tokens${usage.contextWindow ? ` of ${usage.contextWindow.toLocaleString()}` : ''} · ${usage.compactions.length} compaction(s)${over ? ' — consider compacting' : ''}${usage.stale ? '\nCouldn’t read it again just now: this may be behind.' : ''}${onContext ? '' : '\n\nClick to view compaction history'}`}
+              {`${contextLines(usage).join('\n')}\n${usage.compactions.length} compaction${usage.compactions.length === 1 ? '' : 's'} so far${over ? ' — consider compacting' : ''}${usage.stale ? '\nCouldn’t read it again just now: this may be behind.' : ''}${onContext ? '' : '\n\nClick to view compaction history'}`}
             </span>
           }
         >

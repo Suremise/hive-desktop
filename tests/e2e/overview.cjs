@@ -1,7 +1,7 @@
 // Overview tab: the session details' agent picker and the compaction history, a data table (#124): pages, rows per
 // page, a trigger filter and a text filter (no matches: Clear filters), sorting by a header, and a row opening its
-// compaction in the Sessions tab at its divider. In a throwaway profile and workspace. Transcripts are Hive backups
-// (.hive/sessions); no agent is started.
+// compaction in the Sessions tab at its divider; a compaction after a big turn says so (#154). In a throwaway profile
+// and workspace. Transcripts are Hive backups (.hive/sessions); no agent is started.
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -18,23 +18,25 @@ fs.mkdirSync(sessDir, { recursive: true })
 lib.enableProviders(userData)
 
 const A = '33333333-aaaa-bbbb-cccc-000000000001' // many compactions
-const B = '44444444-aaaa-bbbb-cccc-000000000002' // one
+const B = '44444444-aaaa-bbbb-cccc-000000000002' // one, after a turn with a big output (#154)
 const usage = (n) => ({ input_tokens: 5, cache_read_input_tokens: n, cache_creation_input_tokens: 100, output_tokens: 50 })
-function transcript(id, compactions) {
+function transcript(id, compactions, big = false) {
   const out = []
   for (let i = 0; i <= compactions; i++) {
     const at = new Date(Date.UTC(2026, 8, 29, 8, i)).toISOString()
     out.push({ type: 'user', timestamp: at, message: { role: 'user', content: `Step ${i}` } })
-    out.push({ type: 'assistant', requestId: `${id}-${i}`, timestamp: at, message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: `Done ${i}.` }], usage: usage(1000 + i) } })
+    // The big turn: 116,144 in, 72,443 out (mostly thinking), then compacted at 189,560, as in the Amiga session.
+    const u = big && i === 0 ? { input_tokens: 3, cache_read_input_tokens: 110000, cache_creation_input_tokens: 6141, output_tokens: 72443 } : usage(1000 + i)
+    out.push({ type: 'assistant', requestId: `${id}-${i}`, timestamp: at, message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: `Done ${i}.` }], usage: u } })
     if (i < compactions) {
-      out.push({ type: 'system', subtype: 'compact_boundary', timestamp: at, content: 'Conversation compacted', compactMetadata: { trigger: i === 0 ? 'auto' : 'manual', preTokens: 100000 + i * 1000, postTokens: 9000 } })
+      out.push({ type: 'system', subtype: 'compact_boundary', timestamp: at, content: 'Conversation compacted', compactMetadata: { trigger: i === 0 ? 'auto' : 'manual', preTokens: big && i === 0 ? 189560 : 100000 + i * 1000, postTokens: 9000 } })
       out.push({ type: 'user', isCompactSummary: true, timestamp: at, message: { role: 'user', content: `Summary of part ${i}` } })
     }
   }
   fs.writeFileSync(path.join(sessDir, `${id}.jsonl`), out.map((l) => JSON.stringify(l)).join('\n') + '\n')
 }
 transcript(A, 25)
-transcript(B, 1)
+transcript(B, 1, true)
 
 const results = []
 const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? ` (${extra})` : ''}`)
@@ -69,6 +71,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  $
   const pagingText = async () => ((await paging.innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ')
   // 25 compactions, ten to a page: newest first, three pages.
   check('the first page: ten rows, newest first', (await rows.count()) === 10 && /manual/.test(await rows.first().textContent()), String(await rows.count()))
+  check('small turns are not flagged as explaining a compaction', (await table.locator('.compaction-turn').count()) === 0)
   check('"1–10 of 25" and "Page 1 of 3"', /1–10 of 25/.test(await pagingText()) && /Page 1 of 3/.test(await pagingText()), await pagingText())
   check('the date column is sorted, newest first', (await table.locator('th[aria-sort]').count()) === 1 && (await table.locator('th[aria-sort="descending"]').innerText()).startsWith('WHEN'), await table.locator('th[aria-sort]').innerText().catch(() => ''))
   await table.locator('button[aria-label="Next page"]').click()
@@ -122,6 +125,12 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  $
   await lib.sleep(300)
   check("picking another agent shows its session", /Beta work/.test(await head.textContent()), await head.textContent())
   check('with its own compactions', (await rows.count()) === 1, String(await rows.count()))
+  // The compaction that followed a big turn says so (#154): the context showed 116k, the turn added 72k.
+  const note = rows.first().locator('.compaction-turn')
+  check('a compaction after a big turn says "turn added 72.4k output"', /turn added 72\.4k output/i.test((await note.innerText().catch(() => '')) ?? ''), await rows.first().innerText())
+  await note.hover()
+  check('…and on hover, how it got there', !!(await lib.until(async () => /added 72\.4k of output \(thinking included\) to the 116k the context showed before it, so it reached 190k/i.test((await page.locator('.tip').last().innerText().catch(() => '')) ?? ''), 3000)), await page.locator('.tip').last().innerText().catch(() => ''))
+  await page.mouse.move(5, 5)
   await page.screenshot({ path: path.join(shots, '2-beta.png') })
 
   await app.close()

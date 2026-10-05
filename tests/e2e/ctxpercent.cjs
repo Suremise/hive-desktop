@@ -72,11 +72,22 @@ const until = async (fn, ms = 10000) => {
   await until(async () => (await tip.count()) === 1, 5000)
   const lines = (await tip.innerText().catch(() => '')).split('\n')
   check('the tooltip: the context, an empty line, then "Click to view compaction history"', /^Context: \d/.test(lines[0] ?? '') && lines.length >= 3 && lines.at(-2) === '' && lines.at(-1) === 'Click to view compaction history', JSON.stringify(lines))
+  // The figure includes the last turn's output (#154), and the tooltip breaks it down.
+  const parts = (lines[1] ?? '').match(/^([\d,]+) input \+ ([\d,]+) output of the last turn \(thinking included\)$/)
+  const num = (s) => Number(s.replace(/,/g, ''))
+  check("…breaking it down: the last turn's input + its output (thinking included), which add up to the figure", !!parts && num(parts[1]) + num(parts[2]) === tokens && num(parts[2]) > 0, JSON.stringify(lines))
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-tip-dark.png') })
   await inv('settings:update', { appearance: { theme: 'light' } })
   await lib.sleep(300)
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-tip-light.png') })
   await inv('settings:update', { appearance: { theme: 'dark' } })
+  await page.mouse.move(5, 5)
+
+  // With a real window (200K), the tooltip says where Claude Code compacts by itself (#154): about 167K.
+  await send('and once more window 200000')
+  await until(async () => /^\s*\d+ ·\s+0%$/.test(await text()), 8000)
+  await ctxItem.hover()
+  check('…and where Claude Code compacts by itself, for a 200K window', !!(await until(async () => (await tip.innerText().catch(() => '')).includes('Claude Code compacts by itself at about 167,000'), 5000)), await tip.innerText().catch(() => ''))
   await page.mouse.move(5, 5)
 
   // --- A narrow footer keeps the percentage.
