@@ -5,6 +5,7 @@
 //   npm run scenarios -- --provider claude-code --model haiku --budget 2      # model trials (opt-in, cost tokens)
 //   npm run scenarios -- --provider codex --model gpt-5.6-luna --only work-on-card,review-card
 //
+// More than five scenarios, or --repeat, waits for a test slot (tests/e2e/slots.mjs; --no-wait fails at once instead).
 // --budget N (USD, API-equivalent, above 0, default 2) stops a model run once the scenarios so far cost that much, or
 // as soon as a trial reports no cost (the spend can't be checked then; --allow-unknown-cost goes on anyway); --only runs
 // some; --keep leaves each scenario's profile and workspace; --repeat N runs each N times (samples, for spread);
@@ -22,13 +23,15 @@
 import { spawnSync } from 'child_process'
 import { createRequire } from 'module'
 import { readFileSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import { ensureBuild } from '../e2e/build.mjs'
 import { LANES, claimLane, laneWork } from '../e2e/lanes.mjs'
+import { describeClaim, heavySlots, isHeavy, waitForSlot } from '../e2e/slots.mjs'
+import { slotWaitProgress } from '../progressReport.mts'
 
 const require = createRequire(import.meta.url)
 const lib = require('../e2e/lib.cjs')
+const runContext = require('../e2e/runContext.cjs')
 const { runScenario, sourceFingerprint, claudeSignedIn, CLAUDE_TEST_HOME, PROVIDERS } = require('./harness.cjs')
 const { SCENARIOS, FIXTURES_VERSION } = require('./scenarios.cjs')
 const { benchmarkOf, pruneResults, saveBaseline, resultsFolder, parseBudget, budgetGate, spendText } = require('./benchmark.cjs')
@@ -70,15 +73,52 @@ if (notSignedIn) {
   process.exit(0)
 }
 
-const build = ensureBuild({
-  root: lib.ROOT,
-  build: true,
-  runBuild: () => {
-    console.log('Building (the dev build is not from this source)…')
-    const r = spawnSync('npx electron-vite build', { cwd: lib.ROOT, stdio: 'inherit', shell: true })
-    if (r.status !== 0) process.exit(r.status ?? 1)
+const chosen = SCENARIOS.filter((s) => !only?.length || only.includes(s.id))
+// More than a few scenarios (or --repeat) is a heavy run: it waits for a test slot, as the e2e runner's do
+// (tests/e2e/slots.mjs), so runs on this machine don't slow each other until tests time out. --no-wait: fail at once.
+if (isHeavy({ count: chosen.length, repeat: repeats })) {
+  const queue = slotWaitProgress('scenarios', `npm run scenarios -- ${argv.join(' ')}`.trim(), argv)
+  let said = ''
+  const got = await waitForSlot(runContext.HEAVY_DIR, {
+    what: `scenarios: ${chosen.length} (${provider})${repeats > 1 ? ` × ${repeats}` : ''}`,
+    root: lib.ROOT,
+    wait: !argv.includes('--no-wait'),
+    onWait: ({ holders, ahead }) => {
+      const who = holders.map((c) => describeClaim(c)).join('; ')
+      const line = `Waiting for a test slot (${heavySlots()} heavy runs at once on this machine, HIVE_TEST_HEAVY_SLOTS)${ahead ? `, ${ahead} ahead of this one` : ''}: held by ${who || 'runs just finishing'}.`
+      if (line !== said) console.log(line)
+      said = line
+      queue.waiting(who)
+    }
+  })
+  if (got.refused) {
+    console.error(`No test slot free (--no-wait): ${heavySlots()} heavy runs at once on this machine, held by ${got.refused.holders.map((c) => describeClaim(c)).join('; ')}.`)
+    process.exit(2)
   }
-})
+  if (said) {
+    const after = `${Math.round(got.waitedMs / 1000)} s`
+    console.log(`Got a test slot after ${after}.`)
+    await queue.finish(`got a test slot after ${after}`)
+  }
+}
+
+// Under the worktree's build lock (build.mjs): an e2e or scenario run started beside this one builds it once.
+let build
+try {
+  build = ensureBuild({
+    root: lib.ROOT,
+    build: true,
+    runBuild: () => {
+      console.log('Building (the dev build is not from this source)…')
+      const r = spawnSync('npx electron-vite build', { cwd: lib.ROOT, stdio: 'inherit', shell: true })
+      if (r.status !== 0) throw Object.assign(new Error(`The build failed (exit ${r.status})`), { status: r.status ?? 1 })
+    }
+  })
+} catch (e) {
+  console.error(e.message)
+  process.exit(e.status ?? 2)
+}
+if (build.waited) console.log(`Waited for another runner's build of this worktree${build.built ? '' : ': it is from this source'}.`)
 if (build.stale) {
   console.error(`The dev build isn't from this source (${build.why}): run the scenarios again once it has stopped changing.`)
   process.exit(2)
@@ -86,7 +126,7 @@ if (build.stale) {
 
 // This run's lane: its own folders and Agent API port, so another run at the same time can't remove, open or answer
 // for this one's test Hive.
-const lane = await claimLane(join(process.env.LOCALAPPDATA || tmpdir(), 'hive-test', 'e2e-lanes'), { root: lib.ROOT })
+const lane = await claimLane(runContext.LANES_DIR, { root: lib.ROOT })
 if (!lane) {
   console.error(`Every test lane (${LANES}) is taken by e2e or scenario runs still going: wait for one to finish.`)
   process.exit(2)
@@ -96,7 +136,6 @@ process.on('SIGINT', () => process.exit(130))
 const workRoot = laneWork(join(lib.WORK, '..', 'scenarios'), lane.lane)
 console.log(`Lane ${lane.lane}: Agent API port ${lane.first}, folders in ${workRoot}`)
 
-const chosen = SCENARIOS.filter((s) => !only?.length || only.includes(s.id))
 // The source this run tests, taken before it starts (and checked again at the end).
 const sourceAtStart = sourceFingerprint()
 const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)

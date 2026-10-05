@@ -1,0 +1,145 @@
+// The run context (#203): everything a test run, and each suite in it, has of its own, so runs never assume they are
+// alone on the machine or inherit whatever environment they were started from.
+//
+// - The environment, here: every child a test starts (a suite, a test copy of Hive, the hive MCP server, the
+//   hive-progress wrapper) gets an environment built from an allowlist (ALLOW: Windows' own variables, the user's
+//   folders, the network's proxy and certificates) plus what the context sets itself (a profile, quiet, ports, the
+//   suite's folders, CLI homes). Nothing else from the parent: not the variables of the Hive session it was started
+//   from (HIVE_API_TOKEN…, HIVE_PROGRESS_*), not NO_COLOR or FORCE_COLOR, not ELECTRON_RUN_AS_NODE, not CLAUDE_* or
+//   ANTHROPIC_* (the real tier uses the CLIs' own sign-in). Test settings a person may set for a run are passed on by
+//   name (PASS_ENV); a new one is added there, with what it is for. tests/e2esuites.test.ts fails for a suite or the
+//   scenario harness that builds a child's environment from process.env.
+// - Folders: the work folder (WORK: the lane's, which the runner gives each suite as HIVE_E2E_DIR) and the CLI test
+//   homes (CODEX_HOME, CLAUDE_TEST_HOME).
+// - Ports and lane folders: lanes.mjs (each runner claims a lane); each suite's port is HIVE_E2E_PORT, from its runner.
+// - The build: build.mjs, under a lock per worktree, so runners started together build it once.
+// - Load: slots.mjs, at most a few heavy runs at once on the machine (HEAVY_DIR); the others queue.
+const os = require('os')
+const path = require('path')
+
+const LOCAL = process.env.LOCALAPPDATA || os.tmpdir()
+/** Everything the tests keep on this machine. */
+const TEST_ROOT = path.join(LOCAL, 'hive-test')
+/** Where runners claim their lanes (lanes.mjs): e2e and scenario runs take them from the same pool. */
+const LANES_DIR = path.join(TEST_ROOT, 'e2e-lanes')
+/**
+ * Where heavy runs claim their slots (slots.mjs): one pool for the machine. HIVE_TEST_HEAVY_DIR gives a pool of its own,
+ * for checking the queue (concurrency.mjs --heavy) without waiting behind real runs; HIVE_TEST_HEAVY_SLOTS, how many.
+ */
+const HEAVY_DIR = process.env.HIVE_TEST_HEAVY_DIR || path.join(TEST_ROOT, 'heavy-slots')
+/** Where suites keep their profiles, workspaces and screenshots: the runner's lane folder, else (a suite run on its own) e2e. */
+const WORK = process.env.HIVE_E2E_DIR || path.join(TEST_ROOT, 'e2e')
+/** The Codex home the Codex suites and model trials use (signed in once by hand: see tests/e2e/README.md). */
+const CODEX_HOME = process.env.HIVE_TEST_CODEX_HOME || path.join(TEST_ROOT, 'codex')
+/** The Claude Code home the model trials use, beside the Codex one (signed in once by hand: see tests/scenarios/README.md). */
+const CLAUDE_TEST_HOME = process.env.HIVE_TEST_CLAUDE_HOME || path.join(path.dirname(CODEX_HOME), 'claude')
+
+/**
+ * What a child gets from the environment it is started from, by name (any case: Windows' names are). Windows and the
+ * user's folders (Node, git, PowerShell and the CLIs need them), and the network's proxy and certificates (the CLIs
+ * reach their APIs through them).
+ */
+const ALLOW = [
+  'PATH', 'PATHEXT', 'SYSTEMROOT', 'SYSTEMDRIVE', 'WINDIR', 'COMSPEC', 'TEMP', 'TMP', 'OS',
+  'USERPROFILE', 'USERNAME', 'USERDOMAIN', 'USERDOMAIN_ROAMINGPROFILE', 'COMPUTERNAME', 'LOGONSERVER', 'HOME', 'HOMEDRIVE', 'HOMEPATH',
+  'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'ALLUSERSPROFILE', 'PUBLIC', 'DRIVERDATA',
+  'PROGRAMFILES', 'PROGRAMFILES(X86)', 'PROGRAMW6432', 'COMMONPROGRAMFILES', 'COMMONPROGRAMFILES(X86)', 'COMMONPROGRAMW6432',
+  'PROCESSOR_ARCHITECTURE', 'PROCESSOR_IDENTIFIER', 'PROCESSOR_LEVEL', 'PROCESSOR_REVISION', 'NUMBER_OF_PROCESSORS',
+  'PSMODULEPATH',
+  'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY', 'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE'
+]
+
+/**
+ * Test settings a person running the tests may set, passed from the runner to its suites (and read there): nothing
+ * else of theirs reaches a suite. Not HIVE_E2E_NATIVE: carddialog's native window checks take over the screen, so
+ * they run only when the suite is run on its own.
+ */
+const PASS_ENV = {
+  HIVE_TEST_CODEX_HOME: 'another Codex test home (CODEX_HOME above)',
+  HIVE_TEST_CLAUDE_HOME: 'another Claude Code test home (CLAUDE_TEST_HOME above)',
+  HIVE_TEST_QUIET: '0 shows the test copies of Hive (taking focus, notifying), to watch a run',
+  HIVE_TEST_PROGRESS_TIMINGS: "where the Progress panel's suite timings are kept (tests/progressReport.mts)",
+  HIVE_PROGRESS_CHECK_DEV: "1: packaged-progress checks the dev build's hive-progress",
+  HIVE_EXE: 'plan runs this Hive executable instead of the dev build',
+  REPLYSIZE_OUT: "replysize's report file, in the work folder"
+}
+
+/**
+ * What the runner sets for each suite, carried from a suite into the test copies of Hive it starts: a runner started
+ * inside a suite (progressreport runs one in its Hive's agent shell, which drops HIVE_ variables) knows from these that
+ * it is nested, and which ports and folders to keep clear of (runner.mjs).
+ */
+const CARRIED = ['E2E_RUN_SUITE', 'E2E_RUN_DIR', 'E2E_RUN_PORT']
+
+/** The variables of `parent` named in `names` (any case), under their own spelling. */
+function pick(parent, names) {
+  const wanted = new Set(names.map((n) => n.toUpperCase()))
+  const env = {}
+  for (const [k, v] of Object.entries(parent)) if (v !== undefined && wanted.has(k.toUpperCase())) env[k] = v
+  return env
+}
+
+/** Sets each of `vars` in env (replacing a spelling in another case); undefined removes it. */
+function apply(env, vars) {
+  for (const [k, v] of Object.entries(vars)) {
+    for (const old of Object.keys(env)) if (old.toUpperCase() === k.toUpperCase()) delete env[old]
+    if (v !== undefined && v !== null) env[k] = String(v)
+  }
+  return env
+}
+
+/** The allowlisted environment, and nothing else: for a child that isn't Hive (git, a test server). */
+function baseEnv(parent = process.env) {
+  return pick(parent, ALLOW)
+}
+
+/**
+ * A child that is part of Hive but not a copy of it (the hive MCP server, the hive-progress wrapper, a bridge): the
+ * allowlist and `vars` (the Agent API URL and token it should use, ELECTRON_RUN_AS_NODE where Electron runs it as Node).
+ */
+function childEnv(vars = {}, parent = process.env) {
+  return apply(baseEnv(parent), vars)
+}
+
+/** The environments hiveEnv built: lib.cjs's _electron.launch refuses any other (so no suite starts Hive with its own). */
+const built = new WeakSet()
+
+/**
+ * A test copy of Hive's environment: the allowlist; quiet (unless HIVE_TEST_QUIET=0 was set for the run) and with tips
+ * off (a profile that sets Show a tip turns them on); the suite's Agent API port from its runner (HIVE_E2E_PORT), and
+ * the CARRIED variables; then `vars` (its profile, HIVE_USER_DATA, always; a port, CLI homes, test hooks), where
+ * undefined removes one.
+ */
+function hiveEnv(vars = {}, parent = process.env) {
+  const env = baseEnv(parent)
+  env.HIVE_TEST_QUIET = parent.HIVE_TEST_QUIET === '0' ? '0' : '1'
+  env.HIVE_TEST_TIPS = 'off'
+  if (parent.HIVE_E2E_PORT) env.HIVE_API_PORT = parent.HIVE_E2E_PORT
+  Object.assign(env, pick(parent, CARRIED))
+  apply(env, vars)
+  built.add(env)
+  return env
+}
+
+/** Whether env was built by hiveEnv (and so holds nothing from the parent but the allowlist). */
+const isHiveEnv = (env) => !!env && built.has(env)
+
+/**
+ * A suite's environment, from its runner: the allowlist, the PASS_ENV settings, and its run context: its folder
+ * (HIVE_E2E_DIR, which WORK reads), its Agent API port (HIVE_E2E_PORT, lib.port()), and the same said without the
+ * HIVE_ prefix (E2E_RUN_*), which survive into a test Hive's agent shells.
+ */
+function suiteEnv({ name, port = null, work = null, runDir }, parent = process.env) {
+  const env = apply(baseEnv(parent), pick(parent, Object.keys(PASS_ENV)))
+  if (work) env.HIVE_E2E_DIR = work
+  if (port) {
+    env.HIVE_E2E_PORT = String(port)
+    env.HIVE_API_PORT = String(port)
+    env.E2E_RUN_PORT = String(port)
+  }
+  env.E2E_RUN_SUITE = name
+  env.E2E_RUN_DIR = runDir
+  return env
+}
+
+module.exports = { TEST_ROOT, LANES_DIR, HEAVY_DIR, WORK, CODEX_HOME, CLAUDE_TEST_HOME, ALLOW, PASS_ENV, CARRIED, baseEnv, childEnv, hiveEnv, isHiveEnv, suiteEnv }

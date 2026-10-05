@@ -23,8 +23,7 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   for (const p of ['api', 'web']) fs.mkdirSync(path.join(ws, p), { recursive: true })
   fs.mkdirSync(ws2, { recursive: true })
   lib.enableProviders(userData, ['claude-code'])
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47894) }
-  delete env.ELECTRON_RUN_AS_NODE
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47894) })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
