@@ -60,10 +60,43 @@ describe('what counts as a change', () => {
     const five = wakeLines(long)
     expect(Buffer.byteLength(JSON.stringify(five))).toBeLessThanOrEqual(WAKE_MAX_BYTES)
     expect(five).toMatch(/#100 .*#101 .*#102 .*#103 .*#104 /)
+    // Twenty (the most a watch has): every card is still named, in a few words, and the agent is told to read them (#226).
     const many = wakeLines(Array.from({ length: 20 }, (_, i) => change(100 + i, i % 2 ? 'passed' : 'failed')))
     expect(Buffer.byteLength(JSON.stringify(many))).toBeLessThanOrEqual(WAKE_MAX_BYTES)
-    expect(many).toMatch(/\(and \d+ more watched cards changed\)\. Your card watch has ended/)
-    expect(many).not.toMatch(/\n/)
+    for (let n = 100; n < 120; n++) expect(many).toContain(`#${n} in Review, ${n % 2 ? 'passed' : 'failed'}`)
+    expect(many).toMatch(/Details were left out to fit: read each card \(hive_read_task\) before you carry on\.$/)
+    expect(many).not.toMatch(/\n|more watched card/)
+  })
+
+  it('too many changes to tell in full: every card is named, briefly or by number, within the size; gone ones say nothing more (#226)', () => {
+    const long = (s: string) => s.repeat(300)
+    // Twenty cards with long Unicode owners, reviewers and comments; some returned, some gone, one moved by hand.
+    const card = (n: number) =>
+      cardOf({ number: n, agent: 'a1', agentName: long('建造者'), column: n % 5 === 0 ? 'done' : 'review', history: [{ at: at(1), by: long('🐝'), what: n % 3 ? 'Review failed' : 'Review passed' }, ...(n % 7 === 0 ? [{ at: at(2), by: 'You', what: 'Returned for review, round 3' }] : [])], comments: [{ at: at(2), by: long('評'), text: long('Ünïcødé ') }] })
+    const changes = Array.from({ length: 20 }, (_, i) => {
+      const n = 300 + i
+      if (n % 4 === 0) return cardChange(n, null, 'gone')
+      const c = card(n)
+      return { ...cardChange(n, c, ['verdict', 'column']), about: wakeAbout(c, ['verdict', 'column'], 'a2') }
+    })
+    const line = wakeLines(changes)
+    expect(Buffer.byteLength(JSON.stringify(line))).toBeLessThanOrEqual(WAKE_MAX_BYTES)
+    expect(line).not.toMatch(/\n/)
+    for (const c of changes) expect(line).toMatch(new RegExp(`#${c.number}\\b`))
+    // A gone card: its number only, nothing of its state (it may be another project's now).
+    expect(line).toContain('#300 gone')
+    expect(line).not.toMatch(/#300 (in|returned)/)
+    // No names or comments in the short form.
+    expect(line).not.toMatch(/建造者|🐝|評|Ünïcødé/)
+    expect(line).toMatch(/Details were left out to fit/)
+    // Numbers alone when even the short form can't fit (huge numbers); past what a watch can hold, counted.
+    const huge = Array.from({ length: 20 }, (_, i) => cardChange(10 ** 15 + i, null, ['comment']))
+    const byNumber = wakeLines(huge)
+    expect(Buffer.byteLength(JSON.stringify(byNumber))).toBeLessThanOrEqual(WAKE_MAX_BYTES)
+    for (const c of huge) expect(byNumber).toContain(`#${c.number}`)
+    const beyond = wakeLines(Array.from({ length: 200 }, (_, i) => cardChange(10 ** 15 + i, null, ['comment'])))
+    expect(Buffer.byteLength(JSON.stringify(beyond))).toBeLessThanOrEqual(WAKE_MAX_BYTES)
+    expect(beyond).toMatch(/ and \d+ more watched cards changed\. /)
   })
 
   it('a watch counts what came after where its view of a card ended, not by time: an entry sharing the millisecond counts (#224)', () => {

@@ -85,6 +85,7 @@ export const SUITES = [
   { name: 'skillaudience' },
   { name: 'skilldelivery' },
   { name: 'skills', serial: 'the shared Codex test home' },
+  { name: 'startall' },
   { name: 'startfail' },
   { name: 'storage' },
   { name: 'tabstrip' },

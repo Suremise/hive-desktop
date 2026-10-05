@@ -4,6 +4,7 @@ import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemov
 import { MANY_AGENTS, MAX_AGENTS, moveAgentTo, sessionInAgentFolder, withPageLayout } from '@shared/defaults'
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { agentsToResume, resumeAll } from '@shared/resumeAll'
+import { batchLine, eachAgent, sessionsToArchive } from '@shared/startAll'
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { formatTokens } from './util'
 import { statusText } from './components/ui'
@@ -421,6 +422,67 @@ async function resumeAll_(path: string): Promise<void> {
       'error',
       result.failed.length === tried ? (tried === 1 ? 'Could not resume the agent' : 'Could not resume the agents') : `${result.failed.length} of ${tried} agents could not resume`,
       [...result.failed.map((f) => `• ${f.name}: ${f.error}`), ...(result.resumed.length ? [`Resumed: ${result.resumed.join(', ')}`] : [])].join('\n')
+    )
+  }
+}
+
+/**
+ * Start New (All) (#216): after one confirmation listing every agent (busy ones flagged), running agents are stopped and
+ * every agent starts a fresh session; old conversations stay resumable from the Sessions tab. With `archive` (Archive
+ * and Start New (All)): each agent's current or last session is archived first, as Archive Session and Start New… does,
+ * and only agents with one are listed. One at a time; failures are reported together. A second click while it runs is
+ * ignored (the button shows a spinner).
+ */
+export function startNewAll(path: string, archive = false): Promise<void> {
+  return runOnce(`${archive ? 'archiveAll' : 'startNewAll'}:${path}`, () => startNewAll_(path, archive)).then(() => undefined)
+}
+
+async function startNewAll_(path: string, archive: boolean): Promise<void> {
+  const p = project(path)
+  if (!p?.agents.length) return notify('info', 'No agents', 'Add an agent first.')
+  const list = archive ? await attempt('Could not list sessions', () => call('session:list', path)) : []
+  if (!list) return
+  const archives = archive ? sessionsToArchive(p.agents, list) : []
+  if (archive && !archives.length) return notify('info', 'Nothing to archive', 'No agent has a session to archive.')
+  const agents = archive ? archives.map((x) => x.agent) : p.agents
+  const running = agents.filter((a) => a.live)
+  const one = agents.length === 1
+  const ok = await confirm({
+    title: archive ? (one ? 'Archive and start new?' : 'Archive and start new for all agents?') : one ? 'Start a new session?' : 'Start new sessions for all agents?',
+    message: archive
+      ? `${one ? `${agents[0].name}'s session is` : `The sessions of these ${agents.length} agents are`} archived in ${p.name}, and each starts a fresh one:`
+      : `${one ? 'This agent starts' : `Every agent in ${p.name} starts`} a fresh session:`,
+    detail: [
+      agents.map((a) => batchLine(a, statusText)).join('\n'),
+      '',
+      `${running.length ? `Running agents are stopped first. ` : ''}${archive ? "The transcripts are kept in the project's .hive/archive folder." : 'Their conversations are kept and can be resumed from the Sessions tab.'}`
+    ].join('\n'),
+    confirmLabel: archive ? 'Archive and start new' : 'Start new'
+  })
+  if (!ok) return
+  // As they are now: one may have stopped or started while the dialog was open.
+  const now = (id: string) => agentOf(project(path), id)
+  for (const a of agents) if (now(a.id)?.live) await call('session:stop', path, a.id).catch(() => undefined)
+  await Promise.all(agents.map((a) => waitForStop(path, a.id)))
+  const result = await eachAgent(agents, async (a) => {
+    const provider = agentProviderOf(project(path), a)
+    const name = providerName(provider)
+    if (!isProviderEnabled(get().settings, provider)) throw new Error(`${name} is turned off in Settings → Providers.`)
+    if (!get().providers[provider]?.found) throw new Error(`${name} isn't installed (Agent Setup).`)
+    try {
+      const target = archives.find((x) => x.agent.id === a.id)
+      if (target) await call('session:archive', path, target.sessionId, true)
+      await call('session:start', path, { agentId: a.id })
+    } catch (e) {
+      throw new Error(errorMessage(e), { cause: e })
+    }
+  })
+  if (result.failed.length) {
+    const tried = result.failed.length + result.done.length
+    notify(
+      'error',
+      result.failed.length === tried ? (tried === 1 ? 'Could not start the agent' : 'Could not start the agents') : `${result.failed.length} of ${tried} agents could not start`,
+      [...result.failed.map((f) => `• ${f.name}: ${f.error}`), ...(result.done.length ? [`Started: ${result.done.join(', ')}`] : [])].join('\n')
     )
   }
 }
