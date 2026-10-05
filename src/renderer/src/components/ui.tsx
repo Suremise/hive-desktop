@@ -94,7 +94,8 @@ export function IconButton({
   onClick,
   disabled,
   active,
-  className
+  className,
+  expanded
 }: {
   icon: string
   title: string
@@ -102,6 +103,8 @@ export function IconButton({
   disabled?: boolean
   active?: boolean
   className?: string
+  /** For a button that opens and closes something: whether it is open (aria-expanded). */
+  expanded?: boolean
 }) {
   return (
     <Tooltip content={title}>
@@ -113,6 +116,7 @@ export function IconButton({
         }}
         disabled={disabled}
         aria-label={title}
+        aria-expanded={expanded}
       >
         <Icon name={icon} />
       </button>

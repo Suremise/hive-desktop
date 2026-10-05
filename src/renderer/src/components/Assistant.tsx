@@ -87,6 +87,7 @@ export function AssistantPanel() {
   const left = useStore(assistantOnLeft)
   const a = useStore((s) => s.workspace?.assistant ?? null)
   const epochs = useStore((s) => s.sessionEpoch)
+  const flash = useStore((s) => (a && s.paneFlash?.key === projectKey(a.path, AGENT) ? s.paneFlash.at : 0))
   const width = usePaneSize('assistant', 430)
   // The overview's share of the height once dragged; until then it takes what it needs (up to a third).
   const topShare = useStore((s) => s.panes.assistantTop)
@@ -133,7 +134,7 @@ export function AssistantPanel() {
   }
 
   return (
-    <div className={cx('assistant-panel', left && 'on-left')} style={{ width }}>
+    <div className={cx('assistant-panel', left && 'on-left', !!flash && 'flash')} style={{ width }}>
       <PaneResizer paneKey="assistant" edge={left ? 'right' : 'left'} min={300} max={900} keep={380} />
       <AssistantHeader project={a} a={agent} />
       <AssistantQuestions />

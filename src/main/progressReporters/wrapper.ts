@@ -36,11 +36,13 @@ export function parseArgs(argv: string[]): WrapperArgs {
 
 const STEP_PREFIX = '##hive-progress'
 
-/** What a step line says: the step starting now (from 1), how many there are, and its name. */
+/** What a step line says: the step starting now (from 1), how many there are, and its name; or a log the command wrote. */
 export interface StepLine {
   step?: number
   total?: number
   name?: string
+  /** "##hive-progress log=<path>": a log or run record (the rest of the line), for the run's details. */
+  log?: string
 }
 
 /** A step line ("##hive-progress step=4 total=12 name=carddialog": name is the rest of the line), or null. */
@@ -53,8 +55,8 @@ export function stepLine(line: string): StepLine | null {
     const kv = /^(\w+)=(\S*)[ \t]*/.exec(rest)
     if (!kv) break
     const [all, key, value] = kv
-    if (key === 'name') {
-      u.name = rest.slice(5).trim()
+    if (key === 'name' || key === 'log') {
+      u[key] = rest.slice(key.length + 1).trim()
       break
     }
     const n = /^\d+$/.test(value) ? Number(value) : NaN
@@ -209,6 +211,7 @@ class WrappedRun {
   private total: number | undefined
   private step: number | undefined
   private name: string | undefined
+  private log: string | undefined
   constructor(
     private readonly start: () => { title: string; command: string; estimateMs?: number; started: number },
     private readonly opts: { fetch?: Fetch; minIntervalMs?: number; target: NonNullable<ReturnType<typeof progressTarget>> },
@@ -227,6 +230,8 @@ class WrappedRun {
   }
 
   onStep(u: StepLine): void {
+    if (u.log) this.log = u.log
+    if (u.step === undefined && u.total === undefined && u.name === undefined) return
     if (u.step !== undefined) this.step = Math.max(0, u.step - 1)
     if (u.name !== undefined) this.name = u.name
     if (!this.run) {
@@ -241,9 +246,9 @@ class WrappedRun {
     this.run.update({ ...(late !== undefined ? { total: late, step: this.step ?? 0 } : {}), ...(u.step !== undefined ? { step: this.step } : {}), ...(u.name !== undefined ? { stepName: u.name } : {}) })
   }
 
-  async finish(ok: boolean, summary?: string): Promise<void> {
+  async finish(ok: boolean, summary: string | undefined, exitCode: number): Promise<void> {
     this.begin()
-    await this.run!.finish(ok, summary)
+    await this.run!.finish(ok, summary, undefined, { exitCode, ...(this.log ? { logPath: this.log } : {}) })
   }
 }
 
@@ -293,7 +298,7 @@ export async function runWrapped(argv: string[], io: WrapperIo): Promise<number>
   )
   const code = await run(spec, env, io, (u) => report.onStep(u))
   if (code === 0 && timings) recordTiming(timings, key, Date.now() - started)
-  await report.finish(code === 0, code === 0 ? undefined : `exit code ${code}`)
+  await report.finish(code === 0, code === 0 ? undefined : `exit code ${code}`, code)
   return code
 }
 

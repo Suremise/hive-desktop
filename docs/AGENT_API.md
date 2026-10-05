@@ -372,7 +372,7 @@ Long runs (test suites, builds) report their progress for the Progress panel, wh
 
 `PATCH /v1/progress/{id}` — `{ "total"?, "step"?, "stepName"?, "estimateMs"? }`: an update. Returns `{ "ok": true }`. `total` (1–100000) may be set once, on a run started without one (a command that learns how many steps it has after it started): from then on the panel shows its steps, and a `step` already past it is lowered to it; on a run that has a total, `total` is `409`. Without `estimateMs` the deadline stays where it was (the time left keeps counting down); only a new `estimateMs` moves it. A few updates a second are shown; more are merged, not refused. An update after a run went stale (no report for longer than expected) makes it running again. A finished run is `409`.
 
-`POST /v1/progress/{id}/finish` — `{ "ok": true|false, "summary"? }` (summary up to 500 characters): the run passed or failed. Returns `{ "ok": true }`.
+`POST /v1/progress/{id}/finish` — `{ "ok": true|false, "summary"?, "exitCode"?, "logPath"? }`: the run passed or failed. Returns `{ "ok": true }`. `summary` (up to 500 characters) shows under a failed run; `exitCode` (a whole number) is the command's exit code, and `logPath` (up to 400) a log or run record it wrote: both show in the run's details in the panel.
 
 At most 5 runs can be open at once per agent (per Assistant, per workspace's scripts), and a workspace keeps at most 30 runs whoever reported them: ended ones make room, oldest first, and when all 30 are open another start is `429`. A request that is refused (`400`) changes nothing. A run with no report for longer than expected goes **stale**: with steps and an estimate, a step's share of the time left plus 2 minutes; with only an estimate, the estimate plus 2 minutes; with neither, 10 minutes. An agent's run also goes stale when the agent stops. Dismissing a stale run in the panel ends it: it leaves the agent's status and the taskbar, and further updates are `409`.
 
@@ -396,7 +396,7 @@ It runs the command with its output passed through unchanged and ends with its e
 ##hive-progress step=4 total=12 name=carddialog
 ```
 
-`step` is the step starting now, from 1; `total` how many there are; `name` the rest of the line. The lines are taken out of the output. `hive-progress` starts its run at the first step line that gives a total, or after 2 seconds, so a total printed early shows as steps from the start. A run started without one takes the first total printed later (sent once with `PATCH`); a different total after that is ignored, the steps aren't.
+`step` is the step starting now, from 1; `total` how many there are; `name` the rest of the line. A line `##hive-progress log=<path>` names a log or run record the command wrote (the rest of the line); `hive-progress` sends it with the finish, with the command's exit code (`npm run e2e` names its run record, or its logs folder). The lines are taken out of the output. `hive-progress` starts its run at the first step line that gives a total, or after 2 seconds, so a total printed early shows as steps from the start. A run started without one takes the first total printed later (sent once with `PATCH`); a different total after that is ignored, the steps aren't.
 
 Hive's own test runners report the same way (`npm run e2e`, a step per suite; `npm test`, a step per file) when they run in an agent's session.
 

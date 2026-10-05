@@ -2,7 +2,7 @@
 // updates; stale runs; the taskbar's combined bar; time left.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProgressError, ProgressStore, admitReport, type ProgressCaller } from '../src/main/progress'
-import { MAX_OPEN_PER_OWNER, MAX_RUNS_PER_WORKSPACE, STRIP_BARS, isOverdue, stripRuns, taskbarProgress, timeLeft } from '../src/shared/progress'
+import { MAX_OPEN_PER_OWNER, MAX_RUNS_PER_WORKSPACE, PASSED_SHOWN_MS, STRIP_BARS, inStrip, isListed, isOverdue, isRecent, stripRuns, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
 import type { ProgressRun } from '../src/shared/types'
 
 const WS = 'C:\\ws'
@@ -131,6 +131,44 @@ describe('progress runs', () => {
     expect(s.failureUnseen(WS)).toBe(true)
     s.seen(WS)
     expect(s.failureUnseen(WS)).toBe(false)
+  })
+
+  it('seen: each failed or stale run the user had not seen is marked, once; a new report or failure is unseen again (#220)', () => {
+    const s = store()
+    const f = s.start(alfie, { title: 'e2e' })
+    s.finish(alfie, f.id, { ok: false, summary: '1 failed' })
+    expect(s.list(WS)[0].seenAt).toBeNull()
+    s.seen(WS)
+    expect(s.list(WS).find((r) => r.id === f.id)!.seenAt).toBe(now)
+    const seenAt = now
+    now += 5000
+    s.seen(WS)
+    expect(s.list(WS).find((r) => r.id === f.id)!.seenAt).toBe(seenAt)
+    // A stale run seen, then reporting again: unseen again if it goes stale or fails later.
+    const q = s.start(betty, { title: 'build' })
+    running = false
+    s.sweep()
+    s.seen(WS)
+    expect(s.list(WS).find((r) => r.id === q.id)!.seenAt).toBe(now)
+    running = true
+    expect(s.update(betty, q.id, { step: 1 }).seenAt).toBeNull()
+    expect(s.finish(betty, q.id, { ok: false }).seenAt).toBeNull()
+  })
+
+  it('finish takes an exit code and a log path (both optional); the first estimate gives the expected time (#220)', () => {
+    const s = store()
+    const r = s.start(alfie, { title: 'e2e', estimateMs: 60_000 })
+    expect(r.expectedMs).toBe(60_000)
+    expect(status(() => s.finish(alfie, r.id, { ok: false, exitCode: 'one' }))).toBe(400)
+    expect(status(() => s.finish(alfie, r.id, { ok: false, logPath: 7 }))).toBe(400)
+    expect(s.finish(alfie, r.id, { ok: false, exitCode: 3, logPath: 'C:\\logs\\run-record.md' })).toMatchObject({ exitCode: 3, logPath: 'C:\\logs\\run-record.md' })
+    const late = s.start(alfie, { title: 'unit' })
+    expect(late.expectedMs).toBeNull()
+    now += 10_000
+    expect(s.update(alfie, late.id, { estimateMs: 20_000 }).expectedMs).toBe(30_000)
+    now += 5000
+    expect(s.update(alfie, late.id, { estimateMs: 99_000 }).expectedMs).toBe(30_000)
+    expect(s.finish(alfie, late.id, { ok: true })).toMatchObject({ exitCode: null, logPath: null })
   })
 
   it('dismissing moves a finished or stale run to Recent; a running one stays', () => {
@@ -414,7 +452,26 @@ describe('progress rules', () => {
     staleReason: null,
     summary: null,
     dismissed: false,
+    seenAt: null,
+    expectedMs: null,
+    exitCode: null,
+    logPath: null,
     ...over
+  })
+
+  it('a failed or stale run is listed until seen and a few seconds more, then is under Recent; the strip drops it when seen (#220)', () => {
+    const failed = run({ state: 'failed', finishedAt: 100 })
+    expect([isListed(failed, 1e9), inStrip(failed, 1e9), isRecent(failed, 1e9), unseenTrouble(failed)]).toEqual([true, true, false, true])
+    const seen = { ...failed, seenAt: 1000 }
+    expect([isListed(seen, 1000 + PASSED_SHOWN_MS - 1), inStrip(seen, 1000), isRecent(seen, 1000), unseenTrouble(seen)]).toEqual([true, false, false, false])
+    expect([isListed(seen, 1000 + PASSED_SHOWN_MS), isRecent(seen, 1000 + PASSED_SHOWN_MS)]).toEqual([false, true])
+    const stale = run({ state: 'stale', seenAt: 0 })
+    expect([isListed(stale, PASSED_SHOWN_MS), isRecent(stale, PASSED_SHOWN_MS)]).toEqual([false, true])
+    expect(isListed(run({ state: 'stale' }), 1e9)).toBe(true)
+    const passed = run({ state: 'passed', finishedAt: 0 })
+    expect([isListed(passed, PASSED_SHOWN_MS - 1), isRecent(passed, PASSED_SHOWN_MS)]).toEqual([true, true])
+    expect([isListed(run({ state: 'failed', finishedAt: 0, dismissed: true }), 0), isRecent(run({ state: 'failed', finishedAt: 0, dismissed: true }), 0)]).toEqual([false, true])
+    expect([isListed(run({}), 1e9), isRecent(run({}), 1e9)]).toEqual([true, false])
   })
 
   it('time left counts from the last report, never below zero', () => {

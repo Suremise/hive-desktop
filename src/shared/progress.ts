@@ -20,8 +20,35 @@ export const MAX_TITLE = 120
 export const MAX_STEP_NAME = 120
 export const MAX_COMMAND = 200
 export const MAX_SUMMARY = 500
+export const MAX_LOG_PATH = 400
+/** Recent keeps this many ended runs. */
+export const RECENT_RUNS = 10
 export const MAX_TOTAL = 100_000
 export const MAX_ESTIMATE_MS = 7 * 24 * 3_600_000
+
+/**
+ * Whether a run is in the panel's list (else under Recent): a running one; a failed or stale one until the user has
+ * seen it, and a few seconds more (as a passed one); a passed one for a few seconds. A dismissed one never.
+ */
+export function isListed(r: Pick<ProgressRun, 'state' | 'dismissed' | 'finishedAt' | 'seenAt'>, now: number): boolean {
+  if (r.dismissed) return false
+  if (r.state === 'running') return true
+  if (r.state === 'passed') return r.finishedAt !== null && now - r.finishedAt < PASSED_SHOWN_MS
+  return r.seenAt === null || now - r.seenAt < PASSED_SHOWN_MS
+}
+
+/** Whether a run has a bar in the folded strip: listed, and not a failure (or stall) the user has already seen. */
+export function inStrip(r: Pick<ProgressRun, 'state' | 'dismissed' | 'finishedAt' | 'seenAt'>, now: number): boolean {
+  return isListed(r, now) && !((r.state === 'failed' || r.state === 'stale') && r.seenAt !== null)
+}
+
+/** Whether a run is under Recent: no longer listed, and ended (or a stale one the user has seen). */
+export function isRecent(r: Pick<ProgressRun, 'state' | 'dismissed' | 'finishedAt' | 'seenAt'>, now: number): boolean {
+  return !isListed(r, now) && (r.finishedAt !== null || r.state === 'stale')
+}
+
+/** Whether a run failed or went stale and the user hasn't seen it yet (the panel asks main to mark it seen). */
+export const unseenTrouble = (r: Pick<ProgressRun, 'state' | 'dismissed' | 'seenAt'>): boolean => (r.state === 'failed' || r.state === 'stale') && !r.dismissed && r.seenAt === null
 
 /** Whether a run is still open: running or stale, and not ended (finished, or a stale one the user dismissed). */
 export function isOpenRun(run: Pick<ProgressRun, 'state' | 'finishedAt'>): boolean {

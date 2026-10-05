@@ -85,6 +85,8 @@ describe('the hive-progress command line', () => {
     expect(stepLine('##hive-progress step=4 total=12 name=carddialog\n')).toEqual({ step: 4, total: 12, name: 'carddialog' })
     expect(stepLine('##hive-progress step=2 name=unit tests: tips\r\n')).toEqual({ step: 2, name: 'unit tests: tips' })
     expect(stepLine('##hive-progress total=3')).toEqual({ total: 3 })
+    // A log the command wrote (#220): the rest of the line, spaces and all.
+    expect(stepLine('##hive-progress log=C:\\logs\\my run\\run-record.md\r\n')).toEqual({ log: 'C:\\logs\\my run\\run-record.md' })
     expect(stepLine('##hive-progress step=x')).toEqual({})
     expect(stepLine('##hive-progressive step=1')).toBeNull()
     expect(stepLine(' ##hive-progress step=1')).toBeNull()
@@ -143,7 +145,7 @@ describe('reporting a run', () => {
     const patches = calls.filter((c) => c.method === 'PATCH')
     expect(patches.every((c) => c.path === '/v1/progress/run-1')).toBe(true)
     expect(Object.assign({}, ...patches.map((c) => c.body))).toEqual({ step: 1, stepName: 'second' })
-    expect(calls.at(-1)).toMatchObject({ method: 'POST', path: '/v1/progress/run-1/finish', body: { ok: false, summary: 'exit code 3' } })
+    expect(calls.at(-1)).toMatchObject({ method: 'POST', path: '/v1/progress/run-1/finish', body: { ok: false, summary: 'exit code 3', exitCode: 3 } })
 
     // A run that failed isn't timed; one that passed is, and the next run of the same command has its estimate: the
     // time left when its start is reported.
@@ -154,7 +156,7 @@ describe('reporting a run', () => {
     const ok = [...seenNode, '-e', `seen((c) => c.length > 0).then(() => console.log('fine'))`]
     expect(await wrap(['--', ...ok], env(), 0)).toEqual({ code: 0, out: 'fine\n', err: '' })
     expect(calls[0].body).not.toHaveProperty('estimateMs')
-    expect(calls.at(-1)?.body).toEqual({ ok: true })
+    expect(calls.at(-1)?.body).toEqual({ ok: true, exitCode: 0 })
     expect(estimateFor(timings, timingKey(dir, ok))).toBeGreaterThanOrEqual(0)
     // Two long runs on record make the usual time ten minutes, so what is left of it when the start is reported doesn't
     // depend on how quickly this machine gets there.
@@ -263,6 +265,21 @@ describe('the shared reporter and timings', () => {
     await none.finish(false)
     expect(await none.reporting()).toBe(false)
     expect(calls).toHaveLength(2)
+  })
+
+  it('a finish can name the exit code and a log; inside hive-progress the log goes to the wrapper as a line (#220)', async () => {
+    const r = new ProgressRun({ url, token: 't', workspace: '' }, { title: 'with log' })
+    await r.finish(false, '2 failed', undefined, { exitCode: 1, logPath: 'C:\\logs\\run-record.md' })
+    expect(calls.at(-1)?.body).toEqual({ ok: false, summary: '2 failed', exitCode: 1, logPath: 'C:\\logs\\run-record.md' })
+    const lines: string[] = []
+    const inner = new ProgressRun(null, { title: 'inner' }, { lines: (l) => lines.push(l) })
+    await inner.finish(true, undefined, undefined, { logPath: 'C:\\logs\\run 2' })
+    expect(lines).toEqual(['##hive-progress log=C:\\logs\\run 2'])
+    // The wrapper takes the line out of the output and sends the log with the command's exit code.
+    calls.length = 0
+    const script = `console.log('##hive-progress log=C:\\\\logs\\\\run-record.md'); console.log('done'); process.exit(4)`
+    expect(await wrap(['--', ...seenNode, '-e', script], env(), 0)).toEqual({ code: 4, out: 'done\n', err: '' })
+    expect(calls.at(-1)).toMatchObject({ path: '/v1/progress/run-1/finish', body: { ok: false, summary: 'exit code 4', exitCode: 4, logPath: 'C:\\logs\\run-record.md' } })
   })
 
   it('a late total still waiting to be sent goes out before the finish, passed or failed; other pending updates are dropped', async () => {

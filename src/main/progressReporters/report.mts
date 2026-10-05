@@ -58,6 +58,12 @@ export interface ProgressStart {
   command?: string
 }
 
+/** What a finish may add: the command's exit code, and a log or run record it wrote. */
+export interface ProgressFinishMore {
+  exitCode?: number
+  logPath?: string
+}
+
 export interface ProgressUpdate {
   /** Steps, for a run started without them: sent once (a run that has a total keeps it). */
   total?: number
@@ -76,6 +82,7 @@ export type Fetch = (url: string, init: { method: string; headers: Record<string
 const MAX_TITLE = 120
 const MAX_COMMAND = 200
 const MAX_SUMMARY = 500
+const MAX_LOG_PATH = 400
 const MAX_TOTAL = 100_000
 const MAX_ESTIMATE_MS = 7 * 24 * 3_600_000
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
@@ -180,8 +187,12 @@ export class ProgressRun {
     this.chain = this.chain.then(() => this.id).then((id) => (id ? this.send('PATCH', `/v1/progress/${encodeURIComponent(id)}`, u, 2000) : null))
   }
 
-  /** Ends the run: ok or not, with an optional summary ("11 passed, 1 failed"). Never rejects. */
-  async finish(ok: boolean, summary?: string, finishWaitMs = 3000): Promise<void> {
+  /**
+   * Ends the run: ok or not, with an optional summary ("11 passed, 1 failed"), and what else is known: the exit code, a
+   * log or record file. Inside hive-progress the log goes to the wrapper as a line (it reports the finish). Never rejects.
+   */
+  async finish(ok: boolean, summary?: string, finishWaitMs = 3000, more: ProgressFinishMore = {}): Promise<void> {
+    if (this.lines && more.logPath && !this.finished) this.lines(`##hive-progress log=${clip(more.logPath, MAX_LOG_PATH)}`)
     if (!this.target || this.finished) return
     this.finished = true
     if (this.timer) clearTimeout(this.timer)
@@ -193,7 +204,7 @@ export class ProgressRun {
     if (late) this.chain = this.chain.then(() => this.id).then((id) => (id ? this.send('PATCH', `/v1/progress/${encodeURIComponent(id)}`, late, Math.min(2000, finishWaitMs / 2)) : null))
     const done = this.chain
       .then(() => this.id)
-      .then((id) => (id ? this.send('POST', `/v1/progress/${encodeURIComponent(id)}/finish`, { ok, ...(summary ? { summary: clip(summary, MAX_SUMMARY) } : {}) }, finishWaitMs) : null))
+      .then((id) => (id ? this.send('POST', `/v1/progress/${encodeURIComponent(id)}/finish`, { ok, ...(summary ? { summary: clip(summary, MAX_SUMMARY) } : {}), ...(Number.isSafeInteger(more.exitCode) ? { exitCode: more.exitCode } : {}), ...(more.logPath ? { logPath: clip(more.logPath, MAX_LOG_PATH) } : {}) }, finishWaitMs) : null))
     let timer: ReturnType<typeof setTimeout> | undefined
     await Promise.race([done, new Promise((r) => (timer = setTimeout(r, finishWaitMs + 250)))])
     clearTimeout(timer)
