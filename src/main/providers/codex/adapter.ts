@@ -2,10 +2,10 @@ import { createHash } from 'crypto'
 import { spawn } from 'child_process'
 import { homedir, tmpdir } from 'os'
 import { basename, isAbsolute, join, resolve } from 'path'
-import { appendFile, mkdir, open, readdir, readFile, stat, writeFile } from 'fs/promises'
+import { appendFile, mkdir, readdir, readFile, stat, writeFile } from 'fs/promises'
 import { existsSync, mkdirSync, readFileSync, statSync } from 'fs'
 import { parse as parseToml } from 'smol-toml'
-import type { AgentInstallInfo, McpServerDef, MemorySource, PermissionMode, ReadinessIssue } from '../../../shared/types'
+import type { AgentInstallInfo, McpServerDef, MemorySource, PermissionMode, ReadinessIssue, SubSession } from '../../../shared/types'
 import { assertSessionId, isSessionId } from '../../../shared/defaults'
 import type { StartHint } from '../../../shared/startFailure'
 import { CODEX, CODEX_DESCRIPTOR, CODEX_MODE_FLAGS, CODEX_PERMISSION_MODES } from '../../../shared/codex'
@@ -14,10 +14,10 @@ import { config } from '../../config'
 import { cleanSwaps, contentHash, ContentTooLarge, COPY_MARKER, CopyFailed, LinkNotCopied, sourceProblem, tooBigToDeliver, removePath, swapIn, withFileLock } from '../../fsutil'
 import { createLogger, userText } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
-import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, toSpawnable } from '../common'
+import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, readFirstLine, run, toSpawnable } from '../common'
 import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
 import { codexBackgroundMemo, codexBackgroundTasks, type CodexBackgroundMemo } from './background'
-import { CodexConversationParser, CodexUsageParser, codexImageData, parseRollout, patchPaths, rolloutDetails } from './rollout'
+import { CodexConversationParser, CodexUsageParser, codexImageData, parseRollout, patchPaths, rolloutDetails, rolloutSubSession } from './rollout'
 import { parseCodexModels } from './models'
 
 const log = createLogger('codex')
@@ -236,28 +236,6 @@ function mcpServersIn(file: string): Record<string, McpServerDef> {
   return out
 }
 
-/** The first line of a file (Codex's session_meta), read without loading the whole transcript. */
-async function firstLine(path: string, max = 1 << 20): Promise<string> {
-  const fh = await open(path, 'r')
-  try {
-    let out = ''
-    const buf = Buffer.alloc(64 * 1024)
-    let pos = 0
-    while (out.length < max) {
-      const { bytesRead } = await fh.read(buf, 0, buf.length, pos)
-      if (!bytesRead) break
-      const chunk = buf.toString('utf8', 0, bytesRead)
-      const nl = chunk.indexOf('\n')
-      if (nl >= 0) return out + chunk.slice(0, nl)
-      out += chunk
-      pos += bytesRead
-    }
-    return out
-  } finally {
-    await fh.close()
-  }
-}
-
 /** Marks Hive's copies of workspace skills in .agents/skills (so only those are ever replaced or removed). */
 const SKILL_MARKER = COPY_MARKER
 
@@ -306,9 +284,9 @@ export class CodexAdapter implements ProviderAdapter {
   private hashCheck = new Map<string, boolean>()
   /** Versions whose app server didn't answer this run (not asked again until Hive restarts). */
   private unreachable = new Set<string>()
-  /** Rollout files by session id, and each file's session_meta (id, cwd). */
+  /** Rollout files by session id, and each file's session_meta (id, cwd, and whose sub-session it is), by file mtime. */
   private paths = new Map<string, string>()
-  private metas = new Map<string, { id: string; cwd: string; mtime: number }>()
+  private metas = new Map<string, { id: string; cwd: string; sub: SubSession | null; mtime: number }>()
   private titles: { mtime: number; map: Map<string, string> } | null = null
 
   private async candidates(): Promise<{ path: string; source: string }[]> {
@@ -828,15 +806,15 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   /** The session_meta of a rollout (id, cwd), cached by path and modification time. */
-  private async meta(path: string): Promise<{ id: string; cwd: string } | null> {
+  private async meta(path: string): Promise<{ id: string; cwd: string; sub: SubSession | null } | null> {
     try {
       const s = await stat(path)
       const c = this.metas.get(path)
       if (c && c.mtime === s.mtimeMs) return c
-      const r = JSON.parse(await firstLine(path))
+      const r = JSON.parse(await readFirstLine(path))
       const p = r?.payload ?? {}
       if (r?.type !== 'session_meta' || typeof p.cwd !== 'string') return null
-      const m = { id: String(p.id ?? p.session_id ?? idFromFile(path) ?? ''), cwd: p.cwd, mtime: s.mtimeMs }
+      const m = { id: String(p.id ?? p.session_id ?? idFromFile(path) ?? ''), cwd: p.cwd, sub: rolloutSubSession(p), mtime: s.mtimeMs }
       this.metas.set(path, m)
       return m
     } catch {
@@ -875,9 +853,13 @@ export class CodexAdapter implements ProviderAdapter {
       const m = await this.meta(p)
       if (!m || !isSessionId(m.id) || resolve(m.cwd).toLowerCase() !== want) continue
       const s = await stat(p).catch(() => null)
-      if (s && s.size > 0) out.push({ id: m.id, transcriptPath: p, modified: s.mtime.toISOString() })
+      if (s && s.size > 0) out.push({ id: m.id, transcriptPath: p, modified: s.mtime.toISOString(), ...(m.sub ? { sub: m.sub } : {}) })
     }
     return out
+  }
+
+  async subSessionOf(path: string): Promise<SubSession | null> {
+    return (await this.meta(path))?.sub ?? null
   }
 
   /** Session names from Codex's session_index.jsonl ({id, thread_name}). */

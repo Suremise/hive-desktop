@@ -41,6 +41,12 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   const file = path.join(proj, '.hive', 'sessions.json')
   const old = (id, name, at, extra = {}) => ({ id, agent: 'claude-code', name, createdAt: at, lastActiveAt: at, archived: false, ...extra })
   fs.writeFileSync(file, JSON.stringify({ version: 1, sessions: [old('11111111-0000-4000-8000-000000000001', 'Older work', '2026-09-20T10:00:00Z', { agentId: A1.id }), old('11111111-0000-4000-8000-000000000002', 'Tray fixes', '2026-09-25T10:00:00Z', { agentId: A1.id })] }))
+  // Hive's backups of their transcripts: a session with no transcript anywhere can't be resumed.
+  for (const [sid, at] of [['11111111-0000-4000-8000-000000000001', '2026-09-20T10:00:00Z'], ['11111111-0000-4000-8000-000000000002', '2026-09-25T10:00:00Z']]) {
+    const b = path.join(proj, '.hive', 'sessions', `${sid}.jsonl`)
+    fs.mkdirSync(path.dirname(b), { recursive: true })
+    fs.writeFileSync(b, JSON.stringify({ type: 'user', sessionId: sid, timestamp: at, message: { role: 'user', content: 'Earlier work' } }) + '\n')
+  }
   let p = await project()
   const a1 = () => p.agents.find((a) => a.id === A1.id), a2 = () => p.agents.find((a) => a.id === A2.id)
   check('Agent 1 resume = its latest', a1().resume?.id === '11111111-0000-4000-8000-000000000002', JSON.stringify(a1().resume))

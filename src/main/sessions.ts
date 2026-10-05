@@ -1,6 +1,6 @@
 import { randomUUID, randomBytes } from 'crypto'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'path'
-import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/promises'
+import { copyFile, link, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { existsSync, realpathSync } from 'fs'
 import { typedText } from '../shared/terminalInput'
 import { failedStart, type StartFailure } from '../shared/startFailure'
@@ -21,8 +21,12 @@ import type {
   PermissionMode,
   ProjectConfig,
   ProviderId,
+  SessionBulkAction,
+  SessionBulkResult,
   SessionListItem,
   SessionRecord,
+  SessionSkipReason,
+  SubSession,
   SessionStatus,
   SessionUsage,
   TaskWatchInfo
@@ -58,6 +62,7 @@ import { headerOf } from './revisions'
 import { utf8Bytes } from '../shared/metrics'
 import { inWorkspace, workspace, workspaceFor, workspaceOf } from './workspace'
 import { endAgentToken, newAgentToken } from './agentTokens'
+import { beingRead, viewingWindows } from './transcriptReads'
 
 const log = createLogger('sessions')
 
@@ -296,6 +301,86 @@ const taskMinutes = (): number => Math.min(480, Math.max(10, Number(config.setti
 const liveId = (projectPath: string, agentId: string): string => `${projectPath.toLowerCase()}#${agentId}`
 
 /** The provider a session record belongs to (records from before providers are Claude Code's). */
+/** A CLI transcript changed this recently is still being written (a Codex guardian review, say): not archived or deleted yet. */
+const SESSION_WRITING_MS = 5000
+
+/** A session left alone by archive or delete, and why (SessionBulkResult's reasons). */
+export class SessionInUse extends Error {
+  constructor(
+    readonly reason: SessionSkipReason,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
+/** Windows' "in use" errors: another program has the file open without sharing it. */
+const IN_USE_CODES = new Set(['EBUSY', 'EPERM', 'EACCES'])
+
+/** Runs a move of Hive's copies; a copy another program holds fails it as SessionInUse. */
+async function inUseOnFail(fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn()
+  } catch (e) {
+    if (IN_USE_CODES.has((e as NodeJS.ErrnoException).code ?? '')) throw new SessionInUse('in-use', 'Another program has its transcript open. Close it, then try again.')
+    throw e
+  }
+}
+
+/** Checks one of Hive's copies can be moved (renamed aside and back), before any copy of the session goes. */
+async function movable(file: string): Promise<void> {
+  const aside = `${file}.moving`
+  await inUseOnFail(() => rename(file, aside))
+  await rename(aside, file)
+}
+
+/** The suffix of a spare of one of Hive's copies, kept while a delete is under way to put it back if the delete fails. */
+const SPARE = '.spare'
+
+/** A spare of one of Hive's copies: a second name for the same file (a hard link), or a copy where links can't be made. */
+async function spare(file: string): Promise<void> {
+  await rm(`${file}${SPARE}`, { force: true })
+  await link(file, `${file}${SPARE}`).catch(() => inUseOnFail(() => copyFile(file, `${file}${SPARE}`)))
+}
+
+/**
+ * Whether another program holds a file open without sharing it (Windows' sharing violation), found by opening it to
+ * read and closing it at once: the file isn't changed. The CLIs' own transcripts are checked this way, never moved.
+ */
+async function heldOpen(file: string): Promise<boolean> {
+  try {
+    const fh = await open(file, 'r')
+    await fh.close()
+    return false
+  } catch (e) {
+    return IN_USE_CODES.has((e as NodeJS.ErrnoException).code ?? '')
+  }
+}
+
+/**
+ * Renames done in order, undone in reverse when a later step fails (`undo`); `discardAside`, once all is done, removes
+ * what was only set aside (names ending .previous or .archived: copies the new ones supersede).
+ */
+class Moves {
+  private done: [string, string][] = []
+
+  async move(from: string, to: string): Promise<void> {
+    await rm(to, { force: true }).catch(() => undefined)
+    await inUseOnFail(() => rename(from, to))
+    this.done.push([from, to])
+  }
+
+  async undo(): Promise<void> {
+    for (const [from, to] of this.done.reverse()) await rename(to, from).catch((e) => log.warn(`Couldn't move ${userText(to)} back`, e))
+    this.done = []
+  }
+
+  async discardAside(): Promise<void> {
+    for (const [, to] of this.done) if (/\.(previous|archived)$/.test(to)) await rm(to, { force: true }).catch(() => undefined)
+    this.done = []
+  }
+}
+
 const recordProvider = (rec: Pick<SessionRecord, 'agent'> | undefined): ProviderId => rec?.agent || 'claude-code'
 
 /**
@@ -485,6 +570,7 @@ class SessionManager {
   async liveInfo(projectPath: string, cfg: ProjectConfig): Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }> {
     const agents: AgentInfo[] = []
     const records = (await workspace.sessionsFile(projectPath)).sessions
+    this.checkSubsOnce(projectPath, records)
     const openIds = new Set(this.projectStates(projectPath).map((s) => s.sessionId).filter(Boolean))
     const ids = new Set(projectAgents(cfg).map((a) => a.id))
     for (const a of projectAgents(cfg)) {
@@ -582,12 +668,15 @@ class SessionManager {
    * worktree agent's sessions ran in its worktree. The session's own record comes first.
    */
   async providerTranscript(projectPath: string, sessionId: string, ctx?: ListContext): Promise<{ path: string; provider: ProviderId } | null> {
-    const rec = (ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions).find((s) => s.id === sessionId)
+    const records = ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions
+    const rec = records.find((s) => s.id === sessionId)
     const live = this.projectStates(projectPath).find((s) => s.sessionId === sessionId)
     const ids = rec ? [recordProvider(rec)] : live ? [live.provider] : allProviders().map((p) => p.id)
     const cfg = ctx?.cfg ?? (await workspace.projectConfig(projectPath))
-    const folders = [rec?.cwd, projectPath, ...projectAgents(cfg).map((a) => a.worktree?.path)].filter((f): f is string => !!f)
-    const unique = [...new Map(folders.map((f) => [f.toLowerCase(), f])).values()]
+    // Its own folder first, then every folder the host's sessions run in (sessionFolders, where list() finds them: a
+    // sub-session started in a removed agent's worktree, or the Assistant's workspace folder).
+    const folders = [rec?.cwd, ...this.sessionFolders(projectPath, records, cfg)].filter((f): f is string => !!f)
+    const unique = [...new Map(folders.map((f) => [resolve(f).toLowerCase(), f])).values()]
     for (const id of ids) {
       let adapter: ProviderAdapter
       try {
@@ -673,6 +762,10 @@ class SessionManager {
     const existing = opts.resumeId ? (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === opts.resumeId) : undefined
     this.assertStarting(id)
     if (existing?.archived) throw new Error('This session is archived. Unarchive it before resuming.')
+    // A sub-session (a Codex guardian review, say) is not a conversation: never resumed (#239).
+    const sub = opts.resumeId ? (existing ? await this.recordSub(projectPath, existing) : (await adapter.listSessions(cwd).catch(() => [])).find((e) => e.id === opts.resumeId)?.sub) : undefined
+    if (sub) throw new Error(`That session is a ${sub.kind} ${name} ran for another session, not a conversation: it can't be resumed.`)
+    this.assertStarting(id)
     if (opts.resumeId && existing && recordProvider(existing) !== providerId) {
       throw new Error(`This conversation ran in ${providerDescriptor(recordProvider(existing)).name}, and ${agent.name} runs ${name}. Conversations can't move between providers: continue it with a handover instead.`)
     }
@@ -1530,6 +1623,8 @@ class SessionManager {
       if (l.backupTimer) clearInterval(l.backupTimer)
       l.compacting?.end()
       await this.backup(projectPath, agentId, true).catch(() => undefined)
+      // Its CLI has exited: its transcript is finished (archiving it at once is fine, inUse).
+      this.noteExit(l.state.sessionId)
       this.live.delete(id)
     }
     this.runs.delete(runId)
@@ -2479,6 +2574,8 @@ class SessionManager {
     const items: SessionListItem[] = []
     // Deleted sessions stay hidden, though the CLI still has their transcripts.
     const known = new Set([...file.sessions.map((s) => s.id), ...(file.deleted ?? [])])
+    // Records from before sub-sessions were told apart (a guardian review adopted then): found now, and kept on them.
+    const found = new Map<string, SubSession>()
     for (const rec of file.sessions) {
       const provider = recordProvider(rec)
       let hasTranscript = false
@@ -2490,8 +2587,11 @@ class SessionManager {
       const hasBackup = existsSync(this.backupPath(projectPath, rec.id)) || existsSync(this.backupPath(projectPath, rec.id, true))
       const usage = await this.usage(projectPath, rec.id, ctx)
       const { keptUsage: _kept, ...fields } = rec
+      const sub = rec.sub ?? (await this.recordSub(projectPath, rec))
+      if (sub && !rec.sub) found.set(rec.id, sub)
       items.push({
         ...fields,
+        ...(sub ? { sub } : {}),
         provider,
         source: 'hive',
         title: usage?.title ?? null,
@@ -2502,47 +2602,226 @@ class SessionManager {
         recache: usage && providerDescriptor(provider).capabilities.promptCacheTtl ? recacheEstimate(usage, ttl) : null
       })
     }
+    if (found.size) await this.keepSubs(projectPath, found)
+    // Sessions started outside Hive in the project folder; and from the other folders its sessions ran in (agents'
+    // worktrees, the Assistant's workspace folder), only the sub-sessions of sessions listed here.
+    const folders = this.sessionFolders(projectPath, file.sessions, ctx.cfg)
     for (const adapter of allProviders()) {
-      for (const ext of await adapter.listSessions(projectPath).catch(() => [])) {
-        if (known.has(ext.id)) continue
-        known.add(ext.id)
-        const usage = await this.usageFor(ext.transcriptPath, ext.id, adapter.id)
-        if (!usage || usage.requests === 0) continue
-        items.push({
-          id: ext.id,
-          provider: adapter.id,
-          source: 'external',
-          title: usage.title,
-          lastActivity: usage.lastActivity ?? ext.modified,
-          hasTranscript: true,
-          hasBackup: false,
-          usage,
-          recache: adapter.descriptor.capabilities.promptCacheTtl ? recacheEstimate(usage, ttl) : null
-        })
+      for (const [i, folder] of folders.entries()) {
+        for (const ext of await adapter.listSessions(folder).catch(() => [])) {
+          if (known.has(ext.id) || (i > 0 && !(ext.sub?.parentId && items.some((x) => x.id === ext.sub!.parentId)))) continue
+          known.add(ext.id)
+          const usage = await this.usageFor(ext.transcriptPath, ext.id, adapter.id)
+          if (!usage || usage.requests === 0) continue
+          items.push({
+            id: ext.id,
+            provider: adapter.id,
+            source: 'external',
+            title: usage.title,
+            lastActivity: usage.lastActivity ?? ext.modified,
+            hasTranscript: true,
+            hasBackup: false,
+            usage,
+            recache: adapter.descriptor.capabilities.promptCacheTtl ? recacheEstimate(usage, ttl) : null,
+            ...(ext.sub ? { sub: ext.sub } : {})
+          })
+        }
       }
     }
     return items.sort((a, b) => (b.lastActivity ?? '').localeCompare(a.lastActivity ?? ''))
   }
 
+  /**
+   * The folders a session host's sessions run in: the project folder first, then its agents' worktrees and the folders
+   * its sessions recorded (the Assistant's: the workspace folder), each once.
+   */
+  private sessionFolders(projectPath: string, records: SessionRecord[], cfg: ProjectConfig): string[] {
+    const out = new Map<string, string>([[resolve(projectPath).toLowerCase(), projectPath]])
+    const add = (f: string | null | undefined): void => {
+      if (f && !out.has(resolve(f).toLowerCase())) out.set(resolve(f).toLowerCase(), f)
+    }
+    if (workspace.isAssistantHome(projectPath)) add(workspaceOf(projectPath).path)
+    for (const a of projectAgents(cfg)) add(a.worktree?.path)
+    for (const r of records) add(r.cwd)
+    return [...out.values()]
+  }
+
+  /** Whether one of Hive's records is a sub-session, from its transcript's first line (the CLI's, else Hive's copy). */
+  private async recordSub(projectPath: string, rec: SessionRecord): Promise<SubSession | null> {
+    if (rec.sub) return rec.sub
+    try {
+      const adapter = providerAdapter(recordProvider(rec))
+      const path = (await adapter.transcriptPath(rec.cwd ?? projectPath, rec.id, rec.transcriptPath).catch(() => null)) ?? this.backupFiles(projectPath, rec.id)[0]
+      return path ? await adapter.subSessionOf(path, rec.id) : null
+    } catch {
+      return null
+    }
+  }
+
+  /** Keeps sub-sessions found on their records, so resume targets (liveInfo) never pick one. */
+  private async keepSubs(projectPath: string, found: Map<string, SubSession>): Promise<void> {
+    await workspace
+      .mutateSessions(projectPath, (f) => {
+        for (const r of f.sessions) if (!r.sub && found.has(r.id)) r.sub = found.get(r.id)
+      })
+      .catch((e) => log.warn(`Keeping sub-sessions in ${userText(projectPath)}`, e))
+  }
+
+  /** Projects whose records were checked for sub-sessions this run (once each: liveInfo asks often). */
+  private subsChecked = new Set<string>()
+
+  /** Checks a project's records for sub-sessions once per run, in the background, and keeps what it finds. */
+  private checkSubsOnce(projectPath: string, records: SessionRecord[]): void {
+    const k = projectPath.toLowerCase()
+    if (this.subsChecked.has(k)) return
+    this.subsChecked.add(k)
+    void (async () => {
+      const found = new Map<string, SubSession>()
+      for (const r of records) {
+        if (r.sub) continue
+        const sub = await this.recordSub(projectPath, r)
+        if (sub) found.set(r.id, sub)
+      }
+      if (!found.size) return
+      await this.keepSubs(projectPath, found)
+      workspaceOf(projectPath).scheduleRefresh()
+    })().catch((e) => log.warn(`Checking ${userText(projectPath)}'s sessions for sub-sessions`, e))
+  }
+
+  /**
+   * Archives or unarchives one of Hive's sessions (its backup moves to or from .hive/archive), all or nothing: with the
+   * session reserved (nothing reads, resumes or moves it meanwhile) and nothing having it in use (assertFree), the new
+   * archive is built aside, then each copy is moved; a failure at any step (a copy another program holds, the record
+   * not saved) moves everything back, and the record changes only once the files have.
+   */
   async archive(projectPath: string, sessionId: string, archived: boolean): Promise<void> {
     projectPath = workspace.assertSessionHost(projectPath)
-    if (archived && this.projectStates(projectPath).some((s) => s.sessionId === sessionId)) throw new Error('Stop the session before archiving it.')
+    assertSessionId(sessionId)
+    if (!(await workspace.sessionsFile(projectPath)).sessions.some((s) => s.id === sessionId)) throw new Error('Only sessions Hive keeps can be archived: adopt it first.')
+    const action = archived ? 'archive' : 'unarchive'
     const active = this.backupPath(projectPath, sessionId)
     const arch = this.backupPath(projectPath, sessionId, true)
-    await mkdir(dirname(arch), { recursive: true })
-    await mkdir(dirname(active), { recursive: true })
-    const src = archived ? await this.providerTranscript(projectPath, sessionId) : null
-    // Both copies locked (always the archive's first), so no backup or other move runs into the middle of this one.
-    await withFileLock(arch, () =>
-      withFileLock(active, async () => {
-        if (archived) {
-          // The backup becomes the archive, brought up to date from the provider's transcript so it is complete.
-          if (existsSync(active)) await rename(active, arch)
-          if (src) await syncCopyLocked(src.path, arch)
-        } else if (existsSync(arch)) await rename(arch, active)
-      })
-    )
-    await workspace.upsertSession(projectPath, { id: sessionId, archived })
+    await this.whileReserved(projectPath, sessionId, async () => {
+      await this.assertFree(projectPath, sessionId, action)
+      await mkdir(dirname(arch), { recursive: true })
+      await mkdir(dirname(active), { recursive: true })
+      const src = archived ? await this.providerTranscript(projectPath, sessionId) : null
+      // Both copies locked (always the archive's first), so no backup or other move runs into the middle of this one.
+      await withFileLock(arch, () =>
+        withFileLock(active, async () => {
+          this.assertNotLive(sessionId, action)
+          const moves = new Moves()
+          // The archive, built aside: the backup brought up to date from the CLI's transcript, so it is complete.
+          const fresh = src ? `${arch}.archiving` : null
+          try {
+            if (fresh && src) {
+              await rm(fresh, { force: true })
+              if (existsSync(active)) await inUseOnFail(() => copyFile(active, fresh))
+              await inUseOnFail(() => syncCopyLocked(src.path, fresh))
+            }
+            if (archived) {
+              if (existsSync(arch)) await moves.move(arch, `${arch}.previous`)
+              if (fresh) {
+                await moves.move(fresh, arch)
+                if (existsSync(active)) await moves.move(active, `${active}.archived`)
+              } else if (existsSync(active)) await moves.move(active, arch)
+            } else if (existsSync(arch)) {
+              if (existsSync(active)) await moves.move(active, `${active}.previous`)
+              await moves.move(arch, active)
+            }
+            await workspace.upsertSession(projectPath, { id: sessionId, archived })
+          } catch (e) {
+            await moves.undo()
+            if (fresh) await rm(fresh, { force: true }).catch(() => undefined)
+            throw e
+          }
+          // Done: what was set aside is superseded (the archive holds all of it).
+          await moves.discardAside()
+        })
+      )
+    })
+  }
+
+  /** The session is running, or an agent is starting on it, in any project and window. */
+  private liveAnywhere(sessionId: string): boolean {
+    const id = sessionId.toLowerCase()
+    return [...this.live.values()].some((l) => l.state.sessionId?.toLowerCase() === id) || [...this.starting.values()].some((p) => p.resumeId?.toLowerCase() === id)
+  }
+
+  private assertNotLive(sessionId: string, action: string): void {
+    if (this.liveAnywhere(sessionId)) throw new SessionInUse('live', `Stop the session before you ${action} it.`)
+  }
+
+  /** When Hive saw each session's CLI exit (its own sessions): their transcripts are finished. At most 500, the oldest go. */
+  private exitedAt = new Map<string, number>()
+
+  private noteExit(sessionId: string | undefined): void {
+    if (!sessionId) return
+    this.exitedAt.delete(sessionId)
+    this.exitedAt.set(sessionId, Date.now())
+    if (this.exitedAt.size > 500) this.exitedAt.delete(this.exitedAt.keys().next().value!)
+  }
+
+  /**
+   * Why a session's files can't be archived or deleted now, or null. Run with the session reserved, so no read,
+   * resume or other move can start after it: it is running or starting (in any window); Hive is reading its transcript
+   * (a search, an export, the viewer loading it); its transcript is open in a Sessions view, in any window (the window
+   * asking closes its own first, and says so); another program holds the CLI's transcript open (checked by opening it to
+   * read, never changing it); or (`writing`) its CLI is still writing it: changed in the last SESSION_WRITING_MS and
+   * not since Hive saw that CLI exit (a session started outside Hive, or a Codex guardian review, still going). A copy
+   * of Hive's another program holds is found when it is moved (inUseOnFail).
+   */
+  private async inUse(projectPath: string, sessionId: string, opts: { writing: boolean }): Promise<SessionInUse | null> {
+    if (this.liveAnywhere(sessionId)) return new SessionInUse('live', 'It is running. Stop it first.')
+    if (beingRead(projectPath, sessionId)) return new SessionInUse('reading', 'Hive is reading its transcript (an export or a search). Try again in a moment.')
+    if (viewingWindows(projectPath, sessionId).length) return new SessionInUse('open', 'Its transcript is open in Hive. Close it, then try again.')
+    const t = await this.providerTranscript(projectPath, sessionId).catch(() => null)
+    if (!t) return null
+    if (await heldOpen(t.path)) return new SessionInUse('in-use', 'Another program has its transcript open. Close it, then try again.')
+    if (!opts.writing) return null
+    const s = await stat(t.path).catch(() => null)
+    if (s && Date.now() - s.mtimeMs < SESSION_WRITING_MS && !((this.exitedAt.get(sessionId) ?? 0) >= s.mtimeMs)) {
+      return new SessionInUse('in-use', 'Its CLI is still writing its transcript. Try again in a moment.')
+    }
+    return null
+  }
+
+  private async assertFree(projectPath: string, sessionId: string, action: string): Promise<void> {
+    // Unarchiving moves only Hive's copy back: the CLI still writing its own transcript doesn't matter to it.
+    const why = await this.inUse(projectPath, sessionId, { writing: action !== 'unarchive' })
+    if (why?.reason === 'live') throw new SessionInUse('live', `Stop the session before you ${action} it.`)
+    if (why) throw why
+  }
+
+  /**
+   * Archives, unarchives or deletes several sessions (a branch of the Sessions tab). Each is all or nothing, with the
+   * same checks as one at a time; those in use, running, open in another window or started outside Hive (nothing of
+   * Hive's to archive) are skipped and listed with why. The CLIs' own transcripts are never touched.
+   */
+  async bulk(projectPath: string, action: SessionBulkAction, sessionIds: string[]): Promise<SessionBulkResult> {
+    projectPath = workspace.assertSessionHost(projectPath)
+    if (action !== 'archive' && action !== 'unarchive' && action !== 'delete') throw new Error(`Unknown action: ${String(action)}`)
+    if (!Array.isArray(sessionIds)) throw new Error('sessionIds: a list of session ids')
+    const out: SessionBulkResult = { done: [], skipped: [] }
+    for (const id of [...new Set(sessionIds)]) {
+      if (!isSessionId(id)) {
+        out.skipped.push({ id: String(id), reason: 'failed', message: 'Not a session id.' })
+        continue
+      }
+      try {
+        if (action === 'delete') await this.deleteOne(projectPath, id)
+        else if (!(await workspace.sessionsFile(projectPath)).sessions.some((s) => s.id === id)) {
+          out.skipped.push({ id, reason: 'external' })
+          continue
+        } else await this.archive(projectPath, id, action === 'archive')
+        out.done.push(id)
+      } catch (e) {
+        out.skipped.push(e instanceof SessionInUse ? { id, reason: e.reason } : { id, reason: 'failed', message: e instanceof Error ? e.message : String(e) })
+      }
+    }
+    log.info(`Sessions: ${action} ${out.done.length}, skipped ${out.skipped.length} (${[...new Set(out.skipped.map((s) => s.reason))].join(', ') || 'none'}) in ${userText(projectPath)}`)
+    workspaceOf(projectPath).scheduleRefresh()
+    return out
   }
 
   /** Hive's copies of a session's transcript that exist (the active backup, the archived one). */
@@ -2550,8 +2829,16 @@ class SessionManager {
     return [false, true].map((archived) => this.backupPath(projectPath, sessionId, archived)).filter((b) => existsSync(b))
   }
 
-  /** Sessions whose files Clean Up… is removing (`project|id`, lower-cased): none of them starts or resumes meanwhile. */
+  /**
+   * Sessions reserved while their files move (`project|id`, lower-cased): Clean Up… removing them, or an archive or
+   * delete. None of them starts, resumes or has its transcript read meanwhile.
+   */
   private cleaning = new Set<string>()
+
+  /** Archiving, deleting or Clean Up has the session's files (transcripts aren't read meanwhile). */
+  reserved(projectPath: string, sessionId: string): boolean {
+    return this.cleaning.has(`${projectPath.toLowerCase()}|${sessionId.toLowerCase()}`)
+  }
 
   /** The session is running, or an agent is starting on it. */
   private sessionOpen(projectPath: string, sessionId: string): boolean {
@@ -2567,6 +2854,18 @@ class SessionManager {
     const k = `${projectPath.toLowerCase()}|${sessionId.toLowerCase()}`
     if (this.cleaning.has(k)) throw new Error("Clean Up is already removing this session's files.")
     if (this.sessionOpen(projectPath, sessionId)) throw new Error('The session is running.')
+    this.cleaning.add(k)
+    try {
+      return await fn()
+    } finally {
+      this.cleaning.delete(k)
+    }
+  }
+
+  /** Runs fn (an archive or delete) with the session reserved, as whileCleaning; one already reserved is in use. */
+  private async whileReserved<T>(projectPath: string, sessionId: string, fn: () => Promise<T>): Promise<T> {
+    const k = `${projectPath.toLowerCase()}|${sessionId.toLowerCase()}`
+    if (this.cleaning.has(k)) throw new SessionInUse('in-use', 'Hive is already archiving, deleting or cleaning up this session.')
     this.cleaning.add(k)
     try {
       return await fn()
@@ -2623,15 +2922,26 @@ class SessionManager {
    */
   async delete(projectPath: string, sessionId: string, expected?: string[]): Promise<void> {
     projectPath = workspace.assertSessionHost(projectPath)
+    await this.deleteOne(projectPath, sessionId, expected)
+    log.info(`Deleted session ${sessionId} in ${userText(projectPath)}`)
+    workspaceOf(projectPath).scheduleRefresh()
+  }
+
+  /**
+   * delete() without its log line and refresh (bulk() does those once). All or nothing: with the session reserved and
+   * nothing having it in use (assertFree; running checked again with its copies locked), each of Hive's copies is
+   * first moved aside and back (movable) and linked to a spare name; if one fails to go to the Recycle Bin, or the
+   * record can't be saved, the copies already gone are put back from their spares (a copy stays in the Recycle Bin).
+   */
+  private async deleteOne(projectPath: string, sessionId: string, expected?: string[]): Promise<void> {
     assertSessionId(sessionId)
-    if (this.projectStates(projectPath).some((s) => s.sessionId === sessionId)) throw new Error('Stop the session before deleting it.')
     const remove = (): Promise<void> =>
       this.withBackupsLocked(projectPath, sessionId, async () => {
         // Clean Up… (a session whose only copies are Hive's): only as the preview listed it, and only once what it used is saved.
         if (expected) {
           await this.assertCleanable(projectPath, sessionId, expected)
           if (await this.providerTranscript(projectPath, sessionId)) throw new Error("The CLI has this session's transcript again.")
-        }
+        } else await this.assertFree(projectPath, sessionId, 'delete')
         // What it used stays in the project's totals: read, and saved on its record, before its copies go, so the
         // totals survive a failure partway (a record without a transcript counts its keptUsage).
         const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
@@ -2641,19 +2951,36 @@ class SessionManager {
         if (rec && usage) await workspace.upsertSession(projectPath, { id: sessionId, keptUsage: usage })
         if (expected) await this.assertCleanable(projectPath, sessionId, expected)
         const kept: KeptUsage | null = rec && usage ? { id: sessionId, provider: recordProvider(rec), agentId: rec.agentId, cwd: rec.cwd, name: rec.name, usage } : null
-        for (const b of this.backupFiles(projectPath, sessionId)) await shell.trashItem(b)
-        await workspace.mutateSessions(projectPath, (f) => {
-          f.sessions = f.sessions.filter((s) => s.id !== sessionId)
-          if (!f.deleted?.includes(sessionId)) f.deleted = [...(f.deleted ?? []), sessionId]
-          if (kept) f.deletedUsage = [...(f.deletedUsage ?? []).filter((k) => k.id !== sessionId), kept]
-        })
+        this.assertNotLive(sessionId, 'delete')
+        const files = this.backupFiles(projectPath, sessionId)
+        for (const b of files) await movable(b)
+        const spares: string[] = []
+        const trashed: string[] = []
+        try {
+          for (const b of files) {
+            await spare(b)
+            spares.push(b)
+          }
+          for (const b of files) {
+            await inUseOnFail(() => shell.trashItem(b))
+            trashed.push(b)
+          }
+          await workspace.mutateSessions(projectPath, (f) => {
+            f.sessions = f.sessions.filter((s) => s.id !== sessionId)
+            if (!f.deleted?.includes(sessionId)) f.deleted = [...(f.deleted ?? []), sessionId]
+            if (kept) f.deletedUsage = [...(f.deletedUsage ?? []).filter((k) => k.id !== sessionId), kept]
+          })
+        } catch (e) {
+          for (const b of trashed) await rename(`${b}${SPARE}`, b).catch((err) => log.warn(`Deleting session ${sessionId}: couldn't put back ${userText(b)}`, err))
+          throw e
+        } finally {
+          for (const b of spares) await rm(`${b}${SPARE}`, { force: true }).catch(() => undefined)
+        }
       })
-    await (expected ? this.whileCleaning(projectPath, sessionId, remove) : remove())
+    await (expected ? this.whileCleaning(projectPath, sessionId, remove) : this.whileReserved(projectPath, sessionId, remove))
     for (const a of projectAgents(await workspace.projectConfig(projectPath))) {
       if (a.lastSessionId === sessionId) await workspace.updateAgent(projectPath, a.id, { lastSessionId: undefined }).catch(() => undefined)
     }
-    log.info(`Deleted session ${sessionId} in ${userText(projectPath)}`)
-    workspaceOf(projectPath).scheduleRefresh()
   }
 
   /**
@@ -2730,7 +3057,10 @@ class SessionManager {
     const src = await this.providerTranscript(projectPath, sessionId)
     const provider = src?.provider ?? 'claude-code'
     const usage = src ? await this.usageFor(src.path, sessionId, provider) : null
+    // A sub-session (a Codex guardian review, say) stays one: never an agent's session to resume.
+    const sub = src ? (await providerAdapter(provider).listSessions(projectPath).catch(() => [])).find((e) => e.id === sessionId)?.sub : undefined
     await workspace.upsertSession(projectPath, {
+      ...(sub ? { sub } : {}),
       id: sessionId,
       agent: provider,
       name: usage?.title ?? `Adopted session ${sessionId.slice(0, 8)}`,

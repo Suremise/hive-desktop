@@ -86,6 +86,7 @@ export const SUITES = [
   { name: 'review' },
   { name: 'sessionname' },
   { name: 'sessionorigin' },
+  { name: 'sessiontree' },
   { name: 'skillaudience' },
   { name: 'skilldelivery' },
   { name: 'skills', serial: 'the shared Codex test home' },

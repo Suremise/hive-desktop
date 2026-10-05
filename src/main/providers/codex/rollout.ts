@@ -1,6 +1,7 @@
-import type { CompactionEvent, DayUsage, PlanLimit, PlanUsage, SessionUsage, TranscriptImageRef, TranscriptItem, TranscriptTool, UsageTokens } from '../../../shared/types'
+import type { CompactionEvent, DayUsage, PlanLimit, PlanUsage, SessionUsage, SubSession, TranscriptImageRef, TranscriptItem, TranscriptTool, UsageTokens } from '../../../shared/types'
 import { emptyDay, localDay } from '../../../shared/usageDays'
 import { CODEX } from '../../../shared/codex'
+import { isSessionId } from '../../../shared/defaults'
 import { firstLine, shortPath, toolLabel, type NewItem } from '../conversation'
 import type { ConversationParserLike, ImageLocation, LiveDetails } from '../types'
 
@@ -54,6 +55,22 @@ export function rolloutPlanUsage(rateLimits: Record<string, any> | null | undefi
   }
   if (!limits.length) return null
   return { provider: CODEX, plan: typeof rateLimits.plan_type === 'string' ? rateLimits.plan_type : null, limits, updatedAt: now }
+}
+
+/**
+ * Whether a rollout is a session Codex started for another one, from its session_meta payload (the first line): a
+ * guardian review (Codex judging an action's risk in Approve for me: `thread_source: "guardian_review"`,
+ * `source.subagent.other: "guardian"`) or another sub-agent (`source.subagent`). `parent_thread_id` names the session
+ * that started it. Null for a conversation of its own (`source: "cli"`, `thread_source: "user"`).
+ */
+export function rolloutSubSession(meta: Record<string, any>): SubSession | null {
+  const sub = meta?.source && typeof meta.source === 'object' ? meta.source.subagent : undefined
+  const thread = typeof meta?.thread_source === 'string' ? meta.thread_source : ''
+  const parentId = typeof meta?.parent_thread_id === 'string' && isSessionId(meta.parent_thread_id) ? meta.parent_thread_id : null
+  if (sub === undefined && !parentId && (!thread || thread === 'user')) return null
+  const name = typeof sub === 'string' ? sub : sub && typeof sub === 'object' ? String(sub.other ?? Object.keys(sub)[0] ?? '') : ''
+  const kind = thread === 'guardian_review' || name === 'guardian' ? 'guardian review' : name ? name.replace(/_/g, ' ') : 'sub-agent'
+  return { parentId, kind }
 }
 
 /** The preset a thread_settings_applied record describes (see CODEX_PERMISSION_MODES). */

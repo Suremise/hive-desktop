@@ -124,6 +124,7 @@ interface State {
   skillsProvider: Record<string, string>
   /** Each project's Skills tab groups, open or folded as last left (#118; saved in ui). */
   skillsFold: Record<string, { hive?: boolean; provider?: boolean }>
+  sessionsTree: Record<string, Record<string, boolean>>
   selectedProject: string | null
   projectTabs: Record<string, ProjectTab>
   selectedNote: string | null
@@ -281,6 +282,7 @@ export const useStore = create<State>(() => ({
   panes: {},
   skillsProvider: {},
   skillsFold: {},
+  sessionsTree: {},
   selectedProject: null,
   projectTabs: {},
   selectedNote: null,

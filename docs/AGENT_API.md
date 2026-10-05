@@ -144,7 +144,7 @@ A workspace's Hive Assistant is listed in `liveSessions` with `"project": null` 
 
 ### Sessions
 
-`GET /v1/projects/{name}/sessions` — Hive and external sessions for the project, newest first, each with usage and a re-cache estimate.
+`GET /v1/projects/{name}/sessions` — Hive and external sessions for the project, newest first, each with usage and a re-cache estimate. A session a CLI started for another one (a Codex guardian review) has `sub: { parentId, kind }`: it isn't a conversation, and resuming it is refused (`409`).
 
 `POST /v1/projects/{name}/sessions` — start a session. Body (all optional):
 

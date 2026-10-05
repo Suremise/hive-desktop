@@ -1,6 +1,36 @@
-import type { CompactionEvent, DayUsage, SessionUsage, UsageTokens } from '../../../shared/types'
+import type { CompactionEvent, DayUsage, SessionUsage, SubSession, UsageTokens } from '../../../shared/types'
 import { addTokens, emptyDay, localDay } from '../../../shared/usageDays'
 import { CLAUDE_CODE } from '../../../shared/claude'
+import { isSessionId } from '../../../shared/defaults'
+
+/**
+ * Whether a transcript (its first line) is a sub-agent's: Claude Code marks a sub-agent's messages `isSidechain`, and
+ * `sessionId` is the session that started it. (Claude Code keeps them apart from the conversations it lists, so the
+ * project folder rarely has one.) Null for a conversation, and for a first line that says neither.
+ */
+export function transcriptSubSession(line: string, sessionId: string): SubSession | null {
+  try {
+    const o = JSON.parse(line)
+    if (o?.isSidechain !== true) return null
+    const parentId = typeof o.sessionId === 'string' && isSessionId(o.sessionId) && o.sessionId !== sessionId ? o.sessionId : null
+    return { parentId, kind: 'sub-agent' }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Which entries are a sub-agent's work inside a conversation (skipped: its own transcript has it), as opposed to a
+ * sub-agent's own transcript, where every entry is `isSidechain`: decided by the first message.
+ */
+export class SidechainFilter {
+  private own: boolean | null = null
+
+  skip(o: Record<string, any>): boolean {
+    if (this.own === null && (o.type === 'user' || o.type === 'assistant')) this.own = o.isSidechain === true
+    return o.isSidechain === true && this.own !== true
+  }
+}
 
 /** Claude Code stores transcripts under ~/.claude/projects/<encoded>, where every non-alphanumeric character becomes '-'. */
 export function encodeProjectPath(projectPath: string): string {
@@ -38,6 +68,7 @@ export class ClaudeUsageParser {
   // A single API response is written as several assistant entries (one per content block) that repeat
   // the same usage, so count each request once — the last entry for a request carries the final numbers.
   private byRequest = new Map<string, Request>()
+  private sidechain = new SidechainFilter()
   private customTitle: string | null = null
   private aiTitle: string | null = null
   private saw1h = false
@@ -86,7 +117,8 @@ export class ClaudeUsageParser {
         continue
       }
       const ts: string | undefined = o.timestamp
-      if (ts && !o.isSidechain) {
+      const side = this.sidechain.skip(o)
+      if (ts && !side) {
         if (!usage.firstActivity || ts < usage.firstActivity) usage.firstActivity = ts
         if (!usage.lastActivity || ts > usage.lastActivity) usage.lastActivity = ts
       }
@@ -103,7 +135,7 @@ export class ClaudeUsageParser {
           const known = this.byRequest.get(key)
           this.byRequest.set(key, { u, day: known?.day || day })
           if (!known) this.uncovered.add(key)
-          if (!o.isSidechain) {
+          if (!side) {
             // The output (thinking included) stays in the context: what Claude Code compacts on is input + output.
             usage.contextInputTokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
             usage.lastOutputTokens = u.output_tokens ?? 0
@@ -113,7 +145,7 @@ export class ClaudeUsageParser {
           break
         }
         case 'user':
-          if (!o.isSidechain && !o.isMeta && (typeof o.message?.content === 'string' || (Array.isArray(o.message?.content) && o.message.content.some((c: any) => c?.type === 'text')))) {
+          if (!side && !o.isMeta && (typeof o.message?.content === 'string' || (Array.isArray(o.message?.content) && o.message.content.some((c: any) => c?.type === 'text')))) {
             usage.userMessages++
             this.prompts.set(day, (this.prompts.get(day) ?? 0) + 1)
           }

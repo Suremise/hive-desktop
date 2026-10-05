@@ -97,14 +97,25 @@ const check = (name, ok, extra = '') => {
 
   await page.locator('.tab', { hasText: 'Sessions' }).click()
   await page.getByText('Archived', { exact: true }).click()
+  await page.getByRole('button', { name: 'Expand All' }).click()
   const row = (name) => page.locator('.session-row', { hasText: name })
-  const badge = async (name) => (await row(name).locator('.session-origin').innerText().catch(() => '')).trim()
+  // Each session sits under the agent that ran it (the tree's agent level), with where it ran on its badge.
+  const badge = async (name) => {
+    const where = (await row(name).locator('.session-origin').innerText().catch(() => '')).trim()
+    const agent = await row(name)
+      .evaluate((el) => {
+        for (let e = el.previousElementSibling; e; e = e.previousElementSibling) if (e.classList.contains('session-branch-agent')) return e.querySelector('.label').textContent.trim()
+        return ''
+      })
+      .catch(() => '')
+    return `${agent} · ${where}`
+  }
   check('rows load', !!(await until(async () => (await row('Put away').count()) === 1, 10000)))
   check("a removed agent's session keeps its name, not the new Coder's", (await badge('Old Coder work')) === 'Coder (removed) · Project folder', await badge('Old Coder work'))
   check('a record from before names were kept: Removed agent', (await badge('Before names')) === 'Removed agent · Project folder', await badge('Before names'))
   check("an earlier agent in Reviewer's worktree isn't Reviewer", (await badge('Earlier spike')) === 'Spike (removed) · Worktree · hive/spike', await badge('Earlier spike'))
   check('a worktree session of an agent that exists', (await badge('Reviewer work')) === `Reviewer · Worktree · ${reviewer.worktree.branch}`, await badge('Reviewer work'))
-  check('an adopted session: its location only', (await badge('Adopted one')) === 'Project folder', await badge('Adopted one'))
+  check('an adopted session: not from an agent, its location only', (await badge('Adopted one')) === 'Not from an agent · Project folder', await badge('Adopted one'))
   check('an archived session is labelled too', (await badge('Put away')) === 'Removed agent · Project folder', await badge('Put away'))
   // Hovered again on each try: under load a first hover can land before the row is ready, and the tip shows after a delay.
   check('hover gives the full folder and the agent id', !!(await until(async () => {
