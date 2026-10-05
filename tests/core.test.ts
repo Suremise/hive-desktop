@@ -646,6 +646,36 @@ describe('permission modes in a running session', () => {
     expect(footerMode('⏸ manual mode on')).toBe('manual')
     expect(footerMode('⏸ manual mode on    ⏵⏵  accept edits  on (shift+tab to cycle)')).toBe('acceptEdits')
   })
+  it('reads a footer redrawn in part (NO_COLOR) from the rendered screen, not the output stream', async () => {
+    const { footerMode } = await import('../src/shared/claude')
+    const { TerminalScreen } = await import('../src/main/terminalScreen')
+    // Without colours Claude Code redraws only the characters that changed: "⏸ m", a cursor move over the
+    // unchanged "a", then "nual mode on" and an erase to the end of the line (Claude Code 2.1.289).
+    const first = '\x1b[2J\x1b[1;1H> fix the tests\r\n\x1b[30;1H⏵⏵ auto mode on (shift+tab to cycle)'
+    const redraw = '\x1b[30;1H⏸ m\x1b[1Cnual mode on\x1b[K'
+    // Read as a stream (control sequences as spaces), the partial redraw is lost.
+    expect(footerMode((first + redraw).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' '))).toBe('auto')
+    const screen = new TerminalScreen(80, 32)
+    const parsed = (data: string) => new Promise<void>((r) => screen.write(data, r))
+    await parsed(first)
+    expect(footerMode(screen.text())).toBe('auto')
+    await parsed(redraw)
+    expect(screen.text().split('\n')[29]).toBe('⏸ manual mode on')
+    expect(footerMode(screen.text())).toBe('manual')
+    // And back: "⏵⏵ " over "⏸ m", the rest changed from "anual" on.
+    await parsed('\x1b[30;1H⏵⏵ auto mode on (shift+tab to cycle)')
+    expect(footerMode(screen.text())).toBe('auto')
+    // One screen, no scrollback, whatever was printed; nothing after it's disposed.
+    await parsed('line\r\n'.repeat(500))
+    expect(screen.text().split('\n')).toHaveLength(32)
+    screen.resize(100, 10)
+    expect(screen.text().split('\n')).toHaveLength(10)
+    screen.dispose()
+    let called = false
+    screen.write('more', () => (called = true))
+    expect(screen.text()).toBe('')
+    expect(called).toBe(false)
+  })
   it('warns that Claude Code may not run Haiku in Auto', async () => {
     const { modeCaveat } = await import('../src/shared/providers')
     expect(modeCaveat('claude-code', 'auto', 'haiku')).toMatch(/may not offer Auto with Haiku/)
