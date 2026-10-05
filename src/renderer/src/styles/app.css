@@ -4820,9 +4820,12 @@ body.pane-resizing-v .monaco-editor {
   color: var(--warning);
   margin-top: 1px;
 }
+/* A project's block (#240): its name on a line of its own, its agents under it with a fixed indent, whatever the
+   panel's width (they used to sit in a column starting 34% across, moving right as the panel widened). */
 .assistant-project {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 1px;
   padding: 3px 0;
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -4833,7 +4836,8 @@ body.pane-resizing-v .monaco-editor {
   opacity: 0.6;
 }
 .assistant-project-name {
-  flex: 0 0 34%;
+  align-self: flex-start;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4845,11 +4849,11 @@ body.pane-resizing-v .monaco-editor {
   text-decoration: underline;
 }
 .assistant-agents {
-  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding-left: 14px;
 }
 .assistant-agent {
   display: flex;

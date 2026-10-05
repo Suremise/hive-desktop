@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Hive Assistant
+- **The Assistant's workspace overview lists each project's agents under its name**, with a small indent, however wide the panel is. They used to start a third of the way across, drifting right as the panel widened.
 - **The Assistant's panel can go on the left.** If Windows notifications or other apps cover the right of the screen, **View → Move Assistant Panel to the Left** (also in the command palette and the panel's ⋯ menu) or **Settings → Assistant → Panel side** puts it between the project list and your work. It folds and resizes on that side, and the choice is kept for every workspace and after a restart.
 
 ### Skills

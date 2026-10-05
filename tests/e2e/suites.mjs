@@ -12,6 +12,7 @@ export const SUITES = [
   { name: 'assistant' },
   { name: 'assistant-control' },
   { name: 'assistantend' },
+  { name: 'assistantoverview' },
   { name: 'assistantside' },
   { name: 'attention' },
   { name: 'automode' },
