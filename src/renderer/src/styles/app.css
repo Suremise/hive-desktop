@@ -1400,6 +1400,36 @@ p.hint {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+/* A number and its unit ("1.4 KB", "≈ $25.87", "3 (12%)") never split; a narrow table scrolls in its .table-wrap (#241). */
+.table td.num {
+  white-space: nowrap;
+}
+/* A cell of one or two deliberate lines (DataTable.tsx CellLines, #241): neither wraps, so a narrow table scrolls in
+   its .table-wrap instead of breaking a value; in a number column both align right. */
+.table .cell-lines {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.25;
+}
+.table td.num .cell-lines {
+  align-items: flex-end;
+}
+/* A row with such a cell keeps every cell's value on one line: the first line's baseline. */
+.table tr:has(.cell-lines) > td {
+  vertical-align: baseline;
+}
+.table .cell-lines > span,
+.table td.nowrap {
+  white-space: nowrap;
+}
+.table .cell-lines .cell-sub {
+  font-size: 11px;
+  color: var(--fg-faint);
+}
+.table .cell-lines .cell-sub.warn-text {
+  color: var(--warning);
+}
 .table .actions {
   display: flex;
   gap: 4px;

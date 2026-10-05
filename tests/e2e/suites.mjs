@@ -68,6 +68,7 @@ export const SUITES = [
   { name: 'paneheader' },
   { name: 'perfcompare' },
   { name: 'performance' },
+  { name: 'perftable' },
   { name: 'pin' },
   { name: 'plan', needs: ['claude'] },
   { name: 'progress', serial: 'window focus' },

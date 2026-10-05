@@ -262,38 +262,40 @@ export function WorkspaceOverviewView() {
         )}
 
         <h2 className="section">By project</h2>
-        <table className="table ws-projects">
-          <thead>
-            <tr>
-              {header('name', 'Project', false)}
-              {header('sessions', 'Sessions')}
-              {header('tokens', 'Tokens')}
-              {header('cost', 'Cost')}
-              <th className="num">Share</th>
-              {header('last', 'Last active')}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((r) => {
-              const share = all$ ? (r.tokens / all$) * 100 : 0
-              return (
-                <tr key={r.g.key} className="clickable" onClick={() => openProjectOverview(r.g.key)} title={r.g.key === 'assistant' ? 'Open the Assistant view' : `Open ${r.g.label}'s Overview`}>
-                  <td>{r.g.key === 'assistant' ? <span className="muted">Assistant</span> : r.g.label}</td>
-                  <td className="num">{r.t.sessions}</td>
-                  <td className="num">{formatTokens(r.tokens)}</td>
-                  <td className="num">{r.t.sessions ? costText(r.t) : '—'}</td>
-                  <td className="num">
-                    <span className="share">
-                      <span className="share-bar" style={{ width: `${share}%` }} />
-                    </span>
-                    {r.tokens ? `${share < 1 ? '< 1' : Math.round(share)}%` : '—'}
-                  </td>
-                  <td className="num faint">{r.last ? timeAgo(r.last) : '—'}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        <div className="table-wrap">
+          <table className="table ws-projects">
+            <thead>
+              <tr>
+                {header('name', 'Project', false)}
+                {header('sessions', 'Sessions')}
+                {header('tokens', 'Tokens')}
+                {header('cost', 'Cost')}
+                <th className="num">Share</th>
+                {header('last', 'Last active')}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((r) => {
+                const share = all$ ? (r.tokens / all$) * 100 : 0
+                return (
+                  <tr key={r.g.key} className="clickable" onClick={() => openProjectOverview(r.g.key)} title={r.g.key === 'assistant' ? 'Open the Assistant view' : `Open ${r.g.label}'s Overview`}>
+                    <td>{r.g.key === 'assistant' ? <span className="muted">Assistant</span> : r.g.label}</td>
+                    <td className="num">{r.t.sessions}</td>
+                    <td className="num">{formatTokens(r.tokens)}</td>
+                    <td className="num">{r.t.sessions ? costText(r.t) : '—'}</td>
+                    <td className="num">
+                      <span className="share">
+                        <span className="share-bar" style={{ width: `${share}%` }} />
+                      </span>
+                      {r.tokens ? `${share < 1 ? '< 1' : Math.round(share)}%` : '—'}
+                    </td>
+                    <td className="num faint">{r.last ? timeAgo(r.last) : '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
         {usage.hidden > 0 && (
           <p className="hint">
             {usage.hidden} hidden or removed project{usage.hidden === 1 ? " isn't" : "s aren't"} counted (Settings → Workspace).

@@ -69,21 +69,21 @@ describe('period totals', () => {
     // All priced: the cost, estimated.
     const priced = sumUsage([session({ '2026-10-01': 1000 }), session({ '2026-10-01': 2000 })], all)
     expect(priced).toMatchObject({ priced: 2, unpriced: 0 })
-    expect(costText(priced)).toBe('≈ $3.00')
+    expect(costText(priced)).toBe('≈ $3.00')
     // None priced: unknown, not $0.00.
     const none = sumUsage([unpriced({ '2026-10-01': 1000 })], all)
     expect(none).toMatchObject({ priced: 0, unpriced: 1, cost: 0 })
     expect(costText(none)).toBe('Unknown')
     // Mixed: the known subtotal, marked incomplete.
     const mixed = sumUsage([session({ '2026-10-01': 1000 }), unpriced({ '2026-10-01': 1000 })], all)
-    expect(costText(mixed)).toBe('≈ $1.00 + ?')
+    expect(costText(mixed)).toBe('≈ $1.00 + ?')
     // Nothing at all is still $0.00 (the views show — for no sessions).
     expect(costText(sumUsage([], all))).toBe('$0.00')
     // The same by day, and in the chart stacked by project.
     const [day] = dailyTotals([unpriced({ '2026-10-01': 1000 })], '2026-10-01', NOW)
     expect(costText(day)).toBe('Unknown')
     const stacked = stackedDaily([{ key: 'a', label: 'a', items: [session({ '2026-10-01': 1000 })] }, { key: 'b', label: 'b', items: [unpriced({ '2026-10-01': 500 })] }], '2026-10-01', NOW)
-    expect(costText(stacked.days[0])).toBe('≈ $1.00 + ?')
+    expect(costText(stacked.days[0])).toBe('≈ $1.00 + ?')
   })
 })
 
