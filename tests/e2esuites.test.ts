@@ -5,7 +5,7 @@ import { execFileSync } from 'child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 // @ts-expect-error: plain .mjs modules without types
 import { SUITES } from './e2e/suites.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -868,9 +868,19 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
     const { spawn } = await import('child_process')
     const env: Record<string, string | undefined> = { ...process.env, HIVE_TEST_CODEX_HOME: home, HIVE_E2E_DIR: join(home, 'work') }
     delete env.ELECTRON_RUN_AS_NODE
-    const child = spawn(process.execPath, ['-e', `require(${JSON.stringify(libPath)}).trustForCodex(${JSON.stringify(folder)})`], { env, stdio: 'ignore' })
-    return new Promise<number | null>((resolve) => child.on('exit', resolve))
+    // Its error output is kept: a runner that fails says why in the test's failure (#181), rather than only exit 1.
+    const child = spawn(process.execPath, ['-e', `require(${JSON.stringify(libPath)}).trustForCodex(${JSON.stringify(folder)})`], { env, stdio: ['ignore', 'ignore', 'pipe'] })
+    let err = ''
+    child.stderr?.on('data', (d) => (err += d))
+    return new Promise<number | null>((resolve) =>
+      child.on('exit', (code) => {
+        if (code) failures.push(`${folder}: exit ${code}\n${err.trim().split('\n').slice(0, 8).join('\n')}`)
+        resolve(code)
+      })
+    )
   }
+  /** The runners that failed in this test file, with their error output, for the assertion messages. */
+  const failures: string[] = []
   const entries = (home: string) => [...readFileSync(join(home, 'config.toml'), 'utf8').matchAll(/^\[projects\.'([^']+)'\]$/gm)].map((m) => m[1]).sort()
 
   it("waits while another runner changes it, and keeps that runner's change", async () => {
@@ -885,7 +895,7 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
       expect(entries(home)).toEqual([])
       writeFileSync(join(home, 'config.toml'), `${readFileSync(join(home, 'config.toml'), 'utf8')}\n[projects.'C:/lane0/codex-ws/demo']\ntrust_level = "trusted"\n`)
       rmSync(join(home, 'config.toml.lock'), { recursive: true })
-      expect(await other).toBe(0)
+      expect(await other, failures.join('\n\n')).toBe(0)
       // Neither change lost.
       expect(entries(home)).toEqual(['C:/lane0/codex-ws/demo', 'C:/lane1/codex-ws/demo'])
       expect(readFileSync(join(home, 'config.toml'), 'utf8').match(/^\[windows\]/gm)).toHaveLength(1)
@@ -899,7 +909,7 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
     const home = mkdtempSync(join(tmpdir(), 'hive-codex-home-'))
     try {
       const folders = Array.from({ length: 6 }, (_, k) => `C:/lanes/${k}/codex-ws/demo`)
-      expect(await Promise.all(folders.map((f) => trustIn(home, f)))).toEqual(folders.map(() => 0))
+      expect(await Promise.all(folders.map((f) => trustIn(home, f))), failures.join('\n\n')).toEqual(folders.map(() => 0))
       expect(entries(home)).toEqual([...folders].sort())
       // Again: nothing added twice. A folder whose name starts with another's is its own entry.
       trustForCodex(folders[0], home)
@@ -921,6 +931,71 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
       expect(entries(home)).toEqual(['C:/ws/demo'])
       expect(existsSync(lock)).toBe(false)
     } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it("Windows' in-use answers (EPERM, EACCES, EBUSY) while taking or letting go of the lock mean busy, not a failure (#181)", () => {
+    type Lock = (file: string, fn: () => unknown, o?: { staleMs?: number; timeoutMs?: number }) => unknown
+    const req = createRequire(import.meta.url)
+    const { withFileLock } = req('./e2e/lib.cjs') as { withFileLock: Lock }
+    const nodeFs = req('fs') as typeof import('fs')
+    const home = mkdtempSync(join(tmpdir(), 'hive-codex-home-'))
+    const file = join(home, 'config.toml')
+    const lock = `${file}.lock`
+    const fail = (code: string) => Object.assign(new Error(`${code}: operation not permitted`), { code })
+    const mkdir = nodeFs.mkdirSync
+    const rm = nodeFs.rmSync
+    try {
+      // Taking it: in use twice (another runner still had the folder open), then free.
+      let refusals = ['EPERM', 'EBUSY', 'EACCES']
+      const spyMk = vi.spyOn(nodeFs, 'mkdirSync').mockImplementation(((p: string, o?: object) => {
+        if (p === lock && refusals.length) throw fail(refusals.shift()!)
+        return mkdir(p, o as never)
+      }) as never)
+      // Letting go: in use once, then gone.
+      let busyRm = 1
+      const spyRm = vi.spyOn(nodeFs, 'rmSync').mockImplementation(((p: string, o?: object) => {
+        if (p === lock && busyRm-- > 0) throw fail('EBUSY')
+        return rm(p, o as never)
+      }) as never)
+      let ran = 0
+      expect(withFileLock(file, () => ++ran)).toBe(1)
+      expect(ran).toBe(1)
+      expect(existsSync(lock)).toBe(false)
+      // A permission problem that doesn't pass still ends, at the timeout, naming its error.
+      refusals = Array(10_000).fill('EPERM')
+      expect(() => withFileLock(file, () => ++ran, { timeoutMs: 200 })).toThrow(/is still held \(EPERM\)/)
+      // Anything else is a failure at once (its parent folder missing, say).
+      refusals = []
+      expect(() => withFileLock(join(home, 'no', 'such', 'config.toml'), () => ++ran)).toThrow(/ENOENT/)
+      expect(ran).toBe(1)
+      // Refused with its age unreadable (stat fails): a paced poll, never a busy loop (review round 1). A refusal that
+      // clears is taken after a few paced tries; one that lasts ends at the timeout after about timeout / 25 ms tries.
+      let tries = 0
+      const spyStat = vi.spyOn(nodeFs, 'statSync').mockImplementation(((p: string) => {
+        if (p === lock) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+        throw new Error(`unexpected stat of ${p}`)
+      }) as never)
+      spyMk.mockImplementation(((p: string, o?: object) => {
+        if (p === lock && (tries++, refusals.length)) throw fail(refusals.shift()!)
+        return mkdir(p, o as never)
+      }) as never)
+      refusals = ['EPERM', 'EACCES', 'EBUSY']
+      const t0 = Date.now()
+      expect(withFileLock(file, () => ++ran)).toBe(2)
+      expect(tries).toBe(4)
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(3 * 20)
+      tries = 0
+      refusals = Array(100_000).fill('EPERM')
+      expect(() => withFileLock(file, () => ++ran, { timeoutMs: 200 })).toThrow(/is still held \(EPERM\)/)
+      expect(tries).toBeGreaterThan(2)
+      expect(tries).toBeLessThan(20)
+      spyStat.mockRestore()
+      spyMk.mockRestore()
+      spyRm.mockRestore()
+    } finally {
+      vi.restoreAllMocks()
       rmSync(home, { recursive: true, force: true })
     }
   })

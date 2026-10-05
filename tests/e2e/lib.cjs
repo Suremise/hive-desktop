@@ -177,31 +177,55 @@ async function acceptClaudeTrust(inv, proj, agentId, timeoutMs = 15000) {
  * Runs fn holding a lock beside file (`<file>.lock`, a folder: creating one is atomic), for a change that reads the file
  * and writes it back: runners in different worktrees share the Codex test home (e2e lanes don't split it: it holds the
  * one sign-in), and two changes at once would otherwise lose one. A lock older than staleMs was left by a crash.
+ *
+ * On Windows the lock folder can't always be made or removed the moment another runner lets go of it: while something
+ * still has it open (another runner looking at its age, a virus scan), creating it says EPERM, EACCES or EBUSY rather
+ * than EEXIST, and removing it fails the same way. Both mean busy, not broken (#181): taking the lock waits as for
+ * EEXIST (a real permission problem still ends at timeoutMs, naming the error), and letting go tries again for a moment
+ * rather than failing a runner whose change is already written.
  */
 function withFileLock(file, fn, { staleMs = 30_000, timeoutMs = 120_000 } = {}) {
   const lock = `${file}.lock`
   const start = Date.now()
+  const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
   for (;;) {
     try {
       fs.mkdirSync(lock)
       break
     } catch (e) {
-      if (e.code !== 'EEXIST') throw e
+      if (!LOCK_BUSY.has(e.code)) throw e
+      if (Date.now() - start > timeoutMs) throw new Error(`${lock} is still held (${e.code})`, { cause: e })
       let age
       try {
         age = Date.now() - fs.statSync(lock).mtimeMs
       } catch {
-        continue // Just released.
+        // EEXIST and now gone: just released, try again at once. Refused (in use) and its age unreadable: wait as
+        // for a held lock, so a lasting refusal is a slow poll until the timeout, never a busy loop (review #181).
+        if (e.code !== 'EEXIST') pause(25)
+        continue
       }
-      if (age > staleMs) fs.rmSync(lock, { recursive: true, force: true })
-      else if (Date.now() - start > timeoutMs) throw new Error(`${lock} is still held`, { cause: e })
-      else Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+      if (age > staleMs) removeLock(lock, pause)
+      else pause(25)
     }
   }
   try {
     return fn()
   } finally {
-    fs.rmSync(lock, { recursive: true, force: true })
+    removeLock(lock, pause)
+  }
+}
+/** What creating or removing a lock folder says while another process still has it open (Windows), or while it exists. */
+const LOCK_BUSY = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY'])
+/** Removes a lock folder, trying again for up to a second while Windows says it is in use; gone already is fine. */
+function removeLock(lock, pause) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      fs.rmSync(lock, { recursive: true, force: true })
+      return
+    } catch (e) {
+      if (!LOCK_BUSY.has(e.code) || attempt >= 40) throw e
+      pause(25)
+    }
   }
 }
 
