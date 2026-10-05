@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { estimateCost, modelPrice } from '../src/shared/prices'
+import { estimateCost, modelPrice, unpricedModel, unpricedText } from '../src/shared/prices'
 
 const usage = (provider: string, model: string) => ({ provider, model, inputTokens: 1_000_000, cacheReadTokens: 2_000_000, cacheWriteTokens: 100_000, outputTokens: 100_000 })
 
@@ -7,6 +7,27 @@ describe('estimated cost', () => {
   it('prices Codex sessions from the table', () => {
     // gpt-6-luna: $0.10 input, $0.01 cached input, $0.50 output per million.
     expect(estimateCost({ ...usage('codex', 'gpt-6-luna'), cacheWriteTokens: 0 })).toBeCloseTo(0.1 + 0.02 + 0.05, 6)
+  })
+  it("prices GPT-6.1 Sol, Codex's default from 0.160, at OpenAI's published rates", () => {
+    // OpenAI's model page (developers.openai.com, 5 Oct 2026).
+    // $2 input, $0.10 cached input, $2.50 cache writes, $10 output per million.
+    expect(modelPrice('codex', 'gpt-6.1-sol')).toEqual({ input: 2, cachedInput: 0.1, cacheWrite: 2.5, output: 10 })
+    expect(modelPrice('codex', 'GPT-6.1-Sol')?.input).toBe(2)
+    expect(estimateCost({ ...usage('codex', 'gpt-6.1-sol'), cacheWriteTokens: 0 })).toBeCloseTo(2 + 0.2 + 1, 6)
+    // Cache writes at their own rate, not input's: 1M of them is $2.50.
+    expect(estimateCost({ ...usage('codex', 'gpt-6.1-sol'), inputTokens: 0, cacheReadTokens: 0, outputTokens: 0, cacheWriteTokens: 1_000_000 })).toBeCloseTo(2.5, 6)
+    // The others keep no cache-write price (input's applies).
+    expect(modelPrice('codex', 'gpt-6-sol')?.cacheWrite).toBeUndefined()
+  })
+  it('a model without a price has an unknown cost, never $0, and says where to add one', () => {
+    expect(estimateCost(usage('codex', 'gpt-9-nova'))).toBeNull()
+    expect(unpricedModel('codex', 'gpt-9-nova')).toBe('gpt-9-nova')
+    expect(unpricedModel('codex', 'gpt-6.1-sol')).toBeNull()
+    expect(unpricedModel('codex', null)).toBeNull()
+    // A price of the user's own counts.
+    const settings = { providers: { codex: { prices: { 'gpt-9-nova': { input: 1, cachedInput: 0, output: 0 } } } } } as never
+    expect(unpricedModel('codex', 'gpt-9-nova', settings)).toBeNull()
+    expect(unpricedText('gpt-9-nova', 'Codex')).toMatch(/no API price for gpt-9-nova.*Settings → Codex → API prices/)
   })
   it('knows Claude aliases, 1M suffixes and dated ids', () => {
     expect(modelPrice('claude-code', 'opus')?.input).toBe(4)

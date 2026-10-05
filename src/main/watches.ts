@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto'
 import { link, mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import { basename, dirname, join, resolve } from 'path'
-import { cardChange, changesBetween, limitLine, markOf, movedIntoSince, readMark, readSavedCondition, wakeLine, watchLabel, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark, type WatchCondition } from '../shared/watch'
+import { cardChange, changesBetween, limitLine, markOf, movedIntoSince, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, wakeLine, watchLabel, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark, type WatchCondition } from '../shared/watch'
 import type { LiveSessionState, TaskCard, TaskWatchInfo } from '../shared/types'
 import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
@@ -98,7 +98,7 @@ const writeText = (path: string, text: string): Promise<void> => (testHooks.writ
 const MAX_WATCHES = 500
 const MAX_FILE_BYTES = 1024 * 1024
 /** A fired line's most bytes as saved (JSON-quoted): what a watch may still grow by is known when it is made. */
-const MAX_LINE_BYTES = 1000
+const MAX_LINE_BYTES = WAKE_MAX_BYTES
 const jsonBytes = (s: string): number => Buffer.byteLength(JSON.stringify(s))
 /** A line cut to fit MAX_LINE_BYTES as saved. */
 function fitLine(line: string): string {
@@ -596,7 +596,7 @@ async function check(store: Store, rec: WatchRecord): Promise<{ moved: boolean; 
     // A move into the column: by its history since the watch began, or as last seen (it was elsewhere, it's there now).
     const into = !!rec.cond.moveInto && !!rec.cond.column && (movedIntoSince(card, rec.cond.column, rec.since) || (!!prev && prev.column !== rec.cond.column && after.column === rec.cond.column))
     const kinds = changesBetween(rec.marks[n], after, rec.cond, into)
-    if (kinds === 'gone' || kinds.length) hits.push(cardChange(n, card, kinds))
+    if (kinds === 'gone' || kinds.length) hits.push({ ...cardChange(n, card, kinds), about: wakeAbout(card, kinds, rec.agentId) })
   }
   return { moved, hits }
 }

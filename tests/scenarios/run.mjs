@@ -87,9 +87,11 @@ const out = resultsFolder(resultsDir, `${stamp}-${provider}`)
 const results = []
 let spent = 0
 let unknownCostTrials = 0
+// Models of the trials without a cost (the guard names them: usually Hive has no price for one).
+const noCostModels = new Set()
 for (let sample = 1; sample <= repeats; sample++) {
   for (const sc of chosen) {
-    const gate = budgetGate({ fake, budget, spentKnown: spent, unknownCostTrials, allowUnknownCost })
+    const gate = budgetGate({ fake, budget, spentKnown: spent, unknownCostTrials, allowUnknownCost, noCostModels: [...noCostModels] })
     if (!gate.ok) {
       results.push({ scenario: sc.id, title: sc.title, provider, sample, skipped: gate.reason })
       console.log(`SKIP ${sc.id}: ${gate.reason}`)
@@ -100,7 +102,10 @@ for (let sample = 1; sample <= repeats; sample++) {
     r.sample = sample
     // A trial's cost as reported; none reported is unknown (counted), never $0.
     if (typeof r.usage?.costUsd === 'number') spent += r.usage.costUsd
-    else if (!fake) unknownCostTrials++
+    else if (!fake) {
+      unknownCostTrials++
+      noCostModels.add(r.usage?.model ?? r.model)
+    }
     results.push(r)
     const failed = r.checks.filter((c) => c.ok === false)
     console.log(`${r.error ? `ERROR (${r.error.split('\n')[0]})` : failed.length ? `${failed.length} failed` : 'ok'}, ${r.seconds}s${r.usage?.costUsd ? `, $${r.usage.costUsd.toFixed(3)}` : ''}`)

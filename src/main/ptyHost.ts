@@ -6,9 +6,13 @@ import { allProviders } from './providers'
 
 const log = createLogger('pty')
 const MAX_BUFFER = 512 * 1024
+/** A terminal's size until the window sets it. */
+export const PTY_COLS = 120
+export const PTY_ROWS = 32
 
 interface PtyEntry {
   proc: IPty
+  onResize?: (cols: number, rows: number) => void
   buffer: string[]
   size: number
 }
@@ -25,6 +29,8 @@ export interface SpawnOptions {
   /** `output`: the end of what the process printed (e.g. why it refused to start). */
   onExit?: (code: number, output: string) => void
   onData?: (data: string) => void
+  /** The window resized the terminal. */
+  onResize?: (cols: number, rows: number) => void
   /** Don't tell the renderer when it exits: another process continues in the same terminal (a worktree's setup command, then the agent). */
   quietExit?: boolean
   /** Start from what the key's previous process printed, so the terminal replays both after a reload. */
@@ -60,15 +66,15 @@ export function spawnPty(key: string, opts: SpawnOptions): IPty {
   log.info(`spawn ${userText(key)}: ${opts.file} ${JSON.stringify(argsForLog(opts.args.map(forLog)))}`)
   const proc = pty.spawn(opts.file, opts.args, {
     name: 'xterm-256color',
-    cols: opts.cols ?? 120,
-    rows: opts.rows ?? 32,
+    cols: opts.cols ?? PTY_COLS,
+    rows: opts.rows ?? PTY_ROWS,
     cwd: opts.cwd,
     env: opts.env,
     useConptyDll: false
   })
   const prior = opts.continueBuffer ? carried.get(key) ?? [] : []
   carried.delete(key)
-  const entry: PtyEntry = { proc, buffer: [...prior], size: prior.reduce((n, s) => n + s.length, 0) }
+  const entry: PtyEntry = { proc, onResize: opts.onResize, buffer: [...prior], size: prior.reduce((n, s) => n + s.length, 0) }
   entries.set(key, entry)
   proc.onData((data) => {
     entry.buffer.push(data)
@@ -96,6 +102,7 @@ export function resizePty(key: string, cols: number, rows: number): void {
   if (!e || cols < 2 || rows < 2) return
   try {
     e.proc.resize(Math.floor(cols), Math.floor(rows))
+    e.onResize?.(Math.floor(cols), Math.floor(rows))
   } catch (err) {
     log.warn(`resize ${userText(key)} failed`, err)
   }

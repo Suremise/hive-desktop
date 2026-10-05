@@ -84,6 +84,8 @@ Hive's test copies run quiet (`src/main/testQuiet.ts`): no window on screen, no 
     default 2) stops the run once the scenarios so far cost that much. A trial that reports no cost makes the spend
     unknown, so no further trial starts unless `--allow-unknown-cost` is given; the summary then says the total is
     unknown (the reported subtotal plus the unpriced trials), never $0.
+    The usual reason is a model Hive has no price for (a Codex trial's cost is Hive's estimate): the guard names the
+    model; add its published price to `SHIPPED_PRICES` (`src/shared/prices.ts`) or pass `--model` with a priced one.
   - Models vary from run to run: a trial reports, it doesn't fail the run.
 - **Results** go to `%LOCALAPPDATA%\hive-test\scenarios\results\<time>-<provider>`: `results.json` (each scenario's
   checks, skills read, executed hive calls and mentions, versions, guidance and source, usage) and `summary.md` (a

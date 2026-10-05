@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CardChip } from '../components/CardChip'
 import { KeybindingsEditor } from '../components/Keybindings'
 import type { GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
-import { PERIODS, activeIn, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
+import { unpricedModel, unpricedText } from '@shared/prices'
+import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
 import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
 import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { ModelPicker } from '../components/ModelPicker'
@@ -97,7 +98,7 @@ function Card({ title, value, sub, tip, accent, children }: { title: string; val
   )
 }
 
-export { PERIODS, activeIn, dailyTotals, money, periodFrom, sumUsage, type Period, type Totals } from '@shared/usageTotals'
+export { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type Period, type Totals } from '@shared/usageTotals'
 
 /** A small bar per day (tokens), for the 7- and 30-day periods; hover a day for its numbers. */
 export function DailyChart({ days }: { days: DayTotal[] }) {
@@ -107,7 +108,7 @@ export function DailyChart({ days }: { days: DayTotal[] }) {
     <div className="daily-chart" role="img" aria-label="Tokens per day">
       <div className="daily-bars">
         {days.map((d) => (
-          <Tooltip key={d.day} content={`${label(d.day)}: ${formatTokens(d.tokens)} tokens · ${d.estimated ? '≈ ' : ''}${money(d.cost)} · ${d.prompts} prompt${d.prompts === 1 ? '' : 's'}`}>
+          <Tooltip key={d.day} content={`${label(d.day)}: ${formatTokens(d.tokens)} tokens · ${costText(d)} · ${d.prompts} prompt${d.prompts === 1 ? '' : 's'}`}>
             <div className="daily-col">
               <div className="daily-bar" style={{ height: `${d.tokens ? Math.max(3, (d.tokens / max) * 100) : 0}%` }} />
             </div>
@@ -171,7 +172,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
           <Card accent title="Tokens" value={formatTokens(tokens(total))} sub={`${formatTokens(total.input + total.cacheWrite)} in · ${formatTokens(total.cached)} cached · ${formatTokens(total.output)} out`} tip="All tokens: new input, cache writes, input read from cache, and output." />
           <Card
             title="API-equivalent cost"
-            value={`${total.estimated ? '≈ ' : ''}${money(total.cost)}`}
+            value={costText(total)}
             sub={total.unpriced ? `${total.unpriced} session${total.unpriced === 1 ? '' : 's'} without a price` : total.estimated ? 'partly estimated' : 'as reported'}
             tip={costTip}
           />
@@ -202,7 +203,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
               </h2>
               <div className="cards">
                 <Card title="Tokens" value={formatTokens(tokens(t))} sub={`${formatTokens(t.output)} output`} />
-                <Card title="API-equivalent cost" value={`${t.estimated ? '≈ ' : ''}${money(t.cost)}`} sub={t.unpriced ? `${t.unpriced} without a price` : !t.estimated ? 'as reported' : p.capabilities.reportsCost ? 'partly estimated' : 'estimated'} tip={costTip} />
+                <Card title="API-equivalent cost" value={costText(t)} sub={t.unpriced ? `${t.unpriced} without a price` : !t.estimated ? 'as reported' : p.capabilities.reportsCost ? 'partly estimated' : 'estimated'} tip={costTip} />
                 <Card title="Sessions" value={t.sessions} sub={`${formatNumber(t.prompts)} prompts`} />
               </div>
               <PlanLimits provider={p.id} />
@@ -235,7 +236,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
                       </td>
                       <td className="num">{t.sessions}</td>
                       <td className="num">{formatTokens(tokens(t))}</td>
-                      <td className="num">{t.sessions ? `${t.estimated ? '≈ ' : ''}${money(t.cost)}` : '—'}</td>
+                      <td className="num">{t.sessions ? costText(t) : '—'}</td>
                     </tr>
                   )
                 })}
@@ -254,6 +255,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
 export function RunningAgent({ project, a, label, onOpen }: { project: ProjectInfo; a: ProjectInfo['agents'][number]; label?: string; onOpen?: () => void }) {
   const live = a.live!
   const usage = useLiveUsage(project, a.id)
+  const settings = useStore((s) => s.settings)
   const window = usage?.contextWindow ?? null
   const ctx = usage?.contextTokens ?? 0
   const pct = contextPercent(ctx, window)
@@ -281,7 +283,13 @@ export function RunningAgent({ project, a, label, onOpen }: { project: ProjectIn
           )}
         </div>
       </Tooltip>
-      <span className="running-cost small">{cost !== null ? `${estimated ? '≈ ' : ''}${money(cost)}` : ''}</span>
+      {cost === null && usage && unpricedModel(usage.provider, usage.model, settings) ? (
+        <Tooltip content={unpricedText(usage.model!, providerName(usage.provider))}>
+          <span className="running-cost small faint">Unknown</span>
+        </Tooltip>
+      ) : (
+        <span className="running-cost small">{cost !== null ? `${estimated ? '≈ ' : ''}${money(cost)}` : ''}</span>
+      )}
     </div>
   )
 }
@@ -392,6 +400,9 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
                   sub={costEstimated ? 'this session, estimated at API prices' : 'this session, at API prices'}
                   tip={`What this session would have cost at ${provider.company} API prices${costEstimated ? ', estimated by Hive from its token counts' : `, as ${provider.name} calculates it`}. On a subscription you are not charged this; it shows how heavy the session has been.`}
                 />
+              )}
+              {cost === null && unpricedModel(u.provider, u.model, settings) && (
+                <Card title="API-equivalent cost" value="Unknown" sub={`no price for ${u.model}`} tip={unpricedText(u.model!, provider.name)} />
               )}
             </div>
             <table className="table" style={{ marginBottom: 20 }}>
