@@ -13,6 +13,7 @@ import type {
   CleanupOptions,
   CleanupResult,
   PersonaInfo,
+  RecentWorkspace,
   AgentInstallInfo,
   AppConfig,
   AppInfo,
@@ -140,7 +141,8 @@ export interface HiveRequests {
   'workspace:create': () => WorkspaceInfo | null
   /** False when the user cancelled (running agents would have been stopped). */
   'workspace:close': () => boolean
-  'workspace:recent': () => string[]
+  /** The recent workspaces as this window sees them: whether each folder is there, and whether another window has it open (#144). */
+  'workspace:recent': () => RecentWorkspace[]
   /** Every project's (and the Assistant's) sessions with their usage, for the Workspace Overview. */
   'workspace:usage': () => WorkspaceUsage
   /** The workspace's performance metrics for a scope and range (metrics.ts; the Performance view and tab). */
@@ -162,7 +164,10 @@ export interface HiveRequests {
   'benchmarks:pin': (scope: CompareScope, id: string, pinned: boolean) => void
   /** Remembers a scope's chosen baseline and run. */
   'benchmarks:select': (scope: CompareScope, base: string | null, run: string | null) => void
-  'workspace:removeRecent': (path: string) => string[]
+  /** Forgets a recent workspace (the folder is left alone), whatever the case of the path given (#144). */
+  'workspace:removeRecent': (path: string) => RecentWorkspace[]
+  /** Clears the recent workspaces, keeping those open in a window now (#144). */
+  'workspace:clearRecent': () => RecentWorkspace[]
   'workspace:refresh': () => WorkspaceInfo | null
 
   'project:create': (name: string) => WorkspaceInfo | null

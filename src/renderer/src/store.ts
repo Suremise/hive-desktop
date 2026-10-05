@@ -7,7 +7,7 @@ import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageLayout, pageOfAge
 import { agentProvider } from '@shared/providers'
 import { setDateStyle } from '@shared/dates'
 import type { ProjectTab } from '@shared/projectTabs'
-import type { AgentBranchStatus, AssistantPanelSide, QuitScope, TaskCard, UpdateState, WorkspaceUsage } from '@shared/types'
+import type { AgentBranchStatus, AssistantPanelSide, QuitScope, TaskCard, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
@@ -90,7 +90,8 @@ export interface DoingRequest {
 interface State {
   settings: AppSettings | null
   workspace: WorkspaceInfo | null
-  recent: string[]
+  /** The recent workspaces as this window sees them (#144). */
+  recent: RecentWorkspace[]
   /** Each provider's installed CLI (install state, version, sign-in, readiness). */
   providers: Record<ProviderId, AgentInstallInfo>
   /** Subscription limits each provider last reported (account-wide), by provider. */

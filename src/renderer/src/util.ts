@@ -1,3 +1,4 @@
+import type { RecentWorkspace } from '@shared/types'
 import { formatDate, formatWeekdayTime } from '@shared/dates'
 
 export function basename(p: string): string {
@@ -85,3 +86,13 @@ export function resetsIn(iso: string, now = Date.now()): string {
 }
 
 export { sessionLabel } from '@shared/defaults'
+
+/** A recent workspace's tooltip: its path, and why it is greyed or marked (#144). */
+export function recentTip(r: RecentWorkspace): string {
+  return !r.exists ? `${r.path}\nNot found: moved or deleted, or on a drive that isn't connected.` : r.openElsewhere ? `${r.path}\nOpen in another window: choosing it brings that window forward.` : r.path
+}
+
+/** What a recent entry says beside its name: its path, "not found", or "open in another window". */
+export function recentNote(r: RecentWorkspace): string {
+  return !r.exists ? 'not found' : r.openElsewhere ? 'open in another window' : r.path
+}

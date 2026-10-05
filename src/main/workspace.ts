@@ -150,6 +150,8 @@ export class WorkspaceService {
       c.recentWorkspaces = [abs, ...c.recentWorkspaces.filter((p) => p.toLowerCase() !== abs.toLowerCase())].slice(0, 12)
       c.activeProjects[abs] ??= []
     })
+    // Every window's recent list: this one first, and open here (#144).
+    emit({ type: 'recent-changed' })
     for (const p of await this.listProjectPaths()) await this.ensureProject(p).catch((e) => log.warn(`ensureProject ${userText(p)}`, e))
     try {
       await this.ensureProject(this.assistantHome)

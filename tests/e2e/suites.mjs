@@ -74,6 +74,7 @@ export const SUITES = [
   { name: 'quit' },
   { name: 'quitwait' },
   { name: 'rail' },
+  { name: 'recent' },
   { name: 'rendercrash' },
   { name: 'reorder' },
   { name: 'replysize' },

@@ -11,6 +11,7 @@ import { isKnownProvider, projectProviderConfig, providerDescriptor } from '../s
 import { allProviders } from './providers'
 import { providerService } from './providerService'
 import { config } from './config'
+import { clearRecent, recentChanged, recentFor, removeRecent } from './recentWorkspaces'
 import { emit, emitTo } from './events'
 import { setPinned } from './pin'
 import { presentWindow } from './testQuiet'
@@ -223,6 +224,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
         target = r.filePaths[0]
       }
       if (shownElsewhere(target)) return workspace.info()
+      // A recent workspace whose folder was deleted or moved (#144): said plainly, so the window can offer to forget it.
+      if (!existsSync(target)) throw new Error(`The workspace folder ${target} can't be found. It may have been moved or deleted, or be on a drive that isn't connected.`)
       if (workspace.path && target.toLowerCase() !== workspace.path.toLowerCase() && workspaceLive(contextWorkspace()!)) {
         if (!(await quitControl.stopWorkspaceAgents(win(), 'switch'))) return workspace.info()
       }
@@ -252,9 +255,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
         ws.closing = false
       }
       emitTo(win(), { type: 'workspace-changed', workspace: null })
+      // Other windows' lists no longer say it is open here.
+      recentChanged()
       return true
     },
-    'workspace:recent': () => config.get().recentWorkspaces,
+    'workspace:recent': () => recentFor(workspace.path),
     'workspace:usage': async () => {
       const ws = workspace
       if (!ws.path) throw new Error('No workspace is open')
@@ -300,8 +305,12 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'benchmarks:pin': (scope, id, pinned) => pinBenchmark(benchContext(currentWorkspace()), scope, id, pinned),
     'benchmarks:select': (scope, base, run) => selectBenchmarks(benchContext(currentWorkspace()), scope, base, run),
     'workspace:removeRecent': (p) => {
-      config.update((c) => (c.recentWorkspaces = c.recentWorkspaces.filter((x) => x !== p)))
-      return config.get().recentWorkspaces
+      removeRecent(String(p ?? ''))
+      return recentFor(workspace.path)
+    },
+    'workspace:clearRecent': () => {
+      clearRecent()
+      return recentFor(workspace.path)
     },
     'workspace:refresh': async () => (workspace.path ? workspace.refresh() : null),
 

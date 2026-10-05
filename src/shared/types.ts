@@ -1125,6 +1125,15 @@ export interface GitDiff {
   binary: boolean
 }
 
+/** A recent workspace as a window sees it (File → Open Recent, the welcome page; #144). */
+export interface RecentWorkspace {
+  path: string
+  /** Whether its folder is there now (one that isn't stays listed: an unplugged drive's may come back). */
+  exists: boolean
+  /** Open in another window: choosing it brings that window forward. */
+  openElsewhere?: boolean
+}
+
 export interface AgentInstallInfo {
   provider: ProviderId
   found: boolean
@@ -1282,6 +1291,8 @@ export interface AgentApiInfo {
 /** Events pushed from main to renderer. */
 export type HiveEvent =
   | { type: 'workspace-changed'; workspace: WorkspaceInfo | null }
+  /** The recent workspaces changed (opened, removed, cleared): each window asks for its own view of them (#144). */
+  | { type: 'recent-changed' }
   | { type: 'session-status'; state: LiveSessionState }
   /** `failure`: the CLI exited before its session started (and nobody stopped it): why, for the agent's pane. */
   | { type: 'session-exit'; projectPath: string; agentId: string; sessionId: string; exitCode: number; failure?: StartFailure }

@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom'
 import iconUrl from '../assets/icon.svg'
 import { commandKeybinding, commandLabel, commands, runCommand, toggleAlwaysOnTop } from '../commands'
 import { useStore } from '../store'
-import { basename, cx, formatKeybinding } from '../util'
-import { Icon, Tooltip } from './ui'
+import { basename, cx, formatKeybinding, recentNote, recentTip } from '../util'
+import { Icon, Tooltip, useContextMenu } from './ui'
+import * as actions from '../actions'
 import { useInbox } from '../inbox'
 import { badgeText, windowTitle } from '@shared/taskbar'
 import { PROJECT_MENU } from '@shared/projectTabs'
@@ -85,6 +86,8 @@ export function TitleBar() {
   const [open, setOpen] = useState<number | null>(null)
   const [anchor, setAnchor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [recentOpen, setRecentOpen] = useState(false)
+  // Right-click on a recent workspace: Remove from Recent (#144). Outside the menu, so it stays when the menu closes.
+  const recentMenu = useContextMenu()
   const workspace = useStore((s) => s.workspace)
   const selected = useStore((s) => s.selectedProject)
   const recent = useStore((s) => s.recent)
@@ -155,7 +158,16 @@ export function TitleBar() {
               if (item === '-') return <div key={idx} className="menu-sep" />
               if (typeof item === 'object') {
                 return (
-                  <div key={idx} style={{ position: 'relative' }} onMouseEnter={() => setRecentOpen(true)} onMouseLeave={() => setRecentOpen(false)}>
+                  <div
+                    key={idx}
+                    style={{ position: 'relative' }}
+                    onMouseEnter={() => {
+                      setRecentOpen(true)
+                      // Whether each folder is there now, and open elsewhere (#144).
+                      void actions.loadRecent()
+                    }}
+                    onMouseLeave={() => setRecentOpen(false)}
+                  >
                     <div className="menu-item">
                       <Icon name="history" />
                       <span>Open Recent</span>
@@ -168,18 +180,50 @@ export function TitleBar() {
                         {recent.length === 0 && <div className="menu-item disabled">No recent workspaces</div>}
                         {recent.map((r) => (
                           <div
-                            key={r}
-                            className="menu-item"
+                            key={r.path}
+                            className={cx('menu-item', 'recent-item', !r.exists && 'missing')}
+                            title={recentTip(r)}
                             onClick={() => {
                               setOpen(null)
-                              runCommand('workspace.open', r)
+                              void actions.openRecent(r.path)
+                            }}
+                            onContextMenu={(e) => {
+                              setOpen(null)
+                              recentMenu.open(e, [{ label: 'Remove from Recent', icon: 'close', onClick: () => void actions.removeRecent(r.path) }])
                             }}
                           >
-                            <Icon name="folder" />
-                            <span>{basename(r)}</span>
-                            <span className="menu-key">{r}</span>
+                            <Icon name={r.exists ? 'folder' : 'warning'} />
+                            <span>{basename(r.path)}</span>
+                            <span className="menu-key">{recentNote(r)}</span>
+                            <button
+                              className="recent-remove"
+                              aria-label={`Remove ${basename(r.path)} from recent`}
+                              title="Remove from recent"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void actions.removeRecent(r.path)
+                              }}
+                            >
+                              <Icon name="close" />
+                            </button>
                           </div>
                         ))}
+                        {recent.length > 0 && (
+                          <>
+                            <div className="menu-sep" />
+                            <div
+                              className="menu-item"
+                              onClick={() => {
+                                setOpen(null)
+                                void actions.clearRecent()
+                              }}
+                            >
+                              <Icon name="clear-all" />
+                              <span>Clear Recently Opened…</span>
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -227,6 +271,7 @@ export function TitleBar() {
           </div>,
           document.body
         )}
+      {recentMenu.element}
     </div>
   )
 }

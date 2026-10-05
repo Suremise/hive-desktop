@@ -14,11 +14,11 @@ import { runCommand, commandKeybinding } from '../commands'
 import { DocEditor } from '../components/DocEditor'
 import { CodeEditor } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
-import { Icon, IconButton, LoadFailed, Markdown, StaleNote, Switch } from '../components/ui'
+import { Icon, IconButton, LoadFailed, Markdown, StaleNote, Switch, useContextMenu } from '../components/ui'
 import { useScopedLoad } from '../scopedLoad'
 import { SkillDetail } from '../components/Skills'
 import { confirm, notify, set, useStore } from '../store'
-import { basename, cx, formatKeybinding } from '../util'
+import { basename, cx, formatKeybinding, recentNote, recentTip } from '../util'
 
 // ---------------------------------------------------------------------------
 // Welcome (no workspace open)
@@ -26,6 +26,14 @@ import { basename, cx, formatKeybinding } from '../util'
 
 export function WelcomeView() {
   const recent = useStore((s) => s.recent)
+  const recentMenu = useContextMenu()
+  // Whether each folder is there now (#144): when shown, and when Hive comes back to the front (a folder deleted meanwhile).
+  useEffect(() => {
+    void actions.loadRecent()
+    const again = (): void => void actions.loadRecent()
+    window.addEventListener('focus', again)
+    return () => window.removeEventListener('focus', again)
+  }, [])
   const providers = useStore((s) => s.providers)
   const settings = useStore((s) => s.settings)
   const on = enabledProviders(settings)
@@ -62,10 +70,30 @@ export function WelcomeView() {
             <h3 style={{ marginTop: 28 }}>Recent</h3>
             {recent.length === 0 && <div className="muted">No recent workspaces.</div>}
             {recent.map((r) => (
-              <div key={r} className="welcome-link" onClick={() => void actions.openWorkspace(r)}>
-                <Icon name="root-folder" /> {basename(r)} <span className="muted">{r}</span>
+              <div
+                key={r.path}
+                className={cx('welcome-link', 'recent-item', !r.exists && 'missing')}
+                title={recentTip(r)}
+                tabIndex={0}
+                onClick={() => void actions.openRecent(r.path)}
+                onKeyDown={(e) => e.key === 'Enter' && void actions.openRecent(r.path)}
+                onContextMenu={(e) => recentMenu.open(e, [{ label: 'Remove from Recent', icon: 'close', onClick: () => void actions.removeRecent(r.path) }])}
+              >
+                <Icon name={r.exists ? 'root-folder' : 'warning'} /> <span className="recent-name">{basename(r.path)}</span> <span className="muted recent-note">{recentNote(r)}</span>
+                <button
+                  className="recent-remove"
+                  aria-label={`Remove ${basename(r.path)} from recent`}
+                  title="Remove from recent"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void actions.removeRecent(r.path)
+                  }}
+                >
+                  <Icon name="close" />
+                </button>
               </div>
             ))}
+            {recentMenu.element}
             <h3 style={{ marginTop: 28 }}>Help</h3>
             <div className="welcome-link" onClick={() => runCommand('help.docs')}>
               <Icon name="book" /> User guide

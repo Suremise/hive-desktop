@@ -64,6 +64,10 @@ let chimesPlayed = 0
 
 function handleEvent(e: HiveEvent): void {
   switch (e.type) {
+    case 'recent-changed':
+      // Opened, removed or cleared (in any window): this window's view of the list, asked for again (#144).
+      void call('workspace:recent').then((recent) => set({ recent })).catch(() => undefined)
+      break
     case 'workspace-changed': {
       const sel = get().selectedProject
       const ws = e.workspace

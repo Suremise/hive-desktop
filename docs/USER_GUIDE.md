@@ -55,6 +55,17 @@ The workspace `.hive` folder is meant to be **committed** so a team can share sk
 
 Each **project** (every subfolder except dot-folders) gets its own `.hive` folder for Hive's metadata: project settings, the session list and transcript backups. Hive adds it to the project's `.git/info/exclude`, so it's never committed and your `.gitignore` is left alone.
 
+### Recent workspaces
+
+**File → Open Recent** and the welcome page list the 12 workspaces you opened last, the most recent first.
+
+- **Remove one** with its **✕** (on hover) or by right-clicking it → **Remove from Recent**. Only the list forgets it: the folder is left alone.
+- **File → Open Recent → Clear Recently Opened…** (also in the command palette) forgets them all, after asking; workspaces open in a window stay.
+- **A folder that isn't there any more** (moved, deleted, or on a drive that isn't connected) is greyed, with *not found*. It stays in the list, since a drive may come back. Opening it says it can't be found and offers **Remove from Recent**.
+- **A workspace open in another window** says *open in another window*; choosing it brings that window forward.
+
+Every window's list follows a change made in another.
+
 ### Several windows
 
 Like VS Code, Hive can show several workspaces at once, each in its own window: **File → New Window** (Ctrl+K Ctrl+N) opens one on the welcome page, where you open or create a workspace. Each window is a full Hive with its own projects, agents, shared notes, skills and MCP servers; settings, the tray and updates are shared.

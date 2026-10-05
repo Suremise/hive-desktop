@@ -66,6 +66,41 @@ export async function openWorkspace(path?: string): Promise<void> {
   showView('projects')
 }
 
+/** This window's view of the recent workspaces, asked for again (whether each folder is there now; #144). */
+export async function loadRecent(): Promise<void> {
+  const recent = await call('workspace:recent').catch(() => null)
+  if (recent) set({ recent })
+}
+
+/** Forgets a recent workspace (the folder is left alone); every window's list follows. */
+export async function removeRecent(path: string): Promise<void> {
+  const recent = await attempt('Could not remove it from the recent list', () => call('workspace:removeRecent', path))
+  if (recent) set({ recent })
+}
+
+/** Clears the recent workspaces, after asking; the ones open in a window stay. */
+export async function clearRecent(): Promise<void> {
+  const ok = await confirm({ title: 'Clear recently opened workspaces?', message: 'File → Open Recent and the welcome page forget them. The folders are left alone, and workspaces open in a window stay in the list.', confirmLabel: 'Clear' })
+  if (!ok) return
+  const recent = await attempt('Could not clear the recent list', () => call('workspace:clearRecent'))
+  if (recent) set({ recent })
+}
+
+/**
+ * Opens a recent workspace: one open in another window brings that window forward (workspace:open); one whose folder
+ * can't be found (checked again now) says so and offers to forget it, rather than an error (#144).
+ */
+export async function openRecent(path: string): Promise<void> {
+  await loadRecent()
+  const entry = get().recent.find((r) => r.path.toLowerCase() === path.toLowerCase())
+  if (entry && !entry.exists) {
+    const remove = await confirm({ title: "Workspace folder not found", message: `${path} can't be found. It may have been moved or deleted, or be on a drive that isn't connected.`, confirmLabel: 'Remove from Recent', cancelLabel: 'Keep' })
+    if (remove) await removeRecent(path)
+    return
+  }
+  await openWorkspace(path)
+}
+
 export async function createWorkspace(): Promise<void> {
   if (get().workspace && !(await saveUnsavedFirst('switch workspace'))) return
   const ws = await attempt('Could not create workspace', () => call('workspace:create'))
