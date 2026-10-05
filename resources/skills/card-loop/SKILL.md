@@ -14,7 +14,7 @@ Two agents take the same cards in turn: the **builder** does each card and sends
 From the user's request:
 - **role**: `builder` or `reviewer`;
 - **cards**: the numbers, in the order given (one at a time, never ahead);
-- **rounds**: the most review rounds a card gets before you ask the user (default 5; "rounds: 10");
+- **rounds**: how many rounds a card gets before you ask the user (default 5; "rounds: 10"). A round is one build and its review (below);
 - **wait**: how long with no change before you tell the user (default 2 hours; "wait: 4h");
 - reviewer only: whether you may move a passed card to **Done**. Only if the user said so; otherwise a passed card stays in Review, with your verdict, for the user.
 
@@ -40,7 +40,7 @@ For each card, in order:
 1. Do its work with the **work-on-card** skill: Doing first. Just before moving it to Review, start the watch for its verdict (above); then move it to Review with a summary comment and end your turn.
 2. Hive wakes you with the verdict.
 3. **Passed** (a passing verdict, or moved to Done): take the next card.
-4. **Failed**: fix the **blocking** findings, comment on what changed, start the watch again, and move it to Review. That is one round. Suggestions that aren't blocking can become follow-up cards (`hive_create_task`) rather than another round.
+4. **Failed**: if the card has now failed as many reviews as **rounds** (with rounds: 2, its second failed review), that was its last round: don't fix it, stop and ask (below). Otherwise fix the **blocking** findings, comment on what changed, start the watch again, and move it to Review: the next round. Suggestions that aren't blocking can become follow-up cards (`hive_create_task`) rather than another round.
 
 **Checks in a round:** each move to Review carries a run record (work-on-card). After a round's fixes, rerun the checks those fixes affect (the project's notes may have a way to pick them), not every check again; but before a card can pass, the card's full checks must have run on its final code. The reviewer trusts the record and adds its own probes (review-agent-work).
 
@@ -54,11 +54,11 @@ For each card, in order:
 
 ## Rounds and when to ask
 
-Count the review rounds of each card (each time it goes back to Review after failing).
+A round is one build and its review: round 1 is the first build and the first review, and each fix with its review is the next round. A card that passes its first review passed in round 1. Count each card's rounds.
 
-- At **rounds**: stop and ask, don't give up. `hive_notify` the user with a line per round (what was found, and whether it was fixed), and ask: carry on (how many more rounds), split the card, accept it with follow-up cards, or take it over.
+- **When the review of round *rounds* fails** (as many failed reviews as **rounds**): stop and ask, don't give up. The reviewer says in that failed verdict that it was the last round; the builder doesn't fix it again but `hive_notify`s the user with a line per round (what was found, and whether it was fixed), asking: carry on (how many more rounds), split the card, accept it with follow-up cards, or take it over.
 - **A finding that comes back** (the fix missed part of it): the reviewer says so in the failed verdict ("recurring from round 2") and the loop carries on; the line per round at the limit shows it. A finding the builder **disputes**, rather than missed, is a design question: stop and ask.
-- **Stop and ask** on a design question the card doesn't answer, on a blocked card, or when the wait passes with no change (Hive wakes you to say so: tell the user with `hive_notify`).
+- **Stop and ask** on a design question the card doesn't answer, on a blocked card, or when the wait passes with no change (Hive wakes you to say so). Stopping and asking is always `hive_notify` to the user, saying what you need decided, and no further verdict or round meanwhile: a comment on the card alone doesn't reach them.
 
 ## At the end
 

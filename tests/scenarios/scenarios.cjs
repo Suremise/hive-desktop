@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 7
+const FIXTURES_VERSION = 8
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -457,7 +457,7 @@ module.exports.SCENARIOS = [
     async setup(c) {
       await c.card('w', {
         title: 'Retry the sync',
-        description: 'Retry the sync three times before giving up.',
+        description: 'Try the sync up to three times before giving up.',
         column: 'review',
         agent: 'coder',
         comments: [
@@ -468,7 +468,7 @@ module.exports.SCENARIOS = [
         ]
       })
     },
-    prompt: (c) => `Work through card #${c.cards.w} as its builder (rounds: 2). It has been through two review rounds already; the latest review is its last comment.`,
+    prompt: (c) => `Work through card #${c.cards.w} as its builder (rounds: 2). Round 1 (the first build and its review) and round 2 (the fix and its review) have both failed review; round 2's review is its last comment.`,
     fake: () => 'skill card-loop hive hive_notify {"title":"#1 at its round limit","message":"Round 1: no delay (fixed). Round 2: the delay is never awaited (the same finding came back). Carry on, split, accept with follow-ups, or take over?"}',
     expect: (o) => [
       ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
@@ -484,7 +484,7 @@ module.exports.SCENARIOS = [
     async setup(c) {
       await c.card('r', {
         title: 'Retry the sync',
-        description: 'sync.js: retry the sync three times, 1 s apart, before giving up.',
+        description: 'sync.js: try the sync up to three times, 1 s apart, before giving up.',
         column: 'review',
         agent: 'coder',
         comments: [
@@ -495,7 +495,7 @@ module.exports.SCENARIOS = [
         ]
       })
     },
-    prompt: (c) => `Work through card #${c.cards.r} as its builder (rounds: 5). It has been through two review rounds already; the latest review is its last comment.`,
+    prompt: (c) => `Work through card #${c.cards.r} as its builder (rounds: 5). Round 1 (the first build and its review) and round 2 (the fix and its review) have both failed review; round 2's review is its last comment.`,
     fake: (c) => `skill card-loop boardmove ${c.cards.r} doing then boardmove ${c.cards.r} review then boardcomment ${c.cards.r}`,
     expect: (o, c) => [
       ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
@@ -513,7 +513,7 @@ module.exports.SCENARIOS = [
     async setup(c) {
       await c.card('q', {
         title: 'Retry the sync',
-        description: 'sync.js: retry the sync three times, 1 s apart, before giving up.',
+        description: 'sync.js: try the sync up to three times, 1 s apart, before giving up.',
         column: 'review',
         agent: 'implementer',
         comments: ['Done: retries added. Ready for review.', 'Review round 1: FAILED. 1. The retries have no delay between them.', 'Fixed: a 1 s delay between retries. Ready for review.']
@@ -541,7 +541,7 @@ module.exports.SCENARIOS = [
     async setup(c) {
       await c.card('p', {
         title: 'Retry the sync',
-        description: 'sync.js: retry the sync three times before giving up.',
+        description: 'sync.js: try the sync up to three times before giving up.',
         column: 'review',
         agent: 'implementer',
         comments: [
