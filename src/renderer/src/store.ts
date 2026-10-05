@@ -5,7 +5,8 @@ import type { StartFailure } from '@shared/startFailure'
 import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
 import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageLayout, pageOfAgent } from '@shared/defaults'
 import { agentProvider } from '@shared/providers'
-import type { AgentBranchStatus, QuitScope, TaskCard, UpdateState, WorkspaceUsage } from '@shared/types'
+import { setDateStyle } from '@shared/dates'
+import type { AgentBranchStatus, AssistantPanelSide, QuitScope, TaskCard, UpdateState, WorkspaceUsage } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
@@ -355,6 +356,17 @@ export const useStore = create<State>(() => ({
 export const set = useStore.setState
 export const get = useStore.getState
 
+// Dates follow Settings → General. Subscribed before any component, so the formatters have the new choice by the
+// time anything renders with the new settings (components that show dates read the choice with useDateStyle()).
+useStore.subscribe((s, prev) => {
+  if (s.settings !== prev.settings) setDateStyle({ date: s.settings?.general.dateFormat, time: s.settings?.general.timeFormat })
+})
+
+/** The user's date and time format, for a component that shows dates: it renders again when they change. */
+export function useDateStyle(): string {
+  return useStore((s) => `${s.settings?.general.dateFormat}/${s.settings?.general.timeFormat}`)
+}
+
 export interface AgentRef {
   project: string
   agentId: string
@@ -511,6 +523,14 @@ export function setAssistantOpen(open: boolean): void {
   if (!ws) return
   set((s) => ({ panes: { ...s.panes, [assistantOpenKey(ws)]: open ? 1 : 0 } }))
   void window.hive.invoke('ui:setPane', assistantOpenKey(ws), open ? 1 : 0)
+}
+
+/** Whether the Assistant's panel is on the left of the window (Settings → Assistant → Panel side; right by default). */
+export const assistantOnLeft = (s: State): boolean => s.settings?.assistant.panelSide === 'left'
+
+/** Moves the Assistant's panel to that side of the window: a setting, so every window and workspace follows. */
+export async function setAssistantSide(side: AssistantPanelSide): Promise<void> {
+  set({ settings: await window.hive.invoke('settings:update', { assistant: { panelSide: side } }) })
 }
 
 const progressOpenKey = (ws: string): string => `progress-open:${ws.toLowerCase()}`

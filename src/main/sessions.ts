@@ -6,6 +6,7 @@ import { typedText } from '../shared/terminalInput'
 import { failedStart, type StartFailure } from '../shared/startFailure'
 import { BrowserWindow, Notification, app, clipboard, shell } from 'electron'
 import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
+import { formatDateTime } from '../shared/dates'
 import { assistantTools } from '../shared/assistantTools'
 import { COMPACTING_MESSAGE, HIVE_DIR, agentPtyKey, assertSessionId, cliRename, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
 import { agentLaunchSettings, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
@@ -281,7 +282,7 @@ const shownNotifications = new Set<Notification>()
 
 /** A new session's automatic name: "<project> · <date>", with the agent's name when the project has several. */
 function autoName(projectPath: string, agent: Pick<AgentDef, 'name'>, count: number): string {
-  return `${basename(projectPath)}${count > 1 ? ` · ${agent.name}` : ''} · ${new Date().toLocaleString()}`
+  return `${basename(projectPath)}${count > 1 ? ` · ${agent.name}` : ''} · ${formatDateTime(new Date())}`
 }
 
 /** How long a background task counts as running at most (Settings → Agents), in minutes. */
@@ -688,7 +689,7 @@ class SessionManager {
         log.info(`Session ${existing.id} takes the name ${userText(adopted)} it was given in the CLI`)
       }
     }
-    const sessionName = adopted || opts.name?.trim() || existing?.name || (assistant ? `${ASSISTANT_NAME}${persona ? ` · ${persona}` : ''} · ${new Date().toLocaleString()}` : autoName(projectPath, agent, count))
+    const sessionName = adopted || opts.name?.trim() || existing?.name || (assistant ? `${ASSISTANT_NAME}${persona ? ` · ${persona}` : ''} · ${formatDateTime(new Date())}` : autoName(projectPath, agent, count))
     const key = this.key(projectPath, agentId)
     const runId = randomBytes(12).toString('hex')
     const state: LiveSessionState = {

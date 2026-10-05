@@ -1,6 +1,6 @@
 // The agent footer's context: tokens only until the CLI reports the context window, then tokens and percentage
-// ("20 · 2%"); in a narrow footer only the percentage. The agent is the fake Claude Code, whose "window N" makes its
-// status line report an N-token window. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// ("20 · 2%"); in a narrow footer only the percentage. Its tooltip ends with "Click to view compaction history".
+// The agent is the fake Claude Code, whose "window N" makes its status line report an N-token window. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -65,11 +65,30 @@ const until = async (fn, ms = 10000) => {
   check('the percentage is of that window', pct === Math.round((tokens / 1000) * 100), `${tokens} tokens, ${pct}%`)
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-1-wide.png') })
 
-  // --- A narrow footer keeps the percentage.
-  await footer.evaluate((el) => (el.style.width = '300px'))
+  // --- Its tooltip ends with an empty line, then what a click does (#121).
+  await ctxItem.hover()
+  const tip = page.locator('.tip .ctx-tip')
+  await until(async () => (await tip.count()) === 1, 5000)
+  const lines = (await tip.innerText().catch(() => '')).split('\n')
+  check('the tooltip: the context, an empty line, then "Click to view compaction history"', /^Context: \d/.test(lines[0] ?? '') && lines.length >= 3 && lines.at(-2) === '' && lines.at(-1) === 'Click to view compaction history', JSON.stringify(lines))
+  await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-tip-dark.png') })
+  await inv('settings:update', { appearance: { theme: 'light' } })
   await lib.sleep(300)
-  const narrow = await text()
-  check('narrow: only the percentage', /^\s*\d+%$/.test(narrow), narrow)
+  await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-tip-light.png') })
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await page.mouse.move(5, 5)
+
+  // --- A narrow footer keeps the percentage.
+  // Narrowed until the context gives up its tokens (after the transcript size: footerfit has the whole order). The
+  // tokens stay in the text for screen readers, at no width.
+  const shows = () => ctxItem.evaluate((el) => ({ tokens: el.querySelector('.ctx-tokens')?.clientWidth ?? -1, ctx: el.querySelector('.ctx-text')?.clientWidth ?? -1 }))
+  let narrow = await shows()
+  for (let w = 700; w >= 150 && !(narrow.tokens === 0 && narrow.ctx > 0); w -= 10) {
+    await footer.evaluate((el, px) => (el.style.width = `${px}px`), w)
+    await lib.sleep(60)
+    narrow = await shows()
+  }
+  check('narrow: only the percentage', narrow.tokens === 0 && narrow.ctx > 0, JSON.stringify(narrow))
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-2-narrow.png') })
   await footer.evaluate((el) => (el.style.width = ''))
 

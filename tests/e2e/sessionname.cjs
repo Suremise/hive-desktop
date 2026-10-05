@@ -1,6 +1,6 @@
-// A running session's name in its agent's footer: the start time until it has a name, renames from the footer
-// and with /rename (the latest wins), a /rename made before a resume carried over, and the name giving way
-// first in a narrow pane. The agent runs the fake Claude Code (fake-claude/). Dev build, throwaway profile,
+// A running session's name in its agent's footer, which shows just its icon with the name in its tooltip and
+// accessible name: the start time (yyyy-mm-dd hh:mm) until it has a name, renames from the footer and with /rename
+// (the latest wins), a /rename made before a resume carried over, and the item staying an icon in a narrow pane. The agent runs the fake Claude Code (fake-claude/). Dev build, throwaway profile,
 // workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -63,12 +63,50 @@ const check = (name, ok, extra = '') => {
   const header = page.locator('.pane-header-bar', { hasText: 'Writer' })
   const footer = page.locator('.agent-pane', { has: header }).locator('.pane-footer-bar')
   const tag = footer.locator('.session-tag')
-  const text = async () => (await tag.count() ? (await tag.innerText()).trim() : '')
+  // The item is just its icon: its name is in its accessible name ("Session: <name>").
+  const text = async () => ((await tag.count()) ? ((await tag.getAttribute('aria-label')) ?? '').replace(/^Session: /, '') : '')
   check('the name is in the footer, not the header', !!(await until(async () => (await tag.count()) === 1, 8000)) && (await header.locator('.session-tag').count()) === 0)
   // Hive's automatic name is "alpha · <date>": the footer shows only the start time.
   const auto = records().find((r) => r.id === st.sessionId)?.name ?? ''
   check('Hive named it automatically and passed that to Claude Code', auto.startsWith('alpha · ') && launches().at(-1).opts['--name'] === auto, auto)
-  check('until it has a name, the footer shows when it started', /^\d{1,2}[:.]\d{2}/.test(await text()) && !/alpha/.test(await text()), await text())
+  check('until it has a name, it is named by when it started, as yyyy-mm-dd hh:mm', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(await text()), await text())
+  check('the footer shows just its icon', (await tag.innerText()).trim() === '' && (await tag.locator('.codicon').count()) === 1, await tag.innerText())
+  await tag.hover()
+  const tagTip = await until(async () => ((await page.locator('.tip').count()) ? await page.locator('.tip').innerText() : ''), 5000)
+  check('its tooltip has the name and when it started, in the same format', tagTip.includes(await text()) && /Running since \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(tagTip), tagTip)
+  await page.mouse.move(5, 5)
+  // Settings → General → Date format and Time format: the automatic name follows them, here and in the Sessions tab;
+  // Hive's own record of the name doesn't change.
+  await inv('settings:update', { general: { dateFormat: 'dmy', timeFormat: '12h' } })
+  const dmy = /^\d{2}\/\d{2}\/\d{4} \d{1,2}:\d{2} (AM|PM)$/
+  check('dd/mm/yyyy, 12-hour: the name follows', !!(await until(async () => dmy.test(await text()), 5000)), await text())
+  const asShown = await text()
+  await tag.click()
+  const startRow = page.locator('.session-row.selected')
+  check('…in the Sessions tab too', !!(await until(async () => (await startRow.innerText().catch(() => '')).includes(asShown), 8000)), await startRow.innerText().catch(() => ''))
+  await startRow.locator('.session-row-when').hover()
+  const whenTip = await until(async () => ((await page.locator('.tip').count()) ? await page.locator('.tip').innerText() : ''), 5000)
+  check('…where "how long ago" has the date on hover, in the same format', /^Last active \d{2}\/\d{2}\/\d{4} \d{1,2}:\d{2} (AM|PM)$/.test(whenTip.trim()), whenTip)
+  await page.mouse.move(5, 5)
+  check("…and Hive's record of the name is unchanged", records().find((r) => r.id === st.sessionId)?.name === auto)
+  // Exported, the title and timestamps follow the format too (the save dialog answered in main, to a test path).
+  const exportFile = path.join(lib.WORK, 'sessionname-export.md')
+  fs.rmSync(exportFile, { force: true })
+  await app.evaluate(({ dialog }, file) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: file })
+  }, exportFile)
+  await inv('transcript:export', alpha, st.sessionId, asShown)
+  const md = fs.existsSync(exportFile) ? fs.readFileSync(exportFile, 'utf8') : ''
+  // (Each message's time is checked in core.test.ts: this session has none yet.)
+  check('…in an export: its title and "exported from Hive"', md.startsWith(`# ${asShown}`) && /exported from Hive \d{2}\/\d{2}\/\d{4} \d{1,2}:\d{2} (AM|PM)/.test(md), md.slice(0, 300))
+  // The Overview's session details: when it started and was last active.
+  await page.keyboard.press('Alt+2')
+  const startedCell = page.locator('tr', { has: page.locator('td', { hasText: /^Started$/ }) }).locator('td').nth(1)
+  check("…in the Overview's session details", !!(await until(async () => dmy.test((await startedCell.innerText().catch(() => '')).trim()), 8000)), await startedCell.innerText().catch(() => ''))
+  await page.locator('.tabs .tab', { hasText: 'Session' }).first().click()
+  await lib.sleep(400)
+  await inv('settings:update', { general: { dateFormat: 'ymd', timeFormat: '24h' } })
+  check('back to yyyy-mm-dd, 24-hour', !!(await until(async () => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(await text()), 5000)), await text())
   await type('turn 1')
   const ctx = footer.locator('.pane-foot-item', { hasText: 'ctx' })
   check('it sits right, before the context', !!(await until(async () => (await ctx.count()) === 1, 8000)) && (await tag.boundingBox()).x < (await ctx.boundingBox()).x && (await tag.boundingBox()).x > (await footer.boundingBox()).width / 3)
@@ -112,14 +150,13 @@ const check = (name, ok, extra = '') => {
   check('Hive keeps it as the session name', rec().name === 'Release notes', rec().name)
   check('and the footer still shows it', !!(await until(async () => (await text()) === 'Release notes', 8000)), await text())
 
-  // Narrow: the name gives way first, down to its icon; the context stays whole.
+  // Narrow, with a long name: still just the icon; the context stays whole.
   await inv('session:rename', alpha, st.sessionId, 'A rather long session name that cannot possibly fit in a narrow pane')
   await until(async () => /rather long/.test(await text()), 5000)
   await lib.fitWindow(app, page, { width: 760, height: 700 })
   await lib.sleep(800)
   const fits = (loc) => loc.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)
-  const name = tag.locator('.session-tag-text')
-  check('the name is cut short', !(await fits(name)))
+  check('a long name: still just the icon', (await tag.innerText()).trim() === '' && (await tag.boundingBox())?.width < 30, String((await tag.boundingBox())?.width))
   check('the context stays whole', await fits(ctx))
   check('the icon stays', (await tag.locator('.codicon').first().boundingBox())?.width > 0)
   await page.screenshot({ path: path.join(lib.WORK, 'sessionname-3-narrow.png') })

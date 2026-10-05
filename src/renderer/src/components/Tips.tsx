@@ -110,7 +110,8 @@ export function CornerPlacement() {
     let frame = 0
     const measure = (): void => {
       frame = 0
-      const panel = document.querySelector<HTMLElement>('.assistant-panel')
+      // Only on the right is the Assistant's panel in the corner's way.
+      const panel = document.querySelector<HTMLElement>('.assistant-panel:not(.on-left)')
       const bars = [...document.querySelectorAll<HTMLElement>('.session-ended')].map((b) => b.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0)
       const card = document.querySelector<HTMLElement>('.tip-card')
       const toasts = document.querySelector<HTMLElement>('.toasts')

@@ -10,7 +10,7 @@ import { commandKeybinding, runCommand } from '../commands'
 import { get, notify, projectState, prompt, set, setProjectTab, toggleCompactSidebar, useStore } from '../store'
 import { cx, formatKeybinding } from '../util'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, StatusDot, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
-import { addSkill, deleteSkill, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
+import { addSkill, deleteSkill, HiveSkillsWarning, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
 import { hasEditorDraftsUnder } from '../editorDrafts'
 import { useInbox } from '../inbox'
 import { useScopedLoad } from '../scopedLoad'
@@ -571,6 +571,7 @@ function SkillsPanel() {
           <IconButton icon="folder-opened" title="Open Hive Skills Folder" onClick={() => void call('skills:openFolder')} disabled={!workspace} />
         </div>
       </div>
+      {workspace && <HiveSkillsWarning />}
       <div style={{ padding: '0 8px 6px 12px' }}>
         <input className="input" style={{ width: '100%', height: 24 }} placeholder="Filter skills" value={filter} onChange={(e) => setFilter(e.target.value)} />
       </div>

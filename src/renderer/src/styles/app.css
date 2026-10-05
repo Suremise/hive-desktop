@@ -1131,6 +1131,22 @@ textarea.input {
 .banner .btn {
   margin-left: auto;
 }
+/* Over the Hive skills (the Skills view's list, and a Hive skill being edited): editing them steers the agents. */
+.banner.skills-warning {
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.4;
+}
+.banner.skills-warning .codicon {
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+.sidebar .banner.skills-warning {
+  margin: 0 8px 8px 12px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+}
 /* A failed refresh over a page (the Overviews), not a pane's top edge. */
 .page-narrow > .load-stale {
   border: none;
@@ -2657,6 +2673,15 @@ p.hint {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+.quit-group-where {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--fg-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .quit-group:first-child {
   padding-top: 0;
 }
@@ -3453,11 +3478,61 @@ body.pane-resizing .monaco-editor {
   overflow: hidden;
   container-type: inline-size;
 }
-/* Short of room, the context shows its percentage only (the tooltip has the tokens). */
-@container (max-width: 380px) {
-  .pane-footer-bar .ctx-tokens {
-    display: none;
-  }
+/*
+ * Short of room (useFooterFit in AgentPanes.tsx sets data-fit), items give up their text for their icon in turn: the
+ * transcript size, then the context's tokens, then the whole context; their tooltips have it all. Then the
+ * permission mode's label shortens, then the model, and only then is the cost cut off at the right.
+ */
+.pane-footer-bar > .tip-wrap {
+  display: inline-flex;
+  min-width: 0;
+  flex-shrink: 0;
+}
+.pane-footer-bar > .tip-wrap:has(> .mode-chip) {
+  flex-shrink: 1000;
+  min-width: var(--mode-chip-min, 0px);
+}
+.pane-footer-bar > .tip-wrap:has(> .foot-model) {
+  flex-shrink: 1;
+}
+.pane-footer-bar .mode-chip {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.pane-footer-bar .mode-chip > .codicon {
+  flex-shrink: 0;
+}
+.pane-footer-bar .mode-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pane-footer-bar .foot-model {
+  max-width: 100%;
+}
+.pane-footer-bar .fit-text {
+  display: inline-block;
+  overflow: hidden;
+  margin-left: 4px;
+}
+.pane-footer-bar .ctx-tokens {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: top;
+  white-space: pre;
+}
+.pane-footer-bar .pane-foot-item:has(> .fit-text) {
+  gap: 0;
+}
+.pane-footer-bar:is([data-fit='1'], [data-fit='2'], [data-fit='3']) .size-text,
+.pane-footer-bar:is([data-fit='2'], [data-fit='3']) .ctx-tokens,
+.pane-footer-bar[data-fit='3'] .ctx-text {
+  max-width: 0;
+}
+.pane-footer-bar:is([data-fit='1'], [data-fit='2'], [data-fit='3']) .size-text,
+.pane-footer-bar[data-fit='3'] .ctx-text {
+  margin-left: 0;
 }
 .pane-footer-bar .pane-foot-item {
   display: inline-flex;
@@ -3622,9 +3697,14 @@ body.pane-resizing .monaco-editor {
 .page-switch .dot.added {
   background: var(--accent);
 }
-/* The Overview's tokens per day (7 and 30 days): one bar a day, its numbers on hover. */
+/*
+ * The day (or hour) charts: the Overviews' tokens per day (7 and 30 days) and Performance's requests. Each slot is a
+ * tile of its own, with a soft background, so a quiet day still reads as its own column; its bar stands in it and
+ * its numbers show on hover. Performance adds what only it knows on top (a slot not recorded, or partly).
+ */
 .daily-chart {
   margin: 12px 0 18px;
+  --daily-slot: color-mix(in srgb, var(--border-subtle) 50%, transparent);
 }
 .daily-bars {
   display: flex;
@@ -3641,8 +3721,10 @@ body.pane-resizing .monaco-editor {
   flex: 1;
   display: flex;
   align-items: flex-end;
+  border-radius: 3px 3px 0 0;
+  background: var(--daily-slot);
 }
-.daily-col:hover {
+.daily-chart .daily-col:hover {
   background: var(--bg-hover);
 }
 .daily-bar {
@@ -4014,21 +4096,6 @@ body.pane-resizing .monaco-editor {
 .menu-item.muted > .codicon {
   color: var(--fg-faint);
 }
-/* The running session's name in the agent's footer: short of room, it gives way first, down to its icon. */
-.pane-footer-bar > .tip-wrap:has(> .session-tag) {
-  display: inline-flex;
-  min-width: 14px;
-  max-width: 45%;
-  flex-shrink: 100;
-}
-.pane-footer-bar .session-tag {
-  max-width: 100%;
-}
-.session-tag .session-tag-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 /* Footer usage that couldn't be refreshed: shown, but faded (its tooltip says why). */
 .pane-foot-item.stale {
   opacity: 0.55;
@@ -4388,6 +4455,12 @@ button.mode-badge.badge:hover {
 .pane-resizer.left-edge {
   left: -3px;
   right: auto;
+}
+/* On the left (Settings → Assistant → Panel side): between the project list and the work, its border on the right. */
+.assistant-panel.on-left,
+.assistant-rail.on-left {
+  border-left: none;
+  border-right: 1px solid var(--border-subtle);
 }
 .assistant-header {
   height: 34px;
@@ -5473,13 +5546,14 @@ body.pane-resizing-v .monaco-editor {
 .perf-limits summary {
   cursor: pointer;
 }
-/* A trend slot Hive wasn't recording: hatched, so it reads as no data rather than zero. */
-.perf-trend .daily-col.unobserved,
+/* Performance's own, on the shared day tile: a slot Hive wasn't recording is hatched, so it reads as no data
+   rather than zero; one recorded for part of its time fades towards the axis. */
+.perf-trend .daily-col.unobserved:not(:hover),
 .perf-trend .swatch.unobserved {
   background: repeating-linear-gradient(135deg, transparent 0 3px, var(--border-subtle) 3px 5px);
 }
-.perf-trend .daily-col.partial {
-  background: linear-gradient(to top, transparent, color-mix(in srgb, var(--border-subtle) 40%, transparent));
+.perf-trend .daily-col.partial:not(:hover) {
+  background: linear-gradient(to top, transparent, var(--daily-slot));
 }
 .perf-coverage p {
   margin: 0 0 4px;

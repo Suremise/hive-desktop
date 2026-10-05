@@ -14,6 +14,7 @@ import { ASSISTANT_NAME, assistantPersona } from '../shared/assistant'
 import { MARKED_LOG } from '../shared/redact'
 import { PROVIDERS, projectProviderConfig, providerSettings } from '../shared/providers'
 import { projectAgents } from '../shared/defaults'
+import { setDateStyle } from '../shared/dates'
 import { SERVABLE_EXT, unwatchAll } from './files'
 import { config } from './config'
 import { archiveOldDone, endReviews } from './tasks'
@@ -339,7 +340,7 @@ const quitSessions = (ws?: WorkspaceService): QuitSession[] =>
       // A watching agent says what for, and whether quitting when agents finish waits for it (the same rule as workingCount).
       const watch = s.status === 'watching' && s.watch ? { watch: s.watch.label, ...(watchKeepsQuitWaiting(s) ? { keepsQuitWaiting: true } : {}) } : {}
       const wsPath = workspaceOf(s.projectPath).path
-      const where = wsPath ? { workspace: basename(wsPath) } : {}
+      const where = wsPath ? { workspace: basename(wsPath), workspacePath: wsPath } : {}
       if (workspace.isAssistantHome(s.projectPath)) return { projectPath: s.projectPath, project: ASSISTANT_NAME, status: s.status, provider: s.provider, ...where, ...watch }
       const agents = workspaceOf(s.projectPath).info()?.projects.find((p) => p.path.toLowerCase() === s.projectPath.toLowerCase())?.agents.length ?? 1
       return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, provider: s.provider, ...where, ...(agents > 1 ? { agent: s.agentName } : {}), ...watch }
@@ -524,6 +525,7 @@ function archiveOldDoneEverywhere(): void {
 function wireSettingsEffects(): void {
   config.onSettingsChanged((s, prev) => {
     emit({ type: 'settings-changed', settings: s })
+    setDateStyle({ date: s.general.dateFormat, time: s.general.timeFormat })
     if (s.board.archiveDoneDays !== prev.board.archiveDoneDays) archiveOldDoneEverywhere()
     if (s.general.launchAtLogin !== prev.general.launchAtLogin) {
       app.setLoginItemSettings({ openAtLogin: s.general.launchAtLogin, args: ['--hidden'] })
@@ -605,6 +607,7 @@ app.whenReady().then(async () => {
     return net.fetch(pathToFileURL(p).toString())
   })
   nativeTheme.themeSource = config.settings.appearance.theme
+  setDateStyle({ date: config.settings.general.dateFormat, time: config.settings.general.timeFormat })
   Menu.setApplicationMenu(null)
   // Says the log marks the user's own text (userText()), so Copy Diagnostics can tell this run's lines from older ones.
   log.info(`Hive ${app.getVersion()} starting (Electron ${process.versions.electron}; ${MARKED_LOG})`)

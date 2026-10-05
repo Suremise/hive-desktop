@@ -1,3 +1,5 @@
+import { formatDate, formatWeekdayTime } from '@shared/dates'
+
 export function basename(p: string): string {
   return p.split(/[\\/]/).filter(Boolean).pop() ?? p
 }
@@ -25,7 +27,7 @@ export function timeAgo(iso: string | null | undefined): string {
   if (h < 24) return h === 1 ? '1 hour ago' : `${h} hours ago`
   const d = Math.round(h / 24)
   if (d < 30) return d === 1 ? 'yesterday' : `${d} days ago`
-  return new Date(t).toLocaleDateString()
+  return formatDate(t)
 }
 
 export function formatDuration(seconds: number): string {
@@ -79,7 +81,7 @@ export function resetsIn(iso: string, now = Date.now()): string {
   const min = Math.round(ms / 60000)
   if (min < 60) return `in ${min} min`
   if (min < 24 * 60) return `in ${Math.floor(min / 60)} h ${min % 60} min`
-  return new Date(iso).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })
+  return formatWeekdayTime(iso)
 }
 
 export { sessionLabel } from '@shared/defaults'

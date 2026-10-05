@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FileEntry, ProjectInfo, SessionImage, SessionImageGroup } from '@shared/types'
+import { formatDateTime, formatTime } from '@shared/dates'
 import * as actions from '../actions'
 import { call } from '../api'
 import { discardDrafts, draftsUnder, FileView, hasDraft, moveDrafts, useDraftVersion } from '../components/FileView'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { pasteIntoTerminal } from '../components/TerminalView'
 import { Icon, IconButton, InfoTip, LoadFailed, Modal, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
-import { confirm, filesListeners, focusedAgentId, get, projectKey, set, setProjectTab, showAgent, useStore } from '../store'
+import { confirm, filesListeners, focusedAgentId, get, projectKey, set, setProjectTab, showAgent, useDateStyle, useStore } from '../store'
 import { useScopedLoad } from '../scopedLoad'
 import { cx, formatBytes, HIVE_FILES_MIME, IMAGE_EXT, imageUrl, quotePath, timeAgo } from '../util'
 
@@ -760,6 +761,7 @@ function FileDetails({
   onRename: (e: FileEntry) => void
   onDelete: () => void
 }) {
+  useDateStyle()
   if (count > 1) {
     return (
       <div className="empty-state">
@@ -794,7 +796,7 @@ function FileDetails({
         <tbody>
           <tr><td>Type</td><td>{entry.isDir ? 'Folder' : entry.name.includes('.') ? `${entry.name.split('.').pop()!.toUpperCase()} file` : 'File'}</td></tr>
           {!entry.isDir && <tr><td>Size</td><td>{formatBytes(entry.size)}</td></tr>}
-          {entry.modified && <tr><td>Modified</td><td>{new Date(entry.modified).toLocaleString()} <span className="faint">({timeAgo(entry.modified)})</span></td></tr>}
+          {entry.modified && <tr><td>Modified</td><td>{formatDateTime(entry.modified)} <span className="faint">({timeAgo(entry.modified)})</span></td></tr>}
           {git && <tr><td>Git</td><td><span className={cx('git-status', git)}>{git}</span> {GIT_TEXT[git] ?? git}{entry.isDir ? ' (contains changes)' : ''}</td></tr>}
           {entry.ignored && <tr><td>Git</td><td className="faint">Ignored</td></tr>}
         </tbody>
@@ -830,10 +832,11 @@ function FileDetails({
 // Images
 // ---------------------------------------------------------------------------
 
-const imageTime = (img: SessionImage): string => new Date(img.modified).toLocaleString()
+const imageTime = (img: SessionImage): string => formatDateTime(img.modified)
 
 export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
   useStore((s) => s.focusedAgent[owner.path])
+  useDateStyle()
   const project = projectView(owner)
   // This project's images only. A failed read: said in place of the images (or over this project's last ones), not
   // "No images yet".
@@ -921,7 +924,7 @@ export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
               }}
             >
               <img src={imageUrl(img.path)} loading="lazy" alt={img.name} draggable={false} />
-              <span className="thumb-caption">{new Date(img.modified).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="thumb-caption">{formatTime(img.modified)}</span>
             </div>
           </Tooltip>
         ))}

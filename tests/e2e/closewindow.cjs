@@ -4,7 +4,8 @@
 // says it closes them all and lists the agents by workspace, and "Close this window only" closes just that window
 // (its agents stop, the other window's keep running). With busy agents that dialog keeps every control inside it, at
 // 100% and 125%; from the unsaved-files question that comes first, Close this window only still asks about that
-// window's agents. Close Workspace's tooltip says the window stays open. The agents run the fake Claude Code
+// window's agents. Two workspaces with the same folder name are listed apart (by full path, with the parent folder
+// that tells them apart). Close Workspace's tooltip says the window stays open. The agents run the fake Claude Code
 // (fake-claude/). Dev build, throwaway profile, workspaces and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const fs = require('fs')
@@ -16,6 +17,11 @@ const wsB = path.join(lib.WORK, 'closewindow-ws-b')
 const claudeHome = path.join(lib.WORK, 'closewindow-claude-home')
 const alpha = path.join(wsA, 'alpha')
 const beta = path.join(wsB, 'beta')
+// Two more workspaces with the same folder name, "work" (#209).
+const wsDup1 = path.join(lib.WORK, 'closewindow-dup-1', 'work')
+const wsDup2 = path.join(lib.WORK, 'closewindow-dup-2', 'work')
+const gamma = path.join(wsDup1, 'gamma')
+const delta = path.join(wsDup2, 'delta')
 let failed = 0
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
@@ -24,11 +30,13 @@ const check = (name, ok, extra = '') => {
 const invOn = (page) => (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
 
 ;(async () => {
-  for (const d of [userData, wsA, wsB, claudeHome]) fs.rmSync(d, { recursive: true, force: true })
+  for (const d of [userData, wsA, wsB, path.dirname(wsDup1), path.dirname(wsDup2), claudeHome]) fs.rmSync(d, { recursive: true, force: true })
   fs.mkdirSync(claudeHome, { recursive: true })
   lib.gitProject(alpha)
   lib.gitProject(beta)
-  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha, beta].map((p) => p.toLowerCase())))
+  lib.gitProject(gamma)
+  lib.gitProject(delta)
+  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha, beta, gamma, delta].map((p) => p.toLowerCase())))
   lib.enableProviders(userData)
   const cfgFile = path.join(userData, 'config.json')
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
@@ -286,6 +294,34 @@ const invOn = (page) => (ch, ...a) => page.evaluate(([c, x]) => window.hive.invo
   const invStays = invOn(stays)
   check("its agent stopped, the other window's runs on", !!(await lib.until(async () => !(await liveIn(invStays, closesProject)), 5000)) && (await liveIn(invStays, staysProject)))
   check('the other window is still open, with no dialog', (await invStays('window:count')) === 1 && !(await dialogIn(stays)))
+
+  // --- Two more workspaces both named "work", in two more windows: Exit's dialog keeps them apart, grouped by
+  // full path, each heading with the parent folder that tells it apart and its full path on hover (#209).
+  const pDup1 = await openWindow(invStays, wsDup1)
+  const pDup2 = await openWindow(invStays, wsDup2)
+  check('an agent runs in each "work" workspace', !!(await startAgent(invOn(pDup1), gamma)) && !!(await startAgent(invOn(pDup2), delta)))
+  await clickMenu(stays, 'Exit Hive (all windows)')
+  const dupPages = [stays, pDup1, pDup2]
+  const dupAt = await lib.until(async () => { for (const pg of dupPages) if (await dialogIn(pg)) return pg; return null }, 8000)
+  const dupQuit = dupAt ? await dialogIn(dupAt) : null
+  check('Exit with three windows asks', dupQuit?.title === 'Quit Hive and close all 3 windows?', dupQuit?.title)
+  const heads = dupAt
+    ? await dupAt.evaluate(() => [...document.querySelectorAll('.dialog .quit-group')].map((g) => ({ where: g.querySelector('.quit-group-where')?.textContent ?? '', name: g.textContent.replace(g.querySelector('.quit-group-where')?.textContent ?? '', '').trim(), title: g.getAttribute('title') ?? '' })))
+    : []
+  const works = heads.filter((h) => h.name === 'work')
+  check('two separate "work" groups, not one', heads.length === 3 && works.length === 2, JSON.stringify(heads))
+  check('…each with the parent folder that tells it apart', JSON.stringify(works.map((h) => h.where).sort()) === JSON.stringify(['closewindow-dup-1', 'closewindow-dup-2']), JSON.stringify(works))
+  check('…and its full path on hover', JSON.stringify(works.map((h) => h.title.toLowerCase()).sort()) === JSON.stringify([wsDup1, wsDup2].map((x) => x.toLowerCase()).sort()), JSON.stringify(works))
+  check('the workspace with a name of its own has no parent folder', heads.filter((h) => h.name !== 'work').every((h) => !h.where), JSON.stringify(heads))
+  check('…and each agent is under its own', JSON.stringify([...(dupQuit?.rows ?? [])].filter((r) => r.startsWith('work')).sort()) === JSON.stringify(['workclosewindow-dup-1|gamma', 'workclosewindow-dup-2|delta']), JSON.stringify(dupQuit?.rows))
+  if (dupAt) {
+    await dupAt.screenshot({ path: path.join(lib.WORK, 'closewindow-dup-dark.png') })
+    await invOn(dupAt)('settings:update', { appearance: { theme: 'light' } })
+    await lib.sleep(300)
+    await dupAt.screenshot({ path: path.join(lib.WORK, 'closewindow-dup-light.png') })
+    await invOn(dupAt)('settings:update', { appearance: { theme: 'dark' } })
+    await cancel(dupAt)
+  }
 
   // Done: quit without the dialog (no unsaved files, no question about sessions).
   await invStays('files:setUnsaved', [])

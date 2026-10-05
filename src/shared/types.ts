@@ -3,6 +3,7 @@
 import type { StartFailure } from './startFailure'
 import type { TipsState } from './tips'
 import type { KeepAwakeSetting } from './keepAwake'
+import type { DateFormat, TimeFormat } from './dates'
 
 export type ThemeSetting = 'dark' | 'light' | 'system'
 /** A coding-agent CLI Hive can run ("claude-code", "codex"). See src/shared/providers.ts. */
@@ -51,8 +52,10 @@ export interface QuitSession {
   status: SessionStatus
   /** The agent's name, when the project has more than one. */
   agent?: string
-  /** The folder of the workspace it runs in (the quit dialog groups agents by it when several windows are open). */
+  /** The name of the workspace it runs in (its folder's), shown over its group when several windows are open. */
   workspace?: string
+  /** That workspace's full path: the quit dialog groups agents by it, so two workspaces with the same name stay apart. */
+  workspacePath?: string
   provider?: ProviderId
   /** A watching agent: what it waits for ("Waiting for #12 → Review"). */
   watch?: string
@@ -94,6 +97,10 @@ export interface AppSettings {
      * panel: Hive's session guidance says so. Off, or with the panel off: only when the user asks. New sessions.
      */
     progressCommands: boolean
+    /** How dates show everywhere in Hive (session names, lists, tooltips, exports): 2026-10-04 by default. */
+    dateFormat: DateFormat
+    /** How times show with them: 24-hour (14:05) by default. */
+    timeFormat: TimeFormat
   }
   appearance: {
     theme: ThemeSetting
@@ -173,6 +180,8 @@ export interface AppSettings {
   }
 }
 
+export type AssistantPanelSide = 'right' | 'left'
+
 /** The Hive Assistant's defaults: its provider, its persona and, per provider, its model, effort, mode and arguments. */
 export interface AssistantSettings {
   /** '' follows the default provider. */
@@ -185,6 +194,8 @@ export interface AssistantSettings {
   typingPause: number
   /** The user pressing Enter (sending what they typed) ends that pause. */
   enterEndsPause: boolean
+  /** Which side of the window its panel is on (the same in every workspace and window). */
+  panelSide: AssistantPanelSide
   providers: Partial<Record<ProviderId, AssistantProviderSettings>>
 }
 

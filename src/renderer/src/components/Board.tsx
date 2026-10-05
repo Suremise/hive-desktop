@@ -3,10 +3,11 @@ import type { AgentInfo, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatc
 import { TASK_COLUMNS, columnColor, columnLabel, reviewStalled, stalledReason, taskOverview } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
-import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useStore, type DoingRequest } from '../store'
+import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useDateStyle, useStore, type DoingRequest } from '../store'
 import { selectProject } from '../actions'
 import { cx, timeAgo } from '../util'
 import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
+import { formatDateTime } from '@shared/dates'
 import { returnRound } from '@shared/watch'
 import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, STATUS_TEXT, statusText, Tooltip, useBusy, useContextMenu, type MenuEntry } from './ui'
 import { ProviderIcon } from './ProviderIcon'
@@ -601,6 +602,7 @@ const refs = (v: string): number[] =>
 
 export function TaskDialog() {
   const open = useStore((s) => s.taskOpen)
+  useDateStyle()
   const card = useStore((s) => (typeof s.taskOpen === 'number' ? (s.tasks.find((c) => c.number === s.taskOpen) ?? null) : null))
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   const isNew = open !== null && typeof open === 'object'
@@ -927,7 +929,7 @@ export function TaskDialog() {
             <div className="task-history">
               {[...card.history].reverse().map((h, i) => (
                 <div key={i}>
-                  <span className="faint">{new Date(h.at).toLocaleString()}</span> <strong>{h.by}</strong> {h.what}
+                  <span className="faint">{formatDateTime(h.at)}</span> <strong>{h.by}</strong> {h.what}
                 </div>
               ))}
             </div>

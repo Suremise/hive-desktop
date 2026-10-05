@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { ASSISTANT_AGENT_ID, assistantPersona } from '@shared/assistant'
 import { isCompacting } from '@shared/defaults'
+import { formatDateTime } from '@shared/dates'
 import { agentProvider, providerDescriptor } from '@shared/providers'
 import type { AgentInfo, AgentPatch, AssistantAction, EffortLevel, PermissionMode, PersonaInfo, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
-import { agentProviderOf, confirm, get, NO_PROJECTS, projectKey, revealAgent, runOnce, set, setActivity, setAssistantOpen, showAssistantView, showView, useStore } from '../store'
+import { agentProviderOf, confirm, get, NO_PROJECTS, projectKey, revealAgent, runOnce, set, setActivity, setAssistantOpen, showAssistantView, showView, useDateStyle, useStore, assistantOnLeft, setAssistantSide } from '../store'
 import { useInbox } from '../inbox'
 import { useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -82,6 +83,8 @@ export async function choosePersona(p: Pick<PersonaInfo, 'id' | 'name'>): Promis
 
 export function AssistantPanel() {
   const open = useStore((s) => s.assistantOpen)
+  // On the left (Settings → Assistant → Panel side) it is resized from its right edge.
+  const left = useStore(assistantOnLeft)
   const a = useStore((s) => s.workspace?.assistant ?? null)
   const epochs = useStore((s) => s.sessionEpoch)
   const width = usePaneSize('assistant', 430)
@@ -130,8 +133,8 @@ export function AssistantPanel() {
   }
 
   return (
-    <div className="assistant-panel" style={{ width }}>
-      <PaneResizer paneKey="assistant" edge="left" min={300} max={900} keep={380} />
+    <div className={cx('assistant-panel', left && 'on-left')} style={{ width }}>
+      <PaneResizer paneKey="assistant" edge={left ? 'right' : 'left'} min={300} max={900} keep={380} />
       <AssistantHeader project={a} a={agent} />
       <AssistantQuestions />
       <div className="assistant-body" ref={body}>
@@ -186,9 +189,10 @@ function AssistantRail({ a }: { a: AgentInfo | null }) {
   const kb = commandKeybinding('assistant.toggle')
   const live = a?.live
   const asking = useStore((s) => s.assistantQuestions.length)
+  const left = useStore(assistantOnLeft)
   return (
     <div
-      className="assistant-rail"
+      className={cx('assistant-rail', left && 'on-left')}
       role="button"
       tabIndex={0}
       aria-label="Show the Hive Assistant"
@@ -202,7 +206,7 @@ function AssistantRail({ a }: { a: AgentInfo | null }) {
     >
       <Tooltip content={`Show the Hive Assistant${kb ? ` (${formatKeybinding(kb)})` : ''}`}>
         <span className="rail-btn">
-          <Icon name="chevron-left" />
+          <Icon name={left ? 'chevron-right' : 'chevron-left'} />
         </span>
       </Tooltip>
       {asking > 0 ? (
@@ -295,6 +299,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
   const [ref, width] = useWidth<HTMLDivElement>()
   const buttons = width === 0 || width >= BUTTONS_FROM
   const settings = useStore((s) => s.settings)
+  const left = useStore(assistantOnLeft)
   const personas = usePersonas()
   const menu = useContextMenu()
   const picker = useConversationPicker()
@@ -360,7 +365,8 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
       { label: 'Assistant Settings…', icon: 'settings', onClick: () => set({ assistantSettingsOpen: true }) },
       { label: 'Manage Personas…', icon: 'person', onClick: () => showAssistantView('personas') },
       { separator: true },
-      { label: 'Hide the Assistant', icon: 'layout-sidebar-right-off', onClick: () => setAssistantOpen(false) }
+      { label: left ? 'Move Panel to the Right' : 'Move Panel to the Left', icon: left ? 'layout-sidebar-right' : 'layout-sidebar-left', onClick: () => void setAssistantSide(left ? 'right' : 'left') },
+      { label: 'Hide the Assistant', icon: left ? 'layout-sidebar-left-off' : 'layout-sidebar-right-off', onClick: () => setAssistantOpen(false) }
     ])
   }
   const kb = commandKeybinding('assistant.toggle')
@@ -400,7 +406,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
         buttons && btn('play', 'Start', start, 'primary', 'Start the Assistant')
       )}
       <IconButton icon="ellipsis" title="More" onClick={moreMenu} />
-      <IconButton icon="chevron-right" title={`Hide the Assistant (it keeps running)${kb ? ` (${formatKeybinding(kb)})` : ''}`} onClick={() => setAssistantOpen(false)} />
+      <IconButton icon={left ? 'chevron-left' : 'chevron-right'} title={`Hide the Assistant (it keeps running)${kb ? ` (${formatKeybinding(kb)})` : ''}`} onClick={() => setAssistantOpen(false)} />
       {menu.element}
       {picker.element}
     </div>
@@ -439,11 +445,12 @@ function AssistantQuestions() {
 function AssistantActions() {
   const list = useStore((s) => s.assistantActions)
   const [all, setAll] = useState(false)
+  useDateStyle()
   if (!list.length) return null
   const newest = [...list].reverse()
   const shown = all ? newest : newest.slice(0, 3)
   const row = (x: AssistantAction) => (
-    <Tooltip key={x.id} block content={`${new Date(x.at).toLocaleString()}${x.error ? `\nNot done: ${x.error}` : ''}`}>
+    <Tooltip key={x.id} block content={`${formatDateTime(x.at)}${x.error ? `\nNot done: ${x.error}` : ''}`}>
       <div className={cx('assistant-action', !x.ok && 'failed')}>
         <Icon name={x.ok ? 'check' : 'circle-slash'} />
         <span className="assistant-action-text">{x.text}</span>

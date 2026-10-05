@@ -19,6 +19,7 @@ export function DocEditor({
   createIfMissing,
   toolbarExtra,
   defaultPreview,
+  editingNote,
   onSaved
 }: {
   path: string
@@ -27,6 +28,8 @@ export function DocEditor({
   createIfMissing?: string
   toolbarExtra?: React.ReactNode
   defaultPreview?: boolean
+  /** Shown above the editor while the file is being edited (not in preview, not read-only). */
+  editingNote?: React.ReactNode
   onSaved?: () => void
 }) {
   const [text, setText] = useState('')
@@ -134,6 +137,7 @@ export function DocEditor({
           </button>
         )}
       </div>
+      {editingNote && !readOnly && !preview && !loading && editingNote}
       <div className="editor-host">
         {loading ? null : preview ? (
           <div className="scroll-page">

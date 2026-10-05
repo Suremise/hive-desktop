@@ -3,6 +3,7 @@ import { CardChip } from '../components/CardChip'
 import { KeybindingsEditor } from '../components/Keybindings'
 import type { GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
 import { unpricedModel, unpricedText } from '@shared/prices'
+import { formatDateTime } from '@shared/dates'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
 import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
 import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
@@ -22,7 +23,7 @@ import { languageFor } from '../monacoLang'
 import { useScopedLoad } from '../scopedLoad'
 import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
 import { RootSelector } from './FilesTab'
-import { agentProviderOf, confirm, notify, set, setActivity, showView, useFocusedAgent, useStore } from '../store'
+import { agentProviderOf, confirm, notify, set, setActivity, showView, useDateStyle, useFocusedAgent, useStore } from '../store'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
 import { useLiveUsage, useNow } from '../usage'
 
@@ -297,6 +298,7 @@ export function RunningAgent({ project, a, label, onOpen }: { project: ProjectIn
 /** One agent's running session, else its most recent one, in detail: the agent picked here, else the focused one. */
 function SessionDetails({ project, items }: { project: ProjectInfo; items: SessionListItem[] }) {
   const settings = useStore((s) => s.settings)
+  useDateStyle()
   const now = useNow(10000)
   const focused = useFocusedAgent(project)
   const [pickedId, setPickedId] = useState<string | null>(null)
@@ -417,11 +419,11 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
                 </tr>
                 <tr>
                   <td className="muted">Started</td>
-                  <td>{u.firstActivity ? new Date(u.firstActivity).toLocaleString() : '—'}</td>
+                  <td>{u.firstActivity ? formatDateTime(u.firstActivity) : '—'}</td>
                 </tr>
                 <tr>
                   <td className="muted">Last activity</td>
-                  <td>{u.lastActivity ? `${new Date(u.lastActivity).toLocaleString()} (${timeAgo(u.lastActivity)})` : '—'}</td>
+                  <td>{u.lastActivity ? `${formatDateTime(u.lastActivity)} (${timeAgo(u.lastActivity)})` : '—'}</td>
                 </tr>
                 {u.lastPrompt && (
                   <tr>
@@ -450,7 +452,7 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
                     <tbody>
                       {[...u.compactions].reverse().map((c, i) => (
                         <tr key={i}>
-                          <td>{c.timestamp ? new Date(c.timestamp).toLocaleString() : '—'}</td>
+                          <td>{c.timestamp ? formatDateTime(c.timestamp) : '—'}</td>
                           <td>
                             <span className={cx('badge', c.trigger === 'auto' ? 'accent' : 'info')}>{c.trigger}</span>
                           </td>
