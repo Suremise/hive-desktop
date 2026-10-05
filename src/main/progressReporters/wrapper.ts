@@ -12,8 +12,9 @@ export const USAGE = `Usage: hive-progress [--title <title>] -- <command> [args.
 Runs the command, passing its output through and returning its exit code, and shows it in Hive's Progress panel
 with the time it usually takes. A line the command prints like
   ##hive-progress step=4 total=12 name=carddialog
-says step 4 of 12 (carddialog) is starting, and isn't shown. Give the total in a line within the first 2 seconds
-for a bar with steps. Outside Hive it just runs the command. HIVE_PROGRESS=0 turns reporting off.`
+says step 4 of 12 (carddialog) is starting, and isn't shown. The first total given is the run's: give it within the
+first 2 seconds for a bar with steps from the start, or later for one from then on. Outside Hive it just runs the
+command. HIVE_PROGRESS=0 turns reporting off.`
 
 export type WrapperArgs = { title?: string; command: string[] } | { help: true } | { error: string }
 
@@ -198,8 +199,9 @@ export interface WrapperIo {
 
 /**
  * The command's run as reported: it starts at the first step line that gives the total, or after `waitMs`, so steps
- * the command announces at once show as steps (the API takes the total only at the start). Step lines name the step
- * starting (from 1); the API counts the steps finished.
+ * the command announces at once show as steps from the start. A run started without a total takes the first one given
+ * later (the API takes a late total once); later totals are ignored. Step lines name the step starting (from 1); the
+ * API counts the steps finished.
  */
 class WrappedRun {
   private run: ProgressRun | null = null
@@ -234,7 +236,9 @@ class WrappedRun {
       }
       return
     }
-    this.run.update({ ...(u.step !== undefined ? { step: this.step } : {}), ...(u.name !== undefined ? { stepName: u.name } : {}) })
+    const late = this.total === undefined && u.total !== undefined && u.total > 0 ? u.total : undefined
+    if (late !== undefined) this.total = late
+    this.run.update({ ...(late !== undefined ? { total: late, step: this.step ?? 0 } : {}), ...(u.step !== undefined ? { step: this.step } : {}), ...(u.name !== undefined ? { stepName: u.name } : {}) })
   }
 
   async finish(ok: boolean, summary?: string): Promise<void> {

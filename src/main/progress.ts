@@ -148,10 +148,17 @@ export class ProgressStore {
   update(caller: ProgressCaller, id: string, body: Record<string, unknown>): ProgressRun {
     const run = this.find(caller, id)
     if (run.finishedAt !== null) throw new ProgressError(409, 'That run has finished')
-    const step = int(body.step, 'step', 0, run.total ?? MAX_TOTAL)
+    // A total comes at the start, or once later on a run started without one (a command that counts its steps late).
+    const total = int(body.total, 'total', 1, MAX_TOTAL)
+    if (total !== undefined && run.total !== null) throw new ProgressError(409, 'That run already has a total')
+    const step = int(body.step, 'step', 0, total ?? run.total ?? MAX_TOTAL)
     const stepName = text(body.stepName, 'stepName', MAX_STEP_NAME)
     const estimateMs = int(body.estimateMs, 'estimateMs', 0, MAX_ESTIMATE_MS)
     const now = this.deps.now()
+    if (total !== undefined) {
+      run.total = total
+      run.step = Math.min(run.step ?? 0, total)
+    }
     if (step !== undefined) run.step = step
     if (stepName !== undefined) run.stepName = stepName || null
     // estimateMs is the time left as of updatedAt: without a new one, what is left now keeps the same deadline.

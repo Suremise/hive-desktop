@@ -370,7 +370,7 @@ Long runs (test suites, builds) report their progress for the Progress panel, wh
 - `estimateMs` (0–7 days): the estimated time **left**, counted from this report. The panel shows "about N min left".
 - `command` (up to 200): shown on hover.
 
-`PATCH /v1/progress/{id}` — `{ "step"?, "stepName"?, "estimateMs"? }`: an update. Returns `{ "ok": true }`. Without `estimateMs` the deadline stays where it was (the time left keeps counting down); only a new `estimateMs` moves it. A few updates a second are shown; more are merged, not refused. An update after a run went stale (no report for longer than expected) makes it running again. A finished run is `409`.
+`PATCH /v1/progress/{id}` — `{ "total"?, "step"?, "stepName"?, "estimateMs"? }`: an update. Returns `{ "ok": true }`. `total` (1–100000) may be set once, on a run started without one (a command that learns how many steps it has after it started): from then on the panel shows its steps, and a `step` already past it is lowered to it; on a run that has a total, `total` is `409`. Without `estimateMs` the deadline stays where it was (the time left keeps counting down); only a new `estimateMs` moves it. A few updates a second are shown; more are merged, not refused. An update after a run went stale (no report for longer than expected) makes it running again. A finished run is `409`.
 
 `POST /v1/progress/{id}/finish` — `{ "ok": true|false, "summary"? }` (summary up to 500 characters): the run passed or failed. Returns `{ "ok": true }`.
 
@@ -396,7 +396,7 @@ It runs the command with its output passed through unchanged and ends with its e
 ##hive-progress step=4 total=12 name=carddialog
 ```
 
-`step` is the step starting now, from 1; `total` how many there are; `name` the rest of the line. The lines are taken out of the output. Since a run's `total` is set when it starts, `hive-progress` starts its run at the first step line that gives a total, or after 2 seconds: print the total in the first line, early. A total printed later isn't used; the steps still are.
+`step` is the step starting now, from 1; `total` how many there are; `name` the rest of the line. The lines are taken out of the output. `hive-progress` starts its run at the first step line that gives a total, or after 2 seconds, so a total printed early shows as steps from the start. A run started without one takes the first total printed later (sent once with `PATCH`); a different total after that is ignored, the steps aren't.
 
 Hive's own test runners report the same way (`npm run e2e`, a step per suite; `npm test`, a step per file) when they run in an agent's session.
 
