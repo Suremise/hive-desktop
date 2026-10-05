@@ -739,6 +739,11 @@ export interface LiveSessionState {
   sessionId: string
   /** The mode the session is actually in: from launch, Hive's live switches, Shift+Tab in the terminal (its footer) and hooks. */
   permissionMode?: PermissionMode
+  /**
+   * The mode the CLI itself last showed (its footer, a hook, its transcript); absent until it has shown one. The
+   * mode Hive shows (permissionMode) starts as the one asked for at launch, so this says it was seen (#234).
+   */
+  modeObserved?: PermissionMode
   /** The session's name in Hive (renamable in the Sessions tab and the agent's footer). */
   sessionName?: string
   /** See SessionRecord.titleAtRename. */
