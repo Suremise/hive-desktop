@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import iconUrl from '../assets/icon.svg'
-import { commandKeybinding, commands, runCommand, toggleAlwaysOnTop } from '../commands'
+import { commandKeybinding, commandLabel, commands, runCommand, toggleAlwaysOnTop } from '../commands'
 import { useStore } from '../store'
 import { basename, cx, formatKeybinding } from '../util'
 import { Icon, Tooltip } from './ui'
@@ -52,7 +52,7 @@ type MenuDef = { label: string; items: (string | '-' | { submenu: 'recent' })[] 
 const MENUS: MenuDef[] = [
   {
     label: 'File',
-    items: ['project.new', 'window.new', '-', 'workspace.open', 'workspace.create', { submenu: 'recent' }, 'workspace.refresh', 'workspace.close', '-', 'settings.open', '-', 'app.quit']
+    items: ['project.new', 'window.new', '-', 'workspace.open', 'workspace.create', { submenu: 'recent' }, 'workspace.refresh', 'workspace.close', '-', 'settings.open', '-', 'window.close', 'app.quit']
   },
   { label: 'Edit', items: ['edit.undo', 'edit.redo', '-', 'edit.cut', 'edit.copy', 'edit.paste', '-', 'edit.selectAll'] },
   {
@@ -209,6 +209,7 @@ export function TitleBar() {
                 <div
                   key={idx}
                   className={cx('menu-item', !enabled && 'disabled')}
+                  title={c.tip?.()}
                   onClick={() => {
                     if (!enabled) return
                     setOpen(null)
@@ -216,7 +217,7 @@ export function TitleBar() {
                   }}
                 >
                   <Icon name={c.checked?.() ? 'check' : 'blank'} />
-                  <span>{c.label}</span>
+                  <span>{commandLabel(c)}</span>
                   {kb && <span className="menu-key">{formatKeybinding(kb)}</span>}
                 </div>
               )

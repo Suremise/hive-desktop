@@ -162,6 +162,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'window:minimize': () => win().minimize(),
     'window:toggleMaximize': () => (win().isMaximized() ? win().unmaximize() : win().maximize()),
     'window:close': () => win().close(),
+    'window:count': () => hiveWindows().length,
     'window:new': () => quitControl.newWindow(win()),
     'window:toggleDevTools': () => win().webContents.toggleDevTools(),
     'window:zoom': (dir) => {

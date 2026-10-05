@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ProjectInfo } from '@shared/types'
 import { agentLaunchSettings, isProviderEnabled, modeOption, providerName } from '@shared/providers'
 import { agentsToResume } from '@shared/resumeAll'
@@ -5,7 +6,7 @@ import hexUrl from '../assets/icon.svg'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
-import { AddAgentButton, AgentStrip, PANE_FOOTER, PANE_HEADER, PaneChrome, ResumeButton, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
+import { AddAgentButton, AgentStrip, PANE_FOOTER, PANE_HEADER, PaneChrome, RESUME_TINT, ResumeButton, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
 import { Icon, IconButton, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu } from '../components/ui'
 import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
 import { carriesFiles, cx, formatKeybinding } from '../util'
@@ -36,6 +37,97 @@ const TABS: { id: ProjectTab; label: string; icon: string }[] = [
 function tabTip(id: ProjectTab, label: string): string {
   const kb = commandKeybinding(id === 'settings' ? 'project.tab.settings' : `project.tab.${id}`)
   return kb ? `${label} (${formatKeybinding(kb)})` : label
+}
+
+/** How the tab strip fits: every tab labelled; icons, with the active tab's label; or icons only, scrolling if even they don't. */
+type TabFit = 'labels' | 'icons' | 'all-icons'
+const TAB_FITS: TabFit[] = ['labels', 'icons', 'all-icons']
+/** Room a roomier fit needs to spare before the strip goes back to it, so it doesn't flicker at the switching point. */
+const TAB_FIT_SPARE = 12
+
+/**
+ * The project's tabs. When their labels don't fit, they shrink to icons, the active tab keeping its label while that fits;
+ * narrower still, all are icons, and the strip scrolls with the active tab in view. Every tab's width with and without its
+ * label is measured off screen (`.tabs-measure`), so the fit follows the strip's width (window, sidebar, panels) both ways
+ * without trying each fit on screen. Icon-only tabs keep their label for screen readers and their name in the tooltip.
+ */
+function ProjectTabStrip({ project, tab, live }: { project: ProjectInfo; tab: ProjectTab; live: boolean }) {
+  const [widthRef, width] = useWidth<HTMLDivElement>()
+  const strip = useRef<HTMLDivElement | null>(null)
+  const stripRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      strip.current = el
+      widthRef(el)
+    },
+    [widthRef]
+  )
+  const measureRef = useRef<HTMLDivElement>(null)
+  const activeRef = useRef<HTMLDivElement>(null)
+  const [widths, setWidths] = useState<{ labelled: number[]; icon: number[] } | null>(null)
+  useLayoutEffect(() => {
+    const el = measureRef.current
+    if (!el) return
+    const measure = (): void => {
+      const w = [...el.children].map((c) => c.getBoundingClientRect().width)
+      // Nothing to measure while the project isn't shown: keep the last widths.
+      if (w.every((x) => x === 0)) return
+      setWidths({ labelled: w.filter((_, i) => i % 2 === 0), icon: w.filter((_, i) => i % 2 === 1) })
+    }
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    measure()
+    return () => ro.disconnect()
+  }, [])
+  const fitRef = useRef<TabFit>('labels')
+  let fit = fitRef.current
+  if (widths && width > 0) {
+    const active = Math.max(0, TABS.findIndex((t) => t.id === tab))
+    const sum = (a: number[]): number => a.reduce((x, y) => x + y, 0)
+    const need: Record<TabFit, number> = { labels: sum(widths.labelled), icons: sum(widths.icon) - widths.icon[active] + widths.labelled[active], 'all-icons': 0 }
+    const now = TAB_FITS.indexOf(fitRef.current)
+    fit = TAB_FITS.find((f, i) => Math.ceil(need[f]) + (i < now ? TAB_FIT_SPARE : 0) <= width) ?? 'all-icons'
+  }
+  fitRef.current = fit
+  // The active tab stays in view when the strip has to scroll.
+  useEffect(() => {
+    const s = strip.current
+    const a = activeRef.current
+    if (!s || !a) return
+    const sr = s.getBoundingClientRect()
+    const ar = a.getBoundingClientRect()
+    if (ar.left < sr.left) s.scrollLeft -= sr.left - ar.left
+    else if (ar.right > sr.right) s.scrollLeft += ar.right - sr.right
+  }, [fit, tab, width])
+  return (
+    <div className="tabs-row">
+      <div className="tabs" ref={stripRef} data-fit={fit}>
+        {TABS.map((t) => (
+          <Tooltip key={t.id} content={tabTip(t.id, t.label)}>
+            <div
+              ref={tab === t.id ? activeRef : undefined}
+              className={cx('tab', tab === t.id && 'active', (fit === 'all-icons' || (fit === 'icons' && tab !== t.id)) && 'icon-only')}
+              onClick={() => setProjectTab(project.path, t.id)}
+              // Dragging files over the Session tab switches to it, so they can be dropped on the terminal.
+              onDragOver={t.id === 'session' ? (e) => carriesFiles(e.dataTransfer) && live && tab !== 'session' && setProjectTab(project.path, 'session') : undefined}
+            >
+              <Icon name={t.icon} /> <span className="tab-label">{t.label}</span>
+            </div>
+          </Tooltip>
+        ))}
+      </div>
+      {/* Each tab labelled, then icon only, for measuring; the labels are CSS content, so no text here repeats a tab's. */}
+      <div className="tabs-measure" ref={measureRef} aria-hidden>
+        {TABS.flatMap((t) => [
+          <div key={`${t.id}-label`} className="tab-m" data-label={t.label}>
+            <Icon name={t.icon} />
+          </div>,
+          <div key={`${t.id}-icon`} className="tab-m icon-only">
+            <Icon name={t.icon} />
+          </div>
+        ])}
+      </div>
+    </div>
+  )
 }
 
 function SessionEmpty({ project, framed }: { project: ProjectInfo; framed: boolean }) {
@@ -95,7 +187,7 @@ function SessionEmpty({ project, framed }: { project: ProjectInfo; framed: boole
             <button className="btn primary" onClick={() => void actions.newSession(project.path)}>
               <Icon name="add" /> New Session {newKey && <kbd style={{ marginLeft: 6 }}>{formatKeybinding(newKey)}</kbd>}
             </button>
-            {focused ? <ResumeButton project={project} a={focused} className="tint-amber" label="Resume Last" /> : <AddAgentButton project={project} className="tint-amber" />}
+            {focused ? <ResumeButton project={project} a={focused} className={RESUME_TINT} label="Resume Last" /> : <AddAgentButton project={project} className="tint-amber" />}
             <button className="btn subtle" onClick={() => setProjectTab(project.path, 'sessions')}>
               <Icon name="history" /> All Sessions
             </button>
@@ -274,20 +366,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
         </div>
       )}
 
-      <div className="tabs">
-        {TABS.map((t) => (
-          <Tooltip key={t.id} content={tabTip(t.id, t.label)}>
-            <div
-              className={cx('tab', tab === t.id && 'active')}
-              onClick={() => setProjectTab(project.path, t.id)}
-              // Dragging files over the Session tab switches to it, so they can be dropped on the terminal.
-              onDragOver={t.id === 'session' ? (e) => carriesFiles(e.dataTransfer) && live && tab !== 'session' && setProjectTab(project.path, 'session') : undefined}
-            >
-              <Icon name={t.icon} /> {t.label}
-            </div>
-          </Tooltip>
-        ))}
-      </div>
+      <ProjectTabStrip project={project} tab={tab} live={!!live} />
 
       <div className="tab-body">
         {tab === 'session' && <AgentStrip project={project} />}
