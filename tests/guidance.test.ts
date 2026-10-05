@@ -122,6 +122,10 @@ describe("Hive's development skills", () => {
     for (const f of files(claude)) expect(readFileSync(join(agents, f), 'utf8').replace(/\r\n/g, '\n'), f).toBe(readFileSync(join(claude, f), 'utf8').replace(/\r\n/g, '\n'))
   })
 
+  it("don't start with hive-, the prefix of Hive's git-excluded copies in .agents/skills", () => {
+    for (const name of [...readdirSync(claude), ...readdirSync(agents)]) expect(name, name).not.toMatch(/^\.?hive-/)
+  })
+
   it('are valid skills that link only inside the repository', () => {
     const names = readdirSync(claude)
     expect(names.length).toBeGreaterThan(0)

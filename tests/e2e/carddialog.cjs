@@ -4,11 +4,18 @@
 // backdrop (a card, a question over it, the command palette) until the last one goes, in either theme, across a
 // theme change, maximise/restore and a reload, each window on its own. The buttons' colours are recorded by
 // wrapping setTitleBarOverlay in main. Dev build, throwaway profile and workspace.
+//
+// Maximise and restore are simulated by default: the window takes a screen's work-area size off screen, says it is
+// maximised and emits the events Hive listens for, so the checks of the card and the buttons run quiet. That covers
+// Hive's handling of the events, not Electron's and Windows' own maximise. HIVE_E2E_NATIVE=1 (`node
+// tests/e2e/carddialog.cjs` only: the runner drops it) runs the same checks with the real maximize() and unmaximize()
+// in a normal, not quiet, window, which comes on screen and takes the focus while it runs.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
 
+const NATIVE = process.env.HIVE_E2E_NATIVE === '1'
 const userData = path.join(lib.WORK, 'carddialog-profile')
 const ws = path.join(lib.WORK, 'carddialog-ws')
 let failed = 0
@@ -30,7 +37,8 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
 ;(async () => {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
   lib.gitProject(path.join(ws, 'alpha'))
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47895), HIVE_TEST_TIPS: 'off' }
+  if (NATIVE) console.log('Native maximise and restore (HIVE_E2E_NATIVE=1): the test window comes on screen and takes the focus.')
+  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47895), HIVE_TEST_TIPS: 'off', ...(NATIVE ? { HIVE_TEST_QUIET: '0' } : {}) }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
@@ -58,10 +66,24 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
   const firstId = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].id)
   // On Windows, maximising always brings the window on screen and to the front, taking the focus from whatever the user
   // is doing (there is no maximise without it), and the test copies never do that (HIVE_TEST_QUIET: their windows stay
-  // off screen). So the window takes the size of a screen's work area, where it is, as maximising does, and says it is
-  // maximised, with the events Hive listens for.
-  const maximise = () =>
-    app.evaluate(({ BrowserWindow, screen }) => {
+  // off screen). So by default the window takes the size of a screen's work area, where it is, as maximising does, and
+  // says it is maximised, with the events Hive listens for. With HIVE_E2E_NATIVE=1, Electron maximises it for real.
+  const native = (max) =>
+    app.evaluate(
+      ({ BrowserWindow }, m) =>
+        new Promise((done) => {
+          const w = BrowserWindow.getAllWindows()[0]
+          if (w.isMaximized() === m) return done(true)
+          w.once(m ? 'maximize' : 'unmaximize', () => done(w.isMaximized() === m))
+          if (m) w.maximize()
+          else w.unmaximize()
+          setTimeout(() => done(w.isMaximized() === m), 3000)
+        }),
+      max
+    )
+  const maximise = async () => {
+    if (NATIVE) return check('native: maximize() maximises the window', await native(true))
+    await app.evaluate(({ BrowserWindow, screen }) => {
       const w = BrowserWindow.getAllWindows()[0]
       const b = w.getBounds()
       globalThis.__restoreBounds = b
@@ -70,13 +92,16 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
       w.isMaximized = () => true
       w.emit('maximize')
     })
-  const unmaximise = () =>
-    app.evaluate(({ BrowserWindow }) => {
+  }
+  const unmaximise = async () => {
+    if (NATIVE) return check('native: unmaximize() restores the window', await native(false))
+    await app.evaluate(({ BrowserWindow }) => {
       const w = BrowserWindow.getAllWindows()[0]
       w.isMaximized = () => false
       w.setBounds(globalThis.__restoreBounds)
       w.emit('unmaximize')
     })
+  }
   /** The colour the window's buttons were last given (null: never changed since recording began). */
   const buttons = (id = firstId) => app.evaluate((_e, i) => globalThis.__tb.get(i)?.at(-1) ?? null, id)
   const buttonsAre = (want, id) => until(async () => (await buttons(id)) === want, 3000)
