@@ -129,6 +129,33 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   check('the newest is listed first', (await panel.locator('.progress-run').first().getAttribute('data-run')) === run2)
   await page.screenshot({ path: path.join(shots, 'dark-two-runs.png') })
 
+  // --- Showing a run's agent (#141): from the keyboard (Tab to the agent's name, Enter or Space), or a click anywhere on
+  // the row; the whole row shows the focus.
+  const shownProject = async () => ((await page.locator('.project-header h1').first().textContent().catch(() => '')) ?? '').trim()
+  const toAlpha = async () => {
+    await page.locator('.sidebar').getByText('alpha', { exact: true }).first().click()
+    return !!(await until(async () => (await shownProject()) === 'alpha'))
+  }
+  const show2 = row2.locator('button.progress-run-show')
+  check("a run's agent is a button named for what it shows", (await show2.count()) === 1 && (await show2.getAttribute('aria-label')) === 'Show Betty, which ran npm run build', await show2.getAttribute('aria-label'))
+  check('alpha is shown to start with', await toAlpha())
+  await panel.locator('button[aria-label^="Fold the Progress panel"]').focus()
+  await page.keyboard.press('Tab')
+  check('Tab from the header reaches the newest run', await show2.evaluate((b) => b === document.activeElement))
+  check('…and the whole row shows the focus', (await row2.evaluate((el) => getComputedStyle(el).outlineStyle)) === 'solid')
+  await page.screenshot({ path: path.join(shots, 'dark-run-focused.png') })
+  await page.keyboard.press('Enter')
+  check('Enter shows its agent (Betty, in beta)', !!(await until(async () => (await shownProject()) === 'beta')), await shownProject())
+  check('back to alpha', await toAlpha())
+  await show2.focus()
+  await page.keyboard.press('Space')
+  check('Space does too', !!(await until(async () => (await shownProject()) === 'beta')), await shownProject())
+  check('back to alpha', await toAlpha())
+  await row2.locator('.progress-bar').click()
+  check('a click on the row (its bar) shows its agent', !!(await until(async () => (await shownProject()) === 'beta')), await shownProject())
+  await row.locator('.progress-title').click()
+  check("a click on another run's title shows that one's (Alfie, in alpha)", !!(await until(async () => (await shownProject()) === 'alpha')), await shownProject())
+
   // --- Passed: ✓ and the time, then it fades into Recent.
   r = await call(alfieToken, 'POST', `/v1/progress/${run1}/finish`, { ok: true, summary: '3 passed' })
   check('a finish is accepted', r.status === 200)
@@ -153,8 +180,16 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   await rail.click()
   check('opening the panel (window focused) clears the red', !!(await until(async () => taskbar()?.mode === 'none')), JSON.stringify(taskbar()))
   check('the failed run stays, with its summary', (await row2.locator('.progress-fail').count()) === 1 && /2 errors in src\/a\.ts/.test((await row2.textContent()) ?? ''))
+  check('alpha is shown before dismissing', await toAlpha())
   await row2.locator('button[aria-label^="Dismiss"]').click()
   check('dismissing moves it to Recent', !!(await until(async () => (await row2.count()) === 0 && (await panel.locator('.progress-recent.failed').count()) === 1)))
+  check("…without showing its agent", (await shownProject()) === 'alpha', await shownProject())
+  const recent2 = panel.locator(`button.progress-recent[data-run="${run2}"]`)
+  check('a Recent run is a button too', (await recent2.count()) === 1 && ((await recent2.getAttribute('aria-label')) ?? '').startsWith('Show Betty, which ran npm run build: failed'), await recent2.getAttribute('aria-label').catch(() => ''))
+  await recent2.focus()
+  await page.keyboard.press('Enter')
+  check('Enter on it shows its agent', !!(await until(async () => (await shownProject()) === 'beta')), await shownProject())
+  check('back to alpha', await toAlpha())
 
   // --- An agent that stops leaves its run "stopped reporting".
   r = await call(alfieToken, 'POST', '/v1/progress', { title: 'long run', total: 10 })
@@ -180,6 +215,11 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   const boxes = await page.evaluate(() => ['.progress-panel', '.assistant-panel'].map((s) => document.querySelector(s)?.getBoundingClientRect().left ?? null))
   check("with the Assistant's panel open, Progress sits to its left", boxes[0] !== null && boxes[1] !== null && boxes[0] < boxes[1], JSON.stringify(boxes))
   await page.screenshot({ path: path.join(shots, 'light-with-assistant.png') })
+  await panel.locator('button[aria-label^="Fold the Progress panel"]').focus()
+  await page.keyboard.press('Tab')
+  const firstRow = panel.locator('.progress-run').first()
+  check('light: the focused run shows the focus too', (await firstRow.evaluate((el) => getComputedStyle(el).outlineStyle)) === 'solid')
+  await page.screenshot({ path: path.join(shots, 'light-run-focused.png') })
   await page.keyboard.press('Control+Alt+I')
 
   // --- The setting off: no panel, no strip, no taskbar; reports are accepted and ignored.

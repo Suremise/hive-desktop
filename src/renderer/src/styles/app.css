@@ -5570,12 +5570,41 @@ body.pane-resizing-v .monaco-editor {
     opacity: 0.35;
   }
 }
+.progress-run.showable {
+  cursor: pointer;
+}
+.progress-run.showable:hover {
+  border-color: var(--border);
+}
+/* The agent's name is the row's button: focused from the keyboard, the whole row shows it. */
+.progress-run:has(.progress-run-show:focus-visible) {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
 .progress-run-top {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+.progress-run-show {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.progress-run-show {
   cursor: pointer;
+}
+button.progress-run-show:focus-visible {
+  outline: none;
 }
 .progress-agent {
   font-weight: 600;
@@ -5655,11 +5684,20 @@ body.pane-resizing-v .monaco-editor {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
+  min-width: 0;
   padding: 3px 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
   font-size: 12px;
+  text-align: left;
+}
+.progress-recent.showable {
   cursor: pointer;
 }
-.progress-recent:hover {
+.progress-recent.showable:hover {
   background: var(--bg-hover);
 }
 .progress-recent-text {
