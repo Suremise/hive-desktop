@@ -6,6 +6,7 @@ import { projectAgents } from '../shared/defaults'
 import { isTaskColumn, sortCards } from '../shared/tasks'
 import { ordinal } from '../shared/toolReplies'
 import type { TaskCard, TaskColumn, TaskComment, TaskPatch } from '../shared/types'
+import { returnRound } from '../shared/watch'
 import { config } from './config'
 import { emit } from './events'
 import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
@@ -344,6 +345,9 @@ function note(card: TaskCard, by: string, what: string): void {
 
 const COLUMN_WORD: Record<TaskColumn, string> = { todo: 'Todo', doing: 'Doing', review: 'Review', done: 'Done' }
 
+/** Who can return a failed card for review: its own agent (its hive tools, or the Agent API with its token) or the user. */
+const returnsCard = (actor: TaskActor, card: TaskCard): boolean => actor.kind === 'user' || (actor.kind === 'agent' && !!card.agent && actor.self?.agentId === card.agent)
+
 export async function createTask(
   input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[]; blocked?: string | null; blockedBy?: number[]; links?: number[] },
   actor: TaskActor
@@ -424,6 +428,10 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
       throw new TaskConflictError(`#${n} is in Doing with ${who}, who is working on it: newer work is in progress, so it can't be moved to ${patch.column === 'done' ? 'Done' : 'Review'} by another agent. Leave it where it is; ${who} moves it to Review when done, and the user can move it.`)
     }
     const said: string[] = []
+    // Whether a move to Review returns a failed card for review (#214): decided on the card as it is before this change,
+    // by whoever has it now, so giving it to the caller in the same change never makes it the caller's to return.
+    const returning = patch.column === 'review' && patch.review === undefined && returnsCard(actor, card) ? returnRound(card) : null
+    const { agent: hadAgent, project: hadProject } = card
     // A card moved within its column: saved, but not worth a line in its history.
     let reordered = false
     let transferred = false
@@ -481,7 +489,13 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
       const all = await allTasks(ws)
       const place = placement(all, card, column, patch, actor)
       if (column !== card.column) said.push(place.said ?? `Moved to ${COLUMN_WORD[column]}`)
-      else if (place.said) said.push(place.said)
+      else {
+        // Moved to Review by its agent (or the user, on the board) while still there after a failed review: returned for
+        // its next round, which wakes a reviewer waiting for it to come back (#214). Not when this change also gives it to
+        // another agent or project (that starts a new round of its own); any other move in place is no change.
+        if (returning && card.agent === hadAgent && card.project === hadProject) said.push(`Returned for review, round ${returning}`)
+        if (place.said) said.push(place.said)
+      }
       // A review is of the card in Review: moved on without a verdict, it stops.
       if (card.review && column !== 'review') {
         said.push(`Review by ${card.review.agentName} stopped`)

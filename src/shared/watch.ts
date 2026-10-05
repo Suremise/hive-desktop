@@ -90,8 +90,26 @@ export function markOf(card: TaskCard | null): CardMark {
 export function movedIntoSince(card: TaskCard | null, column: TaskColumn, since: string): boolean {
   if (!card) return false
   const w = COLUMN_WORD[column]
-  const re = new RegExp(`^(Moved to (the (top|bottom) of )?${w}\\b|Created in ${w}\\b)`)
+  // A failed card returned for review without leaving Review (#214) comes back into it as much as one moved there.
+  const re = new RegExp(`^(Moved to (the (top|bottom) of )?${w}\\b|Created in ${w}\\b${column === 'review' ? '|Returned for review\\b' : ''})`)
   return card.history.some((h) => h.at > since && re.test(h.what))
+}
+
+/** A card's return for review in its history: "Returned for review, round 2". */
+const RETURNED = /^Returned for review, round (\d+)/
+
+/**
+ * Whether a card in Review can be returned for review (#214): its latest review failed, and nothing has started another
+ * round since (moved, reviewed again, reassigned, already returned). Its round then: one more than the reviews that
+ * failed since it last passed one. Null: not returnable (moving it to Review is no change).
+ */
+export function returnRound(card: TaskCard): number | null {
+  if (card.column !== 'review' || card.archived || card.review) return null
+  const i = card.history.findLastIndex((h) => VERDICT.test(h.what))
+  if (i < 0 || VERDICT.exec(card.history[i].what)![1] !== 'failed') return null
+  if (card.history.slice(i + 1).some((h) => NEW_ROUND.test(h.what))) return null
+  const passed = card.history.findLastIndex((h) => h.what.startsWith('Review passed'))
+  return card.history.slice(passed + 1).filter((h) => h.what.startsWith('Review failed')).length + 1
 }
 
 /**
@@ -169,13 +187,17 @@ export interface CardChange {
 export interface WakeAbout {
   owner: string | null
   verdict: { passed: boolean; by: string } | null
+  /** The round a failed card came back into Review for, when it was returned without leaving Review (#214). */
+  returned?: number
 }
 
 /**
  * History that starts another round of work or review (back to work, in Review again, a review started, another agent),
  * after which an earlier verdict no longer speaks for the card.
  */
-const NEW_ROUND = /^(Moved to (the (top|bottom) of )?(Todo|Doing|Review)\b|Created in |Given to |Taken from |Moved to the workspace|Started reviewing)/
+const NEW_ROUND = /^(Moved to (the (top|bottom) of )?(Todo|Doing|Review)\b|Created in |Given to |Taken from |Moved to the workspace|Started reviewing|Returned for review)/
+
+const INTO_REVIEW = /^(Moved to (the (top|bottom) of )?Review\b|Created in Review\b|Returned for review\b)/
 
 /** A wake's context for the agent `watcher` (its id), from the card as it is now. */
 export function wakeAbout(card: TaskCard | null, changes: WatchChange[] | 'gone', watcher: string): WakeAbout {
@@ -188,7 +210,10 @@ export function wakeAbout(card: TaskCard | null, changes: WatchChange[] | 'gone'
   const passed = current ? VERDICT.exec(current.what)![1] === 'passed' : false
   // Done on another agent's card names its review only when that review passed it; moved there by hand, none.
   const wanted = changes.includes('verdict') || (!!owner && card.column === 'done' && passed)
-  return { owner, verdict: wanted && current ? { passed, by: current.by } : null }
+  // Into Review by a return for review (#214): its latest arrival there says so.
+  const arrival = changes.includes('column') && card.column === 'review' ? card.history.findLast((h) => INTO_REVIEW.test(h.what)) : undefined
+  const returned = arrival ? RETURNED.exec(arrival.what) : null
+  return { owner, verdict: wanted && current ? { passed, by: current.by } : null, ...(returned ? { returned: Number(returned[1]) } : {}) }
 }
 
 /** The most characters a name takes in a wake line (an agent's, a reviewer's, a comment's author): one line, cut with "…". */
@@ -228,7 +253,12 @@ export function wakeLine(change: CardChange, more = 0): string {
   const verdict = about?.verdict ? `: ${shortName(about.verdict.by)} ${about.verdict.passed ? 'passed' : 'failed'} it` : ''
   // Done means the review passed (or the user moved it there), not that the work is merged.
   const merged = about?.owner && change.column === 'done' ? " (Done isn't merged)" : ''
-  const where = change.changes === 'gone' ? ' is gone from your board (archived, deleted or moved to another project)' : `${owner} is in ${columnWord(change.column)}${verdict}${merged}`
+  const where =
+    change.changes === 'gone'
+      ? ' is gone from your board (archived, deleted or moved to another project)'
+      : about?.returned
+        ? `${owner} was returned for review (round ${about.returned})${verdict}`
+        : `${owner} is in ${columnWord(change.column)}${verdict}${merged}`
   const others = more ? ` (and ${more} more watched card${more === 1 ? '' : 's'} changed)` : ''
   const head = `[Hive] #${change.number}${where}`
   const tail = `${others}. Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).`

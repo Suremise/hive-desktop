@@ -7,7 +7,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
-import { alreadyThere, changesBetween, decodeSince, encodeSince, limitLine, markOf, movedIntoSince, readCondition, WAKE_MAX_BYTES, wakeAbout, wakeLine, watchLabel, cardChange } from '../src/shared/watch'
+import { alreadyThere, changesBetween, decodeSince, encodeSince, limitLine, markOf, movedIntoSince, readCondition, returnRound, WAKE_MAX_BYTES, wakeAbout, wakeLine, watchLabel, cardChange } from '../src/shared/watch'
 import { taskWaitText } from '../src/shared/toolReplies'
 import { hookStep } from '../src/main/hookStatus'
 import type { TaskCard } from '../src/shared/types'
@@ -42,6 +42,31 @@ describe('what counts as a change', () => {
     const cond = { changes: ['column' as const], column: 'review' as const, moveInto: true as const }
     expect(changesBetween(inReview, markOf(back), cond, false)).toEqual([])
     expect(changesBetween(inReview, markOf(back), cond, true)).toEqual(['column'])
+  })
+
+  it('a failed card returned for review comes back into Review; its round and wake line say so (#214)', () => {
+    const h = (m: number, what: string, by = 'Codex (hive)') => ({ at: at(m), by, what })
+    const review = (history: TaskCard['history']) => cardOf({ column: 'review', agentName: 'Claudette', history })
+    const failed = [h(1, 'Moved to Review', 'Claudette (hive)'), h(2, 'Started reviewing'), h(3, 'Review failed')]
+    // Returnable after a failed review, with nothing since; its round counts the failures since the last pass.
+    expect(returnRound(review(failed))).toBe(2)
+    expect(returnRound(review([h(0, 'Review failed'), h(0, 'Review passed'), ...failed]))).toBe(2)
+    expect(returnRound(review([...failed, h(4, 'Moved to Doing'), h(5, 'Moved to Review'), h(6, 'Review failed')]))).toBe(3)
+    // Not after a pass, with none, once returned or reviewed again, under review, or out of Review.
+    for (const history of [[h(1, 'Review passed')], [h(1, 'Moved to Review')], [...failed, h(4, 'Returned for review, round 2')], [...failed, h(4, 'Started reviewing')]]) expect(returnRound(review(history))).toBeNull()
+    expect(returnRound({ ...review(failed), review: { agent: 'r', agentName: 'R', since: at(4) } })).toBeNull()
+    expect(returnRound(cardOf({ column: 'doing', history: failed }))).toBeNull()
+    // Returned counts as moving into Review (only Review), and starts a new round: the old failure isn't named.
+    const returned = review([...failed, h(4, 'Returned for review, round 2', 'Claudette (hive)')])
+    expect(movedIntoSince(returned, 'review', at(3))).toBe(true)
+    expect(movedIntoSince(returned, 'review', at(5))).toBe(false)
+    expect(movedIntoSince({ ...returned, column: 'doing' }, 'doing', at(3))).toBe(false)
+    const line = (card: TaskCard, changes: Parameters<typeof wakeAbout>[1]) => wakeLine({ ...cardChange(7, card, changes), about: wakeAbout(card, changes, 'r1') })
+    expect(line(returned, ['column'])).toMatch(/^\[Hive\] #7 \(Claudette's card\) was returned for review \(round 2\)\. Your card watch has ended/)
+    // Moved to Doing and back since: an ordinary arrival.
+    expect(line(review([...returned.history, h(6, 'Moved to Doing'), h(7, 'Moved to Review')]), ['column'])).toMatch(/^\[Hive\] #7 \(Claudette's card\) is in Review\. /)
+    // A comment alone isn't the return.
+    expect(line(returned, ['comment'])).toMatch(/is in Review/)
   })
 
   it('since: marks and time out and back; anything else refused', () => {
@@ -320,6 +345,30 @@ describe('watches (main/watches.ts)', async () => {
     expect(st.typed[0]).toMatch(/is in Review/)
     await disposeWorkspaceService(w)
   })
+  it('a failed card its agent returns for review without leaving Review wakes the reviewer waiting for it to come back (#214)', async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    // a1 reviews here (the stand-in session); a2 did the work.
+    const agent = (id: string, name: string) => ({ kind: 'agent', name: `${name} (alpha)`, self: { project: 'alpha', agentId: id }, scope: 'alpha' }) as const
+    const rev = agent('a1', 'Builder')
+    const builder = agent('a2', 'Reviewer')
+    const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha', agent: 'a2', column: 'review' }, user))
+    await inWorkspace(w, () => tasks.updateTask(c.number, { review: 'start' }, rev))
+    await inWorkspace(w, () => tasks.updateTask(c.number, { review: 'failed' }, rev, { comment: 'Round 1: FAILED' }))
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['column'], column: 'review', moveInto: true })
+    await new Promise((res) => setTimeout(res, 5))
+    // A move in place by anyone else, or a comment: no wake.
+    await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'review' }, { kind: 'assistant' }))
+    await inWorkspace(w, () => tasks.commentTask(c.number, 'Working on it', builder))
+    await watches.evaluateWatches(w)
+    expect(st.typed).toEqual([])
+    await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'review' }, builder, { comment: 'Fixed both findings' }))
+    await watches.evaluateWatches(w)
+    expect(st.typed).toHaveLength(1)
+    expect(st.typed[0]).toMatch(new RegExp(`^\\[Hive\\] #${c.number} \\(Reviewer's card\\) was returned for review \\(round 2\\); latest comment by Reviewer \\(alpha\\): "Fixed both findings"\\. Your card watch has ended`))
+    await disposeWorkspaceService(w)
+  })
+
   it('a column alone waits for the card to arrive there: a comment while it is still in Doing wakes nothing', async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)

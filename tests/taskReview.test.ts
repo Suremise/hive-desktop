@@ -87,6 +87,71 @@ describe('reviewing a card', () => {
     expect(history(passed).slice(-2)).toEqual(['Reviewer (alpha): Review passed', 'Reviewer (alpha): Moved to Done'])
   })
 
+  it('a failed card its agent (or the user) moves to Review without it leaving is returned for review, round by round (#214)', async () => {
+    const c = await done('Returned')
+    const fail = async () => {
+      await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+      await run(() => tasks.updateTask(c.number, { review: 'failed' }, reviewer))
+    }
+    const move = async (who: Parameters<typeof tasks.updateTask>[2]) => {
+      const said: string[] = []
+      const card = await run(() => tasks.updateTask(c.number, { column: 'review' }, who, { said }))
+      return { said, last: history(card).at(-1) }
+    }
+    // Not failed yet: a move to Review where it is changes nothing.
+    expect(await move(coder)).toEqual({ said: [], last: 'You: Created in Review' })
+    await fail()
+    // Another agent, the Assistant or a script with the workspace token: no change either.
+    for (const who of [third, assistant, script]) expect((await move(who)).said).toEqual([])
+    // Its own agent: returned for round 2, once (again is no change).
+    expect(await move(coder)).toEqual({ said: ['Returned for review, round 2'], last: 'Coder (alpha): Returned for review, round 2' })
+    expect((await move(coder)).said).toEqual([])
+    // Reviewed and failed again; the user returns it from the board: round 3.
+    await fail()
+    expect((await move(user)).said).toEqual(['Returned for review, round 3'])
+    // Under review again: not returnable meanwhile.
+    await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+    expect((await move(coder)).said).toEqual([])
+    await run(() => tasks.updateTask(c.number, { review: 'failed' }, reviewer))
+    // Fixed through Doing as before: an ordinary move back, and nothing to return after it.
+    await run(() => tasks.updateTask(c.number, { column: 'doing' }, coder))
+    expect((await move(coder)).said).toEqual(['Moved to Review'])
+    expect((await move(coder)).said).toEqual([])
+    // Passed: not returnable; failed after a pass counts its rounds from there.
+    await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+    await run(() => tasks.updateTask(c.number, { review: 'passed' }, reviewer))
+    expect((await move(coder)).said).toEqual([])
+    await fail()
+    expect((await move(coder)).said).toEqual(['Returned for review, round 2'])
+  })
+
+  it('giving a failed card to another agent or project in the same change never returns it for review (#214)', async () => {
+    const c = await done('Taken over')
+    const said = async (patch: Parameters<typeof tasks.updateTask>[1], who: Parameters<typeof tasks.updateTask>[2]) => {
+      const out: string[] = []
+      await run(() => tasks.updateTask(c.number, patch, who, { said: out }))
+      return out
+    }
+    const fail = async () => {
+      await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))
+      await run(() => tasks.updateTask(c.number, { review: 'failed' }, reviewer))
+    }
+    await fail()
+    // Another agent giving it to itself: the assignment doesn't make the return its own.
+    expect(await said({ agent: 't1', column: 'review' }, third)).toEqual(['Given to Third'])
+    // Third has it now, but the reassignment started a new round: nothing to return.
+    expect(await said({ column: 'review' }, third)).toEqual([])
+    await fail()
+    // The user reassigning while returning: a new round of its own, not a return.
+    expect(await said({ agent: 'c1', column: 'review' }, user)).toEqual(['Given to Coder'])
+    await fail()
+    // Its own agent naming itself (no change of agent) still returns it.
+    expect(await said({ agent: 'c1', column: 'review' }, coder)).toEqual(['Returned for review, round 4'])
+    await fail()
+    // Moved to another project in the same change: taken from its agent, not returned.
+    expect(await said({ project: 'beta', column: 'review' }, user)).toEqual(['Moved to beta', 'Taken from Coder of alpha'])
+  })
+
   it("an old verdict can't settle newer work: once the card moved on, the reviewer's verdict is refused", async () => {
     const c = await done('Moved on')
     await run(() => tasks.updateTask(c.number, { review: 'start' }, reviewer))

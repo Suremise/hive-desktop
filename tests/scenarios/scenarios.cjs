@@ -584,6 +584,42 @@ module.exports.SCENARIOS = [
     fakeSkips: ['the verdict says the finding came back']
   },
   {
+    id: 'card-loop-return',
+    title: 'A card loop builder fixing a failed card: it comes back into Review for round two, so the waiting reviewer is woken (#214)',
+    files: { 'sync.js': SYNC_JS },
+    async setup(c) {
+      const n = await c.card('f', {
+        title: 'Retry the sync',
+        description: 'sync.js: try the sync up to three times, 1 s apart, before giving up.',
+        column: 'review',
+        agent: 'coder',
+        comments: ['Done: retries added. Ready for review.', 'Review round 1: FAILED. 1. The delay is never awaited: `wait(1000)` needs `await`.']
+      })
+      // A real failed verdict in its history, as a reviewer's leaves it (still in Review): the setup has no reviewer session.
+      const file = require('path').join(c.ws, '.hive', 'tasks', `${n}.json`)
+      const card = JSON.parse(require('fs').readFileSync(file, 'utf8'))
+      const at = new Date().toISOString()
+      card.history.push({ at, by: 'Implementer (alpha)', what: 'Started reviewing' }, { at, by: 'Implementer (alpha)', what: 'Review failed' })
+      require('fs').writeFileSync(file, JSON.stringify(card, null, 2))
+    },
+    prompt: (c) => `Work through card #${c.cards.f} as its builder (rounds: 5); Implementer reviews it. Its first review failed: the review is its last comment.`,
+    // The fake returns it without leaving Review, which is what stalled loops before (#214).
+    fake: (c) => `skill card-loop boardmove ${c.cards.f} review then boardcomment ${c.cards.f}`,
+    expect: (o, c) => {
+      const h = history(o.cards.f)
+      const after = h.slice(h.lastIndexOf('Review failed') + 1)
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        // What a reviewer's wait for its return sees (shared/watch.ts movedIntoSince): moved back into Review, or returned.
+        ['back into Review for round two (the reviewer is woken)', o.cards.f?.column === 'review' && after.some((w) => /^(Moved to (the (top|bottom) of )?Review\b|Returned for review, round 2)/.test(w)), h.join(' | ')],
+        ['fixed it: the delay is awaited', /await\s+wait\(/.test(c.read('sync.js') ?? ''), c.read('sync.js')],
+        ["didn't ask the user (no hive_notify)", called(o, 'hive_notify').length === 0, o.hiveCalls.map((x) => x.tool).join(',')],
+        ['not Done', o.cards.f?.column !== 'done']
+      ]
+    },
+    fakeSkips: ['fixed it: the delay is awaited']
+  },
+  {
     id: 'card-loop-disputed',
     title: 'A card loop reviewer whose finding the builder disputes: stops and asks the user instead of failing it again',
     files: { 'sync.js': SYNC_JS.replace('wait(1000)', 'await wait(1000)') },
