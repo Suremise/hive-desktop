@@ -1,7 +1,8 @@
 // Skills: the bundled skills in a new workspace, and in an existing one only those it was never given (the ones it
 // had before are its own to keep or delete), restore, revert and "update available", adding from
 // a .md or a .zip, local skills per provider (and for both at once), the project's Skills tab, "Edit in
-// workspace", and the notice for a skill that no longer exists. Deleting moves folders to the Recycle Bin.
+// workspace", the notice for a skill that no longer exists, and the warning over the Skills view and over a Hive skill
+// being edited (not in preview, not in the project tab). Deleting moves folders to the Recycle Bin.
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -64,6 +65,8 @@ const check = (name, ok, extra = '') => {
   await sleep(800)
   const rows = await page.locator('.skill-row').count()
   check('Skills view lists them', rows === BUNDLED.length, String(rows))
+  const viewWarning = await page.locator('.sidebar .skills-warning').allInnerTexts()
+  check('Skills view: the warning over the list (#120)', viewWarning.length === 1 && viewWarning[0].trim() === 'Warning: Editing these skills may change agent behaviour in Hive', JSON.stringify(viewWarning))
   await page.screenshot({ path: path.join(lib.WORK, 'skills-view.png') })
 
   // Edited → changed → Revert to default → same.
@@ -75,6 +78,7 @@ const check = (name, ok, extra = '') => {
   await page.locator('.skill-row', { hasText: 'pick-up' }).click()
   await sleep(800)
   check('its page offers Revert to default', (await page.getByText('Revert to default').count()) === 1)
+  check('a Hive skill in preview: no warning over it', (await page.locator('.split .skills-warning').count()) === 0)
   await page.getByText('Revert to default').click()
   await sleep(400)
   await page.locator('.dialog .btn.primary', { hasText: 'Revert' }).click()
@@ -168,13 +172,34 @@ const check = (name, ok, extra = '') => {
 
   // "Edit in workspace" on a Hive skill opens it in the Skills view, in the editor.
   const hiveRow = page.locator('.skill-row', { hasText: 'workspace-note' }).first()
+  await hiveRow.click()
+  await lib.until(async () => (await page.locator('.split .editor-toolbar', { hasText: 'workspace-note' }).count()) === 1, 5000)
+  check('project tab: a Hive skill (view only) has no warning', (await page.locator('.skills-warning').count()) === 0)
   await hiveRow.hover()
   await hiveRow.locator('button[aria-label^="Edit in the workspace"]').click()
   await lib.until(async () => (await page.locator('.skill-row.selected', { hasText: 'workspace-note' }).count()) === 1, 10000)
   const inSkillsView = (await page.locator('.skill-row.selected', { hasText: 'workspace-note' }).count()) === 1
+  // The Skills view's page loads its list, then Monaco (lazily) and the file: wait for its editor, or a preview (which
+  // would mean it failed). The project tab's page for the same skill stays in the DOM, hidden: only visible ones count.
+  await lib.until(async () => (await page.locator('.split .monaco-editor:visible, .split .scroll-page:visible').count()) >= 1, 10000)
   check('Edit in workspace: Skills view with the skill selected', inSkillsView)
   check('Edit in workspace: opens in the editor, not the preview', (await page.locator('.split .monaco-editor').count()) >= 1)
+  const editWarning = await page.evaluate(() => {
+    const split = [...document.querySelectorAll('.split')].find((x) => x.offsetParent !== null)
+    const w = split?.querySelector('.skills-warning')
+    const host = split?.querySelector('.editor-host')
+    const bar = split?.querySelector('.editor-toolbar')
+    return w && host && bar ? { text: w.textContent.trim(), between: bar.getBoundingClientRect().bottom <= w.getBoundingClientRect().top + 0.5 && w.getBoundingClientRect().bottom <= host.getBoundingClientRect().top + 0.5 } : null
+  })
+  check('editing a Hive skill: the same warning, above the editor (#120)', editWarning?.text === 'Warning: Editing these skills may change agent behaviour in Hive' && editWarning.between, JSON.stringify(editWarning))
   await page.screenshot({ path: path.join(lib.WORK, 'skills-edit.png') })
+  await inv('settings:update', { appearance: { theme: 'light' } })
+  await sleep(300)
+  await page.screenshot({ path: path.join(lib.WORK, 'skills-edit-light.png') })
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await page.locator('.split button[aria-label="Preview"]').click()
+  await lib.until(async () => (await page.locator('.split .skills-warning').count()) === 0, 3000)
+  check('…and gone in preview', (await page.locator('.split .skills-warning').count()) === 0)
 
   await app.close()
   console.log(failed ? `${failed} failed` : 'all passed')

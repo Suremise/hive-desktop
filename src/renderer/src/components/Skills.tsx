@@ -27,6 +27,18 @@ export const SKILL_LEVEL_TIP: Record<SkillLevel, string> = {
 
 export const SKILL_ICON: Record<SkillLevel, string> = { hive: 'sparkle', machine: 'account', plugin: 'extensions', local: 'folder' }
 
+/** Over the Hive skills view and a Hive skill being edited there: these skills steer the agents. */
+export function HiveSkillsWarning() {
+  return (
+    <div className="banner warn skills-warning" role="note">
+      <Icon name="warning" />
+      <span>
+        <strong>Warning:</strong> Editing these skills may change agent behaviour in Hive
+      </span>
+    </div>
+  )
+}
+
 /** Who gets a Hive skill (SKILL.md's metadata.audience; none means the project agents), as a badge says it. */
 export const AUDIENCE_LABEL: Record<SkillAudience, string> = { agents: 'Project agents', assistant: 'Assistant', all: 'Agents + Assistant' }
 
@@ -206,10 +218,12 @@ export function SkillDetail({ skill, where: place, onDeleted, onRestored }: { sk
   const editRequest = useStore((s) => s.skillEdit)
   const missing = skill.bundled === 'missing'
   const editable = !missing && ((skill.level === 'hive' && place === 'workspace') || skill.level === 'local')
-  const [editing] = useState(() => editRequest === skill.path)
+  // "Edit in workspace" is for the Skills view's page: the project tab's, showing the same skill, leaves it be.
+  const forMe = place === 'workspace' && editRequest === skill.path
+  const [editing] = useState(() => forMe)
   useEffect(() => {
-    if (editRequest === skill.path) set({ skillEdit: null })
-  }, [editRequest, skill.path])
+    if (forMe) set({ skillEdit: null })
+  }, [forMe])
 
   return (
     <DocEditor
@@ -218,6 +232,7 @@ export function SkillDetail({ skill, where: place, onDeleted, onRestored }: { sk
       title={skill.name}
       readOnly={!editable || !workspace}
       defaultPreview={!editing}
+      editingNote={skill.level === 'hive' && place === 'workspace' ? <HiveSkillsWarning /> : undefined}
       toolbarExtra={
         <>
           <Tooltip content={SKILL_LEVEL_TIP[skill.level]}>

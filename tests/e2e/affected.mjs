@@ -105,7 +105,7 @@ export const AREAS = [
   { paths: ['src/renderer/src/components/Inbox.tsx', 'src/renderer/src/inbox.ts', 'src/shared/inbox.ts'], suites: ['inbox', 'attention', 'bell'] },
   { paths: ['src/renderer/src/components/Keybindings.tsx'], suites: ['keys'] },
   { paths: ['src/renderer/src/components/NumberField.tsx', 'src/shared/numberInput.ts'], suites: ['numbers'] },
-  { paths: ['src/renderer/src/components/Overlays.tsx'], suites: ['about', 'quit', 'carddialog', 'keys', 'closewindow'] },
+  { paths: ['src/renderer/src/components/Overlays.tsx', 'src/shared/folderLabels.ts'], suites: ['about', 'quit', 'carddialog', 'keys', 'closewindow'] },
   { paths: ['src/renderer/src/components/ProviderIcon.tsx'], suites: ['providers', 'agents-ui'] },
   { paths: ['src/renderer/src/components/Resizer.tsx'], suites: ['resize', 'progress'] },
   { paths: ['src/renderer/src/components/Sidebar.tsx'], suites: ['rail', 'windows'] },

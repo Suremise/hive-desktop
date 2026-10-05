@@ -1131,6 +1131,22 @@ textarea.input {
 .banner .btn {
   margin-left: auto;
 }
+/* Over the Hive skills (the Skills view's list, and a Hive skill being edited): editing them steers the agents. */
+.banner.skills-warning {
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.4;
+}
+.banner.skills-warning .codicon {
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+.sidebar .banner.skills-warning {
+  margin: 0 8px 8px 12px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+}
 /* A failed refresh over a page (the Overviews), not a pane's top edge. */
 .page-narrow > .load-stale {
   border: none;
