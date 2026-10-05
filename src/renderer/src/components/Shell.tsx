@@ -20,6 +20,7 @@ const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }
   { id: 'board', icon: 'project', label: 'Task Board', command: 'view.board' },
   { id: 'notes', icon: 'notebook', label: 'Shared Notes', command: 'view.notes' },
   { id: 'skills', icon: 'sparkle', label: 'Skills', command: 'view.skills' },
+  { id: 'templates', icon: 'library', label: 'Templates', command: 'view.templates' },
   { id: 'mcp', icon: 'plug', label: 'MCP Servers', command: 'view.mcp' },
   { id: 'assistant', icon: 'hubot', label: 'Hive Assistant', command: 'view.assistant' }
 ]

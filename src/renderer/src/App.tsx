@@ -23,6 +23,7 @@ import { ProgressPanel } from './components/Progress'
 import { AssistantMain } from './components/AssistantView'
 import { agentOnScreen, applyLiveState, assistantOnLeft, assistantWasOpen, clearStartFailure, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, pushToast, set, useStore } from './store'
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
+import { TemplatesView } from './components/Templates'
 import { ProjectView } from './views/ProjectView'
 import { SettingsView } from './views/SettingsView'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -329,6 +330,8 @@ export function App() {
         return <NotesView />
       case 'skills':
         return <SkillView />
+      case 'templates':
+        return <TemplatesView />
       case 'mcp':
         return <McpView />
       case 'assistant':

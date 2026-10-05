@@ -2,6 +2,7 @@
 
 import type { StartFailure } from './startFailure'
 import type { TipsState } from './tips'
+import type { TemplateAgent, TemplateScope } from './templates'
 import type { KeepAwakeSetting } from './keepAwake'
 import type { DateFormat, TimeFormat } from './dates'
 
@@ -618,10 +619,27 @@ export interface AgentDef {
   needsSetup?: boolean
   /** The Hive Assistant only: this workspace's persona, over Settings → Assistant. */
   persona?: string
+  /** What the agent is for ("builder", "reviewer"; free text, #126): saved in templates; empty, its name is its role. */
+  role?: string
 }
 
 /** A change to an agent's settings: empty values (null for use200kContext) clear an override so it follows the project. */
-export type AgentPatch = Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona'>> & { use200kContext?: boolean | null }
+export type AgentPatch = Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona' | 'role'>> & { use200kContext?: boolean | null }
+
+/** What loading a template into a project would do (#126), and what stops it now. */
+export interface TemplateLoadPlan {
+  scope: TemplateScope
+  file: string
+  name: string
+  layout: PageLayout
+  /** The project's agents, all removed: running ones and uncommitted worktree work block the load. */
+  remove: { id: string; name: string; running: boolean; dirty: number; worktree?: { path: string; branch: string } }[]
+  create: TemplateAgent[]
+  /** Providers the template needs that are off or not installed, and which of its agents need each. */
+  missing: { provider: ProviderId; reason: string; agents: string[] }[]
+  /** Why it can't be loaded now (empty: it can). */
+  blocked: string[]
+}
 
 export interface AgentInfo extends AgentDef {
   live: LiveSessionState | null
@@ -651,6 +669,7 @@ export interface AddAgentOptions {
   effort?: EffortLevel
   permissionMode?: PermissionMode
   use200kContext?: boolean
+  role?: string
 }
 
 export interface ProjectGitInfo {

@@ -1,8 +1,8 @@
 import { randomBytes } from 'crypto'
 import { basename, join, resolve } from 'path'
-import { MAX_AGENTS, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
+import { MAX_AGENTS, ROLE_MAX, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
 import { agentProvider, isKnownProvider } from '../shared/providers'
-import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, MergeResult, ProjectGitInfo } from '../shared/types'
+import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, MergeResult, ProjectConfig, ProjectGitInfo } from '../shared/types'
 import { config } from './config'
 import { toast } from './events'
 import { realPath, withFileLock } from './fsutil'
@@ -40,6 +40,32 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
   while (agents.some((a) => a.name === `Agent ${n}`)) n++
   const name = opts.name?.trim() || `Agent ${n}`
   if (agents.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an agent called "${name}".`)
+  const { def, discard } = await prepareAgent(projectPath, cfg, opts, name, agents)
+  try {
+    await workspace.mutateProjectConfig(projectPath, (now) => {
+      const list = projectAgents(now)
+      // Checked again under the lock: another add (the UI and the Assistant at once) may have come first.
+      if (list.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
+      if (list.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an agent called "${name}".`)
+      const wtPath = def.worktree?.path.toLowerCase()
+      if (wtPath && list.some((a) => a.worktree?.path.toLowerCase() === wtPath)) throw new Error('Another agent already works in that worktree.')
+      // An automatic layout follows the agents, so the new one shows; with one chosen by hand, a full page sends it to the next (#134).
+      return { agents: [...list, def] }
+    })
+  } catch (e) {
+    await discard()
+    throw e
+  }
+  await workspaceOf(projectPath).refresh()
+  return def
+}
+
+/**
+ * A new agent's definition, ready to add but not added (#126: a template stages its agents, then adds them all at once):
+ * its id, settings and, for a new worktree, the worktree made for it. `others` are the agents it must not clash with (a
+ * worktree in use). `discard` removes a worktree made for it, for when it isn't added after all.
+ */
+export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts: AddAgentOptions, name: string, others: AgentDef[]): Promise<{ def: AgentDef; discard: () => Promise<void> }> {
   // Never reused: sessions of a removed agent keep its id and must not attach to a new one.
   const id = `a-${randomBytes(4).toString('hex')}`
 
@@ -51,6 +77,8 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
   if (opts.effort) def.effort = opts.effort
   if (opts.permissionMode) def.permissionMode = opts.permissionMode
   if (typeof opts.use200kContext === 'boolean') def.use200kContext = opts.use200kContext
+  const role = cleanRole(opts.role)
+  if (role) def.role = role
 
   if (opts.location === 'new-worktree') {
     const base = opts.base || (await wt.currentBranch(projectPath))
@@ -68,29 +96,24 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
     const target = resolve(opts.worktreePath).toLowerCase()
     const found = (await wt.listWorktrees(projectPath)).find((w) => realPath(w.path).toLowerCase() === realPath(target).toLowerCase())
     if (!found || target === resolve(projectPath).toLowerCase()) throw new Error('That folder is not a worktree of this project.')
-    if (agents.some((a) => a.worktree?.path.toLowerCase() === target)) throw new Error('Another agent already works in that worktree.')
+    if (others.some((a) => a.worktree?.path.toLowerCase() === target)) throw new Error('Another agent already works in that worktree.')
     if (!found.branch) throw new Error('That worktree is not on a branch (detached HEAD).')
     def.worktree = { path: found.path, branch: found.branch, base: (await wt.currentBranch(projectPath)) ?? found.branch }
   }
-
-  try {
-    await workspace.mutateProjectConfig(projectPath, (now) => {
-      const list = projectAgents(now)
-      // Checked again under the lock: another add (the UI and the Assistant at once) may have come first.
-      if (list.length >= MAX_AGENTS) throw new Error(`A project can have up to ${MAX_AGENTS} agents.`)
-      if (list.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an agent called "${name}".`)
-      const wtPath = def.worktree?.path.toLowerCase()
-      if (wtPath && list.some((a) => a.worktree?.path.toLowerCase() === wtPath)) throw new Error('Another agent already works in that worktree.')
-      // An automatic layout follows the agents, so the new one shows; with one chosen by hand, a full page sends it to the next (#134).
-      return { agents: [...list, def] }
-    })
-  } catch (e) {
-    // A worktree made for this agent alone goes with it.
-    if (opts.location === 'new-worktree' && def.worktree) await wt.removeWorktree(projectPath, def.worktree, true).catch((err) => log.warn('Could not remove the new worktree', err))
-    throw e
+  // A worktree made for this agent alone goes with it.
+  const made = opts.location === 'new-worktree' ? def.worktree : undefined
+  const discard = async (): Promise<void> => {
+    if (made) await wt.removeWorktree(projectPath, made, true).catch((err) => log.warn('Could not remove the new worktree', err))
   }
-  await workspaceOf(projectPath).refresh()
-  return def
+  return { def, discard }
+}
+
+/** A role as saved: trimmed, one line, at most ROLE_MAX characters ('' for none). */
+export function cleanRole(role: unknown): string {
+  if (typeof role !== 'string') return ''
+  const r = role.replace(/\s+/g, ' ').trim()
+  if (r.length > ROLE_MAX) throw new Error(`A role is at most ${ROLE_MAX} characters.`)
+  return r
 }
 
 export async function updateAgent(projectPath: string, agentId: string, patch: AgentPatch): Promise<AgentDef> {
@@ -105,9 +128,10 @@ export async function updateAgent(projectPath: string, agentId: string, patch: A
     if (!patch.name) throw new Error('Enter a name.')
     if (agents.some((a) => a.id !== agentId && a.name.toLowerCase() === patch.name!.toLowerCase())) throw new Error(`There is already an agent called "${patch.name}".`)
   }
-  // Empty values clear an override so the agent follows the project again.
+  // Empty values clear an override so the agent follows the project again (and an empty role: its name is its role).
   const { use200kContext, ...rest } = patch
   const clean: Partial<AgentDef> = { ...rest }
+  if ('role' in clean) clean.role = cleanRole(clean.role) || undefined
   for (const k of ['model', 'effort', 'permissionMode', 'persona'] as const) if (k in clean && !clean[k]) clean[k] = undefined
   if (use200kContext !== undefined) clean.use200kContext = typeof use200kContext === 'boolean' ? use200kContext : undefined
   if (patch.provider !== undefined) {

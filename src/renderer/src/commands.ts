@@ -56,7 +56,7 @@ const tab = (t: ProjectTab) => () => {
   setProjectTab(p, t)
 }
 
-const TAB_ORDER: ProjectTab[] = ['session', 'overview', 'performance', 'tasks', 'sessions', 'files', 'images', 'changes', 'memory', 'skills', 'mcp', 'settings']
+const TAB_ORDER: ProjectTab[] = ['session', 'overview', 'performance', 'tasks', 'sessions', 'files', 'images', 'changes', 'memory', 'skills', 'templates', 'mcp', 'settings']
 
 function cycleTab(delta: number): void {
   const p = get().selectedProject
@@ -159,6 +159,7 @@ export const commands: Command[] = [
   { id: 'project.tab.changes', label: 'Go to Changes', category: 'Project', keybinding: 'Alt+6', when: hasProject, run: tab('changes') },
   { id: 'project.tab.memory', label: 'Go to Memory', category: 'Project', keybinding: 'Alt+7', when: hasProject, run: tab('memory') },
   { id: 'project.tab.skills', label: 'Go to Skills', category: 'Project', keybinding: 'Alt+8', when: hasProject, run: tab('skills') },
+  { id: 'project.tab.templates', label: 'Go to Templates', category: 'Project', when: hasProject, run: tab('templates') },
   { id: 'project.tab.mcp', label: 'Go to MCP', category: 'Project', keybinding: 'Alt+9', when: hasProject, run: tab('mcp') },
   { id: 'project.tab.settings', label: 'Go to Project Settings', category: 'Project', keybinding: 'Alt+0', when: hasProject, run: tab('settings') },
   { id: 'project.storage', label: 'Project Storage and Clean Up…', category: 'Project', when: hasProject, run: () => openProjectSettings(get().selectedProject!, 'storage') },
@@ -260,6 +261,8 @@ export const commands: Command[] = [
   { id: 'session.archive', label: 'Archive Session and Start New…', category: 'Session', when: hasProject, run: () => actions.archiveCurrent() },
   // Every agent of the project at once, after one confirmation (#216).
   { id: 'session.startNewAll', label: 'Start New (All)…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.startNewAll(get().selectedProject!) },
+  // The project's agents and layout as a template (#126); loading and adding one are on the agent strip.
+  { id: 'template.save', label: 'Save Agents as Template…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.saveTemplate(get().selectedProject!) },
   { id: 'session.archiveAll', label: 'Archive and Start New (All)…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.startNewAll(get().selectedProject!, true) },
   { id: 'view.projects', label: 'Show Projects', category: 'View', keybinding: 'Mod+Shift+E', run: () => setActivity('projects') },
   { id: 'view.overview', label: 'Show Workspace Overview', category: 'View', keybinding: 'Mod+Shift+O', run: () => setActivity('overview') },
@@ -295,6 +298,7 @@ export const commands: Command[] = [
   },
   { id: 'view.notes', label: 'Show Shared Notes', category: 'View', keybinding: 'Mod+Shift+H', run: () => setActivity('notes') },
   { id: 'view.skills', label: 'Show Skills', category: 'View', keybinding: 'Mod+Shift+K', run: () => setActivity('skills') },
+  { id: 'view.templates', label: 'Show Templates', category: 'View', run: () => setActivity('templates') },
   { id: 'view.mcp', label: 'Show MCP Servers', category: 'View', keybinding: 'Mod+Shift+M', run: () => setActivity('mcp') },
   { id: 'view.assistant', label: 'Show Hive Assistant View', category: 'View', run: () => setActivity('assistant') },
   { id: 'view.assistantConversations', label: 'Show Assistant Conversations', category: 'View', run: () => showAssistantView('conversations') },

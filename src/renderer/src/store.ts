@@ -27,7 +27,7 @@ import type {
   WorkspaceInfo
 } from '@shared/types'
 
-export type Activity = 'projects' | 'overview' | 'performance' | 'board' | 'notes' | 'skills' | 'mcp' | 'assistant' | 'docs' | 'settings'
+export type Activity = 'projects' | 'overview' | 'performance' | 'board' | 'notes' | 'skills' | 'templates' | 'mcp' | 'assistant' | 'docs' | 'settings'
 export type { ProjectTab } from '@shared/projectTabs'
 
 export interface ConfirmRequest {
@@ -67,6 +67,8 @@ export interface ChoiceRequest {
   danger?: boolean
   /** Buttons left to right; the last is the default. */
   choices: { label: string; value: string }[]
+  /** A drop-down above the buttons (where to put something); `set` gets the user's pick before the dialog resolves with a button. */
+  select?: { label: string; options: { label: string; value: string }[]; initial: string; set: (value: string) => void }
   resolve: (value: string | null) => void
 }
 
@@ -128,6 +130,9 @@ interface State {
   projectTabs: Record<string, ProjectTab>
   selectedNote: string | null
   selectedSkill: string | null
+  /** The template the Templates view shows (templateKey), and which ones its list shows: all, workspace or a project's path. */
+  selectedTemplate: string | null
+  templateFilter: string
   /** A Hive skill to open for editing (not preview) when the Skills view shows it: from a project's Edit in workspace. */
   skillEdit: string | null
   selectedMcp: string | null
@@ -255,6 +260,8 @@ interface State {
   alwaysOnTop: boolean
   notesVersion: number
   skillsVersion: number
+  /** Bumped when this window changes a template (saved, renamed, imported…): its lists read them again. */
+  templatesVersion: number
   usageVersion: Record<string, number>
   /** Incremented per agent terminal (pty key) whenever a new session starts, so its terminal is recreated. */
   sessionEpoch: Record<string, number>
@@ -288,6 +295,8 @@ export const useStore = create<State>(() => ({
   projectTabs: {},
   selectedNote: null,
   selectedSkill: null,
+  selectedTemplate: null,
+  templateFilter: 'all',
   skillEdit: null,
   selectedMcp: null,
   selectedPersona: null,
@@ -364,6 +373,7 @@ export const useStore = create<State>(() => ({
   alwaysOnTop: false,
   notesVersion: 0,
   skillsVersion: 0,
+  templatesVersion: 0,
   usageVersion: {},
   sessionEpoch: {}
 }))
