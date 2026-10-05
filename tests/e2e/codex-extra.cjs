@@ -12,6 +12,7 @@ const proj = path.join(ws, 'demo')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const results = []
 const check = (name, ok, extra = '') => {
+  lib.checked(ok)
   results.push(ok)
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name} ${extra}`)
 }
@@ -73,9 +74,13 @@ const post = (url, token, body) =>
     await sleep(400)
     await inv('pty:write', key, '\r')
   }
-  await type(key1, 'Reply with the single word READY.')
-  let l = await waitFor(a1.id, (x) => x?.sessionId && x.status === 'finished', 90000)
-  check('first turn finished', l?.status === 'finished', l?.status)
+  // Codex answering is the CLI's part (a usage limit or the network there is the environment's: lib.cliStep).
+  let l = await lib.cliStep('the first turn', { session: key1 }, async () => {
+    await type(key1, 'Reply with the single word READY.')
+    const turn = await waitFor(a1.id, (x) => x?.sessionId && x.status === 'finished', 90000)
+    check('first turn finished', turn?.status === 'finished', turn?.status)
+    return turn
+  })
   const before = await inv('session:usage', proj, l.sessionId).catch(() => null)
   await inv('session:compact', proj, undefined, a1.id)
   const sawCompacting = await waitFor(a1.id, (x) => /Compacting/i.test(x?.statusMessage ?? ''), 10000)

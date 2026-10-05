@@ -212,6 +212,151 @@ function trustForCodex(folder, home = CODEX_HOME) {
   })
 }
 
+/**
+ * Failures that come from the machine, not from Hive: the CLI's usage or rate limit, its sign-in, the network to its
+ * API. Matched in the CLI's own output (terminal text, a session's status message), conservatively: anything not
+ * clearly one of these stays a FAIL. Hook errors (127.0.0.1) are Hive's, never the environment's.
+ */
+const ENVIRONMENT = [
+  { why: 'usage or rate limit', re: /(?:usage|5-hour|weekly|session|opus|sonnet) limit reached|hit your (?:usage )?limit|rate_limit_error|rate limit(?:ed| exceeded)|too many requests|API Error: 429/i },
+  { why: 'the API is overloaded', re: /overloaded_error|API Error: 529/i },
+  { why: 'not signed in', re: /select login method|please run \/login|not logged in|invalid api key|oauth token (?:has )?expired|authentication_error|sign in with chatgpt|run `?codex login/i },
+  { why: 'network', re: /API Error: (?:Connection error|Request timed out)|unable to connect to (?:the )?(?:Anthropic )?API|stream disconnected before completion|error sending request for url \(https:\/\/[\w.]*(?:openai|chatgpt)|ENOTFOUND [\w.]*(?:anthropic|openai|chatgpt)/i }
+]
+/** Terminal text as plain words: control sequences become spaces, runs of space one. */
+const plainText = (s) =>
+  String(s ?? '')
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ')
+    .replace(/\x1b\][^\x07]*\x07/g, ' ')
+    .replace(/\s+/g, ' ')
+
+/** Every environment failure in this CLI output, in order: [{ why, at }] ("usage or rate limit: …", with what it said). */
+function environmentProblems(text) {
+  const t = plainText(text)
+  const found = []
+  for (const { why, re } of ENVIRONMENT)
+    for (const m of t.matchAll(new RegExp(re.source, 'gi'))) {
+      const from = Math.max(0, m.index - 20)
+      found.push({ why: `${why}: …${t.slice(from, m.index + m[0].length + 40).trim()}…`, at: m.index })
+    }
+  return found.sort((a, b) => a.at - b.at)
+}
+
+/** Why this CLI output shows a failure of the environment, or null (the first one). */
+const environmentProblem = (text) => environmentProblems(text)[0]?.why ?? null
+
+// Every Hive a suite starts, whether through launch() or Playwright's _electron.launch directly (most suites do that):
+// require('playwright-core') is one module, so suites get this _electron. cliStep reads their sessions.
+const apps = new Set()
+const launchElectron = _electron.launch.bind(_electron)
+_electron.launch = async (...args) => {
+  const app = await launchElectron(...args)
+  apps.add(app)
+  app.on('close', () => apps.delete(app))
+  return app
+}
+
+/** The environment failures in each session of the running test Hives: Map<pty key, problems> (terminal and status). */
+async function sessionProblems() {
+  const out = new Map()
+  for (const app of apps)
+    for (const page of app.windows()) {
+      const texts = await page
+        .evaluate(async () => {
+          const ws = await window.hive.invoke('workspace:get')
+          const hosts = ws ? [...ws.projects, ...(ws.assistant ? [ws.assistant] : [])] : []
+          const found = []
+          for (const h of hosts)
+            for (const a of h.agents ?? []) {
+              const key = `session:${h.path.toLowerCase()}#${a.id}`
+              found.push([key, `${await window.hive.invoke('pty:buffer', key).catch(() => '')}\n${a.live?.statusMessage ?? ''}`])
+            }
+          return found
+        })
+        .catch(() => [])
+      for (const [key, text] of texts) out.set(key, environmentProblems(text))
+    }
+  return out
+}
+
+/**
+ * Whether a failed CLI step (cliStep) failed because of the environment, decided only from what is known for sure:
+ * { skip: why } or { note: why } (a new environment failure, but the failure can't be put down to it) or null. Only a
+ * failed check in the step counts, the waits the suite marked as the CLI's: an exception (a bug, a rejected IPC call, a
+ * file error) is never the environment's, so a step that threw is a note at most and the exception stays a failure.
+ * The suite's checks must report to lib (checked), none may have failed before the step, and a new environment failure
+ * must have appeared during the step in its own session (session: its pty key; else any): more of them at the end
+ * than at the start, so one the CLI recovered from earlier doesn't count.
+ */
+function stepVerdict({ name, session = null, before, after, stepFailed, error, failedBefore, wired }) {
+  if (!stepFailed && !error) return null
+  let fresh = null
+  for (const [key, problems] of after) {
+    if (session && key !== session.toLowerCase()) continue
+    const had = before.get(key)?.length ?? 0
+    if (problems.length > had) fresh = { key, why: problems[had].why }
+  }
+  if (!fresh) return null
+  const where = `in "${name}", ${fresh.key}`
+  const why = error ? `the step threw (${error?.name ?? 'Error'}: ${error?.message ?? error})` : !wired ? "the suite's checks don't report to lib.checked" : failedBefore ? `${failedBefore} check(s) failed before it` : null
+  if (why) return { note: `${fresh.why} (${where}; not a skip: ${why})` }
+  return { skip: `environment: ${fresh.why} (${where})` }
+}
+
+/** The suite's checks, as far as they report them (checked): failures outside a CLI step, and the step running. */
+const checks = { wired: false, failed: 0, step: null }
+
+/** A suite's check reports its result here, so a CLI step knows whether it failed and whether anything failed before. */
+function checked(ok) {
+  checks.wired = true
+  if (ok) return
+  if (checks.step) checks.step.failed++
+  else checks.failed++
+}
+
+/**
+ * Runs a step that depends on the real CLI answering (a turn, a start), in a real-CLI suite. If a check in it failed
+ * (it didn't throw) and a new environment failure appeared in its session meanwhile (stepVerdict), the suite stops
+ * there as skipped: `SKIPPED environment: <why>` and the number of its failed checks (`SKIPPED-FAILS n`), which the
+ * runner (suiteOutcome) accepts only if no other FAIL line was printed. Anything else carries on as usual: an
+ * exception is thrown on, and a failure before the step, or with no new environment failure in its session, stays a
+ * FAIL. So waits on the CLI in a step end in a check, not a throw. opts.session: the step's pty key.
+ */
+async function cliStep(name, opts, fn) {
+  if (typeof opts === 'function') [fn, opts] = [opts, {}]
+  const before = await sessionProblems()
+  const step = { failed: 0 }
+  checks.step = step
+  let error = null
+  let value
+  try {
+    value = await fn()
+  } catch (e) {
+    error = e
+  }
+  checks.step = null
+  if (step.failed || error) {
+    const v = stepVerdict({ name, session: opts.session, before, after: await sessionProblems(), stepFailed: step.failed, error, failedBefore: checks.failed, wired: checks.wired })
+    if (v?.skip) {
+      console.log(`SKIPPED ${v.skip}`)
+      console.log(`SKIPPED-FAILS ${step.failed}`)
+      // Its test Hives close first, so nothing it started is left running.
+      await Promise.race([Promise.all([...apps].map((a) => a.close().catch(() => undefined))), sleep(10000)])
+      process.exit(0)
+    }
+    if (v?.note) console.log(`ENVIRONMENT ${v.note}`)
+  }
+  checks.failed += step.failed
+  if (error) throw error
+  return value
+}
+
+/** Skips the whole suite with a reason (the run record shows it): for a suite that can't run on this machine. */
+function skip(reason) {
+  console.log(`SKIPPED ${reason}`)
+  process.exit(0)
+}
+
 /** A git repository with one commit. */
 function gitProject(dir, files = { 'a.ts': 'export const a = 1\n' }) {
   fs.mkdirSync(dir, { recursive: true })
@@ -284,4 +429,4 @@ function hadEstimate(run) {
   return typeof run?.estimateMs === 'number'
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, skip }

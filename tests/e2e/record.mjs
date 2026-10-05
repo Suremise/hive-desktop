@@ -34,15 +34,24 @@ export function fingerprint(root = process.cwd()) {
 }
 
 /** The record as Markdown, to paste into a card comment: the fingerprint, each suite's result and time, the logs; and
- * first, if it can't be trusted (recordStatus), why. */
-export function recordMarkdown({ code, when, jobs, results, logDir, summary, problems = [], runs = null }) {
-  const cell = (r) => (!r ? '–' : r.skipped ? `skipped: ${r.skipped}` : `${r.ok ? 'pass' : `**FAIL**${r.failed?.length ? ` (${r.failed.length} check${r.failed.length === 1 ? '' : 's'})` : ''}`} ${r.seconds ?? '–'}s`)
+ * first, if it can't be trusted (recordStatus), why. After the table: the real tier not run (notRun), and the suites
+ * skipped for the environment (a real CLI's usage limit, sign-in, network), which are no result for the code. */
+export function recordMarkdown({ code, when, jobs, results, logDir, summary, problems = [], runs = null, notRun = [] }) {
+  // A skip's reason can quote the CLI: no | to break the table.
+  const skippedCell = (r) => `skipped: ${r.skipped.replace(/\|/g, '/')}`
+  const cell = (r) => (!r ? '–' : r.skipped ? skippedCell(r) : `${r.ok ? 'pass' : `**FAIL**${r.failed?.length ? ` (${r.failed.length} check${r.failed.length === 1 ? '' : 's'})` : ''}`} ${r.seconds ?? '–'}s`)
   // A record that can't be trusted says so first, so nobody matches its fingerprint by mistake.
   const warning = problems.length ? [`**Not valid — don't trust this record:** ${problems.join('; ')}.`, ''] : []
   const head = `**e2e run record** · code \`${code}\` · ${when} · ${jobs > 1 ? `${jobs} at a time` : 'one at a time'}`
+  const envSkipped = [...new Set((runs ?? [{ results }]).flatMap((r) => r.results.filter((x) => x.environment).map((x) => x.name)))]
+  const notes = [
+    ...(notRun.length ? [`Not run: the real tier (\`--real\`): ${notRun.join(', ')}.`] : []),
+    ...(envSkipped.length ? [`**Skipped for the environment** (no result for the code; the reviewer decides whether a merge needs them run again): ${envSkipped.join(', ')}.`] : [])
+  ]
+  const tail = notes.length ? ['', ...notes] : []
   if (!runs) {
-    const rows = results.map((r) => `| ${r.name} | ${r.skipped ? `skipped: ${r.skipped}` : r.ok ? 'pass' : `**FAIL**${r.failed?.length ? ` (${r.failed.length} check${r.failed.length === 1 ? '' : 's'})` : ''}`} | ${r.seconds ?? '–'}s |`)
-    return [...warning, head, '', '| Suite | Result | Time |', '|---|---|---|', ...rows, '', `${summary}. Logs: \`${logDir}\``].join('\n')
+    const rows = results.map((r) => `| ${r.name} | ${r.skipped ? skippedCell(r) : r.ok ? 'pass' : `**FAIL**${r.failed?.length ? ` (${r.failed.length} check${r.failed.length === 1 ? '' : 's'})` : ''}`} | ${r.seconds ?? '–'}s |`)
+    return [...warning, head, '', '| Suite | Result | Time |', '|---|---|---|', ...rows, '', `${summary}. Logs: \`${logDir}\``, ...tail].join('\n')
   }
   // A repeat (--repeat N): each run's result, time and logs, then each suite's result in each run.
   const names = results.map((r) => r.name)
@@ -58,6 +67,7 @@ export function recordMarkdown({ code, when, jobs, results, logDir, summary, pro
     `|---|${runs.map(() => '---|').join('')}`,
     ...names.map((n) => `| ${n} | ${runs.map((r) => cell(r.results.find((x) => x.name === n))).join(' | ')} |`),
     '',
-    summary
+    summary,
+    ...tail
   ].join('\n')
 }
