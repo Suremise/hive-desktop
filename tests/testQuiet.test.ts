@@ -44,7 +44,7 @@ describe('quiet test copies', () => {
 
   it('every e2e suite and scenario starts Hive with a test profile, and none turns quiet off', () => {
     // A suite that needs a real window (one taking the focus, a native maximise) turns quiet off: list it here.
-    const LOUD: string[] = []
+    const LOUD = ['tests/e2e/carddialog.cjs'] // only with HIVE_E2E_NATIVE=1, its native maximise check
     const root = join(__dirname, '..')
     const files = ['tests/e2e', 'tests/scenarios'].flatMap((d) => readdirSync(join(root, d)).filter((f) => /\.(c|m)?js$/.test(f)).map((f) => `${d}/${f}`))
     const launching = files.filter((f) => readFileSync(join(root, f), 'utf8').includes('_electron.launch('))
