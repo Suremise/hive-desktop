@@ -1,17 +1,18 @@
 // Resume per agent: guard against one conversation in two agents, AgentInfo.resume, the Resume split
 // button + session picker, the session tag, Sessions tab Show / Resume in.
-// Throwaway profile and git project in the work folder. A real Claude Code session starts
-// in Agent 1, but no prompt is ever sent. Clipboard untouched.
+// Throwaway profile and git project in the work folder. Agent 1 runs the fake Claude Code (fake-claude/, #194),
+// which writes its transcript with its session id as Claude Code does; no prompt is ever sent. Clipboard untouched.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
-const fs = require('fs'), path = require('path'), { execSync } = require('child_process')
+const fs = require('fs'), path = require('path')
 const scratch = lib.WORK, userData = path.join(scratch, 'resume-profile')
 // Outside the repository, so its CLAUDE.md (which imports AGENTS.md) doesn't apply to the test session (#174).
 const ws = path.join(scratch, 'resume-ws')
 for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
 const proj = path.join(ws, 'demo')
 fs.mkdirSync(proj, { recursive: true })
-const g = (cmd) => execSync(`git ${cmd}`, { cwd: proj, stdio: 'pipe' }).toString()
+// Git in the test repository, waiting out the Hive under test's own git (lib.git, #199).
+const g = (cmd) => lib.git(proj, cmd)
 g('init -q -b main'); g('config user.email test@example.com'); g('config user.name Test')
 fs.writeFileSync(path.join(proj, 'README.md'), '# Demo\n'); g('add -A'); g('commit -q -m init')
 
@@ -21,8 +22,8 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
 const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n}.png`) })
 
 ;(async () => {
-  lib.enableProviders(userData)
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData })
+  const claude = lib.fakeClaude(userData, path.join(scratch, 'resume-claude-home'), [proj])
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, ...claude })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))

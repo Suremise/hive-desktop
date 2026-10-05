@@ -1,13 +1,14 @@
 // Screenshots of the agent dialogs and settings. Throwaway profile and git project; no sessions.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
-const fs = require('fs'), path = require('path'), { execSync } = require('child_process')
+const fs = require('fs'), path = require('path')
 const scratch = lib.WORK, userData = path.join(scratch, 'agentsui-profile')
 const root = path.join(scratch, 'agentsui')
 for (const d of [userData, root]) fs.rmSync(d, { recursive: true, force: true })
 const ws = path.join(root, 'ws'), proj = path.join(ws, 'demo')
 fs.mkdirSync(proj, { recursive: true })
-const g = (cmd, cwd = proj) => execSync(`git ${cmd}`, { cwd, stdio: 'pipe' }).toString()
+// Git in the test repository, waiting out the Hive under test's own git (lib.git, #199).
+const g = (cmd, cwd = proj) => lib.git(cwd, cmd)
 g('init -q -b main'); g('config user.email t@e.com'); g('config user.name T')
 fs.writeFileSync(path.join(proj, 'a.txt'), 'a\n'); g('add -A'); g('commit -q -m init')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))

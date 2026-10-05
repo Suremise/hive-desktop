@@ -137,7 +137,7 @@ describe('the suites a change needs (affected.mjs)', () => {
     // A provider's own adapter: only its area's real suites.
     const claude = pick('src/main/providers/claude/adapter.ts')
     expect(claude.all).toBe(true)
-    expect(claude.real).toEqual(expect.arrayContaining(['agents', 'resume', 'mode']))
+    expect(claude.real).toEqual(expect.arrayContaining(['claude-real', 'mode', 'compact']))
     expect(claude.real).not.toContain('codex')
     expect(pick('src/main/providers/codex/rollout.ts').real).not.toContain('agents')
     // Shared, but not a CLI's: every fake suite, no real one; an area naming a real suite picks it.
@@ -157,7 +157,9 @@ describe('the real tier and environment failures (card #191)', () => {
   const fakes = suites.filter((s) => !isRealCli(s) && !s.needs?.includes('packaged')).map((s) => s.name)
 
   it('the full set is the fake tier; --real adds the real one, --only-real runs only it', () => {
-    expect(realNames).toEqual(expect.arrayContaining(['agents', 'quit', 'codex', 'codex-setup']))
+    expect(realNames).toEqual(expect.arrayContaining(['claude-real', 'mode', 'codex', 'codex-setup']))
+    // Suites about Hive's own behaviour run the fake Claude Code (#194, #195); claude-real keeps what needs the real one.
+    for (const n of ['quit', 'windows', 'launchrace', 'resume', 'agents', 'image', 'assistant', 'restart']) expect(realNames, n).not.toContain(n)
     expect(pick(['--all'])).toEqual(fakes)
     expect(pick([])).toEqual(fakes)
     expect(pick(['--all', '--real'])).toEqual(names.filter((n) => !n.startsWith('packaged')))
@@ -174,10 +176,10 @@ describe('the real tier and environment failures (card #191)', () => {
   })
 
   it('--affected takes the real suites the changes need, and --real or --only-real on top', () => {
-    expect(pick(['--affected'], { all: true, real: ['resume'] })).toEqual(names.filter((n) => fakes.includes(n) || n === 'resume'))
-    expect(pick(['--affected'], { suites: ['board', 'quit'] })).toEqual(['board', 'quit'])
-    expect(pick(['--affected', '--only-real'], { suites: ['board', 'quit'] })).toEqual(['quit'])
-    expect(pick(['--affected', '--only-real'], { all: true, real: ['resume'] })).toEqual(['resume'])
+    expect(pick(['--affected'], { all: true, real: ['mode'] })).toEqual(names.filter((n) => fakes.includes(n) || n === 'mode'))
+    expect(pick(['--affected'], { suites: ['board', 'mode'] })).toEqual(['board', 'mode'])
+    expect(pick(['--affected', '--only-real'], { suites: ['board', 'mode'] })).toEqual(['mode'])
+    expect(pick(['--affected', '--only-real'], { all: true, real: ['mode'] })).toEqual(['mode'])
     expect(pick(['--affected', '--real'], { suites: ['board'] })).toEqual(names.filter((n) => n === 'board' || realNames.includes(n)))
   })
 
@@ -1290,5 +1292,49 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
     expect(got.waitedMs).toBeGreaterThan(100)
     got.release()
     expect(readdirSync(dir2).filter((f) => f.endsWith('.json'))).toEqual([])
+  })
+})
+
+describe("a suite's git waits out the Hive under test's own (lib.git, #199)", () => {
+  type Git = (cwd: string, cmd: string | string[], opts?: { timeoutMs?: number }) => string
+  const { git } = createRequire(import.meta.url)('./e2e/lib.cjs') as { git: Git }
+  const repo = mkdtempSync(join(tmpdir(), 'hive-gitlock-'))
+  afterAll(() => rmSync(repo, { recursive: true, force: true }))
+  git(repo, 'init -q -b main')
+  git(repo, ['config', 'user.email', 't@t'])
+  git(repo, ['config', 'user.name', 't'])
+  const lock = join(repo, '.git', 'index.lock')
+  /** Another process (the Hive under test's git status) holding index.lock for ms, then letting go. */
+  const holdLock = (ms: number) => {
+    writeFileSync(lock, '')
+    spawn(process.execPath, ['-e', `setTimeout(() => require('fs').rmSync(${JSON.stringify(lock)}, { force: true }), ${ms})`], { stdio: 'ignore' })
+  }
+
+  it('a write while another git holds index.lock waits for it, then runs', () => {
+    writeFileSync(join(repo, 'a.txt'), 'a\n')
+    holdLock(600)
+    const t0 = Date.now()
+    git(repo, 'add -A')
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(400)
+    expect(git(repo, ['diff', '--cached', '--name-only']).trim()).toBe('a.txt')
+    holdLock(300)
+    git(repo, 'commit -q -m "a"')
+    expect(git(repo, 'log --oneline').trim()).toMatch(/ a$/)
+  })
+
+  it('a lock that stays is an error after the timeout; any other failure throws at once', () => {
+    writeFileSync(lock, '')
+    try {
+      expect(() => git(repo, 'add -A', { timeoutMs: 300 })).toThrow(/index\.lock/)
+    } finally {
+      rmSync(lock, { force: true })
+    }
+    const t0 = Date.now()
+    expect(() => git(repo, 'no-such-command')).toThrow(/not a git command/)
+    expect(Date.now() - t0).toBeLessThan(5000)
+  })
+
+  it('the suites that write to a repository while their Hive runs use it', () => {
+    for (const s of ['agents', 'agents-ui', 'resume', 'inbox', 'unmerged', 'paneheader']) expect(readFileSync(join(dir, `${s}.cjs`), 'utf8'), s).toMatch(/= \([^)]*\) => lib\.git\(/)
   })
 })

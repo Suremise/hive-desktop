@@ -7,7 +7,7 @@
 // answers that (it is not a sign-in screen). Suites never automate sign-in screens.
 const fs = require('fs')
 const path = require('path')
-const { execFileSync } = require('child_process')
+const { execFileSync, execSync } = require('child_process')
 const { _electron } = require('playwright-core')
 
 // The run context (runContext.cjs): the environments of everything a suite starts, its folders and the CLI test homes.
@@ -52,6 +52,26 @@ function enableProviders(userData, providers = ['claude-code']) {
   // No online check for a newer CLI at every launch: slow, needs the network, and no suite is about it.
   for (const p of providers) cfg.settings.providers[p] = { checkUpdatesOnLaunch: false, ...cfg.settings.providers[p], enabled: true }
   fs.writeFileSync(file, JSON.stringify(cfg, null, 2))
+}
+
+/**
+ * The fake Claude Code (fake-claude/) for a test profile, for a suite about Hive's own behaviour that only needs some
+ * session running (#194): turns Claude Code on in userData's config with the fake as its path, makes home a fresh
+ * Claude Code config folder in which the fake trusts `trusted` (so it asks nothing), and returns the variables to start
+ * Hive with: { CLAUDE_CONFIG_DIR }. A config written before (a 0.1 one, settings of the suite's) is kept.
+ */
+function fakeClaude(userData, home, trusted = []) {
+  enableProviders(userData)
+  const file = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(file, 'utf8'))
+  cfg.settings = cfg.settings ?? {}
+  cfg.settings.providers = cfg.settings.providers ?? {}
+  cfg.settings.providers['claude-code'] = { checkUpdatesOnLaunch: false, ...cfg.settings.providers['claude-code'], executablePath: path.join(__dirname, 'fake-claude', 'fake-claude.cmd') }
+  fs.writeFileSync(file, JSON.stringify(cfg, null, 2))
+  fs.rmSync(home, { recursive: true, force: true })
+  fs.mkdirSync(home, { recursive: true })
+  fs.writeFileSync(path.join(home, 'fake-trusted.json'), JSON.stringify(trusted.map((f) => f.toLowerCase())))
+  return { CLAUDE_CONFIG_DIR: home }
 }
 
 /**
@@ -407,14 +427,42 @@ function skip(reason) {
   process.exit(0)
 }
 
+/** What git says when another git process holds the repository's lock (index.lock, or a ref's). */
+const GIT_LOCKED = /Unable to create '[^']+\.lock': File exists|Another git process seems to be running/i
+
+/**
+ * Runs git in a test repository (cmd: a command line after `git`, or its arguments) and returns its output, waiting out
+ * the Hive under test's own git (#199): Hive refreshes branch status and the Changes tab with `git status`, which holds
+ * the repository's index.lock for a moment, so a suite's git command that writes at that moment fails with "Unable to
+ * create '…/index.lock': File exists". That alone is tried again every 100 ms for up to timeoutMs; any other failure
+ * throws at once. opts: execSync's (input, env…).
+ */
+function git(cwd, cmd, { timeoutMs = 15_000, ...opts } = {}) {
+  const start = Date.now()
+  let tries = 0
+  for (;;) {
+    try {
+      const o = { cwd, encoding: 'utf8', stdio: 'pipe', ...opts }
+      const out = Array.isArray(cmd) ? execFileSync('git', cmd, o) : execSync(`git ${cmd}`, o)
+      // Said in the suite's log, so a run shows how often the race happens.
+      if (tries) console.log(`(git ${Array.isArray(cmd) ? cmd.join(' ') : cmd}: waited ${Date.now() - start} ms for another git's lock)`)
+      return out
+    } catch (e) {
+      if (!GIT_LOCKED.test(`${e.stderr ?? ''}\n${e.message ?? ''}`) || Date.now() - start > timeoutMs) throw e
+      tries++
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+    }
+  }
+}
+
 /** A git repository with one commit. */
 function gitProject(dir, files = { 'a.ts': 'export const a = 1\n' }) {
   fs.mkdirSync(dir, { recursive: true })
   for (const [f, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, f), text)
-  const git = (...a) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd: dir })
-  git('init', '-q')
-  git('add', '.')
-  git('commit', '-qm', 'init')
+  const run = (...a) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd: dir })
+  run('init', '-q')
+  run('add', '.')
+  run('commit', '-qm', 'init')
 }
 
 /**
@@ -479,4 +527,4 @@ function hadEstimate(run) {
   return typeof run?.estimateMs === 'number'
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, git, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

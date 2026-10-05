@@ -23,7 +23,8 @@ const check = (name, ok, extra = '') => {
   if (!ok) failed++
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
 }
-const git = (cwd, ...a) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd }).toString()
+// Git in the test repositories, waiting out the Hive under test's own git (lib.git, #199).
+const git = (cwd, ...a) => lib.git(cwd, ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a])
 
 /**
  * `n` commits on top of a worktree's branch, each changing n.txt (fast-import: a four-digit count in a moment; empty

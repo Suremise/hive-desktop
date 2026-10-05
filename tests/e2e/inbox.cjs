@@ -7,7 +7,6 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
-const { execFileSync } = require('child_process')
 
 const userData = path.join(lib.WORK, 'inbox-profile')
 const ws = path.join(lib.WORK, 'inbox-ws')
@@ -19,7 +18,8 @@ const check = (name, ok, extra = '') => {
   if (!ok) failed++
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
 }
-const git = (cwd, ...a) => execFileSync('git', a, { cwd }).toString()
+// Git in the test repositories, waiting out the Hive under test's own git (lib.git, #199).
+const git = (cwd, ...a) => lib.git(cwd, a)
 const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `inbox-${name}.png`) })
 
 ;(async () => {
