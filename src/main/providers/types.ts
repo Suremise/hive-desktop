@@ -223,8 +223,11 @@ export interface ProviderAdapter {
   statusLine?(body: Record<string, any>): LiveDetails
   /** Details from lines appended to the session's transcript (Codex: model, preset, Plan mode, plan limits). */
   transcriptDetails?(appended: string): LiveDetails
-  /** Background tasks started or ended in lines appended to the session's transcript (whole lines). */
-  backgroundTasks?(appended: string): BackgroundTaskEvent[]
+  /**
+   * Background tasks started or ended in lines appended to the session's transcript (whole lines). `memo` is the
+   * launch's own, kept between reads (and emptied when the reading starts again), for what a later line completes.
+   */
+  backgroundTasks?(appended: string, memo: Record<string, unknown>): BackgroundTaskEvent[]
   /** For liveModeSwitch 'menu': the keys that pick a mode in the CLI's menu. */
   /** The models the installed CLI offers, when it can list them (null: couldn't). */
   listModels?(executable: string): Promise<{ value: string; label: string }[] | null>

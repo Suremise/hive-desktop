@@ -169,6 +169,9 @@ export function CommandPalette() {
   const open = useStore((s) => s.paletteOpen)
   const mode = useStore((s) => s.paletteMode)
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
+  // Toggles' states as one string, so their rows' checkmarks follow live changes (pinning the window
+  // while the palette is open) without rebuilding the item list; a string keeps the selector stable.
+  useStore(() => commands.map((c) => (c.checked ? (c.checked() ? '1' : '0') : '')).join(''))
   const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
@@ -183,13 +186,14 @@ export function CommandPalette() {
   const items = useMemo(() => {
     const cmdItems = mode === 'projects' ? [] : commands
       .filter((c) => !c.internal && (!c.when || c.when()))
-      .map((c) => ({ id: c.id, label: `${c.category}: ${c.label}`, keybinding: commandKeybinding(c.id), run: () => runCommand(c.id), icon: c.checked?.() ? 'check' : 'symbol-event' }))
+      .map((c) => ({ id: c.id, label: `${c.category}: ${c.label}`, keybinding: commandKeybinding(c.id), run: () => runCommand(c.id), icon: 'symbol-event', checked: c.checked }))
     const projectItems = projects.map((p) => ({
       id: `project:${p.path}`,
       label: mode === 'projects' ? p.name : `Go to Project: ${p.name}`,
       keybinding: undefined as string | undefined,
       run: () => runCommand('project.focus', p.path),
-      icon: 'folder'
+      icon: 'folder',
+      checked: undefined as (() => boolean) | undefined
     }))
     return [...projectItems, ...cmdItems]
       .map((i) => ({ ...i, s: score(i.label, q) }))
@@ -240,7 +244,7 @@ export function CommandPalette() {
           {items.length === 0 && <div className="pane-empty">No matching commands</div>}
           {items.map((it, i) => (
             <div key={it.id} className={cx('palette-item', i === active && 'active')} onMouseMove={() => setActive(i)} onClick={() => exec(i)}>
-              <Icon name={it.icon} />
+              <Icon name={it.checked?.() ? 'check' : it.icon} />
               <span>{it.label}</span>
               {it.keybinding && <kbd>{formatKeybinding(it.keybinding)}</kbd>}
             </div>

@@ -131,6 +131,8 @@ interface LiveSession {
   tasksEnded?: Set<string>
   /** Bytes of the transcript already read for background tasks. */
   tasksOffset?: number
+  /** What the adapter keeps between those reads (a call whose output comes later). */
+  tasksMemo?: Record<string, unknown>
   /** The conversation already warned about for its transcript's size (once each). */
   sizeWarned?: string
   /** This launch resumes a conversation (a failed start's Retry resumes it again). */
@@ -1682,7 +1684,10 @@ class SessionManager {
     if (!l.adapter.backgroundTasks) return false
     const from = l.tasksOffset ?? 0
     if (size <= from) {
-      if (size < from) l.tasksOffset = 0
+      if (size < from) {
+        l.tasksOffset = 0
+        l.tasksMemo = undefined
+      }
       return false
     }
     const start = Math.max(from, size - 4 * 1024 * 1024)
@@ -1702,7 +1707,7 @@ class SessionManager {
     const tasks = (l.tasks ??= new Map())
     const ended = (l.tasksEnded ??= new Set())
     let woke = false
-    for (const ev of l.adapter.backgroundTasks(text.slice(0, end + 1))) {
+    for (const ev of l.adapter.backgroundTasks(text.slice(0, end + 1), (l.tasksMemo ??= {}))) {
       if (ev.at < since) continue
       if (ev.kind === 'start') {
         if (!ended.has(ev.id)) tasks.set(ev.id, { at: ev.at, expiresAt: ev.expiresAt })
@@ -1770,6 +1775,7 @@ class SessionManager {
     l.tasks?.clear()
     l.tasksEnded?.clear()
     l.tasksOffset = 0
+    l.tasksMemo = undefined
     l.state.backgroundTasks = undefined
   }
 

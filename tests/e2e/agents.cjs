@@ -1,15 +1,15 @@
 // Multiple agents per project: add agents (project folder + new worktree), setup command, sessions in
 // both, layouts, file locks (synthetic PreToolUse hook calls), Changes for a worktree, merge (clean and
-// conflicting), remove. Throwaway profile, throwaway git project under the trusted test folder.
+// conflicting), remove. Throwaway profile, throwaway git project in the work folder.
 // Real Claude Code sessions start, but no prompt is ever sent. Clipboard untouched.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path'), { execSync } = require('child_process')
 const scratch = lib.WORK, userData = path.join(scratch, 'agents-profile')
-const root = path.join(lib.ROOT, 'node_modules/.hive-test')
-const ws = path.join(root, 'ws')
-const wtRoot = path.join(root, 'ws.worktrees')
-for (const d of [userData, root]) fs.rmSync(d, { recursive: true, force: true })
+// Outside the repository, so its CLAUDE.md (which imports AGENTS.md) doesn't apply to the test sessions (#174).
+const ws = path.join(scratch, 'agents-ws')
+const wtRoot = `${ws}.worktrees`
+for (const d of [userData, ws, wtRoot]) fs.rmSync(d, { recursive: true, force: true })
 const proj = path.join(ws, 'demo')
 fs.mkdirSync(proj, { recursive: true })
 const g = (cmd, cwd = proj) => execSync(`git ${cmd}`, { cwd, stdio: 'pipe' }).toString()
@@ -221,5 +221,5 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n
 
   console.log(`${pass}/${pass + fail} passed`)
   await app.close()
-  for (const folder of [userData, root]) fs.rmSync(folder, { recursive: true, force: true })
+  for (const folder of [userData, ws, wtRoot]) fs.rmSync(folder, { recursive: true, force: true })
 })().catch(async (e) => { console.error(e); process.exit(1) })
