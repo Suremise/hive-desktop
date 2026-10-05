@@ -11,6 +11,7 @@ import { get, notify, projectState, prompt, set, setProjectTab, toggleCompactSid
 import { cx, formatKeybinding } from '../util'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, StatusDot, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
 import { addSkill, deleteSkill, HiveSkillsWarning, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
+import { TemplatesPanel } from './Templates'
 import { hasEditorDraftsUnder } from '../editorDrafts'
 import { useInbox } from '../inbox'
 import { useScopedLoad } from '../scopedLoad'
@@ -65,6 +66,7 @@ export function Sidebar() {
       {view === 'board' && <BoardPanel />}
       {view === 'notes' && <NotesPanel />}
       {view === 'skills' && <SkillsPanel />}
+      {view === 'templates' && <TemplatesPanel />}
       {view === 'mcp' && <McpPanel />}
       {view === 'assistant' && <AssistantSidePanel />}
       <div className={cx('sidebar-resizer', dragging && 'dragging')} onMouseDown={startDrag} onDoubleClick={() => {

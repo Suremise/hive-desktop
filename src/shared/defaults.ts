@@ -143,6 +143,8 @@ export const TRANSCRIPT_WINDOW = 200
 
 /** A project can run up to this many agents at once. */
 export const MAX_AGENTS = 12
+/** An agent's role (#126) is at most this long. */
+export const ROLE_MAX = 60
 /** Adding the agent that makes this many: a note that each is its own CLI process. */
 export const MANY_AGENTS = 7
 

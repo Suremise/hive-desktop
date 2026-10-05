@@ -13,6 +13,7 @@ export const PROJECT_TABS = [
   { id: 'changes', label: 'Changes', icon: 'git-compare' },
   { id: 'memory', label: 'Memory', icon: 'book' },
   { id: 'skills', label: 'Skills', icon: 'sparkle' },
+  { id: 'templates', label: 'Templates', icon: 'library' },
   { id: 'mcp', label: 'MCP', icon: 'plug' },
   { id: 'settings', label: 'Settings', icon: 'settings' }
 ] as const

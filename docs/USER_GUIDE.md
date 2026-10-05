@@ -181,7 +181,7 @@ Hive shows dates as **2026-10-04** and times as **14:05** by default: sessions n
 
 A project can have up to twelve agents working at once, for example one building a feature while another reviews or writes tests. All agents are equal: any of them can work in a worktree, and any can be removed once stopped. **Add Agent** above the terminal adds one straight away, with your default provider (**Settings → Providers → Default provider**, or the project's in Project Settings) and its default settings, working in the project folder. Its **▾** opens **Add Agent…**, where you choose:
 
-- **Name** — "Agent 2" by default; rename it any time (double-click its tab).
+- **Name** — "Agent 2" by default; rename it any time (double-click its tab). Its **Role** (Agent Settings), such as *builder* or *reviewer*, says what it is for; templates save it (see [Agent templates](#agent-templates)).
 - **Where it works**:
   - **Project folder** — shares the folder with the project's other agents.
   - **New worktree** — its own checkout of the project on its own branch (`hive/agent-2` by default, based on the branch you pick). Its work stays separate until you merge it. Hive creates worktrees next to the workspace, in `<workspace>.worktrees\<project>\<agent>`, and copies git-ignored files such as `.env` into them (**Project Settings → Agents & Worktrees → Copy into new worktrees**). If the project needs setting up first, set a **Setup command** such as `npm install`: it runs in the agent's pane before the agent starts, and if it fails you can retry or start without it.
@@ -218,6 +218,32 @@ If git can't read the changes, the **Changes** tab says why, with **Retry**. The
 **Work not merged yet** shows on the agent: the **Merge** button in its header (its icon is a branch merging) turns orange with the number of commits on its branch that aren't in the project folder's branch, and its tab in the agent strip shows the same number with an up arrow. A **•** instead of a number means uncommitted files only. Hover either for the details ("2 commits not merged into main · 1 uncommitted file"). Hive checks when the agent finishes a turn or stops, when you come back to Hive's window, after a merge, and every minute while something is left to merge. **Merge…** is greyed out while the agent is in the middle of a task (working, asking you something, or waiting on background tasks it started), because merging commits its unfinished files; hover it to see why, and merge once it has finished.
 
 **Remove Agent** asks whether to keep a worktree agent's worktree and branch or delete them; **Discard** deletes them straight away. Their sessions stay in the Sessions tab, labelled with the agent and branch. Two dev servers from different agents can clash on the same port; give them different ports.
+
+### Agent templates
+
+Set a project's agents up once, see them work, and reuse the setup anywhere: a **template** saves each agent's name, role, provider, model, effort, permission mode and context setting, whether it works in its own worktree, and the project's layout. Conversations, worktree folders and branches aren't saved: they belong to the project.
+
+The agent strip, next to the layouts, has three controls (icons when the window is narrow, one **Templates** menu when narrower still):
+
+- **Save Template…** names the template and saves it for this project only (kept in its private `.hive` folder) or, ticked, for every project in the workspace. Saving with a name that's already there asks before replacing it; saving again is how you change a template.
+- **Template ▾** lists the workspace's and this project's templates (the same name can be in both) and loads one. Loading **replaces every agent** of the project: Hive first lists who goes and who comes. It won't load while an agent runs or is starting (stop it first), while a worktree agent has uncommitted work (commit or discard it first) or Hive can't check its worktree, or while a provider the template needs is turned off or not installed (it says which, with a way into Agent Setup). The removed agents' conversations stay in the Sessions tab, their worktrees and branches stay on disk (to merge, or reuse with **Add Agent → Existing worktree**), and their open cards go back (Doing ones to Todo). No agent of the project can start while a template loads. If an agent can't be created, or the agents change meanwhile, nothing changes.
+- **Add Agent from Template ▾** adds one agent from a template and leaves the others alone; a name that's taken gets a number ("Builder 2").
+
+**Roles.** An agent's **Role** (Agent Settings), such as *builder* or *reviewer*, says what it is for: templates save it, and the agent's tab tooltip shows it. Leave it empty and the agent's name is its role. **Save Agents as Template…** is in the command palette too.
+
+### Managing and sharing templates
+
+The **Templates** view (its icon is next to Skills on the activity bar) lists the workspace's templates and each project's, grouped by where they're kept; the drop-down at the top shows all of them, the workspace's, or one project's. A project's **Templates** tab lists its own templates and the workspace's, each marked with where it's kept.
+
+Select a template to see what it holds: each agent's name, role, coding agent, model, effort, mode and whether it works in its own worktree, and the layout. You can't edit a template there: to change one, set a project's agents up the way you want and save them again under the same name. With a template selected:
+
+- **Load into Project…** (in the view, you choose the project) or **Load into This Project…** (in a project's tab) replaces the project's agents and layout, with the same list of who goes and who comes, and the same checks, as **Template ▾**.
+- **Rename…** renames it where it's kept. Another template there can't have the same name.
+- **Duplicate…** copies it into the workspace or any project. A name that's already taken there gets a number: "Pair (2)".
+- **Export…** saves it as one file, such as `Build and review.hive-template.json`, wherever you choose. Templates live in `.hive`, which git ignores, so exporting is how you share one. The file holds only the template: no folder paths, sessions or names of people.
+- **Delete** sends it to the Recycle Bin.
+
+**Import…** (the download icon at the top of the list) opens a template file and asks where to keep it: the workspace, or a project. Hive checks the file first and refuses one it can't use, saying why: not a template, made by a newer Hive, or more than 12 agents. Nothing is half imported. If a template of that name is already there, choose **Replace** or **Keep Both** (the imported one gets a number). A template whose coding agent this Hive doesn't know, from a newer Hive say, is imported and marked: Hive won't load it until it knows that agent.
 
 ### Archiving and backups
 
