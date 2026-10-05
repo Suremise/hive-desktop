@@ -997,6 +997,8 @@ function StartFailedBar({ project, a, failure, single }: { project: ProjectInfo;
 function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a: AgentInfo | null; hasTerminal: boolean; single: boolean }) {
   const failure = useStartFailure(project, a)
   if (!a) {
+    // A single empty pane is a project without agents: its "No agents yet" (SessionEmpty) shows, not covered (#227).
+    if (single) return null
     return (
       <div className="pane-placeholder">
         <p className="faint">Empty pane</p>

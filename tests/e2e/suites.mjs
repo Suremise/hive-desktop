@@ -58,6 +58,7 @@ export const SUITES = [
   { name: 'mcp' },
   { name: 'mode', needs: ['claude'] },
   { name: 'models' },
+  { name: 'narrowmain' },
   { name: 'numbers' },
   { name: 'overview' },
   { name: 'packaged', needs: ['packaged'] },

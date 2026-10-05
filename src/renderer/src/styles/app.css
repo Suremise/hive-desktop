@@ -191,6 +191,10 @@ kbd {
   display: flex;
   flex-direction: column;
   background: var(--bg);
+  /* Nothing in it paints over the side panels when they leave it little room (#227). clip, not hidden: it can't be
+     scrolled out of the user's reach by a focus or a script. Menus and tooltips are portals and Monaco's widgets fixed,
+     so neither is cut. */
+  overflow: clip;
 }
 
 /* ---------- Title bar ---------- */
@@ -1241,8 +1245,21 @@ textarea.input {
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  /* Too narrow or low for the card (#227): it starts at the edge and scrolls here instead of spilling out both sides. */
+  align-items: safe center;
+  justify-content: safe center;
+  overflow: auto;
+  container-type: inline-size;
+}
+/* Very little room: the title and the buttons; the explanation and the mark go (#227). Warnings stay. */
+@container (max-width: 280px) {
+  .session-empty-card {
+    padding: 12px 8px;
+  }
+  .session-empty-card > h2 + p,
+  .session-empty-card .hex-mark {
+    display: none;
+  }
 }
 .session-ended {
   position: absolute;
@@ -1261,6 +1278,7 @@ textarea.input {
 .session-empty-card {
   text-align: center;
   max-width: 520px;
+  min-width: 0;
   padding: 24px;
 }
 .session-empty-card h2 {
@@ -3506,6 +3524,8 @@ body.pane-resizing .monaco-editor {
   position: absolute;
   pointer-events: none;
   z-index: 2;
+  /* A pane's contents stay in it: a narrow pane's buttons never cover the next pane or a side panel (#227). */
+  overflow: clip;
 }
 .agent-pane.left-border {
   border-left: 1px solid var(--border);
@@ -3692,8 +3712,10 @@ body.pane-resizing .monaco-editor {
   inset: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  /* As .session-empty (#227). */
+  align-items: safe center;
+  justify-content: safe center;
+  overflow: auto;
   gap: 4px;
   padding: 16px;
   text-align: center;
