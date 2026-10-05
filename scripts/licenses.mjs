@@ -1,10 +1,12 @@
 // Writes THIRD_PARTY_NOTICES.md: the licence of every package that ships inside Hive — the main
 // process's runtime dependencies and the libraries bundled into the renderer — with their full texts.
 // Run by `npm run build`; commit the result. Build-only tools (vite, electron-builder, sharp…) are not
-// shipped and not listed.
+// shipped and not listed. Written only when its content changed (line endings aside), with the endings the file on
+// disk already has, so a build leaves an unchanged notice alone (licenseText.mjs, #148).
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
+import { licenceText, noticesToWrite } from './licenseText.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -48,7 +50,7 @@ const licenceFiles = (dir) =>
   readdirSync(dir)
     .filter((f) => /^(licen[cs]e|copying|notice|thirdpartynotices)/i.test(f))
     .sort()
-    .map((f) => ({ file: f, text: readFileSync(join(dir, f), 'utf8').replace(/\r\n/g, '\n').trim() }))
+    .map((f) => ({ file: f, text: licenceText(readFileSync(join(dir, f), 'utf8')) }))
 
 const list = [...found.values()].sort((a, b) => a.meta.name.localeCompare(b.meta.name))
 const out = [
@@ -74,5 +76,7 @@ for (const { meta, dir } of list) {
   if (!files.length) out.push(`No licence file is included in the package; it is published under ${licenceOf(meta)}.`, '')
   for (const f of files) out.push(...(files.length > 1 ? [`*${f.file}*`, ''] : []), '```text', f.text, '```', '')
 }
-writeFileSync(join(root, 'THIRD_PARTY_NOTICES.md'), out.join('\n'))
-console.log(`THIRD_PARTY_NOTICES.md: ${list.length} packages`)
+const file = join(root, 'THIRD_PARTY_NOTICES.md')
+const write = noticesToWrite(out.join('\n'), existsSync(file) ? readFileSync(file, 'utf8') : null)
+if (write !== null) writeFileSync(file, write)
+console.log(`THIRD_PARTY_NOTICES.md: ${list.length} packages${write === null ? ', unchanged' : ''}`)
