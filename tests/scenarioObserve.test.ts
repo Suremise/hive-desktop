@@ -44,6 +44,31 @@ describe('skills read', () => {
     )
     expect(o.skillsRead).toEqual([])
   })
+
+  it("counts a Codex code-mode script whose result carries the skill JSON-escaped, but not one that only names the path", () => {
+    // As GPT-6.1-Sol reads skills: exec_command's result object printed by text(), the file in "output" with \r\n escaped.
+    const sol = (cmd: string, output: string) =>
+      tool('Script', `text(await tools.exec_command({cmd:"${cmd}",max_output_tokens:6000}));`, `Script completed\nWall time 0.5 seconds\nOutput:\n\nWarning: truncated output (original token count: 10719)\nTotal output lines: 2\n\n${JSON.stringify({ chunk_id: '187d35', exit_code: 0, output })}`)
+    const crlf = (s: string) => s.replace(/\n/g, '\r\n')
+    const read = observeTranscript([sol('Get-Content .agents/skills/hive-work-on-card/SKILL.md', crlf(SKILL_TEXT('work-on-card')))], SKILLS)
+    expect(read.skillsRead).toEqual(['work-on-card'])
+    // Escaped twice (a result nested in another JSON string), and a quoted name, count too.
+    const nested = tool('Script', 'text(await tools.exec_command({cmd:"Get-Content .agents/skills/hive-handover/SKILL.md"}))', JSON.stringify({ result: JSON.stringify({ output: crlf(SKILL_TEXT('"handover"')) }) }))
+    expect(observeTranscript([nested], SKILLS).skillsRead).toEqual(['handover'])
+
+    const notRead = observeTranscript(
+      [
+        // The path, echoed back escaped, but no name line.
+        sol('Get-Content .agents/skills/hive-work-on-card/SKILL.md', crlf("Get-Content : Cannot find path '.agents\\skills\\hive-work-on-card\\SKILL.md'\nbecause it does not exist.")),
+        // Another skill's text under this skill's path.
+        sol('Get-Content .agents/skills/hive-review-agent-work/SKILL.md', crlf(SKILL_TEXT('handover'))),
+        // A skill's name line in a result, but no read of its SKILL.md.
+        sol('Get-ChildItem .agents/skills', crlf(SKILL_TEXT('handover')))
+      ],
+      SKILLS
+    )
+    expect(notRead.skillsRead).toEqual([])
+  })
 })
 
 describe('hive tools named in a transcript are mentions, not calls', () => {
