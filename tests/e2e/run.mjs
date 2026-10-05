@@ -19,6 +19,8 @@
 //   --fingerprint   print the code's fingerprint and stop (to compare with a run record).
 //   --build         build first (npx electron-vite build), only if the build isn't from this source (build.mjs).
 //   --packaged      include the installer's suites (need npm run dist); --no-progress: don't report to Hive.
+//   --no-wait       a heavy run (more than 5 suites, or --repeat) fails at once when every test slot on this machine is
+//                   taken, instead of waiting for one (slots.mjs; HIVE_TEST_HEAVY_SLOTS, default 2).
 // Needs a dev build. A suite fails when it exits non-zero or prints a line starting with FAIL. Each suite gets its own
 // Agent API port (HIVE_E2E_PORT, read through lib.port()), so suites can run side by side; each runner claims a lane
 // (lanes.mjs: ports and suite folders of its own), so runners in different worktrees can run at the same time.
@@ -30,7 +32,7 @@ import { existsSync, writeFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
-import { e2eProgress } from '../progressReport.mts'
+import { e2eProgress, slotWaitProgress } from '../progressReport.mts'
 import { SUITES } from './suites.mjs'
 import { affectedSuites, changedFiles } from './affected.mjs'
 import { fingerprint, recordMarkdown } from './record.mjs'
@@ -38,6 +40,7 @@ import { isRealCli, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, 
 import { ensureBuild } from './build.mjs'
 import { finishRunDirs, logsRootFor, newRunDir, pruneRunDirs } from './logs.mjs'
 import { LANES, claimLane, laneWork } from './lanes.mjs'
+import { describeClaim, heavySlots, isHeavy, waitForSlot } from './slots.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
@@ -56,6 +59,56 @@ if (opts.fingerprint) {
   console.log(fingerprint(root))
   process.exit(0)
 }
+
+// --- Which suites.
+let affected = null
+if (opts.affected) {
+  affected = affectedSuites(changedFiles(opts.affected, root), SUITES.map((s) => s.name), SUITES.filter(isRealCli).map((s) => s.name))
+  if (affected.all) console.log(`Affected since ${opts.affected}: every fake suite (${affected.why[0]})${affected.real.length ? `, and the real tier's ${affected.real.join(', ')}` : ''}`)
+  else console.log(`Affected since ${opts.affected}: ${affected.suites.length ? affected.suites.join(', ') : 'none'}`)
+  for (const w of affected.all ? affected.why.slice(1) : affected.why) console.log(`  ${w}`)
+}
+const chosen = selectSuites(SUITES, opts, affected)
+// The real tier left out of a full or affected run: said, so it is never silent (and in the record).
+const notRun = opts.named.length && !opts.all && !opts.affected ? [] : realNotRun(SUITES, chosen)
+if (notRun.length) console.log(`Not run: the real tier (add --real): ${notRun.map((s) => s.name).join(', ')}\n`)
+if (!chosen.length) {
+  console.log(`\nNo suite to run${opts.affected ? ' for these changes' : ''}.`)
+  process.exit(0)
+}
+
+// --- A heavy run (more than a few suites, or a repeat) waits for a test slot: at most a few go at once on this machine,
+// across every worktree (slots.mjs), so runs don't slow each other until tests time out. A runner started inside a
+// suite never waits (its parent holds one). --no-wait: fail at once instead.
+const nested = !!parentSuite()
+if (!nested && isHeavy({ count: chosen.length, repeat: opts.repeat })) {
+  const what = `e2e: ${chosen.length} suites${opts.repeat > 1 ? ` × ${opts.repeat}` : ''}`
+  const queue = slotWaitProgress('e2e', `npm run e2e -- ${args.join(' ')}`.trim(), args)
+  let said = ''
+  const got = await waitForSlot(runContext.HEAVY_DIR, {
+    what,
+    root,
+    wait: !opts.noWait,
+    onWait: ({ holders, ahead }) => {
+      const who = holders.map((c) => describeClaim(c)).join('; ')
+      const line = `Waiting for a test slot (${heavySlots()} heavy runs at once on this machine, HIVE_TEST_HEAVY_SLOTS)${ahead ? `, ${ahead} ahead of this one` : ''}: held by ${who || 'runs just finishing'}.`
+      if (line !== said) console.log(line)
+      said = line
+      queue.waiting(who)
+    }
+  })
+  if (got.refused) {
+    console.error(`No test slot free (--no-wait): ${heavySlots()} heavy runs at once on this machine, held by ${got.refused.holders.map((c) => describeClaim(c)).join('; ')}.`)
+    process.exit(2)
+  }
+  if (said) {
+    const after = `${Math.round(got.waitedMs / 1000)} s`
+    console.log(`Got a test slot after ${after}.
+`)
+    await queue.finish(`got a test slot after ${after}`)
+  }
+}
+
 // The code under test, before anything runs: a run record names it only if it is still the same at the end.
 const codeBefore = opts.record ? fingerprint(root) : null
 
@@ -82,27 +135,9 @@ if (!existsSync(join(root, 'out', 'main', 'index.js'))) {
   console.warn(`Warning: ${buildCheck.why}: the suites may test other code. Add --build to build first (only when needed)${opts.record ? '; the run record will say it is not valid' : ''}.\n`)
 }
 
-// --- Which suites.
-let affected = null
-if (opts.affected) {
-  affected = affectedSuites(changedFiles(opts.affected, root), SUITES.map((s) => s.name), SUITES.filter(isRealCli).map((s) => s.name))
-  if (affected.all) console.log(`Affected since ${opts.affected}: every fake suite (${affected.why[0]})${affected.real.length ? `, and the real tier's ${affected.real.join(', ')}` : ''}`)
-  else console.log(`Affected since ${opts.affected}: ${affected.suites.length ? affected.suites.join(', ') : 'none'}`)
-  for (const w of affected.all ? affected.why.slice(1) : affected.why) console.log(`  ${w}`)
-}
-const chosen = selectSuites(SUITES, opts, affected)
-// The real tier left out of a full or affected run: said, so it is never silent (and in the record).
-const notRun = opts.named.length && !opts.all && !opts.affected ? [] : realNotRun(SUITES, chosen)
-if (notRun.length) console.log(`Not run: the real tier (add --real): ${notRun.map((s) => s.name).join(', ')}\n`)
-if (!chosen.length) {
-  console.log(`\nNo suite to run${opts.affected ? ' for these changes' : ''}.`)
-  process.exit(0)
-}
-
 // The runner's lane (lanes.mjs): ports and suite folders no other runner on this machine uses while this one runs, so
 // runners started at the same time from different worktrees don't take each other's. A runner started inside a suite
 // (progressreport runs one in its agent's shell) claims none: it takes ports well clear of its parent's (portBase).
-const nested = !!parentSuite()
 const lane = nested ? null : await claimLane(runContext.LANES_DIR, { root })
 if (!nested) {
   if (!lane) {

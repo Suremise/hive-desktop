@@ -22,6 +22,8 @@ import { buildLock, buildStamp, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
+import { describeClaim, heavySlots, isHeavy, trySlot, waitForSlot } from './e2e/slots.mjs'
+// @ts-expect-error: plain .mjs modules without types
 import { KEEP_RUNS, finishRunDirs, logsRootFor, newRunDir, pruneRunDirs, runDirActive, runDirsInOrder } from './e2e/logs.mjs'
 import { createRequire } from 'module'
 import { ProgressStore } from '../src/main/progress'
@@ -43,7 +45,7 @@ describe('the e2e suite list', () => {
 
   it('names suites that exist, and every suite file is listed', () => {
     for (const n of names) expect(existsSync(join(dir, `${n}.cjs`)), n).toBe(true)
-    const helpers = ['lib', 'fake-bridge']
+    const helpers = ['lib', 'fake-bridge', 'runContext']
     const files = execFileSync('git', ['ls-files', 'tests/e2e/*.cjs'], { cwd: root, encoding: 'utf8' })
       .split(/\r?\n/)
       .filter(Boolean)
@@ -1206,4 +1208,87 @@ describe('the build lock: runners started together in one worktree build it once
     held.release()
     expect(readdirSync(locks)).toEqual([])
   }, 30_000)
+})
+
+describe('heavy runs: at most a few at once on the machine, the rest queue in order (slots.mjs, #204)', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'hive-slots-'))
+  afterAll(() => rmSync(tmp, { recursive: true, force: true }))
+  let n = 0
+  const newPool = () => join(tmp, `pool-${++n}`)
+  const live = new Set([101, 102, 103, 104])
+  const alive = (pid: number) => live.has(pid)
+  let clock = 1_000_000
+  const now = () => clock
+  const ask = (dir2: string, owner: number, more: object = {}) => trySlot(dir2, { slots: 2, owner, alive, now, what: `run ${owner}`, root: `C:/wt${owner}`, ...more })
+
+  it('a heavy run: more than five suites or scenarios, or a repeat; HIVE_TEST_HEAVY_SLOTS says how many at once (default 2)', () => {
+    expect(isHeavy({ count: 5 })).toBe(false)
+    expect(isHeavy({ count: 6 })).toBe(true)
+    expect(isHeavy({ count: 1, repeat: 2 })).toBe(true)
+    expect(heavySlots({})).toBe(2)
+    expect(heavySlots({ HIVE_TEST_HEAVY_SLOTS: '3' })).toBe(3)
+    for (const bad of ['0', '-1', '1.5', 'x', '']) expect(heavySlots({ HIVE_TEST_HEAVY_SLOTS: bad })).toBe(2)
+    expect(parseArgs(['--all', '--no-wait'], names)).toMatchObject({ all: true, noWait: true })
+    expect(parseArgs(['--all'], names)).toMatchObject({ noWait: false })
+  })
+
+  it('two take the slots; the others wait in the order they asked, and the first to ask gets the next free one', async () => {
+    const dir2 = newPool()
+    expect(await ask(dir2, 101)).toEqual({ slot: 0 })
+    expect(await ask(dir2, 102)).toEqual({ slot: 1 })
+    clock += 10
+    const third = await ask(dir2, 103)
+    expect(third).toMatchObject({ ahead: 0 })
+    expect((third as { holders: { pid: number }[] }).holders.map((c) => c.pid).sort()).toEqual([101, 102])
+    clock += 10
+    expect(await ask(dir2, 104)).toMatchObject({ ahead: 1 })
+    // 101 finishes: 104 looks first, but 103 asked earlier and gets the slot.
+    rmSync(join(dir2, 'slot-0.json'))
+    expect(await ask(dir2, 104)).toMatchObject({ ahead: 1 })
+    expect(await ask(dir2, 103)).toEqual({ slot: 0 })
+    expect(await ask(dir2, 104)).toMatchObject({ ahead: 0 })
+    expect(readdirSync(dir2).filter((f) => f.startsWith('wait-'))).toEqual(['wait-104.json'])
+  })
+
+  it("a crashed run's slot, and its place in the queue, expire", async () => {
+    const dir2 = newPool()
+    await ask(dir2, 101)
+    await ask(dir2, 102)
+    await ask(dir2, 103)
+    live.delete(102)
+    live.delete(103)
+    try {
+      expect(await ask(dir2, 104)).toEqual({ slot: 1 })
+      expect(readdirSync(dir2).sort()).toEqual(['slot-0.json', 'slot-1.json'])
+    } finally {
+      live.add(102)
+      live.add(103)
+    }
+  })
+
+  it('--no-wait: refused at once with who holds the slots, leaving no place in the queue', async () => {
+    const dir2 = newPool()
+    await ask(dir2, 101)
+    await ask(dir2, 102)
+    const r = await waitForSlot(dir2, { slots: 2, owner: 103, alive, now, wait: false })
+    expect(r.refused?.holders.map((c: { pid: number }) => c.pid).sort()).toEqual([101, 102])
+    expect(readdirSync(dir2).some((f) => f.startsWith('wait-'))).toBe(false)
+    expect(describeClaim({ pid: 101, at: clock - 3 * 60_000, what: 'e2e: 68 suites', root: 'D:/wt' }, clock)).toBe('e2e: 68 suites in D:/wt (process 101, 3 min)')
+  })
+
+  it('waiting: says so at each look, and takes the slot once one is let go', async () => {
+    const dir2 = newPool()
+    const first = await waitForSlot(dir2, { slots: 1, owner: 101, alive, now })
+    const seen: number[] = []
+    const second = waitForSlot(dir2, { slots: 1, owner: 102, alive, now, pollMs: 30, onWait: (r: { holders: { pid: number }[] }) => seen.push(r.holders[0].pid) })
+    await new Promise((r) => setTimeout(r, 150))
+    expect(seen.length).toBeGreaterThan(1)
+    expect(new Set(seen)).toEqual(new Set([101]))
+    first.release()
+    const got = await second
+    expect(got.slot).toBe(0)
+    expect(got.waitedMs).toBeGreaterThan(100)
+    got.release()
+    expect(readdirSync(dir2).filter((f) => f.endsWith('.json'))).toEqual([])
+  })
 })

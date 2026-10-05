@@ -91,7 +91,9 @@ Hive's test copies run quiet (`src/main/testQuiet.ts`): no window on screen, no 
   **lane** from the e2e runner's pool (`tests/e2e/lanes.mjs`), and its scenarios' profiles and workspaces go in
   `%LOCALAPPDATA%\hive-test\scenarios\lanes\<k>\<scenario>-<provider>` (where `--keep` leaves them), with the lane's
   first port as the test Hive's Agent API port. The run prints its lane when it starts. Ten runs at once (scenario and
-  e2e runs together) is the most: the eleventh stops and says so.
+  e2e runs together) is the most: the eleventh stops and says so. A run of more than five scenarios, or with
+  `--repeat`, is a heavy run: it waits for one of the machine's test slots, as heavy e2e runs do, saying who holds them
+  (`--no-wait` fails at once instead; tests/e2e/README.md, "Heavy runs queue").
 - **Results** go to `%LOCALAPPDATA%\hive-test\scenarios\results\<time>-<provider>`: `results.json` (each scenario's
   checks, skills read, executed hive calls and mentions, versions, guidance and source, usage) and `summary.md` (a
   table). `BASELINE.md` here records the latest baseline. Run the trials again after changing Hive's guidance, a skill

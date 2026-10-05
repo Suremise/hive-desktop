@@ -13,6 +13,7 @@ npm run e2e -- --affected        # the suites the changes since main need (affec
 npm run e2e -- <suites> --build --record # and print a run record for the card (saved with the run's logs, and the latest as logs/run-record.md)
 npm run e2e -- --fingerprint     # the code's fingerprint, to compare with a run record
 npm run e2e -- <suites> --repeat 3 --build --record # three runs, stopping at the first that fails; one record for all
+npm run e2e -- --all --no-wait   # a heavy run: fail at once rather than wait while two others hold the test slots
 npm run dist && npm run e2e -- --packaged   # also the installed-app suites (dist/win-unpacked)
 ```
 
@@ -117,6 +118,24 @@ through a junction, removed afterwards), one in each worktree with an agent shel
 `HIVE_PROGRESS_WRAPPED`, a token…) and one with a plain one. It checks that every run passes in a lane, folders, ports
 and logs folder of its own, and that each worktree is built once and stamped. Run it after changing the runner,
 `lib.cjs`, `runContext.cjs`, `lanes.mjs`, `build.mjs` or the scenario harness.
+
+**Heavy runs queue** (`slots.mjs`, #204). Several agents each running full sets on one machine slowed each other until
+tests that pass alone timed out. So at most **two heavy runs** go at once across every worktree
+(`HIVE_TEST_HEAVY_SLOTS` changes it): an e2e run of more than five suites (`--all`, `--real`, a big `--affected`) or
+any `--repeat`, and a scenario run of more than five scenarios or with `--repeat`. A run of a few suites, a single
+scenario, or a runner started inside a suite never waits. A heavy run that finds both slots taken waits for one,
+before it builds, in the order runs asked. It prints `Waiting for a test slot …: held by e2e: 68 suites in <worktree>
+(process …, 12 min)` and shows in the Progress panel as **e2e: waiting for a test slot** (or **scenarios: …**), naming
+who holds them, until it gets one (`Got a test slot after N s`). So a run that seems stuck is usually waiting: that line
+says for whom. `--no-wait` fails at once instead (exit 2, saying who holds them). Slots are files in
+`%LOCALAPPDATA%\hive-test\heavy-slots` (`slot-<k>.json` held, `wait-<pid>.json` waiting, each with its runner's
+process id, under the same claims lock as lanes); a crashed or killed run's slot expires at once (its process is gone).
+`npm run e2e:concurrency -- --heavy` checks it: three heavy runs from three worktrees with two slots (in a pool of their
+own, `HIVE_TEST_HEAVY_DIR`), one waiting visibly, `--no-wait`, and a killed run's slot.
+
+**Unit tests under load.** `npm test` uses half the cores (`maxWorkers: '50%'` in `vitest.config.ts`) and allows 20 s
+a test and 30 s a hook, so a full run beside an e2e set doesn't hit Vitest's 5 s default. A test that needs longer says
+so itself (`it(…, 60_000)`), and a test that waits for something waits for it (polling), not for a fixed time.
 
 ## Which suites to run, and who runs them
 
