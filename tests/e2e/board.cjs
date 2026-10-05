@@ -323,7 +323,7 @@ const check = (name, ok, extra = '') => {
   await d.locator('input.input').fill('gamma')
   await del.click()
   check('Delete moves the folder to the Recycle Bin', !!(await until(async () => !fs.existsSync(path.join(ws, 'gamma')), 10000)))
-  check('and Hive forgets it', !(await names()).includes('gamma'))
+  check('and Hive forgets it', !!(await until(async () => !(await names()).includes('gamma'), 8000)))
 
   await app.close()
   process.exit(failed ? 1 : 0)

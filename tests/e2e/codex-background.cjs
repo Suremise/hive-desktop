@@ -56,8 +56,9 @@ const check = (name, ok, extra = '') => {
   await inv('session:start', proj, { agentId: agent.id })
   check('Codex starts', !!(await until((s) => s?.status === 'ready', 60000)))
   const key = lib.ptyKey(proj, agent.id)
+  // Printing only the id is the form that went uncounted (#162): Hive mustn't depend on what the script prints.
   const prompt =
-    "Call exec_command once with cmd \"Start-Sleep -Seconds 40; Set-Content -Path bg-done.txt -Value done\" and yield_time_ms 1000. It will return a session id while the command keeps running: do not wait for it, poll it or call write_stdin. Reply with the single word STARTED and end your turn."
+    "Call exec_command once with cmd \"Start-Sleep -Seconds 40; Set-Content -Path bg-done.txt -Value done\" and yield_time_ms 1000. It will return a session id while the command keeps running: do not wait for it, poll it or call write_stdin. If you call it from a script, print only its session id (text(r.session_id)). Reply with the single word STARTED and end your turn."
   // Typed the way Hive types prompts (a long text at once is a paste to Codex, and Enter then adds a line).
   for (let i = 0; i < prompt.length; i += 8) {
     await inv('pty:write', key, prompt.slice(i, i + 8))

@@ -115,6 +115,39 @@ const check = (name, ok, extra = '') => {
   await banners().first().locator('.notice-close').click()
   check('× dismisses it, and stays on the project shown', (await banners().count()) === 0 && (await page.locator('.project-header h1').innerText()).includes('beta'))
 
+  // --- From the keyboard (#175): the project's button, Enter opens it; Tab to ×, Space dismisses. DOM focus only
+  // (element.focus() and keys sent to the page): the test window never takes the OS focus.
+  await send(alpha, one, 'go work 1')
+  await turnEnds(alpha, one)
+  await lib.until(async () => (await banners().count()) === 1, 10000)
+  const openBtn = page.getByRole('button', { name: /^Show the project: .*alpha finished/ })
+  check('a banner has a button to show its project, named for it', (await openBtn.count()) === 1, JSON.stringify(await bannerTitles()))
+  check('…and keeps its live role', (await page.locator('.notice-banner[role="status"]').count()) === 1)
+  // Reached by the keyboard (Shift+Tab from ×), so it shows the focus ring as Tab would.
+  await page.locator('.notice-close').focus()
+  await page.keyboard.press('Shift+Tab')
+  check('…reached with the keyboard', await page.evaluate(() => document.activeElement?.classList.contains('notice-open') ?? false))
+  await page.screenshot({ path: path.join(lib.WORK, 'banners-2-keyboard.png'), clip: { x: 300, y: 0, width: 700, height: 160 }, animations: 'disabled' })
+  await lib.sleep(3500) // A fixed wait on purpose: longer than the banner's 2 s, to show it does NOT close while focused.
+  check('…it stays open while it has the focus', (await banners().count()) === 1)
+  await page.keyboard.press('Enter')
+  check('Enter on it shows the project, and closes it', !!(await lib.until(async () => (await page.locator('.project-header h1').innerText().catch(() => '')).includes('alpha'), 5000)) && (await banners().count()) === 0)
+  await showProject('beta')
+  await send(alpha, one, 'go work 1')
+  await turnEnds(alpha, one)
+  await lib.until(async () => (await banners().count()) === 1, 10000)
+  await page.locator('.notice-open').focus()
+  await page.keyboard.press('Tab')
+  check('Tab moves from it to ×', await page.evaluate(() => document.activeElement?.classList.contains('notice-close') ?? false))
+  await page.keyboard.press('Space')
+  check('…and Space there dismisses it, staying on the project shown', !!(await lib.until(async () => (await banners().count()) === 0, 3000)) && (await page.locator('.project-header h1').innerText()).includes('beta'))
+  await send(alpha, one, 'go work 1')
+  await turnEnds(alpha, one)
+  await lib.until(async () => (await banners().count()) === 1, 10000)
+  await page.locator('.notice-open').focus()
+  await page.locator('.notice-open').evaluate((el) => el.blur())
+  check('a focused banner closes once the focus leaves it', !!(await lib.until(async () => (await banners().count()) === 0, 6000)))
+
   // --- Waiting: stays until the agent moves on (it finishes after 8 s here).
   await send(alpha, one, 'ask work 8')
   check('an agent waiting for you: a banner', !!(await lib.until(async () => (await page.locator('.notice-banner.waiting').count()) === 1, 10000)), JSON.stringify(await bannerTitles()))
