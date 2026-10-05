@@ -5,7 +5,7 @@ import hexUrl from '../assets/icon.svg'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
-import { AddAgentButton, AgentStrip, PANE_FOOTER, PANE_HEADER, PaneChrome, ResumeButton, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
+import { AddAgentButton, AgentStrip, PANE_FOOTER, PANE_HEADER, PaneChrome, RESUME_TINT, ResumeButton, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
 import { Icon, IconButton, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu } from '../components/ui'
 import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
 import { carriesFiles, cx, formatKeybinding } from '../util'
@@ -95,7 +95,7 @@ function SessionEmpty({ project, framed }: { project: ProjectInfo; framed: boole
             <button className="btn primary" onClick={() => void actions.newSession(project.path)}>
               <Icon name="add" /> New Session {newKey && <kbd style={{ marginLeft: 6 }}>{formatKeybinding(newKey)}</kbd>}
             </button>
-            {focused ? <ResumeButton project={project} a={focused} className="tint-amber" label="Resume Last" /> : <AddAgentButton project={project} className="tint-amber" />}
+            {focused ? <ResumeButton project={project} a={focused} className={RESUME_TINT} label="Resume Last" /> : <AddAgentButton project={project} className="tint-amber" />}
             <button className="btn subtle" onClick={() => setProjectTab(project.path, 'sessions')}>
               <Icon name="history" /> All Sessions
             </button>

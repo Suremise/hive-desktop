@@ -144,6 +144,9 @@ function resumeTip(project: ProjectInfo, a: AgentInfo): string {
   return `${project.agents.length > 1 ? `${a.name} has` : 'There is'} no session of its own to resume. Choose one with ▾, or start a new one.`
 }
 
+/** The tint every secondary Resume button wears (agent panes, the project header, the Assistant's panel). */
+export const RESUME_TINT = 'tint-amber'
+
 /** Resume split button: the main part resumes the agent's last session, ▾ picks another. */
 export function ResumeButton({ project, a, className, label = 'Resume' }: { project: ProjectInfo; a: AgentInfo; className?: string; label?: string }) {
   const picker = useSessionPicker()
@@ -861,7 +864,7 @@ function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a
         <button className="btn primary small" onClick={() => void actions.newSession(project.path, a.id)}>
           <Icon name="add" /> New Session
         </button>
-        <ResumeButton project={project} a={a} className="tint-amber small" />
+        <ResumeButton project={project} a={a} className={cx(RESUME_TINT, 'small')} />
       </div>
     </div>
   )
