@@ -15,9 +15,18 @@ export interface GitResult {
   code: number
 }
 
+/**
+ * What every git command Hive runs starts with. Hive's git calls run in the background, beside the user's and agents'
+ * own git commands, so they never write the index as a side effect (#212): `status` refreshes it opportunistically
+ * (taking index.lock, so a `git add` or `commit` at that moment fails with "index.lock: File exists") unless optional
+ * locks are off, and `diff` against the working tree does it whatever that says unless autoRefreshIndex is off. Locks a
+ * command needs (commit, merge, reset) are still taken.
+ */
+export const GIT_PREFIX = ['--no-optional-locks', '-c', 'diff.autoRefreshIndex=false', '-c', 'core.quotepath=off'] as const
+
 export function git(cwd: string, args: string[], maxBuffer = 16 * 1024 * 1024): Promise<GitResult> {
   return new Promise((res) => {
-    execFile('git', ['-c', 'core.quotepath=off', ...args], { cwd, windowsHide: true, maxBuffer, encoding: 'buffer' }, (err, stdout, stderr) => {
+    execFile('git', [...GIT_PREFIX, ...args], { cwd, windowsHide: true, maxBuffer, encoding: 'buffer' }, (err, stdout, stderr) => {
       const buf = (stdout as unknown as Buffer) ?? Buffer.alloc(0)
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as unknown as { code: number }).code : 1) : 0
       res({ out: buf.toString('utf8'), ok: !err, buf, err: ((stderr as unknown as Buffer) ?? Buffer.alloc(0)).toString('utf8').trim(), code })
@@ -36,7 +45,7 @@ async function mergeBase(cwd: string, base: string): Promise<string | null> {
  * differs from where the branch left base — its commits and uncommitted edits — rather than from HEAD.
  */
 export async function gitStatus(projectPath: string, base?: string): Promise<GitStatus> {
-  const status = await workingStatus(projectPath)
+  const { status, inWorktree } = await workingStatus(projectPath)
   if (!base || !status.isRepo) return status
   const mb = await mergeBase(projectPath, base)
   if (!mb) return status
@@ -47,14 +56,35 @@ export async function gitStatus(projectPath: string, base?: string): Promise<Git
     const file = parts[i + 1]
     if (!file.startsWith('.hive/')) files.push({ path: file, status: parts[i][0], staged: false })
   }
-  const seen = new Set(files.map((f) => f.path))
-  for (const f of status.files) if (f.status === '?' && !seen.has(f.path)) files.push(f)
-  return { ...status, files }
+  const real = await withoutStatOnly(projectPath, mb, files, inWorktree)
+  const seen = new Set(real.map((f) => f.path))
+  for (const f of status.files) if (f.status === '?' && !seen.has(f.path)) real.push(f)
+  return { ...status, files: real }
 }
 
-async function workingStatus(projectPath: string): Promise<GitStatus> {
+/**
+ * A diff against the working tree that doesn't refresh the index (GIT_PREFIX) lists a file whose timestamps changed but
+ * not its content as modified. Git says exactly, without touching the index, whether the working tree's copy matches
+ * the index (status, which compares content and mode in memory) and whether the index matches the merge base (a diff
+ * of the index, mode included): a file is dropped only when both match. A file whose working copy differs from an index
+ * that differs from the base too is kept (it is changed unless it was changed back by hand), and so is every file when
+ * git can't say.
+ */
+async function withoutStatOnly(projectPath: string, mb: string, files: GitStatus['files'], inWorktree: Set<string>): Promise<GitStatus['files']> {
+  const modified = files.filter((f) => f.status === 'M' && !inWorktree.has(f.path))
+  if (!modified.length) return files
+  const c = await git(projectPath, ['diff', '--cached', '--name-only', '--no-renames', '-z', mb])
+  if (!c.ok) return files
+  const indexChanged = new Set(c.out.split('\0').filter(Boolean))
+  const drop = new Set(modified.filter((f) => !indexChanged.has(f.path)).map((f) => f.path))
+  return drop.size ? files.filter((f) => !drop.has(f.path)) : files
+}
+
+/** The working tree's status, and the paths whose working copy differs from the index (or isn't in it). */
+async function workingStatus(projectPath: string): Promise<{ status: GitStatus; inWorktree: Set<string> }> {
+  const inWorktree = new Set<string>()
   const r = await git(projectPath, ['status', '--porcelain=v1', '-b', '-z', '--untracked-files=all'])
-  if (!r.ok) return { isRepo: false, branch: null, ahead: 0, behind: 0, files: [] }
+  if (!r.ok) return { status: { isRepo: false, branch: null, ahead: 0, behind: 0, files: [] }, inWorktree }
   const parts = r.out.split('\0').filter(Boolean)
   const status: GitStatus = { isRepo: true, branch: null, ahead: 0, behind: 0, files: [] }
   for (let i = 0; i < parts.length; i++) {
@@ -71,11 +101,12 @@ async function workingStatus(projectPath: string): Promise<GitStatus> {
     const y = p[1]
     const file = p.slice(3)
     if (x === 'R' || x === 'C') i++ // the next entry is the original path
+    if (y !== ' ') inWorktree.add(file)
     if (file.startsWith('.hive/')) continue
     const code = x === '?' ? '?' : y !== ' ' ? y : x
     status.files.push({ path: file, status: code, staged: x !== ' ' && x !== '?' })
   }
-  return status
+  return { status, inWorktree }
 }
 
 function isBinary(buf: Buffer): boolean {

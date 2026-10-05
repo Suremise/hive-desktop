@@ -495,6 +495,8 @@ The **Images** tab shows every screenshot and image pasted or dropped into the p
 
 The **Changes** tab lists files changed in the project's git working tree and shows each one as a side-by-side diff against the last commit — a quick way to review what the agent did.
 
+Hive checks your projects' git status in the background (this tab, branch status, the Files tab's dimmed entries) without writing to the repository's index, so your own `git add` or `git commit`, or an agent's, never fails with *"index.lock: File exists"* because of it. Hive's own git actions, such as **Merge**, still update it as git does. If git is busy when the Files tab lists a folder, ignored entries keep their dimming and the folder is listed again a moment later.
+
 ## Project settings
 
 Each project can override the global defaults in its **Settings** tab, which has the same categories and search as Settings:
