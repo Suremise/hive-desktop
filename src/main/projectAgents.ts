@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import { basename, join, resolve } from 'path'
-import { MAX_AGENTS, mergeBlocked, moveAgentTo, projectAgents, slugify } from '../shared/defaults'
+import { MAX_AGENTS, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
 import { agentProvider, isKnownProvider } from '../shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, MergeResult, ProjectGitInfo } from '../shared/types'
 import { config } from './config'
@@ -81,7 +81,7 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
       if (list.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an agent called "${name}".`)
       const wtPath = def.worktree?.path.toLowerCase()
       if (wtPath && list.some((a) => a.worktree?.path.toLowerCase() === wtPath)) throw new Error('Another agent already works in that worktree.')
-      // Pages whose layout wasn't chosen by hand follow their agents, so the new one shows.
+      // An automatic layout follows the agents, so the new one shows; with one chosen by hand, a full page sends it to the next (#134).
       return { agents: [...list, def] }
     })
   } catch (e) {
@@ -149,6 +149,21 @@ export async function moveAgent(projectPath: string, agentId: string, index: num
     const list = projectAgents(now)
     if (!list.some((a) => a.id === agentId)) throw new Error('That agent no longer exists.')
     return { agents: moveAgentTo(list, agentId, index) }
+  })
+  await workspaceOf(projectPath).refresh()
+  return projectAgents(next).map((a) => a.id)
+}
+
+/**
+ * Swaps two agents' places in the project's order (#135: one dropped on another's pane), under the project file's lock so
+ * a change meanwhile isn't lost. Returns the order as saved.
+ */
+export async function swapAgents(projectPath: string, agentId: string, otherId: string): Promise<string[]> {
+  projectPath = workspace.assertProject(projectPath)
+  const next = await workspace.mutateProjectConfig(projectPath, (now) => {
+    const list = projectAgents(now)
+    if (!list.some((a) => a.id === agentId) || !list.some((a) => a.id === otherId)) throw new Error('That agent no longer exists.')
+    return { agents: swapAgentsIn(list, agentId, otherId) }
   })
   await workspaceOf(projectPath).refresh()
   return projectAgents(next).map((a) => a.id)

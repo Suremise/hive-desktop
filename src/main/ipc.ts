@@ -375,6 +375,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'agents:update': (p, id, patch) => projectAgents.updateAgent(p, id, patch),
     'agents:remove': (p, id, opts) => projectAgents.removeAgent(p, id, opts),
     'agents:move': (p, id, index) => projectAgents.moveAgent(p, id, index),
+    'agents:swap': (p, id, other) => projectAgents.swapAgents(p, id, other),
     'agents:gitInfo': (p) => projectAgents.gitInfo(p),
     'agents:branchStatus': async (p, id) => {
       const st = await projectAgents.branchStatus(p, id)
