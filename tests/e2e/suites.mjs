@@ -54,6 +54,7 @@ export const SUITES = [
   { name: 'longsession' },
   { name: 'mcp' },
   { name: 'mode', needs: ['claude'] },
+  { name: 'models' },
   { name: 'numbers' },
   { name: 'overview' },
   { name: 'packaged', needs: ['packaged'] },

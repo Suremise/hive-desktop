@@ -83,7 +83,7 @@ export function rolloutDetails(text: string): LiveDetails {
       if (u) out.planUsage = u
     } else if (r.type === 'event_msg' && p.type === 'thread_settings_applied') {
       const ts = p.thread_settings ?? {}
-      if (typeof ts.model === 'string') out.modelName = ts.model
+      if (typeof ts.model === 'string') out.modelName = out.modelId = ts.model
       const effort = ts.collaboration_mode?.settings?.reasoning_effort ?? ts.reasoning_effort
       if (typeof effort === 'string') out.effort = effort
       if (typeof ts.collaboration_mode?.mode === 'string') out.planMode = ts.collaboration_mode.mode === 'plan'
@@ -92,7 +92,7 @@ export function rolloutDetails(text: string): LiveDetails {
     } else if (r.type === 'event_msg' && p.type === 'task_started' && typeof p.collaboration_mode_kind === 'string') {
       out.planMode = p.collaboration_mode_kind === 'plan'
     } else if (r.type === 'turn_context') {
-      if (typeof p.model === 'string') out.modelName = p.model
+      if (typeof p.model === 'string') out.modelName = out.modelId = p.model
       if (typeof p.effort === 'string') out.effort = p.effort
     }
   }

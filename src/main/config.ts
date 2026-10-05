@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { copyFileSync, existsSync } from 'fs'
 import { DEFAULT_APP_CONFIG, mergeDefaults, migrateConfig, withLegacySettings } from '../shared/defaults'
-import type { AppConfig, AppSettings, ModelPrice } from '../shared/types'
+import type { AppConfig, AppSettings, EffortOption, FallbackModel, ModelPrice, ProviderSettings } from '../shared/types'
 import type { SettingsPatch } from '../shared/api'
 import { readKeptJsonSync, writeKeptJson } from './fsutil'
 import { createLogger } from './logger'
@@ -72,8 +72,11 @@ class ConfigStore {
     return this.data.settings
   }
 
-  /** Replaces one provider's price overrides; the deep merge in updateSettings can't delete a model. */
-  setProviderPrices(provider: string, prices: Record<string, ModelPrice>): AppSettings {
+  /**
+   * Replaces one provider's price overrides (the deep merge in updateSettings can't delete a model), and which shipped
+   * prices are removed from its table (absent: kept as they are; [] restores them all).
+   */
+  setProviderPrices(provider: string, prices: Record<string, ModelPrice>, removed?: string[]): AppSettings {
     const prev = structuredClone(this.data.settings)
     const clean: Record<string, ModelPrice> = {}
     for (const [model, p] of Object.entries(prices ?? {})) {
@@ -81,8 +84,39 @@ class ConfigStore {
       if (!p || !ok(p.input) || !ok(p.cachedInput) || !ok(p.output)) continue
       clean[model] = { input: p.input, cachedInput: p.cachedInput, output: p.output, ...(ok(p.cacheWrite) ? { cacheWrite: p.cacheWrite } : {}) }
     }
-    const current = this.data.settings.providers[provider]
-    this.data.settings = { ...this.data.settings, providers: { ...this.data.settings.providers, [provider]: { ...current, prices: clean } } }
+    const current = { ...this.data.settings.providers[provider], prices: clean }
+    if (removed !== undefined) {
+      const gone = [...new Set((Array.isArray(removed) ? removed : []).filter((m) => typeof m === 'string' && m.trim()).map((m) => m.trim()))]
+      if (gone.length) current.pricesRemoved = gone
+      else delete current.pricesRemoved
+    }
+    this.data.settings = { ...this.data.settings, providers: { ...this.data.settings.providers, [provider]: current } }
+    this.scheduleSave()
+    for (const l of this.listeners) l(this.data.settings, prev)
+    return this.data.settings
+  }
+
+  /**
+   * Replaces one provider's fallback list of models or effort levels (#125), as the user edited it; null (or an empty
+   * list) goes back to Hive's defaults, which then follow Hive's updates. Entries without a value are dropped, and a
+   * value given twice keeps its first entry.
+   */
+  setProviderFallback(provider: string, kind: 'models' | 'efforts', list: (FallbackModel | EffortOption)[] | null): AppSettings {
+    const prev = structuredClone(this.data.settings)
+    const key = kind === 'models' ? 'modelFallback' : 'effortFallback'
+    const seen = new Set<string>()
+    const clean: (FallbackModel | EffortOption)[] = []
+    for (const e of Array.isArray(list) ? list : []) {
+      const value = typeof e?.value === 'string' ? e.value.trim() : ''
+      if (!value || seen.has(value.toLowerCase())) continue
+      seen.add(value.toLowerCase())
+      const label = typeof e.label === 'string' && e.label.trim() ? e.label.trim() : value
+      clean.push(kind === 'models' && (e as FallbackModel).older ? { value, label, older: true } : { value, label })
+    }
+    const current: ProviderSettings = { ...this.data.settings.providers[provider] }
+    if (clean.length) (current as unknown as Record<string, unknown>)[key] = clean
+    else delete current[key]
+    this.data.settings = { ...this.data.settings, providers: { ...this.data.settings.providers, [provider]: current } }
     this.scheduleSave()
     for (const l of this.listeners) l(this.data.settings, prev)
     return this.data.settings

@@ -26,6 +26,8 @@ export interface ModelOption {
 export interface ModelGroup {
   label: string
   older?: boolean
+  /** Models the CLI lists as not available to this account: shown, not offered. */
+  unavailable?: boolean
   models: ModelOption[]
 }
 
@@ -64,6 +66,14 @@ export interface ProviderCapabilities {
   backgroundWakes: boolean
 }
 
+/** What the CLI said about a model, for modeCaveat. */
+export interface ModeCaveatFacts {
+  /** Whether it runs the model in its automatic mode; undefined: it didn't say. */
+  supportsAuto?: boolean
+  /** The model's name as the CLI gives it. */
+  label?: string
+}
+
 export interface ProviderDescriptor {
   id: ProviderId
   /** Product name: "Claude Code". */
@@ -77,8 +87,12 @@ export interface ProviderDescriptor {
   setupUrl: string
   permissionModes: ModeOption[]
   defaultPermissionMode: PermissionMode
+  /** Effort levels and their names: the starting fallback when the CLI doesn't report a model's own (models.ts). */
   effortLevels: { value: EffortLevel; label: string }[]
-  /** Models offered in pickers. Providers with account-specific catalogues fill this at runtime. */
+  /**
+   * Models offered in pickers when the CLI can't be asked: the starting fallback, which the user can edit (models.ts).
+   * The CLI's own catalog, when it gives one, replaces it.
+   */
   modelGroups: ModelGroup[]
   modelPlaceholder: string
   capabilities: ProviderCapabilities
@@ -96,8 +110,9 @@ export interface ProviderDescriptor {
   /**
    * A warning for a mode the CLI may not run with a model (it then runs another), or null. A warning, not a
    * rule: which models support a mode is the CLI's to decide and can change, and Hive shows the mode it runs in.
+   * `known` is what the CLI reported about the model (models.ts modelCaps), which replaces any guess.
    */
-  modeCaveat?: (mode: PermissionMode, model: string) => string | null
+  modeCaveat?: (mode: PermissionMode, model: string, known?: ModeCaveatFacts) => string | null
   /** Agent Setup: how the installer works and which accounts can sign in. */
   installNote: string
   /** Agent Setup, when only an editor extension's copy was found: why Hive doesn't use it. */
@@ -195,9 +210,12 @@ export function modeOption(provider: ProviderId, mode: PermissionMode | null | u
   return providerDescriptor(provider).permissionModes.find((m) => m.value === mode)
 }
 
-/** The provider's warning for running this mode with this model (null when there is none, or the model isn't known). */
-export function modeCaveat(provider: ProviderId, mode: PermissionMode | '' | null | undefined, model: string | null | undefined): string | null {
-  return mode && model ? (providerDescriptor(provider).modeCaveat?.(mode, model) ?? null) : null
+/**
+ * The provider's warning for running this mode with this model (null when there is none, or the model isn't known).
+ * `known`: what the CLI reported about the model (models.ts modelCaps), which replaces the descriptor's guess.
+ */
+export function modeCaveat(provider: ProviderId, mode: PermissionMode | '' | null | undefined, model: string | null | undefined, known?: ModeCaveatFacts): string | null {
+  return mode && model ? (providerDescriptor(provider).modeCaveat?.(mode, model, known) ?? null) : null
 }
 
 export function permissionLabel(provider: ProviderId, mode: PermissionMode): string {

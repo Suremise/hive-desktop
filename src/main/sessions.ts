@@ -92,6 +92,11 @@ interface LiveSession {
   backupMtime?: string
   /** Launched without a model choice, so its transcript shows the CLI's default model. */
   defaultModel: boolean
+  /**
+   * Launched without an effort choice: the effort it first reports is the CLI's default for its model (the launch's
+   * model, else the one it reports), learned for the footer (#125). Cleared once learned.
+   */
+  defaultEffort?: { model: string | null }
   /** Set while a compaction Hive asked for runs. */
   compacting?: Compaction
   /** The user stopped it (e.g. during its worktree setup), so an early exit isn't reported as a failure. */
@@ -896,6 +901,7 @@ class SessionManager {
       skillsUnmeasured: deliveredSizes.unmeasured
     })
     l.defaultModel = !eff.model
+    l.defaultEffort = eff.effort ? undefined : { model: eff.model }
 
     // The footer is read from the rendered screen: a CLI may redraw only the characters that changed.
     const screen = l.adapter.footerMode ? new TerminalScreen(PTY_COLS, PTY_ROWS) : null
@@ -1866,6 +1872,12 @@ class SessionManager {
 
   private applyDetails(l: LiveSession, d: ReturnType<NonNullable<ProviderAdapter['statusLine']>>): void {
     if (d.planUsage) reportPlanUsage(l.state.provider, d.planUsage)
+    const learn = l.defaultEffort
+    const learnModel = d.modelId ?? learn?.model
+    if (learn && d.effort && learnModel) {
+      providerService.observeDefaultEffort(l.state.provider, learnModel, d.effort)
+      l.defaultEffort = undefined
+    }
     const st = l.state
     const next = { effort: d.effort ?? st.effort, modelName: d.modelName ?? st.modelName, costUsd: d.costUsd ?? st.costUsd, planMode: d.planMode ?? st.planMode, permissionMode: d.permissionMode ?? st.permissionMode, contextWindow: d.contextWindow ?? st.contextWindow }
     if (

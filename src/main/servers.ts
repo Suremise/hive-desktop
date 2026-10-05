@@ -7,6 +7,7 @@ import { readFile, stat } from 'fs/promises'
 import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
+import { fallbackEfforts, modelGroups } from '../shared/models'
 import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { timeLeft } from '../shared/progress'
 import { ProgressError, admitReport, type ProgressCaller } from './progress'
@@ -597,8 +598,9 @@ route('GET', '/v1/providers', async () => {
       problem: info.readiness?.find((r) => r.level === 'error')?.message ?? null,
       isDefault: s.defaultProvider === p.id,
       defaultModel: info.defaultModel ?? null,
-      models: info.models?.length ? info.models : p.modelGroups.flatMap((g) => g.models.map((m) => ({ value: m.value, label: m.label }))),
-      efforts: p.effortLevels,
+      // What the pickers offer: the CLI's own models, else the fallback list in Settings (#125).
+      models: modelGroups(p.id, info, s).filter((g) => !g.unavailable).flatMap((g) => g.models.map((m) => ({ value: m.value, label: m.label }))),
+      efforts: fallbackEfforts(p.id, s),
       // Whether agents can be given context200k (a 200K window instead of the model's 1M).
       context200k: p.capabilities.contextLimit,
       modes: offeredModes(p.id, s).map((m) => ({ value: m.value, label: m.label, description: m.description }))

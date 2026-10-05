@@ -90,6 +90,7 @@ Test copies run quiet: an unpackaged build with a test profile (`HIVE_USER_DATA`
 | `src/shared/assistant.ts`, `assistantTools.ts`, `src/main/personas.ts`, `assistantControl.ts`, `src/renderer/src/components/Assistant.tsx`, `AssistantView.tsx`, `Personas.tsx` | The Hive Assistant (one per workspace, a session host at `.hive/assistant` whose settings are overlaid from Settings → Assistant) and its personas (`.hive/personas`, shipped in `resources/personas`) |
 | `src/main/projectAgents.ts`, `src/main/worktrees.ts` | A project's agents (up to 12, six to a page): add/update/remove/merge; git worktree operations |
 | `src/shared/providers.ts`, `claude.ts`, `codex.ts` | Provider descriptors (names, modes, models, capabilities) and settings resolution helpers |
+| `src/shared/models.ts`, `src/main/providers/*/models.ts` | Models and capabilities from the CLIs (Claude Code's initialize, codex debug models), with the editable fallbacks: what the pickers, the footer and the Agent API offer |
 | `src/main/providers/` | `ProviderAdapter` interface, registry, `claude/` and `codex/` adapters (launch, hooks, transcripts, usage, conversation parsers) |
 | `src/main/providerService.ts` | Each provider's install info, readiness and setup tasks (Agent Setup) |
 | `src/shared/prices.ts`, `instructions.ts` | Price tables and cost estimates; shared AGENTS.md logic |

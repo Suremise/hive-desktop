@@ -8,7 +8,8 @@ import { agentProviderOf, confirm, focusAfterRemoving, notify, projectKey, set, 
 import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { cx } from '../util'
-import { ModelPicker } from './ModelPicker'
+import { EffortPicker, ModelPicker } from './ModelPicker'
+import { effortText, modelCaps } from '@shared/models'
 import { pasteIntoTerminal } from './TerminalView'
 import { BusyButton, Icon, Modal, useBusy } from './ui'
 
@@ -85,34 +86,25 @@ export function Overrides({
   onContext: (v: ContextChoice) => void
 }) {
   const settings = useStore((s) => s.settings)
-  const cliDefault = useStore((s) => s.providers[provider]?.defaultModel ?? null)
+  const info = useStore((s) => s.providers[provider])
+  const cliDefault = info?.defaultModel ?? null
   if (!settings) return null
   const p = providerDescriptor(provider)
   const pc = projectProviderConfig(project.config, provider)
   const g = providerSettings(settings, provider)
   const projectModel = effectiveModelLabel(provider, pc.model, g.defaultModel, cliDefault)
-  const projectEffortId = pc.effort !== 'inherit' ? pc.effort : g.defaultEffort
-  const projectEffort = projectEffortId ? p.effortLevels.find((l) => l.value === projectEffortId)?.label ?? projectEffortId : 'default'
   const projectPermission = permissionLabel(provider, pc.permissionMode === 'inherit' ? g.defaultPermissionMode : pc.permissionMode)
   const modes = offeredModes(provider, settings)
   // What would run: the choice here, else what it inherits.
   const runModel = model || (pc.model && pc.model !== 'inherit' ? pc.model : g.defaultModel) || cliDefault
   const runMode = permission || (pc.permissionMode !== 'inherit' ? pc.permissionMode : g.defaultPermissionMode)
+  const projectEffort = effortText(provider, pc.effort !== 'inherit' ? pc.effort : g.defaultEffort, runModel, info, settings)
   return (
     <div className="agent-form">
       <label>Model</label>
       <ModelPicker key={provider} provider={provider} value={model} base={{ value: '', label: `${inherit} (${projectModel})` }} onChange={onModel} />
       <label>Effort</label>
-      <select className="select" value={effort} onChange={(e) => onEffort(e.target.value)}>
-        <option value="">
-          {inherit} ({projectEffort})
-        </option>
-        {p.effortLevels.map((l) => (
-          <option key={l.value} value={l.value}>
-            {l.label}
-          </option>
-        ))}
-      </select>
+      <EffortPicker provider={provider} model={runModel} value={effort} base={{ value: '', label: `${inherit} (${projectEffort})` }} onChange={onEffort} />
       <label>Permission mode</label>
       <select className="select" value={permission} onChange={(e) => onPermission(e.target.value)}>
         <option value="">
@@ -141,9 +133,12 @@ export function Overrides({
   )
 }
 
-/** Under a mode choice: the provider's warning when it may not run that mode with that model. */
+/** Under a mode choice: the provider's warning when it may not run that mode with that model (as the CLI says, #125). */
 export function ModeCaveat({ provider, mode, model }: { provider: ProviderId; mode: string | null | undefined; model: string | null | undefined }) {
-  const text = modeCaveat(provider, mode as PermissionMode, model)
+  const info = useStore((s) => s.providers[provider])
+  const settings = useStore((s) => s.settings)
+  const caps = modelCaps(provider, model, info, settings)
+  const text = modeCaveat(provider, mode as PermissionMode, model, { supportsAuto: caps.supportsAuto, label: caps.label })
   if (!text) return null
   return (
     <div className="mode-caveat">

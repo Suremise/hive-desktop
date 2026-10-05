@@ -29,6 +29,9 @@
 // - Ctrl+C twice, or "/exit", ends it with SessionEnd.
 // - `--model fail-start` makes it refuse to start, printing an error and exiting with 1, as Claude Code does for an
 //   argument it rejects.
+// - `-p --input-format stream-json` answers the Agent SDK's initialize control request with Claude Code 2.1.289's
+//   recorded reply (tests/fixtures/claude-initialize.json), as Hive asks for its models (#125); FAKE_CLAUDE_MODELS=fail
+//   makes it answer with an error instead.
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
@@ -43,6 +46,24 @@ if (args[0] === '--version') {
 if (args[0] === 'auth') {
   console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai' }))
   process.exit(0)
+}
+if (args.includes('-p') && args.includes('stream-json')) {
+  // The initialize request Hive sends to read the models; it stays open, as Claude Code does, until closed.
+  let buf = ''
+  process.stdin.on('data', (d) => {
+    buf += d
+    for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
+      const m = JSON.parse(buf.slice(0, i))
+      buf = buf.slice(i + 1)
+      if (m.type !== 'control_request' || m.request?.subtype !== 'initialize') continue
+      const recorded = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'fixtures', 'claude-initialize.json'), 'utf8'))
+      const reply = process.env.FAKE_CLAUDE_MODELS === 'fail' ? { type: 'control_response', response: { subtype: 'error', request_id: m.request_id, error: 'not supported' } } : { ...recorded, response: { ...recorded.response, request_id: m.request_id } }
+      process.stdout.write(JSON.stringify(reply) + '\n')
+    }
+  })
+  // Closed by Hive once it has the reply (killing a .cmd launcher leaves this process: its stdin ends).
+  process.stdin.on('end', () => process.exit(0))
+  return
 }
 
 const home = process.env.CLAUDE_CONFIG_DIR

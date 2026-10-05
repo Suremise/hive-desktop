@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AppSettings, ChimeSound, EffortLevel, ModelPrice, PermissionMode, ProviderId, TaskColumn } from '@shared/types'
+import type { AppSettings, ChimeSound, EffortLevel, EffortOption, FallbackModel, ModelPrice, PermissionMode, ProviderId, TaskColumn } from '@shared/types'
 import { DEFAULT_COLUMN_COLORS, TASK_COLUMNS, columnColor } from '@shared/tasks'
 import { DEFAULT_PERSONA } from '@shared/assistant'
-import { PRICES_CHECKED, SHIPPED_PRICES } from '@shared/prices'
+import { PRICES_CHECKED, SHIPPED_PRICES, priceRows } from '@shared/prices'
+import { effortText, fallbackEfforts, fallbackModels, modelSource, modelSourceText } from '@shared/models'
 import type { SettingsPatch } from '@shared/api'
 import { DEFAULT_SETTINGS, FILE_LOCK_MODES } from '@shared/defaults'
 import { PROVIDERS, defaultProviderSettings, enabledProviders, isProviderEnabled, offeredModes, permissionLabel, providerDescriptor, providerSettings, type ProviderDescriptor } from '@shared/providers'
 import { usePersonas } from '../components/Assistant'
 import { ModeCaveat } from '../components/AgentDialogs'
-import { ModelPicker } from '../components/ModelPicker'
+import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { NumberField } from '../components/NumberField'
 import { ProviderIcon } from '../components/ProviderIcon'
 import * as actions from '../actions'
@@ -244,7 +245,7 @@ function providerSettingDefs(p: ProviderDescriptor): SettingDef[] {
     { section, provider: p.id, key: 'executablePath', title: 'CLI path', desc: `Full path to the ${p.name} CLI (${p.cliName}.exe). Leave empty to detect it automatically.`, tip: 'Detection checks PATH and the usual install folders. Copies bundled with editor extensions (VS Code, Cursor…) are never used — Hive requires the standalone CLI.', type: 'text', placeholder: 'Auto-detect' },
     { section, provider: p.id, key: 'checkUpdatesOnLaunch', title: 'Check for updates on launch', desc: 'Compare the installed version with the latest release when Hive starts.', tip: `Hive never updates ${p.name} without asking. Standalone installs may also update themselves.`, type: 'boolean' },
     { section, provider: p.id, key: 'defaultModel', title: 'Default model', desc: `Model for ${p.name} sessions unless a project overrides it. ${p.name} default uses its own choice.`, tip: 'Whether your account can use a model is only known when a session starts.', type: 'custom', render: () => <GlobalModelPicker provider={p.id} /> },
-    { section, provider: p.id, key: 'defaultEffort', title: 'Default effort', desc: 'Reasoning effort unless a project overrides it.', tip: 'Higher effort is more thorough but slower and uses more tokens.', type: 'select', options: [{ value: '', label: `${p.name} default` }, ...p.effortLevels.map((l) => ({ value: l.value, label: l.label }))] },
+    { section, provider: p.id, key: 'defaultEffort', title: 'Default effort', desc: 'Reasoning effort unless a project overrides it. The levels are the default model\'s, as the CLI reports them.', tip: 'Higher effort is more thorough but slower and uses more tokens.', type: 'custom', render: () => <GlobalEffortPicker provider={p.id} /> },
     {
       section,
       provider: p.id,
@@ -299,12 +300,34 @@ function providerSettingDefs(p: ProviderDescriptor): SettingDef[] {
   defs.push({
     section,
     provider: p.id,
+    key: 'modelFallback',
+    title: 'Models (fallback)',
+    desc: `Hive asks ${p.name} which models it has and what each can do. This list is only used when it can't be asked (not installed, too old, or an unexpected answer).`,
+    tip: `Add, remove and rename models; a custom model ID can still be typed in any model picker. Reset to defaults goes back to Hive's list, which then follows Hive's updates.`,
+    type: 'custom',
+    wide: true,
+    render: () => <ModelFallbackTable provider={p.id} />
+  })
+  defs.push({
+    section,
+    provider: p.id,
+    key: 'effortFallback',
+    title: 'Effort levels (fallback)',
+    desc: `The effort levels offered when ${p.name} doesn't report a model's own. With the CLI's answer, each model offers just the levels it takes.`,
+    tip: `The value is what Hive passes to ${p.name}; the name is what the pickers and footer show.`,
+    type: 'custom',
+    wide: true,
+    render: () => <EffortFallbackTable provider={p.id} />
+  })
+  defs.push({
+    section,
+    provider: p.id,
     key: 'prices',
     title: 'API prices',
     desc: p.capabilities.reportsCost
       ? `${p.name} reports each session's cost itself; these prices are only used for sessions without one. USD per million tokens.`
       : `Used to estimate what ${p.name} sessions would cost at API prices (shown with ≈ on the Overview). USD per million tokens.`,
-    tip: `Hive ships the published prices as of ${PRICES_CHECKED}. Change any that are out of date; Reset returns a model to Hive's price. On a subscription you are not charged these — they show how heavy the work was.`,
+    tip: `Hive's starting prices are the published ones, checked ${PRICES_CHECKED}: edit any that are out of date, add models and remove them. Hive never fetches prices. On a subscription you are not charged these — they show how heavy the work was.`,
     type: 'custom',
     wide: true,
     render: () => <PriceTable provider={p.id} />
@@ -312,64 +335,205 @@ function providerSettingDefs(p: ProviderDescriptor): SettingDef[] {
   return defs
 }
 
-/** The price table for a provider's models: Hive's prices, with the user's overrides. */
+/** The price table for a provider's models: Hive's prices (editable defaults), with the user's changes, added and removed models (#125). */
 function PriceTable({ provider }: { provider: ProviderId }) {
-  const own = useStore((s) => providerSettings(s.settings, provider).prices)
+  const settings = useStore((s) => s.settings)
+  const ps = providerSettings(settings, provider)
+  const own = ps.prices
+  const removed = ps.pricesRemoved ?? []
   const shipped = SHIPPED_PRICES[provider] ?? {}
-  const models = [...new Set([...Object.keys(shipped), ...Object.keys(own)])]
+  const rows = priceRows(provider, settings)
+  const [adding, setAdding] = useState('')
   const cols: { key: keyof ModelPrice; label: string }[] = [
     { key: 'input', label: 'Input' },
     { key: 'cachedInput', label: 'Cached input' },
     ...(Object.values(shipped).some((m) => m.cacheWrite !== undefined) ? [{ key: 'cacheWrite' as const, label: 'Cache write' }] : []),
     { key: 'output', label: 'Output' }
   ]
-  const save = (next: Record<string, ModelPrice>): Promise<void> =>
+  const save = (next: Record<string, ModelPrice>, nextRemoved: string[] = removed): Promise<void> =>
     // Replaces the whole table (a deep merge can't remove a model's override).
-    actions.attempt('Could not save prices', () => call('settings:setProviderPrices', provider, next)).then((s) => void (s && set({ settings: s })))
+    actions.attempt('Could not save prices', () => call('settings:setProviderPrices', provider, next, nextRemoved)).then((s) => void (s && set({ settings: s })))
   const setPrice = (model: string, key: keyof ModelPrice, value: string): void => {
     const n = Number(value)
-    if (!Number.isFinite(n) || n < 0) return
+    if (value.trim() === '' || !Number.isFinite(n) || n < 0) return
     const current = own[model] ?? shipped[model] ?? { input: 0, cachedInput: 0, output: 0 }
     void save({ ...own, [model]: { ...current, [key]: n } })
   }
-  const reset = (model: string): void => {
+  const back = (model: string): void => {
     const next = { ...own }
     delete next[model]
     void save(next)
   }
+  const remove = (model: string): void => {
+    const next = { ...own }
+    delete next[model]
+    void save(next, shipped[model] ? [...new Set([...removed, model])] : removed)
+  }
+  const add = (): void => {
+    const m = adding.trim()
+    if (!m || rows.some((r) => r.model.toLowerCase() === m.toLowerCase())) return
+    setAdding('')
+    void save({ ...own, [m]: { input: 0, cachedInput: 0, output: 0 } }, removed.filter((x) => x !== m))
+  }
+  const edited = Object.keys(own).length > 0 || removed.length > 0
   return (
-    <table className="table price-table">
-      <thead>
-        <tr>
-          <th>Model</th>
-          {cols.map((c) => (
-            <th key={c.key} className="num">
-              {c.label}
-            </th>
-          ))}
-          <th />
-        </tr>
-      </thead>
-      <tbody>
-        {models.map((m) => {
-          const price = own[m] ?? shipped[m]
-          return (
+    <div className="fallback-table">
+      <div className="fallback-source faint">Hive's starting prices, checked {PRICES_CHECKED}: edit them if they are out of date.</div>
+      <table className="table price-table">
+        <thead>
+          <tr>
+            <th>Model</th>
+            {cols.map((c) => (
+              <th key={c.key} className="num">
+                {c.label}
+              </th>
+            ))}
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ model: m, price, shipped: isShipped, edited: isEdited }) => (
             <tr key={m}>
               <td className="mono">
-                {m} {own[m] && <span className="badge">yours</span>}
+                {m} {isEdited && <span className="badge">{isShipped ? 'edited' : 'yours'}</span>}
               </td>
               {cols.map((c) => (
                 <td key={c.key} className="num">
-                  <input className="input price-input" type="number" min={0} step={0.01} defaultValue={price?.[c.key] ?? ''} key={`${m}:${c.key}:${price?.[c.key]}`} onBlur={(e) => e.target.value !== String(price?.[c.key] ?? '') && setPrice(m, c.key, e.target.value)} />
+                  <input className="input price-input" type="number" min={0} step={0.01} aria-label={`${m} ${c.label}`} defaultValue={price?.[c.key] ?? ''} key={`${m}:${c.key}:${price?.[c.key]}`} onBlur={(e) => e.target.value !== String(price?.[c.key] ?? '') && setPrice(m, c.key, e.target.value)} />
                 </td>
               ))}
-              <td>{own[m] && shipped[m] && <IconButton icon="discard" title="Back to Hive's price" onClick={() => reset(m)} />}</td>
+              <td className="row-actions">
+                {isEdited && isShipped && <IconButton icon="discard" title="Back to Hive's price" onClick={() => back(m)} />}
+                <IconButton icon="trash" title="Remove from the table" onClick={() => remove(m)} />
+              </td>
             </tr>
-          )
-        })}
-      </tbody>
-    </table>
+          ))}
+        </tbody>
+      </table>
+      <div className="fallback-actions">
+        <input className="input mono" placeholder="Model ID, e.g. a new model" aria-label="New model's ID" value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+        <button className="btn subtle" disabled={!adding.trim()} onClick={add}>
+          <Icon name="add" /> Add model
+        </button>
+        <button className="btn subtle" disabled={!edited} onClick={() => void save({}, [])}>
+          <Icon name="discard" /> Reset to defaults
+        </button>
+      </div>
+    </div>
   )
+}
+
+/**
+ * An editable list for a provider's fallback (models or effort levels): value, name and, for models, Older. Any edit
+ * stores the whole list as the user's; Reset to defaults removes it, so Hive's own list (and its updates) applies again.
+ */
+function FallbackRows<T extends FallbackModel | EffortOption>({ provider, kind, rows, edited, valueLabel, placeholder, open: startOpen }: { provider: ProviderId; kind: 'models' | 'efforts'; rows: T[]; edited: boolean; valueLabel: string; placeholder: string; open: boolean }) {
+  const [adding, setAdding] = useState('')
+  // Folded while the CLI's answer is in use and the list is Hive's own: it is only used without one.
+  const [open, setOpen] = useState(startOpen)
+  useEffect(() => {
+    if (startOpen) setOpen(true)
+  }, [startOpen])
+  const save = (next: T[] | null): Promise<void> => actions.attempt('Could not save the list', () => call('settings:setProviderFallback', provider, kind, next)).then((s) => void (s && set({ settings: s })))
+  const change = (i: number, patch: Partial<FallbackModel>): void => void save(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  const add = (): void => {
+    const v = adding.trim()
+    if (!v || rows.some((r) => r.value.toLowerCase() === v.toLowerCase())) return
+    setAdding('')
+    void save([...rows, { value: v, label: v } as T])
+  }
+  if (!open)
+    return (
+      <a className="fallback-toggle" onClick={() => setOpen(true)}>
+        Show the list ({rows.length} {kind === 'models' ? 'models' : 'levels'})
+      </a>
+    )
+  return (
+    <>
+      <table className="table fallback-list">
+        <thead>
+          <tr>
+            <th>{valueLabel}</th>
+            <th>Name</th>
+            {kind === 'models' && <th>Older</th>}
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={r.value}>
+              <td>
+                <input className="input mono" aria-label={`${valueLabel} ${i + 1}`} defaultValue={r.value} key={`v:${r.value}`} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== r.value && change(i, { value: e.target.value.trim() })} />
+              </td>
+              <td>
+                <input className="input" aria-label={`Name ${i + 1}`} defaultValue={r.label} key={`l:${r.value}:${r.label}`} onBlur={(e) => e.target.value.trim() !== r.label && change(i, { label: e.target.value.trim() || r.value })} />
+              </td>
+              {kind === 'models' && (
+                <td>
+                  <input type="checkbox" aria-label={`Older ${i + 1}`} checked={!!(r as FallbackModel).older} onChange={(e) => change(i, { older: e.target.checked })} />
+                </td>
+              )}
+              <td className="row-actions">
+                <IconButton icon="trash" title="Remove" disabled={rows.length < 2} onClick={() => void save(rows.filter((_, j) => j !== i))} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="fallback-actions">
+        <input className="input mono" placeholder={placeholder} aria-label={`New ${valueLabel.toLowerCase()}`} value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+        <button className="btn subtle" disabled={!adding.trim()} onClick={add}>
+          <Icon name="add" /> Add
+        </button>
+        <button className="btn subtle" disabled={!edited} onClick={() => void save(null)}>
+          <Icon name="discard" /> Reset to defaults
+        </button>
+      </div>
+    </>
+  )
+}
+
+/** Settings → <provider> → Models (fallback): where the pickers' models come from now, and the list used without the CLI. */
+function ModelFallbackTable({ provider }: { provider: ProviderId }) {
+  const settings = useStore((s) => s.settings)
+  const info = useStore((s) => s.providers[provider])
+  const src = modelSource(provider, info, settings)
+  const edited = !!providerSettings(settings, provider).modelFallback?.length
+  return (
+    <div className="fallback-table">
+      <div className={cx('fallback-source', src.kind === 'fallback' ? 'warn' : 'faint')}>
+        <Icon name={src.kind === 'fallback' ? 'warning' : 'check'} /> Models now: {modelSourceText(provider, { ...src, edited })}
+      </div>
+      <FallbackRows provider={provider} kind="models" rows={fallbackModels(provider, settings)} edited={edited} valueLabel="Model ID" placeholder={providerDescriptor(provider).modelPlaceholder} open={src.kind === 'fallback' || edited} />
+    </div>
+  )
+}
+
+/** Settings → <provider> → Effort levels (fallback). */
+function EffortFallbackTable({ provider }: { provider: ProviderId }) {
+  const settings = useStore((s) => s.settings)
+  const info = useStore((s) => s.providers[provider])
+  const edited = !!providerSettings(settings, provider).effortFallback?.length
+  const perModel = !!info?.catalog?.models.some((m) => m.efforts)
+  return (
+    <div className="fallback-table">
+      <div className="fallback-source faint">
+        <Icon name={perModel ? 'check' : 'info'} /> {perModel ? `${modelSourceText(provider, modelSource(provider, info, settings))}: each model offers its own levels; this list names them and is used for models it doesn't describe.` : `Used now: ${providerDescriptor(provider).name} hasn't reported per-model levels.`}
+      </div>
+      <FallbackRows provider={provider} kind="efforts" rows={fallbackEfforts(provider, settings)} edited={edited} valueLabel="Level" placeholder="e.g. xhigh" open={!perModel || edited} />
+    </div>
+  )
+}
+
+/** Settings → <provider> → Default effort: the levels of the model new sessions run (the default model, else the CLI's). */
+function GlobalEffortPicker({ provider }: { provider: ProviderId }) {
+  const settings = useStore((s) => s.settings)
+  const info = useStore((s) => s.providers[provider])
+  const g = providerSettings(settings, provider)
+  const def = SETTINGS.find((d) => d.provider === provider && d.key === 'defaultEffort')!
+  const model = g.defaultModel || info?.defaultModel || null
+  const text = effortText(provider, null, model, info, settings)
+  return <EffortPicker provider={provider} model={model} value={g.defaultEffort} base={{ value: '', label: `${providerDescriptor(provider).name} default${text === 'default' ? '' : ` (${text.replace(/, default$/, '')})`}` }} onChange={(v) => void update(def, v)} />
 }
 
 function GlobalModelPicker({ provider }: { provider: ProviderId }) {
@@ -610,21 +774,17 @@ function AssistantProviderDefaults({ provider }: { provider: ProviderId }) {
   const [args, setArgs] = useState(a.extraArgs)
   useEffect(() => setArgs(a.extraArgs), [a.extraArgs])
   const save = (patch: Partial<typeof a>): void => void saveSettings({ assistant: { providers: { [provider]: patch } } } as SettingsPatch)
-  const effortName = g.defaultEffort ? (p.effortLevels.find((l) => l.value === g.defaultEffort)?.label ?? g.defaultEffort) : `${p.name}'s`
-  const cliDefault = useStore((s) => s.providers[provider]?.defaultModel ?? null)
+  const info = useStore((s) => s.providers[provider])
+  const cliDefault = info?.defaultModel ?? null
+  const runModel = a.model || g.defaultModel || cliDefault
+  const inherited = effortText(provider, g.defaultEffort, runModel, info, settings)
+  const effortName = inherited === 'default' ? `${p.name}'s` : inherited
   return (
     <div className="agent-form assistant-defaults">
       <label>Model</label>
       <ModelPicker provider={provider} value={a.model} base={{ value: '', label: `${p.name} default${g.defaultModel ? ` (${p.modelLabel(g.defaultModel)})` : ''}` }} onChange={(v) => save({ model: v })} />
       <label>Effort</label>
-      <select className="select" value={a.effort} onChange={(e) => save({ effort: e.target.value as EffortLevel | '' })}>
-        <option value="">Default ({effortName})</option>
-        {p.effortLevels.map((l) => (
-          <option key={l.value} value={l.value}>
-            {l.label}
-          </option>
-        ))}
-      </select>
+      <EffortPicker provider={provider} model={runModel} value={a.effort} base={{ value: '', label: `Default (${effortName})` }} onChange={(v) => save({ effort: v as EffortLevel | '' })} />
       <label>Permission mode</label>
       <select className="select" value={a.permissionMode} onChange={(e) => save({ permissionMode: e.target.value as PermissionMode | '' })}>
         <option value="">Default ({permissionLabel(provider, p.assistantMode)})</option>
@@ -887,7 +1047,7 @@ export function SettingsView() {
               <h2>{g.label}</h2>
               <p>{g.desc}</p>
               {g.items.map((d) => {
-                const modified = (d.type !== 'custom' || d.key === 'defaultModel' || d.key === 'defaultProvider') && getValue(settings, d) !== defaultValue(d)
+                const modified = (d.type !== 'custom' || ['defaultModel', 'defaultEffort', 'defaultProvider', 'modelFallback', 'effortFallback'].includes(d.key)) && getValue(settings, d) !== defaultValue(d)
                 return (
                   d.wide ? (
                     <div key={`${d.section}.${d.key}`} className="setting wide">

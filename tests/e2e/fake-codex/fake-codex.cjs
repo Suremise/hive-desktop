@@ -28,6 +28,11 @@ if (args[0] === '--version') {
   console.log(`codex-cli ${process.env.FAKE_CODEX_VERSION || '0.160.0'}`)
   process.exit(0)
 }
+if (args[0] === 'debug' && args[1] === 'models') {
+  // Codex 0.160's recorded catalog (tests/fixtures/codex-debug-models.json), as Hive asks for its models (#125).
+  process.stdout.write(fs.readFileSync(path.join(__dirname, '..', '..', 'fixtures', 'codex-debug-models.json'), 'utf8'))
+  process.exit(0)
+}
 if (args[0] === 'login') {
   console.log('Logged in using ChatGPT')
   process.exit(0)

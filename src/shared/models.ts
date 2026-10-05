@@ -1,0 +1,146 @@
+import type { AgentInstallInfo, AppSettings, CatalogModel, EffortLevel, EffortOption, FallbackModel, ProviderId } from './types'
+import { providerDescriptor, type ModelGroup } from './providers'
+
+/**
+ * Which models and effort levels a provider offers, and what each model can do (#125). The CLI is the source of truth
+ * wherever it can say (its catalog: Claude Code's initialize reply, codex debug models); where it can't, the fallbacks
+ * in Settings → <provider>, which the user can edit and reset, and which start as the descriptor's. Shared by the
+ * pickers, the footer and the Agent API, so they all say the same.
+ */
+
+type Settings = Pick<AppSettings, 'providers'> | null | undefined
+type Info = Pick<AgentInstallInfo, 'catalog' | 'configuredEffort' | 'observedEfforts' | 'defaultModel'> | null | undefined
+
+const text = (v: unknown): v is string => typeof v === 'string' && v.trim() !== ''
+
+/** The descriptor's effort levels: the starting fallback. */
+export const shippedEfforts = (provider: ProviderId): EffortOption[] => providerDescriptor(provider).effortLevels
+
+/** The effort levels offered when the CLI doesn't report a model's own: the user's list, else the descriptor's. */
+export function fallbackEfforts(provider: ProviderId, settings: Settings): EffortOption[] {
+  const own = settings?.providers?.[provider]?.effortFallback
+  const valid = Array.isArray(own) ? own.filter((e) => e && text(e.value)).map((e) => ({ value: e.value.trim(), label: text(e.label) ? e.label.trim() : e.value.trim() })) : []
+  return valid.length ? valid : shippedEfforts(provider)
+}
+
+/** What to call an effort level: its name in the fallback list (the user's, then the descriptor's), else capitalised. */
+export function effortName(provider: ProviderId, value: EffortLevel, settings?: Settings): string {
+  const found = fallbackEfforts(provider, settings).find((e) => e.value === value) ?? shippedEfforts(provider).find((e) => e.value === value)
+  return found?.label ?? value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+/** The descriptor's models as a fallback list (its groups flattened; "older" groups marked). */
+export function shippedModels(provider: ProviderId): FallbackModel[] {
+  return providerDescriptor(provider).modelGroups.flatMap((g) => g.models.map((m) => ({ value: m.value, label: m.label, ...(g.older ? { older: true } : {}) })))
+}
+
+/** The user's edited model list, or null when they haven't edited it (or it holds nothing usable). */
+function ownModels(provider: ProviderId, settings: Settings): FallbackModel[] | null {
+  const own = settings?.providers?.[provider]?.modelFallback
+  if (!Array.isArray(own)) return null
+  const valid = own.filter((m) => m && text(m.value)).map((m) => ({ value: m.value.trim(), label: text(m.label) ? m.label.trim() : m.value.trim(), ...(m.older ? { older: true } : {}) }))
+  return valid.length ? valid : null
+}
+
+/** The models offered when the CLI can't be asked: the user's list, else the descriptor's. */
+export function fallbackModels(provider: ProviderId, settings: Settings): FallbackModel[] {
+  return ownModels(provider, settings) ?? shippedModels(provider)
+}
+
+/** Where a provider's models come from now. */
+export interface ModelSource {
+  kind: 'cli' | 'cache' | 'fallback'
+  /** The CLI version that gave them (cli, cache). */
+  version: string | null
+  /** For fallback: whether it is the user's edited list. */
+  edited: boolean
+}
+
+export function modelSource(provider: ProviderId, info: Info, settings: Settings): ModelSource {
+  const c = info?.catalog
+  if (c?.models.length) return { kind: c.source, version: c.version, edited: false }
+  return { kind: 'fallback', version: null, edited: !!ownModels(provider, settings) }
+}
+
+/** "From Claude Code 2.1.289", "From Claude Code 2.1.289 (last start; checking again)", "Fallback (CLI not available)". */
+export function modelSourceText(provider: ProviderId, src: ModelSource): string {
+  const name = providerDescriptor(provider).name
+  if (src.kind === 'cli') return `From ${name}${src.version ? ` ${src.version}` : ''}`
+  if (src.kind === 'cache') return `From ${name}${src.version ? ` ${src.version}` : ''} (as it last said; asking again)`
+  return `Fallback (${name} couldn't be asked)${src.edited ? ', as you edited it' : ''}`
+}
+
+/**
+ * The pickers' groups: the CLI's models (those it lists as unavailable to the account in a group of their own), else
+ * the fallback (the descriptor's groups as shipped, or the user's list with older versions apart).
+ */
+export function modelGroups(provider: ProviderId, info: Info, settings: Settings): ModelGroup[] {
+  const p = providerDescriptor(provider)
+  const c = info?.catalog
+  if (c?.models.length) {
+    const groups: ModelGroup[] = [{ label: `${p.name} models`, models: c.models.filter((m) => !m.unavailable).map((m) => ({ value: m.value, label: m.label })) }]
+    const off = c.models.filter((m) => m.unavailable)
+    if (off.length) groups.push({ label: 'Not available to this account', unavailable: true, models: off.map((m) => ({ value: m.value, label: m.label })) })
+    return groups
+  }
+  const own = ownModels(provider, settings)
+  if (!own) return p.modelGroups
+  const older = own.filter((m) => m.older)
+  return [
+    { label: `${p.name} models`, models: own.filter((m) => !m.older).map(({ value, label }) => ({ value, label })) },
+    ...(older.length ? [{ label: 'Older versions', older: true, models: older.map(({ value, label }) => ({ value, label })) }] : [])
+  ]
+}
+
+/** A model id without what doesn't change the model: a "[1m]"-style suffix, a date ("-20251001"), case. */
+const modelKey = (m: string): string => m.trim().toLowerCase().replace(/\[[^\]]*\]$/, '').replace(/-\d{8}$/, '')
+
+/** The CLI's entry for a model, by what is passed (an alias or id) or the id an alias stands for. */
+export function catalogModel(info: Info, model: string | null | undefined): CatalogModel | undefined {
+  if (!model || !info?.catalog) return undefined
+  const k = modelKey(model)
+  const models = info.catalog.models
+  return models.find((m) => modelKey(m.value) === k) ?? models.find((m) => m.resolved && modelKey(m.resolved) === k)
+}
+
+/** What a model can do, as far as Hive knows. */
+export interface ModelCaps {
+  /** The effort levels to offer with it. */
+  efforts: EffortOption[]
+  /** Whether those are the model's own (the CLI said), rather than the provider's fallback list. */
+  perModel: boolean
+  /** The effort the CLI uses with it when none is chosen, when known. */
+  defaultEffort: EffortLevel | null
+  /** Whether the CLI runs it in its automatic mode; undefined when the CLI didn't say. */
+  supportsAuto?: boolean
+  /** The model's name as the CLI gives it. */
+  label?: string
+}
+
+/**
+ * A model's capabilities: its own effort levels and default effort where the CLI reports them, else the fallbacks.
+ * `model` is what would run (null: the CLI's default model, when Hive knows it).
+ */
+export function modelCaps(provider: ProviderId, model: string | null | undefined, info: Info, settings: Settings): ModelCaps {
+  const m = catalogModel(info, model || info?.defaultModel)
+  const efforts = m?.efforts ? m.efforts.map((v) => ({ value: v, label: effortName(provider, v, settings) })) : fallbackEfforts(provider, settings)
+  const id = m?.resolved ?? m?.value ?? model ?? info?.defaultModel ?? null
+  const observed = id ? (info?.observedEfforts?.[modelKey(id)] ?? info?.observedEfforts?.[id]) : undefined
+  const def = info?.configuredEffort || m?.defaultEffort || observed || null
+  // A model without effort has no default one either.
+  const defaultEffort = def && (!m?.efforts || m.efforts.length) ? def : null
+  return { efforts, perModel: !!m?.efforts, defaultEffort, supportsAuto: m?.supportsAuto, label: m?.label }
+}
+
+/**
+ * The effort a choice comes to, for a base option ("Inherit (High)"): the chosen level's name, else the model's own
+ * default when the CLI said what it is ("Medium, default"), else "default".
+ */
+export function effortText(provider: ProviderId, chosen: string | null | undefined, model: string | null | undefined, info: Info, settings: Settings): string {
+  if (chosen && chosen !== 'inherit') return effortName(provider, chosen, settings)
+  const def = modelCaps(provider, model, info, settings).defaultEffort
+  return def ? `${effortName(provider, def, settings)}, default` : 'default'
+}
+
+/** The key observedDefaultEffort keeps a model's effort under. */
+export const observedEffortKey = modelKey
