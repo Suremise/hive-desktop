@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { PASSED_SHOWN_MS, fractionDone, isOpenRun, shortDuration, timeLeft } from '@shared/progress'
+import { PASSED_SHOWN_MS, RUN_STATE_WORDS, fractionDone, isOpenRun, shortDuration, stripRuns, timeLeft } from '@shared/progress'
 import type { ProgressRun } from '@shared/types'
 import { selectProject } from '../actions'
 import { call } from '../api'
@@ -212,16 +212,23 @@ function RecentRow({ run: r }: { run: ProgressRun }) {
   )
 }
 
-/** The folded panel: a strip down the right edge, with a small bar per run while anything runs. */
+/** At most this many of the runs past the strip's bars are listed in its "+N" tooltip. */
+const MORE_LISTED = 12
+
+/**
+ * The folded panel: a strip down the right edge, with a small bar per run (the newest few) while anything runs, and
+ * "+N" for the rest, listed on hover and coloured for a failed or stale one among them. Its name counts every run.
+ */
 function ProgressRail({ runs }: { runs: ProgressRun[] }) {
   const kb = commandKeybinding('progress.toggle')
   const open = (): void => setProgressOpen(true)
+  const { bars, more, moreState, summary } = stripRuns(runs)
   return (
     <div
       className="progress-rail"
       role="button"
       tabIndex={0}
-      aria-label="Show the Progress panel"
+      aria-label={`Show the Progress panel${summary ? ` (${summary})` : ''}`}
       onClick={open}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -235,7 +242,7 @@ function ProgressRail({ runs }: { runs: ProgressRun[] }) {
           <Icon name="chevron-left" />
         </span>
       </Tooltip>
-      {runs.slice(0, 6).map((r) => {
+      {bars.map((r) => {
         const f = fractionDone(r)
         return (
           <Tooltip key={r.id} content={`${r.agentName}: ${r.title}${f !== null ? ` (${Math.round(f * 100)}%)` : ''}`}>
@@ -245,6 +252,25 @@ function ProgressRail({ runs }: { runs: ProgressRun[] }) {
           </Tooltip>
         )
       })}
+      {more.length > 0 && (
+        <Tooltip
+          content={
+            <>
+              <div>{more.length} more:</div>
+              {more.slice(0, MORE_LISTED).map((r) => (
+                <div key={r.id}>
+                  {r.agentName}: {r.title} ({RUN_STATE_WORDS[r.state]})
+                </div>
+              ))}
+              {more.length > MORE_LISTED && <div className="faint">and {more.length - MORE_LISTED} others: open the panel to see them</div>}
+            </>
+          }
+        >
+          <span className={cx('progress-more', moreState)} data-more={more.length}>
+            +{more.length}
+          </span>
+        </Tooltip>
+      )}
       <span className="progress-rail-label">Progress</span>
     </div>
   )

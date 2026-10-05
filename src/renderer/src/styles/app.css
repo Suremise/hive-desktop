@@ -5771,6 +5771,23 @@ button.progress-run-show:focus-visible {
 .progress-mini.indeterminate > span {
   animation: progress-rise 1.4s ease-in-out infinite;
 }
+/* The runs past the strip's bars: "+3", red or amber when one of them failed or stopped reporting. */
+.progress-more {
+  min-width: 20px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--bg-hover);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.progress-more.failed {
+  color: var(--error);
+}
+.progress-more.stale {
+  color: var(--warning);
+}
 @keyframes progress-rise {
   0% {
     transform: translateY(100%);

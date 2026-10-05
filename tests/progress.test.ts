@@ -2,7 +2,7 @@
 // updates; stale runs; the taskbar's combined bar; time left.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProgressError, ProgressStore, admitReport, type ProgressCaller } from '../src/main/progress'
-import { MAX_OPEN_PER_OWNER, MAX_RUNS_PER_WORKSPACE, isOverdue, taskbarProgress, timeLeft } from '../src/shared/progress'
+import { MAX_OPEN_PER_OWNER, MAX_RUNS_PER_WORKSPACE, STRIP_BARS, isOverdue, stripRuns, taskbarProgress, timeLeft } from '../src/shared/progress'
 import type { ProgressRun } from '../src/shared/types'
 
 const WS = 'C:\\ws'
@@ -377,6 +377,22 @@ describe('progress runs', () => {
 })
 
 describe('progress rules', () => {
+  it(`the folded strip: a bar for the newest ${STRIP_BARS}, the rest counted with the worst state, and every run in words`, () => {
+    const runs = (states: ProgressRun['state'][]): ProgressRun[] => states.map((state, i) => ({ ...run({ state }), id: `r${i}` }))
+    expect(stripRuns([])).toEqual({ bars: [], more: [], moreState: null, summary: '' })
+    expect(stripRuns(runs(['stale'])).summary).toBe('1 run, stopped reporting')
+    const six = stripRuns(runs(['running', 'failed', 'running', 'stale', 'passed', 'running']))
+    expect([six.bars.length, six.more.length, six.moreState]).toEqual([6, 0, null])
+    expect(six.summary).toBe('6 runs: 3 running, 1 failed, 1 stopped reporting, 1 passed')
+    const nine = stripRuns(runs(['running', 'running', 'running', 'running', 'running', 'running', 'running', 'stale', 'failed']))
+    expect(nine.bars.map((r) => r.id)).toEqual(['r0', 'r1', 'r2', 'r3', 'r4', 'r5'])
+    expect(nine.more.map((r) => r.id)).toEqual(['r6', 'r7', 'r8'])
+    expect(nine.moreState).toBe('failed')
+    expect(nine.summary).toBe('9 runs: 7 running, 1 failed, 1 stopped reporting')
+    expect(stripRuns(runs(['running', 'running', 'running', 'running', 'running', 'running', 'stale'])).moreState).toBe('stale')
+    expect(stripRuns(runs(['failed', 'running', 'running', 'running', 'running', 'running', 'running'])).moreState).toBeNull()
+  })
+
   const run = (over: Partial<ProgressRun>): ProgressRun => ({
     id: 'r',
     workspacePath: WS,
