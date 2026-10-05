@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { ASSISTANT_AGENT_ID, assistantPersona } from '@shared/assistant'
 import { isCompacting } from '@shared/defaults'
+import { formatDateTime } from '@shared/dates'
 import { agentProvider, providerDescriptor } from '@shared/providers'
 import type { AgentInfo, AgentPatch, AssistantAction, EffortLevel, PermissionMode, PersonaInfo, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
-import { agentProviderOf, confirm, get, NO_PROJECTS, projectKey, revealAgent, runOnce, set, setActivity, setAssistantOpen, showAssistantView, showView, useStore } from '../store'
+import { agentProviderOf, confirm, get, NO_PROJECTS, projectKey, revealAgent, runOnce, set, setActivity, setAssistantOpen, showAssistantView, showView, useDateStyle, useStore } from '../store'
 import { useInbox } from '../inbox'
 import { useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -439,11 +440,12 @@ function AssistantQuestions() {
 function AssistantActions() {
   const list = useStore((s) => s.assistantActions)
   const [all, setAll] = useState(false)
+  useDateStyle()
   if (!list.length) return null
   const newest = [...list].reverse()
   const shown = all ? newest : newest.slice(0, 3)
   const row = (x: AssistantAction) => (
-    <Tooltip key={x.id} block content={`${new Date(x.at).toLocaleString()}${x.error ? `\nNot done: ${x.error}` : ''}`}>
+    <Tooltip key={x.id} block content={`${formatDateTime(x.at)}${x.error ? `\nNot done: ${x.error}` : ''}`}>
       <div className={cx('assistant-action', !x.ok && 'failed')}>
         <Icon name={x.ok ? 'check' : 'circle-slash'} />
         <span className="assistant-action-text">{x.text}</span>

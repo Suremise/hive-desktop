@@ -42,6 +42,7 @@ export const SUITES = [
   { name: 'editor' },
   { name: 'filelinks' },
   { name: 'files' },
+  { name: 'footerfit' },
   { name: 'icons' },
   { name: 'image' },
   { name: 'inbox', serial: 'window focus' },

@@ -3478,11 +3478,61 @@ body.pane-resizing .monaco-editor {
   overflow: hidden;
   container-type: inline-size;
 }
-/* Short of room, the context shows its percentage only (the tooltip has the tokens). */
-@container (max-width: 380px) {
-  .pane-footer-bar .ctx-tokens {
-    display: none;
-  }
+/*
+ * Short of room (useFooterFit in AgentPanes.tsx sets data-fit), items give up their text for their icon in turn: the
+ * transcript size, then the context's tokens, then the whole context; their tooltips have it all. Then the
+ * permission mode's label shortens, then the model, and only then is the cost cut off at the right.
+ */
+.pane-footer-bar > .tip-wrap {
+  display: inline-flex;
+  min-width: 0;
+  flex-shrink: 0;
+}
+.pane-footer-bar > .tip-wrap:has(> .mode-chip) {
+  flex-shrink: 1000;
+  min-width: var(--mode-chip-min, 0px);
+}
+.pane-footer-bar > .tip-wrap:has(> .foot-model) {
+  flex-shrink: 1;
+}
+.pane-footer-bar .mode-chip {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.pane-footer-bar .mode-chip > .codicon {
+  flex-shrink: 0;
+}
+.pane-footer-bar .mode-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pane-footer-bar .foot-model {
+  max-width: 100%;
+}
+.pane-footer-bar .fit-text {
+  display: inline-block;
+  overflow: hidden;
+  margin-left: 4px;
+}
+.pane-footer-bar .ctx-tokens {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: top;
+  white-space: pre;
+}
+.pane-footer-bar .pane-foot-item:has(> .fit-text) {
+  gap: 0;
+}
+.pane-footer-bar:is([data-fit='1'], [data-fit='2'], [data-fit='3']) .size-text,
+.pane-footer-bar:is([data-fit='2'], [data-fit='3']) .ctx-tokens,
+.pane-footer-bar[data-fit='3'] .ctx-text {
+  max-width: 0;
+}
+.pane-footer-bar:is([data-fit='1'], [data-fit='2'], [data-fit='3']) .size-text,
+.pane-footer-bar[data-fit='3'] .ctx-text {
+  margin-left: 0;
 }
 .pane-footer-bar .pane-foot-item {
   display: inline-flex;
@@ -4038,21 +4088,6 @@ body.pane-resizing .monaco-editor {
 .menu-item.muted .menu-label,
 .menu-item.muted > .codicon {
   color: var(--fg-faint);
-}
-/* The running session's name in the agent's footer: short of room, it gives way first, down to its icon. */
-.pane-footer-bar > .tip-wrap:has(> .session-tag) {
-  display: inline-flex;
-  min-width: 14px;
-  max-width: 45%;
-  flex-shrink: 100;
-}
-.pane-footer-bar .session-tag {
-  max-width: 100%;
-}
-.session-tag .session-tag-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* Footer usage that couldn't be refreshed: shown, but faded (its tooltip says why). */
 .pane-foot-item.stale {

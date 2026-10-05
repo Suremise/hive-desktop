@@ -1,13 +1,14 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo, SessionListItem, Transcript, TranscriptImageRef, TranscriptItem, TranscriptSearchResult, TranscriptTool } from '@shared/types'
 import { TRANSCRIPT_WINDOW } from '@shared/defaults'
+import { formatDateTime } from '@shared/dates'
 import { providerDescriptor, providerName } from '@shared/providers'
 import { ProviderIcon } from '../components/ProviderIcon'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { Icon, IconButton, InfoTip, LoadFailed, Markdown, Modal, StaleNote, Tooltip, useContextMenu } from '../components/ui'
-import { confirm, notify, openInSessionsTab, prompt, revealAgent, set, setAssistantOpen, useStore } from '../store'
+import { confirm, notify, openInSessionsTab, prompt, revealAgent, set, setAssistantOpen, useDateStyle, useStore } from '../store'
 import { cx, formatDuration, formatTokens, sessionLabel, timeAgo } from '../util'
 import { useSessions } from './ProjectTabs'
 import { useScopedLoad } from '../scopedLoad'
@@ -52,6 +53,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
 
   // Opened on a session from elsewhere (e.g. clicking the session name above an agent's terminal).
   const jumpTo = useStore((s) => (s.sessionsJump?.project === project.path ? s.sessionsJump : null))
+  useDateStyle() // session names and times follow the date format
   useEffect(() => {
     if (!jumpTo) return
     setSelectedId(jumpTo.id)
@@ -367,7 +369,13 @@ function SessionRow({ s, name, live, origin, selected, onClick, buttons }: { s: 
         <strong>{name}</strong>
       </div>
       <div className="session-row-meta">
-        <span>{timeAgo(s.lastActivity)}</span>
+        {s.lastActivity ? (
+          <Tooltip content={`Last active ${formatDateTime(s.lastActivity)}`}>
+            <span className="session-row-when">{timeAgo(s.lastActivity)}</span>
+          </Tooltip>
+        ) : (
+          <span>{timeAgo(s.lastActivity)}</span>
+        )}
         {s.usage && <span>{formatTokens(s.usage.contextTokens)} context</span>}
         {origin && (
           <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{origin.detail}</span>}>
@@ -416,7 +424,7 @@ function toBlocks(items: TranscriptItem[]): Block[] {
   return out
 }
 
-const time = (ts: string | null): string => (ts ? new Date(ts).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '')
+const time = (ts: string | null): string => (ts ? formatDateTime(ts) : '')
 
 function TranscriptView({ project, session, origin, live, jump, query, toolbar }: { project: ProjectInfo; session: SessionListItem; origin: SessionOrigin | null; live: boolean; jump: Jump | null; query: string; toolbar: React.ReactNode }) {
   const [transcript, setTranscript] = useState<Transcript | null>(null)
@@ -434,6 +442,7 @@ function TranscriptView({ project, session, origin, live, jump, query, toolbar }
   /** Whether the view follows the end of the transcript. */
   const pinned = useRef(jump === null)
   const followDefault = useStore((s) => s.settings?.sessions.followTranscripts ?? false)
+  useDateStyle()
   // A running session is followed only when switched on (Follow), else it updates with Refresh.
   const [follow, setFollow] = useState(followDefault)
 

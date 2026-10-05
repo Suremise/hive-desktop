@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
 import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, contextPercent, effectiveModelLabel, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import type { AgentInfo, LiveSessionState, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import type { StartFailure } from '@shared/startFailure'
+import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
 import { call } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showInOverview, showPage, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showInOverview, showPage, useDateStyle, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -179,8 +180,8 @@ async function renameSession(project: ProjectInfo, sessionId: string, current: s
 }
 
 /**
- * The session an agent is running, in its footer: its name, with details on hover. Click to read it in the
- * Sessions tab; right-click to rename it.
+ * The session an agent is running, in its footer: its icon, with its name and when it started on hover. Click to
+ * read it in the Sessions tab; right-click to rename it.
  */
 function SessionName({ project, a, usage }: { project: ProjectInfo; a: AgentInfo; usage: SessionUsage | null | undefined }) {
   const menu = useContextMenu()
@@ -188,7 +189,7 @@ function SessionName({ project, a, usage }: { project: ProjectInfo; a: AgentInfo
   if (!live || live.settingUp || !live.sessionId) return null
   const label = liveSessionLabel(project, live, usage)
   const tip = `${label}
-Running since ${new Date(live.startedAt).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+Running since ${formatDateTime(live.startedAt)}
 Session ${live.sessionId}
 Click to read it in the Sessions tab; right-click to rename it.`
   const open = (): void => openInSessionsTab(project.path, live.sessionId)
@@ -197,6 +198,7 @@ Click to read it in the Sessions tab; right-click to rename it.`
       <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
         <span
           className="pane-foot-item session-tag"
+          aria-label={`Session: ${label}`}
           onClick={open}
           onContextMenu={(e) =>
             menu.open(e, [
@@ -205,7 +207,7 @@ Click to read it in the Sessions tab; right-click to rename it.`
             ])
           }
         >
-          <Icon name="comment-discussion" /> <span className="session-tag-text">{label}</span>
+          <Icon name="comment-discussion" />
         </span>
       </Tooltip>
       {menu.element}
@@ -615,7 +617,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       ) : live?.status === 'watching' && live.watch ? (
         // Waiting on cards (a watch): what for, until when, and Cancel (it takes no other work while it waits).
         <span className="pane-status watching">
-          <Tooltip content={`${live.watch.label}: Hive types a line into it when ${live.watch.cards.length === 1 ? 'the card changes' : 'one of them changes'}, or at ${new Date(live.watch.limitAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })} if nothing does. Nothing runs meanwhile, and it takes no other work.`}>
+          <Tooltip content={`${live.watch.label}: Hive types a line into it when ${live.watch.cards.length === 1 ? 'the card changes' : 'one of them changes'}, or at ${formatWhen(live.watch.limitAt)} if nothing does. Nothing runs meanwhile, and it takes no other work.`}>
             <span className="watch-label">
               <Icon name="eye" /> {live.watch.label}
             </span>
@@ -659,6 +661,67 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       {picker.element}
     </div>
   )
+}
+
+/** Between an item's icon and its text (.fit-text's margin in app.css). */
+const FIT_TEXT_GAP = 4
+
+/**
+ * How many of the footer's items show just their icon to make room: 0 none, 1 the transcript size, 2 and the
+ * context's tokens (its percentage stays), 3 and the whole context (the session's is always just its icon). Worked
+ * out from what every item would take in full, so a level never flips back and forth. Past 3 the permission mode's
+ * label shortens, then the model's, and only then is the cost cut off at the right (CSS).
+ */
+function useFooterFit(): [React.RefObject<HTMLDivElement | null>, number] {
+  const ref = useRef<HTMLDivElement>(null)
+  const [level, setLevel] = useState(0)
+  const measure = useCallback(() => {
+    const el = ref.current
+    if (!el || !el.clientWidth) return
+    const cs = getComputedStyle(el)
+    const avail = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+    const gap = parseFloat(cs.columnGap) || 0
+    const kids = [...el.children] as HTMLElement[]
+    // The row as it is: every item (the spacer takes no room of its own) and the gaps between them...
+    let row = gap * Math.max(0, kids.length - 1)
+    for (const k of kids) if (!k.classList.contains('grow')) row += k.offsetWidth
+    // ...with any text the layout has cut short in full (the model, the mode's label).
+    for (const c of el.querySelectorAll<HTMLElement>('.fit-clip')) row += Math.max(0, c.scrollWidth - c.clientWidth)
+    // The texts that give way, in full whatever is shown now.
+    const size = el.querySelector<HTMLElement>('.size-text')
+    const ctx = el.querySelector<HTMLElement>('.ctx-text')
+    const tokens = el.querySelector<HTMLElement>('.ctx-tokens')
+    const sizeW = size ? size.scrollWidth + FIT_TEXT_GAP : 0
+    const tokensW = tokens?.scrollWidth ?? 0
+    const pctW = ctx ? ctx.scrollWidth - (tokens?.offsetWidth ?? 0) + FIT_TEXT_GAP : 0
+    const shown = (l: number): number => (l >= 1 ? 0 : sizeW) + (l >= 3 ? 0 : pctW + (l >= 2 ? 0 : tokensW))
+    const base = row - shown(level)
+    let next = 0
+    while (next < 3 && base + shown(next) > avail + 0.5) next++
+    // Back to more text only with room to spare: widths read at different levels round differently (at 125%, say),
+    // and without this a footer on the edge would flip between two levels.
+    while (next < level && base + shown(next) > avail - 2) next++
+    // The mode chip never shrinks past its icon and caret.
+    const chip = el.querySelector<HTMLElement>('.mode-chip')
+    const label = chip?.querySelector<HTMLElement>('.mode-label')
+    if (chip && label) el.style.setProperty('--mode-chip-min', `${chip.offsetWidth - label.offsetWidth}px`)
+    if (next !== level) setLevel(next)
+  }, [level])
+  // After every render (the texts may have changed), and when the pane or anything in the row changes size or text.
+  useLayoutEffect(measure)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const resize = new ResizeObserver(() => measure())
+    resize.observe(el)
+    const mutate = new MutationObserver(() => measure())
+    mutate.observe(el, { subtree: true, childList: true, characterData: true })
+    return () => {
+      resize.disconnect()
+      mutate.disconnect()
+    }
+  }, [measure])
+  return [ref, level]
 }
 
 /**
@@ -707,10 +770,12 @@ export function PaneFooter({
   // The first time either turns amber: the tip about what to do.
   useEffect(() => void (long && offerTip('transcript-long')), [long])
   useEffect(() => void (over && offerTip('compact-suggested')), [over])
+  useDateStyle() // the session's tooltip says when it started
+  const [footerRef, fit] = useFooterFit()
   return (
-    <div className="pane-footer-bar" onMouseDown={() => focusAgent(project.path, a.id)}>
+    <div ref={footerRef} className="pane-footer-bar" data-fit={fit} onMouseDown={() => focusAgent(project.path, a.id)}>
       <Tooltip content={`${providerName(provider)} model${effort ? ' and effort' : ''} ${live ? 'of this session' : 'for new sessions'}${live?.effort ? ' (effort as the session reports it)' : ''}. Change them in ${settingsName}.`}>
-        <span className="pane-foot-item" onClick={() => (onSettings ? onSettings() : set({ agentSettingsFor: { project: project.path, agentId: a.id } }))}>
+        <span className="pane-foot-item foot-model fit-clip" onClick={() => (onSettings ? onSettings() : set({ agentSettingsFor: { project: project.path, agentId: a.id } }))}>
           {model}
           {effort && <span className="faint"> · {effort}</span>}
         </span>
@@ -729,15 +794,17 @@ export function PaneFooter({
         >
           <span className={cx('pane-foot-item', over && 'warn', usage.stale && 'stale')} onClick={() => (onContext ? onContext() : showInOverview(project.path, a.id))}>
             <Icon name="dashboard" />
-            {pct === null ? (
-              `${formatTokens(ctx)} ctx`
-            ) : (
-              // In a narrow footer the tokens give way and the percentage stays.
-              <>
-                <span className="ctx-tokens">{formatTokens(ctx)} · </span>
-                {pct}%
-              </>
-            )}
+            {/* Short of room the tokens give way, then the percentage (useFooterFit): the tooltip has them. */}
+            <span className="fit-text ctx-text">
+              {pct === null ? (
+                `${formatTokens(ctx)} ctx`
+              ) : (
+                <>
+                  <span className="ctx-tokens">{formatTokens(ctx)} · </span>
+                  {pct}%
+                </>
+              )}
+            </span>
           </span>
         </Tooltip>
       ) : (
@@ -755,7 +822,8 @@ export function PaneFooter({
           content={`Transcript: ${formatBytes(bytes)}${sizeLimit > 0 ? ` (flagged over ${sizeLimit} MB: Settings → Sessions)` : ''}. A long conversation slows down the CLI and Hive, and compacting doesn't shrink the file: it keeps the whole history.${long ? ` ${transcriptAdvice}` : ''}`}
         >
           <span className={cx('pane-foot-item', long ? 'warn' : 'faint')} onClick={() => (onTranscript ? onTranscript() : set({ handOverFor: { project: project.path, agentId: a.id } }))}>
-            <Icon name="file" /> {formatBytes(bytes)}
+            <Icon name="file" />
+            <span className="fit-text size-text">{formatBytes(bytes)}</span>
           </span>
         </Tooltip>
       )}

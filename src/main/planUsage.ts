@@ -1,6 +1,7 @@
 import { Notification } from 'electron'
 import type { PlanLimit, PlanUsage, ProviderId } from '../shared/types'
 import { providerName } from '../shared/providers'
+import { formatTime, formatWeekdayTime } from '../shared/dates'
 import { config } from './config'
 import { emit, logNotice } from './events'
 import { notificationIcon } from './paths'
@@ -38,7 +39,7 @@ function resetText(iso: string | null): string {
   if (!iso) return ''
   const d = new Date(iso)
   const sameDay = d.toDateString() === new Date().toDateString()
-  return ` It resets ${sameDay ? 'at' : 'on'} ${d.toLocaleString([], sameDay ? { hour: '2-digit', minute: '2-digit' } : { weekday: 'short', hour: '2-digit', minute: '2-digit' })}.`
+  return ` It resets ${sameDay ? 'at' : 'on'} ${sameDay ? formatTime(d) : formatWeekdayTime(d)}.`
 }
 
 /** At most one save of plan usage per minute; the numbers are only shown, so a late save loses nothing that matters. */

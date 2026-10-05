@@ -1,5 +1,6 @@
 import { RELEASES_URL } from '@shared/defaults'
 import type { UpdateState } from '@shared/types'
+import { formatDate } from '@shared/dates'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { set, useStore } from '../store'
@@ -152,7 +153,7 @@ export function UpdateDialog() {
               </strong>
               <div className="faint">
                 You have {u.current}
-                {u.releaseDate ? ` · released ${new Date(u.releaseDate).toLocaleDateString()}` : ''}
+                {u.releaseDate ? ` · released ${formatDate(u.releaseDate)}` : ''}
                 {u.size ? ` · ${mb(u.size)}` : ''}
               </div>
             </div>

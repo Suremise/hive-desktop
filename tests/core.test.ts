@@ -440,6 +440,18 @@ describe('ConversationParser', () => {
     expect(md).toContain('**Error:**')
     expect(md).toContain('**Conversation compacted** (manual)')
     expect(md).toContain('> `/compact keep notes`')
+    // A time it can't read is left out; one it can is in the user's date and time format.
+    expect(md).toContain('## You\n')
+    const { setDateStyle } = await import('../src/shared/dates')
+    const dated = new ConversationParser()
+    dated.feed(Buffer.from(line({ type: 'user', timestamp: '2026-10-04T12:05:00.000Z', message: { role: 'user', content: 'hi' } }) + '\n'))
+    expect(transcriptMarkdown(dated.items, 'T', 'sub')).toMatch(/## You · \d{4}-\d{2}-\d{2} \d{2}:\d{2}\n/)
+    setDateStyle({ date: 'dmy', time: '12h' })
+    try {
+      expect(transcriptMarkdown(dated.items, 'T', 'sub')).toMatch(/## You · \d{2}\/\d{2}\/\d{4} \d{1,2}:\d{2} (AM|PM)\n/)
+    } finally {
+      setDateStyle(undefined)
+    }
   })
 })
 
@@ -595,18 +607,24 @@ describe('sessionLabel', () => {
   })
 
   it('shows when it started, not the project and agent, until it has a name or title', async () => {
-    const { sessionLabel, shortStartTime } = await import('../src/shared/defaults')
-    const now = new Date(2026, 9, 2, 15, 0)
+    const { sessionLabel } = await import('../src/shared/defaults')
+    const { setDateStyle } = await import('../src/shared/dates')
     const today = new Date(2026, 9, 2, 14, 5).toISOString()
     const earlier = new Date(2026, 8, 29, 9, 30).toISOString()
     const auto = 'hive · Claudette · 02/10/2026, 14:05:00'
     // Hive passes its automatic name to Claude Code (--name), which keeps it as the session's title.
-    expect(sessionLabel({ id: 'abc12345x', name: auto, title: auto, customTitle: auto, startedAt: today }, 'hive', now)).toBe(shortStartTime(today, now))
-    expect(shortStartTime(today, now)).not.toMatch(/Oct/)
-    expect(sessionLabel({ id: 'abc12345x', name: auto, title: null, createdAt: earlier }, 'hive', now)).toBe(shortStartTime(earlier, now))
-    expect(shortStartTime(earlier, now)).toMatch(/29/)
-    expect(sessionLabel({ id: 'abc12345x', name: auto, usage: { firstActivity: earlier } }, 'hive', now)).toBe(shortStartTime(earlier, now))
-    expect(sessionLabel({ id: 'abc12345x', name: auto, startedAt: 'not a date' }, 'hive', now)).toBe('Session abc12345')
+    expect(sessionLabel({ id: 'abc12345x', name: auto, title: auto, customTitle: auto, startedAt: today }, 'hive')).toBe('2026-10-02 14:05')
+    expect(sessionLabel({ id: 'abc12345x', name: auto, title: null, createdAt: earlier }, 'hive')).toBe('2026-09-29 09:30')
+    expect(sessionLabel({ id: 'abc12345x', name: auto, usage: { firstActivity: earlier } }, 'hive')).toBe('2026-09-29 09:30')
+    expect(sessionLabel({ id: 'abc12345x', name: auto, startedAt: 'not a date' }, 'hive')).toBe('Session abc12345')
+    // In the user's format; a name they gave stays as it is.
+    setDateStyle({ date: 'dmy', time: '12h' })
+    try {
+      expect(sessionLabel({ id: 'abc12345x', name: auto, startedAt: today }, 'hive')).toBe('02/10/2026 2:05 PM')
+      expect(sessionLabel({ id: 'abc12345x', name: '2026-10-02 14:05', startedAt: today }, 'hive')).toBe('2026-10-02 14:05')
+    } finally {
+      setDateStyle(undefined)
+    }
   })
 
   it('the latest rename wins, in Hive or with /rename', async () => {

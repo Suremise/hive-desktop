@@ -1,4 +1,5 @@
 import type { TranscriptItem, TranscriptSearchHit } from '../../shared/types'
+import { formatDateTime } from '../../shared/dates'
 
 /**
  * The provider-neutral side of transcripts: the viewer's items are the same for every provider, so
@@ -62,7 +63,7 @@ function fence(text: string, lang = ''): string {
   return `${f}${lang}\n${text}\n${f}`
 }
 
-const when = (ts: string | null): string => (ts ? new Date(ts).toLocaleString() : '')
+const when = (ts: string | null): string => (ts ? formatDateTime(ts) : '')
 const tokens = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n))
 
 /** The conversation as Markdown, with tool calls, thinking and summaries in collapsible sections. */
@@ -72,7 +73,7 @@ export function transcriptMarkdown(items: TranscriptItem[], title: string, subti
   const heading = (who: 'user' | 'assistant', ts: string | null): void => {
     if (speaker === who) return
     speaker = who
-    out.push(`## ${who === 'user' ? 'You' : assistant}${ts ? ` · ${when(ts)}` : ''}`, '')
+    out.push(`## ${who === 'user' ? 'You' : assistant}${when(ts) ? ` · ${when(ts)}` : ''}`, '')
   }
   const details = (summary: string, body: string): void => {
     out.push('<details>', `<summary>${summary.replace(/</g, '&lt;')}</summary>`, '', body, '', '</details>', '')
@@ -103,7 +104,7 @@ export function transcriptMarkdown(items: TranscriptItem[], title: string, subti
       }
       case 'compaction':
         speaker = null
-        out.push('---', '', `**Conversation compacted** (${item.trigger}) · ${tokens(item.preTokens)} → ${tokens(item.postTokens)} tokens${item.timestamp ? ` · ${when(item.timestamp)}` : ''}`, '')
+        out.push('---', '', `**Conversation compacted** (${item.trigger}) · ${tokens(item.preTokens)} → ${tokens(item.postTokens)} tokens${when(item.timestamp) ? ` · ${when(item.timestamp)}` : ''}`, '')
         if (item.summary) details('Summary', item.summary)
         out.push('---', '')
         break

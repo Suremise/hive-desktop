@@ -5,7 +5,7 @@ import { marked } from 'marked'
 import type { LiveSessionState, SessionStatus } from '@shared/types'
 import { cx } from '../util'
 import { call, errorMessage } from '../api'
-import { shortStartTime } from '@shared/defaults'
+import { formatWhen } from '@shared/dates'
 import { providerName } from '@shared/providers'
 
 export function Icon({ name, className, title, spin }: { name: string; className?: string; title?: string; spin?: boolean }) {
@@ -78,7 +78,7 @@ export function StaleNote({ what, error, at, onRetry }: { what: string; error: s
     <div className="banner warn load-stale" role="status">
       <Tooltip content={error}>
         <span>
-          <Icon name="warning" /> Could not refresh {what}{at ? `; last updated ${shortStartTime(new Date(at).toISOString())}` : ''}.
+          <Icon name="warning" /> Could not refresh {what}{at ? `; last updated ${formatWhen(at)}` : ''}.
         </span>
       </Tooltip>
       <button className="btn small" onClick={onRetry}>

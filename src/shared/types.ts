@@ -3,6 +3,7 @@
 import type { StartFailure } from './startFailure'
 import type { TipsState } from './tips'
 import type { KeepAwakeSetting } from './keepAwake'
+import type { DateFormat, TimeFormat } from './dates'
 
 export type ThemeSetting = 'dark' | 'light' | 'system'
 /** A coding-agent CLI Hive can run ("claude-code", "codex"). See src/shared/providers.ts. */
@@ -96,6 +97,10 @@ export interface AppSettings {
      * panel: Hive's session guidance says so. Off, or with the panel off: only when the user asks. New sessions.
      */
     progressCommands: boolean
+    /** How dates show everywhere in Hive (session names, lists, tooltips, exports): 2026-10-04 by default. */
+    dateFormat: DateFormat
+    /** How times show with them: 24-hour (14:05) by default. */
+    timeFormat: TimeFormat
   }
   appearance: {
     theme: ThemeSetting

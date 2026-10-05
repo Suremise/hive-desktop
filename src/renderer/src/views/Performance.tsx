@@ -5,6 +5,7 @@ import { LATENCY_BOUNDS_MS, percentile, type MetricsReport, type MetricsScope, t
 import { DEFAULT_PERF_FILTERS, PERF_RANGES, WORKSPACE_OWN, byRoute, byTool, isEmpty, providersIn, queryFor, select, totals, type PerfFilters, type PerfRole } from '@shared/metricsView'
 import { compareScopeKey, compareScopeOf } from '@shared/benchmark'
 import { money } from '@shared/usageTotals'
+import { formatDateTime, formatWeekdayTime } from '@shared/dates'
 import { call } from '../api'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip } from '../components/ui'
 import { notify, set, setActivity, useStore } from '../store'
@@ -300,7 +301,7 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
 }
 
 function Coverage({ report }: { report: MetricsReport }) {
-  const when = (iso: string): string => new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  const when = (iso: string): string => formatDateTime(iso)
   const c = report.coverage
   const share = c.rangeMs ? c.observedMs / c.rangeMs : 0
   return (
@@ -350,7 +351,7 @@ function duration(msValue: number): string {
 function Trend({ points, step }: { points: TrendPoint[]; step: 'hour' | 'day' }) {
   const max = Math.max(1, ...points.map((p) => p.requests))
   const slotMs = step === 'hour' ? 3_600_000 : 86_400_000
-  const label = (iso: string): string => (step === 'hour' ? new Date(iso).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }))
+  const label = (iso: string): string => (step === 'hour' ? formatWeekdayTime(iso) : new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }))
   return (
     <div className="daily-chart perf-trend">
       <h2 className="section">API requests by {step}</h2>

@@ -1,6 +1,7 @@
 import type { AgentBranchStatus, AgentDef, AppConfig, AppSettings, KeybindingOverrides, FileLockMode, PageLayout, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderSettings, SessionLayout, SessionRecord, SessionStatus, WorkspaceConfig } from './types'
 import { CLAUDE_CODE } from './claude'
 import { DEFAULT_COLUMN_COLORS } from './tasks'
+import { formatDateTime } from './dates'
 import { DEFAULT_PROVIDER, PROVIDERS, defaultProviderSettings, isKnownProvider, providerDescriptor } from './providers'
 
 export const APP_NAME = 'Hive'
@@ -34,7 +35,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     showTips: true,
     keepAwake: 'plugged-in',
     progressPanel: true,
-    progressCommands: true
+    progressCommands: true,
+    dateFormat: 'ymd',
+    timeFormat: '24h'
   },
   appearance: {
     theme: 'dark',
@@ -551,14 +554,6 @@ export function isAutoSessionName(name: string | null | undefined, projectName: 
   return !name || (name.startsWith(`${projectName} · `) && /\d{1,4}[/.-]\d{1,2}/.test(name))
 }
 
-/** A start time, short: "14:05" today, else "2 Oct, 14:05". */
-export function shortStartTime(iso: string, now = new Date()): string | null {
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return null
-  const time: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' }
-  return d.toDateString() === now.toDateString() ? d.toLocaleTimeString([], time) : d.toLocaleString([], { day: 'numeric', month: 'short', ...time })
-}
-
 /**
  * The name the session was given in the CLI (/rename) when it is newer than Hive's: Hive's name is automatic, or
  * the CLI's changed after the session was last renamed in Hive. Null when Hive's name stands. Hive passes its own
@@ -573,15 +568,16 @@ export function cliRename(s: SessionNaming, projectName: string): string | null 
 
 /**
  * A session's display name. The latest rename wins: a name given in Hive, until the CLI's own name (/rename)
- * changes after it; then the CLI's. Without either, the CLI's title, else when the session started.
+ * changes after it; then the CLI's. Without either, the CLI's title, else when the session started ("2026-10-04 14:05",
+ * in the user's date and time format).
  */
-export function sessionLabel(s: SessionNaming, projectName: string, now = new Date()): string {
+export function sessionLabel(s: SessionNaming, projectName: string): string {
   const cli = cliRename(s, projectName)
   if (cli) return cli
   if (!isAutoSessionName(s.name, projectName)) return s.name!
   if (s.title && !isAutoSessionName(s.title, projectName)) return s.title
   const at = s.startedAt || s.createdAt || s.usage?.firstActivity
-  return (at && shortStartTime(at, now)) || `Session ${s.id.slice(0, 8)}`
+  return (at && formatDateTime(at)) || `Session ${s.id.slice(0, 8)}`
 }
 
 /**

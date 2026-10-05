@@ -109,7 +109,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   // Rename the live session: the tag follows.
   await inv('session:rename', proj, st.sessionId, 'Renamed live')
   await sleep(600)
-  check('tag follows rename', /Renamed live/.test(await tag1.textContent()))
+  check('tag follows rename', /Renamed live/.test(await tag1.getAttribute('aria-label')))
 
   await inv('session:stop', proj, A1.id); await lib.until(async () => !(await inv('session:live')).some((l) => l.agentId === A1.id), 15000)
   p = await project()

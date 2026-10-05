@@ -14,6 +14,7 @@ import { ASSISTANT_NAME, assistantPersona } from '../shared/assistant'
 import { MARKED_LOG } from '../shared/redact'
 import { PROVIDERS, projectProviderConfig, providerSettings } from '../shared/providers'
 import { projectAgents } from '../shared/defaults'
+import { setDateStyle } from '../shared/dates'
 import { SERVABLE_EXT, unwatchAll } from './files'
 import { config } from './config'
 import { archiveOldDone, endReviews } from './tasks'
@@ -524,6 +525,7 @@ function archiveOldDoneEverywhere(): void {
 function wireSettingsEffects(): void {
   config.onSettingsChanged((s, prev) => {
     emit({ type: 'settings-changed', settings: s })
+    setDateStyle({ date: s.general.dateFormat, time: s.general.timeFormat })
     if (s.board.archiveDoneDays !== prev.board.archiveDoneDays) archiveOldDoneEverywhere()
     if (s.general.launchAtLogin !== prev.general.launchAtLogin) {
       app.setLoginItemSettings({ openAtLogin: s.general.launchAtLogin, args: ['--hidden'] })
@@ -605,6 +607,7 @@ app.whenReady().then(async () => {
     return net.fetch(pathToFileURL(p).toString())
   })
   nativeTheme.themeSource = config.settings.appearance.theme
+  setDateStyle({ date: config.settings.general.dateFormat, time: config.settings.general.timeFormat })
   Menu.setApplicationMenu(null)
   // Says the log marks the user's own text (userText()), so Copy Diagnostics can tell this run's lines from older ones.
   log.info(`Hive ${app.getVersion()} starting (Electron ${process.versions.electron}; ${MARKED_LOG})`)

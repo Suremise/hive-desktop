@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { EXPORT_MEASURES, SCENARIO_MEASURES, USAGE_MEASURES, compareArtifacts, compareScopeKey, type CompareScope, type Comparison, type KeptEntry, type MeasureDef, type MeasureDelta, type ScenarioComparison, type ScenarioStatus } from '@shared/benchmark'
 import type { MetricsQuery } from '@shared/metrics'
 import { money } from '@shared/usageTotals'
+import { formatDateTime } from '@shared/dates'
 import { call } from '../api'
 import { Icon, IconButton, InfoTip, LoadFailed, Tooltip } from '../components/ui'
 import { confirm, notify, prompt } from '../store'
@@ -435,7 +436,7 @@ function KeptList({ entries, scope, onChange }: { entries: KeptEntry[]; scope: C
                   <Icon name={e.kind === 'scenarios' ? 'beaker' : 'pulse'} /> {e.label}
                   <div className="faint">{e.about}</div>
                 </td>
-                <td className="num faint">{new Date(e.keptAt).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+                <td className="num faint">{formatDateTime(e.keptAt)}</td>
                 <td className="num">
                   <IconButton icon={e.pinned ? 'pinned' : 'pin'} title={e.pinned ? 'Unpin' : 'Pin (never removed to make room)'} onClick={() => void act(() => call('benchmarks:pin', scope, e.id, !e.pinned))} />
                   <IconButton icon="trash" title="Remove" onClick={() => void act(() => call('benchmarks:remove', scope, e.id))} />

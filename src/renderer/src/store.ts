@@ -5,6 +5,7 @@ import type { StartFailure } from '@shared/startFailure'
 import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
 import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageLayout, pageOfAgent } from '@shared/defaults'
 import { agentProvider } from '@shared/providers'
+import { setDateStyle } from '@shared/dates'
 import type { AgentBranchStatus, QuitScope, TaskCard, UpdateState, WorkspaceUsage } from '@shared/types'
 import type {
   AgentApiInfo,
@@ -354,6 +355,17 @@ export const useStore = create<State>(() => ({
 
 export const set = useStore.setState
 export const get = useStore.getState
+
+// Dates follow Settings → General. Subscribed before any component, so the formatters have the new choice by the
+// time anything renders with the new settings (components that show dates read the choice with useDateStyle()).
+useStore.subscribe((s, prev) => {
+  if (s.settings !== prev.settings) setDateStyle({ date: s.settings?.general.dateFormat, time: s.settings?.general.timeFormat })
+})
+
+/** The user's date and time format, for a component that shows dates: it renders again when they change. */
+export function useDateStyle(): string {
+  return useStore((s) => `${s.settings?.general.dateFormat}/${s.settings?.general.timeFormat}`)
+}
 
 export interface AgentRef {
   project: string

@@ -1,6 +1,7 @@
 import { open, stat } from 'fs/promises'
 import type { ProviderId, Transcript, TranscriptItem, TranscriptSearchResult, TranscriptTool } from '../shared/types'
 import { TRANSCRIPT_WINDOW, assertSessionId } from '../shared/defaults'
+import { formatDateTime } from '../shared/dates'
 import { provider } from './providers'
 import { searchItems, transcriptMarkdown } from './providers/conversation'
 import type { ConversationParserLike } from './providers/types'
@@ -158,6 +159,6 @@ export const transcripts = {
     const e = await parsed(projectPath, sessionId)
     const project = workspace.assertSessionHost(projectPath)
     const p = provider(e.provider)
-    return transcriptMarkdown(e.parser.items, title, `${p.exportSubtitle(sessionId, project)} · exported from Hive ${new Date().toLocaleString()}`, p.descriptor.assistant)
+    return transcriptMarkdown(e.parser.items, title, `${p.exportSubtitle(sessionId, project)} · exported from Hive ${formatDateTime(new Date())}`, p.descriptor.assistant)
   }
 }

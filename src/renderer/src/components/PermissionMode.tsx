@@ -164,7 +164,8 @@ export function ModeBadge({ project, a, variant }: { project: ProjectInfo; a: Ag
   return (
     <Tooltip content={tip}>
       <button type="button" className={cx('mode-badge', variant === 'header' ? 'badge' : 'mode-chip', bypass && 'error', a.live && 'live')} onClick={open}>
-        <Icon name={icon} /> {label}
+        <Icon name={icon} />
+        <span className="mode-label fit-clip">{label}</span>
         <Icon name="chevron-down" className="mode-caret" />
       </button>
     </Tooltip>
