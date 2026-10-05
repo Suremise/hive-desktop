@@ -485,13 +485,24 @@ describe('watches (main/watches.ts)', async () => {
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
     const file = join(path, '.hive', 'watches.json')
-    // A folder where the file goes: every save fails.
-    rmSync(file)
-    mkdirSync(join(file, 'x'), { recursive: true })
-    await expect(watches.cancelWatch(w, alpha, 'a1')).rejects.toThrow(/Could not cancel/)
-    expect(watches.watchFor(alpha, 'a1')).not.toBeNull()
-    await expect(watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['verdict'] })).rejects.toThrow(/Could not save/)
-    expect(watches.watchFor(alpha, 'a1')?.changes).toEqual(['comment'])
+    const before = readFileSync(file, 'utf8')
+    // A full disk: every save fails, at once (an error that isn't tried again, so the test takes no retry backoff).
+    let tries = 0
+    watches.testHooks.rename = async (_from, to) => {
+      if (to === file) tries++
+      throw Object.assign(new Error('no space left on device'), { code: 'ENOSPC' })
+    }
+    try {
+      await expect(watches.cancelWatch(w, alpha, 'a1')).rejects.toThrow(/Could not cancel/)
+      expect(watches.watchFor(alpha, 'a1')).not.toBeNull()
+      await expect(watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['verdict'] })).rejects.toThrow(/Could not save/)
+      expect(watches.watchFor(alpha, 'a1')?.changes).toEqual(['comment'])
+      // Both were saves of the file that failed, and it is as it was.
+      expect(tries).toBe(2)
+      expect(readFileSync(file, 'utf8')).toBe(before)
+    } finally {
+      watches.testHooks.rename = undefined
+    }
     await disposeWorkspaceService(w)
   })
   /** A gate a hook can wait at: `ready` once something reached it, `release()` lets it go on. */
@@ -588,7 +599,8 @@ describe('watches (main/watches.ts)', async () => {
     expect(readdirSync(join(path, '.hive')).some((f) => f.startsWith('watches.json.damaged-'))).toBe(true)
     expect(watches.watchFor(alpha, 'a1')).not.toBeNull()
     await disposeWorkspaceService(w)
-  })
+    // The locked file is tried 20 times with a growing pause (about 2.2 s): more than the default 5 s on a loaded machine.
+  }, 20_000)
 
   it("a watches file that can't be read is an error, not \"no watches\"; one too big is set aside", async () => {
     const { w, path, alpha } = await open()
@@ -754,7 +766,8 @@ describe('watches (main/watches.ts)', async () => {
     // Replacing one of them is still fine.
     await watches.registerWatch(w, alpha, kept[0].agentId, { cards, changes: ['verdict'] })
     await disposeWorkspaceService(w)
-  })
+    // About 2.5 s of real work (400 large watches written, read and split): more than the default 5 s on a loaded machine.
+  }, 20_000)
 
   it('a save that landed after the workspace closed is undone only while the file is still that save: a newer edit is kept', async () => {
     const { w, path, alpha } = await open()
