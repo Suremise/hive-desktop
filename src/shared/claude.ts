@@ -159,6 +159,7 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
     reportsCost: true,
     compactFocus: true,
     contextLimit: true,
+    autoCompactReserve: 33_000,
     imagePaste: true,
     lockAsk: true,
     backgroundSessions: true,

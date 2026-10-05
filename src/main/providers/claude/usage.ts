@@ -104,7 +104,10 @@ export class ClaudeUsageParser {
           this.byRequest.set(key, { u, day: known?.day || day })
           if (!known) this.uncovered.add(key)
           if (!o.isSidechain) {
-            usage.contextTokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+            // The output (thinking included) stays in the context: what Claude Code compacts on is input + output.
+            usage.contextInputTokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+            usage.lastOutputTokens = u.output_tokens ?? 0
+            usage.contextTokens = usage.contextInputTokens + usage.lastOutputTokens
           }
           if ((u.cache_creation?.ephemeral_1h_input_tokens ?? 0) > 0) this.saw1h = true
           break
@@ -122,11 +125,16 @@ export class ClaudeUsageParser {
               timestamp: ts ?? '',
               trigger: m.trigger ?? 'unknown',
               preTokens: m.preTokens ?? 0,
-              postTokens: m.postTokens ?? 0
+              postTokens: m.postTokens ?? 0,
+              ...(usage.contextInputTokens !== undefined ? { lastInputTokens: usage.contextInputTokens, lastOutputTokens: usage.lastOutputTokens ?? 0 } : {})
             }
             usage.compactions.push(c)
             this.compactionDays.push(day)
-            if (c.postTokens) usage.contextTokens = c.postTokens
+            if (c.postTokens) {
+              usage.contextTokens = c.postTokens
+              usage.contextInputTokens = c.postTokens
+              usage.lastOutputTokens = 0
+            }
           }
           break
         case 'custom-title':

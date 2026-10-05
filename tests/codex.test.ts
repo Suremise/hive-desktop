@@ -174,7 +174,7 @@ describe('Codex compactions', () => {
   it('tells /compact (a turn without a prompt) from automatic compaction, and skips empty requests', () => {
     const manual = [started, prompt, tc(1000, 1000), started, line({ timestamp: '2026-09-30T06:36:16Z', type: 'compacted', payload: { message: '' } }), tc(1000, 0), started, prompt, tc(1400, 400)].join('\n')
     const u = parseRollout(manual, 'x', null)
-    expect(u.compactions).toEqual([{ timestamp: '2026-09-30T06:36:16Z', trigger: 'manual', preTokens: 1005, postTokens: 405 }])
+    expect(u.compactions).toEqual([{ timestamp: '2026-09-30T06:36:16Z', trigger: 'manual', preTokens: 1005, postTokens: 405, lastInputTokens: 1000, lastOutputTokens: 5 }])
     expect(u.requests).toBe(2)
     const auto = [started, prompt, tc(1000, 1000), line({ type: 'compacted', payload: {} }), tc(1200, 200)].join('\n')
     expect(parseRollout(auto, 'x', null).compactions[0].trigger).toBe('auto')

@@ -340,6 +340,40 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   check('…its details too, the long command wrapping', !detailBad.length, detailBad.slice(0, 4).join('; '))
   await page.screenshot({ path: path.join(shots, 'dark-long-details.png') })
   check("a script's run has no agent to show, and its details say so", (await longRow.locator('button.progress-run-show').count()) === 0 && /A script reported it/.test(await longRow.locator('.progress-details').innerText()))
+  // The details' labels and the reason there's no agent to show read at 4.5:1 or more (#231): both themes, the
+  // panel's narrowest and widest, 100% and 125%. WCAG's ratio from the rendered colours, against the run's box.
+  const lowContrast = () =>
+    longRow.evaluate((runEl) => {
+      const rgb = (c) => (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number)
+      const lum = ([red, green, blue]) => {
+        const f = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+        return 0.2126 * f(red) + 0.7152 * f(green) + 0.0722 * f(blue)
+      }
+      const bg = lum(rgb(getComputedStyle(runEl).backgroundColor))
+      const out = []
+      for (const el of runEl.querySelectorAll('.progress-details dt, .progress-detail-why')) {
+        const fg = lum(rgb(getComputedStyle(el).color))
+        const ratio = (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05)
+        if (ratio < 4.5) out.push(`${el.textContent.trim()}: ${ratio.toFixed(2)}`)
+      }
+      return out
+    })
+  for (const theme of ['dark', 'light']) {
+    await inv('settings:update', { appearance: { theme } })
+    for (const zoom of [1, 1.25]) {
+      await app.evaluate(({ BrowserWindow }, z) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(z), zoom)
+      for (const w of [220, 640]) {
+        await panel.evaluate((el, px) => (el.style.width = `${px}px`), w)
+        await lib.sleep(200)
+        const low = await lowContrast()
+        check(`${theme}, ${zoom * 100}%, panel ${w}px: the details' labels and "why" read at 4.5:1 or more`, !low.length, low.slice(0, 4).join('; '))
+        if (w === 220 && (theme === 'light' ? zoom === 1.25 : zoom === 1)) await page.screenshot({ path: path.join(shots, `${theme}-${zoom}-220-details.png`) })
+      }
+    }
+  }
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await panel.evaluate((el, px) => (el.style.width = px), panelWidth)
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
   await call(workspaceToken, 'POST', `/v1/progress/${longId}/finish`, { ok: true })
 
   // A run whose agent was removed since: its details say so rather than offering to show it.

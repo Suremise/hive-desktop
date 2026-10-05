@@ -892,6 +892,12 @@ export interface CompactionEvent {
   trigger: string
   preTokens: number
   postTokens: number
+  /**
+   * The last request before it: its input (what the context showed before that turn) and its output (thinking
+   * included). A turn with a big output is often what pushed the context past the threshold. Absent when not known.
+   */
+  lastInputTokens?: number
+  lastOutputTokens?: number
 }
 
 export interface SessionUsage {
@@ -910,7 +916,14 @@ export interface SessionUsage {
   requests: number
   /** Reasoning tokens, where the provider reports them separately (included in outputTokens). */
   reasoningTokens: number
+  /**
+   * The context now: the last request's input (cache included) plus its output (thinking included), which stays in
+   * the context and is what the CLI compacts on. Right after a compaction, what it left.
+   */
   contextTokens: number
+  /** contextTokens' two parts (the gauge's tooltip); absent from usage read by older versions. */
+  contextInputTokens?: number
+  lastOutputTokens?: number
   /** The model's context window when the provider reports it. */
   contextWindow: number | null
   compactions: CompactionEvent[]

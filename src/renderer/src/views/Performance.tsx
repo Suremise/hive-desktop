@@ -412,7 +412,7 @@ function ToolsTable({ sel }: { sel: ReturnType<typeof select> }) {
       <h2 className="section">
         Hive tools <InfoTip text="Each hive tool's replies as the models got them: characters and UTF-8 bytes, exactly. Detail: calls that asked for the full form. Sorted by characters, what costs a context most." />
       </h2>
-      <div className="perf-table">
+      <div className="table-wrap">
         <table className="table">
         <thead>
           <tr>
@@ -459,7 +459,7 @@ function RoutesTable({ sel }: { sel: ReturnType<typeof select> }) {
       <h2 className="section">
         Agent API <InfoTip text="Requests by route (its template, never the path asked for). The hive tools call these too; a tool call and its request are the same work, so don't add them up." />
       </h2>
-      <div className="perf-table">
+      <div className="table-wrap">
         <table className="table">
         <thead>
           <tr>
@@ -509,7 +509,7 @@ function GuidanceTable({ sel, totalsAvg }: { sel: ReturnType<typeof select>; tot
         Guidance at launch{' '}
         <InfoTip text="What Hive gave sessions when they started, per launch on average, exactly. Core: Hive's session contract, the same for every session of a role. Project: what Hive adds for the project (the latest handover's pointer). Role and persona: the Assistant's. Catalog: the skills' names and descriptions (what a CLI lists); on disk: the delivered copies' bytes. A model reads a skill's body only when it uses it, which isn't observable." />
       </h2>
-      <div className="perf-table">
+      <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
@@ -591,7 +591,7 @@ function ProvidersTable({ sel, note, unreadable, hosts }: { sel: ReturnType<type
         Provider usage{' '}
         <InfoTip text="What the providers reported for the sessions active in the range, by whose sessions they were: each session's whole usage (so a long session counts in full). Reasoning is part of output, shown separately, not added. Context is a snapshot of each session's last request (average and largest), not a sum. Cost is API-equivalent (≈ estimated by Hive where the provider didn't report it); a subscription isn't billed per this. Sessions that reported nothing are unknown, left out of the totals." />
       </h2>
-      <div className="perf-table">
+      <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
