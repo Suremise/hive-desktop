@@ -1,5 +1,5 @@
 import type { PermissionMode } from './types'
-import type { ModeOption, ModelGroup, ModelOption, ProviderDescriptor } from './providers'
+import type { ModeCaveatFacts, ModeOption, ModelGroup, ModelOption, ProviderDescriptor } from './providers'
 
 /**
  * Claude Code's side of the shared provider data: its permission modes, effort levels and models,
@@ -37,9 +37,9 @@ export function claudeModelLabel(model: string): string {
 const pinned = (...ids: string[]): ModelOption[] => ids.map((id) => ({ value: id, label: claudeModelLabel(id) }))
 
 /**
- * Models offered in the pickers. Aliases follow new releases; full IDs pin a version. The list is
- * what Claude Code knows about; whether an account can use a model is only known when a session
- * starts, and anything else can be typed as a custom ID.
+ * Models offered in the pickers when Claude Code can't be asked (its initialize reply gives the real list, #125): the
+ * starting fallback, editable in Settings. Aliases follow new releases; full IDs pin a version. Whether an account can
+ * use a model is only known when a session starts, and anything else can be typed as a custom ID.
  */
 export const CLAUDE_MODEL_GROUPS: ModelGroup[] = [
   {
@@ -114,6 +114,21 @@ export function canSwitchLive(target: PermissionMode, current: PermissionMode | 
   return target === 'bypassPermissions' && launched === 'bypassPermissions'
 }
 
+/**
+ * Auto with a model Claude Code doesn't run in Auto. Its initialize reply says per model, for the installed version and
+ * the account (supportsAutoMode, absent for Haiku 4.5 with 2.1.289, #129); such a session runs in Manual instead (2.1.286
+ * and 2.1.289; claude-real checks it against the installed CLI). Without the reply's word, the guess from 2.1.286.
+ */
+export function claudeModeCaveat(mode: string, model: string, known?: ModeCaveatFacts): string | null {
+  if (mode !== 'auto') return null
+  const unsupported = known?.supportsAuto !== undefined ? !known.supportsAuto : /haiku/i.test(model)
+  if (!unsupported) return null
+  const name = known?.label ?? (/haiku/i.test(model) ? 'Haiku' : claudeModelLabel(model))
+  return known?.supportsAuto === false
+    ? `Claude Code doesn't offer Auto with ${name}: it runs in Manual instead (asking before edits and commands), and Hive shows that mode.`
+    : `Claude Code may not offer Auto with ${name}. If it doesn't, it runs in Manual (asking before edits and commands), and Hive shows that mode.`
+}
+
 export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
   id: CLAUDE_CODE,
   name: 'Claude Code',
@@ -126,9 +141,7 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
   defaultPermissionMode: 'auto',
   // Plan mode would block the hive tools.
   assistantMode: 'auto',
-  // Claude Code 2.1.286 runs Haiku in Manual when asked for Auto, without saying so.
-  modeCaveat: (mode, model) =>
-    mode === 'auto' && /haiku/i.test(model) ? "Claude Code may not offer Auto with Haiku. If it doesn't, it runs in Manual (asking before edits and commands), and Hive shows that mode." : null,
+  modeCaveat: claudeModeCaveat,
   effortLevels: [
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },

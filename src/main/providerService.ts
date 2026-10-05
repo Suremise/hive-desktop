@@ -1,5 +1,6 @@
 import { homedir } from 'os'
-import type { AgentInstallInfo, ProviderId, ProviderTask } from '../shared/types'
+import type { AgentInstallInfo, ModelCatalog, ProviderId, ProviderTask } from '../shared/types'
+import { observedEffortKey } from '../shared/models'
 import { isProviderEnabled, providerSettings } from '../shared/providers'
 import { toSpawnable } from './providers/common'
 import { allProviders, provider } from './providers'
@@ -11,6 +12,8 @@ import { childEnv, hasPty, killPty, spawnPty, writePty } from './ptyHost'
 import { lastTitle } from './terminalTitle'
 
 const log = createLogger('providers')
+/** How many models' default efforts are kept per provider (observeDefaultEffort). */
+const OBSERVED_EFFORTS = 50
 
 const blank = (id: ProviderId): AgentInstallInfo => ({
   provider: id,
@@ -40,9 +43,39 @@ class ProviderService {
     return Object.fromEntries(this.infos)
   }
 
-  /** The CLI's own default: its settings, else the model last seen in a session started without a model choice. */
-  private resolveDefaultModel(id: ProviderId): string | null {
-    return provider(id).configuredDefaultModel() ?? config.get().observedDefaultModel[id] ?? null
+  /**
+   * The CLI's own default: its settings, else what its catalog says runs when no model is passed (Claude Code's
+   * "default"), else the model last seen in a session started without a model choice.
+   */
+  private resolveDefaultModel(id: ProviderId, catalog?: ModelCatalog | null): string | null {
+    return provider(id).configuredDefaultModel() ?? catalog?.defaultModel ?? config.get().observedDefaultModel[id] ?? null
+  }
+
+  /** The efforts sessions started without an effort choice ran with, per model (the CLI's own defaults). */
+  private observedEfforts(id: ProviderId): Record<string, string> {
+    return { ...config.get().observedDefaultEffort?.[id] }
+  }
+
+  /**
+   * Records the effort a session started without an effort choice reports for its model: the CLI's default for that
+   * model, which the footer then shows ("Medium (default)") for agents with no effort set (#125).
+   */
+  observeDefaultEffort(id: ProviderId, model: string, effort: string): void {
+    const key = observedEffortKey(model)
+    if (!key || !effort || config.get().observedDefaultEffort?.[id]?.[key] === effort) return
+    config.update((c) => {
+      // Bounded: the newest OBSERVED_EFFORTS models (custom model ids would otherwise add up for ever).
+      const kept = Object.entries({ ...c.observedDefaultEffort?.[id] }).filter(([k]) => k !== key).slice(-(OBSERVED_EFFORTS - 1))
+      c.observedDefaultEffort = { ...c.observedDefaultEffort, [id]: { ...Object.fromEntries(kept), [key]: effort } }
+    })
+    this.set(id, { ...this.info(id), observedEfforts: this.observedEfforts(id) })
+  }
+
+  /** The last good catalog this provider's CLI gave, as a cache (for its version only). */
+  private cachedCatalog(id: ProviderId, version?: string | null): ModelCatalog | null {
+    const c = config.get().modelCatalogs?.[id]
+    if (!c || !Array.isArray(c.models) || !c.models.length) return null
+    return version === undefined || c.version === version ? { ...c, source: 'cache' } : null
   }
 
   /** Records the model seen answering in a session started without a model choice. */
@@ -51,8 +84,8 @@ class ProviderService {
     config.update((c) => {
       c.observedDefaultModel = { ...c.observedDefaultModel, [id]: model }
     })
-    const next = this.resolveDefaultModel(id)
     const cur = this.info(id)
+    const next = this.resolveDefaultModel(id, cur.catalog)
     if (next !== cur.defaultModel) this.set(id, { ...cur, defaultModel: next })
   }
 
@@ -79,21 +112,38 @@ class ProviderService {
     const prev = this.info(id)
     const run = (this.refreshes.get(id) ?? 0) + 1
     this.refreshes.set(id, run)
-    this.set(id, { ...prev, checking: true })
+    // The last good catalog fills the pickers at once (on start), until this refresh has asked the CLI again.
+    this.set(id, { ...prev, catalog: prev.catalog ?? this.cachedCatalog(id), checking: true })
     const latestWanted = checkLatest ?? (isProviderEnabled(config.settings, id) && providerSettings(config.settings, id).checkUpdatesOnLaunch)
     let next: AgentInstallInfo
     try {
       const found = await adapter.locate()
       const latest = latestWanted ? await adapter.latestVersion() : prev.latestVersion
-      // The CLI's own model list, so new models show without a Hive update.
-      const models = found.path && adapter.listModels ? await adapter.listModels(found.path).catch(() => null) : null
+      // The CLI's own models and what each can do, so new models show without a Hive update (#125). If it can't say,
+      // its last good answer for this version, else none (the pickers then use the fallbacks in Settings).
+      const read = found.path && adapter.listModels ? await adapter.listModels(found.path, childEnv()).catch(() => null) : null
+      let catalog: ModelCatalog | null = null
+      if (read) {
+        catalog = { source: 'cli', version: found.version, models: read.models, ...(read.defaultModel ? { defaultModel: read.defaultModel } : {}), at: new Date().toISOString() }
+        const keep = catalog
+        // Only the latest refresh's answer is kept (an older one still running mustn't replace a newer one's).
+        if (this.refreshes.get(id) === run)
+          config.update((c) => {
+            c.modelCatalogs = { ...c.modelCatalogs, [id]: keep }
+          })
+      } else {
+        catalog = this.cachedCatalog(id, found.version)
+        if (found.path && adapter.listModels) log.warn(`${adapter.descriptor.name} ${found.version ?? ''} didn't say which models it has: ${catalog ? 'using its last answer' : 'using the fallback list'}`)
+      }
       next = {
         ...found,
         provider: id,
-        defaultModel: this.resolveDefaultModel(id),
+        defaultModel: this.resolveDefaultModel(id, catalog),
         latestVersion: latest,
         updateAvailable: !!(found.version && latest && adapter.isNewer(latest, found.version)),
-        models: models ?? prev.models ?? null,
+        catalog,
+        configuredEffort: adapter.configuredDefaultEffort?.() ?? null,
+        observedEfforts: this.observedEfforts(id),
         checking: false
       }
     } catch (e) {

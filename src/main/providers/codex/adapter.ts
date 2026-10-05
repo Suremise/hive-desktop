@@ -15,9 +15,10 @@ import { cleanSwaps, contentHash, ContentTooLarge, COPY_MARKER, CopyFailed, Link
 import { createLogger, userText } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, toSpawnable } from '../common'
-import type { BackgroundTaskEvent, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
+import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
 import { codexBackgroundMemo, codexBackgroundTasks, type CodexBackgroundMemo } from './background'
 import { CodexConversationParser, CodexUsageParser, codexImageData, parseRollout, patchPaths, rolloutDetails } from './rollout'
+import { parseCodexModels } from './models'
 
 const log = createLogger('codex')
 
@@ -460,25 +461,21 @@ export class CodexAdapter implements ProviderAdapter {
     return { ...s, keys, readyPattern: /Ask Codex|›/, busyTitle: /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/, done }
   }
 
-  /** Codex's model catalog (codex debug models): the listed models, in Codex's order. */
-  async listModels(executable: string): Promise<{ value: string; label: string }[] | null> {
-    const r = await run(executable, ['debug', 'models'], 30000)
-    if (r.code !== 0) return null
-    try {
-      const list = (JSON.parse(r.stdout) as { models?: { slug?: string; display_name?: string; visibility?: string; priority?: number }[] }).models ?? []
-      const out = list
-        .filter((m) => typeof m.slug === 'string' && m.visibility !== 'hide')
-        .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99))
-        .map((m) => ({ value: m.slug!, label: m.display_name?.replace(/-/g, ' ').replace(/^GPT /, 'GPT-') || m.slug! }))
-      return out.length ? out : null
-    } catch {
-      return null
-    }
+  /** Codex's model catalog (codex debug models, models.ts): the listed models in Codex's order, with their efforts. */
+  async listModels(executable: string, env: Record<string, string>): Promise<CatalogRead | null> {
+    const r = await run(executable, ['debug', 'models'], 30000, env)
+    return r.code === 0 ? parseCodexModels(r.stdout) : null
   }
 
   configuredDefaultModel(): string | null {
     const m = userConfig().model
     return typeof m === 'string' && m.trim() ? m.trim() : null
+  }
+
+  /** model_reasoning_effort in Codex's own config.toml, which every model then uses unless Hive passes one. */
+  configuredDefaultEffort(): string | null {
+    const e = userConfig().model_reasoning_effort
+    return typeof e === 'string' && e.trim() ? e.trim() : null
   }
 
   ownsModel(model: string): boolean {

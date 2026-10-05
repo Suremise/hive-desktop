@@ -7,7 +7,8 @@ import { formatDateTime } from '@shared/dates'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
 import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
 import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
-import { ModelPicker } from '../components/ModelPicker'
+import { EffortPicker, ModelPicker } from '../components/ModelPicker'
+import { effortText } from '@shared/models'
 import { NumberField } from '../components/NumberField'
 import { StorageView } from '../components/Storage'
 import { TaskStrip } from '../components/Board'
@@ -1122,6 +1123,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
 
 export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
   const settings = useStore((s) => s.settings)
+  const installs = useStore((s) => s.providers)
   const [section, setSection] = useState<ProjectSection>('agents')
   const [query, setQuery] = useState('')
   // Opened on a section from elsewhere (Settings → Workspace's Storage links).
@@ -1152,7 +1154,9 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     const sect = `provider:${id}` as ProjectSection
     const save = (patch: Partial<typeof pc>): Promise<void> => actions.updateProjectProvider(project.path, id, patch)
     const globalModel = g.defaultModel ? modelLabel(g.defaultModel, id) : `${p.name} default`
-    const globalEffort = g.defaultEffort ? p.effortLevels.find((l) => l.value === g.defaultEffort)?.label ?? g.defaultEffort : 'default'
+    // The model this project's agents run unless they choose one, whose effort levels the picker offers (#125).
+    const runModel = (pc.model && pc.model !== 'inherit' ? pc.model : g.defaultModel) || installs[id]?.defaultModel || null
+    const globalEffort = effortText(id, g.defaultEffort, runModel, installs[id], settings)
     const modes = offeredModes(id, settings)
     const mode = pc.permissionMode === 'inherit' ? g.defaultPermissionMode : pc.permissionMode
     return [
@@ -1172,16 +1176,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
         desc: 'How much reasoning effort the model uses. Higher is more thorough but slower and uses more tokens.',
         tip: `Passed to ${p.name} when a session starts.`,
         modified: pc.effort !== 'inherit',
-        render: () => (
-          <select className="select" value={pc.effort} onChange={(e) => void save({ effort: e.target.value })}>
-            <option value="inherit">Inherit ({globalEffort})</option>
-            {p.effortLevels.map((l) => (
-              <option key={l.value} value={l.value}>
-                {l.label}
-              </option>
-            ))}
-          </select>
-        )
+        render: () => <EffortPicker provider={id} model={runModel} value={pc.effort} base={{ value: 'inherit', label: `Inherit (${globalEffort})` }} onChange={(v) => void save({ effort: v })} />
       },
       {
         section: sect,

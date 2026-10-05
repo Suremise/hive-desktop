@@ -275,6 +275,61 @@ export interface ProviderSettings {
   use200kContext: boolean
   /** The user's price overrides by model id; missing models use the prices Hive ships. */
   prices: Record<string, ModelPrice>
+  /** Shipped prices the user removed from the table (a model of their own in `prices` wins). */
+  pricesRemoved?: string[]
+  /**
+   * The models offered when the CLI can't be asked (not installed, too old, an odd reply), as the user edited them;
+   * absent: the descriptor's. Only an edited list is stored, so improved shipped defaults reach everyone else.
+   */
+  modelFallback?: FallbackModel[]
+  /** The effort levels offered when the CLI doesn't report a model's own, as the user edited them; absent: the descriptor's. */
+  effortFallback?: EffortOption[]
+}
+
+/** An effort level and what to call it. */
+export interface EffortOption {
+  value: EffortLevel
+  label: string
+}
+
+/** A model of the fallback list (Settings → provider → Models): older ones are behind "Show older versions". */
+export interface FallbackModel {
+  value: string
+  label: string
+  older?: boolean
+}
+
+/**
+ * A model as the provider's CLI describes it (Claude Code's initialize reply, codex debug models). A field the CLI
+ * doesn't report is absent, and Hive falls back for it.
+ */
+export interface CatalogModel {
+  /** What to pass to the CLI (an alias such as "opus", or a model id). */
+  value: string
+  label: string
+  /** The id an alias stands for ("claude-opus-5-5"), when the CLI says. */
+  resolved?: string
+  description?: string
+  /** The effort levels the model takes ([]: none, it has no effort setting); absent: not reported. */
+  efforts?: EffortLevel[]
+  /** The effort the CLI uses with it when none is chosen, when the CLI says. */
+  defaultEffort?: EffortLevel
+  /** Whether the CLI runs it in its automatic mode (Claude Code's Auto); absent: not reported. */
+  supportsAuto?: boolean
+  /** Listed by the CLI as not available to this account. */
+  unavailable?: boolean
+}
+
+/** The models a CLI reported, and which version of it said so. */
+export interface ModelCatalog {
+  /** cli: read just now; cache: the last good reply from this version, while a fresh read runs. */
+  source: 'cli' | 'cache'
+  version: string | null
+  models: CatalogModel[]
+  /** The model the CLI runs when none is passed, when it says (Claude Code's "default" entry). */
+  defaultModel?: string
+  /** When it was read (ISO). */
+  at: string
 }
 
 export interface WindowState {
@@ -304,6 +359,13 @@ export interface AppConfig {
   ui: { sidebarWidth: number; sidebarVisible: boolean; sidebarCompact?: boolean; panes?: Record<string, number>; tips?: TipsState }
   /** Per provider: the model last seen in a session started without a model choice (the CLI's own default). */
   observedDefaultModel: Record<ProviderId, string>
+  /**
+   * Per provider and model: the effort last seen in a session started without an effort choice (the CLI's own default
+   * for that model, for CLIs that don't report it otherwise).
+   */
+  observedDefaultEffort?: Record<ProviderId, Record<string, EffortLevel>>
+  /** Per provider: the last good model catalog its CLI gave, keyed by the CLI version, so pickers fill at once on start. */
+  modelCatalogs?: Record<ProviderId, ModelCatalog>
   /** Per provider: the plan usage it last reported (account-wide). */
   planUsage: Record<ProviderId, PlanUsage>
   /** Highest warning shown per "provider:limit", and for which reset period. */
@@ -1080,8 +1142,12 @@ export interface AgentInstallInfo {
   defaultModel?: string | null
   /** What still stands between the provider and running agents (not installed, not signed in, setup). */
   readiness?: ReadinessIssue[]
-  /** The models the installed CLI offers, in its own order (providers that can list them, e.g. Codex). */
-  models?: { value: string; label: string }[] | null
+  /** The models the installed CLI reports, in its own order, with their capabilities; null when it couldn't be asked. */
+  catalog?: ModelCatalog | null
+  /** The effort the CLI's own settings choose for every model (Codex's model_reasoning_effort), if any. */
+  configuredEffort?: EffortLevel | null
+  /** Per model: the effort seen in sessions started without an effort choice (observedDefaultEffort). */
+  observedEfforts?: Record<string, EffortLevel>
 }
 
 export interface ReadinessIssue {

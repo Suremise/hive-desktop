@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
+import { modelCaps } from '@shared/models'
 import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, contextPercent, effectiveModelLabel, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import type { AgentInfo, LiveSessionState, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import type { StartFailure } from '@shared/startFailure'
@@ -757,7 +758,9 @@ export function PaneFooter({
   const ps = providerSettings(settings, provider)
   const live = a.live
   const model = effectiveModelLabel(provider, a.model || pc.model, ps.defaultModel, providers[provider]?.defaultModel ?? null)
-  const effort = effortLabel(provider, live?.effort, a.effort ?? pc.effort, ps.defaultEffort)
+  // With no effort set or reported, the model's own default when the CLI said what it is ("Medium (default)", #125).
+  const runModel = a.model || (pc.model && pc.model !== 'inherit' ? pc.model : ps.defaultModel) || providers[provider]?.defaultModel || null
+  const effort = effortLabel(provider, live?.effort, a.effort ?? pc.effort, ps.defaultEffort, modelCaps(provider, runModel, providers[provider], settings).defaultEffort)
   const threshold = compactThreshold(project.config, settings?.sessions.compactSuggestTokens ?? 0)
   const ctx = usage?.contextTokens ?? 0
   const pct = contextPercent(ctx, usage?.contextWindow)

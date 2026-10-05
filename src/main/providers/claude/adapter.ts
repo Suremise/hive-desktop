@@ -11,9 +11,10 @@ import { claudeFileAllowed, contentHash, ContentTooLarge, copySkillTree, sourceP
 import { createLogger } from '../../logger'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, runsThroughCmd, toSpawnable } from '../common'
 import type { StartHint } from '../../../shared/startFailure'
-import type { BackgroundTaskEvent, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
+import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
 import { claudeBackgroundTasks } from './background'
 import { ConversationParser, claudeImageData } from './conversation'
+import { readClaudeModels } from './models'
 import { ClaudeUsageParser, encodeProjectPath, parseTranscript } from './usage'
 
 const log = createLogger('claude-code')
@@ -191,6 +192,11 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
 
   ownsModel(model: string): boolean {
     return /^claude-/i.test(model)
+  }
+
+  /** Claude Code's models from its initialize reply (models.ts), in the sessions' environment. */
+  listModels(executable: string, env: Record<string, string>): Promise<CatalogRead | null> {
+    return readClaudeModels(executable, env)
   }
 
   /**
@@ -400,9 +406,10 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   statusLine(body: Record<string, any>): LiveDetails {
     const effort = typeof body.effort === 'string' ? body.effort : typeof body.effort?.level === 'string' ? body.effort.level : undefined
     const modelName = typeof body.model?.display_name === 'string' ? body.model.display_name : undefined
+    const modelId = typeof body.model?.id === 'string' ? body.model.id : undefined
     const cost = Number(body.cost?.total_cost_usd)
     const window = Number(body.context_window?.context_window_size)
-    return { effort, modelName, costUsd: Number.isFinite(cost) ? cost : undefined, contextWindow: window > 0 ? window : undefined, planUsage: parseClaudePlanUsage(body) }
+    return { effort, modelName, modelId, costUsd: Number.isFinite(cost) ? cost : undefined, contextWindow: window > 0 ? window : undefined, planUsage: parseClaudePlanUsage(body) }
   }
 
   footerMode(screen: string): string | null {

@@ -4,8 +4,10 @@ import { CODEX } from './codex'
 
 /**
  * API prices Hive ships, in USD per million tokens, for estimating what a session would have cost at
- * API rates (the Overview's "≈ cost"). Users can override any model in Settings → <provider> → Prices.
- * Claude Code reports its own cost, so its table is only a fallback for sessions without one.
+ * API rates (the Overview's "≈ cost"). They are editable defaults, never fetched (#125): in Settings → <provider> → API
+ * prices the user can change, add and remove models, and Reset to defaults; only their changes are stored, so a later
+ * Hive's prices still reach models they never edited. Claude Code reports its own cost, so its table is only a fallback
+ * for sessions without one.
  *
  * Sources (checked 30 Sep 2026): Anthropic's model table (Claude API docs; cache writes 1.25× input and
  * cache reads 0.1× input unless listed) and OpenAI's API pricing page (standard tier).
@@ -55,12 +57,24 @@ function priceKey(provider: ProviderId, model: string): string {
   return CLAUDE_ALIASES[base] ?? base.replace(/-\d{8}$/, '')
 }
 
-/** The price for a model: the user's override, else the shipped one; null when unknown. */
+/** The price for a model: the user's override, else the shipped one (unless they removed it); null when unknown. */
 export function modelPrice(provider: ProviderId, model: string | null | undefined, settings?: Pick<AppSettings, 'providers'> | null): ModelPrice | null {
   if (!model) return null
   const key = priceKey(provider, model)
-  const own = settings?.providers?.[provider]?.prices ?? {}
-  return own[key] ?? own[model] ?? SHIPPED_PRICES[provider]?.[key] ?? null
+  const ps = settings?.providers?.[provider]
+  const own = ps?.prices ?? {}
+  const removed = ps?.pricesRemoved ?? []
+  return own[key] ?? own[model] ?? (removed.includes(key) ? null : (SHIPPED_PRICES[provider]?.[key] ?? null))
+}
+
+/** A provider's price table as Settings shows it: the shipped models not removed, then the user's own, each with its price. */
+export function priceRows(provider: ProviderId, settings?: Pick<AppSettings, 'providers'> | null): { model: string; price: ModelPrice; shipped: boolean; edited: boolean }[] {
+  const ps = settings?.providers?.[provider]
+  const own = ps?.prices ?? {}
+  const removed = new Set(ps?.pricesRemoved ?? [])
+  const shipped = SHIPPED_PRICES[provider] ?? {}
+  const models = [...Object.keys(shipped).filter((m) => !removed.has(m) || own[m]), ...Object.keys(own).filter((m) => !shipped[m])]
+  return models.map((m) => ({ model: m, price: own[m] ?? shipped[m], shipped: !!shipped[m], edited: !!own[m] }))
 }
 
 /**

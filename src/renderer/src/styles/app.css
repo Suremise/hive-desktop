@@ -4057,6 +4057,52 @@ body.pane-resizing .monaco-editor {
   width: 90px;
   text-align: right;
 }
+/* Settings → provider: the editable fallbacks (models, effort levels) and prices, each with where its data comes from (#125). */
+.fallback-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fallback-source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.fallback-source.warn {
+  color: var(--warning);
+}
+.fallback-list .input {
+  width: 100%;
+}
+.fallback-list td:first-child {
+  width: 45%;
+}
+.fallback-table td.row-actions {
+  width: 1%;
+  white-space: nowrap;
+}
+.fallback-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.fallback-actions .input {
+  max-width: 280px;
+}
+.effort-picker-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.fallback-toggle {
+  font-size: 12px;
+  cursor: pointer;
+}
+.mode-caveat.effort-caveat.faint {
+  color: var(--fg-faint);
+}
 .setup-tabs {
   display: flex;
   gap: 4px;

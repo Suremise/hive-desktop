@@ -496,12 +496,14 @@ export function mergeDefaults<T>(defaults: T, saved: unknown): T {
 
 /**
  * Effort to show next to the model: what the running session reports, else what new sessions use
- * (the agent's or project's choice, then the global default). Null when the CLI picks its own default.
+ * (the agent's or project's choice, then the global default). With none of those, the model's own default when the
+ * CLI said what it is ("Medium (default)", models.ts modelCaps); else null.
  */
-export function effortLabel(provider: string, live: string | undefined, chosen: string | undefined, global: string | undefined): string | null {
+export function effortLabel(provider: string, live: string | undefined, chosen: string | undefined, global: string | undefined, modelDefault?: string | null): string | null {
+  const name = (v: string): string => providerDescriptor(provider).effortLevels.find((e) => e.value === v)?.label ?? v.charAt(0).toUpperCase() + v.slice(1)
   const v = live || (chosen && chosen !== 'inherit' ? chosen : global)
-  if (!v) return null
-  return providerDescriptor(provider).effortLevels.find((e) => e.value === v)?.label ?? v.charAt(0).toUpperCase() + v.slice(1)
+  if (v) return name(v)
+  return modelDefault ? `${name(modelDefault)} (default)` : null
 }
 
 /** Whether a session record ran in the folder an agent works in (its worktree, or the project folder). */

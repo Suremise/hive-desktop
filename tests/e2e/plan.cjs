@@ -52,22 +52,34 @@ const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}
   await page.getByText('Default model', { exact: true }).first().scrollIntoViewIfNeeded()
   const picker = page.locator('.setting', { hasText: 'Default model' }).locator('.model-picker').first()
   const groups = await picker.locator('optgroup').evaluateAll((els) => els.map((e) => e.label))
-  check('latest and pinned groups, older hidden', JSON.stringify(groups) === JSON.stringify(['Latest (follows new releases)', 'Pinned versions']), JSON.stringify(groups))
+  const savedModel = () => inv('settings:get').then((s) => s.providers['claude-code'].defaultModel)
+  // The models Claude Code reports for this version and account (#125), else Hive's fallback list.
+  const catalog = (await inv('provider:info'))['claude-code']?.catalog
+  const offered = (await picker.locator('select option').evaluateAll((os) => os.map((o) => o.value))).filter((v) => v && v !== 'custom')
+  let first = 'claude-opus-5-5'
+  if (catalog?.models.length) {
+    const reported = catalog.models.filter((m) => !m.unavailable).map((m) => m.value)
+    check(`the picker lists the models Claude Code ${catalog.version} reports`, groups[0] === 'Claude Code models' && JSON.stringify(offered.slice(0, reported.length)) === JSON.stringify(reported), JSON.stringify({ groups, offered, reported }))
+    first = reported[0]
+    await picker.locator('select').selectOption(reported.at(-1))
+    check('another reported model saved as chosen', !!(await lib.until(async () => (await savedModel()) === reported.at(-1), 5000)), await savedModel())
+  } else {
+    check('latest and pinned groups, older hidden', JSON.stringify(groups) === JSON.stringify(['Latest (follows new releases)', 'Pinned versions']), JSON.stringify(groups))
+    await picker.getByText('Show older versions').click()
+    check('older versions shown on request', !!(await lib.until(async () => (await picker.locator('optgroup').count()) === 3, 5000)))
+    await picker.locator('select').selectOption('claude-opus-4-5')
+    check('an older version saved as chosen', !!(await lib.until(async () => (await savedModel()) === 'claude-opus-4-5', 5000)), await savedModel())
+  }
   // No 1M choice (SPEC §9): current models have the 1M window without asking; Opus 4.6 / Sonnet 4.6 reach it only
   // through a [1m] model ID typed as a custom model, which the placeholder says.
   check('no 1M-context choice in the picker', (await picker.locator('input[type=checkbox]').count()) === 0)
-  const savedModel = () => inv('settings:get').then((s) => s.providers['claude-code'].defaultModel)
-  await picker.locator('select').selectOption('claude-opus-5-5')
-  check('Opus 5.5 saved as chosen', !!(await lib.until(async () => (await savedModel()) === 'claude-opus-5-5', 5000)), await savedModel())
-  await picker.getByText('Show older versions').click()
-  check('older versions shown on request', !!(await lib.until(async () => (await picker.locator('optgroup').count()) === 3, 5000)))
-  await picker.locator('select').selectOption('claude-opus-4-5')
-  check('an older version saved as chosen', !!(await lib.until(async () => (await savedModel()) === 'claude-opus-4-5', 5000)), await savedModel())
+  await picker.locator('select').selectOption(first)
+  check(`${first} saved as chosen`, !!(await lib.until(async () => (await savedModel()) === first, 5000)), await savedModel())
   await picker.locator('select').selectOption('custom'); await sleep(200)
   check('the custom model box says how to ask for 1M ([1m])', /\[1m\]/.test((await picker.locator('input.input').getAttribute('placeholder')) ?? ''))
   await picker.locator('input.input').fill('claude-sonnet-9-9'); await picker.locator('input.input').press('Enter'); await sleep(400)
   check('custom model ID saved', (await inv('settings:get')).providers['claude-code'].defaultModel === 'claude-sonnet-9-9')
-  await picker.locator('select').selectOption('claude-opus-5-5'); await sleep(400)
+  await picker.locator('select').selectOption(first); await sleep(400)
   await page.screenshot({ path: path.join(shots, '3-settings.png') })
   await inv('settings:update', { providers: { 'claude-code': { defaultModel: '', defaultEffort: 'high' } } })
 
@@ -85,7 +97,8 @@ const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}
   const agent = await lib.soloAgent(inv, proj)
   await inv('workspace:refresh')
   await page.locator('.tab', { hasText: 'Session' }).first().click(); await sleep(800)
-  const chip = await page.locator('.pane-footer-bar .pane-foot-item', { hasText: 'Claude Code default' }).first().textContent().catch(() => '')
+  // The model's name: Claude Code's default model, by its name once Claude Code has said which it is (#125).
+  const chip = await page.locator('.pane-footer-bar .pane-foot-item', { hasText: /default/ }).first().textContent().catch(() => '')
   check('the agent footer shows the configured effort', chip.includes('· High'), chip)
   await inv('session:start', proj, { agentId: agent.id })
   await lib.acceptClaudeTrust(inv, proj, agent.id)

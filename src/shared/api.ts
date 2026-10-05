@@ -17,6 +17,8 @@ import type {
   AppConfig,
   AppInfo,
   AppSettings,
+  EffortOption,
+  FallbackModel,
   FileContent,
   FileEntry,
   GitDiff,
@@ -122,7 +124,10 @@ export interface HiveRequests {
   'settings:update': (patch: SettingsPatch) => AppSettings
   'settings:reset': (section?: keyof AppSettings) => AppSettings
   /** Replaces a provider's price overrides (USD per million tokens, by model id). */
-  'settings:setProviderPrices': (provider: ProviderId, prices: Record<string, ModelPrice>) => AppSettings
+  /** Replaces a provider's price overrides, and (when given) which shipped prices are removed from its table. */
+  'settings:setProviderPrices': (provider: ProviderId, prices: Record<string, ModelPrice>, removed?: string[]) => AppSettings
+  /** Replaces a provider's fallback list of models or effort levels (#125); null goes back to Hive's defaults. */
+  'settings:setProviderFallback': (provider: ProviderId, kind: 'models' | 'efforts', list: (FallbackModel | EffortOption)[] | null) => AppSettings
   /** Sets (string), removes (null) or resets to the default (undefined) one command's shortcut. */
   'settings:setKeybinding': (commandId: string, key: string | null | undefined) => AppSettings
   'ui:get': () => AppConfig['ui']

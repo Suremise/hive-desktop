@@ -1,4 +1,4 @@
-import type { AgentInstallInfo, EffortLevel, McpServerDef, MemorySource, PermissionMode, PlanUsage, ProviderId, ReadinessIssue, SessionUsage, TranscriptImageRef, TranscriptItem } from '../../shared/types'
+import type { AgentInstallInfo, CatalogModel, EffortLevel, McpServerDef, MemorySource, PermissionMode, PlanUsage, ProviderId, ReadinessIssue, SessionUsage, TranscriptImageRef, TranscriptItem } from '../../shared/types'
 import type { ProviderDescriptor } from '../../shared/providers'
 import type { StartHint } from '../../shared/startFailure'
 
@@ -125,6 +125,8 @@ export interface NormalizedHook {
 /** Details about a running session a provider reports outside hooks (Claude's status line, Codex's rollout). */
 export interface LiveDetails {
   modelName?: string
+  /** The model's id as the CLI reports it (to learn its default effort, observedDefaultEffort). */
+  modelId?: string
   effort?: string
   costUsd?: number
   permissionMode?: PermissionMode
@@ -228,9 +230,14 @@ export interface ProviderAdapter {
    * launch's own, kept between reads (and emptied when the reading starts again), for what a later line completes.
    */
   backgroundTasks?(appended: string, memo: Record<string, unknown>): BackgroundTaskEvent[]
+  /**
+   * The installed CLI's models and what each can do (#125), when it can say (null: couldn't, or an unexpected reply).
+   * Asking may start the CLI briefly, but never a session, a prompt or a sign-in. env: the sessions' environment.
+   */
+  listModels?(executable: string, env: Record<string, string>): Promise<CatalogRead | null>
+  /** The effort the CLI's own settings choose for every model, if any (Codex's model_reasoning_effort). */
+  configuredDefaultEffort?(): string | null
   /** For liveModeSwitch 'menu': the keys that pick a mode in the CLI's menu. */
-  /** The models the installed CLI offers, when it can list them (null: couldn't). */
-  listModels?(executable: string): Promise<{ value: string; label: string }[] | null>
   modeMenuKeys?(target: PermissionMode): KeySteps
   /** The mode the CLI says it switched to, from its terminal output after a menu switch (null: not said yet). */
   modeFromOutput?(tail: string): PermissionMode | null
@@ -283,6 +290,12 @@ export interface ProviderAdapter {
   backgroundJobIn?(output: string): string | null
   /** Stops one of the CLI's background jobs (its conversation is kept). */
   stopBackgroundJob?(executable: string, jobId: string): Promise<void>
+}
+
+/** A CLI's model catalog as read (models.ts files of each adapter): its models, and the one it runs by default. */
+export interface CatalogRead {
+  models: CatalogModel[]
+  defaultModel?: string
 }
 
 export type { TranscriptImageRef }
