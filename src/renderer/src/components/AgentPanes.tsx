@@ -664,6 +664,9 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   )
 }
 
+/** What a click on the footer's cost does, as its tooltip says. */
+const COST_CLICK = "Click to see this session's details in the Overview"
+
 /** Between an item's icon and its text (.fit-text's margin in app.css). */
 const FIT_TEXT_GAP = 4
 
@@ -774,6 +777,8 @@ export function PaneFooter({
   useEffect(() => void (long && offerTip('transcript-long')), [long])
   useEffect(() => void (over && offerTip('compact-suggested')), [over])
   useDateStyle() // the session's tooltip says when it started
+  // The cost opens the session's details in the Overview (an agent's: the Assistant's footer has nowhere to go).
+  const costClick = onContext ? undefined : (): void => showInOverview(project.path, a.id, 'session')
   const [footerRef, fit] = useFooterFit()
   return (
     <div ref={footerRef} className="pane-footer-bar" data-fit={fit} onMouseDown={() => focusAgent(project.path, a.id)}>
@@ -831,15 +836,17 @@ export function PaneFooter({
         </Tooltip>
       )}
       {cost !== null && cost > 0 && (
-        <Tooltip content={estimated ? 'API-equivalent cost of this session, estimated by Hive from its tokens' : 'API-equivalent cost of this session, as the provider reports it'}>
-          <span className="pane-foot-item faint">
+        <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${estimated ? 'API-equivalent cost of this session, estimated by Hive from its tokens' : 'API-equivalent cost of this session, as the provider reports it'}${costClick ? `\n\n${COST_CLICK}` : ''}`}</span>}>
+          <span className="pane-foot-item faint foot-cost" onClick={costClick}>
             {estimated ? '≈' : ''}${cost < 0.01 ? '<0.01' : cost.toFixed(2)}
           </span>
         </Tooltip>
       )}
       {cost === null && usage && unpricedModel(usage.provider, usage.model, settings) && (
-        <Tooltip content={unpricedText(usage.model!, providerName(usage.provider))}>
-          <span className="pane-foot-item faint">$?</span>
+        <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${unpricedText(usage.model!, providerName(usage.provider))}${costClick ? `\n\n${COST_CLICK}` : ''}`}</span>}>
+          <span className="pane-foot-item faint foot-cost" onClick={costClick}>
+            $?
+          </span>
         </Tooltip>
       )}
     </div>

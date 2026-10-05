@@ -198,7 +198,8 @@ interface State {
   /** The agent whose work "Hand Over to…" hands to another agent. */
   handOverFor: AgentRef | null
   /** Shows this agent's session in its project's Overview and scrolls to it (the footer's context count); `at` makes each click count. */
-  overviewJump: (AgentRef & { at: number }) | null
+  /** Open the Overview on an agent's session, at its compaction history (the footer's context) or its details (its cost). */
+  overviewJump: (AgentRef & { at: number; target?: 'history' | 'session' }) | null
   /** Opens Project Settings on this section (Settings → Workspace's Storage links); `at` makes each click count. */
   projectSettingsJump: { project: string; section: string; at: number } | null
   /** Per project: the agent that session commands (header buttons, shortcuts, Insert into Session) act on. */
@@ -647,8 +648,8 @@ export function setProjectTab(path: string, tab: ProjectTab): void {
 }
 
 /** Opens a project's Overview at one agent's session (picked there, and scrolled to). */
-export function showInOverview(path: string, agentId: string): void {
-  set((s) => ({ projectTabs: { ...s.projectTabs, [path]: 'overview' }, overviewJump: { project: path, agentId, at: Date.now() } }))
+export function showInOverview(path: string, agentId: string, target: 'history' | 'session' = 'history'): void {
+  set((s) => ({ projectTabs: { ...s.projectTabs, [path]: 'overview' }, overviewJump: { project: path, agentId, at: Date.now(), target } }))
 }
 
 export function applyLiveState(state: LiveSessionState): void {

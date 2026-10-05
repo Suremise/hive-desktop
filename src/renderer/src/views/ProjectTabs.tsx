@@ -347,8 +347,9 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
     if (!jump || jump.project !== project.path) return
     setPickedId(jump.agentId)
     set({ overviewJump: null })
-    // At its compaction history when it has one (the footer's context says a click shows it), else its details.
-    setTimeout(() => (document.getElementById('compaction-history') ?? head.current)?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60)
+    // The footer's context: at its compaction history when it has one, else its details; its cost: at its details.
+    const to = jump.target === 'session' ? null : document.getElementById('compaction-history')
+    setTimeout(() => (to ?? head.current)?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60)
   }, [jump, project.path])
   const liveState = agent ? agent.live : project.live
   const current = useMemo(() => {

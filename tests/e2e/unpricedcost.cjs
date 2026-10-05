@@ -94,6 +94,18 @@ const until = async (fn, ms = 10000) => {
   check('…and the footer', !!(await until(async () => /≈\$\d/.test(await footer.innerText().catch(() => '')) && !(await unknown.count()), 10000)), await footer.innerText().catch(() => ''))
   await page.screenshot({ path: path.join(lib.WORK, 'unpricedcost-4-priced.png') })
 
+  // --- A click on the cost opens the Overview at this session's details, its agent picked (#122); its tooltip says so.
+  const cost = footer.locator('.foot-cost')
+  await cost.hover()
+  const costTip = page.locator('.tip', { hasText: 'API-equivalent cost' }).last()
+  check("the cost's tooltip ends with what a click does", !!(await until(async () => ((await costTip.innerText().catch(() => '')) || '').endsWith("\n\nClick to see this session's details in the Overview"), 5000)), await costTip.innerText().catch(() => ''))
+  await page.screenshot({ path: path.join(lib.WORK, 'unpricedcost-5-cost-tip.png') })
+  await cost.click()
+  const head = page.locator('.session-head')
+  check('a click opens the Overview', !!(await until(async () => (await page.locator('.tab.active', { hasText: 'Overview' }).count()) === 1, 5000)))
+  check("…at this session's details, in view (its agent picked when there are several)", !!(await until(async () => (await head.count()) === 1 && (await head.evaluate((el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.top < window.innerHeight - 100 })), 5000)) && ((await head.locator('select').count()) === 0 || (await head.locator('select').inputValue()) === agent.id), await head.innerText().catch(() => ''))
+  await page.screenshot({ path: path.join(lib.WORK, 'unpricedcost-6-session.png') })
+
   await inv('session:stop', alpha, agent.id).catch(() => undefined)
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
