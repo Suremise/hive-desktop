@@ -1,12 +1,30 @@
+import { shell } from 'electron'
 import { existsSync } from 'fs'
-import { mkdir, readdir } from 'fs/promises'
-import { basename, join } from 'path'
+import { mkdir, readFile, readdir, stat } from 'fs/promises'
+import { basename, join, resolve } from 'path'
 import { HIVE_DIR, projectAgents } from '../shared/defaults'
-import { agentProvider, isProviderEnabled, providerDescriptor } from '../shared/providers'
-import { isTemplateFile, readTemplate, templateFile, templateFrom, uniqueName, TEMPLATE_NAME_MAX, type AgentTemplate, type TemplateEntry, type TemplateScope } from '../shared/templates'
+import { agentProvider, isKnownProvider, isProviderEnabled, providerDescriptor } from '../shared/providers'
+import {
+  exportable,
+  exportFileName,
+  isTemplateFile,
+  readTemplate,
+  templateFile,
+  templateFrom,
+  uniqueName,
+  uniqueTemplateName,
+  unknownProviders,
+  TEMPLATE_IMPORT_MAX,
+  TEMPLATE_NAME_MAX,
+  type AgentTemplate,
+  type TemplateDest,
+  type TemplateEntry,
+  type TemplateRef,
+  type TemplateScope
+} from '../shared/templates'
 import type { AgentDef, ProviderId, TemplateLoadPlan } from '../shared/types'
 import { config } from './config'
-import { readKeptJson, writeKeptJson } from './fsutil'
+import { readKeptJson, withFileLock, writeKeptJson, writeTextAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { addAgent, prepareAgent } from './projectAgents'
 import { providerService } from './providerService'
@@ -20,7 +38,8 @@ import * as wt from './worktrees'
  * templates`, for every project) or the project (`<project>/.hive/templates`, private: the project's .hive is kept out
  * of git). One kept JSON file each (a damaged one is recovered from its copy). Loading one replaces the project's agents
  * — only when it is safe (none running, no uncommitted work in their worktrees, every provider on and installed), and
- * all or nothing; adding one agent from a template leaves the others alone.
+ * all or nothing; adding one agent from a template leaves the others alone. #127: listing every scope, rename,
+ * duplicate, delete (to the Recycle Bin), and export and import as files, read as untrusted.
  */
 
 const log = createLogger('templates')
@@ -28,43 +47,106 @@ const log = createLogger('templates')
 /** A template that isn't there, or can't be used: the caller says so as it is. */
 export class TemplateError extends Error {}
 
-function folder(projectPath: string, scope: TemplateScope): string {
-  return scope === 'workspace' ? join(workspaceOf(projectPath).path!, HIVE_DIR, 'templates') : join(projectPath, HIVE_DIR, 'templates')
-}
-
 const checkScope = (scope: unknown): TemplateScope => {
   if (scope !== 'workspace' && scope !== 'project') throw new TemplateError(`Unknown scope "${String(scope)}": workspace or project.`)
   return scope
 }
 
-async function readOne(projectPath: string, scope: TemplateScope, file: string): Promise<TemplateEntry> {
-  const raw = await readKeptJson<unknown>(join(folder(projectPath, scope), file), null)
+/**
+ * Where a scope's templates are kept. A project's: that project's folder (one of the workspace's). The workspace's:
+ * the workspace of `project` when one is given (the project a template is used in), else this call's workspace.
+ */
+function folder(d: TemplateDest): string {
+  if (checkScope(d.scope) === 'project') return join(workspace.assertProject(String(d.project ?? '')), HIVE_DIR, 'templates')
+  const ws = d.project ? workspaceOf(d.project).path : workspace.path
+  if (!ws) throw new TemplateError('Open a workspace first.')
+  return join(ws, HIVE_DIR, 'templates')
+}
+
+/** The place a template is kept, as listed (a project's path only for a project's templates). */
+const place = (d: TemplateDest): TemplateDest => (d.scope === 'project' ? { scope: 'project', project: workspace.assertProject(String(d.project ?? '')) } : { scope: 'workspace' })
+
+async function readOne(d: TemplateDest, file: string): Promise<TemplateEntry> {
+  const where = place(d)
+  const raw = await readKeptJson<unknown>(join(folder(d), file), null)
   const t = raw === null ? "It couldn't be read." : readTemplate(raw)
   if (typeof t === 'string') {
     const name = raw && typeof raw === 'object' && typeof (raw as { name?: unknown }).name === 'string' ? String((raw as { name: string }).name).slice(0, TEMPLATE_NAME_MAX) : file.replace(/\.json$/, '')
-    return { scope, file, name, savedAt: null, layout: 'auto', agents: [], problem: t }
+    return { ...where, file, name, savedAt: null, layout: 'auto', agents: [], problem: t }
   }
-  return { scope, file, name: t.name, savedAt: t.savedAt || null, layout: t.layout, agents: t.agents }
+  return { ...where, file, name: t.name, savedAt: t.savedAt || null, layout: t.layout, agents: t.agents }
 }
+
+/** The templates kept in one place, by file name. */
+async function listIn(d: TemplateDest): Promise<TemplateEntry[]> {
+  const files = (await readdir(folder(d)).catch(() => [] as string[])).filter(isTemplateFile).sort()
+  const out: TemplateEntry[] = []
+  for (const f of files) out.push(await readOne(d, f))
+  return out
+}
+
+const byName = (a: TemplateEntry, b: TemplateEntry): number => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || (a.scope === 'workspace' ? -1 : 1)
 
 /** The templates a project can use: the workspace's and its own, each by name (a name in both scopes is listed twice). */
 export async function listTemplates(projectPath: string): Promise<TemplateEntry[]> {
   projectPath = workspace.assertProject(projectPath)
-  const out: TemplateEntry[] = []
-  for (const scope of ['workspace', 'project'] as const) {
-    const dir = folder(projectPath, scope)
-    const files = (await readdir(dir).catch(() => [] as string[])).filter(isTemplateFile).sort()
-    for (const f of files) out.push(await readOne(projectPath, scope, f))
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || (a.scope === 'workspace' ? -1 : 1))
+  const out = [...(await listIn({ scope: 'workspace', project: projectPath })), ...(await listIn({ scope: 'project', project: projectPath }))]
+  return out.sort(byName)
+}
+
+/** Every template of the workspace (the Templates view): the workspace's, then each project's, each by name. */
+export async function listAllTemplates(): Promise<TemplateEntry[]> {
+  if (!workspace.path) return []
+  const out = (await listIn({ scope: 'workspace' })).sort(byName)
+  for (const p of await workspace.listProjectPaths()) out.push(...(await listIn({ scope: 'project', project: p })).sort(byName))
+  return out
+}
+
+/** One template's file, after checking it is one Hive could have made (never a path) and is there. */
+function fileOf(ref: TemplateRef): string {
+  if (!isTemplateFile(ref.file)) throw new TemplateError('That template is no longer there.')
+  const f = join(folder(ref), ref.file)
+  if (!existsSync(f)) throw new TemplateError('That template is no longer there.')
+  return f
 }
 
 /** One template to use (refused, saying why, if it is missing or can't be used). */
-async function usable(projectPath: string, scope: TemplateScope, file: unknown): Promise<TemplateEntry & { template: AgentTemplate }> {
-  if (!isTemplateFile(file) || !existsSync(join(folder(projectPath, scope), file))) throw new TemplateError('That template is no longer there.')
-  const e = await readOne(projectPath, scope, file)
+async function usable(ref: TemplateRef): Promise<TemplateEntry & { template: AgentTemplate }> {
+  fileOf(ref)
+  const e = await readOne(ref, ref.file)
   if (e.problem) throw new TemplateError(`"${e.name}" can't be used: ${e.problem}`)
   return { ...e, template: { version: 1, name: e.name, savedAt: e.savedAt ?? '', layout: e.layout, agents: e.agents } }
+}
+
+/** A template name as saved: one line, trimmed, refused (saying why) if empty or too long. */
+function cleanName(name: unknown): string {
+  const clean = typeof name === 'string' ? name.replace(/\s+/g, ' ').trim() : ''
+  if (!clean) throw new TemplateError('Enter a name for the template.')
+  if (clean.length > TEMPLATE_NAME_MAX) throw new TemplateError(`A template's name is at most ${TEMPLATE_NAME_MAX} characters.`)
+  return clean
+}
+
+/** A new file for a template in a place: from its name, numbered when that file is taken. */
+async function newFile(d: TemplateDest, name: string): Promise<string> {
+  const taken = await readdir(folder(d)).catch(() => [] as string[])
+  for (let n = 1; ; n++) if (!taken.includes(templateFile(name, n))) return templateFile(name, n)
+}
+
+/**
+ * Runs a change to a place's templates with that place locked against every other change to it (save, import,
+ * duplicate, rename, delete), from any project or window: what it reads, checks (a name taken), chooses (a new file) and
+ * writes is one step, so two changes at once never pick the same file or miss each other's name. Readers need no lock
+ * (each file is written whole). Never nested for one place.
+ */
+function changing<T>(d: TemplateDest, fn: () => Promise<T>): Promise<T> {
+  return withFileLock(`${resolve(folder(d))}|templates`, fn)
+}
+
+/** Writes a template into a place (its file there: a new one, or the one it replaces). */
+async function write(d: TemplateDest, file: string, t: AgentTemplate): Promise<TemplateEntry> {
+  await mkdir(folder(d), { recursive: true })
+  await writeKeptJson(join(folder(d), file), exportable(t))
+  return readOne(d, file)
 }
 
 /**
@@ -73,37 +155,120 @@ async function usable(projectPath: string, scope: TemplateScope, file: unknown):
  */
 export async function saveTemplate(projectPath: string, scope: TemplateScope, name: string, overwrite = false): Promise<{ saved: TemplateEntry } | { exists: string }> {
   projectPath = workspace.assertProject(projectPath)
-  scope = checkScope(scope)
-  const clean = typeof name === 'string' ? name.replace(/\s+/g, ' ').trim() : ''
-  if (!clean) throw new TemplateError('Enter a name for the template.')
-  if (clean.length > TEMPLATE_NAME_MAX) throw new TemplateError(`A template's name is at most ${TEMPLATE_NAME_MAX} characters.`)
+  const d: TemplateDest = { scope: checkScope(scope), project: projectPath }
+  const clean = cleanName(name)
   const cfg = await workspace.projectConfig(projectPath)
   const agents = projectAgents(cfg)
   if (!agents.length) throw new TemplateError('This project has no agents to save.')
-  const dir = folder(projectPath, scope)
-  await mkdir(dir, { recursive: true })
-  const existing = (await readdir(dir).catch(() => [] as string[])).filter(isTemplateFile)
-  // The same name: its file (replaced when asked). Another name whose file name would be the same: a file of its own.
-  let file: string | null = null
-  for (const f of existing) {
-    const e = await readOne(projectPath, scope, f)
-    if (e.name.toLowerCase() === clean.toLowerCase()) file = f
-  }
-  if (file && !overwrite) return { exists: file }
-  if (!file) for (let n = 1; ; n++) if (!existing.includes((file = templateFile(clean, n)))) break
   const t = templateFrom(clean, agents, cfg.layout, (a) => agentProvider(a, cfg, config.settings))
-  await writeKeptJson(join(dir, file!), t)
-  log.info(`Saved template ${userText(clean)} (${scope}, ${t.agents.length} agents)`)
-  return { saved: await readOne(projectPath, scope, file!) }
+  return changing(d, async () => {
+    // The same name: its file (replaced when asked). Another name whose file name would be the same: a file of its own.
+    const same = (await listIn(d)).find((e) => e.name.toLowerCase() === clean.toLowerCase())
+    if (same && !overwrite) return { exists: same.file }
+    const saved = await write(d, same?.file ?? (await newFile(d, clean)), t)
+    log.info(`Saved template ${userText(clean)} (${scope}, ${t.agents.length} agents)`)
+    return { saved }
+  })
 }
 
-/** Why a provider can't run here (off, or not installed), or null. */
+/** Renames a template where it is kept; another of that name there (case aside) refuses it. */
+export async function renameTemplate(ref: TemplateRef, name: string): Promise<TemplateEntry> {
+  const clean = cleanName(name)
+  return changing(ref, async () => {
+    const t = await usable(ref)
+    if ((await listIn(ref)).some((e) => e.file !== ref.file && e.name.toLowerCase() === clean.toLowerCase())) throw new TemplateError(`There is already a template called "${clean}" there.`)
+    const renamed = await write(ref, ref.file, { ...t.template, name: clean })
+    log.info(`Renamed template ${userText(t.name)} to ${userText(clean)}`)
+    return renamed
+  })
+}
+
+/** Copies a template into a place (the same or another); a name taken there gets a number ("Pair (2)"). */
+export async function duplicateTemplate(ref: TemplateRef, to: TemplateDest): Promise<TemplateEntry> {
+  // Read first (unlocked: the source may be in the same place), then the copy's name and file chosen and written there.
+  const t = await usable(ref)
+  return changing(to, async () => {
+    const name = uniqueTemplateName(t.name, (await listIn(to)).map((e) => e.name))
+    const copy = await write(to, await newFile(to, name), { ...t.template, name })
+    log.info(`Duplicated template ${userText(t.name)} into ${to.scope} as ${userText(name)}`)
+    return copy
+  })
+}
+
+/** Deletes a template: its file (and the copy kept beside it) go to the Recycle Bin. */
+export async function deleteTemplate(ref: TemplateRef): Promise<void> {
+  await changing(ref, async () => {
+    const f = fileOf(ref)
+    await shell.trashItem(f)
+    if (existsSync(`${f}.bak`)) await shell.trashItem(`${f}.bak`).catch((e) => log.warn('Could not remove the copy of a deleted template', e))
+    log.info(`Deleted template ${userText(ref.file)} (${ref.scope})`)
+  })
+}
+
+/** The file name an export of a template suggests ("Build and review.hive-template.json"); refused if it can't be used. */
+export async function exportName(ref: TemplateRef): Promise<string> {
+  return exportFileName((await usable(ref)).name)
+}
+
+/** Exports a template to a file the user chose: what it holds, nothing else (exportable). */
+export async function exportTemplate(ref: TemplateRef, dest: string): Promise<void> {
+  const t = await usable(ref)
+  await writeTextAtomic(dest, JSON.stringify(exportable(t.template), null, 2) + '\n')
+  log.info(`Exported template ${userText(t.name)} to ${userText(dest)}`)
+}
+
+/** A file to import, read and checked (untrusted): the template, or refused saying why. Nothing is written. */
+export async function readImport(path: string): Promise<AgentTemplate> {
+  const info = await stat(path).catch(() => null)
+  if (!info?.isFile()) throw new TemplateError("That file isn't there.")
+  if (info.size > TEMPLATE_IMPORT_MAX) throw new TemplateError(`It isn't a Hive agent template (over ${TEMPLATE_IMPORT_MAX / 1024} KB).`)
+  let raw: unknown
+  try {
+    raw = JSON.parse((await readFile(path, 'utf8')).replace(/^﻿/, ''))
+  } catch {
+    throw new TemplateError("It isn't a Hive agent template (not JSON).")
+  }
+  const t = readTemplate(raw)
+  if (typeof t === 'string') throw new TemplateError(t)
+  return t
+}
+
+/** What an import would bring in: its name, agents, and the providers among them this Hive doesn't know (flagged). */
+export async function inspectImport(path: string): Promise<{ path: string; name: string; agents: number; unknown: string[] }> {
+  const t = await readImport(path)
+  return { path, name: t.name, agents: t.agents.length, unknown: unknownProviders(t.agents) }
+}
+
+/**
+ * Imports a template file into a place, all or nothing (the file is checked first, and written in one go). A template of
+ * that name already there is a clash: the answer says so unless `onClash` says what to do — replace it, or keep both
+ * (the new one numbered, "Pair (2)").
+ */
+export async function importTemplate(path: string, to: TemplateDest, onClash?: 'replace' | 'keep'): Promise<{ imported: TemplateEntry } | { clash: string }> {
+  const t = await readImport(path)
+  return changing(to, async () => {
+    const here = await listIn(to)
+    const same = here.find((e) => e.name.toLowerCase() === t.name.toLowerCase())
+    if (same && onClash !== 'replace' && onClash !== 'keep') return { clash: same.name }
+    const name = same && onClash === 'keep' ? uniqueTemplateName(t.name, here.map((e) => e.name)) : t.name
+    const file = same && onClash === 'replace' ? same.file : await newFile(to, name)
+    const imported = await write(to, file, { ...t, name })
+    log.info(`Imported template ${userText(name)} into ${to.scope} (${t.agents.length} agents)`)
+    return { imported }
+  })
+}
+
+/** Why a provider can't run here (unknown to this Hive, off, or not installed), or null. */
 function providerProblem(id: ProviderId): string | null {
+  if (!isKnownProvider(id)) return `This Hive doesn't know the coding agent "${id}" (update Hive)`
   const name = providerDescriptor(id).name
   if (!isProviderEnabled(config.settings, id)) return `${name} is turned off (Settings → Providers)`
   if (!providerService.info(id).found) return `${name} isn't installed (Agent Setup)`
   return null
 }
+
+/** A template used in a project: a project's is looked up in `from` (another project's, from the Templates view), else in that project. */
+const refFor = (projectPath: string, scope: TemplateScope, file: string, from?: string): TemplateRef => ({ scope: checkScope(scope), project: scope === 'project' && from ? from : projectPath, file })
 
 /** Whether an agent is running or starting (a start reserved, not yet live): either way, not safe to remove. */
 const busy = (projectPath: string, agentId: string): boolean => !!sessions.liveFor(projectPath, agentId) || sessions.startingFor(projectPath, agentId)
@@ -114,9 +279,9 @@ const busy = (projectPath: string, agentId: string): boolean => !!sessions.liveF
  * then it isn't known to be safe), a provider that is off or not installed, worktree agents in a project that isn't on
  * a git branch. Nothing is changed.
  */
-export async function templatePlan(projectPath: string, scope: TemplateScope, file: string): Promise<TemplateLoadPlan> {
+export async function templatePlan(projectPath: string, scope: TemplateScope, file: string, from?: string): Promise<TemplateLoadPlan> {
   projectPath = workspace.assertProject(projectPath)
-  const t = await usable(projectPath, checkScope(scope), file)
+  const t = await usable(refFor(projectPath, scope, file, from))
   const cfg = await workspace.projectConfig(projectPath)
   const current = projectAgents(cfg)
   const remove: TemplateLoadPlan['remove'] = []
@@ -154,7 +319,8 @@ const loading = new Set<string>()
 
 /**
  * Replaces the project's agents with a template's, and its layout (#126). `expected` is the agents the user was shown
- * (their ids, in order).
+ * (their ids, in order). `from`: the project a project's template is kept in, when it isn't this one (#127: the Templates
+ * view loads any template into any project).
  *
  * - The project's agents can't start for the whole load (a fence on its starts, lifted however the load ends), and one
  *   running or starting refuses it, as do the other checks of the plan.
@@ -165,14 +331,14 @@ const loading = new Set<string>()
  * - The removed agents' worktrees and branches stay (to merge or reuse), their conversations stay in the Sessions tab,
  *   and their open cards go back (nobody has them; Doing ones to Todo).
  */
-export async function loadTemplate(projectPath: string, scope: TemplateScope, file: string, expected: string[]): Promise<{ created: string[]; removed: string[] }> {
+export async function loadTemplate(projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string): Promise<{ created: string[]; removed: string[] }> {
   projectPath = workspace.assertProject(projectPath)
   const key = projectPath.toLowerCase()
   if (loading.has(key)) throw new TemplateError('A template is already being loaded into this project.')
   loading.add(key)
   const unfence = sessions.fenceStarts(projectPath, 'A template is being loaded into this project')
   try {
-    const plan = await templatePlan(projectPath, scope, file)
+    const plan = await templatePlan(projectPath, scope, file, from)
     if (plan.blocked.length) throw new TemplateError(`The template can't be loaded yet:\n${plan.blocked.map((b) => `• ${b}`).join('\n')}`)
     const changed = (ids: string[]): boolean => !Array.isArray(expected) || ids.length !== expected.length || ids.some((id, i) => id !== expected[i])
     if (changed(plan.remove.map((a) => a.id))) throw new TemplateError("The project's agents changed since you looked: open the template again.")
@@ -213,9 +379,9 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
 
 
 /** Adds one agent of a template to the project, the others left alone; a name already taken gets a number ("Builder 2"). */
-export async function addAgentFromTemplate(projectPath: string, scope: TemplateScope, file: string, index: number): Promise<AgentDef> {
+export async function addAgentFromTemplate(projectPath: string, scope: TemplateScope, file: string, index: number, from?: string): Promise<AgentDef> {
   projectPath = workspace.assertProject(projectPath)
-  const t = await usable(projectPath, checkScope(scope), file)
+  const t = await usable(refFor(projectPath, scope, file, from))
   const a = Number.isInteger(index) ? t.agents[index] : undefined
   if (!a) throw new TemplateError('That agent is no longer in the template.')
   const why = providerProblem(a.provider)

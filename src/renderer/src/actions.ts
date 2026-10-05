@@ -678,16 +678,18 @@ export async function saveTemplate(path: string): Promise<void> {
     if (!ok) return
     r = await attempt('Could not save the template', () => call('templates:save', path, scope, name, true))
   }
+  if (r && 'saved' in r) set((s) => ({ templatesVersion: s.templatesVersion + 1 }))
   if (r && 'saved' in r) notify('success', 'Template saved', `"${r.saved.name}" (${r.saved.agents.length} ${r.saved.agents.length === 1 ? 'agent' : 'agents'}), for ${SCOPE_WORD[scope]}.`)
 }
 
 /**
  * Loads a template into a project: it replaces every agent, so it says first who goes and who comes. Refused, saying
  * why, while an agent runs, a worktree has uncommitted work or a provider it needs is off or not installed (with a way
- * into Agent Setup or Settings).
+ * into Agent Setup or Settings). `from`: the project a project's template is kept in, when it isn't this one (the Templates
+ * view loads any template into any project).
  */
-export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'scope' | 'file' | 'name'>): Promise<void> {
-  const plan = await attempt('Could not read the template', () => call('templates:plan', path, entry.scope, entry.file))
+export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'scope' | 'file' | 'name'>, from?: string): Promise<void> {
+  const plan = await attempt('Could not read the template', () => call('templates:plan', path, entry.scope, entry.file, from))
   if (!plan) return
   if (plan.blocked.length) {
     const fix = plan.missing.find((m) => /isn't installed/.test(m.reason))?.provider ?? null
@@ -717,7 +719,7 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
     confirmLabel: 'Load template',
     busyLabel: 'Loading…',
     danger: plan.remove.length > 0,
-    run: () => call('templates:load', path, entry.scope, entry.file, expected)
+    run: () => call('templates:load', path, entry.scope, entry.file, expected, from)
   })
   if (ok) await refreshWorkspace()
 }

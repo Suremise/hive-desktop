@@ -21,6 +21,7 @@ export function Dialogs() {
   const [value, setValue] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [checked, setChecked] = useState(false)
+  const [picked, setPicked] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const action = useBusy()
   const { setError: setActionError } = action
@@ -33,6 +34,7 @@ export function Dialogs() {
       setError(null)
       setTimeout(() => inputRef.current?.select(), 30)
     }
+    if (dialog?.kind === 'choice' && dialog.select) setPicked(dialog.select.initial)
   }, [dialog, setActionError])
 
   if (!dialog) return null
@@ -48,6 +50,7 @@ export function Dialogs() {
   if (dialog.kind === 'choice') {
     const answer = (v: string | null): void => {
       closeDialog()
+      if (v !== null) dialog.select?.set(picked)
       dialog.resolve(v)
     }
     return (
@@ -70,6 +73,18 @@ export function Dialogs() {
       >
         <div>{dialog.message}</div>
         {dialog.detail && <div className="detail">{dialog.detail}</div>}
+        {dialog.select && (
+          <label className="dialog-select">
+            {dialog.select.label}
+            <select className="select" aria-label={dialog.select.label} value={picked} onChange={(e) => setPicked(e.target.value)}>
+              {dialog.select.options.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </Modal>
     )
   }

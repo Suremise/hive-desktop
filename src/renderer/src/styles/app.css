@@ -3460,6 +3460,68 @@ body.pane-resizing .monaco-editor {
   font-size: 11px;
   opacity: 0.7;
 }
+/* Templates view and a project's Templates tab (#127) */
+.template-row > .codicon {
+  margin-right: 8px;
+  color: var(--fg-muted);
+}
+.template-row .label .badge {
+  margin-left: 6px;
+}
+.template-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 14px 20px;
+}
+.template-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 6px;
+}
+.template-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.template-detail-title h2 {
+  margin: 0;
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.template-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.template-detail-body {
+  overflow-x: auto;
+}
+.template-agents td {
+  white-space: nowrap;
+}
+.template-problem {
+  color: var(--warning);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dialog-select {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+}
+.dialog-select .select {
+  width: 100%;
+}
 .page-switch {
   margin-right: 6px;
 }

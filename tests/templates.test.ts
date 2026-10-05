@@ -2,14 +2,17 @@
 // round trips in both scopes, names clashing across scopes and within one, a damaged file, the load's checks (running
 // or starting agents, uncommitted or unreadable worktrees, missing providers, agents changed meanwhile), the fence on
 // starts for the whole load, staging then publishing at once (a failure or a change meanwhile leaves the project as it
-// is now), and adding one agent.
+// is now), and adding one agent. #127: listing every scope, rename, duplicate, delete, export then import (a round trip,
+// nothing personal in the file), an import checked first and refused saying why, name clashes (replace, keep both), an
+// unknown coding agent kept but blocking a load, a project's template loaded into another project, and changes at once
+// to one place (imports, duplicates, saves) serialised.
 import { execFileSync } from 'child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
-import { TEMPLATE_VERSION, readTemplate, templateFile, templateFrom, uniqueName } from '../src/shared/templates'
+import { TEMPLATE_VERSION, exportFileName, readTemplate, templateFile, templateFrom, uniqueName, uniqueTemplateName, unknownProviders } from '../src/shared/templates'
 import type { AgentDef } from '../src/shared/types'
 
 const base = mkdtempSync(join(tmpdir(), 'hive-templates-'))
@@ -60,12 +63,20 @@ describe('the template format', () => {
     expect(readTemplate({ ...ok, agents: [] })).toMatch(/no agents/)
     expect(readTemplate({ ...ok, agents: Array.from({ length: 13 }, (_, i) => ({ name: `A${i}`, provider: 'claude-code' })) })).toMatch(/up to 12/)
     expect(readTemplate({ ...ok, agents: [{ name: 'A', provider: 'claude-code' }, { name: 'a', provider: 'claude-code' }] })).toMatch(/Two agents are called/)
-    expect(readTemplate({ ...ok, agents: [{ name: 'A', provider: 'gemini' }] })).toMatch(/doesn't know \(gemini\)/)
+    // A provider this Hive doesn't know is kept (shown flagged; loading it is refused), if it looks like a provider's id.
+    const later = readTemplate({ ...ok, agents: [{ name: 'A', provider: 'gemini' }, { name: 'B', provider: 'claude-code' }] })
+    expect(typeof later !== 'string' && later.agents.map((a) => a.provider)).toEqual(['gemini', 'claude-code'])
+    expect(typeof later !== 'string' && unknownProviders(later.agents)).toEqual(['gemini'])
+    expect(readTemplate({ ...ok, agents: [{ name: 'A', provider: '../x' }] })).toMatch(/coding agent isn't one Hive can use/)
     expect(readTemplate({ ...ok, agents: [{ name: 'A', provider: 'claude-code', model: 'rm -rf /' }] })).toMatch(/model isn't one/)
     expect(readTemplate('nope')).toMatch(/isn't a Hive agent template/)
   })
 
   it('names files safely and makes taken names unique', () => {
+    expect(exportFileName('Build: review?')).toBe('Build review.hive-template.json')
+    expect(exportFileName('...')).toBe('template.hive-template.json')
+    expect(uniqueTemplateName('Pair', ['pair', 'Pair (2)'])).toBe('Pair (3)')
+    expect(uniqueTemplateName('x'.repeat(60), ['x'.repeat(60)])).toBe(`${'x'.repeat(56)} (2)`)
     expect(templateFile('Build & Review!')).toBe('build-review.json')
     expect(templateFile('Build & Review!', 2)).toBe('build-review-2.json')
     expect(templateFile('日本語')).toBe('template.json')
@@ -269,5 +280,149 @@ describe('saving and loading templates', () => {
     expect(def.role).toBe('builder')
     expect(names(alpha)).toEqual([...before, 'Builder 2'])
     await expect(run(() => templates.addAgentFromTemplate(alpha, 'workspace', 'pair.json', 9))).rejects.toThrow(/no longer in the template/)
+  })
+
+  // --- #127: the Templates view and tab, rename, duplicate, delete, export and import.
+
+  it('lists every template of the workspace: the workspace\'s, then each project\'s with its project', async () => {
+    const all = await run(() => templates.listAllTemplates())
+    const ws = all.filter((t) => t.scope === 'workspace')
+    expect(ws.length).toBeGreaterThan(0)
+    expect(ws.every((t) => t.project === undefined)).toBe(true)
+    expect(all.findIndex((t) => t.scope === 'project')).toBe(ws.length)
+    expect(all.filter((t) => t.scope === 'project').map((t) => [t.project, t.file])).toEqual([[alpha, 'pair.json'], [alpha, 'trees.json']])
+    // A project's tab lists its own with their project too.
+    expect((await run(() => templates.listTemplates(alpha))).find((t) => t.scope === 'project')?.project).toBe(alpha)
+  })
+
+  it("renames where it is kept (a name taken there is refused); duplicates anywhere, numbering a taken name; deletes to the Recycle Bin", async () => {
+    const trashed: string[] = []
+    ;(electron.shell as unknown as { trashItem: (p: string) => Promise<void> }).trashItem = async (p: string) => {
+      trashed.push(p)
+      rmSync(p)
+    }
+    const saved = await run(() => templates.saveTemplate(alpha, 'project', 'Solo'))
+    const solo = 'saved' in saved ? saved.saved : null
+    const ref = { scope: 'project' as const, project: alpha, file: solo!.file }
+    await expect(run(() => templates.renameTemplate(ref, 'PAIR'))).rejects.toThrow(/already a template called "PAIR" there/)
+    const renamed = await run(() => templates.renameTemplate(ref, '  Solo   act '))
+    expect([renamed.name, renamed.file]).toEqual(['Solo act', solo!.file])
+    // Into the workspace (free there), then into the same place again: numbered.
+    const copy = await run(() => templates.duplicateTemplate(ref, { scope: 'workspace' }))
+    expect([copy.scope, copy.name, copy.project]).toEqual(['workspace', 'Solo act', undefined])
+    const again = await run(() => templates.duplicateTemplate(ref, { scope: 'project', project: alpha }))
+    expect(again.name).toBe('Solo act (2)')
+    expect(again.agents).toEqual(renamed.agents)
+    // Into another project: beta's own.
+    expect((await run(() => templates.duplicateTemplate(ref, { scope: 'project', project: beta }))).project).toBe(beta)
+    await run(() => templates.deleteTemplate({ scope: 'project', project: alpha, file: again.file }))
+    expect(trashed.map((p) => basename(p))).toEqual([again.file, `${again.file}.bak`])
+    expect((await run(() => templates.listTemplates(alpha))).some((t) => t.name === 'Solo act (2)')).toBe(false)
+    await expect(run(() => templates.deleteTemplate({ scope: 'project', project: alpha, file: again.file }))).rejects.toThrow(/no longer there/)
+    // Never a path for a file, nor a project outside the workspace.
+    await expect(run(() => templates.renameTemplate({ scope: 'workspace', file: '../project.json' }, 'x'))).rejects.toThrow(/no longer there/)
+    await expect(run(() => templates.duplicateTemplate(ref, { scope: 'project', project: base }))).rejects.toThrow()
+  })
+
+  it('export then import round-trips a template exactly; the file holds no paths, ids, sessions or names of people', async () => {
+    const out = join(base, 'exports')
+    mkdirSync(out, { recursive: true })
+    const file = join(out, exportFileName('Solo act'))
+    expect(basename(file)).toBe('Solo act.hive-template.json')
+    await run(() => templates.exportTemplate({ scope: 'workspace', file: 'solo-act.json' }, file))
+    const text = readFileSync(file, 'utf8')
+    expect(text).not.toMatch(/[A-Za-z]:\\\\|hive-templates-|"id"|lastSessionId|worktree"\s*:\s*\{|needsSetup|persona/)
+    const exported = JSON.parse(text)
+    expect(Object.keys(exported).sort()).toEqual(['agents', 'layout', 'name', 'savedAt', 'version'])
+    const before = (await run(() => templates.listAllTemplates())).find((t) => t.scope === 'workspace' && t.file === 'solo-act.json')!
+    // Into beta, which already has one of that name (the duplicate): a clash, until told what to do.
+    expect(await run(() => templates.inspectImport(file))).toEqual({ path: file, name: 'Solo act', agents: before.agents.length, unknown: [] })
+    expect(await run(() => templates.importTemplate(file, { scope: 'project', project: beta }))).toEqual({ clash: 'Solo act' })
+    const kept = await run(() => templates.importTemplate(file, { scope: 'project', project: beta }, 'keep'))
+    expect('imported' in kept && kept.imported.name).toBe('Solo act (2)')
+    const replaced = await run(() => templates.importTemplate(file, { scope: 'project', project: beta }, 'replace'))
+    const r = 'imported' in replaced ? replaced.imported : null
+    expect(r).toMatchObject({ scope: 'project', project: beta, name: before.name, savedAt: before.savedAt, layout: before.layout, agents: before.agents })
+    expect((await run(() => templates.listTemplates(beta))).filter((t) => t.scope === 'project').map((t) => t.name).sort()).toEqual(['Solo act', 'Solo act (2)'])
+    // Exported again, the same file.
+    const twice = join(out, 'twice.json')
+    await run(() => templates.exportTemplate({ scope: 'project', project: beta, file: r!.file }, twice))
+    expect(readFileSync(twice, 'utf8')).toBe(text)
+  })
+
+  it('an import is checked first and refused, saying why; nothing is written. An unknown coding agent is kept, flagged, and blocks loading', async () => {
+    const dir = join(base, 'imports')
+    mkdirSync(dir, { recursive: true })
+    const f = (name: string, body: string): string => {
+      writeFileSync(join(dir, name), body)
+      return join(dir, name)
+    }
+    const good = { version: 1, name: 'Shared', savedAt: '2026-10-05T10:00:00.000Z', layout: 'columns2', agents: [{ name: 'A', provider: 'claude-code', worktree: false }] }
+    const where = { scope: 'workspace' as const }
+    const count = async (): Promise<number> => (await run(() => templates.listAllTemplates())).length
+    const n = await count()
+    await expect(run(() => templates.importTemplate(f('notjson.json', '{ nope'), where))).rejects.toThrow(/not JSON/)
+    await expect(run(() => templates.importTemplate(f('newer.json', JSON.stringify({ ...good, version: 2 })), where))).rejects.toThrow(/newer version of Hive/)
+    await expect(run(() => templates.importTemplate(f('many.json', JSON.stringify({ ...good, agents: Array.from({ length: 13 }, (_, i) => ({ name: `A${i}`, provider: 'claude-code' })) })), where))).rejects.toThrow(/up to 12/)
+    await expect(run(() => templates.importTemplate(f('big.json', JSON.stringify({ ...good, pad: 'x'.repeat(300 * 1024) })), where))).rejects.toThrow(/over 256 KB/)
+    await expect(run(() => templates.importTemplate(join(dir, 'missing.json'), where))).rejects.toThrow(/isn't there/)
+    expect(await count()).toBe(n)
+    // With a BOM, extra keys and a provider from a newer Hive: imported (the extras dropped), flagged.
+    const later = f('later.json', '﻿' + JSON.stringify({ ...good, name: 'Later', author: 'someone', agents: [...good.agents, { name: 'G', provider: 'gemini', model: 'g-1' }] }))
+    expect((await run(() => templates.inspectImport(later))).unknown).toEqual(['gemini'])
+    const imported = await run(() => templates.importTemplate(later, where))
+    const t = 'imported' in imported ? imported.imported : null
+    expect(t?.agents.map((a) => a.provider)).toEqual(['claude-code', 'gemini'])
+    expect(readFileSync(join(wsPath, '.hive', 'templates', t!.file), 'utf8')).not.toMatch(/author|someone/)
+    const plan = await run(() => templates.templatePlan(beta, 'workspace', t!.file))
+    expect(plan.blocked).toEqual([expect.stringMatching(/doesn't know the coding agent "gemini".*needed by G/)])
+    await expect(run(() => templates.addAgentFromTemplate(beta, 'workspace', t!.file, 1))).rejects.toThrow(/doesn't know the coding agent "gemini"/)
+  })
+
+  it("a project's template loads into another project (from the Templates view)", async () => {
+    const ids = cfgOf(beta).agents.map((a: AgentDef) => a.id)
+    const plan = await run(() => templates.templatePlan(beta, 'project', 'trees.json', alpha))
+    expect([plan.name, plan.blocked]).toEqual(['Trees', []])
+    // Without `from`, beta's own folder: it has no trees.json.
+    await expect(run(() => templates.templatePlan(beta, 'project', 'trees.json'))).rejects.toThrow(/no longer there/)
+    const r = await run(() => templates.loadTemplate(beta, 'project', 'trees.json', ids, alpha))
+    expect(r.created).toEqual(['Tree A', 'Tree B'])
+    expect(cfgOf(beta).layout).toBe(plan.layout)
+  })
+
+  it('changes at once to one place never pick the same file or miss a name: imports, duplicates, saves', async () => {
+    const dir = join(base, 'parallel')
+    mkdirSync(dir, { recursive: true })
+    const file = (name: string): string => {
+      const f = join(dir, `${name.replace(/\W+/g, '-')}.json`)
+      writeFileSync(f, JSON.stringify({ version: 1, name, savedAt: '', layout: 'auto', agents: [{ name: 'A', provider: 'claude-code' }] }))
+      return f
+    }
+    const wsDir = join(wsPath, '.hive', 'templates')
+    const namesIn = (d: string): string[] => readdirSync(d).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(d, f), 'utf8')).name).sort()
+    // Two names whose file name is the same ("concurrent-one.json"): two files, both kept.
+    const [one, two] = await Promise.all([run(() => templates.importTemplate(file('Concurrent One'), { scope: 'workspace' })), run(() => templates.importTemplate(file('Concurrent One!'), { scope: 'workspace' }))])
+    const files = [one, two].map((r) => ('imported' in r ? r.imported.file : r.clash))
+    expect(new Set(files).size).toBe(2)
+    expect(['imported' in one && one.imported.name, 'imported' in two && two.imported.name]).toEqual(['Concurrent One', 'Concurrent One!'])
+    expect(namesIn(wsDir).filter((n) => n.startsWith('Concurrent One'))).toEqual(['Concurrent One', 'Concurrent One!'])
+    // The same name twice at once: one imported, the other a clash (never a silent replace).
+    const same = file('Same Time')
+    const both = await Promise.all([run(() => templates.importTemplate(same, { scope: 'workspace' })), run(() => templates.importTemplate(same, { scope: 'workspace' }))])
+    expect(both.map((r) => ('imported' in r ? 'imported' : 'clash')).sort()).toEqual(['clash', 'imported'])
+    // Keep Both three times at once: three names, three files.
+    await Promise.all([1, 2, 3].map(() => run(() => templates.importTemplate(same, { scope: 'workspace' }, 'keep'))))
+    expect(namesIn(wsDir).filter((n) => n.startsWith('Same Time'))).toEqual(['Same Time', 'Same Time (2)', 'Same Time (3)', 'Same Time (4)'])
+    // Duplicates into the workspace from two projects at once (the same folder): two copies.
+    const src = { scope: 'workspace' as const, file: 'pair.json' }
+    const name = (await run(() => templates.listAllTemplates())).find((t) => t.scope === 'workspace' && t.file === 'pair.json')!.name
+    const copies = await Promise.all([run(() => templates.duplicateTemplate(src, { scope: 'workspace', project: alpha })), run(() => templates.duplicateTemplate(src, { scope: 'workspace', project: beta }))])
+    expect(new Set(copies.map((c) => c.file)).size).toBe(2)
+    expect(copies.map((c) => c.name).sort()).toEqual([`${name} (2)`, `${name} (3)`])
+    expect(namesIn(wsDir).filter((n) => n === `${name} (2)` || n === `${name} (3)`)).toHaveLength(2)
+    // Saves of two names with the same file name, from two projects at once: both kept.
+    const saves = await Promise.all([run(() => templates.saveTemplate(alpha, 'workspace', 'Racing')), run(() => templates.saveTemplate(beta, 'workspace', 'racing!'))])
+    expect(new Set(saves.map((r) => ('saved' in r ? r.saved.file : r.exists))).size).toBe(2)
+    expect(namesIn(wsDir).filter((n) => /^racing/i.test(n))).toEqual(['Racing', 'racing!'])
   })
 })

@@ -221,6 +221,20 @@ The agent strip, next to the layouts, has three controls (icons when the window 
 
 **Roles.** An agent's **Role** (Agent Settings), such as *builder* or *reviewer*, says what it is for: templates save it, and the agent's tab tooltip shows it. Leave it empty and the agent's name is its role. **Save Agents as Template…** is in the command palette too.
 
+### Managing and sharing templates
+
+The **Templates** view (its icon is next to Skills on the activity bar) lists the workspace's templates and each project's, grouped by where they're kept; the drop-down at the top shows all of them, the workspace's, or one project's. A project's **Templates** tab lists its own templates and the workspace's, each marked with where it's kept.
+
+Select a template to see what it holds: each agent's name, role, coding agent, model, effort, mode and whether it works in its own worktree, and the layout. You can't edit a template there: to change one, set a project's agents up the way you want and save them again under the same name. With a template selected:
+
+- **Load into Project…** (in the view, you choose the project) or **Load into This Project…** (in a project's tab) replaces the project's agents and layout, with the same list of who goes and who comes, and the same checks, as **Template ▾**.
+- **Rename…** renames it where it's kept. Another template there can't have the same name.
+- **Duplicate…** copies it into the workspace or any project. A name that's already taken there gets a number: "Pair (2)".
+- **Export…** saves it as one file, such as `Build and review.hive-template.json`, wherever you choose. Templates live in `.hive`, which git ignores, so exporting is how you share one. The file holds only the template: no folder paths, sessions or names of people.
+- **Delete** sends it to the Recycle Bin.
+
+**Import…** (the download icon at the top of the list) opens a template file and asks where to keep it: the workspace, or a project. Hive checks the file first and refuses one it can't use, saying why: not a template, made by a newer Hive, or more than 12 agents. Nothing is half imported. If a template of that name is already there, choose **Replace** or **Keep Both** (the imported one gets a number). A template whose coding agent this Hive doesn't know, from a newer Hive say, is imported and marked: Hive won't load it until it knows that agent.
+
 ### Archiving and backups
 
 Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of every session transcript in the project's `.hive/sessions` folder, and archived sessions in `.hive/archive`. Images you paste or drop into a session are kept in `.hive/images`. Hive only deletes them when you ask (deleting a session sends its transcript copies to the Recycle Bin; its images stay). If the CLI has removed a transcript, Hive restores it from the backup when you resume.

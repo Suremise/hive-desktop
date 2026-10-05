@@ -133,7 +133,8 @@ export const AREAS = [
   { paths: ['src/shared/projectTabs.ts'], suites: ['tabstrip', 'startall'] },
   { paths: ['src/shared/startAll.ts'], suites: ['startall'] },
   { paths: ['src/shared/startFailure.ts'], suites: ['startfail'] },
-  { paths: ['src/main/templates.ts', 'src/shared/templates.ts'], suites: ['templates'] },
+  { paths: ['src/main/templates.ts', 'src/shared/templates.ts'], suites: ['templates', 'templateshare'] },
+  { paths: ['src/renderer/src/components/Templates.tsx'], suites: ['templateshare'] },
   { paths: ['src/renderer/src/assets/'], suites: ['about', 'providers'] },
   // The providers' adapters are under src/main/providers/ (every suite, above); these say which suites each mainly drives.
   { paths: ['src/main/providers/claude/'], suites: ['agents', 'agentview', 'launchrace', 'restart', 'resume', 'mode', 'compact', 'image', 'plan', 'claude-real'] },

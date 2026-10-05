@@ -10,10 +10,10 @@ import { batchLine, busyNote, eachAgent, sessionsToArchive, type BatchAgent } fr
 const src = (p: string): string => readFileSync(join(__dirname, '..', p), 'utf8')
 
 describe('the Project menu is the tab strip', () => {
-  it('lists all 12 tabs in the strip order, each with a command, from the list the strip uses', () => {
+  it('lists all 13 tabs in the strip order, each with a command, from the list the strip uses', () => {
     const tabs = PROJECT_MENU.filter((x) => x.startsWith('project.tab.'))
     expect(tabs).toEqual(PROJECT_TABS.map((t) => tabCommand(t.id)))
-    expect(tabs).toHaveLength(12)
+    expect(tabs).toHaveLength(13)
     expect(tabs).toContain('project.tab.performance')
     const commands = src('src/renderer/src/commands.ts')
     for (const id of tabs) expect(commands, id).toContain(`id: '${id}'`)
