@@ -41,6 +41,20 @@ async function launch(name, config) {
   return { app, page, inv, ws }
 }
 const exited = (app, ms = 10000) => app.waitForEvent('close', { timeout: ms }).then(() => true, () => false)
+/**
+ * Until n sessions are ready (idle), not just past starting: in a folder Claude Code hasn't seen, its trust question
+ * shows the session as waiting (Needs your input) until acceptClaudeTrust's answer gets it to its prompt (#177).
+ */
+const untilReady = (inv, n) => lib.until(async () => (await inv('session:live')).filter((l) => l.status === 'ready').length >= n, 30000)
+/** Closes a copy that didn't quit by itself: app.close() alone waits at its Quit dialog for ever. */
+const forceClose = async (app) => {
+  await Promise.race([app.close().catch(() => undefined), sleep(5000)])
+  try {
+    app.process().kill()
+  } catch {
+    // Already gone.
+  }
+}
 
 ;(async () => {
   // 1. Old boolean config is migrated; "always" asks even when agents are idle.
@@ -50,8 +64,8 @@ const exited = (app, ms = 10000) => app.waitForEvent('close', { timeout: ms }).t
     await inv('settings:update', { general: { confirmOnQuit: 'always' } })
     await startIn(inv, path.join(ws, 'alpha'))
     await startIn(inv, path.join(ws, 'beta'))
-    // Its sessions up (past starting), so quitting finds them running.
-    await lib.until(async () => (await inv('session:live')).filter((l) => l.status !== 'starting').length >= 2, 30000)
+    // Its sessions up and idle, so quitting finds them running.
+    await untilReady(inv, 2)
     await page.evaluate(() => window.hive.invoke('app:quit')) // same entry point as the tray's Quit Hive
     await sleep(800)
     check('dialog: shown in-app', (await page.locator('.dialog', { hasText: 'Quit Hive?' }).count()) === 1)
@@ -84,8 +98,8 @@ const exited = (app, ms = 10000) => app.waitForEvent('close', { timeout: ms }).t
   {
     const { app, inv, ws } = await launch('idle')
     await startIn(inv, path.join(ws, 'alpha'))
-    // Its sessions up (past starting), so quitting finds them running.
-    await lib.until(async () => (await inv('session:live')).filter((l) => l.status !== 'starting').length >= 1, 30000)
+    // Its session up and idle, so quitting finds it running.
+    check('idle + default: the session is idle first', await untilReady(inv, 1))
     const closing = exited(app)
     const t0 = Date.now()
     await inv('app:quit').catch(() => undefined)
@@ -93,20 +107,22 @@ const exited = (app, ms = 10000) => app.waitForEvent('close', { timeout: ms }).t
     check('idle + default: quits without asking', closed)
     check('idle + default: shutdown under 5 s', Date.now() - t0 < 5000)
     // It asked instead: close it, or it stays open (at the dialog) after the suite, holding the runner's port.
-    if (!closed) await app.close().catch(() => undefined)
+    if (!closed) await forceClose(app)
   }
 
   // 3. Pending quit with nothing working quits at once; the banner and tray state appear while pending.
   {
     const { app, page, inv, ws } = await launch('pending', { settings: { general: { confirmOnQuit: 'always' } } })
     await startIn(inv, path.join(ws, 'alpha'))
-    // Its sessions up (past starting), so quitting finds them running.
-    await lib.until(async () => (await inv('session:live')).filter((l) => l.status !== 'starting').length >= 1, 30000)
+    // Its session up and idle, so quitting finds it running.
+    await untilReady(inv, 1)
     await page.evaluate(() => window.hive.invoke('app:quit'))
     await sleep(600)
     const closing = exited(app)
     await inv('app:quitDecision', 'wait', false).catch(() => undefined)
-    check('wait with no working agent: quits', await closing)
+    const quit = await closing
+    check('wait with no working agent: quits', quit)
+    if (!quit) await forceClose(app)
   }
 
   console.log(results.join('\n'))

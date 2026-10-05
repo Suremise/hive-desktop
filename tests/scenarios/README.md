@@ -50,7 +50,6 @@ The checks are positive and negative:
 ## Running
 
 ```bash
-npx electron-vite build                       # the scenarios run the dev build in out/
 npm run scenarios                             # the fake Claude Code: free, deterministic (a failure fails the run)
 npm run scenarios -- --provider fake-codex    # the fake Codex: the same, through Hive's Codex adapter
 npm run scenarios -- --save-baseline fake-main                                  # keep this run's benchmark as a baseline
@@ -60,6 +59,10 @@ npm run scenarios -- --provider codex --model gpt-5.6-luna --budget 2           
 npm run scenarios -- --only work-on-card,review-card --keep                     # some scenarios, keeping their folders
 node tests/scenarios/measure.cjs              # what sessions are given about Hive, measured from real launches
 ```
+
+The scenarios run the dev build in `out/`. A run first checks it is built from the source as it is now (the e2e
+runner's build stamp, `tests/e2e/build.mjs`) and rebuilds it if not, so a run or a baseline never measures other code.
+Hive's test copies run quiet (`src/main/testQuiet.ts`): no window on screen, no focus taken, no notifications.
 
 - **The fakes** (`fake`, the default, and `fake-codex`) act each scenario out with their scripted commands (`skill NAME`, `boardmove`,
   `boardreview`, `boardcomment`). It checks the harness itself and the board rules Hive enforces, at no cost. Checks

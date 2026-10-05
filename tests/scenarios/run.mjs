@@ -1,6 +1,5 @@
 // Runs the scenarios (scenarios.cjs) with a provider and writes what happened.
 //
-//   npx electron-vite build
 //   npm run scenarios                                     # the fake Claude Code: free, deterministic, every check
 //   npm run scenarios -- --provider fake-codex            # the fake Codex, the same
 //   npm run scenarios -- --provider claude-code --model haiku --budget 2      # model trials (opt-in, cost tokens)
@@ -13,10 +12,13 @@
 // overwritten). Results go to %LOCALAPPDATA%\hive-test\scenarios\results (the newest 30 runs are kept): results.json
 // (every scenario's checks, skills read, hive calls, versions, usage, measures), benchmark.json (hive-benchmark/1: the
 // Performance page compares two) and summary.md. With a fake provider a failed check fails the run (exit 1); model
-// trials only report (models vary).
+// trials only report (models vary). A dev build that isn't from the source as it is now (tests/e2e/build.mjs) is rebuilt
+// first, so a run (and a baseline) never measures other code.
+import { spawnSync } from 'child_process'
 import { createRequire } from 'module'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { ensureBuild } from '../e2e/build.mjs'
 
 const require = createRequire(import.meta.url)
 const lib = require('../e2e/lib.cjs')
@@ -59,6 +61,20 @@ const notSignedIn =
 if (notSignedIn) {
   console.log(`SKIP all scenarios: ${notSignedIn}`)
   process.exit(0)
+}
+
+const build = ensureBuild({
+  root: lib.ROOT,
+  build: true,
+  runBuild: () => {
+    console.log('Building (the dev build is not from this source)…')
+    const r = spawnSync('npx electron-vite build', { cwd: lib.ROOT, stdio: 'inherit', shell: true })
+    if (r.status !== 0) process.exit(r.status ?? 1)
+  }
+})
+if (build.stale) {
+  console.error(`The dev build isn't from this source (${build.why}): run the scenarios again once it has stopped changing.`)
+  process.exit(2)
 }
 
 const chosen = SCENARIOS.filter((s) => !only?.length || only.includes(s.id))

@@ -110,6 +110,8 @@ const suiteEnv = (name, port) => {
   // flash or chime (src/main/testQuiet.ts). A suite can still turn either off in its own environment.
   const env = { HIVE_TEST_TIPS: 'off', HIVE_TEST_QUIET: '1', ...process.env }
   for (const k of SESSION_VARS) delete env[k]
+  // Never the opt-in native window checks (carddialog's HIVE_E2E_NATIVE): they take over the screen.
+  delete env.HIVE_E2E_NATIVE
   if (suiteWork) env.HIVE_E2E_DIR = suiteWork
   // Never a port inherited from a runner that started this one.
   delete env.HIVE_E2E_PORT

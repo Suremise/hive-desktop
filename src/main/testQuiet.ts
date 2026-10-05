@@ -2,13 +2,17 @@ import { appendFileSync } from 'fs'
 import { app, screen, type BrowserWindow } from 'electron'
 
 /**
- * Copies of Hive started by the e2e suites (HIVE_TEST_QUIET=1, set by tests/e2e/run.mjs; unpackaged builds only, never
- * on in normal use) don't interrupt the person at the desk: their windows open off screen and never take focus, and
+ * Test copies of Hive don't interrupt the person at the desk: their windows open off screen and never take focus, and
  * Windows notifications, taskbar flashes and the chime don't happen. What would have happened is appended to
- * HIVE_TEST_NOTIFY_LOG (one JSON line each), so suites can check it.
+ * HIVE_TEST_NOTIFY_LOG (one JSON line each), so suites can check it. A test copy is an unpackaged build with a test
+ * profile (HIVE_USER_DATA, which every suite, scenario and verification script sets, however it is started), or one
+ * started with HIVE_TEST_QUIET=1; HIVE_TEST_QUIET=0 turns it off, for a test that needs a real window. Never on in
+ * normal use: `npm run dev` has no HIVE_USER_DATA, and the installed app is packaged.
  */
 export function testQuiet(): boolean {
-  return !app.isPackaged && process.env.HIVE_TEST_QUIET === '1'
+  if (app.isPackaged) return false
+  const quiet = process.env.HIVE_TEST_QUIET
+  return quiet === '1' || (quiet !== '0' && !!process.env.HIVE_USER_DATA)
 }
 
 /** How far left of every screen a quiet test window's right edge is: well beyond any width a suite gives it. */
