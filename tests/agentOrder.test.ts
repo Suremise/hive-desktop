@@ -34,10 +34,10 @@ describe('agent order', () => {
   it("drops on a page button at that page's last place", () => {
     const eight = 'abcdefgh'.split('').map((id) => ({ id }))
     // To page 2 from page 1: the end of the list (page 2 has room).
-    expect(ids(moveAgentTo(eight, 'a', pageEndIndex(8, 1)))).toBe('bcdefgha')
+    expect(ids(moveAgentTo(eight, 'a', pageEndIndex(8, 1, 6)))).toBe('bcdefgha')
     // To a full page 1 from page 2: its last place; the agent there moves on to page 2.
-    expect(ids(moveAgentTo(eight, 'h', pageEndIndex(8, 0)))).toBe('abcdehfg')
-    expect(pageEndIndex(3, 0)).toBe(2)
+    expect(ids(moveAgentTo(eight, 'h', pageEndIndex(8, 0, 6)))).toBe('abcdehfg')
+    expect(pageEndIndex(3, 0, 6)).toBe(2)
   })
 })
 

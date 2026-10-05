@@ -250,17 +250,17 @@ describe('providers migration', () => {
     expect(m.providers['claude-code']).toEqual({ model: 'sonnet', effort: 'inherit', permissionMode: 'plan', extraArgs: '' })
     expect('model' in m).toBe(false)
     // 0.2.0: 0.1's agents and layout are cleared; the project keeps inheriting the default provider.
-    expect(m).toMatchObject({ version: 2, agents: [], layouts: ['auto'] })
+    expect(m).toMatchObject({ version: 2, agents: [], layout: 'auto' })
     expect('sessionLayout' in m).toBe(false)
     expect(m.defaultProvider).toBeUndefined()
     const v2 = { version: 2, providers: {}, defaultProvider: 'inherit', agents: [{ id: 'a-1', name: 'Agent 1', provider: 'codex' }] }
-    expect(migrateProjectConfig(v2)).toEqual({ ...v2, layouts: ['auto'] })
+    expect(migrateProjectConfig(v2)).toEqual({ ...v2, layout: 'auto' })
     const cfg = mergeDefaults(structuredClone(DEFAULT_PROJECT_CONFIG), m)
     expect(withLegacyProjectFields(cfg)).toMatchObject({ model: 'sonnet', permissionMode: 'plan' })
   })
   it('drops the skill switches from before 0.2, which nothing reads, keeping the MCP ones', async () => {
     const { migrateProjectConfig, withoutSkillSwitches, DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG } = await import('../src/shared/defaults')
-    const project = migrateProjectConfig({ version: 2, providers: {}, layouts: ['auto'], skills: { disabled: ['handover'] }, mcp: { disabled: ['github'] } })
+    const project = migrateProjectConfig({ version: 2, providers: {}, layout: 'auto', skills: { disabled: ['handover'] }, mcp: { disabled: ['github'] } })
     expect('skills' in project).toBe(false)
     expect(mergeDefaults(structuredClone(DEFAULT_PROJECT_CONFIG), project).mcp).toEqual({ disabled: ['github'] })
     const ws = mergeDefaults(structuredClone(DEFAULT_WORKSPACE_CONFIG), withoutSkillSwitches({ version: 1, skills: { enabled: ['handover'] }, mcp: { enabled: ['github'] } }))

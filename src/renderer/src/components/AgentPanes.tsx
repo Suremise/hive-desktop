@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
 import { modelCaps } from '@shared/models'
-import { MAX_AGENTS, PAGE_AGENTS, SESSION_LAYOUTS, agentPageCount, dropIndex, pageEndIndex, compactThreshold, contextPercent, effectiveModelLabel, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
+import { MAX_AGENTS, SESSION_LAYOUTS, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, effectiveModelLabel, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import type { AgentInfo, LiveSessionState, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import type { StartFailure } from '@shared/startFailure'
 import { formatDateTime, formatWhen } from '@shared/dates'
@@ -44,9 +44,8 @@ function rectStyle(r: Rect): CSSProperties {
 /** Which agent each pane of the selected project shows. */
 export function usePanes(project: ProjectInfo | null): (string | null)[] {
   const focused = useStore((s) => (project ? s.focusedAgent[project.path] : undefined))
-  const stored = useStore((s) => (project ? s.paneAgents[project.path] : undefined))
   if (!project) return []
-  return paneAssignment(project, focused && project.agents.some((a) => a.id === focused) ? focused : focusedAgentId(project), stored)
+  return paneAssignment(project, focused && project.agents.some((a) => a.id === focused) ? focused : focusedAgentId(project))
 }
 
 /**
@@ -396,16 +395,18 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
   const menu = useContextMenu()
   const picker = useSessionPicker()
   const page = agentPage(project, focused ?? null)
-  const pages = agentPageCount(project.agents.length)
-  const layout = pageLayout(project.config, page)
+  // One layout for the project; a page holds as many agents as it has panes (#134).
+  const layout = projectLayout(project.config)
+  const perPage = agentsPerPage(layout)
+  const pages = agentPageCount(project.agents.length, perPage)
   const many = project.agents.length > 1
   const pageKb = commandKeybinding('agent.nextPage')
   const fresh = useStore((s) => s.newAgents[project.path] ?? NO_IDS)
   // Agents the Assistant added on the page shown are seen.
   useEffect(() => {
-    const here = pageAgents(project.agents, page).map((a) => a.id).filter((id) => fresh.includes(id))
+    const here = pageAgents(project.agents, page, perPage).map((a) => a.id).filter((id) => fresh.includes(id))
     if (here.length) seenAgents(project.path, here)
-  }, [fresh, page, project.agents, project.path])
+  }, [fresh, page, perPage, project.agents, project.path])
   const dragging = useAgentDrag(project)
   const removing = useStore((s) => s.running)
   // Where a dragged agent would land: before this agent (null: at the end).
@@ -430,7 +431,7 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
       {project.agents.map((a, i) => (
         <Tooltip key={a.id} content={<AgentTabTip project={project} a={a} />}>
           <div
-            data-page-start={i > 0 && i % PAGE_AGENTS === 0 ? '' : undefined}
+            data-page-start={i > 0 && i % perPage === 0 ? '' : undefined}
             className={cx('agent-tab', focused === a.id && 'focused', panes.includes(a.id) && 'shown', dragging === a.id && 'dragging', dragging && dropBefore === a.id && 'drop-before', dragging && dropBefore === null && i === project.agents.length - 1 && 'drop-after')}
             data-agent={a.id}
             {...agentDragProps(project, a)}
@@ -474,12 +475,12 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
       {pages > 1 && (
         <div className="segmented page-switch">
           {Array.from({ length: pages }, (_, i) => {
-            const onPage = pageAgents(project.agents, i)
+            const onPage = pageAgents(project.agents, i, perPage)
             // Another page's most urgent agent shows as a dot on its button, or one the Assistant added there.
             const state = page === i ? null : mostUrgent(onPage.map((a) => a.live))
             const added = page !== i && onPage.some((a) => fresh.includes(a.id))
             return (
-              <Tooltip key={i} content={`Page ${i + 1}: agents ${i * PAGE_AGENTS + 1}–${i * PAGE_AGENTS + onPage.length}${added ? ', with an agent the Assistant added' : ''}${pageKb ? ` (${formatKeybinding(pageKb)} for the next page)` : ''}`}>
+              <Tooltip key={i} content={`Page ${i + 1}: ${onPage.length === 1 ? `agent ${i * perPage + 1}` : `agents ${i * perPage + 1}–${i * perPage + onPage.length}`}${added ? ', with an agent the Assistant added' : ''}${pageKb ? ` (${formatKeybinding(pageKb)} for the next page)` : ''}`}>
                 <button
                   className={cx(page === i && 'active', dragging && dropPage === i && 'drop-target')}
                   onClick={() => showPage(project, i)}
@@ -493,7 +494,7 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
                   onDragLeave={() => setDropPage(null)}
                   onDrop={(e) => {
                     e.preventDefault()
-                    if (dragging) dropAgent(project, pageEndIndex(project.agents.length, i))
+                    if (dragging) dropAgent(project, pageEndIndex(project.agents.length, i, perPage))
                   }}
                 >
                   {i + 1}
@@ -507,8 +508,8 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
       {(many || layout !== 'single') && (
         <div className="segmented layout-switch">
           {SESSION_LAYOUTS.map((l) => (
-            <Tooltip key={l.value} content={`${l.label}${pages > 1 ? ` for page ${page + 1}` : ''}${l.panes > 2 ? ' (works best on a wide window, or with the sidebar hidden: Ctrl+B)' : ''}`}>
-              <button className={cx(layout === l.value && 'active')} onClick={() => void actions.setLayout(project.path, page, l.value)} aria-label={l.label}>
+            <Tooltip key={l.value} content={`${l.label}${l.panes > 2 ? ' (works best on a wide window, or with the sidebar hidden: Ctrl+B)' : ''}`}>
+              <button className={cx(layout === l.value && 'active')} onClick={() => void actions.setLayout(project.path, l.value)} aria-label={l.label}>
                 <LayoutGlyph layout={l.value} />
               </button>
             </Tooltip>

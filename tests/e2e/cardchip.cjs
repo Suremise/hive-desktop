@@ -48,7 +48,7 @@ const check = (name, ok, extra = '') => {
   await page.getByText('alpha', { exact: true }).first().click()
   const coder = await lib.addAgent(inv, alpha, { name: 'Coder' })
   await lib.addAgent(inv, alpha, { name: 'Other' })
-  await inv('project:updateConfig', alpha, { layouts: ['columns2'] })
+  await inv('project:updateConfig', alpha, { layout: 'columns2' })
   // A running session with one exchange (so Hive keeps its record).
   await inv('session:start', alpha, { agentId: coder.id })
   await until(async () => ['waiting', 'ready'].includes((await live(coder.id))?.status))

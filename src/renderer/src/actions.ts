@@ -1,7 +1,7 @@
 import { basename } from './util'
 import { call, errorMessage } from './api'
 import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemoving, focusAgent, runOnce, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
-import { MANY_AGENTS, MAX_AGENTS, moveAgentTo, sessionInAgentFolder, withPageLayout } from '@shared/defaults'
+import { MANY_AGENTS, MAX_AGENTS, chosenLayout, moveAgentTo, sessionInAgentFolder } from '@shared/defaults'
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { agentsToResume, resumeAll } from '@shared/resumeAll'
 import { batchLine, eachAgent, sessionsToArchive } from '@shared/startAll'
@@ -579,12 +579,8 @@ export async function moveAgent(path: string, agentId: string, index: number): P
   if (!p || isAssistantPath(path) || !agentOf(p, agentId)) return
   const agents = moveAgentTo(p.agents, agentId, index)
   if (agents.every((a, i) => a.id === p.agents[i].id)) return
-  const order = (id: string | null): number => agents.findIndex((a) => a.id === id)
-  set((s) => ({
-    workspace: s.workspace && { ...s.workspace, projects: s.workspace.projects.map((x) => (x.path === path ? { ...x, agents } : x)) },
-    // The agents on screen stay on screen, in the new order.
-    paneAgents: { ...s.paneAgents, [path]: [...(s.paneAgents[path] ?? [])].sort((a, b) => order(a) - order(b)) }
-  }))
+  // The panes follow the order (#134): what's on screen changes with it.
+  set((s) => ({ workspace: s.workspace && { ...s.workspace, projects: s.workspace.projects.map((x) => (x.path === path ? { ...x, agents } : x)) } }))
   focusAgent(path, agentId)
   const saved = await attempt('Could not move the agent', () => call('agents:move', path, agentId, index))
   // Puts the tabs back as saved; the move's own error was already shown, and the next refresh catches up anyway.
@@ -663,11 +659,11 @@ export async function discardAgent(path: string, agentId: string): Promise<void>
   await refreshWorkspace()
 }
 
-/** Chooses one agent page's layout (the one that shows its agents makes it automatic again). */
-export async function setLayout(path: string, page: number, layout: SessionLayout): Promise<void> {
+/** Chooses the project's layout (#134: one for the project; the one that shows its agents makes it automatic again). */
+export async function setLayout(path: string, layout: SessionLayout): Promise<void> {
   const p = project(path)
   if (!p) return
-  await attempt('Could not change layout', () => call('project:updateConfig', path, { layouts: withPageLayout(p.config, page, layout) }))
+  await attempt('Could not change layout', () => call('project:updateConfig', path, { layout: chosenLayout(p.config, layout) }))
   await refreshWorkspace()
 }
 

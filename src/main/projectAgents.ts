@@ -81,7 +81,7 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
       if (list.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an agent called "${name}".`)
       const wtPath = def.worktree?.path.toLowerCase()
       if (wtPath && list.some((a) => a.worktree?.path.toLowerCase() === wtPath)) throw new Error('Another agent already works in that worktree.')
-      // Pages whose layout wasn't chosen by hand follow their agents, so the new one shows.
+      // An automatic layout follows the agents, so the new one shows; with one chosen by hand, a full page sends it to the next (#134).
       return { agents: [...list, def] }
     })
   } catch (e) {
