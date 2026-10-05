@@ -58,7 +58,14 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
     if (!jumpTo) return
     setSelectedId(jumpTo.id)
     set({ sessionsJump: null })
-  }, [jumpTo])
+    // At one of its compactions (the Overview's compaction history): its divider, with the summary open.
+    if (jumpTo.compaction !== undefined) {
+      const n = jumpTo.compaction
+      void call('transcript:compactions', project.path, jumpTo.id)
+        .then((ids) => ids[n] !== undefined && setJump({ sessionId: jumpTo.id, itemId: ids[n], nonce: jumpTo.nonce }))
+        .catch(() => undefined)
+    }
+  }, [jumpTo, project.path])
 
   const list = useMemo(() => (items ?? []).filter((i) => (showArchived || !i.archived || i.id === selectedId) && (showExternal || i.source === 'hive')), [items, showArchived, showExternal, selectedId])
   const selected = items?.find((i) => i.id === selectedId) ?? null

@@ -237,7 +237,7 @@ function ComparisonView({ c, base, run }: { c: Comparison; base?: KeptEntry; run
       )}
       {c.kind === 'scenarios' && c.scenarios && <ScenarioTable scenarios={c.scenarios} summary={c.summary} />}
       {c.kind === 'export' && c.rows && (
-        <div className="perf-table">
+        <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
@@ -285,7 +285,7 @@ function ScenarioTable({ scenarios, summary }: { scenarios: ScenarioComparison[]
             </span>
           ))}
       </p>
-      <div className="perf-table">
+      <div className="table-wrap">
         <table className="table perf-scenarios">
           <thead>
             <tr>
@@ -427,7 +427,7 @@ function KeptList({ entries, scope, onChange }: { entries: KeptEntry[]; scope: C
       <summary>
         Kept for comparison ({entries.length}) <InfoTip text="Kept in the workspace’s .hive/metrics/benchmarks (this machine’s), at most 20: when full, the oldest unpinned one goes. Pin one to keep it." />
       </summary>
-      <div className="perf-table">
+      <div className="table-wrap">
         <table className="table">
           <tbody>
             {entries.map((e) => (

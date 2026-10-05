@@ -1,6 +1,7 @@
 // The agent footer's context: tokens only until the CLI reports the context window, then tokens and percentage
 // ("20 · 2%"); in a narrow footer only the percentage. Its tooltip ends with "Click to view compaction history".
-// The agent is the fake Claude Code, whose "window N" makes its status line report an N-token window. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// A click on it lands on the Overview's compaction history. The agent is the fake Claude Code, whose "window N" makes
+// its status line report an N-token window. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -91,6 +92,19 @@ const until = async (fn, ms = 10000) => {
   check('narrow: only the percentage', narrow.tokens === 0 && narrow.ctx > 0, JSON.stringify(narrow))
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-2-narrow.png') })
   await footer.evaluate((el) => (el.style.width = ''))
+
+  // --- A click on it lands on the Overview's compaction history (#124, the link #121 announces): the session compacts
+  // first, so there is one.
+  await send('/compact')
+  await until(async () => (await live())?.status === 'finished' || (await live())?.status === 'ready', 10000)
+  // The compaction reaches the session's usage (what the Overview lists) once the CLI has written it.
+  await until(async () => (await inv('session:list', alpha)).some((x) => x.usage?.compactions?.length), 15000)
+  await ctxItem.click()
+  const history = page.locator('#compaction-history')
+  const historyRows = page.locator('.compaction-history tbody tr:not(.table-no-match)')
+  check('a click on the context opens the Overview at its compaction history', !!(await until(async () => (await history.count()) === 1 && (await historyRows.count()) === 1, 20000)), String(await historyRows.count()))
+  check('…scrolled into view', !!(await until(async () => history.evaluate((el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.top < window.innerHeight - 40 }), 5000)))
+  await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-3-history.png') })
 
   await inv('session:stop', alpha, agent.id).catch(() => undefined)
   await app.close()

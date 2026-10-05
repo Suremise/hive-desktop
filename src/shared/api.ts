@@ -265,6 +265,8 @@ export interface HiveRequests {
   'transcript:image': (projectPath: string, sessionId: string, imageId: number) => string
   /** Searches one session, or all of the project's sessions when sessionId is null. */
   'transcript:search': (projectPath: string, query: string, sessionId: string | null) => TranscriptSearchResult[]
+  /** The transcript's compactions, oldest first: each one's item id (to open the transcript at its divider). */
+  'transcript:compactions': (projectPath: string, sessionId: string) => number[]
   /** Asks where to save, writes the conversation as Markdown and returns the path (null if cancelled). */
   'transcript:export': (projectPath: string, sessionId: string, title: string) => string | null
 
