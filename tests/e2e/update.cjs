@@ -39,8 +39,7 @@ const server = http.createServer(async (req, res) => {
 })
 
 async function launch(profile, extraEnv = {}) {
-  const env = { ...process.env, HIVE_USER_DATA: path.join(scratch, profile), HIVE_UPDATE_CACHE: cacheName, ...extraEnv }
-  delete env.ELECTRON_RUN_AS_NODE
+  const env = lib.hiveEnv({ HIVE_USER_DATA: path.join(scratch, profile), HIVE_UPDATE_CACHE: cacheName, ...extraEnv })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))

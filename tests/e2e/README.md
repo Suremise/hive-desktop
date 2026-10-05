@@ -50,7 +50,7 @@ as it is now: a build made with `--build` is stamped with a hash of everything i
 of `src`, `resources`, `docs`, the root files the app bundles and the build config; `build.mjs`), so an added, changed
 or deleted file is noticed whatever its modification time. A build made another way (`npx electron-vite build`) has no
 stamp: the runner warns that it may hold other code, and a run record made with it is marked not valid. So use
-`--build` with `--record`.
+`--build` with `--record`. Runners in the same worktree build it once between them (Run context, below).
 
 **Several at once.** Suites run four at a time (`--jobs N` for another number; `--jobs 1` runs them one after
 another). Each gets its own profile, folders and Agent API port: the runner sets `HIVE_E2E_PORT` and `HIVE_API_PORT`,
@@ -78,6 +78,45 @@ refresh token. Codex runs any number of sessions in one home. What the suites ch
 `config.toml`, goes through `lib.trustForCodex`, under a lock beside the file (`config.toml.lock`, broken after 30 s
 as a crash's), so two runners trusting their lanes' folders at once never lose one. A suite that runs out of time (10 minutes) is stopped with everything it started, so its test
 Hive doesn't keep holding the lane's port.
+
+**Run context.** Tests assume nothing about the machine they run on or the shell they were started from: everything
+a run uses of its own comes from one place, `runContext.cjs` (with `lanes.mjs` for ports and folders and `build.mjs`
+for the build), and the e2e runner, `lib.cjs` and the scenario harness all take it from there.
+
+- **Environments are built from an allowlist.** A suite (from the runner), a test copy of Hive (`lib.hiveEnv({
+  HIVE_USER_DATA, … })`, which `lib.launch()` uses) and a child that is part of Hive, such as the hive MCP server or the
+  `hive-progress` wrapper (`lib.childEnv({ … })`), get Windows' own variables, the user's folders and the network's
+  proxy and certificates (`ALLOW`), plus what the context sets: the profile, quiet and tips off, the suite's folder
+  (`HIVE_E2E_DIR`) and port (`HIVE_E2E_PORT`, which a test Hive gets as `HIVE_API_PORT`), the CLI test homes a suite
+  names. Nothing else of the parent's: not an agent session's `HIVE_*` variables or an outer `hive-progress`'s
+  `HIVE_PROGRESS_*`, not `NO_COLOR`/`FORCE_COLOR`, `ELECTRON_RUN_AS_NODE`, `NODE_OPTIONS`, `CLAUDE_*` or `ANTHROPIC_*`
+  (the real tier uses the CLIs' own sign-in) or `GIT_*`. So a run started from an agent's shell inside `hive-progress`
+  behaves as one started from a plain one, and there is no strip list to keep growing.
+- **Test settings are passed on by name** (`PASS_ENV`, each with what it is for): `HIVE_TEST_CODEX_HOME`,
+  `HIVE_TEST_CLAUDE_HOME`, `HIVE_TEST_QUIET` (`0` shows the copies), `HIVE_TEST_PROGRESS_TIMINGS`,
+  `HIVE_PROGRESS_CHECK_DEV`, `HIVE_EXE`, `REPLYSIZE_OUT`. A new setting a suite must get from the person running it is
+  added there. `HIVE_E2E_NATIVE` never is: it only works with a suite run on its own.
+- **No child environment from `process.env`.** `lib.cjs` refuses to start a test Hive whose environment `lib.hiveEnv`
+  didn't build, and `tests/e2esuites.test.ts` fails for a suite, the runner or the scenario harness that spreads or
+  passes `process.env`. The fake CLIs are the exception: they stand for Claude Code and Codex, which start their MCP
+  servers from their own environment (a test Hive's session's, already the context's). A suite's own tools (git, a
+  PowerShell query) run in the suite's environment, which under the runner is the context's.
+- **Folders, ports and CLI homes**: the lane (above), the Codex test home under its `config.toml` lock, the Claude Code
+  test home for the model trials (`CLAUDE_TEST_HOME`); each suite keeps its own `CLAUDE_CONFIG_DIR` folders in its lane.
+- **The build, once per worktree** (`build.mjs`): runners started at the same time in one worktree share its `out/`,
+  so the first that finds it stale takes the worktree's build lock (`%LOCALAPPDATA%\hive-test\build-locks`, a folder
+  per worktree with its holder's process id), looks again, builds once and stamps it; the others wait (`Waited for
+  another runner's build`) and find it fresh. A runner that only checks waits too, so it never reads half a build. A
+  lock whose runner is gone is broken; a failed build lets go of it. Worktrees don't wait for each other.
+
+`isolation` checks what a suite, a test Hive, a child and the `hive-progress` wrapper get, with an agent shell's
+variables put into the suite's own environment. **`npm run e2e:concurrency`** (`concurrency.mjs`, `--repeat N`) starts
+four runs at once with both builds stale: an e2e runner and a scenario run in this worktree, two e2e runners in a
+second worktree it makes for the check (a git worktree of `HEAD` with the uncommitted changes, sharing `node_modules`
+through a junction, removed afterwards), one in each worktree with an agent shell's environment (`NO_COLOR`,
+`HIVE_PROGRESS_WRAPPED`, a token…) and one with a plain one. It checks that every run passes in a lane, folders, ports
+and logs folder of its own, and that each worktree is built once and stamped. Run it after changing the runner,
+`lib.cjs`, `runContext.cjs`, `lanes.mjs`, `build.mjs` or the scenario harness.
 
 ## Which suites to run, and who runs them
 
@@ -156,6 +195,8 @@ Nothing touches your Hive profile, your clipboard or your real Codex home.
 ## Writing one
 
 Start from an existing suite and use `lib.cjs`:
+- `hiveEnv({ HIVE_USER_DATA, … })` as the environment of every test Hive it starts (or `launch()`), `childEnv({ … })`
+  for a child that is part of Hive (the hive MCP server, `hive-progress`); never `process.env` (Run context, above);
 - `port(<default>)` for its Agent API port (never a fixed number, so it can run beside others); add it to an area in
   `affected.mjs` and to `suites.mjs` (sorted), with `serial: '<why>'` if it can't run beside others;
 - `until(fn, ms)` to wait for something to happen rather than a fixed `sleep()`, which is slower and flakier;
@@ -170,7 +211,7 @@ Start from an existing suite and use `lib.cjs`:
 
 **Quiet test copies** (unpackaged builds only): a copy of Hive started with a test profile (`HIVE_USER_DATA`, which every suite sets) is quiet, however it was started (the runner, `node tests/e2e/<suite>.cjs`, a scenario or a Playwright script), and so is one started with `HIVE_TEST_QUIET=1`. `HIVE_TEST_QUIET=0` turns it off, for a suite that needs a real window (listed in `LOUD` in `tests/testQuiet.test.ts`, which fails for a suite that starts Hive without a test profile or turns quiet off unlisted). So the copies of Hive the suites start never interrupt you: their windows open off screen, to the left of your screens, and never take focus (`showInactive`; Chromium's occlusion tracking is off for them, so they still draw), and they raise no Windows notification, taskbar flash or chime (`src/main/testQuiet.ts`; the window still counts a chime, for `window.__hiveChimes`). Set `HIVE_TEST_NOTIFY_LOG=<file>` to have each notification, flash and chime they would have made written there as a JSON line (`{ kind, title, body }`); `bursts` checks its notifications that way. Suites that need a focused window stub it (`inbox`, `progress`, `taskbar`) rather than taking OS focus. Maximising is simulated the same way: `carddialog` gives its off-screen window a screen's work-area size, makes `isMaximized()` say so and emits `maximize`/`unmaximize`, which checks Hive's handling of them (the card kept in the window, the title-bar buttons dimmed) but not Electron's and Windows' own maximise. For that, run it on its own with **`HIVE_E2E_NATIVE=1 node tests/e2e/carddialog.cjs`** (PowerShell: `$env:HIVE_E2E_NATIVE='1'; node tests/e2e/carddialog.cjs`): the same checks with the real `maximize()`/`unmaximize()` in a normal window, which **comes on screen, takes the focus and fills the screen** while it runs, so only when asked. The runner drops `HIVE_E2E_NATIVE`, so full and `--affected` runs stay quiet.
 
-**Tips** are off in suites run by `run.mjs` (`HIVE_TEST_TIPS=off`, unpackaged builds only: a profile that doesn't set *Show a tip when Hive starts* gets it off), so no tip card covers what a suite clicks. A suite about tips (`tips`) turns them on in its profile.
+**Tips** are off in every test copy of Hive (`lib.hiveEnv` sets `HIVE_TEST_TIPS=off`, unpackaged builds only: a profile that doesn't set *Show a tip when Hive starts* gets it off), so no tip card covers what a suite clicks. A suite about tips (`tips`) turns them on in its profile.
 
 **A fake Claude Code** (`fake-claude/fake-claude.cmd`) runs agents without signing in or spending tokens: set it as
 the profile's Claude Code path (`settings.providers['claude-code'].executablePath`) and start Hive with

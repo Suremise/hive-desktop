@@ -22,13 +22,13 @@
 import { spawnSync } from 'child_process'
 import { createRequire } from 'module'
 import { readFileSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import { ensureBuild } from '../e2e/build.mjs'
 import { LANES, claimLane, laneWork } from '../e2e/lanes.mjs'
 
 const require = createRequire(import.meta.url)
 const lib = require('../e2e/lib.cjs')
+const runContext = require('../e2e/runContext.cjs')
 const { runScenario, sourceFingerprint, claudeSignedIn, CLAUDE_TEST_HOME, PROVIDERS } = require('./harness.cjs')
 const { SCENARIOS, FIXTURES_VERSION } = require('./scenarios.cjs')
 const { benchmarkOf, pruneResults, saveBaseline, resultsFolder, parseBudget, budgetGate, spendText } = require('./benchmark.cjs')
@@ -70,15 +70,23 @@ if (notSignedIn) {
   process.exit(0)
 }
 
-const build = ensureBuild({
-  root: lib.ROOT,
-  build: true,
-  runBuild: () => {
-    console.log('Building (the dev build is not from this source)…')
-    const r = spawnSync('npx electron-vite build', { cwd: lib.ROOT, stdio: 'inherit', shell: true })
-    if (r.status !== 0) process.exit(r.status ?? 1)
-  }
-})
+// Under the worktree's build lock (build.mjs): an e2e or scenario run started beside this one builds it once.
+let build
+try {
+  build = ensureBuild({
+    root: lib.ROOT,
+    build: true,
+    runBuild: () => {
+      console.log('Building (the dev build is not from this source)…')
+      const r = spawnSync('npx electron-vite build', { cwd: lib.ROOT, stdio: 'inherit', shell: true })
+      if (r.status !== 0) throw Object.assign(new Error(`The build failed (exit ${r.status})`), { status: r.status ?? 1 })
+    }
+  })
+} catch (e) {
+  console.error(e.message)
+  process.exit(e.status ?? 2)
+}
+if (build.waited) console.log(`Waited for another runner's build of this worktree${build.built ? '' : ': it is from this source'}.`)
 if (build.stale) {
   console.error(`The dev build isn't from this source (${build.why}): run the scenarios again once it has stopped changing.`)
   process.exit(2)
@@ -86,7 +94,7 @@ if (build.stale) {
 
 // This run's lane: its own folders and Agent API port, so another run at the same time can't remove, open or answer
 // for this one's test Hive.
-const lane = await claimLane(join(process.env.LOCALAPPDATA || tmpdir(), 'hive-test', 'e2e-lanes'), { root: lib.ROOT })
+const lane = await claimLane(runContext.LANES_DIR, { root: lib.ROOT })
 if (!lane) {
   console.error(`Every test lane (${LANES}) is taken by e2e or scenario runs still going: wait for one to finish.`)
   process.exit(2)

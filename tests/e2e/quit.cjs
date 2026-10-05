@@ -28,8 +28,7 @@ async function launch(name, config) {
   fs.mkdirSync(userData, { recursive: true })
   if (config) fs.writeFileSync(path.join(userData, 'config.json'), JSON.stringify(config))
   else lib.enableProviders(userData)
-  const env = { ...process.env, HIVE_USER_DATA: userData }
-  delete env.ELECTRON_RUN_AS_NODE
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => results.push(`PAGEERROR ${e.message}`))
