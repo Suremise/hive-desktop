@@ -12,7 +12,10 @@ const proj = path.join(ws, 'demo')
 const codexHome = lib.CODEX_HOME
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const results = []
-const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+const check = (name, ok, extra = '') => {
+  lib.checked(ok)
+  results.push(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
 
 function prepare() {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
@@ -57,16 +60,19 @@ function prepare() {
   check('starts in Approve for me', ready?.permissionMode === 'approve-for-me', ready?.permissionMode)
   await page.screenshot({ path: path.join(scratch, 'cxh-1-ready.png') })
 
-  // One prompt: an edit with apply_patch.
+  // One prompt: an edit with apply_patch. Codex answering it is the CLI's part (a usage limit or the network there is
+  // the environment's, lib.cliStep), what Hive makes of the turn is checked after it.
   const key = `session:${proj.toLowerCase()}#${def.id}`
-  for (const ch of ['Use apply_patch to add a file notes.txt containing hi. Do nothing else.']) await inv('pty:write', key, ch)
-  await sleep(400)
-  await inv('pty:write', key, '\r')
-  const working = await waitFor(async () => ((await live())?.status === 'working' ? true : null), 30000)
-  check('prompt makes it working', !!working, (await live())?.status)
-  const done = await waitFor(async () => ((await live())?.status === 'finished' ? true : null), 180000)
-  check('turn finishes (Stop hook)', !!done, (await live())?.status)
-  check('the patch was applied', fs.existsSync(path.join(proj, 'notes.txt')))
+  await lib.cliStep('the prompt’s turn', { session: key }, async () => {
+    for (const ch of ['Use apply_patch to add a file notes.txt containing hi. Do nothing else.']) await inv('pty:write', key, ch)
+    await sleep(400)
+    await inv('pty:write', key, '\r')
+    const working = await waitFor(async () => ((await live())?.status === 'working' ? true : null), 30000)
+    check('prompt makes it working', !!working, (await live())?.status)
+    const done = await waitFor(async () => ((await live())?.status === 'finished' ? true : null), 180000)
+    check('turn finishes (Stop hook)', !!done, (await live())?.status)
+    check('the patch was applied', fs.existsSync(path.join(proj, 'notes.txt')))
+  })
   // Codex names the session with its first hook (the first prompt).
   const sessionId = (await live())?.sessionId
   check('the first hook binds the session id', /^[0-9a-f-]{36}$/.test(sessionId ?? ''), sessionId)

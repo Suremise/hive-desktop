@@ -11,15 +11,13 @@ const ws = path.join(lib.WORK, 'cxbg-ws')
 const proj = path.join(ws, 'demo')
 let failed = 0
 const check = (name, ok, extra = '') => {
+  lib.checked(ok)
   if (!ok) failed++
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
 }
 
 ;(async () => {
-  if (!lib.codexSignedIn()) {
-    console.log('SKIP Codex is not signed in to the test home')
-    process.exit(0)
-  }
+  if (!lib.codexSignedIn()) lib.skip('environment: Codex is not signed in to the test home')
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
   lib.gitProject(proj, { 'notes.txt': 'hi\n' })
   lib.trustForCodex(proj)
@@ -59,18 +57,23 @@ const check = (name, ok, extra = '') => {
   // Printing only the id is the form that went uncounted (#162): Hive mustn't depend on what the script prints.
   const prompt =
     "Call exec_command once with cmd \"Start-Sleep -Seconds 40; Set-Content -Path bg-done.txt -Value done\" and yield_time_ms 1000. It will return a session id while the command keeps running: do not wait for it, poll it or call write_stdin. If you call it from a script, print only its session id (text(r.session_id)). Reply with the single word STARTED and end your turn."
-  // Typed the way Hive types prompts (a long text at once is a paste to Codex, and Enter then adds a line).
-  for (let i = 0; i < prompt.length; i += 8) {
-    await inv('pty:write', key, prompt.slice(i, i + 8))
-    await lib.sleep(15)
-  }
-  await lib.until(async () => (await inv('pty:buffer', key)).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\s+/g, '').includes('endyourturn.'), 15000) // the whole prompt is in Codex's input
-  await inv('pty:write', key, '\r')
-  const ended = await until((s) => s?.status === 'finished' && s, 120000)
-  const t0 = Date.now()
-  check('its turn ends: finished, not background (Codex is never told)', ended?.status === 'finished', JSON.stringify(ended && { status: ended.status }))
+  // Codex answering the prompt is the CLI's part (a usage limit or the network there is the environment's: lib.cliStep).
+  const t0 = await lib.cliStep('the prompt’s turn', { session: key }, async () => {
+    // Typed the way Hive types prompts (a long text at once is a paste to Codex, and Enter then adds a line).
+    for (let i = 0; i < prompt.length; i += 8) {
+      await inv('pty:write', key, prompt.slice(i, i + 8))
+      await lib.sleep(15)
+    }
+    await lib.until(async () => (await inv('pty:buffer', key)).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\s+/g, '').includes('endyourturn.'), 15000) // the whole prompt is in Codex's input
+    await inv('pty:write', key, '\r')
+    const ended = await until((s) => s?.status === 'finished' && s, 120000)
+    const started = Date.now()
+    check('its turn ends: finished, not background (Codex is never told)', ended?.status === 'finished', JSON.stringify(ended && { status: ended.status }))
+    return started
+  })
+  // Hive's part: counting what the turn left running.
   const counted = await until((s) => s?.backgroundTasks === 1 && s, 10000)
-  check('the running command is counted', counted?.backgroundTasks === 1, JSON.stringify(ended && { tasks: ended.backgroundTasks }))
+  check('the running command is counted', counted?.backgroundTasks === 1, JSON.stringify(counted && { tasks: counted.backgroundTasks }))
   seen.clear()
   await page.screenshot({ path: path.join(lib.WORK, 'codex-background.png') })
 

@@ -4,17 +4,40 @@ Each suite starts the dev build of Hive with Playwright's `_electron`, in a thro
 checks a feature the way a user would use it. They run on your machine, not in CI: they need the real CLIs.
 
 ```bash
-npm run e2e -- --build          # build first, only if the dev build in out/ isn't from this source, then every suite
-npm run e2e                      # every suite (the packaged ones only with --packaged); same as --all
+npm run e2e -- --build          # build first, only if the dev build in out/ isn't from this source, then the full set
+npm run e2e                      # the full set: every fake-tier suite (the packaged ones only with --packaged); same as --all
+npm run e2e -- --all --real      # everything, the real tier (real Claude Code and Codex) too
+npm run e2e -- --only-real       # only the real tier
 npm run e2e -- agents transcript # just these
-npm run e2e -- --affected        # the suites the changes since main need (affected.mjs), uncommitted ones included
+npm run e2e -- --affected        # the suites the changes since main need (affected.mjs), uncommitted ones included, real ones too
 npm run e2e -- <suites> --build --record # and print a run record for the card (saved with the run's logs, and the latest as logs/run-record.md)
 npm run e2e -- --fingerprint     # the code's fingerprint, to compare with a run record
 npm run e2e -- <suites> --repeat 3 --build --record # three runs, stopping at the first that fails; one record for all
 npm run dist && npm run e2e -- --packaged   # also the installed-app suites (dist/win-unpacked)
 ```
 
-A suite passes when it exits cleanly and prints no `FAIL` line. The runner prints a summary; each suite's output
+**Two tiers.** The **fake tier** is every suite that starts no real CLI: those with no `needs`, and those that run the
+fake Claude Code or fake Codex. The **real tier** is the suites that start the real Claude Code (`needs: ['claude']` in
+`suites.mjs`) or the real Codex in its test home (`needs: ['codex']`): they test what fakes can't (hooks reaching Hive,
+the CLIs' transcript formats, session binding, usage, their trust and mode screens, Codex's sandbox), but they are slow,
+cost tokens and fail for reasons that aren't the code. The full set (`--all`, or nothing named) is the fake tier, and
+the runner lists the real suites it left out ("Not run: the real tier"), in its output and the run record. `--real` adds
+the real tier, `--only-real` runs only it; a suite named always runs.
+
+A suite passes when it exits cleanly and prints no `FAIL` line. **Environment failures are a SKIP, not a FAIL**, but
+only where it is certain: a real suite marks each step that waits on the CLI answering (a turn) with
+`lib.cliStep(name, { session: <pty key> }, fn)`, and its `check` reports to `lib.checked(ok)`. When a check in such a step
+fails and a **new** usage or rate limit, sign-in or network error (`lib.environmentProblems`) appeared **in that step's
+session** during it, the suite stops there with `SKIPPED environment: <why> (in "<step>", <session>)`, which the run
+record lists under **Skipped for the environment**. It stays a FAIL when the step threw (an exception is never the
+environment's: a bug, a rejected IPC call, a file error; so a step's waits on the CLI end in a check, not a throw), when
+anything failed before the step, when another FAIL line was printed (a page error), when the error is in another
+session or was already there before the step (the CLI recovered), or when the suite's checks don't report to
+`lib.checked`; an `ENVIRONMENT` line in its output
+says it saw the error but couldn't put the failure down to it. Hive's own checks about the turn (what it recorded,
+counted, showed) go after the step, outside it. The runner skips real suites up front, with an `environment:` reason,
+when their CLI isn't installed, Claude Code says it isn't signed in (`claude auth status`), or the Codex test home has no
+sign-in. A suite that can't run on a machine says so with `lib.skip('<why>')`. The runner prints a summary; each suite's output
 is kept in a folder of its own for each run, `logs/run-<date>-<time>` under the work folder, with `-2`, `-3`… when
 another run started in the same second. The last ten finished runs are kept: a run still going (`.active` in its folder,
 with its runner's process id) is never pruned, so runners started side by side don't remove each other's logs. A runner started inside a suite (`progressreport`
@@ -70,15 +93,22 @@ same code while every required check still runs:
   probes. It reruns more when there's no record, the fingerprint differs, or a result looks wrong.
 - **Follow-up rounds** run the suites the fixes affect (`--affected`). **Before a card passes**, every suite it names
   has run on its final code (the builder's last record).
-- **Before a merge to main**, and before a release, run the **full set**: `npm run e2e -- --all --build --record` (with the
-  real CLIs signed in), so suites no card named still pass. CI runs only the unit tests.
+- **Before a merge to main**, run the **full set** (the fake tier): `npm run e2e -- --all --build --record`, so suites
+  no card named still pass. Run the **real tier** too (`--all --real`, or `--affected --only-real` for just the real
+  suites the branch needs) when `--affected` selects any real suite (the runner says which: a change to providers,
+  launching the CLIs, hooks and status, transcripts or `lib.cjs`), **before a release**, and **after updating Claude
+  Code or Codex**. A real suite skipped for the environment doesn't block a merge, but the record says so and the
+  reviewer decides whether it must run again first. CI runs only the unit tests.
 - **When a change could make tests flaky** (the runner, `lib.cjs`, running suites side by side, waits), run it several
   times: `npm run e2e -- --all --build --record --repeat 3`. The repeat stops at the first run that fails, and its one
   record is valid only if every run passed on the same code. A failure means fix it and start a new repeat: a later
   passing run doesn't make up for an earlier failure.
 
 `--affected` errs towards more: a change to a file every part of Hive goes through (the IPC contract, types, the store,
-`lib.cjs`, the fake CLIs…) or to code no area names means every suite. Add an area to `affected.mjs` when you add a
+`lib.cjs`, the fake CLIs…) or to code no area names means every fake suite. Real suites come in when an area names
+them, or when the change is to Hive's side of every CLI (`REAL_TIER` in `affected.mjs`: `sessions.ts`, the providers,
+`providerService`, the terminal host, hook status, transcripts, `lib.cjs`) or to code no area names; a provider's own
+adapter (`src/main/providers/claude/`, `codex/`) picks only its real suites. Add an area to `affected.mjs` when you add a
 suite or a source file; `tests/e2esuites.test.ts` checks every suite and source file is covered.
 
 **Progress in Hive.** Run from an agent's session in Hive, the runner shows in that Hive's Progress panel: **e2e: N
@@ -96,8 +126,9 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
 - **Claude Code**, installed and signed in. Suites that start sessions (`agents`, `image`, `mode`, `plan`,
   `compact`, `restart`, `resume`, `quit`, `agentview`, `windows`, `launchrace`, `assistant`) never send it a prompt. The first run in a test folder answers Claude
   Code's "trust this folder" question (never a sign-in screen), so later runs don't ask.
-  These suites (`needs: ['claude']` in `run.mjs`) aren't skipped automatically. Run them when what they test can't be
-  done with the fake Claude Code (below), and prefer the fake where it covers the case. Warn the user first if one could
+  These suites (`needs: ['claude']` in `suites.mjs`) are the real tier: only with `--real`, `--only-real`, by name or
+  when `--affected` needs them. Run them when what they test can't be done with the fake Claude Code (below), and
+  prefer the fake where it covers the case. Warn the user first if one could
   reach a sign-in screen; never send key presses to one.
 - **Codex** for the `codex*` suites, signed in to the **test home** `%LOCALAPPDATA%\hive-test\codex` (never your
   own `~/.codex`). Sign in once:
@@ -130,7 +161,10 @@ Start from an existing suite and use `lib.cjs`:
 - `until(fn, ms)` to wait for something to happen rather than a fixed `sleep()`, which is slower and flakier;
 - `enableProviders()` for the profile, `launch()`;
 - `addAgent()` / `soloAgent()`: projects start without agents;
-- `acceptClaudeTrust()`, `trustForCodex()`, `gitProject()`, `samplePng()`.
+- `acceptClaudeTrust()`, `trustForCodex()`, `gitProject()`, `samplePng()`;
+- `skip('<why>')` when the suite can't run on this machine (the record shows the reason);
+- in a real-CLI suite, `cliStep(name, { session }, fn)` around each step that waits on the CLI answering, with
+  `checked(ok)` in the suite's `check` (above: how an environment failure there becomes a SKIP).
 
 **Slow or failing calls** (unpackaged builds only): `HIVE_TEST_SLOW_IPC="tasks:start=2000,git:diff=3000*1"` delays those IPC calls (`*n`: only the first n) and `HIVE_TEST_FAIL_IPC="git:status*1"` makes them fail. Hive reads them again when they change, so a suite can set them in the main process while it runs (`app.evaluate(() => { process.env.HIVE_TEST_SLOW_IPC = '…' })`). `busy`, `changes` and `loadfail` use them.
 

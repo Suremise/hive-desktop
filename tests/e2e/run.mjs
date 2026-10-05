@@ -4,7 +4,13 @@
 //                   (and the installer's) run last, alone.
 //   --affected [B]  the suites the changes since branch B (default main) need, uncommitted ones included
 //                   (affected.mjs), plus any suites named. B is taken only if it isn't a suite name.
-//   --all           every suite: the full run before a merge to main (not with --affected).
+//   --all           the full set before a merge to main (not with --affected): every suite that starts no real CLI (the
+//                   fake tier). The real-CLI suites (needs claude/codex in suites.mjs) are listed as not run.
+//   --real          the real tier too: every suite that starts the real Claude Code or Codex (--all --real: everything).
+//   --only-real     only the real tier (with --affected, only the real suites the changes need). A step of a real suite
+//                   that waits on the CLI (lib.cliStep) and fails because of the machine (usage or rate limit, sign-in,
+//                   network, in that step's session) makes the suite a SKIP with the reason, not a FAIL; a CLI that isn't
+//                   installed or signed in skips its suites.
 //   --record        print and save a run record (the code's fingerprint, each suite's result) for a card comment. The
 //                   record is marked not valid, and the run fails, if the code changed while the suites ran or the
 //                   build isn't known to be from this source (build.mjs).
@@ -27,7 +33,7 @@ import { e2eProgress } from '../progressReport.mts'
 import { SUITES } from './suites.mjs'
 import { affectedSuites, changedFiles } from './affected.mjs'
 import { fingerprint, recordMarkdown } from './record.mjs'
-import { parentSuite, parseArgs, portBase, repeatStatus, selectSuites } from './runner.mjs'
+import { isRealCli, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, selectSuites, suiteOutcome } from './runner.mjs'
 import { ensureBuild } from './build.mjs'
 import { finishRunDirs, logsRootFor, newRunDir, pruneRunDirs } from './logs.mjs'
 import { LANES, claimLane, laneWork } from './lanes.mjs'
@@ -69,11 +75,15 @@ if (!existsSync(join(root, 'out', 'main', 'index.js'))) {
 // --- Which suites.
 let affected = null
 if (opts.affected) {
-  affected = affectedSuites(changedFiles(opts.affected, root), SUITES.map((s) => s.name))
-  console.log(affected.all ? `Affected since ${opts.affected}: every suite (${affected.why[0]})` : `Affected since ${opts.affected}: ${affected.suites.length ? affected.suites.join(', ') : 'none'}`)
-  for (const w of affected.all ? [] : affected.why) console.log(`  ${w}`)
+  affected = affectedSuites(changedFiles(opts.affected, root), SUITES.map((s) => s.name), SUITES.filter(isRealCli).map((s) => s.name))
+  if (affected.all) console.log(`Affected since ${opts.affected}: every fake suite (${affected.why[0]})${affected.real.length ? `, and the real tier's ${affected.real.join(', ')}` : ''}`)
+  else console.log(`Affected since ${opts.affected}: ${affected.suites.length ? affected.suites.join(', ') : 'none'}`)
+  for (const w of affected.all ? affected.why.slice(1) : affected.why) console.log(`  ${w}`)
 }
 const chosen = selectSuites(SUITES, opts, affected)
+// The real tier left out of a full or affected run: said, so it is never silent (and in the record).
+const notRun = opts.named.length && !opts.all && !opts.affected ? [] : realNotRun(SUITES, chosen)
+if (notRun.length) console.log(`Not run: the real tier (add --real): ${notRun.map((s) => s.name).join(', ')}\n`)
 if (!chosen.length) {
   console.log(`\nNo suite to run${opts.affected ? ' for these changes' : ''}.`)
   process.exit(0)
@@ -147,16 +157,43 @@ const run = (name, port) =>
     }, 10 * 60_000)
     child.on('exit', (code) => {
       clearTimeout(timer)
-      const failed = out.split(/\r?\n/).filter((l) => /^\s*FAIL/.test(l))
-      resolve({ name, ok: code === 0 && !failed.length, code, failed, out, seconds: Math.round((Date.now() - started) / 1000) })
+      resolve({ name, ...suiteOutcome({ code, out }), code, out, seconds: Math.round((Date.now() - started) / 1000) })
     })
   })
 
-/** Why a suite can't run here, or null. */
+/** A CLI's path: on the PATH, or where its installer puts it (Hive looks there too); null when it isn't installed. */
+const cliPath = (cmd, places) => {
+  const r = spawnSync('where.exe', [cmd], { encoding: 'utf8' })
+  return (r.status === 0 && r.stdout.split(/\r?\n/)[0].trim()) || places.find((p) => existsSync(p)) || null
+}
+const cliInstalled = {
+  claude: () => cliPath('claude', [join(process.env.USERPROFILE || '', '.local', 'bin', 'claude.exe')]),
+  codex: () => cliPath('codex', [join(process.env.APPDATA || '', 'npm', 'codex.cmd')])
+}
+/**
+ * False only when Claude Code itself says it isn't signed in (`claude auth status --json`); an answer that can't be read
+ * counts as signed in, so the suites run and say what is wrong. Asked once a run.
+ */
+let claudeSignedIn
+const claudeLoggedIn = () => {
+  if (claudeSignedIn !== undefined) return claudeSignedIn
+  const r = spawnSync(cliInstalled.claude(), ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 30_000 })
+  try {
+    claudeSignedIn = JSON.parse(r.stdout).loggedIn !== false
+  } catch {
+    claudeSignedIn = true
+  }
+  return claudeSignedIn
+}
+
+/** Why a suite can't run here, or null. "environment: …" for the machine's CLIs (the record says so). */
 function skipReason(s) {
   const needs = s.needs ?? []
   if (needs.includes('packaged') && !existsSync(join(root, 'dist', 'win-unpacked'))) return 'no dist/win-unpacked (npm run dist)'
-  if (needs.includes('codex') && !lib.codexSignedIn()) return `Codex isn't signed in to ${lib.CODEX_HOME}`
+  if (needs.includes('claude') && !cliInstalled.claude()) return "environment: Claude Code isn't installed (claude)"
+  if (needs.includes('claude') && !claudeLoggedIn()) return "environment: Claude Code isn't signed in (claude auth status)"
+  if (needs.includes('codex') && !cliInstalled.codex()) return "environment: Codex isn't installed (codex)"
+  if (needs.includes('codex') && !lib.codexSignedIn()) return `environment: Codex isn't signed in to ${lib.CODEX_HOME}`
   return null
 }
 
@@ -194,12 +231,13 @@ async function runOnce(k) {
   function finish(s, r) {
     finished++
     running.delete(s.name)
-    progress.done(step(k, s.name), r.seconds * 1000, r.ok)
+    progress.done(step(k, s.name), r.seconds * 1000, r.ok !== false)
     writeFileSync(join(logDir, `${s.name}.log`), r.out)
-    console.log(`${s.name.padEnd(22)}${r.ok ? 'pass' : 'FAIL'}  ${r.seconds}s${r.ok ? '' : `  (exit ${r.code}${r.failed.length ? `; ${r.failed.length} failed check${r.failed.length === 1 ? '' : 's'}` : ''})`}`)
-    for (const f of r.failed) console.log(`    ${f.trim()}`)
+    if (r.skipped) console.log(`${s.name.padEnd(22)}SKIP  ${r.seconds}s  (${r.skipped})`)
+    else console.log(`${s.name.padEnd(22)}${r.ok ? 'pass' : 'FAIL'}  ${r.seconds}s${r.ok ? '' : `  (exit ${r.code}${r.failed.length ? `; ${r.failed.length} failed check${r.failed.length === 1 ? '' : 's'}` : ''})`}`)
+    for (const f of r.skipped ? [] : r.failed) console.log(`    ${f.trim()}`)
     // A failure with no FAIL line (an exception, a timeout): its last lines say why.
-    if (!r.ok && !r.failed.length) for (const line of r.out.split(/\r?\n/).filter((x) => x.trim()).slice(-5)) console.log(`    | ${line.trim().slice(0, 200)}`)
+    if (r.ok === false && !r.failed.length) for (const line of r.out.split(/\r?\n/).filter((x) => x.trim()).slice(-5)) console.log(`    | ${line.trim().slice(0, 200)}`)
     results.push(r)
     report()
   }
@@ -210,7 +248,7 @@ async function runOnce(k) {
       const why = skipReason(s)
       if (why) {
         finished++
-        results.push({ name: s.name, skipped: why })
+        results.push({ name: s.name, skipped: why, environment: why.startsWith('environment:') })
         continue
       }
       running.add(s.name)
@@ -234,7 +272,7 @@ async function runOnce(k) {
   // Also with --jobs 1: a suite's own default port could be another runner's suite's.
   await inTurn(last, PORT_BASE)
 
-  for (const r of results.filter((x) => x.skipped)) console.log(`${r.name.padEnd(22)}skipped: ${r.skipped}`)
+  for (const r of results.filter((x) => x.skipped && x.seconds === undefined)) console.log(`${r.name.padEnd(22)}skipped: ${r.skipped}`)
   const failed = results.filter((r) => r.ok === false)
   const minutes = ((Date.now() - startedAt) / 60_000).toFixed(1)
   const summary = `${results.filter((r) => r.ok).length} passed, ${failed.length} failed, ${results.filter((r) => r.skipped).length} skipped in ${minutes} min`
@@ -264,7 +302,7 @@ if (opts.record) {
   // for a repeat, every run passed).
   const status = repeatStatus({ repeat, runs, before: codeBefore, after: fingerprint(root), buildStale: stale })
   recordInvalid = !status.valid
-  const md = recordMarkdown({ code: codeBefore, when: new Date().toISOString().slice(0, 16).replace('T', ' '), jobs, results: lastRun.results, logDir: lastRun.logDir, summary, problems: status.problems, runs: repeat > 1 ? Object.assign(runs, { repeat }) : null })
+  const md = recordMarkdown({ code: codeBefore, when: new Date().toISOString().slice(0, 16).replace('T', ' '), jobs, results: lastRun.results, logDir: lastRun.logDir, summary, problems: status.problems, notRun: notRun.map((s) => s.name), runs: repeat > 1 ? Object.assign(runs, { repeat }) : null })
   for (const r of runs) writeFileSync(join(r.logDir, 'run-record.md'), md)
   // The latest record is also at logs/run-record.md.
   writeFileSync(join(logsRoot, 'run-record.md'), md)
