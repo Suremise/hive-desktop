@@ -80,10 +80,19 @@ const check = (name, ok, extra = '') => {
   // --- A project's results are its own: another project whose load fails or is overtaken never shows them.
   const project = (name) => page.locator('.sidebar').getByText(name, { exact: true }).first().click()
   const alphaOnly = page.locator('.skill-row', { hasText: 'alpha-only' })
+  // A project's local skills are under its provider's group, folded at first (#118); opened once in each project (it
+  // stays open for that project), so a list of the other project's would show.
+  const openProvider = async () => {
+    const t = page.locator('.skill-provider-toggle')
+    await until(async () => (await t.count()) > 0)
+    if ((await t.getAttribute('aria-expanded').catch(() => 'true')) === 'false') await t.click()
+  }
   await project('beta')
   await page.locator('.tab', { hasText: 'Skills' }).click()
   await until(async () => (await page.locator('.skill-group').count()) > 0)
+  await openProvider()
   await project('alpha')
+  await openProvider()
   check('skills: alpha lists its own local skill', !!(await until(async () => (await alphaOnly.count()) === 1)))
   // The Skills tab stays open (both projects show it) while beta's load fails.
   await failNext('skills:list')
