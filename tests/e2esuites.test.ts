@@ -684,6 +684,16 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
     expect(folders).not.toContain('W')
   })
 
+  it('scenario runs claim a lane too: their folders and Agent API port, never the shared 47930 or scenarios folder (#183, #184)', () => {
+    const run = readFileSync(join(__dirname, 'scenarios', 'run.mjs'), 'utf8')
+    expect(run).toMatch(/const lane = await claimLane\(join\(process\.env\.LOCALAPPDATA \|\| tmpdir\(\), 'hive-test', 'e2e-lanes'\)/)
+    expect(run).toContain("const workRoot = laneWork(join(lib.WORK, '..', 'scenarios'), lane.lane)")
+    expect(run).toMatch(/runScenario\(sc, provider, \{[^}]*workRoot, port: lane\.first/)
+    expect(run).toContain('process.on(\'exit\', lane.release)')
+    // The same pool as the e2e runner's, so a scenario run and an e2e run never take the same lane.
+    expect(readFileSync(join(dir, 'run.mjs'), 'utf8')).toMatch(/claimLane\(join\(process\.env\.LOCALAPPDATA \|\| tmpdir\(\), 'hive-test', 'e2e-lanes'\)/)
+  })
+
   it('takes the lowest lane no live claim holds and whose ports are free', () => {
     expect(pickLane([], new Set(), alive, now)).toBe(0)
     // Held by a running runner: skipped.

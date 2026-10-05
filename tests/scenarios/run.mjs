@@ -14,11 +14,18 @@
 // Performance page compares two) and summary.md. With a fake provider a failed check fails the run (exit 1); model
 // trials only report (models vary). A dev build that isn't from the source as it is now (tests/e2e/build.mjs) is rebuilt
 // first, so a run (and a baseline) never measures other code.
+//
+// Runs at the same time (from different worktrees, or the same one) don't share folders or ports: each run claims a
+// lane, from the same pool as the e2e runner (tests/e2e/lanes.mjs), and keeps its scenarios' profiles and workspaces in
+// %LOCALAPPDATA%\hive-test\scenarios\lanes\<k> (--keep leaves them there) with the lane's first port as their Agent API
+// port (#183, #184). Results and baselines stay shared: Performance → Compare reads them.
 import { spawnSync } from 'child_process'
 import { createRequire } from 'module'
 import { readFileSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
 import { ensureBuild } from '../e2e/build.mjs'
+import { LANES, claimLane, laneWork } from '../e2e/lanes.mjs'
 
 const require = createRequire(import.meta.url)
 const lib = require('../e2e/lib.cjs')
@@ -77,6 +84,18 @@ if (build.stale) {
   process.exit(2)
 }
 
+// This run's lane: its own folders and Agent API port, so another run at the same time can't remove, open or answer
+// for this one's test Hive.
+const lane = await claimLane(join(process.env.LOCALAPPDATA || tmpdir(), 'hive-test', 'e2e-lanes'), { root: lib.ROOT })
+if (!lane) {
+  console.error(`Every test lane (${LANES}) is taken by e2e or scenario runs still going: wait for one to finish.`)
+  process.exit(2)
+}
+process.on('exit', lane.release)
+process.on('SIGINT', () => process.exit(130))
+const workRoot = laneWork(join(lib.WORK, '..', 'scenarios'), lane.lane)
+console.log(`Lane ${lane.lane}: Agent API port ${lane.first}, folders in ${workRoot}`)
+
 const chosen = SCENARIOS.filter((s) => !only?.length || only.includes(s.id))
 // The source this run tests, taken before it starts (and checked again at the end).
 const sourceAtStart = sourceFingerprint()
@@ -96,7 +115,7 @@ for (let sample = 1; sample <= repeats; sample++) {
       continue
     }
     process.stdout.write(`${sc.id} (${provider}${repeats > 1 ? `, ${sample}/${repeats}` : ''})… `)
-    const r = await runScenario(sc, provider, { model, effort, keep, timeoutMs: fake ? 60000 : 360000 })
+    const r = await runScenario(sc, provider, { model, effort, keep, workRoot, port: lane.first, timeoutMs: fake ? 60000 : 360000 })
     r.sample = sample
     // A trial's cost as reported; none reported is unknown (counted), never $0.
     if (typeof r.usage?.costUsd === 'number') spent += r.usage.costUsd
