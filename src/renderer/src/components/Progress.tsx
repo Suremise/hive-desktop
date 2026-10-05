@@ -307,7 +307,7 @@ function RunDetails({ run: r, now }: { run: ProgressRun; now: number }) {
       <dl>
         {rows.map(([k, v]) => (
           <div key={k} className="progress-detail-row">
-            <dt className="faint">{k}</dt>
+            <dt>{k}</dt>
             <dd>{v}</dd>
           </div>
         ))}
@@ -319,7 +319,7 @@ function RunDetails({ run: r, now }: { run: ProgressRun; now: number }) {
             <Icon name="eye" /> Show the agent
           </button>
         ) : (
-          <span className="faint progress-detail-why">{why}</span>
+          <span className="progress-detail-why">{why}</span>
         )}
         {r.command && (
           <button type="button" className="btn small subtle" onClick={() => copy('Command', r.command!)}>

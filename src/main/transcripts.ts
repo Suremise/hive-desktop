@@ -138,6 +138,12 @@ export const transcripts = {
     return url
   },
 
+  /** The item ids of the transcript's compactions, oldest first (the Overview's compaction history opens one). */
+  async compactions(projectPath: string, sessionId: string): Promise<number[]> {
+    const items = (await parsed(projectPath, sessionId)).parser.items
+    return items.flatMap((item, id) => (item.kind === 'compaction' ? [id] : []))
+  },
+
   /** Searches one session, or every session of the project when sessionId is null. */
   async search(projectPath: string, query: string, sessionId: string | null): Promise<TranscriptSearchResult[]> {
     const ids = sessionId ? [sessionId] : (await sessions.list(projectPath)).map((s) => s.id)

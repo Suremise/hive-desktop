@@ -182,6 +182,8 @@ export class CodexUsageParser {
         // Codex repeats the totals with an empty last request (e.g. right after compacting): not a request.
         if (lastTokens > 0) {
           usage.contextTokens = lastTokens
+          usage.contextInputTokens = last.input_tokens ?? 0
+          usage.lastOutputTokens = last.output_tokens ?? 0
           usage.requests++
           if (d) d.requests++
           if (this.pending) {
@@ -202,7 +204,7 @@ export class CodexUsageParser {
         if (said) usage.lastPrompt = said
       } else if (r.type === 'compacted') {
         // Codex doesn't record the trigger: /compact runs as a turn of its own, without a prompt.
-        this.pending = { timestamp: ts ?? '', trigger: this.turnHasPrompt ? 'auto' : 'manual', preTokens: usage.contextTokens, postTokens: 0 }
+        this.pending = { timestamp: ts ?? '', trigger: this.turnHasPrompt ? 'auto' : 'manual', preTokens: usage.contextTokens, postTokens: 0, ...(usage.contextInputTokens !== undefined ? { lastInputTokens: usage.contextInputTokens, lastOutputTokens: usage.lastOutputTokens ?? 0 } : {}) }
         usage.compactions.push(this.pending)
         const d = this.day(ts)
         if (d) d.compactions++

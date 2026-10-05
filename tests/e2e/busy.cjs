@@ -162,12 +162,12 @@ const check = (name, ok, extra = '') => {
   await page.locator('.project-row', { hasText: 'alpha' }).click()
   const footer = page.locator('.agent-pane .pane-footer-bar').first()
   const live = async () => (await inv('session:live')).find((s) => s.agentId === agent.id)
-  // One typed exchange, so the conversation has usage to show.
+  // One typed exchange, so the conversation has usage to show: 30 in context (its 20 input and 10 output).
   await until(async () => ['ready', 'finished'].includes((await live())?.status), 15000)
   await inv('pty:write', lib.ptyKey(alpha, agent.id), 'hello')
   await lib.sleep(300)
   await inv('pty:write', lib.ptyKey(alpha, agent.id), String.fromCharCode(13))
-  check('the first conversation shows its usage', !!(await until(async () => /\b20 ctx/.test(await footer.innerText().catch(() => '')), 15000)), await footer.innerText().catch(() => ''))
+  check('the first conversation shows its usage', !!(await until(async () => /\b30 ctx/.test(await footer.innerText().catch(() => '')), 15000)), await footer.innerText().catch(() => ''))
   const first = (await live())?.sessionId
   // Its usage is now slow to read: a new conversation shows a placeholder, never the old one's numbers.
   await app.evaluate(() => {
@@ -179,7 +179,7 @@ const check = (name, ok, extra = '') => {
   await until(async () => (await live())?.sessionId && (await live()).sessionId !== first && !(await live()).settingUp, 15000)
   await lib.sleep(500)
   const text = await footer.innerText().catch(() => '')
-  check("a new conversation doesn't show the previous one's usage", !/\b20 ctx/.test(text) && /– ctx/.test(text), text)
+  check("a new conversation doesn't show the previous one's usage", !/\b30 ctx/.test(text) && /– ctx/.test(text), text)
   await page.screenshot({ path: path.join(lib.WORK, 'busy-3-usage.png') })
   await app.evaluate(() => {
     process.env.HIVE_TEST_SLOW_IPC = ''

@@ -4007,19 +4007,6 @@ body.pane-resizing .monaco-editor {
 .overview-head.session-head .section {
   margin: 0;
 }
-/* A long session's compactions scroll in their own pane, under a header that stays. */
-.compaction-history {
-  max-height: 280px;
-  overflow-y: auto;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-}
-.compaction-history .table th {
-  position: sticky;
-  top: 0;
-  background: var(--bg);
-  z-index: 1;
-}
 .overview-plan {
   margin: 4px 0 6px;
 }
@@ -5321,6 +5308,85 @@ body.pane-resizing-v .monaco-editor {
 .table th.sortable:hover {
   color: var(--fg-strong);
 }
+/* A data table's header is a button (keyboard), looking like the header it is. */
+.table th .th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.table th.num .th-sort {
+  flex-direction: row-reverse;
+}
+.table th .th-sort:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Its quick filters, a row under the headers: as narrow as the column lets them be. */
+.table tr.table-filters th {
+  padding: 4px 6px 6px;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+.table tr.table-filters .input,
+.table tr.table-filters .select {
+  width: 100%;
+  min-width: 60px;
+  height: 24px;
+  font-size: 12px;
+}
+.table tr.clickable:focus-visible td {
+  background: var(--bg-hover);
+}
+.table tr.clickable:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.table tr.table-no-match td {
+  color: var(--fg-muted);
+  text-align: center;
+  padding: 14px 10px;
+}
+.table tr.table-no-match:hover td {
+  background: none;
+}
+/* Its pages: rows per page, the range, then first, previous, "Page n of m", next and last. */
+.table-paging {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 2px 0 10px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.table-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.table-page-size .select {
+  height: 24px;
+  font-size: 12px;
+}
+.table-page {
+  white-space: nowrap;
+}
+.table-page-end {
+  font-size: 14px;
+  line-height: 1;
+}
+.data-table-empty {
+  padding: 8px 0;
+}
 .table tr.clickable,
 .running-row.clickable {
   cursor: pointer;
@@ -5617,14 +5683,16 @@ body.pane-resizing-v .monaco-editor {
   gap: 8px;
   padding: 40px 0;
 }
-.perf-table {
+/* A table in a page or a tab (Performance's, the Overview's data tables): scrolls sideways inside its pane when it
+   must, never past it. */
+.table-wrap {
   overflow-x: auto;
   margin-bottom: 8px;
 }
-.perf-table .table {
+.table-wrap .table {
   width: 100%;
 }
-.perf-table td:first-child {
+.table-wrap td:first-child {
   overflow-wrap: anywhere;
 }
 .perf-limits {
@@ -6009,6 +6077,11 @@ button.progress-run-show:focus-visible {
   align-items: center;
   gap: 6px;
   margin-top: 8px;
+}
+/* The details' labels and why there is no agent to show: secondary, but readable at 4.5:1 or more (#231). */
+.progress-details dt,
+.progress-detail-why {
+  color: var(--fg-muted);
 }
 .progress-detail-why {
   flex-basis: 100%;

@@ -411,6 +411,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'transcript:tool': (p, id, itemId) => transcripts.tool(p, id, itemId),
     'transcript:image': (p, id, imageId) => transcripts.image(p, id, imageId),
     'transcript:search': (p, query, id) => transcripts.search(p, query, id),
+    'transcript:compactions': (p, id) => transcripts.compactions(p, id),
     'transcript:export': async (p, id, title) => {
       const safe = title.replace(/[<>:"/\\|?*\x00-\x1f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || id
       const r = await dialog.showSaveDialog(win(), {

@@ -1,4 +1,4 @@
-import type { AgentBranchStatus, AgentDef, AppConfig, AppSettings, KeybindingOverrides, FileLockMode, PageLayout, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderSettings, SessionLayout, SessionRecord, SessionStatus, WorkspaceConfig } from './types'
+import type { AgentBranchStatus, AgentDef, AppConfig, AppSettings, CompactionEvent, KeybindingOverrides, FileLockMode, PageLayout, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderSettings, SessionLayout, SessionRecord, SessionStatus, WorkspaceConfig } from './types'
 import { CLAUDE_CODE } from './claude'
 import { DEFAULT_COLUMN_COLORS } from './tasks'
 import { formatDateTime } from './dates'
@@ -603,6 +603,16 @@ export function cliRename(s: SessionNaming, projectName: string): string | null 
   if (!custom || custom === s.name || isAutoSessionName(custom, projectName)) return null
   if (isAutoSessionName(s.name, projectName)) return custom
   return s.titleAtRename !== undefined && custom !== s.titleAtRename ? custom : null
+}
+
+/**
+ * Whether one turn's output (thinking included) explains a compaction: at least 20K tokens, and at least half of the
+ * jump from what the context showed before that turn (its input) to where it was compacted. The context gauge showed the
+ * input, so without this the compaction looks early (#154).
+ */
+export function turnPushedCompaction(c: Pick<CompactionEvent, 'preTokens' | 'lastInputTokens' | 'lastOutputTokens'>): boolean {
+  const out = c.lastOutputTokens ?? 0
+  return out >= 20_000 && out * 2 >= c.preTokens - (c.lastInputTokens ?? c.preTokens)
 }
 
 /**

@@ -113,7 +113,8 @@ interface State {
   /** Projects sidebar collapsed to a rail of status dots. */
   sidebarCompact: boolean
   /** Set to select a session in its project's Sessions tab. */
-  sessionsJump: { project: string; id: string; nonce: number } | null
+  /** Open the Sessions tab on a session, and in it at its nth compaction (from 0, oldest first) when given. */
+  sessionsJump: { project: string; id: string; nonce: number; compaction?: number } | null
   /** A file to show in a project's Files tab (a terminal's file link): whose folder (`root`, a worktree agent's id or ''), the file and the line. */
   filesJump: { project: string; root: string; rel: string; line?: number; col?: number; nonce: number } | null
   /** Resizable pane sizes, saved with the window layout. */
@@ -197,7 +198,8 @@ interface State {
   /** The agent whose work "Hand Over to…" hands to another agent. */
   handOverFor: AgentRef | null
   /** Shows this agent's session in its project's Overview and scrolls to it (the footer's context count); `at` makes each click count. */
-  overviewJump: (AgentRef & { at: number }) | null
+  /** Open the Overview on an agent's session, at its compaction history (the footer's context) or its details (its cost). */
+  overviewJump: (AgentRef & { at: number; target?: 'history' | 'session' }) | null
   /** Opens Project Settings on this section (Settings → Workspace's Storage links); `at` makes each click count. */
   projectSettingsJump: { project: string; section: string; at: number } | null
   /** Per project: the agent that session commands (header buttons, shortcuts, Insert into Session) act on. */
@@ -580,9 +582,9 @@ export function openProjectSettings(path: string, section: string): void {
   setProjectTab(path, 'settings')
 }
 
-/** Opens the Sessions tab on one session. */
-export function openInSessionsTab(path: string, id: string): void {
-  set({ sessionsJump: { project: path, id, nonce: Date.now() } })
+/** Opens the Sessions tab on one session; with `compaction`, at that compaction's divider (its nth, from 0). */
+export function openInSessionsTab(path: string, id: string, compaction?: number): void {
+  set({ sessionsJump: { project: path, id, nonce: Date.now(), ...(compaction !== undefined ? { compaction } : {}) } })
   setProjectTab(path, 'sessions')
 }
 
@@ -633,8 +635,8 @@ export function setProjectTab(path: string, tab: ProjectTab): void {
 }
 
 /** Opens a project's Overview at one agent's session (picked there, and scrolled to). */
-export function showInOverview(path: string, agentId: string): void {
-  set((s) => ({ projectTabs: { ...s.projectTabs, [path]: 'overview' }, overviewJump: { project: path, agentId, at: Date.now() } }))
+export function showInOverview(path: string, agentId: string, target: 'history' | 'session' = 'history'): void {
+  set((s) => ({ projectTabs: { ...s.projectTabs, [path]: 'overview' }, overviewJump: { project: path, agentId, at: Date.now(), target } }))
 }
 
 export function applyLiveState(state: LiveSessionState): void {

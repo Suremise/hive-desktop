@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CardChip } from '../components/CardChip'
 import { KeybindingsEditor } from '../components/Keybindings'
-import type { GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
+import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
 import { unpricedModel, unpricedText } from '@shared/prices'
 import { formatDateTime } from '@shared/dates'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
-import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
-import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
+import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
+import { PROVIDERS, contextLines, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { effortText } from '@shared/models'
 import { NumberField } from '../components/NumberField'
@@ -19,12 +19,13 @@ import { call, errorMessage } from '../api'
 import { DocEditor } from '../components/DocEditor'
 import { DiffView } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
+import { DataTable, type DataColumn } from '../components/DataTable'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, statusText, StatusDot, Switch, Tooltip } from '../components/ui'
 import { languageFor } from '../monacoLang'
 import { useScopedLoad } from '../scopedLoad'
 import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
 import { RootSelector } from './FilesTab'
-import { agentProviderOf, confirm, notify, set, setActivity, showView, useDateStyle, useFocusedAgent, useStore } from '../store'
+import { agentProviderOf, confirm, notify, openInSessionsTab, set, setActivity, showView, useDateStyle, useFocusedAgent, useStore } from '../store'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
 import { useLiveUsage, useNow } from '../usage'
 
@@ -87,7 +88,7 @@ export function useSessions(project: ProjectInfo) {
 }
 
 
-function Card({ title, value, sub, tip, accent, children }: { title: string; value: React.ReactNode; sub?: React.ReactNode; tip?: string; accent?: boolean; children?: React.ReactNode }) {
+function Card({ title, value, sub, tip, accent, children }: { title: string; value: React.ReactNode; sub?: React.ReactNode; tip?: React.ReactNode; accent?: boolean; children?: React.ReactNode }) {
   return (
     <div className={cx('card', accent && 'accent')}>
       <h3>
@@ -296,6 +297,56 @@ export function RunningAgent({ project, a, label, onOpen }: { project: ProjectIn
   )
 }
 
+/** A compaction, with its place among the session's (oldest first), which opens it in the transcript. */
+type CompactionRow = CompactionEvent & { n: number }
+
+const COMPACTION_COLUMNS: DataColumn<CompactionRow>[] = [
+  { key: 'when', header: 'When', cell: (c) => (c.timestamp ? formatDateTime(c.timestamp) : '—'), sortValue: (c) => c.timestamp || null, descFirst: true, filter: { kind: 'text', value: (c) => (c.timestamp ? formatDateTime(c.timestamp) : '') } },
+  { key: 'trigger', header: 'Trigger', cell: (c) => <span className={cx('badge', c.trigger === 'auto' ? 'accent' : 'info')}>{c.trigger}</span>, sortValue: (c) => c.trigger, filter: { kind: 'choice', value: (c) => c.trigger } },
+  { key: 'before', header: 'Before', num: true, descFirst: true, cell: (c) => formatTokens(c.preTokens), sortValue: (c) => c.preTokens },
+  { key: 'after', header: 'After', num: true, descFirst: true, cell: (c) => formatTokens(c.postTokens), sortValue: (c) => c.postTokens },
+  { key: 'freed', header: 'Freed', num: true, descFirst: true, cell: (c) => formatTokens(Math.max(0, c.preTokens - c.postTokens)), sortValue: (c) => Math.max(0, c.preTokens - c.postTokens) },
+  { key: 'turn', header: 'Last turn', num: true, descFirst: true, cell: (c) => <LastTurn c={c} />, sortValue: (c) => c.lastOutputTokens ?? null }
+]
+
+/** What the last turn before a compaction added, said when it explains the compaction. */
+function LastTurn({ c }: { c: CompactionEvent }) {
+  if (c.lastOutputTokens === undefined) return <span className="faint">—</span>
+  const text = `+${formatTokens(c.lastOutputTokens)}`
+  if (!turnPushedCompaction(c)) return <span className="faint">{text}</span>
+  return (
+    <Tooltip content={`The last turn added ${formatTokens(c.lastOutputTokens)} of output (thinking included) to the ${formatTokens(c.lastInputTokens ?? 0)} the context showed before it, so it reached ${formatTokens(c.preTokens)} and was compacted.`}>
+      <span className="badge warn compaction-turn">
+        turn added {formatTokens(c.lastOutputTokens)} output
+      </span>
+    </Tooltip>
+  )
+}
+
+/**
+ * A session's compactions as a data table (newest first, filters, pages). A row opens that compaction in the Sessions
+ * tab's transcript, at its divider, when the transcript (or Hive's backup of it) is there to read.
+ */
+function CompactionHistory({ project, session, compactions }: { project: ProjectInfo; session: SessionListItem; compactions: CompactionEvent[] }) {
+  useDateStyle()
+  const rows = useMemo(() => compactions.map((c, n) => ({ ...c, n })), [compactions])
+  const readable = session.hasTranscript || session.hasBackup
+  return (
+    <DataTable
+      id="compactions"
+      className="compaction-history"
+      rows={rows}
+      columns={COMPACTION_COLUMNS}
+      rowKey={(c) => String(c.n)}
+      defaultSort={{ key: 'when', desc: true }}
+      defaultPageSize={10}
+      empty="No compactions yet."
+      onRowClick={readable ? (c) => openInSessionsTab(project.path, session.id, c.n) : undefined}
+      rowLabel={(c) => `Open the ${c.trigger} compaction of ${c.timestamp ? formatDateTime(c.timestamp) : 'unknown time'} in the transcript`}
+    />
+  )
+}
+
 /** One agent's running session, else its most recent one, in detail: the agent picked here, else the focused one. */
 function SessionDetails({ project, items }: { project: ProjectInfo; items: SessionListItem[] }) {
   const settings = useStore((s) => s.settings)
@@ -311,7 +362,9 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
     if (!jump || jump.project !== project.path) return
     setPickedId(jump.agentId)
     set({ overviewJump: null })
-    requestAnimationFrame(() => head.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+    // The footer's context: at its compaction history when it has one, else its details; its cost: at its details.
+    const to = jump.target === 'session' ? null : document.getElementById('compaction-history')
+    setTimeout(() => (to ?? head.current)?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60)
   }, [jump, project.path])
   const liveState = agent ? agent.live : project.live
   const current = useMemo(() => {
@@ -362,8 +415,8 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
                 accent
                 title="Context"
                 value={formatTokens(u.contextTokens)}
-                sub={`${formatNumber(u.contextTokens)} tokens in the last request`}
-                tip="How many tokens the conversation currently occupies."
+                sub={u.contextInputTokens !== undefined && u.lastOutputTokens ? `${formatTokens(u.contextInputTokens)} input + ${formatTokens(u.lastOutputTokens)} output of the last turn` : `${formatNumber(u.contextTokens)} tokens in the last request`}
+                tip={<span style={{ whiteSpace: 'pre-line' }}>{`How many tokens the conversation occupies now: the last request's input and its output (thinking included), which stays in the context.\n${contextLines(u).slice(1).join('\n')}`.trim()}</span>}
               >
                 {u.contextWindow ? (
                   <div className="meter">
@@ -434,37 +487,12 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
                 )}
               </tbody>
             </table>
-            {u.compactions.length > 0 && (
+            {u.compactions.length > 0 && current && (
               <>
-                <h2 className="section">
-                  Compaction history <span className="muted" style={{ fontWeight: 400 }}>— newest first</span>
+                <h2 className="section" id="compaction-history">
+                  Compaction history
                 </h2>
-                <div className="compaction-history">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>When</th>
-                        <th>Trigger</th>
-                        <th className="num">Before</th>
-                        <th className="num">After</th>
-                        <th className="num">Freed</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[...u.compactions].reverse().map((c, i) => (
-                        <tr key={i}>
-                          <td>{c.timestamp ? formatDateTime(c.timestamp) : '—'}</td>
-                          <td>
-                            <span className={cx('badge', c.trigger === 'auto' ? 'accent' : 'info')}>{c.trigger}</span>
-                          </td>
-                          <td className="num">{formatTokens(c.preTokens)}</td>
-                          <td className="num">{formatTokens(c.postTokens)}</td>
-                          <td className="num">{formatTokens(Math.max(0, c.preTokens - c.postTokens))}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <CompactionHistory project={project} session={current} compactions={u.compactions} />
               </>
             )}
           </>

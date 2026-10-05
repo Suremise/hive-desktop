@@ -78,6 +78,7 @@ export const CODEX_DESCRIPTOR: ProviderDescriptor = {
     reportsCost: false,
     compactFocus: false,
     contextLimit: false,
+    autoCompactReserve: null,
     // A pasted image path becomes [Image #n] (checked with Codex 0.159).
     imagePaste: true,
     // Codex rejects permissionDecision "ask" (and then runs the tool), so Hive asks the user itself.
