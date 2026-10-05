@@ -5,6 +5,9 @@
 ### Hive Assistant
 - **The Assistant's panel can go on the left.** If Windows notifications or other apps cover the right of the screen, **View → Move Assistant Panel to the Left** (also in the command palette and the panel's ⋯ menu) or **Settings → Assistant → Panel side** puts it between the project list and your work. It folds and resizes on that side, and the choice is kept for every workspace and after a restart.
 
+### Skills
+- **A project's Skills tab shows one provider at a time.** Pick Claude Code or Codex from a dropdown (it starts on the project's default provider); its skills sit folded under the Hive skills, and Hive remembers, for each project, the provider you picked and what you left open. The list is much shorter.
+
 ### Hive
 - **Move any dialog out of the way.** Like an open card, every dialog (Add Agent, Agent Settings, Merge, questions…) can now be dragged by its header to see what's behind it; it stays inside the window, Escape while dragging puts it back, and it opens in the middle again next time. A question over a dialog moves on its own, and Escape now closes only the question. The image viewers stay put.
 

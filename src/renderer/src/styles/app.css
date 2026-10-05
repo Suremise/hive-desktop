@@ -564,6 +564,24 @@ kbd {
   font-weight: 600;
   color: var(--fg-strong);
 }
+/* The project Skills tab (#118): the Hive group folds; one provider's skills, picked from a dropdown. */
+.skill-group-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+.skill-group-toggle:hover {
+  color: var(--fg);
+}
+.skill-group-toggle .count {
+  font-weight: normal;
+  color: var(--fg-muted);
+}
+.skill-provider-pick {
+  padding: 10px 8px 2px 14px;
+}
+.skill-provider-pick .select {
+  width: 100%;
+}
 .skill-group {
   display: flex;
   align-items: center;

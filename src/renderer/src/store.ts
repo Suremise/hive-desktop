@@ -119,6 +119,10 @@ interface State {
   filesJump: { project: string; root: string; rel: string; line?: number; col?: number; nonce: number } | null
   /** Resizable pane sizes, saved with the window layout. */
   panes: Record<string, number>
+  /** The provider each project's Skills tab last showed, by project path in lower case (#118; saved in ui). */
+  skillsProvider: Record<string, string>
+  /** Each project's Skills tab groups, open or folded as last left (#118; saved in ui). */
+  skillsFold: Record<string, { hive?: boolean; provider?: boolean }>
   selectedProject: string | null
   projectTabs: Record<string, ProjectTab>
   selectedNote: string | null
@@ -273,6 +277,8 @@ export const useStore = create<State>(() => ({
   sessionsJump: null,
   filesJump: null,
   panes: {},
+  skillsProvider: {},
+  skillsFold: {},
   selectedProject: null,
   projectTabs: {},
   selectedNote: null,

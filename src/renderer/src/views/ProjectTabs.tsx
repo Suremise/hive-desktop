@@ -6,7 +6,7 @@ import { unpricedModel, unpricedText } from '@shared/prices'
 import { formatDateTime } from '@shared/dates'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
 import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
-import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
+import { PROVIDERS, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { effortText } from '@shared/models'
 import { NumberField } from '../components/NumberField'
@@ -24,7 +24,7 @@ import { languageFor } from '../monacoLang'
 import { useScopedLoad } from '../scopedLoad'
 import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
 import { RootSelector } from './FilesTab'
-import { agentProviderOf, confirm, notify, set, setActivity, showView, useDateStyle, useFocusedAgent, useStore } from '../store'
+import { agentProviderOf, confirm, get, notify, set, setActivity, showView, useDateStyle, useFocusedAgent, useStore } from '../store'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
 import { useLiveUsage, useNow } from '../usage'
 
@@ -829,6 +829,29 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
 
   const providers = PROVIDERS.filter((p) => isProviderEnabled(settings, p.id))
   const ids = providers.map((p) => p.id)
+  // One provider's skills at a time (#118): the one last shown for this project, else the project's default provider,
+  // else the first turned on.
+  const key = project.path.toLowerCase()
+  const remembered = useStore((s) => s.skillsProvider[key])
+  const fallback = projectDefaultProvider(project.config, settings)
+  const shown = providers.find((p) => p.id === remembered) ?? providers.find((p) => p.id === fallback) ?? providers[0]
+  /** A per-project view preference, kept for at most 200 projects (the oldest go), in the store and saved in ui. */
+  const remember = <K extends 'skillsProvider' | 'skillsFold'>(pref: K, value: ReturnType<typeof get>[K][string]): void => {
+    const next = { ...get()[pref] } as Record<string, unknown>
+    delete next[key]
+    next[key] = value
+    const kept = Object.fromEntries(Object.entries(next).slice(-200))
+    set({ [pref]: kept } as Partial<ReturnType<typeof get>>)
+    void call('ui:set', { [pref]: kept }).catch(() => undefined)
+  }
+  const showProvider = (id: string): void => remember('skillsProvider', id)
+  // Hive skills (the workspace's, the same in every project) start open at the top; the provider's skills folded under
+  // the dropdown. Opening or folding either is remembered for the project (Darren, 5 Oct).
+  const fold = useStore((s) => s.skillsFold[key])
+  const hiveOpen = fold?.hive ?? true
+  const providerOpen = fold?.provider ?? false
+  const setFold = (patch: { hive?: boolean; provider?: boolean }): void => remember('skillsFold', { hive: hiveOpen, provider: providerOpen, ...patch })
+  const setHiveOpen = (open: boolean): void => setFold({ hive: open })
   const all = skills ?? []
   // This project's agents get the Hive skills for them; those for the Assistant alone are left out, and counted.
   const hive = all.filter((s) => s.level === 'hive' && s.audience !== 'assistant')
@@ -868,30 +891,49 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
               <Icon name="loading" spin /> Loading…
             </div>
           )}
-          {skills && group('Hive', SKILL_LEVEL_TIP.hive, hive, undefined, 'No Hive skills in this workspace.')}
-          {hive.map((sk) =>
-            row(
-              sk,
-              <IconButton icon="go-to-file" title="Edit in the workspace's Skills view (Hive skills are shared by every project)" onClick={() => editInWorkspace(sk)} />
-            )
+          {skills && (
+            <div className="skill-group skill-group-toggle" role="button" tabIndex={0} aria-expanded={hiveOpen} onClick={() => setHiveOpen(!hiveOpen)} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setHiveOpen(!hiveOpen))}>
+              <Icon name={hiveOpen ? 'chevron-down' : 'chevron-right'} /> Hive <span className="count">{hive.length}</span> <InfoTip text={SKILL_LEVEL_TIP.hive} />
+            </div>
           )}
-          {skills && assistantOnly > 0 && (
+          {skills && hiveOpen && hive.length === 0 && <div className="pane-empty">No Hive skills in this workspace.</div>}
+          {hiveOpen &&
+            hive.map((sk) =>
+              row(
+                sk,
+                <IconButton icon="go-to-file" title="Edit in the workspace's Skills view (Hive skills are shared by every project)" onClick={() => editInWorkspace(sk)} />
+              )
+            )}
+          {skills && hiveOpen && assistantOnly > 0 && (
             <div className="pane-empty assistant-only-note">
               {assistantOnly === 1 ? "1 Hive skill is for the Hive Assistant only, so it isn't listed: this project's agents don't get it." : `${assistantOnly} Hive skills are for the Hive Assistant only, so they aren't listed: this project's agents don't get them.`}{' '}
               <a onClick={() => showView('skills')}>See them in the Skills view</a>
             </div>
           )}
+          {skills && providers.length > 0 && (
+            <div className="skill-provider-pick">
+              <select className="select" aria-label="Show the skills of" value={shown?.id ?? ''} onChange={(e) => showProvider(e.target.value)}>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({all.filter((sk) => sk.provider === p.id).length})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {skills &&
-            providers.map((p) => {
+            providers.filter((p) => p.id === shown?.id).map((p) => {
             const mine = all.filter((sk) => sk.provider === p.id)
             const local = mine.filter((sk) => sk.level === 'local')
             const user = mine.filter((sk) => sk.level === 'machine')
             const plugin = mine.filter((sk) => sk.level === 'plugin')
             return (
               <div key={p.id} className="skill-provider">
-                <div className="skill-provider-title">
-                  <ProviderIcon provider={p.id} /> {p.name}
+                <div className="skill-group skill-group-toggle skill-provider-toggle" role="button" tabIndex={0} aria-expanded={providerOpen} onClick={() => setFold({ provider: !providerOpen })} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setFold({ provider: !providerOpen }))}>
+                  <Icon name={providerOpen ? 'chevron-down' : 'chevron-right'} /> <ProviderIcon provider={p.id} /> {p.name} skills <span className="count">{mine.length}</span>
                 </div>
+                {providerOpen && (
+                <>
                 {group(
                   'Local (User Managed)',
                   SKILL_LEVEL_TIP.local,
@@ -907,6 +949,8 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
                 {user.map((sk) => row(sk))}
                 {plugin.length > 0 && group('Plugins', SKILL_LEVEL_TIP.plugin, plugin)}
                 {plugin.map((sk) => row(sk))}
+                </>
+                )}
               </div>
             )
           })}

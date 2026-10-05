@@ -356,7 +356,17 @@ export interface AppConfig {
   /** Always on Top: the workspaces (lowercased paths) whose window was left pinned. This machine's, never in .hive. */
   alwaysOnTop?: Record<string, true>
   /** `panes`: resizable pane sizes by key (pixels, or a fraction for split views). `tips`: what the tips know (shared/tips.ts). */
-  ui: { sidebarWidth: number; sidebarVisible: boolean; sidebarCompact?: boolean; panes?: Record<string, number>; tips?: TipsState }
+  ui: {
+    sidebarWidth: number
+    sidebarVisible: boolean
+    sidebarCompact?: boolean
+    panes?: Record<string, number>
+    tips?: TipsState
+    /** The provider each project's Skills tab last showed, by project path in lower case (#118). */
+    skillsProvider?: Record<string, ProviderId>
+    /** Each project's Skills tab groups as the user last left them open or folded, by project path in lower case (#118). */
+    skillsFold?: Record<string, { hive?: boolean; provider?: boolean }>
+  }
   /** Per provider: the model last seen in a session started without a model choice (the CLI's own default). */
   observedDefaultModel: Record<ProviderId, string>
   /**
