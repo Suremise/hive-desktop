@@ -16,7 +16,7 @@ import { createLogger, userText } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, toSpawnable } from '../common'
 import type { BackgroundTaskEvent, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
-import { codexBackgroundTasks } from './background'
+import { codexBackgroundMemo, codexBackgroundTasks, type CodexBackgroundMemo } from './background'
 import { CodexConversationParser, CodexUsageParser, codexImageData, parseRollout, patchPaths, rolloutDetails } from './rollout'
 
 const log = createLogger('codex')
@@ -762,8 +762,8 @@ export class CodexAdapter implements ProviderAdapter {
     return rolloutDetails(appended)
   }
 
-  backgroundTasks(appended: string): BackgroundTaskEvent[] {
-    return codexBackgroundTasks(appended)
+  backgroundTasks(appended: string, memo: Record<string, unknown>): BackgroundTaskEvent[] {
+    return codexBackgroundTasks(appended, (memo.codex ??= codexBackgroundMemo()) as CodexBackgroundMemo)
   }
 
   /**
