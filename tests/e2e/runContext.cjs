@@ -9,6 +9,11 @@
 //   ANTHROPIC_* (the real tier uses the CLIs' own sign-in). Test settings a person may set for a run are passed on by
 //   name (PASS_ENV); a new one is added there, with what it is for. tests/e2esuites.test.ts fails for a suite or the
 //   scenario harness that builds a child's environment from process.env.
+// - The runners' own tools (#208): the runners, lib.cjs and the scenario harness run in the shell they were started
+//   from, so the children they start themselves (the build, git, where.exe, taskkill) get baseEnv() too, never what a
+//   call without env inherits (GIT_DIR and GIT_WORK_TREE would point their git at another repository, NODE_OPTIONS
+//   reach the build). The unit test fails for a child_process call there without env. Not a child, the runners'
+//   progress reporting (tests/progressReport.mts) keeps reading the shell's Hive variables: it reports to that Hive.
 // - Folders: the work folder (WORK: the lane's, which the runner gives each suite as HIVE_E2E_DIR) and the CLI test
 //   homes (CODEX_HOME, CLAUDE_TEST_HOME).
 // - Ports and lane folders: lanes.mjs (each runner claims a lane); each suite's port is HIVE_E2E_PORT, from its runner.

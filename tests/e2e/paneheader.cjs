@@ -1,6 +1,8 @@
 // An agent pane's header at every width: its buttons labelled, icons or only in ⋯ (Compact, Stop and Merge… are always
 // icons), each fully inside its own box and the header, apart from each other, whatever the Merge… count (none, •, 1, 12, 1234), the agent's name, branch and
-// card, running or stopped, in one or two columns, at 100% and 125% zoom. The mode follows the width both ways:
+// card, running or stopped, in one or two columns, at 100% and 125% zoom. Each pane is sized to both boundaries and a
+// pixel under them in turn, the running one and the stopped one beside it (a pixel narrower in two columns), with every
+// count, at both zooms, and pictured in both themes (#205). The mode follows the width both ways:
 // shrinking and growing, the sidebar, the layout, the count changing, and a header hidden while the width changed.
 // Compact's spinner turns for the whole compaction (after the dialog closes) and stops when it finishes, fails or is
 // cancelled, with no second compaction meanwhile. The agents run the fake Claude Code (fake-claude/). Dev build,
@@ -145,27 +147,31 @@ function commits(wt, n) {
       return { x: Math.min(...r.map((b) => b.left)), y: Math.min(...r.map((b) => b.top)), width: Math.max(...r.map((b) => b.right)) - Math.min(...r.map((b) => b.left)), height: 34 }
     })
     for (const k of Object.keys(box)) box[k] *= zoom
+    // The mouse stays where the last click was, and resizing moves controls under it: their tooltip would cover the
+    // headers. Into the panes below them, and wait for it to go.
+    await page.mouse.move(box.x + 20 * zoom, box.y + 200 * zoom)
+    await lib.sleep(400)
     await page.screenshot({ path: path.join(lib.WORK, file), clip: box })
   }
   const expected = (w) => (w >= LABELS_FROM ? 'labels' : w >= ICONS_FROM ? 'icons' : 'menu')
   let zoom = 1
-  /** Sizes the page so the first header is `target` CSS pixels wide. */
-  const widthTo = async (target) => {
+  /** Sizes the page so agent a's header (the running one's, unless said) is `target` CSS pixels wide. */
+  const widthTo = async (target, a = long) => {
     for (let i = 0; i < 8; i++) {
-      const w = (await inspect(long)).width
+      const w = (await inspect(a)).width
       if (w === target) return true
       viewport = Math.max(200, Math.round(viewport + (target - w) * zoom * 2))
       await page.setViewportSize({ width: viewport, height: HEIGHT })
       await lib.sleep(120)
     }
     for (let i = 0; i < 40; i++) {
-      const w = (await inspect(long)).width
+      const w = (await inspect(a)).width
       if (w === target) return true
       viewport += w < target ? 1 : -1
       await page.setViewportSize({ width: viewport, height: HEIGHT })
       await lib.sleep(60)
     }
-    return (await inspect(long)).width === target
+    return (await inspect(a)).width === target
   }
   let shownCount = ''
   /** Both headers at their mode for their width, showing the count (unless only in ⋯), with nothing out of place. */
@@ -201,15 +207,34 @@ function commits(wt, n) {
     return !!told
   }
 
-  // Every count at both boundaries and just under them.
-  for (const n of [0, '•', 1, 12, 1234]) {
-    check(`the Merge… count shows ${n || 'nothing'}`, await setCount(n))
-    for (const w of [LABELS_FROM, LABELS_FROM - 1, ICONS_FROM, ICONS_FROM - 1]) {
-      check(`header sized to ${w}px`, await widthTo(w))
-      await fits(`count ${n || 'none'}, ${w}px`)
-      if (n === 1234 && w !== ICONS_FROM) await shot(`paneheader-${w}-1234.png`)
+  /** The theme, for the pictures (the layout checks don't depend on it). */
+  const theme = async (t) => {
+    await inv('settings:update', { appearance: { theme: t } })
+    await lib.sleep(300)
+  }
+  /**
+   * Every count with each pane at both boundaries and a pixel under them: the running pane, then the stopped one (in two
+   * columns it is a pixel narrower than the running one, so sizing the running pane never puts it exactly on a boundary).
+   * fits() checks both headers each time. With the widest count, both themes are pictured at each width.
+   */
+  const atBoundaries = async (label, prefix) => {
+    for (const n of [0, '•', 1, 12, 1234]) {
+      check(`${label}the Merge… count shows ${n || 'nothing'}`, await setCount(n))
+      for (const [a, role] of [[long, 'running'], [other, 'stopped']]) {
+        for (const w of [LABELS_FROM, LABELS_FROM - 1, ICONS_FROM, ICONS_FROM - 1]) {
+          check(`${label}${role} pane's header sized to ${w}px`, await widthTo(w, a))
+          await fits(`${label}count ${n || 'none'}, ${role} pane at ${w}px`)
+          if (n !== 1234) continue
+          await shot(`${prefix}-${role}-${w}-1234.png`)
+          await theme('light')
+          await fits(`${label}light theme, count ${n}, ${role} pane at ${w}px`)
+          await shot(`${prefix}-${role}-${w}-1234-light.png`)
+          await theme('dark')
+        }
+      }
     }
   }
+  await atBoundaries('', 'paneheader')
   await widthTo(ICONS_FROM)
   await shot('paneheader-icons-1234.png')
   await widthTo(900)
@@ -258,15 +283,13 @@ function commits(wt, n) {
   await until(async () => (await page.locator('.pane-header-bar').count()) === 2, 5000)
   await fits('two columns again')
 
-  // Display scaling: the same boundaries in CSS pixels at 125%, with the widest count.
-  await setCount(1234)
+  // Display scaling: the same boundaries in CSS pixels at 125%, for each pane and every count.
   zoom = 1.25
   await app.evaluate(({ BrowserWindow }, z) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(z), zoom)
   await lib.sleep(400)
-  for (const w of [LABELS_FROM, ICONS_FROM, 900]) {
-    check(`125%: header sized to ${w}px`, await widthTo(w))
-    await fits(`125%, ${w}px`)
-  }
+  await atBoundaries('125%: ', 'paneheader-125')
+  check('125%: header sized to 900px', await widthTo(900))
+  await fits('125%, 900px')
   await shot('paneheader-125.png')
   zoom = 1
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))

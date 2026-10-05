@@ -9,11 +9,15 @@
 // lock, looks again, builds once and stamps it; the others wait for the lock, look again, and find it fresh. A runner
 // that only checks (no --build) waits while another builds, so it never looks at half a build. Worktrees don't wait
 // for each other. A lock whose runner is gone (crashed, killed) is broken by the next one.
+import { spawnSync } from 'child_process'
 import { createHash } from 'crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
+import { createRequire } from 'module'
 import { join, relative, resolve, sep } from 'path'
 import { processAlive } from './logs.mjs'
+
+const runContext = createRequire(import.meta.url)('./runContext.cjs')
 
 /** What the build reads: its source, bundled resources and docs, the root files the app imports, and its config. */
 export const BUILD_INPUTS = ['src', 'resources', 'docs', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'electron.vite.config.ts', 'package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.node.json', 'tsconfig.web.json']
@@ -187,4 +191,14 @@ export function ensureBuild({ root, build, runBuild, lock: lockOpts = {} }) {
     process.off('exit', lock.release)
     lock.release()
   }
+}
+
+/**
+ * Builds the dev build in root (both runners' runBuild): in the allowlisted environment (runContext.baseEnv), so
+ * nothing of the shell the runner was started from (NODE_OPTIONS, npm_config_*, GIT_*) reaches the build. Throws, with
+ * the exit code as status, when it fails. command: for tests.
+ */
+export function devBuild(root, { command = 'npx electron-vite build', parent = process.env } = {}) {
+  const r = spawnSync(command, { cwd: root, stdio: 'inherit', shell: true, env: runContext.baseEnv(parent) })
+  if (r.status !== 0) throw Object.assign(new Error(`The build failed (exit ${r.status})`), { status: r.status ?? 1 })
 }
