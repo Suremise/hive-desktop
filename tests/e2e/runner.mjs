@@ -3,20 +3,20 @@
 // (recordStatus). run.mjs does the running.
 
 const VALUE_FLAGS = ['--jobs', '--affected', '--repeat']
-const PLAIN_FLAGS = ['--all', '--real', '--only-real', '--record', '--fingerprint', '--build', '--packaged', '--no-progress']
+const PLAIN_FLAGS = ['--all', '--real', '--only-real', '--record', '--fingerprint', '--build', '--packaged', '--no-progress', '--no-wait']
 
 /** Whether a suite starts a real CLI (Claude Code, or Codex in its test home): the real tier, opt-in with --real. */
 export const isRealCli = (s) => (s.needs ?? []).some((n) => n === 'claude' || n === 'codex')
 
 /**
- * The command line: { jobs, all, affected (a base, or null), named, tier, record, fingerprint, build, packaged } or
+ * The command line: { jobs, all, affected (a base, or null), named, tier, record, fingerprint, build, packaged, noWait } or
  * { error }. tier: 'fake' (default: no real-CLI suite unless named or, with --affected, needed), 'real' (--real: the
  * real tier too) or 'only' (--only-real). A flag's value is taken only when it really is one: --jobs takes a number;
  * --affected takes a base only if the next word is neither a flag nor a suite name (so `--affected board` means board,
  * plus what changed since main). Every suite name given is kept.
  */
 export function parseArgs(argv, suiteNames) {
-  const o = { jobs: 4, repeat: 1, all: false, affected: null, named: [], tier: 'fake', record: false, fingerprint: false, build: false, packaged: false }
+  const o = { jobs: 4, repeat: 1, all: false, affected: null, named: [], tier: 'fake', record: false, fingerprint: false, build: false, packaged: false, noWait: false }
   const tiers = new Set()
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -44,6 +44,7 @@ export function parseArgs(argv, suiteNames) {
       if (a === '--fingerprint') o.fingerprint = true
       if (a === '--build') o.build = true
       if (a === '--packaged') o.packaged = true
+      if (a === '--no-wait') o.noWait = true
     } else {
       o.named.push(a)
     }

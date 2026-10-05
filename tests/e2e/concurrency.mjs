@@ -1,4 +1,5 @@
-// Runners at the same time share nothing (#203): npm run e2e:concurrency [-- --repeat N] [--keep]
+// Runners at the same time share nothing (#203), and heavy runs queue (#204):
+//   npm run e2e:concurrency [-- --repeat N] [--keep] [--heavy]
 //
 // Starts four test runs at once from two worktrees, with both dev builds made stale first: in this worktree an e2e
 // runner and a scenario run, and in a second worktree (a git worktree of this one's HEAD with its uncommitted changes,
@@ -7,8 +8,16 @@
 // token…), the other with a plain one. Checked, each round: every run passes; each holds a lane of its own (its own
 // ports and folders) and its own logs folder; each worktree's build is made once (the build lock), stamped as its
 // source; and no build lock is left held. --repeat N runs N rounds, stopping at the first that fails.
+//
+// --heavy checks the machine-wide limit on heavy runs instead (slots.mjs), in a pool of slots of its own (so real runs
+// on the machine neither wait for it nor make it wait): three heavy runs (a repeat) started at once from three
+// worktrees with two slots. Checked: two run and the third waits, saying so (and in the Progress panel, through a
+// stand-in for Hive's Agent API), then starts when a slot is let go; no more than two hold slots at any moment; all
+// pass; a run with --no-wait while the slots are taken fails at once, saying who holds them; and the slot of a run that
+// is killed is taken by the next run without waiting.
 import { execFileSync, spawn, spawnSync } from 'child_process'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'fs'
+import http from 'http'
 import { createRequire } from 'module'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
@@ -21,6 +30,7 @@ const runContext = createRequire(import.meta.url)('./runContext.cjs')
 const argv = process.argv.slice(2)
 const repeat = Math.max(1, Number(argv[argv.indexOf('--repeat') + 1]) || 1)
 const keep = argv.includes('--keep')
+const heavy = argv.includes('--heavy')
 /** The small fake set each e2e runner runs, and the scenario. */
 const SUITES = ['isolation', 'about', 'bridgereport', 'busy']
 const SCENARIO = 'work-on-card'
@@ -46,9 +56,9 @@ const check = (name, ok, extra = '') => {
 }
 const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
 
-/** The second worktree: this one's HEAD and uncommitted changes, sharing its node_modules (a junction). */
-function secondWorktree() {
-  const wt = join(runContext.TEST_ROOT, 'concurrency', 'worktree')
+/** Another worktree (name): this one's HEAD and uncommitted changes, sharing its node_modules (a junction). */
+function otherWorktree(name = 'worktree') {
+  const wt = join(runContext.TEST_ROOT, 'concurrency', name)
   removeWorktree(wt)
   mkdirSync(dirname(wt), { recursive: true })
   git(root, 'worktree', 'add', '--detach', '--force', wt, 'HEAD')
@@ -72,16 +82,24 @@ function removeWorktree(wt) {
   spawnSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore' })
 }
 
-/** Starts a run: { name, cwd, args, polluted } → { name, cwd, code, out }. */
-function start({ name, cwd, script, args, polluted }) {
-  const env = polluted ? { ...runContext.childEnv(), ...AGENT_SHELL } : runContext.childEnv()
+/** Starts a run: { name, cwd, args, polluted, env } → { name, cwd, code, out, ms }; started(child) when it starts. */
+function start({ name, cwd, script, args, polluted, env: extra = {}, started = () => {} }) {
+  const env = { ...runContext.childEnv(), ...(polluted ? AGENT_SHELL : {}), ...extra }
+  const t0 = Date.now()
   return new Promise((resolve) => {
     const p = spawn(process.execPath, [join(cwd, script), ...args], { cwd, env })
+    started(p)
     let out = ''
     p.stdout.on('data', (d) => (out += d))
     p.stderr.on('data', (d) => (out += d))
-    p.on('close', (code) => resolve({ name, cwd, code, out, polluted }))
+    p.on('close', (code) => resolve({ name, cwd, code, out, polluted, ms: Date.now() - t0 }))
   })
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+/** Waits until fn() is true, checking every 100 ms, up to ms; returns whether it was. */
+async function until(fn, ms) {
+  for (const t = Date.now(); Date.now() - t < ms; await sleep(100)) if (fn()) return true
+  return false
 }
 
 async function round(k, wt) {
@@ -120,22 +138,85 @@ async function round(k, wt) {
   }
 }
 
-let wt = null
+/** The heavy-run queue (--heavy): see the top of this file. */
+async function heavyRound(k, worktrees) {
+  console.log(`\n--- Round ${k} of ${repeat} (heavy runs)`)
+  const pool = join(runContext.TEST_ROOT, 'concurrency', 'heavy-slots')
+  rmSync(pool, { recursive: true, force: true })
+  // A stand-in for Hive's Agent API: the runs report their progress to it.
+  const reports = []
+  const api = http.createServer((req, res) => {
+    let body = ''
+    req.on('data', (d) => (body += d))
+    req.on('end', () => {
+      reports.push({ method: req.method, url: req.url, body: body ? JSON.parse(body) : {} })
+      res.setHeader('Content-Type', 'application/json')
+      res.end(req.method === 'POST' && req.url === '/v1/progress' ? JSON.stringify({ id: `r${reports.length}` }) : '{}')
+    })
+  })
+  await new Promise((r) => api.listen(0, '127.0.0.1', r))
+  const env = { HIVE_TEST_HEAVY_DIR: pool, HIVE_TEST_HEAVY_SLOTS: '2', HIVE_API_URL: `http://127.0.0.1:${api.address().port}`, HIVE_API_TOKEN: 'agent-token' }
+  const slots = () => (existsSync(pool) ? readdirSync(pool).filter((f) => /^slot-\d+\.json$/.test(f)).length : 0)
+  const waiting = () => (existsSync(pool) ? readdirSync(pool).filter((f) => f.startsWith('wait-')).length : 0)
+  // Heavy by repeating: two quick suites, twice.
+  const args = ['isolation', 'about', '--repeat', '2', '--build']
+  let most = 0
+  const watch = setInterval(() => (most = Math.max(most, slots())), 50)
+  try {
+    const runs = Promise.all(worktrees.map((w, i) => start({ name: `worktree ${i + 1}, heavy e2e`, cwd: w, script: 'tests/e2e/run.mjs', args, env })))
+    // While two hold the slots and one waits: a run with --no-wait fails at once.
+    const queued = await until(() => slots() === 2 && waiting() === 1, 120_000)
+    check('two heavy runs hold the slots and the third waits', queued, `slots ${slots()}, waiting ${waiting()}`)
+    const refused = await start({ name: '--no-wait', cwd: root, script: 'tests/e2e/run.mjs', args: [...args.slice(0, -1), '--no-wait'], env })
+    check('a run with --no-wait fails at once, saying who holds the slots', refused.code === 2 && /No test slot free \(--no-wait\).*held by .*e2e: 2 suites × 2/.test(refused.out) && refused.ms < 15_000, `exit ${refused.code} in ${refused.ms} ms: ${refused.out.trim().split('\n').at(-1)}`)
+    const done = await runs
+    for (const r of done) check(`${r.name}: passes`, r.code === 0, `exit ${r.code}\n${r.out.split(/\r?\n/).filter((l) => /FAIL|ERROR|Error|failed/.test(l)).slice(0, 12).join('\n')}`)
+    check('never more than two at once', most === 2, `${most} at once`)
+    const waited = done.filter((r) => /^Waiting for a test slot \(2 heavy runs at once/m.test(r.out))
+    check('one run waited, saying who held the slots, and started once one was let go', waited.length === 1 && /held by .*e2e: 2 suites × 2 in /.test(waited[0].out) && /^Got a test slot after \d+ s/m.test(waited[0].out), done.map((r) => r.out.split('\n').filter((l) => /test slot/.test(l)).join(' / ')).join(' | '))
+    // The stand-in gives each run the id r<n>, n its place among the requests.
+    const row = reports.findIndex((x) => x.method === 'POST' && x.url === '/v1/progress' && x.body.title === 'e2e: waiting for a test slot')
+    const id = `r${row + 1}`
+    const named = reports.some((x) => x.method === 'PATCH' && x.url === `/v1/progress/${id}` && /waiting for a test slot: .*e2e: 2 suites × 2/.test(x.body.stepName ?? ''))
+    const ended = reports.some((x) => x.url === `/v1/progress/${id}/finish` && x.body.ok === true && /got a test slot after/.test(x.body.summary ?? ''))
+    check('…and showed in the Progress panel as waiting, naming who held the slots, until it got one', row >= 0 && named && ended, JSON.stringify(reports.filter((x) => /waiting|slot/.test(JSON.stringify(x.body))).slice(0, 4)))
+    check('every slot is let go at the end', slots() === 0 && waiting() === 0, readdirSync(pool).join(', '))
+
+    // A run killed while it holds a slot: with one slot, the next run takes it without waiting.
+    let child
+    const killed = start({ name: 'killed', cwd: root, script: 'tests/e2e/run.mjs', args, env: { ...env, HIVE_TEST_HEAVY_SLOTS: '1' }, started: (p) => (child = p) })
+    const held = await until(() => slots() === 1, 60_000)
+    spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+    await killed
+    const next = await start({ name: 'after a killed run', cwd: root, script: 'tests/e2e/run.mjs', args, env: { ...env, HIVE_TEST_HEAVY_SLOTS: '1' } })
+    check("a killed run's slot is taken by the next run without waiting", held && next.code === 0 && !/Waiting for a test slot/.test(next.out), `held ${held}, exit ${next.code}`)
+  } finally {
+    clearInterval(watch)
+    api.close()
+  }
+}
+
+const made = []
 try {
-  wt = secondWorktree()
-  console.log(`Second worktree: ${wt}\nBuild locks: ${BUILD_LOCKS}`)
+  if (heavy) {
+    made.push(otherWorktree('worktree'), otherWorktree('worktree-3'))
+    console.log(`Other worktrees: ${made.join(', ')}`)
+  } else {
+    made.push(otherWorktree())
+    console.log(`Second worktree: ${made[0]}\nBuild locks: ${BUILD_LOCKS}`)
+  }
   for (let k = 1; k <= repeat; k++) {
-    await round(k, wt)
+    if (heavy) await heavyRound(k, [root, ...made])
+    else await round(k, made[0])
     if (failed) {
-      if (k < repeat) console.log(`
-Round ${k} failed: stopping here.`)
+      if (k < repeat) console.log(`\nRound ${k} failed: stopping here.`)
       break
     }
   }
 } catch (e) {
   check('the check ran', false, e.stack ?? String(e))
 } finally {
-  if (wt && !keep) removeWorktree(wt)
+  if (!keep) for (const w of made) removeWorktree(w)
 }
 check("this worktree's node_modules is untouched", existsSync(join(root, 'node_modules', 'electron')) && readdirSync(join(root, 'node_modules')).length > 50)
 console.log(failed ? `\n${failed} failed` : `\nAll passed (${repeat} round${repeat === 1 ? '' : 's'}).`)

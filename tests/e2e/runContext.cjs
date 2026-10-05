@@ -13,6 +13,7 @@
 //   homes (CODEX_HOME, CLAUDE_TEST_HOME).
 // - Ports and lane folders: lanes.mjs (each runner claims a lane); each suite's port is HIVE_E2E_PORT, from its runner.
 // - The build: build.mjs, under a lock per worktree, so runners started together build it once.
+// - Load: slots.mjs, at most a few heavy runs at once on the machine (HEAVY_DIR); the others queue.
 const os = require('os')
 const path = require('path')
 
@@ -21,6 +22,11 @@ const LOCAL = process.env.LOCALAPPDATA || os.tmpdir()
 const TEST_ROOT = path.join(LOCAL, 'hive-test')
 /** Where runners claim their lanes (lanes.mjs): e2e and scenario runs take them from the same pool. */
 const LANES_DIR = path.join(TEST_ROOT, 'e2e-lanes')
+/**
+ * Where heavy runs claim their slots (slots.mjs): one pool for the machine. HIVE_TEST_HEAVY_DIR gives a pool of its own,
+ * for checking the queue (concurrency.mjs --heavy) without waiting behind real runs; HIVE_TEST_HEAVY_SLOTS, how many.
+ */
+const HEAVY_DIR = process.env.HIVE_TEST_HEAVY_DIR || path.join(TEST_ROOT, 'heavy-slots')
 /** Where suites keep their profiles, workspaces and screenshots: the runner's lane folder, else (a suite run on its own) e2e. */
 const WORK = process.env.HIVE_E2E_DIR || path.join(TEST_ROOT, 'e2e')
 /** The Codex home the Codex suites and model trials use (signed in once by hand: see tests/e2e/README.md). */
@@ -136,4 +142,4 @@ function suiteEnv({ name, port = null, work = null, runDir }, parent = process.e
   return env
 }
 
-module.exports = { TEST_ROOT, LANES_DIR, WORK, CODEX_HOME, CLAUDE_TEST_HOME, ALLOW, PASS_ENV, CARRIED, baseEnv, childEnv, hiveEnv, isHiveEnv, suiteEnv }
+module.exports = { TEST_ROOT, LANES_DIR, HEAVY_DIR, WORK, CODEX_HOME, CLAUDE_TEST_HOME, ALLOW, PASS_ENV, CARRIED, baseEnv, childEnv, hiveEnv, isHiveEnv, suiteEnv }

@@ -76,8 +76,8 @@ async function lanePortsFree(k, free) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /** Runs fn holding the claims lock (a folder: creating one is atomic). A lock older than LOCK_MAX_MS was left by a
- * runner that crashed while holding it, and is broken. */
-async function withLock(dir, fn) {
+ * runner that crashed while holding it, and is broken. The heavy-run slots (slots.mjs) use it too. */
+export async function withLock(dir, fn) {
   const lock = join(dir, LOCK)
   const start = Date.now()
   for (;;) {
@@ -93,7 +93,7 @@ async function withLock(dir, fn) {
         continue // Just released.
       }
       if (age > LOCK_MAX_MS) rmSync(lock, { recursive: true, force: true })
-      else if (Date.now() - start > 4 * LOCK_MAX_MS) throw new Error(`The e2e lane lock ${lock} is still held`, { cause: e })
+      else if (Date.now() - start > 4 * LOCK_MAX_MS) throw new Error(`The test claims lock ${lock} is still held`, { cause: e })
       else await sleep(50)
     }
   }

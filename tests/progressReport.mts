@@ -58,6 +58,26 @@ export function e2eProgress(names: string[], argv: string[] = process.argv): { s
   }
 }
 
+/**
+ * A heavy run waiting for a test slot (tests/e2e/slots.mjs): a row of its own in the Progress panel ("e2e: waiting for
+ * a test slot", naming who holds the slots) from the first time it has to wait until it gets one, so it shows as
+ * waiting, not hung. Under hive-progress, the wrapper's row names the wait instead. Nothing until waiting(), and nothing
+ * with --no-progress.
+ */
+export function slotWaitProgress(kind: string, command: string, argv: string[] = process.argv): { waiting(holders: string): void; finish(summary: string): Promise<void> } {
+  if (!progressWanted(argv)) return { waiting() {}, finish: async () => {} }
+  let run: ProgressRun | null = null
+  return {
+    waiting(holders: string) {
+      run ??= new ProgressRun(progressTarget(), { title: `${kind}: waiting for a test slot`, command }, { lines: wrappedLines() })
+      run.update({ stepName: `waiting for a test slot: ${holders}` })
+    },
+    finish: async (summary: string) => {
+      await run?.finish(true, summary)
+    }
+  }
+}
+
 /** The unit tests' run, as a Vitest reporter: one step per test file as it finishes. */
 export class VitestProgress {
   private run: ProgressRun | null = null
