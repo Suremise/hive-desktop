@@ -9,11 +9,11 @@ import { afterAll, describe, expect, it } from 'vitest'
 // @ts-expect-error: plain .mjs modules without types
 import { SUITES } from './e2e/suites.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { AREAS, EVERYTHING, affectedSuites, under } from './e2e/affected.mjs'
+import { AREAS, EVERYTHING, REAL_TIER, affectedSuites, under } from './e2e/affected.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { fingerprint } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { parentSuite, parseArgs, portBase, recordStatus, repeatStatus, selectSuites } from './e2e/runner.mjs'
+import { isRealCli, parentSuite, parseArgs, portBase, realNotRun, recordStatus, repeatStatus, selectSuites, suiteOutcome } from './e2e/runner.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { recordMarkdown } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -29,6 +29,7 @@ type Suite = { name: string; needs?: string[]; serial?: string }
 type Area = { paths: string[]; suites: string[] }
 const suites = SUITES as Suite[]
 const names = suites.map((s) => s.name)
+const realNames = suites.filter(isRealCli).map((s) => s.name)
 const dir = join(__dirname, 'e2e')
 const root = join(__dirname, '..')
 
@@ -120,6 +121,142 @@ describe('the suites a change needs (affected.mjs)', () => {
     expect(affectedSuites(['src/main/brandNewThing.ts'], names).all).toBe(true)
     expect(affectedSuites(['SRC\\Renderer\\src\\components\\Progress.tsx'], names).suites).toContain('progress')
   })
+
+  it('picks real-CLI suites only for changes to what they cover (card #191)', () => {
+    const pick = (...files: string[]) => affectedSuites(files, names, realNames)
+    for (const p of REAL_TIER as string[]) expect(existsSync(join(root, p.replace(/\/$/, ''))), p).toBe(true)
+    // Hive's side of every CLI: every real suite, with every fake one.
+    for (const f of ['src/main/sessions.ts', 'src/main/providers/types.ts', 'tests/e2e/lib.cjs', 'src/shared/providers.ts']) expect(pick(f), f).toMatchObject({ all: true, real: realNames })
+    // Not shared by every part of Hive, but still every CLI's: every real suite and the area's fakes.
+    expect(pick('src/main/transcripts.ts').suites).toEqual(expect.arrayContaining([...realNames, 'transcript']))
+    // A provider's own adapter: only its area's real suites.
+    const claude = pick('src/main/providers/claude/adapter.ts')
+    expect(claude.all).toBe(true)
+    expect(claude.real).toEqual(expect.arrayContaining(['agents', 'resume', 'mode']))
+    expect(claude.real).not.toContain('codex')
+    expect(pick('src/main/providers/codex/rollout.ts').real).not.toContain('agents')
+    // Shared, but not a CLI's: every fake suite, no real one; an area naming a real suite picks it.
+    expect(pick('src/renderer/src/store.ts')).toMatchObject({ all: true, real: [] })
+    expect(pick('src/renderer/src/components/Progress.tsx').suites.filter((n: string) => realNames.includes(n))).toEqual([])
+    expect(pick('src/main/power.ts').suites).toContain('quit')
+    // Code no area names: everything, real tier included (errs towards more).
+    expect(pick('src/main/brandNewThing.ts')).toMatchObject({ all: true, real: realNames })
+    // A real suite's own file.
+    expect(pick('tests/e2e/codex.cjs').suites).toEqual(['codex'])
+  })
+})
+
+describe('the real tier and environment failures (card #191)', () => {
+  const parse = (...a: string[]) => parseArgs(a, names)
+  const pick = (a: string[], affected: unknown = null): string[] => selectSuites(suites, parse(...a), affected).map((s: Suite) => s.name)
+  const fakes = suites.filter((s) => !isRealCli(s) && !s.needs?.includes('packaged')).map((s) => s.name)
+
+  it('the full set is the fake tier; --real adds the real one, --only-real runs only it', () => {
+    expect(realNames).toEqual(expect.arrayContaining(['agents', 'quit', 'codex', 'codex-setup']))
+    expect(pick(['--all'])).toEqual(fakes)
+    expect(pick([])).toEqual(fakes)
+    expect(pick(['--all', '--real'])).toEqual(names.filter((n) => !n.startsWith('packaged')))
+    expect(pick(['--only-real'])).toEqual(realNames)
+    expect(pick(['--all', '--only-real'])).toEqual(realNames)
+    expect(parse('--real', '--only-real').error).toMatch(/one of them/)
+    // Named suites always run, real or not.
+    expect(pick(['agents', 'board'])).toEqual(['agents', 'board'])
+    expect(pick(['--all', 'agents'])).toEqual(names.filter((n) => fakes.includes(n) || n === 'agents'))
+    // The left-out real tier is listed.
+    const chosen = selectSuites(suites, parse('--all'))
+    expect(realNotRun(suites, chosen).map((s: Suite) => s.name)).toEqual(realNames)
+    expect(realNotRun(suites, selectSuites(suites, parse('--all', '--real')))).toEqual([])
+  })
+
+  it('--affected takes the real suites the changes need, and --real or --only-real on top', () => {
+    expect(pick(['--affected'], { all: true, real: ['resume'] })).toEqual(names.filter((n) => fakes.includes(n) || n === 'resume'))
+    expect(pick(['--affected'], { suites: ['board', 'quit'] })).toEqual(['board', 'quit'])
+    expect(pick(['--affected', '--only-real'], { suites: ['board', 'quit'] })).toEqual(['quit'])
+    expect(pick(['--affected', '--only-real'], { all: true, real: ['resume'] })).toEqual(['resume'])
+    expect(pick(['--affected', '--real'], { suites: ['board'] })).toEqual(names.filter((n) => n === 'board' || realNames.includes(n)))
+  })
+
+  it('a suite is a SKIP only when it skipped itself, with every FAIL line put down to its failed CLI step (review round 1)', () => {
+    const skipped = 'SKIPPED environment: usage or rate limit: …API Error: 429… (in "the prompt’s turn", session:c:\\p#a)'
+    // cliStep: the step's failed check, then the skip.
+    expect(suiteOutcome({ code: 0, out: `PASS a\nFAIL prompt makes it working\n${skipped}\nSKIPPED-FAILS 1\n` })).toMatchObject({ skipped: skipped.slice(8), environment: true })
+    // An ENVIRONMENT line alone never makes a skip (the reviewer's case: an unrelated Hive failure).
+    expect(suiteOutcome({ code: 1, out: 'ENVIRONMENT usage or rate limit: API Error: 429\nFAIL saved project settings were lost\n' })).toMatchObject({ ok: false, failed: ['FAIL saved project settings were lost'] })
+    // A FAIL line the step didn't count (a check before it, a page error): a FAIL.
+    expect(suiteOutcome({ code: 0, out: `FAIL settings lost\nFAIL prompt makes it working\n${skipped}\nSKIPPED-FAILS 1\n` })).toMatchObject({ ok: false })
+    expect(suiteOutcome({ code: 1, out: `${skipped}\nSKIPPED-FAILS 0\n` })).toMatchObject({ ok: false })
+    expect(suiteOutcome({ code: 1, out: 'FAIL x\n' })).toMatchObject({ ok: false })
+    // A pass is a pass, whatever the CLI said on the way.
+    expect(suiteOutcome({ code: 0, out: 'ENVIRONMENT usage or rate limit: x\nPASS a\n' })).toEqual({ ok: true, failed: [] })
+    // A suite that skipped itself (lib.skip).
+    expect(suiteOutcome({ code: 0, out: 'SKIPPED environment: Codex is not signed in\n' })).toEqual({ skipped: 'environment: Codex is not signed in', environment: true })
+    expect(suiteOutcome({ code: 0, out: 'SKIPPED no dist\n' })).toEqual({ skipped: 'no dist', environment: false })
+    expect(suiteOutcome({ code: 1, out: 'SKIPPED x\nFAIL y\n' })).toMatchObject({ ok: false })
+  })
+
+  it('suites that mark CLI steps are real-CLI suites whose checks report to lib.checked', () => {
+    const marking = names.filter((n) => readFileSync(join(dir, `${n}.cjs`), 'utf8').includes('lib.cliStep('))
+    expect(marking).toEqual(expect.arrayContaining(['codex', 'codex-background', 'codex-extra', 'codex-handover']))
+    for (const n of marking) {
+      expect(realNames, n).toContain(n)
+      expect(readFileSync(join(dir, `${n}.cjs`), 'utf8'), n).toMatch(/const check = [^\n]*\n?\s*lib\.checked\(ok\)/)
+    }
+  })
+
+  it('a failed CLI step is the environment’s only with a new environment failure in its own session, and nothing failed before (review round 1)', () => {
+    type Problems = Map<string, { why: string; at: number }[]>
+    const { stepVerdict } = createRequire(import.meta.url)('./e2e/lib.cjs') as { stepVerdict: (o: object) => { skip?: string; note?: string } | null }
+    const p = (n: number, why = 'usage or rate limit: …429…') => Array.from({ length: n }, (_, at) => ({ why, at }))
+    const map = (o: Record<string, number>): Problems => new Map(Object.entries(o).map(([k, n]) => [k, p(n)]))
+    const base = { name: 'turn', session: 'session:c:\\p#a', stepFailed: 1, error: null, failedBefore: 0, wired: true }
+    // A new rate limit in the step's session while it failed: a skip, saying where.
+    expect(stepVerdict({ ...base, before: map({}), after: map({ 'session:c:\\p#a': 1 }) })).toEqual({ skip: 'environment: usage or rate limit: …429… (in "turn", session:c:\\p#a)' })
+    // An exception is never the environment's, even with a fresh error in the same session (review round 2): a bug, a
+    // rejected IPC call, a file error. A note at most, so cliStep throws it on; also when a check failed beside it.
+    const fs = Object.assign(new Error("ENOENT: no such file or directory, open 'notes.txt'"), { code: 'ENOENT' })
+    for (const error of [new TypeError("Cannot read properties of undefined (reading 'sessionId')"), new Error("Error invoking remote method 'session:start': Error: Project not found"), fs])
+      for (const stepFailed of [0, 1]) {
+        const v = stepVerdict({ ...base, stepFailed, error, before: map({}), after: map({ 'session:c:\\p#a': 1 }) })
+        expect(v?.skip, `${error.message} (${stepFailed} failed)`).toBeUndefined()
+        expect(v?.note).toMatch(/not a skip: the step threw/)
+      }
+    // The step didn't fail: nothing to put down to the environment.
+    expect(stepVerdict({ ...base, stepFailed: 0, before: map({}), after: map({ 'session:c:\\p#a': 1 }) })).toBeNull()
+    // Another session's failure (several sessions): not this step's.
+    expect(stepVerdict({ ...base, before: map({}), after: map({ 'session:c:\\p#b': 1 }) })).toBeNull()
+    // Recovered: the error was there before the step and no new one came: the step's failure is Hive's.
+    expect(stepVerdict({ ...base, before: map({ 'session:c:\\p#a': 1 }), after: map({ 'session:c:\\p#a': 1 }) })).toBeNull()
+    // A failure before the step, or checks lib can't see: a note, never a skip.
+    expect(stepVerdict({ ...base, failedBefore: 1, before: map({}), after: map({ 'session:c:\\p#a': 1 }) })).toMatchObject({ note: expect.stringMatching(/not a skip: 1 check\(s\) failed before it/) })
+    expect(stepVerdict({ ...base, wired: false, before: map({}), after: map({ 'session:c:\\p#a': 1 }) })).toMatchObject({ note: expect.stringMatching(/don't report/) })
+    // No session named: any session's new failure.
+    expect(stepVerdict({ ...base, session: null, before: map({}), after: map({ 'session:c:\\p#b': 2 }) })?.skip).toMatch(/session:c:\\p#b/)
+  })
+
+  it("lib.cjs knows the CLIs' environment failures from their output, and nothing else", () => {
+    const { environmentProblem } = createRequire(import.meta.url)('./e2e/lib.cjs') as { environmentProblem: (t: string) => string | null }
+    const env = {
+      'usage or rate limit': ['\x1b[31m  ⎿  API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}', 'Claude usage limit reached. Your limit will reset at 3pm', "You've hit your limit · resets 5pm (Europe/London)", "■ You've hit your usage limit. Upgrade to Pro or try again in 2 hours."],
+      'the API is overloaded': ['API Error: 529 {"type":"error","error":{"type":"overloaded_error"}}'],
+      'not signed in': ['Invalid API key · Please run /login', 'Select login method:', 'OAuth token has expired. Please obtain a new token or refresh your existing token.', 'Sign in with ChatGPT'],
+      network: ['API Error: Connection error.', 'Unable to connect to Anthropic API', 'stream error: stream disconnected before completion: error sending request for url (https://chatgpt.com/backend-api/codex/responses)', 'getaddrinfo ENOTFOUND api.anthropic.com']
+    }
+    for (const [why, texts] of Object.entries(env)) for (const t of texts) expect(environmentProblem(t), t).toMatch(new RegExp(`^${why}: `))
+    // Hive's own failures, and ordinary output that mentions limits.
+    for (const t of ['PreToolUse hook error: connect ECONNREFUSED 127.0.0.1:51234', 'Context limit reached · /compact or /clear to continue', 'Error: Cannot read properties of undefined', '? for shortcuts', 'The rate limiter in src/limits.ts']) expect(environmentProblem(t), t).toBeNull()
+  })
+
+  it('the record lists the real tier not run and the suites skipped for the environment', () => {
+    const results = [
+      { name: 'board', ok: true, seconds: 3 },
+      { name: 'codex', skipped: 'environment: usage or rate limit: | API Error: 429', environment: true, seconds: 40 }
+    ]
+    const md = recordMarkdown({ code: 'abc', when: 'now', jobs: 4, results, logDir: 'x', summary: '1 passed, 1 skipped', notRun: ['agents', 'quit'] })
+    expect(md).toContain('| codex | skipped: environment: usage or rate limit: / API Error: 429 | 40s |')
+    expect(md).toContain('Not run: the real tier (`--real`): agents, quit.')
+    expect(md).toMatch(/\*\*Skipped for the environment\*\* .*: codex\./)
+    expect(recordMarkdown({ code: 'abc', when: 'now', jobs: 4, results: [results[0]], logDir: 'x', summary: 's' })).not.toMatch(/Not run|environment/)
+  })
 })
 
 describe('the code fingerprint in a run record (record.mjs)', () => {
@@ -161,8 +298,8 @@ describe('the runner command line and run records (runner.mjs)', () => {
     expect(parse('nosuch').error).toMatch(/Unknown suite/)
   })
 
-  it('--all runs every eligible suite, also with names, and conflicts with --affected', () => {
-    const everything = suites.filter((s) => !s.needs?.includes('packaged')).map((s) => s.name)
+  it('--all runs every eligible suite of the fake tier, also with names, and conflicts with --affected', () => {
+    const everything = suites.filter((s) => !s.needs?.includes('packaged') && !isRealCli(s)).map((s) => s.name)
     expect(pick('--all')).toEqual(everything)
     expect(pick('--all', 'board')).toEqual(everything)
     expect(pick()).toEqual(everything)

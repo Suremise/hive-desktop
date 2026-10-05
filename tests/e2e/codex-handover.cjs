@@ -11,6 +11,7 @@ const proj = path.join(ws, 'demo')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const results = []
 const check = (name, ok, extra = '') => {
+  lib.checked(ok)
   results.push(ok)
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name} ${extra}`)
 }
@@ -63,12 +64,16 @@ const check = (name, ok, extra = '') => {
   await inv('session:handOver', proj, claude.id, cx.id, { handover: false })
   const codexLive = (await agents()).find((a) => a.id === cx.id).live
   check('codex started and got the prompt', !!codexLive, `${Math.round((Date.now() - t0) / 1000)}s`)
-  // Wait for Codex to finish its turn.
-  for (let i = 0; i < 120; i++) {
-    const l = (await agents()).find((a) => a.id === cx.id).live
-    if (l && l.sessionId && (l.status === 'finished' || l.status === 'ready') && Date.now() - t0 > 15000) break
-    await sleep(1000) // The poll interval of the loop around it, which waits for a condition (not a fixed wait).
-  }
+  // Wait for Codex to finish its turn: the CLI's part (a usage limit or the network there is the environment's).
+  await lib.cliStep('codex’s first turn', { session: lib.ptyKey(proj, cx.id) }, async () => {
+    let finished = false
+    for (let i = 0; i < 120 && !finished; i++) {
+      const l = (await agents()).find((a) => a.id === cx.id).live
+      finished = !!(l && l.sessionId && (l.status === 'finished' || l.status === 'ready') && Date.now() - t0 > 15000)
+      if (!finished) await sleep(1000) // The poll interval of the loop around it, which waits for a condition (not a fixed wait).
+    }
+    check('codex finished its turn', finished)
+  })
   const l1 = (await agents()).find((a) => a.id === cx.id).live
   const sessions = JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8'))
   const rec = (sessions.sessions ?? sessions).find?.((s) => s.id === l1.sessionId)

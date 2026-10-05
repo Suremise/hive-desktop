@@ -97,10 +97,14 @@ const both = async (page, on) => (await onTop(page)) === on && (await pinLit(pag
   check('…and off', !!(await lib.until(() => both(p1, false), 5000)))
 
   // --- The palette: a check while on.
+  // Opened only once the last one has closed, and searched once its input has the focus: typed into too early, the
+  // search lost letters and the row wasn't found (a flake seen in a --repeat 3 run, #191).
   const palette = async () => {
+    const input = p1.locator('.palette input')
+    await lib.until(async () => (await input.count()) === 0, 5000)
     await p1.keyboard.press('Control+Shift+P')
-    await lib.until(async () => (await p1.locator('.palette input').count()) === 1, 5000)
-    await p1.keyboard.type('Always on Top')
+    await lib.until(async () => (await input.count()) === 1 && (await input.evaluate((e) => e === document.activeElement).catch(() => false)), 5000)
+    await input.fill('Always on Top')
     return p1.locator('.palette-item', { hasText: 'Always on Top' }).first()
   }
   let row = await palette()
@@ -108,7 +112,7 @@ const both = async (page, on) => (await onTop(page)) === on && (await pinLit(pag
   await p1.keyboard.press('Enter')
   check('the palette turns it on', !!(await lib.until(() => both(p1, true), 5000)))
   row = await palette()
-  check('…and shows it checked', (await row.locator('.codicon-check').count()) === 1)
+  check('…and shows it checked', !!(await lib.until(async () => (await row.locator('.codicon-check').count()) === 1, 5000)))
   // #172: the open palette's check follows a change made elsewhere, without closing it.
   await inv1('window:setAlwaysOnTop', false)
   check('a change while the palette is open clears its check there', !!(await lib.until(async () => (await both(p1, false)) && (await row.locator('.codicon-check').count()) === 0, 5000)))

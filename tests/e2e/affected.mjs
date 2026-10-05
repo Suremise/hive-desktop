@@ -1,8 +1,10 @@
 // Which e2e suites a change needs (npm run e2e -- --affected [base]): for review rounds that fixed a few things,
 // rather than the whole set. Errs towards more, never fewer: the files every part of Hive goes through, and any file
 // that isn't in an area or known to need no suite (DOCS_ONLY), mean every suite. The final round before Done still runs every suite
-// the card names, and the full set runs before a merge to main (tests/e2e/README.md). tests/e2esuites.test.ts checks
-// that every suite is in an area and every source file is covered.
+// the card names, and the full set runs before a merge to main (tests/e2e/README.md). Suites that start a real CLI
+// (the real tier) are picked only when a change touches what they cover (an area naming them, or REAL_TIER), which is
+// when a merge also needs the real tier. tests/e2esuites.test.ts checks that every suite is in an area and every
+// source file is covered.
 import { execFileSync } from 'child_process'
 
 /** Changes to these touch everything (the IPC contract, types, the store, the shell, the test harness): every suite. */
@@ -147,12 +149,33 @@ export const DOCS_ONLY = ['README.md', 'AGENTS.md', 'CLAUDE.md', 'RELEASING.md',
 const unitTest = (f) => /^tests\/[^/]+\.test\.ts$/i.test(f) || /^tests\/fixtures\//i.test(f)
 
 /**
- * The suites a set of changed files needs, from the known suite names: { all: true, why } when every suite is needed,
- * else { suites, why } (why: a line per reason). Only DOCS_ONLY files and unit tests select nothing.
+ * Hive's side of every real CLI: launching it, its hooks and the status they give, reading its transcripts, its
+ * readiness, and the suites' CLI helpers. A change here needs every real-CLI suite (the real tier: run.mjs --real), not
+ * only the fake ones. Each provider's own adapter (PROVIDER_OWN) needs only the real suites its area names.
  */
-export function affectedSuites(files, suiteNames) {
+export const REAL_TIER = [
+  'src/main/sessions.ts',
+  'src/main/providers/',
+  'src/main/providerService.ts',
+  'src/main/ptyHost.ts',
+  'src/main/hookStatus.ts',
+  'src/main/transcripts.ts',
+  'src/shared/providers.ts',
+  'tests/e2e/lib.cjs'
+]
+const PROVIDER_OWN = ['src/main/providers/claude/', 'src/main/providers/codex/']
+
+/**
+ * The suites a set of changed files needs, from the known suite names (realNames: those that start a real CLI):
+ * { all: true, why, real } when every fake suite is needed (real: the real-CLI suites also needed), else
+ * { suites, why } (why: a line per reason). A real-CLI suite is needed when an area names it, its own file changed, or
+ * a file in REAL_TIER (or one no area names) changed. Only DOCS_ONLY files and unit tests select nothing.
+ */
+export function affectedSuites(files, suiteNames, realNames = []) {
   const picked = new Set()
   const why = []
+  let all = null
+  let allReal = null
   for (const raw of files) {
     const file = raw.replace(/\\/g, '/')
     const own = /^tests\/e2e\/([^/]+)\.cjs$/i.exec(file)
@@ -161,18 +184,25 @@ export function affectedSuites(files, suiteNames) {
       why.push(`${file}: its own suite`)
       continue
     }
-    if (under(file, EVERYTHING)) return { all: true, why: [`${file}: shared by every part of Hive`] }
+    if (under(file, REAL_TIER) && !under(file, PROVIDER_OWN)) allReal ??= `${file}: every real-CLI suite`
     const areas = AREAS.filter((a) => under(file, a.paths))
+    for (const a of areas) for (const s of a.suites) picked.add(s)
+    if (under(file, EVERYTHING)) {
+      all ??= `${file}: shared by every part of Hive`
+      continue
+    }
     if (areas.length) {
-      for (const a of areas) for (const s of a.suites) picked.add(s)
       why.push(`${file}: ${[...new Set(areas.flatMap((a) => a.suites))].join(', ')}`)
       continue
     }
     if (under(file, DOCS_ONLY) || unitTest(file)) continue
     // Anything else (code, resources, scripts, build files no area names): everything, rather than guess.
-    return { all: true, why: [`${file}: no area names it, so every suite`] }
+    all ??= `${file}: no area names it, so every suite`
+    allReal ??= `${file}: no area names it, so every real-CLI suite too`
   }
-  return { suites: suiteNames.filter((n) => picked.has(n)), why }
+  const real = realNames.filter((n) => allReal || picked.has(n))
+  if (all) return { all: true, why: [all, ...(allReal ? [allReal] : [])], real }
+  return { suites: suiteNames.filter((n) => picked.has(n) || (allReal && realNames.includes(n))), why: [...why, ...(allReal ? [allReal] : [])] }
 }
 
 /** The files changed against a base (default main): committed since the merge base, uncommitted and untracked. */
