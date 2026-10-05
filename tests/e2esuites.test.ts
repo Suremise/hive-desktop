@@ -24,6 +24,8 @@ import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane,
 // @ts-expect-error: plain .mjs modules without types
 import { describeClaim, heavySlots, isHeavy, needsSlot, trySlot, waitForSlot } from './e2e/slots.mjs'
 // @ts-expect-error: plain .mjs modules without types
+import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale, removeWorktree } from './e2e/tempWorktrees.mjs'
+// @ts-expect-error: plain .mjs modules without types
 import { KEEP_RUNS, finishRunDirs, logsRootFor, newRunDir, pruneRunDirs, runDirActive, runDirsInOrder } from './e2e/logs.mjs'
 import { createRequire } from 'module'
 import { ProgressStore } from '../src/main/progress'
@@ -1193,6 +1195,90 @@ describe('the run context: what a test starts gets only the allowlist and its ow
       }
       rmSync(tmp, { recursive: true, force: true })
     }
+  })
+})
+
+describe("the concurrency checker's temporary worktrees: each invocation's own (tempWorktrees.mjs, #207)", () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'hive-tempwt-'))
+  afterAll(() => {
+    // Junctions first (rmdir removes only the link), as the module does.
+    for (const base of readdirSync(tmp).filter((n) => n.startsWith('concurrency')))
+      for (const run of readdirSync(join(tmp, base))) {
+        const nm = join(tmp, base, run, 'worktree', 'node_modules')
+        if (existsSync(nm)) execFileSync('cmd.exe', ['/c', 'rmdir', nm], { stdio: 'ignore', env: ctx.baseEnv() })
+      }
+    rmSync(tmp, { recursive: true, force: true })
+  })
+  const ctx = createRequire(import.meta.url)('./e2e/runContext.cjs') as { baseEnv: () => Record<string, string> }
+  const git = (cwd: string, ...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd, encoding: 'utf8', env: ctx.baseEnv() })
+  /** A checkout with a commit, an uncommitted change, an untracked file and a node_modules (with electron, or not). */
+  const checkout = (name: string, electron = true) => {
+    const d = join(tmp, name)
+    mkdirSync(join(d, 'node_modules', electron ? 'electron' : 'other'), { recursive: true })
+    writeFileSync(join(d, '.gitignore'), 'node_modules/\n')
+    writeFileSync(join(d, 'a.txt'), 'one\n')
+    git(d, 'init', '-q')
+    git(d, 'add', '.')
+    git(d, 'commit', '-qm', 'init')
+    writeFileSync(join(d, 'a.txt'), 'two\n')
+    writeFileSync(join(d, 'new.txt'), 'new\n')
+    return d
+  }
+  const registered = (repo: string) => git(repo, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ')).length - 1
+
+  it('two invocations get folders of their own; removing one leaves the other\'s worktree, junction and registration', async () => {
+    const repo = checkout('repo')
+    const base = join(tmp, 'concurrency')
+    const a = invocationDir({ base, owner: 101 })
+    const b = invocationDir({ base, owner: 101 })
+    expect(a).not.toBe(b)
+    expect(JSON.parse(readFileSync(join(a, 'owner.json'), 'utf8'))).toMatchObject({ pid: 101 })
+    const wa = addWorktree(repo, a, 'worktree')
+    const wb = addWorktree(repo, b, 'worktree')
+    expect(wa).not.toBe(wb)
+    // Each is repo's HEAD with its uncommitted changes, sharing its node_modules.
+    for (const w of [wa, wb]) {
+      // (Line endings as the machine's git config checks files out.)
+      expect(readFileSync(join(w, 'a.txt'), 'utf8')).toMatch(/^two\r?\n$/)
+      expect(readFileSync(join(w, 'new.txt'), 'utf8')).toBe('new\n')
+      expect(existsSync(join(w, 'node_modules', 'electron'))).toBe(true)
+    }
+    expect(registered(repo)).toBe(2)
+    removeInvocation(repo, a)
+    expect(existsSync(a)).toBe(false)
+    expect(existsSync(join(wb, 'node_modules', 'electron')) && existsSync(join(wb, 'a.txt'))).toBe(true)
+    expect(registered(repo)).toBe(1)
+    // The junction went, never what it pointed to.
+    expect(existsSync(join(repo, 'node_modules', 'electron'))).toBe(true)
+    removeInvocation(repo, b)
+    expect(registered(repo)).toBe(0)
+  })
+
+  it('a setup that fails part way leaves no worktree registered or folder behind, and nothing outside its folder is removed', () => {
+    const repo = checkout('no-electron', false)
+    const own = invocationDir({ base: join(tmp, 'concurrency2'), owner: 102 })
+    expect(() => addWorktree(repo, own, 'worktree')).toThrow(/Couldn't link node_modules/)
+    expect(registered(repo)).toBe(0)
+    expect(existsSync(join(own, 'worktree'))).toBe(false)
+    expect(existsSync(join(repo, 'node_modules', 'other'))).toBe(true)
+    expect(() => removeWorktree(repo, own, join(tmp, 'repo'))).toThrow(/isn't in this checker's folder/)
+  })
+
+  it("the next checker removes a gone checker's folder (junction first), and leaves a live or kept one", () => {
+    const repo = checkout('stale-repo')
+    const base = join(tmp, 'concurrency3')
+    const gone = invocationDir({ base, owner: 201 })
+    const live = invocationDir({ base, owner: 202 })
+    const kept = invocationDir({ base, owner: 203 })
+    for (const d of [gone, live, kept]) addWorktree(repo, d, 'worktree')
+    keepDir(kept)
+    const alive = (pid: number) => pid === 202
+    expect(removeStale(repo, { base, alive })).toEqual([gone])
+    expect(existsSync(gone)).toBe(false)
+    expect(existsSync(join(live, 'worktree', 'node_modules', 'electron')) && existsSync(join(kept, 'worktree', 'a.txt'))).toBe(true)
+    expect(existsSync(join(repo, 'node_modules', 'electron'))).toBe(true)
+    // Its registration is pruned in this checkout; the other two stay.
+    expect(registered(repo)).toBe(2)
   })
 })
 

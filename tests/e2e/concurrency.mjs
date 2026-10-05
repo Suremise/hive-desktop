@@ -3,7 +3,8 @@
 //
 // Starts four test runs at once from two worktrees, with both dev builds made stale first: in this worktree an e2e
 // runner and a scenario run, and in a second worktree (a git worktree of this one's HEAD with its uncommitted changes,
-// made for the check and removed after unless --keep) two e2e runners. One run in each worktree is started with the
+// made for the check in this invocation's own folder and removed after unless --keep: tempWorktrees.mjs, #207, so two
+// checkers at once never remove each other's) two e2e runners. One run in each worktree is started with the
 // environment of an agent's shell inside an outer hive-progress (NO_COLOR, HIVE_PROGRESS_WRAPPED, a Hive Agent API
 // token…) and a shell's git and Node settings pointing elsewhere (GIT_DIR and GIT_WORK_TREE at a decoy repository,
 // NODE_OPTIONS loading a script that notes each Node process it starts in), the other with a plain one; the checker's
@@ -22,13 +23,14 @@
 // started inside its suite runs without asking for one (even with --no-wait), while the same run at the top level is
 // refused (#211).
 import { execFileSync, spawn, spawnSync } from 'child_process'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import http from 'http'
 import { createRequire } from 'module'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { BUILD_LOCKS, buildInputs, buildLock, buildStamp } from './build.mjs'
 import { trySlot } from './slots.mjs'
+import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale } from './tempWorktrees.mjs'
 import { fingerprint } from './record.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -42,17 +44,19 @@ const heavy = argv.includes('--heavy')
 /** The small fake set each e2e runner runs, and the scenario. */
 const SUITES = ['isolation', 'about', 'bridgereport', 'busy']
 const SCENARIO = 'work-on-card'
+/** This invocation's own folder (tempWorktrees.mjs): its worktrees, decoy, heavy-run pool; no other checker's. */
+const RUN = invocationDir()
 /** An agent's shell in Hive running the tests through hive-progress, and a person's own settings. */
 const AGENT_SHELL = {
   NO_COLOR: '1',
   FORCE_COLOR: '1',
   HIVE_PROGRESS_WRAPPED: '1',
   HIVE_PROGRESS_RUN_AS_NODE: '1',
-  HIVE_PROGRESS_DATA: join(runContext.TEST_ROOT, 'concurrency', 'leaked-progress'),
+  HIVE_PROGRESS_DATA: join(RUN, 'leaked-progress'),
   HIVE_API_URL: 'http://127.0.0.1:9',
   HIVE_API_TOKEN: 'leaked-token',
   HIVE_PROJECT: 'hive',
-  CLAUDE_CONFIG_DIR: join(runContext.TEST_ROOT, 'concurrency', 'leaked-claude'),
+  CLAUDE_CONFIG_DIR: join(RUN, 'leaked-claude'),
   ELECTRON_RUN_AS_NODE: '1',
   HIVE_TEST_SLOW_IPC: 'tasks:list=1'
 }
@@ -61,9 +65,9 @@ const AGENT_SHELL = {
  * script NODE_OPTIONS loads into every Node process started with it, noting which: only the runners themselves, never
  * a build, suite or other child, may have it.
  */
-const DECOY = join(runContext.TEST_ROOT, 'concurrency', `decoy-${process.pid}`)
-const NODE_SEEN = join(DECOY, '..', `node-options-${process.pid}.log`)
-const NODE_MARKER = join(DECOY, '..', `node-options-${process.pid}.cjs`)
+const DECOY = join(RUN, 'decoy')
+const NODE_SEEN = join(RUN, 'node-options.log')
+const NODE_MARKER = join(RUN, 'node-options.cjs')
 const SHELL_ELSEWHERE = { GIT_DIR: join(DECOY, '.git'), GIT_WORK_TREE: DECOY, NODE_OPTIONS: `--require "${NODE_MARKER.replaceAll('\\', '/')}"` }
 
 let failed = 0
@@ -85,32 +89,6 @@ function makeDecoy() {
   return git(DECOY, 'rev-parse', 'HEAD').trim()
 }
 
-
-/** Another worktree (name): this one's HEAD and uncommitted changes, sharing its node_modules (a junction). */
-function otherWorktree(name = 'worktree') {
-  const wt = join(runContext.TEST_ROOT, 'concurrency', name)
-  removeWorktree(wt)
-  mkdirSync(dirname(wt), { recursive: true })
-  git(root, 'worktree', 'add', '--detach', '--force', wt, 'HEAD')
-  const diff = execFileSync('git', ['diff', 'HEAD', '--binary'], { cwd: root, maxBuffer: 256 * 1024 * 1024, env: runContext.baseEnv() })
-  if (diff.length) execFileSync('git', ['apply', '--whitespace=nowarn'], { cwd: wt, input: diff, env: runContext.baseEnv() })
-  for (const f of git(root, 'ls-files', '--others', '--exclude-standard', '-z').split('\0').filter(Boolean)) {
-    mkdirSync(dirname(join(wt, f)), { recursive: true })
-    copyFileSync(join(root, f), join(wt, f))
-  }
-  spawnSync('cmd.exe', ['/c', 'mklink', '/J', join(wt, 'node_modules'), join(root, 'node_modules')], { stdio: 'ignore', env: runContext.baseEnv() })
-  if (!existsSync(join(wt, 'node_modules', 'electron'))) throw new Error(`Couldn't link node_modules into ${wt}`)
-  return wt
-}
-
-/** Removes the second worktree: its node_modules junction first (only the link: rmdir never follows it), then the rest. */
-function removeWorktree(wt) {
-  if (existsSync(join(wt, 'node_modules'))) spawnSync('cmd.exe', ['/c', 'rmdir', join(wt, 'node_modules')], { stdio: 'ignore', env: runContext.baseEnv() })
-  if (existsSync(join(wt, 'node_modules'))) throw new Error(`Couldn't remove the node_modules link in ${wt}; remove it by hand (rmdir, not a recursive delete)`)
-  spawnSync('git', ['worktree', 'remove', '--force', wt], { cwd: root, stdio: 'ignore', env: runContext.baseEnv() })
-  rmSync(wt, { recursive: true, force: true })
-  spawnSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore', env: runContext.baseEnv() })
-}
 
 /** Starts a run: { name, cwd, args, polluted, env } → { name, cwd, code, out, ms }; started(child) when it starts. */
 function start({ name, cwd, script, args, polluted, env: extra = {}, started = () => {} }) {
@@ -182,7 +160,7 @@ async function round(k, wt, decoyHead) {
 /** The heavy-run queue (--heavy): see the top of this file. */
 async function heavyRound(k, worktrees) {
   console.log(`\n--- Round ${k} of ${repeat} (heavy runs)`)
-  const pool = join(runContext.TEST_ROOT, 'concurrency', 'heavy-slots')
+  const pool = join(RUN, 'heavy-slots')
   rmSync(pool, { recursive: true, force: true })
   // A stand-in for Hive's Agent API: the runs report their progress to it.
   const reports = []
@@ -255,16 +233,19 @@ async function heavyRound(k, worktrees) {
 const made = []
 let decoyHead = null
 try {
+  const stale = removeStale(root)
+  if (stale.length) console.log(`Removed the folders of checkers that are gone: ${stale.join(', ')}`)
+  console.log(`This checker's folder: ${RUN}`)
   if (!heavy) {
     decoyHead = makeDecoy()
     // The checker's own children too (its worktree setup and clean-up, the fingerprints it checks): none may follow it.
     Object.assign(process.env, { GIT_DIR: SHELL_ELSEWHERE.GIT_DIR, GIT_WORK_TREE: SHELL_ELSEWHERE.GIT_WORK_TREE })
   }
   if (heavy) {
-    made.push(otherWorktree('worktree'), otherWorktree('worktree-3'))
+    made.push(addWorktree(root, RUN, 'worktree'), addWorktree(root, RUN, 'worktree-3'))
     console.log(`Other worktrees: ${made.join(', ')}`)
   } else {
-    made.push(otherWorktree())
+    made.push(addWorktree(root, RUN, 'worktree'))
     console.log(`Second worktree: ${made[0]}\nBuild locks: ${BUILD_LOCKS}`)
   }
   for (let k = 1; k <= repeat; k++) {
@@ -278,8 +259,17 @@ try {
 } catch (e) {
   check('the check ran', false, e.stack ?? String(e))
 } finally {
-  if (!keep) for (const w of made) removeWorktree(w)
-  if (!keep) for (const f of [DECOY, NODE_SEEN, NODE_MARKER]) rmSync(f, { recursive: true, force: true })
+  // Only this checker's folder, with whatever of it was made (a setup that failed part way removed its own worktree).
+  if (keep) {
+    keepDir(RUN)
+    console.log(`Kept: ${RUN} (remove its worktrees with git worktree remove, then the folder)`)
+  } else {
+    try {
+      removeInvocation(root, RUN)
+    } catch (e) {
+      check("this checker's folder is removed", false, e.message)
+    }
+  }
 }
 check("this worktree's node_modules is untouched", existsSync(join(root, 'node_modules', 'electron')) && readdirSync(join(root, 'node_modules')).length > 50)
 console.log(failed ? `\n${failed} failed` : `\nAll passed (${repeat} round${repeat === 1 ? '' : 's'}).`)

@@ -125,7 +125,11 @@ second worktree it makes for the check (a git worktree of `HEAD` with the uncomm
 through a junction, removed afterwards), one in each worktree with an agent shell's environment (`NO_COLOR`,
 `HIVE_PROGRESS_WRAPPED`, a token…) and one with a plain one. It checks that every run passes in a lane, folders, ports
 and logs folder of its own, and that each worktree is built once and stamped. Run it after changing the runner,
-`lib.cjs`, `runContext.cjs`, `lanes.mjs`, `build.mjs` or the scenario harness.
+`lib.cjs`, `runContext.cjs`, `lanes.mjs`, `build.mjs` or the scenario harness. Two checkers can run at once, from two
+worktrees (#207): each keeps what it makes (its worktrees, decoy, heavy-run pool) in a folder of its own,
+`%LOCALAPPDATA%\hive-test\concurrency\run-<pid>-<time>` (`tempWorktrees.mjs`), and removes only that. A setup that
+fails part way removes its own worktree; the folder of a checker that crashed is removed by the next one, unless it
+was kept with `--keep`. Two started from the same worktree share its build, so its "built once" checks may fail.
 
 **Heavy runs queue** (`slots.mjs`, #204). Several agents each running full sets on one machine slowed each other until
 tests that pass alone timed out. So at most **two heavy runs** go at once across every worktree
