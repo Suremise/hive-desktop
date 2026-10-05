@@ -18,11 +18,13 @@ import { isRealCli, parentSuite, parseArgs, portBase, realNotRun, recordStatus, 
 // @ts-expect-error: plain .mjs modules without types
 import { recordMarkdown } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { buildLock, buildStamp, ensureBuild } from './e2e/build.mjs'
+import { buildLock, buildStamp, devBuild, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { describeClaim, heavySlots, isHeavy, trySlot, waitForSlot } from './e2e/slots.mjs'
+import { describeClaim, heavySlots, isHeavy, needsSlot, trySlot, waitForSlot } from './e2e/slots.mjs'
+// @ts-expect-error: plain .mjs modules without types
+import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale, removeWorktree } from './e2e/tempWorktrees.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { KEEP_RUNS, finishRunDirs, logsRootFor, newRunDir, pruneRunDirs, runDirActive, runDirsInOrder } from './e2e/logs.mjs'
 import { createRequire } from 'module'
@@ -1119,6 +1121,165 @@ describe('the run context: what a test starts gets only the allowlist and its ow
     expect(Object.keys(env).sort()).toEqual(['ELECTRON_RUN_AS_NODE', 'HIVE_API_URL', 'LOCALAPPDATA', 'Path', 'SystemRoot', 'USERPROFILE', 'https_proxy'])
     expect(Object.keys(ctx.baseEnv(parent)).every((k) => ctx.ALLOW.includes(k.toUpperCase()))).toBe(true)
   })
+
+  it('every child the runners and the harness start themselves is given its environment, never left to inherit the shell (#208)', () => {
+    // The runners, their modules, lib.cjs and the scenario harness run in the shell a person or an agent started them
+    // from; a child_process call without env inherits all of it (GIT_DIR, NODE_OPTIONS…). The suites are left out:
+    // their own environment is already the run context's (suiteEnv), and so is what their children inherit.
+    const files = [
+      ...readdirSync(dir).filter((f) => f.endsWith('.mjs') || f === 'lib.cjs').map((f) => join(dir, f)),
+      ...readdirSync(join(__dirname, 'scenarios')).filter((f) => /\.(c|m)js$/.test(f)).map((f) => join(__dirname, 'scenarios', f))
+    ]
+    const found: string[] = []
+    let calls = 0
+    for (const f of files) {
+      const text = readFileSync(f, 'utf8')
+      for (const m of text.matchAll(/(?<![.\w])(spawn|spawnSync|execFile|execFileSync|execSync|exec|fork)\(/g)) {
+        // The call's arguments, to its closing parenthesis.
+        let depth = 0
+        let end = m.index + m[0].length - 1
+        for (; end < text.length; end++) {
+          if (text[end] === '(') depth++
+          else if (text[end] === ')' && --depth === 0) break
+        }
+        calls++
+        if (!/\benv\s*:|\{\s*env\b|,\s*env\s*[,}]/.test(text.slice(m.index, end))) found.push(`${f.slice(root.length + 1)}:${text.slice(0, m.index).split('\n').length}`)
+      }
+    }
+    expect(calls).toBeGreaterThan(20)
+    expect(found).toEqual([])
+  })
+
+  it("a shell's GIT_DIR, GIT_WORK_TREE and NODE_OPTIONS reach neither the runners' git nor the build (#208)", () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'hive-shellenv-'))
+    const repo = (name: string, file: string) => {
+      const d = join(tmp, name)
+      mkdirSync(d)
+      writeFileSync(join(d, file), 'x\n')
+      const git = (...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd: d, env: ctx.baseEnv(), encoding: 'utf8' })
+      git('init', '-q')
+      git('add', '.')
+      git('commit', '-qm', name)
+      return { d, head: git('rev-parse', 'HEAD').trim() }
+    }
+    const project = repo('project', 'a.txt')
+    const decoy = repo('decoy', 'decoy.txt')
+    writeFileSync(join(project.d, 'untracked.txt'), 'new\n')
+    const req = createRequire(import.meta.url)
+    const lib = req('./e2e/lib.cjs') as { git: (cwd: string, cmd: string | string[]) => string }
+    const { sourceFingerprint } = req('./scenarios/harness.cjs') as { sourceFingerprint: (root: string) => { head: string; dirty: string | null } }
+    const clean = { fp: fingerprint(project.d), scenario: sourceFingerprint(project.d) }
+    const saved = { GIT_DIR: process.env.GIT_DIR, GIT_WORK_TREE: process.env.GIT_WORK_TREE, NODE_OPTIONS: process.env.NODE_OPTIONS }
+    try {
+      Object.assign(process.env, { GIT_DIR: join(decoy.d, '.git'), GIT_WORK_TREE: decoy.d, NODE_OPTIONS: `--require "${join(tmp, 'missing.cjs')}"` })
+      // git follows them, from a shell that has them (so the check below means something).
+      expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: project.d, encoding: 'utf8' }).trim()).toBe(decoy.head)
+      expect(fingerprint(project.d)).toBe(clean.fp)
+      expect(fingerprint(project.d)).toMatch(new RegExp(`^${project.head.slice(0, 12)}\\+`))
+      expect(sourceFingerprint(project.d)).toEqual(clean.scenario)
+      expect(lib.git(project.d, ['rev-parse', 'HEAD']).trim()).toBe(project.head)
+      expect(lib.git(project.d, 'rev-parse HEAD').trim()).toBe(project.head)
+      // The build's command gets the allowlist: a Node with that NODE_OPTIONS wouldn't start at all.
+      const out = join(tmp, 'build-env.json')
+      writeFileSync(join(tmp, 'build.cjs'), `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.env))\n`)
+      devBuild(project.d, { command: `"${process.execPath}" "${join(tmp, 'build.cjs')}"` })
+      const env = JSON.parse(readFileSync(out, 'utf8')) as Env
+      for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'NODE_OPTIONS']) expect(has(env, k), k).toBe(false)
+      expect(has(env, 'PATH')).toBe(true)
+      // And a failed build throws with its exit code.
+      expect(() => devBuild(project.d, { command: `"${process.execPath}" -e "process.exit(3)"` })).toThrow(/exit 3/)
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("the concurrency checker's temporary worktrees: each invocation's own (tempWorktrees.mjs, #207)", () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'hive-tempwt-'))
+  afterAll(() => {
+    // Junctions first (rmdir removes only the link), as the module does.
+    for (const base of readdirSync(tmp).filter((n) => n.startsWith('concurrency')))
+      for (const run of readdirSync(join(tmp, base))) {
+        const nm = join(tmp, base, run, 'worktree', 'node_modules')
+        if (existsSync(nm)) execFileSync('cmd.exe', ['/c', 'rmdir', nm], { stdio: 'ignore', env: ctx.baseEnv() })
+      }
+    rmSync(tmp, { recursive: true, force: true })
+  })
+  const ctx = createRequire(import.meta.url)('./e2e/runContext.cjs') as { baseEnv: () => Record<string, string> }
+  const git = (cwd: string, ...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd, encoding: 'utf8', env: ctx.baseEnv() })
+  /** A checkout with a commit, an uncommitted change, an untracked file and a node_modules (with electron, or not). */
+  const checkout = (name: string, electron = true) => {
+    const d = join(tmp, name)
+    mkdirSync(join(d, 'node_modules', electron ? 'electron' : 'other'), { recursive: true })
+    writeFileSync(join(d, '.gitignore'), 'node_modules/\n')
+    writeFileSync(join(d, 'a.txt'), 'one\n')
+    git(d, 'init', '-q')
+    git(d, 'add', '.')
+    git(d, 'commit', '-qm', 'init')
+    writeFileSync(join(d, 'a.txt'), 'two\n')
+    writeFileSync(join(d, 'new.txt'), 'new\n')
+    return d
+  }
+  const registered = (repo: string) => git(repo, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ')).length - 1
+
+  it('two invocations get folders of their own; removing one leaves the other\'s worktree, junction and registration', async () => {
+    const repo = checkout('repo')
+    const base = join(tmp, 'concurrency')
+    const a = invocationDir({ base, owner: 101 })
+    const b = invocationDir({ base, owner: 101 })
+    expect(a).not.toBe(b)
+    expect(JSON.parse(readFileSync(join(a, 'owner.json'), 'utf8'))).toMatchObject({ pid: 101 })
+    const wa = addWorktree(repo, a, 'worktree')
+    const wb = addWorktree(repo, b, 'worktree')
+    expect(wa).not.toBe(wb)
+    // Each is repo's HEAD with its uncommitted changes, sharing its node_modules.
+    for (const w of [wa, wb]) {
+      // (Line endings as the machine's git config checks files out.)
+      expect(readFileSync(join(w, 'a.txt'), 'utf8')).toMatch(/^two\r?\n$/)
+      expect(readFileSync(join(w, 'new.txt'), 'utf8')).toBe('new\n')
+      expect(existsSync(join(w, 'node_modules', 'electron'))).toBe(true)
+    }
+    expect(registered(repo)).toBe(2)
+    removeInvocation(repo, a)
+    expect(existsSync(a)).toBe(false)
+    expect(existsSync(join(wb, 'node_modules', 'electron')) && existsSync(join(wb, 'a.txt'))).toBe(true)
+    expect(registered(repo)).toBe(1)
+    // The junction went, never what it pointed to.
+    expect(existsSync(join(repo, 'node_modules', 'electron'))).toBe(true)
+    removeInvocation(repo, b)
+    expect(registered(repo)).toBe(0)
+  })
+
+  it('a setup that fails part way leaves no worktree registered or folder behind, and nothing outside its folder is removed', () => {
+    const repo = checkout('no-electron', false)
+    const own = invocationDir({ base: join(tmp, 'concurrency2'), owner: 102 })
+    expect(() => addWorktree(repo, own, 'worktree')).toThrow(/Couldn't link node_modules/)
+    expect(registered(repo)).toBe(0)
+    expect(existsSync(join(own, 'worktree'))).toBe(false)
+    expect(existsSync(join(repo, 'node_modules', 'other'))).toBe(true)
+    expect(() => removeWorktree(repo, own, join(tmp, 'repo'))).toThrow(/isn't in this checker's folder/)
+  })
+
+  it("the next checker removes a gone checker's folder (junction first), and leaves a live or kept one", () => {
+    const repo = checkout('stale-repo')
+    const base = join(tmp, 'concurrency3')
+    const gone = invocationDir({ base, owner: 201 })
+    const live = invocationDir({ base, owner: 202 })
+    const kept = invocationDir({ base, owner: 203 })
+    for (const d of [gone, live, kept]) addWorktree(repo, d, 'worktree')
+    keepDir(kept)
+    const alive = (pid: number) => pid === 202
+    expect(removeStale(repo, { base, alive })).toEqual([gone])
+    expect(existsSync(gone)).toBe(false)
+    expect(existsSync(join(live, 'worktree', 'node_modules', 'electron')) && existsSync(join(kept, 'worktree', 'a.txt'))).toBe(true)
+    expect(existsSync(join(repo, 'node_modules', 'electron'))).toBe(true)
+    // Its registration is pruned in this checkout; the other two stay.
+    expect(registered(repo)).toBe(2)
+  })
 })
 
 describe('the build lock: runners started together in one worktree build it once (build.mjs, #200)', () => {
@@ -1232,6 +1393,21 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
     for (const bad of ['0', '-1', '1.5', 'x', '']) expect(heavySlots({ HIVE_TEST_HEAVY_SLOTS: bad })).toBe(2)
     expect(parseArgs(['--all', '--no-wait'], names)).toMatchObject({ all: true, noWait: true })
     expect(parseArgs(['--all'], names)).toMatchObject({ noWait: false })
+  })
+
+  it('a heavy run started inside a suite waits for no slot, e2e or scenarios: its parent holds one (#211)', () => {
+    const heavy = { count: 1, repeat: 2 }
+    expect(needsSlot(heavy, {})).toBe(true)
+    expect(needsSlot({ count: 3 }, {})).toBe(false)
+    // In a suite's own environment, and in the agent shell of a test Hive it started (which keeps only E2E_RUN_*).
+    expect(needsSlot(heavy, { HIVE_E2E_PORT: '47950', E2E_RUN_SUITE: 'progressreport' })).toBe(false)
+    expect(needsSlot(heavy, { E2E_RUN_SUITE: 'progressreport', E2E_RUN_DIR: 'C:\\lanes\\0', E2E_RUN_PORT: '47950' })).toBe(false)
+    // Both runners ask needsSlot, never isHeavy alone (the scenario runner did, and queued behind its parent).
+    for (const f of ['e2e/run.mjs', 'scenarios/run.mjs']) {
+      const src = readFileSync(join(__dirname, f), 'utf8')
+      expect(src, f).toMatch(/if \(needsSlot\(\{ count: chosen\.length, repeat: \w+(\.repeat)? \}\)\) \{/)
+      expect(src, f).not.toMatch(/\bisHeavy\b/)
+    }
   })
 
   it('two take the slots; the others wait in the order they asked, and the first to ask gets the next free one', async () => {

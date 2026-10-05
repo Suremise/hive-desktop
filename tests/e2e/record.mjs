@@ -5,7 +5,10 @@
 import { createHash } from 'crypto'
 import { execFileSync } from 'child_process'
 import { readFileSync, existsSync } from 'fs'
+import { createRequire } from 'module'
 import { join } from 'path'
+
+const runContext = createRequire(import.meta.url)('./runContext.cjs')
 
 /** Not code under test: builds used to rewrite it with only line-ending changes (fixed by #148), and a checkout without that fix still does. */
 const NOT_CODE = ['THIRD_PARTY_NOTICES.md']
@@ -16,7 +19,7 @@ const NOT_CODE = ['THIRD_PARTY_NOTICES.md']
  */
 export function fingerprint(root = process.cwd()) {
   // core.safecrlf=false: no "LF will be replaced by CRLF" warnings in the runner's output.
-  const git = (...a) => execFileSync('git', ['-c', 'core.safecrlf=false', ...a], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] })
+  const git = (...a) => execFileSync('git', ['-c', 'core.safecrlf=false', ...a], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], env: runContext.baseEnv() })
   const head = git('rev-parse', '--short=12', 'HEAD').trim()
   const tracked = git('diff', 'HEAD', '--name-only').split(/\r?\n/).filter(Boolean)
   const untracked = git('ls-files', '--others', '--exclude-standard').split(/\r?\n/).filter(Boolean)

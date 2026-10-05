@@ -25,7 +25,7 @@ Ask if the role or the cards aren't clear.
 Wait with `hive_wait_for_tasks`, `wake: true`:
 - builder: the card, `changes: ["verdict", "column"]`, `column: "done"` (a review's verdict, or the card moved into Done);
 - reviewer, a new card: the card, `column: "review"` (only its arrival in Review counts, not the builder's comments; at once if it's already there);
-- reviewer, after failing a card: the card, `column: "review"`, `changes: ["column"]` (it comes back to Review: it's still there now, so this waits for the builder to move it out and back);
+- reviewer, after failing a card: the card, `column: "review"`, `changes: ["column"]` (it comes back to Review: it's still there now, so this waits for the builder to move it out and back, or to return it for review);
 - `limitMinutes`: the run's wait.
 
 **Start the watch before the step that lets the other side act**, so a quick answer isn't missed: the builder just before moving the card to Review, the reviewer just before posting a failed verdict. Your own move doesn't wake you. Then finish that step and **end your turn**, saying what you're waiting for. Don't poll, don't sleep in a command, and don't start other work: Hive types one line into your session when the card changes ("[Hive] #12 is in Review: Codex failed it; latest comment by …"), or when the wait passes with no change.
@@ -44,7 +44,7 @@ For each card, in order:
 1. Do its work with the **work-on-card** skill: Doing first. Just before moving it to Review, start the watch for its verdict (above); then move it to Review with a summary comment and end your turn.
 2. Hive wakes you with the verdict.
 3. **Passed** (a passing verdict, or moved to Done): take the next card.
-4. **Failed**: if the card has now failed as many reviews as **rounds** (with rounds: 2, its second failed review), that was its last round: don't fix it, stop and ask (below). Otherwise fix the **blocking** findings, comment on what changed, start the watch again, and move it to Review: the next round. Suggestions that aren't blocking can become follow-up cards (`hive_create_task`) rather than another round.
+4. **Failed**: if the card has now failed as many reviews as **rounds** (with rounds: 2, its second failed review), that was its last round: don't fix it, stop and ask (below). Otherwise move it to Doing, fix the **blocking** findings, comment on what changed, start the watch again, and move it back to Review: the next round, which wakes the reviewer (a failed card moved to Review without leaving it is returned for review, which wakes it too). Suggestions that aren't blocking can become follow-up cards (`hive_create_task`) rather than another round.
 
 **Checks in a round:** each move to Review carries a run record (work-on-card). After a round's fixes, rerun the checks those fixes affect (the project's notes may have a way to pick them), not every check again; but before a card can pass, the card's full checks must have run on its final code. The reviewer trusts the record and adds its own probes (review-agent-work).
 

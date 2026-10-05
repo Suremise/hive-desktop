@@ -54,15 +54,78 @@ function uniqueName(dir: string, name: string): string {
   }
 }
 
-async function ignoredSet(projectPath: string, rels: string[]): Promise<Set<string>> {
+/** check-ignore's tries when git can't open or read the index (another git command is rewriting it), and the pause. */
+export const IGNORE_TRIES = 4
+const IGNORE_RETRY_MS = 50
+/** Git couldn't read the index for a moment: worth trying again (#222). */
+const INDEX_BUSY = /index file open failed|unable to (open|read|create).*index|could not read.*index|index\.lock|index file smaller than expected|bad index file/i
+const NOT_A_REPO = /not a git repository/i
+
+/**
+ * The entries git ignores, or null when git couldn't say (#222). check-ignore exits 0 (some ignored) or 1 (none); a
+ * failure (128) used to read as "none ignored", so a listing made while another git command rewrote the index (a
+ * user's `git add`, an agent's commit) showed ignored folders undimmed. A busy index is tried again briefly; outside
+ * a repository nothing is ignored.
+ */
+async function ignoredSet(projectPath: string, rels: string[]): Promise<Set<string> | null> {
   const out = new Set<string>()
   // Chunked to stay under the Windows command-line limit.
   for (let i = 0; i < rels.length; i += 200) {
     // -z needs --stdin, which the helper does not support, so read one path per line.
-    const r = await git(projectPath, ['check-ignore', '--', ...rels.slice(i, i + 200)])
+    const args = ['check-ignore', '--', ...rels.slice(i, i + 200)]
+    let r = await git(projectPath, args)
+    for (let t = 1; t < IGNORE_TRIES && r.code !== 0 && r.code !== 1 && INDEX_BUSY.test(r.err); t++) {
+      await new Promise((res) => setTimeout(res, IGNORE_RETRY_MS))
+      r = await git(projectPath, args)
+    }
+    if (r.code !== 0 && r.code !== 1) {
+      if (NOT_A_REPO.test(r.err)) return new Set()
+      ignoreFailed(projectPath, r.err)
+      return null
+    }
     for (const p of r.out.split(/\r?\n/)) if (p) out.add(p.replace(/\/$/, ''))
   }
   return out
+}
+
+/** Projects whose check-ignore failure has been logged (once each). */
+const loggedIgnore = new Set<string>()
+function ignoreFailed(projectPath: string, err: string): void {
+  const key = projectPath.toLowerCase()
+  if (loggedIgnore.has(key) || loggedIgnore.size >= 100) return
+  loggedIgnore.add(key)
+  log.warn(`git check-ignore failed in ${userText(projectPath)}; showing the last known ignored state and listing again: ${userText(err.slice(0, 200))}`)
+}
+
+/**
+ * The ignored entries of the folders listed last (a bounded memory: the most recently listed 500), kept for a listing
+ * whose check-ignore failed: it shows them as they were rather than undimmed, and the folder is listed again shortly
+ * (at most RELIST_MAX times in a row while it keeps failing).
+ */
+const lastIgnored = new Map<string, Set<string>>()
+const LAST_IGNORED_MAX = 500
+/** Folders whose listing failed to check what is ignored: a re-list pending, and how many in a row so far. */
+const relists = new Map<string, { pending: boolean; count: number }>()
+export const RELIST_MAX = 3
+const RELIST_MS = 500
+
+function rememberIgnored(key: string, ignored: Set<string>): void {
+  relists.delete(key)
+  lastIgnored.delete(key)
+  lastIgnored.set(key, ignored)
+  if (lastIgnored.size > LAST_IGNORED_MAX) lastIgnored.delete(lastIgnored.keys().next().value!)
+}
+
+function relistLater(projectPath: string, rel: string, key: string): void {
+  const r = relists.get(key) ?? { pending: false, count: 0 }
+  if (r.pending || r.count >= RELIST_MAX || (!relists.has(key) && relists.size >= LAST_IGNORED_MAX)) return
+  relists.set(key, { pending: true, count: r.count + 1 })
+  setTimeout(() => {
+    const now = relists.get(key)
+    if (!now?.pending) return
+    now.pending = false
+    emit({ type: 'files-changed', projectPath, dirs: [rel] })
+  }, RELIST_MS).unref?.()
 }
 
 export async function listDir(projectPath: string, rel: string): Promise<FileEntry[]> {
@@ -77,10 +140,17 @@ export async function listDir(projectPath: string, rel: string): Promise<FileEnt
     if (!s) continue
     out.push({ name: e.name, relPath: toRel(projectPath, abs), isDir: s.isDirectory(), size: s.size, modified: s.mtime.toISOString(), ignored: false })
   }
-  const ignored = await ignoredSet(
+  const key = `${projectPath.toLowerCase()}\0${toRel(projectPath, dir)}`
+  let ignored = await ignoredSet(
     projectPath,
     out.map((f) => (f.isDir ? `${f.relPath}/` : f.relPath))
   )
+  if (ignored) rememberIgnored(key, ignored)
+  else {
+    // Git couldn't say: as last known (nothing for a folder not listed before), and listed again shortly.
+    ignored = lastIgnored.get(key) ?? new Set()
+    relistLater(projectPath, toRel(projectPath, dir), key)
+  }
   for (const f of out) f.ignored = ignored.has(f.relPath) || f.relPath === HIVE_DIR || f.relPath.startsWith(`${HIVE_DIR}/`)
   return out.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }) : a.isDir ? -1 : 1))
 }

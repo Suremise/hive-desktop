@@ -6,6 +6,9 @@
 // when a merge also needs the real tier. tests/e2esuites.test.ts checks that every suite is in an area and every
 // source file is covered.
 import { execFileSync } from 'child_process'
+import { createRequire } from 'module'
+
+const runContext = createRequire(import.meta.url)('./runContext.cjs')
 
 /** Changes to these touch everything (the IPC contract, types, the store, the shell, the test harness): every suite. */
 export const EVERYTHING = [
@@ -220,7 +223,7 @@ export function affectedSuites(files, suiteNames, realNames = []) {
 
 /** The files changed against a base (default main): committed since the merge base, uncommitted and untracked. */
 export function changedFiles(base = 'main', cwd = process.cwd()) {
-  const git = (...a) => execFileSync('git', a, { cwd, encoding: 'utf8' }).split(/\r?\n/).filter(Boolean)
+  const git = (...a) => execFileSync('git', a, { cwd, encoding: 'utf8', env: runContext.baseEnv() }).split(/\r?\n/).filter(Boolean)
   const mergeBase = git('merge-base', base, 'HEAD')[0]
   return [...new Set([...git('diff', '--name-only', mergeBase), ...git('ls-files', '--others', '--exclude-standard')])]
 }

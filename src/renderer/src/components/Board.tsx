@@ -8,6 +8,7 @@ import { selectProject } from '../actions'
 import { cx, timeAgo } from '../util'
 import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
 import { formatDateTime } from '@shared/dates'
+import { returnRound } from '@shared/watch'
 import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, STATUS_TEXT, statusText, Tooltip, useBusy, useContextMenu, type MenuEntry } from './ui'
 import { ProviderIcon } from './ProviderIcon'
 
@@ -86,6 +87,8 @@ function cardMenu(c: TaskCard): MenuEntry[] {
           { separator: true },
           { header: true, label: 'Move to' },
           ...TASK_COLUMNS.filter((x) => x.id !== c.column).map((x) => ({ label: x.label, icon: 'arrow-right', onClick: () => (x.id === 'doing' ? moveToDoing({ n: c.number, project: c.project, agent: c.agent }) : void change(c.number, { column: x.id })) })),
+          // A failed card still in Review goes back to its reviewer for the next round (#214).
+          ...(returnRound(c) ? [{ label: 'Review (next round)', icon: 'refresh', onClick: () => void change(c.number, { column: 'review' }) }] : []),
           { separator: true }
         ]),
     { label: c.archived ? 'Bring Back' : 'Archive', icon: c.archived ? 'discard' : 'archive', onClick: () => void archive(c, !c.archived) },

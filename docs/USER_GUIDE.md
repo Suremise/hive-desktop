@@ -322,6 +322,8 @@ The cards are kept in `.hive/tasks`, one file each, so a workspace you commit sh
 
 Two agents can take a list of cards in turn, one building and one reviewing, without you passing each card between them. Tell one agent *"work through #111 to #117 as the builder"* and another *"review #111 to #117 as they come in"*. Both use Hive's **card-loop** skill. The builder does a card and moves it to Review. The reviewer reviews it and passes it, or sends it back with findings; the builder fixes them and moves it to Review again. When a card passes, the builder starts the next one.
 
+A card sent back with findings stays in Review. The builder moves it to Doing while it fixes them, then back to Review; if it moves it to Review without it leaving, the card is **returned for review** all the same (*Returned for review, round 2* in its history) and the reviewer is woken. You can return such a card yourself: right-click it → **Move to → Review (next round)**.
+
 - **Waiting costs nothing.** While one agent waits for the other, it isn't running: it ends its turn and Hive wakes it with a short line when the card changes (*"[Hive] #112 is in Review; latest comment by Codex…"*). The agent shows a blue ring in the sidebar and **Waiting for #112 → Review** in its pane header.
 - **Cancel** in the pane header ends the wait (also **Cancel Card Watch** in the agent's **⋯** menu). Typing to the agent doesn't, and Hive doesn't wake it while you're typing there. A waiting agent takes no other work: the Assistant won't prompt it and **Start…** can't choose it.
 - **How long it waits.** With no change for two hours, Hive wakes the agent, which tells you. Say *"wait: 4h"* for longer, up to a day.
@@ -496,6 +498,8 @@ The **Images** tab shows every screenshot and image pasted or dropped into the p
 ## Changes
 
 The **Changes** tab lists files changed in the project's git working tree and shows each one as a side-by-side diff against the last commit — a quick way to review what the agent did.
+
+Hive checks your projects' git status in the background (this tab, branch status, the Files tab's dimmed entries) without writing to the repository's index, so your own `git add` or `git commit`, or an agent's, never fails with *"index.lock: File exists"* because of it. Hive's own git actions, such as **Merge**, still update it as git does. If git is busy when the Files tab lists a folder, ignored entries keep their dimming and the folder is listed again a moment later.
 
 ## Project settings
 

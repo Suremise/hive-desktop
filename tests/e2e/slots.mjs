@@ -2,7 +2,8 @@
 // repeats, scenario runs) slowed each other until tests timed out: the flakes were the load, not the code. So at most
 // a few heavy runs go at once across every worktree (HIVE_TEST_HEAVY_SLOTS, default 2); a heavy run started while
 // they are all taken waits for one, in the order the runs asked, saying who holds them (and in Hive's Progress panel).
-// A run that isn't heavy (a few suites, a single scenario) never waits, nor does a runner started inside a suite.
+// A run that isn't heavy (a few suites, a single scenario) never waits, nor does a runner started inside a suite, e2e or
+// scenarios (needsSlot): its parent's run holds a slot, and waiting behind it would never end (#211).
 //
 // Claims are files in a folder of the run context (runContext.HEAVY_DIR), as lanes are (lanes.mjs): `slot-<k>.json`
 // for a run holding a slot and `wait-<pid>.json` for one waiting (when it asked), each with its runner's process id,
@@ -11,6 +12,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { processAlive } from './logs.mjs'
 import { claimHeld, withLock } from './lanes.mjs'
+import { parentSuite } from './runner.mjs'
 
 /** Heavy runs at once, unless HIVE_TEST_HEAVY_SLOTS says otherwise. */
 export const DEFAULT_SLOTS = 2
@@ -26,6 +28,17 @@ export function heavySlots(env = process.env) {
 /** Whether a run is heavy: more than HEAVY_OVER suites or scenarios, or run more than once (--repeat). */
 export function isHeavy({ count, repeat = 1 }) {
   return repeat > 1 || count > HEAVY_OVER
+}
+
+/**
+ * Whether a run waits for a test slot (both runners ask): a heavy one, unless it was started inside a suite
+ * (runner.mjs parentSuite: a suite's agent shell, say). That run's load is its parent's, whose slot counts it; waiting
+ * for a slot the parent holds would never end, and --no-wait would refuse it (#211). Only the slot is skipped: a nested
+ * e2e runner still keeps to its parent's nested folder and ports above the parent's, and a nested scenario run still
+ * claims a lane of its own (lanes.mjs), so neither shares folders or ports with its parent.
+ */
+export function needsSlot({ count, repeat = 1 }, env = process.env) {
+  return isHeavy({ count, repeat }) && !parentSuite(env)
 }
 
 /** The claims in dir whose names start with prefix: [{ file, claim }] (an unreadable one is { claim: null }). */

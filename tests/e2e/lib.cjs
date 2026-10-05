@@ -11,7 +11,7 @@ const { execFileSync, execSync } = require('child_process')
 const { _electron } = require('playwright-core')
 
 // The run context (runContext.cjs): the environments of everything a suite starts, its folders and the CLI test homes.
-const { WORK, CODEX_HOME, hiveEnv, childEnv, isHiveEnv } = require('./runContext.cjs')
+const { WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, isHiveEnv } = require('./runContext.cjs')
 
 const ROOT = path.resolve(__dirname, '..', '..')
 /** Electron's executable (the electron package resolves to its path in plain Node). */
@@ -443,7 +443,7 @@ function git(cwd, cmd, { timeoutMs = 15_000, ...opts } = {}) {
   for (;;) {
     try {
       const o = { cwd, encoding: 'utf8', stdio: 'pipe', ...opts }
-      const out = Array.isArray(cmd) ? execFileSync('git', cmd, o) : execSync(`git ${cmd}`, o)
+      const out = Array.isArray(cmd) ? execFileSync('git', cmd, { env: baseEnv(), ...o }) : execSync(`git ${cmd}`, { env: baseEnv(), ...o })
       // Said in the suite's log, so a run shows how often the race happens.
       if (tries) console.log(`(git ${Array.isArray(cmd) ? cmd.join(' ') : cmd}: waited ${Date.now() - start} ms for another git's lock)`)
       return out
@@ -459,7 +459,7 @@ function git(cwd, cmd, { timeoutMs = 15_000, ...opts } = {}) {
 function gitProject(dir, files = { 'a.ts': 'export const a = 1\n' }) {
   fs.mkdirSync(dir, { recursive: true })
   for (const [f, text] of Object.entries(files)) fs.writeFileSync(path.join(dir, f), text)
-  const run = (...a) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd: dir })
+  const run = (...a) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd: dir, env: baseEnv() })
   run('init', '-q')
   run('add', '.')
   run('commit', '-qm', 'init')
@@ -470,7 +470,7 @@ function gitProject(dir, files = { 'a.ts': 'export const a = 1\n' }) {
  * token to its log). For tests that call the hook server the way Codex does.
  */
 function codexHook(runId) {
-  const out = execFileSync('powershell.exe', ['-NoProfile', '-Command', "Get-CimInstance Win32_Process -Filter \"Name='codex.exe'\" | ForEach-Object { $_.CommandLine }"], { encoding: 'utf8' })
+  const out = execFileSync('powershell.exe', ['-NoProfile', '-Command', "Get-CimInstance Win32_Process -Filter \"Name='codex.exe'\" | ForEach-Object { $_.CommandLine }"], { encoding: 'utf8', env: baseEnv() })
   const line = out.split(/\r?\n/).find((l) => l.includes(`run=${runId}`))
   if (!line) return null
   const token = /Bearer ([0-9a-f]{16,})/.exec(line)?.[1]
@@ -527,4 +527,4 @@ function hadEstimate(run) {
   return typeof run?.estimateMs === 'number'
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, git, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, git, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
