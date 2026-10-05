@@ -30,7 +30,7 @@ Wait with `hive_wait_for_tasks`, `wake: true`:
 
 **Start the watch before the step that lets the other side act**, so a quick answer isn't missed: the builder just before moving the card to Review, the reviewer just before posting a failed verdict. Your own move doesn't wake you. Then finish that step and **end your turn**, saying what you're waiting for. Don't poll, don't sleep in a command, and don't start other work: Hive types one line into your session when the card changes ("[Hive] #12 is in Review: Codex failed it; latest comment by …"), or when the wait passes with no change.
 
-When woken, read only what you need: `hive_read_task` with `latestComment: true` (or `comments: n` for the last few). Read the whole card again only when the comment says to.
+When woken, read only what you need: `hive_read_task` with `latestComment: true` (or `comments: n` for the last few). Read the whole card again only when the comment says to. The line names every watched card that changed; when you wait on more than one (cards reviewed together), check each one's column and latest verdict before watching again, not only the one you expected, and watch them all in one watch.
 
 If a wake isn't possible (the tool says so), wait in the call instead: `hive_wait_for_tasks` without `wake`, `timeoutSeconds` up to 840, and pass the reply's `since` to the next call.
 

@@ -95,6 +95,110 @@ export function movedIntoSince(card: TaskCard | null, column: TaskColumn, since:
   return card.history.some((h) => h.at > since && re.test(h.what))
 }
 
+/** History that puts a card in a column, and which. */
+const INTO_COLUMN = /^(?:Moved to (?:the (?:top|bottom) of )?|Created in )(Todo|Doing|Review|Done)\b|^(Returned for review)\b/
+const COLUMN_OF: Record<string, TaskColumn> = { Todo: 'todo', Doing: 'doing', Review: 'review', Done: 'done' }
+const intoColumn = (what: string): TaskColumn | null => {
+  const m = INTO_COLUMN.exec(what)
+  return m ? (m[2] ? 'review' : COLUMN_OF[m[1]]) : null
+}
+const HANDS = /^(Given to|Taken from)\b/
+
+/**
+ * Where a watch's view of a card's history or comments ends (#224): the last entry it counted. By the entry's id
+ * (`id:…`), which is unique on the card; for an entry from before ids, by its time, a short hash of who and what, and
+ * its place (`<at>|<hash>|<place>`). Times alone can't order them: two entries can share a millisecond, also alike.
+ */
+export type EntryKey = string
+type Entry = { at: string; by: string; what?: string; text?: string; id?: string }
+const ID = /^[0-9a-f]{6,32}$/
+const hasId = (e: Entry): boolean => typeof e.id === 'string' && ID.test(e.id)
+const fnv = (s: string): string => {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0
+  return h.toString(16).padStart(8, '0')
+}
+const hashOf = (e: Entry): string => fnv(`${e.by}\n${e.what ?? e.text ?? ''}`)
+const keyAt = (list: Entry[], i: number): EntryKey => {
+  const e = list[i]
+  return hasId(e) ? `id:${e.id}` : `${e.at}|${hashOf(e)}|${i + 1}`
+}
+export const ENTRY_KEY = /^(id:[0-9a-f]{6,32}|[0-9TZ:.+-]{1,40}\|[0-9a-f]{8}\|\d{1,6})$/
+
+/** Where a watch's view of a card ends: the last history entry and comment it had seen (null: none yet). */
+export interface Seen {
+  h: EntryKey | null
+  c: EntryKey | null
+}
+export const seenOf = (card: TaskCard): Seen => ({ h: card.history.length ? keyAt(card.history, card.history.length - 1) : null, c: card.comments.length ? keyAt(card.comments, card.comments.length - 1) : null })
+
+/**
+ * The entries after the one `key` names (all of them for null). A card's history and comments only grow at the end and
+ * are capped at the start, so when that entry is no longer kept, every entry still kept came after it.
+ */
+function entriesAfter<T extends Entry>(list: T[], key: EntryKey | null): T[] {
+  if (!key) return list
+  if (key.startsWith('id:')) {
+    const id = key.slice(3)
+    const i = list.findIndex((e) => e.id === id)
+    return i >= 0 ? list.slice(i + 1) : list
+  }
+  // An entry from before ids: at its place if it is still there, else the last one like it.
+  const [at, hash, place] = key.split('|')
+  const like = (e: T): boolean => !hasId(e) && e.at === at && hashOf(e) === hash
+  const p = Number(place)
+  if (p >= 1 && p <= list.length && like(list[p - 1])) return list.slice(p)
+  for (let i = list.length - 1; i >= 0; i--) if (like(list[i])) return list.slice(i + 1)
+  return list
+}
+
+/** A watch's starting point for a card: the card's mark, and where its view of the card ended. */
+export interface Baseline {
+  mark: CardMark
+  seen: Seen
+}
+
+/**
+ * A card's starting point for a watch an agent starts after a wake (#224): the card as that wake told it (`told`), moved
+ * on, kind by kind, past what the agent (`self`, by its board name) did itself since, which it knows, unless someone else
+ * made the same kind of change meanwhile. Anything else that happened since stays new to the watch, whatever its time.
+ */
+export function carriedOver(card: TaskCard, told: Baseline, self: string): CardMark {
+  const h = entriesAfter(card.history, told.seen.h)
+  const c = entriesAfter(card.comments, told.seen.c)
+  const own = <T extends { by: string }>(xs: T[]): boolean => xs.length > 0 && xs.every((x) => x.by === self)
+  const now = markOf(card)
+  return {
+    column: own(h.filter((e) => intoColumn(e.what))) ? now.column : told.mark.column,
+    comment: own(c) ? now.comment : told.mark.comment,
+    verdict: own(h.filter((e) => VERDICT.test(e.what))) ? now.verdict : told.mark.verdict,
+    agent: own(h.filter((e) => HANDS.test(e.what))) ? now.agent : told.mark.agent,
+    archived: told.mark.archived
+  }
+}
+
+/**
+ * What changed on one card since a watch's starting point (`base`), of the kinds that count (a card gone or archived
+ * always counts): its column and agent against the starting mark; comments, verdicts and moves into a column by the
+ * entries after where its view ended, so none is missed for sharing a millisecond with one already seen (#224). What
+ * the watcher (`self`) did itself before the watch began (`since`) isn't news.
+ */
+export function changesSince(card: TaskCard | null, base: Baseline & { since: string; self?: string }, cond: Pick<WatchCondition, 'changes' | 'column' | 'moveInto'>): WatchChange[] | 'gone' {
+  const now = markOf(card)
+  if (!card || now.column === 'gone' || (now.archived && !base.mark.archived)) return 'gone'
+  const kinds = new Set(cond.changes.length ? cond.changes : WATCH_CHANGES)
+  const news = <T extends { at: string; by: string }>(xs: T[]): T[] => (base.self ? xs.filter((x) => !(x.by === base.self && x.at <= base.since)) : xs)
+  const h = news(entriesAfter(card.history, base.seen.h))
+  const c = news(entriesAfter(card.comments, base.seen.c))
+  const out: WatchChange[] = []
+  const moved = !!cond.moveInto && !!cond.column && h.some((e) => intoColumn(e.what) === cond.column)
+  if (kinds.has('column') && (now.column !== base.mark.column || moved) && (!cond.column || now.column === cond.column)) out.push('column')
+  if (kinds.has('comment') && c.length) out.push('comment')
+  if (kinds.has('verdict') && h.some((e) => VERDICT.test(e.what))) out.push('verdict')
+  if (kinds.has('agent') && now.agent !== base.mark.agent) out.push('agent')
+  return out
+}
+
 /** A card's return for review in its history: "Returned for review, round 2". */
 const RETURNED = /^Returned for review, round (\d+)/
 
@@ -247,20 +351,8 @@ const columnWord = (c: TaskColumn | 'gone'): string => (c === 'gone' ? 'gone' : 
  * comment's author and first line, then what to do. Kept to one short line (the CLI sends a new line at once).
  */
 export function wakeLine(change: CardChange, more = 0): string {
-  const about = change.about
-  // Gone also covers a card moved out of what the agent may see (another project): nothing about it is said then.
-  const owner = about?.owner && change.changes !== 'gone' ? ` (${shortName(about.owner)}'s card)` : ''
-  const verdict = about?.verdict ? `: ${shortName(about.verdict.by)} ${about.verdict.passed ? 'passed' : 'failed'} it` : ''
-  // Done means the review passed (or the user moved it there), not that the work is merged.
-  const merged = about?.owner && change.column === 'done' ? " (Done isn't merged)" : ''
-  const where =
-    change.changes === 'gone'
-      ? ' is gone from your board (archived, deleted or moved to another project)'
-      : about?.returned
-        ? `${owner} was returned for review (round ${about.returned})${verdict}`
-        : `${owner} is in ${columnWord(change.column)}${verdict}${merged}`
   const others = more ? ` (and ${more} more watched card${more === 1 ? '' : 's'} changed)` : ''
-  const head = `[Hive] #${change.number}${where}`
+  const head = `[Hive] #${change.number}${whereNow(change)}`
   const tail = `${others}. Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).`
   if (!change.comment) return head + tail
   // The card, its state and what to do always fit (names are short); the comment's first line gives way, cut with "…".
@@ -270,6 +362,44 @@ export function wakeLine(change: CardChange, more = 0): string {
   if (jsonBytes(line(false)) <= WAKE_MAX_BYTES) return line(false)
   while (text.length && jsonBytes(line(true)) > WAKE_MAX_BYTES) text = text.slice(0, -1)
   return line(true)
+}
+
+/** A card's part of a wake line after its number: whose it is, where it is now and the verdict that put it there. */
+function whereNow(change: CardChange): string {
+  const about = change.about
+  // Gone also covers a card moved out of what the agent may see (another project): nothing about it is said then.
+  if (change.changes === 'gone') return ' is gone from your board (archived, deleted or moved to another project)'
+  const owner = about?.owner ? ` (${shortName(about.owner)}'s card)` : ''
+  const verdict = about?.verdict ? `: ${shortName(about.verdict.by)} ${about.verdict.passed ? 'passed' : 'failed'} it` : ''
+  // Done means the review passed (or the user moved it there), not that the work is merged.
+  const merged = about?.owner && change.column === 'done' ? " (Done isn't merged)" : ''
+  return about?.returned ? `${owner} was returned for review (round ${about.returned})${verdict}` : `${owner} is in ${columnWord(change.column)}${verdict}${merged}`
+}
+
+/**
+ * The line that wakes an agent for every watched card that changed (#224): one card as wakeLine says it; several, each
+ * with where it is now and its verdict, so a second change that landed with the first isn't lost ("#217 is in Review:
+ * Codex passed it; #119 is in Review: Codex failed it"). Comments' first lines give way first, then cards past the
+ * line's size are counted ("and 2 more"), never cut mid-way.
+ */
+export function wakeLines(changes: CardChange[]): string {
+  if (changes.length <= 1) return changes.length ? wakeLine(changes[0]) : ''
+  const tail = '. Your card watch has ended: carry on (hive_read_task with latestComment on each card for its comment in full).'
+  const part = (c: CardChange, max: number): string => {
+    const head = `#${c.number}${whereNow(c)}`
+    if (!c.comment || max <= 0 || c.changes === 'gone') return head
+    const t = [...c.comment.firstLine]
+    return `${head} (latest comment by ${shortName(c.comment.by)}: "${t.length > max ? `${t.slice(0, max - 1).join('')}…` : t.join('')}")`
+  }
+  const line = (shown: CardChange[], max: number): string => {
+    const more = changes.length - shown.length
+    return `[Hive] ${shown.map((c) => part(c, max)).join('; ')}${more ? ` (and ${more} more watched card${more === 1 ? '' : 's'} changed)` : ''}${tail}`
+  }
+  for (let shown = changes.length; shown >= 1; shown--) {
+    const list = changes.slice(0, shown)
+    for (const max of [160, 80, 40, 0]) if (jsonBytes(line(list, max)) <= WAKE_MAX_BYTES) return line(list, max)
+  }
+  return line(changes.slice(0, 1), 0)
 }
 
 /** The line Hive types when a watch's overall limit passes with no change. */
