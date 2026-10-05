@@ -184,6 +184,9 @@ interface State {
   updateOpen: boolean
   /** The Agent Setup dialog, open at a provider (or at the first one). */
   setupOpen: ProviderId | true | false
+  /** Repair… for a moved workspace (#146), and the move whose banner was hidden (until Hive restarts). */
+  moveRepairOpen: boolean
+  moveBannerHidden: string | null
   shortcutsOpen: boolean
   dialog: DialogRequest | null
   /** Sessions listed in the quit dialog while main waits for a decision. */
@@ -328,6 +331,8 @@ export const useStore = create<State>(() => ({
   update: null,
   updateOpen: false,
   setupOpen: false,
+  moveRepairOpen: false,
+  moveBannerHidden: null,
   shortcutsOpen: false,
   dialog: null,
   quitRequest: null,

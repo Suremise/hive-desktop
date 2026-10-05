@@ -688,10 +688,11 @@ class SessionManager {
 
   /**
    * Refuses a start while Hive quits, while the project's workspace is closing or switching, or while a fence holds the
-   * project (it is being removed, or a template is replacing its agents).
+   * project (it is being removed, or a template is replacing its agents), or while its workspace's move is being repaired.
    */
   private assertStartsAllowed(projectPath: string): void {
     if (this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error("Hive is stopping this workspace's agents, so none can start now.")
+    if (workspaceFor(projectPath)?.repairingMove) throw new Error('Hive is repairing this moved workspace: start the agent when Repair has finished.')
     const why = this.fenced.get(resolve(projectPath).toLowerCase())?.at(-1)
     if (why) throw new Error(`${why}, so its agents can't start now.`)
   }
@@ -748,7 +749,7 @@ class SessionManager {
     // The Assistant works in the workspace folder, where it can read every project.
     const assistant = workspace.isAssistantHome(projectPath)
     const cwd = assistant ? workspaceOf(projectPath).path! : (agent.worktree?.path ?? projectPath)
-    if (!existsSync(cwd)) throw new Error(`${agent.name}'s worktree folder is missing: ${cwd}. Remove the agent, or restore the folder with git worktree.`)
+    if (!existsSync(cwd)) throw new Error(`${agent.name}'s worktree folder is missing: ${cwd}. Start ${agent.name} from its pane to recreate the worktree on its branch (Repair… if the workspace moved), or remove the agent.`)
 
     const existing = opts.resumeId ? (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === opts.resumeId) : undefined
     this.assertStarting(id)

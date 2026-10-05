@@ -1,0 +1,165 @@
+// A main area squeezed by the side panels (#227): at 1400×850 and 125% zoom, with the Projects sidebar, a 430 px
+// Assistant panel and the Progress panel open, the project view is about 80 px wide. Its empty states (no agents; an
+// agent not running beside an empty pane) stay inside it: nothing of the main area is under the pointer anywhere over
+// the sidebar, the Assistant or Progress, and the empty state's first button can still be reached by scrolling it into
+// view. Assistant on the left and the right, both themes, 100% and 125%. Dev build, throwaway profile and workspace,
+// the fake Claude Code (the Assistant's); quiet.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+
+const userData = path.join(lib.WORK, 'narrowmain-profile')
+const ws = path.join(lib.WORK, 'narrowmain-ws')
+const alpha = path.join(ws, 'alpha')
+const beta = path.join(ws, 'beta')
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+
+;(async () => {
+  for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
+  for (const p of [alpha, beta]) lib.gitProject(p)
+  const claude = lib.fakeClaude(userData, path.join(lib.WORK, 'narrowmain-claude-home'), [ws])
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47936), ...claude })
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.fitWindow(app, page, { width: 1400, height: 850 })
+  await lib.appReady(page)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await lib.openWorkspace(inv, page, ws)
+  // beta: one agent, never started, in two columns, so its second pane is empty.
+  await lib.addAgent(inv, beta, { name: 'Coder' })
+  await inv('project:updateConfig', beta, { layout: 'columns2' })
+  await inv('ui:setPane', 'assistant', 430)
+  await inv('ui:setPane', `progress-open:${ws.toLowerCase()}`, 1)
+  const zoom = (f) => app.evaluate(({ BrowserWindow }, z) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(z), f)
+
+  /** The panels as laid out, and whatever of the main area is under points spread over the side panels. */
+  const probe = () =>
+    page.evaluate(() => {
+      const main = document.querySelector('.main-area')
+      const box = (sel) => {
+        const el = [...document.querySelectorAll(sel)].find((e) => e.checkVisibility({ visibilityProperty: true }))
+        const r = el?.getBoundingClientRect()
+        return r && r.width > 0 ? { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width } : null
+      }
+      const m = box('.main-area')
+      const sides = { sidebar: box('.sidebar'), assistant: box('.assistant-panel'), progress: box('.progress-panel') }
+      const leaks = []
+      for (const [name, r] of Object.entries(sides)) {
+        if (!r) continue
+        for (let x = r.left + 2; x < r.right - 1; x += 6)
+          for (let y = r.top + 2; y < r.bottom - 1; y += 12) {
+            const hit = document.elementFromPoint(x, y)
+            if (hit && main.contains(hit)) leaks.push(`${name} ${Math.round(x)},${Math.round(y)}: ${hit.tagName}.${String(hit.className).slice(0, 40)}`)
+          }
+      }
+      // Panes side by side: nothing of one under the pointer over the other.
+      const panes = [...document.querySelectorAll('.agent-pane')].filter((e) => e.checkVisibility({ visibilityProperty: true }))
+      for (const pane of panes) {
+        const r = pane.getBoundingClientRect()
+        for (let x = r.left + 2; x < r.right - 1; x += 6)
+          for (let y = r.top + 2; y < r.bottom - 1; y += 12) {
+            const hit = document.elementFromPoint(x, y)
+            const other = panes.find((q) => q !== pane && q.contains(hit))
+            if (other) leaks.push(`pane ${Math.round(x)},${Math.round(y)}: ${hit.tagName}.${String(hit.className).slice(0, 40)}`)
+          }
+      }
+      return { main: m, panes: panes.length, sides: Object.fromEntries(Object.entries(sides).map(([k, v]) => [k, v && Math.round(v.width)])), leaks: leaks.slice(0, 5), leakCount: leaks.length }
+    })
+  /** Whether the empty state's first button is shown, after scrolling it into view, inside the main area and clickable. */
+  const reachable = (selector) =>
+    page.evaluate((sel) => {
+      const btn = [...document.querySelectorAll(sel)].find((e) => e.checkVisibility({ visibilityProperty: true }))
+      if (!btn) return { found: false }
+      btn.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      const r = btn.getBoundingClientRect()
+      const m = document.querySelector('.main-area').getBoundingClientRect()
+      const box = btn.closest('.session-empty, .pane-placeholder')?.getBoundingClientRect() ?? m
+      // The middle of the part of it that shows (a button wider than the area shows in part).
+      const left = Math.max(r.left, box.left, m.left)
+      const right = Math.min(r.right, box.right, m.right)
+      const x = (left + right) / 2
+      const y = r.top + r.height / 2
+      const hit = document.elementFromPoint(x, y)
+      return { found: true, hits: right > left && !!hit && btn.contains(hit), inMain: right > left && x >= m.left && x <= m.right }
+    }, selector)
+
+  /** Whether the empty state's explanation shows. */
+  const explanation = () => page.evaluate(() => !![...document.querySelectorAll('.session-empty-card > h2 + p')].find((e) => e.checkVisibility({ visibilityProperty: true })))
+  const run = async (label, project, buttons, panes) => {
+    await page.locator('.project-row', { hasText: project }).first().click()
+    await lib.sleep(500)
+    const p = await probe()
+    check(`${label}: the main area is squeezed between the panels`, !!p.main && p.main.width < 400 && !!p.sides.assistant && !!p.sides.progress && p.panes === panes, JSON.stringify(p))
+    check(`${label}: nothing of the main area over the side panels${panes > 1 ? ', nor of a pane over the other' : ''}`, p.leakCount === 0, JSON.stringify(p))
+    for (const [name, sel] of buttons) {
+      const r = await reachable(sel)
+      check(`${label}: ${name} can be scrolled to and clicked inside its area`, r.found && r.hits && r.inMain, JSON.stringify(r))
+    }
+    return p
+  }
+
+  for (const side of ['left', 'right']) {
+    await inv('settings:update', { assistant: { panelSide: side } })
+    await page.reload()
+    await lib.appReady(page)
+    if ((await page.locator('.assistant-panel').count()) === 0) await page.keyboard.press('Control+Alt+I')
+    await lib.until(async () => (await page.locator('.assistant-panel').count()) === 1 && (await page.locator('.progress-panel').count()) === 1, 10000)
+    for (const z of [1, 1.25]) {
+      await zoom(z)
+      await lib.sleep(400)
+      const tag = `Assistant ${side}, ${z * 100}%`
+      const p = await run(`${tag}, no agents`, 'alpha', [['New Session', '.session-empty-card .btn.primary']], 1)
+      const lead = await explanation()
+      check(`${tag}, no agents: the explanation ${p.main.width < 280 ? 'gives way to the title and buttons' : 'shows'}`, lead === p.main.width >= 280, String(lead))
+      await page.screenshot({ path: path.join(lib.WORK, `narrowmain-${side}-${z * 100}-alpha.png`) })
+      await run(`${tag}, an agent not running beside an empty pane`, 'beta', [['New Session', '.pane-placeholder .btns .btn.primary'], ['Add Agent', '.pane-placeholder:not(:has(.btns)) .btn']], 2)
+      await page.screenshot({ path: path.join(lib.WORK, `narrowmain-${side}-${z * 100}-beta.png`) })
+    }
+    await zoom(1)
+  }
+  // Light theme, the tightest case again.
+  await inv('settings:update', { appearance: { theme: 'light' } })
+  await zoom(1.25)
+  await lib.sleep(400)
+  await run('light, 125%, no agents', 'alpha', [['New Session', '.session-empty-card .btn.primary']], 1)
+  await page.screenshot({ path: path.join(lib.WORK, 'narrowmain-light-125-alpha.png') })
+
+  // A roomy window: the empty state is as before, centred and whole, with no scrolling.
+  await zoom(1)
+  await inv('ui:setPane', `progress-open:${ws.toLowerCase()}`, 0)
+  await page.reload()
+  await lib.appReady(page)
+  await lib.fitWindow(app, page, { width: 1600, height: 900 })
+  await page.locator('.project-row', { hasText: 'alpha' }).first().click()
+  await lib.sleep(500)
+  const roomy = await page.evaluate(() => {
+    const e = [...document.querySelectorAll('.session-empty')].find((x) => x.getClientRects().length)
+    const c = e?.querySelector('.session-empty-card')?.getBoundingClientRect()
+    const r = e?.getBoundingClientRect()
+    return e && c ? { scrolls: e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1, centred: Math.abs(c.left + c.width / 2 - (r.left + r.width / 2)) < 2, width: Math.round(c.width) } : null
+  })
+  check('roomy: the empty state is centred, whole, without scrolling', !!roomy && !roomy.scrolls && roomy.centred && roomy.width > 300, JSON.stringify(roomy))
+  // "No agents yet" is what shows, not an empty pane's placeholder over it (the reviewer's #158 screenshot had both).
+  const shown = await page.evaluate(() => {
+    const h = [...document.querySelectorAll('.session-empty-card h2')].find((e) => e.checkVisibility({ visibilityProperty: true }))
+    const r = h?.getBoundingClientRect()
+    const hit = r && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+    return { title: h?.textContent ?? null, onTop: !!hit && h.contains(hit), placeholders: [...document.querySelectorAll('.pane-placeholder')].filter((e) => e.checkVisibility({ visibilityProperty: true })).length }
+  })
+  check('roomy: "No agents yet" is on top, with no empty pane over it', shown.title === 'No agents yet' && shown.onTop && shown.placeholders === 0, JSON.stringify(shown))
+  check('…with its explanation', await explanation())
+  await page.screenshot({ path: path.join(lib.WORK, 'narrowmain-roomy.png') })
+
+  await app.close()
+  if (failed) console.log(`${failed} failed`)
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

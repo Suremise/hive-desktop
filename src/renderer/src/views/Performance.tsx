@@ -8,6 +8,7 @@ import { money } from '@shared/usageTotals'
 import { formatDateTime, formatWeekdayTime } from '@shared/dates'
 import { call } from '../api'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip } from '../components/ui'
+import { CellLines } from '../components/DataTable'
 import { notify, set, setActivity, useStore } from '../store'
 import { useScopedLoad } from '../scopedLoad'
 import { cx, formatBytes, formatTokens, timeAgo } from '../util'
@@ -480,8 +481,8 @@ function RoutesTable({ sel }: { sel: ReturnType<typeof select> }) {
                 <span className="faint">{r.method}</span> {r.route}
               </td>
               <td className="num">{num(r.requests)}</td>
-              <td className="num">{r.failed - r.cancelled ? `${num(r.failed - r.cancelled)} (${pct(r.failed - r.cancelled, r.requests)})` : '—'}</td>
-              <td className="num">{r.cancelled ? `${num(r.cancelled)} (${pct(r.cancelled, r.requests)})` : '—'}</td>
+              <td className="num">{r.failed - r.cancelled ? `${num(r.failed - r.cancelled)}\u00a0(${pct(r.failed - r.cancelled, r.requests)})` : '—'}</td>
+              <td className="num">{r.cancelled ? `${num(r.cancelled)}\u00a0(${pct(r.cancelled, r.requests)})` : '—'}</td>
               <td className="num">{ms(r.p50, r.requests)}</td>
               <td className="num">{ms(r.p95, r.requests)}</td>
               <td className="num">{formatBytes(r.responseBytes)}</td>
@@ -529,8 +530,8 @@ function GuidanceTable({ sel, totalsAvg }: { sel: ReturnType<typeof select>; tot
           <tbody>
             {sel.guidance.map((g) => (
               <tr key={`${g.provider} ${g.role}`}>
-                <td>{providerName(g.provider)}</td>
-                <td>{g.role === 'assistant' ? 'Assistant' : 'Agents'}</td>
+                <td className="nowrap">{providerName(g.provider)}</td>
+                <td className="nowrap">{g.role === 'assistant' ? 'Assistant' : 'Agents'}</td>
                 <td className="num">{num(g.launches)}</td>
                 <td className="num">{per(g.guidanceBytes, g.launches)}</td>
                 <td className="num">{per(g.customBytes, g.launches)}</td>
@@ -612,12 +613,15 @@ function ProvidersTable({ sel, note, unreadable, hosts }: { sel: ReturnType<type
           <tbody>
             {sel.providers.map((p) => (
               <tr key={`${p.provider} ${p.role}`}>
-                <td>{providerName(p.provider)}</td>
-                <td>{p.role === 'assistant' ? 'Assistant' : 'Agents'}</td>
+                <td className="nowrap">{providerName(p.provider)}</td>
+                <td className="nowrap">{p.role === 'assistant' ? 'Assistant' : 'Agents'}</td>
                 <td className="num">
-                  {num(p.sessions)}
-                  {p.running ? <span className="faint"> ({p.running} running)</span> : null}
-                  {p.unknown ? <span className="warn-text"> {p.unknown} unknown</span> : null}
+                  {/* Deliberate lines (#241): the count, then who is running and what is unknown. */}
+                  <CellLines
+                    main={num(p.sessions)}
+                    sub={[p.running ? `${p.running} running` : '', p.unknown ? `${p.unknown} unknown` : ''].filter(Boolean).join(' · ')}
+                    subWarn={!!p.unknown}
+                  />
                 </td>
                 <td className="num">{tok(p, p.inputTokens)}</td>
                 <td className="num">{tok(p, p.cacheReadTokens)}</td>
@@ -629,7 +633,7 @@ function ProvidersTable({ sel, note, unreadable, hosts }: { sel: ReturnType<type
                   {p.contextSessions ? (
                     <Tooltip content={`Last request's context, over ${p.contextSessions} session${p.contextSessions === 1 ? '' : 's'}: average ${formatTokens(p.contextAvgTokens)}, largest ${formatTokens(p.contextMaxTokens)}${p.contextWindow ? ` of a ${formatTokens(p.contextWindow)} window` : ''}.`}>
                       <span>
-                        {formatTokens(p.contextAvgTokens)} avg · {formatTokens(p.contextMaxTokens)} max{p.contextWindow ? ` / ${formatTokens(p.contextWindow)}` : ''}
+                        <CellLines main={`${formatTokens(p.contextAvgTokens)} avg`} sub={`${formatTokens(p.contextMaxTokens)} max${p.contextWindow ? ` of ${formatTokens(p.contextWindow)}` : ''}`} />
                       </span>
                     </Tooltip>
                   ) : (
@@ -641,11 +645,8 @@ function ProvidersTable({ sel, note, unreadable, hosts }: { sel: ReturnType<type
                   {p.costUnknown === p.sessions ? (
                     'unknown'
                   ) : (
-                    <>
-                      {p.costEstimated ? '≈ ' : ''}
-                      {money(p.costUsd)}
-                      {p.costUnknown ? <span className="warn-text"> + {p.costUnknown} unknown</span> : null}
-                    </>
+                    // "≈ $25.87" as one unbreakable value; the unknown sessions under it (#241).
+                    <CellLines main={`${p.costEstimated ? '≈\u00a0' : ''}${money(p.costUsd)}`} sub={p.costUnknown ? `+ ${p.costUnknown} unknown` : ''} subWarn />
                   )}
                 </td>
               </tr>

@@ -29,6 +29,7 @@ import { SettingsView } from './views/SettingsView'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { markOnScreenSeen, onScreen } from './inbox'
 import { InboxPopover } from './components/Inbox'
+import { MoveRepairDialog, MovedBanner } from './components/MoveRepair'
 import { NoticeBanners, addNotice, resolveNotices } from './components/NoticeBanners'
 import { chimeAllowed } from '@shared/bursts'
 
@@ -360,6 +361,7 @@ export function App() {
         <div className="main-area">
           <QuitPendingBanner />
           <ProvidersBanner />
+          <MovedBanner />
           {workspace && <ProjectView visible={activity === 'projects'} />}
           {main && (
             <div className="tab-body">
@@ -390,6 +392,7 @@ export function App() {
       <CommandPalette />
       <QuitDialog />
       <CompactDialog />
+      <MoveRepairDialog />
       <AddAgentDialog />
       <AgentSettingsDialog />
       <AssistantSettingsDialog />

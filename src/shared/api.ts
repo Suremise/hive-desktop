@@ -1,5 +1,9 @@
 import type {
   UpdateState,
+  WorktreeGone,
+  MoveOptions,
+  MovePlan,
+  MoveReport,
   ProgressRun,
   PermissionMode,
   AddAgentOptions,
@@ -173,6 +177,12 @@ export interface HiveRequests {
   /** Clears the recent workspaces, keeping those open in a window now (#144). */
   'workspace:clearRecent': () => RecentWorkspace[]
   'workspace:refresh': () => WorkspaceInfo | null
+  /** What Repair… would do for a moved workspace or project (#146), with the user's choices; null when nothing moved. */
+  'workspace:movePlan': (opts?: MoveOptions) => MovePlan | null
+  /** Repairs it (refused while agents run): worktrees, session folders, the CLIs' per-path data (copied), Open Recent. */
+  'workspace:moveRepair': (opts?: MoveOptions) => MoveReport
+  /** Locate…: a folder picker for an agent's worktree that wasn't found; the folder, or null when cancelled. */
+  'workspace:moveLocate': (projectPath: string, agentId: string) => string | null
 
   'project:create': (name: string) => WorkspaceInfo | null
   'project:setActive': (projectPath: string, active: boolean) => WorkspaceInfo | null
@@ -257,6 +267,12 @@ export interface HiveRequests {
   'agents:update': (projectPath: string, agentId: string, patch: AgentPatch) => AgentDef
   /** Removes an agent (its session must be stopped). deleteWorktree also removes its worktree and branch. */
   'agents:remove': (projectPath: string, agentId: string, opts: { deleteWorktree: boolean; releaseCards?: boolean }) => void
+  /** The agent's worktree when its folder is missing, with whether its branch survives (#146); null when it isn't missing. */
+  'agents:missingWorktree': (projectPath: string, agentId: string) => WorktreeGone | null
+  /** Makes a missing worktree again: on its branch when it survives, else new from its base (#146). */
+  'agents:recreateWorktree': (projectPath: string, agentId: string) => AgentDef
+  /** Removes the link of an agent whose worktree folder is missing: it works in the project folder from now on. */
+  'agents:unlinkWorktree': (projectPath: string, agentId: string) => AgentDef
   /** Moves an agent to `index` in the project's order (its position afterwards); returns the agents' ids in order. */
   'agents:move': (projectPath: string, agentId: string, index: number) => string[]
   /** Swaps two agents' places in the project's order (one dropped on another's pane); returns the agents' ids in order. */

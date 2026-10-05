@@ -191,6 +191,10 @@ kbd {
   display: flex;
   flex-direction: column;
   background: var(--bg);
+  /* Nothing in it paints over the side panels when they leave it little room (#227). clip, not hidden: it can't be
+     scrolled out of the user's reach by a focus or a script. Menus and tooltips are portals and Monaco's widgets fixed,
+     so neither is cut. */
+  overflow: clip;
 }
 
 /* ---------- Title bar ---------- */
@@ -1170,6 +1174,36 @@ textarea.input {
 .banner .btn {
   margin-left: auto;
 }
+.moved-banner .grow {
+  min-width: 0;
+}
+.moved-banner .btn + .icon-btn {
+  flex-shrink: 0;
+}
+/* Repair a Moved Workspace (#146). */
+.move-repair section + section {
+  margin-top: 10px;
+}
+.move-repair h4 {
+  margin: 12px 0 4px;
+  color: var(--fg-strong);
+}
+.move-repair ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+.move-repair .mono {
+  overflow-wrap: anywhere;
+}
+.move-repair ul.move-report {
+  list-style: none;
+  padding-left: 0;
+}
+.move-repair ul.move-report .codicon {
+  margin-right: 4px;
+  vertical-align: -2px;
+}
 /* Over the Hive skills (the Skills view's list, and a Hive skill being edited): editing them steers the agents. */
 .banner.skills-warning {
   align-items: flex-start;
@@ -1241,8 +1275,21 @@ textarea.input {
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  /* Too narrow or low for the card (#227): it starts at the edge and scrolls here instead of spilling out both sides. */
+  align-items: safe center;
+  justify-content: safe center;
+  overflow: auto;
+  container-type: inline-size;
+}
+/* Very little room: the title and the buttons; the explanation and the mark go (#227). Warnings stay. */
+@container (max-width: 280px) {
+  .session-empty-card {
+    padding: 12px 8px;
+  }
+  .session-empty-card > h2 + p,
+  .session-empty-card .hex-mark {
+    display: none;
+  }
 }
 .session-ended {
   position: absolute;
@@ -1261,6 +1308,7 @@ textarea.input {
 .session-empty-card {
   text-align: center;
   max-width: 520px;
+  min-width: 0;
   padding: 24px;
 }
 .session-empty-card h2 {
@@ -1399,6 +1447,36 @@ p.hint {
 .table th.num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+/* A number and its unit ("1.4 KB", "≈ $25.87", "3 (12%)") never split; a narrow table scrolls in its .table-wrap (#241). */
+.table td.num {
+  white-space: nowrap;
+}
+/* A cell of one or two deliberate lines (DataTable.tsx CellLines, #241): neither wraps, so a narrow table scrolls in
+   its .table-wrap instead of breaking a value; in a number column both align right. */
+.table .cell-lines {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.25;
+}
+.table td.num .cell-lines {
+  align-items: flex-end;
+}
+/* A row with such a cell keeps every cell's value on one line: the first line's baseline. */
+.table tr:has(.cell-lines) > td {
+  vertical-align: baseline;
+}
+.table .cell-lines > span,
+.table td.nowrap {
+  white-space: nowrap;
+}
+.table .cell-lines .cell-sub {
+  font-size: 11px;
+  color: var(--fg-faint);
+}
+.table .cell-lines .cell-sub.warn-text {
+  color: var(--warning);
 }
 .table .actions {
   display: flex;
@@ -3615,6 +3693,8 @@ body.pane-resizing .monaco-editor {
   position: absolute;
   pointer-events: none;
   z-index: 2;
+  /* A pane's contents stay in it: a narrow pane's buttons never cover the next pane or a side panel (#227). */
+  overflow: clip;
 }
 .agent-pane.left-border {
   border-left: 1px solid var(--border);
@@ -3801,8 +3881,10 @@ body.pane-resizing .monaco-editor {
   inset: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  /* As .session-empty (#227). */
+  align-items: safe center;
+  justify-content: safe center;
+  overflow: auto;
   gap: 4px;
   padding: 16px;
   text-align: center;
@@ -4959,9 +5041,12 @@ body.pane-resizing-v .monaco-editor {
   color: var(--warning);
   margin-top: 1px;
 }
+/* A project's block (#240): its name on a line of its own, its agents under it with a fixed indent, whatever the
+   panel's width (they used to sit in a column starting 34% across, moving right as the panel widened). */
 .assistant-project {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 1px;
   padding: 3px 0;
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -4972,7 +5057,8 @@ body.pane-resizing-v .monaco-editor {
   opacity: 0.6;
 }
 .assistant-project-name {
-  flex: 0 0 34%;
+  align-self: flex-start;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4984,11 +5070,11 @@ body.pane-resizing-v .monaco-editor {
   text-decoration: underline;
 }
 .assistant-agents {
-  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding-left: 14px;
 }
 .assistant-agent {
   display: flex;
