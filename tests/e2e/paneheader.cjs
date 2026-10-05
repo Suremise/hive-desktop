@@ -1,5 +1,5 @@
-// An agent pane's header at every width: its buttons labelled, icons or only in ⋯, each fully inside its own box and
-// the header, apart from each other, whatever the Merge… count (none, •, 1, 12, 1234), the agent's name, branch and
+// An agent pane's header at every width: its buttons labelled, icons or only in ⋯ (Compact, Stop and Merge… are always
+// icons), each fully inside its own box and the header, apart from each other, whatever the Merge… count (none, •, 1, 12, 1234), the agent's name, branch and
 // card, running or stopped, in one or two columns, at 100% and 125% zoom. The mode follows the width both ways:
 // shrinking and growing, the sidebar, the layout, the count changing, and a header hidden while the width changed.
 // Compact's spinner turns for the whole compaction (after the dialog closes) and stops when it finishes, fails or is
@@ -16,7 +16,7 @@ const ws = path.join(lib.WORK, 'paneheader-ws')
 const claudeHome = path.join(lib.WORK, 'paneheader-claude-home')
 const alpha = path.join(ws, 'alpha')
 const beta = path.join(ws, 'beta')
-const LABELS_FROM = 620
+const LABELS_FROM = 565
 const ICONS_FROM = 340
 let failed = 0
 const check = (name, ok, extra = '') => {
@@ -125,8 +125,17 @@ function commits(wt, n) {
         const r = d.getBoundingClientRect()
         if (first && r.width > 0 && r.right > first.left + 0.5) bad.push(`${d.className} runs under the controls`)
       }
+      // The mode the header says it is in, and its buttons agree: none in menu; in icons, all icon-only; in labels, the
+      // buttons that aren't always icons (Compact, Stop and Merge… are) have their label.
       const buttons = [...h.querySelectorAll('.pane-btn')]
-      const mode = !buttons.length ? 'menu' : buttons.some((b) => !b.classList.contains('icon-only')) ? 'labels' : 'icons'
+      const mode = h.dataset.buttons
+      const always = ['Compact', 'Stop', 'Merge…']
+      if (mode === 'menu' && buttons.length) bad.push('buttons shown in menu mode')
+      if (mode === 'icons' && buttons.some((b) => !b.classList.contains('icon-only'))) bad.push('a labelled button in icons mode')
+      for (const b of buttons) {
+        const iconOnly = b.classList.contains('icon-only')
+        if (mode === 'labels' && iconOnly !== always.includes(b.getAttribute('aria-label'))) bad.push(`${b.getAttribute('aria-label')} is ${iconOnly ? 'an icon' : 'labelled'} in labels mode`)
+      }
       return { width: h.clientWidth, mode, bad, count: h.querySelector('[aria-label="Merge…"] .btn-count')?.textContent ?? '' }
     })
   /** A picture of both headers. */
@@ -243,8 +252,8 @@ function commits(wt, n) {
   await header(long).locator('.agent-name').click()
   await page.getByRole('button', { name: 'One at a time' }).click()
   await until(async () => (await page.locator('.pane-header-bar').count()) === 1, 5000)
-  const single = await header(long).evaluate((h) => ({ w: h.clientWidth, labelled: [...h.querySelectorAll('.pane-btn')].some((b) => !b.classList.contains('icon-only')) }))
-  check('one column: labelled at its full width', single.w >= LABELS_FROM && single.labelled, JSON.stringify(single))
+  const single = await inspect(long)
+  check('one column: labelled at its full width', single.width >= LABELS_FROM && single.mode === 'labels' && !single.bad.length, JSON.stringify(single))
   await page.getByRole('button', { name: 'Two columns' }).click()
   await until(async () => (await page.locator('.pane-header-bar').count()) === 2, 5000)
   await fits('two columns again')

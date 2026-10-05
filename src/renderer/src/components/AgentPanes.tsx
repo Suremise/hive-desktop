@@ -540,7 +540,7 @@ export function useWidth<T extends HTMLElement>(): [(el: T | null) => void, numb
  * so each mode only has to fit its widest set of buttons: a stopped worktree agent's, with a four-digit Merge count, and room
  * for the status dot and provider icon (tests/e2e/paneheader.cjs measures it at both widths).
  */
-const LABELS_FROM = 620
+const LABELS_FROM = 565
 const ICONS_FROM = 340
 
 function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInfo; focused: boolean }) {
@@ -585,7 +585,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
     </Tooltip>
   )
   return (
-    <div ref={ref} className={cx('pane-header-bar', focused && 'focused')} {...agentDragProps(project, a)} onMouseDown={() => focusAgent(project.path, a.id)} onContextMenu={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))}>
+    <div ref={ref} className={cx('pane-header-bar', focused && 'focused')} data-buttons={size} {...agentDragProps(project, a)} onMouseDown={() => focusAgent(project.path, a.id)} onContextMenu={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))}>
       {!live && failure ? (
         <Tooltip content={`Failed to start: ${failure.reason}`}>
           <span className="dot error" />
@@ -647,6 +647,8 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       {a.worktree &&
         size !== 'menu' &&
         btn('git-merge', 'Merge…', () => set({ mergeFor: { project: project.path, agentId: a.id } }), cx('subtle', unmerged?.badge && 'suggest'), {
+          // Its icon and count only, like Compact and Stop: the tooltip says what it merges.
+          iconOnly: true,
           count: unmerged?.badge,
           // Not while it is in the middle of a task; the count still shows what is waiting to be merged.
           disabled: !!mergeBlocked(a.name, live?.status),
