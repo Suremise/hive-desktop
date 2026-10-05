@@ -178,6 +178,8 @@ interface State {
   quitScope: QuitScope
   /** Hive will quit once no agent is working. */
   quitPending: { working: number } | null
+  /** How many Hive windows are open (File → Exit closes them all). */
+  windowCount: number
   /** Working agents keeping the PC awake (0: none). */
   keepAwake: number
   /** The agent whose Compact dialog is open. */
@@ -309,6 +311,7 @@ export const useStore = create<State>(() => ({
   quitUnsaved: [],
   quitScope: 'app',
   quitPending: null,
+  windowCount: 1,
   keepAwake: 0,
   compactFor: null,
   addAgentFor: null,

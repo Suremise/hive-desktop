@@ -39,7 +39,8 @@ export type MergeStyle = 'squash' | 'merge'
 export type SessionLayout = 'single' | 'columns2' | 'columns3' | 'grid' | 'grid6'
 /** A page's layout as saved: 'auto' is the one that shows the page's agents (until one is chosen by hand). */
 export type PageLayout = SessionLayout | 'auto'
-export type QuitChoice = 'now' | 'wait' | 'cancel'
+/** 'window': quitting was asked, but only the window showing the question closes (Close this window only). */
+export type QuitChoice = 'now' | 'wait' | 'cancel' | 'window'
 /** What the quit dialog is for: quitting, closing a window, closing its workspace, or switching the window to another workspace. */
 export type QuitScope = 'app' | 'window' | 'workspace' | 'switch'
 
@@ -50,6 +51,8 @@ export interface QuitSession {
   status: SessionStatus
   /** The agent's name, when the project has more than one. */
   agent?: string
+  /** The folder of the workspace it runs in (the quit dialog groups agents by it when several windows are open). */
+  workspace?: string
   provider?: ProviderId
   /** A watching agent: what it waits for ("Waiting for #12 → Review"). */
   watch?: string
@@ -1224,6 +1227,8 @@ export type HiveEvent =
   | { type: 'branch-status'; projectPath: string; agentId: string; status: AgentBranchStatus | null }
   | { type: 'plan-usage'; provider: ProviderId; usage: PlanUsage }
   | { type: 'window-state'; maximized: boolean; focused: boolean; alwaysOnTop: boolean }
+  /** A window opened or closed: how many there are now (File → Exit says it closes them all). */
+  | { type: 'windows-changed'; count: number }
   | { type: 'notice'; notice: Notice }
   /** The agent no longer waits for you: its waiting banner closes, in whichever window shows it. */
   | { type: 'notice-resolved'; projectPath: string; agentId: string }

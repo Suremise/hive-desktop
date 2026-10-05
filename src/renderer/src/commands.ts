@@ -20,7 +20,17 @@ export interface Command {
   internal?: boolean
   /** A toggle: shown with a checkmark in the menus and the palette while it is on. */
   checked?: () => boolean
+  /** Its label as things are now, in the menus and the palette (`label` is its name everywhere else). */
+  liveLabel?: () => string
+  /** What it does, on hover in the menus. */
+  tip?: () => string
 }
+
+/** A command's label in the menus and the palette. */
+export const commandLabel = (c: Command): string => c.liveLabel?.() ?? c.label
+
+/** More than one window is open: File → Exit closes them all. */
+const severalWindows = (): boolean => get().windowCount > 1
 
 const hasWorkspace = (): boolean => !!get().workspace
 const hasProject = (): boolean => !!get().selectedProject && hasWorkspace()
@@ -114,7 +124,7 @@ export const commands: Command[] = [
   { id: 'window.new', label: 'New Window', category: 'File', keybinding: 'Mod+K Mod+N', run: () => call('window:new') },
   { id: 'workspace.open', label: 'Open Workspace…', category: 'File', keybinding: 'Mod+K Mod+O', run: (path?: string) => actions.openWorkspace(path) },
   { id: 'workspace.create', label: 'New Workspace…', category: 'File', run: () => actions.createWorkspace() },
-  { id: 'workspace.close', label: 'Close Workspace', category: 'File', when: hasWorkspace, run: () => actions.closeWorkspace() },
+  { id: 'workspace.close', label: 'Close Workspace', category: 'File', when: hasWorkspace, tip: () => "Stop this workspace's agents and close it; the window stays open", run: () => actions.closeWorkspace() },
   { id: 'workspace.refresh', label: 'Refresh Workspace', category: 'File', keybinding: 'F5', when: hasWorkspace, run: () => actions.refreshWorkspace() },
   { id: 'project.new', label: 'New Project…', category: 'Project', keybinding: 'Mod+Alt+N', when: hasWorkspace, run: () => actions.createProject() },
   { id: 'project.toggleActive', label: 'Toggle Project Active', category: 'Project', keybinding: 'Mod+Alt+A', when: hasProject, run: () => actions.toggleActiveSelected() },
@@ -320,7 +330,17 @@ export const commands: Command[] = [
   { id: 'update.show', label: 'Show Hive Update', category: 'Help', when: () => ['available', 'downloading', 'ready'].includes(get().update?.status ?? ''), run: () => set({ updateOpen: true }) },
   { id: 'update.install', label: 'Restart and Update Hive', category: 'Help', when: () => get().update?.status === 'ready', run: () => call('update:install') },
   { id: 'update.releaseNotes', label: "What's New in Hive", category: 'Help', run: (version?: unknown) => openReleaseNotes(typeof version === 'string' ? version : get().appInfo?.version) },
-  { id: 'app.quit', label: 'Exit', category: 'File', keybinding: 'Mod+Q', run: () => call('app:quit') }
+  // As the window's X: with several open, it closes this one (stopping its workspace's agents); the last one goes to the tray or quits.
+  { id: 'window.close', label: 'Close Window', category: 'File', keybinding: 'Mod+Shift+W', tip: () => (severalWindows() ? "Close this window and stop its workspace's agents" : get().settings?.general.closeToTray ? 'Close the window; Hive keeps running in the tray' : 'Close the window and quit Hive'), run: () => call('window:close') },
+  {
+    id: 'app.quit',
+    label: 'Exit',
+    category: 'File',
+    keybinding: 'Mod+Q',
+    liveLabel: () => (severalWindows() ? 'Exit Hive (all windows)' : 'Exit'),
+    tip: () => (severalWindows() ? `Close all ${get().windowCount} windows and stop the agents in every workspace` : 'Quit Hive'),
+    run: () => call('app:quit')
+  }
 ]
 
 export function runCommand(id: string, ...args: unknown[]): void {

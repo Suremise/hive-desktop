@@ -50,9 +50,9 @@ Each **project** (every subfolder except dot-folders) gets its own `.hive` folde
 Like VS Code, Hive can show several workspaces at once, each in its own window: **File → New Window** (Ctrl+K Ctrl+N) opens one on the welcome page, where you open or create a workspace. Each window is a full Hive with its own projects, agents, shared notes, skills and MCP servers; settings, the tray and updates are shared.
 
 - **Open Workspace** replaces the workspace in the current window. If its agents are running, Hive asks first (*Switch workspace?*), then stops them; to keep them running, open the other workspace in a new window instead. If the workspace is already open in another window, that window comes forward instead, so two windows never run agents on the same project. A folder inside a workspace open in another window (or one containing it) can't be opened as a workspace: its projects would belong to both.
-- **File → Close Workspace** stops every agent in every project of the workspace, asking first (*Close this workspace?*).
-- **Closing a window** closes its workspace and stops its agents, asking first as quitting does (*Close this window?*). Closing the last window keeps Hive in the tray, as before.
-- **Quitting** stops the agents of every window. When Hive starts again, it reopens the windows that were open, each with its workspace, where they were.
+- **File → Close Workspace** stops every agent in every project of the workspace, asking first (*Close this workspace?*), and keeps the window open, on the welcome page.
+- **Closing a window** (its **X**, or **File → Close Window**, Ctrl+Shift+W) closes its workspace and stops its agents, asking first as quitting does (*Close this window?*). Closing the last window keeps Hive in the tray, or quits Hive (asking first) when **Settings → General → Close to tray** is off.
+- **Quitting** (**File → Exit**, Ctrl+Q, or the tray's Quit) stops the agents of every window. With several windows open, the menu says **Exit Hive (all windows)**, and its dialog says it closes them all and lists the agents under their workspaces; **Close this window only** there closes just the window it is shown in, as Close Window does. When Hive starts again, it reopens the windows that were open, each with its workspace, where they were.
 - Notifications and the tray menu take you to the window showing the project.
 
 ### Always on Top
@@ -633,6 +633,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Go to project | Ctrl+P |
 | Settings | Ctrl+, |
 | New window | Ctrl+K Ctrl+N |
+| Close window | Ctrl+Shift+W |
 | New session / resume / stop | Ctrl+Shift+N / Ctrl+Shift+R / Ctrl+Shift+X |
 | Compact the conversation | Ctrl+Alt+C |
 | Switch permission mode | Ctrl+Alt+M (Shift+Tab inside the terminal) |

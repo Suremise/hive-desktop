@@ -26,6 +26,7 @@ export const SUITES = [
   { name: 'carddialog' },
   { name: 'cardloop' },
   { name: 'changes' },
+  { name: 'closewindow' },
   { name: 'codex', needs: ['codex'] },
   { name: 'codex-background', needs: ['codex'] },
   { name: 'codex-extra', needs: ['codex'] },

@@ -2645,8 +2645,46 @@ p.hint {
   color: var(--fg-strong);
   font-weight: 600;
 }
+/* Quitting with several windows open: the agents under their workspace's name. */
+.quit-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 2px 2px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.quit-group:first-child {
+  padding-top: 0;
+}
+.quit-group ~ .quit-row {
+  padding-left: 14px;
+}
 .dialog:has(.quit-list) {
   width: 580px;
+}
+/* Quitting with several windows open: close only the window the dialog is in. */
+.quit-window-only {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.quit-window-only .btn {
+  flex-shrink: 0;
+}
+/* The quit dialog's footer wraps rather than pushing a control out of the dialog (narrow window, zoom). */
+.dialog-footer:has(.quit-dontask) {
+  flex-wrap: wrap;
+  row-gap: 8px;
 }
 .quit-dontask {
   white-space: nowrap;
