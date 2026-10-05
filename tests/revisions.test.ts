@@ -3,7 +3,7 @@
 // changes, shared between callers asking at once, gone when the workspace closes. Hashing and the API's skill reads
 // are bounded by what they actually read. MEASURE=1 prints files and bytes read and time per poll for a small and a
 // large catalog (docs/ARCHITECTURE.md has the numbers).
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -16,7 +16,7 @@ const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await i
 const { syncBundled } = await import('../src/main/bundled')
 const { skillRevisions } = await import('../src/main/guidance')
 const { coalesced, revisionOf } = await import('../src/main/revisions')
-const { ContentTooLarge, contentHash, readDirBounded, readStats, readCapped } = await import('../src/main/fsutil')
+const { ContentTooLarge, contentHash, HASH_LIMITS, readDirBounded, readStats, readCapped } = await import('../src/main/fsutil')
 const { skillFiles } = await import('../src/main/skills')
 type WS = ReturnType<typeof createWorkspaceService>
 
@@ -61,19 +61,25 @@ async function measure(label: string, w: WS, polls: number, concurrent: number):
 
 describe('status polls', () => {
   it('read each skill once: unchanged polls, one at a time or ten at once, read no file contents (small and large catalogs)', async () => {
+    // The large catalog at full size (100 more skills, a 20 MB file, a 14 MB SKILL.md) when measuring for
+    // docs/ARCHITECTURE.md; smaller in ordinary runs, which check the same reads in well under a second (#215).
+    const L = process.env.MEASURE ? { skills: 100, file: 20 * 1024 * 1024, lines: 2 * 1024 * 1024 } : { skills: 10, file: 1024 * 1024, lines: 16 * 1024 }
     const small = await open(join(base, 'small'))
-    const large = await open(join(base, 'large'), 100, 20 * 1024 * 1024)
-    // One skill whose SKILL.md itself is 12 MB.
-    addSkill(join(base, 'large'), 'long-body', 'Words.\n'.repeat(2 * 1024 * 1024))
+    const large = await open(join(base, 'large'), L.skills, L.file)
+    // One skill whose SKILL.md itself is far over the 64 KB a header read takes.
+    const longBody = 'Words.\n'.repeat(L.lines)
+    addSkill(join(base, 'large'), 'long-body', longBody)
+    const skills = readdirSync(join(base, 'large', '.hive', 'skills')).filter((d) => !d.startsWith('.')).length
     const none = (m: Reads) => ({ files: m.files, bytes: m.bytes, metaBytes: m.metaBytes })
     const first = await measure('small, first', small, 1, 1)
     expect(first.files).toBeGreaterThan(0)
     expect(none(await measure('small, sequential', small, 10, 1))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
     expect(none(await measure('small, 10 concurrent', small, 5, 10))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
     const big = await measure('large, first', large, 1, 1)
-    expect(big.bytes).toBeGreaterThan(32 * 1024 * 1024)
-    // Headers: no more than 64 KB a skill, however long the SKILL.md.
-    expect(big.metaBytes).toBeLessThan(120 * 64 * 1024)
+    // Hashed whole, the big file and the long SKILL.md included…
+    expect(big.bytes).toBeGreaterThan(L.file + longBody.length)
+    // …but headers: no more than 64 KB a skill, however long the SKILL.md.
+    expect(big.metaBytes).toBeLessThanOrEqual(skills * 64 * 1024)
     const again = await measure('large, sequential', large, 5, 1)
     expect(none(again)).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
     // What an unchanged poll still does: list the skills' folders (and stat their files).
@@ -286,25 +292,33 @@ describe('limits', () => {
   it('too many files: each poll is a bounded walk with no file read; closing the workspace forgets what was kept', async () => {
     const ws = join(base, 'toomany')
     const w = await open(ws)
-    const d = addSkill(ws, 'many')
-    for (let i = 0; i < 2500; i++) writeFileSync(join(d, 'refs', `f${i}.md`), 'x')
-    const path = join(ws, '.hive', 'skills', 'many')
-    for (let i = 0; i < 2; i++) {
-      const r = await reads(() => inWorkspace(w, () => revisionOf(path).catch((e) => e)))
-      expect(r.value).toBeInstanceOf(ContentTooLarge)
-      expect([r.files, r.bytes]).toEqual([0, 0])
-      expect(r.entries).toBeLessThanOrEqual(2002)
-    }
+    // The limits lowered for this test (2000 entries, 64 MB): the same walk and the same kept outcome over a tenth of
+    // the files and a small file, rather than writing 2500 files and 65 MB on every run (#215).
+    const limits = { ...HASH_LIMITS }
+    Object.assign(HASH_LIMITS, { entries: 200, bytes: 1024 * 1024 })
+    try {
+      const d = addSkill(ws, 'many')
+      for (let i = 0; i < 250; i++) writeFileSync(join(d, 'refs', `f${i}.md`), 'x')
+      const path = join(ws, '.hive', 'skills', 'many')
+      for (let i = 0; i < 2; i++) {
+        const r = await reads(() => inWorkspace(w, () => revisionOf(path).catch((e) => e)))
+        expect(r.value).toBeInstanceOf(ContentTooLarge)
+        expect([r.files, r.bytes]).toEqual([0, 0])
+        expect(r.entries).toBeLessThanOrEqual(HASH_LIMITS.entries + 2)
+      }
 
-    // A too-big skill kept in one opening of the workspace is checked again in the next (by its sizes: still no read).
-    const d2 = addSkill(ws, 'huge')
-    writeFileSync(join(d2, 'refs', 'big.bin'), Buffer.alloc(65 * 1024 * 1024, 1))
-    const hugePath = join(ws, '.hive', 'skills', 'huge')
-    await inWorkspace(w, () => revisionOf(hugePath).catch(() => undefined))
-    await w.open(ws)
-    rmSync(join(d2, 'refs', 'big.bin'))
-    expect(await inWorkspace(w, () => revisionOf(hugePath))).toBe(await contentHash(d2))
-    await disposeWorkspaceService(w)
+      // A too-big skill kept in one opening of the workspace is checked again in the next (by its sizes: still no read).
+      const d2 = addSkill(ws, 'huge')
+      writeFileSync(join(d2, 'refs', 'big.bin'), Buffer.alloc(HASH_LIMITS.bytes + 1024, 1))
+      const hugePath = join(ws, '.hive', 'skills', 'huge')
+      expect(await inWorkspace(w, () => revisionOf(hugePath).catch((e) => e))).toBeInstanceOf(ContentTooLarge)
+      await w.open(ws)
+      rmSync(join(d2, 'refs', 'big.bin'))
+      expect(await inWorkspace(w, () => revisionOf(hugePath))).toBe(await contentHash(d2))
+    } finally {
+      Object.assign(HASH_LIMITS, limits)
+      await disposeWorkspaceService(w)
+    }
   })
 
   it("a bundled skill made too big is the user's edit: shown as changed, and kept when the workspace opens again", async () => {
