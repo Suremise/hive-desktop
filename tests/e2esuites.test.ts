@@ -18,7 +18,7 @@ import { isRealCli, parentSuite, parseArgs, portBase, realNotRun, recordStatus, 
 // @ts-expect-error: plain .mjs modules without types
 import { recordMarkdown } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { buildLock, buildStamp, ensureBuild } from './e2e/build.mjs'
+import { buildLock, buildStamp, devBuild, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -1118,6 +1118,81 @@ describe('the run context: what a test starts gets only the allowlist and its ow
     const env = ctx.childEnv({ HIVE_API_URL: 'http://127.0.0.1:1', ELECTRON_RUN_AS_NODE: '1' }, parent)
     expect(Object.keys(env).sort()).toEqual(['ELECTRON_RUN_AS_NODE', 'HIVE_API_URL', 'LOCALAPPDATA', 'Path', 'SystemRoot', 'USERPROFILE', 'https_proxy'])
     expect(Object.keys(ctx.baseEnv(parent)).every((k) => ctx.ALLOW.includes(k.toUpperCase()))).toBe(true)
+  })
+
+  it('every child the runners and the harness start themselves is given its environment, never left to inherit the shell (#208)', () => {
+    // The runners, their modules, lib.cjs and the scenario harness run in the shell a person or an agent started them
+    // from; a child_process call without env inherits all of it (GIT_DIR, NODE_OPTIONS…). The suites are left out:
+    // their own environment is already the run context's (suiteEnv), and so is what their children inherit.
+    const files = [
+      ...readdirSync(dir).filter((f) => f.endsWith('.mjs') || f === 'lib.cjs').map((f) => join(dir, f)),
+      ...readdirSync(join(__dirname, 'scenarios')).filter((f) => /\.(c|m)js$/.test(f)).map((f) => join(__dirname, 'scenarios', f))
+    ]
+    const found: string[] = []
+    let calls = 0
+    for (const f of files) {
+      const text = readFileSync(f, 'utf8')
+      for (const m of text.matchAll(/(?<![.\w])(spawn|spawnSync|execFile|execFileSync|execSync|exec|fork)\(/g)) {
+        // The call's arguments, to its closing parenthesis.
+        let depth = 0
+        let end = m.index + m[0].length - 1
+        for (; end < text.length; end++) {
+          if (text[end] === '(') depth++
+          else if (text[end] === ')' && --depth === 0) break
+        }
+        calls++
+        if (!/\benv\s*:|\{\s*env\b|,\s*env\s*[,}]/.test(text.slice(m.index, end))) found.push(`${f.slice(root.length + 1)}:${text.slice(0, m.index).split('\n').length}`)
+      }
+    }
+    expect(calls).toBeGreaterThan(20)
+    expect(found).toEqual([])
+  })
+
+  it("a shell's GIT_DIR, GIT_WORK_TREE and NODE_OPTIONS reach neither the runners' git nor the build (#208)", () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'hive-shellenv-'))
+    const repo = (name: string, file: string) => {
+      const d = join(tmp, name)
+      mkdirSync(d)
+      writeFileSync(join(d, file), 'x\n')
+      const git = (...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd: d, env: ctx.baseEnv(), encoding: 'utf8' })
+      git('init', '-q')
+      git('add', '.')
+      git('commit', '-qm', name)
+      return { d, head: git('rev-parse', 'HEAD').trim() }
+    }
+    const project = repo('project', 'a.txt')
+    const decoy = repo('decoy', 'decoy.txt')
+    writeFileSync(join(project.d, 'untracked.txt'), 'new\n')
+    const req = createRequire(import.meta.url)
+    const lib = req('./e2e/lib.cjs') as { git: (cwd: string, cmd: string | string[]) => string }
+    const { sourceFingerprint } = req('./scenarios/harness.cjs') as { sourceFingerprint: (root: string) => { head: string; dirty: string | null } }
+    const clean = { fp: fingerprint(project.d), scenario: sourceFingerprint(project.d) }
+    const saved = { GIT_DIR: process.env.GIT_DIR, GIT_WORK_TREE: process.env.GIT_WORK_TREE, NODE_OPTIONS: process.env.NODE_OPTIONS }
+    try {
+      Object.assign(process.env, { GIT_DIR: join(decoy.d, '.git'), GIT_WORK_TREE: decoy.d, NODE_OPTIONS: `--require "${join(tmp, 'missing.cjs')}"` })
+      // git follows them, from a shell that has them (so the check below means something).
+      expect(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: project.d, encoding: 'utf8' }).trim()).toBe(decoy.head)
+      expect(fingerprint(project.d)).toBe(clean.fp)
+      expect(fingerprint(project.d)).toMatch(new RegExp(`^${project.head.slice(0, 12)}\\+`))
+      expect(sourceFingerprint(project.d)).toEqual(clean.scenario)
+      expect(lib.git(project.d, ['rev-parse', 'HEAD']).trim()).toBe(project.head)
+      expect(lib.git(project.d, 'rev-parse HEAD').trim()).toBe(project.head)
+      // The build's command gets the allowlist: a Node with that NODE_OPTIONS wouldn't start at all.
+      const out = join(tmp, 'build-env.json')
+      writeFileSync(join(tmp, 'build.cjs'), `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.env))\n`)
+      devBuild(project.d, { command: `"${process.execPath}" "${join(tmp, 'build.cjs')}"` })
+      const env = JSON.parse(readFileSync(out, 'utf8')) as Env
+      for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'NODE_OPTIONS']) expect(has(env, k), k).toBe(false)
+      expect(has(env, 'PATH')).toBe(true)
+      // And a failed build throws with its exit code.
+      expect(() => devBuild(project.d, { command: `"${process.execPath}" -e "process.exit(3)"` })).toThrow(/exit 3/)
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+      rmSync(tmp, { recursive: true, force: true })
+    }
   })
 })
 

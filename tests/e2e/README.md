@@ -102,6 +102,14 @@ for the build), and the e2e runner, `lib.cjs` and the scenario harness all take 
   passes `process.env`. The fake CLIs are the exception: they stand for Claude Code and Codex, which start their MCP
   servers from their own environment (a test Hive's session's, already the context's). A suite's own tools (git, a
   PowerShell query) run in the suite's environment, which under the runner is the context's.
+- **The runners' own tools get it too** (#208). The runners, their modules, `lib.cjs` and the scenario harness run in
+  the shell they were started from, so every child they start themselves is given an environment: the build
+  (`devBuild` in `build.mjs`), the git of the run record's fingerprint, `--affected` and the concurrency checker's
+  worktrees, `where.exe`, `taskkill` (`runContext.baseEnv()`, the allowlist alone). A `GIT_DIR` or `GIT_WORK_TREE` in
+  the shell can't point their git at another repository, and `NODE_OPTIONS` or npm's `npm_config_*` don't reach the
+  build. The unit test fails for a `child_process` call there without `env`. The deliberate exception is the runners'
+  progress reporting (`tests/progressReport.mts`): it is no child, and reads the Hive variables of the shell it was
+  started from, to report to the Hive that started it.
 - **Folders, ports and CLI homes**: the lane (above), the Codex test home under its `config.toml` lock, the Claude Code
   test home for the model trials (`CLAUDE_TEST_HOME`); each suite keeps its own `CLAUDE_CONFIG_DIR` folders in its lane.
 - **The build, once per worktree** (`build.mjs`): runners started at the same time in one worktree share its `out/`,

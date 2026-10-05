@@ -37,7 +37,7 @@ import { SUITES } from './suites.mjs'
 import { affectedSuites, changedFiles } from './affected.mjs'
 import { fingerprint, recordMarkdown } from './record.mjs'
 import { isRealCli, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, selectSuites, suiteOutcome } from './runner.mjs'
-import { ensureBuild } from './build.mjs'
+import { devBuild, ensureBuild } from './build.mjs'
 import { finishRunDirs, logsRootFor, newRunDir, pruneRunDirs } from './logs.mjs'
 import { LANES, claimLane, laneWork } from './lanes.mjs'
 import { describeClaim, heavySlots, isHeavy, waitForSlot } from './slots.mjs'
@@ -116,8 +116,7 @@ const codeBefore = opts.record ? fingerprint(root) : null
 // worktree's build lock: runners started together build it once.
 const runBuild = () => {
   console.log('Building (the dev build is not from this source)…')
-  const r = spawnSync('npx electron-vite build', { cwd: root, stdio: 'inherit', shell: true })
-  if (r.status !== 0) throw Object.assign(new Error(`The build failed (exit ${r.status})`), { status: r.status ?? 1 })
+  devBuild(root)
 }
 let buildCheck
 try {
@@ -178,7 +177,7 @@ const run = (name, port) =>
     // holding the lane's port, and the lane's next suites can't start their Agent API.
     const timer = setTimeout(() => {
       out += '\nFAIL timed out after 10 minutes: the suite and the processes it started were stopped\n'
-      if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+      if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', env: runContext.baseEnv() })
       else child.kill()
     }, 10 * 60_000)
     child.on('exit', (code) => {
@@ -189,7 +188,7 @@ const run = (name, port) =>
 
 /** A CLI's path: on the PATH, or where its installer puts it (Hive looks there too); null when it isn't installed. */
 const cliPath = (cmd, places) => {
-  const r = spawnSync('where.exe', [cmd], { encoding: 'utf8' })
+  const r = spawnSync('where.exe', [cmd], { encoding: 'utf8', env: runContext.baseEnv() })
   return (r.status === 0 && r.stdout.split(/\r?\n/)[0].trim()) || places.find((p) => existsSync(p)) || null
 }
 const cliInstalled = {

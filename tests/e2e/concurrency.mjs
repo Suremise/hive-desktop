@@ -5,9 +5,13 @@
 // runner and a scenario run, and in a second worktree (a git worktree of this one's HEAD with its uncommitted changes,
 // made for the check and removed after unless --keep) two e2e runners. One run in each worktree is started with the
 // environment of an agent's shell inside an outer hive-progress (NO_COLOR, HIVE_PROGRESS_WRAPPED, a Hive Agent API
-// token…), the other with a plain one. Checked, each round: every run passes; each holds a lane of its own (its own
-// ports and folders) and its own logs folder; each worktree's build is made once (the build lock), stamped as its
-// source; and no build lock is left held. --repeat N runs N rounds, stopping at the first that fails.
+// token…) and a shell's git and Node settings pointing elsewhere (GIT_DIR and GIT_WORK_TREE at a decoy repository,
+// NODE_OPTIONS loading a script that notes each Node process it starts in), the other with a plain one; the checker's
+// own environment points git at the decoy too, for its own setup (#208). Checked, each round: every run passes; each
+// holds a lane of its own (its own ports and folders) and its own logs folder; each worktree's build is made once (the
+// build lock), stamped as its source; no build lock is left held; each e2e run's record names its own worktree's code;
+// and the decoy is untouched and no Node process but the runners themselves got the NODE_OPTIONS (#208). --repeat N
+// runs N rounds, stopping at the first that fails.
 //
 // --heavy checks the machine-wide limit on heavy runs instead (slots.mjs), in a pool of slots of its own (so real runs
 // on the machine neither wait for it nor make it wait): three heavy runs (a repeat) started at once from three
@@ -16,12 +20,13 @@
 // pass; a run with --no-wait while the slots are taken fails at once, saying who holds them; and the slot of a run that
 // is killed is taken by the next run without waiting.
 import { execFileSync, spawn, spawnSync } from 'child_process'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import http from 'http'
 import { createRequire } from 'module'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { BUILD_LOCKS, buildInputs, buildLock, buildStamp } from './build.mjs'
+import { fingerprint } from './record.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
@@ -48,13 +53,35 @@ const AGENT_SHELL = {
   ELECTRON_RUN_AS_NODE: '1',
   HIVE_TEST_SLOW_IPC: 'tasks:list=1'
 }
+/**
+ * A shell's git and Node settings pointing elsewhere (#208): a decoy repository the runs' git must never use, and a
+ * script NODE_OPTIONS loads into every Node process started with it, noting which: only the runners themselves, never
+ * a build, suite or other child, may have it.
+ */
+const DECOY = join(runContext.TEST_ROOT, 'concurrency', `decoy-${process.pid}`)
+const NODE_SEEN = join(DECOY, '..', `node-options-${process.pid}.log`)
+const NODE_MARKER = join(DECOY, '..', `node-options-${process.pid}.cjs`)
+const SHELL_ELSEWHERE = { GIT_DIR: join(DECOY, '.git'), GIT_WORK_TREE: DECOY, NODE_OPTIONS: `--require "${NODE_MARKER.replaceAll('\\', '/')}"` }
 
 let failed = 0
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
 }
-const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+// Every child of the checker's own gets the allowlisted environment (runContext.baseEnv): git works in cwd's repository.
+const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: runContext.baseEnv() })
+
+/** The decoy repository (one commit) and the NODE_OPTIONS script, made before the checker's own environment points at them. */
+function makeDecoy() {
+  rmSync(DECOY, { recursive: true, force: true })
+  mkdirSync(DECOY, { recursive: true })
+  writeFileSync(join(DECOY, 'decoy.txt'), 'not the code under test\n')
+  for (const a of [['init', '-q'], ['add', '.'], ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'decoy']]) git(DECOY, ...a)
+  writeFileSync(NODE_MARKER, `require('fs').appendFileSync(${JSON.stringify(NODE_SEEN)}, JSON.stringify(process.argv.slice(1)) + '\\n')\n`)
+  rmSync(NODE_SEEN, { force: true })
+  return git(DECOY, 'rev-parse', 'HEAD').trim()
+}
+
 
 /** Another worktree (name): this one's HEAD and uncommitted changes, sharing its node_modules (a junction). */
 function otherWorktree(name = 'worktree') {
@@ -62,29 +89,29 @@ function otherWorktree(name = 'worktree') {
   removeWorktree(wt)
   mkdirSync(dirname(wt), { recursive: true })
   git(root, 'worktree', 'add', '--detach', '--force', wt, 'HEAD')
-  const diff = execFileSync('git', ['diff', 'HEAD', '--binary'], { cwd: root, maxBuffer: 256 * 1024 * 1024 })
-  if (diff.length) execFileSync('git', ['apply', '--whitespace=nowarn'], { cwd: wt, input: diff })
+  const diff = execFileSync('git', ['diff', 'HEAD', '--binary'], { cwd: root, maxBuffer: 256 * 1024 * 1024, env: runContext.baseEnv() })
+  if (diff.length) execFileSync('git', ['apply', '--whitespace=nowarn'], { cwd: wt, input: diff, env: runContext.baseEnv() })
   for (const f of git(root, 'ls-files', '--others', '--exclude-standard', '-z').split('\0').filter(Boolean)) {
     mkdirSync(dirname(join(wt, f)), { recursive: true })
     copyFileSync(join(root, f), join(wt, f))
   }
-  spawnSync('cmd.exe', ['/c', 'mklink', '/J', join(wt, 'node_modules'), join(root, 'node_modules')], { stdio: 'ignore' })
+  spawnSync('cmd.exe', ['/c', 'mklink', '/J', join(wt, 'node_modules'), join(root, 'node_modules')], { stdio: 'ignore', env: runContext.baseEnv() })
   if (!existsSync(join(wt, 'node_modules', 'electron'))) throw new Error(`Couldn't link node_modules into ${wt}`)
   return wt
 }
 
 /** Removes the second worktree: its node_modules junction first (only the link: rmdir never follows it), then the rest. */
 function removeWorktree(wt) {
-  if (existsSync(join(wt, 'node_modules'))) spawnSync('cmd.exe', ['/c', 'rmdir', join(wt, 'node_modules')], { stdio: 'ignore' })
+  if (existsSync(join(wt, 'node_modules'))) spawnSync('cmd.exe', ['/c', 'rmdir', join(wt, 'node_modules')], { stdio: 'ignore', env: runContext.baseEnv() })
   if (existsSync(join(wt, 'node_modules'))) throw new Error(`Couldn't remove the node_modules link in ${wt}; remove it by hand (rmdir, not a recursive delete)`)
-  spawnSync('git', ['worktree', 'remove', '--force', wt], { cwd: root, stdio: 'ignore' })
+  spawnSync('git', ['worktree', 'remove', '--force', wt], { cwd: root, stdio: 'ignore', env: runContext.baseEnv() })
   rmSync(wt, { recursive: true, force: true })
-  spawnSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore' })
+  spawnSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore', env: runContext.baseEnv() })
 }
 
 /** Starts a run: { name, cwd, args, polluted, env } → { name, cwd, code, out, ms }; started(child) when it starts. */
 function start({ name, cwd, script, args, polluted, env: extra = {}, started = () => {} }) {
-  const env = { ...runContext.childEnv(), ...(polluted ? AGENT_SHELL : {}), ...extra }
+  const env = { ...runContext.childEnv(), ...(polluted ? { ...AGENT_SHELL, ...SHELL_ELSEWHERE } : {}), ...extra }
   const t0 = Date.now()
   return new Promise((resolve) => {
     const p = spawn(process.execPath, [join(cwd, script), ...args], { cwd, env })
@@ -92,7 +119,7 @@ function start({ name, cwd, script, args, polluted, env: extra = {}, started = (
     let out = ''
     p.stdout.on('data', (d) => (out += d))
     p.stderr.on('data', (d) => (out += d))
-    p.on('close', (code) => resolve({ name, cwd, code, out, polluted, ms: Date.now() - t0 }))
+    p.on('close', (code) => resolve({ name, cwd, script, code, out, polluted, ms: Date.now() - t0 }))
   })
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -102,11 +129,12 @@ async function until(fn, ms) {
   return false
 }
 
-async function round(k, wt) {
+async function round(k, wt, decoyHead) {
   console.log(`\n--- Round ${k} of ${repeat}`)
   // Both builds stale: each worktree's runners find it so at the same time.
   for (const w of [root, wt]) rmSync(join(w, 'out', '.e2e-build.json'), { force: true })
-  const e2e = ['tests/e2e/run.mjs', [...SUITES, '--build', '--no-progress']]
+  rmSync(NODE_SEEN, { force: true })
+  const e2e = ['tests/e2e/run.mjs', [...SUITES, '--build', '--record', '--no-progress']]
   const runs = await Promise.all([
     start({ name: 'this worktree, e2e (agent shell)', cwd: root, script: e2e[0], args: e2e[1], polluted: true }),
     start({ name: 'this worktree, scenario (plain)', cwd: root, script: 'tests/scenarios/run.mjs', args: ['--only', SCENARIO], polluted: false }),
@@ -135,7 +163,17 @@ async function round(k, wt) {
     check(`${label}: built once by its two runs at the same time`, builds === 1, `${builds} builds`)
     check(`${label}: its build is stamped as its source`, buildStamp(w) === buildInputs(w))
     check(`${label}: no build lock left held`, !existsSync(buildLock(w).folder))
+    // The record's code is this worktree's (with GIT_DIR leaked, it would be the decoy's commit).
+    const code = fingerprint(w)
+    for (const r of inIt.filter((x) => x.script === e2e[0])) check(`${r.name}: its record names this worktree's code`, r.out.includes(`code \`${code}\``), /code `[^`]+`/.exec(r.out)?.[0] ?? 'no record')
   }
+  // The decoy: same commit, nothing added, changed or registered as a worktree; and NODE_OPTIONS only in the runners.
+  const decoyStatus = git(DECOY, 'status', '--porcelain', '--ignored').trim()
+  const decoyClean = git(DECOY, 'rev-parse', 'HEAD').trim() === decoyHead && !decoyStatus && git(DECOY, 'worktree', 'list', '--porcelain').match(/^worktree /gm).length === 1
+  check("no run's git used the shell's GIT_DIR/GIT_WORK_TREE (the decoy is untouched)", decoyClean, decoyStatus)
+  const seen = existsSync(NODE_SEEN) ? readFileSync(NODE_SEEN, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)[0] ?? '') : []
+  const others = seen.filter((f) => !/[\\/]tests[\\/]e2e[\\/]run\.mjs$/.test(f))
+  check('NODE_OPTIONS reached the polluted runners and no Node process they started', seen.length === 2 && !others.length, `${seen.length} started with it: ${others.join(', ')}`)
 }
 
 /** The heavy-run queue (--heavy): see the top of this file. */
@@ -186,7 +224,7 @@ async function heavyRound(k, worktrees) {
     let child
     const killed = start({ name: 'killed', cwd: root, script: 'tests/e2e/run.mjs', args, env: { ...env, HIVE_TEST_HEAVY_SLOTS: '1' }, started: (p) => (child = p) })
     const held = await until(() => slots() === 1, 60_000)
-    spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+    spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', env: runContext.baseEnv() })
     await killed
     const next = await start({ name: 'after a killed run', cwd: root, script: 'tests/e2e/run.mjs', args, env: { ...env, HIVE_TEST_HEAVY_SLOTS: '1' } })
     check("a killed run's slot is taken by the next run without waiting", held && next.code === 0 && !/Waiting for a test slot/.test(next.out), `held ${held}, exit ${next.code}`)
@@ -197,7 +235,13 @@ async function heavyRound(k, worktrees) {
 }
 
 const made = []
+let decoyHead = null
 try {
+  if (!heavy) {
+    decoyHead = makeDecoy()
+    // The checker's own children too (its worktree setup and clean-up, the fingerprints it checks): none may follow it.
+    Object.assign(process.env, { GIT_DIR: SHELL_ELSEWHERE.GIT_DIR, GIT_WORK_TREE: SHELL_ELSEWHERE.GIT_WORK_TREE })
+  }
   if (heavy) {
     made.push(otherWorktree('worktree'), otherWorktree('worktree-3'))
     console.log(`Other worktrees: ${made.join(', ')}`)
@@ -207,7 +251,7 @@ try {
   }
   for (let k = 1; k <= repeat; k++) {
     if (heavy) await heavyRound(k, [root, ...made])
-    else await round(k, made[0])
+    else await round(k, made[0], decoyHead)
     if (failed) {
       if (k < repeat) console.log(`\nRound ${k} failed: stopping here.`)
       break
@@ -217,6 +261,7 @@ try {
   check('the check ran', false, e.stack ?? String(e))
 } finally {
   if (!keep) for (const w of made) removeWorktree(w)
+  if (!keep) for (const f of [DECOY, NODE_SEEN, NODE_MARKER]) rmSync(f, { recursive: true, force: true })
 }
 check("this worktree's node_modules is untouched", existsSync(join(root, 'node_modules', 'electron')) && readdirSync(join(root, 'node_modules')).length > 50)
 console.log(failed ? `\n${failed} failed` : `\nAll passed (${repeat} round${repeat === 1 ? '' : 's'}).`)

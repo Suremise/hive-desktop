@@ -20,11 +20,10 @@
 // lane, from the same pool as the e2e runner (tests/e2e/lanes.mjs), and keeps its scenarios' profiles and workspaces in
 // %LOCALAPPDATA%\hive-test\scenarios\lanes\<k> (--keep leaves them there) with the lane's first port as their Agent API
 // port (#183, #184). Results and baselines stay shared: Performance → Compare reads them.
-import { spawnSync } from 'child_process'
 import { createRequire } from 'module'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { ensureBuild } from '../e2e/build.mjs'
+import { devBuild, ensureBuild } from '../e2e/build.mjs'
 import { LANES, claimLane, laneWork } from '../e2e/lanes.mjs'
 import { describeClaim, heavySlots, isHeavy, waitForSlot } from '../e2e/slots.mjs'
 import { slotWaitProgress } from '../progressReport.mts'
@@ -110,8 +109,7 @@ try {
     build: true,
     runBuild: () => {
       console.log('Building (the dev build is not from this source)…')
-      const r = spawnSync('npx electron-vite build', { cwd: lib.ROOT, stdio: 'inherit', shell: true })
-      if (r.status !== 0) throw Object.assign(new Error(`The build failed (exit ${r.status})`), { status: r.status ?? 1 })
+      devBuild(lib.ROOT)
     }
   })
 } catch (e) {
