@@ -39,10 +39,11 @@ export function codexModelLabel(model: string): string {
 const models = (...ids: string[]) => ids.map((id) => ({ value: id, label: codexModelLabel(id) }))
 
 /**
- * Models offered in the pickers, from Codex's catalogue (codex debug models, Sep 2026). Which ones an
+ * Models offered in the pickers, from Codex's catalogue (codex debug models, Sep 2026; GPT-6.1 Sol from Codex 0.160, Oct 2026). Which ones an
  * account can use depends on its plan; anything else can be typed as a custom ID.
  */
 export const CODEX_MODEL_GROUPS: ModelGroup[] = [
+  { label: 'GPT-6.1', models: models('gpt-6.1-sol') },
   { label: 'GPT-6', models: models('gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna') },
   { label: 'Older versions', older: true, models: models('gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5') }
 ]

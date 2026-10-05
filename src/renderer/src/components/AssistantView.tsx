@@ -5,7 +5,7 @@ import { useNow } from '../usage'
 import { set, setAssistantOpen, useStore } from '../store'
 import { cx, formatNumber, formatTokens } from '../util'
 import { SessionsTab } from '../views/SessionsTab'
-import { PERIODS, money, periodFrom, sumUsage, useSessions, type Period } from '../views/ProjectTabs'
+import { PERIODS, costText, periodFrom, sumUsage, useSessions, type Period } from '../views/ProjectTabs'
 import { PERSONAS_TIP, PersonaList, PersonaView, createPersona } from './Personas'
 import { Section } from './Sidebar'
 import { Icon, IconButton, InfoTip, Tooltip } from './ui'
@@ -88,7 +88,7 @@ function AssistantSummary({ assistant }: { assistant: ProjectInfo }) {
         <Stat label="Conversations" value={items ? String(t.sessions) : '…'} />
         <Stat label="Prompts" value={items ? formatNumber(t.prompts) : '…'} />
         <Stat label="Tokens" value={items ? formatTokens(tokens) : '…'} />
-        <Stat label="Cost" value={items ? `${t.estimated ? '≈ ' : ''}${money(t.cost)}` : '…'} tip={t.unpriced ? `${t.unpriced} conversation${t.unpriced === 1 ? '' : 's'} without a price` : undefined} />
+        <Stat label="Cost" value={items ? costText(t) : '…'} tip={t.unpriced ? `${t.unpriced} conversation${t.unpriced === 1 ? '' : 's'} without a price` : undefined} />
       </div>
     </div>
   )

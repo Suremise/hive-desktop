@@ -199,7 +199,7 @@ The **Overview** tab updates as sessions change (at most every 15 seconds; **Set
 - **Cache** — whether Anthropic's prompt cache is still warm (5-minute or 1-hour lifetime) and how long it has left (Claude Code).
 - **Re-cache on resume** — an estimate of the tokens written to cache on the first message after resuming, once the cache has expired.
 - **Compactions** — each time the agent summarised the conversation to free space, with before/after sizes (newest first, in a pane that scrolls).
-- **API-equivalent cost** — what the session would have cost at API prices. On a subscription you are not charged this; it is a measure of how heavy the session is. Claude Code calculates it itself; for Codex, Hive **estimates** it from a price table (shown with **≈**). Hive ships the published prices, and you can change them in each provider's settings page (**API prices**) if they change or you have different rates. A model without a price shows no cost.
+- **API-equivalent cost** — what the session would have cost at API prices. On a subscription you are not charged this; it is a measure of how heavy the session is. Claude Code calculates it itself; for Codex, Hive **estimates** it from a price table (shown with **≈**). Hive ships the published prices, and you can change them in each provider's settings page (**API prices**) if they change or you have different rates. For a model Hive has no price for, the cost shows as unknown (**$?** in the agent's footer, **Unknown** on the Overview; a total that includes such sessions shows what is known with **+ ?**); hover it to see which model, and add its price under **API prices** to see the estimate.
 
 ### Long conversations
 

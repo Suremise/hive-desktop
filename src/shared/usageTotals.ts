@@ -37,8 +37,19 @@ export interface Totals {
   cost: number
   /** Some of the cost is Hive's estimate. */
   estimated: boolean
+  /** Sessions with a cost (reported or estimated). */
+  priced: number
   /** Sessions with no cost at all (no price known for their model). */
   unpriced: number
+}
+
+/**
+ * A total cost as shown: "≈ $1.20" when every session in it has a cost, "≈ $1.20 + ?" when some have none (a known
+ * subtotal, incomplete), "Unknown" when none has: sessions Hive couldn't price never count as $0.
+ */
+export function costText(t: { cost: number; estimated: boolean; priced: number; unpriced: number }): string {
+  if (t.unpriced && !t.priced) return 'Unknown'
+  return `${t.estimated ? '≈ ' : ''}${money(t.cost)}${t.unpriced ? ' + ?' : ''}`
 }
 
 /** Every token counted: new input, cache writes, input read from cache, and output. */
@@ -46,7 +57,7 @@ export const totalTokens = (t: Totals): number => t.input + t.cached + t.cacheWr
 
 /** What sessions used, all of it or from a day on (only what happened then, a day at a time). */
 export function sumUsage(list: SessionListItem[], fromDay: string | null = null): Totals {
-  const t: Totals = { sessions: 0, prompts: 0, compactions: 0, input: 0, cached: 0, cacheWrite: 0, output: 0, cost: 0, estimated: false, unpriced: 0 }
+  const t: Totals = { sessions: 0, prompts: 0, compactions: 0, input: 0, cached: 0, cacheWrite: 0, output: 0, cost: 0, estimated: false, priced: 0, unpriced: 0 }
   for (const s of activeIn(list, fromDay)) {
     t.sessions++
     if (!s.usage) continue
@@ -59,6 +70,7 @@ export function sumUsage(list: SessionListItem[], fromDay: string | null = null)
     t.output += u.outputTokens
     if (u.costUsd === null) t.unpriced++
     else {
+      t.priced++
       t.cost += u.costUsd
       if (u.costEstimated) t.estimated = true
     }
@@ -71,6 +83,9 @@ export interface DayTotal {
   tokens: number
   cost: number
   estimated: boolean
+  /** Sessions that used something that day with a cost, and without one (see costText). */
+  priced: number
+  unpriced: number
   prompts: number
 }
 
@@ -80,7 +95,7 @@ function emptyDays(fromDay: string, now: number): DayTotal[] {
   for (let i = 0; ; i++) {
     const day = dayOffset(Date.parse(`${fromDay}T12:00:00`), i)
     if (day > localDay(now)) break
-    out.push({ day, tokens: 0, cost: 0, estimated: false, prompts: 0 })
+    out.push({ day, tokens: 0, cost: 0, estimated: false, priced: 0, unpriced: 0, prompts: 0 })
   }
   return out
 }
@@ -95,7 +110,10 @@ export function dailyTotals(list: SessionListItem[], fromDay: string, now: numbe
       if (!o) continue
       o.tokens += d.inputTokens + d.outputTokens + d.cacheWriteTokens + d.cacheReadTokens
       o.prompts += d.prompts
-      if (d.costUsd !== null) o.cost += d.costUsd
+      if (d.costUsd !== null) {
+        o.cost += d.costUsd
+        o.priced++
+      } else o.unpriced++
       if (d.costEstimated) o.estimated = true
     }
   }
@@ -131,6 +149,8 @@ export function stackedDaily(groups: UsageGroup[], fromDay: string, now: number,
       tokens: parts.reduce((a, b) => a + b, 0),
       cost: all.reduce((n, x) => n + x.cost, 0),
       estimated: all.some((x) => x.estimated),
+      priced: all.reduce((n, x) => n + x.priced, 0),
+      unpriced: all.reduce((n, x) => n + x.unpriced, 0),
       prompts: all.reduce((n, x) => n + x.prompts, 0),
       parts
     }

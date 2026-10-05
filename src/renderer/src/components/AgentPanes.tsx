@@ -14,6 +14,7 @@ import { offerTip } from '../tips'
 import { ModeBadge } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { isProviderEnabled, projectDefaultProvider, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
+import { unpricedModel, unpricedText } from '@shared/prices'
 import { Icon, IconButton, ReviewMark, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
 /** Height of an agent pane's header (who it is, its controls) and footer (its session's details). */
@@ -751,6 +752,11 @@ export function PaneFooter({
           <span className="pane-foot-item faint">
             {estimated ? '≈' : ''}${cost < 0.01 ? '<0.01' : cost.toFixed(2)}
           </span>
+        </Tooltip>
+      )}
+      {cost === null && usage && unpricedModel(usage.provider, usage.model, settings) && (
+        <Tooltip content={unpricedText(usage.model!, providerName(usage.provider))}>
+          <span className="pane-foot-item faint">$?</span>
         </Tooltip>
       )}
     </div>
