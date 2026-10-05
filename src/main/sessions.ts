@@ -197,6 +197,12 @@ function lockKey(abs: string): string {
   }
 }
 
+/** What Hive types to tell an agent it may make the locked edits the user allowed. */
+function goAheadPrompt(cwd: string, paths: string[]): string {
+  const files = paths.map((p) => relative(cwd, p) || basename(p)).join(', ')
+  return `The user allowed you to edit ${files} while the other agent works on ${paths.length > 1 ? 'them' : 'it'}. Go ahead with the ${paths.length > 1 ? 'edits' : 'edit'}.`
+}
+
 /** A lock is released when its agent's turn ends; this covers an agent that stalls without ending it. */
 const LOCK_TTL_MS = 15 * 60_000
 
@@ -326,6 +332,10 @@ class SessionManager {
   /** "Allow" given for an agent and file (`<liveId>|<lock key>`), and questions already asked, with their lockSeq. */
   private lockAllowed = new Map<string, number>()
   private lockAsked = new Map<string, number>()
+  /** "Allow" given while the agent was still in its turn (`<liveId>|<lock key>` → the file's path): the go-ahead it gets when that turn ends. */
+  private lockGoAhead = new Map<string, string>()
+  /** Go-aheads put off while the user was typing in the agent's terminal: tried again when the pause ends. */
+  private goAheadTimers = new Map<string, ReturnType<typeof setTimeout>>()
   readonly hookToken = randomBytes(24).toString('hex')
   hookUrl = ''
   apiEnv: (projectPath: string, agentId: string) => Record<string, string> = () => ({})
@@ -1896,9 +1906,9 @@ class SessionManager {
     const hook = l.adapter.normalizeHook(body)
     if (hook.event.kind !== 'toolStart' || !hook.editedPaths.length) return null
     const mode = this.lockMode(l.state.projectPath)
-    if (mode === 'off') return null
     const base = typeof body.cwd === 'string' && body.cwd ? body.cwd : l.state.cwd
     const files = hook.editedPaths.map((f) => resolve(isAbsolute(f) ? f : join(base, f)))
+    if (mode === 'off') return this.editAccepted(id, files, null)
     const now = Date.now()
     for (const abs of files) {
       const held = this.locks.get(lockKey(abs))
@@ -1908,7 +1918,7 @@ class SessionManager {
       const who = holder.state.agentName ?? 'Another agent'
       log.info(`Lock: ${userText(l.state.agentName)} → ${userText(rel)} held by ${userText(who)} (${mode})`)
       if (mode === 'warn') {
-        return l.adapter.lockReply({ kind: 'warn', context: `Note: ${who} is also editing ${rel} right now. Check the file's current content before changing it, and keep your edit small.` })
+        return this.editAccepted(id, files, l.adapter.lockReply({ kind: 'warn', context: `Note: ${who} is also editing ${rel} right now. Check the file's current content before changing it, and keep your edit small.` }))
       }
       if (mode === 'ask' && !l.adapter.descriptor.capabilities.lockAsk) {
         // The CLI can't show its own approval for this, so Hive asks the user and the agent waits.
@@ -1934,19 +1944,77 @@ class SessionManager {
       this.locks.set(key, { liveId: id, at: now, seq: ++this.lockSeq, path: abs })
     }
     if (fresh) this.publishLocks(id)
-    return null
+    return this.editAccepted(id, files, null)
   }
 
-  /** "Allow" on an "Ask me" lock notification: lets the agent edit the file, and tells it to go ahead if it is waiting. */
+  /**
+   * An edit going ahead (every file in it): the files need no go-ahead any more, whoever held them meanwhile (the
+   * holder may have finished before the retry). Returns `reply`.
+   */
+  private editAccepted<T>(id: string, files: string[], reply: T): T {
+    for (const abs of files) this.lockGoAhead.delete(`${id}|${lockKey(abs)}`)
+    return reply
+  }
+
+  /**
+   * "Allow" on an "Ask me" lock notification: lets the agent edit the file, and tells it to go ahead (sendGoAheads):
+   * now if it is idle, else when its turn ends (the toast shows while the blocked agent is still replying, and that
+   * turn's end would otherwise drop the allowance with nothing typed).
+   */
   async allowLockedEdit(projectPath: string, agentId: string, path: string): Promise<void> {
     projectPath = workspace.assertSessionHost(projectPath)
     const id = liveId(projectPath, agentId)
     const l = this.live.get(id)
     if (!l) return
-    this.lockAllowed.set(`${id}|${lockKey(resolve(path))}`, ++this.lockSeq)
-    if (l.state.status === 'ready' || l.state.status === 'finished') {
-      await this.sendPrompt(projectPath, agentId, `The user allowed you to edit ${relative(l.state.cwd, path) || basename(path)} while the other agent works on it. Go ahead with the edit.`)
+    const key = `${id}|${lockKey(resolve(path))}`
+    this.lockAllowed.set(key, ++this.lockSeq)
+    this.lockGoAhead.set(key, path)
+    this.sendGoAheads(id, l)
+  }
+
+  /**
+   * Types one go-ahead for the agent's allowed files, as any prompt Hive types on its own is: only while it is idle and
+   * the user isn't writing in its terminal (Pause after you type), checked again until Enter, so the user's input is
+   * never added to or sent. The files are allowed again for the turn it starts. Not typed, they wait: for the pause
+   * to end, or the next turn's end (the user's own prompt, or a wake, went first; the files stay allowed for it).
+   */
+  private sendGoAheads(id: string, l: LiveSession): void {
+    const { projectPath, agentId } = l.state
+    const keys = [...this.lockGoAhead.keys()].filter((k) => k.startsWith(`${id}|`))
+    const idle = (): boolean => l.state.status === 'ready' || l.state.status === 'finished'
+    if (!keys.length || !idle() || this.live.get(id) !== l) return
+    if (this.userMayBeTyping(projectPath, agentId)) return this.goAheadLater(id, l)
+    const paths = keys.map((k) => this.lockGoAhead.get(k)!)
+    for (const k of keys) this.lockAllowed.set(k, ++this.lockSeq)
+    // This delivery's go-aheads, still wanted: an interrupt, the edit going ahead, or the session ending or moving
+    // (dropGoAheads, editAccepted) cancels it, even part-way.
+    const current = (): boolean => this.live.get(id) === l && keys.every((k, i) => this.lockGoAhead.get(k) === paths[i])
+    const allowed = (): void => {
+      if (!current()) throw new Error('The go-ahead was cancelled.')
+      if (!idle()) throw new Error('The agent started working before the go-ahead was typed.')
+      if (this.userMayBeTyping(projectPath, agentId)) throw new Error('The user is typing there.')
     }
+    this.sendPrompt(projectPath, agentId, goAheadPrompt(l.state.cwd, paths), allowed).then(
+      () => keys.forEach((k, i) => this.lockGoAhead.get(k) === paths[i] && this.lockGoAhead.delete(k)),
+      (e: Error) => {
+        log.info(`${userText(this.label(l.state))}: go-ahead for a locked edit put off: ${e.message}`)
+        if (current() && this.userMayBeTyping(projectPath, agentId)) this.goAheadLater(id, l)
+      }
+    )
+  }
+
+  /** Tries the go-ahead again once the user's typing pause is over. */
+  private goAheadLater(id: string, l: LiveSession): void {
+    if (this.goAheadTimers.has(id)) return
+    const u = this.userInput.get(this.key(l.state.projectPath, l.state.agentId))
+    const wait = Math.max(500, (u?.at ?? 0) + (config.settings.assistant?.typingPause ?? 15) * 1000 - Date.now() + 200)
+    this.goAheadTimers.set(
+      id,
+      setTimeout(() => {
+        this.goAheadTimers.delete(id)
+        this.sendGoAheads(id, l)
+      }, wait)
+    )
   }
 
   /**
@@ -1957,6 +2025,8 @@ class SessionManager {
     for (const map of [this.lockAllowed, this.lockAsked]) {
       for (const [k, seq] of map) if (k.startsWith(`${id}|`) && seq <= before) map.delete(k)
     }
+    // A go-ahead waits for the turn's end, so only releasing everything (the session ended or moved) drops it.
+    if (before === Infinity) this.dropGoAheads(id)
     let changed = false
     for (const [k, v] of this.locks) {
       if (v.liveId === id && v.seq <= before) {
@@ -1965,6 +2035,12 @@ class SessionManager {
       }
     }
     if (changed) this.publishLocks(id)
+  }
+
+  private dropGoAheads(id: string): void {
+    for (const k of this.lockGoAhead.keys()) if (k.startsWith(`${id}|`)) this.lockGoAhead.delete(k)
+    clearTimeout(this.goAheadTimers.get(id))
+    this.goAheadTimers.delete(id)
   }
 
   private publishLocks(id: string): void {
@@ -2111,6 +2187,9 @@ class SessionManager {
     const needed = asksYou(st)
     // A turn's end is reported even when the status stays (its background task count may have changed).
     if (applyStep(st, step) || step.actions.includes('turnEnded')) this.emitState(st)
+    // A turn's end types the go-ahead for an Allow given during it; an interrupt (the user stopping it) drops it.
+    if (step.actions.includes('turnEnded')) this.sendGoAheads(id, l)
+    else if (step.actions.includes('releaseLocks')) this.dropGoAheads(id)
     // Why you were told an agent needs you, and when it no longer does (Help → Copy Diagnostics): never what was asked.
     const told = step.actions.includes('notifyWaiting') ? 'waits for you' : step.actions.includes('notifyQuestion') ? 'asks a question' : needed && !asksYou(st) ? 'no longer needs you' : null
     if (told) log.debug(`${userText(label)}: ${told} (${cause})`)

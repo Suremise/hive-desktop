@@ -8,6 +8,13 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',
+    // Under load (e2e sets, scenario runs and other agents' tests on the same machine), Vitest's defaults (5 s a test, a
+    // worker per core) made timing-sensitive tests fail that pass alone (#189, #196, #204): half the cores, so a full run
+    // beside an e2e set leaves it room, and longer limits for a slow moment (a test that waits for something still says
+    // how long it waits). A test that needs more says so itself.
+    maxWorkers: '50%',
+    testTimeout: 20_000,
+    hookTimeout: 30_000,
     // Run inside a Hive agent's session: the files' progress in Hive's Progress panel (tests/progressReport.mts), added to
     // Vitest's own reporters (which it picks by where it runs: minimal for a coding agent), so the output is unchanged.
     ...(progressWanted() ? { reporters: [...configDefaults.reporters, new VitestProgress()] } : {})

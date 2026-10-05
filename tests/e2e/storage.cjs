@@ -91,8 +91,7 @@ const write = (file, text) => {
   cfg.settings.notifications = { ...cfg.settings.notifications, desktopNotifications: false, chimeEnabled: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47908), CLAUDE_CONFIG_DIR: claudeHome }
-  delete env.ELECTRON_RUN_AS_NODE
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47908), CLAUDE_CONFIG_DIR: claudeHome })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))

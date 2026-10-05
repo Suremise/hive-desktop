@@ -32,8 +32,7 @@ const srv = http.createServer((req, res) => {
 /** Runs the wrapper as its shims do; resolves to its exit code and output. */
 const wrap = (args, apiUrl) =>
   new Promise((resolve) => {
-    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', HIVE_PROGRESS_DATA: data, HIVE_API_URL: apiUrl, HIVE_API_TOKEN: 'agent-token' }
-    for (const k of ['HIVE_API_TOKEN_FILE', 'HIVE_WORKSPACE', 'HIVE_PROGRESS']) delete env[k]
+    const env = lib.childEnv({ ELECTRON_RUN_AS_NODE: '1', HIVE_PROGRESS_DATA: data, HIVE_API_URL: apiUrl, HIVE_API_TOKEN: 'agent-token' })
     const p = spawn(exe, [script, ...args], { env, cwd: lib.WORK })
     let out = ''
     let err = ''
@@ -80,9 +79,7 @@ const wrap = (args, apiUrl) =>
   const app = path.join(lib.WORK, 'packaged-progress-electron-app.cjs')
   fs.writeFileSync(app, "let app = null\ntry { app = require('electron').app } catch {}\nif (!app) { console.log('BROKEN: running as Node'); process.exit(23) }\napp.whenReady().then(() => { console.log('OK: Electron app'); app.exit(0) })\n")
   const direct = await new Promise((resolve) => {
-    const env = { ...process.env }
-    delete env.ELECTRON_RUN_AS_NODE
-    const p = spawn(lib.ELECTRON, [app], { env })
+    const p = spawn(lib.ELECTRON, [app], { env: lib.childEnv() })
     let out = ''
     p.stdout.on('data', (d) => (out += d))
     p.on('close', (code) => resolve({ code, out: out.replace(/\r/g, '') }))
@@ -91,8 +88,7 @@ const wrap = (args, apiUrl) =>
   for (const [mode, apiUrl, extra] of [['reporting', url, {}], ['Hive unreachable', 'http://127.0.0.1:9', {}], ['HIVE_PROGRESS=0', url, { HIVE_PROGRESS: '0' }]]) {
     const before = calls.length
     const wrapped = await new Promise((resolve) => {
-      const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', HIVE_PROGRESS_DATA: data, HIVE_API_URL: apiUrl, HIVE_API_TOKEN: 'agent-token', ...extra }
-      for (const k of ['HIVE_API_TOKEN_FILE', 'HIVE_WORKSPACE', 'HIVE_PROGRESS_RUN_AS_NODE', ...(extra.HIVE_PROGRESS ? [] : ['HIVE_PROGRESS'])]) delete env[k]
+      const env = lib.childEnv({ ELECTRON_RUN_AS_NODE: '1', HIVE_PROGRESS_DATA: data, HIVE_API_URL: apiUrl, HIVE_API_TOKEN: 'agent-token', ...extra })
       const p = spawn(exe, [script, '--', lib.ELECTRON, app], { env, cwd: lib.WORK })
       let out = ''
       p.stdout.on('data', (d) => (out += d))

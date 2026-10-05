@@ -38,8 +38,7 @@ const read = (rel) => fs.readFileSync(path.join(proj, rel), 'utf8')
 
 ;(async () => {
   lib.enableProviders(userData)
-  const env = { ...process.env, HIVE_USER_DATA: userData }
-  delete env.ELECTRON_RUN_AS_NODE
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData })
   const app = await _electron.launch({ executablePath: path.join(lib.ROOT, 'dist/win-unpacked/Hive.exe'), args: [], env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => results.push(`PAGEERROR ${e.message}`))

@@ -44,6 +44,7 @@ export const SUITES = [
   { name: 'icons' },
   { name: 'image', needs: ['claude'] },
   { name: 'inbox', serial: 'window focus' },
+  { name: 'isolation' },
   { name: 'keys' },
   { name: 'launchrace', needs: ['claude'] },
   { name: 'loadfail' },

@@ -38,8 +38,7 @@ const LIGHT = { color: '#f3f3f3', dim: '#868686', dim2: '#4a4a4a' }
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
   lib.gitProject(path.join(ws, 'alpha'))
   if (NATIVE) console.log('Native maximise and restore (HIVE_E2E_NATIVE=1): the test window comes on screen and takes the focus.')
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47895), HIVE_TEST_TIPS: 'off', ...(NATIVE ? { HIVE_TEST_QUIET: '0' } : {}) }
-  delete env.ELECTRON_RUN_AS_NODE
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47895), HIVE_TEST_TIPS: 'off', ...(NATIVE ? { HIVE_TEST_QUIET: '0' } : {}) })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))

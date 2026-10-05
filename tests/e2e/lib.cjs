@@ -6,19 +6,17 @@
 // home CODEX_HOME. The first Claude Code run in a test folder asks whether to trust it; acceptClaudeTrust
 // answers that (it is not a sign-in screen). Suites never automate sign-in screens.
 const fs = require('fs')
-const os = require('os')
 const path = require('path')
 const { execFileSync } = require('child_process')
 const { _electron } = require('playwright-core')
 
+// The run context (runContext.cjs): the environments of everything a suite starts, its folders and the CLI test homes.
+const { WORK, CODEX_HOME, hiveEnv, childEnv, isHiveEnv } = require('./runContext.cjs')
+
 const ROOT = path.resolve(__dirname, '..', '..')
 /** Electron's executable (the electron package resolves to its path in plain Node). */
 const ELECTRON = require('electron')
-const LOCAL = process.env.LOCALAPPDATA || os.tmpdir()
-/** Where suites keep their profiles, workspaces and screenshots. Stable, so Claude Code trusts its folders once. */
-const WORK = process.env.HIVE_E2E_DIR || path.join(LOCAL, 'hive-test', 'e2e')
-/** The Codex home the Codex suites use (signed in once by hand: see tests/e2e/README.md). */
-const CODEX_HOME = process.env.HIVE_TEST_CODEX_HOME || path.join(LOCAL, 'hive-test', 'codex')
+// WORK: where suites keep their profiles, workspaces and screenshots. Stable, so Claude Code trusts its folders once.
 fs.mkdirSync(WORK, { recursive: true })
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -100,10 +98,8 @@ async function openWorkspace(inv, page, ws, ms = 20000) {
 
 /** Starts the dev build with a test profile. Returns { app, page, inv } (inv calls an IPC channel). */
 async function launch({ userData, env = {}, viewport = { width: 1400, height: 850 } }) {
-  // Quiet (src/main/testQuiet.ts) unless the suite says otherwise: no focus taken, no Windows notifications.
-  const e = { HIVE_TEST_QUIET: '1', ...process.env, HIVE_USER_DATA: userData, ...env }
-  delete e.ELECTRON_RUN_AS_NODE
-  const app = await _electron.launch({ executablePath: ELECTRON, args: [ROOT], cwd: ROOT, env: e })
+  // The run context's environment (quiet, tips off, the suite's port) with the profile and the suite's own variables.
+  const app = await _electron.launch({ executablePath: ELECTRON, args: [ROOT], cwd: ROOT, env: hiveEnv({ HIVE_USER_DATA: userData, ...env }) })
   const page = await app.firstWindow()
   await fitWindow(app, page, viewport)
   await appReady(page)
@@ -279,10 +275,12 @@ function environmentProblems(text) {
 const environmentProblem = (text) => environmentProblems(text)[0]?.why ?? null
 
 // Every Hive a suite starts, whether through launch() or Playwright's _electron.launch directly (most suites do that):
-// require('playwright-core') is one module, so suites get this _electron. cliStep reads their sessions.
+// require('playwright-core') is one module, so suites get this _electron. cliStep reads their sessions. Each must have
+// the run context's environment (hiveEnv): without one, Playwright would pass on the suite's own.
 const apps = new Set()
 const launchElectron = _electron.launch.bind(_electron)
 _electron.launch = async (...args) => {
+  if (!isHiveEnv(args[0]?.env)) throw new Error("Start a test Hive with lib.hiveEnv({ HIVE_USER_DATA, … }) as its env (tests/e2e/runContext.cjs), never the suite's own environment")
   const app = await launchElectron(...args)
   apps.add(app)
   app.on('close', () => apps.delete(app))
@@ -481,4 +479,4 @@ function hadEstimate(run) {
   return typeof run?.estimateMs === 'number'
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

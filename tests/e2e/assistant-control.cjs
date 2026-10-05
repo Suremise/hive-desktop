@@ -37,8 +37,7 @@ const check = (name, ok, extra = '') => {
   cfg.settings.assistant = { ...cfg.settings.assistant, typingPause: 600, enterEndsPause: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: PORT, CLAUDE_CONFIG_DIR: claudeHome }
-  delete env.ELECTRON_RUN_AS_NODE
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: PORT, CLAUDE_CONFIG_DIR: claudeHome })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
@@ -179,7 +178,7 @@ const check = (name, ok, extra = '') => {
   // that may carry the Agent API's token (HIVE_API_TOKEN); the Assistant's tools must still use its own.
   const viaTool = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], {
     input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'hive_activate_project', arguments: { project: 'alpha', active: true } } }) + '\n',
-    env: { ...process.env, HIVE_API_TOKEN: apiToken, ...mcp.env, HIVE_API_URL: API },
+    env: lib.childEnv({ HIVE_API_TOKEN: apiToken, ...mcp.env, HIVE_API_URL: API }),
     timeout: 15000
   }).toString()
   const toolReply = JSON.parse(viaTool.split('\n')[0]).result
@@ -224,7 +223,7 @@ const check = (name, ok, extra = '') => {
 
   // The tools its hive MCP server offers follow the control level; project agents never get them.
   const tools = (envExtra) => {
-    const outText = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], { input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) + '\n', env: { ...process.env, HIVE_API_URL: API, ...envExtra }, timeout: 10000 }).toString()
+    const outText = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], { input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) + '\n', env: lib.childEnv({ HIVE_API_URL: API, ...envExtra }), timeout: 10000 }).toString()
     return JSON.parse(outText.split('\n')[0]).result.tools.map((t) => t.name)
   }
   const asAgent = tools({ HIVE_PROJECT: 'alpha' })

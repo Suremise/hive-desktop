@@ -15,8 +15,7 @@ fs.mkdirSync(shots, { recursive: true })
 
 ;(async () => {
   lib.enableProviders(userData)
-  const env = { ...process.env, HIVE_USER_DATA: userData }
-  delete env.ELECTRON_RUN_AS_NODE
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData })
   const app = await _electron.launch({
     executablePath: lib.ELECTRON,
     args: [lib.ROOT],

@@ -34,8 +34,7 @@ const post = (url, token, body) =>
   lib.trustForCodex(proj)
   fs.rmSync(userData, { recursive: true, force: true })
   lib.enableProviders(userData, ['claude-code', 'codex'])
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47894), CODEX_HOME: lib.CODEX_HOME }
-  delete env.ELECTRON_RUN_AS_NODE
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47894), CODEX_HOME: lib.CODEX_HOME })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
   const page = await app.firstWindow()
   await lib.fitWindow(app, page, { width: 1400, height: 850 })
@@ -69,14 +68,11 @@ const post = (url, token, body) =>
   await lib.until(async () => (await inv('workspace:refresh')).projects.find((p) => p.path.toLowerCase() === proj.toLowerCase())?.config.allowSessionInput === true, 10000)
   // A first turn, so there is something to compact.
   const key1 = `session:${proj.toLowerCase()}#${a1.id}`
-  const type = async (key, t) => {
-    await inv('pty:write', key, t)
-    await sleep(400)
-    await inv('pty:write', key, '\r')
-  }
   // Codex answering is the CLI's part (a usage limit or the network there is the environment's: lib.cliStep).
   let l = await lib.cliStep('the first turn', { session: key1 }, async () => {
-    await type(key1, 'Reply with the single word READY.')
+    // Sent until Codex takes it (lib.sendPrompt): an Enter taken as part of a paste left it in the input, and the
+    // /compact after it was added to it.
+    await lib.sendPrompt(inv, key1, 'Reply with the single word READY.', { submitted: async () => ['working', 'finished'].includes((await live(a1.id))?.status) })
     const turn = await waitFor(a1.id, (x) => x?.sessionId && x.status === 'finished', 90000)
     check('first turn finished', turn?.status === 'finished', turn?.status)
     return turn
@@ -132,27 +128,42 @@ const post = (url, token, body) =>
   const held = (await live(a2.id))?.lockedFiles ?? []
   check('lock shows on agent 2', held.some((f) => /notes\.txt$/i.test(f)), JSON.stringify(held))
   const asking = page.locator('.toast', { hasText: 'wants to edit notes.txt' })
+  const notes = () => fs.readFileSync(path.join(proj, 'notes.txt'), 'utf8')
+  // A turn of agent 1's: typed until Codex takes it (its status moves on: lib.sendPrompt), then until Hive asks, the
+  // file changes or the turn ends. Waiting on the status alone returned at once with the last turn's "finished" (#201).
+  const turn = async (prompt) => {
+    const since = (await live(a1.id))?.statusSince
+    await lib.sendPrompt(inv, key1, prompt, { submitted: async () => (await live(a1.id))?.statusSince !== since })
+    await lib.until(async () => (await asking.count()) > 0 || /from agent 1/.test(notes()) || ['finished', 'waiting'].includes((await live(a1.id))?.status), 120000, 300)
+    return live(a1.id)
+  }
   let w
   // Hive asks only once Codex tries the edit. The small test model sometimes answers without trying (once it replied
-  // READY again, from the turn before the compaction): then it is asked again, more firmly, up to twice.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await type(key1, attempt ? 'Edit notes.txt now: call the apply_patch tool to append the line "from agent 1". Do not answer in text.' : 'Use apply_patch to add the line "from agent 1" at the end of notes.txt. Do nothing else.')
-    w = await waitFor(a1.id, (x) => x?.status === 'finished' || x?.status === 'waiting', 120000)
-    if (await lib.until(async () => (await asking.count()) > 0, 5000)) break
-    if (/from agent 1/.test(fs.readFileSync(path.join(proj, 'notes.txt'), 'utf8'))) break
-    console.log(`Codex didn't try the edit (attempt ${attempt + 1}): asking again`)
-  }
-  await page.screenshot({ path: path.join(scratch, 'cxe-3-lock-ask.png') })
-  const notes0 = fs.readFileSync(path.join(proj, 'notes.txt'), 'utf8')
-  check('the locked edit is held back', !/from agent 1/.test(notes0), `${w?.status}`)
+  // READY again, from the turn before the compaction): then it is asked again, more firmly, up to twice. Codex
+  // answering is the CLI's part (lib.cliStep); Hive holding the edit back and asking is Hive's.
+  await lib.cliStep('the locked edit', { session: key1 }, async () => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      w = await turn(attempt ? 'Edit notes.txt now: call the apply_patch tool to append the line "from agent 1". Do not answer in text.' : 'Use apply_patch to add the line "from agent 1" at the end of notes.txt. Do nothing else.')
+      if (await lib.until(async () => (await asking.count()) > 0, 5000)) break
+      if (/from agent 1/.test(notes())) break
+      console.log(`Codex didn't try the edit (attempt ${attempt + 1}): asking again`)
+      await waitFor(a1.id, (x) => x?.status === 'finished' || x?.status === 'waiting', 60000)
+    }
+    await page.screenshot({ path: path.join(scratch, 'cxe-3-lock-ask.png') })
+    check('the locked edit is held back', !/from agent 1/.test(notes()), `${w?.status}`)
+    check('Hive asks with an Allow button', (await asking.getByRole('button', { name: 'Allow' }).count()) > 0)
+  })
+  const notes0 = notes()
+  // Allow as soon as Hive asks, as a user does: usually while Codex is still replying to the refusal, so Hive's
+  // go-ahead waits for that turn's end (#201); after it, the go-ahead goes at once.
+  console.log(`Allow clicked while agent 1 is ${(await live(a1.id))?.status}`)
+  await asking.getByRole('button', { name: 'Allow' }).first().click().catch(() => undefined)
+  // The edit is Codex's retry. Waiting for the edit itself: a working-then-finished wait could see the blocked turn's end.
+  await lib.cliStep('the edit after Allow', { session: key1 }, async () => {
+    const edited = await lib.until(async () => /from agent 1/.test(notes()), 180000, 1000)
+    check('after Allow, Codex makes the edit', edited, `${(await live(a1.id))?.status}`)
+  })
   console.log('TERMINAL TAIL:', (await text(a1.id)).slice(-400))
-  const allow = page.locator('.toast', { hasText: 'wants to edit notes.txt' }).getByRole('button', { name: 'Allow' })
-  check('Hive asks with an Allow button', (await allow.count()) > 0)
-  await allow.first().click().catch(() => undefined)
-  await waitFor(a1.id, (x) => x?.status === 'working', 20000)
-  const w2 = await waitFor(a1.id, (x) => x?.status === 'finished' || x?.status === 'waiting', 120000)
-  const notes1 = fs.readFileSync(path.join(proj, 'notes.txt'), 'utf8')
-  check('after Allow, Codex makes the edit', /from agent 1/.test(notes1), `${w2?.status}`)
   await page.screenshot({ path: path.join(scratch, 'cxe-4-allowed.png') })
   fs.writeFileSync(path.join(proj, 'notes.txt'), notes0)
   // Decline: Esc interrupts.

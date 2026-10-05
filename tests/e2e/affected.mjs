@@ -52,6 +52,8 @@ export const EVERYTHING = [
   'tests/e2e/build.mjs',
   'tests/e2e/logs.mjs',
   'tests/e2e/lanes.mjs',
+  'tests/e2e/runContext.cjs',
+  'tests/e2e/slots.mjs',
   'tests/progressReport.mts',
   'package.json',
   'package-lock.json',
@@ -124,6 +126,8 @@ export const AREAS = [
   // The providers' adapters are under src/main/providers/ (every suite, above); these say which suites each mainly drives.
   { paths: ['src/main/providers/claude/'], suites: ['agents', 'agentview', 'launchrace', 'restart', 'resume', 'mode', 'compact', 'image', 'plan'] },
   { paths: ['src/main/providers/codex/'], suites: ['codex', 'codex-background', 'codex-extra', 'codex-handover', 'codex-setup', 'attention', 'skilldelivery'] },
+  // The run context: every suite (above); isolation checks what it gives a test Hive and the children a suite starts.
+  { paths: ['tests/e2e/runContext.cjs', 'src/main/testQuiet.ts'], suites: ['isolation'] },
   // The fake Codex CLI: every suite that runs it.
   { paths: ['tests/e2e/fake-codex/'], suites: ['attention', 'skilldelivery'] },
   // Hive's bundled skills and personas, read at runtime (not documentation).
@@ -144,8 +148,12 @@ export function under(file, paths) {
   })
 }
 
-/** Files that need no suite: notes for people and agents, and the unit tests (npm test runs those). */
-export const DOCS_ONLY = ['README.md', 'AGENTS.md', 'CLAUDE.md', 'RELEASING.md', 'tests/e2e/README.md', 'tests/scenarios/', 'reference/', '.gitattributes', '.gitignore']
+/**
+ * Files that need no suite: notes for people and agents (the skills for developing Hive, in .claude/skills and
+ * .agents/skills, are neither shipped nor read by the app; Hive's own copies there are git-ignored), and the unit tests
+ * (npm test runs those).
+ */
+export const DOCS_ONLY = ['README.md', 'AGENTS.md', 'CLAUDE.md', 'RELEASING.md', 'tests/e2e/README.md', 'tests/scenarios/', 'reference/', '.gitattributes', '.gitignore', '.claude/skills/', '.agents/skills/']
 
 /** Whether a file is a unit test (tests/*.test.ts, their fixtures): npm test covers it, no e2e suite. */
 const unitTest = (f) => /^tests\/[^/]+\.test\.ts$/i.test(f) || /^tests\/fixtures\//i.test(f)
@@ -163,7 +171,9 @@ export const REAL_TIER = [
   'src/main/hookStatus.ts',
   'src/main/transcripts.ts',
   'src/shared/providers.ts',
-  'tests/e2e/lib.cjs'
+  'tests/e2e/lib.cjs',
+  // The environment the real CLIs are started in.
+  'tests/e2e/runContext.cjs'
 ]
 const PROVIDER_OWN = ['src/main/providers/claude/', 'src/main/providers/codex/']
 

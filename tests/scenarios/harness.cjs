@@ -19,7 +19,7 @@ const { measuresOf, metricsTotals } = require('./benchmark.cjs')
  * The Claude Code home the model trials use: a test home signed in once by hand (never the user's own ~/.claude, and
  * never a copy of its credentials, whose refresh could sign the user out). See README.md.
  */
-const CLAUDE_TEST_HOME = process.env.HIVE_TEST_CLAUDE_HOME || path.join(path.dirname(lib.CODEX_HOME), 'claude')
+const { CLAUDE_TEST_HOME } = require('../e2e/runContext.cjs')
 const claudeSignedIn = () => fs.existsSync(path.join(CLAUDE_TEST_HOME, '.credentials.json'))
 
 /** The CLI each provider runs here: the fakes, or the real standalone CLIs, each in its test home. */
@@ -43,17 +43,21 @@ const WRITERS = /^(Write|Edit|MultiEdit|NotebookEdit|apply_patch)$/i
  * What a session's transcript shows: every tool call (name, summary, input, result, error), the Hive skills it read,
  * the hive tools it names (mentions: a transcript isn't proof a call ran; the server's log is), and its last reply.
  * A skill counts as read only when the read worked and shows the skill: a Skill call for it that didn't fail, or a
- * tool (not a writer) given its SKILL.md whose result has the skill's own `name:` line.
+ * tool (not a writer) given its SKILL.md whose result has the skill's own `name:` line. That line may come JSON-escaped
+ * (a Codex code-mode script's exec_command result carries the file as `"output":"---\r\nname: x\r\n…"`), so the result
+ * is also matched with escaped line breaks and quotes turned back into real ones.
  */
 function observeTranscript(items, skillNames) {
   const tools = items.filter((x) => x.kind === 'tool').map((x) => ({ name: x.tool.name, summary: x.tool.summary, input: String(x.tool.input ?? ''), isError: x.tool.isError, result: String(x.tool.result ?? '') }))
+  const unescaped = (text) => text.replace(/\\+r\\+n|\\+[rn]/g, '\n').replace(/\\+"/g, '"')
   const skillsRead = []
   for (const t of tools) {
     if (t.isError || WRITERS.test(t.name)) continue
     for (const n of skillNames) {
       if (skillsRead.includes(n)) continue
       const viaTool = /^skill$/i.test(t.name) && new RegExp(`(^|[":\\s])(hive:)?${escape(n)}(\\b|$)`).test(t.input)
-      const viaRead = new RegExp(`skills[\\\\/]+(hive-)?${escape(n)}[\\\\/]+SKILL\\.md`, 'i').test(t.input) && new RegExp(`(^|\\s)name:\\s*["']?${escape(n)}["']?\\s*$`, 'm').test(t.result)
+      const nameLine = new RegExp(`(^|\\s)name:\\s*["']?${escape(n)}["']?\\s*$`, 'm')
+      const viaRead = new RegExp(`skills[\\\\/]+(hive-)?${escape(n)}[\\\\/]+SKILL\\.md`, 'i').test(t.input) && (nameLine.test(t.result) || nameLine.test(unescaped(t.result)))
       if (viaTool || viaRead) skillsRead.push(n)
     }
   }
