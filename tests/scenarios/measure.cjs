@@ -19,7 +19,7 @@ const bytes = (s) => Buffer.byteLength(s ?? '', 'utf8')
 /** The hive MCP server's instructions and tools, started as the launch starts it. */
 function hiveServer(env) {
   return new Promise((resolve, reject) => {
-    const p = spawn(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], { env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: '1' } })
+    const p = spawn(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], { env: lib.childEnv({ ...env, ELECTRON_RUN_AS_NODE: '1' }) })
     let buf = ''
     const got = {}
     const timer = setTimeout(() => (p.kill(), reject(new Error('hive-mcp did not answer'))), 15000)

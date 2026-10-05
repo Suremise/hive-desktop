@@ -1,0 +1,120 @@
+// The run context (runContext.cjs, #203): nothing from the environment a test is started from reaches what it starts,
+// but the allowlist. With the variables an agent's shell or an outer hive-progress sets put into this suite's own
+// environment (NO_COLOR, HIVE_PROGRESS_WRAPPED, an Agent API token…), checked: under the runner, the suite itself got
+// nothing else; a test Hive's main process (whose environment its agents' shells get), a child that is part of Hive,
+// and the hive-progress wrapper (#202: it reports, not taking itself for nested) see none of them; and a test Hive
+// started with any environment but lib.hiveEnv's is refused.
+const lib = require('./lib.cjs')
+const ctx = require('./runContext.cjs')
+const { _electron } = require('playwright-core')
+const { spawn } = require('child_process')
+const fs = require('fs')
+const path = require('path')
+const http = require('http')
+
+const userData = path.join(lib.WORK, 'isolation-profile')
+const data = path.join(lib.WORK, 'isolation-progress-data')
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+const upper = (keys) => keys.filter((k) => !k.startsWith('=')).map((k) => k.toUpperCase())
+
+/** What an agent's shell in Hive, an outer hive-progress, or a person's own shell may have set. */
+const LEAKS = {
+  NO_COLOR: '1',
+  FORCE_COLOR: '1',
+  HIVE_PROGRESS_WRAPPED: '1',
+  HIVE_PROGRESS_RUN_AS_NODE: '1',
+  HIVE_PROGRESS_DATA: 'C:\\leaked\\progress',
+  HIVE_API_URL: 'http://127.0.0.1:9',
+  HIVE_API_TOKEN: 'leaked-token',
+  HIVE_PROJECT: 'leaked',
+  HIVE_TEST_SLOW_IPC: 'tasks:list=1',
+  HIVE_E2E_NATIVE: '1',
+  CLAUDE_CONFIG_DIR: 'C:\\leaked\\claude',
+  ANTHROPIC_API_KEY: 'leaked-key',
+  NODE_OPTIONS: '--max-old-space-size=4096',
+  PROMPT: 'leaked$G',
+  ELECTRON_RUN_AS_NODE: '1'
+}
+/** The LEAKS an environment has, by name and value (cmd.exe's default PROMPT isn't one, a leaked PROMPT is). */
+const leaked = (env) => Object.entries(env).filter(([k, v]) => LEAKS[k.toUpperCase()] === v).map(([k]) => k)
+
+;(async () => {
+  // Under the runner: the suite's environment is the allowlist, the settings passed on by name and its run context.
+  if (process.env.E2E_RUN_SUITE) {
+    const allowed = new Set(upper([...ctx.ALLOW, ...Object.keys(ctx.PASS_ENV), 'HIVE_E2E_DIR', 'HIVE_E2E_PORT', 'HIVE_API_PORT', ...ctx.CARRIED]))
+    const extra = upper(Object.keys(process.env)).filter((k) => !allowed.has(k))
+    check("the runner gave this suite nothing of its own environment but the allowlist", !extra.length, extra.join(', '))
+  } else console.log('(run on its own: the runner check is skipped)')
+
+  Object.assign(process.env, LEAKS)
+  fs.rmSync(userData, { recursive: true, force: true })
+  fs.rmSync(data, { recursive: true, force: true })
+
+  // A test Hive: its main process's environment is what its agents' shells and the CLIs start from.
+  const { app } = await lib.launch({ userData, env: { HIVE_API_PORT: lib.port(47929) } })
+  try {
+    const env = await app.evaluate(() => Object.fromEntries(Object.entries(process.env)))
+    check("a test Hive gets none of the suite's environment", !leaked(env).length, leaked(env).join(', '))
+    const allowed = new Set(upper([...ctx.ALLOW, 'HIVE_USER_DATA', 'HIVE_TEST_QUIET', 'HIVE_TEST_TIPS', 'HIVE_API_PORT', ...ctx.CARRIED]))
+    // PROMPT: cmd.exe's default ($P$G), which Playwright's start of Electron on Windows sets; not the suite's.
+    const extra = upper(Object.keys(env)).filter((k) => !allowed.has(k) && !(k === 'PROMPT' && env[Object.keys(env).find((x) => x.toUpperCase() === 'PROMPT')] === '$P$G'))
+    check('…only the allowlist and its run context', !extra.length, extra.join(', '))
+    check('…with its profile, quiet, tips off and its port', env.HIVE_USER_DATA === userData && env.HIVE_TEST_QUIET === '1' && env.HIVE_TEST_TIPS === 'off' && env.HIVE_API_PORT === lib.port(47929), JSON.stringify({ HIVE_USER_DATA: env.HIVE_USER_DATA, HIVE_TEST_QUIET: env.HIVE_TEST_QUIET, HIVE_TEST_TIPS: env.HIVE_TEST_TIPS, HIVE_API_PORT: env.HIVE_API_PORT }))
+  } finally {
+    await app.close().catch(() => undefined)
+  }
+
+  // Started any other way, a test Hive is refused before it starts.
+  const refused = async (env) => {
+    try {
+      const other = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, ...(env ? { env } : {}) })
+      await other.close().catch(() => undefined)
+      return false
+    } catch (e) {
+      return /lib\.hiveEnv/.test(e.message)
+    }
+  }
+  check("a test Hive started with the suite's own environment is refused", await refused(null))
+  check('…or with a copy of a run-context environment', await refused({ ...lib.hiveEnv({ HIVE_USER_DATA: userData }) }))
+
+  // A child that is part of Hive (the hive MCP server, a bridge): the allowlist and what it is given.
+  const child = await new Promise((resolve) => {
+    const p = spawn(process.execPath, ['-e', 'process.stdout.write(JSON.stringify(process.env))'], { env: lib.childEnv({ HIVE_API_URL: 'http://127.0.0.1:1' }) })
+    let out = ''
+    p.stdout.on('data', (d) => (out += d))
+    p.on('close', () => resolve(JSON.parse(out || '{}')))
+  })
+  check("a child gets none of the suite's environment, and what it is given", !leaked(child).length && child.HIVE_API_URL === 'http://127.0.0.1:1', leaked(child).join(', '))
+
+  // #202: the hive-progress wrapper, started by a suite while the suite runs inside an outer hive-progress
+  // (HIVE_PROGRESS_WRAPPED above), reports its run rather than taking itself for nested.
+  const calls = []
+  const srv = http.createServer((req, res) => {
+    req.resume()
+    req.on('end', () => {
+      calls.push(`${req.method} ${req.url}`)
+      res.setHeader('Content-Type', 'application/json')
+      res.end(req.method === 'POST' && req.url === '/v1/progress' ? '{"id":"r1"}' : '{}')
+    })
+  })
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r))
+  const wrapped = await new Promise((resolve) => {
+    const env = lib.childEnv({ ELECTRON_RUN_AS_NODE: '1', HIVE_PROGRESS_DATA: data, HIVE_API_URL: `http://127.0.0.1:${srv.address().port}`, HIVE_API_TOKEN: 'agent-token' })
+    const p = spawn(lib.ELECTRON, [path.join(lib.ROOT, 'out', 'main', 'hive-progress.js'), '--', 'node', '-e', "console.log('##hive-progress step=1 total=1 name=one')"], { env, cwd: lib.WORK })
+    let out = ''
+    p.stdout.on('data', (d) => (out += d))
+    p.on('close', (code) => resolve({ code, out: out.replace(/\r/g, '') }))
+  })
+  srv.close()
+  check("hive-progress started inside an outer one's environment reports its run (#202)", wrapped.code === 0 && calls.includes('POST /v1/progress') && !wrapped.out.includes('##hive-progress'), JSON.stringify({ ...wrapped, calls }))
+
+  console.log(failed ? `${failed} failed` : 'all passed')
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.log(`FAIL ${e.stack ?? e}`)
+  process.exit(1)
+})

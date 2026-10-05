@@ -3,9 +3,17 @@
 // copy, leaves every remaining file older than the build. So a build made with --build stamps out/ with a hash of
 // everything it was made from (the paths and their contents), and a run compares that with the source now. A build
 // made another way (npx electron-vite build) has no stamp, so which code it holds is unknown.
+//
+// Runners started at the same time in one worktree (two agents' checks, an e2e run beside a scenario run) share its
+// out/: building it is done under a lock per worktree (#200, #203). The first runner to find the build stale takes the
+// lock, looks again, builds once and stamps it; the others wait for the lock, look again, and find it fresh. A runner
+// that only checks (no --build) waits while another builds, so it never looks at half a build. Worktrees don't wait
+// for each other. A lock whose runner is gone (crashed, killed) is broken by the next one.
 import { createHash } from 'crypto'
-import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
-import { join, relative, sep } from 'path'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join, relative, resolve, sep } from 'path'
+import { processAlive } from './logs.mjs'
 
 /** What the build reads: its source, bundled resources and docs, the root files the app imports, and its config. */
 export const BUILD_INPUTS = ['src', 'resources', 'docs', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'electron.vite.config.ts', 'package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.node.json', 'tsconfig.web.json']
@@ -40,28 +48,143 @@ export function buildStamp(root) {
   }
 }
 
+/** Where the build locks are, one folder per worktree. */
+export const BUILD_LOCKS = join(process.env.LOCALAPPDATA || tmpdir(), 'hive-test', 'build-locks')
+/** A lock held longer than this is from a runner stuck far beyond any build (its process may still be there). */
+const LOCK_MAX_MS = 60 * 60_000
+/** How long a runner waits for another's build before giving up. */
+const WAIT_MS = 20 * 60_000
+const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
 /**
- * Makes sure the build is the source's, or says why not. { stale, built, why }:
- * - fresh (the stamp matches the source): nothing to do;
- * - otherwise, with build: removes the old stamp, runs runBuild() and stamps out/ with the inputs it was made from, only
- *   if they didn't change while it built; without build: stale, with why (no build, a build of unknown code, or one of
- *   other code).
+ * The build lock of the worktree at root: a folder in dir (creating one is atomic) named for the worktree, with its
+ * holder's process id in owner.json. take() waits for it (throws after waitMs), release() lets go if it is still this
+ * runner's, waitFree() waits while another runner holds it. A holder whose process is gone, or held for over an hour,
+ * is broken; so is a folder with no owner after 30 s (a runner that crashed between making it and writing its owner).
  */
-export function ensureBuild({ root, build, runBuild }) {
-  const hasBuild = existsSync(join(root, 'out', 'main', 'index.js'))
-  const stamp = buildStamp(root)
-  const before = buildInputs(root)
-  if (hasBuild && stamp === before) return { stale: false, built: false, why: null }
-  if (!build) {
-    const why = !hasBuild ? 'there is no dev build' : !stamp ? "the dev build wasn't made with --build, so which code it holds is unknown" : 'the dev build was made from other source than this'
-    return { stale: true, built: false, why }
+export function buildLock(root, { dir = BUILD_LOCKS, owner = process.pid, alive = processAlive, waitMs = WAIT_MS, pollMs = 250 } = {}) {
+  const folder = join(dir, createHash('sha256').update(resolve(root).toLowerCase()).digest('hex').slice(0, 16))
+  const file = join(folder, 'owner.json')
+  /** { pid, at } of the holder, null when free, or { stale: true } for a holder that is gone. */
+  const holder = () => {
+    let age
+    try {
+      age = Date.now() - statSync(folder).mtimeMs
+    } catch {
+      return null
+    }
+    let h
+    try {
+      h = JSON.parse(readFileSync(file, 'utf8'))
+    } catch {
+      // Just made, its owner not written yet; or left so by a crash.
+      return age > 30_000 ? { stale: true } : { pid: null, at: Date.now() }
+    }
+    return !Number.isInteger(h.pid) || !alive(h.pid) || Date.now() - Number(h.at) > LOCK_MAX_MS ? { stale: true } : h
   }
-  // The old stamp goes before the build touches out/: a build that fails, or whose source changes while it runs, leaves
-  // output that no stamp vouches for (and a later run with the old source mustn't match the old stamp).
-  rmSync(join(root, STAMP), { force: true })
-  runBuild()
-  const after = buildInputs(root)
-  if (after !== before) return { stale: true, built: true, why: 'the source changed while it was building' }
-  writeFileSync(join(root, STAMP), JSON.stringify({ inputs: before, at: new Date().toISOString() }) + '\n')
-  return { stale: false, built: true, why: null }
+  const tryTake = () => {
+    mkdirSync(dir, { recursive: true })
+    try {
+      mkdirSync(folder)
+    } catch (e) {
+      // Held; or, on Windows, just let go of and still open (as lib.withFileLock).
+      if (['EEXIST', 'EPERM', 'EACCES', 'EBUSY'].includes(e.code)) return false
+      throw e
+    }
+    writeFileSync(file, JSON.stringify({ pid: owner, at: Date.now(), root: resolve(root) }))
+    return true
+  }
+  const breakStale = () => {
+    if (holder()?.stale) rmSync(folder, { recursive: true, force: true })
+  }
+  const heldByOther = () => {
+    const h = holder()
+    return !!h && !h.stale && h.pid !== owner
+  }
+  const tooLong = () => new Error(`Another runner has been building this worktree's dev build for over ${Math.round(waitMs / 60_000)} minutes (lock ${folder})`)
+  return {
+    folder,
+    heldByOther,
+    /** Takes the lock, waiting while another runner holds it: true if it had to wait. */
+    take() {
+      const start = Date.now()
+      let waited = false
+      while (!tryTake()) {
+        breakStale()
+        if (Date.now() - start > waitMs) throw tooLong()
+        if (!heldByOther()) {
+          // Broken, or let go of just now: try again after a moment (Windows may still have it open).
+          pause(20)
+          continue
+        }
+        waited = true
+        pause(pollMs)
+      }
+      return waited
+    },
+    /** Lets go, if this runner still holds it. */
+    release() {
+      try {
+        if (JSON.parse(readFileSync(file, 'utf8')).pid === owner) rmSync(folder, { recursive: true, force: true })
+      } catch {
+        // Not held, or gone already.
+      }
+    },
+    /** Waits while another runner holds the lock (it is building): true if it had to wait. */
+    waitFree() {
+      const start = Date.now()
+      let waited = false
+      for (breakStale(); heldByOther(); breakStale()) {
+        if (Date.now() - start > waitMs) throw tooLong()
+        waited = true
+        pause(pollMs)
+      }
+      return waited
+    }
+  }
+}
+
+/**
+ * Makes sure the build is the source's, or says why not. { stale, built, waited, why }:
+ * - fresh (the stamp matches the source): nothing to do;
+ * - otherwise, with build: under the worktree's build lock, looks again (another runner may have just built it); still
+ *   stale, removes the old stamp, runs runBuild() and stamps out/ with the inputs it was made from, only if they didn't
+ *   change while it built;
+ * - without build: stale, with why (no build, a build of unknown code, or one of other code).
+ * Both wait while another runner builds this worktree (waited). runBuild throws when the build fails: the lock is let
+ * go. lock: buildLock's options (for tests).
+ */
+export function ensureBuild({ root, build, runBuild, lock: lockOpts = {} }) {
+  const lock = buildLock(root, lockOpts)
+  const look = () => {
+    const hasBuild = existsSync(join(root, 'out', 'main', 'index.js'))
+    const stamp = buildStamp(root)
+    const inputs = buildInputs(root)
+    const why = hasBuild && stamp === inputs ? null : !hasBuild ? 'there is no dev build' : !stamp ? "the dev build wasn't made with --build, so which code it holds is unknown" : 'the dev build was made from other source than this'
+    return { why, inputs }
+  }
+  if (!build) {
+    const waited = lock.waitFree()
+    const { why } = look()
+    return { stale: !!why, built: false, waited, why }
+  }
+  if (!lock.heldByOther() && !look().why) return { stale: false, built: false, waited: false, why: null }
+  const waited = lock.take()
+  // Let go also when the runner exits in the middle.
+  process.on('exit', lock.release)
+  try {
+    const { why, inputs: before } = look()
+    if (!why) return { stale: false, built: false, waited, why: null }
+    // The old stamp goes before the build touches out/: a build that fails, or whose source changes while it runs,
+    // leaves output that no stamp vouches for (and a later run with the old source mustn't match the old stamp).
+    rmSync(join(root, STAMP), { force: true })
+    runBuild()
+    const after = buildInputs(root)
+    if (after !== before) return { stale: true, built: true, waited, why: 'the source changed while it was building' }
+    writeFileSync(join(root, STAMP), JSON.stringify({ inputs: before, at: new Date().toISOString() }) + '\n')
+    return { stale: false, built: true, waited, why: null }
+  } finally {
+    process.off('exit', lock.release)
+    lock.release()
+  }
 }

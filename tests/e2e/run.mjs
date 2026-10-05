@@ -23,9 +23,10 @@
 // Agent API port (HIVE_E2E_PORT, read through lib.port()), so suites can run side by side; each runner claims a lane
 // (lanes.mjs: ports and suite folders of its own), so runners in different worktrees can run at the same time.
 // Run in a Hive agent's session, it shows in that Hive's Progress panel, one step per suite (../progressReport.mts).
+// Each suite's environment comes from the run context (runContext.cjs): an allowlist and the suite's own folder and
+// port, never the environment the runner was started from.
 import { spawn, spawnSync } from 'child_process'
 import { existsSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
@@ -41,6 +42,7 @@ import { LANES, claimLane, laneWork } from './lanes.mjs'
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
 const lib = createRequire(import.meta.url)('./lib.cjs')
+const runContext = createRequire(import.meta.url)('./runContext.cjs')
 
 const args = process.argv.slice(2)
 const opts = parseArgs(args, SUITES.map((s) => s.name))
@@ -57,13 +59,21 @@ if (opts.fingerprint) {
 // The code under test, before anything runs: a run record names it only if it is still the same at the end.
 const codeBefore = opts.record ? fingerprint(root) : null
 
-// --- The build: made from the source as it is now (build.mjs), else the suites would test other code.
+// --- The build: made from the source as it is now (build.mjs), else the suites would test other code. Under the
+// worktree's build lock: runners started together build it once.
 const runBuild = () => {
   console.log('Building (the dev build is not from this source)…')
   const r = spawnSync('npx electron-vite build', { cwd: root, stdio: 'inherit', shell: true })
-  if (r.status !== 0) process.exit(r.status ?? 1)
+  if (r.status !== 0) throw Object.assign(new Error(`The build failed (exit ${r.status})`), { status: r.status ?? 1 })
 }
-const buildCheck = ensureBuild({ root, build: opts.build, runBuild })
+let buildCheck
+try {
+  buildCheck = ensureBuild({ root, build: opts.build, runBuild })
+} catch (e) {
+  console.error(e.message)
+  process.exit(e.status ?? 2)
+}
+if (buildCheck.waited) console.log(`Waited for another runner's build of this worktree${buildCheck.built ? '' : ': it is from this source'}.`)
 const stale = buildCheck.stale
 if (!existsSync(join(root, 'out', 'main', 'index.js'))) {
   console.error('No dev build: add --build (or run npx electron-vite build first).')
@@ -93,7 +103,7 @@ if (!chosen.length) {
 // runners started at the same time from different worktrees don't take each other's. A runner started inside a suite
 // (progressreport runs one in its agent's shell) claims none: it takes ports well clear of its parent's (portBase).
 const nested = !!parentSuite()
-const lane = nested ? null : await claimLane(join(process.env.LOCALAPPDATA || tmpdir(), 'hive-test', 'e2e-lanes'), { root })
+const lane = nested ? null : await claimLane(runContext.LANES_DIR, { root })
 if (!nested) {
   if (!lane) {
     console.error(`Every e2e lane (${LANES}) is taken by runners still going: wait for one to finish.`)
@@ -111,33 +121,14 @@ const suiteWork = lane ? laneWork(lib.WORK, lane.lane) : process.env.E2E_RUN_DIR
 const PORT_BASE = portBase(process.env, lane?.base)
 if (lane) console.log(`Lane ${lane.lane}: ports ${lane.first}–${lane.last}\n  suites' folders: ${suiteWork}\n  logs: ${logsRootFor(lib.WORK)}\n`)
 
-// Run from an agent's session, the variables that make it that agent (its Hive, token, project) stay out of the suites
-// and the test copies of Hive they start: those have their own profile, port and sessions.
-const SESSION_VARS = ['HIVE_API_URL', 'HIVE_API_TOKEN', 'HIVE_API_TOKEN_FILE', 'HIVE_HOOK_TOKEN', 'HIVE_PROJECT', 'HIVE_PROJECT_PATH', 'HIVE_WORKSPACE', 'HIVE_RUN_ID', 'HIVE_SESSION_ID', 'HIVE_AGENT', 'HIVE_PROVIDER', 'HIVE_PROGRESS_DATA']
-/** A suite's environment; side by side, its own Agent API port (suites read it with lib.port(), or inherit it). */
-const suiteEnv = (name, port) => {
-  // Quiet: the test copies of Hive show their windows without taking focus and raise no Windows notification, taskbar
-  // flash or chime (src/main/testQuiet.ts). A suite can still turn either off in its own environment.
-  const env = { HIVE_TEST_TIPS: 'off', HIVE_TEST_QUIET: '1', ...process.env }
-  for (const k of SESSION_VARS) delete env[k]
-  // Never the opt-in native window checks (carddialog's HIVE_E2E_NATIVE): they take over the screen.
-  delete env.HIVE_E2E_NATIVE
-  if (suiteWork) env.HIVE_E2E_DIR = suiteWork
-  // Never a port inherited from a runner that started this one.
-  delete env.HIVE_E2E_PORT
-  delete env.HIVE_API_PORT
-  delete env.E2E_RUN_PORT
-  if (port) {
-    env.HIVE_E2E_PORT = String(port)
-    env.HIVE_API_PORT = String(port)
-  }
-  // Also said without the HIVE_ prefix, which Hive strips from its sessions: a runner started in an agent's shell inside
-  // the suite's Hive (progressreport does) still knows it is inside a suite, and which port to keep clear of (runner.mjs).
-  env.E2E_RUN_SUITE = name
-  env.E2E_RUN_DIR = suiteWork ?? lib.WORK
-  if (port) env.E2E_RUN_PORT = String(port)
-  return env
-}
+/**
+ * A suite's environment (runContext.suiteEnv): the allowlist and the test settings passed on by name, nothing else of
+ * the runner's (an agent session's HIVE_ variables, HIVE_PROGRESS_*, NO_COLOR…); its lane's folder, and side by side
+ * its own Agent API port (suites read it with lib.port(); the test Hives they start get it through lib.hiveEnv). The
+ * same said without the HIVE_ prefix (E2E_RUN_*), which Hive keeps in its sessions: a runner started in an agent's
+ * shell inside the suite's Hive (progressreport does) knows it is inside a suite, and which port to keep clear of.
+ */
+const suiteEnv = (name, port) => runContext.suiteEnv({ name, port, work: suiteWork, runDir: suiteWork ?? lib.WORK })
 
 const run = (name, port) =>
   new Promise((resolve) => {
@@ -177,7 +168,8 @@ const cliInstalled = {
 let claudeSignedIn
 const claudeLoggedIn = () => {
   if (claudeSignedIn !== undefined) return claudeSignedIn
-  const r = spawnSync(cliInstalled.claude(), ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 30_000 })
+  // In the environment the suites' Claude Code gets (no CLAUDE_CONFIG_DIR of the runner's), so it asks about the same sign-in.
+  const r = spawnSync(cliInstalled.claude(), ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 30_000, env: runContext.childEnv() })
   try {
     claudeSignedIn = JSON.parse(r.stdout).loggedIn !== false
   } catch {

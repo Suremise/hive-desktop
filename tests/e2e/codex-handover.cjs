@@ -29,8 +29,7 @@ const check = (name, ok, extra = '') => {
     path.join(hdir, '2026-09-30-demo-test.md'),
     '---\nproject: demo\n---\n# Handover: demo test\n\nGoal: reply with the single word PINEAPPLE and do nothing else. No files to change.\n'
   )
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47893), CODEX_HOME: lib.CODEX_HOME }
-  delete env.ELECTRON_RUN_AS_NODE
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47893), CODEX_HOME: lib.CODEX_HOME })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
   const page = await app.firstWindow()
   await lib.fitWindow(app, page, { width: 1400, height: 850 })

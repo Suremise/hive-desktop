@@ -19,7 +19,7 @@ const { measuresOf, metricsTotals } = require('./benchmark.cjs')
  * The Claude Code home the model trials use: a test home signed in once by hand (never the user's own ~/.claude, and
  * never a copy of its credentials, whose refresh could sign the user out). See README.md.
  */
-const CLAUDE_TEST_HOME = process.env.HIVE_TEST_CLAUDE_HOME || path.join(path.dirname(lib.CODEX_HOME), 'claude')
+const { CLAUDE_TEST_HOME } = require('../e2e/runContext.cjs')
 const claudeSignedIn = () => fs.existsSync(path.join(CLAUDE_TEST_HOME, '.credentials.json'))
 
 /** The CLI each provider runs here: the fakes, or the real standalone CLIs, each in its test home. */

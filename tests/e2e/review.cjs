@@ -24,7 +24,7 @@ const check = (name, ok, extra = '') => {
 /** Starts the hive MCP server as an agent's mcp.json says, and returns its answers to `msgs`. */
 function mcp(config, msgs) {
   return new Promise((resolve, reject) => {
-    const p = spawn(config.command, config.args ?? [], { env: { ...process.env, ...config.env } })
+    const p = spawn(config.command, config.args ?? [], { env: lib.childEnv(config.env) })
     let out = ''
     const t = setTimeout(() => {
       p.kill()
@@ -55,8 +55,7 @@ function mcp(config, msgs) {
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
-  const env = { ...process.env, HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47900), CLAUDE_CONFIG_DIR: claudeHome }
-  delete env.ELECTRON_RUN_AS_NODE
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47900), CLAUDE_CONFIG_DIR: claudeHome })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))

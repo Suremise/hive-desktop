@@ -1,10 +1,11 @@
 // The e2e suites (tests/e2e/suites.mjs): sorted by name, so suites added on different branches don't conflict, each one
 // names a suite that exists, and the runner's helpers: which suites a change needs (affected.mjs) and the code's
 // fingerprint in a run record (record.mjs).
-import { execFileSync } from 'child_process'
+import { execFileSync, spawn } from 'child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 // @ts-expect-error: plain .mjs modules without types
 import { SUITES } from './e2e/suites.mjs'
@@ -17,7 +18,7 @@ import { isRealCli, parentSuite, parseArgs, portBase, realNotRun, recordStatus, 
 // @ts-expect-error: plain .mjs modules without types
 import { recordMarkdown } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { buildStamp, ensureBuild } from './e2e/build.mjs'
+import { buildLock, buildStamp, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -110,6 +111,8 @@ describe('the suites a change needs (affected.mjs)', () => {
     expect(affectedSuites(['scripts/release.mjs'], names).all).toBe(true)
     expect(affectedSuites(['docs/SPEC.md'], names).suites).toEqual(['about'])
     expect(affectedSuites(['tests/progress.test.ts', 'AGENTS.md'], names).suites).toEqual([])
+    // The skills for developing Hive are notes for agents, neither shipped nor read by the app (#197).
+    expect(affectedSuites(['.claude/skills/verify-hive-ui/SKILL.md', '.agents/skills/verify-hive-ui/SKILL.md'], names, realNames)).toEqual({ suites: [], why: [] })
     // Every suite file that uses the fake Codex is selected by it.
     const users = names.filter((n) => readFileSync(join(dir, `${n}.cjs`), 'utf8').includes('fake-codex'))
     expect(affectedSuites(['tests/e2e/fake-codex/fake-codex.cjs'], names).suites).toEqual(expect.arrayContaining(users))
@@ -341,20 +344,21 @@ describe('whether the dev build is from this source (build.mjs)', () => {
   writeFileSync(join(buildDir, 'src', 'b.ts'), 'b\n')
   let builds = 0
   // A build that writes its output newer than every source file, as a real one does.
+  const lockDir = join(buildDir, 'locks')
   const runBuild = (): void => {
     builds++
     mkdirSync(join(buildDir, 'out', 'main'), { recursive: true })
     writeFileSync(join(buildDir, 'out', 'main', 'index.js'), `built ${builds}`)
   }
-  const check = (build: boolean, during?: () => void): { stale: boolean; built: boolean; why: string | null } =>
-    ensureBuild({ root: buildDir, build, runBuild: () => { runBuild(); during?.() } })
+  const check = (build: boolean, during?: () => void): { stale: boolean; built: boolean; waited: boolean; why: string | null } =>
+    ensureBuild({ root: buildDir, build, runBuild: () => { runBuild(); during?.() }, lock: { dir: lockDir } })
   const old = new Date('2001-01-01')
 
   it('no build: stale, and --build builds once, then skips while nothing changed', () => {
     expect(check(false)).toMatchObject({ stale: true, why: expect.stringMatching(/no dev build/) })
-    expect(check(true)).toEqual({ stale: false, built: true, why: null })
+    expect(check(true)).toEqual({ stale: false, built: true, waited: false, why: null })
     expect(builds).toBe(1)
-    expect(check(false)).toEqual({ stale: false, built: false, why: null })
+    expect(check(false)).toEqual({ stale: false, built: false, waited: false, why: null })
     expect(check(true).built).toBe(false)
     expect(builds).toBe(1)
   })
@@ -416,7 +420,8 @@ describe('whether the dev build is from this source (build.mjs)', () => {
 
   it('a failed build leaves no stamp', () => {
     writeFileSync(join(buildDir, 'src', 'a.ts'), 'C\n')
-    expect(() => ensureBuild({ root: buildDir, build: true, runBuild: () => { throw new Error('build failed') } })).toThrow('build failed')
+    expect(() => ensureBuild({ root: buildDir, build: true, runBuild: () => { throw new Error('build failed') }, lock: { dir: lockDir } })).toThrow('build failed')
+    expect(buildLock(buildDir, { dir: lockDir }).heldByOther()).toBe(false)
     expect(buildStamp(buildDir)).toBeNull()
     expect(check(false).stale).toBe(true)
   })
@@ -686,12 +691,12 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
 
   it('scenario runs claim a lane too: their folders and Agent API port, never the shared 47930 or scenarios folder (#183, #184)', () => {
     const run = readFileSync(join(__dirname, 'scenarios', 'run.mjs'), 'utf8')
-    expect(run).toMatch(/const lane = await claimLane\(join\(process\.env\.LOCALAPPDATA \|\| tmpdir\(\), 'hive-test', 'e2e-lanes'\)/)
+    // The same pool as the e2e runner's (runContext.LANES_DIR).
+    expect(run).toContain('const lane = await claimLane(runContext.LANES_DIR, { root: lib.ROOT })')
+    expect(readFileSync(join(dir, 'run.mjs'), 'utf8')).toContain('await claimLane(runContext.LANES_DIR, { root })')
     expect(run).toContain("const workRoot = laneWork(join(lib.WORK, '..', 'scenarios'), lane.lane)")
     expect(run).toMatch(/runScenario\(sc, provider, \{[^}]*workRoot, port: lane\.first/)
     expect(run).toContain('process.on(\'exit\', lane.release)')
-    // The same pool as the e2e runner's, so a scenario run and an e2e run never take the same lane.
-    expect(readFileSync(join(dir, 'run.mjs'), 'utf8')).toMatch(/claimLane\(join\(process\.env\.LOCALAPPDATA \|\| tmpdir\(\), 'hive-test', 'e2e-lanes'\)/)
   })
 
   it('takes the lowest lane no live claim holds and whose ports are free', () => {
@@ -865,7 +870,6 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
   const libPath = join(dir, 'lib.cjs')
   /** Another runner's suite trusting a folder in that home: a process of its own. */
   const trustIn = async (home: string, folder: string) => {
-    const { spawn } = await import('child_process')
     const env: Record<string, string | undefined> = { ...process.env, HIVE_TEST_CODEX_HOME: home, HIVE_E2E_DIR: join(home, 'work') }
     delete env.ELECTRON_RUN_AS_NODE
     // Its error output is kept: a runner that fails says why in the test's failure (#181), rather than only exit 1.
@@ -999,4 +1003,207 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
       rmSync(home, { recursive: true, force: true })
     }
   })
+})
+
+describe('the run context: what a test starts gets only the allowlist and its own context (runContext.cjs, #203)', () => {
+  type Env = Record<string, string | undefined>
+  type Ctx = {
+    ALLOW: string[]
+    PASS_ENV: Record<string, string>
+    CARRIED: string[]
+    baseEnv: (parent?: Env) => Env
+    childEnv: (vars?: Env, parent?: Env) => Env
+    hiveEnv: (vars?: Env, parent?: Env) => Env
+    isHiveEnv: (env: unknown) => boolean
+    suiteEnv: (o: { name: string; port?: number | null; work?: string | null; runDir: string }, parent?: Env) => Env
+  }
+  const ctx = createRequire(import.meta.url)('./e2e/runContext.cjs') as Ctx
+  /** An agent's shell in Hive, inside an outer hive-progress, in a suite of a runner, with a person's settings. */
+  const parent: Env = {
+    Path: 'C:\\Windows;C:\\node',
+    SystemRoot: 'C:\\Windows',
+    USERPROFILE: 'C:\\Users\\t',
+    LOCALAPPDATA: 'C:\\Users\\t\\AppData\\Local',
+    https_proxy: 'http://proxy:8080',
+    NO_COLOR: '1',
+    FORCE_COLOR: '1',
+    ELECTRON_RUN_AS_NODE: '1',
+    NODE_OPTIONS: '--inspect',
+    CLAUDE_CONFIG_DIR: 'C:\\mine\\claude',
+    ANTHROPIC_API_KEY: 'k',
+    GIT_DIR: 'C:\\repo\\.git',
+    HIVE_API_URL: 'http://127.0.0.1:47821',
+    HIVE_API_TOKEN: 'secret',
+    HIVE_PROJECT: 'hive',
+    HIVE_PROGRESS_WRAPPED: '1',
+    HIVE_PROGRESS_RUN_AS_NODE: '1',
+    HIVE_PROGRESS_DATA: 'C:\\progress',
+    HIVE_E2E_NATIVE: '1',
+    HIVE_TEST_SLOW_IPC: 'tasks:list=9000',
+    HIVE_TEST_CODEX_HOME: 'C:\\codex-test',
+    HIVE_E2E_PORT: '47950',
+    E2E_RUN_SUITE: 'progressreport',
+    E2E_RUN_DIR: 'C:\\lanes\\0',
+    E2E_RUN_PORT: '47950'
+  }
+  const has = (env: Env, k: string) => Object.keys(env).some((x) => x.toUpperCase() === k.toUpperCase())
+
+  it('no suite, runner or harness builds a child environment from process.env: they use lib.hiveEnv, lib.childEnv or runContext', () => {
+    // The fake CLIs are left out: they stand for Claude Code and Codex, which start their MCP servers from their own
+    // environment (a test Hive's session's, already the run context's).
+    const exempt = ['runContext.cjs', 'fake-bridge.cjs']
+    const files = [
+      ...readdirSync(dir).filter((f) => /\.(c|m)js$/.test(f) && !exempt.includes(f)).map((f) => join(dir, f)),
+      ...readdirSync(join(__dirname, 'scenarios')).filter((f) => /\.(c|m)js$/.test(f)).map((f) => join(__dirname, 'scenarios', f))
+    ]
+    expect(files.length).toBeGreaterThan(80)
+    const found: string[] = []
+    for (const f of files)
+      readFileSync(f, 'utf8')
+        .split(/\r?\n/)
+        .forEach((line, i) => {
+          if (/\.\.\.\s*process\.env\b|env\s*:\s*process\.env\b|Object\.assign\(\s*\{\s*\}\s*,\s*process\.env\b|(const|let|var)\s+\w+\s*=\s*process\.env\s*($|[;,])/.test(line)) found.push(`${f.slice(root.length + 1)}:${i + 1}`)
+        })
+    expect(found).toEqual([])
+  })
+
+  it("a suite's environment: the allowlist, the test settings passed on by name, and its run context; nothing else", () => {
+    const env = ctx.suiteEnv({ name: 'board', port: 47961, work: 'C:\\lanes\\1', runDir: 'C:\\lanes\\1' }, parent)
+    expect(env).toMatchObject({ Path: parent.Path, SystemRoot: 'C:\\Windows', https_proxy: 'http://proxy:8080', HIVE_TEST_CODEX_HOME: 'C:\\codex-test', HIVE_E2E_DIR: 'C:\\lanes\\1', HIVE_E2E_PORT: '47961', HIVE_API_PORT: '47961', E2E_RUN_SUITE: 'board', E2E_RUN_DIR: 'C:\\lanes\\1', E2E_RUN_PORT: '47961' })
+    for (const k of ['NO_COLOR', 'FORCE_COLOR', 'ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS', 'CLAUDE_CONFIG_DIR', 'ANTHROPIC_API_KEY', 'GIT_DIR', 'HIVE_API_URL', 'HIVE_API_TOKEN', 'HIVE_PROJECT', 'HIVE_PROGRESS_WRAPPED', 'HIVE_PROGRESS_RUN_AS_NODE', 'HIVE_PROGRESS_DATA', 'HIVE_E2E_NATIVE', 'HIVE_TEST_SLOW_IPC']) expect(has(env, k), k).toBe(false)
+    // Without a port (a serial suite of a runner inside a suite): none inherited from the runner that started this one.
+    const nested = ctx.suiteEnv({ name: 'about', runDir: 'C:\\lanes\\0\\nested' }, parent)
+    for (const k of ['HIVE_E2E_PORT', 'HIVE_API_PORT', 'E2E_RUN_PORT', 'HIVE_E2E_DIR']) expect(has(nested, k), k).toBe(false)
+  })
+
+  it('every variable Hive sets for its sessions and its hive-progress wrapper is left out (#202)', () => {
+    const src = ['src/main/progressReporters/wrapper.ts', 'src/main/progressReporters/shims.ts', 'src/main/ptyHost.ts', 'src/main/sessions.ts'].map((f) => readFileSync(join(root, f), 'utf8')).join('\n')
+    const sessionVars = [...new Set([...src.matchAll(/\b(HIVE_[A-Z0-9_]+|ELECTRON_RUN_AS_NODE|NO_COLOR|FORCE_COLOR)\b/g)].map((m) => m[1]))]
+    expect(sessionVars).toEqual(expect.arrayContaining(['HIVE_PROGRESS_WRAPPED', 'HIVE_PROGRESS_RUN_AS_NODE', 'HIVE_PROGRESS_DATA', 'HIVE_HOOK_TOKEN', 'HIVE_PROJECT']))
+    const everywhere = Object.fromEntries(sessionVars.map((n) => [n, 'set']))
+    const suite = ctx.suiteEnv({ name: 'x', runDir: 'C:\\w' }, everywhere)
+    const hive = ctx.hiveEnv({ HIVE_USER_DATA: 'C:\\p' }, everywhere)
+    const child = ctx.childEnv({}, everywhere)
+    const contextSets = ['HIVE_USER_DATA', 'HIVE_TEST_QUIET', 'HIVE_TEST_TIPS', 'HIVE_API_PORT', 'HIVE_E2E_DIR', 'HIVE_E2E_PORT']
+    for (const n of sessionVars.filter((x) => !contextSets.includes(x))) {
+      expect(has(suite, n), `suite: ${n}`).toBe(false)
+      expect(has(hive, n), `test Hive: ${n}`).toBe(false)
+      expect(has(child, n), `child: ${n}`).toBe(false)
+    }
+    // And no Hive session variable is ever allowlisted or passed on.
+    for (const n of [...ctx.ALLOW, ...Object.keys(ctx.PASS_ENV)]) expect(/^(HIVE_API|HIVE_PROGRESS_(WRAPPED|RUN_AS_NODE|DATA)$|HIVE_PROJECT|HIVE_WORKSPACE|HIVE_AGENT|ELECTRON|CLAUDE|ANTHROPIC|NO_COLOR|FORCE_COLOR)/.test(n), n).toBe(false)
+  })
+
+  it("a test Hive's environment: quiet, tips off, the suite's port and the carried run variables, then the suite's own", () => {
+    const env = ctx.hiveEnv({ HIVE_USER_DATA: 'C:\\profile', CLAUDE_CONFIG_DIR: 'C:\\test-claude', HIVE_TEST_SLOW_IPC: undefined }, parent)
+    expect(env).toMatchObject({ HIVE_USER_DATA: 'C:\\profile', HIVE_TEST_QUIET: '1', HIVE_TEST_TIPS: 'off', HIVE_API_PORT: '47950', E2E_RUN_SUITE: 'progressreport', E2E_RUN_DIR: 'C:\\lanes\\0', E2E_RUN_PORT: '47950', CLAUDE_CONFIG_DIR: 'C:\\test-claude', Path: parent.Path })
+    for (const k of ['NO_COLOR', 'ELECTRON_RUN_AS_NODE', 'HIVE_API_TOKEN', 'HIVE_PROGRESS_WRAPPED', 'HIVE_TEST_SLOW_IPC', 'HIVE_E2E_NATIVE', 'HIVE_TEST_CODEX_HOME', 'ANTHROPIC_API_KEY']) expect(has(env, k), k).toBe(false)
+    // HIVE_TEST_QUIET=0 for the run shows the copies; a suite's own setting wins.
+    expect(ctx.hiveEnv({}, { ...parent, HIVE_TEST_QUIET: '0' }).HIVE_TEST_QUIET).toBe('0')
+    expect(ctx.hiveEnv({ HIVE_TEST_QUIET: '0' }, parent).HIVE_TEST_QUIET).toBe('0')
+    // A suite's variable replaces the allowlisted one in another case, rather than adding a second.
+    const path = ctx.hiveEnv({ PATH: 'C:\\only' }, parent)
+    expect(Object.keys(path).filter((k) => k.toUpperCase() === 'PATH')).toEqual(['PATH'])
+    // Only what hiveEnv built starts a test Hive (lib.cjs's _electron.launch): not a copy, not process.env.
+    expect(ctx.isHiveEnv(env)).toBe(true)
+    expect(ctx.isHiveEnv({ ...env })).toBe(false)
+    expect(ctx.isHiveEnv(process.env)).toBe(false)
+  })
+
+  it("a child that is part of Hive gets the allowlist and what it is given; nothing is passed that wasn't allowed", () => {
+    const env = ctx.childEnv({ HIVE_API_URL: 'http://127.0.0.1:1', ELECTRON_RUN_AS_NODE: '1' }, parent)
+    expect(Object.keys(env).sort()).toEqual(['ELECTRON_RUN_AS_NODE', 'HIVE_API_URL', 'LOCALAPPDATA', 'Path', 'SystemRoot', 'USERPROFILE', 'https_proxy'])
+    expect(Object.keys(ctx.baseEnv(parent)).every((k) => ctx.ALLOW.includes(k.toUpperCase()))).toBe(true)
+  })
+})
+
+describe('the build lock: runners started together in one worktree build it once (build.mjs, #200)', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'hive-buildlock-'))
+  afterAll(() => rmSync(tmp, { recursive: true, force: true }))
+  const locks = join(tmp, 'locks')
+  const buildMjs = pathToFileURL(join(dir, 'build.mjs')).href
+  /** A worktree with a source file and no build. */
+  const worktree = (name: string) => {
+    const r = join(tmp, name)
+    mkdirSync(join(r, 'src'), { recursive: true })
+    writeFileSync(join(r, 'src', 'a.ts'), `${name}\n`)
+    return r
+  }
+  /**
+   * Another runner: a process of its own that calls ensureBuild on root, whose build takes ms and counts itself in
+   * builds.txt. Resolves with its result.
+   */
+  const runner = (wt: string, { build = true, ms = 1500, fail = false } = {}) => {
+    const script = `
+      import { appendFileSync, mkdirSync, writeFileSync } from 'fs'
+      import { join } from 'path'
+      const { ensureBuild } = await import(${JSON.stringify(buildMjs)})
+      const root = ${JSON.stringify(wt)}
+      try {
+        const r = ensureBuild({ root, build: ${build}, lock: { dir: ${JSON.stringify(locks)}, pollMs: 50 }, runBuild: () => {
+          appendFileSync(join(root, 'builds.txt'), 'b')
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${ms})
+          if (${fail}) throw new Error('build failed')
+          mkdirSync(join(root, 'out', 'main'), { recursive: true })
+          writeFileSync(join(root, 'out', 'main', 'index.js'), 'built')
+        } })
+        console.log(JSON.stringify(r))
+      } catch (e) {
+        console.log(JSON.stringify({ error: e.message }))
+      }`
+    return new Promise<{ stale?: boolean; built?: boolean; waited?: boolean; error?: string }>((resolve) => {
+      const p = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'inherit'] })
+      let out = ''
+      p.stdout.on('data', (d) => (out += d))
+      p.on('close', () => resolve(JSON.parse(out.trim().split('\n').at(-1) || '{}')))
+    })
+  }
+  const builds = (wt: string) => (existsSync(join(wt, 'builds.txt')) ? readFileSync(join(wt, 'builds.txt'), 'utf8').length : 0)
+
+  it('two runners in one worktree with a stale build: one builds, the other waits and finds it fresh; another worktree builds at the same time', async () => {
+    const a = worktree('a')
+    const b = worktree('b')
+    const results = await Promise.all([runner(a), runner(a), runner(b)])
+    expect(builds(a)).toBe(1)
+    expect(builds(b)).toBe(1)
+    const inA = results.slice(0, 2)
+    expect(inA.every((r) => r.stale === false)).toBe(true)
+    expect(inA.filter((r) => r.built).length).toBe(1)
+    expect(inA.find((r) => !r.built)?.waited).toBe(true)
+    expect(results[2]).toMatchObject({ stale: false, built: true, waited: false })
+    expect(buildStamp(a)).not.toBeNull()
+    // Nothing left held.
+    expect(readdirSync(locks)).toEqual([])
+  }, 30_000)
+
+  it('a runner that only checks waits while another builds, so it never looks at half a build', async () => {
+    const c = worktree('c')
+    const building = runner(c, { ms: 2000 })
+    const t0 = Date.now()
+    while (!readdirSync(locks).length && Date.now() - t0 < 10_000) await new Promise((r) => setTimeout(r, 20))
+    const r = ensureBuild({ root: c, build: false, runBuild: () => undefined, lock: { dir: locks, pollMs: 50 } })
+    expect(r).toMatchObject({ stale: false, waited: true })
+    expect((await building).built).toBe(true)
+  }, 30_000)
+
+  it('a failed build lets go of the lock (the next runner builds); a lock whose runner is gone is broken', async () => {
+    const d = worktree('d')
+    expect((await runner(d, { fail: true, ms: 10 })).error).toMatch(/build failed/)
+    expect(readdirSync(locks)).toEqual([])
+    expect(buildStamp(d)).toBeNull()
+    // A crashed runner's lock: its process is gone.
+    const lock = buildLock(d, { dir: locks, owner: 999_999_999 })
+    expect(lock.take()).toBe(false)
+    const r = ensureBuild({ root: d, build: true, runBuild: () => { mkdirSync(join(d, 'out', 'main'), { recursive: true }); writeFileSync(join(d, 'out', 'main', 'index.js'), 'x') }, lock: { dir: locks, alive: (pid: number) => pid !== 999_999_999 } })
+    expect(r).toMatchObject({ stale: false, built: true, waited: false })
+    // One that crashed before writing its owner: broken once it is 30 s old.
+    const held = buildLock(d, { dir: locks })
+    mkdirSync(held.folder, { recursive: true })
+    const old = new Date(Date.now() - 60_000)
+    utimesSync(held.folder, old, old)
+    expect(held.heldByOther()).toBe(false)
+    expect(held.take()).toBe(false)
+    held.release()
+    expect(readdirSync(locks)).toEqual([])
+  }, 30_000)
 })
