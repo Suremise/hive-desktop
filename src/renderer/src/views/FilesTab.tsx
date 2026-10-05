@@ -7,7 +7,7 @@ import { discardDrafts, draftsUnder, FileView, hasDraft, moveDrafts, useDraftVer
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { pasteIntoTerminal } from '../components/TerminalView'
 import { Icon, IconButton, InfoTip, LoadFailed, Modal, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
-import { confirm, filesListeners, focusedAgentId, get, projectKey, set, setProjectTab, showAgent, useDateStyle, useStore } from '../store'
+import { confirm, filesListeners, focusedAgentId, get, notify, openInSessionsTab, projectKey, set, setProjectTab, showAgent, useDateStyle, useStore } from '../store'
 import { useScopedLoad } from '../scopedLoad'
 import { cx, formatBytes, HIVE_FILES_MIME, IMAGE_EXT, imageUrl, quotePath, timeAgo } from '../util'
 
@@ -834,10 +834,15 @@ function FileDetails({
 
 const imageTime = (img: SessionImage): string => formatDateTime(img.modified)
 
-export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
+/**
+ * A project's Images tab, and the Hive Assistant's Images (`assistant`: its home's .hive/images, grouped by
+ * conversation). Clicking a group's name opens that session's transcript.
+ */
+export function ImagesTab({ project: owner, assistant = false }: { project: ProjectInfo; assistant?: boolean }) {
   useStore((s) => s.focusedAgent[owner.path])
   useDateStyle()
   const project = projectView(owner)
+  const noun = assistant ? 'conversation' : 'session'
   // This project's images only. A failed read: said in place of the images (or over this project's last ones), not
   // "No images yet".
   const loaded = useScopedLoad<SessionImageGroup[]>(project.path)
@@ -872,6 +877,35 @@ export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
     load()
   }
 
+  /** All of a session's images, after asking; none go if one can't (another program has it open), and none while it runs. */
+  const removeGroup = async (g: SessionImageGroup): Promise<void> => {
+    const n = g.images.length
+    const ok = await confirm({
+      title: `Move ${n} image${n === 1 ? '' : 's'} to the Recycle Bin?`,
+      message: `Move the ${n === 1 ? 'image' : `${n} images`} of "${g.name ?? g.sessionId.slice(0, 8)}" to the Recycle Bin?`,
+      detail: `The ${noun} keeps its transcript, which still mentions their paths. You can restore them from the Recycle Bin.`,
+      confirmLabel: 'Move to Recycle Bin',
+      danger: true
+    })
+    if (!ok) return
+    const done = await actions.attempt('Could not delete the images', () => call('images:trashGroup', project.path, g.sessionId))
+    if (done !== undefined) {
+      if (viewing && g.images.some((i) => i.path === viewing.path)) setViewing(null)
+      notify('success', `Moved ${done} image${done === 1 ? '' : 's'} to the Recycle Bin.`)
+    }
+    load()
+  }
+  /** The session's transcript: the Sessions tab, or the Assistant's conversations. */
+  const openTranscript = (sessionId: string): void => {
+    if (assistant) set({ assistantSection: 'conversations', sessionsJump: { project: owner.path, id: sessionId, nonce: Date.now() } })
+    else openInSessionsTab(owner.path, sessionId)
+  }
+
+  /** The image's session (its folder) is running. */
+  const running = (img: SessionImage): boolean => {
+    const id = img.path.split(/[\\/]/).slice(-2)[0]
+    return owner.agents.some((a) => a.live?.sessionId === id)
+  }
   const menuFor = (img: SessionImage): MenuEntry[] => [
     { label: 'View', icon: 'eye', onClick: () => setViewing(img) },
     ...(project.live ? [{ label: 'Insert into Session', icon: 'terminal', onClick: () => void insertIntoSession(project, [img.path]) }] : []),
@@ -881,7 +915,8 @@ export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
     { label: 'Open', icon: 'link-external', onClick: () => void call('app:openPath', img.path) },
     { label: 'Reveal in File Explorer', icon: 'folder-opened', onClick: () => void call('app:showInFolder', img.path) },
     { separator: true },
-    { label: 'Delete', icon: 'trash', danger: true, onClick: () => void remove(img) }
+    // Not while its session runs (it may paste more): main refuses it too.
+    running(img) ? { label: 'Delete', icon: 'trash', disabled: true, detail: `Its ${noun} is running` } : { label: 'Delete', icon: 'trash', danger: true, onClick: () => void remove(img) }
   ]
 
   if (!groups) return error ? <LoadFailed what="the images" error={error} onRetry={load} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
@@ -891,7 +926,15 @@ export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
         <Icon name="file-media" />
         No images yet
         <p className="hint">
-          Paste a screenshot into a session with <kbd>Ctrl+V</kbd>, or drag an image onto the terminal. Hive keeps a copy of each one here, grouped by session.
+          {assistant ? (
+            <>
+              Paste a screenshot into the Assistant's panel with <kbd>Ctrl+V</kbd>, or drag an image onto it. Hive keeps a copy of each one here, grouped by conversation.
+            </>
+          ) : (
+            <>
+              Paste a screenshot into a session with <kbd>Ctrl+V</kbd>, or drag an image onto the terminal. Hive keeps a copy of each one here, grouped by session.
+            </>
+          )}
         </p>
       </div>
     )
@@ -903,11 +946,17 @@ export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
     <section key={g.sessionId} className="image-group">
       <div className="image-group-head">
         <Icon name="comment-discussion" />
-        <strong>{g.name ?? `Session ${g.sessionId.slice(0, 8)}`}</strong>
+        <Tooltip content={`Open this ${noun}'s transcript`}>
+          <button className="image-group-name" onClick={() => openTranscript(g.sessionId)}>
+            {g.name ?? `${assistant ? 'Conversation' : 'Session'} ${g.sessionId.slice(0, 8)}`}
+          </button>
+        </Tooltip>
         {owner.agents.some((a) => a.live?.sessionId === g.sessionId) && <span className="badge accent">Running</span>}
+        {g.archived && <span className="badge">archived</span>}
         <span className="faint">
           {g.images.length} image{g.images.length === 1 ? '' : 's'} · last {timeAgo(g.images[0].modified)}
         </span>
+        <IconButton icon="trash" title={`Delete This ${assistant ? 'Conversation' : 'Session'}'s Images…`} disabled={owner.agents.some((a) => a.live?.sessionId === g.sessionId)} onClick={() => void removeGroup(g)} />
       </div>
       <div className="image-grid">
         {g.images.map((img) => (
@@ -936,8 +985,17 @@ export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
     <div className="scroll-page images-page">
       <div className="images-toolbar">
         <h2>Images</h2>
-        <InfoTip text="Screenshots and images pasted or dropped into this project's sessions, kept in .hive/images. Drag one onto the Session tab to send it again." />
-        <span className="faint">{all.length} in {groups.length} session{groups.length === 1 ? '' : 's'}</span>
+        <InfoTip
+          text={
+            assistant
+              ? "Screenshots and images pasted or dropped into the Assistant's conversations, kept in its home's .hive/images. Click a conversation's name to read it."
+              : "Screenshots and images pasted or dropped into this project's sessions, kept in .hive/images. Drag one onto the Session tab to send it again; click a session's name to read it."
+          }
+        />
+        <span className="faint">
+          {all.length} in {groups.length} {noun}
+          {groups.length === 1 ? '' : 's'}
+        </span>
         <div className="grow" />
         <IconButton icon="refresh" title="Refresh" onClick={load} />
         <IconButton icon="folder-opened" title="Open Images Folder" onClick={() => void call('app:openPath', `${project.path}\\.hive\\images`)} />
@@ -947,7 +1005,7 @@ export function ImagesTab({ project: owner }: { project: ProjectInfo }) {
       {archived.length > 0 && (
         <>
           <h3 className="images-archived">
-            <Icon name="archive" /> Archived sessions
+            <Icon name="archive" /> Archived {noun}s
           </h3>
           {archived.map(renderGroup)}
         </>

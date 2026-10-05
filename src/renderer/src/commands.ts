@@ -291,6 +291,7 @@ export const commands: Command[] = [
   { id: 'view.assistant', label: 'Show Hive Assistant View', category: 'View', run: () => setActivity('assistant') },
   { id: 'view.assistantConversations', label: 'Show Assistant Conversations', category: 'View', run: () => showAssistantView('conversations') },
   { id: 'view.personas', label: 'Show Assistant Personas', category: 'View', run: () => showAssistantView('personas') },
+  { id: 'view.assistantImages', label: 'Show Assistant Images', category: 'View', run: () => showAssistantView('images') },
   { id: 'assistant.toggle', label: 'Toggle Hive Assistant', category: 'Assistant', keybinding: 'Mod+Alt+I', when: hasWorkspace, run: () => setAssistantOpen(!get().assistantOpen) },
   { id: 'assistant.settings', label: 'Assistant Settings…', category: 'Assistant', when: hasWorkspace, run: () => set({ assistantSettingsOpen: true }) },
   {

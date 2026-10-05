@@ -371,6 +371,8 @@ export interface HiveRequests {
 
   'images:list': (projectPath: string) => SessionImageGroup[]
   'images:trash': (projectPath: string, path: string) => void
+  /** Moves all of a session's images to the Recycle Bin, all or none (not while it runs): how many went. */
+  'images:trashGroup': (projectPath: string, sessionId: string) => number
   'images:copy': (path: string) => void
 
   /** root is a project or one of its agents' worktrees. With base, lists everything changed since the branch left base. */

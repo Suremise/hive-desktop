@@ -5,14 +5,16 @@ import { useNow } from '../usage'
 import { set, setAssistantOpen, useStore } from '../store'
 import { cx, formatNumber, formatTokens } from '../util'
 import { SessionsTab } from '../views/SessionsTab'
+import { ImagesTab } from '../views/FilesTab'
 import { PERIODS, costText, periodFrom, sumUsage, useSessions, type Period } from '../views/ProjectTabs'
 import { PERSONAS_TIP, PersonaList, PersonaView, createPersona } from './Personas'
 import { Section } from './Sidebar'
 import { Icon, IconButton, InfoTip, Tooltip } from './ui'
 
 /**
- * The Hive Assistant's view (activity bar): a summary of what it has used, its conversations (the same browser
- * as a project's Sessions tab) and its personas. Its settings are in Settings → Assistant and its panel.
+ * The Hive Assistant's view (activity bar): a summary of what it has used, then its personas, its conversations (the
+ * same tree as a project's Sessions tab) and the images pasted into them (a project's Images tab, for its home). Its
+ * settings are in Settings → Assistant and its panel.
  */
 
 const SUMMARY_TIP =
@@ -26,7 +28,7 @@ export function AssistantSidePanel() {
     <>
       <div className="pane-header">
         Hive Assistant
-        <InfoTip text="Your workspace's overseer: what it has used, its conversations and its personas. Its panel is on the right (Ctrl+Alt+I); its defaults are in Settings → Assistant." />
+        <InfoTip text="Your workspace's overseer: what it has used, its personas, its conversations and the images pasted into them. Its panel is on the right (Ctrl+Alt+I); its defaults are in Settings → Assistant." />
         <div className="actions">
           <IconButton icon="layout-sidebar-right" title="Show the Assistant's panel" disabled={!a} onClick={() => setAssistantOpen(true)} />
         </div>
@@ -37,12 +39,6 @@ export function AssistantSidePanel() {
         ) : (
           <>
             <AssistantSummary assistant={a} />
-            <Section title="Conversations">
-              <div className={cx('row', section === 'conversations' && 'selected')} onClick={() => set({ assistantSection: 'conversations' })}>
-                <Icon name="comment-discussion" />
-                <span className="label">All Conversations</span>
-              </div>
-            </Section>
             <Section
               title="Personas"
               tip={PERSONAS_TIP}
@@ -55,6 +51,18 @@ export function AssistantSidePanel() {
               }
             >
               <PersonaList />
+            </Section>
+            <Section title="Conversations">
+              <div className={cx('row', section === 'conversations' && 'selected')} onClick={() => set({ assistantSection: 'conversations' })}>
+                <Icon name="comment-discussion" />
+                <span className="label">All Conversations</span>
+              </div>
+            </Section>
+            <Section title="Images">
+              <div className={cx('row', section === 'images' && 'selected')} onClick={() => set({ assistantSection: 'images' })}>
+                <Icon name="file-media" />
+                <span className="label">All Images</span>
+              </div>
             </Section>
           </>
         )}
@@ -104,11 +112,12 @@ function Stat({ label, value, tip }: { label: string; value: string; tip?: strin
   return tip ? <Tooltip content={tip}>{body}</Tooltip> : body
 }
 
-/** The main area: the conversation browser, or the selected persona. */
+/** The main area: the conversation browser, the images, or the selected persona. */
 export function AssistantMain() {
   const a = useStore((s) => s.workspace?.assistant ?? null)
   const section = useStore((s) => s.assistantSection)
   if (section === 'personas') return <PersonaView />
+  if (section === 'images' && a) return <ImagesTab project={a} assistant />
   if (!a) {
     return (
       <div className="empty-state" style={{ paddingTop: '18vh' }}>

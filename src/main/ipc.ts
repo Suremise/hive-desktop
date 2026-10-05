@@ -417,6 +417,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
 
     'images:list': (p) => files.listImages(p),
     'images:trash': (p, path) => files.trashImage(p, path),
+    'images:trashGroup': (p, id) => files.trashImageGroup(p, id),
     'transcript:read': (p, id, opts) => transcripts.read(p, id, opts ?? {}),
     'transcript:tool': (p, id, itemId) => transcripts.tool(p, id, itemId),
     'transcript:image': (p, id, imageId) => transcripts.image(p, id, imageId),

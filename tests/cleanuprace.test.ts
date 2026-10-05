@@ -203,7 +203,7 @@ describe('Clean Up while sessions change', () => {
     })
     await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedBackupsDays: 90 }, async () => undefined)
     usage.mockRestore()
-    expect(refused).toMatch(/Clean Up is removing files of this session/)
+    expect(refused).toMatch(/archiving, deleting or cleaning up this session's files/)
     expect(existsSync(archived(id))).toBe(false)
   })
 

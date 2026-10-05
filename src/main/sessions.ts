@@ -1,6 +1,6 @@
 import { randomUUID, randomBytes } from 'crypto'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'path'
-import { copyFile, link, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/promises'
+import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'fs/promises'
 import { existsSync, realpathSync } from 'fs'
 import { typedText } from '../shared/terminalInput'
 import { failedStart, type StartFailure } from '../shared/startFailure'
@@ -40,7 +40,7 @@ import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, toast } from './events'
 import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
-import { hashText, readJson, removePath, treeSignature, splitArgs, syncCopy, syncCopyLocked, syncCopyNow, withFileLock, writeJsonAtomic } from './fsutil'
+import { hashText, heldOpen, isInUse, readJson, removePath, treeSignature, splitArgs, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
 import { Compaction } from './compaction'
@@ -314,48 +314,17 @@ export class SessionInUse extends Error {
   }
 }
 
-/** Windows' "in use" errors: another program has the file open without sharing it. */
-const IN_USE_CODES = new Set(['EBUSY', 'EPERM', 'EACCES'])
 
 /** Runs a move of Hive's copies; a copy another program holds fails it as SessionInUse. */
 async function inUseOnFail(fn: () => Promise<void>): Promise<void> {
   try {
     await fn()
   } catch (e) {
-    if (IN_USE_CODES.has((e as NodeJS.ErrnoException).code ?? '')) throw new SessionInUse('in-use', 'Another program has its transcript open. Close it, then try again.')
+    if (isInUse(e)) throw new SessionInUse('in-use', 'Another program has its transcript open. Close it, then try again.')
     throw e
   }
 }
 
-/** Checks one of Hive's copies can be moved (renamed aside and back), before any copy of the session goes. */
-async function movable(file: string): Promise<void> {
-  const aside = `${file}.moving`
-  await inUseOnFail(() => rename(file, aside))
-  await rename(aside, file)
-}
-
-/** The suffix of a spare of one of Hive's copies, kept while a delete is under way to put it back if the delete fails. */
-const SPARE = '.spare'
-
-/** A spare of one of Hive's copies: a second name for the same file (a hard link), or a copy where links can't be made. */
-async function spare(file: string): Promise<void> {
-  await rm(`${file}${SPARE}`, { force: true })
-  await link(file, `${file}${SPARE}`).catch(() => inUseOnFail(() => copyFile(file, `${file}${SPARE}`)))
-}
-
-/**
- * Whether another program holds a file open without sharing it (Windows' sharing violation), found by opening it to
- * read and closing it at once: the file isn't changed. The CLIs' own transcripts are checked this way, never moved.
- */
-async function heldOpen(file: string): Promise<boolean> {
-  try {
-    const fh = await open(file, 'r')
-    await fh.close()
-    return false
-  } catch (e) {
-    return IN_USE_CODES.has((e as NodeJS.ErrnoException).code ?? '')
-  }
-}
 
 /**
  * Renames done in order, undone in reverse when a later step fails (`undo`); `discardAside`, once all is done, removes
@@ -703,7 +672,7 @@ class SessionManager {
     if (this.live.has(id) || this.starting.has(id)) throw new Error('This agent is already running or starting. Stop it first.')
     // Two terminals on one conversation would both append to its transcript.
     if (opts.resumeId && [...this.starting.values()].some((p) => p.resumeId === opts.resumeId)) throw new Error('This conversation is already being opened in another agent.')
-    if (opts.resumeId && this.cleaning.has(`${projectPath.toLowerCase()}|${opts.resumeId.toLowerCase()}`)) throw new Error('Clean Up is removing files of this session. Try again in a moment.')
+    if (opts.resumeId && this.cleaning.has(`${projectPath.toLowerCase()}|${opts.resumeId.toLowerCase()}`)) throw new Error("Hive is archiving, deleting or cleaning up this session's files. Try again in a moment.")
     const pending: PendingStart = { projectPath, resumeId: opts.resumeId, cancelled: false, done: Promise.resolve() }
     this.starting.set(id, pending)
     const run = this.startReserved(projectPath, agentId, id, opts)
@@ -2743,7 +2712,7 @@ class SessionManager {
   }
 
   /** The session is running, or an agent is starting on it, in any project and window. */
-  private liveAnywhere(sessionId: string): boolean {
+  liveAnywhere(sessionId: string): boolean {
     const id = sessionId.toLowerCase()
     return [...this.live.values()].some((l) => l.state.sessionId?.toLowerCase() === id) || [...this.starting.values()].some((p) => p.resumeId?.toLowerCase() === id)
   }
@@ -2862,6 +2831,17 @@ class SessionManager {
     }
   }
 
+  /**
+   * Runs fn with the session reserved and not running (in any window): removing its images. Nothing resumes it, or
+   * archives or deletes it, until fn is done, so it can't start pasting while its images go.
+   */
+  whileStopped<T>(projectPath: string, sessionId: string, fn: () => Promise<T>): Promise<T> {
+    return this.whileReserved(projectPath, sessionId, async () => {
+      if (this.liveAnywhere(sessionId)) throw new SessionInUse('live', 'It is running, and may paste more images. Stop it first.')
+      return fn()
+    })
+  }
+
   /** Runs fn (an archive or delete) with the session reserved, as whileCleaning; one already reserved is in use. */
   private async whileReserved<T>(projectPath: string, sessionId: string, fn: () => Promise<T>): Promise<T> {
     const k = `${projectPath.toLowerCase()}|${sessionId.toLowerCase()}`
@@ -2929,9 +2909,9 @@ class SessionManager {
 
   /**
    * delete() without its log line and refresh (bulk() does those once). All or nothing: with the session reserved and
-   * nothing having it in use (assertFree; running checked again with its copies locked), each of Hive's copies is
-   * first moved aside and back (movable) and linked to a spare name; if one fails to go to the Recycle Bin, or the
-   * record can't be saved, the copies already gone are put back from their spares (a copy stays in the Recycle Bin).
+   * nothing having it in use (assertFree; running checked again with its copies locked), Hive's copies go to the
+   * Recycle Bin and the record goes with trashAllOrNothing: if a copy fails to go, or the record can't be saved, the
+   * copies already gone are put back (a copy stays in the Recycle Bin).
    */
   private async deleteOne(projectPath: string, sessionId: string, expected?: string[]): Promise<void> {
     assertSessionId(sessionId)
@@ -2953,29 +2933,18 @@ class SessionManager {
         const kept: KeptUsage | null = rec && usage ? { id: sessionId, provider: recordProvider(rec), agentId: rec.agentId, cwd: rec.cwd, name: rec.name, usage } : null
         this.assertNotLive(sessionId, 'delete')
         const files = this.backupFiles(projectPath, sessionId)
-        for (const b of files) await movable(b)
-        const spares: string[] = []
-        const trashed: string[] = []
-        try {
-          for (const b of files) {
-            await spare(b)
-            spares.push(b)
-          }
-          for (const b of files) {
-            await inUseOnFail(() => shell.trashItem(b))
-            trashed.push(b)
-          }
-          await workspace.mutateSessions(projectPath, (f) => {
-            f.sessions = f.sessions.filter((s) => s.id !== sessionId)
-            if (!f.deleted?.includes(sessionId)) f.deleted = [...(f.deleted ?? []), sessionId]
-            if (kept) f.deletedUsage = [...(f.deletedUsage ?? []).filter((k) => k.id !== sessionId), kept]
-          })
-        } catch (e) {
-          for (const b of trashed) await rename(`${b}${SPARE}`, b).catch((err) => log.warn(`Deleting session ${sessionId}: couldn't put back ${userText(b)}`, err))
-          throw e
-        } finally {
-          for (const b of spares) await rm(`${b}${SPARE}`, { force: true }).catch(() => undefined)
-        }
+        await inUseOnFail(() =>
+          trashAllOrNothing(
+            files,
+            (b) => shell.trashItem(b),
+            () =>
+              workspace.mutateSessions(projectPath, (f) => {
+                f.sessions = f.sessions.filter((s) => s.id !== sessionId)
+                if (!f.deleted?.includes(sessionId)) f.deleted = [...(f.deleted ?? []), sessionId]
+                if (kept) f.deletedUsage = [...(f.deletedUsage ?? []).filter((k) => k.id !== sessionId), kept]
+              })
+          )
+        )
       })
     await (expected ? this.whileCleaning(projectPath, sessionId, remove) : this.whileReserved(projectPath, sessionId, remove))
     for (const a of projectAgents(await workspace.projectConfig(projectPath))) {

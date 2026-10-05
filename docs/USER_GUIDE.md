@@ -400,10 +400,11 @@ When an agent's CLI asks whether to trust a new folder before it starts, the age
 
 The **Hive Assistant** button in the activity bar (the robot) opens everything else about it. At the top, **Used so far**: its conversations, prompts, tokens and API-equivalent cost, for Today, 7 days, 30 days or All time. These aren't counted in any project's Overview. Below that:
 
-- **All Conversations** shows every conversation you've had with it, in the same browser as a project's **Sessions** tab. Search one conversation or all of them, read any in full, export, rename, archive, delete or resume one. **Show** on the running conversation opens the panel.
 - **Personas** lists its personas (below).
+- **All Conversations** shows every conversation you've had with it, in the same tree as a project's **Sessions** tab (by provider, with any sessions a conversation started under it). Search them, read any in full, export, rename, archive, delete or resume one, or archive or delete a whole branch. **Show** on the running conversation opens the panel.
+- **All Images** shows the screenshots and images you've pasted or dropped into its conversations, grouped by conversation, newest first, like a project's **Images** tab. Click one to view it, or right-click it to copy, open or reveal it. Click a conversation's name to read it. The bin next to it moves all of that conversation's images to the Recycle Bin (none if another program has one open). Images of a conversation that is running can't be deleted until it stops.
 
-The panel's **⋯** menu opens the same view with **All Conversations…** or **Manage Personas…**.
+The panel's **⋯** menu opens the same view with **All Conversations…** or **Manage Personas…**; the command palette has **Show Assistant Conversations**, **Show Assistant Personas** and **Show Assistant Images**.
 
 ### Personas
 
@@ -534,7 +535,7 @@ Files with unsaved changes get a ● in the tree. The edits are kept while you l
 
 ## Images
 
-The **Images** tab shows every screenshot and image pasted or dropped into the project's sessions, grouped by session (newest first), with archived sessions at the bottom. Click one to view it large and use ← / → to move between them. From the viewer or the right-click menu you can **Insert into Session**, **Copy Image**, **Copy Path**, **Reveal** it, or **Delete** it (to the Recycle Bin). You can also drag a thumbnail onto the **Session** tab.
+The **Images** tab shows every screenshot and image pasted or dropped into the project's sessions, grouped by session (newest first), with archived sessions at the bottom. Click one to view it large and use ← / → to move between them. From the viewer or the right-click menu you can **Insert into Session**, **Copy Image**, **Copy Path**, **Reveal** it, or **Delete** it (to the Recycle Bin). Click a session's name to read its transcript, or its bin to move all of its images to the Recycle Bin at once. A running session's images can't be deleted until it stops. You can also drag a thumbnail onto the **Session** tab.
 
 ## Changes
 
