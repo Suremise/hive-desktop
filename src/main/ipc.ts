@@ -34,6 +34,7 @@ import { syncBundled } from './bundled'
 import { killPty, ptyBuffer, resizePty, writePty } from './ptyHost'
 import { apiInfo, regenerateToken } from './servers'
 import * as projectAgents from './projectAgents'
+import * as templates from './templates'
 import * as branchWatch from './branchWatch'
 import { sessions } from './sessions'
 import { transcripts } from './transcripts'
@@ -385,6 +386,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'agents:remove': (p, id, opts) => projectAgents.removeAgent(p, id, opts),
     'agents:move': (p, id, index) => projectAgents.moveAgent(p, id, index),
     'agents:swap': (p, id, other) => projectAgents.swapAgents(p, id, other),
+    'templates:list': (p) => templates.listTemplates(p),
+    'templates:save': (p, scope, name, overwrite) => templates.saveTemplate(p, scope, name, overwrite),
+    'templates:plan': (p, scope, file) => templates.templatePlan(p, scope, file),
+    'templates:load': (p, scope, file, expected) => templates.loadTemplate(p, scope, file, expected),
+    'templates:addAgent': (p, scope, file, index) => templates.addAgentFromTemplate(p, scope, file, index),
     'agents:gitInfo': (p) => projectAgents.gitInfo(p),
     'agents:branchStatus': async (p, id) => {
       const st = await projectAgents.branchStatus(p, id)

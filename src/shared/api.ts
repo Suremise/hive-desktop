@@ -8,6 +8,7 @@ import type {
   AgentApiInfo,
   AgentBranchStatus,
   AgentDef,
+  TemplateLoadPlan,
   AgentPatch,
   CleanupItem,
   CleanupOptions,
@@ -62,6 +63,7 @@ import type {
 } from './types'
 import type { MetricsQuery, MetricsReport } from './metrics'
 import type { Artifact, CompareScope, ImportResult, KeptEntry } from './benchmark'
+import type { TemplateEntry, TemplateScope } from './templates'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
 export type SettingsPatch = DeepPartial<AppSettings>
@@ -255,6 +257,16 @@ export interface HiveRequests {
   'agents:move': (projectPath: string, agentId: string, index: number) => string[]
   /** Swaps two agents' places in the project's order (one dropped on another's pane); returns the agents' ids in order. */
   'agents:swap': (projectPath: string, agentId: string, otherId: string) => string[]
+  /** Agent templates (#126): the workspace's and the project's. */
+  'templates:list': (projectPath: string) => TemplateEntry[]
+  /** Saves the project's agents and layout; a name already there is replaced only with `overwrite` (else `exists`). */
+  'templates:save': (projectPath: string, scope: TemplateScope, name: string, overwrite: boolean) => { saved: TemplateEntry } | { exists: string }
+  /** What loading a template would do, and what stops it now. */
+  'templates:plan': (projectPath: string, scope: TemplateScope, file: string) => TemplateLoadPlan
+  /** Replaces the project's agents and layout with a template's; `expected` is the agents' ids as the user saw them. */
+  'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[]) => { created: string[]; removed: string[] }
+  /** Adds one agent of a template (the `index`-th), the others left alone. */
+  'templates:addAgent': (projectPath: string, scope: TemplateScope, file: string, index: number) => AgentDef
   /** Branches and worktrees, for the Add Agent dialog. */
   'agents:gitInfo': (projectPath: string) => ProjectGitInfo
   'agents:branchStatus': (projectPath: string, agentId: string) => AgentBranchStatus

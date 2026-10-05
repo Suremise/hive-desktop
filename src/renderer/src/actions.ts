@@ -6,6 +6,7 @@ import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared
 import { agentsToResume, resumeAll } from '@shared/resumeAll'
 import { batchLine, eachAgent, sessionsToArchive } from '@shared/startAll'
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
+import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
 import { formatTokens } from './util'
 import { statusText } from './components/ui'
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
@@ -645,6 +646,89 @@ export function nudgeAgent(delta: -1 | 1, path: string | null = get().selectedPr
   const i = p.agents.findIndex((a) => a.id === id)
   if (i < 0 || i + delta < 0 || i + delta >= p.agents.length) return
   void moveAgent(p.path, id, i + delta)
+}
+
+// ---------------------------------------------------------------------------
+// Agent templates (#126)
+// ---------------------------------------------------------------------------
+
+const SCOPE_WORD: Record<TemplateScope, string> = { workspace: 'the workspace', project: 'this project' }
+
+/**
+ * Save Template…: the project's agents and layout under a name, in the project (private) or, ticked, the workspace (for
+ * every project). A name already there asks before it is replaced.
+ */
+export async function saveTemplate(path: string): Promise<void> {
+  const p = project(path)
+  if (!p?.agents.length) return notify('info', 'No agents to save', 'Add the agents first, then save them as a template.')
+  let workspaceScope = false
+  const name = await prompt({
+    title: 'Save as template',
+    message: `${p.agents.length === 1 ? 'Its agent' : `Its ${p.agents.length} agents`} (settings and roles) and the layout, to load into any project later. Sessions and worktrees aren't saved.`,
+    placeholder: 'Template name',
+    confirmLabel: 'Save',
+    validate: (v) => (!v.trim() ? 'Enter a name.' : v.trim().length > TEMPLATE_NAME_MAX ? `At most ${TEMPLATE_NAME_MAX} characters.` : null),
+    check: { label: 'For every project in the workspace (else for this project only)', initial: false, set: (v) => (workspaceScope = v) }
+  })
+  if (name === null) return
+  const scope: TemplateScope = workspaceScope ? 'workspace' : 'project'
+  let r = await attempt('Could not save the template', () => call('templates:save', path, scope, name, false))
+  if (r && 'exists' in r) {
+    const ok = await confirm({ title: 'Replace the template?', message: `${SCOPE_WORD[scope].replace(/^t/, 'T')} already has a template called "${name.trim()}".`, detail: 'Saving replaces it with these agents and this layout.', confirmLabel: 'Replace' })
+    if (!ok) return
+    r = await attempt('Could not save the template', () => call('templates:save', path, scope, name, true))
+  }
+  if (r && 'saved' in r) notify('success', 'Template saved', `"${r.saved.name}" (${r.saved.agents.length} ${r.saved.agents.length === 1 ? 'agent' : 'agents'}), for ${SCOPE_WORD[scope]}.`)
+}
+
+/**
+ * Loads a template into a project: it replaces every agent, so it says first who goes and who comes. Refused, saying
+ * why, while an agent runs, a worktree has uncommitted work or a provider it needs is off or not installed (with a way
+ * into Agent Setup or Settings).
+ */
+export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'scope' | 'file' | 'name'>): Promise<void> {
+  const plan = await attempt('Could not read the template', () => call('templates:plan', path, entry.scope, entry.file))
+  if (!plan) return
+  if (plan.blocked.length) {
+    const fix = plan.missing.find((m) => /isn't installed/.test(m.reason))?.provider ?? null
+    const off = plan.missing.some((m) => /turned off/.test(m.reason))
+    const choice = await choose({
+      title: `Can't load "${plan.name}" yet`,
+      message: 'It would replace every agent of this project, which isn’t safe or possible yet:',
+      detail: plan.blocked.map((b) => `• ${b}`).join('\n'),
+      choices: [...(fix ? [{ label: 'Open Agent Setup', value: 'setup' }] : []), { label: 'OK', value: 'ok' }]
+    })
+    if (choice === 'setup' && fix) set({ setupOpen: fix })
+    else if (off) notify('warning', 'A provider it needs is turned off', 'Turn it on in Settings → Providers, then load the template again.', [{ label: 'Open Settings', command: 'settings.providers' }])
+    return
+  }
+  const p = project(path)
+  const expected = (p?.agents ?? []).map((a) => a.id)
+  const ok = await confirm({
+    title: `Load "${plan.name}"?`,
+    message: plan.remove.length ? `It replaces every agent of ${p?.name ?? 'this project'}.` : `It adds its agents to ${p?.name ?? 'this project'}.`,
+    detail: [
+      ...(plan.remove.length ? ['Removed:', ...plan.remove.map((a) => `• ${a.name}${a.worktree ? ` (its worktree and branch ${a.worktree.branch} stay)` : ''}`), ''] : []),
+      'Created:',
+      ...plan.create.map((a) => `• ${a.name}${a.role ? ` — ${a.role}` : ''} (${providerName(a.provider)}${a.worktree ? ', own worktree' : ''})`),
+      '',
+      `${plan.remove.length ? "Their conversations stay in the Sessions tab, and their open cards go back (Doing ones to Todo). " : ''}The layout becomes the template's.`
+    ].join('\n'),
+    confirmLabel: 'Load template',
+    busyLabel: 'Loading…',
+    danger: plan.remove.length > 0,
+    run: () => call('templates:load', path, entry.scope, entry.file, expected)
+  })
+  if (ok) await refreshWorkspace()
+}
+
+/** Adds one agent of a template, the project's others left alone (a name already taken gets a number). */
+export async function addAgentFromTemplate(path: string, entry: Pick<TemplateEntry, 'scope' | 'file'>, index: number): Promise<void> {
+  const def = await attempt('Could not add the agent', () => call('templates:addAgent', path, entry.scope, entry.file, index))
+  if (!def) return
+  await refreshWorkspace()
+  const p = project(path)
+  if (p) showAgent(p, def.id)
 }
 
 export async function removeAgent(path: string, agentId: string): Promise<void> {

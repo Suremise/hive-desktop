@@ -252,6 +252,8 @@ export const commands: Command[] = [
   { id: 'session.archive', label: 'Archive Session and Start New…', category: 'Session', when: hasProject, run: () => actions.archiveCurrent() },
   // Every agent of the project at once, after one confirmation (#216).
   { id: 'session.startNewAll', label: 'Start New (All)…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.startNewAll(get().selectedProject!) },
+  // The project's agents and layout as a template (#126); loading and adding one are on the agent strip.
+  { id: 'template.save', label: 'Save Agents as Template…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.saveTemplate(get().selectedProject!) },
   { id: 'session.archiveAll', label: 'Archive and Start New (All)…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.startNewAll(get().selectedProject!, true) },
   { id: 'view.projects', label: 'Show Projects', category: 'View', keybinding: 'Mod+Shift+E', run: () => setActivity('projects') },
   { id: 'view.overview', label: 'Show Workspace Overview', category: 'View', keybinding: 'Mod+Shift+O', run: () => setActivity('overview') },

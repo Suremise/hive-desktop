@@ -608,6 +608,8 @@ class SessionManager {
     projectPath = workspace.assertSessionHost(projectPath)
     if (opts.resumeId !== undefined) assertSessionId(opts.resumeId)
     const agentId = opts.agentId || (await this.soleAgent(projectPath))
+    // Again after the await, with nothing awaited before the start is reserved: a fence raised meanwhile holds.
+    this.assertStartsAllowed(projectPath)
     const id = liveId(projectPath, agentId)
     // Checked and reserved before anything is awaited: a double click, or the UI and the Agent API at
     // once, must not start the agent twice (the second start would orphan the first process).
@@ -626,20 +628,40 @@ class SessionManager {
     }
   }
 
-  /** Refuses a start while Hive quits, while the project's workspace is closing or switching, or while the project is being removed. */
+  /**
+   * Refuses a start while Hive quits, while the project's workspace is closing or switching, or while a fence holds the
+   * project (it is being removed, or a template is replacing its agents).
+   */
   private assertStartsAllowed(projectPath: string): void {
     if (this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error("Hive is stopping this workspace's agents, so none can start now.")
-    if (this.fenced.has(resolve(projectPath).toLowerCase())) throw new Error('This project is being removed, so its agents can\'t start now.')
+    const why = this.fenced.get(resolve(projectPath).toLowerCase())?.at(-1)
+    if (why) throw new Error(`${why}, so its agents can't start now.`)
   }
 
-  /** Projects (lower-cased paths) whose agents may not start: they are being hidden, removed or deleted. */
-  private fenced = new Set<string>()
+  /** Projects (lower-cased paths) whose agents may not start, and why (one entry for each fence on it). */
+  private fenced = new Map<string, string[]>()
 
-  /** Keeps the project's agents from starting until `unfence()`: nothing may run in it while it is being removed. */
-  fenceStarts(projectPath: string): () => void {
+  /**
+   * Keeps the project's agents from starting until the function returned is called: nothing may run in it while it is
+   * being removed, or while a template replaces its agents (#126). Fences can overlap; each lifts its own.
+   */
+  fenceStarts(projectPath: string, why = 'This project is being removed'): () => void {
     const key = resolve(projectPath).toLowerCase()
-    this.fenced.add(key)
-    return () => void this.fenced.delete(key)
+    this.fenced.set(key, [...(this.fenced.get(key) ?? []), why])
+    let lifted = false
+    return () => {
+      if (lifted) return
+      lifted = true
+      const rest = [...(this.fenced.get(key) ?? [])]
+      rest.splice(rest.indexOf(why), 1)
+      if (rest.length) this.fenced.set(key, rest)
+      else this.fenced.delete(key)
+    }
+  }
+
+  /** Whether this agent has a start in progress (not yet in liveStates). */
+  startingFor(projectPath: string, agentId: string): boolean {
+    return this.starting.has(liveId(resolve(projectPath), agentId))
   }
 
   /** Projects with an agent starting (not yet in liveStates). */

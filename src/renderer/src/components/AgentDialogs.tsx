@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { MAX_AGENTS, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
+import { MAX_AGENTS, ROLE_MAX, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
 import { PROVIDERS, agentProvider, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerSettings } from '@shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
@@ -368,11 +368,19 @@ export function AddAgentDialog() {
 // Agent settings
 // ---------------------------------------------------------------------------
 
+/** Roles to suggest (#126): the usual ones, then those the project's agents already have. */
+function roleSuggestions(project: ProjectInfo): string[] {
+  const out = ['builder', 'reviewer']
+  for (const a of project.agents) if (a.role && !out.some((r) => r.toLowerCase() === a.role!.toLowerCase())) out.push(a.role)
+  return out
+}
+
 export function AgentSettingsDialog() {
   const target = useStore((s) => s.agentSettingsFor)
   const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.agentSettingsFor?.project) ?? null)
   const agent = project?.agents.find((a) => a.id === target?.agentId) ?? null
   const [name, setName] = useState('')
+  const [role, setRole] = useState('')
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
   const [permission, setPermission] = useState('')
@@ -384,6 +392,7 @@ export function AgentSettingsDialog() {
   useEffect(() => {
     action.setError(null)
     setName(agent?.name ?? '')
+    setRole(agent?.role ?? '')
     setModel(agent?.model ?? '')
     setEffort(agent?.effort ?? '')
     setPermission(agent?.permissionMode ?? '')
@@ -418,6 +427,7 @@ export function AgentSettingsDialog() {
     const ok = await action.run('save', async () => {
       await call('agents:update', project.path, agent.id, {
         name,
+        role,
         ...(changed ? { provider } : {}),
         model: model || undefined,
         effort: (effort || undefined) as EffortLevel | undefined,
@@ -449,6 +459,23 @@ export function AgentSettingsDialog() {
       <div className="agent-form">
         <label>Name</label>
         <input className="input" value={name} autoFocus onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && void save()} />
+        {/* What the agent is for, saved in templates (#126): free text, suggesting the usual ones and the project's. */}
+        <label htmlFor="agent-role">Role</label>
+        <input
+          id="agent-role"
+          className="input"
+          value={role}
+          maxLength={ROLE_MAX}
+          placeholder={`None (its name: ${name.trim() || agent.name})`}
+          list="agent-role-suggestions"
+          onChange={(e) => setRole(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && name.trim() && void save()}
+        />
+        <datalist id="agent-role-suggestions">
+          {roleSuggestions(project).map((r) => (
+            <option key={r} value={r} />
+          ))}
+        </datalist>
         <label>Works in</label>
         <div className="muted">
           {agent.worktree ? (
