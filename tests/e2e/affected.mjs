@@ -132,7 +132,7 @@ export const AREAS = [
   // Bundled into the Docs view (About's licence pages, Release Notes, the Agent API reference).
   { paths: ['docs/', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'scripts/licenses.mjs', 'scripts/licenseText.mjs'], suites: ['about'] },
   // The installer's copies (npm run dist first).
-  { paths: ['electron-builder.yml'], suites: ['packaged', 'packaged-mcp', 'packaged-progress', 'packaged-transcript'] }
+  { paths: ['electron-builder.yml', 'scripts/dist.mjs', 'scripts/distCopy.mjs'], suites: ['packaged', 'packaged-mcp', 'packaged-progress', 'packaged-transcript'] }
 ]
 
 /** Whether a repo path is under one of these paths (a file, or a folder ending in /). Case-insensitive, / separators. */
