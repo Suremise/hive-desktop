@@ -102,6 +102,14 @@ for the build), and the e2e runner, `lib.cjs` and the scenario harness all take 
   passes `process.env`. The fake CLIs are the exception: they stand for Claude Code and Codex, which start their MCP
   servers from their own environment (a test Hive's session's, already the context's). A suite's own tools (git, a
   PowerShell query) run in the suite's environment, which under the runner is the context's.
+- **The runners' own tools get it too** (#208). The runners, their modules, `lib.cjs` and the scenario harness run in
+  the shell they were started from, so every child they start themselves is given an environment: the build
+  (`devBuild` in `build.mjs`), the git of the run record's fingerprint, `--affected` and the concurrency checker's
+  worktrees, `where.exe`, `taskkill` (`runContext.baseEnv()`, the allowlist alone). A `GIT_DIR` or `GIT_WORK_TREE` in
+  the shell can't point their git at another repository, and `NODE_OPTIONS` or npm's `npm_config_*` don't reach the
+  build. The unit test fails for a `child_process` call there without `env`. The deliberate exception is the runners'
+  progress reporting (`tests/progressReport.mts`): it is no child, and reads the Hive variables of the shell it was
+  started from, to report to the Hive that started it.
 - **Folders, ports and CLI homes**: the lane (above), the Codex test home under its `config.toml` lock, the Claude Code
   test home for the model trials (`CLAUDE_TEST_HOME`); each suite keeps its own `CLAUDE_CONFIG_DIR` folders in its lane.
 - **The build, once per worktree** (`build.mjs`): runners started at the same time in one worktree share its `out/`,
@@ -117,13 +125,19 @@ second worktree it makes for the check (a git worktree of `HEAD` with the uncomm
 through a junction, removed afterwards), one in each worktree with an agent shell's environment (`NO_COLOR`,
 `HIVE_PROGRESS_WRAPPED`, a token…) and one with a plain one. It checks that every run passes in a lane, folders, ports
 and logs folder of its own, and that each worktree is built once and stamped. Run it after changing the runner,
-`lib.cjs`, `runContext.cjs`, `lanes.mjs`, `build.mjs` or the scenario harness.
+`lib.cjs`, `runContext.cjs`, `lanes.mjs`, `build.mjs` or the scenario harness. Two checkers can run at once, from two
+worktrees (#207): each keeps what it makes (its worktrees, decoy, heavy-run pool) in a folder of its own,
+`%LOCALAPPDATA%\hive-test\concurrency\run-<pid>-<time>` (`tempWorktrees.mjs`), and removes only that. A setup that
+fails part way removes its own worktree; the folder of a checker that crashed is removed by the next one, unless it
+was kept with `--keep`. Two started from the same worktree share its build, so its "built once" checks may fail.
 
 **Heavy runs queue** (`slots.mjs`, #204). Several agents each running full sets on one machine slowed each other until
 tests that pass alone timed out. So at most **two heavy runs** go at once across every worktree
 (`HIVE_TEST_HEAVY_SLOTS` changes it): an e2e run of more than five suites (`--all`, `--real`, a big `--affected`) or
 any `--repeat`, and a scenario run of more than five scenarios or with `--repeat`. A run of a few suites, a single
-scenario, or a runner started inside a suite never waits. A heavy run that finds both slots taken waits for one,
+scenario, or a runner started inside a suite never waits: e2e or scenarios (`needsSlot`, #211), since its parent's run
+holds a slot and waiting behind it would never end. It still keeps apart from its parent (a nested e2e runner in the
+parent's `nested` folder with ports above the parent's, a nested scenario run in a lane of its own). A heavy run that finds both slots taken waits for one,
 before it builds, in the order runs asked. It prints `Waiting for a test slot …: held by e2e: 68 suites in <worktree>
 (process …, 12 min)` and shows in the Progress panel as **e2e: waiting for a test slot** (or **scenarios: …**), naming
 who holds them, until it gets one (`Got a test slot after N s`). So a run that seems stuck is usually waiting: that line

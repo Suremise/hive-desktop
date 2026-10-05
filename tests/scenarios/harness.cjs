@@ -81,7 +81,7 @@ function readMcpLog(file) {
  * there's nothing uncommitted.
  */
 function sourceFingerprint(root = lib.ROOT) {
-  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'buffer', maxBuffer: 256 * 1024 * 1024 })
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'buffer', maxBuffer: 256 * 1024 * 1024, env: lib.baseEnv() })
   const head = git('rev-parse', '--short', 'HEAD').toString().trim()
   const h = require('crypto').createHash('sha256')
   const diff = git('diff', '--binary', 'HEAD')
@@ -199,7 +199,7 @@ async function runScenario(sc, providerKey, opts = {}) {
       note: (rel, content) => api('PUT', `/v1/shared/file?path=${encodeURIComponent(rel)}`, { content }),
       write: (rel, text) => fs.writeFileSync(path.join(alpha, rel), text),
       read: (rel) => (fs.existsSync(path.join(alpha, rel)) ? fs.readFileSync(path.join(alpha, rel), 'utf8') : null),
-      git: (...a) => execFileSync('git', a, { cwd: alpha, encoding: 'utf8' })
+      git: (...a) => execFileSync('git', a, { cwd: alpha, encoding: 'utf8', env: lib.baseEnv() })
     }
     if (sc.setup) await sc.setup(ctx)
     const skillNames = fs.existsSync(ctx.skillsDir) ? fs.readdirSync(ctx.skillsDir).filter((d) => !d.startsWith('.')) : []
