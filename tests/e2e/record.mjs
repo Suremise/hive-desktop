@@ -7,7 +7,7 @@ import { execFileSync } from 'child_process'
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
 
-/** Rewritten by every build with only line-ending changes (card #148): not code under test. */
+/** Not code under test: builds used to rewrite it with only line-ending changes (fixed by #148), and a checkout without that fix still does. */
 const NOT_CODE = ['THIRD_PARTY_NOTICES.md']
 
 /**

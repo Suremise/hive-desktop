@@ -5,7 +5,8 @@
 // ends. A crashed runner's claim expires (its process is gone, or the claim is a day old, like `.active` in logs.mjs).
 // A lane is only taken when its ports are free, so something else holding them (an older runner without lanes, another
 // app) just moves the runner to the next lane. A runner started inside a suite doesn't claim one: it takes ports
-// above its parent's (runner.mjs's portBase).
+// above its parent's (runner.mjs's portBase). Scenario runs (tests/scenarios/run.mjs) claim lanes from the same pool,
+// for their folders and Agent API port.
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { createServer } from 'net'
 import { join } from 'path'

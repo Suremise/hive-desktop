@@ -5,7 +5,7 @@ import { execFileSync } from 'child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 // @ts-expect-error: plain .mjs modules without types
 import { SUITES } from './e2e/suites.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -684,6 +684,16 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
     expect(folders).not.toContain('W')
   })
 
+  it('scenario runs claim a lane too: their folders and Agent API port, never the shared 47930 or scenarios folder (#183, #184)', () => {
+    const run = readFileSync(join(__dirname, 'scenarios', 'run.mjs'), 'utf8')
+    expect(run).toMatch(/const lane = await claimLane\(join\(process\.env\.LOCALAPPDATA \|\| tmpdir\(\), 'hive-test', 'e2e-lanes'\)/)
+    expect(run).toContain("const workRoot = laneWork(join(lib.WORK, '..', 'scenarios'), lane.lane)")
+    expect(run).toMatch(/runScenario\(sc, provider, \{[^}]*workRoot, port: lane\.first/)
+    expect(run).toContain('process.on(\'exit\', lane.release)')
+    // The same pool as the e2e runner's, so a scenario run and an e2e run never take the same lane.
+    expect(readFileSync(join(dir, 'run.mjs'), 'utf8')).toMatch(/claimLane\(join\(process\.env\.LOCALAPPDATA \|\| tmpdir\(\), 'hive-test', 'e2e-lanes'\)/)
+  })
+
   it('takes the lowest lane no live claim holds and whose ports are free', () => {
     expect(pickLane([], new Set(), alive, now)).toBe(0)
     // Held by a running runner: skipped.
@@ -758,6 +768,97 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
   })
 })
 
+describe("answering Claude Code's trust question (lib.acceptClaudeTrust, #188)", () => {
+  type Accept = (inv: (ch: string, ...a: unknown[]) => Promise<unknown>, proj: string, agentId: string, ms?: number) => Promise<boolean>
+  const { acceptClaudeTrust } = createRequire(import.meta.url)('./e2e/lib.cjs') as { acceptClaudeTrust: Accept }
+  /** A session whose terminal shows `screen` and whose Hive status is `status`. */
+  const session = (screen: string, status = 'starting') => {
+    const writes: string[] = []
+    const inv = async (ch: string, ...a: unknown[]) => {
+      if (ch === 'pty:buffer') return screen
+      if (ch === 'session:live') return [{ projectPath: 'C:\\P', agentId: 'a1', status }]
+      writes.push(String(a[1]))
+      return undefined
+    }
+    return { writes, run: async () => { const t = Date.now(); const r = await acceptClaudeTrust(inv, 'c:\\p', 'a1', 4000); return { r, ms: Date.now() - t } } }
+  }
+
+  it('answers the trust question: Down, then Enter', async () => {
+    const s = session('Quick safety check: Is this a project you created or one you trust? \x1b[1m❯\x1b[0m 1. Yes, I trust this folder  2. No, exit')
+    expect((await s.run()).r).toBe(true)
+    expect(s.writes).toEqual(['\x1b[B', '\r'])
+  })
+
+  it("in a trusted folder it returns at once: Claude Code 2.1.289's mode footer, the old one, or Hive's ready status", async () => {
+    for (const screen of ['> \x1b[2m⏵⏵ auto mode on (shift+tab to cycle)\x1b[0m', '>  ⏸ manual mode on', '> ? for shortcuts']) {
+      const s = session(screen)
+      const { r, ms } = await s.run()
+      expect(r, screen).toBe(false)
+      expect(ms, screen).toBeLessThan(1000)
+      expect(s.writes).toEqual([])
+    }
+    const ready = session('Claude Code v2.1.290', 'ready')
+    expect(await ready.run()).toMatchObject({ r: false })
+    expect(ready.writes).toEqual([])
+  })
+
+  it('answers nothing else: a sign-in screen waits out the timeout untouched', async () => {
+    const s = session('Select login method: 1. Claude account with subscription 2. Anthropic Console account', 'waiting')
+    const { r, ms } = await s.run()
+    expect(r).toBe(false)
+    expect(ms).toBeGreaterThanOrEqual(3900)
+    expect(s.writes).toEqual([])
+  })
+})
+
+describe('sending a prompt to a CLI until it takes it (lib.sendPrompt, #190)', () => {
+  type Send = (inv: (ch: string, ...a: unknown[]) => Promise<unknown>, key: string, text: string, o: { submitted: () => Promise<boolean>; tries?: number; waitMs?: number }) => Promise<number>
+  const { sendPrompt } = createRequire(import.meta.url)('./e2e/lib.cjs') as { sendPrompt: Send }
+  const text = 'Use apply_patch to add a file notes.txt containing hi.'
+  /** A terminal that drops the first `dropText` prompts typed and ignores the first `dropEnter` Enters. */
+  const terminal = ({ dropText = 0, dropEnter = 0 }) => {
+    const t = { writes: [] as string[], screen: '', input: '', submitted: false }
+    const inv = async (ch: string, _key: unknown, data?: unknown) => {
+      if (ch === 'pty:buffer') return t.screen
+      const d = String(data)
+      t.writes.push(d)
+      if (d === '\r') {
+        if (dropEnter-- > 0) t.input += '\n'
+        else if (t.input.trim()) t.submitted = true
+      } else if (dropText-- <= 0) {
+        t.input = d.replace(/^\x15/, '')
+        t.screen += `\x1b[2m> ${t.input}`
+      }
+      return undefined
+    }
+    return { t, run: (tries?: number) => sendPrompt(inv, 'k', text, { submitted: async () => t.submitted, waitMs: 50, ...(tries ? { tries } : {}) }) }
+  }
+
+  it('taken at once: one prompt, one Enter', async () => {
+    const { t, run } = terminal({})
+    expect(await run()).toBe(1)
+    expect(t.writes).toEqual([text, '\r'])
+  })
+
+  it('an Enter that became a new line: Enter again, without typing the prompt twice', async () => {
+    const { t, run } = terminal({ dropEnter: 1 })
+    expect(await run()).toBe(2)
+    expect(t.writes).toEqual([text, '\r', '\r'])
+  })
+
+  it('a prompt dropped while the CLI was drawing: typed again over a cleared line', async () => {
+    const { t, run } = terminal({ dropText: 1 })
+    expect(await run()).toBe(2)
+    expect(t.writes).toEqual([text, '\r', `\x15${text}`, '\r'])
+  })
+
+  it('never taken: 0 after the tries', async () => {
+    const { t, run } = terminal({ dropEnter: 9 })
+    expect(await run(3)).toBe(0)
+    expect(t.writes.filter((w) => w === '\r')).toHaveLength(3)
+  })
+})
+
 describe('the shared Codex test home: changes to its config.toml under a lock (lib.cjs)', () => {
   type Lib = { trustForCodex: (folder: string, home?: string) => void }
   const { trustForCodex } = createRequire(import.meta.url)('./e2e/lib.cjs') as Lib
@@ -767,9 +868,19 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
     const { spawn } = await import('child_process')
     const env: Record<string, string | undefined> = { ...process.env, HIVE_TEST_CODEX_HOME: home, HIVE_E2E_DIR: join(home, 'work') }
     delete env.ELECTRON_RUN_AS_NODE
-    const child = spawn(process.execPath, ['-e', `require(${JSON.stringify(libPath)}).trustForCodex(${JSON.stringify(folder)})`], { env, stdio: 'ignore' })
-    return new Promise<number | null>((resolve) => child.on('exit', resolve))
+    // Its error output is kept: a runner that fails says why in the test's failure (#181), rather than only exit 1.
+    const child = spawn(process.execPath, ['-e', `require(${JSON.stringify(libPath)}).trustForCodex(${JSON.stringify(folder)})`], { env, stdio: ['ignore', 'ignore', 'pipe'] })
+    let err = ''
+    child.stderr?.on('data', (d) => (err += d))
+    return new Promise<number | null>((resolve) =>
+      child.on('exit', (code) => {
+        if (code) failures.push(`${folder}: exit ${code}\n${err.trim().split('\n').slice(0, 8).join('\n')}`)
+        resolve(code)
+      })
+    )
   }
+  /** The runners that failed in this test file, with their error output, for the assertion messages. */
+  const failures: string[] = []
   const entries = (home: string) => [...readFileSync(join(home, 'config.toml'), 'utf8').matchAll(/^\[projects\.'([^']+)'\]$/gm)].map((m) => m[1]).sort()
 
   it("waits while another runner changes it, and keeps that runner's change", async () => {
@@ -784,7 +895,7 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
       expect(entries(home)).toEqual([])
       writeFileSync(join(home, 'config.toml'), `${readFileSync(join(home, 'config.toml'), 'utf8')}\n[projects.'C:/lane0/codex-ws/demo']\ntrust_level = "trusted"\n`)
       rmSync(join(home, 'config.toml.lock'), { recursive: true })
-      expect(await other).toBe(0)
+      expect(await other, failures.join('\n\n')).toBe(0)
       // Neither change lost.
       expect(entries(home)).toEqual(['C:/lane0/codex-ws/demo', 'C:/lane1/codex-ws/demo'])
       expect(readFileSync(join(home, 'config.toml'), 'utf8').match(/^\[windows\]/gm)).toHaveLength(1)
@@ -798,7 +909,7 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
     const home = mkdtempSync(join(tmpdir(), 'hive-codex-home-'))
     try {
       const folders = Array.from({ length: 6 }, (_, k) => `C:/lanes/${k}/codex-ws/demo`)
-      expect(await Promise.all(folders.map((f) => trustIn(home, f)))).toEqual(folders.map(() => 0))
+      expect(await Promise.all(folders.map((f) => trustIn(home, f))), failures.join('\n\n')).toEqual(folders.map(() => 0))
       expect(entries(home)).toEqual([...folders].sort())
       // Again: nothing added twice. A folder whose name starts with another's is its own entry.
       trustForCodex(folders[0], home)
@@ -820,6 +931,71 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
       expect(entries(home)).toEqual(['C:/ws/demo'])
       expect(existsSync(lock)).toBe(false)
     } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it("Windows' in-use answers (EPERM, EACCES, EBUSY) while taking or letting go of the lock mean busy, not a failure (#181)", () => {
+    type Lock = (file: string, fn: () => unknown, o?: { staleMs?: number; timeoutMs?: number }) => unknown
+    const req = createRequire(import.meta.url)
+    const { withFileLock } = req('./e2e/lib.cjs') as { withFileLock: Lock }
+    const nodeFs = req('fs') as typeof import('fs')
+    const home = mkdtempSync(join(tmpdir(), 'hive-codex-home-'))
+    const file = join(home, 'config.toml')
+    const lock = `${file}.lock`
+    const fail = (code: string) => Object.assign(new Error(`${code}: operation not permitted`), { code })
+    const mkdir = nodeFs.mkdirSync
+    const rm = nodeFs.rmSync
+    try {
+      // Taking it: in use twice (another runner still had the folder open), then free.
+      let refusals = ['EPERM', 'EBUSY', 'EACCES']
+      const spyMk = vi.spyOn(nodeFs, 'mkdirSync').mockImplementation(((p: string, o?: object) => {
+        if (p === lock && refusals.length) throw fail(refusals.shift()!)
+        return mkdir(p, o as never)
+      }) as never)
+      // Letting go: in use once, then gone.
+      let busyRm = 1
+      const spyRm = vi.spyOn(nodeFs, 'rmSync').mockImplementation(((p: string, o?: object) => {
+        if (p === lock && busyRm-- > 0) throw fail('EBUSY')
+        return rm(p, o as never)
+      }) as never)
+      let ran = 0
+      expect(withFileLock(file, () => ++ran)).toBe(1)
+      expect(ran).toBe(1)
+      expect(existsSync(lock)).toBe(false)
+      // A permission problem that doesn't pass still ends, at the timeout, naming its error.
+      refusals = Array(10_000).fill('EPERM')
+      expect(() => withFileLock(file, () => ++ran, { timeoutMs: 200 })).toThrow(/is still held \(EPERM\)/)
+      // Anything else is a failure at once (its parent folder missing, say).
+      refusals = []
+      expect(() => withFileLock(join(home, 'no', 'such', 'config.toml'), () => ++ran)).toThrow(/ENOENT/)
+      expect(ran).toBe(1)
+      // Refused with its age unreadable (stat fails): a paced poll, never a busy loop (review round 1). A refusal that
+      // clears is taken after a few paced tries; one that lasts ends at the timeout after about timeout / 25 ms tries.
+      let tries = 0
+      const spyStat = vi.spyOn(nodeFs, 'statSync').mockImplementation(((p: string) => {
+        if (p === lock) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+        throw new Error(`unexpected stat of ${p}`)
+      }) as never)
+      spyMk.mockImplementation(((p: string, o?: object) => {
+        if (p === lock && (tries++, refusals.length)) throw fail(refusals.shift()!)
+        return mkdir(p, o as never)
+      }) as never)
+      refusals = ['EPERM', 'EACCES', 'EBUSY']
+      const t0 = Date.now()
+      expect(withFileLock(file, () => ++ran)).toBe(2)
+      expect(tries).toBe(4)
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(3 * 20)
+      tries = 0
+      refusals = Array(100_000).fill('EPERM')
+      expect(() => withFileLock(file, () => ++ran, { timeoutMs: 200 })).toThrow(/is still held \(EPERM\)/)
+      expect(tries).toBeGreaterThan(2)
+      expect(tries).toBeLessThan(20)
+      spyStat.mockRestore()
+      spyMk.mockRestore()
+      spyRm.mockRestore()
+    } finally {
+      vi.restoreAllMocks()
       rmSync(home, { recursive: true, force: true })
     }
   })

@@ -27,6 +27,6 @@ Pre-releases are only offered to users who turned on **Settings → Updates → 
 
 ## Notes
 
-- `npm run dist` builds the installer locally and never publishes.
+- `npm run dist` builds the installer locally and never publishes. It writes `dist/build-info.json` (the code, commit and branch it was built from), only if none of them changed while it built (otherwise it says the build must be made again once the code stays put, and copies nothing). Run in an agent's git worktree, it also copies the installer, its blockmap, `latest.yml` and the build info to the **main checkout's** `dist`, where the user looks for them, and says so; it never replaces an installer of the same name there built from other code (`--replace` does), and `--here` keeps it in the worktree only. Worktrees copying at the same time take turns (a lock in the main `dist`), and a copy is whole or not at all. `npm run release` uploads straight from electron-builder and is unaffected: build a release in the main checkout, at the commit being released.
 - Don't delete or replace the files of a published release: installed copies may be halfway through downloading them. Publish a new version instead.
 - Publishing settings are in `electron-builder.yml` (`publish:`). The feed URL is also in `src/shared/defaults.ts` (`RELEASES_URL`) for the "What's new" links.

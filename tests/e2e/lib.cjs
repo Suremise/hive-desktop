@@ -142,23 +142,32 @@ async function soloAgent(inv, proj, opts = {}) {
 /** Terminal key of an agent's session. */
 const ptyKey = (proj, agentId) => `session:${proj.toLowerCase()}#${agentId}`
 
-/** Answers Claude Code's "trust this folder" question in an agent's terminal, if it asks. */
+/**
+ * Claude Code at its prompt, past its first-run questions: its footer, "? for shortcuts" before 2.1.289 and the mode
+ * line since ("⏵⏵ auto mode on (shift+tab to cycle)", "⏸ manual mode on"). The trust and import screens show neither.
+ */
+const CLAUDE_AT_PROMPT = /for shortcuts|\? for|shift\+tab to cycle|\bmode on\b/i
+
+/**
+ * Answers Claude Code's "trust this folder" question in an agent's terminal, if it asks: true when it answered, false
+ * as soon as the session is past it (Claude Code's prompt on screen, or Hive has the session ready: a trusted folder
+ * asks nothing, #188), or at the timeout. Never answers anything else (a sign-in screen least of all).
+ */
 async function acceptClaudeTrust(inv, proj, agentId, timeoutMs = 15000) {
   const key = ptyKey(proj, agentId)
   const t = Date.now()
   while (Date.now() - t < timeoutMs) {
     // Terminal UIs draw spaces as cursor moves: control sequences become spaces before matching.
-    const text = String(await inv('pty:buffer', key).catch(() => ''))
-      .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ')
-      .replace(/\x1b\][^\x07]*\x07/g, ' ')
-      .replace(/\s+/g, ' ')
+    const text = plainText(await inv('pty:buffer', key).catch(() => ''))
     if (/trust this folder/i.test(text)) {
       await inv('pty:write', key, '\x1b[B')
       await sleep(300)
       await inv('pty:write', key, '\r')
       return true
     }
-    if (/for shortcuts|\? for/i.test(text)) return false
+    if (CLAUDE_AT_PROMPT.test(text)) return false
+    const live = (await inv('session:live').catch(() => [])).find((s) => s.projectPath.toLowerCase() === proj.toLowerCase() && s.agentId === agentId)
+    if (live?.status === 'ready') return false
     await sleep(500)
   }
   return false
@@ -168,31 +177,55 @@ async function acceptClaudeTrust(inv, proj, agentId, timeoutMs = 15000) {
  * Runs fn holding a lock beside file (`<file>.lock`, a folder: creating one is atomic), for a change that reads the file
  * and writes it back: runners in different worktrees share the Codex test home (e2e lanes don't split it: it holds the
  * one sign-in), and two changes at once would otherwise lose one. A lock older than staleMs was left by a crash.
+ *
+ * On Windows the lock folder can't always be made or removed the moment another runner lets go of it: while something
+ * still has it open (another runner looking at its age, a virus scan), creating it says EPERM, EACCES or EBUSY rather
+ * than EEXIST, and removing it fails the same way. Both mean busy, not broken (#181): taking the lock waits as for
+ * EEXIST (a real permission problem still ends at timeoutMs, naming the error), and letting go tries again for a moment
+ * rather than failing a runner whose change is already written.
  */
 function withFileLock(file, fn, { staleMs = 30_000, timeoutMs = 120_000 } = {}) {
   const lock = `${file}.lock`
   const start = Date.now()
+  const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
   for (;;) {
     try {
       fs.mkdirSync(lock)
       break
     } catch (e) {
-      if (e.code !== 'EEXIST') throw e
+      if (!LOCK_BUSY.has(e.code)) throw e
+      if (Date.now() - start > timeoutMs) throw new Error(`${lock} is still held (${e.code})`, { cause: e })
       let age
       try {
         age = Date.now() - fs.statSync(lock).mtimeMs
       } catch {
-        continue // Just released.
+        // EEXIST and now gone: just released, try again at once. Refused (in use) and its age unreadable: wait as
+        // for a held lock, so a lasting refusal is a slow poll until the timeout, never a busy loop (review #181).
+        if (e.code !== 'EEXIST') pause(25)
+        continue
       }
-      if (age > staleMs) fs.rmSync(lock, { recursive: true, force: true })
-      else if (Date.now() - start > timeoutMs) throw new Error(`${lock} is still held`, { cause: e })
-      else Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+      if (age > staleMs) removeLock(lock, pause)
+      else pause(25)
     }
   }
   try {
     return fn()
   } finally {
-    fs.rmSync(lock, { recursive: true, force: true })
+    removeLock(lock, pause)
+  }
+}
+/** What creating or removing a lock folder says while another process still has it open (Windows), or while it exists. */
+const LOCK_BUSY = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY'])
+/** Removes a lock folder, trying again for up to a second while Windows says it is in use; gone already is fine. */
+function removeLock(lock, pause) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      fs.rmSync(lock, { recursive: true, force: true })
+      return
+    } catch (e) {
+      if (!LOCK_BUSY.has(e.code) || attempt >= 40) throw e
+      pause(25)
+    }
   }
 }
 
@@ -351,6 +384,25 @@ async function cliStep(name, opts, fn) {
   return value
 }
 
+/**
+ * Types a prompt into a CLI's terminal (pty key) and presses Enter until it is submitted: submitted() turns true (the
+ * session working, say) within waitMs. Under load a CLI can take the prompt, written at once, as a paste and the Enter
+ * right after it as a new line in it, or drop what was typed while it was still drawing (#190): if the text is in the
+ * terminal, Enter is pressed again; if not, it is typed again over a cleared line (Ctrl+U). Up to `tries` times; returns
+ * the attempt that worked (1 = the first), or 0.
+ */
+async function sendPrompt(inv, key, text, { submitted, tries = 3, waitMs = 20000 } = {}) {
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    const typed = attempt > 1 && plainText(await inv('pty:buffer', key).catch(() => '')).includes(text.slice(0, 30))
+    if (attempt === 1) await inv('pty:write', key, text)
+    else if (!typed) await inv('pty:write', key, `\x15${text}`)
+    await sleep(400)
+    await inv('pty:write', key, '\r')
+    if (await until(submitted, waitMs, 500)) return attempt
+  }
+  return 0
+}
+
 /** Skips the whole suite with a reason (the run record shows it): for a suite that can't run on this machine. */
 function skip(reason) {
   console.log(`SKIPPED ${reason}`)
@@ -429,4 +481,4 @@ function hadEstimate(run) {
   return typeof run?.estimateMs === 'number'
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
