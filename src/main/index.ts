@@ -339,7 +339,7 @@ const quitSessions = (ws?: WorkspaceService): QuitSession[] =>
       // A watching agent says what for, and whether quitting when agents finish waits for it (the same rule as workingCount).
       const watch = s.status === 'watching' && s.watch ? { watch: s.watch.label, ...(watchKeepsQuitWaiting(s) ? { keepsQuitWaiting: true } : {}) } : {}
       const wsPath = workspaceOf(s.projectPath).path
-      const where = wsPath ? { workspace: basename(wsPath) } : {}
+      const where = wsPath ? { workspace: basename(wsPath), workspacePath: wsPath } : {}
       if (workspace.isAssistantHome(s.projectPath)) return { projectPath: s.projectPath, project: ASSISTANT_NAME, status: s.status, provider: s.provider, ...where, ...watch }
       const agents = workspaceOf(s.projectPath).info()?.projects.find((p) => p.path.toLowerCase() === s.projectPath.toLowerCase())?.agents.length ?? 1
       return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, provider: s.provider, ...where, ...(agents > 1 ? { agent: s.agentName } : {}), ...watch }

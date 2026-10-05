@@ -51,8 +51,10 @@ export interface QuitSession {
   status: SessionStatus
   /** The agent's name, when the project has more than one. */
   agent?: string
-  /** The folder of the workspace it runs in (the quit dialog groups agents by it when several windows are open). */
+  /** The name of the workspace it runs in (its folder's), shown over its group when several windows are open. */
   workspace?: string
+  /** That workspace's full path: the quit dialog groups agents by it, so two workspaces with the same name stay apart. */
+  workspacePath?: string
   provider?: ProviderId
   /** A watching agent: what it waits for ("Waiting for #12 → Review"). */
   watch?: string

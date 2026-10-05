@@ -2657,6 +2657,15 @@ p.hint {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+.quit-group-where {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--fg-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .quit-group:first-child {
   padding-top: 0;
 }

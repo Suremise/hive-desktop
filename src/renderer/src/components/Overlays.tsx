@@ -10,6 +10,7 @@ import { UpdateStatusRow } from './Updates'
 import { discardDrafts, saveAllDrafts, unsavedFiles } from './FileView'
 import type { ProviderId, ProviderTask, QuitChoice, QuitSession, SessionStatus } from '@shared/types'
 import { PROVIDERS, enabledProviders, isProviderEnabled, providerDescriptor } from '@shared/providers'
+import { distinguishingParents } from '@shared/folderLabels'
 import { ProviderIcon } from './ProviderIcon'
 import { BusyButton, Icon, IconButton, LoadFailed, Modal, STATUS_TEXT, useBackdrop, useBusy } from './ui'
 
@@ -804,11 +805,14 @@ export function QuitDialog() {
   const busy = sessions.filter((s) => BUSY.includes(s.status)).length
   const verb = closing ? (unsaved.length && keep === 'save' ? 'Save and close' : what) : unsaved.length && keep === 'save' ? 'Save and quit' : 'Quit'
   const parts = (p: string): string[] => p.split(/[\\/]/)
-  const groups = new Map<string, QuitSession[]>()
+  // Grouped by the workspace's full path; two with the same name also show the parent folders that tell them apart.
+  const groups = new Map<string, { name: string; path: string; rows: QuitSession[] }>()
   for (const s of sessions) {
-    const ws = allWindows ? (s.workspace ?? '') : ''
-    groups.set(ws, [...(groups.get(ws) ?? []), s])
+    const path = allWindows ? (s.workspacePath ?? s.workspace ?? '') : ''
+    const g = groups.get(path.toLowerCase()) ?? { name: allWindows ? (s.workspace ?? '') : '', path, rows: [] }
+    groups.set(path.toLowerCase(), { ...g, rows: [...g.rows, s] })
   }
+  const parents = distinguishingParents([...groups.values()].map((g) => g.path).filter(Boolean))
   const stopsAll = allWindows ? `Quitting closes all ${windows} windows and stops` : 'Quitting stops'
   return (
     <Modal
@@ -868,11 +872,12 @@ export function QuitDialog() {
         </p>
       )}
       <div className="quit-list" hidden={!sessions.length}>
-        {[...groups].map(([ws, rows]) => (
-          <Fragment key={`ws:${ws}`}>
-            {ws && (
-              <div className="quit-group">
-                <Icon name="folder" /> {ws}
+        {[...groups].map(([key, { name, path, rows }]) => (
+          <Fragment key={`ws:${key}`}>
+            {name && (
+              <div className="quit-group" title={path}>
+                <Icon name="folder" /> {name}
+                {parents.has(key) && <span className="quit-group-where">{parents.get(key)}</span>}
               </div>
             )}
             {rows.map((s) => (
