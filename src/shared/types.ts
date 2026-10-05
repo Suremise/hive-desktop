@@ -359,12 +359,16 @@ export interface TaskComment {
   /** "You", "Assistant", or an agent ("Agent 2 (Claude Code) in hive"). */
   by: string
   text: string
+  /** Unique on the card (#224): what a card watch counts its view of the card by. Comments from before have none. */
+  id?: string
 }
 
 export interface TaskHistoryEntry {
   at: string
   by: string
   what: string
+  /** Unique on the card (#224), as a comment's. */
+  id?: string
 }
 
 export interface TaskCard {

@@ -41,7 +41,8 @@ The checks are positive and negative:
 - **Card loops**: at the round limit the builder asks the user. A finding that comes back is another round: the builder
   fixes it without asking, and the reviewer fails it marked as recurring. A finding the builder disputes stops the reviewer
   to ask. A builder fixing a failed card brings it back into Review for round two (also without it leaving Review), so the
-  waiting reviewer is woken.
+  waiting reviewer is woken. A builder woken by one card passing while the other failed at the same moment acts on the
+  failed one too.
 - **With `work-on-card` deleted**, the board rules still hold, and **an edited skill** is the one followed.
 - **The Assistant**:
   - at Look and advise, changes nothing;

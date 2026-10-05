@@ -981,7 +981,8 @@ async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType
     }
   }
   // Nobody working on a Doing card: the Assistant reports these and suggests who could take them.
-  const view: TaskView = { ...c, agent, stalled: stalledReason(c, now) }
+  // Entry ids are the card watches' (#224): left out, so replies stay as lean as before.
+  const view: TaskView = { ...c, comments: c.comments.map(tasks.withoutId), history: c.history.map(tasks.withoutId), agent, stalled: stalledReason(c, now) }
   // A review whose reviewer has gone or isn't running (Hive ends those, but one can show while that happens).
   if (c.review && c.project) {
     try {

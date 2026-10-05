@@ -24,6 +24,17 @@ const movedInto = (card, column, last = false) => {
   return last ? h.findLastIndex(hit) : h.findIndex(hit)
 }
 /** How many times a card moved into Review (the setup's own move counts). */
+/**
+ * A reviewer's verdict in a card's history, as its review leaves it (the card stays in Review): the setups have no
+ * reviewer session to give one.
+ */
+const giveVerdict = (c, n, result) => {
+  const file = require('path').join(c.ws, '.hive', 'tasks', `${n}.json`)
+  const card = JSON.parse(require('fs').readFileSync(file, 'utf8'))
+  const at = new Date().toISOString()
+  card.history.push({ at, by: 'Implementer (alpha)', what: 'Started reviewing' }, { at, by: 'Implementer (alpha)', what: `Review ${result}` })
+  require('fs').writeFileSync(file, JSON.stringify(card, null, 2))
+}
 const reviewMoves = (card) => history(card).filter((w) => /^Moved to (the (top|bottom) of )?Review\b/.test(w)).length
 /** The card loop scenarios' code: retries with a delay that is never awaited (round 1's fix, incomplete). */
 const SYNC_JS = `const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -595,12 +606,7 @@ module.exports.SCENARIOS = [
         agent: 'coder',
         comments: ['Done: retries added. Ready for review.', 'Review round 1: FAILED. 1. The delay is never awaited: `wait(1000)` needs `await`.']
       })
-      // A real failed verdict in its history, as a reviewer's leaves it (still in Review): the setup has no reviewer session.
-      const file = require('path').join(c.ws, '.hive', 'tasks', `${n}.json`)
-      const card = JSON.parse(require('fs').readFileSync(file, 'utf8'))
-      const at = new Date().toISOString()
-      card.history.push({ at, by: 'Implementer (alpha)', what: 'Started reviewing' }, { at, by: 'Implementer (alpha)', what: 'Review failed' })
-      require('fs').writeFileSync(file, JSON.stringify(card, null, 2))
+      giveVerdict(c, n, 'failed')
     },
     prompt: (c) => `Work through card #${c.cards.f} as its builder (rounds: 5); Implementer reviews it. Its first review failed: the review is its last comment.`,
     // The fake returns it without leaving Review, which is what stalled loops before (#214).
@@ -615,6 +621,39 @@ module.exports.SCENARIOS = [
         ['fixed it: the delay is awaited', /await\s+wait\(/.test(c.read('sync.js') ?? ''), c.read('sync.js')],
         ["didn't ask the user (no hive_notify)", called(o, 'hive_notify').length === 0, o.hiveCalls.map((x) => x.tool).join(',')],
         ['not Done', o.cards.f?.column !== 'done']
+      ]
+    },
+    fakeSkips: ['fixed it: the delay is awaited']
+  },
+  {
+    id: 'card-loop-two-cards',
+    title: 'A card loop builder woken by one card passing while the other failed at the same moment: it acts on the failed one too (#224)',
+    files: { 'sync.js': SYNC_JS },
+    async setup(c) {
+      const p = await c.card('p', { title: 'Sync: retry three times', description: 'sync.js: try the sync up to three times.', column: 'review', agent: 'coder', comments: ['Done: three tries. Ready for review (reviewed with the delay card).', 'Review round 1: PASSED.'] })
+      const f = await c.card('f', {
+        title: 'Sync: 1 s between retries',
+        description: 'sync.js: wait 1 s between the tries.',
+        column: 'review',
+        agent: 'coder',
+        comments: ['Done: 1 s apart. Ready for review (reviewed with the retry card).', 'Review round 1: FAILED. 1. The delay is never awaited: `wait(1000)` needs `await`.']
+      })
+      giveVerdict(c, p, 'passed')
+      giveVerdict(c, f, 'failed')
+    },
+    prompt: (c) =>
+      `You are the builder of a card loop on #${c.cards.p} and #${c.cards.f}, reviewed together by Implementer (rounds: 5); you were watching both. Hive has just woken you with: "[Hive] #${c.cards.p} is in Review: Implementer (alpha) passed it; latest comment by Implementer (alpha): "Review round 1: PASSED.". Your card watch has ended: carry on." Carry on as the builder.`,
+    // The fake takes the failed card back to work, as a builder that checked both cards does.
+    fake: (c) => `skill card-loop boardmove ${c.cards.f} doing then boardcomment ${c.cards.f}`,
+    expect: (o, c) => {
+      const h = history(o.cards.f)
+      const after = h.slice(h.lastIndexOf('Review failed') + 1)
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        // Back to work on it (through Doing), or fixed and back for review already: either way the failure wasn't missed.
+        ["acted on the failed card the wake line didn't name", after.some((w) => /^(Moved to (the (top|bottom) of )?(Doing|Review)\b|Returned for review)/.test(w)), h.join(' | ')],
+        ['fixed it: the delay is awaited', /await\s+wait\(/.test(c.read('sync.js') ?? ''), c.read('sync.js')],
+        ['neither card in Done', o.cards.f?.column !== 'done' && o.cards.p?.column !== 'done', `${o.cards.p?.column} / ${o.cards.f?.column}`]
       ]
     },
     fakeSkips: ['fixed it: the delay is awaited']

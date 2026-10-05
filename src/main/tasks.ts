@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto'
 import { basename, join } from 'path'
 import { mkdir, readdir } from 'fs/promises'
 import { existsSync } from 'fs'
@@ -52,6 +53,11 @@ const MAX_TITLE = 200
 const MAX_TEXT = 20_000
 const MAX_LABELS = 12
 const MAX_COMMENTS = 500
+/**
+ * A new history entry's or comment's id, unique on its card (#224): two entries alike in time, author and words are
+ * still two. Card watches count what they have seen by it; the Agent API's card views leave it out.
+ */
+const entryId = (): string => randomBytes(6).toString('hex')
 const MAX_HISTORY = 300
 
 function tasksDir(ws: WorkspaceService = workspace): string {
@@ -339,7 +345,7 @@ export async function reorderTasks(column: TaskColumn, numbers: unknown, actor: 
 
 function note(card: TaskCard, by: string, what: string): void {
   const at = new Date().toISOString()
-  card.history = [...card.history, { at, by, what }].slice(-MAX_HISTORY)
+  card.history = [...card.history, { at, by, what, id: entryId() }].slice(-MAX_HISTORY)
   card.updatedAt = at
 }
 
@@ -386,7 +392,7 @@ export async function createTask(
     blockedBy,
     links,
     comments: [],
-    history: [{ at: now, by, what: `Created in ${COLUMN_WORD[column]}` }],
+    history: [{ at: now, by, what: `Created in ${COLUMN_WORD[column]}`, id: entryId() }],
     archived: false,
     createdAt: now,
     createdBy: by,
@@ -598,8 +604,12 @@ export async function endReviews(project: string, agentId: string, why: string, 
  */
 export async function latestComment(n: number, actor: TaskActor): Promise<{ number: number; comment: TaskComment | null }> {
   const c = await readTask(n, actor)
-  return { number: c.number, comment: c.comments.at(-1) ?? null }
+  const last = c.comments.at(-1)
+  return { number: c.number, comment: last ? withoutId(last) : null }
 }
+
+/** A comment or history entry as callers see it: its id is the card watches' (#224). */
+export const withoutId = <T extends { id?: string }>({ id: _id, ...rest }: T): Omit<T, 'id'> => rest
 
 /** A comment's text, checked: within the limit and not empty. */
 function commentText(comment: string): string {
@@ -610,7 +620,7 @@ function commentText(comment: string): string {
 
 function addComment(c: TaskCard, by: string, t: string): void {
   const at = new Date().toISOString()
-  c.comments = [...c.comments, { at, by, text: t }].slice(-MAX_COMMENTS)
+  c.comments = [...c.comments, { at, by, text: t, id: entryId() }].slice(-MAX_COMMENTS)
   c.updatedAt = at
 }
 
