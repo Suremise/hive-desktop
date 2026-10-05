@@ -4449,6 +4449,12 @@ button.mode-badge.badge:hover {
   left: -3px;
   right: auto;
 }
+/* On the left (Settings → Assistant → Panel side): between the project list and the work, its border on the right. */
+.assistant-panel.on-left,
+.assistant-rail.on-left {
+  border-left: none;
+  border-right: 1px solid var(--border-subtle);
+}
 .assistant-header {
   height: 34px;
   flex-shrink: 0;

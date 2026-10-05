@@ -21,7 +21,7 @@ import { showTodaysTip } from './tips'
 import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
 import { ProgressPanel } from './components/Progress'
 import { AssistantMain } from './components/AssistantView'
-import { agentOnScreen, applyLiveState, assistantWasOpen, clearStartFailure, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, pushToast, set, useStore } from './store'
+import { agentOnScreen, applyLiveState, assistantOnLeft, assistantWasOpen, clearStartFailure, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, pushToast, set, useStore } from './store'
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
 import { ProjectView } from './views/ProjectView'
 import { SettingsView } from './views/SettingsView'
@@ -224,6 +224,7 @@ function scheduleTasksLoad(): void {
 
 export function App() {
   const workspace = useStore((s) => s.workspace)
+  const assistantLeft = useStore(assistantOnLeft)
   const activity = useStore((s) => s.activity)
   const settings = useStore((s) => s.settings)
   const providers = useStore((s) => s.providers)
@@ -344,6 +345,11 @@ export function App() {
       <div className="workbench">
         <ActivityBar />
         <Sidebar />
+        {workspace && assistantLeft && (
+          <ErrorBoundary label="The Assistant">
+            <AssistantPanel />
+          </ErrorBoundary>
+        )}
         <div className="main-area">
           <QuitPendingBanner />
           <ProvidersBanner />
@@ -361,7 +367,7 @@ export function App() {
             <ProgressPanel />
           </ErrorBoundary>
         )}
-        {workspace && (
+        {workspace && !assistantLeft && (
           <ErrorBoundary label="The Assistant">
             <AssistantPanel />
           </ErrorBoundary>

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Hive Assistant
+- **The Assistant's panel can go on the left.** If Windows notifications or other apps cover the right of the screen, **View → Move Assistant Panel to the Left** (also in the command palette and the panel's ⋯ menu) or **Settings → Assistant → Panel side** puts it between the project list and your work. It folds and resizes on that side, and the choice is kept for every workspace and after a restart.
+
 ### Sessions
 - **Dates as 2026-10-04, or as you like.** Sessions named by when they started now read *2026-10-04 14:05* instead of *3 Oct 14:05*, in the Sessions tab, the Assistant's conversations, tooltips and exports. **Settings → General → Date format** (*yyyy-mm-dd*, *dd/mm/yyyy*, *mm/dd/yyyy* or *System*) and **Time format** (*24-hour* or *12-hour*) change every date Hive shows. Names you gave sessions are kept as they are, and "2 hours ago" stays, with the date on hover.
 - **An agent's footer keeps its cost in view.** The session it's running is now just an icon (hover for its name and when it started; click and right-click as before). In a narrow pane the transcript size, then the context's tokens, then the whole context show just their icons, then the permission mode's name shortens, and only in a very narrow pane is the cost cut off. Before, the mode kept its full name while the cost was pushed off the edge.

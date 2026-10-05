@@ -180,6 +180,8 @@ export interface AppSettings {
   }
 }
 
+export type AssistantPanelSide = 'right' | 'left'
+
 /** The Hive Assistant's defaults: its provider, its persona and, per provider, its model, effort, mode and arguments. */
 export interface AssistantSettings {
   /** '' follows the default provider. */
@@ -192,6 +194,8 @@ export interface AssistantSettings {
   typingPause: number
   /** The user pressing Enter (sending what they typed) ends that pause. */
   enterEndsPause: boolean
+  /** Which side of the window its panel is on (the same in every workspace and window). */
+  panelSide: AssistantPanelSide
   providers: Partial<Record<ProviderId, AssistantProviderSettings>>
 }
 

@@ -88,6 +88,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     control: 'projects',
     typingPause: 15,
     enterEndsPause: true,
+    panelSide: 'right',
     providers: Object.fromEntries(PROVIDERS.map((p) => [p.id, { model: '', effort: '', permissionMode: '', extraArgs: '', use200kContext: '' }]))
   },
   agents: {
