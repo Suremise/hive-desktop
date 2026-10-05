@@ -132,6 +132,14 @@ export const commands: Command[] = [
   { id: 'workspace.create', label: 'New Workspace…', category: 'File', run: () => actions.createWorkspace() },
   { id: 'workspace.clearRecent', label: 'Clear Recently Opened…', category: 'File', tip: () => 'Forget the recent workspaces (the folders are left alone); ones open in a window stay', run: () => actions.clearRecent() },
   { id: 'workspace.close', label: 'Close Workspace', category: 'File', when: hasWorkspace, tip: () => "Stop this workspace's agents and close it; the window stays open", run: () => actions.closeWorkspace() },
+  {
+    id: 'workspace.repairMove',
+    label: 'Repair Moved Workspace…',
+    category: 'File',
+    when: () => !!get().workspace?.moved,
+    tip: () => 'The workspace or a project moved to another folder: repair what still points to the old one',
+    run: () => set({ moveRepairOpen: true })
+  },
   { id: 'workspace.refresh', label: 'Refresh Workspace', category: 'File', keybinding: 'F5', when: hasWorkspace, run: () => actions.refreshWorkspace() },
   { id: 'project.new', label: 'New Project…', category: 'Project', keybinding: 'Mod+Alt+N', when: hasWorkspace, run: () => actions.createProject() },
   { id: 'project.toggleActive', label: 'Toggle Project Active', category: 'Project', keybinding: 'Mod+Alt+A', when: hasProject, run: () => actions.toggleActiveSelected() },

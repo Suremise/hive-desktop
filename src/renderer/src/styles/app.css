@@ -1174,6 +1174,36 @@ textarea.input {
 .banner .btn {
   margin-left: auto;
 }
+.moved-banner .grow {
+  min-width: 0;
+}
+.moved-banner .btn + .icon-btn {
+  flex-shrink: 0;
+}
+/* Repair a Moved Workspace (#146). */
+.move-repair section + section {
+  margin-top: 10px;
+}
+.move-repair h4 {
+  margin: 12px 0 4px;
+  color: var(--fg-strong);
+}
+.move-repair ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+.move-repair .mono {
+  overflow-wrap: anywhere;
+}
+.move-repair ul.move-report {
+  list-style: none;
+  padding-left: 0;
+}
+.move-repair ul.move-report .codicon {
+  margin-right: 4px;
+  vertical-align: -2px;
+}
 /* Over the Hive skills (the Skills view's list, and a Hive skill being edited): editing them steers the agents. */
 .banner.skills-warning {
   align-items: flex-start;

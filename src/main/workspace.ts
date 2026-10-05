@@ -6,7 +6,7 @@ import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
 import { ASSISTANT_DIR, ASSISTANT_NAME, PERSONAS_DIR, assistantProjectConfig } from '../shared/assistant'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields, withoutSkillSwitches } from '../shared/defaults'
-import type { AgentDef, AgentInfo, HiddenProject, HiveEvent, KeptUsage, LiveSessionState, ProjectConfig, ProjectInfo, RemovedData, SessionRecord, WorkspaceConfig, WorkspaceInfo } from '../shared/types'
+import type { AgentDef, AgentInfo, HiddenProject, HiveEvent, KeptUsage, LiveSessionState, ProjectConfig, ProjectInfo, RemovedData, SessionRecord, WorkspaceConfig, WorkspaceInfo, WorkspaceMoved } from '../shared/types'
 import { config } from './config'
 import { emit, emitTo } from './events'
 import { insideReal, isDir, readJson, readKeptJson, removePath, withFileLock, writeKeptJson } from './fsutil'
@@ -65,6 +65,10 @@ export class WorkspaceService {
   private life = new AbortController()
   /** Its agents are being stopped to close or switch it (or close its window): no new agent starts meanwhile. */
   closing = false
+  /** Repair… of a move is running (#146): no agent starts meanwhile, as it would find paths half repaired. */
+  repairingMove = false
+  /** Moved since last opened, with something to repair (#146, workspaceMove.ts); the window's banner offers Repair…. */
+  private moved: WorkspaceMoved | null = null
 
   setLiveProvider(p: LiveProvider): void {
     WorkspaceService.liveProvider = p
@@ -186,6 +190,7 @@ export class WorkspaceService {
     this.watcher = null
     this.path = null
     this.cached = null
+    this.moved = null
     // The closed workspace's agent worktrees and settings must not route to (or be allowed by) the next one.
     this.roots.clear()
     this.wsConfig = structuredClone(DEFAULT_WORKSPACE_CONFIG)
@@ -541,13 +546,20 @@ export class WorkspaceService {
     // Worktrees of projects that are gone (deleted, renamed) no longer belong to this workspace.
     const known = new Set(projects.map((p) => p.path.toLowerCase()))
     for (const [k, v] of this.roots) if (!known.has(v.toLowerCase())) this.roots.delete(k)
-    this.cached = { path: this.path, name: basename(this.path), config: this.wsConfig, projects, assistant: assistant && { ...assistant, name: ASSISTANT_NAME, active: true, unmanagedMcp: [] } }
+    this.cached = { path: this.path, name: basename(this.path), config: this.wsConfig, projects, assistant: assistant && { ...assistant, name: ASSISTANT_NAME, active: true, unmanagedMcp: [] }, moved: this.moved }
     this.emit({ type: 'workspace-changed', workspace: this.cached })
     return this.cached
   }
 
   info(): WorkspaceInfo | null {
     return this.cached
+  }
+
+  /** Whether it moved with something left to repair (#146); the window hears of a change with the next refresh. */
+  setMoved(moved: WorkspaceMoved | null): void {
+    if (JSON.stringify(moved) === JSON.stringify(this.moved)) return
+    this.moved = moved
+    if (this.path) void this.refresh().catch(() => undefined)
   }
 
   async createProject(name: string): Promise<WorkspaceInfo> {

@@ -70,6 +70,21 @@ Each **project** (every subfolder except dot-folders) gets its own `.hive` folde
 
 Every window's list follows a change made in another.
 
+### Moving a workspace
+
+Move the workspace folder (in Explorer, to another drive…) while Hive doesn't have it open, then open it from its new place. A few things are kept by full path and still point to the old folder: agents' worktrees (and git's links to them), the folders sessions ran in, and Claude Code's conversations and memory, which it files under each folder's path in `~/.claude/projects`. Hive notices and says so in a banner, **This workspace was moved from …**. **Repair…** shows what it will do, and does it when you choose **Repair**:
+
+- **Worktrees.** Hive keeps them in a folder beside the workspace (`<workspace>.worktrees`). Move that folder along, or leave it where it was: Repair finds each agent's worktree either way and links it to the moved project again (`git worktree repair`). One it can't find is listed: **Recreate worktree** makes it again on the agent's branch, which is kept in the repository, with its commits (**Create a new worktree** when the branch is gone too); or **Locate…** its folder; or **Remove the agent's worktree link** (the agent then works in the project folder; the worktree's folder, if it turns up, is left as it is). Locate or deal with every missing worktree you mean to keep before recreating another: recreating tidies git's list of missing worktrees, which would lose the links a moved one still needs, so Repair refuses and says which.
+- **Sessions** point to the new folders, so they resume where they ran.
+- **Claude Code's conversations and memory** are copied to the folder for the new path, so agents keep what they remembered. The old folders stay, and a file already there is never overwritten (Repair lists it).
+- **Open Recent** lists the new folder instead of the old one, and the projects you had marked **Working on** are marked again.
+
+Stop the workspace's agents first: Repair waits until none is running. It never moves or deletes anything at the old place, and running it again repeats nothing it has done. A file it couldn't copy (a folder it can't write to, say) is listed, and the banner stays: Repair tries it again, after a restart too. A file of Claude Code's that is already at the new place with other content is shown and left as it is. A project folder renamed or moved into the workspace on its own is repaired the same way. If the workspace was copied rather than moved, worktrees left beside the original stay with it.
+
+The banner's **✕** hides it for now; **Repair Moved Workspace…** in the command palette opens Repair until it's done.
+
+**A worktree folder that's gone.** If an agent's worktree folder was deleted (after its work was merged, say) or never came along (a workspace copied to another computer), starting the agent offers to **Recreate** the worktree on its branch, with its commits, at the same place; the project's worktree setup command runs first, as for a new worktree. When the branch is gone too, it offers a new worktree on it from the branch it started from, or to remove the agent's worktree link. If the old place can't be used (a drive that isn't connected), the worktree goes where Hive makes new ones, and the agent's sessions follow it.
+
 ### Several windows
 
 Like VS Code, Hive can show several workspaces at once, each in its own window: **File → New Window** (Ctrl+K Ctrl+N) opens one on the welcome page, where you open or create a workspace. Each window is a full Hive with its own projects, agents, shared notes, skills and MCP servers; settings, the tray and updates are shared.

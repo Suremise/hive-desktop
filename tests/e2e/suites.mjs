@@ -107,5 +107,7 @@ export const SUITES = [
   { name: 'unsaved' },
   { name: 'update' },
   { name: 'windows' },
-  { name: 'wsoverview' }
+  { name: 'wsmove' },
+  { name: 'wsoverview' },
+  { name: 'wtrecreate' }
 ]

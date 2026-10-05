@@ -95,6 +95,7 @@ export const TIP_ENTRIES: Tip[] = [
   { id: 'taskbar-badge', group: 'Agents', order: 300, title: 'Glance at the taskbar', text: "Hive's taskbar button shows how many agents need you, and flashes when one asks you something while Hive is in the background.", docs: 'Agents that need you', knownBy: [] },
   { id: 'two-providers', group: 'Agents', order: 110, title: 'Mix Claude Code and Codex', text: 'Agents in one project can use different providers: say a Codex reviewer next to a Claude Code agent. Hand Over to… passes work between them.', docs: 'Coding agents: Claude Code and Codex', command: 'settings.providers' },
   { id: 'unmerged', group: 'Agents', order: 140, title: 'See what a worktree agent has to merge', text: 'Merge… turns orange with the number of commits not yet merged, and the Changes tab shows everything the agent changed since it branched.', docs: 'Changes', command: 'project.tab.changes' },
+  { id: 'workspace-moved', group: 'Files', order: 345, title: 'Move a workspace without losing its agents', text: "Moved the workspace folder, say to another drive? Open it from its new place and choose Repair… in the banner: agents' worktrees, their sessions, and Claude Code's conversations and memory follow it.", docs: 'Moving a workspace' },
   { id: 'worktrees', group: 'Agents', order: 100, title: 'Give an agent its own worktree', text: "In Add Agent…, choose New worktree: the agent works on its own branch, and Merge… brings its work back when you're happy with it.", docs: 'Several agents in one project', command: 'agent.addWith' }
 ]
 

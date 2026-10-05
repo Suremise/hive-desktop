@@ -407,6 +407,8 @@ export interface PlanUsage {
 
 export interface WorkspaceConfig {
   version: 1
+  /** Where the workspace was last opened (#146): a different folder now means it was moved, and Repair… is offered. */
+  lastPath?: string
   mcp: { enabled: string[] }
   /** Project folders Hive leaves out (Hide, or Remove from Hive while the folder is still in the workspace), by folder name. */
   hiddenProjects?: HiddenProject[]
@@ -566,6 +568,13 @@ export interface ProjectConfig {
   agents: AgentDef[]
   /** The Session tab's layout (one for the project, #134); its pages hold as many agents as it has panes. */
   layout: PageLayout
+  /** Where the project folder was last opened (#146), as workspace.json's lastPath. */
+  lastPath?: string
+  /**
+   * Folders that moved (an agent's worktree repaired or recreated at a new place) whose CLI data (copyPathData) isn't
+   * all copied yet (#146): kept until a copy works, so Repair tries again, after a restart too.
+   */
+  pendingCopies?: { from: string; to: string; of: string }[]
   fileLocks: Inherit<FileLockMode>
   /** Overrides settings.agents.worktreeCopy; null inherits. */
   worktreeCopy: string | null
@@ -834,6 +843,100 @@ export interface WorkspaceInfo {
    * never listed as a project) with one agent, working in the workspace folder.
    */
   assistant: ProjectInfo | null
+  /** Moved since Hive last opened it, with something to repair (#146): the banner offers Repair…. */
+  moved?: WorkspaceMoved | null
+}
+
+/** What moved (#146): the workspace (from its old folder), or only some of its projects. */
+export interface WorkspaceMoved {
+  /** The workspace's old folder; null when only projects moved (renamed or moved in from elsewhere). */
+  from: string | null
+  /** The projects that moved, by name. */
+  projects: string[]
+  /** Projects that didn't move but have a worktree's sessions or data still to follow it to a new folder (#146). */
+  pending: string[]
+}
+
+/** What Repair… would do for a moved workspace or project (#146). */
+export interface MovePlan extends WorkspaceMoved {
+  to: string
+  /** Agents running in the workspace ("project · agent"): Repair waits until they are stopped. */
+  running: string[]
+  hosts: MoveHostPlan[]
+  /** The old folder is in File → Open Recent, to be replaced by the new one. */
+  recent: boolean
+  /** Projects marked Working on at the old folder and not yet at the new one (kept per workspace folder). */
+  working: string[]
+}
+
+/** One moved project (or the Assistant's home) and what Repair does for it. */
+export interface MoveHostPlan {
+  /** Its folder now (where its sessions.json is), and the folder its sessions ran in, then and now: its own, except the Assistant's, which works in the workspace folder. */
+  path: string
+  name: string
+  from: string
+  folder: string
+  worktrees: MoveWorktree[]
+  /** Session records whose folder (cwd) moves with it. */
+  sessions: number
+  /** What a CLI keeps by folder path (Claude Code's transcripts and memory), to copy to the new path's name. */
+  folders: PathDataCopy[]
+}
+
+/**
+ * An agent's worktree whose links need repairing. moved: found at a new place; stayed: still where it was (outside the
+ * moved folder), its links to the repository repaired; located: the folder the user picked; missing: not found
+ * (Recreate, Locate… or Remove the link); recreate: to be made again on its branch, or new from its base when the
+ * branch is gone (`to`: where, if that place can be used); unlink: the agent's worktree link is to be removed;
+ * original: the project is still at its old folder too (a copy), which keeps the worktree.
+ */
+export interface MoveWorktree {
+  agentId: string
+  agentName: string
+  from: string
+  to: string | null
+  how: 'moved' | 'stayed' | 'located' | 'missing' | 'recreate' | 'unlink' | 'original'
+  /** missing and recreate: its branch, and whether the branch survives (Recreate) or not (Create a new worktree). */
+  branch?: string
+  branchExists?: boolean
+}
+
+/** An agent's worktree whose folder is missing (#146): Recreate makes it again on its branch, or new from its base when the branch is gone. */
+export interface WorktreeGone {
+  agentName: string
+  path: string
+  branch: string
+  base: string
+  branchExists: boolean
+}
+
+/** A CLI's per-path folder copied for a moved folder: files to copy, and files already there with other content (kept). */
+export interface PathDataCopy {
+  provider: ProviderId
+  /** Whose folder it is, as the dialog says it: "the project", "Builder's worktree" (set by the move, not the CLI). */
+  of?: string
+  from: string
+  to: string
+  copy: number
+  kept: string[]
+  failed?: string[]
+}
+
+/** The user's choices for Repair…: worktree folders picked with Locate…, and links to remove, by `${projectPath}#${agentId}`. */
+export interface MoveOptions {
+  locate?: Record<string, string>
+  unlink?: string[]
+  /** Missing worktrees to make again (on their branch, or new from their base). */
+  recreate?: string[]
+}
+
+/** What Repair did: each line a step, for the dialog and the log. */
+export interface MoveReport {
+  done: string[]
+  skipped: string[]
+  failed: string[]
+  /** Nothing is left to repair: the banner goes. */
+  complete: boolean
 }
 
 export type SkillLevel = 'hive' | 'machine' | 'plugin' | 'local'

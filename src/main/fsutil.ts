@@ -1,5 +1,5 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Dirent, type Stats } from 'fs'
-import { copyFile, lstat, mkdir, open, opendir, readFile, readlink, rename, writeFile, stat, symlink, cp, rm } from 'fs/promises'
+import { closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Dirent, type Stats } from 'fs'
+import { copyFile, lstat, mkdir, open, opendir, readFile, readlink, rename, writeFile, stat, symlink, cp, rm, utimes } from 'fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'path'
 import { createHash } from 'crypto'
 import { readdir } from 'fs/promises'
@@ -427,6 +427,54 @@ export async function isFile(path: string): Promise<boolean> {
 
 export async function copyDir(src: string, dest: string): Promise<void> {
   await cp(src, dest, { recursive: true, force: true })
+}
+
+/**
+ * Copies the files of src that dest hasn't got (#146: a moved folder's data), never overwriting: a file already in dest
+ * with the same size and time is taken as copied before (copies keep the time), one that differs is kept and listed.
+ * Links are left out; what can't be read is listed as failed. Without apply, only counts. Paths in the lists are relative
+ * to src ('.' for src itself).
+ */
+export async function copyMissing(src: string, dest: string, apply: boolean): Promise<{ copy: number; kept: string[]; failed: string[] }> {
+  const out = { copy: 0, kept: [] as string[], failed: [] as string[] }
+  const walk = async (rel: string): Promise<void> => {
+    // A folder or file that can't be read is listed as failed, not skipped: Repair says so and tries it again.
+    const entries = await readdir(join(src, rel), { withFileTypes: true }).catch(() => null)
+    if (!entries) {
+      out.failed.push(rel || '.')
+      return
+    }
+    for (const e of entries) {
+      const r = rel ? join(rel, e.name) : e.name
+      if (e.isDirectory()) await walk(r)
+      if (!e.isFile()) continue
+      const from = join(src, r)
+      const to = join(dest, r)
+      const [a, b] = await Promise.all([stat(from).catch(() => null), stat(to).catch(() => null)])
+      if (!a) {
+        out.failed.push(r)
+        continue
+      }
+      if (b) {
+        if (b.size !== a.size || Math.abs(b.mtimeMs - a.mtimeMs) >= 2) out.kept.push(r)
+        continue
+      }
+      if (!apply) {
+        out.copy++
+        continue
+      }
+      try {
+        await mkdir(dirname(to), { recursive: true })
+        await copyFile(from, to, constants.COPYFILE_EXCL)
+        await utimes(to, a.atime, a.mtime)
+        out.copy++
+      } catch {
+        out.failed.push(r)
+      }
+    }
+  }
+  await walk('')
+  return out
 }
 
 let swapCounter = 0
