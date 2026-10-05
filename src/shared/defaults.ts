@@ -558,7 +558,7 @@ export function sessionInAgentFolder(projectPath: string, a: Pick<AgentDef, 'wor
  * sessions from another folder and sessions open in another agent are skipped. Callers pass only
  * records of the agent's provider.
  */
-export function resumeRecord<R extends Pick<SessionRecord, 'id' | 'archived' | 'lastActiveAt'> & Partial<Pick<SessionRecord, 'cwd' | 'agentId'>>>(
+export function resumeRecord<R extends Pick<SessionRecord, 'id' | 'archived' | 'lastActiveAt'> & Partial<Pick<SessionRecord, 'cwd' | 'agentId' | 'sub'>>>(
   projectPath: string,
   a: Pick<AgentDef, 'id' | 'worktree' | 'lastSessionId'>,
   records: R[],
@@ -566,7 +566,7 @@ export function resumeRecord<R extends Pick<SessionRecord, 'id' | 'archived' | '
   agentIds: Set<string> = new Set([a.id])
 ): R | null {
   const usable = records
-    .filter((r) => !r.archived && !open.has(r.id) && sessionInAgentFolder(projectPath, a, r))
+    .filter((r) => !r.archived && !r.sub && !open.has(r.id) && sessionInAgentFolder(projectPath, a, r))
     .sort((x, y) => (y.lastActiveAt ?? '').localeCompare(x.lastActiveAt ?? ''))
   return (
     usable.find((r) => r.id === a.lastSessionId) ??

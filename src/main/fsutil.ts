@@ -1,5 +1,5 @@
 import { closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Dirent, type Stats } from 'fs'
-import { copyFile, lstat, mkdir, open, opendir, readFile, readlink, rename, writeFile, stat, symlink, cp, rm, utimes } from 'fs/promises'
+import { copyFile, link, lstat, mkdir, open, opendir, readFile, readlink, rename, writeFile, stat, symlink, cp, rm, utimes } from 'fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'path'
 import { createHash } from 'crypto'
 import { readdir } from 'fs/promises'
@@ -970,4 +970,62 @@ export function claudeFileAllowed(path: string, write: boolean, home: string): b
   if (parts[0] === 'projects') return parts.length === 4 && parts[2] === 'memory'
   if (parts[0] === 'skills' || parts[0] === 'plugins') return !write && parts[parts.length - 1].toLowerCase() === 'skill.md'
   return false
+}
+
+/** Windows' "in use" errors: another program has the file open without sharing it. */
+export function isInUse(e: unknown): boolean {
+  return ['EBUSY', 'EPERM', 'EACCES'].includes((e as NodeJS.ErrnoException)?.code ?? '')
+}
+
+/** Checks one of Hive's files can be moved (renamed aside and back), before any of a set goes. Throws if it can't. */
+export async function movable(file: string): Promise<void> {
+  const aside = `${file}.moving`
+  await rename(file, aside)
+  await rename(aside, file)
+}
+
+/**
+ * Whether another program holds a file open without sharing it (Windows' sharing violation), found by opening it to
+ * read and closing it at once: the file isn't changed. The CLIs' own transcripts are checked this way, never moved.
+ */
+export async function heldOpen(file: string): Promise<boolean> {
+  try {
+    const fh = await open(file, 'r')
+    await fh.close()
+    return false
+  } catch (e) {
+    return isInUse(e)
+  }
+}
+
+/** The suffix of a spare of a file being sent to the Recycle Bin, to put it back if the rest fails. */
+const SPARE = '.spare'
+
+/**
+ * Sends Hive's own files to the Recycle Bin all or nothing: each is first checked movable and given a spare name (a
+ * hard link, else a copy); then each goes (`trash`), then `then` runs (e.g. the record's change). If any of it
+ * fails, the files already gone are put back from their spares (a copy of each stays in the Recycle Bin) and the error
+ * is thrown (isInUse tells one another program caused). The spares go in the end.
+ */
+export async function trashAllOrNothing(files: string[], trash: (file: string) => Promise<void>, then?: () => Promise<unknown>): Promise<void> {
+  for (const f of files) await movable(f)
+  const spares: string[] = []
+  const gone: string[] = []
+  try {
+    for (const f of files) {
+      await rm(`${f}${SPARE}`, { force: true })
+      await link(f, `${f}${SPARE}`).catch(() => copyFile(f, `${f}${SPARE}`))
+      spares.push(f)
+    }
+    for (const f of files) {
+      await trash(f)
+      gone.push(f)
+    }
+    await then?.()
+  } catch (e) {
+    for (const f of gone) await rename(`${f}${SPARE}`, f).catch(() => undefined)
+    throw e
+  } finally {
+    for (const f of spares) await rm(`${f}${SPARE}`, { force: true }).catch(() => undefined)
+  }
 }

@@ -149,11 +149,11 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  $
   await sleep(200)
   check('collapse all', (await page.locator('.tx-fold.open').count()) === 0)
 
-  // Search this transcript.
+  // Search: the tree keeps the sessions that match, with each one's matches under it.
   await page.locator('.sessions-list input.input').fill('zebra')
-  await sleep(700)
+  await lib.until(async () => (await page.locator('.search-hit').count()) >= 4, 10000)
   const hits = await page.locator('.search-hit').count()
-  check('search this session', hits >= 4, String(hits))
+  check('search lists the matches under their session', hits >= 4, String(hits))
   await page.locator('.search-hit', { hasText: 'timed out' }).click()
   await sleep(600)
   check('jumping to a tool hit expands it', (await page.locator('.tx-tool.open').count()) >= 1)
@@ -161,12 +161,11 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  $
   check('matches highlighted', hl > 0, String(hl))
   await page.screenshot({ path: path.join(shots, '5-search-this.png') })
 
-  // Search all sessions.
-  await page.locator('.sessions-scope button', { hasText: 'All sessions' }).click()
+  // Search every session: only the one whose transcript has it stays.
   await page.locator('.sessions-list input.input').fill('transcript viewer')
-  await lib.until(async () => (await page.locator('.search-results .section-header').count()) > 0, 10000)
-  const groups = await page.locator('.search-results .section-header').allTextContents()
-  check('search all sessions groups by session', groups.length === 1 && groups[0].includes('Long session'), JSON.stringify(groups))
+  await lib.until(async () => (await page.locator('.search-hit').count()) > 0, 10000)
+  const groups = await page.locator('.sessions-tree .session-row strong').allTextContents()
+  check('search keeps the sessions that match', groups.length === 1 && groups[0].includes('Long session'), JSON.stringify(groups))
   await page.locator('.search-hit').first().click()
   await lib.until(async () => (await page.locator('.transcript-toolbar strong').first().textContent()) === 'Long session', 10000)
   check('hit opens the other session', (await page.locator('.transcript-toolbar strong').first().textContent()) === 'Long session')

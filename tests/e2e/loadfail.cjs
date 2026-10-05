@@ -52,7 +52,6 @@ const check = (name, ok, extra = '') => {
 
   // --- Sessions tab: a failed search isn't "No matches".
   await page.locator('.tab', { hasText: 'Sessions' }).click()
-  await page.locator('.sessions-scope button', { hasText: 'All sessions' }).click()
   await failNext('transcript:search')
   await page.locator('.files-filter input').fill('needle')
   const failedBox = page.locator('.load-failed')

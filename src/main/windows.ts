@@ -1,6 +1,7 @@
 import type { BrowserWindow, WebContents } from 'electron'
 import type { HiveEvent, QuitChoice, QuitScope, QuitSession } from '../shared/types'
 import { setEventRouter } from './events'
+import { forgetWindowViews } from './transcriptReads'
 import { contextWorkspace, setWorkspaceFallback, workspaceFor, type WorkspaceService } from './workspace'
 
 /**
@@ -37,7 +38,11 @@ export function registerWindow(win: BrowserWindow, ws: WorkspaceService): HiveWi
 }
 
 export function unregisterWindow(e: HiveWindow): void {
-  for (const [k, v] of entries) if (v === e) entries.delete(k)
+  for (const [k, v] of entries) {
+    if (v !== e) continue
+    entries.delete(k)
+    forgetWindowViews(k)
+  }
   e.ws.window = null
 }
 

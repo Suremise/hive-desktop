@@ -1,13 +1,14 @@
 import { watch, existsSync, type FSWatcher } from 'fs'
-import { cp, mkdir, readdir, readFile, rename, stat, writeFile } from 'fs/promises'
+import { cp, lstat, mkdir, readdir, readFile, rename, rmdir, stat, writeFile } from 'fs/promises'
 import { basename, dirname, extname, join, relative, resolve, sep } from 'path'
 import { shell } from 'electron'
-import { HIVE_DIR } from '../shared/defaults'
+import { HIVE_DIR, assertSessionId } from '../shared/defaults'
 import type { FileContent, FileEntry, SessionImage, SessionImageGroup } from '../shared/types'
 import { emit } from './events'
-import { insideReal, withFileLock } from './fsutil'
+import { heldOpen, insideReal, isInUse, trashAllOrNothing, withFileLock } from './fsutil'
 import { git } from './git'
 import { createLogger, userText } from './logger'
+import { sessions } from './sessions'
 import { workspace } from './workspace'
 
 const log = createLogger('files')
@@ -356,7 +357,8 @@ export async function find(projectPath: string, query: string, limit = 500): Pro
 const watchers = new Map<string, { w: FSWatcher; refs: number; dirs: Set<string>; timer?: NodeJS.Timeout }>()
 
 export function watchProject(projectPath: string): void {
-  projectPath = workspace.assertRoot(projectPath)
+  // A project or worktree, or the Assistant's home (its Images: .hive/images there).
+  projectPath = workspace.isAssistantHome(projectPath) ? workspace.assertSessionHost(projectPath) : workspace.assertRoot(projectPath)
   const key = projectPath.toLowerCase()
   const existing = watchers.get(key)
   if (existing) {
@@ -429,9 +431,32 @@ export function unwatchAll(): void {
 // Session images
 // ---------------------------------------------------------------------------
 
+/**
+ * A session host's images folder (.hive/images), when it is a real folder of the host's own: never one linked from
+ * elsewhere (a junction or symbolic link), which Hive neither lists nor deletes through. Null when there is none.
+ */
+async function imagesRoot(host: string): Promise<string | null> {
+  const root = join(host, HIVE_DIR, 'images')
+  const st = await lstat(root).catch(() => null)
+  if (!st) return null
+  if (st.isSymbolicLink() || !st.isDirectory() || !insideReal(root, [host])) {
+    log.warn(`${userText(root)} is a link to another folder: Hive leaves it alone`)
+    return null
+  }
+  return root
+}
+
+/** Throws unless p is a real folder or file (not a link) inside the images root, as Hive keeps them. */
+async function assertOwnImage(root: string, p: string, kind: 'dir' | 'file'): Promise<void> {
+  const st = await lstat(p).catch(() => null)
+  if (!st || st.isSymbolicLink() || (kind === 'dir' ? !st.isDirectory() : !st.isFile()) || !insideReal(p, [root])) throw new Error('Not one of the session images Hive keeps.')
+}
+
+/** A project's session images, or the Hive Assistant's (its home is a session host: `.hive/assistant/.hive/images`). */
 export async function listImages(projectPath: string): Promise<SessionImageGroup[]> {
-  projectPath = workspace.assertProject(projectPath)
-  const root = join(projectPath, HIVE_DIR, 'images')
+  projectPath = workspace.assertSessionHost(projectPath)
+  const root = await imagesRoot(projectPath)
+  if (!root) return []
   const records = new Map((await workspace.sessionsFile(projectPath)).sessions.map((s) => [s.id, s]))
   const groups: SessionImageGroup[] = []
   for (const d of await readdir(root, { withFileTypes: true }).catch(() => [])) {
@@ -452,11 +477,52 @@ export async function listImages(projectPath: string): Promise<SessionImageGroup
   return groups.sort((a, b) => b.images[0].name.localeCompare(a.images[0].name))
 }
 
-/** Moves a session image to the Recycle Bin. */
+/**
+ * Moves a session image to the Recycle Bin (a project's or the Assistant's), with the checks of deleting sessions
+ * (#239): with its session reserved and not running (whileStopped: it can't resume and paste meanwhile), only an image
+ * Hive keeps (no link out of .hive/images), and not one another program has open.
+ */
 export async function trashImage(projectPath: string, path: string): Promise<void> {
-  projectPath = workspace.assertProject(projectPath)
-  const root = resolve(projectPath, HIVE_DIR, 'images').toLowerCase()
+  projectPath = workspace.assertSessionHost(projectPath)
+  const root = await imagesRoot(projectPath)
   const abs = resolve(path)
-  if (!abs.toLowerCase().startsWith(root + sep) || !IMAGE_EXT.test(abs)) throw new Error('Not a session image')
-  await shell.trashItem(abs)
+  const parts = root ? relative(root, abs).split(sep) : []
+  if (!root || parts.length !== 2 || parts[0] === '..' || !IMAGE_EXT.test(abs)) throw new Error('Not a session image')
+  const sessionId = assertSessionId(parts[0])
+  await sessions.whileStopped(projectPath, sessionId, async () => {
+    await assertOwnImage(root, join(root, sessionId), 'dir')
+    await assertOwnImage(root, abs, 'file')
+    if (await heldOpen(abs)) throw new Error('Another program has this image open. Close it, then try again.')
+    await shell.trashItem(abs)
+  })
+}
+
+/**
+ * Moves the images of one session (a group of the Images tab) to the Recycle Bin, all or none, with the checks of
+ * deleting sessions (#239): not while the session runs (it may paste more), and none if another program has one open
+ * (trashAllOrNothing puts back any already gone). How many went.
+ */
+export async function trashImageGroup(projectPath: string, sessionId: string): Promise<number> {
+  projectPath = workspace.assertSessionHost(projectPath)
+  assertSessionId(sessionId)
+  const root = await imagesRoot(projectPath)
+  if (!root) throw new Error('Not one of the session images Hive keeps.')
+  const dir = join(root, sessionId)
+  // Reserved and not running from here to the end: it can't resume (and paste) while its images go.
+  const n = await sessions.whileStopped(projectPath, sessionId, async () => {
+    await assertOwnImage(root, dir, 'dir')
+    const files = (await readdir(dir, { withFileTypes: true })).filter((f) => f.isFile() && IMAGE_EXT.test(f.name)).map((f) => join(dir, f.name))
+    for (const f of files) await assertOwnImage(root, f, 'file')
+    try {
+      await trashAllOrNothing(files, (f) => shell.trashItem(f))
+    } catch (e) {
+      if (isInUse(e)) throw new Error('Another program has one of these images open. Close it, then try again.', { cause: e })
+      throw e
+    }
+    // The folder goes too once empty (Hive makes it again for the next image).
+    await rmdir(dir).catch(() => undefined)
+    return files.length
+  })
+  log.info(`Moved ${n} images of session ${sessionId} in ${userText(projectPath)} to the Recycle Bin`)
+  return n
 }

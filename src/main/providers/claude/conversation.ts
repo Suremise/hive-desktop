@@ -1,6 +1,7 @@
 import type { TranscriptImageRef, TranscriptItem, TranscriptTool } from '../../../shared/types'
 import { firstLine, shortPath, toolLabel, type NewItem } from '../conversation'
 import type { ConversationParserLike, ImageLocation } from '../types'
+import { SidechainFilter } from './usage'
 
 /**
  * Turns a Claude Code JSONL transcript into the conversation shown in the transcript viewer:
@@ -67,6 +68,8 @@ export class ConversationParser implements ConversationParserLike {
   /** Bytes consumed, always at a line boundary. */
   offset = 0
   private tools = new Map<string, TranscriptTool>()
+  /** A sub-agent's work in the conversation is skipped; in a sub-agent's own transcript nothing is. */
+  private sidechain = new SidechainFilter()
   private pendingCompaction: Extract<TranscriptItem, { kind: 'compaction' }> | null = null
   private lastCommand: Extract<TranscriptItem, { kind: 'command' }> | null = null
   private lastUser: Extract<TranscriptItem, { kind: 'user' }> | null = null
@@ -110,7 +113,7 @@ export class ConversationParser implements ConversationParserLike {
     } catch {
       return
     }
-    if (o.isSidechain) return
+    if (this.sidechain.skip(o)) return
     const ts: string | null = typeof o.timestamp === 'string' ? o.timestamp : null
     if (o.type === 'assistant') this.assistant(o, ts)
     else if (o.type === 'user') this.user(o, ts, offset, length)

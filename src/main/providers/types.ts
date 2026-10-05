@@ -1,4 +1,4 @@
-import type { AgentInstallInfo, CatalogModel, EffortLevel, McpServerDef, MemorySource, PathDataCopy, PermissionMode, PlanUsage, ProviderId, ReadinessIssue, SessionUsage, TranscriptImageRef, TranscriptItem } from '../../shared/types'
+import type { AgentInstallInfo, CatalogModel, EffortLevel, McpServerDef, MemorySource, PathDataCopy, PermissionMode, PlanUsage, ProviderId, ReadinessIssue, SessionUsage, SubSession, TranscriptImageRef, TranscriptItem } from '../../shared/types'
 import type { ProviderDescriptor } from '../../shared/providers'
 import type { StartHint } from '../../shared/startFailure'
 
@@ -80,6 +80,8 @@ export interface ExternalSession {
   id: string
   transcriptPath: string
   modified: string
+  /** A session the CLI started for another one (from the transcript's first line). */
+  sub?: SubSession
 }
 
 /** Something the CLI asks the user, from its hooks. */
@@ -260,6 +262,8 @@ export interface ProviderAdapter {
   /** Where to put a transcript restored from Hive's backup so the CLI can resume it; null if it can't be restored. */
   restorePath(folder: string, sessionId: string, recorded?: string): string | null
   listSessions(folder: string): Promise<ExternalSession[]>
+  /** Whether a transcript (one of the CLI's, or Hive's copy of it) is a sub-session, from its first line; cached by mtime. */
+  subSessionOf(path: string, sessionId: string): Promise<SubSession | null>
   /**
    * What the CLI keeps by a folder's path rather than in it (Claude Code: ~/.claude/projects/<path as name>/, its
    * transcripts and auto memory), for a folder that moved (#146). With apply, copied to the new path's name: never moved

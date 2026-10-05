@@ -1,7 +1,30 @@
 import { execFile } from 'child_process'
 import { existsSync, readFileSync, statSync } from 'fs'
+import { open } from 'fs/promises'
 import { basename, delimiter, dirname, join } from 'path'
 import type { RecacheEstimate, SessionUsage } from '../../shared/types'
+
+/** The first line of a file (a transcript's header), read without loading the whole transcript. */
+export async function readFirstLine(path: string, max = 1 << 20): Promise<string> {
+  const fh = await open(path, 'r')
+  try {
+    let out = ''
+    const buf = Buffer.alloc(64 * 1024)
+    let pos = 0
+    while (out.length < max) {
+      const { bytesRead } = await fh.read(buf, 0, buf.length, pos)
+      if (!bytesRead) break
+      const chunk = buf.toString('utf8', 0, bytesRead)
+      const nl = chunk.indexOf('\n')
+      if (nl >= 0) return out + chunk.slice(0, nl)
+      out += chunk
+      pos += bytesRead
+    }
+    return out
+  } finally {
+    await fh.close()
+  }
+}
 
 /** Helpers shared by provider adapters. */
 

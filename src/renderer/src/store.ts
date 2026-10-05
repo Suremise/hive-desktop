@@ -126,6 +126,7 @@ interface State {
   skillsProvider: Record<string, string>
   /** Each project's Skills tab groups, open or folded as last left (#118; saved in ui). */
   skillsFold: Record<string, { hive?: boolean; provider?: boolean }>
+  sessionsTree: Record<string, Record<string, boolean>>
   selectedProject: string | null
   projectTabs: Record<string, ProjectTab>
   selectedNote: string | null
@@ -139,7 +140,7 @@ interface State {
   /** The persona open in the Personas view (its file). */
   selectedPersona: string | null
   /** What the Assistant view's main area shows: its conversations or the selected persona. */
-  assistantSection: 'conversations' | 'personas'
+  assistantSection: 'conversations' | 'personas' | 'images'
   /** The Hive Assistant's panel is shown (per workspace, saved in the pane sizes as assistant-open:<path>). */
   assistantOpen: boolean
   /** This window's workspace's progress runs (newest first), for the Progress panel. */
@@ -291,6 +292,7 @@ export const useStore = create<State>(() => ({
   panes: {},
   skillsProvider: {},
   skillsFold: {},
+  sessionsTree: {},
   selectedProject: null,
   projectTabs: {},
   selectedNote: null,
@@ -646,8 +648,8 @@ export function showView(a: Exclude<Activity, 'docs' | 'settings'>): void {
   set({ activity: a, lastSideActivity: a, sidebarVisible: true })
 }
 
-/** Shows the Hive Assistant view (activity bar) on its conversations or its personas. */
-export function showAssistantView(section: 'conversations' | 'personas'): void {
+/** Shows the Hive Assistant view (activity bar) on its conversations, its personas or its images. */
+export function showAssistantView(section: 'conversations' | 'personas' | 'images'): void {
   set({ assistantSection: section })
   showView('assistant')
 }

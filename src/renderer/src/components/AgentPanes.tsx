@@ -103,7 +103,8 @@ const PICKER_MAX = 10
 function sessionPickerItems(project: ProjectInfo, a: AgentInfo, list: SessionListItem[]): MenuEntry[] {
   const holders = new Map(project.agents.filter((x) => x.live).map((x) => [x.live!.sessionId, x]))
   const many = project.agents.length > 1
-  const all = list.filter((s) => s.source === 'hive' && !s.archived && sessionInAgentFolder(project.path, a, s))
+  // Conversations only: a sub-session (a Codex guardian review, say) is never resumed.
+  const all = list.filter((s) => s.source === 'hive' && !s.archived && !s.sub && sessionInAgentFolder(project.path, a, s))
   const items: MenuEntry[] = [{ header: true, label: many ? `Resume in ${a.name}` : 'Resume a session' }]
   if (!all.length) items.push({ label: 'No sessions to resume here yet', disabled: true })
   for (const s of all.slice(0, PICKER_MAX)) {

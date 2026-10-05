@@ -272,7 +272,7 @@ function useConversationPicker() {
     const list = await actions.attempt('Could not list conversations', () => call('session:list', project.path))
     if (!list) return
     const open = project.agents[0]?.live?.sessionId
-    const all = list.filter((s) => s.source === 'hive' && !s.archived)
+    const all = list.filter((s) => s.source === 'hive' && !s.archived && !s.sub)
     const items: MenuEntry[] = [{ header: true, label: 'Resume a conversation' }]
     if (!all.length) items.push({ label: 'No conversations yet', disabled: true })
     for (const s of all.slice(0, 12)) {

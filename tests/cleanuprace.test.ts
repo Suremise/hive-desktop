@@ -203,7 +203,7 @@ describe('Clean Up while sessions change', () => {
     })
     await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedBackupsDays: 90 }, async () => undefined)
     usage.mockRestore()
-    expect(refused).toMatch(/Clean Up is removing files of this session/)
+    expect(refused).toMatch(/archiving, deleting or cleaning up this session's files/)
     expect(existsSync(archived(id))).toBe(false)
   })
 
@@ -219,7 +219,7 @@ describe('Clean Up while sessions change', () => {
     expect(await totalTokens(id)).toBe(before)
   })
 
-  it('a deletion that fails after its copy went still counts what the session used', async () => {
+  it('a deletion that fails after its copy went puts the copy back (all or nothing) and still counts what the session used', async () => {
     const id = await oldSession(false)
     const before = await totalTokens(id)
     const real = w.mutateSessions.bind(w)
@@ -229,7 +229,7 @@ describe('Clean Up while sessions change', () => {
     const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedImagesDays: null, goneBackups: true }, async () => undefined)
     vi.mocked(w.mutateSessions).mockImplementation(real)
     expect(result.skipped.join('\n')).toMatch(/EIO/)
-    expect(existsSync(archived(id))).toBe(false)
+    expect(existsSync(archived(id))).toBe(true)
     expect(await totalTokens(id)).toBe(before)
   })
 })

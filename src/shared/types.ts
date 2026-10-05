@@ -367,6 +367,8 @@ export interface AppConfig {
     skillsProvider?: Record<string, ProviderId>
     /** Each project's Skills tab groups as the user last left them open or folded, by project path in lower case (#118). */
     skillsFold?: Record<string, { hive?: boolean; provider?: boolean }>
+    /** Each project's Sessions tree branches the user opened (true) or folded (false), by project path in lower case (#239). */
+    sessionsTree?: Record<string, Record<string, boolean>>
   }
   /** Per provider: the model last seen in a session started without a model choice (the CLI's own default). */
   observedDefaultModel: Record<ProviderId, string>
@@ -742,6 +744,36 @@ export interface SessionRecord {
    * counting it once the CLI's copy is gone too.
    */
   keptUsage?: SessionUsage
+  /** A session the CLI started for another one (e.g. a Codex guardian review), kept when it was adopted. */
+  sub?: SubSession
+}
+
+/**
+ * A session a CLI started for another one rather than a conversation of its own: Codex's guardian reviews (it starts
+ * one to judge each action in Approve for me) and other sub-agent sessions. Read from the transcript's first line by
+ * the provider's adapter. `parentId`: the session that started it (null when the CLI doesn't say); `kind`: what it is,
+ * for labels ("guardian review", "sub-agent").
+ */
+export interface SubSession {
+  parentId: string | null
+  kind: string
+}
+
+/** What a bulk action on the Sessions tab does to each session (session:bulk). */
+export type SessionBulkAction = 'archive' | 'unarchive' | 'delete'
+
+/**
+ * Why a bulk action left a session alone: `live`: running (in any window); `in-use`: its files are in use (its CLI
+ * still writing its transcript, or another program holding the CLI's transcript or Hive's copy open); `reading`: Hive
+ * is reading its transcript (an export, a search); `open`: its transcript is open in a Hive window (the window asking
+ * closes its own view first);
+ * `external`: started outside Hive, so Hive has nothing of it to archive; `failed`: anything else (`message` says what).
+ */
+export type SessionSkipReason = 'live' | 'in-use' | 'reading' | 'open' | 'external' | 'failed'
+
+export interface SessionBulkResult {
+  done: string[]
+  skipped: { id: string; reason: SessionSkipReason; message?: string }[]
 }
 
 /** background: the agent's turn has ended, but it has background tasks that will start it again when they end. */

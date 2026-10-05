@@ -6,6 +6,7 @@ import { provider } from './providers'
 import { searchItems, transcriptMarkdown } from './providers/conversation'
 import type { ConversationParserLike } from './providers/types'
 import { sessions } from './sessions'
+import { setViewing, whileReading } from './transcriptReads'
 import { workspace } from './workspace'
 
 /**
@@ -51,10 +52,12 @@ async function parsed(projectPath: string, sessionId: string): Promise<Entry> {
   projectPath = workspace.assertSessionHost(projectPath)
   // The id becomes part of a file name, so only accept plain ids (UUIDs).
   assertSessionId(sessionId)
+  // Not while its files move: archiving or deleting it reserves it first.
+  if (sessions.reserved(projectPath, sessionId)) throw new Error('This session is being archived or deleted. Try again in a moment.')
   const key = `${projectPath.toLowerCase()}|${sessionId}`
   const run = (pending.get(key) ?? Promise.resolve()).then(
-    () => parseNow(projectPath, sessionId, key),
-    () => parseNow(projectPath, sessionId, key)
+    () => whileReading(projectPath, sessionId, () => parseNow(projectPath, sessionId, key)),
+    () => whileReading(projectPath, sessionId, () => parseNow(projectPath, sessionId, key))
   )
   const tail = run.catch(() => undefined)
   pending.set(key, tail)
@@ -129,6 +132,10 @@ export const transcripts = {
 
   /** An image from the transcript as a data URL. */
   async image(projectPath: string, sessionId: string, imageId: number): Promise<string> {
+    return whileReading(projectPath, sessionId, () => this.imageNow(projectPath, sessionId, imageId))
+  },
+
+  async imageNow(projectPath: string, sessionId: string, imageId: number): Promise<string> {
     const e = await parsed(projectPath, sessionId)
     const loc = e.parser.images[imageId]
     if (!loc) throw new Error('No such image')
@@ -136,6 +143,15 @@ export const transcripts = {
     const url = provider(e.provider).imageData(entry, loc)
     if (!url) throw new Error('The image is not stored in the transcript')
     return url
+  },
+
+  /** A Sessions view of the window shows this session's transcript now (null: none); see transcriptReads. */
+  viewing(window: number, view: string, projectPath: string, sessionId: string | null): void {
+    projectPath = workspace.assertSessionHost(projectPath)
+    if (sessionId !== null) assertSessionId(sessionId)
+    // Not a session being archived or deleted: its view opens once that is over (and reads it then).
+    if (sessionId !== null && sessions.reserved(projectPath, sessionId)) throw new Error('This session is being archived or deleted. Try again in a moment.')
+    setViewing(window, view, projectPath, sessionId)
   },
 
   /** The item ids of the transcript's compactions, oldest first (the Overview's compaction history opens one). */
@@ -162,6 +178,10 @@ export const transcripts = {
   },
 
   async markdown(projectPath: string, sessionId: string, title: string): Promise<string> {
+    return whileReading(projectPath, sessionId, () => this.markdownNow(projectPath, sessionId, title))
+  },
+
+  async markdownNow(projectPath: string, sessionId: string, title: string): Promise<string> {
     const e = await parsed(projectPath, sessionId)
     const project = workspace.assertSessionHost(projectPath)
     const p = provider(e.provider)

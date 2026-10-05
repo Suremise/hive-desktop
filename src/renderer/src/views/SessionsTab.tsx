@@ -1,46 +1,66 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { ProjectInfo, SessionListItem, Transcript, TranscriptImageRef, TranscriptItem, TranscriptSearchResult, TranscriptTool } from '@shared/types'
-import { TRANSCRIPT_WINDOW } from '@shared/defaults'
+import type { ProjectInfo, SessionBulkAction, SessionBulkResult, SessionListItem, SessionSkipReason, Transcript, TranscriptImageRef, TranscriptItem, TranscriptSearchResult, TranscriptTool } from '@shared/types'
+import { MAX_AGENTS, TRANSCRIPT_WINDOW } from '@shared/defaults'
 import { formatDateTime } from '@shared/dates'
-import { providerDescriptor, providerName } from '@shared/providers'
+import { isProviderEnabled, providerDescriptor, providerName } from '@shared/providers'
+import { buildSessionTree, countText, countsIn, pathTo, sessionKey, sessionsIn, type TreeNode } from '@shared/sessionTree'
+import { removedAgentNote, resumeBlock, type ResumeContext } from '@shared/sessionResume'
 import { ProviderIcon } from '../components/ProviderIcon'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
-import { Icon, IconButton, InfoTip, LoadFailed, Markdown, Modal, StaleNote, Tooltip, useContextMenu } from '../components/ui'
-import { confirm, notify, openInSessionsTab, prompt, revealAgent, set, setAssistantOpen, useDateStyle, useStore } from '../store'
+import { Icon, IconButton, InfoTip, LoadFailed, Markdown, Modal, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
+import { agentProviderOf, confirm, focusedAgentId, get, notify, openInSessionsTab, prompt, revealAgent, set, setAssistantOpen, useDateStyle, useStore } from '../store'
 import { cx, formatDuration, formatTokens, sessionLabel, timeAgo } from '../util'
 import { useSessions } from './ProjectTabs'
 import { useScopedLoad } from '../scopedLoad'
 import { sessionOrigin, type SessionOrigin } from '@shared/sessionOrigin'
 
 /**
- * Sessions tab: the project's sessions on the left and a read-only transcript on the right,
- * with search across one transcript or all of them. The Hive Assistant's conversations use it too
- * (`assistant`): its own words, Hive's conversations only, and its panel instead of an agent's pane.
+ * Sessions tab: the project's sessions as a tree on the left (provider → agent → session → the sub-sessions it
+ * started, like the Files tree: counts, actions on any branch, keyboard) and a read-only transcript on the right.
+ * Search filters the tree across names, dates, providers and transcript text, with each session's matches under it.
+ * The Hive Assistant's conversations use it too (`assistant`): its own words, no agent level, its panel instead of an
+ * agent's pane.
  */
 
-type Scope = 'this' | 'all'
 type Jump = { sessionId: string; itemId: number; nonce: number }
+type Hit = TranscriptSearchResult['hits'][number]
+type Row = { kind: 'node'; key: string; node: TreeNode; depth: number; parent: string | null } | { kind: 'hit'; key: string; sessionId: string; hit: Hit; depth: number; parent: string }
 
 const copyText = (text: string): void => void navigator.clipboard.writeText(text)
+const NO_PREFS: Record<string, boolean> = {}
+/** Branches whose open or folded state is remembered per project (the most recently changed). */
+const MAX_TREE_PREFS = 300
+
+const SKIP_TEXT: Record<SessionSkipReason, string> = { live: 'running', 'in-use': 'in use', reading: 'being read by Hive', open: 'open in another Hive window', external: 'started outside Hive', failed: 'failed' }
+const BULK_VERB: Record<SessionBulkAction, string> = { archive: 'Archived', unarchive: 'Unarchived', delete: 'Deleted' }
 
 export function SessionsTab({ project, assistant = false }: { project: ProjectInfo; assistant?: boolean }) {
   const { items, reload, error: listError, loadedAt } = useSessions(project)
   const listWidth = usePaneSize('sessions', 320)
   const [showArchived, setShowArchived] = useState(false)
-  const [showExternal, setShowExternal] = useState(!assistant)
   const noun = assistant ? 'conversation' : 'session'
   const newOne = (): void => {
     void actions.newSession(project.path)
     if (assistant) setAssistantOpen(true)
   }
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // This tab's transcript view, as main knows it (transcript:viewing): a session open in it isn't archived or deleted.
+  const [viewId] = useState(() => `v${Math.random().toString(36).slice(2, 12)}`)
+  // The keyboard's place in the tree (a branch, session or match), apart from the session shown.
+  const [cursor, setCursor] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  const [scope, setScope] = useState<Scope>('this')
   const [searchTry, setSearchTry] = useState(0)
   const [jump, setJump] = useState<Jump | null>(null)
+  // Branches opened to show a session (the one selected at first, or opened from elsewhere): not remembered.
+  const [revealed, setRevealed] = useState<Set<string>>(() => new Set())
   const searchRef = useRef<HTMLInputElement>(null)
+  const treeRef = useRef<HTMLDivElement>(null)
+  const settings = useStore((s) => s.settings)
+  const installs = useStore((s) => s.providers)
+  const prefKey = project.path.toLowerCase()
+  const explicit = useStore((s) => s.sessionsTree[prefKey]) ?? NO_PREFS
   // Running sessions of all the project's agents, by session id.
   const liveById = new Map(project.agents.filter((a) => a.live).map((a) => [a.live!.sessionId, a.live!]))
   const liveId = project.live?.sessionId
@@ -49,14 +69,84 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
   // Where each session ran and whose it was, as it recorded (the Assistant's conversations have one place to run).
   const origin = (s: SessionListItem): SessionOrigin | null => (assistant ? null : sessionOrigin(project.path, project.agents, s))
   const sessionName = (s: SessionListItem): string => sessionLabel(s, project.name)
+  const menu = useContextMenu()
   const resumeMenu = useContextMenu()
+  useDateStyle() // session names and times follow the date format
+
+  // Search as you type (debounced), across every session: names, dates, providers and transcript text. Results belong
+  // to their project and query: never shown for another. A search that failed is said in place of the count, with Retry.
+  const q = query.trim()
+  const searchKey = q ? JSON.stringify([project.path, q]) : ''
+  const search = useScopedLoad<TranscriptSearchResult[]>(searchKey)
+  const results = q ? search.data : null
+  const searchError = q ? search.error : null
+  const { load: loadSearch } = search
+  useEffect(() => {
+    if (!searchKey) return
+    const path = project.path
+    const t = setTimeout(() => loadSearch(searchKey, () => call('transcript:search', path, q, null)), 250)
+    return () => clearTimeout(t)
+    // The key holds the project and query.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchKey, searchTry, loadSearch])
+
+  // The Assistant's list is its own conversations (and what they started).
+  const shown = useMemo(() => (items ?? []).filter((i) => !assistant || i.source === 'hive' || !!i.sub?.parentId), [items, assistant])
+  const byId = useMemo(() => new Map((items ?? []).map((i) => [i.id, i])), [items])
+  const hitsById = new Map((results ?? []).map((r) => [r.sessionId, r]))
+  const low = q.toLowerCase()
+  const matches = (s: SessionListItem): boolean =>
+    hitsById.has(s.id) || [sessionName(s), s.title ?? '', providerName(s.provider), s.lastActivity ? formatDateTime(s.lastActivity) : '', origin(s)?.label ?? '', s.sub?.kind ?? ''].some((t) => t.toLowerCase().includes(low))
+  const tree = buildSessionTree(shown, { agents: project.agents, byAgent: !assistant, showArchived, selectedId, match: q ? matches : null })
+  const treeNow = useRef(tree)
+  treeNow.current = tree
+
+  // Branches start folded except the focused agent's (the Assistant's: its provider's); what the user opens or folds is
+  // remembered for the project.
+  const focused = assistant ? null : focusedAgentId(project)
+  const focusedProvider = assistant ? agentProviderOf(project, project.agents[0]) : focused ? agentProviderOf(project, project.agents.find((a) => a.id === focused)) : null
+  const defaultOpen = (n: TreeNode): boolean =>
+    n.kind === 'provider' ? n.provider === focusedProvider && (assistant || n.children.some((c) => c.kind === 'agent' && c.agentId === focused)) : n.kind === 'agent' ? !!focused && n.agentId === focused : false
+  const isOpen = (n: TreeNode): boolean => !!q || revealed.has(n.key) || (explicit[n.key] ?? defaultOpen(n))
+  const setOpen = (keys: string[], open: boolean): void => {
+    const next = { ...explicit }
+    for (const k of keys) {
+      delete next[k]
+      next[k] = open
+    }
+    const prefs = Object.fromEntries(Object.entries(next).slice(-MAX_TREE_PREFS))
+    const all = { ...get().sessionsTree }
+    delete all[prefKey]
+    all[prefKey] = prefs
+    const kept = Object.fromEntries(Object.entries(all).slice(-200))
+    set({ sessionsTree: kept })
+    void call('ui:set', { sessionsTree: kept }).catch(() => undefined)
+    setRevealed((r) => {
+      if (!keys.some((k) => r.has(k))) return r
+      const x = new Set(r)
+      for (const k of keys) x.delete(k)
+      return x
+    })
+  }
+  const branchKeys = (nodes: readonly TreeNode[]): string[] => nodes.flatMap((n) => (n.children.length ? [n.key, ...branchKeys(n.children)] : []))
+  /** Opens the branches down to a session, so it shows; false when it isn't in the tree (yet). */
+  const reveal = (id: string): boolean => {
+    const path = pathTo(treeNow.current, id)
+    if (path?.length) setRevealed((r) => (path.every((k) => r.has(k)) ? r : new Set([...r, ...path])))
+    return !!path
+  }
+
+  const open = (sessionId: string, itemId?: number): void => {
+    setSelectedId(sessionId)
+    setJump(itemId === undefined ? null : { sessionId, itemId, nonce: Date.now() })
+  }
 
   // Opened on a session from elsewhere (e.g. clicking the session name above an agent's terminal).
   const jumpTo = useStore((s) => (s.sessionsJump?.project === project.path ? s.sessionsJump : null))
-  useDateStyle() // session names and times follow the date format
   useEffect(() => {
     if (!jumpTo) return
     setSelectedId(jumpTo.id)
+    setCursor(sessionKey(jumpTo.id))
     set({ sessionsJump: null })
     // At one of its compactions (the Overview's compaction history): its divider, with the summary open.
     if (jumpTo.compaction !== undefined) {
@@ -67,39 +157,25 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
     }
   }, [jumpTo, project.path])
 
-  const list = useMemo(() => (items ?? []).filter((i) => (showArchived || !i.archived || i.id === selectedId) && (showExternal || i.source === 'hive')), [items, showArchived, showExternal, selectedId])
   const selected = items?.find((i) => i.id === selectedId) ?? null
 
-  // Start on the running session, or the most recent one.
+  // Start on the running session, or the most recent conversation (not while an action has closed the view: moving).
+  const moving = useRef(false)
   useEffect(() => {
-    if (!items || (selectedId && items.some((i) => i.id === selectedId))) return
-    setSelectedId(items.find((i) => i.id === liveId)?.id ?? items.find((i) => !i.archived)?.id ?? items[0]?.id ?? null)
+    if (!items || moving.current || (selectedId && items.some((i) => i.id === selectedId))) return
+    const first = items.find((i) => i.id === liveId) ?? items.find((i) => !i.archived && !i.sub) ?? items[0]
+    setSelectedId(first?.id ?? null)
+    if (first) setCursor(sessionKey(first.id))
   }, [items, selectedId, liveId])
-
-  // Search as you type (debounced). "This session" searches the selected transcript.
-  // Results belong to their project, scope and query: never shown for another. A search that failed is said in place
-  // of the results (not "No matches"), with Retry.
-  const q = query.trim()
-  const searchTarget = scope === 'this' ? selectedId : null
-  const searching = !!q && (scope === 'all' || !!selectedId)
-  const searchKey = searching ? JSON.stringify([project.path, scope, searchTarget, q]) : ''
-  const search = useScopedLoad<TranscriptSearchResult[]>(searchKey)
-  const results = searching ? search.data : null
-  const searchError = searching ? search.error : null
-  const { load: loadSearch } = search
+  // The session shown has its branches open: once each time it changes (or once the list has it), so a branch folded
+  // later stays folded when the list refreshes.
+  const revealedFor = useRef<string | null>(null)
   useEffect(() => {
-    if (!searchKey) return
-    const path = project.path
-    const t = setTimeout(() => loadSearch(searchKey, () => call('transcript:search', path, q, searchTarget)), 250)
-    return () => clearTimeout(t)
-    // The key holds the project, scope, session and query.
+    if (!selectedId || revealedFor.current === selectedId) return
+    if (reveal(selectedId)) revealedFor.current = selectedId
+    // reveal reads the tree as it is now (treeNow); this runs when the session shown changes, or the list arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchKey, searchTry, loadSearch])
-
-  const open = (sessionId: string, itemId?: number): void => {
-    setSelectedId(sessionId)
-    setJump(itemId === undefined ? null : { sessionId, itemId, nonce: Date.now() })
-  }
+  }, [selectedId, items])
 
   const rename = async (s: SessionListItem): Promise<void> => {
     const current = sessionName(s)
@@ -121,20 +197,193 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
       danger: true
     })
     if (!ok) return
+    const closed = await closeView([s.id])
     const done = await actions.attempt(`Could not delete the ${noun}`, () => call('session:delete', project.path, s.id).then(() => true))
-    if (done && selectedId === s.id) setSelectedId(null)
+    moving.current = false
+    // Still there (it couldn't be deleted): open it again.
+    if (!done && closed) setSelectedId(closed)
     reload()
   }
   const archive = async (s: SessionListItem, archived: boolean): Promise<void> => {
     if (archived && !(await confirm({ title: 'Archive session?', message: 'The transcript is preserved in .hive/archive and hidden from this list. You can unarchive it at any time.', confirmLabel: 'Archive' }))) return
+    const closed = await closeView([s.id])
     await actions.attempt('Could not archive', () => call('session:archive', project.path, s.id, archived))
+    moving.current = false
+    // Its files have moved (or stayed): open it again from where they are.
+    if (closed) setSelectedId(closed)
     reload()
   }
 
+  /**
+   * Closes this tab's view of a transcript about to be archived or deleted, before main moves its files (main counts an
+   * open view as in use): its id, when it was one of them, once main knows the view is closed.
+   */
+  const closeView = async (ids: string[]): Promise<string | null> => {
+    if (!selectedId || !ids.includes(selectedId)) return null
+    const closed = selectedId
+    moving.current = true
+    setSelectedId(null)
+    setJump(null)
+    await call('transcript:viewing', viewId, project.path, null).catch(() => undefined)
+    return closed
+  }
+
+  // ---- branch actions: everything under a provider, an agent, or a session and its sub-sessions ----
+  const branchName = (n: TreeNode): string => (n.kind === 'session' ? `"${sessionName(n.item)}"` : n.kind === 'agent' ? `${n.label} (${providerName(n.provider)})` : n.label)
+  const bulkList = (n: TreeNode, action: SessionBulkAction): SessionListItem[] =>
+    // Archiving keeps Hive's copy: only Hive's own sessions have one (a sub-session started outside Hive goes with its session).
+    sessionsIn(n).filter((s) => (action === 'delete' ? true : action === 'archive' ? !s.archived && s.source === 'hive' : !!s.archived))
+  const runBulk = async (n: TreeNode, action: SessionBulkAction): Promise<void> => {
+    const list = bulkList(n, action)
+    if (!list.length) return
+    const what = countText({ sessions: list.filter((s) => !s.sub).length, subs: list.filter((s) => !!s.sub).length })
+    const running = list.filter((s) => isLive(s.id)).length
+    const skipNote = `${running ? `${running} running now ${running === 1 ? 'is' : 'are'} skipped, as are` : 'Running sessions are skipped, and'} any whose files are in use; the result says which.`
+    const ok =
+      action === 'unarchive' ||
+      (await confirm(
+        action === 'delete'
+          ? {
+              title: `Delete ${what}?`,
+              message: `Delete ${what} under ${branchName(n)} from Hive?`,
+              detail: `Hive's copies of their transcripts go to the Recycle Bin (restore them from there) and Hive stops listing them; what they used stays in the totals. Claude Code and Codex keep their own transcripts. ${skipNote}`,
+              confirmLabel: 'Delete All',
+              danger: true
+            }
+          : {
+              title: `Archive ${what}?`,
+              message: `Archive ${what} under ${branchName(n)}?`,
+              detail: `Their transcripts are kept in .hive/archive and hidden from this list: tick Archived to see them, and unarchive any at any time. ${skipNote}`,
+              confirmLabel: 'Archive All'
+            }
+      ))
+    if (!ok) return
+    // The transcript open here, if it is one of them, closes first (an open one is in use); it opens again if its
+    // session was left alone, and the result says when it stays closed.
+    const closed = await closeView(list.map((s) => s.id))
+    const r = await actions.attempt(`Could not ${action} the ${noun}s`, () => call('session:bulk', project.path, action, list.map((s) => s.id)))
+    moving.current = false
+    if (closed && (!r || !r.done.includes(closed))) setSelectedId(closed)
+    if (!r) return
+    reportBulk(
+      action,
+      r,
+      (id) => {
+        const s = byId.get(id)
+        return s ? sessionName(s) : id.slice(0, 8)
+      },
+      !!closed && r.done.includes(closed)
+    )
+    reload()
+  }
+
+  const resumeCtx = (s: SessionListItem): ResumeContext => {
+    const install = installs[s.provider]
+    return {
+      live: isLive(s.id),
+      providerEnabled: isProviderEnabled(settings, s.provider),
+      providerInstalled: install && !install.checking ? install.found : null,
+      runners: actions.agentsForSession(project, s),
+      canAddAgent: !assistant && (!s.cwd || s.cwd.toLowerCase() === project.path.toLowerCase()) && project.agents.length < MAX_AGENTS,
+      ...(assistant ? { assistantProvider: agentProviderOf(project, project.agents[0]) } : {})
+    }
+  }
+  const whyNot = (s: SessionListItem): string | null => resumeBlock(s, resumeCtx(s))
+
+  const sessionMenu = (n: Extract<TreeNode, { kind: 'session' }>): MenuEntry[] => {
+    const s = n.item
+    const live = isLive(s.id)
+    const block = whyNot(s)
+    const entries: MenuEntry[] = []
+    if (live) {
+      const holder = project.agents.find((a) => a.live?.sessionId === s.id)
+      if (holder) entries.push({ label: assistant ? 'Show the Assistant' : `Show ${holder.name}`, icon: 'terminal', onClick: () => (assistant ? setAssistantOpen(true) : revealAgent(project, holder.id)) })
+    } else if (!s.archived) entries.push({ label: 'Resume', icon: 'debug-continue', disabled: !!block, detail: block ?? undefined, onClick: () => void actions.resumeSession(project.path, s) })
+    if (s.source === 'external' && !s.sub) entries.push({ label: 'Adopt', icon: 'add', onClick: () => void actions.attempt('Could not adopt', () => call('session:adopt', project.path, s.id)).then(reload) })
+    if (s.source === 'hive') entries.push({ label: 'Rename…', icon: 'tag', keybinding: 'F2', onClick: () => void rename(s) })
+    entries.push({ separator: true })
+    if (s.source === 'hive' && !live) entries.push({ label: s.archived ? 'Unarchive' : 'Archive', icon: s.archived ? 'unarchive' : 'archive', onClick: () => void archive(s, !s.archived) })
+    entries.push({ label: `Delete ${noun === 'session' ? 'Session' : 'Conversation'}…`, icon: 'trash', keybinding: 'Del', danger: true, disabled: live, onClick: () => void remove(s) })
+    if (n.children.length) entries.push({ separator: true }, ...branchEntries(n))
+    entries.push({ separator: true }, { label: 'Copy Session ID', icon: 'copy', onClick: () => copyText(s.id) })
+    return entries
+  }
+  const branchEntries = (n: TreeNode): MenuEntry[] => {
+    const keys = [n.key, ...branchKeys(n.children)]
+    const count = (action: SessionBulkAction): number => bulkList(n, action).length
+    const archiving = count('archive')
+    const unarchiving = count('unarchive')
+    const deleting = count('delete')
+    const scope = n.kind === 'session' ? ' with Its Sub-sessions' : ' All'
+    return [
+      { label: 'Expand All', icon: 'expand-all', onClick: () => setOpen(keys, true) },
+      { label: 'Collapse All', icon: 'collapse-all', onClick: () => setOpen(keys, false) },
+      { separator: true },
+      { label: `Archive${scope}… (${archiving})`, icon: 'archive', disabled: !archiving, detail: archiving ? undefined : "Nothing of Hive's to archive here", onClick: () => void runBulk(n, 'archive') },
+      ...(unarchiving ? [{ label: `Unarchive${scope} (${unarchiving})`, icon: 'unarchive', onClick: () => void runBulk(n, 'unarchive') }] : []),
+      { label: `Delete${scope}… (${deleting})`, icon: 'trash', danger: true, disabled: !deleting, onClick: () => void runBulk(n, 'delete') }
+    ]
+  }
+  const menuFor = (n: TreeNode): MenuEntry[] => (n.kind === 'session' ? sessionMenu(n) : branchEntries(n))
+
   if (!items) return listError ? <LoadFailed what={`the ${noun}s`} error={listError} onRetry={reload} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
 
-  const byId = new Map(items.map((i) => [i.id, i]))
+  // The tree's rows as shown: open branches' children, and while searching each session's matches under it.
+  const rows: Row[] = []
+  const walk = (nodes: readonly TreeNode[], depth: number, parent: string | null): void => {
+    for (const n of nodes) {
+      rows.push({ kind: 'node', key: n.key, node: n, depth, parent })
+      if (n.kind === 'session' && q) for (const h of hitsById.get(n.item.id)?.hits ?? []) rows.push({ kind: 'hit', key: `h:${n.item.id}:${h.itemId}`, sessionId: n.item.id, hit: h, depth: depth + 1, parent: n.key })
+      if (n.children.length && isOpen(n)) walk(n.children, depth + 1, n.key)
+    }
+  }
+  walk(tree, 0, null)
   const hitCount = results?.reduce((n, r) => n + r.hits.length, 0) ?? 0
+  const matched = q ? tree.flatMap(sessionsIn).length : 0
+
+  const activate = (r: Row): void => {
+    setCursor(r.key)
+    if (r.kind === 'hit') open(r.sessionId, r.hit.itemId)
+    else if (r.node.kind === 'session') open(r.node.item.id)
+  }
+  const toggle = (n: TreeNode): void => setOpen([n.key], !isOpen(n))
+
+  const onKeyDown = (ev: React.KeyboardEvent): void => {
+    if ((ev.target as HTMLElement).tagName === 'INPUT') return
+    const idx = cursor ? rows.findIndex((r) => r.key === cursor) : -1
+    const cur = idx >= 0 ? rows[idx] : null
+    const node = cur?.kind === 'node' ? cur.node : null
+    const moveTo = (i: number): void => {
+      const r = rows[Math.max(0, Math.min(rows.length - 1, i))]
+      if (!r) return
+      activate(r)
+      treeRef.current?.querySelector(`[data-key="${CSS.escape(r.key)}"]`)?.scrollIntoView({ block: 'nearest' })
+    }
+    let handled = true
+    if (ev.key === 'ArrowDown') moveTo(idx + 1)
+    else if (ev.key === 'ArrowUp') moveTo(idx < 0 ? 0 : idx - 1)
+    else if (ev.key === 'Home') moveTo(0)
+    else if (ev.key === 'End') moveTo(rows.length - 1)
+    else if (ev.key === 'ArrowRight' && node?.children.length && !q) {
+      if (!isOpen(node)) setOpen([node.key], true)
+      else moveTo(idx + 1)
+    } else if (ev.key === 'ArrowLeft' && cur) {
+      if (node?.children.length && isOpen(node) && !q) setOpen([node.key], false)
+      else if (cur.parent) moveTo(rows.findIndex((r) => r.key === cur.parent))
+    } else if (ev.key === 'Enter' && cur) {
+      if (node && node.kind !== 'session') toggle(node)
+      else activate(cur)
+    } else if (ev.key === 'F2' && node?.kind === 'session' && node.item.source === 'hive') void rename(node.item)
+    else if (ev.key === 'Delete' && node) {
+      if (node.kind === 'session') {
+        if (!isLive(node.item.id)) void remove(node.item)
+      } else void runBulk(node, 'delete')
+    } else handled = false
+    if (handled) {
+      ev.preventDefault()
+      ev.stopPropagation()
+    }
+  }
 
   return (
     <div
@@ -154,13 +403,15 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
           <InfoTip
             text={
               assistant
-                ? "Every conversation of this workspace's Hive Assistant. Select one to read it in full, including what came before each compaction."
-                : "Every session of this project. Select one to read its transcript: the whole conversation, including what came before each compaction. Transcripts Claude Code has deleted are read from Hive's backup."
+                ? "Every conversation of this workspace's Hive Assistant, by provider. Select one to read it in full, including what came before each compaction."
+                : "Every session of this project, by provider and agent, with the sessions each one started (such as Codex's guardian reviews) under it. Select one to read its transcript, including what came before each compaction; right-click a branch to archive or delete everything in it. Transcripts a CLI has deleted are read from Hive's backup."
             }
           />
           <div className="actions">
             <IconButton icon="add" title={assistant ? 'New Conversation' : 'New Session'} onClick={newOne} />
             <IconButton icon="refresh" title="Refresh" onClick={reload} />
+            <IconButton icon="expand-all" title="Expand All" onClick={() => setOpen(branchKeys(tree), true)} />
+            <IconButton icon="collapse-all" title="Collapse All" onClick={() => setOpen(branchKeys(tree), false)} />
           </div>
         </div>
         <div className="files-filter">
@@ -168,90 +419,105 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
           <input
             ref={searchRef}
             className="input"
-            placeholder={scope === 'this' ? `Search this ${assistant ? 'conversation' : 'transcript'}` : `Search all ${noun}s`}
+            placeholder={`Search ${noun}s: names, dates, transcripts`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') setQuery('')
-              if (e.key === 'Enter' && results?.[0]?.hits[0]) open(results[0].sessionId, results[0].hits[0].itemId)
+              if (e.key === 'Enter') {
+                const first = rows.find((r) => r.kind === 'hit') ?? rows.find((r) => r.kind === 'node' && r.node.kind === 'session')
+                if (first) activate(first)
+              }
+              if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                treeRef.current?.focus()
+                const first = rows.find((r) => r.kind === 'hit' || r.node.kind === 'session') ?? rows[0]
+                if (first) activate(first)
+              }
             }}
           />
           {query && <IconButton icon="close" title="Clear" onClick={() => setQuery('')} />}
         </div>
-        <div className="sessions-scope">
-          <div className="segmented">
-            <button className={cx(scope === 'this' && 'active')} onClick={() => setScope('this')}>
-              This {noun}
-            </button>
-            <button className={cx(scope === 'all' && 'active')} onClick={() => setScope('all')}>
-              All {noun}s
-            </button>
-          </div>
-          {q && results && <span className="faint">{hitCount === 0 ? 'No matches' : `${hitCount}${results.some((r) => r.more) ? '+' : ''} match${hitCount === 1 ? '' : 'es'}`}</span>}
+        <div className="sessions-filters">
+          <label className="flex muted">
+            <input type="checkbox" className="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Archived
+          </label>
+          {q && (
+            <span className="sessions-scope faint">
+              {searchError ? null : !results ? (
+                <>
+                  <Icon name="loading" spin /> Searching…
+                </>
+              ) : matched === 0 ? (
+                'No matches'
+              ) : (
+                `${matched} ${noun}${matched === 1 ? '' : 's'}${hitCount ? ` · ${hitCount}${results.some((r) => r.more) ? '+' : ''} match${hitCount === 1 ? '' : 'es'}` : ''}`
+              )}
+            </span>
+          )}
         </div>
         {listError && <StaleNote what={`the ${noun}s`} error={listError} at={loadedAt} onRetry={reload} />}
-        {searching && !searchError && !results ? (
-          <div className="pane-empty">
-            <Icon name="loading" spin /> Searching…
-          </div>
-        ) : q && searchError ? (
-          <LoadFailed inline what="the search results" error={searchError} onRetry={() => setSearchTry((n) => n + 1)} />
-        ) : q && results ? (
-          <div className="pane-body search-results">
-            {results.map((r) => {
-              const s = byId.get(r.sessionId)
+        {q && searchError && <LoadFailed inline what="the search results" error={searchError} onRetry={() => setSearchTry((n) => n + 1)} />}
+        <div className="pane-body file-tree sessions-tree" tabIndex={0} ref={treeRef} onKeyDown={onKeyDown}>
+          {items.length === 0 && <div className="pane-empty">No {noun}s yet.</div>}
+          {items.length > 0 && rows.length === 0 && !q && <div className="pane-empty">No {noun}s here: tick Archived to see archived ones.</div>}
+          {rows.map((r) => {
+            if (r.kind === 'hit') {
               return (
-                <div key={r.sessionId}>
-                  {scope === 'all' && (
-                    <div className="section-header" style={{ cursor: 'default' }}>
-                      <span className="label">{s ? sessionName(s) : r.sessionId.slice(0, 8)}</span>
-                      <span className="count">{r.hits.length}{r.more ? '+' : ''}</span>
-                    </div>
-                  )}
-                  {r.hits.map((h) => (
-                    <div key={h.itemId} className={cx('search-hit', selectedId === r.sessionId && jump?.itemId === h.itemId && 'selected')} onClick={() => open(r.sessionId, h.itemId)}>
-                      <span className="hit-kind">{HIT_KIND[h.kind]}</span>
-                      <Highlight text={h.snippet} query={q} />
-                    </div>
-                  ))}
+                <div
+                  key={r.key}
+                  data-key={r.key}
+                  className={cx('search-hit', cursor === r.key && 'cursor', selectedId === r.sessionId && jump?.itemId === r.hit.itemId && 'selected')}
+                  style={{ paddingLeft: 28 + r.depth * 14 }}
+                  onClick={() => activate(r)}
+                >
+                  <span className="hit-kind">{HIT_KIND[r.hit.kind]}</span>
+                  <Highlight text={r.hit.snippet} query={q} />
                 </div>
               )
-            })}
-          </div>
-        ) : (
-          <>
-            <div className="sessions-filters">
-              {!assistant && (
-                <label className="flex muted">
-                  <input type="checkbox" className="checkbox" checked={showExternal} onChange={(e) => setShowExternal(e.target.checked)} /> Started outside Hive
-                </label>
-              )}
-              <label className="flex muted">
-                <input type="checkbox" className="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Archived
-              </label>
-            </div>
-            <div className="pane-body">
-              {list.length === 0 && <div className="pane-empty">No {noun}s yet.</div>}
-              {list.map((s) => (
-                <SessionRow
-                  key={s.id}
-                  s={s}
-                  name={sessionName(s)}
-                  live={liveById.get(s.id)?.status ?? null}
-                  origin={origin(s)}
-                  selected={s.id === selectedId}
-                  onClick={() => open(s.id)}
-                  buttons={
-                    <>
-                      {s.source === 'hive' && <IconButton icon="tag" title="Rename" onClick={() => void rename(s)} />}
-                      {!isLive(s.id) && <IconButton icon="trash" title={`Delete ${noun}`} onClick={() => void remove(s)} />}
-                    </>
-                  }
-                />
-              ))}
-            </div>
-          </>
-        )}
+            }
+            const n = r.node
+            const onContextMenu = (e: React.MouseEvent): void => {
+              setCursor(r.key)
+              menu.open(e, menuFor(n))
+            }
+            const more = (e: React.MouseEvent): void => {
+              const b = e.currentTarget.getBoundingClientRect()
+              setCursor(r.key)
+              menu.openAt(b.left, b.bottom + 2, menuFor(n))
+            }
+            if (n.kind !== 'session') {
+              return <BranchRow key={r.key} n={n} depth={r.depth} open={isOpen(n)} cursor={cursor === r.key} onClick={() => (setCursor(r.key), toggle(n))} onContextMenu={onContextMenu} onMore={more} />
+            }
+            const s = n.item
+            return (
+              <SessionRow
+                key={r.key}
+                s={s}
+                name={sessionName(s)}
+                depth={r.depth}
+                open={isOpen(n)}
+                kids={n.children}
+                orphan={n.orphan}
+                live={liveById.get(s.id)?.status ?? null}
+                origin={origin(s)}
+                block={whyNot(s)}
+                selected={s.id === selectedId}
+                cursor={cursor === r.key}
+                onClick={() => activate(r)}
+                onToggle={() => toggle(n)}
+                onContextMenu={onContextMenu}
+                buttons={
+                  <>
+                    {s.source === 'hive' && <IconButton icon="tag" title="Rename" onClick={() => void rename(s)} />}
+                    {!isLive(s.id) && <IconButton icon="trash" title={`Delete ${noun}`} onClick={() => void remove(s)} />}
+                    <IconButton icon="ellipsis" title="More Actions" onClick={more} />
+                  </>
+                }
+              />
+            )
+          })}
+        </div>
       </div>
       <div className="split-main">
         {selected ? (
@@ -263,9 +529,11 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
             live={isLive(selected.id)}
             jump={jump?.sessionId === selected.id ? jump : null}
             query={q}
+            viewId={viewId}
+            marker={<SessionMarker s={selected} block={whyNot(selected)} live={isLive(selected.id)} orphan={!!selected.sub && !byId.has(selected.sub.parentId ?? '')} />}
             toolbar={
               <>
-                {selected.source === 'external' && (
+                {selected.source === 'external' && !selected.sub && (
                   <button className="btn small subtle" onClick={() => void actions.attempt('Could not adopt', () => call('session:adopt', project.path, selected.id)).then(reload)}>
                     Adopt
                   </button>
@@ -286,19 +554,35 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
                   )
                 })()}
                 {!selected.archived && !isLive(selected.id) && (() => {
+                  const block = whyNot(selected)
+                  // Can't be resumed: the buttons stay, disabled, and say why.
+                  if (block) {
+                    return (
+                      <Tooltip content={block}>
+                        <span className="resume-blocked">
+                          <button className="btn small tint-amber" disabled>
+                            <Icon name="debug-continue" /> Resume
+                          </button>
+                        </span>
+                      </Tooltip>
+                    )
+                  }
                   const agents = actions.agentsForSession(project, selected)
                   const target = actions.resumeTarget(project, selected)
-                  const targetName = agents.find((a) => a.id === target)?.name
+                  const targetAgent = agents.find((a) => a.id === target) ?? null
+                  const targetName = targetAgent?.name
+                  const note = removedAgentNote(selected, project.agents, targetAgent)
                   if (agents.length < 2) {
-                    return (
+                    const button = (
                       <button className="btn small tint-amber" onClick={() => void actions.resumeSession(project.path, selected)}>
                         <Icon name="debug-continue" /> Resume
                       </button>
                     )
+                    return note ? <Tooltip content={note}>{button}</Tooltip> : button
                   }
                   return (
                     <span className="split-btn">
-                      <Tooltip content={targetName ? `Resume in ${targetName}` : 'Resume (adds an agent if none can run it)'}>
+                      <Tooltip content={note ?? (targetName ? `Resume in ${targetName}` : 'Resume (adds an agent if none can run it)')}>
                         <button className="btn small tint-amber" onClick={() => void actions.resumeSession(project.path, selected)}>
                           <Icon name="debug-continue" /> Resume{targetName ? ` in ${targetName}` : ''}
                         </button>
@@ -333,12 +617,28 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
         ) : (
           <div className="empty-state">
             <Icon name="history" />
-            {items.length ? 'Select a session to read its transcript.' : 'No sessions yet.'}
+            {items.length ? `Select a ${noun} to read its transcript.` : `No ${noun}s yet.`}
           </div>
         )}
       </div>
+      {menu.element}
     </div>
   )
+}
+
+/** What a bulk action did: one line, and what it skipped and why. */
+function reportBulk(action: SessionBulkAction, r: SessionBulkResult, name: (id: string) => string, closedView: boolean): void {
+  const n = r.done.length
+  const head = `${BULK_VERB[action]} ${n} session${n === 1 ? '' : 's'}`
+  const closed = closedView ? 'The transcript you were reading was one of them: it was closed first.' : undefined
+  if (!r.skipped.length) return notify('success', `${head}.`, closed)
+  const reasons = new Map<SessionSkipReason, number>()
+  for (const s of r.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1)
+  const why = [...reasons].map(([k, v]) => `${v} ${SKIP_TEXT[k]}`).join(', ')
+  const shown = r.skipped.slice(0, 6).map((s) => `• ${name(s.id)}: ${SKIP_TEXT[s.reason]}${s.message ? ` (${s.message})` : ''}`)
+  if (r.skipped.length > shown.length) shown.push(`…and ${r.skipped.length - shown.length} more`)
+  if (closed) shown.push(closed)
+  notify(n ? 'warning' : 'error', `${head}; ${r.skipped.length} skipped: ${why}`, shown.join('\n'))
 }
 
 const HIT_KIND: Record<TranscriptItem['kind'], string> = {
@@ -363,10 +663,90 @@ function Highlight({ text, query }: { text: string; query: string }) {
   )
 }
 
-function SessionRow({ s, name, live, origin, selected, onClick, buttons }: { s: SessionListItem; name: string; live: string | null; origin: SessionOrigin | null; selected: boolean; onClick: () => void; buttons: React.ReactNode }) {
+/** A provider or agent in the tree: like a folder in the Files tree, with its count and ⋯ for its actions. */
+function BranchRow({ n, depth, open, cursor, onClick, onContextMenu, onMore }: { n: Exclude<TreeNode, { kind: 'session' }>; depth: number; open: boolean; cursor: boolean; onClick: () => void; onContextMenu: (e: React.MouseEvent) => void; onMore: (e: React.MouseEvent) => void }) {
+  const c = countsIn(n)
   return (
-    <div className={cx('session-row', selected && 'selected', s.archived && 'archived')} onClick={onClick}>
+    <div data-key={n.key} className={cx('row file-row session-branch', `session-branch-${n.kind}`, cursor && 'cursor')} style={{ paddingLeft: 8 + depth * 14 }} onClick={onClick} onContextMenu={onContextMenu}>
+      <Icon name={open ? 'chevron-down' : 'chevron-right'} className="twistie" />
+      {n.kind === 'provider' ? <ProviderIcon provider={n.provider} /> : <Icon name={n.agentId ? 'person' : 'circle-slash'} className="file-icon" />}
+      <span className={cx('label', n.removed && 'removed')}>{n.label}</span>
+      <Tooltip content={countText(c)}>
+        <span className="tree-count">
+          {c.sessions}
+          {c.subs > 0 && <span className="faint"> + {c.subs}</span>}
+        </span>
+      </Tooltip>
+      <div className="row-actions" onClick={(e) => e.stopPropagation()}>
+        <IconButton icon="ellipsis" title="More Actions" onClick={onMore} />
+      </div>
+    </div>
+  )
+}
+
+/** A sub-session's kind, or why a session can't be resumed (shown in the tree and over its transcript). */
+function SessionMarker({ s, block, live, orphan }: { s: SessionListItem; block: string | null; live: boolean; orphan: boolean }) {
+  if (s.sub) {
+    return (
+      <Tooltip content={`${block ?? ''}${orphan ? `\nThe session that started it isn't listed (deleted, or not from this project).` : ''}`.trim()}>
+        <span className="badge sub-kind">
+          <Icon name="type-hierarchy-sub" /> {s.sub.kind}
+        </span>
+      </Tooltip>
+    )
+  }
+  if (!block || live || s.archived) return null
+  return (
+    <Tooltip content={block}>
+      <span className="badge cant-resume">
+        <Icon name="debug-disconnect" /> can't resume
+      </span>
+    </Tooltip>
+  )
+}
+
+function SessionRow(props: {
+  s: SessionListItem
+  name: string
+  depth: number
+  open: boolean
+  kids: readonly TreeNode[]
+  orphan: boolean
+  live: string | null
+  origin: SessionOrigin | null
+  block: string | null
+  selected: boolean
+  cursor: boolean
+  onClick: () => void
+  onToggle: () => void
+  onContextMenu: (e: React.MouseEvent) => void
+  buttons: React.ReactNode
+}) {
+  const { s, name, live, origin, kids } = props
+  const kinds = new Set(kids.map((k) => (k.kind === 'session' ? k.item.sub?.kind : null)))
+  const kind = kinds.size === 1 ? [...kinds][0] : null
+  return (
+    <div
+      data-key={sessionKey(s.id)}
+      className={cx('session-row', props.selected && 'selected', props.cursor && 'cursor', s.archived && 'archived', s.sub && 'sub')}
+      style={{ paddingLeft: 8 + props.depth * 14 }}
+      onClick={props.onClick}
+      onContextMenu={props.onContextMenu}
+    >
       <div className="session-row-title">
+        {kids.length ? (
+          <span
+            className="twistie"
+            onClick={(e) => {
+              e.stopPropagation()
+              props.onToggle()
+            }}
+          >
+            <Icon name={props.open ? 'chevron-down' : 'chevron-right'} />
+          </span>
+        ) : (
+          <span className="twistie" />
+        )}
         {live && <span className={cx('dot', live)} />}
         <Tooltip content={providerName(s.provider)}>
           <span>
@@ -386,10 +766,10 @@ function SessionRow({ s, name, live, origin, selected, onClick, buttons }: { s: 
         {s.usage && <span>{formatTokens(s.usage.contextTokens)} context</span>}
         {origin && (
           <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{origin.detail}</span>}>
-            <span className="badge session-origin">{origin.label}</span>
+            <span className="badge session-origin">{origin.location}</span>
           </Tooltip>
         )}
-        {s.source === 'external' && (
+        {s.source === 'external' && !s.sub && (
           <Tooltip content="Started outside Hive (e.g. in VS Code or a terminal). Adopt it to manage it here.">
             <span className="badge info">external</span>
           </Tooltip>
@@ -400,9 +780,17 @@ function SessionRow({ s, name, live, origin, selected, onClick, buttons }: { s: 
             <span className="badge warn">backup</span>
           </Tooltip>
         )}
+        <SessionMarker s={s} block={props.block} live={!!live} orphan={props.orphan} />
+        {kids.length > 0 && (
+          <Tooltip content={`Sessions ${providerName(s.provider)} started for this one: ${kids.length}`}>
+            <span className="badge sub-count">
+              {kids.length} {kind ? `${kind}${kids.length === 1 ? '' : 's'}` : `sub-session${kids.length === 1 ? '' : 's'}`}
+            </span>
+          </Tooltip>
+        )}
       </div>
       <div className="row-actions" onClick={(e) => e.stopPropagation()}>
-        {buttons}
+        {props.buttons}
       </div>
     </div>
   )
@@ -433,8 +821,13 @@ function toBlocks(items: TranscriptItem[]): Block[] {
 
 const time = (ts: string | null): string => (ts ? formatDateTime(ts) : '')
 
-function TranscriptView({ project, session, origin, live, jump, query, toolbar }: { project: ProjectInfo; session: SessionListItem; origin: SessionOrigin | null; live: boolean; jump: Jump | null; query: string; toolbar: React.ReactNode }) {
+function TranscriptView({ project, session, origin, live, jump, query, viewId, marker, toolbar }: { project: ProjectInfo; session: SessionListItem; origin: SessionOrigin | null; live: boolean; jump: Jump | null; query: string; viewId: string; marker: React.ReactNode; toolbar: React.ReactNode }) {
   const [transcript, setTranscript] = useState<Transcript | null>(null)
+  // Main knows this transcript is open here: archiving or deleting it skips it (this tab closes it first: closeView).
+  useEffect(() => {
+    void call('transcript:viewing', viewId, project.path, session.id).catch(() => undefined)
+    return () => void call('transcript:viewing', viewId, project.path, null).catch(() => undefined)
+  }, [viewId, project.path, session.id])
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set())
   const [allOpen, setAllOpen] = useState(false)
@@ -594,6 +987,7 @@ function TranscriptView({ project, session, origin, live, jump, query, toolbar }
         <span className="path">
           <strong>{sessionLabel(session, project.name)}</strong>
           {live && <span className="badge accent" style={{ marginLeft: 8 }}>Running</span>}
+          {marker && <span style={{ marginLeft: 8 }}>{marker}</span>}
           {session.handedOverFrom && (
             <Tooltip content="Another agent's work was handed over to this session. Click to open that session.">
               <span className="badge link" style={{ marginLeft: 8 }} onClick={() => openInSessionsTab(project.path, session.handedOverFrom!)}>

@@ -2,7 +2,7 @@ import { homedir } from 'os'
 import { join, basename } from 'path'
 import { mkdir, readdir, stat, writeFile } from 'fs/promises'
 import { existsSync, readFileSync } from 'fs'
-import type { AgentInstallInfo, McpServerDef, MemorySource, PathDataCopy, PlanLimit, PlanUsage, ReadinessIssue } from '../../../shared/types'
+import type { AgentInstallInfo, McpServerDef, MemorySource, PathDataCopy, PlanLimit, PlanUsage, ReadinessIssue, SubSession } from '../../../shared/types'
 import { HIVE_DIR, assertSessionId, isSessionId } from '../../../shared/defaults'
 import { CLAUDE_CODE, CLAUDE_DESCRIPTOR, baseModel, canSwitchLive, footerMode, hookMode } from '../../../shared/claude'
 import { providerSettings } from '../../../shared/providers'
@@ -10,15 +10,17 @@ import { samePath } from '../../../shared/movePaths'
 import { config } from '../../config'
 import { claudeFileAllowed, contentHash, ContentTooLarge, copyMissing, copySkillTree, sourceProblem, tooBigToDeliver, isDir, linksNotCopied, readJson, removePath, writeJsonAtomic } from '../../fsutil'
 import { createLogger } from '../../logger'
-import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, runsThroughCmd, toSpawnable } from '../common'
+import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, readFirstLine, run, runsThroughCmd, toSpawnable } from '../common'
 import type { StartHint } from '../../../shared/startFailure'
 import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
 import { claudeBackgroundTasks } from './background'
 import { ConversationParser, claudeImageData } from './conversation'
 import { readClaudeModels } from './models'
-import { ClaudeUsageParser, encodeProjectPath, parseTranscript } from './usage'
+import { ClaudeUsageParser, encodeProjectPath, parseTranscript, transcriptSubSession } from './usage'
 
 const log = createLogger('claude-code')
+/** Transcripts whose sub-agent check is remembered (by path and mtime). */
+const SUB_CACHE = 2000
 
 export const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'PreCompact', 'PostCompact', 'SessionEnd'] as const
 
@@ -467,12 +469,32 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       const p = join(dir, f)
       try {
         const s = await stat(p)
-        if (s.isFile() && s.size > 0) out.push({ id: basename(f, '.jsonl'), transcriptPath: p, modified: s.mtime.toISOString() })
+        if (!s.isFile() || s.size === 0) continue
+        const id = basename(f, '.jsonl')
+        const sub = await this.subSession(p, id, s.mtimeMs)
+        out.push({ id, transcriptPath: p, modified: s.mtime.toISOString(), ...(sub ? { sub } : {}) })
       } catch {
         // Removed between readdir and stat.
       }
     }
     return out
+  }
+
+  async subSessionOf(path: string, sessionId: string): Promise<SubSession | null> {
+    const s = await stat(path).catch(() => null)
+    return s ? this.subSession(path, sessionId, s.mtimeMs) : null
+  }
+
+  /** Each transcript's sub-agent check (its first line), by file and mtime; the oldest go past SUB_CACHE entries. */
+  private subs = new Map<string, { mtime: number; sub: SubSession | null }>()
+  private async subSession(path: string, id: string, mtime: number): Promise<SubSession | null> {
+    const c = this.subs.get(path)
+    if (c && c.mtime === mtime) return c.sub
+    const sub = transcriptSubSession(await readFirstLine(path, 256 * 1024).catch(() => ''), id)
+    this.subs.delete(path)
+    this.subs.set(path, { mtime, sub })
+    if (this.subs.size > SUB_CACHE) this.subs.delete(this.subs.keys().next().value!)
+    return sub
   }
 
   parseUsage(text: string, sessionId: string) {

@@ -49,6 +49,8 @@ import type {
   QuitChoice,
   QuitScope,
   QuitSession,
+  SessionBulkAction,
+  SessionBulkResult,
   SessionImageGroup,
   SessionListItem,
   WorkspaceUsage,
@@ -222,6 +224,8 @@ export interface HiveRequests {
   'session:rename': (projectPath: string, sessionId: string, name: string) => void
   /** Deletes a session that isn't running from Hive (its record and backups; the CLI's transcript stays). */
   'session:delete': (projectPath: string, sessionId: string) => void
+  /** Archives, unarchives or deletes several sessions (a branch of the Sessions tab), each all or nothing; skips those in use. */
+  'session:bulk': (projectPath: string, action: SessionBulkAction, sessionIds: string[]) => SessionBulkResult
   /** Deleted sessions' usage (list items with deleted: true), which totals still count. */
   'session:keptUsage': (projectPath: string) => SessionListItem[]
   /** What Hive keeps for a project or the Assistant (Project Settings → Storage); the last result unless refresh. */
@@ -315,6 +319,8 @@ export interface HiveRequests {
   /** Searches one session, or all of the project's sessions when sessionId is null. */
   'transcript:search': (projectPath: string, query: string, sessionId: string | null) => TranscriptSearchResult[]
   /** The transcript's compactions, oldest first: each one's item id (to open the transcript at its divider). */
+  /** A Sessions view (`view`: its id) shows this transcript now, or none (null): archiving or deleting it from another window skips it. */
+  'transcript:viewing': (view: string, projectPath: string, sessionId: string | null) => void
   'transcript:compactions': (projectPath: string, sessionId: string) => number[]
   /** Asks where to save, writes the conversation as Markdown and returns the path (null if cancelled). */
   'transcript:export': (projectPath: string, sessionId: string, title: string) => string | null
@@ -407,6 +413,8 @@ export interface HiveRequests {
 
   'images:list': (projectPath: string) => SessionImageGroup[]
   'images:trash': (projectPath: string, path: string) => void
+  /** Moves all of a session's images to the Recycle Bin, all or none (not while it runs): how many went. */
+  'images:trashGroup': (projectPath: string, sessionId: string) => number
   'images:copy': (path: string) => void
 
   /** root is a project or one of its agents' worktrees. With base, lists everything changed since the branch left base. */
