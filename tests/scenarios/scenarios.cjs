@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 7
+const FIXTURES_VERSION = 9
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -58,6 +58,16 @@ const editSkill = (c, name) => require('fs').appendFileSync(require('path').join
 
 /** The successful tool calls whose input runs `needle` (a script by name), with their output. */
 const runs = (o, needle) => o.tools.filter((t) => !t.isError && !/^(Write|Edit|MultiEdit|Read)$/i.test(t.name) && t.input.includes(needle))
+
+/** A test suite that says it takes minutes (its tests take a few seconds), for the hive-progress scenarios (#167). */
+const SLOW_TESTS = {
+  'package.json': JSON.stringify({ name: 'alpha', private: true, scripts: { test: 'node test.js' } }, null, 2) + '\n',
+  'test.js': "// The full suite: about two minutes on CI.\nsetTimeout(() => console.log('3 passing'), 4000)\n"
+}
+/** The tool calls that ran the test suite. */
+const testRuns = (o) => o.tools.filter((t) => !/^(Write|Edit|MultiEdit|Read)$/i.test(t.name) && /npm(\.cmd)? (run )?test\b|node test\.js/.test(t.input))
+/** Whether the session's contract was the one with long commands wrapped (`on`) or not, by its measured size. */
+const contractWas = (o, on) => o.measures?.coreChars === require('../../src/shared/hiveGuidance.ts').hiveInstructions('alpha', 'agent', on).length
 
 module.exports.FIXTURES_VERSION = FIXTURES_VERSION
 module.exports.SCENARIOS = [
@@ -310,6 +320,45 @@ module.exports.SCENARIOS = [
     fakeSkips: ['did the work']
   },
   {
+    id: 'progress-long-command',
+    title: 'A long test run, not asked for hive-progress: the agent runs it through hive-progress (the default)',
+    files: SLOW_TESTS,
+    prompt: "Run this project's tests (npm test; the full suite takes about two minutes) and tell me whether they pass.",
+    fake: 'work 1',
+    expect: (o) => [
+      ['its guidance said to run long commands through hive-progress', contractWas(o, true), String(o.measures?.coreChars)],
+      ['ran the tests through hive-progress', testRuns(o).some((t) => /hive-progress/.test(t.input)), testRuns(o).map((t) => t.input).join(' | ')],
+      ['changed nothing on the board', !o.hiveCalls.some((x) => /hive_(create|update|reorder)_task/.test(x.tool))]
+    ],
+    fakeSkips: ['ran the tests through hive-progress']
+  },
+  {
+    id: 'progress-background',
+    title: 'A long test run started in the background: it goes through hive-progress too',
+    files: SLOW_TESTS,
+    prompt: "Start this project's tests in the background (npm test; the full suite takes about two minutes), and tell me whether they pass when they finish.",
+    fake: 'work 1',
+    expect: (o) => [
+      ['its guidance said to run long commands through hive-progress', contractWas(o, true), String(o.measures?.coreChars)],
+      ['ran the tests through hive-progress', testRuns(o).some((t) => /hive-progress/.test(t.input)), testRuns(o).map((t) => t.input).join(' | ')]
+    ],
+    fakeSkips: ['ran the tests through hive-progress']
+  },
+  {
+    id: 'progress-off',
+    title: 'Agents show long commands turned off (Settings → General): a long test run without hive-progress',
+    general: { progressCommands: false },
+    files: SLOW_TESTS,
+    prompt: "Run this project's tests (npm test; the full suite takes about two minutes) and tell me whether they pass.",
+    fake: 'work 1',
+    expect: (o) => [
+      ["its guidance said to use hive-progress only when asked", contractWas(o, false), String(o.measures?.coreChars)],
+      ['ran the tests', testRuns(o).length > 0],
+      ["didn't use hive-progress", !o.tools.some((t) => /hive-progress/.test(t.input)), testRuns(o).map((t) => t.input).join(' | ')]
+    ],
+    fakeSkips: ['ran the tests']
+  },
+  {
     id: 'missing-skill',
     title: 'work-on-card deleted from the workspace: the board boundaries still hold (the session contract)',
     async setup(c) {
@@ -457,7 +506,7 @@ module.exports.SCENARIOS = [
     async setup(c) {
       await c.card('w', {
         title: 'Retry the sync',
-        description: 'Retry the sync three times before giving up.',
+        description: 'Try the sync up to three times before giving up.',
         column: 'review',
         agent: 'coder',
         comments: [
@@ -468,7 +517,7 @@ module.exports.SCENARIOS = [
         ]
       })
     },
-    prompt: (c) => `Work through card #${c.cards.w} as its builder (rounds: 2). It has been through two review rounds already; the latest review is its last comment.`,
+    prompt: (c) => `Work through card #${c.cards.w} as its builder (rounds: 2). Round 1 (the first build and its review) and round 2 (the fix and its review) have both failed review; round 2's review is its last comment.`,
     fake: () => 'skill card-loop hive hive_notify {"title":"#1 at its round limit","message":"Round 1: no delay (fixed). Round 2: the delay is never awaited (the same finding came back). Carry on, split, accept with follow-ups, or take over?"}',
     expect: (o) => [
       ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
@@ -484,7 +533,7 @@ module.exports.SCENARIOS = [
     async setup(c) {
       await c.card('r', {
         title: 'Retry the sync',
-        description: 'sync.js: retry the sync three times, 1 s apart, before giving up.',
+        description: 'sync.js: try the sync up to three times, 1 s apart, before giving up.',
         column: 'review',
         agent: 'coder',
         comments: [
@@ -495,7 +544,7 @@ module.exports.SCENARIOS = [
         ]
       })
     },
-    prompt: (c) => `Work through card #${c.cards.r} as its builder (rounds: 5). It has been through two review rounds already; the latest review is its last comment.`,
+    prompt: (c) => `Work through card #${c.cards.r} as its builder (rounds: 5). Round 1 (the first build and its review) and round 2 (the fix and its review) have both failed review; round 2's review is its last comment.`,
     fake: (c) => `skill card-loop boardmove ${c.cards.r} doing then boardmove ${c.cards.r} review then boardcomment ${c.cards.r}`,
     expect: (o, c) => [
       ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
@@ -513,7 +562,7 @@ module.exports.SCENARIOS = [
     async setup(c) {
       await c.card('q', {
         title: 'Retry the sync',
-        description: 'sync.js: retry the sync three times, 1 s apart, before giving up.',
+        description: 'sync.js: try the sync up to three times, 1 s apart, before giving up.',
         column: 'review',
         agent: 'implementer',
         comments: ['Done: retries added. Ready for review.', 'Review round 1: FAILED. 1. The retries have no delay between them.', 'Fixed: a 1 s delay between retries. Ready for review.']
@@ -541,7 +590,7 @@ module.exports.SCENARIOS = [
     async setup(c) {
       await c.card('p', {
         title: 'Retry the sync',
-        description: 'sync.js: retry the sync three times before giving up.',
+        description: 'sync.js: try the sync up to three times before giving up.',
         column: 'review',
         agent: 'implementer',
         comments: [

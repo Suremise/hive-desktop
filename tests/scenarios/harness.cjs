@@ -124,7 +124,8 @@ async function runScenario(sc, providerKey, opts = {}) {
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
   if (p.executable) cfg.settings.providers[p.provider].executablePath = p.executable
   for (const pid of ['claude-code', 'codex']) cfg.settings.providers[pid] = { ...cfg.settings.providers[pid], enableDangerousMode: true }
-  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  // A scenario's own General settings (sc.general) on top.
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never', ...sc.general }
   cfg.settings.notifications = { ...cfg.settings.notifications, desktopNotifications: false }
   cfg.settings.agentApi = { ...cfg.settings.agentApi, enabled: true }
   if (sc.role === 'assistant') {

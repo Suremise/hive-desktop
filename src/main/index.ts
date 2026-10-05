@@ -7,7 +7,7 @@ import { readFile } from 'fs/promises'
 import { pathToFileURL } from 'url'
 import type { AppInfo, McpServerDef, QuitChoice, QuitScope, QuitSession, WindowState } from '../shared/types'
 import { providerService } from './providerService'
-import { handoverSession, hiveInstructions, projectHandovers, withLatestHandover } from '../shared/hiveGuidance'
+import { handoverSession, hiveInstructions, projectHandovers, withLatestHandover, wrapsLongCommands } from '../shared/hiveGuidance'
 import { notesTree } from './notes'
 import { assistantInstructions } from './personas'
 import { ASSISTANT_NAME, assistantPersona } from '../shared/assistant'
@@ -629,6 +629,8 @@ app.whenReady().then(async () => {
         HIVE_WORKSPACE: workspaceOf(projectPath).path ?? '',
         // Which agent's tools these are: Hive names it as the author of the handovers it writes.
         ...(agentId ? { HIVE_AGENT_ID: agentId } : {}),
+        // Whether its instructions tell it to run long commands through hive-progress unasked.
+        HIVE_PROGRESS_COMMANDS: wrapsLongCommands(config.settings.general) ? '1' : '0',
         ...testMcpLog()
       }
     }
@@ -644,7 +646,7 @@ app.whenReady().then(async () => {
       const project = basename(projectPath)
       const names = (await workspace.listProjectPaths()).map((p) => basename(p))
       const latest = (await projectHandovers(await notesTree(), project, names, (rel) => readFile(join(workspace.sharedDir, rel), 'utf8')))[0]
-      return withLatestHandover(hiveInstructions(project), latest?.relPath)
+      return withLatestHandover(hiveInstructions(project, 'agent', wrapsLongCommands(config.settings.general)), latest?.relPath)
     })
   sessions.recentHandovers = (projectPath, count) =>
     inWorkspace(workspaceOf(projectPath), async () => {

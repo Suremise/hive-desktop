@@ -276,6 +276,9 @@ export async function runWrapped(argv: string[], io: WrapperIo): Promise<number>
   const started = Date.now()
   // Not reporting: the command runs as if hive-progress weren't there (its own console, no filtering).
   if (!target) return run(spec, env, io, null)
+  // Its run is this one: a reporter inside it (Hive's test runners, another hive-progress) prints step lines instead
+  // of reporting a second row (report.mts).
+  env.HIVE_PROGRESS_WRAPPED = '1'
   const label = commandLabel(parsed.command)
   const timings = io.env.HIVE_PROGRESS_DATA ? join(io.env.HIVE_PROGRESS_DATA, 'timings.json') : null
   const key = timingKey(io.cwd, parsed.command)

@@ -46,6 +46,8 @@ interface SettingDef {
   /** Takes the full width under its title (e.g. a table). */
   wide?: boolean
   confirmOn?: { title: string; message: string; detail?: string }
+  /** Why it can't be changed now (another setting it depends on is off), shown under it; null when it can. */
+  disabledBy?: (s: AppSettings) => string | null
 }
 
 const providerSection = (id: ProviderId): Section => `provider:${id}`
@@ -76,6 +78,15 @@ const SETTINGS: SettingDef[] = [
   { section: 'general', key: 'reopenLastWorkspace', title: 'Reopen last workspace', desc: 'Open the workspace you used last when Hive starts.', tip: 'Sessions are never resumed automatically — only the workspace is reopened.', type: 'boolean' },
   { section: 'general', key: 'confirmOnQuit', title: 'Confirm before quitting', desc: 'When to ask before quitting stops running sessions.', tip: 'Quitting stops every running session. Their conversations are kept and can be resumed, so by default Hive only asks when an agent is in the middle of something (working, or waiting for your answer).', type: 'select', options: [{ value: 'working', label: 'When an agent is working' }, { value: 'always', label: 'Whenever sessions are running' }, { value: 'never', label: 'Never' }] },
   { section: 'general', key: 'progressPanel', title: 'Progress panel', desc: 'Show long runs agents report, such as tests and builds: how far along each is and the time left, in a panel on the right and on the taskbar button.', tip: 'Folded, the panel is a strip with a small bar per run; click it, or use Toggle Progress Panel in the command palette. Off hides the panel, the strip and the taskbar progress; agents can still report, and Hive ignores it.', type: 'boolean' },
+  {
+    section: 'general',
+    key: 'progressCommands',
+    title: 'Agents show long commands in the Progress panel',
+    desc: 'Agents run tests, builds and other commands that take more than about 30 seconds through hive-progress without being asked, so they show in the panel. Off: only when you ask.',
+    tip: "hive-progress runs the command unchanged (same output and exit code). Hive's session guidance tells agents to use it, so a change applies to agents started or restarted afterwards. With the Progress panel off, agents aren't told to use it either.",
+    type: 'boolean',
+    disabledBy: (s) => (s.general.progressPanel === false ? 'Turn on the Progress panel to use this.' : null)
+  },
   { section: 'general', key: 'keepAwake', title: 'Keep the PC awake while agents work', desc: "Stop Windows from sleeping while an agent is working or waiting on background tasks, so it doesn't stop mid-task.", tip: 'Hive lets the PC sleep again as soon as no agent is working. The screen can still turn off and lock. On a laptop, "When plugged in" lets it sleep on battery.', type: 'select', options: [{ value: 'plugged-in', label: 'When plugged in' }, { value: 'always', label: 'Always, on battery too' }, { value: 'never', label: 'Never' }] },
   { section: 'general', key: 'showTips', title: 'Show a tip when Hive starts', desc: 'One tip a day about something Hive can do, and a tip at the moments one helps.', tip: 'Tips show in a small card in the bottom corner and never get in the way. Help → Tips… lists them all, whether this is on or off.', type: 'boolean' },
   // Updates
@@ -432,6 +443,7 @@ function Control({ def, settings }: { def: SettingDef; settings: AppSettings }) 
         <Switch
           checked={!!value}
           label={def.title}
+          disabled={!!def.disabledBy?.(settings)}
           onChange={async (v) => {
             if (v && def.confirmOn && !(await confirm({ ...def.confirmOn, confirmLabel: 'Enable', danger: true }))) return
             void update(def, v)
@@ -899,6 +911,7 @@ export function SettingsView() {
                         )}
                       </div>
                       {d.desc && <div className="s-desc">{d.desc}</div>}
+                      {d.disabledBy?.(settings) && <div className="s-desc muted">{d.disabledBy(settings)}</div>}
                     </div>
                     <div className="s-control">
                       <Control def={d} settings={settings} />

@@ -36,6 +36,29 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Long commands through hive-progress: Codex (`gpt-5.6-luna`, CLI 0.160.0) and Claude Code (default model, CLI 2.1.289), fixtures v9, 5 October 2026
+
+The new **progress-long-command**, **progress-background** and **progress-off** scenarios and **work-on-card**, two
+samples each, after the session contract got its hive-progress line (#167; on by default, off in Settings):
+- **Codex: 8 of 8 pass** (`results/2026-10-05T02-19-13-codex`, $0.03): `hive-progress -- npm test` in each "on" run (the
+  background one through `exec_command` with a 1 s yield, so it went on in the background); plain `npm test` with the
+  setting off.
+- **Claude Code: 8 of 8 pass** (`results/2026-10-05T02-24-06-claude-code`, $0.86 API-equivalent): the same, through
+  PowerShell (the transcript's command doesn't show whether it was run in the background).
+
+## Card loops: Codex (`gpt-5.6-luna`, CLI 0.160.0) and Claude Code (default model, CLI 2.1.289), fixtures v8, 5 October 2026
+
+The card-loop scenarios only (#173), two samples each, after the skill's rounds became "a round is one build and its
+review; at **rounds** failed reviews, ask" and stopping to ask became always `hive_notify`:
+- **Codex: 8 of 8 pass** (`results/2026-10-05T01-40-53-codex`, $0.10), **card-loop-rounds** 2 of 2 included.
+- **Claude Code: 8 of 8 pass** (`results/2026-10-05T01-49-19-claude-code`, $1.52 API-equivalent).
+
+On the way there (Codex, same four scenarios): with the new count but a prompt saying "it is in round 2", one rounds
+sample still read it as "do round 2's fix" (`results/2026-10-05T01-20-09-codex`); and **card-loop-disputed** failed
+2 of 2 (`results/2026-10-05T00-58-32-codex`): one reviewer found a real new bug (fixture v7's `sync.js` makes three
+attempts while the card said "retry three times", now "try up to three times"), the other stopped but asked in a card
+comment instead of `hive_notify`.
+
 ## Card loops: Codex (`gpt-5.6-luna`, CLI 0.160.0), fixtures v7, 4 October 2026
 
 The card-loop scenarios only (#163), two samples each, against the card-loop skill before and after its "a finding that

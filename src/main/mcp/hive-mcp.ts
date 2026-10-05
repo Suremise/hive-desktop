@@ -458,7 +458,7 @@ const tools: Tool[] = [
 const allowed = new Set(assistantTools(CONTROL))
 const offered = tools.filter((t) => (ASSISTANT ? !ASSISTANT_ONLY_TOOLS.includes(t.name) || allowed.has(t.name) : !ASSISTANT_ONLY_TOOLS.includes(t.name)))
 
-const INSTRUCTIONS = hiveInstructions(PROJECT, ASSISTANT ? 'assistant' : 'agent')
+const INSTRUCTIONS = hiveInstructions(PROJECT, ASSISTANT ? 'assistant' : 'agent', process.env.HIVE_PROGRESS_COMMANDS !== '0')
 
 async function instructions(): Promise<string> {
   // Without a project (the Hive Assistant's session) there is no "latest handover for this project".

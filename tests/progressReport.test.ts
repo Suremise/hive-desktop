@@ -6,16 +6,24 @@ import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'fs'
 import { createServer, type Server } from 'http'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { estimateFor, ProgressRun, progressTarget, recordTiming } from '../src/main/progressReporters/report.mts'
+import { estimateFor, ProgressRun, progressTarget, recordTiming, wrappedLines } from '../src/main/progressReporters/report.mts'
 import { cmdEscapeArgument, commandEnv, commandLabel, parseArgs, runWrapped, spawnSpec, StepFilter, stepLine, timingKey } from '../src/main/progressReporters/wrapper'
 import { installShims, shimFiles, withBinOnPath } from '../src/main/progressReporters/shims'
+import { hiveInstructions, progressRule, wrapsLongCommands } from '../src/shared/hiveGuidance'
+import { launchParts } from '../src/main/guidance'
 
 const dir = mkdtempSync(join(tmpdir(), 'hive-progress-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
-/** The stand-in Agent API: records each call; `refuse` answers the start with 401. */
+/**
+ * The stand-in Agent API: records each call; `refuse` answers the start with 401. Each call is also written to `seenFile`
+ * as it arrives, so a command run under the wrapper can wait for what the wrapper has reported (`seenNode` below) instead of
+ * guessing how long that takes on a loaded machine.
+ */
 const calls: { method: string; path: string; auth: string; body: Record<string, unknown> }[] = []
+const seenFile = join(dir, 'seen.json')
 let refuse = false
 let server: Server
 let url = ''
@@ -25,6 +33,7 @@ beforeAll(async () => {
     req.on('data', (d) => (raw += d))
     req.on('end', () => {
       calls.push({ method: req.method ?? '', path: req.url ?? '', auth: req.headers.authorization ?? '', body: raw ? JSON.parse(raw) : {} })
+      writeFileSync(seenFile, JSON.stringify(calls))
       res.setHeader('Content-Type', 'application/json')
       if (refuse) return res.writeHead(401).end('{"error":"no"}')
       res.end(req.method === 'POST' && req.url === '/v1/progress' ? JSON.stringify({ id: `run-${calls.length}` }) : '{}')
@@ -37,17 +46,29 @@ afterAll(() => new Promise<void>((r) => server.close(() => r())))
 beforeEach(() => {
   calls.length = 0
   refuse = false
+  rmSync(seenFile, { force: true })
 })
 
 const node = process.execPath
-const env = (extra: Record<string, string | undefined> = {}) => ({ ...process.env, HIVE_API_URL: url, HIVE_API_TOKEN: 'agent-token', HIVE_PROGRESS_DATA: join(dir, 'data'), HIVE_PROGRESS: undefined, HIVE_API_TOKEN_FILE: undefined, HIVE_WORKSPACE: undefined, ...extra })
-/** Runs the wrapper, collecting what it writes. */
-async function wrap(argv: string[], e: Record<string, string | undefined>) {
+const env = (extra: Record<string, string | undefined> = {}) => ({ ...process.env, HIVE_API_URL: url, HIVE_API_TOKEN: 'agent-token', HIVE_PROGRESS_DATA: join(dir, 'data'), HIVE_PROGRESS: undefined, HIVE_API_TOKEN_FILE: undefined, HIVE_WORKSPACE: undefined, HIVE_PROGRESS_WRAPPED: undefined, HIVE_TEST_SEEN: seenFile, ...extra })
+/**
+ * Runs the wrapper, collecting what it writes. By default the run is reported only at a step line with the total, or at
+ * the end, however long the command takes to start; `startWaitMs` 0 reports it at once, before the command's output.
+ */
+async function wrap(argv: string[], e: Record<string, string | undefined>, startWaitMs = 60_000) {
   let out = ''
   let err = ''
-  const code = await runWrapped(argv, { env: e, cwd: dir, stdout: { write: (b) => (out += String(b)) }, stderr: { write: (b) => (err += String(b)) }, stdin: 'ignore', minIntervalMs: 100, startWaitMs: 50 })
+  const code = await runWrapped(argv, { env: e, cwd: dir, stdout: { write: (b) => (out += String(b)) }, stderr: { write: (b) => (err += String(b)) }, stdin: 'ignore', minIntervalMs: 100, startWaitMs })
   return { code, out, err }
 }
+/**
+ * Node with `seen(c => …)` for its script: it resolves once the stand-in API's calls so far pass the test, so the command
+ * goes on only after the wrapper has reported what it should have; after 10 s it goes on anyway (the test's assertions
+ * then fail, rather than the test hanging).
+ */
+const seenJs = join(dir, 'seen.js')
+writeFileSync(seenJs, "globalThis.seen = (p) => new Promise((r) => { const end = Date.now() + 10000; const t = setInterval(() => { let c = []; try { c = JSON.parse(require('fs').readFileSync(process.env.HIVE_TEST_SEEN, 'utf8')) } catch {} if (p(c) || Date.now() > end) { clearInterval(t); r() } }, 10) })")
+const seenNode = [node, '-r', seenJs]
 
 describe('the hive-progress command line', () => {
   it('reads --title and the command after --, or the first word that is not an option', () => {
@@ -113,8 +134,8 @@ describe.runIf(process.platform === 'win32')('starting a command on Windows', ()
 
 describe('reporting a run', () => {
   it('reports start, steps and finish as the agent, passes output and the exit code through, and estimates after one run', async () => {
-    const script = "console.log('one'); console.log('##hive-progress step=1 total=2 name=first'); console.error('warn'); console.log('##hive-progress step=2 name=second'); setTimeout(() => process.exit(3), 300)"
-    const r = await wrap(['--title', 'Build', '--', node, '-e', script], env())
+    const script = `console.log('one'); console.log('##hive-progress step=1 total=2 name=first'); console.error('warn'); console.log('##hive-progress step=2 name=second'); seen((c) => c.some((x) => x.body.stepName === 'second')).then(() => process.exit(3))`
+    const r = await wrap(['--title', 'Build', '--', ...seenNode, '-e', script], env())
     expect(r).toEqual({ code: 3, out: 'one\n', err: 'warn\n' })
     // The first step line gives the total, so the run starts with it: step 1 of 2 starting is 0 finished.
     expect(calls[0]).toMatchObject({ method: 'POST', path: '/v1/progress', auth: 'Bearer agent-token' })
@@ -126,20 +147,31 @@ describe('reporting a run', () => {
 
     // A run that failed isn't timed; one that passed is, and the next run of the same command has its estimate: the
     // time left when its start is reported.
+    const timings = join(dir, 'data', 'timings.json')
+    expect(estimateFor(timings, timingKey(dir, [...seenNode, '-e', script]))).toBeUndefined()
     calls.length = 0
-    const ok = [node, '-e', "setTimeout(() => console.log('fine'), 250)"]
-    expect(await wrap(['--', ...ok], env())).toEqual({ code: 0, out: 'fine\n', err: '' })
+    // (Its start is reported before it ends: at the end, the run would already be timed.)
+    const ok = [...seenNode, '-e', `seen((c) => c.length > 0).then(() => console.log('fine'))`]
+    expect(await wrap(['--', ...ok], env(), 0)).toEqual({ code: 0, out: 'fine\n', err: '' })
     expect(calls[0].body).not.toHaveProperty('estimateMs')
     expect(calls.at(-1)?.body).toEqual({ ok: true })
+    expect(estimateFor(timings, timingKey(dir, ok))).toBeGreaterThanOrEqual(0)
+    // Two long runs on record make the usual time ten minutes, so what is left of it when the start is reported doesn't
+    // depend on how quickly this machine gets there.
+    recordTiming(timings, timingKey(dir, ok), 600_000)
+    recordTiming(timings, timingKey(dir, ok), 600_000)
     calls.length = 0
-    await wrap(['--', ...ok], env())
-    expect(calls[0].body.estimateMs).toBeGreaterThanOrEqual(100)
-    expect(calls[0].body.title).toBe(commandLabel(ok))
+    await wrap(['--', ...ok], env(), 0)
+    expect(calls[0].body.estimateMs).toBeGreaterThan(500_000)
+    expect(calls[0].body.estimateMs).toBeLessThanOrEqual(600_000)
+    // Titled with the command line (clipped: the temporary folder's path is long).
+    expect(commandLabel(ok).startsWith(String(calls[0].body.title).replace(/…$/, ''))).toBe(true)
   })
 
   it('a total given after the run started (no step line at first) is not sent: its steps are, as the step running', async () => {
-    const script = "setTimeout(() => { console.log('##hive-progress step=2 total=5 name=late'); setTimeout(() => {}, 250) }, 200)"
-    await wrap(['--', node, '-e', script], env())
+    // The step line comes only once the start has been reported (#145 is about showing a late total).
+    const script = `seen((c) => c.length > 0).then(() => { console.log('##hive-progress step=2 total=5 name=late'); return seen((c) => c.some((x) => x.method === 'PATCH')) })`
+    await wrap(['--', ...seenNode, '-e', script], env(), 0)
     expect(calls[0].body).not.toHaveProperty('total')
     const patches = calls.filter((c) => c.method === 'PATCH')
     expect(patches.map((c) => c.body)).toEqual([{ step: 1, stepName: 'late' }])
@@ -171,7 +203,7 @@ describe('reporting a run', () => {
 
   it('coalesces quick updates: the latest state wins, in order, and the finish comes last', async () => {
     const lines = Array.from({ length: 200 }, (_, i) => `##hive-progress step=${i + 1} total=200 name=s${i + 1}`).join('\\n')
-    await wrap(['--', node, '-e', `console.log('${lines}'); setTimeout(() => {}, 250)`], env())
+    await wrap(['--', ...seenNode, '-e', `console.log('${lines}'); seen((c) => c.some((x) => x.body.stepName === 's200'))`], env())
     const patches = calls.filter((c) => c.method === 'PATCH')
     expect(patches.length).toBeGreaterThan(0)
     expect(patches.length).toBeLessThan(10)
@@ -286,11 +318,59 @@ describe("the hive-progress command on a session's PATH (main/progressReporters/
   })
 })
 
+describe('a reporter inside a command hive-progress runs: one row, the wrapper\'s (#167)', () => {
+  it('the command is told it is wrapped; a reporter in it then has no target and prints step lines instead', () => {
+    expect(progressTarget({ HIVE_API_URL: 'http://h', HIVE_API_TOKEN: 't', HIVE_PROGRESS_WRAPPED: '1' })).toBeNull()
+    expect(wrappedLines({ HIVE_PROGRESS_WRAPPED: '1' })).toBeTypeOf('function')
+    expect(wrappedLines({ HIVE_PROGRESS_WRAPPED: '1', HIVE_PROGRESS: '0' })).toBeUndefined()
+    expect(wrappedLines({})).toBeUndefined()
+    const lines: string[] = []
+    const r = new ProgressRun(null, { title: 'e2e', total: 3, step: 0, stepName: 'a' }, { lines: (l) => lines.push(l) })
+    r.update({ step: 1, stepName: 'b' })
+    r.update({ estimateMs: 5000 })
+    r.update({ step: 3 })
+    // The API counts the steps finished; a step line names the one starting (from 1, at most the total).
+    expect(lines).toEqual(['##hive-progress step=1 total=3 name=a', '##hive-progress step=2 name=b', '##hive-progress step=3'])
+  })
+
+  it('a reporter run under hive-progress shows in its run: one row with the total and steps', async () => {
+    const report = pathToFileURL(join(__dirname, '..', 'src', 'main', 'progressReporters', 'report.mts')).href
+    // The way Hive's runners report (tests/progressReport.mts): a run of their own, or step lines when wrapped.
+    const script = `import(${JSON.stringify(report)}).then(async (m) => { const r = new m.ProgressRun(m.progressTarget(), { title: 'inner', total: 3, step: 0, stepName: 'a' }, { lines: m.wrappedLines() }); r.update({ step: 1, stepName: 'b' }); await seen((c) => c.some((x) => x.body.stepName === 'b')); await r.finish(true) })`
+    const r = await wrap(['--title', 'outer', '--', ...seenNode, '-e', script], env())
+    expect(r).toMatchObject({ code: 0, out: '' })
+    expect(calls.filter((c) => c.method === 'POST' && c.path === '/v1/progress').map((c) => c.body)).toEqual([expect.objectContaining({ title: 'outer', total: 3, step: 0, stepName: 'a' })])
+    expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ step: 1, stepName: 'b' }])
+    expect(calls.at(-1)).toMatchObject({ path: '/v1/progress/run-1/finish', body: { ok: true } })
+  })
+})
+
+describe("agents told to run long commands through hive-progress (Settings → General, #167)", () => {
+  it('by default, while the Progress panel is on; otherwise only when the user asks', () => {
+    expect(wrapsLongCommands(undefined)).toBe(true)
+    expect(wrapsLongCommands({ progressPanel: true, progressCommands: true })).toBe(true)
+    expect(wrapsLongCommands({ progressPanel: true, progressCommands: false })).toBe(false)
+    expect(wrapsLongCommands({ progressPanel: false, progressCommands: true })).toBe(false)
+    expect(hiveInstructions('web')).toContain(progressRule(true))
+    expect(progressRule(true)).toMatch(/over 30 s.*in the background too.*`hive-progress -- <command>`/)
+    expect(hiveInstructions('web', 'agent', false)).toContain(progressRule(false))
+    expect(progressRule(false)).toMatch(/only when the user asks/)
+    expect(hiveInstructions('', 'assistant')).not.toMatch(/hive-progress/)
+  })
+
+  it("a launch's guidance is measured as the contract it got, either way", () => {
+    for (const on of [true, false]) {
+      const parts = launchParts(`${hiveInstructions('web', 'agent', on)}\nLatest.`, 'agent', 'web', null)
+      expect(parts.customChars, String(on)).toBe('\nLatest.'.length)
+    }
+  })
+})
+
 describe("Hive's own test runners (tests/progressReport.mts)", () => {
   const saved = { ...process.env }
   beforeEach(() => {
     Object.assign(process.env, { HIVE_API_URL: url, HIVE_API_TOKEN: 'agent-token', HIVE_TEST_PROGRESS_TIMINGS: join(dir, 'runner-timings.json') })
-    for (const k of ['HIVE_API_TOKEN_FILE', 'HIVE_WORKSPACE', 'HIVE_PROGRESS']) delete process.env[k]
+    for (const k of ['HIVE_API_TOKEN_FILE', 'HIVE_WORKSPACE', 'HIVE_PROGRESS', 'HIVE_PROGRESS_WRAPPED']) delete process.env[k]
   })
   afterAll(() => {
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k]

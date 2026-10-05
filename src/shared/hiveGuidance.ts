@@ -16,7 +16,21 @@ type AssistantControlLevel = 'look' | 'agents' | 'projects'
 
 export type HiveRole = 'agent' | 'assistant'
 
-export function hiveInstructions(project: string, role: HiveRole = 'agent'): string {
+/**
+ * When agents run a command through hive-progress (Settings → General → Agents show long commands, while the Progress
+ * panel is on): long ones by default, or only when the user asks.
+ */
+export function progressRule(wrap: boolean): string {
+  return wrap
+    ? "Run commands likely to take over 30 s (tests, builds), in the background too, as `hive-progress -- <command>`: Hive's Progress panel shows them; output and exit code are unchanged."
+    : "Use `hive-progress -- <command>` (Hive's Progress panel) only when the user asks."
+}
+
+/** Whether agents are told to wrap long commands unasked: the setting, while the Progress panel is on (Settings → General). */
+export const wrapsLongCommands = (general: { progressPanel?: boolean; progressCommands?: boolean } | undefined): boolean => general?.progressPanel !== false && general?.progressCommands !== false
+
+/** `progress`: whether agents wrap long commands in hive-progress unasked (progressRule). */
+export function hiveInstructions(project: string, role: HiveRole = 'agent', progress = true): string {
   if (role === 'assistant') {
     return [
       "Hive is the desktop app hosting this session; you are its Assistant for this workspace. Handovers, shared notes, the task board and the projects' agents are Hive's: use the hive tools for them, not the file system.",
@@ -26,6 +40,7 @@ export function hiveInstructions(project: string, role: HiveRole = 'agent'): str
   return [
     `Hive is the desktop app hosting this session${project ? ` (project "${project}")` : ''}. Its workspace holds projects that share notes, skills and a task board. Handovers, shared notes, other projects and the board are Hive's: use the hive tools for them, not the file system.`,
     "The board shows your project's cards. Given a card (#n) to work on, fix or continue, use the work-on-card skill; asked to review or check one, use review-agent-work; asked to work through or review several cards in turn (a builder/reviewer loop), use card-loop. Hive's other skills cover handovers, picking work up, shared notes, merging, splitting work and its HTTP API.",
+    progressRule(progress),
     'Board rules, whatever a skill says, or if it is missing:',
     '- Working on a card: move it to doing first (also when it is back from review), then to review with a comment saying what you did.',
     '- Reviewing a card is not working on it: it stays in review with its agent (hive_update_task review start, then passed or failed with your verdict). If it leaves review meanwhile, your review is over: leave the card where it is (not back to review, not on to done).',

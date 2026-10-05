@@ -400,6 +400,10 @@ It runs the command with its output passed through unchanged and ends with its e
 
 Hive's own test runners report the same way (`npm run e2e`, a step per suite; `npm test`, a step per file) when they run in an agent's session.
 
+**Inside `hive-progress`.** The command it runs has `HIVE_PROGRESS_WRAPPED=1`, and the run is the wrapper's: a reporter in it should print step lines rather than start a run of its own, which would be a second row. Another `hive-progress` inside one just runs its command; Hive's own runners print step lines.
+
+Agents use `hive-progress` unasked for commands likely to take over 30 seconds, unless **Settings → General → Agents show long commands in the Progress panel**, or the Progress panel itself, is off: Hive's session guidance tells them which.
+
 ### Notifications
 
 `POST /v1/notify` — show a notification in Hive.
