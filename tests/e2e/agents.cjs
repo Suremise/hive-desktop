@@ -1,7 +1,8 @@
 // Multiple agents per project: add agents (project folder + new worktree), setup command, sessions in
 // both, layouts, file locks (synthetic PreToolUse hook calls), Changes for a worktree, merge (clean and
 // conflicting), remove. Throwaway profile, throwaway git project in the work folder.
-// Real Claude Code sessions start, but no prompt is ever sent. Clipboard untouched.
+// The agents run the fake Claude Code (fake-claude/, #195), never sent a prompt; that a real Claude Code session
+// starts in a worktree is claude-real's. Clipboard untouched.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path')
@@ -30,8 +31,9 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
 const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n}.png`) })
 
 ;(async () => {
-  lib.enableProviders(userData)
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData })
+  // The fake trusts the project and the worktree Hive makes for the Reviewer below.
+  const claude = lib.fakeClaude(userData, path.join(scratch, 'agents-claude-home'), [proj, path.join(wtRoot, 'demo', 'reviewer')])
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, ...claude })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))
@@ -77,7 +79,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n
   }, 20000)) ?? (await inv('pty:buffer', `session:${proj.toLowerCase()}#${a3.id}`))
   check('setup command ran in the agent terminal', buf3.includes('HIVE-SETUP-RAN'))
   await lib.acceptClaudeTrust(inv, proj, a3.id, 25000)
-  // Both sessions up (past starting: Claude Code's SessionStart arrived).
+  // Both sessions up (past starting: the CLI's SessionStart arrived).
   const up = (ids) => lib.until(async () => {
     const all = await inv('session:live')
     return ids.every((id) => all.some((l) => l.agentId === id && l.status !== 'starting'))

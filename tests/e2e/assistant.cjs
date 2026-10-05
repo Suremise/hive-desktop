@@ -1,7 +1,8 @@
 // The Hive Assistant: its home and personas in a workspace, the side panel (remembered per workspace), switching
 // persona, Assistant Settings over Settings → Assistant, the Personas view, and one launch (no prompt is sent)
-// that runs in the workspace folder, in Auto mode, named "Assistant" in the quit dialog.
-// Dev build, throwaway profile and workspaces.
+// that runs in the workspace folder, in Auto mode, named "Assistant" in the quit dialog. The Assistant runs the fake
+// Claude Code (fake-claude/, #195); that the real Claude Code takes its launch (and falls back from Auto with Haiku) is
+// claude-real's. Dev build, throwaway profile and workspaces.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -22,8 +23,8 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   for (const d of [userData, ws, ws2]) fs.rmSync(d, { recursive: true, force: true })
   for (const p of ['api', 'web']) fs.mkdirSync(path.join(ws, p), { recursive: true })
   fs.mkdirSync(ws2, { recursive: true })
-  lib.enableProviders(userData, ['claude-code'])
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47894) })
+  const claude = lib.fakeClaude(userData, path.join(lib.WORK, 'assistant-claude-home'), [ws, home])
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47894), ...claude })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
@@ -149,10 +150,7 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   // The key is marked as the user's own text in the log (userText), so the line is found by its parts.
   const launch = log.split('\n').filter((l) => / spawn \W?session:/.test(l) && l.toLowerCase().includes('assistant#assistant')).pop() ?? ''
   check('it launches in Auto', launch.includes('"--permission-mode","auto"'))
-  // Claude Code runs Haiku (set above) in Manual instead, and Hive shows the mode it really runs in.
-  await lib.until(async () => (await inv('session:live')).find((s) => s.agentId === 'assistant')?.permissionMode === 'manual', 10000)
-  const mode = (await inv('session:live')).find((s) => s.agentId === 'assistant')?.permissionMode
-  check('with Haiku, Claude Code falls back to Manual and Hive shows it', mode === 'manual', mode)
+  check('…with the model set in Settings → Assistant', launch.includes('"--model","haiku"'))
   check("its persona is appended to Claude Code's system prompt", launch.includes('--append-system-prompt-file'))
   check("Hive's reading tools are allowed", launch.includes('mcp__hive__hive_list_projects') && !launch.includes('mcp__hive__hive_write_shared_note'))
   check('Planner\'s instructions are in the launch', fs.readFileSync(path.join(home, '.hive', 'launch-assistant', 'instructions.md'), 'utf8').includes('heist'))

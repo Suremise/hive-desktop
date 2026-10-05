@@ -6,7 +6,7 @@
 // - `--version` and `auth status --json` answer as a signed-in CLI.
 // - In a folder it hasn't been told to trust, it first asks "Do you trust this folder?" (Enter trusts it).
 // - It sends SessionStart, then takes prompts: the last command-line argument, or a line typed and sent with
-//   Enter (Ctrl+U clears the line). Each prompt sends UserPromptSubmit, is written to the transcript, "works"
+//   Enter (Ctrl+U clears the line), shown on its input line as it is typed. Each prompt sends UserPromptSubmit, is written to the transcript, "works"
 //   (1 s, or N seconds for "work N"), and ends with a reply and Stop. "edit <file>" first sends PreToolUse for
 //   an Edit of that file and records the tool call. "background N" starts a background command that ends after
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
@@ -308,9 +308,13 @@ process.stdin.on('data', (data) => {
       continue
     }
     ctrlC = 0
-    if (ch === '\x15') line = ''
-    else if (ch === '\r' || ch === '\n') {
+    // What is typed shows on its input line, as in Claude Code (a pasted image's path too, #195).
+    if (ch === '\x15') {
+      if (line) out('\r\x1b[K')
+      line = ''
+    } else if (ch === '\r' || ch === '\n') {
       const text = line.trim()
+      if (line) out('\r\n')
       line = ''
       if (onEnter) {
         const f = onEnter
@@ -324,8 +328,13 @@ process.stdin.on('data', (data) => {
         promptLine()
       }
       else if (text && !busy) void runPrompt(text)
-    } else if (ch === '\x7f' || ch === '\b') line = line.slice(0, -1)
-    else if (ch >= ' ') line += ch
+    } else if (ch === '\x7f' || ch === '\b') {
+      if (line) out('\b \b')
+      line = line.slice(0, -1)
+    } else if (ch >= ' ') {
+      line += ch
+      out(ch)
+    }
   }
 })
 
