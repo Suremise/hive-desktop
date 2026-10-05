@@ -142,23 +142,32 @@ async function soloAgent(inv, proj, opts = {}) {
 /** Terminal key of an agent's session. */
 const ptyKey = (proj, agentId) => `session:${proj.toLowerCase()}#${agentId}`
 
-/** Answers Claude Code's "trust this folder" question in an agent's terminal, if it asks. */
+/**
+ * Claude Code at its prompt, past its first-run questions: its footer, "? for shortcuts" before 2.1.289 and the mode
+ * line since ("⏵⏵ auto mode on (shift+tab to cycle)", "⏸ manual mode on"). The trust and import screens show neither.
+ */
+const CLAUDE_AT_PROMPT = /for shortcuts|\? for|shift\+tab to cycle|\bmode on\b/i
+
+/**
+ * Answers Claude Code's "trust this folder" question in an agent's terminal, if it asks: true when it answered, false
+ * as soon as the session is past it (Claude Code's prompt on screen, or Hive has the session ready: a trusted folder
+ * asks nothing, #188), or at the timeout. Never answers anything else (a sign-in screen least of all).
+ */
 async function acceptClaudeTrust(inv, proj, agentId, timeoutMs = 15000) {
   const key = ptyKey(proj, agentId)
   const t = Date.now()
   while (Date.now() - t < timeoutMs) {
     // Terminal UIs draw spaces as cursor moves: control sequences become spaces before matching.
-    const text = String(await inv('pty:buffer', key).catch(() => ''))
-      .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ')
-      .replace(/\x1b\][^\x07]*\x07/g, ' ')
-      .replace(/\s+/g, ' ')
+    const text = plainText(await inv('pty:buffer', key).catch(() => ''))
     if (/trust this folder/i.test(text)) {
       await inv('pty:write', key, '\x1b[B')
       await sleep(300)
       await inv('pty:write', key, '\r')
       return true
     }
-    if (/for shortcuts|\? for/i.test(text)) return false
+    if (CLAUDE_AT_PROMPT.test(text)) return false
+    const live = (await inv('session:live').catch(() => [])).find((s) => s.projectPath.toLowerCase() === proj.toLowerCase() && s.agentId === agentId)
+    if (live?.status === 'ready') return false
     await sleep(500)
   }
   return false

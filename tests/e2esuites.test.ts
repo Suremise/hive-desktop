@@ -768,6 +768,49 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
   })
 })
 
+describe("answering Claude Code's trust question (lib.acceptClaudeTrust, #188)", () => {
+  type Accept = (inv: (ch: string, ...a: unknown[]) => Promise<unknown>, proj: string, agentId: string, ms?: number) => Promise<boolean>
+  const { acceptClaudeTrust } = createRequire(import.meta.url)('./e2e/lib.cjs') as { acceptClaudeTrust: Accept }
+  /** A session whose terminal shows `screen` and whose Hive status is `status`. */
+  const session = (screen: string, status = 'starting') => {
+    const writes: string[] = []
+    const inv = async (ch: string, ...a: unknown[]) => {
+      if (ch === 'pty:buffer') return screen
+      if (ch === 'session:live') return [{ projectPath: 'C:\\P', agentId: 'a1', status }]
+      writes.push(String(a[1]))
+      return undefined
+    }
+    return { writes, run: async () => { const t = Date.now(); const r = await acceptClaudeTrust(inv, 'c:\\p', 'a1', 4000); return { r, ms: Date.now() - t } } }
+  }
+
+  it('answers the trust question: Down, then Enter', async () => {
+    const s = session('Quick safety check: Is this a project you created or one you trust? \x1b[1m❯\x1b[0m 1. Yes, I trust this folder  2. No, exit')
+    expect((await s.run()).r).toBe(true)
+    expect(s.writes).toEqual(['\x1b[B', '\r'])
+  })
+
+  it("in a trusted folder it returns at once: Claude Code 2.1.289's mode footer, the old one, or Hive's ready status", async () => {
+    for (const screen of ['> \x1b[2m⏵⏵ auto mode on (shift+tab to cycle)\x1b[0m', '>  ⏸ manual mode on', '> ? for shortcuts']) {
+      const s = session(screen)
+      const { r, ms } = await s.run()
+      expect(r, screen).toBe(false)
+      expect(ms, screen).toBeLessThan(1000)
+      expect(s.writes).toEqual([])
+    }
+    const ready = session('Claude Code v2.1.290', 'ready')
+    expect(await ready.run()).toMatchObject({ r: false })
+    expect(ready.writes).toEqual([])
+  })
+
+  it('answers nothing else: a sign-in screen waits out the timeout untouched', async () => {
+    const s = session('Select login method: 1. Claude account with subscription 2. Anthropic Console account', 'waiting')
+    const { r, ms } = await s.run()
+    expect(r).toBe(false)
+    expect(ms).toBeGreaterThanOrEqual(3900)
+    expect(s.writes).toEqual([])
+  })
+})
+
 describe('sending a prompt to a CLI until it takes it (lib.sendPrompt, #190)', () => {
   type Send = (inv: (ch: string, ...a: unknown[]) => Promise<unknown>, key: string, text: string, o: { submitted: () => Promise<boolean>; tries?: number; waitMs?: number }) => Promise<number>
   const { sendPrompt } = createRequire(import.meta.url)('./e2e/lib.cjs') as { sendPrompt: Send }
