@@ -77,6 +77,25 @@ describe('progress runs', () => {
     expect(status(() => s.finish(alfie, long.id, {}))).toBe(400)
   })
 
+  it('takes a late total once, on a run started without one; a run with a total keeps it', () => {
+    const s = store()
+    const late = s.start(alfie, { title: 'counts late' })
+    s.update(alfie, late.id, { step: 7, stepName: 'setup' })
+    // A refused update changes nothing: out of range, or a step past the new total.
+    expect(status(() => s.update(alfie, late.id, { total: 0 }))).toBe(400)
+    expect(status(() => s.update(alfie, late.id, { total: 4, step: 5 }))).toBe(400)
+    expect(late).toMatchObject({ total: null, step: 7, stepName: 'setup' })
+    // A step already past the total is kept within it.
+    expect(s.update(alfie, late.id, { total: 5 })).toMatchObject({ total: 5, step: 5, stepName: 'setup' })
+    expect(s.update(alfie, late.id, { step: 2 }).step).toBe(2)
+    expect(status(() => s.update(alfie, late.id, { total: 5 }))).toBe(409)
+    expect(status(() => s.update(alfie, late.id, { total: 8, step: 3 }))).toBe(409)
+    expect(late).toMatchObject({ total: 5, step: 2 })
+    const early = s.start(alfie, { title: 'counts early', total: 3 })
+    expect(status(() => s.update(alfie, early.id, { total: 6 }))).toBe(409)
+    expect(s.update(alfie, s.start(alfie, { title: 'with name' }).id, { total: 3, step: 1, stepName: 'b' })).toMatchObject({ total: 3, step: 1, stepName: 'b' })
+  })
+
   it(`allows ${MAX_OPEN_PER_OWNER} open runs per owner, counted separately for each`, () => {
     const s = store()
     const ids = Array.from({ length: MAX_OPEN_PER_OWNER }, (_, i) => s.start(alfie, { title: `run ${i}` }).id)

@@ -45,7 +45,7 @@ export function wrappedLines(env: Record<string, string | undefined> = process.e
 
 // The API's terms (#136): `step` counts the steps finished (0 at the start, `total` at the end) and `stepName` names the
 // one running now; `estimateMs` is the time left, counted from that report (an update without one keeps the deadline);
-// `total` is set only when the run starts.
+// `total` is set when the run starts, or once by an update when it started without one.
 export interface ProgressStart {
   title: string
   /** Steps, when known. */
@@ -59,6 +59,8 @@ export interface ProgressStart {
 }
 
 export interface ProgressUpdate {
+  /** Steps, for a run started without them: sent once (a run that has a total keeps it). */
+  total?: number
   /** Steps finished. */
   step?: number
   /** The step running now. */
@@ -95,7 +97,9 @@ export class ProgressRun {
   private lastSent = 0
   private finished = false
   /** Its steps (a step past them is refused), or the API's limit. */
-  private readonly maxStep: number
+  private maxStep: number
+  /** Whether it has a total (given at the start, or sent once later). */
+  private hasTotal: boolean
 
   /** With no target: step lines for the wrapper it runs under (wrappedLines), or nothing. */
   private readonly lines: ((line: string) => void) | undefined
@@ -107,6 +111,7 @@ export class ProgressRun {
     this.minIntervalMs = opts.minIntervalMs ?? 500
     const total = count(start.total, MAX_TOTAL) || undefined
     this.maxStep = total ?? MAX_TOTAL
+    this.hasTotal = total !== undefined
     const step = count(start.step, this.maxStep)
     const estimateMs = count(start.estimateMs, MAX_ESTIMATE_MS)
     const body = {
@@ -128,7 +133,7 @@ export class ProgressRun {
   /** A step line: `step` counts the steps finished (the API's terms); the line names the one starting, from 1. */
   private line(step: number, name: string | undefined, total?: number): void {
     const starting = Math.min(step + 1, this.maxStep)
-    if (starting === this.lineStep && name === undefined) return
+    if (starting === this.lineStep && name === undefined && total === undefined) return
     this.lineStep = starting
     this.lines!(`##hive-progress step=${starting}${total !== undefined ? ` total=${total}` : ''}${name ? ` name=${clip(name, MAX_TITLE)}` : ''}`)
   }
@@ -139,13 +144,23 @@ export class ProgressRun {
   }
 
   update(u: ProgressUpdate): void {
+    const total = !this.hasTotal && !this.finished && (this.lines || this.target) ? count(u.total, MAX_TOTAL) || undefined : undefined
+    if (total !== undefined) {
+      this.hasTotal = true
+      this.maxStep = total
+    }
     if (this.lines && !this.finished) {
       const step = count(u.step, this.maxStep)
-      if (step !== undefined || u.stepName !== undefined) this.line(step ?? Math.max(0, this.lineStep - 1), u.stepName)
+      if (step !== undefined || u.stepName !== undefined || total !== undefined) this.line(step ?? Math.max(0, this.lineStep - 1), u.stepName, total)
       return
     }
     if (!this.target || this.finished) return
     const next: ProgressUpdate = { ...this.pending }
+    // A step merged in before the total came is kept within it (the API refuses a step past the total).
+    if (total !== undefined) {
+      next.total = total
+      if (next.step !== undefined) next.step = Math.min(next.step, total)
+    }
     if (count(u.step, this.maxStep) !== undefined) next.step = count(u.step, this.maxStep)
     if (count(u.estimateMs, MAX_ESTIMATE_MS) !== undefined) next.estimateMs = count(u.estimateMs, MAX_ESTIMATE_MS)
     if (u.stepName !== undefined) next.stepName = clip(u.stepName, MAX_TITLE)
@@ -171,7 +186,11 @@ export class ProgressRun {
     this.finished = true
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
+    // What's pending is dropped (a passed run's bar fills anyway), except a late total, sent once: it goes first, with
+    // its step and name, within the finish's wait.
+    const late = this.pending?.total !== undefined ? this.pending : null
     this.pending = null
+    if (late) this.chain = this.chain.then(() => this.id).then((id) => (id ? this.send('PATCH', `/v1/progress/${encodeURIComponent(id)}`, late, Math.min(2000, finishWaitMs / 2)) : null))
     const done = this.chain
       .then(() => this.id)
       .then((id) => (id ? this.send('POST', `/v1/progress/${encodeURIComponent(id)}/finish`, { ok, ...(summary ? { summary: clip(summary, MAX_SUMMARY) } : {}) }, finishWaitMs) : null))

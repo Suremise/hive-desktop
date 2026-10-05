@@ -114,6 +114,20 @@ const check = (name, ok, extra = '') => {
   const end1 = await stepped()
   check('…and it passes', end1?.code === 0 && (await until(async () => (await runs()).find((r) => r.id === live1?.id)?.state === 'passed', 10000)), JSON.stringify(end1))
 
+  // --- A total printed after the wrapper's first 2 seconds (#145): the run starts without steps and takes it once.
+  known = (await runs()).map((r) => r.id)
+  const lateCmd = await startShell(builder.id, `hive-progress --title "Late total" -- node -e "setTimeout(() => console.log('##hive-progress step=2 total=4 name=late'), 3500); setTimeout(() => console.log('##hive-progress step=3 total=9 name=later'), 5500); setTimeout(() => process.exit(0), 8000)"`)
+  const live2 = await newRun(known, (r) => r.title === 'Late total')
+  const lateRow = panel.locator(`.progress-run[data-run="${live2?.id}"]`)
+  const lateText = async () => (await lateRow.textContent().catch(() => '')) ?? ''
+  check('a run whose total comes late starts without steps', !!live2 && live2.total === null, JSON.stringify(live2))
+  check('…then shows the late total as steps', !!(await until(async () => /2 of 4: late/.test(await lateText()), 10000)), await lateText())
+  await page.screenshot({ path: path.join(lib.WORK, 'progressreport-late-total.png') })
+  check('…and keeps it when another total comes', !!(await until(async () => /3 of 4: later/.test(await lateText()), 10000)), await lateText())
+  const end2 = await lateCmd()
+  const late2 = await until(async () => (await runs()).find((r) => r.id === live2?.id && r.state === 'passed'), 10000)
+  check('…and it passes with its bar full', end2?.code === 0 && late2?.total === 4 && late2?.step === 4, JSON.stringify({ end2, late2 }))
+
   // --- Hive's own runners in an agent's session: shown in this Hive's panel as the agent's, with steps and estimates.
   const root = lib.ROOT
   const unitCmd = `cd /d "${root}" && npx vitest run tests/tips.test.ts tests/e2esuites.test.ts`
