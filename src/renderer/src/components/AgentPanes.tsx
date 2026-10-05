@@ -215,8 +215,9 @@ Click to read it in the Sessions tab; right-click to rename it.`
   )
 }
 
-// Dragging an agent (its strip tab or pane header) moves it in the project's order: dropped on a tab it goes before
-// or after it, on a pane it takes that agent's place, on a page button to the end of that page.
+// Dragging an agent (its strip tab or pane header) changes the project's order, which the panes follow (#135): dropped
+// on a tab it goes before or after it, on another agent's pane the two swap, on an empty pane to the end, on a page
+// button to the end of that page (held over one, that page shows).
 const AGENT_DRAG = 'application/x-hive-agent'
 
 function agentDragProps(project: ProjectInfo, a: AgentInfo) {
@@ -244,6 +245,82 @@ function dropAgent(project: ProjectInfo, index: number): void {
   set({ agentDrag: null })
   if (id) void actions.moveAgent(project.path, id, index)
 }
+
+/** A dragged agent dropped on another's pane: they swap places (#135). */
+function swapDrop(project: ProjectInfo, otherId: string): void {
+  const id = useStore.getState().agentDrag?.id
+  set({ agentDrag: null })
+  if (id && id !== otherId) void actions.swapAgents(project.path, id, otherId)
+}
+
+/** How long a dragged agent hovers over a page button before that page shows, so it can be dropped on one of its panes. */
+const PAGE_HOVER_MS = 600
+
+/**
+ * Ends a drag Hive is tracking when the browser's own end of it can't reach its source: a pane header dragged to another
+ * page is no longer on screen to get `dragend` (Escape, or a drop outside any target). Ended at once by Escape (its
+ * keyup: the browser's drag takes the keydown), the button's release with no drop to take it, a dragleave that nothing
+ * follows, any drop or drag end in the window, or the mouse moving with no button down.
+ */
+function useDragCleanup(): void {
+  const dragging = useStore((s) => !!s.agentDrag)
+  useEffect(() => {
+    if (!dragging) return
+    const clear = (): void => {
+      if (useStore.getState().agentDrag) set({ agentDrag: null })
+    }
+    // Over: after the drop's own handlers.
+    const end = (): void => void setTimeout(clear, 0)
+    const move = (e: MouseEvent): void => {
+      if (e.buttons === 0) end()
+    }
+    // Escape cancels at once (#135). The browser's own drag takes its keydown; the page gets the keyup.
+    const key = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') clear()
+    }
+    // The button let go with no drop to take it (a cancelled drag): over, after any drop's own handlers.
+    const up = (): void => void setTimeout(clear, 0)
+    // A cancelled drag (Escape in the browser's own drag, a release outside the window) ends with a dragleave at the
+    // element under the pointer and nothing after it; moving between elements sends the next one's dragenter just
+    // before the dragleave. So a dragleave with no dragenter just before it, and no drag event after it, ends the drag.
+    let entered = 0
+    let pending: ReturnType<typeof setTimeout> | undefined
+    const enter = (): void => {
+      entered = Date.now()
+      clearTimeout(pending)
+    }
+    const over = (): void => clearTimeout(pending)
+    const leave = (): void => {
+      if (Date.now() - entered < 50) return
+      clearTimeout(pending)
+      pending = setTimeout(clear, 100)
+    }
+    document.addEventListener('drop', end)
+    document.addEventListener('dragend', end, true)
+    document.addEventListener('mousemove', move)
+    document.addEventListener('keydown', key, true)
+    document.addEventListener('keyup', key, true)
+    document.addEventListener('mouseup', up, true)
+    document.addEventListener('pointerup', up, true)
+    document.addEventListener('dragenter', enter, true)
+    document.addEventListener('dragover', over, true)
+    document.addEventListener('dragleave', leave, true)
+    return () => {
+      clearTimeout(pending)
+      document.removeEventListener('drop', end)
+      document.removeEventListener('dragend', end, true)
+      document.removeEventListener('mousemove', move)
+      document.removeEventListener('keydown', key, true)
+      document.removeEventListener('keyup', key, true)
+      document.removeEventListener('mouseup', up, true)
+      document.removeEventListener('pointerup', up, true)
+      document.removeEventListener('dragenter', enter, true)
+      document.removeEventListener('dragover', over, true)
+      document.removeEventListener('dragleave', leave, true)
+    }
+  }, [dragging])
+}
+
 
 /** Move Left / Move Right, for a project with several agents (they cross pages at the edges). */
 function moveItems(project: ProjectInfo, a: AgentInfo): MenuEntry[] {
@@ -412,10 +489,15 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
   // Where a dragged agent would land: before this agent (null: at the end).
   const [dropBefore, setDropBefore] = useState<string | null | undefined>(undefined)
   const [dropPage, setDropPage] = useState<number | null>(null)
+  // A page button being held over while dragging: its page shows after PAGE_HOVER_MS.
+  const pageHover = useRef<{ page: number; timer: ReturnType<typeof setTimeout> } | null>(null)
+  useDragCleanup()
   useEffect(() => {
     if (!dragging) {
       setDropBefore(undefined)
       setDropPage(null)
+      if (pageHover.current) clearTimeout(pageHover.current.timer)
+      pageHover.current = null
     }
   }, [dragging])
   const ids = project.agents.map((a) => a.id)
@@ -440,8 +522,10 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
               e.preventDefault()
               e.dataTransfer.dropEffect = 'move'
               const r = e.currentTarget.getBoundingClientRect()
-              // The left half drops before this agent, the right half before the next one.
-              setDropBefore(e.clientX < r.left + r.width / 2 ? a.id : (project.agents[i + 1]?.id ?? null))
+              // The left half drops before this agent, the right half before the next one; no marker where the agent
+              // would stay where it is (#135: a highlight only where a drop does something).
+              const before = e.clientX < r.left + r.width / 2 ? a.id : (project.agents[i + 1]?.id ?? null)
+              setDropBefore(dropIndex(ids, dragging, before) === ids.indexOf(dragging) ? undefined : before)
               setDropPage(null)
             }}
             onDrop={(e) => {
@@ -490,10 +574,23 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
                     e.preventDefault()
                     setDropPage(i)
                     setDropBefore(undefined)
+                    // Held over another page's button for a moment, that page shows, to drop on one of its panes (#135).
+                    if (i !== page && pageHover.current?.page !== i) {
+                      if (pageHover.current) clearTimeout(pageHover.current.timer)
+                      pageHover.current = { page: i, timer: setTimeout(() => showPage(project, i), PAGE_HOVER_MS) }
+                    }
                   }}
-                  onDragLeave={() => setDropPage(null)}
+                  onDragLeave={() => {
+                    setDropPage(null)
+                    if (pageHover.current?.page === i) {
+                      clearTimeout(pageHover.current.timer)
+                      pageHover.current = null
+                    }
+                  }}
                   onDrop={(e) => {
                     e.preventDefault()
+                    if (pageHover.current) clearTimeout(pageHover.current.timer)
+                    pageHover.current = null
                     if (dragging) dropAgent(project, pageEndIndex(project.agents.length, i, perPage))
                   }}
                 >
@@ -979,23 +1076,27 @@ export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (s
               <PaneBody project={project} a={a} hasTerminal={hasTerminal} single={single} />
             </div>
             {a && <PaneFooter project={project} a={a} />}
-            {/* While an agent is dragged: drop it here to put it in this agent's place. */}
-            {dragging && a && a.id !== dragging && (
+            {/*
+              While an agent is dragged (#135): drop it on another agent's pane to swap their places, or on an empty pane
+              (the last page's spare ones) to move it there. Not on its own pane: that would do nothing.
+            */}
+            {dragging && a?.id !== dragging && (
               <div
-                className={cx('pane-drop', over === a.id && 'over')}
+                className={cx('pane-drop', over === (a?.id ?? `empty:${i}`) && 'over')}
                 onDragOver={(e) => {
                   e.preventDefault()
                   e.dataTransfer.dropEffect = 'move'
-                  setOver(a.id)
+                  setOver(a?.id ?? `empty:${i}`)
                 }}
-                onDragLeave={() => setOver((o) => (o === a.id ? null : o))}
+                onDragLeave={() => setOver((o) => (o === (a?.id ?? `empty:${i}`) ? null : o))}
                 onDrop={(e) => {
                   e.preventDefault()
-                  dropAgent(project, project.agents.findIndex((x) => x.id === a.id))
+                  if (a) swapDrop(project, a.id)
+                  else dropAgent(project, project.agents.length - 1)
                 }}
               >
                 <span>
-                  <Icon name="arrow-swap" /> Move here
+                  <Icon name="arrow-swap" /> {a ? `Swap with ${a.name}` : 'Move here'}
                 </span>
               </div>
             )}

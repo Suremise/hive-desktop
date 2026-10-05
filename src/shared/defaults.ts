@@ -178,6 +178,19 @@ export function moveAgentTo<T extends { id: string }>(agents: readonly T[], id: 
   return [...rest.slice(0, to), agents[from], ...rest.slice(to)]
 }
 
+/**
+ * The agents with two of them swapped (#135: an agent dropped on another's pane): each takes the other's place, across
+ * pages too. An unknown id, or the same one twice, leaves the order as it is.
+ */
+export function swapAgentsIn<T extends { id: string }>(agents: readonly T[], a: string, b: string): T[] {
+  const i = agents.findIndex((x) => x.id === a)
+  const j = agents.findIndex((x) => x.id === b)
+  if (i < 0 || j < 0 || i === j) return [...agents]
+  const out = [...agents]
+  ;[out[i], out[j]] = [out[j], out[i]]
+  return out
+}
+
 /** Where an agent dropped before another one ends up (`before` null, or itself: at the end, or where it is). */
 export function dropIndex(ids: readonly string[], id: string, before: string | null): number {
   if (before === id) return Math.max(0, ids.indexOf(id))

@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import { basename, join, resolve } from 'path'
-import { MAX_AGENTS, mergeBlocked, moveAgentTo, projectAgents, slugify } from '../shared/defaults'
+import { MAX_AGENTS, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
 import { agentProvider, isKnownProvider } from '../shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, MergeResult, ProjectGitInfo } from '../shared/types'
 import { config } from './config'
@@ -149,6 +149,21 @@ export async function moveAgent(projectPath: string, agentId: string, index: num
     const list = projectAgents(now)
     if (!list.some((a) => a.id === agentId)) throw new Error('That agent no longer exists.')
     return { agents: moveAgentTo(list, agentId, index) }
+  })
+  await workspaceOf(projectPath).refresh()
+  return projectAgents(next).map((a) => a.id)
+}
+
+/**
+ * Swaps two agents' places in the project's order (#135: one dropped on another's pane), under the project file's lock so
+ * a change meanwhile isn't lost. Returns the order as saved.
+ */
+export async function swapAgents(projectPath: string, agentId: string, otherId: string): Promise<string[]> {
+  projectPath = workspace.assertProject(projectPath)
+  const next = await workspace.mutateProjectConfig(projectPath, (now) => {
+    const list = projectAgents(now)
+    if (!list.some((a) => a.id === agentId) || !list.some((a) => a.id === otherId)) throw new Error('That agent no longer exists.')
+    return { agents: swapAgentsIn(list, agentId, otherId) }
   })
   await workspaceOf(projectPath).refresh()
   return projectAgents(next).map((a) => a.id)
