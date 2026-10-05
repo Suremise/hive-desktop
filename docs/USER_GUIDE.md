@@ -221,7 +221,7 @@ The **Workspace Overview** (in the activity bar, or **Ctrl+Shift+O**) adds up th
 
 - the task board at a glance: cards per column, stalled and blocked, each opening the board;
 - tokens, API-equivalent cost, sessions and prompts for the period;
-- for 7 and 30 days, a chart of tokens per day, stacked by project (the six busiest, the rest as Other); hover a day for each project's share;
+- for 7 and 30 days, a chart of tokens per day, stacked by project (the six busiest, the rest as Other); each day is a tile of its own, as in the Performance chart, so quiet days still show; hover a day for each project's share;
 - every agent running now, in any project (click one to go to it);
 - a table **by project**, with the Assistant as its own row: click a column to sort, or a row to open that project's Overview;
 - each provider's totals and plan limits.

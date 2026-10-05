@@ -3697,9 +3697,14 @@ body.pane-resizing .monaco-editor {
 .page-switch .dot.added {
   background: var(--accent);
 }
-/* The Overview's tokens per day (7 and 30 days): one bar a day, its numbers on hover. */
+/*
+ * The day (or hour) charts: the Overviews' tokens per day (7 and 30 days) and Performance's requests. Each slot is a
+ * tile of its own, with a soft background, so a quiet day still reads as its own column; its bar stands in it and
+ * its numbers show on hover. Performance adds what only it knows on top (a slot not recorded, or partly).
+ */
 .daily-chart {
   margin: 12px 0 18px;
+  --daily-slot: color-mix(in srgb, var(--border-subtle) 50%, transparent);
 }
 .daily-bars {
   display: flex;
@@ -3716,8 +3721,10 @@ body.pane-resizing .monaco-editor {
   flex: 1;
   display: flex;
   align-items: flex-end;
+  border-radius: 3px 3px 0 0;
+  background: var(--daily-slot);
 }
-.daily-col:hover {
+.daily-chart .daily-col:hover {
   background: var(--bg-hover);
 }
 .daily-bar {
@@ -5539,13 +5546,14 @@ body.pane-resizing-v .monaco-editor {
 .perf-limits summary {
   cursor: pointer;
 }
-/* A trend slot Hive wasn't recording: hatched, so it reads as no data rather than zero. */
-.perf-trend .daily-col.unobserved,
+/* Performance's own, on the shared day tile: a slot Hive wasn't recording is hatched, so it reads as no data
+   rather than zero; one recorded for part of its time fades towards the axis. */
+.perf-trend .daily-col.unobserved:not(:hover),
 .perf-trend .swatch.unobserved {
   background: repeating-linear-gradient(135deg, transparent 0 3px, var(--border-subtle) 3px 5px);
 }
-.perf-trend .daily-col.partial {
-  background: linear-gradient(to top, transparent, color-mix(in srgb, var(--border-subtle) 40%, transparent));
+.perf-trend .daily-col.partial:not(:hover) {
+  background: linear-gradient(to top, transparent, var(--daily-slot));
 }
 .perf-coverage p {
   margin: 0 0 4px;

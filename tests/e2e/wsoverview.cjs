@@ -1,5 +1,5 @@
-// Workspace Overview: totals across projects for a period, the table by project, the stacked chart, the board
-// strip and the hidden-project note. Transcripts are Hive backups (.hive/sessions) dated relative to today; no
+// Workspace Overview: totals across projects for a period, the table by project, the stacked chart (a tile a day),
+// the board strip and the hidden-project note. Transcripts are Hive backups (.hive/sessions) dated relative to today; no
 // agent is started.
 const lib = require('./lib.cjs')
 const fs = require('fs')
@@ -67,6 +67,10 @@ const check = (name, ok, extra = '') => {
   const tokens = page.locator('.card', { hasText: 'Tokens' }).first().locator('.value')
   check('the summary adds up every project in the period', (await tokens.innerText()) === '4.5k', await tokens.innerText())
   check('the chart is stacked by project, with a legend', JSON.stringify(await page.locator('.stack-legend > span').allInnerTexts().then((x) => x.map((s) => s.trim()))) === JSON.stringify(['alpha', 'beta']), JSON.stringify(await page.locator('.stack-legend > span').allInnerTexts()))
+  // Every day is a tile of its own (as in the Performance chart), a day without tokens too: the same visible background.
+  await page.mouse.move(5, 5)
+  const tiles = await page.locator('.daily-chart:visible .daily-col').evaluateAll((cols) => cols.map((c) => ({ bg: getComputedStyle(c).backgroundColor, empty: !c.querySelector('.stack-part'), w: c.getBoundingClientRect().width })))
+  check('each of the 7 days is a tile with the same visible background, empty days too', tiles.length === 7 && tiles.some((t) => t.empty) && tiles.every((t) => t.bg === tiles[0].bg && t.w > 0) && !/rgba\(0, 0, 0, 0\)|transparent/.test(tiles[0].bg), JSON.stringify(tiles))
   check('the hidden project is noted', (await page.locator('.hint', { hasText: "1 hidden or removed project isn't counted" }).count()) === 1)
   check('the board strip shows the cards', /1\s*Todo/.test(await page.locator('.board-strip').innerText()) && /1\s*Waiting for review/.test(await page.locator('.board-strip').innerText()), await page.locator('.board-strip').innerText())
   check('the sidebar lists the projects', (await page.locator('.sidebar .row', { hasText: 'gamma' }).count()) === 1)
