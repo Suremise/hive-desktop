@@ -379,8 +379,9 @@ function whereNow(change: CardChange): string {
 /**
  * The line that wakes an agent for every watched card that changed (#224): one card as wakeLine says it; several, each
  * with where it is now and its verdict, so a second change that landed with the first isn't lost ("#217 is in Review:
- * Codex passed it; #119 is in Review: Codex failed it"). Comments' first lines give way first, then cards past the
- * line's size are counted ("and 2 more"), never cut mid-way.
+ * Codex passed it; #119 is in Review: Codex failed it"). Comments' first lines give way first; then every card is still
+ * named, in a few words (#226: "#217 in Review, passed; #119 in Review, failed"), or by number alone, with the agent told
+ * that details were left out. Never cut mid-way, one line, within WAKE_MAX_BYTES.
  */
 export function wakeLines(changes: CardChange[]): string {
   if (changes.length <= 1) return changes.length ? wakeLine(changes[0]) : ''
@@ -391,15 +392,30 @@ export function wakeLines(changes: CardChange[]): string {
     const t = [...c.comment.firstLine]
     return `${head} (latest comment by ${shortName(c.comment.by)}: "${t.length > max ? `${t.slice(0, max - 1).join('')}…` : t.join('')}")`
   }
-  const line = (shown: CardChange[], max: number): string => {
-    const more = changes.length - shown.length
-    return `[Hive] ${shown.map((c) => part(c, max)).join('; ')}${more ? ` (and ${more} more watched card${more === 1 ? '' : 's'} changed)` : ''}${tail}`
+  const full = (max: number): string => `[Hive] ${changes.map((c) => part(c, max)).join('; ')}${tail}`
+  for (const max of [160, 80, 40, 0]) if (jsonBytes(full(max)) <= WAKE_MAX_BYTES) return full(max)
+  // Too many to tell in full (#226): every card is still named, with where it is and its verdict, but not whose it is,
+  // who reviewed it or what was said; failing that, by number alone. The agent is told to read them.
+  const short = '. Your card watch has ended. Details were left out to fit: read each card (hive_read_task) before you carry on.'
+  const compact = `[Hive] ${changes.map(brief).join('; ')}${short}`
+  if (jsonBytes(compact) <= WAKE_MAX_BYTES) return compact
+  const numbers = `[Hive] ${changes.map((c) => `#${c.number}`).join(', ')} changed${short}`
+  if (jsonBytes(numbers) <= WAKE_MAX_BYTES) return numbers
+  // More cards than a watch can have (WATCH_MAX_CARDS): as many numbers as fit, the rest counted.
+  for (let shown = changes.length - 1; shown >= 1; shown--) {
+    const more = changes.length - shown
+    const line = `[Hive] ${changes.slice(0, shown).map((c) => `#${c.number}`).join(', ')} and ${more} more watched card${more === 1 ? '' : 's'} changed${short}`
+    if (jsonBytes(line) <= WAKE_MAX_BYTES) return line
   }
-  for (let shown = changes.length; shown >= 1; shown--) {
-    const list = changes.slice(0, shown)
-    for (const max of [160, 80, 40, 0]) if (jsonBytes(line(list, max)) <= WAKE_MAX_BYTES) return line(list, max)
-  }
-  return line(changes.slice(0, 1), 0)
+  return `[Hive] ${changes.length} watched cards changed${short}`
+}
+
+/** A card in a few words, for a wake line too long to tell each in full: where it is, its verdict, nothing else. */
+function brief(c: CardChange): string {
+  if (c.changes === 'gone' || c.column === 'gone') return `#${c.number} gone`
+  const a = c.about
+  if (a?.returned) return `#${c.number} returned for review (round ${a.returned})`
+  return `#${c.number} in ${columnWord(c.column)}${a?.verdict ? (a.verdict.passed ? ', passed' : ', failed') : ''}`
 }
 
 /** The line Hive types when a watch's overall limit passes with no change. */

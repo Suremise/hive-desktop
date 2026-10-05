@@ -7,6 +7,7 @@ import { basename, cx, formatKeybinding } from '../util'
 import { Icon, Tooltip } from './ui'
 import { useInbox } from '../inbox'
 import { badgeText, windowTitle } from '@shared/taskbar'
+import { PROJECT_MENU } from '@shared/projectTabs'
 import { call } from '../api'
 
 /** The taskbar badge: a red disc with the count, drawn at the screen's scale (Windows shows it at 16 px). */
@@ -61,9 +62,10 @@ const MENUS: MenuDef[] = [
   },
   {
     label: 'Project',
-    items: ['project.toggleActive', 'project.next', 'project.previous', '-', 'task.new', '-', 'project.openExplorer', 'project.openTerminal', '-', 'project.tab.session', 'project.tab.overview', 'project.tab.tasks', 'project.tab.sessions', 'project.tab.files', 'project.tab.images', 'project.tab.changes', 'project.tab.memory', 'project.tab.skills', 'project.tab.mcp', 'project.tab.settings', '-', 'project.remove']
+    // Its tabs are the tab strip's, in its order (#216).
+    items: PROJECT_MENU
   },
-  { label: 'Session', items: ['session.new', 'session.resume', 'session.stop', '-', 'session.compact', 'session.archive', '-', 'project.tab.sessions'] },
+  { label: 'Session', items: ['session.new', 'session.resume', 'session.stop', '-', 'session.compact', 'session.archive', '-', 'session.startNewAll', 'session.archiveAll', '-', 'project.tab.sessions'] },
   {
     label: 'Help',
     items: ['help.docs', 'help.api', 'help.shortcuts', 'help.tips', 'help.releaseNotes', '-', 'help.agentSetup', 'help.checkProviders', '-', 'view.devTools', 'view.reload', 'help.logs', 'help.diagnostics', '-', 'help.checkUpdates', 'help.about']

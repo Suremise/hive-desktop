@@ -6,6 +6,7 @@ import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
 import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageLayout, pageOfAgent } from '@shared/defaults'
 import { agentProvider } from '@shared/providers'
 import { setDateStyle } from '@shared/dates'
+import type { ProjectTab } from '@shared/projectTabs'
 import type { AgentBranchStatus, AssistantPanelSide, QuitScope, TaskCard, UpdateState, WorkspaceUsage } from '@shared/types'
 import type {
   AgentApiInfo,
@@ -27,7 +28,7 @@ import type {
 } from '@shared/types'
 
 export type Activity = 'projects' | 'overview' | 'performance' | 'board' | 'notes' | 'skills' | 'mcp' | 'assistant' | 'docs' | 'settings'
-export type ProjectTab = 'session' | 'overview' | 'performance' | 'tasks' | 'sessions' | 'files' | 'images' | 'changes' | 'memory' | 'skills' | 'mcp' | 'settings'
+export type { ProjectTab } from '@shared/projectTabs'
 
 export interface ConfirmRequest {
   kind: 'confirm'

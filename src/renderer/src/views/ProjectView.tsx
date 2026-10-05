@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { ProjectInfo } from '@shared/types'
 import { agentLaunchSettings, isProviderEnabled, modeOption, providerName } from '@shared/providers'
 import { agentsToResume } from '@shared/resumeAll'
+import { PROJECT_TABS, tabCommand } from '@shared/projectTabs'
 import hexUrl from '../assets/icon.svg'
 import * as actions from '../actions'
 import { call } from '../api'
@@ -18,24 +19,12 @@ import { ErrorBoundary } from '../components/ErrorBoundary'
 import { ProjectTasksTab } from '../components/Board'
 import { RemovedDataBanner } from '../components/ProjectRemoval'
 
-const TABS: { id: ProjectTab; label: string; icon: string }[] = [
-  { id: 'session', label: 'Session', icon: 'terminal' },
-  { id: 'overview', label: 'Overview', icon: 'dashboard' },
-  { id: 'performance', label: 'Performance', icon: 'pulse' },
-  { id: 'tasks', label: 'Tasks', icon: 'project' },
-  { id: 'sessions', label: 'Sessions', icon: 'history' },
-  { id: 'files', label: 'Files', icon: 'files' },
-  { id: 'images', label: 'Images', icon: 'file-media' },
-  { id: 'changes', label: 'Changes', icon: 'git-compare' },
-  { id: 'memory', label: 'Memory', icon: 'book' },
-  { id: 'skills', label: 'Skills', icon: 'sparkle' },
-  { id: 'mcp', label: 'MCP', icon: 'plug' },
-  { id: 'settings', label: 'Settings', icon: 'settings' }
-]
+// The tabs, in order: shared with the title bar's Project menu (#216).
+const TABS = PROJECT_TABS
 
 /** A tab's tooltip, with its shortcut (they can be changed, and Tasks has none by default). */
 function tabTip(id: ProjectTab, label: string): string {
-  const kb = commandKeybinding(id === 'settings' ? 'project.tab.settings' : `project.tab.${id}`)
+  const kb = commandKeybinding(tabCommand(id))
   return kb ? `${label} (${formatKeybinding(kb)})` : label
 }
 
@@ -217,9 +206,13 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const terminalVisibleFor = visible && project && tab === 'session' ? project.path : null
   const panes = usePanes(project)
   const focusedAgent = useFocusedAgent(project)
-  // A narrow header shows its buttons as icons.
+  // A narrow header shows its buttons as icons: the batch actions first; tighter, Resume, Stop and Active too (and the
+  // status says less); tighter still (both panels open beside the narrowest window), the batch actions move into ⋯. The
+  // title gives way before any action does (#216).
   const [headerRef, headerWidth] = useWidth<HTMLDivElement>()
   const narrow = headerWidth > 0 && headerWidth < 860
+  const tight = headerWidth > 0 && headerWidth < 640
+  const cramped = headerWidth > 0 && headerWidth < 460
 
   if (!workspace) return null
 
@@ -250,6 +243,17 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const running = project.agents.filter((a) => a.live)
   const resumable = agentsToResume(project.agents)
   const resuming = !!runningActions[`resumeAll:${project.path}`]
+  const startingAll = !!runningActions[`startNewAll:${project.path}`]
+  const archivingAll = !!runningActions[`archiveAll:${project.path}`]
+  // Some agent has a session to archive (running, or one it ran or would resume); the dialog lists exactly which.
+  const archivable = project.agents.some((a) => a.live || a.lastSessionId || a.resume)
+  // The batch actions, as buttons or (cramped) as ⋯ items.
+  const startNew = project.agents.length
+    ? { label: many ? 'Start New (All)' : 'Start New', tip: many ? `Start a fresh session for every agent (${project.agents.length}); running ones are stopped first` : 'Start a fresh session; a running one is stopped first', run: () => void actions.startNewAll(project.path) }
+    : null
+  const archiveNew = archivable
+    ? { label: many ? 'Archive and Start New (All)' : 'Archive and Start New', tip: many ? "Archive every agent's current session and start fresh ones" : 'Archive the current session and start a fresh one', run: () => void actions.startNewAll(project.path, true) }
+    : null
   const dangerous = settings
     ? project.agents.flatMap((a) => {
         const l = agentLaunchSettings(a, project.config, settings)
@@ -272,8 +276,8 @@ export function ProjectView({ visible }: { visible: boolean }) {
   return (
     <div style={{ display: visible ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0 }}>
       <div className="project-header" ref={headerRef}>
-        <div className="flex">
-          <h1>{project.name}</h1>
+        <div className="flex project-title">
+          <h1 title={project.name}>{project.name}</h1>
           <Tooltip
             content={
               <span style={{ whiteSpace: 'pre-line' }}>
@@ -283,7 +287,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
           >
             <span className={cx('badge', (combined?.status === 'working' || combined?.status === 'background') && 'accent', combined?.status === 'waiting' && 'warn', combined?.status === 'finished' && 'success')}>
               <span className={cx('dot', combined?.status ?? 'idle')} /> {combined ? STATUS_TEXT[combined.status] : 'No session'}
-              {many && inStatus > 0 && (
+              {many && inStatus > 0 && !tight && (
                 <span className="faint">
                   {' '}
                   · {inStatus} of {project.agents.length} agents
@@ -294,33 +298,41 @@ export function ProjectView({ visible }: { visible: boolean }) {
         </div>
         <div className="actions">
           <Tooltip content={project.active ? 'You are working on this project' : 'Not working on this project'}>
-            <label className="flex muted" style={{ cursor: 'pointer', marginRight: 6 }}>
-              <Switch checked={project.active} onChange={(v) => void actions.setProjectActive(project.path, v)} /> Active
+            <label className="flex muted" style={{ cursor: 'pointer', marginRight: tight ? 0 : 6 }} aria-label={tight ? 'Active' : undefined}>
+              <Switch checked={project.active} onChange={(v) => void actions.setProjectActive(project.path, v)} />
+              {!tight && ' Active'}
             </label>
-          </Tooltip>
-          <Tooltip content="Reveal the project folder in File Explorer">
-            <button className="btn subtle" onClick={() => void call('project:openInExplorer', project.path)}>
-              <Icon name="folder-opened" />
-              {!narrow && " Explorer"}
-            </button>
-          </Tooltip>
-          <Tooltip content="Open a terminal in the project folder">
-            <button className="btn subtle" onClick={() => void call('project:openTerminal', project.path)}>
-              <Icon name="terminal" />
-              {!narrow && " Terminal"}
-            </button>
           </Tooltip>
           {resumable.length > 0 && (
             <Tooltip content={resumable.length === 1 ? `Resume ${resumable[0].name}'s last session` : `Resume all ${resumable.length} stopped agents (running ones are left alone)`}>
-              <button className="btn tint-amber" disabled={resuming} aria-busy={resuming || undefined} onClick={() => void actions.resumeAllAgents(project.path)}>
-                <Icon name={resuming ? 'loading' : 'debug-continue'} spin={resuming} /> {resuming ? 'Resuming…' : resumable.length === 1 ? 'Resume Agent' : narrow ? 'Resume All' : 'Resume All Agents'}
+              <button className="btn tint-amber" disabled={resuming} aria-busy={resuming || undefined} aria-label={resumable.length === 1 ? 'Resume Agent' : 'Resume All Agents'} onClick={() => void actions.resumeAllAgents(project.path)}>
+                <Icon name={resuming ? 'loading' : 'debug-continue'} spin={resuming} />
+                {!tight && ` ${resuming ? 'Resuming…' : resumable.length === 1 ? 'Resume Agent' : narrow ? 'Resume All' : 'Resume All Agents'}`}
               </button>
             </Tooltip>
           )}
           {running.length > 0 && (
             <Tooltip content={running.length === 1 ? 'Stop the running agent' : `Stop all ${running.length} running agents`}>
-              <button className="btn tint-red" onClick={() => void actions.stopAllAgents(project.path)}>
-                <Icon name="stop-circle" /> {running.length === 1 ? 'Stop Agent' : narrow ? 'Stop All' : 'Stop All Agents'}
+              <button className="btn tint-red" aria-label={running.length === 1 ? 'Stop Agent' : 'Stop (All)'} onClick={() => void actions.stopAllAgents(project.path)}>
+                <Icon name="stop-circle" />
+                {!tight && ` ${running.length === 1 ? 'Stop Agent' : 'Stop (All)'}`}
+              </button>
+            </Tooltip>
+          )}
+          {/* Every agent at once, after one confirmation (#216): icons when narrow, in ⋯ when even those don't fit. */}
+          {startNew && !cramped && (
+            <Tooltip content={startNew.tip}>
+              <button className="btn subtle" disabled={startingAll} aria-busy={startingAll || undefined} aria-label={startNew.label} onClick={startNew.run}>
+                <Icon name={startingAll ? 'loading' : 'add'} spin={startingAll} />
+                {!narrow && ` ${startNew.label}`}
+              </button>
+            </Tooltip>
+          )}
+          {archiveNew && !cramped && (
+            <Tooltip content={archiveNew.tip}>
+              <button className="btn subtle" disabled={archivingAll} aria-busy={archivingAll || undefined} aria-label={archiveNew.label} onClick={archiveNew.run}>
+                <Icon name={archivingAll ? 'loading' : 'archive'} spin={archivingAll} />
+                {!narrow && ` ${archiveNew.label}`}
               </button>
             </Tooltip>
           )}
@@ -329,7 +341,16 @@ export function ProjectView({ visible }: { visible: boolean }) {
             title="More actions"
             onClick={(e) =>
               menu.open(e, [
-                { label: 'Changes', icon: 'git-compare', onClick: () => setProjectTab(project.path, 'changes') },
+                ...(cramped
+                  ? [
+                      ...(startNew ? [{ label: startNew.label, icon: 'add', disabled: startingAll, onClick: startNew.run }] : []),
+                      ...(archiveNew ? [{ label: archiveNew.label, icon: 'archive', disabled: archivingAll, onClick: archiveNew.run }] : []),
+                      ...(startNew ? [{ separator: true as const }] : [])
+                    ]
+                  : []),
+                { label: 'Explorer', icon: 'folder-opened', onClick: () => void call('project:openInExplorer', project.path) },
+                { label: 'Terminal', icon: 'terminal', onClick: () => void call('project:openTerminal', project.path) },
+                { separator: true },
                 { label: 'Project Settings', icon: 'settings', onClick: () => setProjectTab(project.path, 'settings') },
                 { separator: true },
                 { label: 'Remove Project…', icon: 'trash', onClick: () => set({ removeProjectFor: project.path }) }
