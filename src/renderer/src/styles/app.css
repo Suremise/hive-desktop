@@ -995,6 +995,25 @@ textarea.input {
 }
 
 /* ---------- Tabs ---------- */
+/* The project's tab strip, and beside it (hidden) the tabs it measures to choose labels or icons (ProjectTabStrip). */
+.tabs-row {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.tabs-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  width: max-content;
+  height: 35px;
+  visibility: hidden;
+  pointer-events: none;
+}
+.tab-m[data-label]::after {
+  content: attr(data-label);
+}
 .tabs {
   display: flex;
   align-items: stretch;
@@ -1007,7 +1026,8 @@ textarea.input {
 .tabs::-webkit-scrollbar {
   height: 3px;
 }
-.tab {
+.tab,
+.tab-m {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1034,8 +1054,22 @@ textarea.input {
   height: 2px;
   background: var(--accent);
 }
-.tab .codicon {
+.tab .codicon,
+.tab-m .codicon {
   font-size: 14px;
+}
+/* Short of room: icons only, a little narrower, the label kept for screen readers (and the tooltip). */
+.tab.icon-only,
+.tab-m.icon-only {
+  padding: 0 10px;
+}
+.tab.icon-only .tab-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ---------- Project header ---------- */

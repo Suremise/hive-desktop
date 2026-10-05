@@ -82,6 +82,7 @@ export const SUITES = [
   { name: 'skills', serial: 'the shared Codex test home' },
   { name: 'startfail' },
   { name: 'storage' },
+  { name: 'tabstrip' },
   { name: 'taskbar', serial: 'window focus' },
   { name: 'taskoverview' },
   { name: 'tipcorner' },
