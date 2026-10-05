@@ -138,16 +138,29 @@ const check = (name, ok, extra = '') => {
   await lib.until(async () => (await page.getByText('no longer exists in this workspace').count()) === 1, 10000)
   check('a skill deleted meanwhile: "no longer exists"', (await page.getByText('no longer exists in this workspace').count()) === 1)
 
-  // Project Skills tab: Hive first, then a section per provider; local skills added for both at once.
+  // Project Skills tab (#118): Hive's skills open at the top, then one provider's skills, folded, picked from a dropdown
+  // that starts on the project's default provider; the choice and what is open are remembered for the project; local
+  // skills added for both at once.
   await page.keyboard.press('Control+Shift+E')
   await sleep(500)
   await page.getByText('demo', { exact: true }).first().click()
   await sleep(600)
   await page.keyboard.press('Alt+8')
-  await lib.until(async () => (await page.locator('.skill-provider-title').count()) === 2, 10000)
-  const providersShown = await page.locator('.skill-provider-title').allInnerTexts()
-  check('project tab: a section per provider', providersShown.length === 2 && /Claude Code/.test(providersShown[0]) && /Codex/.test(providersShown[1]), providersShown.join('|'))
-  check("project tab: Hive's Codex copy isn't a local skill", (await page.locator('.skill-provider').nth(1).locator('.skill-row', { hasText: 'handover' }).count()) === 0)
+  const pick = page.locator('.skill-provider-pick select')
+  await lib.until(async () => (await pick.count()) === 1, 10000)
+  const pickOptions = await pick.locator('option').allInnerTexts()
+  check('project tab: a dropdown of the providers, starting on the default one', pickOptions.length === 2 && pickOptions[0].startsWith('Claude Code') && pickOptions[1].startsWith('Codex') && (await pick.inputValue()) === 'claude-code', JSON.stringify({ pickOptions, value: await pick.inputValue() }))
+  const hiveToggle = page.locator('.skill-group-toggle', { hasText: 'Hive' }).first()
+  const providerToggle = page.locator('.skill-provider-toggle')
+  check('project tab: Hive skills at the top, open', (await hiveToggle.getAttribute('aria-expanded')) === 'true' && (await page.locator('.split-list .skill-row', { hasText: 'workspace-note' }).count()) === 1)
+  check('…then that provider’s skills only, folded', (await page.locator('.skill-provider').count()) === 1 && /claude code skills/i.test(await providerToggle.innerText()) && (await providerToggle.getAttribute('aria-expanded')) === 'false' && (await page.locator('.skill-provider .skill-group', { hasText: 'Local' }).count()) === 0)
+  await page.screenshot({ path: path.join(lib.WORK, 'skills-project-folded.png') })
+  await providerToggle.click()
+  check('the provider’s skills open: Local, User', (await providerToggle.getAttribute('aria-expanded')) === 'true' && (await page.locator('.skill-provider .skill-group', { hasText: 'Local (User Managed)' }).count()) === 1 && (await page.locator('.skill-provider .skill-group', { hasText: /^\s*User\s*$/i }).count()) === 1, JSON.stringify(await page.locator('.skill-provider .skill-group').allInnerTexts()))
+  await pick.selectOption('codex')
+  await lib.until(async () => (await pick.inputValue()) === 'codex', 3000)
+  check("project tab: Codex's skills, where Hive's Codex copy isn't a local skill", (await page.locator('.skill-provider').count()) === 1 && (await page.locator('.skill-provider .skill-row', { hasText: 'handover' }).count()) === 0)
+  await pick.selectOption('claude-code')
   await page.locator('.skill-provider').first().locator('.skill-group', { hasText: 'Local' }).locator('button[aria-label^="New local skill"]').click()
   await sleep(500)
   await page.locator('.dialog input.input').fill('lint-rules')
@@ -161,8 +174,21 @@ const check = (name, ok, extra = '') => {
   check('both listed as local skills of their provider', JSON.stringify(locals) === '["claude-code:lint-rules","codex:lint-rules"]', JSON.stringify(locals))
   await page.screenshot({ path: path.join(lib.WORK, 'skills-project.png') })
 
+  // The dropdown's choice and what is open are kept for the project: away from the tab and back, and in the saved
+  // preferences (here: Codex, its skills open, Hive's folded).
+  await pick.selectOption('codex')
+  await hiveToggle.click()
+  await page.keyboard.press('Alt+1')
+  await sleep(300)
+  await page.keyboard.press('Alt+8')
+  await lib.until(async () => (await pick.count()) === 1, 5000)
+  const saved = await inv('ui:get')
+  const savedPick = saved.skillsProvider ?? {}
+  check('the provider shown is remembered for the project', (await pick.inputValue()) === 'codex' && savedPick[proj.toLowerCase()] === 'codex', JSON.stringify({ value: await pick.inputValue(), savedPick }))
+  check('…and which groups are open', (await hiveToggle.getAttribute('aria-expanded')) === 'false' && (await providerToggle.getAttribute('aria-expanded')) === 'true' && JSON.stringify(saved.skillsFold?.[proj.toLowerCase()]) === JSON.stringify({ hive: false, provider: true }), JSON.stringify(saved.skillsFold))
+
   // A local skill is edited in place (not preview) and can be deleted there.
-  const localRow = page.locator('.skill-provider').nth(1).locator('.skill-row', { hasText: 'lint-rules' })
+  const localRow = page.locator('.skill-provider').first().locator('.skill-row', { hasText: 'lint-rules' })
   await localRow.hover()
   await localRow.locator('button[aria-label="Delete skill"]').click()
   await sleep(400)
@@ -170,7 +196,9 @@ const check = (name, ok, extra = '') => {
   await lib.until(async () => !fs.existsSync(path.join(proj, '.agents', 'skills', 'lint-rules')), 10000)
   check('local skill deleted in the project tab', !fs.existsSync(path.join(proj, '.agents', 'skills', 'lint-rules')) && fs.existsSync(path.join(proj, '.claude', 'skills', 'lint-rules')))
 
-  // "Edit in workspace" on a Hive skill opens it in the Skills view, in the editor.
+  // "Edit in workspace" on a Hive skill opens it in the Skills view, in the editor. Hive's group unfolded first.
+  await hiveToggle.click()
+  check('the Hive group unfolds', (await hiveToggle.getAttribute('aria-expanded')) === 'true' && !!(await lib.until(async () => (await page.locator('.split-list .skill-row', { hasText: 'workspace-note' }).count()) === 1, 3000)))
   const hiveRow = page.locator('.skill-row', { hasText: 'workspace-note' }).first()
   await hiveRow.click()
   await lib.until(async () => (await page.locator('.split .editor-toolbar', { hasText: 'workspace-note' }).count()) === 1, 5000)

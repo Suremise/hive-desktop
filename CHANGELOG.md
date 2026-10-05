@@ -5,6 +5,15 @@
 ### Hive Assistant
 - **The Assistant's panel can go on the left.** If Windows notifications or other apps cover the right of the screen, **View → Move Assistant Panel to the Left** (also in the command palette and the panel's ⋯ menu) or **Settings → Assistant → Panel side** puts it between the project list and your work. It folds and resizes on that side, and the choice is kept for every workspace and after a restart.
 
+### Skills
+- **A project's Skills tab shows one provider at a time.** Pick Claude Code or Codex from a dropdown (it starts on the project's default provider); its skills sit folded under the Hive skills, and Hive remembers, for each project, the provider you picked and what you left open. The list is much shorter.
+
+### Hive
+- **Move any dialog out of the way.** Like an open card, every dialog (Add Agent, Agent Settings, Merge, questions…) can now be dragged by its header to see what's behind it; it stays inside the window, Escape while dragging puts it back, and it opens in the middle again next time. A question over a dialog moves on its own, and Escape now closes only the question. The image viewers stay put.
+
+### Workspaces
+- **Tidy the recent workspaces.** In **File → Open Recent** and on the welcome page, remove a workspace from the list with its **✕** or right-click → **Remove from Recent**, or forget them all with **Clear Recently Opened…** (it asks first, and keeps the workspaces you have open). A workspace whose folder was moved or deleted is greyed with *not found*, and opening it offers to remove it instead of failing; one open in another window says so.
+
 ### Coding agents
 - **New models show up without waiting for a Hive update.** Hive now asks Claude Code and Codex which models they have and what each can do, for your installed version and your account (no tokens, no session), so the model pickers list exactly what the CLI reports: Fable, GPT-6.1 Sol, or whatever your plan adds next. **Effort pickers offer only the chosen model's levels** (Haiku has none, Opus 4.6 stops at Max, GPT-5.5 at Extra high); an effort a model doesn't take stays chosen and is marked, never changed for you. With no effort chosen, the agent's footer shows the model's own default, e.g. *Medium (default)*. The Auto warning for Haiku now comes from what Claude Code says.
 - **Every fallback is yours to edit.** When a CLI can't be asked, **Settings → <provider> → Models (fallback)** and **Effort levels (fallback)** are used, and you can add, remove and rename entries, with **Reset to defaults**. The **API prices** table now takes new models and removals too, with **Reset to defaults**, and says when Hive's prices were checked.

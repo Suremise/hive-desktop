@@ -564,6 +564,24 @@ kbd {
   font-weight: 600;
   color: var(--fg-strong);
 }
+/* The project Skills tab (#118): the Hive group folds; one provider's skills, picked from a dropdown. */
+.skill-group-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+.skill-group-toggle:hover {
+  color: var(--fg);
+}
+.skill-group-toggle .count {
+  font-weight: normal;
+  color: var(--fg-muted);
+}
+.skill-provider-pick {
+  padding: 10px 8px 2px 14px;
+}
+.skill-provider-pick .select {
+  width: 100%;
+}
 .skill-group {
   display: flex;
   align-items: center;
@@ -1981,6 +1999,50 @@ p.hint {
 }
 .welcome-link:hover {
   text-decoration: underline;
+}
+/* Recent workspaces (#144): ✕ to forget one on hover or focus; a folder that isn't there is greyed. */
+.recent-item .recent-remove {
+  visibility: hidden;
+  margin-left: auto;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 3px;
+}
+.recent-item:hover .recent-remove,
+.recent-item:focus-within .recent-remove,
+.recent-item .recent-remove:focus-visible {
+  visibility: visible;
+}
+.recent-item .recent-remove:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+/* On the welcome page the name stays on one line; only the path shortens. */
+.welcome-link.recent-item {
+  min-width: 0;
+}
+.recent-item .recent-name {
+  white-space: nowrap;
+}
+.recent-item .recent-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-item.missing {
+  color: var(--fg-faint);
+}
+.recent-item.missing .codicon-warning {
+  color: var(--warning);
+}
+.menu-item.recent-item .recent-remove {
+  margin-left: 4px;
 }
 .welcome-link .muted {
   color: var(--fg-muted);

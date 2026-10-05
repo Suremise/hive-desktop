@@ -3,6 +3,7 @@ import { CLAUDE_CODE } from './claude'
 import { DEFAULT_COLUMN_COLORS } from './tasks'
 import { formatDateTime } from './dates'
 import { DEFAULT_PROVIDER, PROVIDERS, defaultProviderSettings, isKnownProvider, providerDescriptor } from './providers'
+import { effortName } from './models'
 
 export const APP_NAME = 'Hive'
 export const HIVE_DIR = '.hive'
@@ -535,8 +536,9 @@ export function mergeDefaults<T>(defaults: T, saved: unknown): T {
  * (the agent's or project's choice, then the global default). With none of those, the model's own default when the
  * CLI said what it is ("Medium (default)", models.ts modelCaps); else null.
  */
-export function effortLabel(provider: string, live: string | undefined, chosen: string | undefined, global: string | undefined, modelDefault?: string | null): string | null {
-  const name = (v: string): string => providerDescriptor(provider).effortLevels.find((e) => e.value === v)?.label ?? v.charAt(0).toUpperCase() + v.slice(1)
+export function effortLabel(provider: string, live: string | undefined, chosen: string | undefined, global: string | undefined, modelDefault?: string | null, settings?: Pick<AppSettings, 'providers'> | null): string | null {
+  // The names the pickers use: the effort fallback as the user named it, else the descriptor's (#230).
+  const name = (v: string): string => effortName(provider, v, settings)
   const v = live || (chosen && chosen !== 'inherit' ? chosen : global)
   if (v) return name(v)
   return modelDefault ? `${name(modelDefault)} (default)` : null

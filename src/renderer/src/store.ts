@@ -7,7 +7,7 @@ import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectL
 import { agentProvider } from '@shared/providers'
 import { setDateStyle } from '@shared/dates'
 import type { ProjectTab } from '@shared/projectTabs'
-import type { AgentBranchStatus, AssistantPanelSide, QuitScope, TaskCard, UpdateState, WorkspaceUsage } from '@shared/types'
+import type { AgentBranchStatus, AssistantPanelSide, QuitScope, TaskCard, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
@@ -90,7 +90,8 @@ export interface DoingRequest {
 interface State {
   settings: AppSettings | null
   workspace: WorkspaceInfo | null
-  recent: string[]
+  /** The recent workspaces as this window sees them (#144). */
+  recent: RecentWorkspace[]
   /** Each provider's installed CLI (install state, version, sign-in, readiness). */
   providers: Record<ProviderId, AgentInstallInfo>
   /** Subscription limits each provider last reported (account-wide), by provider. */
@@ -119,6 +120,10 @@ interface State {
   filesJump: { project: string; root: string; rel: string; line?: number; col?: number; nonce: number } | null
   /** Resizable pane sizes, saved with the window layout. */
   panes: Record<string, number>
+  /** The provider each project's Skills tab last showed, by project path in lower case (#118; saved in ui). */
+  skillsProvider: Record<string, string>
+  /** Each project's Skills tab groups, open or folded as last left (#118; saved in ui). */
+  skillsFold: Record<string, { hive?: boolean; provider?: boolean }>
   selectedProject: string | null
   projectTabs: Record<string, ProjectTab>
   selectedNote: string | null
@@ -274,6 +279,8 @@ export const useStore = create<State>(() => ({
   sessionsJump: null,
   filesJump: null,
   panes: {},
+  skillsProvider: {},
+  skillsFold: {},
   selectedProject: null,
   projectTabs: {},
   selectedNote: null,

@@ -861,7 +861,7 @@ export function PaneFooter({
   const model = effectiveModelLabel(provider, a.model || pc.model, ps.defaultModel, providers[provider]?.defaultModel ?? null)
   // With no effort set or reported, the model's own default when the CLI said what it is ("Medium (default)", #125).
   const runModel = a.model || (pc.model && pc.model !== 'inherit' ? pc.model : ps.defaultModel) || providers[provider]?.defaultModel || null
-  const effort = effortLabel(provider, live?.effort, a.effort ?? pc.effort, ps.defaultEffort, modelCaps(provider, runModel, providers[provider], settings).defaultEffort)
+  const effort = effortLabel(provider, live?.effort, a.effort ?? pc.effort, ps.defaultEffort, modelCaps(provider, runModel, providers[provider], settings).defaultEffort, settings)
   const threshold = compactThreshold(project.config, settings?.sessions.compactSuggestTokens ?? 0)
   const ctx = usage?.contextTokens ?? 0
   const pct = contextPercent(ctx, usage?.contextWindow)

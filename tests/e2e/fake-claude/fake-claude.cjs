@@ -31,7 +31,10 @@
 //   argument it rejects.
 // - `-p --input-format stream-json` answers the Agent SDK's initialize control request with Claude Code 2.1.289's
 //   recorded reply (tests/fixtures/claude-initialize.json), as Hive asks for its models (#125); FAKE_CLAUDE_MODELS=fail
-//   makes it answer with an error instead.
+//   makes it answer with an error instead. With fake-models.json in CLAUDE_CONFIG_DIR ({ "haikuAuto": true | false | null },
+//   read each time, #234) it acts out a CLI that says Haiku takes Auto, doesn't (as 2.1.289), or says nothing about Auto
+//   (no model has supportsAutoMode): asked for Auto with Haiku, it runs in Auto only when it said Haiku takes it, else
+//   in Manual, and reports the mode it really runs in. Without the file it runs in the mode it was asked for.
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
@@ -47,6 +50,30 @@ if (args[0] === 'auth') {
   console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai' }))
   process.exit(0)
 }
+/** fake-models.json in the test home ({ haikuAuto }), or null (#234). */
+function fakeModels() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR || '', 'fake-models.json'), 'utf8'))
+  } catch {
+    return null
+  }
+}
+/** The recorded initialize reply, as fake-models.json says: Haiku with or without Auto, or no model saying. */
+function withHaikuAuto(reply) {
+  const f = fakeModels()
+  if (!f || !('haikuAuto' in f)) return reply
+  const models = reply.response.response.models.map((m) => {
+    const out = { ...m }
+    if (f.haikuAuto === null) delete out.supportsAutoMode
+    else if (m.value === 'haiku') {
+      if (f.haikuAuto) out.supportsAutoMode = true
+      else delete out.supportsAutoMode
+    }
+    return out
+  })
+  return { ...reply, response: { ...reply.response, response: { ...reply.response.response, models } } }
+}
+
 if (args.includes('-p') && args.includes('stream-json')) {
   // The initialize request Hive sends to read the models; it stays open, as Claude Code does, until closed.
   let buf = ''
@@ -56,7 +83,7 @@ if (args.includes('-p') && args.includes('stream-json')) {
       const m = JSON.parse(buf.slice(0, i))
       buf = buf.slice(i + 1)
       if (m.type !== 'control_request' || m.request?.subtype !== 'initialize') continue
-      const recorded = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'fixtures', 'claude-initialize.json'), 'utf8'))
+      const recorded = withHaikuAuto(JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'fixtures', 'claude-initialize.json'), 'utf8')))
       const reply = process.env.FAKE_CLAUDE_MODELS === 'fail' ? { type: 'control_response', response: { subtype: 'error', request_id: m.request_id, error: 'not supported' } } : { ...recorded, response: { ...recorded.response, request_id: m.request_id } }
       process.stdout.write(JSON.stringify(reply) + '\n')
     }
@@ -86,6 +113,16 @@ if (opts['--model'] === 'fail-start') {
   process.exit(1)
 }
 const sessionId = opts['--resume'] || opts['--session-id'] || randomUUID()
+/**
+ * The mode it really runs in: the one asked for, unless fake-models.json has it act out Haiku without Auto (#234): then
+ * Auto with Haiku runs in Manual ("default", as Claude Code's hooks say), as Claude Code 2.1.286 and 2.1.289 do.
+ */
+function runMode() {
+  const asked = opts['--permission-mode'] || 'default'
+  const f = fakeModels()
+  if (!f || !('haikuAuto' in f) || asked !== 'auto' || !/haiku/i.test(opts['--model'] || '')) return asked
+  return f.haikuAuto === true ? 'auto' : 'default'
+}
 // What it was started with, for suites that check the launch: the options, Claude Code's own variables and the
 // Agent API token Hive gave it.
 const launchEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CLAUDE_CODE_') || k.startsWith('HIVE_API_TOKEN')))
@@ -108,7 +145,7 @@ async function hook(event, extra = {}) {
     const res = await fetch(hookUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hook_event_name: event, session_id: sessionId, transcript_path: transcript, cwd, permission_mode: opts['--permission-mode'] || 'default', ...extra })
+      body: JSON.stringify({ hook_event_name: event, session_id: sessionId, transcript_path: transcript, cwd, permission_mode: runMode(), ...extra })
     })
     return await res.json().catch(() => null)
   } catch {

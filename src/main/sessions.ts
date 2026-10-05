@@ -1146,8 +1146,8 @@ class SessionManager {
   private readFooterMode(l: LiveSession, screen: TerminalScreen): void {
     if (this.live.get(liveId(l.state.projectPath, l.state.agentId)) !== l || !l.adapter.footerMode) return
     const mode = l.adapter.footerMode(screen.text())
-    if (mode && mode !== l.state.permissionMode) {
-      l.state.permissionMode = mode
+    if (mode && (mode !== l.state.permissionMode || mode !== l.state.modeObserved)) {
+      l.state.permissionMode = l.state.modeObserved = mode
       this.emitState(l.state)
     }
   }
@@ -1886,11 +1886,13 @@ class SessionManager {
       next.costUsd === st.costUsd &&
       next.planMode === st.planMode &&
       next.permissionMode === st.permissionMode &&
+      (!d.permissionMode || d.permissionMode === st.modeObserved) &&
       next.contextWindow === st.contextWindow
     )
       return
     const windowChanged = next.contextWindow !== st.contextWindow
     Object.assign(st, next)
+    if (d.permissionMode) st.modeObserved = d.permissionMode
     this.emitState(st)
     // Usage shown in the renderer carries the window: have it read again.
     if (windowChanged && st.sessionId) emit({ type: 'usage-changed', projectPath: st.projectPath, sessionId: st.sessionId })
@@ -2109,8 +2111,8 @@ class SessionManager {
         log.warn(`${userText(label)}: could not record session ${hook.sessionId}`, e)
       }
     }
-    if (hook.mode && hook.mode !== st.permissionMode) {
-      st.permissionMode = hook.mode
+    if (hook.mode && (hook.mode !== st.permissionMode || hook.mode !== st.modeObserved)) {
+      st.permissionMode = st.modeObserved = hook.mode
       this.emitState(st)
     }
     const ev = hook.event

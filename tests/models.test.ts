@@ -182,6 +182,15 @@ describe('the pickers: the CLI is the source, the editable fallback otherwise', 
     expect(effortLabel('codex', undefined, 'inherit', '', 'medium')).toBe('Medium (default)')
     expect(effortLabel('codex', 'high', 'inherit', '', 'medium')).toBe('High')
     expect(effortLabel('codex', undefined, 'inherit', '', null)).toBeNull()
+    // The user's names for the levels, as in the pickers: chosen, live, global and the default alike (#230); reset, Hive's.
+    const named = settingsWith('codex', { effortFallback: [{ value: 'medium', label: 'Mid' }, { value: 'high', label: 'Deep' }] })
+    expect(effortLabel('codex', undefined, 'inherit', '', 'medium', named)).toBe('Mid (default)')
+    expect(effortLabel('codex', 'high', 'inherit', '', 'medium', named)).toBe('Deep')
+    expect(effortLabel('codex', undefined, 'high', '', null, named)).toBe('Deep')
+    expect(effortLabel('codex', undefined, 'inherit', 'medium', null, named)).toBe('Mid')
+    expect(effortLabel('codex', undefined, 'inherit', '', 'medium', settingsWith('codex', {}))).toBe('Medium (default)')
+    // The same name the pickers show for the same level.
+    expect(modelCaps('codex', 'gpt-6-sol', catalog(codex.models), named).efforts.find((e) => e.value === 'high')?.label).toBe('Deep')
   })
 
   it("Auto's caveat follows what Claude Code says about the model, else the shipped guess", () => {

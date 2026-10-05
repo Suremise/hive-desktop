@@ -130,6 +130,7 @@ export const commands: Command[] = [
   { id: 'window.new', label: 'New Window', category: 'File', keybinding: 'Mod+K Mod+N', run: () => call('window:new') },
   { id: 'workspace.open', label: 'Open Workspace…', category: 'File', keybinding: 'Mod+K Mod+O', run: (path?: string) => actions.openWorkspace(path) },
   { id: 'workspace.create', label: 'New Workspace…', category: 'File', run: () => actions.createWorkspace() },
+  { id: 'workspace.clearRecent', label: 'Clear Recently Opened…', category: 'File', tip: () => 'Forget the recent workspaces (the folders are left alone); ones open in a window stay', run: () => actions.clearRecent() },
   { id: 'workspace.close', label: 'Close Workspace', category: 'File', when: hasWorkspace, tip: () => "Stop this workspace's agents and close it; the window stays open", run: () => actions.closeWorkspace() },
   { id: 'workspace.refresh', label: 'Refresh Workspace', category: 'File', keybinding: 'F5', when: hasWorkspace, run: () => actions.refreshWorkspace() },
   { id: 'project.new', label: 'New Project…', category: 'Project', keybinding: 'Mod+Alt+N', when: hasWorkspace, run: () => actions.createProject() },

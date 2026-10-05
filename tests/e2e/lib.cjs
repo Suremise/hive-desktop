@@ -527,4 +527,34 @@ function hadEstimate(run) {
   return typeof run?.estimateMs === 'number'
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, git, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+/**
+ * Haiku asked for Auto (#129, #234): what the installed Claude Code says about Haiku and Auto (its catalog), the mode
+ * it then showed itself (modeObserved: its footer, a hook; never the mode asked for at launch) and the mode Hive shows.
+ * Waits up to timeoutMs for the CLI to show a mode. The caller checks: observed in expected, and shown === observed.
+ */
+async function haikuAutoMode(inv, host, agentId = 'assistant', timeoutMs = 15000) {
+  const info = (await inv('provider:info'))['claude-code']
+  const autoOffered = info?.catalog?.models.find((m) => m.value === 'haiku')?.supportsAuto
+  const expected = autoOffered === true ? ['auto'] : autoOffered === false ? ['manual'] : ['auto', 'manual']
+  const live = async () => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === host.toLowerCase() && s.agentId === agentId)
+  await until(async () => expected.includes((await live())?.modeObserved), timeoutMs)
+  const s = await live()
+  return { version: info?.version ?? null, autoOffered, expected, observed: s?.modeObserved, shown: s?.permissionMode }
+}
+
+/**
+ * Settings → Assistant's warning about Auto with Haiku (#129): there exactly when the CLI says Auto isn't offered
+ * (saying the session runs in Manual), none when it says it is, the shipped guess ("may not offer") when it doesn't say.
+ * Opens Settings → Assistant (Ctrl+,). Returns [ok, what it found].
+ */
+async function haikuAutoCaveat(page, autoOffered) {
+  await page.keyboard.press('Control+,')
+  await sleep(500)
+  await page.locator('.settings-nav .row', { hasText: 'Assistant' }).first().click()
+  await sleep(500)
+  const caveat = await page.locator('.mode-caveat', { hasText: 'Auto with Haiku' }).allInnerTexts()
+  const ok = autoOffered === true ? !caveat.length : autoOffered === false ? caveat.length === 1 && /doesn't offer Auto with Haiku.*runs in Manual/.test(caveat[0]) : caveat.length === 1 && /may not offer Auto with Haiku/.test(caveat[0])
+  return [ok, JSON.stringify(caveat)]
+}
+
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, git, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

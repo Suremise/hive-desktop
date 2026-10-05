@@ -356,7 +356,17 @@ export interface AppConfig {
   /** Always on Top: the workspaces (lowercased paths) whose window was left pinned. This machine's, never in .hive. */
   alwaysOnTop?: Record<string, true>
   /** `panes`: resizable pane sizes by key (pixels, or a fraction for split views). `tips`: what the tips know (shared/tips.ts). */
-  ui: { sidebarWidth: number; sidebarVisible: boolean; sidebarCompact?: boolean; panes?: Record<string, number>; tips?: TipsState }
+  ui: {
+    sidebarWidth: number
+    sidebarVisible: boolean
+    sidebarCompact?: boolean
+    panes?: Record<string, number>
+    tips?: TipsState
+    /** The provider each project's Skills tab last showed, by project path in lower case (#118). */
+    skillsProvider?: Record<string, ProviderId>
+    /** Each project's Skills tab groups as the user last left them open or folded, by project path in lower case (#118). */
+    skillsFold?: Record<string, { hive?: boolean; provider?: boolean }>
+  }
   /** Per provider: the model last seen in a session started without a model choice (the CLI's own default). */
   observedDefaultModel: Record<ProviderId, string>
   /**
@@ -739,6 +749,11 @@ export interface LiveSessionState {
   sessionId: string
   /** The mode the session is actually in: from launch, Hive's live switches, Shift+Tab in the terminal (its footer) and hooks. */
   permissionMode?: PermissionMode
+  /**
+   * The mode the CLI itself last showed (its footer, a hook, its transcript); absent until it has shown one. The
+   * mode Hive shows (permissionMode) starts as the one asked for at launch, so this says it was seen (#234).
+   */
+  modeObserved?: PermissionMode
   /** The session's name in Hive (renamable in the Sessions tab and the agent's footer). */
   sessionName?: string
   /** See SessionRecord.titleAtRename. */
@@ -1133,6 +1148,15 @@ export interface GitDiff {
   binary: boolean
 }
 
+/** A recent workspace as a window sees it (File → Open Recent, the welcome page; #144). */
+export interface RecentWorkspace {
+  path: string
+  /** Whether its folder is there now (one that isn't stays listed: an unplugged drive's may come back). */
+  exists: boolean
+  /** Open in another window: choosing it brings that window forward. */
+  openElsewhere?: boolean
+}
+
 export interface AgentInstallInfo {
   provider: ProviderId
   found: boolean
@@ -1290,6 +1314,8 @@ export interface AgentApiInfo {
 /** Events pushed from main to renderer. */
 export type HiveEvent =
   | { type: 'workspace-changed'; workspace: WorkspaceInfo | null }
+  /** The recent workspaces changed (opened, removed, cleared): each window asks for its own view of them (#144). */
+  | { type: 'recent-changed' }
   | { type: 'session-status'; state: LiveSessionState }
   /** `failure`: the CLI exited before its session started (and nobody stopped it): why, for the agent's pane. */
   | { type: 'session-exit'; projectPath: string; agentId: string; sessionId: string; exitCode: number; failure?: StartFailure }

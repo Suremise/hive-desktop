@@ -132,7 +132,9 @@ const skill = (dir, name, audience) => {
   const agentsGet = (await inv('skills:list', proj)).filter((s) => s.level === 'hive' && s.audience !== 'assistant').length
   check('project tab: its Hive rows are what project agents are given', tabRows.filter((t) => !/Local|User|Plugin/.test(t)).length >= agentsGet)
 
-  // Copy to workspace: says who gets it now, from its own metadata.
+  // Copy to workspace: says who gets it now, from its own metadata. The provider's local skills start folded (#118).
+  const providerToggle = page.locator('.skill-provider-toggle')
+  if ((await providerToggle.getAttribute('aria-expanded').catch(() => 'true')) === 'false') await providerToggle.click()
   const copyAndRead = async (name) => {
     await page.locator('.skill-row', { hasText: name }).first().click()
     await sleep(700)

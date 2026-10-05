@@ -86,9 +86,6 @@ const check = (name, ok, extra = '') => {
   await stop(proj, agent.id)
 
   // --- The Assistant with Haiku: launched asking for Auto; what Claude Code runs it in, and what Hive shows and says.
-  const claude = (await inv('provider:info'))['claude-code']
-  const autoOffered = claude?.catalog?.models.find((m) => m.value === 'haiku')?.supportsAuto
-  console.log(`Claude Code ${claude?.version}: Haiku ${autoOffered === undefined ? "doesn't say whether it takes" : autoOffered ? 'takes' : "doesn't take"} Auto`)
   await inv('settings:update', { assistant: { providers: { 'claude-code': { model: 'haiku' } } } })
   await inv('session:start', home, { agentId: 'assistant' })
   await lib.cliStep('the Assistant starts', { session: lib.ptyKey(home, 'assistant') }, async () => {
@@ -98,20 +95,17 @@ const check = (name, ok, extra = '') => {
   const a = await live(home, 'assistant')
   check('…in the workspace folder', a?.cwd.toLowerCase() === ws.toLowerCase(), a?.cwd)
   check('…asking for Auto, with Haiku', launchLine('assistant#assistant').includes('"--permission-mode","auto"') && launchLine('assistant#assistant').includes('"--model","haiku"'))
-  const expected = autoOffered === true ? ['auto'] : autoOffered === false ? ['manual'] : ['auto', 'manual']
+  // The mode Claude Code itself showed (its footer or a hook: never the one asked for at launch), and Hive's (#234).
+  let m = null
   await lib.cliStep('Claude Code shows its mode', { session: lib.ptyKey(home, 'assistant') }, async () => {
-    await lib.until(async () => expected.includes((await live(home, 'assistant'))?.permissionMode), 15000)
-    const mode = (await live(home, 'assistant'))?.permissionMode
-    check(`with Haiku, Hive shows the mode Claude Code runs it in (${expected.join(' or ')}, as it says)`, expected.includes(mode), mode)
+    m = await lib.haikuAutoMode(inv, home)
+    console.log(`Claude Code ${m.version}: Haiku ${m.autoOffered === undefined ? "doesn't say whether it takes" : m.autoOffered ? 'takes' : "doesn't take"} Auto; it showed ${m.observed ?? 'no mode'}`)
+    check(`with Haiku, Claude Code shows the mode it says (${m.expected.join(' or ')})`, m.expected.includes(m.observed), m.observed ?? 'none shown')
+    check('…and Hive shows that mode', !!m.observed && m.shown === m.observed, `${m.shown} / ${m.observed}`)
   })
   // The warning matches what this Claude Code says: there exactly when Auto isn't offered (a guess when it doesn't say).
-  await page.keyboard.press('Control+,')
-  await lib.sleep(500)
-  await page.locator('.settings-nav .row', { hasText: 'Assistant' }).first().click()
-  await lib.sleep(500)
-  const caveat = await page.locator('.mode-caveat', { hasText: 'Auto with Haiku' }).allInnerTexts()
-  const caveatRight = autoOffered === true ? !caveat.length : autoOffered === false ? caveat.length === 1 && /doesn't offer Auto with Haiku.*runs in Manual/.test(caveat[0]) : caveat.length === 1
-  check("Settings → Assistant warns about Auto with Haiku exactly when Claude Code says it isn't offered", caveatRight, JSON.stringify(caveat))
+  const [caveatRight, caveat] = await lib.haikuAutoCaveat(page, m?.autoOffered)
+  check("Settings → Assistant warns about Auto with Haiku exactly when Claude Code says it isn't offered", caveatRight, caveat)
   await stop(home, 'assistant')
 
   await app.close()
