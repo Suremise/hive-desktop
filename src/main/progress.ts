@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import type { ProgressRun, ProgressSource, ProviderId } from '../shared/types'
-import { MAX_COMMAND, MAX_ESTIMATE_MS, MAX_OPEN_PER_OWNER, MAX_RUNS_PER_WORKSPACE, MAX_STEP_NAME, MAX_SUMMARY, MAX_TITLE, MAX_TOTAL, isOpenRun, isOverdue, timeLeft } from '../shared/progress'
+import { MAX_COMMAND, MAX_ESTIMATE_MS, MAX_LOG_PATH, MAX_OPEN_PER_OWNER, MAX_RUNS_PER_WORKSPACE, MAX_STEP_NAME, MAX_SUMMARY, MAX_TITLE, MAX_TOTAL, isOpenRun, isOverdue, timeLeft } from '../shared/progress'
 
 /**
  * Long runs agents report (tests, builds) for the Progress panel, per workspace, in memory: a restart forgets them,
@@ -88,9 +88,20 @@ export class ProgressStore {
     return this.unseenFailure.has(key(workspacePath))
   }
 
-  /** The user looked at the panel: the taskbar stops showing red. */
+  /**
+   * The user looked at the panel: the taskbar stops showing red, and each failed or stale run they hadn't seen counts as
+   * seen (the panel folds it into Recent a few seconds later).
+   */
   seen(workspacePath: string): void {
-    if (this.unseenFailure.delete(key(workspacePath))) this.flush(workspacePath)
+    let changed = this.unseenFailure.delete(key(workspacePath))
+    const now = this.deps.now()
+    for (const r of this.runs.get(key(workspacePath)) ?? []) {
+      if ((r.state === 'failed' || r.state === 'stale') && r.seenAt === null) {
+        r.seenAt = now
+        changed = true
+      }
+    }
+    if (changed) this.flush(workspacePath)
   }
 
   /** The latest open run of one agent (for its status), if any. */
@@ -138,7 +149,11 @@ export class ProgressStore {
       state: 'running',
       staleReason: null,
       summary: null,
-      dismissed: false
+      dismissed: false,
+      seenAt: null,
+      expectedMs: estimateMs ?? null,
+      exitCode: null,
+      logPath: null
     }
     this.runs.set(key(caller.workspacePath), [run, ...kept])
     this.flush(caller.workspacePath)
@@ -163,9 +178,12 @@ export class ProgressStore {
     if (stepName !== undefined) run.stepName = stepName || null
     // estimateMs is the time left as of updatedAt: without a new one, what is left now keeps the same deadline.
     run.estimateMs = estimateMs !== undefined ? estimateMs : timeLeft(run, now)
+    // The first estimate says how long it was expected to take in all (its details compare that with how long it took).
+    if (run.expectedMs === null && estimateMs !== undefined) run.expectedMs = now - run.startedAt + estimateMs
     run.updatedAt = now
     run.state = 'running'
     run.staleReason = null
+    run.seenAt = null
     this.schedule(run.workspacePath)
     return run
   }
@@ -173,6 +191,8 @@ export class ProgressStore {
   finish(caller: ProgressCaller, id: string, body: Record<string, unknown>): ProgressRun {
     if (typeof body.ok !== 'boolean') throw new ProgressError(400, 'ok (true or false) is required')
     const summary = text(body.summary, 'summary', MAX_SUMMARY)
+    const exitCode = int(body.exitCode, 'exitCode', -2_147_483_648, 4_294_967_295)
+    const logPath = text(body.logPath, 'logPath', MAX_LOG_PATH)
     const run = this.find(caller, id)
     if (run.finishedAt !== null) throw new ProgressError(409, 'That run has finished')
     const now = this.deps.now()
@@ -181,6 +201,9 @@ export class ProgressStore {
     run.state = body.ok ? 'passed' : 'failed'
     run.staleReason = null
     run.summary = summary || null
+    run.seenAt = null
+    if (exitCode !== undefined) run.exitCode = exitCode
+    if (logPath) run.logPath = logPath
     if (run.state === 'passed' && run.total !== null) run.step = run.total
     if (run.state === 'failed') this.unseenFailure.add(key(run.workspacePath))
     this.flush(run.workspacePath)
@@ -209,6 +232,7 @@ export class ProgressStore {
         const stopped = r.source !== 'api' && !this.deps.ownerRunning(r)
         if (stopped || isOverdue(r, now)) {
           r.state = 'stale'
+          r.seenAt = null
           r.staleReason = stopped ? 'agent-stopped' : 'quiet'
           changed = true
         }

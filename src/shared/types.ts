@@ -1284,4 +1284,12 @@ export interface ProgressRun {
   summary: string | null
   /** The user dismissed it: listed under Recent only. */
   dismissed: boolean
+  /** When the user saw it failed or stale (the panel open, Hive focused): it folds into Recent a few seconds later. */
+  seenAt: number | null
+  /** How long it was expected to take in all (ms), from its first estimate; null without one. */
+  expectedMs: number | null
+  /** The command's exit code, when its reporter gave one. */
+  exitCode: number | null
+  /** A log or run record the reporter named (a path). */
+  logPath: string | null
 }

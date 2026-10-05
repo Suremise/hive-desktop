@@ -5,8 +5,8 @@
 // (its agents stop, the other window's keep running). With busy agents that dialog keeps every control inside it, at
 // 100% and 125%; from the unsaved-files question that comes first, Close this window only still asks about that
 // window's agents. Two workspaces with the same folder name are listed apart (by full path, with the parent folder
-// that tells them apart). Close Workspace's tooltip says the window stays open. The agents run the fake Claude Code
-// (fake-claude/). Dev build, throwaway profile, workspaces and CLAUDE_CONFIG_DIR.
+// that tells them apart, readable at 4.5:1 in both themes). Close Workspace's tooltip says the window stays open. The
+// agents run the fake Claude Code (fake-claude/). Dev build, throwaway profile, workspaces and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -314,10 +314,28 @@ const invOn = (page) => (ch, ...a) => page.evaluate(([c, x]) => window.hive.invo
   check('…and its full path on hover', JSON.stringify(works.map((h) => h.title.toLowerCase()).sort()) === JSON.stringify([wsDup1, wsDup2].map((x) => x.toLowerCase()).sort()), JSON.stringify(works))
   check('the workspace with a name of its own has no parent folder', heads.filter((h) => h.name !== 'work').every((h) => !h.where), JSON.stringify(heads))
   check('…and each agent is under its own', JSON.stringify([...(dupQuit?.rows ?? [])].filter((r) => r.startsWith('work')).sort()) === JSON.stringify(['workclosewindow-dup-1|gamma', 'workclosewindow-dup-2|delta']), JSON.stringify(dupQuit?.rows))
+  /** The parent folder label's contrast against the dialog (#219): WCAG's ratio, from the computed colours. */
+  const whereContrast = (pg) =>
+    pg.evaluate(() => {
+      const rgb = (c) => (c.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number)
+      const lum = ([r, g, b]) => {
+        const f = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+      }
+      const where = document.querySelector('.dialog .quit-group-where')
+      const dialog = where?.closest('.dialog')
+      if (!where || !dialog) return 0
+      const [a, b] = [lum(rgb(getComputedStyle(where).color)), lum(rgb(getComputedStyle(dialog).backgroundColor))]
+      return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+    })
   if (dupAt) {
+    const dark = await whereContrast(dupAt)
+    check('dark: the parent folder reads at 4.5:1 or more against the dialog', dark >= 4.5, dark.toFixed(2))
     await dupAt.screenshot({ path: path.join(lib.WORK, 'closewindow-dup-dark.png') })
     await invOn(dupAt)('settings:update', { appearance: { theme: 'light' } })
     await lib.sleep(300)
+    const light = await whereContrast(dupAt)
+    check('light: …and in the light theme', light >= 4.5, light.toFixed(2))
     await dupAt.screenshot({ path: path.join(lib.WORK, 'closewindow-dup-light.png') })
     await invOn(dupAt)('settings:update', { appearance: { theme: 'dark' } })
     await cancel(dupAt)
