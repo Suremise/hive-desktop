@@ -5,6 +5,9 @@
 ### Hive Assistant
 - **The Assistant's panel can go on the left.** If Windows notifications or other apps cover the right of the screen, **View → Move Assistant Panel to the Left** (also in the command palette and the panel's ⋯ menu) or **Settings → Assistant → Panel side** puts it between the project list and your work. It folds and resizes on that side, and the choice is kept for every workspace and after a restart.
 
+### Hive
+- **Move any dialog out of the way.** Like an open card, every dialog (Add Agent, Agent Settings, Merge, questions…) can now be dragged by its header to see what's behind it; it stays inside the window, Escape while dragging puts it back, and it opens in the middle again next time. A question over a dialog moves on its own, and Escape now closes only the question. The image viewers stay put.
+
 ### Workspaces
 - **Tidy the recent workspaces.** In **File → Open Recent** and on the welcome page, remove a workspace from the list with its **✕** or right-click → **Remove from Recent**, or forget them all with **Clear Recently Opened…** (it asks first, and keeps the workspaces you have open). A workspace whose folder was moved or deleted is greyed with *not found*, and opening it offers to remove it instead of failing; one open in another window says so.
 

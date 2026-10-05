@@ -914,6 +914,8 @@ function TranscriptImageViewer({ project, sessionId, image, images, onNavigate, 
       icon="file-media"
       onClose={onClose}
       wide
+      // Sized to the image, with its own controls: it stays put (#133).
+      movable={false}
       footer={
         <>
           <span className="faint" style={{ marginRight: 'auto' }}>

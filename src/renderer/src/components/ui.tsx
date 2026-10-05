@@ -313,8 +313,9 @@ const NOT_A_HANDLE = 'button, a, input, textarea, select, [contenteditable=""], 
 
 /**
  * A dialog. While `busy` (an action it started is running) it can't be closed (Escape, outside, ×) and its fields and
- * other buttons are disabled; `error` shows the action's failure above the buttons. `movable`: dragged by its header
- * within the window (Escape while dragging puts it back); it opens in the usual place each time.
+ * other buttons are disabled; `error` shows the action's failure above the buttons. Every dialog can be dragged by its
+ * header within the window, busy or not (Escape while dragging puts it back), and opens centred each time (#133);
+ * `movable={false}` keeps one in place (the image viewers, sized to their image, with their own controls).
  */
 export function Modal({
   title,
@@ -325,7 +326,7 @@ export function Modal({
   wide,
   busy,
   error,
-  movable
+  movable = true
 }: {
   title: string
   icon?: string
@@ -366,7 +367,9 @@ export function Modal({
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape' || !isTop()) return
-      e.stopPropagation()
+      // Every dialog listens on the window: only this one may act on this Escape. Once it closes, the one under it is on
+      // top, and would close too (or ask again) if its listener came later in the window's list (#133).
+      e.stopImmediatePropagation()
       // While it is being dragged, Escape puts it back instead.
       if (drag.current) return endDrag(true)
       if (!busyNow.current) onClose()
