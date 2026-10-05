@@ -49,7 +49,8 @@ export interface Totals {
  */
 export function costText(t: { cost: number; estimated: boolean; priced: number; unpriced: number }): string {
   if (t.unpriced && !t.priced) return 'Unknown'
-  return `${t.estimated ? '≈ ' : ''}${money(t.cost)}${t.unpriced ? ' + ?' : ''}`
+  // Non-breaking spaces: "≈ $1.00 + ?" is one value, never split over lines (#241).
+  return `${t.estimated ? '≈ ' : ''}${money(t.cost)}${t.unpriced ? ' + ?' : ''}`
 }
 
 /** Every token counted: new input, cache writes, input read from cache, and output. */

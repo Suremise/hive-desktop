@@ -181,9 +181,47 @@ async function ensureAgent(path: string, agentId: string): Promise<boolean> {
     notify('warning', `${name} is turned off`, `Turn it on in Settings → Providers to run this agent, or give the agent another provider in its settings.`, [{ label: 'Open Settings', command: 'settings.providers' }])
     return false
   }
-  if (get().providers[provider]?.found) return true
-  set({ setupOpen: provider })
-  return false
+  if (!get().providers[provider]?.found) {
+    set({ setupOpen: provider })
+    return false
+  }
+  return ensureWorktree(path, agentId)
+}
+
+/**
+ * A worktree agent whose folder is gone (#146): its branch lives in the repository, so the worktree can be made again
+ * on it before the agent starts (or, with the branch gone too, made new from its base, or the link removed).
+ */
+async function ensureWorktree(path: string, agentId: string): Promise<boolean> {
+  if (!agentOf(project(path), agentId)?.worktree) return true
+  const gone = await call('agents:missingWorktree', path, agentId).catch(() => null)
+  if (!gone) return true
+  const setup = "Hive copies in the files it copies into new worktrees, and the project's worktree setup command, if it has one, runs before the agent starts. Nothing is deleted."
+  if (gone.branchExists) {
+    return confirm({
+      title: 'Recreate the worktree?',
+      message: `${gone.agentName}'s worktree folder is missing: ${gone.path}. Its branch ${gone.branch} is still in the repository: recreate the worktree on it, with its commits, and start?`,
+      detail: setup,
+      confirmLabel: 'Recreate and Start',
+      busyLabel: 'Recreating…',
+      run: () => call('agents:recreateWorktree', path, agentId)
+    })
+  }
+  const choice = await choose({
+    title: 'The worktree is gone',
+    message: `${gone.agentName}'s worktree folder is missing (${gone.path}), and its branch ${gone.branch} is gone too. Create a new worktree on ${gone.branch} from ${gone.base}, or remove the agent's worktree link so it works in the project folder?`,
+    detail: `${setup} If the workspace moved, Repair… in its banner can also locate the folder.`,
+    choices: [
+      { label: 'Remove the Worktree Link', value: 'unlink' },
+      { label: 'Create a New Worktree', value: 'create' }
+    ]
+  })
+  if (choice === 'unlink') {
+    await attempt('Could not remove the worktree link', () => call('agents:unlinkWorktree', path, agentId))
+    return false
+  }
+  if (choice !== 'create') return false
+  return !!(await attempt('Could not create the worktree', () => call('agents:recreateWorktree', path, agentId)))
 }
 
 /**

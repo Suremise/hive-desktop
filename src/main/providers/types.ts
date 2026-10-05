@@ -1,4 +1,4 @@
-import type { AgentInstallInfo, CatalogModel, EffortLevel, McpServerDef, MemorySource, PermissionMode, PlanUsage, ProviderId, ReadinessIssue, SessionUsage, TranscriptImageRef, TranscriptItem } from '../../shared/types'
+import type { AgentInstallInfo, CatalogModel, EffortLevel, McpServerDef, MemorySource, PathDataCopy, PermissionMode, PlanUsage, ProviderId, ReadinessIssue, SessionUsage, TranscriptImageRef, TranscriptItem } from '../../shared/types'
 import type { ProviderDescriptor } from '../../shared/providers'
 import type { StartHint } from '../../shared/startFailure'
 
@@ -260,6 +260,13 @@ export interface ProviderAdapter {
   /** Where to put a transcript restored from Hive's backup so the CLI can resume it; null if it can't be restored. */
   restorePath(folder: string, sessionId: string, recorded?: string): string | null
   listSessions(folder: string): Promise<ExternalSession[]>
+  /**
+   * What the CLI keeps by a folder's path rather than in it (Claude Code: ~/.claude/projects/<path as name>/, its
+   * transcripts and auto memory), for a folder that moved (#146). With apply, copied to the new path's name: never moved
+   * or deleted, and a file already there with other content is kept. Null when it has nothing for `from`. Providers that
+   * keep sessions by id (Codex) have none.
+   */
+  copyPathData?(from: string, to: string, apply: boolean): Promise<PathDataCopy | null>
   /** Output that means the CLI is asking the user something before it starts (e.g. whether to trust the folder). */
   readonly startupQuestion?: RegExp
   parseUsage(text: string, sessionId: string): SessionUsage

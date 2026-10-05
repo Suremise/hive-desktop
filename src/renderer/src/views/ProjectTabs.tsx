@@ -217,34 +217,36 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
         {project.agents.length > 1 && (
           <>
             <h2 className="section">By agent</h2>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Agent</th>
-                  <th>Provider</th>
-                  <th className="num">Sessions</th>
-                  <th className="num">Tokens</th>
-                  <th className="num">Cost</th>
-                </tr>
-              </thead>
-              <tbody>
-                {project.agents.map((a) => {
-                  const t = sumUsage(inPeriod.filter((i) => sessionAgent(project, i) === a.id), from)
-                  const prov = agentProviderOf(project, a)
-                  return (
-                    <tr key={a.id}>
-                      <td>{a.name}</td>
-                      <td>
-                        <ProviderIcon provider={prov} /> {providerName(prov)}
-                      </td>
-                      <td className="num">{t.sessions}</td>
-                      <td className="num">{formatTokens(tokens(t))}</td>
-                      <td className="num">{t.sessions ? costText(t) : '—'}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Agent</th>
+                    <th>Provider</th>
+                    <th className="num">Sessions</th>
+                    <th className="num">Tokens</th>
+                    <th className="num">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {project.agents.map((a) => {
+                    const t = sumUsage(inPeriod.filter((i) => sessionAgent(project, i) === a.id), from)
+                    const prov = agentProviderOf(project, a)
+                    return (
+                      <tr key={a.id}>
+                        <td>{a.name}</td>
+                        <td className="nowrap">
+                          <ProviderIcon provider={prov} /> {providerName(prov)}
+                        </td>
+                        <td className="num">{t.sessions}</td>
+                        <td className="num">{formatTokens(tokens(t))}</td>
+                        <td className="num">{t.sessions ? costText(t) : '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
 

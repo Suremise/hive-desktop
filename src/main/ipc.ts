@@ -15,7 +15,7 @@ import { clearRecent, recentChanged, recentFor, removeRecent } from './recentWor
 import { emit, emitTo } from './events'
 import { setPinned } from './pin'
 import { presentWindow } from './testQuiet'
-import { insideReal, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
+import { insideReal, isFile, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { createLogger, logsDir } from './logger'
 import { diagnostics } from './diagnostics'
@@ -31,6 +31,10 @@ import { startTask } from './taskStart'
 import * as assistantControl from './assistantControl'
 import * as personas from './personas'
 import { syncBundled } from './bundled'
+import { checkMoved, finishPending, movePlan, repairMove } from './workspaceMove'
+import { missingWorktree, recreateWorktree, unlinkMissingWorktree } from './agentWorktree'
+import { projectAgents as agentsOf } from '../shared/defaults'
+import type { MoveOptions } from '../shared/types'
 import { killPty, ptyBuffer, resizePty, writePty } from './ptyHost'
 import { apiInfo, regenerateToken } from './servers'
 import * as projectAgents from './projectAgents'
@@ -113,12 +117,24 @@ async function openHere(path: string): ReturnType<WorkspaceService['open']> {
 
 const log = createLogger('ipc')
 
+/** Repair…'s choices as the window sent them, with anything else dropped (#146). */
+function moveOptions(o: unknown): MoveOptions {
+  const v = (o ?? {}) as Record<string, unknown>
+  const locate = v.locate && typeof v.locate === 'object' ? Object.fromEntries(Object.entries(v.locate as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string' && !!e[1])) : undefined
+  const list = (x: unknown): string[] | undefined => (Array.isArray(x) ? x.filter((y): y is string => typeof y === 'string') : undefined)
+  const unlink = list(v.unlink)
+  const recreate = list(v.recreate)
+  return { ...(locate ? { locate } : {}), ...(unlink ? { unlink } : {}), ...(recreate ? { recreate } : {}) }
+}
+
 export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info']>, quitControl: QuitControl): void {
   // Each time a workspace opens: Hive's bundled skills and personas it hasn't got, or has untouched older copies of.
   WorkspaceService.onOpened = async (fresh) => {
     await syncBundled({ fresh }).catch((e) => log.warn("updating the workspace's bundled skills and personas", e))
     const ws = workspace
     void tasks.archiveOldDone(ws).catch((e) => log.warn('archiving old Done cards', e))
+    // Moved since it was last opened (#146)? In the background: the window opens meanwhile, and a banner follows.
+    void checkMoved(contextWorkspace()!).catch((e) => log.warn('checking whether the workspace moved', e))
   }
   /** The window the current request came from. */
   const win = (): BrowserWindow => {
@@ -314,6 +330,15 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       return recentFor(workspace.path)
     },
     'workspace:refresh': async () => (workspace.path ? workspace.refresh() : null),
+    'workspace:movePlan': (opts) => movePlan(currentWorkspace(), moveOptions(opts)),
+    'workspace:moveRepair': (opts) => repairMove(currentWorkspace(), moveOptions(opts)),
+    'workspace:moveLocate': async (projectPath, agentId) => {
+      const agent = agentsOf(await workspace.projectConfig(workspace.assertProject(projectPath))).find((a) => a.id === agentId)
+      const r = await dialog.showOpenDialog(win(), { title: `Locate ${agent?.name ?? 'the agent'}'s worktree`, properties: ['openDirectory'], buttonLabel: 'Use This Folder' })
+      if (r.canceled || !r.filePaths[0]) return null
+      if (!(await isFile(join(r.filePaths[0], '.git')))) throw new Error(`${r.filePaths[0]} isn't a git worktree (it has no .git file). Choose the folder the worktree was moved to.`)
+      return r.filePaths[0]
+    },
 
     'project:create': (name) => workspace.createProject(name),
     'project:removalInfo': (p) => removal.removalInfo(p),
@@ -384,6 +409,20 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'agents:add': (p, opts) => projectAgents.addAgent(p, opts),
     'agents:update': (p, id, patch) => projectAgents.updateAgent(p, id, patch),
     'agents:remove': (p, id, opts) => projectAgents.removeAgent(p, id, opts),
+    'agents:missingWorktree': (p, id) => missingWorktree(workspace.assertProject(p), String(id)),
+    'agents:recreateWorktree': async (p, id) => {
+      const project = workspace.assertProject(p)
+      const def = await recreateWorktree(project, String(id))
+      // At a new place: its sessions and data follow it now (or, if that fails, Repair… does).
+      await finishPending(currentWorkspace(), project)
+      await workspace.refresh()
+      return def
+    },
+    'agents:unlinkWorktree': async (p, id) => {
+      const def = await unlinkMissingWorktree(workspace.assertProject(p), String(id))
+      await workspace.refresh()
+      return def
+    },
     'agents:move': (p, id, index) => projectAgents.moveAgent(p, id, index),
     'agents:swap': (p, id, other) => projectAgents.swapAgents(p, id, other),
     'templates:list': (p) => templates.listTemplates(p),

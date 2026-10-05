@@ -2,12 +2,13 @@ import { homedir } from 'os'
 import { join, basename } from 'path'
 import { mkdir, readdir, stat, writeFile } from 'fs/promises'
 import { existsSync, readFileSync } from 'fs'
-import type { AgentInstallInfo, McpServerDef, MemorySource, PlanLimit, PlanUsage, ReadinessIssue } from '../../../shared/types'
+import type { AgentInstallInfo, McpServerDef, MemorySource, PathDataCopy, PlanLimit, PlanUsage, ReadinessIssue } from '../../../shared/types'
 import { HIVE_DIR, assertSessionId, isSessionId } from '../../../shared/defaults'
 import { CLAUDE_CODE, CLAUDE_DESCRIPTOR, baseModel, canSwitchLive, footerMode, hookMode } from '../../../shared/claude'
 import { providerSettings } from '../../../shared/providers'
+import { samePath } from '../../../shared/movePaths'
 import { config } from '../../config'
-import { claudeFileAllowed, contentHash, ContentTooLarge, copySkillTree, sourceProblem, tooBigToDeliver, isDir, linksNotCopied, readJson, removePath, writeJsonAtomic } from '../../fsutil'
+import { claudeFileAllowed, contentHash, ContentTooLarge, copyMissing, copySkillTree, sourceProblem, tooBigToDeliver, isDir, linksNotCopied, readJson, removePath, writeJsonAtomic } from '../../fsutil'
 import { createLogger } from '../../logger'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, run, runsThroughCmd, toSpawnable } from '../common'
 import type { StartHint } from '../../../shared/startFailure'
@@ -445,6 +446,16 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   /** Where a transcript would be written for a folder that has none yet. */
   restorePath(folder: string, sessionId: string): string {
     return join(claudeHome(), 'projects', encodeProjectPath(folder), `${assertSessionId(sessionId)}.jsonl`)
+  }
+
+  /** A moved folder's transcripts and auto memory (memory/), copied to the folder named for its new path (#146). */
+  async copyPathData(from: string, to: string, apply: boolean): Promise<PathDataCopy | null> {
+    const src = await this.transcriptDir(from)
+    if (!src) return null
+    const dest = (await this.transcriptDir(to)) ?? join(claudeHome(), 'projects', encodeProjectPath(to))
+    if (samePath(src, dest)) return null
+    const r = await copyMissing(src, dest, apply)
+    return { provider: this.id, from: src, to: dest, copy: r.copy, kept: r.kept, ...(r.failed.length ? { failed: r.failed } : {}) }
   }
 
   async listSessions(folder: string): Promise<ExternalSession[]> {

@@ -201,3 +201,19 @@ function PageButton({ label, title, disabled, onClick }: { label: string; title:
     </Tooltip>
   )
 }
+
+/**
+ * A table cell of deliberate lines (#241): the value, and under it a smaller, fainter detail, neither of which wraps,
+ * so a narrow table scrolls inside its section (.table-wrap) rather than breaking a value mid-phrase. In a number
+ * column both lines align right. A missing detail still takes its line (`sub` null), so rows keep one height.
+ */
+export function CellLines({ main, sub, subWarn }: { main: React.ReactNode; sub?: React.ReactNode; subWarn?: boolean }) {
+  return (
+    <span className="cell-lines">
+      <span className="cell-main">{main}</span>
+      <span className={cx('cell-sub', subWarn && 'warn-text')} aria-hidden={sub ? undefined : true}>
+        {sub || ' '}
+      </span>
+    </span>
+  )
+}

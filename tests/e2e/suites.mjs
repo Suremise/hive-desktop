@@ -12,6 +12,7 @@ export const SUITES = [
   { name: 'assistant' },
   { name: 'assistant-control' },
   { name: 'assistantend' },
+  { name: 'assistantoverview' },
   { name: 'assistantside' },
   { name: 'attention' },
   { name: 'automode' },
@@ -57,6 +58,7 @@ export const SUITES = [
   { name: 'mcp' },
   { name: 'mode', needs: ['claude'] },
   { name: 'models' },
+  { name: 'narrowmain' },
   { name: 'numbers' },
   { name: 'overview' },
   { name: 'packaged', needs: ['packaged'] },
@@ -67,6 +69,7 @@ export const SUITES = [
   { name: 'paneheader' },
   { name: 'perfcompare' },
   { name: 'performance' },
+  { name: 'perftable' },
   { name: 'pin' },
   { name: 'plan', needs: ['claude'] },
   { name: 'progress', serial: 'window focus' },
@@ -106,5 +109,7 @@ export const SUITES = [
   { name: 'unsaved' },
   { name: 'update' },
   { name: 'windows' },
-  { name: 'wsoverview' }
+  { name: 'wsmove' },
+  { name: 'wsoverview' },
+  { name: 'wtrecreate' }
 ]
