@@ -209,6 +209,9 @@ function handleEvent(e: HiveEvent): void {
       // Focusing the window marks the agents on screen seen (markOnScreenSeen).
       set({ maximized: e.maximized, windowFocused: e.focused, alwaysOnTop: e.alwaysOnTop })
       break
+    case 'windows-changed':
+      set({ windowCount: e.count })
+      break
   }
 }
 
@@ -252,7 +255,7 @@ export function App() {
         set((st) => ({ branchStatus: { ...Object.fromEntries(list.map((b) => [projectKey(b.projectPath, b.agentId), b.status])), ...st.branchStatus } }))
       )
       // A reloaded window picks up a quit dialog or pending quit that was already in progress.
-      set({ planUsage: await call('app:planUsage'), update: await call('update:state'), keepAwake: await call('app:keepAwake') })
+      set({ planUsage: await call('app:planUsage'), update: await call('update:state'), keepAwake: await call('app:keepAwake'), windowCount: await call('window:count') })
       const q = await call('app:quitState')
       set({ quitRequest: q.request, quitUnsaved: q.unsaved, quitScope: q.scope, quitPending: q.pending ? { working: q.working } : null })
       applyTheme()

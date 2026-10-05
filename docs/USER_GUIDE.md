@@ -50,9 +50,9 @@ Each **project** (every subfolder except dot-folders) gets its own `.hive` folde
 Like VS Code, Hive can show several workspaces at once, each in its own window: **File → New Window** (Ctrl+K Ctrl+N) opens one on the welcome page, where you open or create a workspace. Each window is a full Hive with its own projects, agents, shared notes, skills and MCP servers; settings, the tray and updates are shared.
 
 - **Open Workspace** replaces the workspace in the current window. If its agents are running, Hive asks first (*Switch workspace?*), then stops them; to keep them running, open the other workspace in a new window instead. If the workspace is already open in another window, that window comes forward instead, so two windows never run agents on the same project. A folder inside a workspace open in another window (or one containing it) can't be opened as a workspace: its projects would belong to both.
-- **File → Close Workspace** stops every agent in every project of the workspace, asking first (*Close this workspace?*).
-- **Closing a window** closes its workspace and stops its agents, asking first as quitting does (*Close this window?*). Closing the last window keeps Hive in the tray, as before.
-- **Quitting** stops the agents of every window. When Hive starts again, it reopens the windows that were open, each with its workspace, where they were.
+- **File → Close Workspace** stops every agent in every project of the workspace, asking first (*Close this workspace?*), and keeps the window open, on the welcome page.
+- **Closing a window** (its **X**, or **File → Close Window**, Ctrl+Shift+W) closes its workspace and stops its agents, asking first as quitting does (*Close this window?*). Closing the last window keeps Hive in the tray, or quits Hive (asking first) when **Settings → General → Close to tray** is off.
+- **Quitting** (**File → Exit**, Ctrl+Q, or the tray's Quit) stops the agents of every window. With several windows open, the menu says **Exit Hive (all windows)**, and its dialog says it closes them all and lists the agents under their workspaces; **Close this window only** there closes just the window it is shown in, as Close Window does. When Hive starts again, it reopens the windows that were open, each with its workspace, where they were.
 - Notifications and the tray menu take you to the window showing the project.
 
 ### Always on Top
@@ -83,6 +83,8 @@ Status dots:
 
 The sidebar and the lists in the Sessions, Files, Changes and Memory tabs can be made wider or narrower by dragging their right-hand edge, as can the two halves of a split view in the Files tab. Double-click the edge to reset it. Hive remembers the sizes.
 
+A project's tabs (Session, Overview, Performance, Tasks and the rest) shrink to **icons** when their names don't fit, as in a narrow window or with the sidebar and panels open; the tab you're on keeps its name. Hover a tab for its name and shortcut. They get their names back once there's room. In a very narrow window the tabs scroll sideways, keeping the one you're on in view.
+
 ### Removing a project
 
 **Project → Remove Project…** (also in a project's right-click menu and the **⋯** at the top of a project) offers three ways. The dialog lists what each one touches: running agents (stopped first; their conversations are kept), the folder, the project's handovers, its cards on the task board and its worktrees.
@@ -101,7 +103,7 @@ Each agent of a project runs one session at a time (most projects have just one 
 
 **Where things are.** The project header is about the project: its name and combined status, the **Active** switch, **Explorer** (reveal the folder), **Terminal** (open an external terminal there), **Resume All Agents** while any stopped agent has a session to resume (running agents are left alone; if one can't resume, a notification says which and why, and the others still resume), **Stop All Agents** while any runs (it lists them and asks first), and **⋯** for Changes and Project Settings. Agents are added from the agent strip's **Add Agent** button. Everything about one agent is on its own pane, whether a project has one agent or four:
 
-- **The agent header**: its status, provider, name, worktree branch and card, then its buttons: **Compact** and **Stop** while it runs; **Resume**, **Resume a Session…** and **New Session** when it doesn't; **Merge…** for a worktree agent; and **⋯** with everything else. Compact and Stop are always small icon buttons (hover for what they do); as the pane gets narrower the other buttons show only their icons too, then they all fold into **⋯**, and they get their labels back as soon as there's room again. In a narrow pane the agent's name, branch, status and card shorten (hover for the full text) so the buttons always fit. While the conversation is compacting, Compact shows a turning spinner until it has finished.
+- **The agent header**: its status, provider, name, worktree branch and card, then its buttons: **Compact** and **Stop** while it runs; **Resume**, **Resume a Session…** and **New Session** when it doesn't; **Merge** for a worktree agent; and **⋯** with everything else. Compact, Stop and Merge are always small icon buttons (hover for what they do; Merge shows its count of work not merged yet beside its icon); as the pane gets narrower the other buttons show only their icons too, then they all fold into **⋯**, and they get their labels back as soon as there's room again. In a narrow pane the agent's name, branch, status and card shorten (hover for the full text) so the buttons always fit. While the conversation is compacting, Compact shows a turning spinner until it has finished.
 - **The agent footer**: its model and effort (click for Agent Settings), its permission mode (click to switch), and on the right the name of the session it's running, the context it uses, with how full the model's context window is once the CLI has said (*84k · 42%*; just the percentage in a narrow pane; amber past your Compact threshold; click to see the session in the Overview), the size of the conversation's transcript (amber past **Settings → Sessions → Warn when a transcript is over**; click for Hand Over to…) and the session's cost.
 
 The status bar keeps what concerns the whole app: the workspace, branch, running agents, the agents that need you (see [Agents that need you](#agents-that-need-you)), plan limits, the Agent API, each CLI's version and Hive's updates.
@@ -172,7 +174,7 @@ If git can't read the changes, the **Changes** tab says why, with **Retry**. The
 
 **Working with one agent for a while.** With **Merge** and the worktree kept, an agent can do a task and merge it, then the next task and merge again, or several tasks and one merge. When the project folder's branch moves on (another agent's work was merged), ask the agent to merge it into its branch before its next task, so it works on current code.
 
-**Work not merged yet** shows on the agent: **Merge…** in its header turns orange with the number of commits on its branch that aren't in the project folder's branch, and its tab in the agent strip shows the same number with an up arrow. A **•** instead of a number means uncommitted files only. Hover either for the details ("2 commits not merged into main · 1 uncommitted file"). Hive checks when the agent finishes a turn or stops, when you come back to Hive's window, after a merge, and every minute while something is left to merge. **Merge…** is greyed out while the agent is in the middle of a task (working, asking you something, or waiting on background tasks it started), because merging commits its unfinished files; hover it to see why, and merge once it has finished.
+**Work not merged yet** shows on the agent: the **Merge** button in its header (its icon is a branch merging) turns orange with the number of commits on its branch that aren't in the project folder's branch, and its tab in the agent strip shows the same number with an up arrow. A **•** instead of a number means uncommitted files only. Hover either for the details ("2 commits not merged into main · 1 uncommitted file"). Hive checks when the agent finishes a turn or stops, when you come back to Hive's window, after a merge, and every minute while something is left to merge. **Merge…** is greyed out while the agent is in the middle of a task (working, asking you something, or waiting on background tasks it started), because merging commits its unfinished files; hover it to see why, and merge once it has finished.
 
 **Remove Agent** asks whether to keep a worktree agent's worktree and branch or delete them; **Discard** deletes them straight away. Their sessions stay in the Sessions tab, labelled with the agent and branch. Two dev servers from different agents can clash on the same port; give them different ports.
 
@@ -631,6 +633,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Go to project | Ctrl+P |
 | Settings | Ctrl+, |
 | New window | Ctrl+K Ctrl+N |
+| Close window | Ctrl+Shift+W |
 | New session / resume / stop | Ctrl+Shift+N / Ctrl+Shift+R / Ctrl+Shift+X |
 | Compact the conversation | Ctrl+Alt+C |
 | Switch permission mode | Ctrl+Alt+M (Shift+Tab inside the terminal) |

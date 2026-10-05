@@ -196,6 +196,7 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
     })
   }
   const entry = registerWindow(win, createWorkspaceService())
+  emit({ type: 'windows-changed', count: hiveWindows().length })
   // A page that crashes or hangs is reloaded (or the user asked); agents run here and keep going.
   watchRenderer(entry, { quitting: () => quitting, openLogs: () => void shell.openPath(logsDir()), quit: () => void quitNow(true) })
 
@@ -248,6 +249,7 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
     unregisterWindow(entry)
     void disposeWorkspaceService(entry.ws)
     if (!quitting) saveWindows()
+    emit({ type: 'windows-changed', count: hiveWindows().length })
   })
 
   // Links open in the user's browser, never inside Hive.
@@ -336,9 +338,11 @@ const quitSessions = (ws?: WorkspaceService): QuitSession[] =>
     .map((s) => {
       // A watching agent says what for, and whether quitting when agents finish waits for it (the same rule as workingCount).
       const watch = s.status === 'watching' && s.watch ? { watch: s.watch.label, ...(watchKeepsQuitWaiting(s) ? { keepsQuitWaiting: true } : {}) } : {}
-      if (workspace.isAssistantHome(s.projectPath)) return { projectPath: s.projectPath, project: ASSISTANT_NAME, status: s.status, provider: s.provider, ...watch }
+      const wsPath = workspaceOf(s.projectPath).path
+      const where = wsPath ? { workspace: basename(wsPath) } : {}
+      if (workspace.isAssistantHome(s.projectPath)) return { projectPath: s.projectPath, project: ASSISTANT_NAME, status: s.status, provider: s.provider, ...where, ...watch }
       const agents = workspaceOf(s.projectPath).info()?.projects.find((p) => p.path.toLowerCase() === s.projectPath.toLowerCase())?.agents.length ?? 1
-      return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, provider: s.provider, ...(agents > 1 ? { agent: s.agentName } : {}), ...watch }
+      return { projectPath: s.projectPath, project: basename(s.projectPath), status: s.status, provider: s.provider, ...where, ...(agents > 1 ? { agent: s.agentName } : {}), ...watch }
     })
 /** Agents that are working, or waiting on background tasks that will set them working again. */
 // A watching agent whose card is being worked on by another agent isn't done either: it carries on when woken.
@@ -376,10 +380,15 @@ async function requestQuit(opts: { force?: boolean } = {}): Promise<void> {
   if ((askSessions || unsavedIn.length > 0) && target) {
     // Unsaved edits live in each window's page: a window with some is asked about them first.
     for (const other of unsavedIn.filter((e) => e !== target)) {
-      if ((await ask(other, { sessions: [], unsaved: other.unsaved, scope: 'app' })) === 'cancel') return
+      const first = await ask(other, { sessions: [], unsaved: other.unsaved, scope: 'app' })
+      if (first === 'cancel') return
+      // Its files are dealt with, but its agents weren't listed: closing it asks about them as Close Window does.
+      if (first === 'window') return closeWindowOnly(other, { unsaved: true })
     }
     const choice = await ask(target, { sessions: askSessions ? quitSessions() : [], unsaved: target.unsaved, scope: 'app' })
     if (choice === 'cancel') return
+    // Close this window only: the Close Window path, without asking again about what the dialog listed.
+    if (choice === 'window') return closeWindowOnly(target, { sessions: askSessions, unsaved: true })
     installOnQuit = forUpdate
     if (choice === 'wait') return startPendingQuit()
     return quitNow(!askSessions && live.length > 0)
@@ -416,13 +425,20 @@ async function stopWorkspaceAgents(from: BrowserWindow, scope: 'workspace' | 'sw
   return true
 }
 
-/** Closing a window (not the last): its workspace's agents are stopped, after asking as quitting does. */
-async function requestCloseWindow(e: HiveWindow): Promise<void> {
+/** What the quit dialog has just dealt with, before Close this window only: its agents (listed) and its unsaved files. */
+type AlreadyAsked = { sessions?: boolean; unsaved?: boolean }
+
+/**
+ * Closing a window (not the last): its workspace's agents are stopped, after asking as quitting does, about what the
+ * quit dialog hasn't already (`done`).
+ */
+async function requestCloseWindow(e: HiveWindow, done: AlreadyAsked = {}): Promise<void> {
   if (e.question) return showWindow(e.win)
   const mine = quitSessions(e.ws)
-  const askSessions = askBeforeStopping(mine)
-  if (askSessions || e.unsaved.length) {
-    const choice = await ask(e, { sessions: askSessions ? mine : [], unsaved: e.unsaved, scope: 'window' })
+  const askSessions = !done.sessions && askBeforeStopping(mine)
+  const unsaved = done.unsaved ? [] : e.unsaved
+  if (askSessions || unsaved.length) {
+    const choice = await ask(e, { sessions: askSessions ? mine : [], unsaved, scope: 'window' })
     if (choice === 'cancel') return
   }
   e.ws.closing = true
@@ -430,6 +446,19 @@ async function requestCloseWindow(e: HiveWindow): Promise<void> {
   saveWindowsWithout(e)
   e.closing = true
   e.win.close()
+}
+
+/**
+ * The quit dialog's Close this window only (shown only with several windows open). Were it the last window by now,
+ * it closes as the last window's X does: to the tray, or quitting.
+ */
+function closeWindowOnly(e: HiveWindow, done: AlreadyAsked): Promise<void> {
+  if (hiveWindows().length > 1) return requestCloseWindow(e, done)
+  if (config.settings.general.closeToTray) {
+    e.win.hide()
+    return Promise.resolve()
+  }
+  return quitNow(sessions.liveCount() > 0)
 }
 
 /** Remembers the windows as they will be once this one has closed. */
@@ -693,7 +722,7 @@ app.whenReady().then(async () => {
     quit: () => void requestQuit(),
     decide: (from, choice, dontAskAgain) => {
       const e = hiveWindows().find((x) => x.win === from)
-      if (dontAskAgain && choice !== 'cancel' && e?.question?.scope === 'app') config.updateSettings({ general: { confirmOnQuit: 'never' } })
+      if (dontAskAgain && (choice === 'now' || choice === 'wait') && e?.question?.scope === 'app') config.updateSettings({ general: { confirmOnQuit: 'never' } })
       e?.question?.answer(choice)
     },
     cancelPending: cancelPendingQuit,

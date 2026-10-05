@@ -2,7 +2,8 @@
 // click (nothing of the terminal on top of them), Resume reopens the same conversation and New a fresh one, both work
 // from the keyboard; the header's own Resume (|▷) resumes it without the ⋯ menu, also in a narrow panel and in the
 // light theme; with no conversation to resume there is Start and no Resume. The Assistant runs the fake Claude Code
-// (fake-claude/). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// (fake-claude/). Both Resume buttons out of the header (the ended bar's and the start page's) wear the amber tint
+// of every other secondary Resume, in both themes. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -91,7 +92,13 @@ const check = (name, ok, extra = '') => {
 
   // --- Stopped: the ended bar's Resume, with the real pointer.
   check('Stop ends the conversation and shows the ended bar', await stopFromHeader())
+  const amber = async (button) => button.evaluate((b) => b.classList.contains('tint-amber') && !b.classList.contains('subtle'))
+  check("the ended bar Resume is amber, like the agents' Resume", await amber(ended.getByRole('button', { name: 'Resume' })))
   await page.screenshot({ path: path.join(lib.WORK, 'assistantend-1-ended.png') })
+  await inv('settings:update', { appearance: { theme: 'light' } }).catch(() => undefined)
+  await lib.sleep(300)
+  await page.screenshot({ path: path.join(lib.WORK, 'assistantend-1-ended-light.png') })
+  await inv('settings:update', { appearance: { theme: 'dark' } }).catch(() => undefined)
   await pointAndClick(ended.getByRole('button', { name: 'Resume' }), 'ended bar Resume')
   check('the ended bar Resume reopens the same conversation', !!(await until(async () => (await live())?.sessionId === first)), (await live())?.sessionId)
 
@@ -151,6 +158,13 @@ const check = (name, ok, extra = '') => {
   // After a reload the panel shows its start page rather than the ended bar: stopped is what counts here.
   await stopFromHeader()
   check('stopped before switching provider', !(await live()))
+  const idleResume = panel.locator('.assistant-idle').getByRole('button', { name: 'Resume', exact: true })
+  check('the start page offers Resume', !!(await until(async () => (await idleResume.count()) === 1, 5000)))
+  check("the start page Resume is amber, like the agents' Resume", await amber(idleResume))
+  await page.screenshot({ path: path.join(lib.WORK, 'assistantend-3-idle-light.png') })
+  await inv('settings:update', { appearance: { theme: 'dark' } }).catch(() => undefined)
+  await lib.sleep(300)
+  await page.screenshot({ path: path.join(lib.WORK, 'assistantend-4-idle-dark.png') })
   await inv('agents:update', home, 'assistant', { provider: 'codex' })
   await page.reload()
   await until(async () => (await header.count()) === 1, 10000)

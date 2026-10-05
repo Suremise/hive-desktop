@@ -144,6 +144,9 @@ function resumeTip(project: ProjectInfo, a: AgentInfo): string {
   return `${project.agents.length > 1 ? `${a.name} has` : 'There is'} no session of its own to resume. Choose one with ▾, or start a new one.`
 }
 
+/** The tint every secondary Resume button wears (agent panes, the project header, the Assistant's panel). */
+export const RESUME_TINT = 'tint-amber'
+
 /** Resume split button: the main part resumes the agent's last session, ▾ picks another. */
 export function ResumeButton({ project, a, className, label = 'Resume' }: { project: ProjectInfo; a: AgentInfo; className?: string; label?: string }) {
   const picker = useSessionPicker()
@@ -537,7 +540,7 @@ export function useWidth<T extends HTMLElement>(): [(el: T | null) => void, numb
  * so each mode only has to fit its widest set of buttons: a stopped worktree agent's, with a four-digit Merge count, and room
  * for the status dot and provider icon (tests/e2e/paneheader.cjs measures it at both widths).
  */
-const LABELS_FROM = 620
+const LABELS_FROM = 565
 const ICONS_FROM = 340
 
 function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInfo; focused: boolean }) {
@@ -582,7 +585,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
     </Tooltip>
   )
   return (
-    <div ref={ref} className={cx('pane-header-bar', focused && 'focused')} {...agentDragProps(project, a)} onMouseDown={() => focusAgent(project.path, a.id)} onContextMenu={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))}>
+    <div ref={ref} className={cx('pane-header-bar', focused && 'focused')} data-buttons={size} {...agentDragProps(project, a)} onMouseDown={() => focusAgent(project.path, a.id)} onContextMenu={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))}>
       {!live && failure ? (
         <Tooltip content={`Failed to start: ${failure.reason}`}>
           <span className="dot error" />
@@ -644,6 +647,8 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       {a.worktree &&
         size !== 'menu' &&
         btn('git-merge', 'Merge…', () => set({ mergeFor: { project: project.path, agentId: a.id } }), cx('subtle', unmerged?.badge && 'suggest'), {
+          // Its icon and count only, like Compact and Stop: the tooltip says what it merges.
+          iconOnly: true,
           count: unmerged?.badge,
           // Not while it is in the middle of a task; the count still shows what is waiting to be merged.
           disabled: !!mergeBlocked(a.name, live?.status),
@@ -861,7 +866,7 @@ function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a
         <button className="btn primary small" onClick={() => void actions.newSession(project.path, a.id)}>
           <Icon name="add" /> New Session
         </button>
-        <ResumeButton project={project} a={a} className="tint-amber small" />
+        <ResumeButton project={project} a={a} className={cx(RESUME_TINT, 'small')} />
       </div>
     </div>
   )

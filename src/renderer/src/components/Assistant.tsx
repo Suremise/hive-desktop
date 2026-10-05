@@ -11,7 +11,7 @@ import { useInbox } from '../inbox'
 import { useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
 import { Overrides, ProviderChoice, contextChoice, contextValue, type ContextChoice } from './AgentDialogs'
-import { PaneFooter, useWidth } from './AgentPanes'
+import { PaneFooter, RESUME_TINT, useWidth } from './AgentPanes'
 import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { PaneResizer, usePaneSize } from './Resizer'
@@ -223,7 +223,7 @@ function AssistantIdle({ project, a, ended }: { project: ProjectInfo; a: AgentIn
   const persona = personas.find((p) => p.id === personaId)
   const picker = useConversationPicker()
   const resume = a.resume ? (
-    <button className="btn subtle small" onClick={() => void actions.resumeLast(project.path, AGENT)} title={`Resume "${sessionLabel(a.resume, 'Assistant')}", ${timeAgo(a.resume.lastActiveAt)}`}>
+    <button className={cx('btn small', RESUME_TINT)} onClick={() => void actions.resumeLast(project.path, AGENT)} title={`Resume "${sessionLabel(a.resume, 'Assistant')}", ${timeAgo(a.resume.lastActiveAt)}`}>
       <Icon name="debug-continue" /> Resume
     </button>
   ) : null

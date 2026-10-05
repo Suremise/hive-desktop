@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import iconUrl from '../assets/icon.svg'
 import { call, errorMessage } from '../api'
-import { commandKeybinding, commands, runCommand } from '../commands'
+import { commandKeybinding, commandLabel, commands, runCommand } from '../commands'
 import { closeDialog, dismissToast, findProject, NO_PROJECTS, notify, set, setActivity, useStore } from '../store'
 import { cacheState, useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
 import { UpdateStatusRow } from './Updates'
 import { discardDrafts, saveAllDrafts, unsavedFiles } from './FileView'
-import type { ProviderId, ProviderTask, QuitChoice, SessionStatus } from '@shared/types'
+import type { ProviderId, ProviderTask, QuitChoice, QuitSession, SessionStatus } from '@shared/types'
 import { PROVIDERS, enabledProviders, isProviderEnabled, providerDescriptor } from '@shared/providers'
 import { ProviderIcon } from './ProviderIcon'
 import { BusyButton, Icon, IconButton, LoadFailed, Modal, STATUS_TEXT, useBackdrop, useBusy } from './ui'
@@ -186,7 +186,7 @@ export function CommandPalette() {
   const items = useMemo(() => {
     const cmdItems = mode === 'projects' ? [] : commands
       .filter((c) => !c.internal && (!c.when || c.when()))
-      .map((c) => ({ id: c.id, label: `${c.category}: ${c.label}`, keybinding: commandKeybinding(c.id), run: () => runCommand(c.id), icon: 'symbol-event', checked: c.checked }))
+      .map((c) => ({ id: c.id, label: `${c.category}: ${commandLabel(c)}`, keybinding: commandKeybinding(c.id), run: () => runCommand(c.id), icon: 'symbol-event', checked: c.checked }))
     const projectItems = projects.map((p) => ({
       id: `project:${p.path}`,
       label: mode === 'projects' ? p.name : `Go to Project: ${p.name}`,
@@ -758,8 +758,12 @@ export function QuitDialog() {
   const sessions = useStore((s) => s.quitRequest)
   const unsaved = useStore((s) => s.quitUnsaved)
   const scope = useStore((s) => s.quitScope)
+  const windows = useStore((s) => s.windowCount)
+  const workspaceName = useStore((s) => s.workspace?.name)
   // Closing a window, closing its workspace or switching it: only this workspace's sessions stop.
   const closing = scope !== 'app'
+  // Quitting with several windows open closes them all: it says so, groups the agents by workspace and offers this window alone.
+  const allWindows = !closing && windows > 1
   const what = scope === 'workspace' ? 'Close workspace' : scope === 'switch' ? 'Switch workspace' : 'Close window'
   const stops = scope === 'workspace' ? 'Closing the workspace stops its' : scope === 'switch' ? 'Switching workspace stops this workspace\'s' : "Closing this window stops this workspace's"
   const [dontAsk, setDontAsk] = useState(false)
@@ -800,9 +804,15 @@ export function QuitDialog() {
   const busy = sessions.filter((s) => BUSY.includes(s.status)).length
   const verb = closing ? (unsaved.length && keep === 'save' ? 'Save and close' : what) : unsaved.length && keep === 'save' ? 'Save and quit' : 'Quit'
   const parts = (p: string): string[] => p.split(/[\\/]/)
+  const groups = new Map<string, QuitSession[]>()
+  for (const s of sessions) {
+    const ws = allWindows ? (s.workspace ?? '') : ''
+    groups.set(ws, [...(groups.get(ws) ?? []), s])
+  }
+  const stopsAll = allWindows ? `Quitting closes all ${windows} windows and stops` : 'Quitting stops'
   return (
     <Modal
-      title={scope === 'workspace' ? 'Close this workspace?' : scope === 'switch' ? 'Switch workspace?' : closing ? 'Close this window?' : 'Quit Hive?'}
+      title={scope === 'workspace' ? 'Close this workspace?' : scope === 'switch' ? 'Switch workspace?' : closing ? 'Close this window?' : allWindows ? `Quit Hive and close all ${windows} windows?` : 'Quit Hive?'}
       icon={busy || unsaved.length ? 'warning' : 'sign-out'}
       onClose={() => void decide('cancel')}
       footer={
@@ -853,23 +863,43 @@ export function QuitDialog() {
       {sessions.length > 0 && (
         <p style={{ marginTop: unsaved.length ? undefined : 0 }}>
           {busy
-            ? `${busy === 1 ? 'An agent is' : `${busy} agents are`} in the middle of something. ${closing ? stops : 'Quitting stops'} ${sessions.length === 1 ? 'session' : `${closing ? '' : 'all '}${sessions.length} sessions`}.`
-            : `${closing ? stops : 'Quitting stops'} ${sessions.length === 1 ? 'running session' : `${sessions.length} running sessions`}.`}
+            ? `${busy === 1 ? 'An agent is' : `${busy} agents are`} in the middle of something. ${closing ? stops : stopsAll} ${sessions.length === 1 ? 'session' : `${closing ? '' : 'all '}${sessions.length} sessions`}${allWindows ? ', in every workspace' : ''}.`
+            : `${closing ? stops : stopsAll} ${sessions.length === 1 ? 'running session' : `${sessions.length} running sessions`}${allWindows ? ', in every workspace' : ''}.`}
         </p>
       )}
       <div className="quit-list" hidden={!sessions.length}>
-        {sessions.map((s) => (
-          <div key={`${s.projectPath}:${s.agent ?? ''}`} className="quit-row">
-            <span className={cx('dot', s.status)} />
-            <strong>{s.project}</strong>{s.agent && <span className="muted">· {s.agent}</span>}
-            <span className="faint">{s.status === 'watching' && s.watch ? s.watch : STATUS_TEXT[s.status]}</span>
-            {s.status === 'working' && <span className="badge warn">Will be interrupted</span>}
-            {s.status === 'background' && <span className="badge warn">Background tasks will stop</span>}
-            {s.status === 'waiting' && <span className="badge warn">Waiting for you</span>}
-            {s.status === 'watching' && <span className="badge warn">Its card loop pauses until it is resumed</span>}
-          </div>
+        {[...groups].map(([ws, rows]) => (
+          <Fragment key={`ws:${ws}`}>
+            {ws && (
+              <div className="quit-group">
+                <Icon name="folder" /> {ws}
+              </div>
+            )}
+            {rows.map((s) => (
+              <div key={`${s.projectPath}:${s.agent ?? ''}`} className="quit-row">
+                <span className={cx('dot', s.status)} />
+                <strong>{s.project}</strong>{s.agent && <span className="muted">· {s.agent}</span>}
+                <span className="faint">{s.status === 'watching' && s.watch ? s.watch : STATUS_TEXT[s.status]}</span>
+                {s.status === 'working' && <span className="badge warn">Will be interrupted</span>}
+                {s.status === 'background' && <span className="badge warn">Background tasks will stop</span>}
+                {s.status === 'waiting' && <span className="badge warn">Waiting for you</span>}
+                {s.status === 'watching' && <span className="badge warn">Its card loop pauses until it is resumed</span>}
+              </div>
+            ))}
+          </Fragment>
         ))}
       </div>
+      {allWindows && (
+        // In the body, not the footer: beside Cancel, Quit when agents finish and Quit now it would push the footer out of the dialog.
+        <div className="quit-window-only">
+          <span className="grow">
+            Meant to close only this window{workspaceName ? <> ({workspaceName})</> : null}? Its agents stop, and the other {windows === 2 ? 'window stays' : `${windows - 1} windows stay`} open, as with its X.
+          </span>
+          <button className="btn small subtle" onClick={() => void decide('window')} disabled={saving}>
+            <Icon name="close" /> Close this window only
+          </button>
+        </div>
+      )}
       {sessions.length > 0 && <div className="detail">Conversations are kept. Resume them from the project or its Sessions tab next time.</div>}
     </Modal>
   )

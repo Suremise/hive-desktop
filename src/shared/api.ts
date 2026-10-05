@@ -97,6 +97,8 @@ export interface HiveRequests {
   'window:minimize': () => void
   'window:toggleMaximize': () => void
   'window:close': () => void
+  /** How many Hive windows are open. */
+  'window:count': () => number
   /** Opens another Hive window (the welcome page), like VS Code's New Window. */
   'window:new': () => void
   'window:toggleDevTools': () => void
