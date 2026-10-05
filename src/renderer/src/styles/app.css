@@ -2673,11 +2673,12 @@ p.hint {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+/* What tells two same-named workspaces apart: secondary (plain, lower case) but readable, at least 4.5:1 (#219). */
 .quit-group-where {
   font-weight: 400;
   text-transform: none;
   letter-spacing: normal;
-  color: var(--fg-faint);
+  color: var(--fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -55,7 +55,7 @@ const check = (name, ok, extra = '') => {
   await lib.until(async () => !!(await layout()).panel, 5000)
   let l = await layout()
   check('by default the panel is on the right, after the main area', rightOfMain(l, 'panel'), JSON.stringify(l))
-  check('…and the tip corner keeps left of it', parseInt(l.corner) > l.panel.width, l.corner)
+  check('…and the tip corner keeps left of it', !!(await lib.until(async () => parseInt((await layout()).corner) > l.panel.width, 3000)), (await layout()).corner)
 
   // --- The palette: "Move Assistant Panel to the Left".
   let items = await palette('move assistant')
@@ -65,7 +65,9 @@ const check = (name, ok, extra = '') => {
   l = await layout()
   check('moved: the panel is between the project list and the main area', leftOfMain(l, 'panel'), JSON.stringify(l))
   check('…saved as a setting', (await side()) === 'left')
-  check('…and the tip corner is back at the window edge', l.corner === '14px', l.corner)
+  // The corner is measured on the next frame after the layout changes: wait for it rather than read it at once.
+  const corner = await lib.until(async () => ((await layout()).corner === '14px' ? '14px' : null), 3000)
+  check('…and the tip corner is back at the window edge', corner === '14px', (await layout()).corner)
 
   // Resized from its right edge: dragging it right makes it wider.
   const resizer = page.locator('.assistant-panel > .pane-resizer')
