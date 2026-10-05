@@ -1,4 +1,4 @@
-// Quit flows in throwaway profiles. Sessions are started but never sent a message.
+// Quit flows in throwaway profiles. Sessions run the fake Claude Code (fake-claude/, #194): started, never sent a message.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -27,15 +27,15 @@ async function launch(name, config) {
   fs.mkdirSync(path.join(ws, 'beta'), { recursive: true })
   fs.mkdirSync(userData, { recursive: true })
   if (config) fs.writeFileSync(path.join(userData, 'config.json'), JSON.stringify(config))
-  else lib.enableProviders(userData)
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData })
+  const claude = lib.fakeClaude(userData, path.join(scratch, `q-${name}-claude-home`), [path.join(ws, 'alpha'), path.join(ws, 'beta')])
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, ...claude })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => results.push(`PAGEERROR ${e.message}`))
   await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await lib.openWorkspace(inv, page, ws)
-  // Starting an agent before Claude Code has been found fails (it did now and then on a busy machine).
+  // Starting an agent before Hive has found its Claude Code fails (it did now and then on a busy machine).
   await lib.waitForProvider(inv)
   return { app, page, inv, ws }
 }
@@ -90,7 +90,7 @@ const forceClose = async (app) => {
     const saved = JSON.parse(fs.readFileSync(path.join(scratch, 'q-always-profile', 'config.json'), 'utf8'))
     check("don't ask again: saved as never", saved.settings.general.confirmOnQuit === 'never')
     const s = JSON.parse(fs.readFileSync(path.join(ws, 'alpha', '.hive', 'sessions.json'), 'utf8'))
-    check('quit now: nothing left running (no stray claude for this profile)', Array.isArray(s.sessions))
+    check('quit now: nothing left running (no stray Claude Code for this profile)', Array.isArray(s.sessions))
   }
 
   // 2. Default ("working") with idle sessions: quits straight away, no dialog.

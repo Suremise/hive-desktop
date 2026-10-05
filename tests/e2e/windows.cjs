@@ -1,7 +1,7 @@
 // Several windows, like VS Code: each shows its own workspace. New Window, a workspace already open in
 // another window is brought forward instead, events stay in their window, the Agent API names workspaces,
 // windows are reopened at start, and closing a window, switching its workspace or closing the workspace stops
-// that workspace's agents (after asking).
+// that workspace's agents (after asking). The agents run the fake Claude Code (fake-claude/, #194).
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -11,6 +11,7 @@ const { _electron } = require('playwright-core')
 const userData = path.join(lib.WORK, 'windows-profile')
 const wsA = path.join(lib.WORK, 'windows-ws-a')
 const wsB = path.join(lib.WORK, 'windows-ws-b')
+const claudeHome = path.join(lib.WORK, 'windows-claude-home')
 const PORT = Number(lib.port(47893))
 const sleep = lib.sleep
 let failed = 0
@@ -33,7 +34,7 @@ function api(method, p, headers = {}) {
 }
 
 async function start() {
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: String(PORT) })
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: String(PORT), CLAUDE_CONFIG_DIR: claudeHome })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   app.on('window', (p) => p.on('pageerror', (e) => console.log('FAIL page error', e.message)))
   return app
@@ -52,7 +53,7 @@ async function waitFor(fn, ms = 15000) {
 ;(async () => {
   for (const d of [userData, wsA, wsB]) fs.rmSync(d, { recursive: true, force: true })
   for (const [ws, names] of [[wsA, ['shared', 'alpha']], [wsB, ['shared', 'beta']]]) for (const n of names) fs.mkdirSync(path.join(ws, n), { recursive: true })
-  lib.enableProviders(userData, ['claude-code'])
+  lib.fakeClaude(userData, claudeHome, [wsA, wsB].flatMap((ws) => ['shared', 'alpha', 'beta'].map((n) => path.join(ws, n))))
   // Ask before stopping any session, so closing a window with one running shows the dialog.
   const cfgFile = path.join(userData, 'config.json')
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))

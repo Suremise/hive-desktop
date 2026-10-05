@@ -1,7 +1,7 @@
 // Resume per agent: guard against one conversation in two agents, AgentInfo.resume, the Resume split
 // button + session picker, the session tag, Sessions tab Show / Resume in.
-// Throwaway profile and git project in the work folder. A real Claude Code session starts
-// in Agent 1, but no prompt is ever sent. Clipboard untouched.
+// Throwaway profile and git project in the work folder. Agent 1 runs the fake Claude Code (fake-claude/, #194),
+// which writes its transcript with its session id as Claude Code does; no prompt is ever sent. Clipboard untouched.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path')
@@ -22,8 +22,8 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
 const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n}.png`) })
 
 ;(async () => {
-  lib.enableProviders(userData)
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData })
+  const claude = lib.fakeClaude(userData, path.join(scratch, 'resume-claude-home'), [proj])
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, ...claude })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))

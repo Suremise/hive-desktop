@@ -137,7 +137,7 @@ describe('the suites a change needs (affected.mjs)', () => {
     // A provider's own adapter: only its area's real suites.
     const claude = pick('src/main/providers/claude/adapter.ts')
     expect(claude.all).toBe(true)
-    expect(claude.real).toEqual(expect.arrayContaining(['agents', 'resume', 'mode']))
+    expect(claude.real).toEqual(expect.arrayContaining(['agents', 'restart', 'mode']))
     expect(claude.real).not.toContain('codex')
     expect(pick('src/main/providers/codex/rollout.ts').real).not.toContain('agents')
     // Shared, but not a CLI's: every fake suite, no real one; an area naming a real suite picks it.
@@ -157,7 +157,9 @@ describe('the real tier and environment failures (card #191)', () => {
   const fakes = suites.filter((s) => !isRealCli(s) && !s.needs?.includes('packaged')).map((s) => s.name)
 
   it('the full set is the fake tier; --real adds the real one, --only-real runs only it', () => {
-    expect(realNames).toEqual(expect.arrayContaining(['agents', 'quit', 'codex', 'codex-setup']))
+    expect(realNames).toEqual(expect.arrayContaining(['agents', 'restart', 'codex', 'codex-setup']))
+    // Suites about Hive's own behaviour that only needed some session running run the fake Claude Code (#194).
+    for (const n of ['quit', 'windows', 'launchrace', 'resume']) expect(realNames, n).not.toContain(n)
     expect(pick(['--all'])).toEqual(fakes)
     expect(pick([])).toEqual(fakes)
     expect(pick(['--all', '--real'])).toEqual(names.filter((n) => !n.startsWith('packaged')))
@@ -174,10 +176,10 @@ describe('the real tier and environment failures (card #191)', () => {
   })
 
   it('--affected takes the real suites the changes need, and --real or --only-real on top', () => {
-    expect(pick(['--affected'], { all: true, real: ['resume'] })).toEqual(names.filter((n) => fakes.includes(n) || n === 'resume'))
-    expect(pick(['--affected'], { suites: ['board', 'quit'] })).toEqual(['board', 'quit'])
-    expect(pick(['--affected', '--only-real'], { suites: ['board', 'quit'] })).toEqual(['quit'])
-    expect(pick(['--affected', '--only-real'], { all: true, real: ['resume'] })).toEqual(['resume'])
+    expect(pick(['--affected'], { all: true, real: ['restart'] })).toEqual(names.filter((n) => fakes.includes(n) || n === 'restart'))
+    expect(pick(['--affected'], { suites: ['board', 'restart'] })).toEqual(['board', 'restart'])
+    expect(pick(['--affected', '--only-real'], { suites: ['board', 'restart'] })).toEqual(['restart'])
+    expect(pick(['--affected', '--only-real'], { all: true, real: ['restart'] })).toEqual(['restart'])
     expect(pick(['--affected', '--real'], { suites: ['board'] })).toEqual(names.filter((n) => n === 'board' || realNames.includes(n)))
   })
 

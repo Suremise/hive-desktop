@@ -182,8 +182,9 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
 ## What they need
 
 - **Claude Code**, installed and signed in. Suites that start sessions (`agents`, `image`, `mode`, `plan`,
-  `compact`, `restart`, `resume`, `quit`, `agentview`, `windows`, `launchrace`, `assistant`) never send it a prompt. The first run in a test folder answers Claude
-  Code's "trust this folder" question (never a sign-in screen), so later runs don't ask.
+  `compact`, `restart`, `agentview`, `assistant`) never send it a prompt. The first run in a test folder answers Claude
+  Code's "trust this folder" question (never a sign-in screen), so later runs don't ask. Suites about Hive's own
+  behaviour that only need some session running (`quit`, `windows`, `launchrace`, `resume`) use the fake (#194).
   These suites (`needs: ['claude']` in `suites.mjs`) are the real tier: only with `--real`, `--only-real`, by name or
   when `--affected` needs them. Run them when what they test can't be done with the fake Claude Code (below), and
   prefer the fake where it covers the case. Warn the user first if one could
@@ -219,7 +220,8 @@ Start from an existing suite and use `lib.cjs`:
 - `port(<default>)` for its Agent API port (never a fixed number, so it can run beside others); add it to an area in
   `affected.mjs` and to `suites.mjs` (sorted), with `serial: '<why>'` if it can't run beside others;
 - `until(fn, ms)` to wait for something to happen rather than a fixed `sleep()`, which is slower and flakier;
-- `enableProviders()` for the profile, `launch()`;
+- `enableProviders()` for the profile, `launch()`; `fakeClaude(userData, home, trusted)` to run the fake Claude Code
+  (below) when the suite only needs some session running;
 - `addAgent()` / `soloAgent()`: projects start without agents;
 - `acceptClaudeTrust()`, `trustForCodex()`, `gitProject()`, `samplePng()`;
 - `skip('<why>')` when the suite can't run on this machine (the record shows the reason);
@@ -239,7 +241,7 @@ new folder (Enter trusts it), sends Claude Code's hooks, writes its transcripts,
 command line, and answers each prompt after a second (`work N` takes N seconds; `edit <file>` makes an Edit, with
 its file lock; `pad N` adds N KB to its transcript; `ask` sends a permission prompt; `window N` makes its status line report an N-token context window; `boardmove N COLUMN` moves card N as its hive tools would, and `boardreview N ACTION [COLUMN]` reviews it (both recording the answer in `fake-calls.jsonl`); `background N` starts a background command that ends after N seconds, whose task notification then
 starts a turn by itself; `/compact [focus]` compacts (PreCompact, a compaction in the transcript after 1 s or `hold N` seconds, PostCompact; `compactfail` in the focus fails it, and with no messages yet it says "Not enough messages to compact."); `--model fail-start` makes it refuse to start, printing an error and exiting with 1). Each launch is recorded in `fake-launches.jsonl` in `CLAUDE_CONFIG_DIR` (its options and
-`CLAUDE_CODE_*` variables). `assistant-control`, `context`, `background`, `longsession`, `resumeall`, `cardchip`, `sessionorigin`, `assistantend`, `tipcorner`, `review`, `reorder`, `busy`, `startfail`, `filelinks`, `quitwait`, `rendercrash`, `bursts`, `taskbar`, `ctxpercent`, `donemove`, `doingmove`, `paneheader`, `storage`, `skilldelivery` and `board` use it (`board` also sends a small test folder to the Recycle Bin, as Delete Project does, and `storage` sends its fixture images and backups there, as Clean Up does). `codex-background` checks Codex's background
+`CLAUDE_CODE_*` variables). `assistant-control`, `context`, `background`, `longsession`, `resumeall`, `cardchip`, `sessionorigin`, `assistantend`, `tipcorner`, `review`, `reorder`, `busy`, `startfail`, `filelinks`, `quitwait`, `rendercrash`, `bursts`, `taskbar`, `ctxpercent`, `donemove`, `doingmove`, `paneheader`, `storage`, `skilldelivery`, `quit`, `windows`, `launchrace`, `resume` and `board` use it (`board` also sends a small test folder to the Recycle Bin, as Delete Project does, and `storage` sends its fixture images and backups there, as Clean Up does). `codex-background` checks Codex's background
 terminals with the real Codex (one short prompt).
 
 **A fake Codex** (`fake-codex/fake-codex.cmd`) does the same for Codex: set it as `settings.providers.codex.executablePath` and start Hive with `CODEX_HOME` pointing at a test folder (with `[windows] sandbox = "unelevated"` in its `config.toml`, so nothing is left to set up). It reports itself as Codex 0.160.0 (`FAKE_CODEX_VERSION` changes it) and sends Codex's hooks and terminal titles for a few prompts: `review allow` / `review deny` (its auto-reviewer answers a permission request), `approve` (an approval prompt: `y` approves, Esc rejects) and `question` (an async question it works on beside: `a` answers it). `attention` uses it, and so does `skilldelivery` (with the fake Claude Code); each launch is recorded in `fake-launches.jsonl` in `CODEX_HOME` (its folder and arguments).

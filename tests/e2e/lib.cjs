@@ -55,6 +55,26 @@ function enableProviders(userData, providers = ['claude-code']) {
 }
 
 /**
+ * The fake Claude Code (fake-claude/) for a test profile, for a suite about Hive's own behaviour that only needs some
+ * session running (#194): turns Claude Code on in userData's config with the fake as its path, makes home a fresh
+ * Claude Code config folder in which the fake trusts `trusted` (so it asks nothing), and returns the variables to start
+ * Hive with: { CLAUDE_CONFIG_DIR }. A config written before (a 0.1 one, settings of the suite's) is kept.
+ */
+function fakeClaude(userData, home, trusted = []) {
+  enableProviders(userData)
+  const file = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(file, 'utf8'))
+  cfg.settings = cfg.settings ?? {}
+  cfg.settings.providers = cfg.settings.providers ?? {}
+  cfg.settings.providers['claude-code'] = { checkUpdatesOnLaunch: false, ...cfg.settings.providers['claude-code'], executablePath: path.join(__dirname, 'fake-claude', 'fake-claude.cmd') }
+  fs.writeFileSync(file, JSON.stringify(cfg, null, 2))
+  fs.rmSync(home, { recursive: true, force: true })
+  fs.mkdirSync(home, { recursive: true })
+  fs.writeFileSync(path.join(home, 'fake-trusted.json'), JSON.stringify(trusted.map((f) => f.toLowerCase())))
+  return { CLAUDE_CONFIG_DIR: home }
+}
+
+/**
  * Sizes the test window's page area to `size` and pins the page to it. Pinning alone (setViewportSize) leaves
  * the rest of a bigger window blank, which looks like a layout bug when you watch a suite run.
  */
@@ -507,4 +527,4 @@ function hadEstimate(run) {
   return typeof run?.estimateMs === 'number'
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, git, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, git, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

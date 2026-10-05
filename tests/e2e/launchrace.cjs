@@ -1,5 +1,6 @@
 // Closing a workspace while one of its agents is still starting cancels the start: no CLI process is left
-// running for a workspace that is no longer open. Dev build, throwaway profile and workspace.
+// running for a workspace that is no longer open. Dev build, throwaway profile and workspace; the agent runs the fake
+// Claude Code (fake-claude/, #194): the race is in Hive's start, before the CLI runs.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -17,8 +18,8 @@ const check = (name, ok, extra = '') => {
 ;(async () => {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
   fs.mkdirSync(proj, { recursive: true })
-  lib.enableProviders(userData, ['claude-code'])
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47895) })
+  const claude = lib.fakeClaude(userData, path.join(lib.WORK, 'launchrace-claude-home'), [proj])
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47895), ...claude })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   await lib.appReady(page)
