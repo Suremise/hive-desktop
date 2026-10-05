@@ -1,4 +1,4 @@
-import { PAGE_AGENTS, PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, agentPageCount, resolveKeybinding } from '@shared/defaults'
+import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, agentPageCount, projectPerPage, resolveKeybinding } from '@shared/defaults'
 import { PROVIDERS, providerDescriptor } from '@shared/providers'
 import type { ProviderId, SessionLayout } from '@shared/types'
 import { call } from './api'
@@ -67,11 +67,17 @@ function cycleTab(delta: number): void {
 }
 
 /** Focus agent N (1-based) of the selected project and show it. */
-/** Goes to the next or previous agent page (projects with more than six agents). */
+/** How many agent pages the selected project has (its agents ÷ its layout's panes, #134). */
+const pageCount = (): number => {
+  const p = selected()
+  return p ? agentPageCount(p.agents.length, projectPerPage(p.config)) : 1
+}
+
+/** Goes to the next or previous agent page (when the project has more than one). */
 function cyclePage(delta: number): void {
   const p = selected()
   if (!p) return
-  const pages = agentPageCount(p.agents.length)
+  const pages = pageCount()
   if (pages < 2) return
   showPage(p, (agentPage(p, focusedAgentId(p)) + delta + pages) % pages)
   setProjectTab(p.path, 'session')
@@ -108,9 +114,9 @@ const layoutCommand = (value: SessionLayout, n: number): Command => ({
   keybinding: `Mod+Alt+${n}`,
   when: hasProject,
   run: () => {
-    // The page on screen.
+    // One layout for the project (#134).
     const p = selected()
-    if (p) void actions.setLayout(p.path, agentPage(p, focusedAgentId(p)), value)
+    if (p) void actions.setLayout(p.path, value)
   }
 })
 
@@ -235,8 +241,8 @@ export const commands: Command[] = [
   { id: 'agent.previous', label: 'Focus Previous Agent', category: 'Session', keybinding: 'Mod+Alt+[', when: hasProject, run: () => cycleAgent(-1) },
   { id: 'agent.moveLeft', label: 'Move Agent Left', category: 'Session', keybinding: 'Mod+Alt+Shift+ArrowLeft', when: () => (selected()?.agents.length ?? 0) > 1, run: () => actions.nudgeAgent(-1) },
   { id: 'agent.moveRight', label: 'Move Agent Right', category: 'Session', keybinding: 'Mod+Alt+Shift+ArrowRight', when: () => (selected()?.agents.length ?? 0) > 1, run: () => actions.nudgeAgent(1) },
-  { id: 'agent.nextPage', label: 'Next Agent Page', category: 'Session', keybinding: 'Mod+Alt+PageDown', when: () => (selected()?.agents.length ?? 0) > PAGE_AGENTS, run: () => cyclePage(1) },
-  { id: 'agent.previousPage', label: 'Previous Agent Page', category: 'Session', keybinding: 'Mod+Alt+PageUp', when: () => (selected()?.agents.length ?? 0) > PAGE_AGENTS, run: () => cyclePage(-1) },
+  { id: 'agent.nextPage', label: 'Next Agent Page', category: 'Session', keybinding: 'Mod+Alt+PageDown', when: () => pageCount() > 1, run: () => cyclePage(1) },
+  { id: 'agent.previousPage', label: 'Previous Agent Page', category: 'Session', keybinding: 'Mod+Alt+PageUp', when: () => pageCount() > 1, run: () => cyclePage(-1) },
   ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n): Command => ({ id: `agent.focus${n}`, label: `Focus Agent ${n}`, category: 'Session', keybinding: `Mod+${n}`, when: () => (selected()?.agents.length ?? 0) >= n, run: () => focusAgentN(n) })),
   layoutCommand('single', 1),
   layoutCommand('columns2', 2),

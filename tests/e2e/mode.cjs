@@ -25,7 +25,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   const live = async () => (await inv('session:live')).find((l) => l.projectPath.toLowerCase() === proj.toLowerCase())
   const waitMode = async (m, ms = 30000) => { const t = Date.now(); while (Date.now() - t < ms) { if ((await live())?.permissionMode === m) return true; await sleep(200) } return false }
   await inv('workspace:open', ws); await sleep(600)
-  await inv('project:updateConfig', proj, { providers: {}, layouts: ['single'], keybindings: {} })
+  await inv('project:updateConfig', proj, { providers: {}, layout: 'single', keybindings: {} })
   const settings = await inv('settings:get')
   check('default mode is Auto', settings.providers['claude-code'].defaultPermissionMode === 'auto', settings.providers['claude-code'].defaultPermissionMode)
   await page.getByText('demo', { exact: true }).first().click(); await sleep(400)

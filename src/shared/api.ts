@@ -253,6 +253,8 @@ export interface HiveRequests {
   'agents:remove': (projectPath: string, agentId: string, opts: { deleteWorktree: boolean; releaseCards?: boolean }) => void
   /** Moves an agent to `index` in the project's order (its position afterwards); returns the agents' ids in order. */
   'agents:move': (projectPath: string, agentId: string, index: number) => string[]
+  /** Swaps two agents' places in the project's order (one dropped on another's pane); returns the agents' ids in order. */
+  'agents:swap': (projectPath: string, agentId: string, otherId: string) => string[]
   /** Branches and worktrees, for the Add Agent dialog. */
   'agents:gitInfo': (projectPath: string) => ProjectGitInfo
   'agents:branchStatus': (projectPath: string, agentId: string) => AgentBranchStatus

@@ -132,7 +132,7 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   compactSuggestTokens: null,
   transcriptWarnMB: null,
   agents: [],
-  layouts: [],
+  layout: 'auto',
   fileLocks: 'inherit',
   worktreeCopy: null,
   worktreeSetup: ''
@@ -143,24 +143,31 @@ export const TRANSCRIPT_WINDOW = 200
 
 /** A project can run up to this many agents at once. */
 export const MAX_AGENTS = 12
-/** The Session tab shows a project's agents a page at a time, this many to a page (a 3×2 grid). */
-export const PAGE_AGENTS = 6
 /** Adding the agent that makes this many: a note that each is its own CLI process. */
 export const MANY_AGENTS = 7
 
-/** How many agent pages a project with this many agents has (at least one). */
-export function agentPageCount(count: number): number {
-  return Math.max(1, Math.ceil(count / PAGE_AGENTS))
+/**
+ * How many agents one page of the Session tab holds (#134): a pane each, so a page shows all its agents. One at a time
+ * (Single) is one page of every agent, its tabs choosing which is shown, so it never has page buttons.
+ */
+export function agentsPerPage(layout: SessionLayout): number {
+  return layout === 'single' ? MAX_AGENTS : layoutPanes(layout)
+}
+
+/** How many agent pages `count` agents take, `perPage` to a page (at least one). */
+export function agentPageCount(count: number, perPage: number): number {
+  return Math.max(1, Math.ceil(count / Math.max(1, perPage)))
 }
 
 /** The page of the agent at this position (0 is page 1). */
-export function pageOfAgent(index: number): number {
-  return Math.max(0, Math.floor(index / PAGE_AGENTS))
+export function pageOfAgent(index: number, perPage: number): number {
+  return Math.max(0, Math.floor(index / Math.max(1, perPage)))
 }
 
 /** The agents on one page. */
-export function pageAgents<T>(agents: T[], page: number): T[] {
-  return agents.slice(page * PAGE_AGENTS, (page + 1) * PAGE_AGENTS)
+export function pageAgents<T>(agents: T[], page: number, perPage: number): T[] {
+  const n = Math.max(1, perPage)
+  return agents.slice(page * n, (page + 1) * n)
 }
 
 /** The agents with one moved to `index`, its position afterwards (clamped). An unknown id leaves the order as it is. */
@@ -172,6 +179,19 @@ export function moveAgentTo<T extends { id: string }>(agents: readonly T[], id: 
   return [...rest.slice(0, to), agents[from], ...rest.slice(to)]
 }
 
+/**
+ * The agents with two of them swapped (#135: an agent dropped on another's pane): each takes the other's place, across
+ * pages too. An unknown id, or the same one twice, leaves the order as it is.
+ */
+export function swapAgentsIn<T extends { id: string }>(agents: readonly T[], a: string, b: string): T[] {
+  const i = agents.findIndex((x) => x.id === a)
+  const j = agents.findIndex((x) => x.id === b)
+  if (i < 0 || j < 0 || i === j) return [...agents]
+  const out = [...agents]
+  ;[out[i], out[j]] = [out[j], out[i]]
+  return out
+}
+
 /** Where an agent dropped before another one ends up (`before` null, or itself: at the end, or where it is). */
 export function dropIndex(ids: readonly string[], id: string, before: string | null): number {
   if (before === id) return Math.max(0, ids.indexOf(id))
@@ -181,8 +201,8 @@ export function dropIndex(ids: readonly string[], id: string, before: string | n
 }
 
 /** Where an agent dropped on a page's button ends up: that page's last place (the last agent's, on the last page). */
-export function pageEndIndex(count: number, page: number): number {
-  return Math.max(0, Math.min((page + 1) * PAGE_AGENTS - 1, count - 1))
+export function pageEndIndex(count: number, page: number, perPage: number): number {
+  return Math.max(0, Math.min((page + 1) * Math.max(1, perPage) - 1, count - 1))
 }
 
 /** The project's agents, in the order the user put them (the order they were added, until moved). All are equal; a project can have none. */
@@ -195,24 +215,30 @@ export function agentPtyKey(projectPath: string, agentId: string): string {
   return `session:${projectPath.toLowerCase()}#${agentId}`
 }
 
-/** The layout that shows this many agents: a page's automatic layout. */
+/** The layout that shows this many agents (up to the 3×2 grid): the automatic layout. */
 export function layoutForAgents(count: number): SessionLayout {
   return count >= 5 ? 'grid6' : count === 4 ? 'grid' : count === 3 ? 'columns3' : count === 2 ? 'columns2' : 'single'
 }
 
-/** A page's layout: the one chosen for it by hand, else the one that shows its agents. */
-export function pageLayout(cfg: Pick<ProjectConfig, 'agents' | 'layouts'>, page: number): SessionLayout {
-  const chosen = cfg.layouts?.[page]
-  if (chosen && chosen !== 'auto' && SESSION_LAYOUTS.some((l) => l.value === chosen)) return chosen
-  return layoutForAgents(pageAgents(projectAgents(cfg), page).length)
+/** Whether a saved layout is one Hive knows ('auto' included). */
+const isLayout = (v: unknown): v is PageLayout => v === 'auto' || SESSION_LAYOUTS.some((l) => l.value === v)
+
+/**
+ * The project's layout (#134: one for the project, not one a page): the one chosen by hand, else the one that shows its
+ * agents, up to the 3×2 grid. Its pages hold `agentsPerPage` agents each.
+ */
+export function projectLayout(cfg: Pick<ProjectConfig, 'agents' | 'layout'>): SessionLayout {
+  const chosen = cfg.layout
+  if (chosen && chosen !== 'auto' && isLayout(chosen)) return chosen
+  return layoutForAgents(projectAgents(cfg).length)
 }
 
-/** The saved layouts with one page's chosen; choosing the layout that shows its agents makes it automatic again. */
-export function withPageLayout(cfg: Pick<ProjectConfig, 'agents' | 'layouts'>, page: number, layout: SessionLayout): PageLayout[] {
-  const out: PageLayout[] = [...(cfg.layouts ?? [])]
-  while (out.length <= page) out.push('auto')
-  out[page] = layout === layoutForAgents(pageAgents(projectAgents(cfg), page).length) ? 'auto' : layout
-  return out
+/** How many agents a page of this project's Session tab holds. */
+export const projectPerPage = (cfg: Pick<ProjectConfig, 'agents' | 'layout'>): number => agentsPerPage(projectLayout(cfg))
+
+/** The layout to save when one is chosen: choosing the one that shows the agents makes it automatic again. */
+export function chosenLayout(cfg: Pick<ProjectConfig, 'agents'>, layout: SessionLayout): PageLayout {
+  return layout === layoutForAgents(projectAgents(cfg).length) ? 'auto' : layout
 }
 
 export const FILE_LOCK_MODES: { value: FileLockMode; label: string; description: string }[] = [
@@ -455,14 +481,24 @@ export function migrateProjectConfig(raw: Record<string, any>): Record<string, a
     // cleared. Their sessions stay in sessions.json and can be resumed by an agent added again.
     out = { ...out, version: 2, agents: [], sessionLayout: 'single' }
   }
-  if (out.layouts === undefined) {
+  if (out.layouts === undefined && out.layout === undefined) {
     // Before agent pages, one layout was set to show every agent whenever one was added. One that does (or
-    // none) becomes automatic; any other was chosen by hand and is kept as page 1's.
+    // none) becomes automatic; any other was chosen by hand and is kept.
     const { sessionLayout: legacy, ...rest } = out
-    const count = Math.min(Array.isArray(rest.agents) ? rest.agents.length : 0, PAGE_AGENTS)
+    const count = Array.isArray(rest.agents) ? rest.agents.length : 0
     const chosen = SESSION_LAYOUTS.some((l) => l.value === legacy) && legacy !== layoutForAgents(count)
-    out = { ...rest, layouts: [chosen ? legacy : 'auto'] }
+    out = { ...rest, layout: chosen ? legacy : 'auto' }
   }
+  if (out.layout === undefined) {
+    // One layout a page (0.3) becomes one for the project (#134): page 1's, else automatic.
+    const { layouts, ...rest } = out
+    const first = Array.isArray(layouts) ? layouts[0] : undefined
+    out = { ...rest, layout: isLayout(first) ? first : 'auto' }
+  } else if (out.layouts !== undefined) {
+    const { layouts: _old, ...rest } = out
+    out = rest
+  }
+  if (!isLayout(out.layout)) out = { ...out, layout: 'auto' }
   return out
 }
 

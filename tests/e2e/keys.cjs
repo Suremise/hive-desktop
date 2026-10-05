@@ -35,10 +35,10 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   check('Ctrl+Shift+Tab: previous tab', /Session/.test(await tab()), await tab())
   for (const k of ['Alt+2', 'Alt+3', 'Alt+4', 'Alt+1']) { await page.keyboard.press(k); await sleep(150) }
   check('tab shortcuts never hide the sidebar', (await page.locator('.project-row').count()) === 2)
-  await page.keyboard.press('Control+Alt+2'); await lib.until(async () => (await inv('workspace:refresh')).projects.find((x) => x.name === 'bravo')?.config.layouts?.[0] === 'columns2')
+  await page.keyboard.press('Control+Alt+2'); await lib.until(async () => (await inv('workspace:refresh')).projects.find((x) => x.name === 'bravo')?.config.layout === 'columns2')
   const p = (await inv('workspace:refresh')).projects.find((x) => x.name === 'bravo')
-  check('Ctrl+Alt+2: two-column layout', p.config.layouts[0] === 'columns2', JSON.stringify(p.config.layouts))
-  await page.keyboard.press('Control+Alt+1'); await lib.until(async () => (await inv('workspace:refresh')).projects.find((x) => x.name === 'bravo')?.config.layouts?.[0] === 'single')
+  check('Ctrl+Alt+2: two-column layout', p.config.layout === 'columns2', JSON.stringify(p.config.layout))
+  await page.keyboard.press('Control+Alt+1'); await lib.until(async () => (await inv('workspace:refresh')).projects.find((x) => x.name === 'bravo')?.config.layout === 'single')
 
   // Settings → Keyboard Shortcuts
   await page.keyboard.press('Control+,'); await lib.until(async () => (await page.locator('.settings-nav .row', { hasText: 'Keyboard Shortcuts' }).count()) > 0)

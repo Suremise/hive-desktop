@@ -34,7 +34,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await page.locator('.agent-add:not(.split-caret)').click(); await lib.until(async () => (await inv('workspace:refresh')).projects[0].agents.length === 1, 10000)
   p0 = (await inv('workspace:refresh')).projects[0]
   check('quick add: Agent 1, default provider, project folder', p0.agents.length === 1 && p0.agents[0].name === 'Agent 1' && p0.agents[0].provider === 'claude-code' && !p0.agents[0].worktree, JSON.stringify(p0.agents))
-  check('one agent: one pane, automatically', (p0.config.layouts[0] ?? 'auto') === 'auto' && (await page.locator('.agent-pane').count()) === 1, JSON.stringify(p0.config.layouts))
+  check('one agent: one pane, automatically', (p0.config.layout ?? 'auto') === 'auto' && (await page.locator('.agent-pane').count()) === 1, JSON.stringify(p0.config.layout))
   // One agent or several, each pane has its header (who, controls) and footer (model, mode…).
   check('a single agent has its pane header', (await page.locator('.pane-header-bar', { hasText: 'Agent 1' }).count()) === 1)
   check('…and footer with model and mode', (await page.locator('.pane-footer-bar .mode-badge').count()) === 1)
@@ -54,7 +54,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await page.locator('.dialog .btn.primary', { hasText: 'Add Agent' }).click(); await lib.until(async () => (await inv('workspace:refresh')).projects[0].agents.some((a) => a.name === 'Tester'), 15000)
   let p = (await inv('workspace:refresh')).projects[0]
   check('agent created from the dialog', p.agents.some((a) => a.name === 'Tester' && a.worktree?.branch === 'hive/tester'))
-  check('two agents: two columns, automatically', (p.config.layouts[0] ?? 'auto') === 'auto' && (await page.locator('.agent-pane').count()) === 2, JSON.stringify(p.config.layouts))
+  check('two agents: two columns, automatically', (p.config.layout ?? 'auto') === 'auto' && (await page.locator('.agent-pane').count()) === 2, JSON.stringify(p.config.layout))
   await sleep(500)
   await page.screenshot({ path: path.join(scratch, 'ui-2-strip.png') })
 

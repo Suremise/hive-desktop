@@ -5,7 +5,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
-import { dropIndex, moveAgentTo, pageEndIndex } from '../src/shared/defaults'
+import { dropIndex, moveAgentTo, pageAgents, pageEndIndex, swapAgentsIn } from '../src/shared/defaults'
 
 const base = mkdtempSync(join(tmpdir(), 'hive-order-'))
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
@@ -34,15 +34,15 @@ describe('agent order', () => {
   it("drops on a page button at that page's last place", () => {
     const eight = 'abcdefgh'.split('').map((id) => ({ id }))
     // To page 2 from page 1: the end of the list (page 2 has room).
-    expect(ids(moveAgentTo(eight, 'a', pageEndIndex(8, 1)))).toBe('bcdefgha')
+    expect(ids(moveAgentTo(eight, 'a', pageEndIndex(8, 1, 6)))).toBe('bcdefgha')
     // To a full page 1 from page 2: its last place; the agent there moves on to page 2.
-    expect(ids(moveAgentTo(eight, 'h', pageEndIndex(8, 0)))).toBe('abcdehfg')
-    expect(pageEndIndex(3, 0)).toBe(2)
+    expect(ids(moveAgentTo(eight, 'h', pageEndIndex(8, 0, 6)))).toBe('abcdehfg')
+    expect(pageEndIndex(3, 0, 6)).toBe(2)
   })
 })
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
-const { moveAgent } = await import('../src/main/projectAgents')
+const { moveAgent, swapAgents } = await import('../src/main/projectAgents')
 
 describe('saving the order', () => {
   let w: ReturnType<typeof createWorkspaceService>
@@ -81,5 +81,40 @@ describe('saving the order', () => {
 
   it("refuses an agent that isn't there", async () => {
     await expect(inWorkspace(w, () => moveAgent(alpha, 'gone', 0))).rejects.toThrow(/no longer exists/)
+  })
+
+  it('swaps two agents under the lock, keeping each agent, also with a change at the same time (#135)', async () => {
+    const before = saved().agents.map((a: { id: string }) => a.id)
+    await Promise.all([inWorkspace(w, () => swapAgents(alpha, before[0], before[2])), w.updateAgent(alpha, before[1], { model: 'haiku' })])
+    const cfg = saved()
+    expect(cfg.agents.map((a: { id: string }) => a.id)).toEqual([before[2], before[1], before[0]])
+    expect(cfg.agents[1].model).toBe('haiku')
+    expect(cfg.agents.find((a: { id: string }) => a.id === 'a3').worktree.branch).toBe('hive/three')
+    await expect(inWorkspace(w, () => swapAgents(alpha, 'a1', 'gone'))).rejects.toThrow(/no longer exists/)
+  })
+})
+
+describe('dropping agents (#135): the panes follow the order', () => {
+  const four = 'abcd'.split('').map((id) => ({ id }))
+  /** The panes of each page, as the Session tab shows them: a page's agents in order, `per` to a page. */
+  const screen = (list: { id: string }[], per: number) => [0, 1, 2].map((p) => ids(pageAgents(list, p, per))).filter(Boolean).join('|')
+
+  it('a drop on a pane swaps the two, on the same page or across pages; dropping on itself does nothing', () => {
+    // Four agents in three columns: abc | d.
+    expect(screen(four, 3)).toBe('abc|d')
+    expect(screen(swapAgentsIn(four, 'a', 'c'), 3)).toBe('cba|d')
+    // Across pages: d dragged to page 1, dropped on b's pane; b goes to d's old place on page 2.
+    expect(screen(swapAgentsIn(four, 'd', 'b'), 3)).toBe('adc|b')
+    expect(ids(swapAgentsIn(four, 'a', 'a'))).toBe('abcd')
+    expect(ids(swapAgentsIn(four, 'a', 'zz'))).toBe('abcd')
+  })
+
+  it('a drop on an empty pane (the last page) moves the agent there; the strip inserts, like browser tabs', () => {
+    // Empty panes are the last page's spare ones: the agent goes to the end.
+    expect(screen(moveAgentTo(four, 'a', four.length - 1), 3)).toBe('bcd|a')
+    // The strip: before c, and after the last.
+    const order = ids(four).split('')
+    expect(ids(moveAgentTo(four, 'a', dropIndex(order, 'a', 'c')))).toBe('bacd')
+    expect(ids(moveAgentTo(four, 'b', dropIndex(order, 'b', null)))).toBe('acdb')
   })
 })
