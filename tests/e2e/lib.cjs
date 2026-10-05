@@ -351,6 +351,25 @@ async function cliStep(name, opts, fn) {
   return value
 }
 
+/**
+ * Types a prompt into a CLI's terminal (pty key) and presses Enter until it is submitted: submitted() turns true (the
+ * session working, say) within waitMs. Under load a CLI can take the prompt, written at once, as a paste and the Enter
+ * right after it as a new line in it, or drop what was typed while it was still drawing (#190): if the text is in the
+ * terminal, Enter is pressed again; if not, it is typed again over a cleared line (Ctrl+U). Up to `tries` times; returns
+ * the attempt that worked (1 = the first), or 0.
+ */
+async function sendPrompt(inv, key, text, { submitted, tries = 3, waitMs = 20000 } = {}) {
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    const typed = attempt > 1 && plainText(await inv('pty:buffer', key).catch(() => '')).includes(text.slice(0, 30))
+    if (attempt === 1) await inv('pty:write', key, text)
+    else if (!typed) await inv('pty:write', key, `\x15${text}`)
+    await sleep(400)
+    await inv('pty:write', key, '\r')
+    if (await until(submitted, waitMs, 500)) return attempt
+  }
+  return 0
+}
+
 /** Skips the whole suite with a reason (the run record shows it): for a suite that can't run on this machine. */
 function skip(reason) {
   console.log(`SKIPPED ${reason}`)
@@ -429,4 +448,4 @@ function hadEstimate(run) {
   return typeof run?.estimateMs === 'number'
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

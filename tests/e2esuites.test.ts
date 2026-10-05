@@ -758,6 +758,54 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
   })
 })
 
+describe('sending a prompt to a CLI until it takes it (lib.sendPrompt, #190)', () => {
+  type Send = (inv: (ch: string, ...a: unknown[]) => Promise<unknown>, key: string, text: string, o: { submitted: () => Promise<boolean>; tries?: number; waitMs?: number }) => Promise<number>
+  const { sendPrompt } = createRequire(import.meta.url)('./e2e/lib.cjs') as { sendPrompt: Send }
+  const text = 'Use apply_patch to add a file notes.txt containing hi.'
+  /** A terminal that drops the first `dropText` prompts typed and ignores the first `dropEnter` Enters. */
+  const terminal = ({ dropText = 0, dropEnter = 0 }) => {
+    const t = { writes: [] as string[], screen: '', input: '', submitted: false }
+    const inv = async (ch: string, _key: unknown, data?: unknown) => {
+      if (ch === 'pty:buffer') return t.screen
+      const d = String(data)
+      t.writes.push(d)
+      if (d === '\r') {
+        if (dropEnter-- > 0) t.input += '\n'
+        else if (t.input.trim()) t.submitted = true
+      } else if (dropText-- <= 0) {
+        t.input = d.replace(/^\x15/, '')
+        t.screen += `\x1b[2m> ${t.input}`
+      }
+      return undefined
+    }
+    return { t, run: (tries?: number) => sendPrompt(inv, 'k', text, { submitted: async () => t.submitted, waitMs: 50, ...(tries ? { tries } : {}) }) }
+  }
+
+  it('taken at once: one prompt, one Enter', async () => {
+    const { t, run } = terminal({})
+    expect(await run()).toBe(1)
+    expect(t.writes).toEqual([text, '\r'])
+  })
+
+  it('an Enter that became a new line: Enter again, without typing the prompt twice', async () => {
+    const { t, run } = terminal({ dropEnter: 1 })
+    expect(await run()).toBe(2)
+    expect(t.writes).toEqual([text, '\r', '\r'])
+  })
+
+  it('a prompt dropped while the CLI was drawing: typed again over a cleared line', async () => {
+    const { t, run } = terminal({ dropText: 1 })
+    expect(await run()).toBe(2)
+    expect(t.writes).toEqual([text, '\r', `\x15${text}`, '\r'])
+  })
+
+  it('never taken: 0 after the tries', async () => {
+    const { t, run } = terminal({ dropEnter: 9 })
+    expect(await run(3)).toBe(0)
+    expect(t.writes.filter((w) => w === '\r')).toHaveLength(3)
+  })
+})
+
 describe('the shared Codex test home: changes to its config.toml under a lock (lib.cjs)', () => {
   type Lib = { trustForCodex: (folder: string, home?: string) => void }
   const { trustForCodex } = createRequire(import.meta.url)('./e2e/lib.cjs') as Lib

@@ -64,11 +64,12 @@ function prepare() {
   // the environment's, lib.cliStep), what Hive makes of the turn is checked after it.
   const key = `session:${proj.toLowerCase()}#${def.id}`
   await lib.cliStep('the prompt’s turn', { session: key }, async () => {
-    for (const ch of ['Use apply_patch to add a file notes.txt containing hi. Do nothing else.']) await inv('pty:write', key, ch)
-    await sleep(400)
-    await inv('pty:write', key, '\r')
-    const working = await waitFor(async () => ((await live())?.status === 'working' ? true : null), 30000)
-    check('prompt makes it working', !!working, (await live())?.status)
+    // Sent until Codex takes it (lib.sendPrompt): under the full set's load, an Enter right after the prompt can become a
+    // new line in it, or the prompt be dropped while Codex is still drawing (#190). Finished counts too: a quick turn
+    // can be over between two looks.
+    const attempt = await lib.sendPrompt(inv, key, 'Use apply_patch to add a file notes.txt containing hi. Do nothing else.', { submitted: async () => ['working', 'background', 'finished'].includes((await live())?.status) })
+    check('prompt makes it working', attempt > 0, (await live())?.status)
+    if (attempt > 1) console.log(`(the prompt was taken at attempt ${attempt})`)
     const done = await waitFor(async () => ((await live())?.status === 'finished' ? true : null), 180000)
     check('turn finishes (Stop hook)', !!done, (await live())?.status)
     check('the patch was applied', fs.existsSync(path.join(proj, 'notes.txt')))
