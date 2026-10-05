@@ -96,6 +96,8 @@ export const SUITES = [
   { name: 'tabstrip' },
   { name: 'taskbar', serial: 'window focus' },
   { name: 'taskoverview' },
+  { name: 'templates' },
+  { name: 'templateshare' },
   { name: 'tipcorner' },
   { name: 'tips' },
   { name: 'transcript' },

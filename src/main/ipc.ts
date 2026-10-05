@@ -34,6 +34,7 @@ import { syncBundled } from './bundled'
 import { killPty, ptyBuffer, resizePty, writePty } from './ptyHost'
 import { apiInfo, regenerateToken } from './servers'
 import * as projectAgents from './projectAgents'
+import * as templates from './templates'
 import * as branchWatch from './branchWatch'
 import { sessions } from './sessions'
 import { transcripts } from './transcripts'
@@ -385,6 +386,29 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'agents:remove': (p, id, opts) => projectAgents.removeAgent(p, id, opts),
     'agents:move': (p, id, index) => projectAgents.moveAgent(p, id, index),
     'agents:swap': (p, id, other) => projectAgents.swapAgents(p, id, other),
+    'templates:list': (p) => templates.listTemplates(p),
+    'templates:save': (p, scope, name, overwrite) => templates.saveTemplate(p, scope, name, overwrite),
+    'templates:plan': (p, scope, file, from) => templates.templatePlan(p, scope, file, from),
+    'templates:load': (p, scope, file, expected, from) => templates.loadTemplate(p, scope, file, expected, from),
+    'templates:addAgent': (p, scope, file, index, from) => templates.addAgentFromTemplate(p, scope, file, index, from),
+    'templates:all': () => templates.listAllTemplates(),
+    'templates:rename': (ref, name) => templates.renameTemplate(ref, name),
+    'templates:duplicate': (ref, to) => templates.duplicateTemplate(ref, to),
+    'templates:delete': (ref) => templates.deleteTemplate(ref),
+    'templates:export': async (ref) => {
+      // Checked before the dialog: a template that is gone or can't be used is said at once.
+      const name = await templates.exportName(ref)
+      const r = await dialog.showSaveDialog(win(), { title: 'Export Template', defaultPath: join(app.getPath('downloads'), name), filters: [{ name: 'Hive template', extensions: ['json'] }] })
+      if (r.canceled || !r.filePath) return null
+      await templates.exportTemplate(ref, r.filePath)
+      return r.filePath
+    },
+    'templates:pickImport': async () => {
+      const r = await dialog.showOpenDialog(win(), { title: 'Import a Template', properties: ['openFile'], filters: [{ name: 'Hive template', extensions: ['json'] }] })
+      if (r.canceled || !r.filePaths[0]) return null
+      return templates.inspectImport(r.filePaths[0])
+    },
+    'templates:import': (path, to, onClash) => templates.importTemplate(path, to, onClash),
     'agents:gitInfo': (p) => projectAgents.gitInfo(p),
     'agents:branchStatus': async (p, id) => {
       const st = await projectAgents.branchStatus(p, id)

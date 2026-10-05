@@ -13,6 +13,7 @@ import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocus
 import { carriesFiles, cx, formatKeybinding } from '../util'
 import { FilesTab, ImagesTab } from './FilesTab'
 import { ChangesTab, MemoryTab, OverviewTab, ProjectMcpTab, ProjectSettingsTab, ProjectSkillsTab } from './ProjectTabs'
+import { ProjectTemplatesTab } from '../components/Templates'
 import { PerformanceTab } from './Performance'
 import { SessionsTab } from './SessionsTab'
 import { ErrorBoundary } from '../components/ErrorBoundary'
@@ -406,6 +407,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
           {tab === 'changes' && <ChangesTab project={project} />}
           {tab === 'memory' && <MemoryTab project={project} />}
           {tab === 'skills' && <ProjectSkillsTab project={project} />}
+          {tab === 'templates' && <ProjectTemplatesTab project={project} />}
           {tab === 'mcp' && <ProjectMcpTab project={project} />}
           {tab === 'settings' && <ProjectSettingsTab project={project} />}
         </ErrorBoundary>

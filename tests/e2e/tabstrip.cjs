@@ -1,4 +1,4 @@
-// A project's tab strip at every width: all twelve tabs labelled while they fit; icons with the active tab's label when
+// A project's tab strip at every width: all thirteen tabs labelled while they fit; icons with the active tab's label when
 // they don't (switching back only with a little room to spare, so it doesn't flicker); icons only, scrolling with the
 // active tab in view, when even that doesn't fit. No tab is ever cut off unless the strip scrolls, at the window's
 // minimum width too; icon-only tabs keep their name (tooltip and accessible label) and order, and dragging files over
@@ -12,7 +12,7 @@ const userData = path.join(lib.WORK, 'tabstrip-profile')
 const ws = path.join(lib.WORK, 'tabstrip-ws')
 const claudeHome = path.join(lib.WORK, 'tabstrip-claude-home')
 const alpha = path.join(ws, 'alpha')
-const LABELS = ['Session', 'Overview', 'Performance', 'Tasks', 'Sessions', 'Files', 'Images', 'Changes', 'Memory', 'Skills', 'MCP', 'Settings']
+const LABELS = ['Session', 'Overview', 'Performance', 'Tasks', 'Sessions', 'Files', 'Images', 'Changes', 'Memory', 'Skills', 'Templates', 'MCP', 'Settings']
 const SPARE = 12
 let failed = 0
 const check = (name, ok, extra = '') => {
@@ -33,7 +33,7 @@ const check = (name, ok, extra = '') => {
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
   const HEIGHT = 800
-  let viewport = 1500
+  let viewport = 1700 // wide enough for every label (13 tabs need about 1206 px of strip, and 12 more to go back to them)
   const { app, page, inv } = await lib.launch({ userData, env: { HIVE_API_PORT: lib.port(47914), CLAUDE_CONFIG_DIR: claudeHome }, viewport: { width: viewport, height: HEIGHT } })
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.openWorkspace(inv, page, ws)
@@ -94,7 +94,7 @@ const check = (name, ok, extra = '') => {
   const shot = (file) => page.screenshot({ path: path.join(lib.WORK, file), clip: { x: 0, y: 0, width: viewport, height: 140 } })
 
   // --- Wide: every tab labelled.
-  const wide = await expectFit('1500 px window', 'labels')
+  const wide = await expectFit('1700 px window', 'labels')
   await shot('tabstrip-1-labels.png')
   const { labelsNeed } = wide
 
@@ -141,11 +141,11 @@ const check = (name, ok, extra = '') => {
   await shot('tabstrip-4-scrolls.png')
 
   // --- Wider again: labels back.
-  viewport = 1500
+  viewport = 1700
   await page.setViewportSize({ width: viewport, height: HEIGHT })
-  await expectFit('1500 px again', 'labels')
+  await expectFit('1700 px again', 'labels')
 
-  // --- The window at its minimum width, sidebar shown: all twelve tabs on screen, with no scrolling.
+  // --- The window at its minimum width, sidebar shown: all thirteen tabs on screen, with no scrolling.
   const [minW] = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getMinimumSize())
   check('the window has a minimum width', minW > 0, String(minW))
   viewport = minW
