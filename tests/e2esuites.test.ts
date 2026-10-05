@@ -1292,3 +1292,47 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
     expect(readdirSync(dir2).filter((f) => f.endsWith('.json'))).toEqual([])
   })
 })
+
+describe("a suite's git waits out the Hive under test's own (lib.git, #199)", () => {
+  type Git = (cwd: string, cmd: string | string[], opts?: { timeoutMs?: number }) => string
+  const { git } = createRequire(import.meta.url)('./e2e/lib.cjs') as { git: Git }
+  const repo = mkdtempSync(join(tmpdir(), 'hive-gitlock-'))
+  afterAll(() => rmSync(repo, { recursive: true, force: true }))
+  git(repo, 'init -q -b main')
+  git(repo, ['config', 'user.email', 't@t'])
+  git(repo, ['config', 'user.name', 't'])
+  const lock = join(repo, '.git', 'index.lock')
+  /** Another process (the Hive under test's git status) holding index.lock for ms, then letting go. */
+  const holdLock = (ms: number) => {
+    writeFileSync(lock, '')
+    spawn(process.execPath, ['-e', `setTimeout(() => require('fs').rmSync(${JSON.stringify(lock)}, { force: true }), ${ms})`], { stdio: 'ignore' })
+  }
+
+  it('a write while another git holds index.lock waits for it, then runs', () => {
+    writeFileSync(join(repo, 'a.txt'), 'a\n')
+    holdLock(600)
+    const t0 = Date.now()
+    git(repo, 'add -A')
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(400)
+    expect(git(repo, ['diff', '--cached', '--name-only']).trim()).toBe('a.txt')
+    holdLock(300)
+    git(repo, 'commit -q -m "a"')
+    expect(git(repo, 'log --oneline').trim()).toMatch(/ a$/)
+  })
+
+  it('a lock that stays is an error after the timeout; any other failure throws at once', () => {
+    writeFileSync(lock, '')
+    try {
+      expect(() => git(repo, 'add -A', { timeoutMs: 300 })).toThrow(/index\.lock/)
+    } finally {
+      rmSync(lock, { force: true })
+    }
+    const t0 = Date.now()
+    expect(() => git(repo, 'no-such-command')).toThrow(/not a git command/)
+    expect(Date.now() - t0).toBeLessThan(5000)
+  })
+
+  it('the suites that write to a repository while their Hive runs use it', () => {
+    for (const s of ['agents', 'agents-ui', 'resume', 'inbox', 'unmerged', 'paneheader']) expect(readFileSync(join(dir, `${s}.cjs`), 'utf8'), s).toMatch(/= \([^)]*\) => lib\.git\(/)
+  })
+})

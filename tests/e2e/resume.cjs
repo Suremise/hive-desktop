@@ -4,14 +4,15 @@
 // in Agent 1, but no prompt is ever sent. Clipboard untouched.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
-const fs = require('fs'), path = require('path'), { execSync } = require('child_process')
+const fs = require('fs'), path = require('path')
 const scratch = lib.WORK, userData = path.join(scratch, 'resume-profile')
 // Outside the repository, so its CLAUDE.md (which imports AGENTS.md) doesn't apply to the test session (#174).
 const ws = path.join(scratch, 'resume-ws')
 for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
 const proj = path.join(ws, 'demo')
 fs.mkdirSync(proj, { recursive: true })
-const g = (cmd) => execSync(`git ${cmd}`, { cwd: proj, stdio: 'pipe' }).toString()
+// Git in the test repository, waiting out the Hive under test's own git (lib.git, #199).
+const g = (cmd) => lib.git(proj, cmd)
 g('init -q -b main'); g('config user.email test@example.com'); g('config user.name Test')
 fs.writeFileSync(path.join(proj, 'README.md'), '# Demo\n'); g('add -A'); g('commit -q -m init')
 
