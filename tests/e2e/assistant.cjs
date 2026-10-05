@@ -103,18 +103,19 @@ const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'pro
   await lib.until(async () => (await inv('workspace:get')).assistant.config.providers['claude-code'].model === 'haiku', 10000)
   check('Settings → Assistant changes its default model', (await inv('workspace:get')).assistant.config.providers['claude-code'].model === 'haiku')
   check('renaming the Assistant is ignored', (await inv('agents:update', home, 'assistant', { name: 'Bob' })).name === 'Assistant')
-  // Haiku in Auto: Claude Code may run it in Manual, which Assistant Settings and Settings → Assistant say.
+  // Haiku in Auto: the fake answers with Claude Code 2.1.289's models, where Haiku has no Auto (#129), so Assistant Settings
+  // and Settings → Assistant say it runs in Manual (claude-real checks that the real one does).
   await page.locator('.assistant-header button[aria-label="More"]').click()
   await lib.sleep(300)
   await page.locator('.menu-item', { hasText: 'Assistant Settings…' }).click()
   await lib.sleep(500)
-  check('Assistant Settings warns about Auto with Haiku', (await page.locator('.dialog .mode-caveat', { hasText: 'Auto with Haiku' }).count()) === 1)
+  check('Assistant Settings warns about Auto with Haiku', (await page.locator('.dialog .mode-caveat', { hasText: "doesn't offer Auto with Haiku 4.5: it runs in Manual" }).count()) === 1)
   await page.keyboard.press('Escape')
   await page.keyboard.press('Control+,')
   await lib.sleep(500)
   await page.locator('.settings-nav .row', { hasText: 'Assistant' }).first().click()
   await lib.sleep(500)
-  check('so does Settings → Assistant', (await page.locator('.mode-caveat', { hasText: 'Auto with Haiku' }).count()) === 1)
+  check('so does Settings → Assistant', (await page.locator('.mode-caveat', { hasText: "doesn't offer Auto with Haiku 4.5: it runs in Manual" }).count()) === 1)
   await page.keyboard.press('Control+Shift+E')
   await lib.sleep(300)
 

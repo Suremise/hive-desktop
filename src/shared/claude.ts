@@ -115,8 +115,9 @@ export function canSwitchLive(target: PermissionMode, current: PermissionMode | 
 }
 
 /**
- * Auto with a model Claude Code doesn't run in Auto. Its initialize reply says per model (supportsAutoMode, absent for
- * Haiku 4.5 with 2.1.289); without that, the guess from 2.1.286, which ran Haiku in Manual when asked for Auto.
+ * Auto with a model Claude Code doesn't run in Auto. Its initialize reply says per model, for the installed version and
+ * the account (supportsAutoMode, absent for Haiku 4.5 with 2.1.289, #129); such a session runs in Manual instead (2.1.286
+ * and 2.1.289; claude-real checks it against the installed CLI). Without the reply's word, the guess from 2.1.286.
  */
 export function claudeModeCaveat(mode: string, model: string, known?: ModeCaveatFacts): string | null {
   if (mode !== 'auto') return null
@@ -124,7 +125,7 @@ export function claudeModeCaveat(mode: string, model: string, known?: ModeCaveat
   if (!unsupported) return null
   const name = known?.label ?? (/haiku/i.test(model) ? 'Haiku' : claudeModelLabel(model))
   return known?.supportsAuto === false
-    ? `Claude Code doesn't offer Auto with ${name}, so the session runs in another mode, and Hive shows which.`
+    ? `Claude Code doesn't offer Auto with ${name}: it runs in Manual instead (asking before edits and commands), and Hive shows that mode.`
     : `Claude Code may not offer Auto with ${name}. If it doesn't, it runs in Manual (asking before edits and commands), and Hive shows that mode.`
 }
 

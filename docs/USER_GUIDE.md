@@ -398,7 +398,7 @@ The **Personas** section of the Assistant view (below) lists them. Click one to 
 - The default persona.
 - For each provider: its model, effort, permission mode, extra arguments and, for Claude Code, **Use 200K context (instead of 1M)**.
 
-It uses the same model and effort as your agents (each provider's defaults in Settings), since a lighter model or low effort makes it careless: it may say it will check on an agent later and never do. Its mode, like your agents', approves safe actions itself and only asks about risky ones: **Auto** for Claude Code and **Approve for me** for Codex. Claude Code says which models it runs in Auto (it doesn't with **Haiku**), and the settings warn you when you pick a model without it in Auto, for the Assistant or an agent: the session then runs in another mode, and Hive shows which. **Assistant Settings** in the panel changes any of them for one workspace. Changing its provider or persona restarts it, after asking.
+It uses the same model and effort as your agents (each provider's defaults in Settings), since a lighter model or low effort makes it careless: it may say it will check on an agent later and never do. Its mode, like your agents', approves safe actions itself and only asks about risky ones: **Auto** for Claude Code and **Approve for me** for Codex. Claude Code says which models it runs in Auto, for your version and account (currently not **Haiku**), and the settings warn you when you pick a model without it in Auto, for the Assistant or an agent: the session then runs in Manual instead (asking before edits and commands), and Hive shows that mode. **Assistant Settings** in the panel changes any of them for one workspace. Changing its provider or persona restarts it, after asking.
 
 ## Skills
 

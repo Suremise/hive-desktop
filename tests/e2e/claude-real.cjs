@@ -2,8 +2,11 @@
 // - A session starts in a worktree agent's worktree (agents checks the rest of worktree agents with the fake).
 // - A relaunch with a changed setting (Restart session after a new effort) is taken by Claude Code, bringing the same
 //   session back (restart checks Hive's side with the fake).
-// - The Assistant's launch is taken by Claude Code in the workspace folder, asking for Auto; with Haiku, Claude Code
-//   runs it in Manual instead, and Hive shows the mode it really runs in (assistant checks the rest with the fake).
+// - The Assistant's launch is taken by Claude Code in the workspace folder, asking for Auto, with Haiku. Whether Claude
+//   Code runs Haiku in Auto depends on its version and the account (#129): its initialize reply says (supportsAutoMode).
+//   Hive must show the mode the session really runs in, whichever that is, and warn exactly when Auto isn't offered:
+//   Auto when it says Haiku takes Auto, else Manual (2.1.286 and 2.1.289 run it in Manual); either when it doesn't say
+//   (assistant checks the rest with the fake).
 // Each wait on the CLI is a lib.cliStep: a usage limit, sign-in or network failure there makes the suite a SKIP.
 // Dev build, throwaway profile and workspace, the user's own signed-in Claude Code.
 const lib = require('./lib.cjs')
@@ -82,7 +85,10 @@ const check = (name, ok, extra = '') => {
   check('…and brought the same conversation back', (await live(proj, agent.id))?.sessionId === st.sessionId, (await live(proj, agent.id))?.sessionId)
   await stop(proj, agent.id)
 
-  // --- The Assistant with Haiku: launched asking for Auto; Claude Code runs it in Manual, and Hive shows that.
+  // --- The Assistant with Haiku: launched asking for Auto; what Claude Code runs it in, and what Hive shows and says.
+  const claude = (await inv('provider:info'))['claude-code']
+  const autoOffered = claude?.catalog?.models.find((m) => m.value === 'haiku')?.supportsAuto
+  console.log(`Claude Code ${claude?.version}: Haiku ${autoOffered === undefined ? "doesn't say whether it takes" : autoOffered ? 'takes' : "doesn't take"} Auto`)
   await inv('settings:update', { assistant: { providers: { 'claude-code': { model: 'haiku' } } } })
   await inv('session:start', home, { agentId: 'assistant' })
   await lib.cliStep('the Assistant starts', { session: lib.ptyKey(home, 'assistant') }, async () => {
@@ -92,11 +98,20 @@ const check = (name, ok, extra = '') => {
   const a = await live(home, 'assistant')
   check('…in the workspace folder', a?.cwd.toLowerCase() === ws.toLowerCase(), a?.cwd)
   check('…asking for Auto, with Haiku', launchLine('assistant#assistant').includes('"--permission-mode","auto"') && launchLine('assistant#assistant').includes('"--model","haiku"'))
+  const expected = autoOffered === true ? ['auto'] : autoOffered === false ? ['manual'] : ['auto', 'manual']
   await lib.cliStep('Claude Code shows its mode', { session: lib.ptyKey(home, 'assistant') }, async () => {
-    await lib.until(async () => (await live(home, 'assistant'))?.permissionMode === 'manual', 15000)
+    await lib.until(async () => expected.includes((await live(home, 'assistant'))?.permissionMode), 15000)
     const mode = (await live(home, 'assistant'))?.permissionMode
-    check('with Haiku, Claude Code falls back to Manual and Hive shows it', mode === 'manual', mode)
+    check(`with Haiku, Hive shows the mode Claude Code runs it in (${expected.join(' or ')}, as it says)`, expected.includes(mode), mode)
   })
+  // The warning matches what this Claude Code says: there exactly when Auto isn't offered (a guess when it doesn't say).
+  await page.keyboard.press('Control+,')
+  await lib.sleep(500)
+  await page.locator('.settings-nav .row', { hasText: 'Assistant' }).first().click()
+  await lib.sleep(500)
+  const caveat = await page.locator('.mode-caveat', { hasText: 'Auto with Haiku' }).allInnerTexts()
+  const caveatRight = autoOffered === true ? !caveat.length : autoOffered === false ? caveat.length === 1 && /doesn't offer Auto with Haiku.*runs in Manual/.test(caveat[0]) : caveat.length === 1
+  check("Settings → Assistant warns about Auto with Haiku exactly when Claude Code says it isn't offered", caveatRight, JSON.stringify(caveat))
   await stop(home, 'assistant')
 
   await app.close()
