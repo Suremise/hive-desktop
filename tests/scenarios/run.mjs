@@ -5,7 +5,8 @@
 //   npm run scenarios -- --provider claude-code --model haiku --budget 2      # model trials (opt-in, cost tokens)
 //   npm run scenarios -- --provider codex --model gpt-5.6-luna --only work-on-card,review-card
 //
-// More than five scenarios, or --repeat, waits for a test slot (tests/e2e/slots.mjs; --no-wait fails at once instead).
+// More than five scenarios, or --repeat, waits for a test slot (tests/e2e/slots.mjs; --no-wait fails at once instead),
+// unless started inside an e2e suite, whose run holds one.
 // --budget N (USD, API-equivalent, above 0, default 2) stops a model run once the scenarios so far cost that much, or
 // as soon as a trial reports no cost (the spend can't be checked then; --allow-unknown-cost goes on anyway); --only runs
 // some; --keep leaves each scenario's profile and workspace; --repeat N runs each N times (samples, for spread);
@@ -25,7 +26,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { devBuild, ensureBuild } from '../e2e/build.mjs'
 import { LANES, claimLane, laneWork } from '../e2e/lanes.mjs'
-import { describeClaim, heavySlots, isHeavy, waitForSlot } from '../e2e/slots.mjs'
+import { describeClaim, heavySlots, needsSlot, waitForSlot } from '../e2e/slots.mjs'
 import { slotWaitProgress } from '../progressReport.mts'
 
 const require = createRequire(import.meta.url)
@@ -74,8 +75,9 @@ if (notSignedIn) {
 
 const chosen = SCENARIOS.filter((s) => !only?.length || only.includes(s.id))
 // More than a few scenarios (or --repeat) is a heavy run: it waits for a test slot, as the e2e runner's do
-// (tests/e2e/slots.mjs), so runs on this machine don't slow each other until tests time out. --no-wait: fail at once.
-if (isHeavy({ count: chosen.length, repeat: repeats })) {
+// (tests/e2e/slots.mjs), so runs on this machine don't slow each other until tests time out; not one started inside a
+// suite, whose parent holds a slot (needsSlot, #211). --no-wait: fail at once.
+if (needsSlot({ count: chosen.length, repeat: repeats })) {
   const queue = slotWaitProgress('scenarios', `npm run scenarios -- ${argv.join(' ')}`.trim(), argv)
   let said = ''
   const got = await waitForSlot(runContext.HEAVY_DIR, {

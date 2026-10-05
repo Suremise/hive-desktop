@@ -22,7 +22,7 @@ import { buildLock, buildStamp, devBuild, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { describeClaim, heavySlots, isHeavy, trySlot, waitForSlot } from './e2e/slots.mjs'
+import { describeClaim, heavySlots, isHeavy, needsSlot, trySlot, waitForSlot } from './e2e/slots.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { KEEP_RUNS, finishRunDirs, logsRootFor, newRunDir, pruneRunDirs, runDirActive, runDirsInOrder } from './e2e/logs.mjs'
 import { createRequire } from 'module'
@@ -1307,6 +1307,21 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
     for (const bad of ['0', '-1', '1.5', 'x', '']) expect(heavySlots({ HIVE_TEST_HEAVY_SLOTS: bad })).toBe(2)
     expect(parseArgs(['--all', '--no-wait'], names)).toMatchObject({ all: true, noWait: true })
     expect(parseArgs(['--all'], names)).toMatchObject({ noWait: false })
+  })
+
+  it('a heavy run started inside a suite waits for no slot, e2e or scenarios: its parent holds one (#211)', () => {
+    const heavy = { count: 1, repeat: 2 }
+    expect(needsSlot(heavy, {})).toBe(true)
+    expect(needsSlot({ count: 3 }, {})).toBe(false)
+    // In a suite's own environment, and in the agent shell of a test Hive it started (which keeps only E2E_RUN_*).
+    expect(needsSlot(heavy, { HIVE_E2E_PORT: '47950', E2E_RUN_SUITE: 'progressreport' })).toBe(false)
+    expect(needsSlot(heavy, { E2E_RUN_SUITE: 'progressreport', E2E_RUN_DIR: 'C:\\lanes\\0', E2E_RUN_PORT: '47950' })).toBe(false)
+    // Both runners ask needsSlot, never isHeavy alone (the scenario runner did, and queued behind its parent).
+    for (const f of ['e2e/run.mjs', 'scenarios/run.mjs']) {
+      const src = readFileSync(join(__dirname, f), 'utf8')
+      expect(src, f).toMatch(/if \(needsSlot\(\{ count: chosen\.length, repeat: \w+(\.repeat)? \}\)\) \{/)
+      expect(src, f).not.toMatch(/\bisHeavy\b/)
+    }
   })
 
   it('two take the slots; the others wait in the order they asked, and the first to ask gets the next free one', async () => {

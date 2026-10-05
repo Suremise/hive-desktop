@@ -17,8 +17,10 @@
 // on the machine neither wait for it nor make it wait): three heavy runs (a repeat) started at once from three
 // worktrees with two slots. Checked: two run and the third waits, saying so (and in the Progress panel, through a
 // stand-in for Hive's Agent API), then starts when a slot is let go; no more than two hold slots at any moment; all
-// pass; a run with --no-wait while the slots are taken fails at once, saying who holds them; and the slot of a run that
-// is killed is taken by the next run without waiting.
+// pass; a run with --no-wait while the slots are taken fails at once, saying who holds them; the slot of a run that
+// is killed is taken by the next run without waiting; and with the only slot held by a parent run, a heavy scenario run
+// started inside its suite runs without asking for one (even with --no-wait), while the same run at the top level is
+// refused (#211).
 import { execFileSync, spawn, spawnSync } from 'child_process'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import http from 'http'
@@ -26,6 +28,7 @@ import { createRequire } from 'module'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { BUILD_LOCKS, buildInputs, buildLock, buildStamp } from './build.mjs'
+import { trySlot } from './slots.mjs'
 import { fingerprint } from './record.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -228,6 +231,21 @@ async function heavyRound(k, worktrees) {
     await killed
     const next = await start({ name: 'after a killed run', cwd: root, script: 'tests/e2e/run.mjs', args, env: { ...env, HIVE_TEST_HEAVY_SLOTS: '1' } })
     check("a killed run's slot is taken by the next run without waiting", held && next.code === 0 && !/Waiting for a test slot/.test(next.out), `held ${held}, exit ${next.code}`)
+
+    // A heavy scenario run inside a suite (#211): its parent (this checker, standing in for an e2e run) holds the only slot.
+    const parent = await trySlot(pool, { slots: 1, what: 'the parent e2e run', root })
+    try {
+      const one = { ...env, HIVE_TEST_HEAVY_SLOTS: '1' }
+      const scenarios = ['--repeat', '2', '--only', SCENARIO, '--no-wait', '--no-progress']
+      // What a suite's agent shell keeps of its run context (E2E_RUN_*).
+      const inSuite = { ...one, E2E_RUN_SUITE: 'progressreport', E2E_RUN_DIR: join(pool, 'parent-run'), E2E_RUN_PORT: '47950' }
+      const nested = await start({ name: 'nested heavy scenarios', cwd: root, script: 'tests/scenarios/run.mjs', args: scenarios, env: inSuite })
+      check('a heavy scenario run inside a suite runs without a slot while its parent holds the only one, even with --no-wait', parent.slot === 0 && nested.code === 0 && !/test slot/i.test(nested.out), `parent slot ${parent.slot}, exit ${nested.code}: ${nested.out.trim().split('\n').slice(-3).join(' / ')}`)
+      const top = await start({ name: 'top-level heavy scenarios', cwd: root, script: 'tests/scenarios/run.mjs', args: scenarios, env: one })
+      check('…while the same run at the top level is refused, naming the holder', top.code === 2 && /No test slot free \(--no-wait\).*held by the parent e2e run/.test(top.out) && top.ms < 15_000, `exit ${top.code} in ${top.ms} ms: ${top.out.trim().split('\n').at(-1)}`)
+    } finally {
+      rmSync(join(pool, `slot-${parent.slot}.json`), { force: true })
+    }
   } finally {
     clearInterval(watch)
     api.close()

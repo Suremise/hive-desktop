@@ -131,7 +131,9 @@ and logs folder of its own, and that each worktree is built once and stamped. Ru
 tests that pass alone timed out. So at most **two heavy runs** go at once across every worktree
 (`HIVE_TEST_HEAVY_SLOTS` changes it): an e2e run of more than five suites (`--all`, `--real`, a big `--affected`) or
 any `--repeat`, and a scenario run of more than five scenarios or with `--repeat`. A run of a few suites, a single
-scenario, or a runner started inside a suite never waits. A heavy run that finds both slots taken waits for one,
+scenario, or a runner started inside a suite never waits: e2e or scenarios (`needsSlot`, #211), since its parent's run
+holds a slot and waiting behind it would never end. It still keeps apart from its parent (a nested e2e runner in the
+parent's `nested` folder with ports above the parent's, a nested scenario run in a lane of its own). A heavy run that finds both slots taken waits for one,
 before it builds, in the order runs asked. It prints `Waiting for a test slot …: held by e2e: 68 suites in <worktree>
 (process …, 12 min)` and shows in the Progress panel as **e2e: waiting for a test slot** (or **scenarios: …**), naming
 who holds them, until it gets one (`Got a test slot after N s`). So a run that seems stuck is usually waiting: that line

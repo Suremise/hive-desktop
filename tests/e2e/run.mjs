@@ -40,7 +40,7 @@ import { isRealCli, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, 
 import { devBuild, ensureBuild } from './build.mjs'
 import { finishRunDirs, logsRootFor, newRunDir, pruneRunDirs } from './logs.mjs'
 import { LANES, claimLane, laneWork } from './lanes.mjs'
-import { describeClaim, heavySlots, isHeavy, waitForSlot } from './slots.mjs'
+import { describeClaim, heavySlots, needsSlot, waitForSlot } from './slots.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
@@ -79,9 +79,9 @@ if (!chosen.length) {
 
 // --- A heavy run (more than a few suites, or a repeat) waits for a test slot: at most a few go at once on this machine,
 // across every worktree (slots.mjs), so runs don't slow each other until tests time out. A runner started inside a
-// suite never waits (its parent holds one). --no-wait: fail at once instead.
+// suite never waits (its parent holds one: needsSlot). --no-wait: fail at once instead.
 const nested = !!parentSuite()
-if (!nested && isHeavy({ count: chosen.length, repeat: opts.repeat })) {
+if (needsSlot({ count: chosen.length, repeat: opts.repeat })) {
   const what = `e2e: ${chosen.length} suites${opts.repeat > 1 ? ` × ${opts.repeat}` : ''}`
   const queue = slotWaitProgress('e2e', `npm run e2e -- ${args.join(' ')}`.trim(), args)
   let said = ''
