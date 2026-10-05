@@ -28,11 +28,15 @@ Wait with `hive_wait_for_tasks`, `wake: true`:
 - reviewer, after failing a card: the card, `column: "review"`, `changes: ["column"]` (it comes back to Review: it's still there now, so this waits for the builder to move it out and back);
 - `limitMinutes`: the run's wait.
 
-**Start the watch before the step that lets the other side act**, so a quick answer isn't missed: the builder just before moving the card to Review, the reviewer just before posting a failed verdict. Your own move doesn't wake you. Then finish that step and **end your turn**, saying what you're waiting for. Don't poll, don't sleep in a command, and don't start other work: Hive types one line into your session when the card changes ("[Hive] #12 is in Review; latest comment by …"), or when the wait passes with no change.
+**Start the watch before the step that lets the other side act**, so a quick answer isn't missed: the builder just before moving the card to Review, the reviewer just before posting a failed verdict. Your own move doesn't wake you. Then finish that step and **end your turn**, saying what you're waiting for. Don't poll, don't sleep in a command, and don't start other work: Hive types one line into your session when the card changes ("[Hive] #12 is in Review: Codex failed it; latest comment by …"), or when the wait passes with no change.
 
 When woken, read only what you need: `hive_read_task` with `latestComment: true` (or `comments: n` for the last few). Read the whole card again only when the comment says to.
 
 If a wake isn't possible (the tool says so), wait in the call instead: `hive_wait_for_tasks` without `wake`, `timeoutSeconds` up to 840, and pass the reply's `since` to the next call.
+
+**Never end a turn in a loop without a watch**, unless the loop is over or you're asking the user. Woken with nothing to do yet (a reviewer whose card isn't back in Review), start the same watch again.
+
+**Another agent's card** (one your card depends on): its wake names whose card it is ("[Hive] #12 (Claude's card) is in Done…"). It tells you that card changed, not yours: read it, then carry on with your card, or watch again. **Done means it passed review, not that it's merged**: it's merged when the user says so, or main has it. When your card needs another one merged, check main has it (e.g. `git merge-base --is-ancestor <its commit> main`) or ask the user before going on.
 
 ## Builder
 

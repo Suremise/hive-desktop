@@ -36,6 +36,18 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Card loops: Codex (default `gpt-6.1-sol`, CLI 0.160.0), fixtures v9, 5 October 2026
+
+The card-loop scenarios only (#143: wake lines name a dependency's agent and say Done isn't merged; the skill covers
+dependency watches, Done ≠ merged and always re-arming), two samples each, on Codex's default model now that #192
+prices it (`results/2026-10-05T05-23-51-codex`, $0.55 API-equivalent):
+- **Every behaviour check passes, 8 of 8 samples**: rounds asked the user at the limit, recurring went back for round
+  three, recurring-review failed it marking the finding as recurring, disputed asked the user.
+- **"read the card-loop skill" fails in 7 of 8, a measuring gap, not the agents**: each sample read it, through a
+  code-mode script whose output comes back JSON-escaped, which the harness's `name:` line check misses (#198).
+- Fake runs before and after the change (`card143-before-claude`/`-codex` baselines, results `2026-10-05T04-49-10-fake`
+  and `2026-10-05T04-57-32-fake-codex`): 33 of 33 pass both times; skill bytes +2.5% (the longer card-loop skill).
+
 ## Long commands through hive-progress: Codex (`gpt-5.6-luna`, CLI 0.160.0) and Claude Code (default model, CLI 2.1.289), fixtures v9, 5 October 2026
 
 The new **progress-long-command**, **progress-background** and **progress-off** scenarios and **work-on-card**, two

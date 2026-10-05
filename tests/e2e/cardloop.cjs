@@ -164,7 +164,10 @@ const check = (name, ok, extra = '') => {
   const bw = wakes('Builder').map((w) => w.text)
   const rw = wakes('Reviewer').map((w) => w.text)
   check('the builder was woken once per verdict: c1 passed, c2 failed, c2 passed', bw.length === 3 && bw[0].includes(`#${c1}`) && bw[1].includes(`#${c2}`) && bw[2].includes(`#${c2}`), JSON.stringify(bw))
-  check('the reviewer was woken once per arrival: c1, c2, c2 again', rw.length === 3 && rw[0].includes(`#${c1} is in Review`) && rw[1].includes(`#${c2} is in Review`) && rw[2].includes(`#${c2} is in Review`), JSON.stringify(rw))
+  // The reviewer watches the builder's cards: each wake says whose card it is (#143).
+  check("the reviewer was woken once per arrival: c1, c2, c2 again, each naming the builder's card", rw.length === 3 && rw[0].includes(`#${c1} (Builder's card) is in Review`) && rw[1].includes(`#${c2} (Builder's card) is in Review`) && rw[2].includes(`#${c2} (Builder's card) is in Review`), JSON.stringify(rw))
+  // The builder's own cards: no owner, the reviewer and its verdict named (#143); Done isn't called merged on its own card.
+  check("the builder's wakes name the reviewer's verdict: passed, failed, passed", bw.length === 3 && bw[0].includes(`#${c1} is in Done: Reviewer (alpha) passed it;`) && bw[1].includes(`#${c2} is in Review: Reviewer (alpha) failed it;`) && bw[2].includes(`#${c2} is in Done: Reviewer (alpha) passed it;`), JSON.stringify(bw))
   // A pass is one call (verdict, move to Done and comment): the wake names that comment, not the builder's before it (#138).
   const passed = 'latest comment by Reviewer (alpha): "Fake review: passed."'
   check("the builder's wakes on a pass name the reviewer's comment from the same call", bw.length === 3 && bw[0].includes(passed) && bw[2].includes(passed), JSON.stringify(bw))
@@ -255,6 +258,15 @@ const check = (name, ok, extra = '') => {
   await inv('tasks:comment', c3, 'Fourth change')
   await lib.sleep(2500) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
   check('…and a later change wakes nothing', wakes('Third').length === 4)
+
+  // --- A watch on another agent's card (a dependency, #143): the wake says whose card it is, and that Done isn't merged.
+  const dep = (await inv('tasks:create', { title: 'Needed first', project: 'alpha', agent: builder.id, column: 'review' })).number
+  script('Third', ['work 1'])
+  await say(third.id, wait(dep, { column: 'done' }))
+  await until(async () => (await live(third.id))?.status === 'watching')
+  await inv('tasks:update', dep, { column: 'done' })
+  check("a dependency's wake names its agent and says Done isn't merged", !!(await until(async () => wakes('Third').length === 5, 15000)) && wakes('Third')[4].text.includes(`#${dep} (Builder's card) is in Done (Done isn't merged)`), JSON.stringify(wakes('Third').slice(4)))
+  await until(async () => (await live(third.id))?.status === 'finished')
 
   // --- A bounded wait (no wake): it returns on a comment, a move and a verdict; times out; since misses nothing.
   const c4 = (await inv('tasks:create', { title: 'Waited on', project: 'alpha', agent: builder.id })).number
