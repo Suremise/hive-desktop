@@ -7,7 +7,7 @@ import { createServer, type Server } from 'http'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { estimateFor, ProgressRun, progressTarget, recordTiming, wrappedLines } from '../src/main/progressReporters/report.mts'
 import { cmdEscapeArgument, commandEnv, commandLabel, parseArgs, runWrapped, spawnSpec, StepFilter, stepLine, timingKey } from '../src/main/progressReporters/wrapper'
 import { installShims, shimFiles, withBinOnPath } from '../src/main/progressReporters/shims'
@@ -168,13 +168,16 @@ describe('reporting a run', () => {
     expect(commandLabel(ok).startsWith(String(calls[0].body.title).replace(/…$/, ''))).toBe(true)
   })
 
-  it('a total given after the run started (no step line at first) is not sent: its steps are, as the step running', async () => {
-    // The step line comes only once the start has been reported (#145 is about showing a late total).
-    const script = `seen((c) => c.length > 0).then(() => { console.log('##hive-progress step=2 total=5 name=late'); return seen((c) => c.some((x) => x.method === 'PATCH')) })`
+  it('a total given after the run started (no step line at first) is sent once, with the first update that has it (#145)', async () => {
+    // The step lines come only once the start has been reported; the second total is ignored.
+    const script = `seen((c) => c.length > 0).then(() => { console.log('##hive-progress step=2 total=5 name=late'); return seen((c) => c.some((x) => x.method === 'PATCH')) }).then(() => { console.log('##hive-progress step=3 total=9 name=later'); return seen((c) => c.some((x) => x.body.stepName === 'later')) })`
     await wrap(['--', ...seenNode, '-e', script], env(), 0)
     expect(calls[0].body).not.toHaveProperty('total')
     const patches = calls.filter((c) => c.method === 'PATCH')
-    expect(patches.map((c) => c.body)).toEqual([{ step: 1, stepName: 'late' }])
+    expect(patches.map((c) => c.body)).toEqual([
+      { total: 5, step: 1, stepName: 'late' },
+      { step: 2, stepName: 'later' }
+    ])
   })
 
   it('with Hive unreachable, refusing, absent or turned off: the command runs as usual and nothing fails', async () => {
@@ -234,15 +237,57 @@ describe('the shared reporter and timings', () => {
     calls.length = 0
     const capped = new ProgressRun({ url, token: 't', workspace: '' }, { title: 'y', total: 2 }, { minIntervalMs: 10 })
     capped.update({ step: 9 })
+    // A run with a total keeps it.
+    capped.update({ total: 20 })
     await new Promise((res) => setTimeout(res, 100))
     await capped.finish(true)
     expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ step: 2 })
+    calls.length = 0
+    // A late total, once: a step merged in before it is kept within it, and steps after it are capped by it.
+    const late = new ProgressRun({ url, token: 't', workspace: '' }, { title: 'late' }, { minIntervalMs: 10 })
+    late.update({ step: 9, stepName: 'setup' })
+    late.update({ total: 4 })
+    late.update({ total: 7 })
+    await new Promise((res) => setTimeout(res, 100))
+    await late.finish(true)
+    const quick = new ProgressRun({ url, token: 't', workspace: '' }, { title: 'late, then a step' }, { minIntervalMs: 10 })
+    quick.update({ total: 3 })
+    quick.update({ step: 8 })
+    await new Promise((res) => setTimeout(res, 100))
+    await quick.finish(true)
+    expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ total: 4, step: 4, stepName: 'setup' }, { total: 3, step: 3 }])
+    expect(calls.filter((c) => c.method === 'POST' && c.path === '/v1/progress').map((c) => c.body)).toEqual([{ title: 'late' }, { title: 'late, then a step' }])
     calls.length = 2
     const none = new ProgressRun(null, { title: 'x' })
     none.update({ step: 1 })
     await none.finish(false)
     expect(await none.reporting()).toBe(false)
     expect(calls).toHaveLength(2)
+  })
+
+  it('a late total still waiting to be sent goes out before the finish, passed or failed; other pending updates are dropped', async () => {
+    for (const ok of [false, true]) {
+      calls.length = 0
+      // A long interval: once the first update is sent, the next waits, and the finish comes before it would be sent.
+      const r = new ProgressRun({ url, token: 't', workspace: '' }, { title: `late ${ok}` }, { minIntervalMs: 60_000 })
+      r.update({ step: 1 })
+      await vi.waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
+      r.update({ total: 4, step: 2, stepName: 'late' })
+      await r.finish(ok, ok ? undefined : 'exit code 1')
+      expect(calls.map((c) => [c.method, c.path.replace(/run-\d+/, 'run'), c.body])).toEqual([
+        ['POST', '/v1/progress', { title: `late ${ok}` }],
+        ['PATCH', '/v1/progress/run', { step: 1 }],
+        ['PATCH', '/v1/progress/run', { total: 4, step: 2, stepName: 'late' }],
+        ['POST', '/v1/progress/run/finish', ok ? { ok } : { ok, summary: 'exit code 1' }]
+      ])
+    }
+    calls.length = 0
+    const plain = new ProgressRun({ url, token: 't', workspace: '' }, { title: 'plain', total: 3 }, { minIntervalMs: 60_000 })
+    plain.update({ step: 1 })
+    await vi.waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
+    plain.update({ step: 2, total: 9 })
+    await plain.finish(true)
+    expect(calls.map((c) => c.method)).toEqual(['POST', 'PATCH', 'POST'])
   })
 
   it('estimates from the median of the last five runs, keeps the newest keys, and survives a damaged file', () => {
@@ -331,6 +376,13 @@ describe('a reporter inside a command hive-progress runs: one row, the wrapper\'
     r.update({ step: 3 })
     // The API counts the steps finished; a step line names the one starting (from 1, at most the total).
     expect(lines).toEqual(['##hive-progress step=1 total=3 name=a', '##hive-progress step=2 name=b', '##hive-progress step=3'])
+    // A reporter that learns its total late prints it once, for the wrapper's run to take.
+    lines.length = 0
+    const late = new ProgressRun(null, { title: 'unit' }, { lines: (l) => lines.push(l) })
+    late.update({ step: 1, stepName: 'a' })
+    late.update({ total: 4 })
+    late.update({ total: 6, step: 2 })
+    expect(lines).toEqual(['##hive-progress step=2 name=a', '##hive-progress step=2 total=4', '##hive-progress step=3'])
   })
 
   it('a reporter run under hive-progress shows in its run: one row with the total and steps', async () => {
