@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { PASSED_SHOWN_MS, fractionDone, isOpenRun, shortDuration, timeLeft } from '@shared/progress'
+import { PASSED_SHOWN_MS, RUN_STATE_WORDS, fractionDone, isOpenRun, shortDuration, stripRuns, timeLeft } from '@shared/progress'
 import type { ProgressRun } from '@shared/types'
 import { selectProject } from '../actions'
 import { call } from '../api'
@@ -25,14 +25,29 @@ function isShown(r: ProgressRun, now: number): boolean {
   return true
 }
 
+/** Whether a run's agent can be shown: the Assistant, or a project agent that is still there (not a script's run). */
+function canShowRunAgent(s: Parameters<typeof findProject>[0], r: ProgressRun): boolean {
+  if (r.source === 'assistant') return true
+  if (!r.projectPath || !r.agentId) return false
+  return !!findProject(s, r.projectPath)?.agents.some((a) => a.id === r.agentId)
+}
+
 /** Shows the agent that reported a run (the Assistant's panel for the Assistant). */
 function showRunAgent(r: ProgressRun): void {
   if (r.source === 'assistant') return setAssistantOpen(true)
-  if (!r.projectPath || !r.agentId) return
-  const p = findProject(get(), r.projectPath)
-  if (!p || !p.agents.some((a) => a.id === r.agentId)) return
+  const p = r.projectPath ? findProject(get(), r.projectPath) : null
+  if (!p || !r.agentId || !p.agents.some((a) => a.id === r.agentId)) return
   selectProject(p.path)
   revealAgent(p, r.agentId)
+}
+
+/** What showing a run's agent is called, for its button. */
+const showLabel = (r: ProgressRun): string => `Show ${r.source === 'assistant' ? 'the Assistant' : r.agentName}, which ran ${r.title}`
+
+/** A click on a run shows its agent, unless it ended a text selection (copying a failure's summary). */
+const onRunClick = (r: ProgressRun) => (): void => {
+  if (window.getSelection()?.toString()) return
+  showRunAgent(r)
 }
 
 /** This window's runs, loaded when its workspace changes (events keep them current). */
@@ -103,6 +118,7 @@ export function ProgressPanel() {
 /** One run: who, what, a bar, the step, elapsed time and time left; a failed or stale one can be dismissed. */
 function RunRow({ run: r, now }: { run: ProgressRun; now: number }) {
   const project = useStore((s) => (r.projectPath ? (findProject(s, r.projectPath)?.name ?? null) : null))
+  const showable = useStore((s) => canShowRunAgent(s, r))
   const fraction = fractionDone(r)
   const left = r.state === 'running' ? timeLeft(r, now) : null
   const ended = r.finishedAt ?? now
@@ -118,11 +134,18 @@ function RunRow({ run: r, now }: { run: ProgressRun; now: number }) {
             : `Stopped reporting ${shortDuration(now - r.updatedAt)} ago`
           : `${shortDuration(now - r.startedAt)}${left !== null ? ` · about ${shortDuration(left)} left` : ''}`
   return (
-    <div className={cx('progress-run', r.state)} data-run={r.id}>
-      <div className="progress-run-top" onClick={() => showRunAgent(r)} title="Show the agent">
-        {r.provider ? <ProviderIcon provider={r.provider} /> : <Icon name="terminal" />}
-        <span className="progress-agent">{r.agentName}</span>
-        {project && <span className="faint progress-project">{project}</span>}
+    // The whole row shows its agent when clicked; from the keyboard, the agent's name is the button (dismiss is its own).
+    <div className={cx('progress-run', r.state, showable && 'showable')} data-run={r.id} onClick={showable ? onRunClick(r) : undefined}>
+      <div className="progress-run-top">
+        {showable ? (
+          <button type="button" className="progress-run-show" title="Show the agent" aria-label={showLabel(r)}>
+            <RunWho run={r} project={project} />
+          </button>
+        ) : (
+          <span className="progress-run-show">
+            <RunWho run={r} project={project} />
+          </span>
+        )}
         <div className="grow" />
         {r.state === 'passed' && <Icon name="pass" className="progress-ok" />}
         {r.state === 'failed' && <Icon name="error" className="progress-fail" />}
@@ -151,31 +174,61 @@ function RunRow({ run: r, now }: { run: ProgressRun; now: number }) {
   )
 }
 
-/** A finished run under Recent: one line. */
+/** Who ran it: the provider's icon, the agent and its project. */
+function RunWho({ run: r, project }: { run: ProgressRun; project: string | null }) {
+  return (
+    <>
+      {r.provider ? <ProviderIcon provider={r.provider} /> : <Icon name="terminal" />}
+      <span className="progress-agent">{r.agentName}</span>
+      {project && <span className="faint progress-project">{project}</span>}
+    </>
+  )
+}
+
+/** A finished run under Recent: one line, a button showing its agent when it has one. */
 function RecentRow({ run: r }: { run: ProgressRun }) {
+  const showable = useStore((s) => canShowRunAgent(s, r))
   const took = r.finishedAt !== null ? shortDuration(r.finishedAt - r.startedAt) : ''
   const icon = r.state === 'passed' ? 'pass' : r.state === 'failed' ? 'error' : 'warning'
   const what = r.state === 'passed' ? 'passed' : r.state === 'failed' ? 'failed' : 'stopped reporting'
+  const line = (
+    <>
+      <Icon name={icon} /> <span className="progress-recent-text">{r.agentName} · {r.title}</span>
+      <span className="faint">{took}</span>
+    </>
+  )
   return (
-    <Tooltip content={`${r.agentName}: ${r.title} ${what}${took ? ` (${took})` : ''}${r.summary ? `\n${r.summary}` : ''}`}>
-      <div className={cx('progress-recent', r.state)} onClick={() => showRunAgent(r)}>
-        <Icon name={icon} /> <span className="progress-recent-text">{r.agentName} · {r.title}</span>
-        <span className="faint">{took}</span>
-      </div>
+    <Tooltip block content={`${r.agentName}: ${r.title} ${what}${took ? ` (${took})` : ''}${r.summary ? `\n${r.summary}` : ''}`}>
+      {showable ? (
+        <button type="button" className={cx('progress-recent', 'showable', r.state)} data-run={r.id} aria-label={`${showLabel(r)}: ${what}${took ? ` in ${took}` : ''}`} onClick={() => showRunAgent(r)}>
+          {line}
+        </button>
+      ) : (
+        <div className={cx('progress-recent', r.state)} data-run={r.id}>
+          {line}
+        </div>
+      )}
     </Tooltip>
   )
 }
 
-/** The folded panel: a strip down the right edge, with a small bar per run while anything runs. */
+/** At most this many of the runs past the strip's bars are listed in its "+N" tooltip. */
+const MORE_LISTED = 12
+
+/**
+ * The folded panel: a strip down the right edge, with a small bar per run (the newest few) while anything runs, and
+ * "+N" for the rest, listed on hover and coloured for a failed or stale one among them. Its name counts every run.
+ */
 function ProgressRail({ runs }: { runs: ProgressRun[] }) {
   const kb = commandKeybinding('progress.toggle')
   const open = (): void => setProgressOpen(true)
+  const { bars, more, moreState, summary } = stripRuns(runs)
   return (
     <div
       className="progress-rail"
       role="button"
       tabIndex={0}
-      aria-label="Show the Progress panel"
+      aria-label={`Show the Progress panel${summary ? ` (${summary})` : ''}`}
       onClick={open}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -189,7 +242,7 @@ function ProgressRail({ runs }: { runs: ProgressRun[] }) {
           <Icon name="chevron-left" />
         </span>
       </Tooltip>
-      {runs.slice(0, 6).map((r) => {
+      {bars.map((r) => {
         const f = fractionDone(r)
         return (
           <Tooltip key={r.id} content={`${r.agentName}: ${r.title}${f !== null ? ` (${Math.round(f * 100)}%)` : ''}`}>
@@ -199,6 +252,25 @@ function ProgressRail({ runs }: { runs: ProgressRun[] }) {
           </Tooltip>
         )
       })}
+      {more.length > 0 && (
+        <Tooltip
+          content={
+            <>
+              <div>{more.length} more:</div>
+              {more.slice(0, MORE_LISTED).map((r) => (
+                <div key={r.id}>
+                  {r.agentName}: {r.title} ({RUN_STATE_WORDS[r.state]})
+                </div>
+              ))}
+              {more.length > MORE_LISTED && <div className="faint">and {more.length - MORE_LISTED} others: open the panel to see them</div>}
+            </>
+          }
+        >
+          <span className={cx('progress-more', moreState)} data-more={more.length}>
+            +{more.length}
+          </span>
+        </Tooltip>
+      )}
       <span className="progress-rail-label">Progress</span>
     </div>
   )

@@ -2,7 +2,7 @@
 // updates; stale runs; the taskbar's combined bar; time left.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProgressError, ProgressStore, admitReport, type ProgressCaller } from '../src/main/progress'
-import { MAX_OPEN_PER_OWNER, MAX_RUNS_PER_WORKSPACE, isOverdue, taskbarProgress, timeLeft } from '../src/shared/progress'
+import { MAX_OPEN_PER_OWNER, MAX_RUNS_PER_WORKSPACE, STRIP_BARS, isOverdue, stripRuns, taskbarProgress, timeLeft } from '../src/shared/progress'
 import type { ProgressRun } from '../src/shared/types'
 
 const WS = 'C:\\ws'
@@ -75,6 +75,25 @@ describe('progress runs', () => {
     expect(long.stepName!.length).toBeLessThanOrEqual(120)
     expect(status(() => s.update(alfie, long.id, { step: 1.5e9 }))).toBe(400)
     expect(status(() => s.finish(alfie, long.id, {}))).toBe(400)
+  })
+
+  it('takes a late total once, on a run started without one; a run with a total keeps it', () => {
+    const s = store()
+    const late = s.start(alfie, { title: 'counts late' })
+    s.update(alfie, late.id, { step: 7, stepName: 'setup' })
+    // A refused update changes nothing: out of range, or a step past the new total.
+    expect(status(() => s.update(alfie, late.id, { total: 0 }))).toBe(400)
+    expect(status(() => s.update(alfie, late.id, { total: 4, step: 5 }))).toBe(400)
+    expect(late).toMatchObject({ total: null, step: 7, stepName: 'setup' })
+    // A step already past the total is kept within it.
+    expect(s.update(alfie, late.id, { total: 5 })).toMatchObject({ total: 5, step: 5, stepName: 'setup' })
+    expect(s.update(alfie, late.id, { step: 2 }).step).toBe(2)
+    expect(status(() => s.update(alfie, late.id, { total: 5 }))).toBe(409)
+    expect(status(() => s.update(alfie, late.id, { total: 8, step: 3 }))).toBe(409)
+    expect(late).toMatchObject({ total: 5, step: 2 })
+    const early = s.start(alfie, { title: 'counts early', total: 3 })
+    expect(status(() => s.update(alfie, early.id, { total: 6 }))).toBe(409)
+    expect(s.update(alfie, s.start(alfie, { title: 'with name' }).id, { total: 3, step: 1, stepName: 'b' })).toMatchObject({ total: 3, step: 1, stepName: 'b' })
   })
 
   it(`allows ${MAX_OPEN_PER_OWNER} open runs per owner, counted separately for each`, () => {
@@ -358,6 +377,22 @@ describe('progress runs', () => {
 })
 
 describe('progress rules', () => {
+  it(`the folded strip: a bar for the newest ${STRIP_BARS}, the rest counted with the worst state, and every run in words`, () => {
+    const runs = (states: ProgressRun['state'][]): ProgressRun[] => states.map((state, i) => ({ ...run({ state }), id: `r${i}` }))
+    expect(stripRuns([])).toEqual({ bars: [], more: [], moreState: null, summary: '' })
+    expect(stripRuns(runs(['stale'])).summary).toBe('1 run, stopped reporting')
+    const six = stripRuns(runs(['running', 'failed', 'running', 'stale', 'passed', 'running']))
+    expect([six.bars.length, six.more.length, six.moreState]).toEqual([6, 0, null])
+    expect(six.summary).toBe('6 runs: 3 running, 1 failed, 1 stopped reporting, 1 passed')
+    const nine = stripRuns(runs(['running', 'running', 'running', 'running', 'running', 'running', 'running', 'stale', 'failed']))
+    expect(nine.bars.map((r) => r.id)).toEqual(['r0', 'r1', 'r2', 'r3', 'r4', 'r5'])
+    expect(nine.more.map((r) => r.id)).toEqual(['r6', 'r7', 'r8'])
+    expect(nine.moreState).toBe('failed')
+    expect(nine.summary).toBe('9 runs: 7 running, 1 failed, 1 stopped reporting')
+    expect(stripRuns(runs(['running', 'running', 'running', 'running', 'running', 'running', 'stale'])).moreState).toBe('stale')
+    expect(stripRuns(runs(['failed', 'running', 'running', 'running', 'running', 'running', 'running'])).moreState).toBeNull()
+  })
+
   const run = (over: Partial<ProgressRun>): ProgressRun => ({
     id: 'r',
     workspacePath: WS,

@@ -72,6 +72,35 @@ export function taskbarProgress(runs: readonly ProgressRun[], failureUnseen: boo
   return counted.length ? { mode: 'normal', value } : { mode: 'indeterminate', value: 0 }
 }
 
+/** How many runs the folded strip shows a bar for; the rest are counted below them. */
+export const STRIP_BARS = 6
+
+/** A run's state in a sentence. */
+export const RUN_STATE_WORDS: Record<ProgressRun['state'], string> = { running: 'running', failed: 'failed', stale: 'stopped reporting', passed: 'passed' }
+
+export interface StripRuns {
+  /** The runs with a bar, newest first. */
+  bars: ProgressRun[]
+  /** The rest, counted ("+3") and listed on hover. */
+  more: ProgressRun[]
+  /** The count's colour: a failed run among the rest, else a stale one. */
+  moreState: 'failed' | 'stale' | null
+  /** Every run in a few words, for the strip's name: "8 runs: 5 running, 2 failed, 1 stopped reporting". */
+  summary: string
+}
+
+/** The folded strip's runs: a bar for each of the newest few, the rest counted, and all of them in words. */
+export function stripRuns(runs: readonly ProgressRun[]): StripRuns {
+  const more = runs.slice(STRIP_BARS)
+  const moreState = more.some((r) => r.state === 'failed') ? 'failed' : more.some((r) => r.state === 'stale') ? 'stale' : null
+  const counts = (Object.keys(RUN_STATE_WORDS) as ProgressRun['state'][])
+    .map((s) => [runs.filter((r) => r.state === s).length, RUN_STATE_WORDS[s]] as const)
+    .filter(([n]) => n > 0)
+    .map(([n, word]) => `${n} ${word}`)
+  const summary = runs.length === 0 ? '' : runs.length === 1 ? `1 run, ${counts[0].replace(/^1 /, '')}` : `${runs.length} runs: ${counts.join(', ')}`
+  return { bars: runs.slice(0, STRIP_BARS), more, moreState, summary }
+}
+
 /** "4 min", "1 h 5 min", "40 s": a duration for the panel. */
 export function shortDuration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000))
