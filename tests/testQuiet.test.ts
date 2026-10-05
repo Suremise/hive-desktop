@@ -1,9 +1,10 @@
-// Quiet test copies (src/main/testQuiet.ts): with HIVE_TEST_QUIET=1 an unpackaged Hive shows windows without taking the
-// focus and records Windows notifications instead of showing them; without it, everything is as normal.
-import { mkdtempSync, readFileSync, rmSync } from 'fs'
+// Quiet test copies (src/main/testQuiet.ts): an unpackaged Hive with a test profile (HIVE_USER_DATA) or HIVE_TEST_QUIET=1
+// shows windows without taking the focus and records Windows notifications instead of showing them; otherwise, or with
+// HIVE_TEST_QUIET=0, everything is as normal. Every e2e suite and scenario starts its copy with a test profile.
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { keepOffScreen, offScreenOrigin, presentWindow, showOsNotification, testNotifyLog, testQuiet } from '../src/main/testQuiet'
 
 // Two screens side by side: one at the origin, one to its left.
@@ -12,9 +13,12 @@ vi.mock('electron', async (original) => ({
   screen: { getAllDisplays: () => [{ bounds: { x: 0, y: 0, width: 2560, height: 1440 } }, { bounds: { x: -1920, y: 200, width: 1920, height: 1080 } }] }
 }))
 
-const saved = { quiet: process.env.HIVE_TEST_QUIET, log: process.env.HIVE_TEST_NOTIFY_LOG }
+const saved = { quiet: process.env.HIVE_TEST_QUIET, log: process.env.HIVE_TEST_NOTIFY_LOG, profile: process.env.HIVE_USER_DATA }
+beforeEach(() => {
+  delete process.env.HIVE_USER_DATA
+})
 afterEach(() => {
-  for (const [k, v] of [['HIVE_TEST_QUIET', saved.quiet], ['HIVE_TEST_NOTIFY_LOG', saved.log]] as const) {
+  for (const [k, v] of [['HIVE_TEST_QUIET', saved.quiet], ['HIVE_TEST_NOTIFY_LOG', saved.log], ['HIVE_USER_DATA', saved.profile]] as const) {
     if (v === undefined) delete process.env[k]
     else process.env[k] = v
   }
@@ -23,13 +27,33 @@ afterEach(() => {
 const fakeWindow = (minimized = false) => ({ isMinimized: vi.fn(() => minimized), restore: vi.fn(), show: vi.fn(), showInactive: vi.fn(), focus: vi.fn() })
 
 describe('quiet test copies', () => {
-  it('only with HIVE_TEST_QUIET=1', () => {
+  it('with HIVE_TEST_QUIET=1, or a test profile unless HIVE_TEST_QUIET=0', () => {
     delete process.env.HIVE_TEST_QUIET
     expect(testQuiet()).toBe(false)
     process.env.HIVE_TEST_QUIET = '0'
     expect(testQuiet()).toBe(false)
     process.env.HIVE_TEST_QUIET = '1'
     expect(testQuiet()).toBe(true)
+    // A test profile: quiet however the copy was started (a suite run on its own, a script), unless turned off.
+    process.env.HIVE_USER_DATA = join(tmpdir(), 'hive-quiet-profile')
+    delete process.env.HIVE_TEST_QUIET
+    expect(testQuiet()).toBe(true)
+    process.env.HIVE_TEST_QUIET = '0'
+    expect(testQuiet()).toBe(false)
+  })
+
+  it('every e2e suite and scenario starts Hive with a test profile, and none turns quiet off', () => {
+    // A suite that needs a real window (one taking the focus, a native maximise) turns quiet off: list it here.
+    const LOUD: string[] = []
+    const root = join(__dirname, '..')
+    const files = ['tests/e2e', 'tests/scenarios'].flatMap((d) => readdirSync(join(root, d)).filter((f) => /\.(c|m)?js$/.test(f)).map((f) => `${d}/${f}`))
+    const launching = files.filter((f) => readFileSync(join(root, f), 'utf8').includes('_electron.launch('))
+    expect(launching.length).toBeGreaterThan(50)
+    for (const f of launching) {
+      const text = readFileSync(join(root, f), 'utf8')
+      expect(text.includes('HIVE_USER_DATA'), `${f} starts Hive without a test profile (HIVE_USER_DATA)`).toBe(true)
+      expect(/HIVE_TEST_QUIET\W{1,6}['"]?0/.test(text) && !LOUD.includes(f), `${f} turns quiet off: add it to LOUD if it must`).toBe(false)
+    }
   })
 
   it('a window is brought up without the focus when quiet, and shown and focused otherwise', () => {
