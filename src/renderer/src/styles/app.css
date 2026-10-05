@@ -6078,6 +6078,11 @@ button.progress-run-show:focus-visible {
   gap: 6px;
   margin-top: 8px;
 }
+/* The details' labels and why there is no agent to show: secondary, but readable at 4.5:1 or more (#231). */
+.progress-details dt,
+.progress-detail-why {
+  color: var(--fg-muted);
+}
 .progress-detail-why {
   flex-basis: 100%;
 }
