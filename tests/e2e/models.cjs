@@ -108,8 +108,14 @@ const check = (name, ok, extra = '') => {
   await page.getByText('alpha', { exact: true }).first().click()
   await lib.addAgent(inv, alpha, { name: 'Sol', provider: 'codex', model: 'gpt-6-sol', permissionMode: 'approve-for-me' })
   const footer = page.locator('.pane-footer-bar').first()
-  const shown = await lib.until(async () => /Medium \(default\)/.test((await footer.innerText().catch(() => '')) + (await footer.locator('[title]').evaluateAll((es) => es.map((e) => e.getAttribute('title')).join(' ')).catch(() => ''))), 8000)
+  const footerText = async () => (await footer.innerText().catch(() => '')) + (await footer.locator('[title]').evaluateAll((es) => es.map((e) => e.getAttribute('title')).join(' ')).catch(() => ''))
+  const shown = await lib.until(async () => /Medium \(default\)/.test(await footerText()), 8000)
   check("the footer shows the model's default effort: Medium (default)", !!shown, await footer.innerText().catch(() => ''))
+  // Effort levels renamed in Settings name the footer's effort too, as they do the pickers' (#230); Reset gives Hive's.
+  await inv('settings:setProviderFallback', 'codex', 'efforts', [{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Mid' }, { value: 'high', label: 'High' }])
+  check('a renamed effort level names the footer’s effort: Mid (default)', !!(await lib.until(async () => /Mid \(default\)/.test(await footerText()), 8000)), await footer.innerText().catch(() => ''))
+  await inv('settings:setProviderFallback', 'codex', 'efforts', null)
+  check('…and after Reset to defaults, Medium (default) again', !!(await lib.until(async () => /Medium \(default\)/.test(await footerText()), 8000)), await footer.innerText().catch(() => ''))
 
   // --- Without the CLI: the fallback lists, as edited, and Reset to defaults.
   await page.keyboard.press('Control+,')
