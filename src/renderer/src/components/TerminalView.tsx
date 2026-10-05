@@ -410,6 +410,7 @@ export function TerminalView({
   return (
     <div
       className={cx('terminal-host', !visible && 'hidden')}
+      data-pty={ptyKey}
       style={{ ['--terminal-bg' as string]: terminalTheme().background, ...style }}
       ref={host}
     >

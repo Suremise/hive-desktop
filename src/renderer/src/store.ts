@@ -133,6 +133,8 @@ interface State {
   assistantOpen: boolean
   /** This window's workspace's progress runs (newest first), for the Progress panel. */
   progressRuns: ProgressRun[]
+  /** A pane (an agent's, or the Assistant's panel) briefly highlighted because something asked to show it: its pty key. */
+  paneFlash: { key: string; at: number } | null
   /** Assistant Settings is open. */
   assistantSettingsOpen: boolean
   /** What the Hive Assistant did in this window's workspace (oldest first), and what it is asking the user. */
@@ -282,6 +284,7 @@ export const useStore = create<State>(() => ({
   assistantSection: 'conversations',
   assistantOpen: false,
   progressRuns: [],
+  paneFlash: null,
   assistantSettingsOpen: false,
   assistantActions: [],
   assistantQuestions: [],
@@ -600,6 +603,31 @@ export function openInSessionsTab(path: string, id: string): void {
 export function revealAgent(p: ProjectInfo, agentId: string): void {
   showAgent(p, agentId)
   setProjectTab(p.path, 'session')
+}
+
+/** How long a pane stays highlighted after it was asked for (flashPane). */
+export const PANE_FLASH_MS = 1200
+
+/**
+ * Says "here it is" for an agent (or the Assistant) just shown: its pane is highlighted for a moment, and its terminal
+ * takes the keyboard, so showing one that was already on screen visibly does something.
+ */
+export function flashPane(key: string): void {
+  const at = Date.now()
+  set({ paneFlash: { key, at } })
+  setTimeout(() => {
+    if (get().paneFlash?.at === at) set({ paneFlash: null })
+  }, PANE_FLASH_MS)
+  // Once its terminal is on screen (it may be on another page, or its project only now shown), for up to a second.
+  // Timers, not animation frames: those wait while the window is behind others.
+  let tries = 0
+  const focus = (): void => {
+    const host = [...document.querySelectorAll<HTMLElement>('.terminal-host[data-pty]')].find((h) => h.dataset.pty === key && !h.classList.contains('hidden'))
+    const input = host?.querySelector<HTMLTextAreaElement>('textarea')
+    if (input) input.focus()
+    else if (++tries < 20) setTimeout(focus, 50)
+  }
+  setTimeout(focus, 30)
 }
 
 /** Shows a sidebar view without toggling it (setActivity hides the sidebar when that view is already shown). */

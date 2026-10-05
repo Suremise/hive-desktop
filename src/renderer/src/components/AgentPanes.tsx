@@ -954,6 +954,8 @@ function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a
 export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (string | null)[] }) {
   const epochs = useStore((s) => s.sessionEpoch)
   const focused = useStore((s) => s.focusedAgent[project.path]) ?? project.agents[0]?.id
+  // A pane something just asked to show (a run's agent in the Progress panel): highlighted for a moment.
+  const flash = useStore((s) => s.paneFlash)
   const single = panes.length === 1
   const dragging = useAgentDrag(project)
   const [over, setOver] = useState<string | null>(null)
@@ -967,7 +969,7 @@ export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (s
         return (
           <div
             key={`${i}:${id ?? ''}`}
-            className={cx('agent-pane', !single && 'framed', !single && focused === id && 'focused', r.x > 0 && 'left-border', r.y > 0 && 'top-border')}
+            className={cx('agent-pane', !single && 'framed', !single && focused === id && 'focused', r.x > 0 && 'left-border', r.y > 0 && 'top-border', !!a && flash?.key === projectKey(project.path, a.id) && 'flash')}
             style={{ left: `${r.x}%`, top: `${r.y}%`, width: `${r.w}%`, height: `${r.h}%` }}
           >
             {/* One agent or several: every agent pane has the same header and footer. */}

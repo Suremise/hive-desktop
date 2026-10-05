@@ -338,5 +338,5 @@ if (opts.record) {
 // own (a repeat of more than ten keeps them all until the next run prunes) or another runner's still going.
 finishRunDirs(runs.map((r) => r.logDir))
 pruneRunDirs(logsRoot, undefined, runs.map((r) => r.logDir))
-await progress.finish(lastRun.ok && runs.length === repeat && !recordInvalid, summary)
+await progress.finish(lastRun.ok && runs.length === repeat && !recordInvalid, summary, opts.record ? join(lastRun.logDir, 'run-record.md') : lastRun.logDir)
 process.exit(!lastRun.ok || recordInvalid ? 1 : 0)

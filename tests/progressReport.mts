@@ -54,7 +54,8 @@ export function e2eProgress(names: string[], argv: string[] = process.argv): { s
     done(name: string, ms: number, ok: boolean) {
       if (ok) recordTiming(timings(), `e2e:${name}`, ms)
     },
-    finish: (ok: boolean, summary?: string) => run.finish(ok, summary)
+    /** logPath: the run's record or logs, for its details in the panel. */
+    finish: (ok: boolean, summary?: string, logPath?: string) => run.finish(ok, summary, undefined, logPath ? { logPath } : {})
   }
 }
 
