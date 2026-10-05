@@ -719,7 +719,14 @@ export function PaneFooter({
       <div className="grow" />
       {showSession && <SessionName project={project} a={a} usage={usage} />}
       {usage ? (
-        <Tooltip content={`Context: ${ctx.toLocaleString()} tokens${usage.contextWindow ? ` of ${usage.contextWindow.toLocaleString()}` : ''} · ${usage.compactions.length} compaction(s)${over ? ' — consider compacting' : ''}${usage.stale ? '\nCouldn’t read it again just now: this may be behind.' : ''}`}>
+        <Tooltip
+          content={
+            // A click opens the session in the Overview, with its compaction history (the Assistant's footer opens nothing).
+            <span className="ctx-tip" style={{ whiteSpace: 'pre-line' }}>
+              {`Context: ${ctx.toLocaleString()} tokens${usage.contextWindow ? ` of ${usage.contextWindow.toLocaleString()}` : ''} · ${usage.compactions.length} compaction(s)${over ? ' — consider compacting' : ''}${usage.stale ? '\nCouldn’t read it again just now: this may be behind.' : ''}${onContext ? '' : '\n\nClick to view compaction history'}`}
+            </span>
+          }
+        >
           <span className={cx('pane-foot-item', over && 'warn', usage.stale && 'stale')} onClick={() => (onContext ? onContext() : showInOverview(project.path, a.id))}>
             <Icon name="dashboard" />
             {pct === null ? (
