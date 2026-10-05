@@ -88,6 +88,7 @@ export const SUITES = [
   { name: 'tips' },
   { name: 'transcript' },
   { name: 'unmerged' },
+  { name: 'unpricedcost' },
   { name: 'unsaved' },
   { name: 'update' },
   { name: 'windows', needs: ['claude'] },

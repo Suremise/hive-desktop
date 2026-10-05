@@ -571,6 +571,9 @@ describe('#117 round 2: checks are authoritative; the budget stops on unknown co
     expect(run(true)).toEqual({ started: 6, unknownCostTrials: 6 })
     expect(budgetGate({ fake: false, budget: 0.01, spentKnown: 0.02, unknownCostTrials: 0, allowUnknownCost: false })).toMatchObject({ ok: false, reason: expect.stringMatching(/budget/) })
     expect(budgetGate({ fake: true, budget: 0.01, spentKnown: 9, unknownCostTrials: 9, allowUnknownCost: false }).ok).toBe(true)
+    // It names the model of the trial without a cost and how to price it.
+    const named = budgetGate({ fake: false, budget: 2, spentKnown: 0, unknownCostTrials: 1, allowUnknownCost: false, noCostModels: ['gpt-9-nova'] })
+    expect(named.reason).toMatch(/with gpt-9-nova .*src\/shared\/prices\.ts.*--model/)
     expect(spendText({ spentUsd: 0, unknownCostTrials: 1 })).toMatch(/total is unknown/)
     expect(spendText({ spentUsd: 0.5, unknownCostTrials: 0 })).toBe('$0.5 (API-equivalent)')
     // The artifact carries it, and says so.

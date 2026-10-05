@@ -82,8 +82,9 @@ const MODES = String.raw`(manual\s*mode|accept\s*edits|plan\s*mode|auto\s*mode|b
 const FOOTER_MODE = new RegExp(String.raw`[⏵⏸][\s⏵⏸]*${MODES}\s*on\b|${MODES}\s*on\s*(?:\(|·)`, 'gi')
 
 /**
- * The permission mode in Claude Code's footer ("⏵⏵ auto mode on (shift+tab to cycle)"), from terminal
- * output with control sequences already replaced by spaces. The last one wins; null when there is none.
+ * The permission mode in Claude Code's footer ("⏵⏵ auto mode on (shift+tab to cycle)"), from the terminal's
+ * rendered screen (TerminalScreen; the output stream misses footers redrawn in part, as without colours), or text with
+ * control sequences replaced by spaces. The last one wins; null when there is none.
  */
 export function footerMode(text: string): PermissionMode | null {
   let last: string | null = null

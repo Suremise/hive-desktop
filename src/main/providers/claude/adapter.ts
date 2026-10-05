@@ -405,8 +405,8 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     return { effort, modelName, costUsd: Number.isFinite(cost) ? cost : undefined, contextWindow: window > 0 ? window : undefined, planUsage: parseClaudePlanUsage(body) }
   }
 
-  footerMode(tail: string): string | null {
-    return footerMode(tail)
+  footerMode(screen: string): string | null {
+    return footerMode(screen)
   }
 
   canSwitchLive(target: string, current: string | undefined, launched: string | null | undefined): boolean {

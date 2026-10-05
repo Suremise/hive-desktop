@@ -157,7 +157,50 @@ export interface CardChange {
   changes: WatchChange[] | 'gone'
   by: string | null
   comment: { by: string; firstLine: string } | null
+  /** For a wake line only (wakeAbout): whose card it is and the review's verdict. */
+  about?: WakeAbout
 }
+
+/**
+ * What a wake line adds so it can't be misread: `owner`, the agent of the card when another agent has it (its name;
+ * null on the watcher's own card or one without an agent), and the review's verdict with its reviewer, when it is what
+ * changed or, on another agent's card in Done, when that review passed it there.
+ */
+export interface WakeAbout {
+  owner: string | null
+  verdict: { passed: boolean; by: string } | null
+}
+
+/**
+ * History that starts another round of work or review (back to work, in Review again, a review started, another agent),
+ * after which an earlier verdict no longer speaks for the card.
+ */
+const NEW_ROUND = /^(Moved to (the (top|bottom) of )?(Todo|Doing|Review)\b|Created in |Given to |Taken from |Moved to the workspace|Started reviewing)/
+
+/** A wake's context for the agent `watcher` (its id), from the card as it is now. */
+export function wakeAbout(card: TaskCard | null, changes: WatchChange[] | 'gone', watcher: string): WakeAbout {
+  if (!card || changes === 'gone') return { owner: null, verdict: null }
+  const owner = card.agent && card.agent !== watcher ? (card.agentName ?? card.agent) : null
+  // The latest verdict, only while nothing has started another round since (back to Doing, reviewed again, reassigned):
+  // one from an earlier build never speaks for work done after it. History is in the order it happened.
+  const i = card.history.findLastIndex((h) => VERDICT.test(h.what))
+  const current = i >= 0 && !card.history.slice(i + 1).some((h) => NEW_ROUND.test(h.what)) ? card.history[i] : null
+  const passed = current ? VERDICT.exec(current.what)![1] === 'passed' : false
+  // Done on another agent's card names its review only when that review passed it; moved there by hand, none.
+  const wanted = changes.includes('verdict') || (!!owner && card.column === 'done' && passed)
+  return { owner, verdict: wanted && current ? { passed, by: current.by } : null }
+}
+
+/** The most characters a name takes in a wake line (an agent's, a reviewer's, a comment's author): one line, cut with "…". */
+const NAME_MAX = 40
+const shortName = (name: string): string => {
+  const chars = [...name.replace(/\s+/g, ' ').trim()]
+  return chars.length > NAME_MAX ? `${chars.slice(0, NAME_MAX - 1).join('')}…` : chars.join('')
+}
+
+/** A wake line's most bytes as saved (JSON-quoted). */
+export const WAKE_MAX_BYTES = 1000
+const jsonBytes = (s: string): number => new TextEncoder().encode(JSON.stringify(s)).length
 
 const firstLine = (text: string, max = 160): string => {
   const line = text.split('\n').map((l) => l.trim()).find(Boolean) ?? ''
@@ -174,15 +217,29 @@ export function cardChange(n: number, card: TaskCard | null, changes: WatchChang
 const columnWord = (c: TaskColumn | 'gone'): string => (c === 'gone' ? 'gone' : COLUMN_WORD[c])
 
 /**
- * The one line Hive types to wake a watching agent: the card, where it is now, and its latest comment's author and first
- * line, then what to do. Kept to one short line (the CLI sends a new line at once).
+ * The one line Hive types to wake a watching agent: the card (and whose, when it isn't the watcher's), where it is now
+ * (with the reviewer's verdict when that changed; Done on another agent's card says it isn't merged), and its latest
+ * comment's author and first line, then what to do. Kept to one short line (the CLI sends a new line at once).
  */
 export function wakeLine(change: CardChange, more = 0): string {
+  const about = change.about
   // Gone also covers a card moved out of what the agent may see (another project): nothing about it is said then.
-  const where = change.changes === 'gone' ? 'is gone from your board (archived, deleted or moved to another project)' : `is in ${columnWord(change.column)}`
-  const said = change.comment ? `; latest comment by ${change.comment.by}: "${change.comment.firstLine}"` : ''
+  const owner = about?.owner && change.changes !== 'gone' ? ` (${shortName(about.owner)}'s card)` : ''
+  const verdict = about?.verdict ? `: ${shortName(about.verdict.by)} ${about.verdict.passed ? 'passed' : 'failed'} it` : ''
+  // Done means the review passed (or the user moved it there), not that the work is merged.
+  const merged = about?.owner && change.column === 'done' ? " (Done isn't merged)" : ''
+  const where = change.changes === 'gone' ? ' is gone from your board (archived, deleted or moved to another project)' : `${owner} is in ${columnWord(change.column)}${verdict}${merged}`
   const others = more ? ` (and ${more} more watched card${more === 1 ? '' : 's'} changed)` : ''
-  return `[Hive] #${change.number} ${where}${said}${others}. Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).`
+  const head = `[Hive] #${change.number}${where}`
+  const tail = `${others}. Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).`
+  if (!change.comment) return head + tail
+  // The card, its state and what to do always fit (names are short); the comment's first line gives way, cut with "…".
+  const by = shortName(change.comment.by)
+  let text = [...change.comment.firstLine]
+  const line = (cut: boolean): string => `${head}; latest comment by ${by}: "${text.join('')}${cut ? '…' : ''}"${tail}`
+  if (jsonBytes(line(false)) <= WAKE_MAX_BYTES) return line(false)
+  while (text.length && jsonBytes(line(true)) > WAKE_MAX_BYTES) text = text.slice(0, -1)
+  return line(true)
 }
 
 /** The line Hive types when a watch's overall limit passes with no change. */

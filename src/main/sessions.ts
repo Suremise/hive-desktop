@@ -44,7 +44,8 @@ import { asksYou } from '../shared/inbox'
 import { FinishBatcher, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
-import { childEnv, killPty, spawnPty, writePty } from './ptyHost'
+import { PTY_COLS, PTY_ROWS, childEnv, killPty, spawnPty, writePty } from './ptyHost'
+import { TerminalScreen } from './terminalScreen'
 import { withBinOnPath } from './progressReporters/shims'
 import { hiveSkills, parseSkillFrontmatter, skillFor } from './skills'
 import { GUIDANCE_REVISION, launchParts, launchRecord } from './guidance'
@@ -94,7 +95,7 @@ interface LiveSession {
   compacting?: Compaction
   /** The user stopped it (e.g. during its worktree setup), so an early exit isn't reported as a failure. */
   stopRequested?: boolean
-  /** Terminal output tail, to read the permission mode from the CLI's footer. */
+  /** Terminal output tail, to see the CLI ready or asking something at the start. */
   modeTail: string
   /** The mode it was launched in. */
   launchMode: PermissionMode | null
@@ -885,6 +886,8 @@ class SessionManager {
     })
     l.defaultModel = !eff.model
 
+    // The footer is read from the rendered screen: a CLI may redraw only the characters that changed.
+    const screen = l.adapter.footerMode ? new TerminalScreen(PTY_COLS, PTY_ROWS) : null
     const proc = spawnPty(this.key(projectPath, agent.id), {
       file: cmd.file,
       args: cmd.args,
@@ -896,11 +899,15 @@ class SessionManager {
         if (l.switchTail !== undefined) l.switchTail = (l.switchTail + data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ').replace(/\x1b\][^\x07]*\x07/g, ' ')).replace(/\s+/g, ' ').slice(-2000)
         // The CLI refusing or failing a compaction Hive asked for sends no hook ("Not enough messages to compact.").
         this.live.get(id)?.compacting?.terminal(data)
-        this.watchModeOutput(id, data)
+        screen?.write(data, () => this.readFooterMode(l, screen))
         this.watchTitle(id, data)
         this.watchReadyOutput(id, data)
       },
-      onExit: (code, output) => void this.onExit(projectPath, agent.id, state.runId, code, output)
+      onResize: (cols, rows) => screen?.resize(cols, rows),
+      onExit: (code, output) => {
+        screen?.dispose()
+        void this.onExit(projectPath, agent.id, state.runId, code, output)
+      }
     })
     state.pid = proc.pid
     l.initialPrompt = undefined
@@ -1118,12 +1125,10 @@ class SessionManager {
     l.state.statusMessage = undefined
   }
 
-  /** Reads the mode from the CLI's footer as it redraws, so a mode change in the terminal shows in Hive at once. */
-  private watchModeOutput(id: string, data: string): void {
-    const l = this.live.get(id)
-    if (!l?.adapter.footerMode) return
-    l.modeTail = (l.modeTail + data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ').replace(/\x1b\][^\x07]*\x07/g, ' ')).slice(-600)
-    const mode = l.adapter.footerMode(l.modeTail)
+  /** Reads the mode from the CLI's footer on its screen as it redraws, so a mode change in the terminal shows in Hive at once. */
+  private readFooterMode(l: LiveSession, screen: TerminalScreen): void {
+    if (this.live.get(liveId(l.state.projectPath, l.state.agentId)) !== l || !l.adapter.footerMode) return
+    const mode = l.adapter.footerMode(screen.text())
     if (mode && mode !== l.state.permissionMode) {
       l.state.permissionMode = mode
       this.emitState(l.state)

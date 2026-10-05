@@ -11,7 +11,7 @@ import { CODEX } from './codex'
  * cache reads 0.1× input unless listed) and OpenAI's API pricing page (standard tier).
  */
 const claude = (input: number, output: number, cachedInput = input / 10): ModelPrice => ({ input, output, cachedInput, cacheWrite: input * 1.25 })
-const openai = (input: number, cachedInput: number, output: number): ModelPrice => ({ input, cachedInput, output })
+const openai = (input: number, cachedInput: number, output: number, cacheWrite?: number): ModelPrice => ({ input, cachedInput, output, ...(cacheWrite !== undefined ? { cacheWrite } : {}) })
 
 export const PRICES_CHECKED = '2026-09-30'
 
@@ -30,6 +30,10 @@ export const SHIPPED_PRICES: Record<ProviderId, Record<string, ModelPrice>> = {
     'claude-haiku-4-5': claude(1, 5)
   },
   [CODEX]: {
+    // Codex's default from 0.160 (Oct 2026): OpenAI's model page (developers.openai.com/api/docs/models/gpt-6.1-sol),
+    // checked 5 Oct 2026, with cache writes at $2.50 (Codex reports none today). Prompts over 272K input tokens cost
+    // more (2× input and cached, 1.5× output); not modelled.
+    'gpt-6.1-sol': openai(2, 0.1, 10, 2.5),
     'gpt-6-astra': openai(10, 1, 50),
     'gpt-6-sol': openai(2, 0.2, 10),
     'gpt-6-luna': openai(0.1, 0.01, 0.5),
@@ -58,6 +62,18 @@ export function modelPrice(provider: ProviderId, model: string | null | undefine
   const own = settings?.providers?.[provider]?.prices ?? {}
   return own[key] ?? own[model] ?? SHIPPED_PRICES[provider]?.[key] ?? null
 }
+
+/**
+ * The model when Hive can't estimate its sessions' cost because it has no price for it (shipped or the user's), so the
+ * cost shows as unknown rather than missing or $0; null when it has a price or there is no model to price.
+ */
+export function unpricedModel(provider: ProviderId, model: string | null | undefined, settings?: Pick<AppSettings, 'providers'> | null): string | null {
+  return model && !modelPrice(provider, model, settings) ? model : null
+}
+
+/** What to say about a cost that is unknown because the model has no price: where to add one. */
+export const unpricedText = (model: string, providerName: string): string =>
+  `Hive has no API price for ${model}, so it can't estimate this session's cost. Add one in Settings → ${providerName} → API prices.`
 
 /** A session's API-equivalent cost from its token counts; null when the model's price is unknown. */
 export function estimateCost(usage: Pick<SessionUsage, 'provider' | 'model' | 'inputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'outputTokens'>, settings?: Pick<AppSettings, 'providers'> | null): number | null {

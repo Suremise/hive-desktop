@@ -236,8 +236,8 @@ export interface ProviderAdapter {
   modeFromOutput?(tail: string): PermissionMode | null
   /** For providers with a Plan toggle: the key that turns it on or off. */
   readonly planToggleKey?: string
-  /** The permission mode shown in the terminal footer, from output with control sequences replaced by spaces. */
-  footerMode?(tail: string): PermissionMode | null
+  /** The permission mode shown in the terminal footer, from the terminal's rendered screen (its lines as text). */
+  footerMode?(screen: string): PermissionMode | null
   /** Whether a running session can switch to a mode without restarting. */
   canSwitchLive(target: PermissionMode, current: PermissionMode | undefined, launched: PermissionMode | null | undefined): boolean
   /** Terminal output meaning a compaction Hive started was refused or failed (no hook comes). */

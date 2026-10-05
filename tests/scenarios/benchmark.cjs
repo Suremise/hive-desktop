@@ -254,11 +254,17 @@ function parseBudget(v) {
 /**
  * Whether another model trial may start. Spend is what the trials so far reported; a trial that reported no cost leaves
  * the spend unknown, so no further trial starts (the budget can't be kept) unless the run was told it may go on without
- * knowing (--allow-unknown-cost). Fakes cost nothing and always go on.
+ * knowing (--allow-unknown-cost). Fakes cost nothing and always go on. `noCostModels`: the models of those trials, named
+ * with how to price one (a model Hive has no price for is the usual reason).
  */
-function budgetGate({ fake, budget, spentKnown, unknownCostTrials, allowUnknownCost }) {
+function budgetGate({ fake, budget, spentKnown, unknownCostTrials, allowUnknownCost, noCostModels = [] }) {
   if (fake) return { ok: true }
-  if (unknownCostTrials > 0 && !allowUnknownCost) return { ok: false, reason: `${unknownCostTrials} trial${unknownCostTrials === 1 ? '' : 's'} reported no cost, so the spend can’t be checked against the budget (--allow-unknown-cost to go on anyway)` }
+  if (unknownCostTrials > 0 && !allowUnknownCost) {
+    const why = noCostModels.length
+      ? ` with ${noCostModels.join(', ')} (if Hive has no price for it, add one to SHIPPED_PRICES in src/shared/prices.ts from the provider's published prices, or pass --model with a priced model)`
+      : ''
+    return { ok: false, reason: `${unknownCostTrials} trial${unknownCostTrials === 1 ? '' : 's'} reported no cost${why}, so the spend can’t be checked against the budget (--allow-unknown-cost to go on anyway)` }
+  }
   if (spentKnown >= budget) return { ok: false, reason: `budget of $${budget} reached` }
   return { ok: true }
 }

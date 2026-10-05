@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo, SessionListItem } from '@shared/types'
 import { PROVIDERS, isProviderEnabled } from '@shared/providers'
-import { PERIODS, activeIn, money, periodFrom, stackedDaily, sumUsage, totalTokens, type DayTotal, type Totals, type UsageGroup } from '@shared/usageTotals'
+import { PERIODS, activeIn, costText, periodFrom, stackedDaily, sumUsage, totalTokens, type DayTotal, type UsageGroup } from '@shared/usageTotals'
 import { call, errorMessage } from '../api'
 import { selectProject } from '../actions'
 import { get, revealAgent, set, setAssistantOpen, setProjectTab, showView, useStore } from '../store'
@@ -99,7 +99,6 @@ export function Card({ title, value, sub, tip, accent }: { title: string; value:
   )
 }
 
-const costText = (t: Totals): string => `${t.estimated ? '≈ ' : ''}${money(t.cost)}`
 
 /** Tokens per day, stacked by project (the top six, the rest as Other); hover a day for its numbers. */
 function StackedChart({ series, days }: { series: { key: string; label: string }[]; days: (DayTotal & { parts: number[] })[] }) {
@@ -115,8 +114,7 @@ function StackedChart({ series, days }: { series: { key: string; label: string }
             content={
               <div className="stack-tip">
                 <div>
-                  <strong>{label(d.day)}</strong>: {formatTokens(d.tokens)} tokens · {d.estimated ? '≈ ' : ''}
-                  {money(d.cost)} · {d.prompts} prompt{d.prompts === 1 ? '' : 's'}
+                  <strong>{label(d.day)}</strong>: {formatTokens(d.tokens)} tokens · {costText(d)} · {d.prompts} prompt{d.prompts === 1 ? '' : 's'}
                 </div>
                 {series.map((s, i) =>
                   d.parts[i] ? (
