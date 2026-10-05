@@ -33,7 +33,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     confirmOnQuit: 'working',
     showTips: true,
     keepAwake: 'plugged-in',
-    progressPanel: true
+    progressPanel: true,
+    progressCommands: true
   },
   appearance: {
     theme: 'dark',

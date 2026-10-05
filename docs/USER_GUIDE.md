@@ -290,9 +290,9 @@ Runs come from what agents run: a tool or script reports through the Agent API (
 
 #### Show progress for any command
 
-Any command can show in the panel: ask an agent to run it with **`hive-progress`** in front, for example *"run the tests with `hive-progress -- npm test`"*, or ask once for all long commands. The panel then shows it under the agent's name with the time it has taken and, from the second time, about how long is left (from how long the same command took before). The command's output and result are unchanged, and outside Hive it simply runs the command.
+Any command can show in the panel by running it with **`hive-progress`** in front, for example `hive-progress -- npm test`. Agents do this by themselves for tests, builds and other commands they expect to take more than about 30 seconds, in the background too, so you see them without asking. To have them do it only when you ask, turn off **Settings → General → Agents show long commands in the Progress panel** (agents started or restarted afterwards follow it; with the Progress panel off, they don't use it either). The panel shows the command under the agent's name with the time it has taken and, from the second time, about how long is left (from how long the same command took before). The command's output and result are unchanged, and outside Hive it simply runs the command.
 
-A command shows real steps when it prints lines like `##hive-progress step=4 total=12 name=carddialog`; any project's test runner can print them (see the Agent API reference). `hive-progress` is on the path of every session Hive starts, in Claude Code's and Codex's shells. Agents use it only when you ask.
+A command shows real steps when it prints lines like `##hive-progress step=4 total=12 name=carddialog`; any project's test runner can print them (see the Agent API reference). `hive-progress` is on the path of every session Hive starts, in Claude Code's and Codex's shells. A command that reports its own progress, such as Hive's own test runners, still shows as one row when an agent wraps it.
 
 ## Task board
 

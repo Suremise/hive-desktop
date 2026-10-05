@@ -36,6 +36,16 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Long commands through hive-progress: Codex (`gpt-5.6-luna`, CLI 0.160.0) and Claude Code (default model, CLI 2.1.289), fixtures v9, 5 October 2026
+
+The new **progress-long-command**, **progress-background** and **progress-off** scenarios and **work-on-card**, two
+samples each, after the session contract got its hive-progress line (#167; on by default, off in Settings):
+- **Codex: 8 of 8 pass** (`results/2026-10-05T02-19-13-codex`, $0.03): `hive-progress -- npm test` in each "on" run (the
+  background one through `exec_command` with a 1 s yield, so it went on in the background); plain `npm test` with the
+  setting off.
+- **Claude Code: 8 of 8 pass** (`results/2026-10-05T02-24-06-claude-code`, $0.86 API-equivalent): the same, through
+  PowerShell (the transcript's command doesn't show whether it was run in the background).
+
 ## Card loops: Codex (`gpt-5.6-luna`, CLI 0.160.0) and Claude Code (default model, CLI 2.1.289), fixtures v8, 5 October 2026
 
 The card-loop scenarios only (#173), two samples each, after the skill's rounds became "a round is one build and its

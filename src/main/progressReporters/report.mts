@@ -15,11 +15,13 @@ export interface ProgressTarget {
 }
 
 /**
- * The Hive this process can report to, or null: outside Hive, without the Agent API, or turned off with
- * HIVE_PROGRESS=0. The token is the agent's own (HIVE_API_TOKEN, or the file Hive keeps it in).
+ * The Hive this process can report to, or null: outside Hive, without the Agent API, turned off with HIVE_PROGRESS=0,
+ * or inside a command hive-progress runs (HIVE_PROGRESS_WRAPPED=1), whose run is the wrapper's: a report of its own
+ * would be a second row (it prints step lines instead, `wrappedLines`). The token is the agent's own (HIVE_API_TOKEN,
+ * or the file Hive keeps it in).
  */
 export function progressTarget(env: Record<string, string | undefined> = process.env): ProgressTarget | null {
-  if (env.HIVE_PROGRESS === '0') return null
+  if (env.HIVE_PROGRESS === '0' || env.HIVE_PROGRESS_WRAPPED === '1') return null
   const url = env.HIVE_API_URL?.replace(/\/+$/, '')
   if (!url) return null
   let token = env.HIVE_API_TOKEN && !env.HIVE_API_TOKEN.includes('${') ? env.HIVE_API_TOKEN : ''
@@ -31,6 +33,14 @@ export function progressTarget(env: Record<string, string | undefined> = process
     }
   }
   return token ? { url, token, workspace: env.HIVE_WORKSPACE ?? '' } : null
+}
+
+/**
+ * Inside a command hive-progress runs: where a reporter prints its steps as step lines for the wrapper's run (stdout),
+ * instead of reporting a run of its own. Undefined otherwise.
+ */
+export function wrappedLines(env: Record<string, string | undefined> = process.env): ((line: string) => void) | undefined {
+  return env.HIVE_PROGRESS_WRAPPED === '1' && env.HIVE_PROGRESS !== '0' ? (line) => void process.stdout.write(`${line}\n`) : undefined
 }
 
 // The API's terms (#136): `step` counts the steps finished (0 at the start, `total` at the end) and `stepName` names the
@@ -87,7 +97,11 @@ export class ProgressRun {
   /** Its steps (a step past them is refused), or the API's limit. */
   private readonly maxStep: number
 
-  constructor(target: ProgressTarget | null, start: ProgressStart, opts: { minIntervalMs?: number; fetch?: Fetch } = {}) {
+  /** With no target: step lines for the wrapper it runs under (wrappedLines), or nothing. */
+  private readonly lines: ((line: string) => void) | undefined
+  private lineStep = -1
+
+  constructor(target: ProgressTarget | null, start: ProgressStart, opts: { minIntervalMs?: number; fetch?: Fetch; lines?: (line: string) => void } = {}) {
     this.target = target
     this.fetchImpl = opts.fetch ?? (globalThis.fetch as unknown as Fetch)
     this.minIntervalMs = opts.minIntervalMs ?? 500
@@ -107,6 +121,16 @@ export class ProgressRun {
       ? this.send('POST', '/v1/progress', body, 3000).then((r) => (r && typeof (r as { id?: unknown }).id === 'string' ? (r as { id: string }).id : null))
       : Promise.resolve(null)
     this.chain = this.id
+    this.lines = target ? undefined : opts.lines
+    if (this.lines && total !== undefined) this.line(step ?? 0, start.stepName, total)
+  }
+
+  /** A step line: `step` counts the steps finished (the API's terms); the line names the one starting, from 1. */
+  private line(step: number, name: string | undefined, total?: number): void {
+    const starting = Math.min(step + 1, this.maxStep)
+    if (starting === this.lineStep && name === undefined) return
+    this.lineStep = starting
+    this.lines!(`##hive-progress step=${starting}${total !== undefined ? ` total=${total}` : ''}${name ? ` name=${clip(name, MAX_TITLE)}` : ''}`)
   }
 
   /** Whether it is being reported (Hive took the start). */
@@ -115,6 +139,11 @@ export class ProgressRun {
   }
 
   update(u: ProgressUpdate): void {
+    if (this.lines && !this.finished) {
+      const step = count(u.step, this.maxStep)
+      if (step !== undefined || u.stepName !== undefined) this.line(step ?? Math.max(0, this.lineStep - 1), u.stepName)
+      return
+    }
     if (!this.target || this.finished) return
     const next: ProgressUpdate = { ...this.pending }
     if (count(u.step, this.maxStep) !== undefined) next.step = count(u.step, this.maxStep)

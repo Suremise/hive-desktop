@@ -6,10 +6,13 @@ import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'fs'
 import { createServer, type Server } from 'http'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { estimateFor, ProgressRun, progressTarget, recordTiming } from '../src/main/progressReporters/report.mts'
+import { estimateFor, ProgressRun, progressTarget, recordTiming, wrappedLines } from '../src/main/progressReporters/report.mts'
 import { cmdEscapeArgument, commandEnv, commandLabel, parseArgs, runWrapped, spawnSpec, StepFilter, stepLine, timingKey } from '../src/main/progressReporters/wrapper'
 import { installShims, shimFiles, withBinOnPath } from '../src/main/progressReporters/shims'
+import { hiveInstructions, progressRule, wrapsLongCommands } from '../src/shared/hiveGuidance'
+import { launchParts } from '../src/main/guidance'
 
 const dir = mkdtempSync(join(tmpdir(), 'hive-progress-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -47,7 +50,7 @@ beforeEach(() => {
 })
 
 const node = process.execPath
-const env = (extra: Record<string, string | undefined> = {}) => ({ ...process.env, HIVE_API_URL: url, HIVE_API_TOKEN: 'agent-token', HIVE_PROGRESS_DATA: join(dir, 'data'), HIVE_PROGRESS: undefined, HIVE_API_TOKEN_FILE: undefined, HIVE_WORKSPACE: undefined, HIVE_TEST_SEEN: seenFile, ...extra })
+const env = (extra: Record<string, string | undefined> = {}) => ({ ...process.env, HIVE_API_URL: url, HIVE_API_TOKEN: 'agent-token', HIVE_PROGRESS_DATA: join(dir, 'data'), HIVE_PROGRESS: undefined, HIVE_API_TOKEN_FILE: undefined, HIVE_WORKSPACE: undefined, HIVE_PROGRESS_WRAPPED: undefined, HIVE_TEST_SEEN: seenFile, ...extra })
 /**
  * Runs the wrapper, collecting what it writes. By default the run is reported only at a step line with the total, or at
  * the end, however long the command takes to start; `startWaitMs` 0 reports it at once, before the command's output.
@@ -315,11 +318,59 @@ describe("the hive-progress command on a session's PATH (main/progressReporters/
   })
 })
 
+describe('a reporter inside a command hive-progress runs: one row, the wrapper\'s (#167)', () => {
+  it('the command is told it is wrapped; a reporter in it then has no target and prints step lines instead', () => {
+    expect(progressTarget({ HIVE_API_URL: 'http://h', HIVE_API_TOKEN: 't', HIVE_PROGRESS_WRAPPED: '1' })).toBeNull()
+    expect(wrappedLines({ HIVE_PROGRESS_WRAPPED: '1' })).toBeTypeOf('function')
+    expect(wrappedLines({ HIVE_PROGRESS_WRAPPED: '1', HIVE_PROGRESS: '0' })).toBeUndefined()
+    expect(wrappedLines({})).toBeUndefined()
+    const lines: string[] = []
+    const r = new ProgressRun(null, { title: 'e2e', total: 3, step: 0, stepName: 'a' }, { lines: (l) => lines.push(l) })
+    r.update({ step: 1, stepName: 'b' })
+    r.update({ estimateMs: 5000 })
+    r.update({ step: 3 })
+    // The API counts the steps finished; a step line names the one starting (from 1, at most the total).
+    expect(lines).toEqual(['##hive-progress step=1 total=3 name=a', '##hive-progress step=2 name=b', '##hive-progress step=3'])
+  })
+
+  it('a reporter run under hive-progress shows in its run: one row with the total and steps', async () => {
+    const report = pathToFileURL(join(__dirname, '..', 'src', 'main', 'progressReporters', 'report.mts')).href
+    // The way Hive's runners report (tests/progressReport.mts): a run of their own, or step lines when wrapped.
+    const script = `import(${JSON.stringify(report)}).then(async (m) => { const r = new m.ProgressRun(m.progressTarget(), { title: 'inner', total: 3, step: 0, stepName: 'a' }, { lines: m.wrappedLines() }); r.update({ step: 1, stepName: 'b' }); await seen((c) => c.some((x) => x.body.stepName === 'b')); await r.finish(true) })`
+    const r = await wrap(['--title', 'outer', '--', ...seenNode, '-e', script], env())
+    expect(r).toMatchObject({ code: 0, out: '' })
+    expect(calls.filter((c) => c.method === 'POST' && c.path === '/v1/progress').map((c) => c.body)).toEqual([expect.objectContaining({ title: 'outer', total: 3, step: 0, stepName: 'a' })])
+    expect(calls.filter((c) => c.method === 'PATCH').map((c) => c.body)).toEqual([{ step: 1, stepName: 'b' }])
+    expect(calls.at(-1)).toMatchObject({ path: '/v1/progress/run-1/finish', body: { ok: true } })
+  })
+})
+
+describe("agents told to run long commands through hive-progress (Settings → General, #167)", () => {
+  it('by default, while the Progress panel is on; otherwise only when the user asks', () => {
+    expect(wrapsLongCommands(undefined)).toBe(true)
+    expect(wrapsLongCommands({ progressPanel: true, progressCommands: true })).toBe(true)
+    expect(wrapsLongCommands({ progressPanel: true, progressCommands: false })).toBe(false)
+    expect(wrapsLongCommands({ progressPanel: false, progressCommands: true })).toBe(false)
+    expect(hiveInstructions('web')).toContain(progressRule(true))
+    expect(progressRule(true)).toMatch(/over 30 s.*in the background too.*`hive-progress -- <command>`/)
+    expect(hiveInstructions('web', 'agent', false)).toContain(progressRule(false))
+    expect(progressRule(false)).toMatch(/only when the user asks/)
+    expect(hiveInstructions('', 'assistant')).not.toMatch(/hive-progress/)
+  })
+
+  it("a launch's guidance is measured as the contract it got, either way", () => {
+    for (const on of [true, false]) {
+      const parts = launchParts(`${hiveInstructions('web', 'agent', on)}\nLatest.`, 'agent', 'web', null)
+      expect(parts.customChars, String(on)).toBe('\nLatest.'.length)
+    }
+  })
+})
+
 describe("Hive's own test runners (tests/progressReport.mts)", () => {
   const saved = { ...process.env }
   beforeEach(() => {
     Object.assign(process.env, { HIVE_API_URL: url, HIVE_API_TOKEN: 'agent-token', HIVE_TEST_PROGRESS_TIMINGS: join(dir, 'runner-timings.json') })
-    for (const k of ['HIVE_API_TOKEN_FILE', 'HIVE_WORKSPACE', 'HIVE_PROGRESS']) delete process.env[k]
+    for (const k of ['HIVE_API_TOKEN_FILE', 'HIVE_WORKSPACE', 'HIVE_PROGRESS', 'HIVE_PROGRESS_WRAPPED']) delete process.env[k]
   })
   afterAll(() => {
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k]

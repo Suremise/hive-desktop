@@ -24,7 +24,7 @@ The card is the brief, and the board is how the user, the Hive Assistant and oth
 
 ## Finish
 
-1. **Check the work**: run the project's checks that matter for this change. Note what you ran, the result, and what you didn't run, as a **run record** a reviewer can trust instead of repeating it: the checks, the exact code they ran on (the commit, and whether there were uncommitted changes; the project's notes may give a command that prints a fingerprint), each result, and where the logs are. When the user asks for it (now or as a standing instruction), run long commands as `hive-progress -- <command>`: Hive's Progress panel then shows the user how far along they are.
+1. **Check the work**: run the project's checks that matter for this change. Note what you ran, the result, and what you didn't run, as a **run record** a reviewer can trust instead of repeating it: the checks, the exact code they ran on (the commit, and whether there were uncommitted changes; the project's notes may give a command that prints a fingerprint), each result, and where the logs are. Run long commands through `hive-progress` as Hive's session guidance says, so the Progress panel shows how far along they are.
 2. **Move it to `review`** with a comment saying what you did: what changed, how to check it, the checks and their results, and anything left open. Also when it was in Done before.
 3. **Done is the user's call.** Move it to `done` only when the user asks you to, now or as a standing instruction.
 

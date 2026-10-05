@@ -1,13 +1,15 @@
 // The Progress panel: agents report long runs through the Agent API with their own tokens, and Hive shows each run with
 // its agent in a panel on the right (folded: a strip with a bar per run) and on the taskbar button. A run is its
 // agent's: another agent can't touch it. Passed runs fade into Recent, failed ones stay until dismissed, an agent that
-// stops leaves its run "stopped reporting", and the setting turns it all off. The agents are the fake Claude Code;
+// stops leaves its run "stopped reporting", and the setting turns it all off; another tells agents to run long commands
+// through hive-progress, which reaches a new session's guidance (#167). The agents are the fake Claude Code;
 // dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR. The taskbar calls are recorded through
 // HIVE_TEST_TASKBAR_LOG (the page can't see them).
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const { spawn } = require('child_process')
 
 const PORT = Number(lib.port(47911))
 const userData = path.join(lib.WORK, 'progress-profile')
@@ -190,6 +192,47 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   check('reports are accepted and ignored', r.status === 200 && r.body?.ignored === true && ri.body?.ignored === true && rf.body?.ignored === true, JSON.stringify([r, ri, rf]))
   await inv('settings:update', { general: { progressPanel: true } })
   check('on again, the strip is back, with nothing from before', !!(await until(async () => (await rail.count()) === 1 || (await panel.count()) === 1)) && (await page.locator('.progress-run').count()) === 0)
+
+  // --- Agents show long commands (#167): on by default, in Settings under the Progress panel and greyed out while the
+  // panel is off; a session started afterwards gets the matching rule (its hive MCP server's instructions).
+  const instructionsOf = async (dir) => {
+    const launch = fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((l) => l.cwd.toLowerCase() === dir.toLowerCase()).at(-1)
+    const server = JSON.parse(fs.readFileSync(launch.opts['--mcp-config'], 'utf8')).mcpServers.hive
+    const p = spawn(server.command, server.args, { env: { ...process.env, ...server.env } })
+    let out = ''
+    const got = new Promise((resolve) => p.stdout.on('data', (d) => {
+      out += d
+      const line = out.split('\n').find((l) => l.includes('"id":1'))
+      if (line) resolve(JSON.parse(line).result?.instructions ?? '')
+    }))
+    p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } }) + '\n')
+    const text = await Promise.race([got, lib.sleep(15000).then(() => '(no reply)')])
+    p.kill()
+    return text
+  }
+  check('on by default', (await inv('settings:get')).general.progressCommands === true)
+  let told = await instructionsOf(alpha)
+  check("a session's guidance says to run long commands through hive-progress", /over 30 s.*`hive-progress -- <command>`/.test(told), told.slice(-400))
+  await page.keyboard.press('Control+Comma')
+  const wrapSwitch = page.getByRole('switch', { name: 'Agents show long commands in the Progress panel' })
+  check('Settings → General shows it, on', !!(await until(async () => (await wrapSwitch.count()) === 1)) && (await wrapSwitch.getAttribute('aria-checked')) === 'true' && (await wrapSwitch.isEnabled()))
+  await inv('settings:update', { general: { progressPanel: false } })
+  check('greyed out while the Progress panel is off, saying why', !!(await until(async () => !(await wrapSwitch.isEnabled()))) && (await page.getByText('Turn on the Progress panel to use this.').count()) === 1)
+  await wrapSwitch.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: path.join(shots, 'settings-wrap-greyed.png') })
+  await inv('settings:update', { general: { progressPanel: true } })
+  await until(async () => wrapSwitch.isEnabled())
+  await wrapSwitch.click()
+  check('turned off, it is saved', !!(await until(async () => JSON.parse(fs.readFileSync(cfgFile, 'utf8')).settings?.general?.progressCommands === false)))
+  await page.screenshot({ path: path.join(shots, 'settings-wrap-off.png') })
+  await page.keyboard.press('Control+Comma')
+  await inv('session:stop', alpha, alfie.id)
+  await until(async () => !(await live(alfie.id)) || (await live(alfie.id))?.status === 'stopped', 15000)
+  await inv('session:start', alpha, { agentId: alfie.id })
+  check('the agent starts again', !!(await until(async () => (await live(alfie.id))?.status === 'ready', 25000)))
+  told = await instructionsOf(alpha)
+  check('a session started afterwards is told: only when the user asks', /hive-progress -- <command>`.*only when the user asks/.test(told) && !/over 30 s/.test(told), told.slice(-400))
+  await inv('settings:update', { general: { progressCommands: true } })
 
   // --- Switching the window to another workspace and back: its runs are gone, old ids unknown, the taskbar clear.
   r = await call(workspaceToken, 'POST', '/v1/progress', { title: 'script run', total: 2 })

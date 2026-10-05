@@ -1,11 +1,12 @@
 // Hive's own test runners show in the Progress panel of the Hive that launched the agent running them (#137): the e2e
 // runner (tests/e2e/run.mjs) one step per suite, the unit tests (a Vitest reporter, vitest.config.ts) one per file, each
 // with an estimate from how long they took before (kept under %LOCALAPPDATA%\hive-test, never in the repo). Only when the
-// Hive variables are set and Hive answers; never prints and never changes a result. Off with --no-progress (e2e) or
-// HIVE_PROGRESS=0. To remove it: delete this file and its two hooks.
+// Hive variables are set and Hive answers; never changes a result. Run under hive-progress, they print step lines for its
+// run instead of reporting their own (one row). Off with --no-progress (e2e) or HIVE_PROGRESS=0. To remove it: delete this
+// file and its two hooks.
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { estimateFor, ProgressRun, progressTarget, recordTiming } from '../src/main/progressReporters/report.mts'
+import { estimateFor, ProgressRun, progressTarget, recordTiming, wrappedLines } from '../src/main/progressReporters/report.mts'
 
 // Only the parts of Vitest's reporter API used here (no import from vitest: plain Node loads this file for run.mjs).
 interface TestModule {
@@ -20,9 +21,9 @@ interface TestSpecification {
 // Where the runners' timings are kept (HIVE_TEST_PROGRESS_TIMINGS: another file, for this module's own tests).
 const timings = (): string => process.env.HIVE_TEST_PROGRESS_TIMINGS || join(process.env.LOCALAPPDATA || tmpdir(), 'hive-test', 'progress-timings.json')
 
-/** Whether to report: the Hive variables are set, and it isn't turned off. */
+/** Whether to report: the Hive variables are set (or it runs under hive-progress), and it isn't turned off. */
 export function progressWanted(argv: string[] = process.argv): boolean {
-  return !argv.includes('--no-progress') && progressTarget() !== null
+  return !argv.includes('--no-progress') && (progressTarget() !== null || wrappedLines() !== undefined)
 }
 
 /** The expected time for the steps from `from` on: known ones as timed, unknown ones as the known ones' average. */
@@ -43,7 +44,7 @@ export function e2eProgress(names: string[], argv: string[] = process.argv): { s
     step: 0,
     estimateMs: remaining(estimates, 0),
     command: `npm run e2e${names.length <= 6 ? ` -- ${names.join(' ')}` : ''}`
-  })
+  }, { lines: wrappedLines() })
   return {
     suite(i: number, name: string) {
       // The API counts the suites finished and names the one starting; the estimate is the time left from now.
@@ -74,7 +75,7 @@ export class VitestProgress {
     this.started = Date.now()
     // Timed as a whole: the same set of files (all of them, usually) takes about as long as last time.
     this.key = `unit:${names.length}:${names.join('|').length}`
-    this.run = new ProgressRun(progressTarget(), { title: `unit: ${names.length} file${names.length === 1 ? '' : 's'}`, total: names.length, step: 0, estimateMs: estimateFor(timings(), this.key), command: 'npm test' })
+    this.run = new ProgressRun(progressTarget(), { title: `unit: ${names.length} file${names.length === 1 ? '' : 's'}`, total: names.length, step: 0, estimateMs: estimateFor(timings(), this.key), command: 'npm test' }, { lines: wrappedLines() })
   }
 
   onTestModuleEnd(module: TestModule): void {

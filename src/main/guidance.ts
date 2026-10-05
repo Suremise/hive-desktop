@@ -18,6 +18,7 @@ import { currentWorkspace, inWorkspace, type WorkspaceService } from './workspac
 export const GUIDANCE_REVISION = hashText(
   [
     hiveInstructions('{project}', 'agent'),
+    hiveInstructions('{project}', 'agent', false),
     hiveInstructions('', 'assistant'),
     controlRules('look'),
     controlRules('agents'),
@@ -120,8 +121,9 @@ async function scanRevisions(): Promise<SkillRevision[]> {
  * start or end as expected is counted whole as core or role, never split by guesswork.
  */
 export function launchParts(guidance: string, role: 'agent' | 'assistant', project: string, assistant: { text: string; personaText: string } | null): { guidanceBytes: number; guidanceChars: number; customBytes: number; customChars: number; roleBytes: number; roleChars: number; personaBytes: number; personaChars: number } {
-  const contract = guidance ? hiveInstructions(role === 'assistant' ? '' : project, role) : ''
-  const core = contract && guidance.startsWith(contract) ? contract : guidance
+  // The contract as the session got it: with long commands wrapped or not (Settings → General).
+  const contract = guidance ? [true, false].map((p) => hiveInstructions(role === 'assistant' ? '' : project, role, p)).find((c) => guidance.startsWith(c)) : ''
+  const core = contract || guidance
   const custom = guidance.slice(core.length)
   const text = assistant?.text ?? ''
   const persona = assistant?.personaText && text.endsWith(assistant.personaText) ? assistant.personaText : ''
