@@ -38,7 +38,7 @@ export type FileLockMode = 'off' | 'warn' | 'block' | 'ask'
 export type MergeStyle = 'squash' | 'merge'
 /** How the Session tab arranges the agents of one page. */
 export type SessionLayout = 'single' | 'columns2' | 'columns3' | 'grid' | 'grid6'
-/** A page's layout as saved: 'auto' is the one that shows the page's agents (until one is chosen by hand). */
+/** A project's layout as saved: 'auto' is the one that shows its agents, up to the 3×2 grid (until one is chosen by hand). */
 export type PageLayout = SessionLayout | 'auto'
 /** 'window': quitting was asked, but only the window showing the question closes (Close this window only). */
 export type QuitChoice = 'now' | 'wait' | 'cancel' | 'window'
@@ -554,8 +554,8 @@ export interface ProjectConfig {
   transcriptWarnMB: number | null
   /** The project's agents, in the order they were added. All are equal; a new project has none. */
   agents: AgentDef[]
-  /** Each agent page's layout, page 1 first; a missing one is 'auto'. */
-  layouts: PageLayout[]
+  /** The Session tab's layout (one for the project, #134); its pages hold as many agents as it has panes. */
+  layout: PageLayout
   fileLocks: Inherit<FileLockMode>
   /** Overrides settings.agents.worktreeCopy; null inherits. */
   worktreeCopy: string | null

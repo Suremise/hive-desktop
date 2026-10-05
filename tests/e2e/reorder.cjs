@@ -68,7 +68,7 @@ const check = (name, ok, extra = '') => {
   const names = ['One', 'Two', 'Three']
   const agents = []
   for (const name of names) agents.push(await lib.addAgent(inv, alpha, { name }))
-  await inv('project:updateConfig', alpha, { layouts: ['columns3'] })
+  await inv('project:updateConfig', alpha, { layout: 'columns3' })
   // One runs, with something in its terminal.
   const one = agents[0]
   await inv('session:start', alpha, { agentId: one.id })
@@ -122,7 +122,8 @@ const check = (name, ok, extra = '') => {
   await page.keyboard.press('Control+Alt+Shift+ArrowLeft')
   check('Ctrl+Alt+Shift+Left moves the focused agent left', !!(await until(async () => saved() === 'Three,One,Two')), saved())
 
-  // Two pages: four more agents (seven in all).
+  // Two pages: four more agents (seven in all), the layout automatic again (a 3×2 grid: pages of six, #134).
+  await inv('project:updateConfig', alpha, { layout: 'auto' })
   for (const name of ['Four', 'Five', 'Six', 'Seven']) await lib.addAgent(inv, alpha, { name })
   await until(async () => (await page.locator('.page-switch button').count()) === 2)
   check('seven agents make two pages', (await page.locator('.page-switch button').count()) === 2)
