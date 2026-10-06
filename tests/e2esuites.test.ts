@@ -483,6 +483,22 @@ describe("the installer's suites check the packaged build they test (#274)", () 
   })
 })
 
+describe("Claude Code's trust question (lib.acceptClaudeTrust, #218)", () => {
+  const { trustChoice } = createRequire(import.meta.url)('./e2e/lib.cjs') as { trustChoice: (text: string) => string | null }
+  // As Claude Code 2.1.291 draws it (terminal text, control sequences and all): the menu starts on "No, exit".
+  const drawn = (on: 'No' | 'Yes') =>
+    `\x1b[2K Quick safety check: Is this a project you created or one you trust?\r\n \x1b[36m${on === 'No' ? '>' : ' '}\x1b[39m No, exit\r\n ${on === 'Yes' ? '❯' : ' '} Yes, I trust this folder\r\n Enter to confirm · Esc to cancel\x1b[>0q`
+
+  it('reads the selected choice from the latest drawing of the menu, never an earlier one', () => {
+    expect(trustChoice(drawn('No'))).toBe('No, exit')
+    expect(trustChoice(drawn('Yes'))).toBe('Yes, I trust this folder')
+    // Moved to Yes, then back to No (a Down arriving late): the last drawing counts.
+    expect(trustChoice(drawn('No') + drawn('Yes') + drawn('No'))).toBe('No, exit')
+    expect(trustChoice(drawn('No') + drawn('Yes'))).toBe('Yes, I trust this folder')
+    expect(trustChoice('Welcome to Claude Code')).toBeNull()
+  })
+})
+
 describe("progressreport's estimate check (lib.hadEstimate)", () => {
   const { hadEstimate } = createRequire(import.meta.url)('./e2e/lib.cjs') as { hadEstimate: (run: unknown) => boolean }
   const caller = { source: 'api' as const, workspacePath: 'C:\\ws' }
@@ -878,22 +894,46 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
 describe("answering Claude Code's trust question (lib.acceptClaudeTrust, #188)", () => {
   type Accept = (inv: (ch: string, ...a: unknown[]) => Promise<unknown>, proj: string, agentId: string, ms?: number) => Promise<boolean>
   const { acceptClaudeTrust } = createRequire(import.meta.url)('./e2e/lib.cjs') as { acceptClaudeTrust: Accept }
-  /** A session whose terminal shows `screen` and whose Hive status is `status`. */
-  const session = (screen: string, status = 'starting') => {
+  /**
+   * A session whose terminal shows `screen` (or what screen(writes so far) gives: a menu that redraws as keys arrive)
+   * and whose Hive status is `status`.
+   */
+  const session = (screen: string | ((writes: string[]) => string), status = 'starting') => {
     const writes: string[] = []
     const inv = async (ch: string, ...a: unknown[]) => {
-      if (ch === 'pty:buffer') return screen
+      if (ch === 'pty:buffer') return typeof screen === 'function' ? screen(writes) : screen
       if (ch === 'session:live') return [{ projectPath: 'C:\\P', agentId: 'a1', status }]
       writes.push(String(a[1]))
       return undefined
     }
     return { writes, run: async () => { const t = Date.now(); const r = await acceptClaudeTrust(inv, 'c:\\p', 'a1', 4000); return { r, ms: Date.now() - t } } }
   }
+  /** Claude Code 2.1.291's trust menu: it starts on "No, exit", and each Down it takes moves the choice (two choices). */
+  const trustMenu = (taken: (downs: number) => number) => (writes: string[]) => {
+    const on = taken(writes.filter((w) => w === '\x1b[B').length) % 2 ? 'Yes' : 'No'
+    return `Quick safety check: Is this a project you created or one you trust? ${on === 'No' ? '>' : ' '} No, exit ${on === 'Yes' ? '>' : ' '} Yes, I trust this folder Enter to confirm`
+  }
 
-  it('answers the trust question: Down, then Enter', async () => {
-    const s = session('Quick safety check: Is this a project you created or one you trust? \x1b[1m❯\x1b[0m 1. Yes, I trust this folder  2. No, exit')
+  it('answers the trust question: Down to "Yes", and Enter once the terminal shows it chosen', async () => {
+    const s = session(trustMenu((downs) => downs))
     expect((await s.run()).r).toBe(true)
     expect(s.writes).toEqual(['\x1b[B', '\r'])
+  })
+
+  it('a Down dropped while the menu is still drawing (#218) is sent again; Enter never goes on "No, exit"', async () => {
+    // The first Down is lost: the menu stays on No until the second.
+    const s = session(trustMenu((downs) => Math.max(0, downs - 1)))
+    expect((await s.run()).r).toBe(true)
+    expect(s.writes).toEqual(['\x1b[B', '\x1b[B', '\r'])
+    // Already on Yes (an older Claude Code's menu): Enter at once.
+    const yes = session('Quick safety check: Is this a project you created or one you trust? \x1b[1m❯\x1b[0m 1. Yes, I trust this folder  2. No, exit')
+    expect((await yes.run()).r).toBe(true)
+    expect(yes.writes).toEqual(['\r'])
+    // A menu that never moves: no Enter at all (Claude Code is left asking, not quit).
+    const stuck = session(trustMenu(() => 0))
+    expect((await stuck.run()).r).toBe(false)
+    expect(stuck.writes.length).toBeGreaterThan(0)
+    expect(stuck.writes.includes('\r')).toBe(false)
   })
 
   it("in a trusted folder it returns at once: Claude Code 2.1.289's mode footer, the old one, or Hive's ready status", async () => {

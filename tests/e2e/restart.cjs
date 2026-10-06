@@ -54,7 +54,15 @@ const launches = () => fs.readFileSync(path.join(claudeHome, 'fake-launches.json
   await page.getByRole('button', { name: 'Restart session' }).click()
   // Restarted: the banner gone and the session ready again.
   // Ready again from the relaunch: the fake launched a second time.
-  check('after Restart session it is ready again, the offer gone', !!(await lib.until(async () => launches().length === 2 && (await page.getByRole('button', { name: 'Restart session' }).count()) === 0 && (await inv('session:live')).some((l) => l.status === 'ready'), 30000)))
+  const restarted = !!(await lib.until(async () => launches().length === 2 && (await page.getByRole('button', { name: 'Restart session' }).count()) === 0 && (await inv('session:live')).some((l) => l.status === 'ready'), 30000))
+  check('after Restart session it is ready again, the offer gone', restarted)
+  // What happened instead (#218): the fake's launches, the sessions and Hive's log of them.
+  if (!restarted) {
+    const log = fs.readFileSync(path.join(userData, 'logs', 'hive.log'), 'utf8').split('\n').filter((l) => /\[(pty|sessions)\]/.test(l))
+    console.log(`(launches: ${launches().length}; live: ${JSON.stringify((await inv('session:live')).map((l) => ({ status: l.status, id: l.sessionId })))}; banner: ${await page.getByRole('button', { name: 'Restart session' }).count()}; dialogs: ${JSON.stringify(await page.locator('.dialog').allInnerTexts())})`)
+    await page.screenshot({ path: path.join(shots, '3-restart-failed.png') })
+    for (const l of log.slice(-12)) console.log(`(hive.log) ${l.slice(0, 300)}`)
+  }
   await page.screenshot({ path: path.join(shots, '3-after-restart.png') })
 
   const live = await inv('session:live')
@@ -64,6 +72,26 @@ const launches = () => fs.readFileSync(path.join(claudeHome, 'fake-launches.json
   check('the relaunch has the new effort', second?.opts['--effort'] === 'low', JSON.stringify(second?.opts))
   check('…and resumes the same conversation', second?.opts['--resume'] === st.sessionId && live.length === 1 && live[0].sessionId === st.sessionId, JSON.stringify({ resume: second?.opts['--resume'], live: live.map((l) => l.sessionId) }))
   check('one conversation in the list, still named', list.length === 1 && list[0].id === st.sessionId && /restart test/.test(list[0].name ?? ''), JSON.stringify(list.map((s) => ({ id: s.id, name: s.name }))))
+
+  // Restart session while Hive is slow to save the stopped session (#218): under load, main writes the session's record
+  // before it tells the window the session stopped, and Restart session used to ask to stop a session already stopped
+  // ("…already has a running session"). Here the record's file is held open (no delete sharing) while it restarts, so
+  // its save retries for a couple of seconds: the relaunch must still come, with no question.
+  await inv('project:updateConfig', proj, { providers: { 'claude-code': { effort: 'high' } } })
+  await inv('workspace:refresh')
+  check('another changed effort offers Restart session', !!(await lib.until(async () => (await page.getByRole('button', { name: 'Restart session' }).count()) > 0, 10000)))
+  const sessionsFile = path.join(proj, '.hive', 'sessions.json')
+  const holder = require('child_process').spawn('powershell.exe', ['-NoProfile', '-Command', `$f = [System.IO.File]::Open('${sessionsFile}', 'Open', 'Read', 'Read'); 'held'; Start-Sleep -Seconds 6; $f.Close()`], { env: lib.baseEnv() })
+  const released = new Promise((r) => holder.once('exit', r))
+  let heldOut = ''
+  holder.stdout.on('data', (d) => (heldOut += d))
+  check('(the record is held open)', !!(await lib.until(() => heldOut.includes('held'), 15000)))
+  await page.getByRole('button', { name: 'Restart session' }).click()
+  const again = !!(await lib.until(async () => launches().length === 3 && (await inv('session:live')).some((l) => l.status === 'ready'), 30000))
+  const asked = await page.locator('.dialog').allInnerTexts()
+  check('Restart session relaunches while the stopped session is still being saved, asking nothing', again && !asked.length, JSON.stringify({ launches: launches().length, dialogs: asked }))
+  check('…with the newer effort, the same conversation', launches()[2]?.opts['--effort'] === 'high' && launches()[2]?.opts['--resume'] === st.sessionId, JSON.stringify(launches()[2]?.opts))
+  await Promise.race([released, lib.sleep(10000)])
 
   await inv('session:stop', proj)
   await lib.until(async () => (await inv('session:live')).length === 0, 15000)

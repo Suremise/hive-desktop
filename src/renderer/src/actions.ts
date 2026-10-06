@@ -272,7 +272,10 @@ function agentSuffix(p: ProjectInfo | undefined, agentId: string): string {
 
 async function stopIfRunning(path: string, agentId: string, action: string): Promise<boolean> {
   const p = project(path)
-  if (!agentOf(p, agentId)?.live) return true
+  // Main's word, not the window's copy: just after a session stops, main saves its record before it tells the window,
+  // so the copy can still show it running (Restart session then asked to stop a session already stopped, #218).
+  const running = (await call('session:live')).some((l) => l.projectPath.toLowerCase() === path.toLowerCase() && l.agentId === agentId)
+  if (!running) return true
   const ok = await confirm({
     title: `${action}?`,
     message: `${p!.name}${agentSuffix(p, agentId)} already has a running session.`,

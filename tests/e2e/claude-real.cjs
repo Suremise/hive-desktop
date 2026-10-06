@@ -55,7 +55,10 @@ const check = (name, ok, extra = '') => {
   await inv('session:start', proj, { agentId: reviewer.id })
   await lib.cliStep('a session starts in the worktree', { session: lib.ptyKey(proj, reviewer.id) }, async () => {
     await lib.acceptClaudeTrust(inv, proj, reviewer.id, 30000)
-    check('Claude Code starts in a worktree agent', !!(await ready(proj, reviewer.id)), (await live(proj, reviewer.id))?.status)
+    const ok = !!(await ready(proj, reviewer.id))
+    check('Claude Code starts in a worktree agent', ok, (await live(proj, reviewer.id))?.status)
+    // What Claude Code said, when it didn't start (#218): its terminal's last words.
+    if (!ok) console.log(`(its terminal: …${lib.plainText(await inv('pty:buffer', lib.ptyKey(proj, reviewer.id)).catch(() => '')).slice(-1500)})`)
   })
   const l = await live(proj, reviewer.id)
   check('…in its worktree', !!wtPath && path.resolve(l?.cwd ?? '').toLowerCase() === path.resolve(wtPath).toLowerCase(), `${l?.cwd} vs ${wtPath}`)
