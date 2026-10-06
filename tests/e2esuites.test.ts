@@ -1330,6 +1330,33 @@ describe("the concurrency checker's temporary worktrees: each invocation's own (
     // Its registration is pruned in this checkout; the other two stay.
     expect(registered(repo)).toBe(2)
   })
+
+  it('two checkers sweeping at once: a folder the other removes part way is passed over, never an error (#221)', () => {
+    const repo = checkout('stale-race')
+    const base = join(tmp, 'concurrency4')
+    const first = invocationDir({ base, owner: 301 })
+    const takenFromList = invocationDir({ base, owner: 302 })
+    const takenAfterOwner = invocationDir({ base, owner: 303 })
+    const live = invocationDir({ base, owner: 304 })
+    const kept = invocationDir({ base, owner: 305 })
+    for (const d of [first, takenFromList, takenAfterOwner, live, kept]) addWorktree(repo, d, 'worktree')
+    keepDir(kept)
+    // The other checker, as this one looks: it removes 302's folder (still in this sweep's list, so its owner can't be
+    // read and the folder can't be dated), and 303's just after this sweep read its owner.
+    const alive = (pid: number) => {
+      if (pid === 301) removeInvocation(repo, takenFromList)
+      if (pid === 303) removeInvocation(repo, takenAfterOwner)
+      return pid === 304
+    }
+    expect(removeStale(repo, { base, alive })).toEqual([first])
+    for (const d of [first, takenFromList, takenAfterOwner]) expect(existsSync(d), d).toBe(false)
+    // The live and the kept one are untouched, and no junction was followed.
+    expect(existsSync(join(live, 'worktree', 'node_modules', 'electron')) && existsSync(join(kept, 'worktree', 'a.txt'))).toBe(true)
+    expect(existsSync(join(repo, 'node_modules', 'electron'))).toBe(true)
+    expect(registered(repo)).toBe(2)
+    // The other checker removed the whole base meanwhile: still nothing to stop for.
+    expect(removeStale(repo, { base: join(tmp, 'concurrency-gone'), alive })).toEqual([])
+  })
 })
 
 describe('the build lock: runners started together in one worktree build it once (build.mjs, #200)', () => {
