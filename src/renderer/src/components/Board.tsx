@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { AgentInfo, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch, TaskStartTarget } from '@shared/types'
-import { TASK_COLUMNS, columnColor, columnLabel, reviewStalled, stalledReason, taskOverview } from '@shared/tasks'
+import type { AgentInfo, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch, TaskStartTarget } from '@shared/types'
+import { TASK_COLUMNS, applyBoardFold, archivedAt, columnColor, columnLabel, reviewStalled, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
 import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useDateStyle, useStore, type DoingRequest } from '../store'
@@ -10,9 +10,44 @@ import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
 import { formatDateTime } from '@shared/dates'
 import { returnRound } from '@shared/watch'
 import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, STATUS_TEXT, statusText, Tooltip, useBusy, useContextMenu, type MenuEntry } from './ui'
+import { DataTable, type DataColumn } from './DataTable'
 import { ProviderIcon } from './ProviderIcon'
 
 const NO_TASKS: TaskCard[] = []
+const NO_FOLD: BoardFold = {}
+
+/** This workspace's board as the user left it (#170): its collapsed columns and folded cards. */
+function useBoardFold(): BoardFold {
+  return useStore((s) => (s.workspace ? s.boardFold[s.workspace.path.toLowerCase()] : undefined) ?? NO_FOLD)
+}
+
+/**
+ * Changes this workspace's board fold (a view preference in Hive's own settings, never in the cards' files): shown at
+ * once, and saved by main as a change to what is saved now, so another window's folds (of its workspace) are never
+ * written over with what this window read earlier. Folded cards no longer on the board, archived ones included, are
+ * dropped (once the board has been read).
+ */
+function saveFold(what: BoardFoldChange): void {
+  const ws = get().workspace?.path
+  if (!ws) return
+  const tasks = get().tasks
+  const full = { ...what, ...(tasks.length ? { known: tasks.map((c) => c.number) } : {}) }
+  set({ boardFold: applyBoardFold(get().boardFold, ws, full) })
+  void call('ui:changeBoardFold', full)
+    .then((saved) => set({ boardFold: saved }))
+    .catch(() => undefined)
+}
+
+/** Reads every workspace's board fold as saved now (a window opening a workspace another window changed). */
+function loadBoardFold(): void {
+  void call('ui:get')
+    .then((ui) => set({ boardFold: ui.boardFold ?? {} }))
+    .catch(() => undefined)
+}
+
+const collapseColumn = (col: TaskColumn, collapsed: boolean): void => saveFold({ columns: { ids: [col], collapsed } })
+
+const foldCards = (numbers: number[], folded: boolean): void => saveFold({ cards: { numbers, folded } })
 
 /** The project and agent a card is given to, as they are now (null when the card has none). */
 function cardAgent(projects: ProjectInfo[], c: TaskCard): { project: ProjectInfo | null; agent: AgentInfo | null } {
@@ -148,16 +183,35 @@ function ReviewLine({ c, projects }: { c: TaskCard; projects: ProjectInfo[] }) {
   )
 }
 
+/** A folded card's agent: a dot in its status's colour (Doing cards) or a plain one, with who and what in its tooltip. */
+function FoldedAgent({ c, projects }: { c: TaskCard; projects: ProjectInfo[] }) {
+  if (!c.agent) return null
+  const { agent } = cardAgent(projects, c)
+  const name = agent?.name ?? c.agentName ?? 'its agent'
+  const live = c.column === 'doing'
+  const text = !agent ? `${name} (removed)` : `${name}: ${agent.live ? statusText(agent.live) : 'Not running'}`
+  return (
+    <Tooltip content={text}>
+      <span className="task-folded-agent" aria-label={text}>
+        <span className={cx('dot', live ? (agent?.live?.status ?? 'stopped') : 'stopped')} />
+      </span>
+    </Tooltip>
+  )
+}
+
 function CardTile({
   c,
   projects,
   showProject,
+  folded,
   onDragStart,
   dropHere
 }: {
   c: TaskCard
   projects: ProjectInfo[]
   showProject: boolean
+  /** Folded to one line (#170): its number, title, agent and any stalled or blocked marker. */
+  folded: boolean
   onDragStart: (e: React.DragEvent) => void
   dropHere: boolean
 }) {
@@ -166,18 +220,53 @@ function CardTile({
   // A Doing card whose agent has finished is waiting for someone to look: it shows like a finished agent.
   const finished = c.column === 'doing' && agent?.live?.status === 'finished'
   const stalled = cardStalled(projects, c)
+  const fold = <IconButton icon={folded ? 'chevron-right' : 'chevron-down'} title={folded ? `Expand #${c.number}` : `Collapse #${c.number} to one line`} className="task-fold" expanded={!folded} onClick={() => foldCards([c.number], !folded)} />
+  const props = {
+    className: cx('task-card', folded && 'folded', c.blocked && 'blocked', finished && 'finished', stalled && !c.blocked && 'stalled'),
+    draggable: !c.archived,
+    onDragStart,
+    onClick: () => set({ taskOpen: c.number }),
+    onContextMenu: (e: React.MouseEvent) => menu.open(e, cardMenu(c)),
+    'data-task': c.number
+  }
+  if (folded) {
+    return (
+      <>
+        {dropHere && <div className="task-drop" />}
+        <div {...props}>
+          <div className="task-card-line">
+            {fold}
+            <span className="task-number">#{c.number}</span>
+            <Tooltip content={c.title}>
+              <span className="task-title">{c.title}</span>
+            </Tooltip>
+            {c.blocked && (
+              <Tooltip content={`Blocked: ${c.blocked}`}>
+                <span className="task-flag blocked" aria-label="Blocked">
+                  <Icon name="circle-slash" />
+                </span>
+              </Tooltip>
+            )}
+            {stalled && (
+              <Tooltip content={`Stalled: ${stalled}`}>
+                <span className="task-flag stalled" aria-label="Stalled">
+                  <Icon name="debug-pause" />
+                </span>
+              </Tooltip>
+            )}
+            <FoldedAgent c={c} projects={projects} />
+          </div>
+        </div>
+        {menu.element}
+      </>
+    )
+  }
   return (
     <>
       {dropHere && <div className="task-drop" />}
-      <div
-        className={cx('task-card', c.blocked && 'blocked', finished && 'finished', stalled && !c.blocked && 'stalled')}
-        draggable={!c.archived}
-        onDragStart={onDragStart}
-        onClick={() => set({ taskOpen: c.number })}
-        onContextMenu={(e) => menu.open(e, cardMenu(c))}
-        data-task={c.number}
-      >
+      <div {...props}>
         <div className="task-card-top">
+          {fold}
           <span className="task-number">#{c.number}</span>
           {showProject && c.project && <span className="task-project">{c.project}</span>}
           {!c.project && <span className="task-project faint">workspace</span>}
@@ -227,14 +316,17 @@ function CardTile({
 type DragState = { n: number; column: TaskColumn; before: number | null }
 
 /**
- * The board: four columns of cards (one project's, or all of them). Cards drag between and within columns;
- * click opens one, right-click has the rest. With archived, the archived cards as a list instead.
+ * The board: six columns of cards (one project's, or all of them). Cards drag between and within columns;
+ * click opens one, right-click has the rest. Each column collapses to a narrow strip and each card folds to one line
+ * (#170), as the user leaves them for this workspace. With archived, the archived cards as a list instead.
  */
 export function Board({ project, query, archived }: { project: string | null; query: string; archived: boolean }) {
   const all = useStore((s) => s.tasks)
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   const colored = useStore((s) => s.settings?.board.columnColors ?? true)
   const colors = useStore((s) => s.settings?.board.colors)
+  const fold = useBoardFold()
+  const headerMenu = useContextMenu()
   const [drag, showDrag] = useState<DragState | null>(null)
   // The handlers read the drag from here, not from the last render: a dragover or drop can come before React has
   // drawn the drag's start (a quick drag), and would then be refused.
@@ -265,7 +357,9 @@ export function Board({ project, query, archived }: { project: string | null; qu
     const list = cards.filter((c) => c.column === column)
     const tile = at.closest<HTMLElement>('.task-card')
     let before: number | null
-    if (tile) {
+    // A collapsed column's strip: at its top.
+    if (colEl.classList.contains('collapsed')) before = list.find((c) => c.number !== d.n)?.number ?? null
+    else if (tile) {
       const n = Number(tile.dataset.task)
       const r = tile.getBoundingClientRect()
       const i = list.findIndex((c) => c.number === n)
@@ -339,31 +433,7 @@ export function Board({ project, query, archived }: { project: string | null; qu
     }
   }, [dragging])
 
-  if (archived) {
-    return (
-      <div className="task-archive">
-        {cards.length === 0 && <div className="empty-state">No archived cards{query ? ' match' : ''}.</div>}
-        {cards.map((c) => (
-          <div key={c.number} className="task-archive-row" onClick={() => set({ taskOpen: c.number })}>
-            <span className="task-number">#{c.number}</span>
-            <span className="grow">{c.title}</span>
-            {project === null && c.project && <span className="task-project">{c.project}</span>}
-            <span className="faint">{columnLabel(c.column)}</span>
-            <span className="faint">{timeAgo(c.updatedAt)}</span>
-            <button
-              className="btn small subtle"
-              onClick={(e) => {
-                e.stopPropagation()
-                void archive(c, false)
-              }}
-            >
-              Bring Back
-            </button>
-          </div>
-        ))}
-      </div>
-    )
-  }
+  if (archived) return <ArchivedTable cards={cards} project={project} query={query} />
 
   const drop = async (column: TaskColumn): Promise<void> => {
     const d = dragNow.current
@@ -378,32 +448,63 @@ export function Board({ project, query, archived }: { project: string | null; qu
     await change(d.n, { column, before: d.before }, 'Could not move the card')
   }
 
+  const folded = new Set(fold.cards ?? [])
+  const columnMenu = (col: (typeof TASK_COLUMNS)[number], list: TaskCard[]): MenuEntry[] => [
+    { label: 'Collapse All Cards', icon: 'collapse-all', disabled: !list.some((c) => !folded.has(c.number)), onClick: () => foldCards(list.map((c) => c.number), true) },
+    { label: 'Expand All Cards', icon: 'expand-all', disabled: !list.some((c) => folded.has(c.number)), onClick: () => foldCards(list.map((c) => c.number), false) },
+    { separator: true },
+    { label: `Collapse ${col.label}`, icon: 'chevron-left', onClick: () => collapseColumn(col.id, true) }
+  ]
+
   return (
     <div ref={boardRef} className={cx('board', colored && 'colored')} onDragEnd={() => setDrag(null)}>
       {TASK_COLUMNS.map((col) => {
         const list = cards.filter((c) => c.column === col.id)
+        const columnProps = {
+          'data-column': col.id,
+          style: colored ? ({ '--col': columnColor(colors, col.id) } as React.CSSProperties) : undefined,
+          onDragOver: (e: React.DragEvent) => {
+            if (!dragNow.current) return
+            e.preventDefault()
+            place(e.clientX, e.clientY)
+          },
+          onDrop: (e: React.DragEvent) => {
+            e.preventDefault()
+            void drop(col.id)
+          }
+        }
+        // Collapsed: a narrow strip with its name and count; a card dropped on it goes to its top.
+        if (fold.columns?.includes(col.id)) {
+          return (
+            <div key={col.id} className={cx('board-column', 'collapsed', drag?.column === col.id && 'drag-over')} {...columnProps}>
+              <Tooltip content={`Expand ${col.label}: ${col.description}`}>
+                <button className="board-column-strip" aria-label={`Expand ${col.label}`} aria-expanded={false} onClick={() => collapseColumn(col.id, false)} onContextMenu={(e) => headerMenu.open(e, columnMenu(col, list).slice(0, 2))}>
+                  <Icon name="chevron-right" />
+                  <span className="count">{list.length}</span>
+                  <span className="board-column-label">{col.label}</span>
+                </button>
+              </Tooltip>
+            </div>
+          )
+        }
         return (
-          <div
-            key={col.id}
-            className={cx('board-column', drag?.column === col.id && 'drag-over')}
-            data-column={col.id}
-            style={colored ? ({ '--col': columnColor(colors, col.id) } as React.CSSProperties) : undefined}
-            onDragOver={(e) => {
-              if (!dragNow.current) return
-              e.preventDefault()
-              place(e.clientX, e.clientY)
-            }}
-            onDrop={(e) => {
-              e.preventDefault()
-              void drop(col.id)
-            }}
-          >
-            <div className="board-column-header">
+          <div key={col.id} className={cx('board-column', drag?.column === col.id && 'drag-over')} {...columnProps}>
+            <div className="board-column-header" onContextMenu={(e) => headerMenu.open(e, columnMenu(col, list))}>
+              <IconButton icon="chevron-down" title={`Collapse ${col.label}`} className="board-fold" expanded onClick={() => collapseColumn(col.id, true)} />
               <Tooltip content={col.description}>
                 <span className="board-column-label">{col.label}</span>
               </Tooltip>
               <span className="count">{list.length}</span>
+              <span className="grow" />
               {col.id === 'todo' && <IconButton icon="add" title="New card" onClick={() => set({ taskOpen: { project: project ?? '' } })} />}
+              <IconButton
+                icon="ellipsis"
+                title={`${col.label}: more`}
+                onClick={(e) => {
+                  const b = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                  headerMenu.openAt(b.left, b.bottom, columnMenu(col, list))
+                }}
+              />
             </div>
             <div className="board-column-body">
               {list.map((c) => (
@@ -412,6 +513,7 @@ export function Board({ project, query, archived }: { project: string | null; qu
                   c={c}
                   projects={projects}
                   showProject={project === null}
+                  folded={folded.has(c.number)}
                   dropHere={!!drag && drag.column === col.id && drag.before === c.number && drag.n !== c.number}
                   onDragStart={(e) => {
                     e.dataTransfer.effectAllowed = 'move'
@@ -426,6 +528,108 @@ export function Board({ project, query, archived }: { project: string | null; qu
           </div>
         )
       })}
+      {headerMenu.element}
+    </div>
+  )
+}
+
+/** An archived card's agent, as it was named when it last had one. */
+const lastAgent = (c: TaskCard): string => (c.agent ? (c.agentName ?? c.agent) : '')
+
+const ARCHIVED_COLUMNS: DataColumn<TaskCard>[] = [
+  { key: 'number', header: '#', num: true, descFirst: true, cell: (c) => <span className="task-number">#{c.number}</span>, sortValue: (c) => c.number, filter: { kind: 'text', value: (c) => `#${c.number}` } },
+  { key: 'title', header: 'Title', cell: (c) => <span className="archive-title">{c.title}</span>, sortValue: (c) => c.title, filter: { kind: 'text', value: (c) => c.title } },
+  { key: 'project', header: 'Project', cell: (c) => (c.project ? <span className="task-project">{c.project}</span> : <span className="faint">workspace</span>), sortValue: (c) => c.project || null, filter: { kind: 'choice', value: (c) => c.project || 'workspace' } },
+  {
+    key: 'labels',
+    header: 'Labels',
+    cell: (c) => (
+      <span className="archive-labels">
+        {c.labels.map((l) => (
+          <span key={l} className="task-label">
+            {l}
+          </span>
+        ))}
+      </span>
+    ),
+    sortValue: (c) => c.labels.join(', ') || null,
+    filter: { kind: 'choice', value: (c) => c.labels.join(', '), values: (c) => c.labels }
+  },
+  { key: 'agent', header: 'Agent', cell: (c) => lastAgent(c) || <span className="faint">–</span>, sortValue: (c) => lastAgent(c) || null, filter: { kind: 'text', value: lastAgent } },
+  { key: 'column', header: 'From', cell: (c) => columnLabel(c.column), sortValue: (c) => TASK_COLUMNS.findIndex((x) => x.id === c.column), filter: { kind: 'choice', value: (c) => c.column }, choiceLabel: (v) => columnLabel(v as TaskColumn) },
+  { key: 'archived', header: 'Archived', descFirst: true, cell: (c) => formatDateTime(archivedAt(c)), sortValue: (c) => archivedAt(c) },
+  { key: 'created', header: 'Created', descFirst: true, cell: (c) => formatDateTime(c.createdAt), sortValue: (c) => c.createdAt },
+  {
+    key: 'actions',
+    header: '',
+    cell: (c) => (
+      <Tooltip content={`Bring #${c.number} back to the end of ${columnLabel(c.column)}`}>
+        <button
+          className="btn small subtle"
+          onClick={(e) => {
+            e.stopPropagation()
+            void archive(c, false)
+          }}
+        >
+          Unarchive
+        </button>
+      </Tooltip>
+    )
+  }
+]
+/** In one project's view, its cards only: no project column. */
+const ARCHIVED_COLUMNS_ONE_PROJECT = ARCHIVED_COLUMNS.filter((c) => c.key !== 'project')
+
+/**
+ * The archived cards (#249): a table that sorts, filters and pages (DataTable), newest archived first. A row opens its
+ * card; Unarchive brings one back, or every selected one, to the end of the column it was archived from. The board's
+ * search narrows the rows too.
+ */
+function ArchivedTable({ cards, project, query }: { cards: TaskCard[]; project: string | null; query: string }) {
+  useDateStyle()
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [bringing, setBringing] = useState(false)
+  // Only cards still archived (and shown) stay selected.
+  const shown = useMemo(() => new Set(cards.map((c) => String(c.number))), [cards])
+  const picked = [...selected].filter((k) => shown.has(k))
+  const columns = project === null ? ARCHIVED_COLUMNS : ARCHIVED_COLUMNS_ONE_PROJECT
+  const unarchiveSelected = async (): Promise<void> => {
+    setBringing(true)
+    try {
+      for (const k of picked) {
+        const c = cards.find((x) => String(x.number) === k)
+        if (c) await archive(c, false)
+      }
+      setSelected(new Set())
+    } finally {
+      setBringing(false)
+    }
+  }
+  if (!cards.length) return <div className="empty-state">No archived cards{query ? ' match' : ''}.</div>
+  return (
+    <div className="task-archive">
+      <div className="task-archive-actions">
+        <span className="faint">
+          {cards.length} archived card{cards.length === 1 ? '' : 's'}
+          {picked.length ? ` · ${picked.length} selected` : ''}
+        </span>
+        <button className="btn small" disabled={!picked.length || bringing} onClick={() => void unarchiveSelected()}>
+          <Icon name="discard" /> Unarchive Selected{picked.length ? ` (${picked.length})` : ''}
+        </button>
+      </div>
+      <DataTable
+        id="archived-cards"
+        className="archived-cards"
+        rows={cards}
+        columns={columns}
+        rowKey={(c) => String(c.number)}
+        defaultSort={{ key: 'archived', desc: true }}
+        defaultPageSize={20}
+        empty="No archived cards."
+        onRowClick={(c) => set({ taskOpen: c.number })}
+        rowLabel={(c) => `Open #${c.number} ${c.title}`}
+        selection={{ selected, onChange: setSelected, label: (c) => `Select #${c.number}` }}
+      />
     </div>
   )
 }
@@ -476,9 +680,11 @@ export function TaskStrip({ project }: { project: ProjectInfo | null }) {
     )
   }
   const items: { label: string; n: number; tone?: string }[] = [
+    { label: 'On Hold', n: o.hold },
     { label: 'Todo', n: o.todo },
     { label: 'Doing', n: o.doing },
     { label: 'Waiting for review', n: o.review, tone: 'accent' },
+    { label: 'Passed', n: o.passed },
     { label: 'Done', n: o.done },
     { label: 'Stalled', n: o.stalled, tone: 'warning' },
     { label: 'Blocked', n: o.blocked, tone: 'error' }
@@ -501,7 +707,10 @@ export function BoardView() {
   const query = useStore((s) => s.boardQuery)
   const archived = useStore((s) => s.boardArchived)
   const workspace = useStore((s) => s.workspace)
-  useEffect(() => void loadTasks(), [workspace?.path])
+  useEffect(() => {
+    void loadTasks()
+    loadBoardFold()
+  }, [workspace?.path])
   if (!workspace) return <div className="empty-state">Open a workspace to see its task board.</div>
   return (
     <div className="board-view">
@@ -509,7 +718,7 @@ export function BoardView() {
         <h1>
           Task Board{project !== null && <span className="faint"> · {project || 'workspace cards'}</span>}
         </h1>
-        <span className="faint">Plan work as cards, start them on agents, and see where each one is. Agents put finished work in Review for you.</span>
+        <span className="faint">Plan work as cards, start them on agents, and see where each one is. Agents put finished work in Review, and reviewers move what passes to Passed.</span>
       </div>
       <BoardToolbar project={project} query={query} setQuery={(q) => set({ boardQuery: q })} archived={archived} setArchived={(v) => set({ boardArchived: v })} />
       <Board project={project} query={query} archived={archived} />
@@ -521,7 +730,10 @@ export function BoardView() {
 export function ProjectTasksTab({ project }: { project: ProjectInfo }) {
   const [query, setQuery] = useState('')
   const [archived, setArchived] = useState(false)
-  useEffect(() => void loadTasks(), [project.path])
+  useEffect(() => {
+    void loadTasks()
+    loadBoardFold()
+  }, [project.path])
   return (
     <div className="board-view in-tab">
       <BoardToolbar project={project.name} query={query} setQuery={setQuery} archived={archived} setArchived={setArchived} />

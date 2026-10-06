@@ -12,7 +12,7 @@ import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/ass
 import { timeLeft } from '../shared/progress'
 import { ProgressError, admitReport, type ProgressCaller } from './progress'
 import { progress, progressGate } from './progressService'
-import { columnLabel, isTaskColumn, reviewStalled, stalledReason } from '../shared/tasks'
+import { COLUMN_CHOICES, columnLabel, isTaskColumn, reviewStalled, stalledReason } from '../shared/tasks'
 import type { HandoverAuthor } from '../shared/hiveGuidance'
 import { newestComments, progressLabel, taskRow, withoutHistory, type ProjectRow, type SkillRow, type TaskChange, type TaskReorder, type TaskView } from '../shared/toolReplies'
 import * as assistant from './assistantControl'
@@ -1028,7 +1028,7 @@ const taskNumber = (v: string): number => {
 
 function columnParam(v: unknown): TaskColumn | undefined {
   if (v === undefined || v === null || v === '') return undefined
-  if (!isTaskColumn(v)) throw new HttpError(400, `Unknown column "${String(v)}": todo, doing, review or done.`)
+  if (!isTaskColumn(v)) throw new HttpError(400, `Unknown column "${String(v)}": ${COLUMN_CHOICES}.`)
   return v
 }
 
@@ -1126,7 +1126,7 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
 route('POST', '/v1/tasks/reorder', async ({ body }) => {
   requireWorkspace()
   const column = columnParam(body?.column)
-  if (!column) throw new HttpError(400, 'column is required: todo, doing or review')
+  if (!column) throw new HttpError(400, 'column is required: hold, todo, doing, review or passed')
   const cards = body?.cards
   const actor = await taskActor()
   const view = async (list: TaskCard[]): Promise<TaskView[] | TaskReorder> => {
@@ -1592,7 +1592,7 @@ function statusFor(e: Error): number {
   if (/already running|already open|already being opened|is starting|Stop it first|Stop the|archived|No session is running|ran in .* Resume it|is required to run|is turned off|no agents yet|No workspace|busy|no handover|changed while the cards|workspace was closed|card watches|not a conversation/i.test(m)) return 409
   if (/several agents: choose/i.test(m)) return 400
   if (/Not a project|Unknown (project|agent|task)|no longer exists/i.test(m)) return 404
-  if (/is archived|is done\.|has no project|needs a title|is too long|Unknown column|labels must|up to \d+ labels|^(blockedBy|links):|Choose a project|comment is empty|Unknown position|before or position|can't go before|, not in (Todo|Doing|Review|Done)|There is no card #|^cards:|other project first/i.test(m)) return 400
+  if (/is archived|is done\.|has no project|needs a title|is too long|Unknown column|labels must|up to \d+ labels|^(blockedBy|links):|Choose a project|comment is empty|Unknown position|before or position|can't go before|, not in (On Hold|Todo|Doing|Review|Passed|Done)|A failed review leaves|There is no card #|^cards:|other project first/i.test(m)) return 400
   return 500
 }
 

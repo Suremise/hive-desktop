@@ -44,8 +44,10 @@ describe('the session contract', () => {
     expect(agent).toMatch(/or if it is missing/)
     expect(agent).toMatch(/Working on a card: move it to doing first \(also when it is back from review\), then to review with a comment saying what you did/)
     expect(agent).toMatch(/Reviewing a card is not working on it: it stays in review with its agent/)
-    expect(agent).toMatch(/If it leaves review meanwhile, your review is over: leave the card where it is \(not back to review, not on to done\)/)
-    expect(agent).toMatch(/move a card to done only when the user asks/)
+    expect(agent).toMatch(/then failed, or passed with column passed/)
+    expect(agent).toMatch(/If it leaves review meanwhile, your review is over: leave the card where it is \(not back to review or on to passed\)/)
+    expect(agent).toMatch(/Done means merged: move a card to done only once its work is merged, or when the user asks/)
+    expect(agent).toMatch(/On hold is the user's: never move cards in or out unasked/)
     expect(agent).toMatch(/Add cards for follow-up work rather than doing it unasked/)
     expect(agent).toMatch(/use the hive tools for them, not the file system/)
   })
@@ -56,8 +58,8 @@ describe('the session contract', () => {
 
   it('stays short: the procedures are in the skills', () => {
     // Measured for #102 (2,007 characters before): a guard against procedure creeping back in, not a target. #167's
-    // hive-progress line added about 180.
-    expect(withLatestHandover(agent, 'handovers/2026-10-03-web-auth-refactor.md').length).toBeLessThan(1600)
+    // hive-progress line added about 180, #170's On Hold, Passed and Done-means-merged about 80.
+    expect(withLatestHandover(agent, 'handovers/2026-10-03-web-auth-refactor.md').length).toBeLessThan(1700)
     expect(assistant.length).toBeLessThan(400)
     for (const level of ['look', 'agents', 'projects'] as const) expect(controlRules(level).length).toBeLessThan(1200)
     const card = { number: 7, title: 'T', description: 'D', blockedBy: [], comments: [] } as unknown as TaskCard

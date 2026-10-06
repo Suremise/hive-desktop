@@ -27,7 +27,7 @@ The task board is the shared list of work. For work that needs more than one ste
 ## Start work
 
 - **A card**: `hive_start_task`, on an agent that is stopped or idle, or on a new one. The card moves to Doing before the agent gets it, and the agent moves it to Review when done.
-- **More work on a card** in Review or Done (review feedback, say): `hive_start_task` with a `note` saying what to do now. Not `hive_prompt_agent`, which leaves the card where it is.
+- **More work on a card** in Review, Passed or Done (review feedback, say): `hive_start_task` with a `note` saying what to do now. Not `hive_prompt_agent`, which leaves the card where it is.
 - **Work without a card**: `hive_prompt_agent`, idle agents only. Write the task in full: the agent sees only what you send it, so say what to do, where, what done looks like, and to report back.
 - **The user only says "move #n to Doing"**: ask which they mean. They may want nobody on it yet (`hive_update_task` with column `doing` and `agent` empty), an agent assigned without starting it (column `doing` and that agent), or an agent started on it (`hive_start_task`). Don't ask when they've said: "have Claude start this" is a start, and "assign it to Claude" is an assignment only.
 
@@ -57,4 +57,4 @@ A card's `stalled` says nobody is working on it in Doing: it has no agent, its a
 
 ## After acting
 
-Say briefly what you did. Hive allows 30 changes per message from the user; when it refuses more, say what is done and ask whether to go on. Finished work goes to Review for the user; move cards to Done only when the user asks.
+Say briefly what you did. Hive allows 30 changes per message from the user; when it refuses more, say what is done and ask whether to go on. Finished work goes to Review, and a reviewer moves what passes to Passed; Done means merged: move cards there only when the user asks. On Hold parks a card nobody should pick up: move cards in or out only when the user asks.

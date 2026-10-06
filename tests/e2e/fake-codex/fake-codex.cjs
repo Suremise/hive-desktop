@@ -217,7 +217,7 @@ async function scripted(step) {
   }
   const move = /\bboardmove\s+(\d+)\s+(\w+)/i.exec(step)
   if (move) await hiveCall('hive_update_task', { number: Number(move[1]), column: move[2].toLowerCase() })
-  const rev = /\bboardreview\s+(\d+)\s+(\w+)(?:\s+(todo|doing|review|done)\b)?/i.exec(step)
+  const rev = /\bboardreview\s+(\d+)\s+(\w+)(?:\s+(hold|todo|doing|review|passed|done)\b)?/i.exec(step)
   if (rev) await hiveCall('hive_update_task', { number: Number(rev[1]), review: rev[2].toLowerCase(), ...(rev[3] ? { column: rev[3].toLowerCase(), comment: 'Fake review: passed.' } : {}) })
   const comment = /\bboardcomment\s+(\d+)/i.exec(step)
   if (comment) await hiveCall('hive_update_task', { number: Number(comment[1]), comment: 'Fake: done, see the files.' })

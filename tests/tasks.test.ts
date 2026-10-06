@@ -1171,7 +1171,7 @@ describe('column colours', () => {
     expect(columnColor({ doing: 'red; background: url(x)' }, 'doing')).toBe(DEFAULT_COLUMN_COLORS.doing)
     expect(columnColor({ doing: '#fff' }, 'doing')).toBe(DEFAULT_COLUMN_COLORS.doing)
     expect(columnColor(undefined, 'done')).toBe(DEFAULT_COLUMN_COLORS.done)
-    expect(new Set(Object.values(DEFAULT_COLUMN_COLORS)).size).toBe(4)
+    expect(new Set(Object.values(DEFAULT_COLUMN_COLORS)).size).toBe(6)
   })
 })
 

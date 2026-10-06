@@ -14,7 +14,7 @@ The card is the brief, and the board is how the user, the Hive Assistant and oth
 1. **Read the card** with `hive_read_task`: its description, comments, links and the cards it depends on. On a long card back for more work, the description and the newest comments (`comments: 5`) usually say what is wanted now; read further back when they refer to earlier ones.
 2. **Work or review?** If you are asked to check work rather than do it, this is a review: use the review-agent-work skill and leave the card where it is.
 3. **Can it start?** Cards it depends on (`blockedBy`) that aren't done, or a question only the user can answer, block it: set `blocked` with the reason, tell the user, and don't guess.
-4. **Move it to `doing`** with `hive_update_task` before you change anything, which gives it to you. Do this also when it comes back from Review or Done.
+4. **Move it to `doing`** with `hive_update_task` before you change anything, which gives it to you. Do this also when it comes back from Review, Passed or Done. A card On Hold is parked: work on it only when the user asks.
 
 ## While working
 
@@ -25,8 +25,8 @@ The card is the brief, and the board is how the user, the Hive Assistant and oth
 ## Finish
 
 1. **Check the work**: run the project's checks that matter for this change. Note what you ran, the result, and what you didn't run, as a **run record** a reviewer can trust instead of repeating it: the checks, the exact code they ran on (the commit, and whether there were uncommitted changes; the project's notes may give a command that prints a fingerprint), each result, and where the logs are. Run long commands through `hive-progress` as Hive's session guidance says, so the Progress panel shows how far along they are.
-2. **Move it to `review`** with a comment saying what you did: what changed, how to check it, the checks and their results, and anything left open. Also when it was in Done before.
-3. **Done is the user's call.** Move it to `done` only when the user asks you to, now or as a standing instruction.
+2. **Move it to `review`** with a comment saying what you did: what changed, how to check it, the checks and their results, and anything left open. Also when it was in Passed or Done before.
+3. **Passed and Done aren't yours.** A reviewer moves a card that passes to `passed`. `done` means merged: move your card there once its work is merged (merge-ready), or when the user asks.
 
 ## Priorities
 

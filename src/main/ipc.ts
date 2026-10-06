@@ -9,6 +9,7 @@ import type { ProviderId, QuitChoice } from '../shared/types'
 import { instructionFiles, instructionsShared, shareInstructions, SHARED_INSTRUCTIONS, type InstructionsFile } from '../shared/instructions'
 import { isKnownProvider, projectProviderConfig, providerDescriptor } from '../shared/providers'
 import { isProjectPref, projectPrefValue, withProjectPref } from '../shared/uiPrefs'
+import { applyBoardFold } from '../shared/tasks'
 import { allProviders } from './providers'
 import { providerService } from './providerService'
 import { config } from './config'
@@ -244,6 +245,12 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
         ;(c.ui as Record<string, unknown>)[pref] = withProjectPref(c.ui[pref] as Record<string, unknown> | undefined, key, kept)
       })
       emit({ type: 'ui-pref-changed', pref, project: key, value: kept })
+    },
+    'ui:changeBoardFold': (change) => {
+      // This window's workspace only, applied to what is saved now: another window's folds stay as they are.
+      const ws = workspace.path
+      if (ws && change && typeof change === 'object') config.update((c) => void (c.ui.boardFold = applyBoardFold(c.ui.boardFold, ws, change)))
+      return config.get().ui.boardFold ?? {}
     },
 
     'workspace:get': () => workspace.info(),

@@ -4,7 +4,7 @@ import { mkdir, readdir } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { shell } from 'electron'
 import { projectAgents } from '../shared/defaults'
-import { isTaskColumn, sortCards } from '../shared/tasks'
+import { COLUMN_CHOICES, TASK_COLUMNS, isTaskColumn, sortCards } from '../shared/tasks'
 import { ordinal } from '../shared/toolReplies'
 import type { TaskCard, TaskColumn, TaskComment, TaskPatch } from '../shared/types'
 import { returnRound } from '../shared/watch'
@@ -234,6 +234,14 @@ function orderIn(cards: TaskCard[], column: TaskColumn, self: number | null, bef
 const OUT_OF_DONE = 'Only the user puts the cards in Done in order.'
 
 /**
+ * On Hold is the user's and the Assistant's (#170): parked work nobody picks up. A project agent (its own token) can't
+ * park a card, by a move or by creating it there; taking one out (the user asked it to work on it) is a move like any.
+ */
+function checkHold(column: TaskColumn, actor: TaskActor, n?: number): void {
+  if (column === 'hold' && actor.kind === 'agent' && actor.self) throw new TaskPermissionError(`Only the user or the Assistant puts cards On Hold: ask the user to park ${n ? `#${n}` : 'it'}.`)
+}
+
+/**
  * Where a change puts a card in `column`: before a card, at the top or bottom, or (without either) at the end. An
  * agent's or the Assistant's explicit placement is checked (the card it names has to be in the column; never in
  * Done) and, when it moves the card, says so for the history; the user's drags are saved quietly.
@@ -293,7 +301,7 @@ function placement(all: TaskCard[], card: TaskCard, column: TaskColumn, patch: T
  * Done in order. An agent's or the Assistant's list adds a line to each card it moved.
  */
 export async function reorderTasks(column: TaskColumn, numbers: unknown, actor: TaskActor): Promise<TaskCard[]> {
-  if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": todo, doing, review or done.`)
+  if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": ${COLUMN_CHOICES}.`)
   if (column === 'done' && actor.kind !== 'user') throw new TaskPermissionError(OUT_OF_DONE)
   if (!Array.isArray(numbers) || !numbers.length) throw new Error('cards: list the card numbers in the order wanted.')
   if (numbers.length > 500) throw new Error('cards: at most 500 cards at once.')
@@ -349,7 +357,7 @@ function note(card: TaskCard, by: string, what: string): void {
   card.updatedAt = at
 }
 
-const COLUMN_WORD: Record<TaskColumn, string> = { todo: 'Todo', doing: 'Doing', review: 'Review', done: 'Done' }
+const COLUMN_WORD = Object.fromEntries(TASK_COLUMNS.map((c) => [c.id, c.label])) as Record<TaskColumn, string>
 
 /** Who can return a failed card for review: its own agent (its hive tools, or the Agent API with its token) or the user. */
 const returnsCard = (actor: TaskActor, card: TaskCard): boolean => actor.kind === 'user' || (actor.kind === 'agent' && !!card.agent && actor.self?.agentId === card.agent)
@@ -362,8 +370,9 @@ export async function createTask(
   const title = text(input.title, MAX_TITLE, 'title').trim()
   if (!title) throw new Error('A task needs a title.')
   const column = input.column ?? 'todo'
-  if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": todo, doing, review or done.`)
+  if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": ${COLUMN_CHOICES}.`)
   if (column === 'done' && actor.kind !== 'user') throw new TaskPermissionError('Only the user puts cards in Done.')
+  checkHold(column, actor)
   // A confined agent's cards are its project's (by default too); never another project's or the workspace's.
   const scope = scopeOf(actor)
   const project = await projectName(scope !== null && input.project === undefined ? scope : input.project)
@@ -405,8 +414,9 @@ export async function createTask(
 }
 
 /**
- * Changes a card. Anyone moves it between columns, Done included (each move is in its history, with who made it);
- * putting Done in order is the user's. An archived card only changes once the user brings it back.
+ * Changes a card. Anyone moves it between columns, Done included (each move is in its history, with who made it),
+ * except into On Hold (the user's and the Assistant's); putting Done in order is the user's. An archived card only
+ * changes once the user brings it back.
  */
 /**
  * Changes a card. `comment` is the same call's comment (the hive tools' and PATCH's): saved with the change in one write,
@@ -428,10 +438,10 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
     // anything else in the change (giving it to itself in the same call doesn't get round it). A project agent is one
     // calling with its own token (actor.self); the user, the Assistant and scripts with the workspace token can.
     // A review verdict or start is refused on a card in Doing anyway (reviewChange), with its own reason.
-    const moving = patch.review === undefined && (patch.column === 'review' || patch.column === 'done')
+    const moving = patch.review === undefined && (patch.column === 'review' || patch.column === 'passed' || patch.column === 'done')
     if (actor.kind === 'agent' && actor.self && moving && card.column === 'doing' && card.agent && card.agent !== actor.self.agentId) {
       const who = card.agentName ?? 'another agent'
-      throw new TaskConflictError(`#${n} is in Doing with ${who}, who is working on it: newer work is in progress, so it can't be moved to ${patch.column === 'done' ? 'Done' : 'Review'} by another agent. Leave it where it is; ${who} moves it to Review when done, and the user can move it.`)
+      throw new TaskConflictError(`#${n} is in Doing with ${who}, who is working on it: newer work is in progress, so it can't be moved to ${COLUMN_WORD[patch.column!]} by another agent. Leave it where it is; ${who} moves it to Review when done, and the user can move it.`)
     }
     const said: string[] = []
     // Whether a move to Review returns a failed card for review (#214): decided on the card as it is before this change,
@@ -491,7 +501,8 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
     const reviewed = patch.review !== undefined && (await reviewChange(card, patch, actor, said))
     if (patch.column !== undefined || patch.before !== undefined || patch.position !== undefined) {
       const column = patch.column ?? card.column
-      if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": todo, doing, review or done.`)
+      if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": ${COLUMN_CHOICES}.`)
+      if (column !== card.column) checkHold(column, actor, n)
       const all = await allTasks(ws)
       const place = placement(all, card, column, patch, actor)
       if (column !== card.column) said.push(place.said ?? `Moved to ${COLUMN_WORD[column]}`)
@@ -564,6 +575,8 @@ async function reviewChange(card: TaskCard, patch: TaskPatch, actor: TaskActor, 
     return true
   }
   if (patch.review !== 'passed' && patch.review !== 'failed') throw new Error(`Unknown review "${String(patch.review)}": start, passed or failed.`)
+  // A failed card stays in Review for its fixes: never on to Passed or Done with its verdict.
+  if (patch.review === 'failed' && patch.column !== undefined && patch.column !== 'review') throw new Error(`A failed review leaves #${card.number} in Review: give the verdict without column.`)
   if (card.review && card.review.agent !== me) throw new Error(`${card.review.agentName} is reviewing #${card.number}: its verdict is its own.`)
   if (!card.review || card.column !== 'review') {
     throw new Error(`You aren't reviewing #${card.number} now: its review ended (the card moved, or your session ended) or never started. Start one with review "start" if it is in Review.`)
