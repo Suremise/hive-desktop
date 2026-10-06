@@ -4,7 +4,7 @@
  * series of the report, and their totals. Pure, so both entries share it and tests can check it. A project scope's
  * report holds only that project's part: nothing here can widen it.
  */
-import { emptyTimed, mergeTimed, percentile, type ApiSeries, type CatalogSeries, type GuidanceSeries, type McpSeries, type MetricsPart, type MetricsQuery, type MetricsReport, type MetricsScope, type ProviderUsageSummary, type Timed } from './metrics'
+import { LATENCY_BOUNDS_MS, emptyTimed, mergeTimed, percentile, type ApiSeries, type CatalogSeries, type GuidanceSeries, type McpSeries, type MetricsPart, type MetricsQuery, type MetricsReport, type MetricsScope, type ProviderUsageSummary, type Timed } from './metrics'
 
 export type PerfRange = '24h' | '7d' | '30d'
 export const PERF_RANGES: { value: PerfRange; label: string; ms: number }[] = [
@@ -244,6 +244,16 @@ export function providersIn(r: MetricsReport, chosen = ''): string[] {
   for (const part of partsOf(r, '')) for (const g of part.guidance) ids.add(g.provider)
   if (chosen) ids.add(chosen)
   return [...ids].filter((p) => p !== '(other)').sort()
+}
+
+/**
+ * A latency percentile as a table sorts it (#305): the percentile, or, when it is past the histogram's last bound
+ * (percentile() gives null although there were measurements: shown as "> 10 s"), just past that bound, so it sorts as
+ * the slowest; null only with no measurements, which sort last either way.
+ */
+export function latencyOrder(value: number | null, count: number): number | null {
+  if (value !== null) return value
+  return count > 0 ? LATENCY_BOUNDS_MS.at(-1)! + 1 : null
 }
 
 /** Whether there is anything to show for the selection (else the page says nothing was recorded). */

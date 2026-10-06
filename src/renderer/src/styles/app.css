@@ -4209,6 +4209,20 @@ body.pane-resizing .monaco-editor {
   font-weight: 600;
   border-bottom: none;
 }
+/* Antivirus scanning (components/Antivirus.tsx, #316): Settings → Workspace's status and Performance's line. */
+.antivirus-scan,
+.antivirus-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.antivirus-folders td:first-child .mono {
+  margin-left: 4px;
+}
+.perf-antivirus a {
+  cursor: pointer;
+}
 .storage-actions {
   display: flex;
   align-items: center;
