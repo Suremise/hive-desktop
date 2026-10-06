@@ -31,6 +31,26 @@ const until = async (fn, ms = 10000) => {
   while (!(v = await fn()) && Date.now() - t < ms) await lib.sleep(200)
   return v
 }
+/**
+ * Gives an element the keyboard for a key press. Showing an agent (or its project) focuses its terminal, more than
+ * once and late: in the frame its view is shown (TerminalView; a quiet test window off screen draws its frames late),
+ * and while its pane flashes (flashPane tries every 50 ms until the terminal is on screen, for up to a second). On a
+ * busy machine such a focus could land after the test had moved the keyboard, and the key went to the terminal (#280).
+ * So wait until no pane flashes and for the window's next frame, then focus, and check it still has the keyboard a
+ * frame later.
+ */
+const focusForKeys = async (page, locator) => {
+  // A frame, or 2 s if the window draws none meanwhile.
+  const frame = () => page.evaluate(() => new Promise((r) => (requestAnimationFrame(() => setTimeout(r, 0)), setTimeout(r, 2000))))
+  if (!(await until(async () => (await page.locator('.agent-pane.flash, .assistant-panel.flash').count()) === 0, 5000))) throw new Error('a pane still flashes')
+  const ok = await until(async () => {
+    await frame()
+    await locator.focus()
+    await frame()
+    return locator.evaluate((el) => el === document.activeElement)
+  }, 5000)
+  if (!ok) throw new Error('could not give it the keyboard')
+}
 /** The last taskbar call for the workspace. */
 const taskbar = () => {
   if (!fs.existsSync(taskbarLog)) return null
@@ -151,7 +171,7 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   await page.keyboard.press('Enter')
   check('Enter shows its agent (Betty, in beta)', !!(await until(async () => (await shownProject()) === 'beta')), await shownProject())
   check('back to alpha', await toAlpha())
-  await show2.focus()
+  await focusForKeys(page, show2)
   await page.keyboard.press('Space')
   check('Space does too', !!(await until(async () => (await shownProject()) === 'beta')), await shownProject())
   check('back to alpha', await toAlpha())
@@ -170,7 +190,7 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   await details2.locator('button', { hasText: 'Show the agent' }).click()
   check('"Show the agent" in the details shows Betty, in beta', !!(await until(async () => (await shownProject()) === 'beta')), await shownProject())
   check("…with Betty's terminal taking the keyboard", !!(await until(async () => page.evaluate((key) => document.activeElement?.closest(".terminal-host")?.dataset.pty === key, lib.ptyKey(beta, betty.id)), 2000)))
-  await row2.locator('button.progress-details-toggle').focus()
+  await focusForKeys(page, row2.locator('button.progress-details-toggle'))
   await page.keyboard.press('Escape')
   check('Escape closes the details', !!(await until(async () => (await details2.count()) === 0)))
   check('back to alpha', await toAlpha())
@@ -222,7 +242,7 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   check('…right-aligned, after the time', !!recentBox && !!tookBox && !!chevBox && chevBox.x >= tookBox.x + tookBox.width - 1 && recentBox.x + recentBox.width - (chevBox.x + chevBox.width) < 12, JSON.stringify({ recentBox, tookBox, chevBox }))
   const runChevron = panel.locator('.progress-run button.progress-details-toggle').first()
   check("…as a run's row has", (await runChevron.count()) === 0 || (await runChevron.locator('.codicon-chevron-down, .codicon-chevron-up').count()) === 1)
-  await recent2.focus()
+  await focusForKeys(page, recent2)
   await page.keyboard.press('Enter')
   const recentDetails = panel.locator(`.progress-recent-item[data-run="${run2}"] .progress-details`)
   check('Enter on it opens its details', !!(await until(async () => (await recentDetails.count()) === 1)))
