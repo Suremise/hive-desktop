@@ -72,7 +72,7 @@ import type {
 } from './types'
 import type { MetricsQuery, MetricsReport } from './metrics'
 import type { Artifact, CompareScope, ImportResult, KeptEntry } from './benchmark'
-import type { TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
+import type { AgentTemplate, TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
 import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
 import type { TipsChange, TipsState } from './tips'
 import type { BoardFoldChange } from './tasks'
@@ -304,13 +304,15 @@ export interface HiveRequests {
   /** What loading a template would do, and what stops it now. `from`: the project a project's template is kept in, if not this one. */
   'templates:plan': (projectPath: string, scope: TemplateScope, file: string, from?: string) => TemplateLoadPlan
   /** Replaces the project's agents and layout with a template's; `expected` is the agents' ids as the user saw them. */
-  'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string) => { created: string[]; removed: string[] }
+  'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }) => { created: string[]; removed: string[]; oldWorktrees: { branch: string; removed: boolean; why?: string }[] }
   /** Adds one agent of a template (the `index`-th), the others left alone. */
-  'templates:addAgent': (projectPath: string, scope: TemplateScope, file: string, index: number, from?: string) => AgentDef
+  'templates:addAgent': (projectPath: string, scope: TemplateScope, file: string, index: number, from?: string) => AgentDef & { reused?: true }
   /** Every template of the workspace (#127, the Templates view): the workspace's, then each project's. */
   'templates:all': () => TemplateEntry[]
   /** Renames a template where it is kept (another of that name there refuses it). */
   'templates:rename': (ref: TemplateRef, name: string) => TemplateEntry
+  /** An edited template (#271), saved where it is kept; `savedAt`: as it was when the editor opened it. */
+  'templates:update': (ref: TemplateRef, edited: Pick<AgentTemplate, 'name' | 'description' | 'layout' | 'agents'>, savedAt: string | null) => TemplateEntry
   /** Copies a template into the workspace or a project; a name taken there gets a number ("Pair (2)"). */
   'templates:duplicate': (ref: TemplateRef, to: TemplateDest) => TemplateEntry
   /** Deletes a template (to the Recycle Bin). */

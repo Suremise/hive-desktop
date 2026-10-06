@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
-import { MAX_AGENTS, ROLE_MAX, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { DEFAULT_PROJECT_CONFIG, MAX_AGENTS, ROLE_MAX, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
 import { PROVIDERS, agentProvider, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerSettings } from '@shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId } from '@shared/types'
+import type { TemplateAgent } from '@shared/templates'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { agentProviderOf, confirm, focusAfterRemoving, notify, projectKey, set, setActivity, showAgent, useStore } from '../store'
@@ -74,7 +75,8 @@ export function Overrides({
   inherit = "Project's"
 }: {
   inherit?: string
-  project: ProjectInfo
+  /** Whose settings an empty choice follows: the project's (a template's agent: the project it may be loaded into, or none). */
+  project: Pick<ProjectInfo, 'config'>
   provider: ProviderId
   model: string
   effort: string
@@ -368,89 +370,90 @@ export function AddAgentDialog() {
 // Agent settings
 // ---------------------------------------------------------------------------
 
-/** Roles to suggest (#126): the usual ones, then those the project's agents already have. */
-function roleSuggestions(project: ProjectInfo): string[] {
+/** Roles to suggest (#126): the usual ones, then those the agents already have (a project's, or a template's). */
+function roleSuggestions(agents: readonly { role?: string }[]): string[] {
   const out = ['builder', 'reviewer']
-  for (const a of project.agents) if (a.role && !out.some((r) => r.toLowerCase() === a.role!.toLowerCase())) out.push(a.role)
+  for (const a of agents) if (a.role && !out.some((r) => r.toLowerCase() === a.role!.toLowerCase())) out.push(a.role)
   return out
 }
 
-export function AgentSettingsDialog() {
-  const target = useStore((s) => s.agentSettingsFor)
-  const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.agentSettingsFor?.project) ?? null)
-  const agent = project?.agents.find((a) => a.id === target?.agentId) ?? null
-  const [name, setName] = useState('')
-  const [role, setRole] = useState('')
-  const [model, setModel] = useState('')
-  const [effort, setEffort] = useState('')
-  const [permission, setPermission] = useState('')
-  const [context, setContext] = useState<ContextChoice>('')
-  const settings = useStore((s) => s.settings)
-  const current = project && agent ? (agent.live?.provider ?? agentProvider(agent, project.config, settings)) : ''
-  const [provider, setProvider] = useState<ProviderId>(current)
+/** What the Agent Settings dialog edits: a project's agent, or a template's (#271), alike. */
+interface AgentFields {
+  name: string
+  role: string
+  provider: ProviderId
+  model: string
+  effort: string
+  permission: string
+  context: ContextChoice
+  /** A template's agent: its own worktree (true) or the project folder. */
+  worktree: boolean
+}
+
+/**
+ * The Agent Settings dialog (#126, #271): name, role, where it works, coding agent, model, effort, mode and context.
+ * `works`: what the agent works in, shown (a project's agent), or `choice` to pick it (a template's: its own worktree or
+ * the project folder). `providerLocked`: why the coding agent can't change now (a running agent). `config`: whose
+ * settings an empty choice follows. `nameProblem`: why a name can't be used. `confirmSave`: asked first (false keeps it
+ * open); `save` runs with the dialog open, a failure staying in it.
+ */
+function AgentSettingsModal({
+  title,
+  resetKey,
+  initial,
+  config,
+  roles,
+  works,
+  providerLocked,
+  note,
+  nameProblem,
+  confirmSave,
+  save,
+  onClose
+}: {
+  title: string
+  resetKey: string
+  initial: AgentFields
+  config: Pick<ProjectInfo, 'config'>
+  roles: string[]
+  works: ReactNode | 'choice'
+  providerLocked?: ReactNode
+  note?: ReactNode
+  nameProblem?: (name: string) => string | null
+  confirmSave?: (f: AgentFields) => Promise<boolean>
+  save: (f: AgentFields) => Promise<void>
+  onClose: () => void
+}) {
+  const [f, setF] = useState<AgentFields>(initial)
   const action = useBusy()
   useEffect(() => {
     action.setError(null)
-    setName(agent?.name ?? '')
-    setRole(agent?.role ?? '')
-    setModel(agent?.model ?? '')
-    setEffort(agent?.effort ?? '')
-    setPermission(agent?.permissionMode ?? '')
-    setContext(contextChoice(agent?.use200kContext))
-    setProvider(current)
+    setF(initial)
     // Reset when another agent's dialog opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target?.project, target?.agentId])
-  if (!target || !project || !agent) return null
-  const close = (): void => set({ agentSettingsFor: null })
-  const changed = provider !== current
-  const chooseProvider = (v: ProviderId): void => {
-    setProvider(v)
-    if (v !== provider) {
-      setModel('')
-      setEffort('')
-      setPermission('')
-      setContext('')
-    }
+  }, [resetKey])
+  const put = (patch: Partial<AgentFields>): void => setF((x) => ({ ...x, ...patch }))
+  const chooseProvider = (v: ProviderId): void => put(v !== f.provider ? { provider: v, model: '', effort: '', permission: '', context: '' } : { provider: v })
+  const problem = !f.name.trim() ? 'Enter a name.' : (nameProblem?.(f.name.trim()) ?? null)
+  const submit = async (): Promise<void> => {
+    if (problem) return
+    if (confirmSave && !(await confirmSave(f))) return
+    if (await action.run('save', () => save(f))) onClose()
   }
-  const save = async (): Promise<void> => {
-    if (changed) {
-      const ok = await confirm({
-        title: `Switch ${agent.name} to ${providerDescriptor(provider).name}?`,
-        message: `Its conversations stay in the Sessions tab, but ${providerDescriptor(provider).name} can't resume ${providerDescriptor(current).name} conversations, so ${agent.name} starts fresh next time.`,
-        detail: 'To carry the work over, ask the agent for a handover before switching (Hive MCP: hive_create_handover), then ask the new agent to read it.',
-        confirmLabel: 'Switch'
-      })
-      if (!ok) return
-    }
-    if (permission && permission !== agent.permissionMode && !(await confirmDangerousMode(provider, permission, agent.name))) return
-    const ok = await action.run('save', async () => {
-      await call('agents:update', project.path, agent.id, {
-        name,
-        role,
-        ...(changed ? { provider } : {}),
-        model: model || undefined,
-        effort: (effort || undefined) as EffortLevel | undefined,
-        permissionMode: (permission || undefined) as PermissionMode | undefined,
-        use200kContext: contextValue(context)
-      })
-      await actions.refreshWorkspace()
-    })
-    if (ok) close()
-  }
+  const enter = (e: React.KeyboardEvent): void => void (e.key === 'Enter' && submit())
   return (
     <Modal
-      title={`${agent.name} settings`}
+      title={title}
       icon="settings"
-      onClose={close}
+      onClose={onClose}
       busy={!!action.busy}
       error={action.error}
       footer={
         <>
-          <button className="btn subtle" onClick={close}>
+          <button className="btn subtle" onClick={onClose}>
             Cancel
           </button>
-          <BusyButton className="primary" disabled={!name.trim()} busy={action.busy === 'save'} busyLabel="Saving…" onClick={() => void save()}>
+          <BusyButton className="primary" disabled={!!problem} busy={action.busy === 'save'} busyLabel="Saving…" onClick={() => void submit()}>
             Save
           </BusyButton>
         </>
@@ -458,48 +461,159 @@ export function AgentSettingsDialog() {
     >
       <div className="agent-form">
         <label>Name</label>
-        <input className="input" value={name} autoFocus onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && void save()} />
-        {/* What the agent is for, saved in templates (#126): free text, suggesting the usual ones and the project's. */}
+        <input className="input" aria-label="Name" value={f.name} maxLength={60} autoFocus onChange={(e) => put({ name: e.target.value })} onKeyDown={enter} />
+        {problem && f.name.trim() && <div className="field-error span2">{problem}</div>}
+        {/* What the agent is for, saved in templates (#126): free text, suggesting the usual ones and the agents' own. */}
         <label htmlFor="agent-role">Role</label>
-        <input
-          id="agent-role"
-          className="input"
-          value={role}
-          maxLength={ROLE_MAX}
-          placeholder={`None (its name: ${name.trim() || agent.name})`}
-          list="agent-role-suggestions"
-          onChange={(e) => setRole(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && name.trim() && void save()}
-        />
+        <input id="agent-role" className="input" value={f.role} maxLength={ROLE_MAX} placeholder={`None (its name: ${f.name.trim() || initial.name})`} list="agent-role-suggestions" onChange={(e) => put({ role: e.target.value })} onKeyDown={enter} />
         <datalist id="agent-role-suggestions">
-          {roleSuggestions(project).map((r) => (
+          {roles.map((r) => (
             <option key={r} value={r} />
           ))}
         </datalist>
         <label>Works in</label>
-        <div className="muted">
-          {agent.worktree ? (
-            <>
-              Worktree on <code>{agent.worktree.branch}</code> (from {agent.worktree.base})
-              <div className="faint">{agent.worktree.path}</div>
-            </>
-          ) : (
-            'The project folder'
-          )}
-        </div>
+        {works === 'choice' ? (
+          <div className="segmented works-in" role="radiogroup" aria-label="Works in">
+            <button type="button" role="radio" aria-checked={f.worktree} className={cx(f.worktree && 'active')} onClick={() => put({ worktree: true })}>
+              <Icon name="worktree" /> Its own worktree
+            </button>
+            <button type="button" role="radio" aria-checked={!f.worktree} className={cx(!f.worktree && 'active')} onClick={() => put({ worktree: false })}>
+              <Icon name="folder" /> The project folder
+            </button>
+          </div>
+        ) : (
+          <div className="muted">{works}</div>
+        )}
       </div>
       <h3 className="agent-dialog-h">Coding agent</h3>
-      {agent.live ? (
-        <div className="muted flex">
-          <ProviderIcon provider={current} /> {providerDescriptor(current).name} <span className="faint">— stop {agent.name} to change it</span>
-        </div>
-      ) : (
-        <ProviderChoice value={provider} current={current} onChange={chooseProvider} />
-      )}
+      {providerLocked ?? <ProviderChoice value={f.provider} current={initial.provider} onChange={chooseProvider} />}
       <h3 className="agent-dialog-h">Settings</h3>
-      <Overrides project={project} provider={provider} model={model} effort={effort} permission={permission} context={context} onModel={setModel} onEffort={setEffort} onPermission={setPermission} onContext={setContext} />
-      {agent.live && <div className="detail">Changes apply the next time {agent.name} starts; the running session keeps its settings until then.</div>}
+      <Overrides
+        project={config}
+        provider={f.provider}
+        model={f.model}
+        effort={f.effort}
+        permission={f.permission}
+        context={f.context}
+        onModel={(model) => put({ model })}
+        onEffort={(effort) => put({ effort })}
+        onPermission={(permission) => put({ permission })}
+        onContext={(context) => put({ context })}
+      />
+      {note && <div className="detail">{note}</div>}
     </Modal>
+  )
+}
+
+export function AgentSettingsDialog() {
+  const target = useStore((s) => s.agentSettingsFor)
+  const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.agentSettingsFor?.project) ?? null)
+  const agent = project?.agents.find((a) => a.id === target?.agentId) ?? null
+  const settings = useStore((s) => s.settings)
+  if (!target || !project || !agent) return null
+  const current = agent.live?.provider ?? agentProvider(agent, project.config, settings)
+  const close = (): void => set({ agentSettingsFor: null })
+  const initial: AgentFields = { name: agent.name, role: agent.role ?? '', provider: current, model: agent.model ?? '', effort: agent.effort ?? '', permission: agent.permissionMode ?? '', context: contextChoice(agent.use200kContext), worktree: !!agent.worktree }
+  return (
+    <AgentSettingsModal
+      title={`${agent.name} settings`}
+      resetKey={`${target.project}|${target.agentId}`}
+      initial={initial}
+      config={project}
+      roles={roleSuggestions(project.agents)}
+      works={
+        agent.worktree ? (
+          <>
+            Worktree on <code>{agent.worktree.branch}</code> (from {agent.worktree.base})
+            <div className="faint">{agent.worktree.path}</div>
+          </>
+        ) : (
+          'The project folder'
+        )
+      }
+      providerLocked={
+        agent.live ? (
+          <div className="muted flex">
+            <ProviderIcon provider={current} /> {providerDescriptor(current).name} <span className="faint">— stop {agent.name} to change it</span>
+          </div>
+        ) : undefined
+      }
+      note={agent.live ? `Changes apply the next time ${agent.name} starts; the running session keeps its settings until then.` : undefined}
+      confirmSave={async (f) => {
+        if (f.provider !== current) {
+          const ok = await confirm({
+            title: `Switch ${agent.name} to ${providerDescriptor(f.provider).name}?`,
+            message: `Its conversations stay in the Sessions tab, but ${providerDescriptor(f.provider).name} can't resume ${providerDescriptor(current).name} conversations, so ${agent.name} starts fresh next time.`,
+            detail: 'To carry the work over, ask the agent for a handover before switching (Hive MCP: hive_create_handover), then ask the new agent to read it.',
+            confirmLabel: 'Switch'
+          })
+          if (!ok) return false
+        }
+        return !(f.permission && f.permission !== agent.permissionMode && !(await confirmDangerousMode(f.provider, f.permission, agent.name)))
+      }}
+      save={async (f) => {
+        await call('agents:update', project.path, agent.id, {
+          name: f.name,
+          role: f.role,
+          ...(f.provider !== current ? { provider: f.provider } : {}),
+          model: f.model || undefined,
+          effort: (f.effort || undefined) as EffortLevel | undefined,
+          permissionMode: (f.permission || undefined) as PermissionMode | undefined,
+          use200kContext: contextValue(f.context)
+        })
+        await actions.refreshWorkspace()
+      }}
+      onClose={close}
+    />
+  )
+}
+
+/**
+ * The same dialog for a template's agent (#271), from the template editor: what it saves goes back to the editor (the
+ * template is saved there). An empty choice stays empty in the template (it follows the project it is loaded into).
+ */
+export function TemplateAgentDialog() {
+  const req = useStore((s) => s.templateAgentFor)
+  const settings = useStore((s) => s.settings)
+  const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.templateAgentFor?.project) ?? null)
+  // The agent as saved, for when the dialog closes (null: cancelled).
+  const result = useRef<TemplateAgent | null>(null)
+  if (!req) return null
+  const a = req.agent
+  const close = (answer: TemplateAgent | null): void => {
+    set({ templateAgentFor: null })
+    req.resolve(answer)
+    result.current = null
+  }
+  const provider = a?.provider ?? projectDefaultProvider(project?.config ?? DEFAULT_PROJECT_CONFIG, settings)
+  const initial: AgentFields = { name: a?.name ?? req.suggestedName, role: a?.role ?? '', provider, model: a?.model ?? '', effort: a?.effort ?? '', permission: a?.permissionMode ?? '', context: contextChoice(a?.use200kContext), worktree: a?.worktree ?? false }
+  return (
+    <AgentSettingsModal
+      title={a ? `${a.name} settings (template)` : 'New agent (template)'}
+      resetKey={`${req.key}`}
+      initial={initial}
+      config={project ?? { config: DEFAULT_PROJECT_CONFIG }}
+      roles={roleSuggestions(req.others)}
+      works="choice"
+      note={`For the template "${req.template}": saved when you save the template. Settings left as "Project's" follow the project it is loaded into.`}
+      nameProblem={(n) => (req.others.some((o) => o.name.toLowerCase() === n.toLowerCase()) ? `Another agent of the template is called "${n}".` : null)}
+      confirmSave={async (f) => !(f.permission && f.permission !== a?.permissionMode && !(await confirmDangerousMode(f.provider, f.permission, f.name.trim())))}
+      save={async (f) => {
+        const role = f.role.replace(/\s+/g, ' ').trim()
+        const ctx = contextValue(f.context)
+        result.current = {
+          name: f.name.replace(/\s+/g, ' ').trim(),
+          ...(role ? { role } : {}),
+          provider: f.provider,
+          ...(f.model ? { model: f.model } : {}),
+          ...(f.effort ? { effort: f.effort as EffortLevel } : {}),
+          ...(f.permission ? { permissionMode: f.permission as PermissionMode } : {}),
+          ...(ctx !== null ? { use200kContext: ctx } : {}),
+          worktree: f.worktree
+        }
+      }}
+      onClose={() => close(result.current)}
+    />
   )
 }
 

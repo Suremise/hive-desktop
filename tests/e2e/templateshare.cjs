@@ -4,7 +4,9 @@
 // Export… to a test folder (nothing personal in the file), Import… of that file (where to keep it; a name clash offers
 // Keep Both), an invalid file refused with the reason, and Delete. A project's Templates tab lists its own and the
 // workspace's with their scopes, and loads into that project. Screenshots and reachability at 1700 and 900 px in both
-// themes. The file dialogs and the Recycle Bin are answered in main (never the real ones). Agents use the fake Claude
+// themes. #271: Edit… in the view (name, description, layout; an agent changed in the Agent Settings dialog, one added
+// (a taken name refused), moved, one removed), saved, then loaded: exactly those agents. The file dialogs and the
+// Recycle Bin are answered in main (never the real ones). Agents use the fake Claude
 // Code (fake-claude/), never started. Dev build, throwaway profile and workspace; a quiet test copy.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -203,6 +205,87 @@ const check = (name, ok, extra = '') => {
     await shot(`view-900-${theme}`)
   }
   await inv('settings:update', { appearance: { theme: 'dark' } })
+
+  // --- #271: Edit… a template in the view: its name, description and layout; Reviewer changed in the Agent Settings
+  // dialog (a role, its own worktree), Tester added (a name taken refused), moved up, Builder removed; saved, then loaded
+  // into beta: exactly those agents, in that order, with that layout. Both themes.
+  await lib.fitWindow(app, page, { width: 1700, height: 900 })
+  await sidebar.locator('.template-row[aria-label="Team"]').first().click()
+  await detail.getByRole('button', { name: 'Edit…' }).click()
+  const editor = page.locator('.main-area > .tab-body .template-editor')
+  await editor.waitFor({ timeout: 5000 })
+  check('Edit… opens the editor with its agents', JSON.stringify(await editor.locator('tbody tr').evaluateAll((rows) => rows.map((r) => r.dataset.agent))) === '["Builder","Reviewer"]')
+  await editor.locator('#template-name').fill('Team edited')
+  await editor.locator('#template-description').fill('Builds, then reviews.')
+  await editor.locator('#template-layout').selectOption('columns3')
+  await editor.locator('[aria-label="Edit Reviewer…"]').click()
+  const agentDialog = page.locator('.dialog', { hasText: 'Reviewer settings (template)' })
+  await agentDialog.waitFor({ timeout: 5000 })
+  check('…each agent in the Agent Settings dialog (template mode: where it works is a choice)', (await agentDialog.locator('[role="radiogroup"][aria-label="Works in"]').count()) === 1 && (await agentDialog.locator('.provider-choice').count()) === 1)
+  await agentDialog.locator('#agent-role').fill('checker')
+  await agentDialog.getByRole('radio', { name: 'Its own worktree' }).click()
+  await shot('edit-agent-dialog')
+  await agentDialog.getByRole('button', { name: 'Save' }).click()
+  await lib.until(async () => (await agentDialog.count()) === 0, 3000)
+  await editor.getByRole('button', { name: 'Add Agent…' }).click()
+  const newAgent = page.locator('.dialog', { hasText: 'New agent (template)' })
+  await newAgent.waitFor({ timeout: 5000 })
+  await newAgent.locator('input[aria-label="Name"]').fill('reviewer')
+  check('…a name another agent of the template has is refused', (await newAgent.getByRole('button', { name: 'Save' }).isDisabled()) && /Another agent of the template is called "reviewer"/.test(await newAgent.innerText()))
+  await newAgent.locator('input[aria-label="Name"]').fill('Tester')
+  await newAgent.getByRole('button', { name: 'Save' }).click()
+  await lib.until(async () => (await newAgent.count()) === 0, 3000)
+  await editor.locator('[aria-label="Move Tester up"]').click()
+  await editor.locator('[aria-label="Remove Builder"]').click()
+  const editedRows = await editor.locator('tbody tr').evaluateAll((rows) => rows.map((r) => r.dataset.agent))
+  check('…added, moved and removed in the editor', JSON.stringify(editedRows) === '["Tester","Reviewer"]', JSON.stringify(editedRows))
+  for (const theme of ['dark', 'light']) {
+    await inv('settings:update', { appearance: { theme } })
+    await lib.sleep(300)
+    await shot(`editor-${theme}`)
+  }
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await editor.getByRole('button', { name: 'Save Template' }).click()
+  const teamFile = path.join(wsTemplates, 'pair.json')
+  const savedTeam = await lib.until(async () => {
+    const j = JSON.parse(fs.readFileSync(teamFile, 'utf8'))
+    return j.name === 'Team edited' ? j : null
+  }, 5000)
+  check('Save Template writes it where it is kept: name, description, layout and the agents in order', !!savedTeam && savedTeam.description === 'Builds, then reviews.' && savedTeam.layout === 'columns3' && JSON.stringify(savedTeam.agents.map((a) => [a.name, a.role ?? '', a.worktree])) === '[["Tester","",false],["Reviewer","checker",true]]', JSON.stringify(savedTeam))
+  check('…and the view shows it again, with its description', !!(await lib.until(async () => (await detail.count()) === 1 && /Builds, then reviews\./.test(await detail.innerText()), 5000)))
+  await detail.getByRole('button', { name: 'Load into Project…' }).click()
+  await dialog.locator('select').selectOption({ label: 'beta' })
+  await dialog.getByRole('button', { name: 'Continue' }).click()
+  const loadEdited = page.locator('.dialog', { hasText: 'Load "Team edited"?' })
+  await loadEdited.waitFor({ timeout: 5000 })
+  await loadEdited.getByRole('button', { name: 'Load template' }).click()
+  check('loaded into beta: exactly those agents, in order, with that layout', !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => [a.name, a.role ?? '', !!a.worktree])) === '[["Tester","",false],["Reviewer","checker",true]]', 15000)) && projectCfg(beta).layout === 'columns3', JSON.stringify(projectCfg(beta).agents))
+  // A save made while the editor is open is never overwritten (#271): the draft (a new name) is open; "Team edited" is
+  // changed on disk (a description) and the editor's own list refreshes (another template saved, from the palette).
+  // The editor says so; Save is refused, keeping both the draft and the change; Discard and Reload shows the change.
+  await detail.getByRole('button', { name: 'Edit…' }).click()
+  await editor.waitFor({ timeout: 5000 })
+  await editor.locator('#template-name').fill('Local draft')
+  const onDisk = JSON.parse(fs.readFileSync(teamFile, 'utf8'))
+  fs.writeFileSync(teamFile, JSON.stringify({ ...onDisk, description: 'external change must survive', savedAt: new Date(Date.now() + 1000).toISOString() }, null, 2))
+  await page.evaluate(() => document.activeElement?.blur())
+  await page.keyboard.press('Control+Shift+P')
+  await page.locator('.palette input').fill('Save Agents as Template')
+  await lib.sleep(300)
+  await page.keyboard.press('Enter')
+  await dialog.locator('input.input').waitFor({ timeout: 5000 })
+  await dialog.locator('input.input').fill('Bump')
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  check('the editor says the template was saved again meanwhile', !!(await lib.until(async () => (await editor.locator('.template-stale').count()) === 1, 8000)))
+  await editor.getByRole('button', { name: 'Save Template' }).click()
+  check('…Save is refused, saying why', !!(await lib.until(async () => /changed since you started editing it/.test(await editor.innerText()), 5000)), await editor.innerText())
+  const kept = JSON.parse(fs.readFileSync(teamFile, 'utf8'))
+  check('…the change made meanwhile survives', kept.description === 'external change must survive' && kept.name === 'Team edited', JSON.stringify(kept))
+  check('…and the draft is still open', (await editor.locator('#template-name').inputValue()) === 'Local draft')
+  await shot('editor-stale')
+  await editor.getByRole('button', { name: 'Discard and Reload' }).click()
+  await page.locator('.dialog', { hasText: 'Discard your changes?' }).getByRole('button', { name: 'Discard' }).click()
+  check('Discard and Reload shows it as it is now', !!(await lib.until(async () => (await editor.count()) === 0 && /external change must survive/.test(await detail.innerText()), 5000)))
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
