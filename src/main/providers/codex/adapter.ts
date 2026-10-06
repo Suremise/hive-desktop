@@ -83,7 +83,10 @@ const ACTION_REQUIRED_SINCE = '0.160.0'
  * startup spinner only comes after (#235). Matched positively, so no part of "loading" (output can end anywhere) counts.
  */
 export const CODEX_LOADED = /OpenAI Codex\s+\(v[^)]*\)[\s│]+(?:~|[A-Za-z]:|[\\/])/
-/** Codex's own terminal title items, set for Hive's sessions so a user's [tui].terminal_title can't hide "Action Required". */
+/**
+ * Codex's own terminal title items, set for Hive's sessions and its sandbox setup so a user's [tui].terminal_title
+ * can't hide "Action Required" or the busy spinner.
+ */
 const TITLE_ITEMS = ['activity', 'project-name']
 
 type HookEvent = 'SessionStart' | 'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'PermissionRequest' | 'Stop' | 'Interrupt' | 'PreCompact' | 'PostCompact' | 'SessionEnd'
@@ -431,7 +434,8 @@ export class CodexAdapter implements ProviderAdapter {
   setupCommand(executable: string): CommandSpec {
     const dir = join(tmpdir(), 'hive-codex-setup')
     mkdirSync(dir, { recursive: true })
-    const s = toSpawnable(executable, ['--no-daemon', '-C', dir, '-c', `projects=${toToml({ [dir]: { trust_level: 'trusted' } })}`, ...CODEX_MODE_FLAGS['read-only']])
+    // The title items are pinned as for sessions: the busy wait below reads the spinner a user's own [tui].terminal_title could drop.
+    const s = toSpawnable(executable, ['--no-daemon', '-C', dir, '-c', `projects=${toToml({ [dir]: { trust_level: 'trusted' } })}`, '-c', `tui.terminal_title=${toToml(TITLE_ITEMS)}`, ...CODEX_MODE_FLAGS['read-only']])
     const before = this.sandboxKind()
     const keys = before === 'unelevated'
       ? [{ keys: '/setup-default-sandbox', waitMs: 300 }, { keys: '\r' }]
