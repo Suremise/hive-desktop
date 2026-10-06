@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { SESSION_LAYOUTS } from '@shared/defaults'
+import { MAX_AGENTS, SESSION_LAYOUTS } from '@shared/defaults'
 import { isKnownProvider, providerDescriptor, providerName } from '@shared/providers'
-import { TEMPLATE_NAME_MAX, unknownProviders, type TemplateAgent, type TemplateDest, type TemplateEntry, type TemplateRef } from '@shared/templates'
+import { TEMPLATE_DESCRIPTION_MAX, TEMPLATE_NAME_MAX, uniqueName, unknownProviders, type TemplateAgent, type TemplateDest, type TemplateEntry, type TemplateRef } from '@shared/templates'
 import type { PageLayout, ProjectInfo } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
@@ -9,12 +9,12 @@ import { useScopedLoad } from '../scopedLoad'
 import { choose, confirm, get, notify, prompt, set, showView, useStore } from '../store'
 import { cx, timeAgo } from '../util'
 import { PaneResizer, usePaneSize } from './Resizer'
-import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip } from './ui'
+import { BusyButton, Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip, useBusy } from './ui'
 
 /**
  * Agent templates' own places (#127): the Templates view (activity bar: the workspace's templates and each project's)
- * and a project's Templates tab (its own and the workspace's). Both show what a template holds, read-only (a template
- * changes by saving a project's agents again), and load, rename, duplicate, delete, export and import them.
+ * and a project's Templates tab (its own and the workspace's). Both show what a template holds, edit it (#271: its
+ * agents in the Agent Settings dialog), and load, rename, duplicate, delete, export and import them.
  */
 
 export const TEMPLATES_TIP =
@@ -149,15 +149,179 @@ function settingText(a: TemplateAgent, k: 'effort' | 'permissionMode'): string {
   return k === 'effort' ? (d.effortLevels.find((e) => e.value === a.effort)?.label ?? a.effort!) : (d.permissionModes.find((m) => m.value === a.permissionMode)?.label ?? a.permissionMode!)
 }
 
+/** Opens the Agent Settings dialog for a template's agent (#271): the agent as saved there, or null (cancelled). */
+let agentRequests = 0
+function editTemplateAgent(template: string, agent: TemplateAgent | null, others: TemplateAgent[], project: string | undefined): Promise<TemplateAgent | null> {
+  const taken = others.map((a) => a.name)
+  return new Promise((resolve) => set({ templateAgentFor: { key: ++agentRequests, template, agent, suggestedName: uniqueName('Agent', taken), others, project, resolve } }))
+}
+
+type Draft = { name: string; description: string; layout: PageLayout; agents: TemplateAgent[] }
+
 /**
- * What a template holds, read-only, and what to do with it. `project`: loading goes into this project (a project's
- * Templates tab); without it, Load into Project… asks which.
+ * Editing a template where it is kept (#271): its name, description and layout, and its agents (add, copy, remove,
+ * reorder; each in the Agent Settings dialog). Saved whole, checked as an import is; refused if the template changed
+ * meanwhile. A project loaded from it earlier is never touched.
+ */
+function TemplateEditor({ t, project, onDone }: { t: TemplateEntry; project?: ProjectInfo; onDone: () => void }) {
+  // The template as the editor opened it, kept whatever the list shows later: what the draft is compared with, and the
+  // revision a save expects (a newer one there refuses it, so a save made meanwhile is never overwritten).
+  const [opened] = useState(() => ({ savedAt: t.savedAt, draft: { name: t.name, description: t.description ?? '', layout: t.layout, agents: t.agents.map((a) => ({ ...a })) } as Draft }))
+  const [draft, setDraft] = useState<Draft>(opened.draft)
+  const action = useBusy()
+  const dirty = JSON.stringify(draft) !== JSON.stringify(opened.draft)
+  // Saved again since it was opened (from a project, or another window): this draft would overwrite it, so it can't be saved.
+  const stale = (t.savedAt ?? null) !== (opened.savedAt ?? null)
+  const put = (patch: Partial<Draft>): void => setDraft((d) => ({ ...d, ...patch }))
+  const agents = draft.agents
+  const full = agents.length >= MAX_AGENTS
+  const problem = !draft.name.trim() ? 'Enter a name for the template.' : !agents.length ? 'A template needs at least one agent.' : null
+  const where = project?.path ?? (t.scope === 'project' ? t.project : undefined)
+  const edit = async (i: number | null, copy = false): Promise<void> => {
+    const base = i === null ? null : agents[i]
+    const seed = copy && base ? { ...base, name: uniqueName(base.name, agents.map((a) => a.name)) } : base
+    const others = agents.filter((_, j) => copy || j !== i)
+    const got = await editTemplateAgent(draft.name.trim() || t.name, seed, others, where)
+    if (!got) return
+    setDraft((d) => {
+      const next = [...d.agents]
+      if (i === null || copy) next.splice(i === null ? next.length : i + 1, 0, got)
+      else next[i] = got
+      return { ...d, agents: next }
+    })
+  }
+  const move = (i: number, by: number): void =>
+    setDraft((d) => {
+      const next = [...d.agents]
+      const [a] = next.splice(i, 1)
+      next.splice(i + by, 0, a)
+      return { ...d, agents: next }
+    })
+  const remove = (i: number): void => setDraft((d) => ({ ...d, agents: d.agents.filter((_, j) => j !== i) }))
+  const cancel = async (): Promise<void> => {
+    if (dirty && !(await confirm({ title: 'Discard your changes?', message: `Your changes to "${opened.draft.name}" aren't saved.`, confirmLabel: 'Discard', danger: true }))) return
+    onDone()
+  }
+  const save = async (): Promise<void> => {
+    if (problem) return
+    const ok = await action.run('save', async () => {
+      const saved = await call('templates:update', refOf(t), { name: draft.name, description: draft.description.trim() || undefined, layout: draft.layout, agents: draft.agents }, opened.savedAt)
+      bump()
+      notify('success', 'Template saved', `"${saved.name}": ${agentsText(saved.agents.length)}, ${layoutText(saved.layout).toLowerCase()} layout.`)
+    })
+    if (ok) onDone()
+  }
+  return (
+    <div className="template-detail template-editor">
+      <div className="template-detail-head">
+        <div className="template-detail-title">
+          <Icon name="edit" />
+          <h2>Edit "{t.name}"</h2>
+          <ScopeBadge t={t} />
+        </div>
+        <div className="template-detail-actions">
+          <button className="btn small subtle" disabled={!!action.busy} onClick={() => void cancel()}>
+            Cancel
+          </button>
+          <BusyButton className="small primary" disabled={!!problem || !dirty} busy={action.busy === 'save'} busyLabel="Saving…" onClick={() => void save()}>
+            <Icon name="save" /> Save Template
+          </BusyButton>
+        </div>
+      </div>
+      <div className="template-detail-body">
+        {stale && (
+          <p className="template-problem template-stale" role="alert">
+            <Icon name="warning" /> "{t.name}" was saved again since you started editing it, so these changes can't be saved over it.
+            <button className="btn small subtle" onClick={() => void cancel()}>
+              Discard and Reload
+            </button>
+          </p>
+        )}
+        {action.error && (
+          <p className="template-problem" role="alert">
+            <Icon name="error" /> {action.error}
+          </p>
+        )}
+        <div className="agent-form template-fields">
+          <label htmlFor="template-name">Name</label>
+          <input id="template-name" className="input" value={draft.name} maxLength={TEMPLATE_NAME_MAX} onChange={(e) => put({ name: e.target.value })} />
+          <label htmlFor="template-description">Description</label>
+          <textarea id="template-description" className="input" rows={2} value={draft.description} maxLength={TEMPLATE_DESCRIPTION_MAX} placeholder="Optional: what it is for" onChange={(e) => put({ description: e.target.value })} />
+          <label htmlFor="template-layout">Layout</label>
+          <select id="template-layout" className="select" value={draft.layout} onChange={(e) => put({ layout: e.target.value as PageLayout })}>
+            <option value="auto">Automatic (shows all the agents, up to six)</option>
+            {SESSION_LAYOUTS.map((l) => (
+              <option key={l.value} value={l.value}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="template-editor-agents-head">
+          <h3 className="agent-dialog-h">
+            Agents <span className="count">{agents.length}</span>
+          </h3>
+          <Tooltip content={full ? `A template can have up to ${MAX_AGENTS} agents` : 'Add an agent, in the Agent Settings dialog'}>
+            <button className="btn small subtle" disabled={full} onClick={() => void edit(null)}>
+              <Icon name="add" /> Add Agent…
+            </button>
+          </Tooltip>
+        </div>
+        {problem && <p className="hint">{problem}</p>}
+        <table className="table template-agents">
+          <thead>
+            <tr>
+              <th>Agent</th>
+              <th>Role</th>
+              <th>Coding agent</th>
+              <th>Model</th>
+              <th>Effort</th>
+              <th>Mode</th>
+              <th>Works in</th>
+              <th aria-label="Actions" />
+            </tr>
+          </thead>
+          <tbody>
+            {agents.map((a, i) => {
+              const known = isKnownProvider(a.provider)
+              return (
+                <tr key={`${i}|${a.name}`} data-agent={a.name}>
+                  <td>{a.name}</td>
+                  <td>{a.role ?? <span className="faint">—</span>}</td>
+                  <td>{known ? providerName(a.provider) : <span className="badge warn">{a.provider} (unknown)</span>}</td>
+                  <td>{a.model ?? 'Default'}{a.use200kContext ? ' · 200K context' : ''}</td>
+                  <td>{settingText(a, 'effort')}</td>
+                  <td>{settingText(a, 'permissionMode')}</td>
+                  <td>{a.worktree ? 'Its own worktree' : 'The project folder'}</td>
+                  <td className="template-agent-actions">
+                    <IconButton icon="edit" title={known ? `Edit ${a.name}…` : "This Hive doesn't know its coding agent: it can be moved or removed, not edited"} disabled={!known} onClick={() => void edit(i)} />
+                    <IconButton icon="copy" title={`Copy ${a.name}`} disabled={!known || full} onClick={() => void edit(i, true)} />
+                    <IconButton icon="arrow-up" title={`Move ${a.name} up`} disabled={i === 0} onClick={() => move(i, -1)} />
+                    <IconButton icon="arrow-down" title={`Move ${a.name} down`} disabled={i === agents.length - 1} onClick={() => move(i, 1)} />
+                    <IconButton icon="trash" title={`Remove ${a.name}`} onClick={() => remove(i)} />
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        <p className="hint">The order is the order of the agents in a project: the layout's pages hold them in turn. Saving changes this template only, never a project loaded from it earlier.</p>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * What a template holds and what to do with it: Edit… (#271) opens the editor in its place. `project`: loading goes
+ * into this project (a project's Templates tab); without it, Load into Project… asks which.
  */
 export function TemplateDetail({ t, project, onGone, onSelect }: { t: TemplateEntry; project?: ProjectInfo; onGone: () => void; onSelect: (t: TemplateEntry) => void }) {
+  const [editing, setEditing] = useState(false)
   const selectedProject = useStore((s) => s.selectedProject)
   // Duplicate offers the other place first: a project's into the workspace, the workspace's into a project.
   const otherPlace = t.scope === 'project' ? '' : (project?.path ?? selectedProject ?? projectsNow()[0]?.path ?? '')
   const unknown = unknownProviders(t.agents)
+  if (editing && !t.problem) return <TemplateEditor t={t} project={project} onDone={() => setEditing(false)} />
   return (
     <div className="template-detail">
       <div className="template-detail-head">
@@ -174,6 +338,11 @@ export function TemplateDetail({ t, project, onGone, onSelect }: { t: TemplateEn
               </button>
             </Tooltip>
           )}
+          <Tooltip content="Change its agents (each in the Agent Settings dialog), their order, its name, description and layout">
+            <button className="btn small subtle" disabled={!!t.problem} onClick={() => setEditing(true)}>
+              <Icon name="settings" /> Edit…
+            </button>
+          </Tooltip>
           <button className="btn small subtle" disabled={!!t.problem} onClick={() => void renameTemplate(t)}>
             <Icon name="edit" /> Rename…
           </button>
@@ -193,8 +362,9 @@ export function TemplateDetail({ t, project, onGone, onSelect }: { t: TemplateEn
           </p>
         ) : (
           <>
+            {t.description && <p className="template-description">{t.description}</p>}
             <p className="muted">
-              {agentsText(t.agents.length)}, {layoutText(t.layout).toLowerCase()} layout{t.savedAt ? `, saved ${timeAgo(t.savedAt)}` : ''}. Kept in {t.scope === 'workspace' ? 'the workspace, for every project' : `${projectName(t.project)}, for that project only`}. To change it, change a project's agents and save it again under the same name.
+              {agentsText(t.agents.length)}, {layoutText(t.layout).toLowerCase()} layout{t.savedAt ? `, saved ${timeAgo(t.savedAt)}` : ''}. Kept in {t.scope === 'workspace' ? 'the workspace, for every project' : `${projectName(t.project)}, for that project only`}. Change it with <strong>Edit…</strong>, or save a project's agents again under the same name.
             </p>
             {unknown.length > 0 && (
               <p className="template-problem">
@@ -332,7 +502,7 @@ export function TemplatesView() {
   }
   return (
     <div className="split">
-      <TemplateDetail t={t} onGone={() => set({ selectedTemplate: null })} onSelect={(x) => set({ selectedTemplate: templateKey(x) })} />
+      <TemplateDetail key={templateKey(t)} t={t} onGone={() => set({ selectedTemplate: null })} onSelect={(x) => set({ selectedTemplate: templateKey(x) })} />
     </div>
   )
 }
@@ -394,7 +564,7 @@ export function ProjectTemplatesTab({ project }: { project: ProjectInfo }) {
       </div>
       <div className="split-main">
         {current ? (
-          <TemplateDetail t={current} project={project} onGone={() => setSelected(null)} onSelect={(x) => setSelected(sameProject(x.project, project.path) || x.scope === 'workspace' ? templateKey(x) : null)} />
+          <TemplateDetail key={templateKey(current)} t={current} project={project} onGone={() => setSelected(null)} onSelect={(x) => setSelected(sameProject(x.project, project.path) || x.scope === 'workspace' ? templateKey(x) : null)} />
         ) : (
           <div className="empty-state" style={{ paddingTop: '18vh' }}>
             <Icon name="library" />
