@@ -2,8 +2,8 @@
 // command line asks for (parseArgs), which suites that is (selectSuites), and whether a run record can be trusted
 // (recordStatus). run.mjs does the running.
 
-const VALUE_FLAGS = ['--jobs', '--affected', '--repeat']
-const PLAIN_FLAGS = ['--all', '--real', '--only-real', '--record', '--fingerprint', '--build', '--packaged', '--no-progress', '--no-wait']
+const VALUE_FLAGS = ['--jobs', '--affected', '--repeat', '--clear-dir']
+const PLAIN_FLAGS = ['--all', '--real', '--only-real', '--record', '--fingerprint', '--build', '--packaged', '--no-progress', '--no-wait', '--keep-files']
 
 /** Whether a suite starts a real CLI (Claude Code, or Codex in its test home): the real tier, opt-in with --real. */
 export const isRealCli = (s) => (s.needs ?? []).some((n) => n === 'claude' || n === 'codex')
@@ -16,7 +16,7 @@ export const isRealCli = (s) => (s.needs ?? []).some((n) => n === 'claude' || n 
  * plus what changed since main). Every suite name given is kept.
  */
 export function parseArgs(argv, suiteNames) {
-  const o = { jobs: 4, repeat: 1, all: false, affected: null, named: [], tier: 'fake', record: false, fingerprint: false, build: false, packaged: false, noWait: false }
+  const o = { jobs: 4, repeat: 1, all: false, affected: null, named: [], tier: 'fake', record: false, fingerprint: false, build: false, packaged: false, noWait: false, keepFiles: false, clearDir: null }
   const tiers = new Set()
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -30,6 +30,10 @@ export function parseArgs(argv, suiteNames) {
       const n = Number(next)
       if (!next || !Number.isInteger(n) || n < 1) return { error: '--repeat needs a whole number of runs (1 or more)' }
       o.repeat = n
+      i++
+    } else if (a === '--clear-dir') {
+      if (!next || next.startsWith('--')) return { error: '--clear-dir needs the folder to empty' }
+      o.clearDir = next
       i++
     } else if (a === '--affected') {
       const isBase = next !== undefined && !next.startsWith('--') && !suiteNames.includes(next)
@@ -45,6 +49,7 @@ export function parseArgs(argv, suiteNames) {
       if (a === '--build') o.build = true
       if (a === '--packaged') o.packaged = true
       if (a === '--no-wait') o.noWait = true
+      if (a === '--keep-files') o.keepFiles = true
     } else {
       o.named.push(a)
     }

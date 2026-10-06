@@ -737,6 +737,13 @@ describe('--repeat N: runs until the first failure, one record for all (runner.m
     for (const bad of [['--repeat'], ['--repeat', 'board'], ['--repeat', 'two'], ['--repeat', '0'], ['--repeat', '-1'], ['--repeat', '1.5']]) expect(parseArgs(bad, suiteNames).error).toMatch(/--repeat needs a whole number/)
   })
 
+  it('parses --keep-files and --clear-dir <folder> (#304)', () => {
+    expect(parseArgs(['board'], suiteNames)).toMatchObject({ keepFiles: false, clearDir: null })
+    expect(parseArgs(['board', '--keep-files'], suiteNames)).toMatchObject({ keepFiles: true, named: ['board'] })
+    expect(parseArgs(['--clear-dir', 'C:\\x\\shots'], suiteNames)).toMatchObject({ clearDir: 'C:\\x\\shots', named: [] })
+    for (const bad of [['--clear-dir'], ['--clear-dir', '--build']]) expect(parseArgs(bad, suiteNames).error).toMatch(/--clear-dir needs the folder/)
+  })
+
   const run = (ok: boolean): { ok: boolean } => ({ ok })
   const same = { before: 'abc+1', after: 'abc+1', buildStale: false }
 

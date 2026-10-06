@@ -5,9 +5,9 @@ import { MANY_AGENTS, MAX_AGENTS, chosenLayout, moveAgentTo, sessionInAgentFolde
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { agentsToResume, resumeAll } from '@shared/resumeAll'
 import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult } from '@shared/startAll'
-import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
+import type { OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
-import { templateLoadDetail } from '@shared/templateLoad'
+import { oldWorktreesNotice, templateLoadDetail } from '@shared/templateLoad'
 import { formatTokens } from './util'
 import { statusText } from './components/ui'
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
@@ -758,7 +758,7 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
   const expected = (p?.agents ?? []).map((a) => a.id)
   const removable = plan.oldWorktrees.filter((w) => w.removable)
   let removeOld = false
-  let result: { oldWorktrees: { branch: string; removed: boolean; why?: string }[] } | undefined
+  let result: { oldWorktrees: OldWorktreeOutcome[] } | undefined
   const ok = await confirm({
     title: `Load "${plan.name}"?`,
     message: plan.remove.length ? `It replaces every agent of ${p?.name ?? 'this project'}.` : `It adds its agents to ${p?.name ?? 'this project'}.`,
@@ -776,10 +776,8 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
   })
   if (!ok) return
   await refreshWorkspace()
-  const gone = result?.oldWorktrees.filter((w) => w.removed) ?? []
-  const kept = result?.oldWorktrees.filter((w) => !w.removed) ?? []
-  if (kept.length) notify('warning', `${kept.length === 1 ? 'An old worktree was' : `${kept.length} old worktrees were`} kept`, [...(gone.length ? [`Removed: ${gone.map((w) => w.branch).join(', ')}.`] : []), ...kept.map((w) => `${w.branch}: ${w.why ?? 'kept'}`)].join('\n'))
-  else if (gone.length) notify('success', `Removed ${gone.length === 1 ? 'an old worktree' : `${gone.length} old worktrees`}`, `${gone.map((w) => w.branch).join(', ')}, with ${gone.length === 1 ? 'its branch' : 'their branches'}: merged and clean.`)
+  const said = oldWorktreesNotice(result?.oldWorktrees ?? [])
+  if (said) notify(said.level, said.title, said.detail)
 }
 
 /** The tick box for removing the old worktrees that are merged and clean (#289). */

@@ -22,11 +22,18 @@ const base = mkdtempSync(join(tmpdir(), 'hive-templates-'))
 let statusThrows = false
 /** Holds the next listing of a project's worktrees, once git has given it, until the test lets it go (#289). */
 let holdNextListing: ((listed: unknown) => Promise<unknown>) | null = null
+/** Removing this branch's worktree goes as when a ref moves in the last step: the folder goes, the branch stays (#313). */
+let branchStaysFor: string | null = null
 vi.mock('../src/main/worktrees', async (original) => {
   const real = await original<typeof import('../src/main/worktrees')>()
   return {
     ...real,
     branchStatus: async (...a: Parameters<typeof real.branchStatus>) => (statusThrows ? Promise.reject(new Error('git exploded')) : real.branchStatus(...a)),
+    removeCheckedWorktree: async (...a: Parameters<typeof real.removeCheckedWorktree>) => {
+      if (a[1].branch !== branchStaysFor) return real.removeCheckedWorktree(...a)
+      await real.removeWorktree(a[0], a[1], false)
+      return { deleted: true, branchKept: true, reason: 'main changed since it was checked' }
+    },
     listWorktrees: async (...a: Parameters<typeof real.listWorktrees>) => {
       const listed = await real.listWorktrees(...a)
       const hold = holdNextListing
@@ -610,6 +617,64 @@ describe('saving and loading templates', () => {
     const t = after.find((e) => e.file === 'edit-me.json')!
     const plan = await run(() => templates.templatePlan(beta, 'project', 'edit-me.json', alpha))
     expect([plan.name, plan.layout, plan.create.map((a) => [a.name, a.role, a.model, a.worktree])]).toEqual([t.name, 'columns2', [['Two', 'reviewer', 'opus', false], ['Builder', 'builder', undefined, true]]])
+  })
+
+  it("Remove Agent keeping its worktree keeps a setup that never ran (#319): the next agent there runs it; a done one isn't run again; a deleted worktree is forgotten", async () => {
+    const { removeAgent } = await import('../src/main/projectAgents')
+    const pending = (): string[] => (cfgOf(beta).setupPending ?? []).map((p: string) => p.toLowerCase())
+    const agent = (name: string): AgentDef => cfgOf(beta).agents.find((a: AgentDef) => a.name === name)
+    expect(cfgOf(beta).worktreeSetup).toBe('npm install')
+    // Never started: its setup is still to run. Removed, its worktree kept: remembered, and run by the next agent there.
+    const keeper = await run(() => addAgent(beta, { name: 'Keeper', location: 'new-worktree' }))
+    expect(keeper.needsSetup).toBe(true)
+    await run(() => removeAgent(beta, keeper.id, { deleteWorktree: false }))
+    expect(pending()).toContain(keeper.worktree!.path.toLowerCase())
+    const again = await run(() => addAgent(beta, { name: 'Keeper again', location: 'existing-worktree', worktreePath: keeper.worktree!.path }))
+    expect(again.needsSetup).toBe(true)
+    expect(pending()).not.toContain(keeper.worktree!.path.toLowerCase())
+    // Its setup done (its first start): removed and given again, it doesn't run again.
+    writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ ...cfgOf(beta), agents: cfgOf(beta).agents.map((a: AgentDef) => (a.id === again.id ? { ...a, needsSetup: false } : a)) }))
+    await run(() => removeAgent(beta, again.id, { deleteWorktree: false }))
+    expect(pending()).not.toContain(keeper.worktree!.path.toLowerCase())
+    const third = await run(() => addAgent(beta, { name: 'Keeper 3', location: 'existing-worktree', worktreePath: keeper.worktree!.path }))
+    expect(!!third.needsSetup).toBe(false)
+    // A worktree another agent still works in is that agent's: nothing is remembered for it.
+    const shared = await run(() => addAgent(beta, { name: 'Sharer', location: 'new-worktree' }))
+    writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ ...cfgOf(beta), agents: [...cfgOf(beta).agents, { ...agent('Sharer'), id: 'a-twin', name: 'Twin' }] }))
+    await run(() => removeAgent(beta, shared.id, { deleteWorktree: false }))
+    expect(pending()).not.toContain(shared.worktree!.path.toLowerCase())
+    // Remove All (#291): one with work of its own is kept, so remembered; a merged, clean one is deleted, and forgotten.
+    const busy = await run(() => addAgent(beta, { name: 'Busy', location: 'new-worktree' }))
+    writeFileSync(join(busy.worktree!.path, 'own.txt'), 'work')
+    git(busy.worktree!.path, 'add', '.')
+    git(busy.worktree!.path, 'commit', '-qm', 'own work')
+    const busyGone = await run(() => removeAgent(beta, busy.id, { deleteWorktree: 'merged-clean', mergedInto: 'main' }))
+    expect(busyGone.worktree?.deleted).toBe(false)
+    expect(pending()).toContain(busy.worktree!.path.toLowerCase())
+    const neat = await run(() => addAgent(beta, { name: 'Neat', location: 'new-worktree' }))
+    await run(() => removeAgent(beta, neat.id, { deleteWorktree: false }))
+    expect(pending()).toContain(neat.worktree!.path.toLowerCase())
+    const neatAgain = await run(() => addAgent(beta, { name: 'Neat again', location: 'existing-worktree', worktreePath: neat.worktree!.path }))
+    // (Listed again, as a worktree kept from before would be: deleting it takes it off the list.)
+    writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ ...cfgOf(beta), setupPending: [...(cfgOf(beta).setupPending ?? []), neat.worktree!.path] }))
+    expect(pending()).toContain(neat.worktree!.path.toLowerCase())
+    const neatGone = await run(() => removeAgent(beta, neatAgain.id, { deleteWorktree: 'merged-clean', mergedInto: 'main' }))
+    expect(neatGone.worktree?.deleted).toBe(true)
+    expect(pending()).not.toContain(neat.worktree!.path.toLowerCase())
+  })
+
+  it("says when an old worktree's folder went but its branch stayed (#313)", async () => {
+    const branchy = await run(() => addAgent(beta, { name: 'Branchy', location: 'new-worktree' }))
+    const ids = cfgOf(beta).agents.map((a: AgentDef) => a.id)
+    branchStaysFor = branchy.worktree!.branch
+    try {
+      const r = await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids, undefined, { paths: [branchy.worktree!.path], mergedInto: 'main' }))
+      expect(r.oldWorktrees).toEqual([{ branch: 'hive/branchy', removed: true, branchKept: true, why: 'main changed since it was checked' }])
+    } finally {
+      branchStaysFor = null
+    }
+    expect(existsSync(branchy.worktree!.path)).toBe(false)
+    expect(git(beta, 'branch', '--list', 'hive/branchy').toString()).toMatch(/hive\/branchy/)
   })
 
   it('changes at once to one place never pick the same file or miss a name: imports, duplicates, saves', async () => {
