@@ -54,6 +54,16 @@ function makeRoomForWebgl(key: string): void {
   return null
 }
 
+/** A terminal's size and scroll, for tests: scrolled to the bottom when viewportY is baseY. */
+;(window as unknown as { __hiveTerminalState?: (key: string) => { cols: number; rows: number; viewportY: number; baseY: number } | null }).__hiveTerminalState = (key) => {
+  const term = terminals.get(key)
+  if (!term) return null
+  return { cols: term.cols, rows: term.rows, viewportY: term.buffer.active.viewportY, baseY: term.buffer.active.baseY }
+}
+
+/** Scrolls a terminal by some lines without any input, as xterm's own late scroll syncs do, for tests. */
+;(window as unknown as { __hiveTerminalScrollLines?: (key: string, lines: number) => void }).__hiveTerminalScrollLines = (key, lines) => terminals.get(key)?.scrollLines(lines)
+
 /**
  * Pastes text into a mounted terminal as a real paste (bracketed when the program asked for it),
  * so Claude Code treats pasted image paths as attachments. Returns false if no terminal is mounted.
@@ -63,6 +73,36 @@ export function pasteIntoTerminal(ptyKey: string, text: string): boolean {
   if (!term) return false
   term.paste(text)
   return true
+}
+
+/** Smaller than this is a measurement of a terminal not laid out (hidden, or mid-layout), never a pane's real size (#247). */
+const MIN_COLS = 20
+const MIN_ROWS = 5
+/** A layout that is still settling (a view shown again re-renders its header as it measures it) is fitted once, at its final size. */
+const FIT_SETTLE_MS = 100
+/** How long after a fit, or being shown, a terminal following its output is held at the bottom (see TerminalView). */
+const HOLD_BOTTOM_MS = 1000
+/** How long after a wheel turn or a key a scroll counts as the user's. */
+const USER_SCROLL_MS = 500
+
+/**
+ * Fits a terminal to its pane and tells its process the size: the only place that does (#247). Never while the
+ * terminal is hidden (its own class, or an ancestor's display: none, as when Settings is open) or measures smaller than
+ * MIN_COLS × MIN_ROWS: xterm would measure next to nothing, and Claude Code redraws into a column two characters wide.
+ * The main process passes on only a change of size. True when it fitted.
+ */
+function fitTerminal(term: Terminal, fit: FitAddon, el: HTMLElement | null, visible: boolean, ptyKey: string): boolean {
+  if (!visible || !el || el.offsetWidth === 0 || el.offsetHeight === 0) return false
+  try {
+    const dims = fit.proposeDimensions()
+    if (!dims || !(dims.cols >= MIN_COLS) || !(dims.rows >= MIN_ROWS)) return false
+    fit.fit()
+    void call('pty:resize', ptyKey, term.cols, term.rows)
+    return true
+  } catch {
+    // ignore transient layout errors
+    return false
+  }
 }
 
 function wire(): void {
@@ -163,7 +203,12 @@ export function TerminalView({
   const host = useRef<HTMLDivElement>(null)
   const mount = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
-  const fitRef = useRef<FitAddon | null>(null)
+  /** Fits the terminal to its pane and tells the process its size once the layout settles, if it is on screen (see fitTerminal). */
+  const fitSoon = useRef<() => void>(() => {})
+  /** Holds a terminal that follows its output at the bottom while the layout settles (hold, in the terminal's effect). */
+  const holdBottom = useRef<() => void>(() => {})
+  const visibleRef = useRef(visible)
+  visibleRef.current = visible
   const appearance = useStore((s) => s.settings?.appearance)
   const onExitRef = useRef(onExit)
   onExitRef.current = onExit
@@ -208,7 +253,6 @@ export function TerminalView({
     term.open(mount.current!)
     termRef.current = term
     terminals.set(ptyKey, term)
-    fitRef.current = fit
 
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true
@@ -306,19 +350,59 @@ export function TerminalView({
       replayed = true
     })
 
-    const doFit = (): void => {
-      const el = host.current
-      if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) return
-      try {
-        fit.fit()
-        void call('pty:resize', ptyKey, term.cols, term.rows)
-      } catch {
-        // ignore transient layout errors
-      }
+    // Whether the user follows the output (at the bottom) or reads further up: only their own scrolling (wheel, keys,
+    // the scrollbar) changes it. After a fit or being shown, xterm syncs its scroll position a frame or more later, from
+    // one measured before (a hidden view's is 0), which can leave the view lines up or at the top (#247). For a while
+    // after each, a terminal following its output is put back at the bottom whenever that happens; a reader stays put.
+    const buf = (): typeof term.buffer.active => term.buffer.active
+    const atBottom = (): boolean => buf().viewportY >= buf().baseY
+    let follows = true
+    let holdUntil = 0
+    const hold = (): void => {
+      holdUntil = Date.now() + HOLD_BOTTOM_MS
+      if (follows && !atBottom()) term.scrollToBottom()
     }
-    const ro = new ResizeObserver(() => requestAnimationFrame(doFit))
+    holdBottom.current = hold
+    const keepAtBottom = (): void => {
+      if (follows && Date.now() < holdUntil && !atBottom()) term.scrollToBottom()
+    }
+    // The user scrolls: just after a wheel turn or a key (a wheel's scroll can land a few frames later), or while a mouse
+    // button is held (dragging the scrollbar). Each scroll then says whether they follow the output.
+    let userUntil = 0
+    let pressed = false
+    const userActs = (): void => {
+      holdUntil = 0
+      userUntil = Date.now() + USER_SCROLL_MS
+    }
+    for (const type of ['wheel', 'keydown'] as const) host.current!.addEventListener(type, userActs, { signal, capture: true, passive: true })
+    host.current!.addEventListener('mousedown', () => {
+      userActs()
+      pressed = true
+    }, { signal, capture: true, passive: true })
+    window.addEventListener('mouseup', () => {
+      if (!pressed) return
+      pressed = false
+      userActs()
+    }, { signal, capture: true, passive: true })
+    const disposeScroll = term.onScroll(() => {
+      if (pressed || Date.now() < userUntil) follows = atBottom()
+      else keepAtBottom()
+    })
+    const disposeRender = term.onRender(keepAtBottom)
+
+    let fitTimer: ReturnType<typeof setTimeout> | null = null
+    const doFit = (): void => {
+      fitTimer = null
+      if (fitTerminal(term, fit, host.current, visibleRef.current, ptyKey)) hold()
+    }
+    const scheduleFit = (): void => {
+      if (fitTimer) clearTimeout(fitTimer)
+      fitTimer = setTimeout(doFit, FIT_SETTLE_MS)
+    }
+    fitSoon.current = scheduleFit
+    const ro = new ResizeObserver(scheduleFit)
     ro.observe(mount.current!)
-    requestAnimationFrame(doFit)
+    scheduleFit()
 
     return () => {
       if (dropWebgl.current) clearTimeout(dropWebgl.current)
@@ -326,6 +410,9 @@ export function TerminalView({
       webglRef.current = null
       listeners.abort()
       ro.disconnect()
+      if (fitTimer) clearTimeout(fitTimer)
+      disposeScroll.dispose()
+      disposeRender.dispose()
       disposeInput.dispose()
       unsubData()
       unsubExit()
@@ -343,14 +430,8 @@ export function TerminalView({
     term.options.cursorBlink = appearance.terminalCursorBlink
     term.options.scrollback = appearance.terminalScrollback
     term.options.theme = terminalTheme()
-    requestAnimationFrame(() => {
-      try {
-        fitRef.current?.fit()
-        void call('pty:resize', ptyKey, term.cols, term.rows)
-      } catch {
-        // ignore
-      }
-    })
+    // A hidden terminal (Settings is open, say) isn't fitted now: it is when it's shown again.
+    fitSoon.current()
   }, [appearance, ptyKey])
 
   // WebGL renderer (as in VS Code): faster, and needed for rescaleOverlappingGlyphs. Only visible
@@ -395,15 +476,12 @@ export function TerminalView({
 
   useEffect(() => {
     if (!visible) return
+    // Shown again: held at the bottom if it follows its output, and fitted once the layout settles (or by the resize
+    // observer once it has its size).
+    holdBottom.current()
+    fitSoon.current()
     requestAnimationFrame(() => {
-      try {
-        fitRef.current?.fit()
-        const t = termRef.current
-        if (t) void call('pty:resize', ptyKey, t.cols, t.rows)
-        if (autoFocus) t?.focus()
-      } catch {
-        // ignore
-      }
+      if (autoFocus) termRef.current?.focus()
     })
   }, [visible, ptyKey, autoFocus])
 

@@ -62,6 +62,26 @@ const project = path.basename(process.cwd())
 // "resume <id>" carries on that conversation, as Codex does; otherwise a new one.
 const resuming = args[0] === 'resume' && /^[0-9a-f-]{36}$/i.test(args[1] ?? '')
 const sessionId = resuming ? args[1] : randomUUID()
+/**
+ * The terminal's size, recorded in fake-sizes.jsonl in its home at the start and at each change (#247): what Hive tells
+ * the CLI. Polled as well as on 'resize', which a ConPTY child doesn't always get.
+ */
+function recordSizes(dir, id) {
+  if (!dir || !process.stdout.isTTY) return
+  let last = ''
+  const note = () => {
+    const s = []
+    if (process.stdout._handle?.getWindowSize?.(s) !== 0 || s.length < 2) return
+    const [cols, rows] = s
+    if (`${cols}x${rows}` === last) return
+    last = `${cols}x${rows}`
+    fs.appendFileSync(path.join(dir, 'fake-sizes.jsonl'), JSON.stringify({ sessionId: id, cols, rows, at: Date.now() }) + '\n')
+  }
+  note()
+  process.stdout.on('resize', note)
+  setInterval(note, 50).unref()
+}
+recordSizes(process.env.CODEX_HOME, sessionId)
 
 /**
  * Its rollout, as Codex keeps one: CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl, its first line the

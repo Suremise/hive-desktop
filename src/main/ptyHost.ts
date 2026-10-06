@@ -99,7 +99,8 @@ export function writePty(key: string, data: string): void {
 
 export function resizePty(key: string, cols: number, rows: number): void {
   const e = entries.get(key)
-  if (!e || cols < 2 || rows < 2) return
+  // An unchanged size isn't passed on: every resize makes a TUI like Claude Code redraw (#247).
+  if (!e || cols < 2 || rows < 2 || (e.proc.cols === Math.floor(cols) && e.proc.rows === Math.floor(rows))) return
   try {
     e.proc.resize(Math.floor(cols), Math.floor(rows))
     e.onResize?.(Math.floor(cols), Math.floor(rows))
