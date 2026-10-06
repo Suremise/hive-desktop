@@ -17,6 +17,9 @@ const HIDDEN = new Set(['.git'])
 export const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp)$/i
 /** Files the hive-img: protocol may serve to the renderer (image and PDF previews). */
 export const SERVABLE_EXT = /\.(png|jpe?g|gif|webp|bmp|ico|pdf)$/i
+const SERVABLE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', ico: 'image/x-icon', pdf: 'application/pdf' }
+/** The content type hive-img: serves a servable file as. */
+export const servableType = (p: string): string => SERVABLE_TYPES[p.slice(p.lastIndexOf('.') + 1).toLowerCase()] ?? 'application/octet-stream'
 
 const toRel = (root: string, abs: string): string => relative(root, abs).split(sep).join('/')
 

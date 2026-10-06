@@ -118,11 +118,23 @@ export function realPath(p: string): string {
 
 /**
  * Whether a path is inside an .asar archive (`…\app.asar\icon.png`). Such a path isn't a file on disk, and Electron's
- * readers that take a path (nativeImage, the file: protocol hive-img: fetches through) open the archive for it and keep
- * it open until Hive quits, so a build can't replace it (#246). Hive's file routes refuse them; the .asar itself is fine.
+ * readers that take a path (nativeImage, its file: loader) open the archive for it and keep it open until Hive quits,
+ * so a build can't replace it (#246). Hive's file routes refuse them; the .asar itself is fine. Only an archive counts:
+ * a folder of the path named *.asar is one when it is a file on disk (asked of original-fs, which never opens one as
+ * an archive); a real folder of that name (`art.asar\icon.png`) is just a folder (#261).
  */
 export function insideArchive(p: string): boolean {
-  return /\.asar[\\/]/i.test(p)
+  if (!/\.asar[\\/]/i.test(p)) return false
+  // Missing is no archive (there is nothing to open); one that can't be looked at (under a file, say) counts as one.
+  const archive = (dir: string): boolean => {
+    try {
+      return statSync(dir, { throwIfNoEntry: false })?.isDirectory() === false
+    } catch {
+      return true
+    }
+  }
+  for (let dir = dirname(resolve(p)); dirname(dir) !== dir; dir = dirname(dir)) if (/\.asar$/i.test(dir) && archive(dir)) return true
+  return false
 }
 
 /** Whether a path is inside one of the folders: as written, and by its real location (a link inside can't lead outside). */

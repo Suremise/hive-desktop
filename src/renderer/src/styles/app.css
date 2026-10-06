@@ -2060,10 +2060,14 @@ p.hint {
   color: var(--fg-muted);
   font-size: 15px;
 }
+/* Side by side when there's room, else one under the other; a column is never wider than the page (#265). */
 .welcome-cols {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 40px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 28px 40px;
+}
+.welcome-cols > div {
+  min-width: 0;
 }
 .welcome h3 {
   font-size: 15px;
@@ -2104,7 +2108,7 @@ p.hint {
   color: var(--fg);
   background: var(--bg-hover);
 }
-/* On the welcome page the name stays on one line; only the path shortens. */
+/* On the welcome page the name stays on one line: the path shortens first, and the name only when it alone is too wide. */
 .welcome-link.recent-item {
   min-width: 0;
 }
@@ -2116,6 +2120,18 @@ p.hint {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.welcome-link.recent-item > .codicon,
+.welcome-link.recent-item .recent-remove {
+  flex-shrink: 0;
+}
+.welcome-link.recent-item .recent-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.welcome-link.recent-item .recent-note {
+  flex: 1 1 0;
 }
 .recent-item.missing {
   color: var(--fg-faint);
@@ -4311,6 +4327,78 @@ body.pane-resizing .monaco-editor {
 }
 .overview-head .section {
   margin-bottom: 0;
+}
+/* The Overviews in a very narrow column (#269: the sidebar and the Assistant open in a small or zoomed window, down to
+   a few dozen pixels): less padding, words break rather than push the page sideways, and the board strip, the period
+   buttons and the cards take a row each. Everything stays; the table by project keeps its own scroll. The padding
+   shrinks by negative margins (a container query can't style its container), keeping 10px on the right for the
+   scroll bar, which lies over the page. */
+.overview-page {
+  container: overview-page / inline-size;
+}
+@container overview-page (max-width: 360px) {
+  .overview-page > .page-narrow {
+    margin: -8px -14px 0;
+  }
+}
+@container overview-page (max-width: 220px) {
+  .overview-page > .page-narrow {
+    margin: -12px -14px 0 -18px;
+    overflow-wrap: anywhere;
+  }
+  .overview-page .board-strip-item,
+  .overview-page .overview-head .segmented,
+  .overview-page .overview-head .segmented button {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  /* A label that wraps grows its button rather than spilling over the next. */
+  .overview-page .overview-head .segmented button {
+    height: auto;
+    min-height: 22px;
+    padding: 2px 6px;
+  }
+  .overview-page .card {
+    padding: 8px;
+  }
+  .overview-page .card h3 {
+    flex-wrap: wrap;
+  }
+  .overview-page .card .value {
+    font-size: 18px;
+  }
+  /* A data table's paging (outside its scrolling wrapper) wraps too: its label over its select, its page count. */
+  .overview-page .table-page-size {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .overview-page .table-page-size .select {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .overview-page .table-page {
+    white-space: normal;
+  }
+}
+@container overview-page (max-width: 120px) {
+  .overview-page > .page-narrow {
+    margin: -16px -14px 0 -22px;
+  }
+  .overview-page .board-header h1 {
+    font-size: 14px;
+  }
+  .overview-page .board-strip-item,
+  .overview-page .overview-head .segmented button {
+    padding: 2px 4px;
+    font-size: 11px;
+  }
+  .overview-page .card h3 {
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+  .overview-page .card .value {
+    font-size: 15px;
+  }
 }
 .overview-head.session-head {
   margin: 24px 0 10px;

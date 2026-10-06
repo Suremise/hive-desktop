@@ -760,6 +760,8 @@ In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts th
 
 **Open a file from the terminal.** File paths an agent prints, like `src/main/app.ts:42`, are links: hover one to see it underlined, and **Ctrl+click** it to open the file in the project's [Files](#files) tab with the cursor on that line. A worktree agent's paths open in its worktree, and a path into another project in the workspace opens in that project. Only files that exist are linked; a plain click still just selects text. Paths with spaces are linked too, most reliably when they're in quotes (`"docs/my notes.md"`).
 
+**Terminals out of sight.** While an agent's terminal isn't shown (Settings is open, or you're on another tab, project or page), it keeps its size: the agent goes on drawing for the width you last saw. When you come back, the terminal fits its pane again once the window has settled, and the agent redraws only if the pane's size changed meanwhile. If you were following the output at the bottom, you're still at the bottom; if you had scrolled up to read, you're still on the same line.
+
 **Screenshots and files.** With a screenshot on the clipboard (for example from Win+Shift+S), press **Ctrl+V** in a session: Hive saves the image in the project's `.hive/images` folder and pastes its path, and Claude Code attaches it as `[Image #1]`. You can also **drag files** from Explorer onto the terminal to paste their paths; images are copied into `.hive/images` first. The images are kept per session, so you can always see what was sent (see [Images](#images)).
 
 ## Troubleshooting

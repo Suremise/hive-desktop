@@ -88,38 +88,57 @@ interface Measuring {
 
 const results = new Map<string, ProjectStorage>()
 const running = new Map<string, Measuring>()
-/** The requests a window can abandon, each with its waits' stops. */
-const requests = new Map<string, Set<() => void>>()
+/**
+ * The requests a window can abandon, by the window that sent them (its web contents' id; none for a caller that isn't
+ * a window) and its request id, each with its waits' stops. A window abandons only its own, and all of them when its
+ * page goes (abandonWindowStorage, #260): closing a window or reloading its page runs none of the page's clean-up.
+ */
+const requests = new Map<string, { window: number | undefined; stops: Set<() => void> }>()
+const requestKey = (request: string, window: number | undefined): string => `${window ?? ''}:${request}`
 
 /**
  * What Hive keeps for a project or the Assistant. The last result comes back at once unless `refresh`; one
- * measurement runs per project at a time. With `request`, the window can abandon the call (abandonStorage): the
- * measurement, which walks every file of every worktree, stops once nothing waits for it.
+ * measurement runs per project at a time. With `request`, the window (`window`, its web contents' id) can abandon the
+ * call (abandonStorage), or abandons it by going: the measurement, which walks every file of every worktree, stops once
+ * nothing waits for it.
  */
-export function projectStorage(projectPath: string, refresh = false, request?: string): Promise<ProjectStorage> {
+export function projectStorage(projectPath: string, refresh = false, request?: string, window?: number): Promise<ProjectStorage> {
   projectPath = workspace.assertSessionHost(projectPath)
-  return asRequest(request, () => storageOf(projectPath, refresh, request))
+  return asRequest(request, window, (key) => storageOf(projectPath, refresh, key))
 }
 
 /** The window no longer waits for this request: its call fails, and a measurement only it waited for stops. */
-export function abandonStorage(request: string): void {
-  const stops = requests.get(request)
-  requests.delete(request)
-  for (const stop of stops ?? []) stop()
+export function abandonStorage(request: string, window?: number): void {
+  abandon(requestKey(request, window))
 }
 
-async function asRequest<T>(request: string | undefined, run: () => Promise<T>): Promise<T> {
-  if (request === undefined) return run()
-  requests.set(request, new Set())
+/** The window's page went (closed or reloaded): it waits for none of its requests any more. */
+export function abandonWindowStorage(window: number): void {
+  for (const [key, r] of [...requests]) if (r.window === window) abandon(key)
+}
+
+function abandon(key: string): void {
+  const r = requests.get(key)
+  requests.delete(key)
+  for (const stop of r?.stops ?? []) stop()
+}
+
+async function asRequest<T>(request: string | undefined, window: number | undefined, run: (key: string | undefined) => Promise<T>): Promise<T> {
+  if (request === undefined) return run(undefined)
+  const key = requestKey(request, window)
+  const mine = { window, stops: new Set<() => void>() }
+  requests.set(key, mine)
   try {
-    return await run()
+    return await run(key)
   } finally {
-    requests.delete(request)
+    // Only its own entry: the same id sent again meanwhile has its own.
+    if (requests.get(key) === mine) requests.delete(key)
   }
 }
 
+/** `request`: the request's key in `requests`, if it can be abandoned. */
 function storageOf(projectPath: string, refresh: boolean, request: string | undefined): Promise<ProjectStorage> {
-  const stops = request === undefined ? undefined : requests.get(request)
+  const stops = request === undefined ? undefined : requests.get(request)?.stops
   if (request !== undefined && !stops) return Promise.reject(new StorageStopped())
   const key = projectPath.toLowerCase()
   const last = results.get(key)
@@ -185,13 +204,13 @@ async function measure(projectPath: string, refresh: boolean, signal: AbortSigna
 }
 
 /** Every project's storage and the Assistant's, biggest first (one project at a time); `request` as for projectStorage. */
-export function workspaceStorage(refresh = false, request?: string): Promise<WorkspaceStorage> {
-  return asRequest(request, async () => {
+export function workspaceStorage(refresh = false, request?: string, window?: number): Promise<WorkspaceStorage> {
+  return asRequest(request, window, async (key) => {
     const hosts = [...(await workspace.listProjectPaths()), workspace.assistantHome]
     const projects: ProjectStorage[] = []
     for (const p of hosts) {
       try {
-        projects.push(await storageOf(workspace.assertSessionHost(p), refresh, request))
+        projects.push(await storageOf(workspace.assertSessionHost(p), refresh, key))
       } catch (e) {
         if (e instanceof StorageStopped) throw e
         log.warn(`measuring ${userText(p)}`, e)

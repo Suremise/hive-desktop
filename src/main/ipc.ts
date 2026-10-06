@@ -10,6 +10,7 @@ import { instructionFiles, instructionsShared, shareInstructions, SHARED_INSTRUC
 import { isKnownProvider, projectProviderConfig, providerDescriptor } from '../shared/providers'
 import { isProjectPref, projectPrefValue, withProjectPref } from '../shared/uiPrefs'
 import { applyBoardFold } from '../shared/tasks'
+import { EMPTY_TIPS_STATE, applyTipsChange, tipsChange, tipsState } from '../shared/tips'
 import { allProviders } from './providers'
 import { providerService } from './providerService'
 import { config } from './config'
@@ -242,8 +243,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'settings:setProviderFallback': (provider, kind, list) => config.setProviderFallback(knownProvider(provider), kind === 'efforts' ? 'efforts' : 'models', list),
     'settings:reset': (section) => config.resetSettings(section),
     'ui:get': () => config.get().ui,
-    // Not the per-project maps: a window's copy of them is stale for other windows' projects (ui:setProjectPref, #245).
-    'ui:set': (ui) => config.update((c) => Object.assign(c.ui, Object.fromEntries(Object.entries(ui ?? {}).filter(([k]) => !isProjectPref(k))))),
+    // Not the per-project maps nor the tips: a window's copy of them is stale for other windows' changes (ui:setProjectPref, #245; ui:changeTips, #266).
+    'ui:set': (ui) => config.update((c) => Object.assign(c.ui, Object.fromEntries(Object.entries(ui ?? {}).filter(([k]) => !isProjectPref(k) && k !== 'tips')))),
     'ui:setPane': (key, size) =>
       config.update((c) => {
         c.ui.panes ??= {}
@@ -260,6 +261,15 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
         ;(c.ui as Record<string, unknown>)[pref] = withProjectPref(c.ui[pref] as Record<string, unknown> | undefined, key, kept)
       })
       emit({ type: 'ui-pref-changed', pref, project: key, value: kept })
+    },
+    'ui:changeTips': (change) => {
+      const kept = tipsChange(change)
+      if (!kept) throw new Error('Not a tips change.')
+      // The change applied to what is saved, never the window's whole copy of the state.
+      let tips = EMPTY_TIPS_STATE
+      config.update((c) => void (c.ui.tips = tips = applyTipsChange(tipsState(c.ui.tips), kept)))
+      emit({ type: 'tips-changed', tips })
+      return tips
     },
     'ui:changeBoardFold': (change) => {
       // This window's workspace only, applied to what is saved now: another window's folds stay as they are.
@@ -424,10 +434,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:delete': (p, id) => sessions.delete(p, id),
     'session:bulk': (p, action, ids) => sessions.bulk(p, action, ids),
     'session:keptUsage': (p) => sessions.keptUsage(p),
-    'storage:project': (p, refresh, request) => storage.projectStorage(p, refresh, typeof request === 'string' ? request : undefined),
-    'storage:workspace': (refresh, request) => storage.workspaceStorage(refresh, typeof request === 'string' ? request : undefined),
+    // A request is the calling window's: only it abandons it, and its page going abandons it too (#260).
+    'storage:project': (p, refresh, request) => storage.projectStorage(p, refresh, typeof request === 'string' ? request : undefined, win().webContents.id),
+    'storage:workspace': (refresh, request) => storage.workspaceStorage(refresh, typeof request === 'string' ? request : undefined, win().webContents.id),
     'storage:abandon': (request) => {
-      if (typeof request === 'string') storage.abandonStorage(request)
+      if (typeof request === 'string') storage.abandonStorage(request, win().webContents.id)
     },
     'storage:cleanupPreview': (p, opts) => storage.cleanupPreview(p, opts),
     'storage:cleanup': (p, opts, listed) => storage.cleanup(p, opts, listed),
