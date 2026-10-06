@@ -646,6 +646,18 @@ export interface AgentDef {
 export type AgentPatch = Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona' | 'role'>> & { use200kContext?: boolean | null }
 
 /** What loading a template into a project would do (#126), and what stops it now. */
+/**
+ * What happened to an old worktree the user chose to remove with a template's load (#289, #313): `removed` (the folder
+ * went), and `branchKept` when its branch stayed all the same (a ref moved in the last step); `why` it was kept, or why
+ * the branch was.
+ */
+export interface OldWorktreeOutcome {
+  branch: string
+  removed: boolean
+  branchKept?: true
+  why?: string
+}
+
 export interface TemplateLoadPlan {
   scope: TemplateScope
   file: string

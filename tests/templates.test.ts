@@ -22,11 +22,18 @@ const base = mkdtempSync(join(tmpdir(), 'hive-templates-'))
 let statusThrows = false
 /** Holds the next listing of a project's worktrees, once git has given it, until the test lets it go (#289). */
 let holdNextListing: ((listed: unknown) => Promise<unknown>) | null = null
+/** Removing this branch's worktree goes as when a ref moves in the last step: the folder goes, the branch stays (#313). */
+let branchStaysFor: string | null = null
 vi.mock('../src/main/worktrees', async (original) => {
   const real = await original<typeof import('../src/main/worktrees')>()
   return {
     ...real,
     branchStatus: async (...a: Parameters<typeof real.branchStatus>) => (statusThrows ? Promise.reject(new Error('git exploded')) : real.branchStatus(...a)),
+    removeCheckedWorktree: async (...a: Parameters<typeof real.removeCheckedWorktree>) => {
+      if (a[1].branch !== branchStaysFor) return real.removeCheckedWorktree(...a)
+      await real.removeWorktree(a[0], a[1], false)
+      return { deleted: true, branchKept: true, reason: 'main changed since it was checked' }
+    },
     listWorktrees: async (...a: Parameters<typeof real.listWorktrees>) => {
       const listed = await real.listWorktrees(...a)
       const hold = holdNextListing
@@ -654,6 +661,20 @@ describe('saving and loading templates', () => {
     const neatGone = await run(() => removeAgent(beta, neatAgain.id, { deleteWorktree: 'merged-clean', mergedInto: 'main' }))
     expect(neatGone.worktree?.deleted).toBe(true)
     expect(pending()).not.toContain(neat.worktree!.path.toLowerCase())
+  })
+
+  it("says when an old worktree's folder went but its branch stayed (#313)", async () => {
+    const branchy = await run(() => addAgent(beta, { name: 'Branchy', location: 'new-worktree' }))
+    const ids = cfgOf(beta).agents.map((a: AgentDef) => a.id)
+    branchStaysFor = branchy.worktree!.branch
+    try {
+      const r = await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids, undefined, { paths: [branchy.worktree!.path], mergedInto: 'main' }))
+      expect(r.oldWorktrees).toEqual([{ branch: 'hive/branchy', removed: true, branchKept: true, why: 'main changed since it was checked' }])
+    } finally {
+      branchStaysFor = null
+    }
+    expect(existsSync(branchy.worktree!.path)).toBe(false)
+    expect(git(beta, 'branch', '--list', 'hive/branchy').toString()).toMatch(/hive\/branchy/)
   })
 
   it('changes at once to one place never pick the same file or miss a name: imports, duplicates, saves', async () => {

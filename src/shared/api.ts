@@ -16,6 +16,7 @@ import type {
   AgentBranchStatus,
   AgentDef,
   TemplateLoadPlan,
+  OldWorktreeOutcome,
   AgentPatch,
   CleanupItem,
   CleanupOptions,
@@ -304,7 +305,7 @@ export interface HiveRequests {
   /** What loading a template would do, and what stops it now. `from`: the project a project's template is kept in, if not this one. */
   'templates:plan': (projectPath: string, scope: TemplateScope, file: string, from?: string) => TemplateLoadPlan
   /** Replaces the project's agents and layout with a template's; `expected` is the agents' ids as the user saw them. */
-  'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }) => { created: string[]; removed: string[]; oldWorktrees: { branch: string; removed: boolean; why?: string }[] }
+  'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }) => { created: string[]; removed: string[]; oldWorktrees: OldWorktreeOutcome[] }
   /** Adds one agent of a template (the `index`-th), the others left alone. */
   'templates:addAgent': (projectPath: string, scope: TemplateScope, file: string, index: number, from?: string) => AgentDef & { reused?: true }
   /** Every template of the workspace (#127, the Templates view): the workspace's, then each project's. */
