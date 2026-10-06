@@ -10,11 +10,13 @@ import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { Icon, IconButton, InfoTip, LoadFailed, Markdown, Modal, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
-import { agentProviderOf, confirm, focusedAgentId, get, notify, openInSessionsTab, prompt, revealAgent, set, setAssistantOpen, useDateStyle, useStore } from '../store'
+import { agentProviderOf, confirm, focusedAgentId, notify, openInSessionsTab, prompt, revealAgent, set, setAssistantOpen, useDateStyle, useStore } from '../store'
 import { cx, formatDuration, formatTokens, sessionLabel, timeAgo } from '../util'
 import { useSessions } from './ProjectTabs'
 import { useScopedLoad } from '../scopedLoad'
 import { sessionOrigin, type SessionOrigin } from '@shared/sessionOrigin'
+import { MAX_TREE_PREFS } from '@shared/uiPrefs'
+import { rememberProjectPref } from '../projectPrefs'
 
 /**
  * Sessions tab: the project's sessions as a tree on the left (provider → agent → session → the sub-sessions it
@@ -31,7 +33,6 @@ type Row = { kind: 'node'; key: string; node: TreeNode; depth: number; parent: s
 const copyText = (text: string): void => void navigator.clipboard.writeText(text)
 const NO_PREFS: Record<string, boolean> = {}
 /** Branches whose open or folded state is remembered per project (the most recently changed). */
-const MAX_TREE_PREFS = 300
 
 const SKIP_TEXT: Record<SessionSkipReason, string> = { live: 'running', 'in-use': 'in use', reading: 'being read by Hive', open: 'open in another Hive window', external: 'started outside Hive', failed: 'failed' }
 const BULK_VERB: Record<SessionBulkAction, string> = { archive: 'Archived', unarchive: 'Unarchived', delete: 'Deleted' }
@@ -114,13 +115,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
       delete next[k]
       next[k] = open
     }
-    const prefs = Object.fromEntries(Object.entries(next).slice(-MAX_TREE_PREFS))
-    const all = { ...get().sessionsTree }
-    delete all[prefKey]
-    all[prefKey] = prefs
-    const kept = Object.fromEntries(Object.entries(all).slice(-200))
-    set({ sessionsTree: kept })
-    void call('ui:set', { sessionsTree: kept }).catch(() => undefined)
+    rememberProjectPref('sessionsTree', prefKey, Object.fromEntries(Object.entries(next).slice(-MAX_TREE_PREFS)))
     setRevealed((r) => {
       if (!keys.some((k) => r.has(k))) return r
       const x = new Set(r)

@@ -70,6 +70,7 @@ import type {
 import type { MetricsQuery, MetricsReport } from './metrics'
 import type { Artifact, CompareScope, ImportResult, KeptEntry } from './benchmark'
 import type { TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
+import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
 export type SettingsPatch = DeepPartial<AppSettings>
@@ -143,6 +144,8 @@ export interface HiveRequests {
   'ui:set': (ui: Partial<AppConfig['ui']>) => void
   /** Saves one pane's size (null: back to its default), leaving the other panes as they are: several windows save them. */
   'ui:setPane': (key: string, size: number | null) => void
+  /** Saves (null: forgets) one project's view preference (Skills tab provider or groups, Sessions tree), merged into what is saved: several windows save them (#245). */
+  'ui:setProjectPref': <P extends ProjectPref>(pref: P, project: string, value: ProjectPrefValue<P> | null) => void
 
   'workspace:get': () => WorkspaceInfo | null
   'workspace:open': (path?: string) => WorkspaceInfo | null

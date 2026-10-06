@@ -32,6 +32,7 @@ import { InboxPopover } from './components/Inbox'
 import { MoveRepairDialog, MovedBanner } from './components/MoveRepair'
 import { NoticeBanners, addNotice, resolveNotices } from './components/NoticeBanners'
 import { chimeAllowed } from '@shared/bursts'
+import { applyProjectPref } from './projectPrefs'
 
 function applyTheme(): void {
   const s = get().settings
@@ -138,6 +139,9 @@ function handleEvent(e: HiveEvent): void {
       if (!e.silent) playChime(n.chimeSound, n.chimeVolume)
       break
     }
+    case 'ui-pref-changed':
+      applyProjectPref(e.pref, e.project, e.value)
+      break
     case 'settings-changed':
       set({ settings: e.settings })
       applyTheme()

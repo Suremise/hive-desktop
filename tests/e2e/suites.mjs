@@ -94,6 +94,7 @@ export const SUITES = [
   { name: 'sessiontree' },
   { name: 'skillaudience' },
   { name: 'skilldelivery' },
+  { name: 'skillprefs' },
   { name: 'skills', serial: 'the shared Codex test home' },
   { name: 'startall' },
   { name: 'startfail' },

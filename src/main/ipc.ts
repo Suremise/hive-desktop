@@ -8,6 +8,7 @@ import * as updater from './updater'
 import type { ProviderId, QuitChoice } from '../shared/types'
 import { instructionFiles, instructionsShared, shareInstructions, SHARED_INSTRUCTIONS, type InstructionsFile } from '../shared/instructions'
 import { isKnownProvider, projectProviderConfig, providerDescriptor } from '../shared/providers'
+import { isProjectPref, projectPrefValue, withProjectPref } from '../shared/uiPrefs'
 import { allProviders } from './providers'
 import { providerService } from './providerService'
 import { config } from './config'
@@ -225,13 +226,25 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'settings:setProviderFallback': (provider, kind, list) => config.setProviderFallback(knownProvider(provider), kind === 'efforts' ? 'efforts' : 'models', list),
     'settings:reset': (section) => config.resetSettings(section),
     'ui:get': () => config.get().ui,
-    'ui:set': (ui) => config.update((c) => Object.assign(c.ui, ui)),
+    // Not the per-project maps: a window's copy of them is stale for other windows' projects (ui:setProjectPref, #245).
+    'ui:set': (ui) => config.update((c) => Object.assign(c.ui, Object.fromEntries(Object.entries(ui ?? {}).filter(([k]) => !isProjectPref(k))))),
     'ui:setPane': (key, size) =>
       config.update((c) => {
         c.ui.panes ??= {}
         if (typeof size === 'number' && Number.isFinite(size)) c.ui.panes[String(key)] = size
         else delete c.ui.panes[String(key)]
       }),
+    'ui:setProjectPref': (pref, project, value) => {
+      if (!isProjectPref(pref) || typeof project !== 'string' || !project) throw new Error('Not a project preference.')
+      const key = project.toLowerCase()
+      const kept = value === null ? null : projectPrefValue(pref, value)
+      if (kept === undefined) throw new Error(`Not a ${pref} value.`)
+      // This project's value merged into the saved map, never the window's whole copy of it.
+      config.update((c) => {
+        ;(c.ui as Record<string, unknown>)[pref] = withProjectPref(c.ui[pref] as Record<string, unknown> | undefined, key, kept)
+      })
+      emit({ type: 'ui-pref-changed', pref, project: key, value: kept })
+    },
 
     'workspace:get': () => workspace.info(),
     'workspace:open': async (path) => {

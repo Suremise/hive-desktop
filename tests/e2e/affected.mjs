@@ -99,6 +99,7 @@ export const AREAS = [
   { paths: ['src/main/rendererWatch.ts'], suites: ['rendercrash'] },
   { paths: ['src/main/storage.ts', 'src/shared/storage.ts', 'src/renderer/src/components/Storage.tsx'], suites: ['storage', 'asarfiles'] },
   { paths: ['src/shared/tipPlacement.ts'], suites: ['tooltips'] },
+  { paths: ['src/shared/uiPrefs.ts', 'src/renderer/src/projectPrefs.ts'], suites: ['skillprefs', 'skills', 'sessiontree'] },
   { paths: ['src/main/taskStart.ts', 'src/main/tasks.ts', 'src/shared/tasks.ts', 'src/renderer/src/components/Board.tsx', 'src/shared/edgeScroll.ts'], suites: ['board', 'boardscope', 'boardscroll', 'review', 'donemove', 'doingmove', 'carddialog', 'cardchip', 'taskoverview', 'busy', 'dialogs'] },
   { paths: ['src/main/watches.ts', 'src/shared/watch.ts'], suites: ['cardloop', 'quitwait', 'replysize'] },
   { paths: ['src/main/taskbar.ts', 'src/shared/taskbar.ts'], suites: ['taskbar', 'progress'] },
