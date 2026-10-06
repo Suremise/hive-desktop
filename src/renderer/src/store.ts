@@ -28,6 +28,7 @@ import type {
   Notice,
   WorkspaceInfo
 } from '@shared/types'
+import type { SessionAction } from './util'
 
 export type Activity = 'projects' | 'overview' | 'performance' | 'board' | 'notes' | 'skills' | 'templates' | 'mcp' | 'assistant' | 'docs' | 'settings'
 export type { ProjectTab } from '@shared/projectTabs'
@@ -57,6 +58,8 @@ export interface ConfirmRequest {
   confirmLabel?: string
   cancelLabel?: string
   danger?: boolean
+  /** The session action it confirms (Stop, Remove…): the confirm button takes its colour (#344). */
+  action?: SessionAction
   /** The action, run with the dialog open (a spinner, no closing) until it's done: a failure stays in the dialog. */
   run?: () => Promise<unknown>
   /** The confirm button's label while `run` runs ("Deleting…"). */
@@ -86,8 +89,8 @@ export interface ChoiceRequest {
   message: string
   detail?: string
   danger?: boolean
-  /** Buttons left to right; the last is the default. */
-  choices: { label: string; value: string }[]
+  /** Buttons left to right; the last is the default. A session action's button takes its colour (#344). */
+  choices: { label: string; value: string; action?: SessionAction }[]
   /** A drop-down above the buttons (where to put something); `set` gets the user's pick before the dialog resolves with a button. */
   select?: { label: string; options: { label: string; value: string }[]; initial: string; set: (value: string) => void }
   resolve: (value: string | null) => void

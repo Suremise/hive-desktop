@@ -114,11 +114,11 @@ const check = (name, ok, extra = '') => {
       await zoom(z)
       await lib.sleep(400)
       const tag = `Assistant ${side}, ${z * 100}%`
-      const p = await run(`${tag}, no agents`, 'alpha', [['New Session', '.session-empty-card .btn.primary']], 1)
+      const p = await run(`${tag}, no agents`, 'alpha', [['New Session', '.session-empty-card .btn.act-start']], 1)
       const lead = await explanation()
       check(`${tag}, no agents: the explanation ${p.main.width < 280 ? 'gives way to the title and buttons' : 'shows'}`, lead === p.main.width >= 280, String(lead))
       await page.screenshot({ path: path.join(lib.WORK, `narrowmain-${side}-${z * 100}-alpha.png`) })
-      await run(`${tag}, an agent not running beside an empty pane`, 'beta', [['New Session', '.pane-placeholder .btns .btn.primary'], ['Add Agent', '.pane-placeholder:not(:has(.btns)) .btn']], 2)
+      await run(`${tag}, an agent not running beside an empty pane`, 'beta', [['New Session', '.pane-placeholder .btns .btn.act-start'], ['Add Agent', '.pane-placeholder:not(:has(.btns)) .btn']], 2)
       await page.screenshot({ path: path.join(lib.WORK, `narrowmain-${side}-${z * 100}-beta.png`) })
     }
     await zoom(1)
@@ -127,7 +127,7 @@ const check = (name, ok, extra = '') => {
   await inv('settings:update', { appearance: { theme: 'light' } })
   await zoom(1.25)
   await lib.sleep(400)
-  await run('light, 125%, no agents', 'alpha', [['New Session', '.session-empty-card .btn.primary']], 1)
+  await run('light, 125%, no agents', 'alpha', [['New Session', '.session-empty-card .btn.act-start']], 1)
   await page.screenshot({ path: path.join(lib.WORK, 'narrowmain-light-125-alpha.png') })
 
   // A roomy window: the empty state is as before, centred and whole, with no scrolling.

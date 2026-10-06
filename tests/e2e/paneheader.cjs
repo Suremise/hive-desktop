@@ -134,6 +134,31 @@ function commits(wt, n) {
   await worktreeMarks('')
 
   const header = (a) => page.locator('.pane-header-bar', { has: page.locator('.agent-name', { hasText: a.name }) })
+  // One colour per action (#344): the running agent's Stop, the stopped one's Resume and New Session (filled).
+  const actOf = (a, name) => header(a).getByRole('button', { name, exact: true }).evaluate((b) => [...b.classList].filter((c) => c.startsWith('act-') || c === 'solid').join(' ')).catch(() => null)
+  const acts = [await actOf(long, 'Stop'), await actOf(other, 'Resume'), await actOf(other, 'New Session')]
+  check("the headers' Stop, Resume and New Session wear their actions' colours", JSON.stringify(acts) === JSON.stringify(['act-stop', 'act-resume', 'act-start solid']), JSON.stringify(acts))
+  /** What a CSS colour (`var(--x)`) computes to where `el` is. */
+  const tokenAt = (loc, value) =>
+    loc.evaluate((el, v) => {
+      const probe = document.createElement('span')
+      probe.style.color = v
+      el.appendChild(probe)
+      const c = getComputedStyle(probe).color
+      probe.remove()
+      return c
+    }, value)
+  // Disabled, an action stays readable: Three has nothing to resume, so its Resume is unavailable, not faded but muted and dashed.
+  const resumeOff = header(other).getByRole('button', { name: 'Resume', exact: true })
+  const off = await resumeOff.evaluate((b) => ({ disabled: b.disabled, opacity: getComputedStyle(b).opacity, color: getComputedStyle(b).color, edge: getComputedStyle(b).borderTopStyle }))
+  check("a disabled Resume isn't faded: its label muted, its edge dashed", off.disabled && off.opacity === '1' && off.color === (await tokenAt(resumeOff, 'var(--fg-muted)')) && off.edge === 'dashed', JSON.stringify(off))
+  // An action's menu entry hovered (which also makes it the keyboard's choice): its own wash and icon colour, not the accent.
+  await header(other).locator('.agent-name').click({ button: 'right' })
+  const removeItem = page.locator('.menu .menu-item', { hasText: 'Remove Agent…' })
+  await removeItem.hover()
+  const on = await removeItem.evaluate((el) => ({ active: el.classList.contains('active'), background: getComputedStyle(el).backgroundColor, icon: getComputedStyle(el.querySelector('.codicon')).color }))
+  check("a hovered Remove Agent… keeps Remove's colour, not the accent", on.active && on.icon === (await tokenAt(removeItem, 'var(--act-remove-fg)')) && on.background !== (await tokenAt(removeItem, 'var(--accent)')), JSON.stringify(on))
+  await page.keyboard.press('Escape')
   /** The header's mode, its width and everything wrong with its layout. */
   const inspect = (a) =>
     header(a).evaluate((h) => {

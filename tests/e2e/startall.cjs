@@ -91,9 +91,15 @@ const check = (name, ok, extra = '') => {
   }
   check('the tooltips keep the full meaning', (await tipOf('Stop (2)')) === 'Stop the 2 running agents' && /each of the 3 agents/.test((await tipOf('Start New (3)')) ?? ''), `${await tipOf('Stop (2)')} / ${await tipOf('Start New (3)')}`)
   check('no Explorer or Terminal button in the header', (await header.locator('button', { hasText: /Explorer|Terminal/ }).count()) === 0)
+  // One colour per action (#344): each batch button has its action's, and Stop's and Remove's differ in both themes.
+  const acts = async () => header.locator('button').evaluateAll((bs) => bs.filter((b) => b.innerText.trim()).map((b) => `${b.innerText.trim()}: ${[...b.classList].find((c) => c.startsWith('act-')) ?? 'none'}`))
+  check("each batch button wears its action's colour", JSON.stringify(await acts()) === JSON.stringify(['Resume Agent: act-resume', 'Stop (2): act-stop', 'Start New (3): act-start', 'Archive and Start New (3): act-archive-start', 'Remove All (3): act-remove']), JSON.stringify(await acts()))
+  const colourOf = (name) => header.getByRole('button', { name, exact: true }).evaluate((b) => getComputedStyle(b).color)
   for (const theme of ['dark', 'light']) {
     await inv('settings:update', { appearance: { theme } })
     await lib.sleep(300)
+    const [stop, remove] = [await colourOf('Stop (2)'), await colourOf('Remove All (3)')]
+    check(`${theme}: Stop and Remove All have different colours`, stop !== remove, `${stop} / ${remove}`)
     await page.screenshot({ path: path.join(lib.WORK, `startall-header-${theme}.png`) })
   }
   await inv('settings:update', { appearance: { theme: 'dark' } })

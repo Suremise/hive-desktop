@@ -1,5 +1,5 @@
 // Remove All (#291): the project header's "Remove All (n)" (and the Session menu's and the palette's "Remove All Agents
-// (n)…") removes every agent after one question in the danger style, listing them (the working one flagged, worktrees
+// (n)…") removes every agent after one question with Remove's colour (#344), listing them (the working one flagged, worktrees
 // marked: merged and clean, or always kept and why). Running agents are stopped first; cards are asked about once for
 // all of them; each tab shows the spinner while it goes; sessions stay. Worktrees and branches are kept by default; the
 // opt-in box deletes only merged, clean ones (unmerged work is kept even ticked); a failure is reported with the rest
@@ -124,7 +124,7 @@ const check = (name, ok, extra = '') => {
   const text = await dialog.innerText()
   check('one question lists all four, flagging the working one', /Worker — Working.*\(will be interrupted\)/.test(text) && /Idle — not running/.test(text) && /Merged — not running · worktree hive\/merged: merged and clean/.test(text) && /Unmerged — not running · worktree hive\/unmerged: always kept \(1 commit not merged into (main|master)\)/.test(text), text)
   check('it says running agents stop first and sessions stay', /Running agents are stopped first\./.test(text) && /sessions stay in the Sessions tab/.test(text), text)
-  check('in the danger style', (await dialog.locator('button.danger', { hasText: 'Remove 4 agents' }).count()) === 1)
+  check("in Remove's colour, filled (#344)", (await dialog.locator('button.act-remove.solid', { hasText: 'Remove 4 agents' }).count()) === 1)
   const box = dialog.locator('.dialog-check')
   check('the box is offered for the merged, clean worktree only, unticked', (await box.count()) === 1 && (await box.innerText()).trim().endsWith('hive/merged') && !/unmerged/.test(await box.innerText()) && !(await box.locator('input').isChecked()), await box.innerText().catch(() => ''))
   for (const theme of ['dark', 'light']) {

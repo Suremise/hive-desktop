@@ -234,6 +234,35 @@ const rolloutFile = (sid, h) => path.join(codexHome, 'sessions', '2026', '10', '
   check("the row says it can't be resumed", (await row('Gone session').locator('.cant-resume').count()) === 1)
   const blocked = page.locator('.transcript-toolbar .resume-blocked')
   check('its Resume is disabled', (await blocked.locator('button[disabled]').count()) === 1)
+  // Disabled, Resume stays readable (#344): unfaded, its label at least 4.5:1 on what's behind it, here and in the row's
+  // menu, in both themes.
+  const legible = (loc) =>
+    loc.evaluate((el) => {
+      const rgb = (s) => (s.match(/[\d.]+/g) || []).map(Number)
+      const lum = (c) => c.slice(0, 3).map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0)
+      let bg = null
+      for (let n = el; n && !bg; n = n.parentElement) {
+        const c = rgb(getComputedStyle(n).backgroundColor)
+        if (c.length === 3 || c[3] === 1) bg = c
+      }
+      const [x, y] = [lum(rgb(getComputedStyle(el).color)), lum(bg ?? [0, 0, 0])].sort((a, b) => b - a)
+      let opacity = 1
+      for (let n = el; n; n = n.parentElement) opacity *= Number(getComputedStyle(n).opacity)
+      return { ratio: Math.round(((x + 0.05) / (y + 0.05)) * 100) / 100, opacity }
+    })
+  for (const theme of ['dark', 'light']) {
+    await inv('settings:update', { appearance: { theme } })
+    await lib.sleep(300)
+    const button = await legible(blocked.locator('button.act-resume[disabled]'))
+    check(`${theme}: the blocked Resume is unfaded and readable`, button.opacity === 1 && button.ratio >= 4.5, JSON.stringify(button))
+    await row('Gone session').click({ button: 'right' })
+    const entry = page.locator('.menu .menu-item.act-resume.disabled', { hasText: 'Resume' })
+    await entry.waitFor({ timeout: 3000 }).catch(() => undefined)
+    const item = (await entry.count()) ? await legible(entry.locator('.menu-label')) : null
+    check(`${theme}: its menu's disabled Resume is unfaded and readable`, !!item && item.opacity === 1 && item.ratio >= 4.5, JSON.stringify(item))
+    await page.keyboard.press('Escape')
+  }
+  await inv('settings:update', { appearance: { theme: 'dark' } })
   const tipFor = async (el) => {
     let tip = ''
     await lib.until(async () => {

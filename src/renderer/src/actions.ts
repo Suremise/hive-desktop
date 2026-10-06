@@ -8,7 +8,7 @@ import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult }
 import type { OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
 import { oldWorktreesNotice, templateLoadDetail } from '@shared/templateLoad'
-import { formatTokens } from './util'
+import { formatTokens, type SessionAction } from './util'
 import { statusText } from './components/ui'
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
 
@@ -152,7 +152,8 @@ export async function setProjectActive(path: string, active: boolean): Promise<v
         message: running > 1 ? `${p!.name} has ${running} agents running.` : `${p!.name} has a running session.`,
         detail: `${running > 1 ? 'They are' : 'The session is'} stopped (and can be resumed later) and the project is marked inactive.`,
         confirmLabel: 'Stop and deactivate',
-        danger: true
+        danger: true,
+        action: 'stop'
       })
       if (!ok) return undefined
       await call('session:stop', path)
@@ -204,6 +205,7 @@ async function ensureWorktree(path: string, agentId: string): Promise<boolean> {
       message: `${gone.agentName}'s worktree folder is missing: ${gone.path}. Its branch ${gone.branch} is still in the repository: recreate the worktree on it, with its commits, and start?`,
       detail: setup,
       confirmLabel: 'Recreate and Start',
+      action: 'start',
       busyLabel: 'Recreating…',
       run: () => call('agents:recreateWorktree', path, agentId)
     })
@@ -271,7 +273,7 @@ function agentSuffix(p: ProjectInfo | undefined, agentId: string): string {
   return (p?.agents.length ?? 1) > 1 && a ? ` (${a.name})` : ''
 }
 
-async function stopIfRunning(path: string, agentId: string, action: string): Promise<boolean> {
+async function stopIfRunning(path: string, agentId: string, action: string, then: SessionAction): Promise<boolean> {
   const p = project(path)
   // Main's word, not the window's copy: just after a session stops, main saves its record before it tells the window,
   // so the copy can still show it running (Restart session then asked to stop a session already stopped, #218).
@@ -281,7 +283,9 @@ async function stopIfRunning(path: string, agentId: string, action: string): Pro
     title: `${action}?`,
     message: `${p!.name}${agentSuffix(p, agentId)} already has a running session.`,
     detail: 'It will be stopped first. Its conversation is kept and can be resumed from the Sessions tab.',
-    confirmLabel: `Stop and ${action.toLowerCase()}`
+    confirmLabel: `Stop and ${action.toLowerCase()}`,
+    // In the colour of what it goes on to do (#344).
+    action: then
   })
   if (!ok) return false
   await call('session:stop', path, agentId)
@@ -304,7 +308,7 @@ export async function newSession(path: string | null = get().selectedProject, ag
   const id = agentId ?? focusedAgentId(project(path)) ?? (await quickAddAgent(path))
   if (!id) return
   if (!(await ensureAgent(path, id))) return
-  if (!(await stopIfRunning(path, id, 'Start a new session'))) return
+  if (!(await stopIfRunning(path, id, 'Start a new session', 'start'))) return
   const st = await attempt('Could not start session', () => call('session:start', path, { agentId: id, skipSetup: opts.skipSetup }))
   if (st) reveal(path, id)
 }
@@ -382,8 +386,8 @@ export async function resumeSession(path: string, item: Pick<SessionListItem, 'i
       message: `The prompt cache for this ${what} has expired. Resuming will re-cache about ${formatTokens(item.recache.tokens)} tokens on the first message.`,
       detail: `To save tokens, archive it and start a fresh ${what} instead. The archived one stays readable${isAssistantPath(path) ? '' : ', and a handover note can carry the work on'}.`,
       choices: [
-        { label: 'Archive and Start Fresh', value: 'fresh' },
-        { label: 'Resume', value: 'resume' }
+        { label: 'Archive and Start Fresh', value: 'fresh', action: 'archive-start' },
+        { label: 'Resume', value: 'resume', action: 'resume' }
       ]
     })
     if (!choice) return
@@ -393,7 +397,7 @@ export async function resumeSession(path: string, item: Pick<SessionListItem, 'i
       return
     }
   }
-  if (!(await stopIfRunning(path, target, 'Resume this session'))) return
+  if (!(await stopIfRunning(path, target, 'Resume this session', 'resume'))) return
   const st = await attempt('Could not resume session', () => call('session:start', path, { resumeId: item.id, name: item.name, agentId: target }))
   if (st) reveal(path, target)
 }
@@ -426,7 +430,8 @@ export async function stopSession(path: string | null = get().selectedProject, a
       message: `Stop the running session in ${p!.name}${agentSuffix(p, id)}?`,
       detail: 'The conversation is kept and can be resumed later.',
       confirmLabel: 'Stop',
-      danger: true
+      danger: true,
+      action: 'stop'
     })
     if (!ok) return
   }
@@ -446,6 +451,7 @@ export async function stopAllAgents(path: string): Promise<void> {
     confirmLabel: running.length === 1 ? 'Stop' : 'Stop all',
     busyLabel: 'Stopping…',
     danger: true,
+    action: 'stop',
     run: async () => {
       await call('session:stop', path)
       await Promise.all(running.map((a) => waitForStop(path, a.id)))
@@ -479,7 +485,8 @@ async function resumeAll_(path: string): Promise<void> {
       title: stopped.length === 1 ? 'Resume the agent?' : 'Resume all agents?',
       message: `The prompt cache has expired for ${cold.length === stopped.length && cold.length > 1 ? 'all of them' : cold.length === 1 ? 'one agent' : `${cold.length} agents`}. Resuming re-caches on the first message:`,
       detail: cold.join('\n'),
-      confirmLabel: stopped.length === 1 ? 'Resume' : 'Resume all'
+      confirmLabel: stopped.length === 1 ? 'Resume' : 'Resume all',
+      action: 'resume'
     })
     if (!ok) return
   }
@@ -538,7 +545,8 @@ async function startNewAll_(path: string, archive: boolean): Promise<void> {
       '',
       `${running.length ? `Running agents are stopped first. ` : ''}${archive ? "The transcripts are kept in the project's .hive/archive folder." : 'Their conversations are kept and can be resumed from the Sessions tab.'}`
     ].join('\n'),
-    confirmLabel: archive ? 'Archive and start new' : 'Start new'
+    confirmLabel: archive ? 'Archive and start new' : 'Start new',
+    action: archive ? 'archive-start' : 'start'
   })
   if (!ok) return
   // As they are now: one may have stopped or started while the dialog was open.
@@ -582,7 +590,8 @@ export async function archiveCurrent(path: string | null = get().selectedProject
     title: 'Archive session and start fresh?',
     message: `Archive "${target.name || target.title || target.id.slice(0, 8)}" and start a new session?`,
     detail: "The transcript is preserved in the project's .hive/archive folder. A new session starts with an empty context, which avoids re-caching the old conversation.",
-    confirmLabel: 'Archive and start new'
+    confirmLabel: 'Archive and start new',
+    action: 'archive-start'
   })
   if (!ok) return
   if (live) {
@@ -803,7 +812,7 @@ export async function removeAgent(path: string, agentId: string): Promise<void> 
   const p = project(path)
   const a = agentOf(p, agentId)
   if (!p || !a) return
-  if (a.live && !(await stopIfRunning(path, agentId, `Remove ${a.name}`))) return
+  if (a.live && !(await stopIfRunning(path, agentId, `Remove ${a.name}`, 'remove'))) return
   let deleteWorktree = false
   if (a.worktree) {
     const keep = await confirm({
@@ -811,7 +820,8 @@ export async function removeAgent(path: string, agentId: string): Promise<void> 
       message: `${a.name} works in its own worktree on branch ${a.worktree.branch}.`,
       detail: `Keep the worktree and branch to merge or reuse them later (Add Agent → Existing worktree), or delete both. Its sessions stay in the Sessions tab either way.`,
       confirmLabel: 'Keep worktree and branch',
-      cancelLabel: 'Delete them…'
+      cancelLabel: 'Delete them…',
+      action: 'remove'
     })
     if (!keep) {
       const del = await confirm({
@@ -824,7 +834,7 @@ export async function removeAgent(path: string, agentId: string): Promise<void> 
       if (!del) return
       deleteWorktree = true
     }
-  } else if (!(await confirm({ title: `Remove ${a.name}?`, message: `${a.name} is removed from ${p.name}. Its sessions stay in the Sessions tab.`, confirmLabel: 'Remove' }))) return
+  } else if (!(await confirm({ title: `Remove ${a.name}?`, message: `${a.name} is removed from ${p.name}. Its sessions stay in the Sessions tab.`, confirmLabel: 'Remove', action: 'remove' }))) return
   const releaseCards = await cardsOfRemovedAgent(p, agentId, a.name)
   if (releaseCards === null) return
   // Its tab shows a spinner while it goes (deleting a worktree takes a moment); a second Remove is ignored.
@@ -876,7 +886,8 @@ async function removeAllAgents_(path: string): Promise<void> {
       ? { label: `Also delete the worktrees and branches fully merged into ${into} with no uncommitted changes: ${removable.map((a) => a.worktree!.branch).join(', ')}`, initial: false, set: (v) => (deleteMerged = v) }
       : undefined,
     confirmLabel: one ? 'Remove' : `Remove ${agents.length} agents`,
-    danger: true
+    danger: true,
+    action: 'remove'
   })
   if (!ok) return
   const releaseCards = await cardsOfRemovedAgents(p, agents)

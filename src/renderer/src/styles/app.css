@@ -35,6 +35,24 @@
   --error: #f2555a;
   /* Needs sign-in (#309): its own colour, not a warning's or an error's. */
   --signin: #b48cff;
+  /* One colour per session action, wherever it appears (#344): each a hue for the button's wash and edge and
+     its -fg for the label and icon, at least 4.5:1 on that wash (resting and hovered) on every surface. */
+  --act-stop: var(--error);
+  --act-stop-fg: #ff8a8d;
+  --act-remove: #9f7aea;
+  --act-remove-fg: #bfa6ff;
+  --act-start: var(--success);
+  --act-start-fg: #6ad986;
+  --act-archive-start: #2bb5a5;
+  --act-archive-start-fg: #4fd3c3;
+  --act-resume: var(--accent);
+  --act-resume-fg: #f8ab2c;
+  /* A solid action button: its label, and what a hover mixes in (lighter here, darker in light). Resume's amber
+     takes a dark label and a lighter hover in both themes (white on it is 3.2:1 in light). */
+  --act-on: #1b1b1b;
+  --act-shade: #ffffff;
+  --act-resume-on: #1b1b1b;
+  --act-resume-shade: #ffffff;
 
   --status-bg: #d97706;
   --status-fg: #1b1208;
@@ -76,6 +94,20 @@
   --warning: #9a6700;
   --error: #cf222e;
   --signin: #8250df;
+  --act-stop: var(--error);
+  --act-stop-fg: #b01b25;
+  --act-remove: #7c3aed;
+  --act-remove-fg: #6a2fd0;
+  --act-start: var(--success);
+  --act-start-fg: #146c2e;
+  --act-archive-start: #0d7d74;
+  --act-archive-start-fg: #0b625b;
+  --act-resume: var(--accent);
+  --act-resume-fg: #8f4a05;
+  --act-on: #ffffff;
+  --act-shade: #000000;
+  --act-resume-on: #1b1b1b;
+  --act-resume-shade: #ffffff;
 
   --status-bg: #d97706;
   --status-fg: #ffffff;
@@ -2438,7 +2470,8 @@ p.hint {
 .kbd-table td:last-child {
   text-align: right;
 }
-.btn.primary kbd {
+.btn.primary kbd,
+.btn.solid kbd {
   background: rgba(0, 0, 0, 0.15);
   border-color: rgba(0, 0, 0, 0.2);
   color: inherit;
@@ -2996,22 +3029,111 @@ p.hint {
   line-height: 1.5;
 }
 
-/* Tinted buttons: a soft wash of a theme colour, so they read as Stop / Resume without shouting
-   next to the solid primary button. Built from the theme tokens, so light mode follows. */
-.btn.tint-red,
+/* A tinted button: a soft wash of the accent (Add Agent where Resume would be). Session actions have their own colours (below). */
 .btn.tint-amber {
-  --tint: var(--error);
+  --tint: var(--accent);
   color: var(--tint);
   background: color-mix(in srgb, var(--tint) 12%, transparent);
   border-color: color-mix(in srgb, var(--tint) 45%, transparent);
 }
-.btn.tint-amber {
-  --tint: var(--accent);
-}
-.btn.tint-red:hover:not(:disabled),
 .btn.tint-amber:hover:not(:disabled) {
   background: color-mix(in srgb, var(--tint) 22%, transparent);
   border-color: color-mix(in srgb, var(--tint) 70%, transparent);
+}
+
+/* Session actions (#344): one colour each, the same wherever the action appears. The class sets --act (the
+   wash and edge) and --act-fg (label and icon); the wash stays light (10%, 18% hovered) so the label keeps AA
+   contrast on it. Labels and icons are always there too: the colour is never the only cue. */
+.act-stop {
+  --act: var(--act-stop);
+  --act-fg: var(--act-stop-fg);
+}
+.act-remove {
+  --act: var(--act-remove);
+  --act-fg: var(--act-remove-fg);
+}
+.act-start {
+  --act: var(--act-start);
+  --act-fg: var(--act-start-fg);
+}
+.act-archive-start {
+  --act: var(--act-archive-start);
+  --act-fg: var(--act-archive-start-fg);
+}
+.act-resume {
+  --act: var(--act-resume);
+  --act-fg: var(--act-resume-fg);
+  --act-on: var(--act-resume-on);
+  --act-shade: var(--act-resume-shade);
+}
+.btn:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume) {
+  color: var(--act-fg);
+  background: color-mix(in srgb, var(--act) 10%, transparent);
+  border-color: color-mix(in srgb, var(--act) 45%, transparent);
+}
+.btn:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--act) 18%, transparent);
+  border-color: color-mix(in srgb, var(--act) 75%, transparent);
+}
+.btn:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume):focus-visible {
+  outline: 2px solid var(--act-fg);
+  outline-offset: 1px;
+}
+/* The count (narrow forms): filled, so its small figures read as well as a solid button's label on any wash. */
+.btn:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume) .btn-count {
+  background: var(--act);
+  color: var(--act-on);
+}
+/* Solid: filled like .primary, where the action is the main choice (an empty pane's New Session, the question
+   that asks before a Stop or a Remove). */
+.btn.solid:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume) {
+  color: var(--act-on);
+  background: var(--act);
+  border-color: transparent;
+  font-weight: 600;
+}
+.btn.solid:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--act) 88%, var(--act-shade));
+  border-color: transparent;
+}
+/* Disabled: no wash or fill and a dashed edge, so it reads as unavailable, with a muted label that stays readable
+   (4.5:1 on every surface) rather than a faded one; the edge keeps the action's hue. */
+.btn:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume):disabled,
+.btn.solid:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume):disabled {
+  opacity: 1;
+  color: var(--fg-muted);
+  background: transparent;
+  border-color: color-mix(in srgb, var(--act) 45%, transparent);
+  border-style: dashed;
+  font-weight: inherit;
+}
+.btn:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume):disabled .btn-count {
+  background: transparent;
+  color: var(--fg-muted);
+}
+/* Icon-only actions and menu entries: the icon in the action's colour (a menu's label stays the menu's). Hovered or
+   chosen from the keyboard, a menu entry takes its action's wash instead of the accent, its icon keeping its colour. */
+.icon-btn:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume),
+.menu-item:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume):not(.disabled) .codicon {
+  color: var(--act-fg);
+}
+.icon-btn:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume):disabled {
+  opacity: 1;
+  color: var(--fg-muted);
+}
+/* Unavailable, an action's entry is muted (its icon loses its colour) but stays readable, unlike other menus' faint ones. */
+.menu-item.disabled:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume) {
+  color: var(--fg-muted);
+}
+.menu-item:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume):is(:hover, .active):not(.disabled) {
+  background: color-mix(in srgb, var(--act) 18%, var(--bg-elevated));
+  color: var(--fg-strong);
+}
+.menu-item:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume):is(:hover, .active):not(.disabled) .codicon {
+  color: var(--act-fg);
+}
+.menu-item:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume):is(:hover, .active):not(.disabled) :is(.menu-key, .menu-detail) {
+  color: var(--fg);
 }
 
 /* ---------- Sessions tab: list and transcript viewer ---------- */
@@ -3150,8 +3272,8 @@ p.hint {
   border: 1px solid var(--border);
   color: var(--fg-muted);
 }
+/* Its Resume (an action) isn't faded: the action's disabled look keeps it readable (#344). */
 .resume-blocked .btn:disabled {
-  opacity: 0.5;
   cursor: default;
 }
 .search-hit .hit-kind {
