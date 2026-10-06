@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch, TaskStartTarget } from '@shared/types'
-import { TASK_COLUMNS, applyBoardFold, columnColor, columnLabel, reviewStalled, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
+import { TASK_COLUMNS, applyBoardFold, archivedAt, columnColor, columnLabel, reviewStalled, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
 import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useDateStyle, useStore, type DoingRequest } from '../store'
@@ -10,6 +10,7 @@ import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
 import { formatDateTime } from '@shared/dates'
 import { returnRound } from '@shared/watch'
 import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, STATUS_TEXT, statusText, Tooltip, useBusy, useContextMenu, type MenuEntry } from './ui'
+import { DataTable, type DataColumn } from './DataTable'
 import { ProviderIcon } from './ProviderIcon'
 
 const NO_TASKS: TaskCard[] = []
@@ -432,31 +433,7 @@ export function Board({ project, query, archived }: { project: string | null; qu
     }
   }, [dragging])
 
-  if (archived) {
-    return (
-      <div className="task-archive">
-        {cards.length === 0 && <div className="empty-state">No archived cards{query ? ' match' : ''}.</div>}
-        {cards.map((c) => (
-          <div key={c.number} className="task-archive-row" onClick={() => set({ taskOpen: c.number })}>
-            <span className="task-number">#{c.number}</span>
-            <span className="grow">{c.title}</span>
-            {project === null && c.project && <span className="task-project">{c.project}</span>}
-            <span className="faint">{columnLabel(c.column)}</span>
-            <span className="faint">{timeAgo(c.updatedAt)}</span>
-            <button
-              className="btn small subtle"
-              onClick={(e) => {
-                e.stopPropagation()
-                void archive(c, false)
-              }}
-            >
-              Bring Back
-            </button>
-          </div>
-        ))}
-      </div>
-    )
-  }
+  if (archived) return <ArchivedTable cards={cards} project={project} query={query} />
 
   const drop = async (column: TaskColumn): Promise<void> => {
     const d = dragNow.current
@@ -552,6 +529,107 @@ export function Board({ project, query, archived }: { project: string | null; qu
         )
       })}
       {headerMenu.element}
+    </div>
+  )
+}
+
+/** An archived card's agent, as it was named when it last had one. */
+const lastAgent = (c: TaskCard): string => (c.agent ? (c.agentName ?? c.agent) : '')
+
+const ARCHIVED_COLUMNS: DataColumn<TaskCard>[] = [
+  { key: 'number', header: '#', num: true, descFirst: true, cell: (c) => <span className="task-number">#{c.number}</span>, sortValue: (c) => c.number, filter: { kind: 'text', value: (c) => `#${c.number}` } },
+  { key: 'title', header: 'Title', cell: (c) => <span className="archive-title">{c.title}</span>, sortValue: (c) => c.title, filter: { kind: 'text', value: (c) => c.title } },
+  { key: 'project', header: 'Project', cell: (c) => (c.project ? <span className="task-project">{c.project}</span> : <span className="faint">workspace</span>), sortValue: (c) => c.project || null, filter: { kind: 'choice', value: (c) => c.project || 'workspace' } },
+  {
+    key: 'labels',
+    header: 'Labels',
+    cell: (c) => (
+      <span className="archive-labels">
+        {c.labels.map((l) => (
+          <span key={l} className="task-label">
+            {l}
+          </span>
+        ))}
+      </span>
+    ),
+    sortValue: (c) => c.labels.join(', ') || null,
+    filter: { kind: 'choice', value: (c) => c.labels.join(', '), values: (c) => c.labels }
+  },
+  { key: 'agent', header: 'Agent', cell: (c) => lastAgent(c) || <span className="faint">–</span>, sortValue: (c) => lastAgent(c) || null, filter: { kind: 'text', value: lastAgent } },
+  { key: 'column', header: 'From', cell: (c) => columnLabel(c.column), sortValue: (c) => TASK_COLUMNS.findIndex((x) => x.id === c.column), filter: { kind: 'choice', value: (c) => c.column }, choiceLabel: (v) => columnLabel(v as TaskColumn) },
+  { key: 'archived', header: 'Archived', descFirst: true, cell: (c) => formatDateTime(archivedAt(c)), sortValue: (c) => archivedAt(c) },
+  { key: 'created', header: 'Created', descFirst: true, cell: (c) => formatDateTime(c.createdAt), sortValue: (c) => c.createdAt },
+  {
+    key: 'actions',
+    header: '',
+    cell: (c) => (
+      <Tooltip content={`Bring #${c.number} back to the end of ${columnLabel(c.column)}`}>
+        <button
+          className="btn small subtle"
+          onClick={(e) => {
+            e.stopPropagation()
+            void archive(c, false)
+          }}
+        >
+          Unarchive
+        </button>
+      </Tooltip>
+    )
+  }
+]
+/** In one project's view, its cards only: no project column. */
+const ARCHIVED_COLUMNS_ONE_PROJECT = ARCHIVED_COLUMNS.filter((c) => c.key !== 'project')
+
+/**
+ * The archived cards (#249): a table that sorts, filters and pages (DataTable), newest archived first. A row opens its
+ * card; Unarchive brings one back, or every selected one, to the end of the column it was archived from. The board's
+ * search narrows the rows too.
+ */
+function ArchivedTable({ cards, project, query }: { cards: TaskCard[]; project: string | null; query: string }) {
+  useDateStyle()
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [bringing, setBringing] = useState(false)
+  // Only cards still archived (and shown) stay selected.
+  const shown = useMemo(() => new Set(cards.map((c) => String(c.number))), [cards])
+  const picked = [...selected].filter((k) => shown.has(k))
+  const columns = project === null ? ARCHIVED_COLUMNS : ARCHIVED_COLUMNS_ONE_PROJECT
+  const unarchiveSelected = async (): Promise<void> => {
+    setBringing(true)
+    try {
+      for (const k of picked) {
+        const c = cards.find((x) => String(x.number) === k)
+        if (c) await archive(c, false)
+      }
+      setSelected(new Set())
+    } finally {
+      setBringing(false)
+    }
+  }
+  if (!cards.length) return <div className="empty-state">No archived cards{query ? ' match' : ''}.</div>
+  return (
+    <div className="task-archive">
+      <div className="task-archive-actions">
+        <span className="faint">
+          {cards.length} archived card{cards.length === 1 ? '' : 's'}
+          {picked.length ? ` · ${picked.length} selected` : ''}
+        </span>
+        <button className="btn small" disabled={!picked.length || bringing} onClick={() => void unarchiveSelected()}>
+          <Icon name="discard" /> Unarchive Selected{picked.length ? ` (${picked.length})` : ''}
+        </button>
+      </div>
+      <DataTable
+        id="archived-cards"
+        className="archived-cards"
+        rows={cards}
+        columns={columns}
+        rowKey={(c) => String(c.number)}
+        defaultSort={{ key: 'archived', desc: true }}
+        defaultPageSize={20}
+        empty="No archived cards."
+        onRowClick={(c) => set({ taskOpen: c.number })}
+        rowLabel={(c) => `Open #${c.number} ${c.title}`}
+        selection={{ selected, onChange: setSelected, label: (c) => `Select #${c.number}` }}
+      />
     </div>
   )
 }

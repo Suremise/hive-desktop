@@ -279,7 +279,7 @@ const check = (name, ok, extra = '') => {
   await inv('tasks:archive', 1, true)
   check('archived cards leave the board', !!(await until(async () => (await page.locator('.board-view.in-tab .task-card').count()) === 1, 5000)))
   await page.locator('.board-view.in-tab label', { hasText: 'Archived' }).click()
-  check('and are listed under Archived', !!(await until(async () => (await page.locator('.task-archive-row').count()) === 1, 5000)))
+  check('and are listed under Archived', !!(await until(async () => (await page.locator('.archived-cards tbody tr.clickable').count()) === 1, 5000)))
   await page.screenshot({ path: path.join(lib.WORK, 'board-tab.png') })
 
   // Project → Remove Project…: Hide delta.

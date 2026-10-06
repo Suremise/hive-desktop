@@ -96,6 +96,14 @@ export function stalledReason(card: Pick<TaskCard, 'column' | 'archived' | 'agen
   return null
 }
 
+/**
+ * When a card was archived (#249): its latest "Archived…" in its history (by the user, after its days in Done, or with
+ * its project), else its last change. ISO.
+ */
+export function archivedAt(card: Pick<TaskCard, 'history' | 'updatedAt'>): string {
+  return card.history.findLast((h) => h.what.startsWith('Archived'))?.at ?? card.updatedAt
+}
+
 /** Cards in board order: by column, then position. */
 export function sortCards(cards: TaskCard[]): TaskCard[] {
   const col = (c: TaskCard): number => TASK_COLUMNS.findIndex((x) => x.id === c.column)

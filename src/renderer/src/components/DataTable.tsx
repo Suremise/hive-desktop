@@ -33,7 +33,8 @@ export function DataTable<T>({
   empty,
   pageSizes = PAGE_SIZES,
   defaultPageSize = 20,
-  className
+  className,
+  selection
 }: {
   /** Names the table for its remembered rows per page ("compactions"). */
   id: string
@@ -51,6 +52,11 @@ export function DataTable<T>({
   pageSizes?: number[]
   defaultPageSize?: number
   className?: string
+  /**
+   * Rows can be selected (#249): a checkbox before each row, and one in the header for every row the filters let
+   * through (on every page). `selected` holds row keys; the caller keeps it and acts on it.
+   */
+  selection?: { selected: ReadonlySet<string>; onChange: (selected: Set<string>) => void; label: (row: T) => string }
 }) {
   const sizeKey = `table-rows:${id}`
   const saved = useStore((s) => s.panes[sizeKey])
@@ -65,6 +71,19 @@ export function DataTable<T>({
   }, [view.page, page])
   const filtered = Object.values(filters).some((v) => v.trim())
   const hasFilters = columns.some((c) => c.filter)
+  // Selecting every row the filters let through, not only this page's.
+  const matchingKeys = useMemo(() => (selection ? tableView(rows, columns, { sort: null, filters, page: 1, pageSize: Math.max(1, rows.length) }).rows.map((r, i) => rowKey(r, i)) : []), [selection, rows, columns, filters, rowKey])
+  const allSelected = !!selection && matchingKeys.length > 0 && matchingKeys.every((k) => selection.selected.has(k))
+  const someSelected = !!selection && matchingKeys.some((k) => selection.selected.has(k))
+  const toggle = (keys: string[], on: boolean): void => {
+    if (!selection) return
+    const next = new Set(selection.selected)
+    for (const k of keys) {
+      if (on) next.add(k)
+      else next.delete(k)
+    }
+    selection.onChange(next)
+  }
 
   if (!rows.length) return <div className="pane-empty data-table-empty">{empty}</div>
 
@@ -84,6 +103,20 @@ export function DataTable<T>({
         <table className="table">
           <thead>
             <tr>
+              {selection && (
+                <th className="table-select" rowSpan={hasFilters ? 2 : 1}>
+                  <input
+                    type="checkbox"
+                    className="checkbox"
+                    aria-label={`Select all ${matchingKeys.length} ${filtered ? 'matching ' : ''}rows`}
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someSelected && !allSelected
+                    }}
+                    onChange={(e) => toggle(matchingKeys, e.target.checked)}
+                  />
+                </th>
+              )}
               {columns.map((c) => {
                 const sorted = sort?.key === c.key
                 return (
@@ -107,7 +140,7 @@ export function DataTable<T>({
                     {c.filter?.kind === 'choice' ? (
                       <select className="select" aria-label={`Filter ${c.header}`} value={filters[c.key] ?? ''} onChange={(e) => setFilter(c.key, e.target.value)}>
                         <option value="">All</option>
-                        {choices(rows, c.filter.value).map((v) => (
+                        {choices(rows, c.filter.value, c.filter.values).map((v) => (
                           <option key={v} value={v}>
                             {c.choiceLabel?.(v) ?? v}
                           </option>
@@ -122,10 +155,13 @@ export function DataTable<T>({
             )}
           </thead>
           <tbody>
-            {view.rows.map((r, i) => (
-              <tr
-                key={rowKey(r, (view.page - 1) * pageSize + i)}
-                className={cx(onRowClick && 'clickable')}
+            {view.rows.map((r, i) => {
+              const key = rowKey(r, (view.page - 1) * pageSize + i)
+              const picked = !!selection?.selected.has(key)
+              return (
+                <tr
+                key={key}
+                className={cx(onRowClick && 'clickable', picked && 'selected')}
                 tabIndex={onRowClick ? 0 : undefined}
                 aria-label={onRowClick ? rowLabel?.(r) : undefined}
                 onClick={onRowClick ? () => onRowClick(r) : undefined}
@@ -140,16 +176,22 @@ export function DataTable<T>({
                     : undefined
                 }
               >
+                {selection && (
+                  <td className="table-select" onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" className="checkbox" aria-label={selection.label(r)} checked={picked} onChange={(e) => toggle([key], e.target.checked)} onKeyDown={(e) => e.stopPropagation()} />
+                  </td>
+                )}
                 {columns.map((c) => (
                   <td key={c.key} className={cx(c.num && 'num')}>
                     {c.cell(r)}
                   </td>
                 ))}
               </tr>
-            ))}
+              )
+            })}
             {view.matched === 0 && (
               <tr className="table-no-match">
-                <td colSpan={columns.length}>
+                <td colSpan={columns.length + (selection ? 1 : 0)}>
                   No rows match the filters.{' '}
                   {filtered && (
                     <button type="button" className="btn small subtle" onClick={() => (setFilters({}), setPage(1))}>
@@ -162,7 +204,8 @@ export function DataTable<T>({
           </tbody>
         </table>
       </div>
-      {view.pages > 1 && (
+      {/* Also on one page while there are more rows than the fewest per page, so a bigger size can be made smaller again. */}
+      {(view.pages > 1 || view.matched > Math.min(...pageSizes)) && (
         <div className="table-paging" role="navigation" aria-label="Pages">
           <label className="table-page-size">
             Rows per page

@@ -5491,20 +5491,52 @@ body.pane-resizing-v .monaco-editor {
   background: var(--accent);
   flex: none;
 }
+/* The archived cards (#249): a data table under a line saying how many, with Unarchive Selected. */
 .task-archive {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
-.task-archive-row {
+.task-archive-actions {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border-subtle);
-  cursor: pointer;
+  margin-bottom: 6px;
+  font-size: 12px;
 }
-.task-archive-row:hover {
-  background: var(--bg-hover);
+.archived-cards .archive-title {
+  display: inline-block;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  color: var(--fg-strong);
+}
+/* The number column only as wide as its numbers (and filter); the title takes the room. */
+.archived-cards th.num,
+.archived-cards td.num {
+  width: 72px;
+}
+.archived-cards .archive-labels {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  font-size: 11px;
+}
+.archived-cards td {
+  white-space: nowrap;
+}
+/* A data table's row checkboxes (selection). */
+.table th.table-select,
+.table td.table-select {
+  width: 28px;
+  padding-right: 0;
+  vertical-align: middle;
+}
+.table tr.selected td {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 /* The card dialog. */
 .task-title-input {

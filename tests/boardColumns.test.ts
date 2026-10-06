@@ -6,7 +6,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
-import { BOARD_FOLD_WORKSPACES, COLUMN_CHOICES, TASK_COLUMNS, applyBoardFold, columnColor, sortCards, stalledReason, taskOverview, taskPrompt } from '../src/shared/tasks'
+import { BOARD_FOLD_WORKSPACES, COLUMN_CHOICES, TASK_COLUMNS, applyBoardFold, archivedAt, columnColor, sortCards, stalledReason, taskOverview, taskPrompt } from '../src/shared/tasks'
 import { cardChange, readCondition, wakeAbout, wakeLine, watchLabel } from '../src/shared/watch'
 import type { TaskCard } from '../src/shared/types'
 
@@ -73,6 +73,13 @@ describe('the six columns', () => {
     expect([o.hold, o.passed, o.doing, o.stalled]).toEqual([1, 1, 1, 1])
     expect(stalledReason(card({ column: 'hold' }), null)).toBeNull()
     expect(stalledReason(card({ column: 'passed', agent: 'a1' }), null)).toBeNull()
+  })
+
+  it('an archived card says when it was archived: its latest "Archived…", else its last change (#249)', () => {
+    const h = (at: string, what: string) => ({ at, by: 'You', what })
+    expect(archivedAt(card({ history: [h('2026-10-01T00:00:00Z', 'Archived'), h('2026-10-02T00:00:00Z', 'Brought back from the archive'), h('2026-10-03T00:00:00Z', 'Archived after 14 days in Done')] }))).toBe('2026-10-03T00:00:00Z')
+    expect(archivedAt(card({ history: [h('2026-10-04T00:00:00Z', 'Archived: alpha was hidden')] }))).toBe('2026-10-04T00:00:00Z')
+    expect(archivedAt(card({ history: [h('2026-10-01T00:00:00Z', 'Created in Todo')], updatedAt: '2026-10-05T00:00:00Z' }))).toBe('2026-10-05T00:00:00Z')
   })
 
   it('a card started again from Passed says where it was', () => {

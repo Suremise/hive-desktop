@@ -73,4 +73,12 @@ describe('tableView', () => {
   it("a choice filter offers the rows' values", () => {
     expect(choices(rows, (r) => r.trigger)).toEqual(['auto', 'manual'])
   })
+
+  it('a choice filter on rows with several values (labels, #249): offers each, and a row passes with any of them', () => {
+    const tagged = [{ labels: ['bug', 'ui'] }, { labels: ['docs'] }, { labels: [] as string[] }]
+    const cols: ColumnRules<{ labels: string[] }>[] = [{ key: 'labels', filter: { kind: 'choice', value: (r) => r.labels.join(', '), values: (r) => r.labels } }]
+    expect(choices(tagged, cols[0].filter!.value, cols[0].filter!.values)).toEqual(['bug', 'docs', 'ui'])
+    expect(tagged.filter((r) => passes(r, cols, { labels: 'ui' }))).toEqual([tagged[0]])
+    expect(tagged.filter((r) => passes(r, cols, { labels: '' }))).toHaveLength(3)
+  })
 })
