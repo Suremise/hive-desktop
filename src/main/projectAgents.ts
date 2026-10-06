@@ -80,6 +80,19 @@ export function takePendingSetup(now: ProjectConfig, def: AgentDef): Pick<Projec
   return { setupPending: pending.filter((p) => worktreeKey(p) !== worktreeKey(def.worktree!.path)) }
 }
 
+/**
+ * project.json's list of worktrees still to set up (#289, #319), changed: `add` (kept, their setup never ran) and `drop`
+ * (worked in again, or gone) applied, each once, at most 50 kept (the newest). Null when nothing changes. Under the lock.
+ */
+export function pendingSetupPatch(now: ProjectConfig, change: { add?: string[]; drop?: string[] }): Pick<ProjectConfig, 'setupPending'> | null {
+  const before = Array.isArray(now.setupPending) ? now.setupPending.filter((p) => typeof p === 'string') : []
+  const drop = new Set((change.drop ?? []).map(worktreeKey))
+  const list = new Map<string, string>()
+  for (const p of [...before, ...(change.add ?? [])]) if (!drop.has(worktreeKey(p))) list.set(worktreeKey(p), p)
+  const after = [...list.values()].slice(-50)
+  return after.length === before.length && after.every((p, i) => p === before[i]) ? null : { setupPending: after }
+}
+
 export async function addAgent(projectPath: string, opts: AddAgentOptions): Promise<AgentDef> {
   projectPath = workspace.assertProject(projectPath)
   const cfg = await workspace.projectConfig(projectPath)
@@ -238,7 +251,16 @@ export async function removeAgent(projectPath: string, agentId: string, opts: { 
     await wt.removeWorktree(projectPath, tree, true)
     result = { worktree: { path: tree.path, branch: tree.branch, deleted: true } }
   } else if (tree) result = { worktree: { path: tree.path, branch: tree.branch, deleted: false } }
-  await workspace.mutateProjectConfig(projectPath, (now) => ({ agents: now.agents.filter((a) => a.id !== agentId) }))
+  await workspace.mutateProjectConfig(projectPath, (now) => {
+    // Its worktree kept before its setup ever ran (#319): remembered, so the next agent given it runs setup first; one
+    // deleted is forgotten. As the agent is now, under the lock; a worktree another agent works in is that agent's.
+    const was = now.agents.find((a) => a.id === agentId)
+    const left = now.agents.filter((a) => a.id !== agentId)
+    const keptTree = result.worktree && !result.worktree.deleted ? was?.worktree : undefined
+    const pending = keptTree && was?.needsSetup && now.worktreeSetup.trim() && !left.some((a) => a.worktree && samePath(a.worktree.path, keptTree.path)) ? [keptTree.path] : []
+    const gone = result.worktree?.deleted ? [result.worktree.path] : []
+    return { agents: left, ...pendingSetupPatch(now, { add: pending, drop: gone }) }
+  })
   if (opts.releaseCards) await releaseAgentCards(basename(projectPath), agentId, { kind: 'user' })
   // A review it left going (from before Hive last started) ends with it.
   await endReviews(basename(projectPath), agentId, 'the agent was removed', workspaceOf(projectPath))
