@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { ProjectInfo } from '@shared/types'
 import { providerName } from '@shared/providers'
 import { LATENCY_BOUNDS_MS, percentile, type GuidanceSeries, type MetricsReport, type MetricsScope, type ProviderUsageSummary, type TrendPoint } from '@shared/metrics'
-import { DEFAULT_PERF_FILTERS, PERF_RANGES, WORKSPACE_OWN, byRoute, byTool, isEmpty, pageQuery, providersIn, select, totals, type PerfFilters, type PerfRole, type PerfSelection, type RouteRow, type ToolRow } from '@shared/metricsView'
+import { DEFAULT_PERF_FILTERS, PERF_RANGES, WORKSPACE_OWN, byRoute, byTool, isEmpty, latencyOrder, pageQuery, providersIn, select, totals, type PerfFilters, type PerfRole, type PerfSelection, type RouteRow, type ToolRow } from '@shared/metricsView'
 import { compareScopeKey, compareScopeOf } from '@shared/benchmark'
 import { money } from '@shared/usageTotals'
 import { formatDateTime, formatWeekdayTime } from '@shared/dates'
@@ -421,7 +421,7 @@ const TOOL_COLUMNS: DataColumn<ToolRow>[] = [
   { key: 'avg', header: 'Per call', num: true, descFirst: true, cell: (r) => num(r.avgChars), sortValue: (r) => r.avgChars },
   { key: 'detail', header: 'Detail', num: true, descFirst: true, cell: (r) => (r.detail ? num(r.detail) : '—'), sortValue: (r) => r.detail },
   { key: 'errors', header: 'Errors', num: true, descFirst: true, cell: (r) => (r.errors ? num(r.errors) : '—'), sortValue: (r) => r.errors },
-  { key: 'p95', header: 'p95', num: true, descFirst: true, cell: (r) => ms(r.p95, r.calls), sortValue: (r) => r.p95 }
+  { key: 'p95', header: 'p95', num: true, descFirst: true, cell: (r) => ms(r.p95, r.calls), sortValue: (r) => latencyOrder(r.p95, r.calls) }
 ]
 
 function ToolsTable({ sel }: { sel: PerfSelection }) {
@@ -454,8 +454,8 @@ const ROUTE_COLUMNS: DataColumn<RouteRow>[] = [
   { key: 'requests', header: 'Requests', num: true, descFirst: true, cell: (r) => num(r.requests), sortValue: (r) => r.requests },
   { key: 'failed', header: 'Failed', num: true, descFirst: true, cell: (r) => (failedOnly(r) ? `${num(failedOnly(r))} (${pct(failedOnly(r), r.requests)})` : '—'), sortValue: failedOnly },
   { key: 'cancelled', header: 'Cancelled', num: true, descFirst: true, cell: (r) => (r.cancelled ? `${num(r.cancelled)} (${pct(r.cancelled, r.requests)})` : '—'), sortValue: (r) => r.cancelled },
-  { key: 'p50', header: 'p50', num: true, descFirst: true, cell: (r) => ms(r.p50, r.requests), sortValue: (r) => r.p50 },
-  { key: 'p95', header: 'p95', num: true, descFirst: true, cell: (r) => ms(r.p95, r.requests), sortValue: (r) => r.p95 },
+  { key: 'p50', header: 'p50', num: true, descFirst: true, cell: (r) => ms(r.p50, r.requests), sortValue: (r) => latencyOrder(r.p50, r.requests) },
+  { key: 'p95', header: 'p95', num: true, descFirst: true, cell: (r) => ms(r.p95, r.requests), sortValue: (r) => latencyOrder(r.p95, r.requests) },
   { key: 'sent', header: 'Sent', num: true, descFirst: true, cell: (r) => formatBytes(r.responseBytes), sortValue: (r) => r.responseBytes },
   { key: 'received', header: 'Received', num: true, descFirst: true, cell: (r) => formatBytes(r.requestBytes), sortValue: (r) => r.requestBytes }
 ]

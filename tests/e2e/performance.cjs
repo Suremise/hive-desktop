@@ -35,7 +35,8 @@ const bucket = (start, projects, workspace = part()) => ({ start, span: 'hour', 
 // The last 24 hours: alpha 30 requests (3 failed), beta 12, the workspace's own 5 (scripts); 3 days ago alpha 100 more.
 const MORE_TOOLS = ['hive_list_projects', 'hive_project_status', 'hive_session_usage', 'hive_list_shared_notes', 'hive_read_shared_note', 'hive_write_shared_note', 'hive_read_latest_handover', 'hive_create_handover', 'hive_notify', 'hive_list_providers', 'hive_agent_activity']
 const buckets = [
-  bucket(hourStart(now - 3 * 24 * HOUR), { alpha: part([apiSeries('/v1/tasks', 'agent', 'ok', 100)], MORE_TOOLS.map((t, i) => mcpSeries(t, 1, 100 + i))) }),
+  // …and one request past the histogram's last bound (> 10 s), so latency sorts meet an overflow (#305).
+  bucket(hourStart(now - 3 * 24 * HOUR), { alpha: part([apiSeries('/v1/tasks', 'agent', 'ok', 100), apiSeries('/v1/projects', 'agent', 'ok', 1, 20000)], MORE_TOOLS.map((t, i) => mcpSeries(t, 1, 100 + i))) }),
   bucket(hourStart(now - 5 * HOUR), { alpha: part([apiSeries('/v1/tasks', 'agent', 'ok', 20), apiSeries('/v1/tasks/:n', 'agent', 'server-error', 3, 300)], [mcpSeries('hive_list_tasks', 10, 600), mcpSeries('hive_read_task', 4, 2500)], [launch('claude-code', 2)]) }),
   bucket(hourStart(now - 1 * HOUR), { alpha: part([apiSeries('/v1/tasks', 'agent', 'ok', 7)]), beta: part([apiSeries('/v1/tasks', 'agent', 'ok', 12)], [mcpSeries('hive_list_tasks', 2, 600)], [launch('codex', 1)]) }, part([apiSeries('/v1/tasks', 'api', 'ok', 5)]))
 ]
@@ -139,7 +140,7 @@ const check = (name, ok, extra = '') => {
   await shot('wide-dark')
 
   await page.locator('.performance-page:visible .segmented button', { hasText: '7 days' }).click()
-  check('7 days adds the older work, with a daily trend', !!(await until(async () => (await requests()) === '147')) && (await bars.count()) === 8, `${await requests()} ${await bars.count()}`)
+  check('7 days adds the older work, with a daily trend', !!(await until(async () => (await requests()) === '148')) && (await bars.count()) === 8, `${await requests()} ${await bars.count()}`)
   const tools7 = perfTable('Per call')
   const toolPaging = async () => ((await tools7.locator('.table-paging').innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ')
   check('…its tools table pages: thirteen tools, ten a page', /1–10 of 13/.test(await toolPaging()) && (await tools7.locator('tbody tr').count()) === 10, await toolPaging())
@@ -149,6 +150,14 @@ const check = (name, ok, extra = '') => {
   check('…no matches: says so', (await tools7.locator('.table-no-match').count()) === 1)
   await tools7.locator('.table-no-match button', { hasText: 'Clear filters' }).click()
   check('…and Clear filters brings them back', !!(await until(async () => /of 13/.test(await toolPaging()))), await toolPaging())
+  // Latency past the histogram's last bound ("> 10 s") is the slowest, whichever way p95 sorts; rows with none come last (#305).
+  const routes7 = perfTable('Route')
+  const routeOrder = async () => (await routes7.locator('tbody tr').allInnerTexts()).map((t) => (/\/v1\/\S+/.exec(t) ?? [''])[0])
+  await routes7.locator('th button', { hasText: 'p95' }).click()
+  check('routes by p95, slowest first: the one over 10 s leads', (await routeOrder())[0] === '/v1/projects' && /> 10 s/.test(await routes7.locator('tbody tr').first().innerText()), JSON.stringify(await routeOrder()))
+  await routes7.locator('th button', { hasText: 'p95' }).click()
+  check('…fastest first: it comes last', (await routeOrder()).at(-1) === '/v1/projects', JSON.stringify(await routeOrder()))
+  await routes7.locator('th button', { hasText: 'p95' }).click()
   check('…and says history Hive removed for space is unavailable', /removed to keep the metrics file under its size limit/.test(await page.locator('.perf-coverage').innerText()), await page.locator('.perf-coverage').innerText())
   await page.locator('.performance-page:visible .segmented button', { hasText: '24 hours' }).click()
   await until(async () => (await requests()) === '47')
