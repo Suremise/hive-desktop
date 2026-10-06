@@ -1,10 +1,11 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { EXPORT_MEASURES, SCENARIO_MEASURES, USAGE_MEASURES, compareArtifacts, compareScopeKey, type CompareScope, type Comparison, type KeptEntry, type MeasureDef, type MeasureDelta, type ScenarioComparison, type ScenarioStatus } from '@shared/benchmark'
 import type { MetricsQuery } from '@shared/metrics'
 import { money } from '@shared/usageTotals'
 import { formatDateTime } from '@shared/dates'
 import { call } from '../api'
 import { Icon, IconButton, InfoTip, LoadFailed, Tooltip } from '../components/ui'
+import { DataTable, useDateColumns, type DataColumn } from '../components/DataTable'
 import { confirm, notify, prompt } from '../store'
 import { useScopedLoad } from '../scopedLoad'
 import { cx, formatBytes, formatTokens } from '../util'
@@ -236,114 +237,152 @@ function ComparisonView({ c, base, run }: { c: Comparison; base?: KeptEntry; run
         </ul>
       )}
       {c.kind === 'scenarios' && c.scenarios && <ScenarioTable scenarios={c.scenarios} summary={c.summary} />}
-      {c.kind === 'export' && c.rows && (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Measure</th>
-                <th className="num">Baseline</th>
-                <th className="num">Run</th>
-                <th className="num">Change</th>
-              </tr>
-            </thead>
-            <tbody>
-              {c.rows.map((d) => (
-                <tr key={d.key}>
-                  <td>
-                    {MEASURE_DEFS.get(d.key)?.label} <InfoTip text={MEASURE_DEFS.get(d.key)?.tip ?? ''} />
-                  </td>
-                  <td className="num">{range(d, 'base')}</td>
-                  <td className="num">{range(d, 'run')}</td>
-                  <td className="num">
-                    <Delta d={d} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {c.kind === 'export' && c.rows && <DataTable id="perf-compare-measures" rows={c.rows} columns={MEASURE_COLUMNS} rowKey={(d) => d.key} empty="Nothing measured." />}
     </div>
   )
 }
 
 function ScenarioTable({ scenarios, summary }: { scenarios: ScenarioComparison[]; summary: Comparison['summary'] }) {
   const [open, setOpen] = useState<string | null>(null)
-  const order = STATUS_ORDER
-  const sorted = useMemo(() => [...scenarios].sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || a.id.localeCompare(b.id)), [scenarios])
-  const get = (s: ScenarioComparison, k: string): MeasureDelta | undefined => s.measures.find((m) => m.key === k)
-  const toggle = useCallback((id: string) => setOpen((o) => (o === id ? null : id)), [])
+  // Worst first, then by name: the table's default order (the Result column, ascending).
+  const rows = useMemo(() => [...scenarios].sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || a.id.localeCompare(b.id)), [scenarios])
+  const toggle = useCallback((s: ScenarioComparison) => setOpen((o) => (o === s.id ? null : s.id)), [])
+  const columns = useMemo((): DataColumn<ScenarioComparison>[] => scenarioColumns(open), [open])
   return (
     <>
       <p className="perf-summary">
-        {order
-          .filter((s) => summary[s])
-          .map((s) => (
-            <span key={s} className={`badge ${STATUS[s].tone}`}>
-              {summary[s]} {STATUS[s].label.toLowerCase()}
-            </span>
-          ))}
+        {STATUS_ORDER.filter((s) => summary[s]).map((s) => (
+          <span key={s} className={`badge ${STATUS[s].tone}`}>
+            {summary[s]} {STATUS[s].label.toLowerCase()}
+          </span>
+        ))}
       </p>
-      <div className="table-wrap">
-        <table className="table perf-scenarios">
-          <thead>
-            <tr>
-              <th>Scenario</th>
-              <th>Result</th>
-              <th className="num">
-                Checks <InfoTip text="On average a sample: checks passed ✓, failed ✗ and skipped – (a check only a model's own work can meet is skipped for a fake), baseline → run." />
-              </th>
-              <th className="num">
-                Hive context <InfoTip text={MEASURE_DEFS.get('contextBytes')!.tip} />
-              </th>
-              <th className="num">Tool replies</th>
-              <th className="num">Calls (repeated)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((s) => {
-              const ctx = get(s, 'contextBytes')
-              const tool = get(s, 'toolChars')
-              const calls = get(s, 'hiveCalls')
-              const rep = get(s, 'repeatedCalls')
-              return (
-                <Fragment key={s.id}>
-                  <tr className={cx('clickable', open === s.id && 'selected')} onClick={() => toggle(s.id)} aria-expanded={open === s.id} tabIndex={0} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggle(s.id))}>
-                    <td>
-                      <Icon name={open === s.id ? 'chevron-down' : 'chevron-right'} /> {s.id}
-                    </td>
-                    <td>
-                      <Tooltip content={STATUS[s.status].tip}>
-                        <span className={`badge ${STATUS[s.status].tone}`}>{STATUS[s.status].label}</span>
-                      </Tooltip>
-                    </td>
-                    <td className={cx('num', s.regressions.length > 0 && 'warn-text')}>
-                      {s.quality.base.n ? counts(s.checks.base) : '—'} → {s.quality.run.n ? counts(s.checks.run) : '—'}
-                    </td>
-                    <td className="num">{ctx ? <>{range(ctx, 'run')} <Delta d={ctx} /></> : '—'}</td>
-                    <td className="num">{tool ? <Delta d={tool} /> : '—'}</td>
-                    <td className="num">
-                      {calls?.run ? `${fmt(undefined, calls.run.mean)} (${fmt(undefined, rep?.run?.mean ?? 0)})` : '—'} {calls ? <Delta d={calls} /> : null}
-                    </td>
-                  </tr>
-                  {open === s.id && (
-                    <tr className="perf-detail">
-                      <td colSpan={6}>
-                        <ScenarioDetail s={s} />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        id="perf-compare-scenarios"
+        className="perf-scenarios"
+        rows={rows}
+        columns={columns}
+        rowKey={(s) => s.id}
+        defaultSort={WORST_FIRST}
+        defaultPageSize={50}
+        onRowClick={toggle}
+        rowLabel={(s) => `${s.id}: ${STATUS[s.status].label}. ${open === s.id ? 'Close' : 'Open'} its measures`}
+        rowClassName={(s) => open === s.id && 'selected'}
+        detail={detailOf(open)}
+        empty="No scenarios."
+      />
       <p className="hint">Sizes are exact bytes and characters of what Hive gave the sessions; tokens are only what a provider reported. Skills on disk are what was available, not what a model read. A ~ marks a change within the samples’ spread.</p>
     </>
   )
 }
+
+const WORST_FIRST = { key: 'result', desc: false }
+/** The open scenario's measures, under its row. */
+const detailOf = (open: string | null) => (s: ScenarioComparison) => (open === s.id ? <ScenarioDetail s={s} /> : null)
+const measureOf = (s: ScenarioComparison, k: string): MeasureDelta | undefined => s.measures.find((m) => m.key === k)
+/** A change as a sortable number: its share where there is one, else its size; unknown and none sort last. */
+const changeOf = (d: MeasureDelta | undefined): number | null => (!d || d.incomplete || d.delta === null ? null : (d.pct ?? d.delta))
+
+function scenarioColumns(open: string | null): DataColumn<ScenarioComparison>[] {
+  return [
+    {
+      key: 'scenario',
+      header: 'Scenario',
+      cell: (s) => (
+        <>
+          <Icon name={open === s.id ? 'chevron-down' : 'chevron-right'} /> {s.id}
+        </>
+      ),
+      sortValue: (s) => s.id,
+      filter: { kind: 'text', value: (s) => `${s.id} ${s.title}` }
+    },
+    {
+      key: 'result',
+      header: 'Result',
+      cell: (s) => (
+        <Tooltip content={STATUS[s.status].tip}>
+          <span className={`badge ${STATUS[s.status].tone}`}>{STATUS[s.status].label}</span>
+        </Tooltip>
+      ),
+      sortValue: (s) => STATUS_ORDER.indexOf(s.status),
+      filter: { kind: 'choice', value: (s) => STATUS[s.status].label }
+    },
+    {
+      key: 'checks',
+      header: 'Checks',
+      headerTip: "On average a sample: checks passed ✓, failed ✗ and skipped – (a check only a model's own work can meet is skipped for a fake), baseline → run.",
+      num: true,
+      descFirst: true,
+      cell: (s) => (
+        <span className={cx(s.regressions.length > 0 && 'warn-text')}>
+          {s.quality.base.n ? counts(s.checks.base) : '—'} → {s.quality.run.n ? counts(s.checks.run) : '—'}
+        </span>
+      ),
+      sortValue: (s) => (s.quality.run.n ? s.checks.run.failed : null)
+    },
+    {
+      key: 'context',
+      header: 'Hive context',
+      headerTip: MEASURE_DEFS.get('contextBytes')!.tip,
+      num: true,
+      descFirst: true,
+      cell: (s) => {
+        const ctx = measureOf(s, 'contextBytes')
+        return ctx ? (
+          <>
+            {range(ctx, 'run')} <Delta d={ctx} />
+          </>
+        ) : (
+          '—'
+        )
+      },
+      sortValue: (s) => changeOf(measureOf(s, 'contextBytes'))
+    },
+    {
+      key: 'tool',
+      header: 'Tool replies',
+      num: true,
+      descFirst: true,
+      cell: (s) => {
+        const tool = measureOf(s, 'toolChars')
+        return tool ? <Delta d={tool} /> : '—'
+      },
+      sortValue: (s) => changeOf(measureOf(s, 'toolChars'))
+    },
+    {
+      key: 'calls',
+      header: 'Calls (repeated)',
+      num: true,
+      descFirst: true,
+      cell: (s) => {
+        const calls = measureOf(s, 'hiveCalls')
+        const rep = measureOf(s, 'repeatedCalls')
+        return (
+          <>
+            {calls?.run ? `${fmt(undefined, calls.run.mean)} (${fmt(undefined, rep?.run?.mean ?? 0)})` : '—'} {calls ? <Delta d={calls} /> : null}
+          </>
+        )
+      },
+      sortValue: (s) => measureOf(s, 'hiveCalls')?.run?.mean ?? null
+    }
+  ]
+}
+
+/** An export comparison's measures: baseline, run and the change (sortable, the biggest change first). */
+const MEASURE_COLUMNS: DataColumn<MeasureDelta>[] = [
+  {
+    key: 'measure',
+    header: 'Measure',
+    cell: (d) => (
+      <>
+        {MEASURE_DEFS.get(d.key)?.label} <InfoTip text={MEASURE_DEFS.get(d.key)?.tip ?? ''} />
+      </>
+    )
+  },
+  { key: 'base', header: 'Baseline', num: true, cell: (d) => range(d, 'base') },
+  { key: 'run', header: 'Run', num: true, cell: (d) => range(d, 'run') },
+  { key: 'change', header: 'Change', num: true, descFirst: true, cell: (d) => <Delta d={d} />, sortValue: (d) => changeOf(d) }
+]
 
 /** A side's checks on average: passed, failed, skipped. */
 const counts = (c: { passed: number; failed: number; skipped: number }): string => {
@@ -413,6 +452,40 @@ function ScenarioDetail({ s }: { s: ScenarioComparison }) {
   )
 }
 
+/** The kept list's columns: what it is, its kind, when it was kept, and pin and remove. */
+function keptColumns(scope: CompareScope, act: (fn: () => Promise<unknown>) => Promise<void>): DataColumn<KeptEntry>[] {
+  return [
+    {
+      key: 'label',
+      header: 'Kept',
+      cell: (e) => (
+        <>
+          <Icon name={e.kind === 'scenarios' ? 'beaker' : 'pulse'} /> {e.label}
+          <div className="faint">{e.about}</div>
+        </>
+      ),
+      sortValue: (e) => e.label,
+      filter: { kind: 'text', value: (e) => `${e.label} ${e.about}` }
+    },
+    { key: 'kind', header: 'Kind', className: 'nowrap', cell: (e) => KIND[e.kind], sortValue: (e) => KIND[e.kind], filter: { kind: 'choice', value: (e) => KIND[e.kind] } },
+    { key: 'keptAt', header: 'When', num: true, descFirst: true, className: 'faint', cell: (e) => formatDateTime(e.keptAt), sortValue: (e) => e.keptAt, filter: { kind: 'text', value: (e) => formatDateTime(e.keptAt) } },
+    {
+      key: 'actions',
+      header: '',
+      num: true,
+      className: 'nowrap',
+      cell: (e) => (
+        <>
+          <IconButton icon={e.pinned ? 'pinned' : 'pin'} title={e.pinned ? 'Unpin' : 'Pin (never removed to make room)'} onClick={() => void act(() => call('benchmarks:pin', scope, e.id, !e.pinned))} />
+          <IconButton icon="trash" title="Remove" onClick={() => void act(() => call('benchmarks:remove', scope, e.id))} />
+        </>
+      )
+    }
+  ]
+}
+
+const KIND: Record<KeptEntry['kind'], string> = { scenarios: 'Scenario benchmark', export: 'Performance view' }
+
 function KeptList({ entries, scope, onChange }: { entries: KeptEntry[]; scope: CompareScope; onChange: () => void }) {
   const act = async (fn: () => Promise<unknown>): Promise<void> => {
     try {
@@ -422,30 +495,22 @@ function KeptList({ entries, scope, onChange }: { entries: KeptEntry[]; scope: C
       notify('error', 'Could not change the kept comparisons', String((e as Error).message ?? e))
     }
   }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const columns = useDateColumns(useMemo(() => keptColumns(scope, act), [scope]))
   return (
     <details className="perf-kept">
       <summary>
         Kept for comparison ({entries.length}) <InfoTip text="Kept in the workspace’s .hive/metrics/benchmarks (this machine’s), at most 20: when full, the oldest unpinned one goes. Pin one to keep it." />
       </summary>
-      <div className="table-wrap">
-        <table className="table">
-          <tbody>
-            {entries.map((e) => (
-              <tr key={e.id}>
-                <td>
-                  <Icon name={e.kind === 'scenarios' ? 'beaker' : 'pulse'} /> {e.label}
-                  <div className="faint">{e.about}</div>
-                </td>
-                <td className="num faint">{formatDateTime(e.keptAt)}</td>
-                <td className="num">
-                  <IconButton icon={e.pinned ? 'pinned' : 'pin'} title={e.pinned ? 'Unpin' : 'Pin (never removed to make room)'} onClick={() => void act(() => call('benchmarks:pin', scope, e.id, !e.pinned))} />
-                  <IconButton icon="trash" title="Remove" onClick={() => void act(() => call('benchmarks:remove', scope, e.id))} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        id="perf-kept"
+        rows={entries}
+        columns={columns}
+        rowKey={(e) => e.id}
+        defaultPageSize={10}
+        filterFrom={10}
+        empty="Nothing kept."
+      />
     </details>
   )
 }

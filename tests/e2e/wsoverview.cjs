@@ -80,7 +80,7 @@ const check = (name, ok, extra = '') => {
   await page.locator('.segmented button', { hasText: 'All time' }).click()
   check('All time counts older work too', !!(await until(async () => (await tokens.innerText()) === '9.6k', 3000)), await tokens.innerText())
   check('and re-sorts the table', !!(await until(async () => (await names())[0] === 'gamma', 3000)), JSON.stringify(await names()))
-  await page.locator('.ws-projects th', { hasText: 'Project' }).click()
+  await page.locator('.ws-projects th button', { hasText: 'Project' }).click()
   check('a column header sorts by it', JSON.stringify(await names()) === JSON.stringify(['alpha', 'beta', 'gamma']), JSON.stringify(await names()))
 
   // Narrow (#252): the sidebar open, at 620 px and at 125% zoom. The page fits its width (the period buttons wrap under
@@ -90,7 +90,7 @@ const check = (name, ok, extra = '') => {
       const scroller = document.querySelector('.overview-head').closest('.scroll-page')
       const box = scroller.getBoundingClientRect()
       const seg = document.querySelector('.overview-head .segmented').getBoundingClientRect()
-      return { page: scroller.scrollWidth <= scroller.clientWidth + 1, buttons: seg.right <= box.right && seg.left >= box.left, table: !!document.querySelector('.ws-projects')?.closest('.table-wrap') }
+      return { page: scroller.scrollWidth <= scroller.clientWidth + 1, buttons: seg.right <= box.right && seg.left >= box.left, table: !!document.querySelector('.ws-projects .table-wrap') }
     })
   for (const [width, zoom] of [[620, 1], [760, 1.25]]) {
     await app.evaluate(({ BrowserWindow }, z) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(z), zoom)

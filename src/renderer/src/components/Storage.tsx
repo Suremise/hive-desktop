@@ -5,8 +5,29 @@ import { call, errorMessage } from '../api'
 import { notify, openProjectSettings, useStore } from '../store'
 import { cx, timeAgo } from '../util'
 import { BusyButton, Icon, LoadFailed, Modal, useBusy } from './ui'
+import { DataTable, type DataColumn } from './DataTable'
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`
+
+/** A row of a project's storage: what it is, where, how big. */
+interface StorageRow {
+  label: string
+  where: string
+  bytes: number
+}
+const STORAGE_COLUMNS: DataColumn<StorageRow>[] = [
+  {
+    key: 'what',
+    header: 'What',
+    cell: (r) => (
+      <>
+        {r.label} <span className="faint small mono">{r.where}</span>
+      </>
+    ),
+    sortValue: (r) => r.label
+  },
+  { key: 'size', header: 'Size', num: true, descFirst: true, cell: (r) => formatSize(r.bytes), sortValue: (r) => r.bytes }
+]
 
 /**
  * Measuring walks every file of every worktree, so the page abandons a call it no longer waits for (a newer one, the page
@@ -56,7 +77,7 @@ export function StorageView({ path }: { path: string }) {
   }, [load])
 
   if (error) return <LoadFailed inline what="the storage sizes" error={error} onRetry={() => load(true)} />
-  const rows: { label: string; where: string; bytes: number }[] = data
+  const rows: StorageRow[] = data
     ? [
         { label: 'Transcript backups', where: '.hive/sessions', bytes: data.sessions },
         { label: 'Archive', where: '.hive/archive', bytes: data.archive },
@@ -71,22 +92,20 @@ export function StorageView({ path }: { path: string }) {
           <Icon name="loading" spin /> Measuring…
         </div>
       ) : (
-        <table className="table storage-table">
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.where}>
-                <td>
-                  {r.label} <span className="faint small mono">{r.where}</span>
-                </td>
-                <td className="num">{formatSize(r.bytes)}</td>
-              </tr>
-            ))}
+        <DataTable
+          id="storage-project"
+          className="storage-table"
+          rows={rows}
+          columns={STORAGE_COLUMNS}
+          rowKey={(r) => r.where}
+          empty="Nothing kept."
+          foot={
             <tr className="storage-total">
               <td>Total</td>
               <td className="num">{formatSize(data.total)}</td>
             </tr>
-          </tbody>
-        </table>
+          }
+        />
       )}
       <div className="storage-actions">
         <span className="faint small">{measuring ? (data ? 'Measuring again…' : '') : data ? `Measured ${timeAgo(data.computedAt)}` : ''}</span>
@@ -111,6 +130,21 @@ export function StorageView({ path }: { path: string }) {
     </div>
   )
 }
+
+const CLEANUP_COLUMNS: DataColumn<CleanupItem>[] = [
+  {
+    key: 'what',
+    header: 'What',
+    cell: (i) => (
+      <span title={i.path}>
+        {i.label} <span className="faint small mono">{i.path.split(/[\\/]/).slice(-2).join('/')}</span>
+      </span>
+    ),
+    sortValue: (i) => i.label,
+    filter: { kind: 'text', value: (i) => `${i.label} ${i.path}` }
+  },
+  { key: 'size', header: 'Size', num: true, descFirst: true, cell: (i) => formatSize(i.bytes), sortValue: (i) => i.bytes }
+]
 
 const KIND_LABEL: Record<CleanupItem['kind'], string> = {
   'archived-images': 'Images of archived sessions',
@@ -257,18 +291,7 @@ export function CleanupDialog({ path, name, onClose, onDone }: { path: string; n
               <div className="cleanup-kind">
                 {KIND_LABEL[g.kind]} <span className="faint">· {plural(g.list.length, 'item')}, {formatSize(g.list.reduce((n, i) => n + i.bytes, 0))}</span>
               </div>
-              <table className="table">
-                <tbody>
-                  {g.list.map((i) => (
-                    <tr key={i.path} title={i.path}>
-                      <td>
-                        {i.label} <span className="faint small mono">{i.path.split(/[\\/]/).slice(-2).join('/')}</span>
-                      </td>
-                      <td className="num">{formatSize(i.bytes)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable id="storage-cleanup" rows={g.list} columns={CLEANUP_COLUMNS} rowKey={(i) => i.path} defaultPageSize={10} filterFrom={10} empty="Nothing." />
             </div>
           ))}
         </div>
@@ -277,7 +300,33 @@ export function CleanupDialog({ path, name, onClose, onDone }: { path: string; n
   )
 }
 
-/** Settings → Workspace: the workspace's total and its biggest projects, each linked to its Storage page. */
+type WorkspaceRow = WorkspaceStorage['projects'][number]
+const BIGGEST_FIRST = { key: 'size', desc: true }
+const projectLabel = (p: WorkspaceRow): string => (p.assistant ? 'Hive Assistant' : p.name)
+/** Settings → Workspace's columns: each project (and the Assistant), its size, and a link to its Storage page. */
+function workspaceColumns(assistantOpen: boolean, toggleAssistant: () => void): DataColumn<WorkspaceRow>[] {
+  return [
+    { key: 'project', header: 'Project', cell: projectLabel, sortValue: projectLabel, filter: { kind: 'text', value: projectLabel } },
+    { key: 'size', header: 'Size', num: true, descFirst: true, cell: (p) => formatSize(p.total), sortValue: (p) => p.total },
+    {
+      key: 'actions',
+      header: '',
+      num: true,
+      cell: (p) =>
+        p.assistant ? (
+          <button className="btn small subtle" onClick={toggleAssistant}>
+            {assistantOpen ? 'Hide' : 'Storage'}
+          </button>
+        ) : (
+          <button className="btn small subtle" onClick={() => openProjectSettings(p.path, 'storage')}>
+            Storage
+          </button>
+        )
+    }
+  ]
+}
+
+/** Settings → Workspace: the workspace's total and its projects, biggest first, each linked to its Storage page. */
 export function WorkspaceStorageList() {
   const workspace = useStore((s) => s.workspace?.path ?? null)
   const [data, setData] = useState<WorkspaceStorage | null>(null)
@@ -314,34 +363,24 @@ export function WorkspaceStorageList() {
           <Icon name="loading" spin /> Measuring the projects…
         </div>
       ) : (
-        <table className="table storage-table">
-          <tbody>
-            {data.projects.slice(0, 8).map((p) => (
-              <tr key={p.path}>
-                <td>{p.assistant ? 'Hive Assistant' : p.name}</td>
-                <td className="num">{formatSize(p.total)}</td>
-                <td className="actions">
-                  {p.assistant ? (
-                    <button className="btn small subtle" onClick={() => setAssistantOpen((o) => !o)}>
-                      {assistantOpen ? 'Hide' : 'Storage'}
-                    </button>
-                  ) : (
-                    <button className="btn small subtle" onClick={() => openProjectSettings(p.path, 'storage')}>
-                      Storage
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+        <DataTable
+          id="storage-workspace"
+          className="storage-table"
+          rows={data.projects}
+          columns={workspaceColumns(assistantOpen, () => setAssistantOpen((o) => !o))}
+          rowKey={(p) => p.path}
+          defaultSort={BIGGEST_FIRST}
+          defaultPageSize={10}
+          filterFrom={10}
+          empty="No projects."
+          foot={
             <tr className="storage-total">
-              <td>
-                Workspace{data.projects.length > 8 ? <span className="faint"> ({plural(data.projects.length - 8, 'smaller project')} not shown)</span> : null}
-              </td>
+              <td>Workspace</td>
               <td className="num">{formatSize(data.total)}</td>
               <td />
             </tr>
-          </tbody>
-        </table>
+          }
+        />
       )}
       <div className="storage-actions">
         <span className="faint small">{measuring && data ? 'Measuring again…' : ''}</span>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { choices, nextSort, passes, sorted, tableView, type ColumnRules, type TableState } from '../src/shared/tableView'
+import { choices, nextSort, passes, rememberedSort, sortPanes, sorted, tableView, type ColumnRules, type TableState } from '../src/shared/tableView'
 
 interface Row {
   when: string | null
@@ -80,5 +80,18 @@ describe('tableView', () => {
     expect(choices(tagged, cols[0].filter!.value, cols[0].filter!.values)).toEqual(['bug', 'docs', 'ui'])
     expect(tagged.filter((r) => passes(r, cols, { labels: 'ui' }))).toEqual([tagged[0]])
     expect(tagged.filter((r) => passes(r, cols, { labels: '' }))).toHaveLength(3)
+  })
+
+  it("a table's sort is remembered by its column's key; the default order is none (#250)", () => {
+    const panes = { 'table-rows:tools': 20, 'table-sort:tools:chars': 2, 'table-sort:other:when': 1 }
+    expect(rememberedSort(panes, 'tools', ['chars', 'calls'])).toEqual({ key: 'chars', desc: true })
+    // A column that no longer sorts (or is gone), or a value that isn't one: the default.
+    expect(rememberedSort(panes, 'tools', ['calls'])).toBeNull()
+    expect(rememberedSort({ 'table-sort:tools:calls': 3 }, 'tools', ['calls'])).toBeNull()
+    // Another sort replaces it; the default order (or the same as the default) keeps nothing.
+    expect(sortPanes(panes, 'tools', { key: 'calls', desc: false }, { key: 'chars', desc: true })).toEqual({ clear: ['table-sort:tools:chars'], set: ['table-sort:tools:calls', 1] })
+    expect(sortPanes(panes, 'tools', { key: 'chars', desc: true }, { key: 'chars', desc: true })).toEqual({ clear: ['table-sort:tools:chars'], set: null })
+    expect(sortPanes(panes, 'tools', null, null).set).toBeNull()
+    expect(sortPanes(panes, 'tools', { key: 'chars', desc: false }, null).set).toEqual(['table-sort:tools:chars', 1])
   })
 })
