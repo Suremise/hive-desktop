@@ -1,6 +1,7 @@
 // Performance: the activity bar's view and a project's tab, from a known saved metrics file (no agent is started).
 // Ranges and their trend, the scope (whole workspace, the workspace's own work, one project) and role filters, a
-// project's tab holding only its project, reading it adds nothing, a scope switched while a slow query is still out
+// project's tab holding only its project, each filter framing only the sections it changes (Provider keeping every
+// provider to pick from), reading it adds nothing, a scope switched while a slow query is still out
 // (the late reply isn't shown), the empty and not-recording states, Export (plain and sanitized) and screenshots at
 // two widths in both themes.
 const lib = require('./lib.cjs')
@@ -121,6 +122,40 @@ const check = (name, ok, extra = '') => {
   check('…in the trend and the export too, with the filter named', scriptsFile && trendRequests(scriptsFile) === 5 && scriptsFile.json.filters.role === 'api' && scriptsFile.json.report.trend.every((p) => p.launches === 0), scriptsFile && JSON.stringify(scriptsFile.json.filters))
   check('…and what the filter can’t narrow is said', /shared: not per role or provider/.test(await page.locator('.perf-coverage').innerText()))
   await page.locator('select[aria-label="Who did the work"]').selectOption('all')
+  await until(async () => (await requests()) === '47')
+
+  // Each filter sits with the sections it changes (#270): Who frames the cards, chart and tables, not the skill
+  // service; Provider frames launches and the providers' usage only, and keeps every provider to pick from.
+  const who = page.locator('.performance-page:visible .perf-group', { has: page.locator('select[aria-label="Who did the work"]') }).first()
+  const byProvider = page.locator('.performance-page:visible .perf-by-provider')
+  check('Who frames the cards, chart and tables, not the skill service', (await who.locator('.cards').count()) === 1 && (await who.locator('.perf-trend').count()) === 1 && (await who.locator('h2', { hasText: 'Skill service' }).count()) === 0 && (await page.locator('.performance-page:visible .perf-controls select[aria-label="Who did the work"]').count()) === 0)
+  check('Provider frames only launches and the providers’ usage', (await byProvider.locator('select[aria-label="Provider"]').count()) === 1 && (await byProvider.locator('.cards').count()) === 0 && (await byProvider.locator('h2', { hasText: 'Hive tools' }).count()) === 0 && (await byProvider.locator('h2', { hasText: 'Guidance at launch' }).count()) === 1)
+  const providerOptions = () => page.locator('select[aria-label="Provider"] option').allInnerTexts()
+  const guidanceRows = () => byProvider.locator('tbody tr td:first-child').allInnerTexts()
+  check('…offering every provider with data', (await providerOptions()).join() === 'All providers,Claude Code,Codex', (await providerOptions()).join())
+  await page.locator('select[aria-label="Provider"]').selectOption('codex')
+  check('picking Codex narrows its sections to Codex', !!(await until(async () => (await guidanceRows()).join() === 'Codex')), (await guidanceRows()).join())
+  check('…leaves the sections it doesn’t frame as they were', (await requests()) === '47' && /3 launches/.test(await page.locator('.performance-page:visible .card', { hasText: 'Guidance per launch' }).innerText()), `${await requests()} ${await page.locator('.performance-page:visible .card', { hasText: 'Guidance per launch' }).innerText()}`)
+  check('…and still offers Claude Code', (await providerOptions()).join() === 'All providers,Claude Code,Codex', (await providerOptions()).join())
+  await byProvider.scrollIntoViewIfNeeded()
+  await shot('provider-codex')
+  // Export and Keep current view save what the page loaded, every provider's, so their launches and trend agree with
+  // the cards whatever provider is picked (#270, round 2).
+  const codexFile = await exported()
+  const trendLaunches = (e) => e.json.report.trend.reduce((n, p) => n + p.launches, 0)
+  check('…Export with Codex picked saves what the page shows: every provider’s launches, no provider filter', codexFile && trendLaunches(codexFile) === 3 && codexFile.json.filters.provider === undefined && /claude-code/.test(JSON.stringify(codexFile.json.report.projects)) && /codex/.test(JSON.stringify(codexFile.json.report.projects)), codexFile && JSON.stringify({ l: trendLaunches(codexFile), f: codexFile.json.filters }))
+  await page.locator('.performance-page:visible .segmented button', { hasText: 'Compare' }).click()
+  await page.locator('.performance-page:visible button', { hasText: 'Keep current view' }).click()
+  await page.locator('.dialog input.input').first().fill('Codex picked')
+  await page.locator('.dialog .btn.primary').click()
+  const keptCodex = await until(async () => (await inv('benchmarks:list', { kind: 'workspace' })).entries.find((e) => e.label === 'Codex picked'))
+  const keptSummary = keptCodex && (await inv('benchmarks:read', { kind: 'workspace' }, keptCodex.id)).summary
+  check('…and so does Keep current view', keptSummary && keptSummary.totals.launches === 3 && keptSummary.filters.provider === undefined, keptSummary && JSON.stringify({ t: keptSummary.totals, f: keptSummary.filters }))
+  await page.locator('.performance-page:visible .segmented button', { hasText: 'Now' }).click()
+  await until(async () => (await requests()) === '47')
+  await page.locator('select[aria-label="Provider"]').selectOption('claude-code')
+  check('Codex → Claude Code in one step', !!(await until(async () => (await guidanceRows()).join() === 'Claude Code')), (await guidanceRows()).join())
+  await page.locator('select[aria-label="Provider"]').selectOption('')
 
   // A scope switched while the last query is slow: the late answer for the old scope is never shown.
   await app.evaluate(() => {
@@ -154,6 +189,7 @@ const check = (name, ok, extra = '') => {
   await page.locator('.tab', { hasText: 'Performance' }).click()
   check("a project's Performance tab shows only its project", !!(await until(async () => (await requests()) === '12')), await requests())
   check('…with no scope choice and agents as the only role', (await page.locator('select[aria-label="Scope"]').count()) === 0 && (await page.locator('select[aria-label="Who did the work"] option').count()) === 2)
+  check('…and its own providers to pick from', (await providerOptions()).join() === 'All providers,Codex', (await providerOptions()).join())
   await shot('tab')
 
   // Not recording: a banner, and what was recorded is still shown.

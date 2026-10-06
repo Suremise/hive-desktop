@@ -6156,6 +6156,36 @@ body.pane-resizing-v .monaco-editor {
   font-size: 12px;
   font-weight: normal;
 }
+/* A filter and the sections it changes, framed together, so what it doesn't change isn't under it (#270): Who around
+   the cards, chart and tables; Provider, inside it, around launches and the providers' usage. */
+.perf-group {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0 0 12px;
+  min-width: 0;
+}
+.perf-group.perf-by-provider {
+  margin: 24px 0 12px;
+}
+.perf-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.perf-group-head + .empty-state.perf-empty {
+  padding: 24px 0;
+}
+.perf-group .perf-group-head + h2.section,
+.perf-group-head + .table-wrap {
+  margin-top: 0;
+}
+.perf-provider-empty {
+  margin: 0;
+}
 /* Performance → Compare (views/PerformanceCompare.tsx). */
 .good-text {
   color: var(--success);

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo } from '@shared/types'
-import { PROVIDERS, providerName } from '@shared/providers'
+import { providerName } from '@shared/providers'
 import { LATENCY_BOUNDS_MS, percentile, type MetricsReport, type MetricsScope, type ProviderUsageSummary, type TrendPoint } from '@shared/metrics'
-import { DEFAULT_PERF_FILTERS, PERF_RANGES, WORKSPACE_OWN, byRoute, byTool, isEmpty, providersIn, queryFor, select, totals, type PerfFilters, type PerfRole } from '@shared/metricsView'
+import { DEFAULT_PERF_FILTERS, PERF_RANGES, WORKSPACE_OWN, byRoute, byTool, isEmpty, pageQuery, providersIn, select, totals, type PerfFilters, type PerfRole, type PerfSelection } from '@shared/metricsView'
 import { compareScopeKey, compareScopeOf } from '@shared/benchmark'
 import { money } from '@shared/usageTotals'
 import { formatDateTime, formatWeekdayTime } from '@shared/dates'
@@ -91,9 +91,11 @@ export function PerformancePanel() {
 function PerformancePage({ workspacePath, scope, filters, setFilters, projects, active }: { workspacePath: string; scope: MetricsScope; filters: PerfFilters; setFilters: (f: Partial<PerfFilters>) => void; projects?: string[]; active: boolean }) {
   const settings = useStore((s) => s.settings)
   const range = PERF_RANGES.find((r) => r.value === filters.range) ?? PERF_RANGES[0]
-  // One result per workspace, scope, range and filters: a late answer for another (a switch while it loaded) is never shown.
+  // One result per workspace, scope, range and role: a late answer for another (a switch while it loaded) is never shown.
+  // Every provider's: the provider filter narrows only its own sections, here (select()), so its choices never shrink
+  // to the one picked (#270).
   const own = scope.kind === 'workspace' && filters.project === WORKSPACE_OWN
-  const key = `${workspacePath}|${scope.kind === 'project' ? `project:${scope.project.toLowerCase()}` : own ? 'own' : 'workspace'}|${range.value}|${filters.role}|${filters.provider}`
+  const key = `${workspacePath}|${scope.kind === 'project' ? `project:${scope.project.toLowerCase()}` : own ? 'own' : 'workspace'}|${range.value}|${filters.role}`
   const loaded = useScopedLoad<MetricsReport>(key)
   const { load } = loaded
   const inFlight = useRef<string | null>(null)
@@ -102,7 +104,7 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
     // (its late answer is ignored by useScopedLoad).
     if (inFlight.current === key) return
     inFlight.current = key
-    load(key, () => call('metrics:query', queryFor(scope, filters, Date.now())).finally(() => inFlight.current === key && (inFlight.current = null)))
+    load(key, () => call('metrics:query', pageQuery(scope, filters, Date.now())).finally(() => inFlight.current === key && (inFlight.current = null)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, load])
   const comparing = filters.view === 'compare'
@@ -123,12 +125,14 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
   }, [active, comparing, refresh])
 
   const report = loaded.data
+  // Everything but the provider sections is every provider's (`all`); those two follow the provider filter (`sel`).
+  const all = useMemo(() => (report ? select(report, { ...filters, provider: '' }) : null), [report, filters])
   const sel = useMemo(() => (report ? select(report, filters) : null), [report, filters])
-  const t = useMemo(() => (sel ? totals(sel) : null), [sel])
+  const t = useMemo(() => (all ? totals(all) : null), [all])
   const exportReport = async (sanitize: boolean): Promise<void> => {
     try {
-      // The page's own query (scope, range and filters), so the file holds what the page shows.
-      const path = await call('metrics:export', queryFor(scope, filters, Date.now()), sanitize)
+      // The page's own query (scope, range and Who, every provider's), so the file holds what the page shows (#270).
+      const path = await call('metrics:export', pageQuery(scope, filters, Date.now()), sanitize)
       if (path) notify('success', 'Performance metrics exported', path)
     } catch (e) {
       notify('error', 'Could not export the performance metrics', String((e as Error).message ?? e))
@@ -183,34 +187,13 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
           )}
           {!comparing && (
           <>
-          <label className="perf-filter">
-            Who
-            <select className="input" value={filters.role} onChange={(e) => setFilters({ role: e.target.value as PerfRole })} aria-label="Who did the work">
-              {(isTab ? (['all', 'agent'] as PerfRole[]) : (['all', 'agent', 'assistant', 'api'] as PerfRole[])).map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABEL[r]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="perf-filter">
-            Provider
-            <select className="input" value={filters.provider} onChange={(e) => setFilters({ provider: e.target.value })} aria-label="Provider">
-              <option value="">All providers</option>
-              {(report ? providersIn(report) : PROVIDERS.map((p) => p.id)).map((p) => (
-                <option key={p} value={p}>
-                  {providerName(p)}
-                </option>
-              ))}
-            </select>
-          </label>
           <div className="grow" />
           <Tooltip content={loaded.at ? `Updated ${timeAgo(new Date(loaded.at).toISOString())}; every minute while shown.` : 'Loading…'}>
             <span>
               <IconButton icon="refresh" title="Refresh" onClick={refresh} />
             </span>
           </Tooltip>
-          <Tooltip content="Save what this page shows (its scope, range and filters) as a JSON file, with units, coverage and Hive's version. Shift+click: with project names replaced (project-1, project-2…) and no workspace path.">
+          <Tooltip content="Save what this page shows (its scope, range and Who; every provider’s, each named in its rows) as a JSON file, with units, coverage and Hive's version. Shift+click: with project names replaced (project-1, project-2…) and no workspace path.">
             <button className="btn small subtle" onClick={(e) => void exportReport(e.shiftKey)} disabled={!report}>
               <Icon name="desktop-download" /> Export
             </button>
@@ -218,15 +201,15 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
           </>
           )}
         </div>
-        {comparing && <p className="hint perf-compare-hint">Compare puts two kept files side by side: each keeps the range and filters it was made with (shown below). The range and filters of Now only shape what <strong>Keep current view</strong> saves.</p>}
+        {comparing && <p className="hint perf-compare-hint">Compare puts two kept files side by side: each keeps the range and filters it was made with (shown below). The range and Who of Now only shape what <strong>Keep current view</strong> saves (every provider’s).</p>}
 
         {comparing && (
           <ComparePanel
             key={`${workspacePath}|${compareScopeKey(compareScopeOf(scope, own))}`}
             workspacePath={workspacePath}
             scope={compareScopeOf(scope, own)}
-            query={() => queryFor(scope, filters, Date.now())}
-            keeps={`${range.label}, ${ROLE_LABEL[filters.role].toLowerCase()}, ${filters.provider ? providerName(filters.provider) : 'all providers'}`}
+            query={() => pageQuery(scope, filters, Date.now())}
+            keeps={`${range.label}, ${ROLE_LABEL[filters.role].toLowerCase()}, every provider`}
           />
         )}
         {filters.view !== 'compare' && !recording && (
@@ -242,17 +225,32 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
             <Icon name="loading" spin /> Loading…
           </div>
         )}
-        {filters.view !== 'compare' && report && sel && t && (
+        {filters.view !== 'compare' && report && all && sel && t && (
           <>
             <Coverage report={report} />
-            {isEmpty(sel) ? (
+            {/* Who did the work: everything in this group follows it, and nothing outside does (#270). */}
+            <section className="perf-group" aria-label="Filtered by who did the work">
+              <div className="perf-group-head">
+                <label className="perf-filter">
+                  Who
+                  <select className="input" value={filters.role} onChange={(e) => setFilters({ role: e.target.value as PerfRole })} aria-label="Who did the work">
+                    {(isTab ? (['all', 'agent'] as PerfRole[]) : (['all', 'agent', 'assistant', 'api'] as PerfRole[])).map((r) => (
+                      <option key={r} value={r}>
+                        {ROLE_LABEL[r]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span className="faint">{isTab || !report.skills ? 'Everything below follows it.' : 'Everything in this box follows it; the skill service below it is the whole workspace’s.'}</span>
+              </div>
+            {isEmpty(all) ? (
               <>
                 <div className="empty-state perf-empty">
                   <Icon name="pulse" />
-                  Nothing recorded {filters.role !== 'all' || filters.provider ? 'for these filters ' : ''}in the last {range.label}.
+                  Nothing recorded {filters.role !== 'all' ? 'for this filter ' : ''}in the last {range.label}.
                 </div>
                 {/* Nothing to show isn't the same as nothing there: say when session history couldn't be read. */}
-                {report.providersUnreadable ? <ProvidersTable sel={sel} note={report.providersNote} unreadable={report.providersUnreadable} hosts={report.providersHosts} /> : null}
+                {report.providersUnreadable ? <ProvidersTable sel={all} note={report.providersNote} unreadable={report.providersUnreadable} hosts={report.providersHosts} /> : null}
               </>
             ) : (
               <>
@@ -277,13 +275,17 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
 
                 {report.trend && report.trend.length > 0 && <Trend points={report.trend} step={report.trendStep ?? 'hour'} />}
 
-                <ToolsTable sel={sel} />
-                <RoutesTable sel={sel} />
-                <GuidanceTable sel={sel} totalsAvg={t} />
-                <ProvidersTable sel={sel} note={report.providersNote} unreadable={report.providersUnreadable} hosts={report.providersHosts} />
+                <ToolsTable sel={all} />
+                <RoutesTable sel={all} />
+                {(all.guidance.length > 0 || all.providers.length > 0 || !!report.providersNote || !!report.providersUnreadable || !!filters.provider) && (
+                  <ByProvider report={report} sel={sel} rangeLabel={range.label} provider={filters.provider} setProvider={(provider) => setFilters({ provider })} />
+                )}
+                {/* Hive's tool list isn't per provider: outside the provider's group. */}
+                <ToolList sel={all} />
               </>
             )}
-            {!isTab && report.skills && <SkillService report={report} filtered={filters.role !== 'all' || !!filters.provider} />}
+            </section>
+            {!isTab && report.skills && <SkillService report={report} filtered={filters.role !== 'all'} />}
             {!isTab && report.app && <AppWide report={report} />}
             <details className="perf-limits">
               <summary>What isn’t measured</summary>
@@ -403,7 +405,7 @@ function Trend({ points, step }: { points: TrendPoint[]; step: 'hour' | 'day' })
   )
 }
 
-function ToolsTable({ sel }: { sel: ReturnType<typeof select> }) {
+function ToolsTable({ sel }: { sel: PerfSelection }) {
   const rows = byTool(sel.mcp)
   const [all, setAll] = useState(false)
   if (!rows.length) return null
@@ -450,7 +452,7 @@ function ToolsTable({ sel }: { sel: ReturnType<typeof select> }) {
   )
 }
 
-function RoutesTable({ sel }: { sel: ReturnType<typeof select> }) {
+function RoutesTable({ sel }: { sel: PerfSelection }) {
   const rows = byRoute(sel.api)
   const [all, setAll] = useState(false)
   if (!rows.length) return null
@@ -501,8 +503,50 @@ function RoutesTable({ sel }: { sel: ReturnType<typeof select> }) {
   )
 }
 
-function GuidanceTable({ sel, totalsAvg }: { sel: ReturnType<typeof select>; totalsAvg: ReturnType<typeof totals> }) {
-  if (!sel.guidance.length && !sel.catalog.length) return null
+/**
+ * The sections the provider filter changes (launches' guidance and the providers' usage), under it; its choices are
+ * every provider with data in the range and scope, and the current one (#270).
+ */
+function ByProvider({ report, sel, rangeLabel, provider, setProvider }: { report: MetricsReport; sel: PerfSelection; rangeLabel: string; provider: string; setProvider: (p: string) => void }) {
+  const none = !sel.guidance.length && !sel.providers.length
+  return (
+    <section className="perf-group perf-by-provider" aria-label="Filtered by provider">
+      <div className="perf-group-head">
+        <label className="perf-filter">
+          Provider
+          <select className="input" value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Provider">
+            <option value="">All providers</option>
+            {providersIn(report, provider).map((p) => (
+              <option key={p} value={p}>
+                {providerName(p)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="faint">Launches and the providers’ usage: the only parts recorded per provider.</span>
+      </div>
+      {provider && none && !report.providersUnreadable ? (
+        <p className="hint perf-provider-empty">
+          Nothing from {providerName(provider)} in the last {rangeLabel}{report.filters.role ? ' for this filter' : ''}.
+        </p>
+      ) : (
+        <>
+          <GuidanceTable sel={sel} unmeasured={totals(sel).skillsUnmeasured} />
+          <ProvidersTable sel={sel} note={report.providersNote} unreadable={report.providersUnreadable} hosts={report.providersHosts} />
+        </>
+      )}
+    </section>
+  )
+}
+
+/** The hive tools' list as each session got it: every provider's (not recorded per provider). */
+function ToolList({ sel }: { sel: PerfSelection }) {
+  if (!sel.catalog.length) return null
+  return <p className="hint">The hive tools’ list, as each session got it: {sel.catalog.map((c) => `${c.role === 'assistant' ? 'Assistant' : 'agents'} ${num(c.starts ? c.tools / c.starts : 0)} tools, ${formatBytes(c.starts ? c.toolsBytes / c.starts : 0)} a start`).join('; ')}.</p>
+}
+
+function GuidanceTable({ sel, unmeasured }: { sel: PerfSelection; unmeasured: number }) {
+  if (!sel.guidance.length) return null
   const per = (n: number, launches: number): string => (launches && n ? formatBytes(n / launches) : '—')
   return (
     <>
@@ -557,17 +601,12 @@ function GuidanceTable({ sel, totalsAvg }: { sel: ReturnType<typeof select>; tot
           </tbody>
         </table>
       </div>
-      {sel.catalog.length > 0 && (
-        <p className="hint">
-          The hive tools’ list, as each session got it: {sel.catalog.map((c) => `${c.role === 'assistant' ? 'Assistant' : 'agents'} ${num(c.starts ? c.tools / c.starts : 0)} tools, ${formatBytes(c.starts ? c.toolsBytes / c.starts : 0)} a start`).join('; ')}.
-          {totalsAvg.skillsUnmeasured > 0 ? ' Skills marked ? couldn’t be measured.' : ''}
-        </p>
-      )}
+      {unmeasured > 0 && <p className="hint">Skills marked ? couldn’t be measured.</p>}
     </>
   )
 }
 
-function ProvidersTable({ sel, note, unreadable, hosts }: { sel: ReturnType<typeof select>; note?: string; unreadable?: number; hosts?: number }) {
+function ProvidersTable({ sel, note, unreadable, hosts }: { sel: PerfSelection; note?: string; unreadable?: number; hosts?: number }) {
   // Session history that couldn't be read: the totals are partial, or unknown if none could be (never shown as complete).
   const partial = unreadable ? (
     <p className="warn-text perf-partial">

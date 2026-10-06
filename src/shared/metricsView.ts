@@ -18,7 +18,10 @@ export type PerfRole = 'all' | 'agent' | 'assistant' | 'api'
 
 export interface PerfFilters {
   range: PerfRange
-  /** Provider id, or '' for all (applies to launches and provider usage: the rest isn't per provider). */
+  /**
+   * Provider id, or '' for all (applies to launches and provider usage: the rest isn't per provider). The page applies
+   * it to those sections itself (`select()`): its query, export and kept views have none (`pageQuery()`).
+   */
   provider: string
   role: PerfRole
   /**
@@ -50,6 +53,15 @@ export function queryFor(scope: MetricsScope, f: PerfFilters, now: number): Metr
     ...(f.provider ? { provider: f.provider } : {}),
     ...(scope.kind === 'workspace' && f.project === WORKSPACE_OWN ? { own: true } : {})
   }
+}
+
+/**
+ * The Performance page's query: its scope, range, role and own work, every provider's. The provider filter narrows
+ * only the page's per-provider sections (`select()`), which list the provider in each row, so what the page loads,
+ * exports and keeps is the same report: the cards, trend and totals agree whatever provider is picked (#270).
+ */
+export function pageQuery(scope: MetricsScope, f: PerfFilters, now: number): MetricsQuery {
+  return queryFor(scope, { ...f, provider: '' }, now)
 }
 
 /** The parts a report's scope and the project filter keep: a project's, the workspace's own, or all of them. */
@@ -221,11 +233,16 @@ export function byTool(mcp: McpSeries[]): ToolRow[] {
     .sort((a, b) => b.chars - a.chars || a.tool.localeCompare(b.tool))
 }
 
-/** The providers in a report (launches and usage), for the provider filter: only those with data. */
-export function providersIn(r: MetricsReport): string[] {
+/**
+ * The providers in a report (launches and usage), for the provider filter: those with data, and `chosen` (the filter's
+ * current choice) even without any, so it can always be seen and changed. The page asks Hive for every provider's
+ * (the filter narrows its own sections only), so picking one never hides the others (#270).
+ */
+export function providersIn(r: MetricsReport, chosen = ''): string[] {
   const ids = new Set<string>()
   for (const p of r.providers) ids.add(p.provider)
   for (const part of partsOf(r, '')) for (const g of part.guidance) ids.add(g.provider)
+  if (chosen) ids.add(chosen)
   return [...ids].filter((p) => p !== '(other)').sort()
 }
 
