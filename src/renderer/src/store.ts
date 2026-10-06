@@ -45,6 +45,8 @@ export interface ConfirmRequest {
   run?: () => Promise<unknown>
   /** The confirm button's label while `run` runs ("Deleting…"). */
   busyLabel?: string
+  /** A tick box under the detail; `set` gets the user's choice before the dialog resolves (confirmed or not). */
+  check?: { label: string; initial: boolean; set: (checked: boolean) => void }
   resolve: (ok: boolean) => void
 }
 

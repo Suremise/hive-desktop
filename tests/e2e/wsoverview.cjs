@@ -1,6 +1,6 @@
 // Workspace Overview: totals across projects for a period, the table by project, the stacked chart (a tile a day),
 // the board strip and the hidden-project note; in a narrow window the page doesn't scroll sideways (its period buttons
-// wrap, #252) while the table keeps its own scroll. Transcripts are Hive backups (.hive/sessions) dated relative to today; no
+// wrap, #252) while the table keeps its own scroll, down to a few dozen pixels of page beside the Assistant (#269). Transcripts are Hive backups (.hive/sessions) dated relative to today; no
 // agent is started.
 const lib = require('./lib.cjs')
 const fs = require('fs')
@@ -89,20 +89,52 @@ const check = (name, ok, extra = '') => {
     page.evaluate(() => {
       const scroller = document.querySelector('.overview-head').closest('.scroll-page')
       const box = scroller.getBoundingClientRect()
+      const right = box.left + scroller.clientWidth
       const seg = document.querySelector('.overview-head .segmented').getBoundingClientRect()
-      return { page: scroller.scrollWidth <= scroller.clientWidth + 1, buttons: seg.right <= box.right && seg.left >= box.left, table: !!document.querySelector('.ws-projects .table-wrap') }
+      // Every control and label inside the page, its text whole (#269): the board strip, the period buttons, the cards' titles.
+      const controls = [...scroller.querySelectorAll('.board-strip-item, .overview-head .segmented button, .card h3, .overview-head .section')]
+      const clipped = controls.filter((el) => {
+        const r = el.getBoundingClientRect()
+        return r.left < box.left - 0.5 || r.right > right + 0.5 || el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1
+      })
+      return {
+        page: scroller.scrollWidth <= scroller.clientWidth + 1,
+        width: scroller.clientWidth,
+        buttons: seg.right <= right + 0.5 && seg.left >= box.left,
+        clipped: clipped.map((el) => el.textContent.trim().slice(0, 20)),
+        table: !!document.querySelector('.ws-projects .table-wrap')
+      }
     })
-  for (const [width, zoom] of [[620, 1], [760, 1.25]]) {
+  // Extremes (#269): 620 px at 125% (about 100 px of page), in both themes, and the Assistant's panel open on either
+  // side at 820 px (under 50 px of page). Nothing is clipped, and a period button still works.
+  const assistantOpen = () => page.evaluate(() => !!document.querySelector('.assistant-panel'))
+  const setAssistant = async (side) => {
+    if (side) await inv('settings:update', { assistant: { panelSide: side } })
+    if (!!side !== (await assistantOpen())) await page.keyboard.press('Control+Alt+I')
+    await until(async () => !!side === (await assistantOpen()), 3000)
+  }
+  for (const [width, zoom, theme, side] of [[620, 1, 'dark', null], [760, 1.25, 'dark', null], [620, 1.25, 'dark', null], [620, 1.25, 'light', null], [820, 1, 'dark', 'right'], [820, 1, 'light', 'left']]) {
+    await inv('settings:update', { appearance: { theme } })
+    await setAssistant(side)
     await app.evaluate(({ BrowserWindow }, z) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(z), zoom)
     await lib.fitWindow(app, page, { width, height: 900 })
+    const label = `${width} px at ${zoom * 100}%${side ? `, the Assistant on the ${side}` : ''} (${theme})`
     const f = await until(async () => {
       const x = await fits()
-      return x.page && x.buttons ? x : null
+      return x.page && x.buttons && !x.clipped.length ? x : null
     }, 3000)
-    check(`${width} px at ${zoom * 100}%: the page doesn't scroll sideways, its period buttons inside it`, !!f, JSON.stringify(await fits()))
-    check(`${width} px at ${zoom * 100}%: …the table keeps its own scroll`, (await fits()).table)
-    await page.screenshot({ path: path.join(lib.WORK, `wsoverview-${width}-${zoom * 100}.png`) })
+    check(`${label}: the page doesn't scroll sideways, its period buttons inside it, no label clipped`, !!f, JSON.stringify(await fits()))
+    check(`${label}: …the table keeps its own scroll`, (await fits()).table)
+    await page.screenshot({ path: path.join(lib.WORK, `wsoverview-${width}-${zoom * 100}${side ? `-${side}` : ''}-${theme}.png`) })
+    if (side === 'left') {
+      // In under 50 px, a period is still chosen with its button.
+      await page.locator('.overview-head .segmented button', { hasText: '30 days' }).click()
+      check(`${label}: a period button still works`, !!(await until(async () => (await page.locator('.overview-head .segmented button.active').innerText()).trim() === '30 days', 3000)))
+      await page.locator('.overview-head .segmented button', { hasText: 'All time' }).click()
+    }
   }
+  await setAssistant(null)
+  await inv('settings:update', { appearance: { theme: 'dark' } })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
   await lib.fitWindow(app, page, { width: 1400, height: 950 })
 

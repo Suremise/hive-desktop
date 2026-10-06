@@ -1,9 +1,10 @@
 import { basename, dirname, join, resolve } from 'path'
 import { copyFile, mkdir } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
-import type { AgentBranchStatus, AgentWorktree, MergeResult } from '../shared/types'
+import type { AgentBranchStatus, AgentWorktree, MergeResult, WorktreeCheck } from '../shared/types'
 import { copyDir, isDir } from './fsutil'
 import { git } from './git'
+import { samePath } from '../shared/movePaths'
 import { createLogger, userText } from './logger'
 
 const log = createLogger('worktrees')
@@ -139,6 +140,93 @@ export async function branchStatus(projectPath: string, wt: AgentWorktree, opts:
   if (ahead > 0 && (await alreadyMerged(projectPath, into ?? wt.base, wt.branch))) ahead = 0
   const diff = ahead > 0 || dirty ? await diffSummary(wt.path, ahead > 0 ? (into ?? wt.base) : null) : undefined
   return { branch: wt.branch, base: wt.base, into, ahead, dirty: dirty ?? 0, ...(diff ? { diff } : {}) }
+}
+
+/**
+ * The repository's main branch, which a worktree must be merged into before Hive deletes it unasked (#291, #289): the
+ * local branch origin/HEAD names, else main, else master. Not the project folder's current branch, which can be any
+ * feature branch and change at any time. Null: none of them.
+ */
+export async function primaryBranch(projectPath: string): Promise<string | null> {
+  const local = new Set(await localBranches(projectPath))
+  const remote = await git(projectPath, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
+  const named = remote.ok ? remote.out.trim().replace(/^origin\//, '') : ''
+  return [named, 'main', 'master'].find((b) => b && local.has(b)) ?? null
+}
+
+/** The commit a branch points at, or null. */
+async function tipOf(projectPath: string, branch: string): Promise<string | null> {
+  const r = await git(projectPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}^{commit}`])
+  return r.ok ? r.out.trim() || null : null
+}
+
+/** Commits of `tip` not in `into`, or 0 when its changes are there already (a squash merge); null when git can't say. */
+async function unmergedCommits(projectPath: string, into: string, tip: string): Promise<number | null> {
+  const count = await git(projectPath, ['rev-list', '--count', `${into}..${tip}`])
+  if (!count.ok) return null
+  const n = parseInt(count.out.trim(), 10) || 0
+  return n > 0 && (await alreadyMerged(projectPath, into, tip)) ? 0 : n
+}
+
+/**
+ * Whether deleting a worktree and its branch loses nothing: git lists it as one of the project's worktrees (not the
+ * project folder) on its branch, the branch's commit is fully merged into the repository's main branch
+ * (`primaryBranch`; a squash merge counts) and the worktree has no uncommitted changes. Strict: anything git can't say
+ * counts as not removable. `tip` is the commit checked, for `removeCheckedWorktree`. Shared by Remove All (#291) and
+ * loading templates (#289).
+ */
+export async function worktreeCheck(projectPath: string, wt: AgentWorktree): Promise<WorktreeCheck> {
+  const into = await primaryBranch(projectPath)
+  if (!into) return { removable: false, into, reason: 'the repository has no main branch (main or master) to check it against' }
+  const listed = await listWorktrees(projectPath)
+  if (samePath(wt.path, projectPath) || !listed.some((l) => samePath(l.path, wt.path) && l.branch === wt.branch)) return { removable: false, into, reason: `git doesn't list it as a worktree on ${wt.branch}` }
+  if (!existsSync(wt.path)) return { removable: false, into, reason: 'its folder is missing' }
+  // Both commits, so what is checked is fixed: the deletion is guarded against either branch moving afterwards.
+  const [tip, intoTip] = await Promise.all([tipOf(projectPath, wt.branch), tipOf(projectPath, into)])
+  const [ahead, dirty] = tip && intoTip ? await Promise.all([unmergedCommits(projectPath, intoTip, tip), dirtyCount(wt.path)]) : [null, null]
+  if (!tip || !intoTip || ahead === null || dirty === null) return { removable: false, into, reason: `git couldn't check ${wt.branch}` }
+  const why = [ahead ? `${ahead} commit${ahead === 1 ? '' : 's'} not merged into ${into}` : '', dirty ? `${dirty} uncommitted file${dirty === 1 ? '' : 's'}` : ''].filter(Boolean)
+  return why.length ? { removable: false, into, reason: why.join(' and ') } : { removable: true, into, tip, intoTip }
+}
+
+/** Why the refs a check rested on no longer hold, or null when both still point at the commits checked. */
+async function refsMoved(projectPath: string, wt: AgentWorktree, into: string, tip: string, intoTip: string): Promise<string | null> {
+  const [t, m] = await Promise.all([tipOf(projectPath, wt.branch), tipOf(projectPath, into)])
+  return t !== tip ? `${wt.branch} changed since it was checked` : m !== intoTip ? `${into} changed since it was checked` : null
+}
+
+/**
+ * The last step of `removeCheckedWorktree`: deletes the branch in one git ref transaction, all or nothing, that verifies
+ * the main branch still points at the commit it was found merged into and deletes the branch only from the commit
+ * checked. Null when deleted; otherwise why it was kept.
+ */
+export async function deleteCheckedBranch(projectPath: string, wt: AgentWorktree, into: string, tip: string, intoTip: string): Promise<string | null> {
+  const tx = ['start', `verify refs/heads/${into} ${intoTip}`, `delete refs/heads/${wt.branch} ${tip}`, 'prepare', 'commit', ''].join('\n')
+  const r = await git(projectPath, ['update-ref', '--stdin'], undefined, tx)
+  return r.ok ? null : ((await refsMoved(projectPath, wt, into, tip, intoTip)) ?? `git kept it: ${r.err.split(/\r?\n/)[0] || 'update-ref failed'}`)
+}
+
+/**
+ * Deletes a worktree and its branch that `worktreeCheck` found removable, guarded against anything since. Refused
+ * (nothing touched) when the main branch isn't the one checked and the one the user was shown (`expectInto`), or when
+ * the worktree's branch or the main branch no longer points at the commit checked. The worktree goes without --force,
+ * so git refuses one with files written since. The branch is deleted in one git ref transaction that also verifies the
+ * main branch still points at the commit it was found merged into: if either moved meanwhile, the branch is kept (and
+ * the reply says so; the worktree, clean, is then gone but its commits stay on the branch). Never the forced removal
+ * Discard uses. Returns what it did: `deleted` the worktree, `branchKept` with the reason.
+ */
+export async function removeCheckedWorktree(projectPath: string, wt: AgentWorktree, check: WorktreeCheck, expectInto?: string | null): Promise<{ deleted: boolean; branchKept?: boolean; reason?: string }> {
+  const { into, tip, intoTip } = check
+  if (!check.removable || !into || !tip || !intoTip) return { deleted: false, reason: check.reason ?? 'not checked' }
+  const now = await primaryBranch(projectPath)
+  if (now !== into || (expectInto !== undefined && expectInto !== into)) return { deleted: false, reason: `the main branch is ${now ?? 'gone'}, not ${expectInto ?? into} as checked` }
+  const moved = await refsMoved(projectPath, wt, into, tip, intoTip)
+  if (moved) return { deleted: false, reason: moved }
+  const removed = await git(projectPath, ['worktree', 'remove', wt.path])
+  if (!removed.ok) return { deleted: false, reason: `git kept it: ${removed.err.split(/\r?\n/)[0] || 'git worktree remove failed'}` }
+  const kept = await deleteCheckedBranch(projectPath, wt, into, tip, intoTip)
+  log.info(`Removed merged, clean worktree ${userText(wt.path)}${kept ? ` (branch ${userText(wt.branch)} kept: ${userText(kept)})` : ` and branch ${userText(wt.branch)}`}`)
+  return kept ? { deleted: true, branchKept: true, reason: kept } : { deleted: true }
 }
 
 /**

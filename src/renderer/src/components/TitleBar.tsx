@@ -66,7 +66,7 @@ const MENUS: MenuDef[] = [
     // Its tabs are the tab strip's, in its order (#216).
     items: PROJECT_MENU
   },
-  { label: 'Session', items: ['session.new', 'session.resume', 'session.stop', '-', 'session.compact', 'session.archive', '-', 'session.startNewAll', 'session.archiveAll', '-', 'project.tab.sessions'] },
+  { label: 'Session', items: ['session.new', 'session.resume', 'session.stop', '-', 'session.compact', 'session.archive', '-', 'session.startNewAll', 'session.archiveAll', 'session.removeAll', '-', 'project.tab.sessions'] },
   {
     label: 'Help',
     items: ['help.docs', 'help.api', 'help.shortcuts', 'help.tips', 'help.releaseNotes', '-', 'help.agentSetup', 'help.checkProviders', '-', 'view.devTools', 'view.reload', 'help.logs', 'help.diagnostics', '-', 'help.checkUpdates', 'help.about']

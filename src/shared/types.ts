@@ -718,6 +718,23 @@ export interface AgentBranchStatus {
   diff?: { files: number; insertions: number; deletions: number }
 }
 
+/** Whether a worktree can be deleted without losing work (`worktreeCheck` in main); `reason` says why not ("2 commits not merged into main"). */
+export interface WorktreeCheck {
+  removable: boolean
+  /** The branch it must be merged into: the repository's main branch (`primaryBranch`; null: it has none). */
+  into: string | null
+  reason?: string
+  /** The branch's commit that was checked, and the main branch's commit it was found merged into (removable ones). */
+  tip?: string
+  intoTip?: string
+}
+
+/** What removing an agent did with its worktree: deleted it (and its branch), or kept it and why (Remove All, #291). */
+export interface RemovedAgent {
+  /** `branchKept`: the worktree was deleted but its branch kept (it changed meanwhile). */
+  worktree?: { path: string; branch: string; deleted: boolean; branchKept?: boolean; reason?: string }
+}
+
 export interface MergeResult {
   ok: boolean
   /** Files that would conflict; nothing was changed. */
@@ -1512,6 +1529,8 @@ export type HiveEvent =
   | { type: 'settings-changed'; settings: AppSettings }
   /** One project's view preference saved (ui:setProjectPref): every window's store follows. */
   | { type: 'ui-pref-changed'; pref: ProjectPref; project: string; value: unknown }
+  /** What the tips know changed (ui:changeTips): every window's store follows. */
+  | { type: 'tips-changed'; tips: TipsState }
   | { type: 'provider-install'; provider: ProviderId; info: AgentInstallInfo }
   | { type: 'menu-command'; command: string; args?: unknown[] }
   | { type: 'usage-changed'; projectPath: string; sessionId: string }

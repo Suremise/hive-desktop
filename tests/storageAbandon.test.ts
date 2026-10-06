@@ -1,5 +1,6 @@
 // Storage measurements walk every file of every worktree, so a page that stops waiting abandons its call (#246): the
 // call fails, and the walk stops once no other call waits for it (another window's, or one that can't be abandoned).
+// A window's page going (closed or reloaded) runs none of its clean-up, so its requests are abandoned with it (#260).
 // opendir is held at a gate so a walk can be caught half way; what it reads afterwards shows whether it carried on.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -47,7 +48,7 @@ vi.mock('../src/main/workspace', () => ({
   }
 }))
 
-const { StorageStopped, abandonStorage, projectStorage, workspaceStorage } = await import('../src/main/storage')
+const { StorageStopped, abandonStorage, abandonWindowStorage, projectStorage, workspaceStorage } = await import('../src/main/storage')
 
 /** Holds every opendir until released. */
 function hold(): () => void {
@@ -134,5 +135,82 @@ describe('abandoning a storage measurement', () => {
     abandonStorage('page-3')
     abandonStorage('never-sent')
     expect(await projectStorage(p.path, false, 'page-4')).toEqual(done)
+  })
+})
+
+// Requests are the window's that sent them (#260): its page going abandons them all, and only it can abandon one.
+describe("a window's requests", () => {
+  it('closing one window leaves a shared measurement to the other, which gets its result', async () => {
+    const p = project('two-windows')
+    projects.set(p.path, p.tree)
+    const release = hold()
+    // Both pages happen to use the same request id: each is its own window's.
+    const one = projectStorage(p.path, true, 'page', 1)
+    const two = projectStorage(p.path, true, 'page', 2)
+    await settle()
+    abandonWindowStorage(1)
+    await expect(one).rejects.toBeInstanceOf(StorageStopped)
+    release()
+    expect((await two).worktrees[0].bytes).toBe(DIRS * 100)
+    expect(reads(p.tree)).toBe(DIRS + 1)
+  })
+
+  it('closing the last window that waits stops the walk', async () => {
+    const p = project('both-close')
+    projects.set(p.path, p.tree)
+    const release = hold()
+    const one = projectStorage(p.path, true, 'page-a', 1)
+    const two = projectStorage(p.path, true, 'page-b', 2)
+    await settle()
+    abandonWindowStorage(1)
+    await expect(one).rejects.toBeInstanceOf(StorageStopped)
+    abandonWindowStorage(2)
+    await expect(two).rejects.toBeInstanceOf(StorageStopped)
+    const before = reads(p.tree)
+    release()
+    await settle()
+    expect(reads(p.tree) - before).toBeLessThanOrEqual(1)
+  })
+
+  it('carries on for a caller that is no window', async () => {
+    const p = project('window-and-anonymous')
+    projects.set(p.path, p.tree)
+    const release = hold()
+    const page = projectStorage(p.path, true, 'page', 3)
+    const plain = projectStorage(p.path, true)
+    await settle()
+    abandonWindowStorage(3)
+    await expect(page).rejects.toBeInstanceOf(StorageStopped)
+    release()
+    expect((await plain).worktrees[0].bytes).toBe(DIRS * 100)
+  })
+
+  it("a window abandons only its own request, not another window's with the same id", async () => {
+    const p = project('same-id')
+    projects.set(p.path, p.tree)
+    const release = hold()
+    const mine = projectStorage(p.path, true, 'page', 4)
+    abandonStorage('page', 5)
+    abandonStorage('page')
+    abandonWindowStorage(5)
+    release()
+    expect((await mine).worktrees[0].bytes).toBe(DIRS * 100)
+  })
+
+  it("stops a closed window's workspace measurement before the next project", async () => {
+    projects.clear()
+    const a = project('wsw-a')
+    const b = project('wsw-b')
+    projects.set(a.path, a.tree)
+    projects.set(b.path, b.tree)
+    const release = hold()
+    const call = workspaceStorage(true, 'settings', 6)
+    await settle()
+    abandonWindowStorage(6)
+    await expect(call).rejects.toBeInstanceOf(StorageStopped)
+    release()
+    await settle()
+    expect(reads(b.tree)).toBe(0)
+    projects.clear()
   })
 })

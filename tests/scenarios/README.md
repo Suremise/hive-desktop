@@ -26,11 +26,12 @@ ran:
   revisions (`/v1/status`), and the source commit with a fingerprint of uncommitted changes.
 
 The checks are positive and negative:
-- **Working on a card**: through Doing to Review, never to Done.
+- **Working on a card**: through Doing to Review, never to Passed or Done.
 - **A card in Done** needing more work goes back through Doing to Review.
 - **A reviewer** marks the card and keeps it in Review with its implementer, changes no files, and doesn't finish a
-  card that went back to Doing under it.
-- **A standing instruction** lets a passed review go to Done.
+  card that went back to Doing under it. **A review that passes** moves the card to Passed with its verdict, not to
+  Done.
+- **Done means merged**: the builder moves its Passed card to Done once its branch is merged.
 - **Handovers**: the latest handover's next step, or the named one's, is done, and the other isn't. A wrap-up writes a
   handover without re-running tests.
 - **Notes**: a lasting rule goes to a shared note, while progress goes on the card.

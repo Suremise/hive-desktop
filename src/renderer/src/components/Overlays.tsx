@@ -28,6 +28,7 @@ export function Dialogs() {
 
   useEffect(() => {
     setActionError(null)
+    if (dialog?.kind === 'confirm') setChecked(dialog.check?.initial ?? false)
     if (dialog?.kind === 'prompt') {
       setValue(dialog.initial ?? '')
       setChecked(dialog.check?.initial ?? false)
@@ -40,8 +41,10 @@ export function Dialogs() {
   if (!dialog) return null
   const close = (result: boolean | string | null): void => {
     closeDialog()
-    if (dialog.kind === 'confirm') dialog.resolve(result === true)
-    else if (dialog.kind === 'prompt') {
+    if (dialog.kind === 'confirm') {
+      dialog.check?.set(checked)
+      dialog.resolve(result === true)
+    } else if (dialog.kind === 'prompt') {
       dialog.check?.set(checked)
       dialog.resolve(typeof result === 'string' ? result : null)
     }
@@ -110,6 +113,8 @@ export function Dialogs() {
               onClick={() => {
                 const run = dialog.run
                 if (!run) return close(true)
+                // The tick box's answer first: the action may depend on it (a template load removing old worktrees, #289).
+                dialog.check?.set(checked)
                 void action.run('confirm', run).then((r) => r && close(true))
               }}
             >
@@ -120,6 +125,11 @@ export function Dialogs() {
       >
         <div>{dialog.message}</div>
         {dialog.detail && <div className={cx('detail', dialog.scrollDetail && 'scroll')}>{dialog.detail}</div>}
+        {dialog.check && (
+          <label className="flex dialog-check">
+            <input type="checkbox" checked={checked} disabled={!!action.busy} onChange={(e) => setChecked(e.target.checked)} /> {dialog.check.label}
+          </label>
+        )}
       </Modal>
     )
   }

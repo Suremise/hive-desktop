@@ -183,6 +183,20 @@ function ReviewLine({ c, projects }: { c: TaskCard; projects: ProjectInfo[] }) {
   )
 }
 
+/**
+ * A column's fold (#276): « on its header collapses it sideways into a strip, » on the strip expands it; the horizontal
+ * convention (VS Code's panels), so it doesn't look like a card's ▾ / ▸, which folds a card to one line. Two codicon
+ * chevrons drawn over each other (codicons have no double one).
+ */
+function Chevrons({ dir }: { dir: 'left' | 'right' }) {
+  return (
+    <span className="board-chevrons" aria-hidden>
+      <Icon name={`chevron-${dir}`} />
+      <Icon name={`chevron-${dir}`} />
+    </span>
+  )
+}
+
 /** A folded card's agent: a dot in its status's colour (Doing cards) or a plain one, with who and what in its tooltip. */
 function FoldedAgent({ c, projects }: { c: TaskCard; projects: ProjectInfo[] }) {
   if (!c.agent) return null
@@ -357,8 +371,9 @@ export function Board({ project, query, archived }: { project: string | null; qu
     const list = cards.filter((c) => c.column === column)
     const tile = at.closest<HTMLElement>('.task-card')
     let before: number | null
-    // A collapsed column's strip: at its top.
-    if (colEl.classList.contains('collapsed')) before = list.find((c) => c.number !== d.n)?.number ?? null
+    // A collapsed column's strip: at its top, the true top of the board's cards there (#263), not the top of those the
+    // search shows: a card the search hides would otherwise stay above it.
+    if (colEl.classList.contains('collapsed')) before = all.find((c) => !c.archived && c.column === column && c.number !== d.n && (project === null || c.project.toLowerCase() === project.toLowerCase()))?.number ?? null
     else if (tile) {
       const n = Number(tile.dataset.task)
       const r = tile.getBoundingClientRect()
@@ -488,7 +503,7 @@ export function Board({ project, query, archived }: { project: string | null; qu
             <div key={col.id} className={cx('board-column', 'collapsed', drag?.column === col.id && 'drag-over')} {...columnProps}>
               <Tooltip content={`Expand ${col.label}: ${col.description}`}>
                 <button className="board-column-strip" aria-label={`Expand ${col.label}`} aria-expanded={false} onClick={() => collapseColumn(col.id, false)} onContextMenu={(e) => headerMenu.open(e, columnMenu(col, list).slice(0, 2))}>
-                  <Icon name="chevron-right" />
+                  <Chevrons dir="right" />
                   <span className="count">{list.length}</span>
                   <span className="board-column-label">{col.label}</span>
                 </button>
@@ -499,7 +514,11 @@ export function Board({ project, query, archived }: { project: string | null; qu
         return (
           <div key={col.id} className={cx('board-column', drag?.column === col.id && 'drag-over')} {...columnProps}>
             <div className="board-column-header" onContextMenu={(e) => headerMenu.open(e, columnMenu(col, list))}>
-              <IconButton icon="chevron-down" title={`Collapse ${col.label}`} className="board-fold" expanded onClick={() => collapseColumn(col.id, true)} />
+              <Tooltip content={`Collapse ${col.label}`}>
+                <button className="icon-btn board-fold" aria-label={`Collapse ${col.label}`} aria-expanded onClick={() => collapseColumn(col.id, true)}>
+                  <Chevrons dir="left" />
+                </button>
+              </Tooltip>
               <Tooltip content={col.description}>
                 <span className="board-column-label">{col.label}</span>
               </Tooltip>
