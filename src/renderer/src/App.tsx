@@ -1,3 +1,4 @@
+import { useAntivirusOffer } from './components/Antivirus'
 import { useEffect, useRef } from 'react'
 import type { HiveEvent } from '@shared/types'
 import { call } from './api'
@@ -237,6 +238,7 @@ function scheduleTasksLoad(): void {
 
 export function App() {
   const workspace = useStore((s) => s.workspace)
+  useAntivirusOffer()
   const assistantLeft = useStore(assistantOnLeft)
   const activity = useStore((s) => s.activity)
   const settings = useStore((s) => s.settings)

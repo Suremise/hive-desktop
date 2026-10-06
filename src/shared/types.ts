@@ -357,6 +357,11 @@ export interface AppConfig {
   windows?: (WindowState & { workspace: string | null })[]
   /** Always on Top: the workspaces (lowercased paths) whose window was left pinned. This machine's, never in .hive. */
   alwaysOnTop?: Record<string, true>
+  /**
+   * Antivirus scanning (#316), this machine's: the exclusions Hive added (resolved paths), Defender's list as last read
+   * with administrator rights, and per workspace (lowercased path) the folders last offered and "Don't ask again".
+   */
+  antivirus?: { added?: string[]; adminCheck?: { at: string; exclusions: string[]; devDrives?: Record<string, 'trusted' | 'untrusted' | 'no'> }; offered?: Record<string, string>; dismissed?: Record<string, true> }
   /** `panes`: resizable pane sizes by key (pixels, or a fraction for split views). `tips`: what the tips know (shared/tips.ts). */
   ui: {
     sidebarWidth: number

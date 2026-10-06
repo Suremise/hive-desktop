@@ -1,3 +1,4 @@
+import type { AntivirusStatus, AvAction, AvChangeResult } from './antivirus'
 import type {
   BoardFold,
   UpdateState,
@@ -247,6 +248,16 @@ export interface HiveRequests {
   'storage:workspace': (refresh?: boolean, request?: string) => WorkspaceStorage
   /** The window stopped waiting for a storage request (its page closed): the call fails, and a measurement nothing else waits for stops. */
   'storage:abandon': (request: string) => void
+  /** Antivirus scanning of the window's workspace (#316, main/antivirus.ts): cached unless refresh. */
+  'antivirus:status': (refresh?: boolean) => AntivirusStatus
+  /** Works out a change (add or remove the workspace's exclusions, or read Defender's list) for the user to confirm: its exact folders. */
+  'antivirus:prepare': (action: AvAction) => { id: string; action: AvAction; paths: string[]; workspacePath: string }
+  /** Runs a prepared change exactly as confirmed, with administrator rights (one UAC prompt); refused if anything changed. Status null: the workspace changed meanwhile. */
+  'antivirus:apply': (id: string) => { result: AvChangeResult; status: AntivirusStatus | null }
+  /** Whether to suggest exclusions now (marks the offer made): the status, or null. */
+  'antivirus:suggestion': () => AntivirusStatus | null
+  /** "Don't ask again" for the window's workspace. */
+  'antivirus:dismiss': () => void
   /** What Clean Up… would move to the Recycle Bin with these options. */
   'storage:cleanupPreview': (projectPath: string, opts: CleanupOptions) => CleanupItem[]
   /** Moves what the preview listed (its paths) to the Recycle Bin, skipping what no longer qualifies. */

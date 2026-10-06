@@ -9,6 +9,7 @@ export const SUITES = [
   { name: 'agents' },
   { name: 'agents-ui' },
   { name: 'agentview', needs: ['claude'] },
+  { name: 'antivirus' },
   { name: 'asarfiles' },
   { name: 'assistant' },
   { name: 'assistant-control' },

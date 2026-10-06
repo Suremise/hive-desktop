@@ -20,6 +20,7 @@ import { UpdateStatusRow } from '../components/Updates'
 import { KeybindingsEditor } from '../components/Keybindings'
 import { HiddenProjectsList } from '../components/ProjectRemoval'
 import { WorkspaceStorageList } from '../components/Storage'
+import { AntivirusPanel } from '../components/Antivirus'
 import { choose, confirm, get, notify, set, useStore } from '../store'
 import { cx } from '../util'
 
@@ -164,6 +165,16 @@ const SETTINGS: SettingDef[] = [
     type: 'custom',
     wide: true,
     render: () => <WorkspaceStorageList />
+  },
+  {
+    section: 'workspace',
+    key: 'antivirus',
+    title: 'Antivirus scanning',
+    desc: "Whether Microsoft Defender scans the workspace's folders as Hive's work changes them (builds, tests, git, worktrees), and the exclusions Hive can add for them, with your consent.",
+    tip: 'Hive checks without administrator rights, so Defender may not show its exclusions (unknown). Adding or removing exclusions asks for administrator rights once. Hive only ever offers these folders: the workspace, its worktrees folder once it exists, and its test area for people developing Hive. It never changes other antivirus products.',
+    type: 'custom',
+    wide: true,
+    render: () => <AntivirusPanel />
   },
   // Agents
   {
