@@ -6317,6 +6317,21 @@ body.pane-resizing-v .monaco-editor {
 .table-wrap td:first-child {
   overflow-wrap: anywhere;
 }
+/* The project Overview's session details (#307): labels stay whole and values keep a readable width, so in a very
+   narrow page the table keeps its shape and scrolls inside its box rather than breaking "Claude Code version" a letter
+   a line. */
+.session-meta .table {
+  width: auto;
+  min-width: 100%;
+}
+.session-meta td:first-child {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+/* Values keep a readable width too (they wrap within it), so the rows stay a line or two. */
+.session-meta td + td {
+  min-width: 16em;
+}
 .perf-limits {
   margin: 24px 0 8px;
   color: var(--fg-muted);
