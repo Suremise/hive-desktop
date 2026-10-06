@@ -1723,6 +1723,14 @@ p.hint {
   margin-top: 6px;
   white-space: pre-line;
 }
+/* A long list (a template's agents, #268) scrolls in its own box. Its indented lines (a worktree's place) keep their indent. */
+.dialog-body .detail.scroll {
+  max-height: 50vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding-right: 4px;
+}
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
@@ -3563,6 +3571,17 @@ body.pane-resizing .monaco-editor {
   color: var(--fg-muted);
   font-family: var(--mono, monospace);
 }
+/* A worktree agent's icon on its tab and pane header (#287): the branch and folder are in its tooltip. */
+.agent-tab .agent-branch,
+.pane-header-bar .agent-branch {
+  flex-shrink: 0;
+  border-radius: 3px;
+}
+.agent-tab .agent-branch:focus-visible,
+.pane-header-bar .agent-branch:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
 .agent-locks {
   display: inline-flex;
   align-items: center;
@@ -3670,6 +3689,38 @@ body.pane-resizing .monaco-editor {
 .template-agents td {
   white-space: nowrap;
 }
+/* Editing a template (#271): its name, description and layout, then its agents with their actions. */
+.template-fields {
+  max-width: 560px;
+  margin-bottom: 14px;
+}
+.template-fields textarea {
+  resize: vertical;
+  font-family: inherit;
+}
+.template-editor-agents-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.template-editor-agents-head .count {
+  color: var(--fg-muted);
+  font-weight: normal;
+}
+.template-agent-actions {
+  display: flex;
+  gap: 2px;
+}
+.template-description {
+  white-space: pre-line;
+}
+/* The Agent Settings dialog's Works in, for a template's agent. */
+.works-in button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+}
 .template-problem {
   color: var(--warning);
   display: flex;
@@ -3771,24 +3822,17 @@ body.pane-resizing .monaco-editor {
 .pane-header-bar .icon-btn {
   flex-shrink: 0;
 }
-/* Short of room, the agent's details give way to its controls: the card first, then the status, the branch and the name
-   (they shorten with an ellipsis; each has the full text in a tooltip). */
-.pane-header-bar .agent-name,
-.pane-header-bar .agent-branch-name {
+/* Short of room, the agent's details give way to its controls: the card first, then the status and the name (they
+   shorten with an ellipsis; each has the full text in a tooltip). A worktree is only its icon, which stays (#287). */
+.pane-header-bar .agent-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.pane-header-bar .agent-name {
   flex-shrink: 0.25;
 }
 .pane-header-bar .tip-wrap:has(> .agent-branch) {
   display: inline-flex;
-  min-width: 0;
-  flex-shrink: 0.5;
-}
-.pane-header-bar .agent-branch {
-  min-width: 0;
+  flex-shrink: 0;
 }
 /* The agent's controls: labelled while the pane is wide, icons when narrower (see PaneHeader). They never shrink, and a
    count widens its button rather than spilling out of it. */

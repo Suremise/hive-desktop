@@ -140,7 +140,7 @@ export const AREAS = [
   { paths: ['src/shared/projectTabs.ts'], suites: ['tabstrip', 'startall'] },
   { paths: ['src/shared/startAll.ts'], suites: ['startall', 'removeall'] },
   { paths: ['src/shared/startFailure.ts'], suites: ['startfail'] },
-  { paths: ['src/main/templates.ts', 'src/shared/templates.ts'], suites: ['templates', 'templateshare'] },
+  { paths: ['src/main/templates.ts', 'src/shared/templates.ts', 'src/shared/templateLoad.ts'], suites: ['templates', 'templateshare'] },
   { paths: ['src/renderer/src/stripMenus.ts'], suites: ['templates'] },
   { paths: ['src/renderer/src/components/Templates.tsx'], suites: ['templateshare'] },
   { paths: ['src/renderer/src/assets/'], suites: ['about', 'providers'] },
