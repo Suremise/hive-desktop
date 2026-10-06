@@ -668,6 +668,8 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
       </div>
       <AddAgentButton project={project} className="subtle small agent-add" strip />
       <div className="grow" />
+      {/* On the right: Template ▾, then the pages beside the layouts they follow from (#292). */}
+      {!isAssistantPath(project.path) && <TemplateButton project={project} labelled={stripWidth >= TEMPLATE_LABEL_FROM} />}
       {pages > 1 && (
         <div className="segmented page-switch">
           {Array.from({ length: pages }, (_, i) => {
@@ -717,7 +719,6 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
           })}
         </div>
       )}
-      {!isAssistantPath(project.path) && <TemplateButton project={project} labelled={stripWidth >= TEMPLATE_LABEL_FROM} />}
       {(many || layout !== 'single') && (
         <div className="segmented layout-switch">
           {SESSION_LAYOUTS.map((l) => (

@@ -2,7 +2,8 @@
 // replacing asks), loading into another project from Template ▾ (the warning lists who goes and who comes; refused while
 // an agent runs, while a worktree agent has uncommitted work, and while a provider the template needs is off), the layout
 // and roles recreated, the removed worktree kept, Add Agent ▾ → Add Agent from Template (a taken name numbered), with the
-// mouse, the keyboard and the palette, and the strip's controls at narrow widths in both themes, every one reachable. Agents run the fake Claude Code (fake-claude/). Dev build, throwaway profile,
+// mouse, the keyboard and the palette, and the strip's controls at narrow widths in both themes, every one reachable,
+// in the order Template ▾, pages, layouts (#292), with one page and with two. Agents run the fake Claude Code (fake-claude/). Dev build, throwaway profile,
 // workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -201,7 +202,7 @@ const check = (name, ok, extra = '') => {
   const reachable = async () =>
     page.evaluate(() => {
       const s = document.querySelector('.agent-strip').getBoundingClientRect()
-      const els = [...document.querySelectorAll('.agent-strip .split-btn button, .template-controls button, .layout-switch button')]
+      const els = [...document.querySelectorAll('.agent-strip .split-btn button, .template-controls button, .page-switch button, .layout-switch button')]
       return els.length > 0 && els.every((el) => {
         const r = el.getBoundingClientRect()
         const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
@@ -209,6 +210,13 @@ const check = (name, ok, extra = '') => {
       })
     })
   const labelled = () => strip.getByRole('button', { name: 'Template', exact: true }).innerText().then((t) => t.includes('Template'))
+  // Left to right, none overlapping the next: Add Agent, Template ▾, the pages (when there are two or more), the layouts (#292).
+  const order = () =>
+    page.evaluate(() => {
+      const els = ['.agent-strip .split-btn', '.agent-strip .template-controls', '.agent-strip .page-switch', '.agent-strip .layout-switch'].map((s) => document.querySelector(s)).filter(Boolean)
+      const boxes = els.map((el) => el.getBoundingClientRect())
+      return { names: els.map((el) => el.className.split(' ').find((c) => c !== 'segmented')), inOrder: boxes.every((box, i) => i === 0 || boxes[i - 1].right <= box.left + 0.5) }
+    })
   for (const [width, mode] of [[1700, 'labelled'], [1200, 'labelled'], [900, 'icon']]) {
     for (const theme of ['dark', 'light']) {
       await inv('settings:update', { appearance: { theme } })
@@ -216,9 +224,28 @@ const check = (name, ok, extra = '') => {
       await lib.sleep(500)
       check(`${theme}, ${width} px (${mode}): the strip's controls are inside it and clickable`, await reachable())
       check(`…Template ▾ ${mode}`, (await labelled()) === (mode === 'labelled'))
+      const o = await order()
+      check('…in the order Add Agent, Template ▾, pages, layouts, none overlapping', o.inOrder && JSON.stringify(o.names) === '["split-btn","template-controls","page-switch","layout-switch"]', JSON.stringify(o))
       await page.screenshot({ path: path.join(lib.WORK, `templates-strip-${width}-${theme}.png`) })
     }
   }
+  // One page (the grid of six shows all four): no page buttons, Template ▾ beside the layouts.
+  await inv('project:updateConfig', beta, { layout: 'grid6' })
+  await inv('workspace:refresh')
+  await lib.until(async () => (await strip.locator('.page-switch').count()) === 0, 5000)
+  for (const width of [1700, 900]) {
+    for (const theme of ['dark', 'light']) {
+      await inv('settings:update', { appearance: { theme } })
+      await lib.fitWindow(app, page, { width, height: 900 })
+      await lib.sleep(500)
+      const o = await order()
+      check(`${theme}, ${width} px, one page: Add Agent, Template ▾, layouts, none overlapping, all clickable`, o.inOrder && JSON.stringify(o.names) === '["split-btn","template-controls","layout-switch"]' && (await reachable()), JSON.stringify(o))
+      await page.screenshot({ path: path.join(lib.WORK, `templates-strip-1page-${width}-${theme}.png`) })
+    }
+  }
+  await inv('project:updateConfig', beta, { layout: 'columns3' })
+  await inv('workspace:refresh')
+  await lib.until(async () => (await strip.locator('.page-switch').count()) === 1, 5000)
   await templateMenu()
   check('at 900 px Template ▾ still has Save Template… and the templates', (await menuItems())[0] === 'Save Template…' && (await menuItems()).includes('pair'), JSON.stringify(await menuItems()))
   await page.screenshot({ path: path.join(lib.WORK, 'templates-strip-900-menu.png') })
