@@ -1,5 +1,5 @@
-import { existsSync } from 'fs'
-import { mkdir, readFile } from 'fs/promises'
+import { existsSync } from 'original-fs'
+import { mkdir, readFile } from 'original-fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import type { AgentDef, WorktreeGone } from '../shared/types'
 import { projectAgents, slugify } from '../shared/defaults'

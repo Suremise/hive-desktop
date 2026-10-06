@@ -1,4 +1,4 @@
-import { stat } from 'fs/promises'
+import { stat } from 'original-fs/promises'
 import { resolve, sep } from 'path'
 import { ContentTooLarge, contentHash, HASH_LIMITS, overBytes, readCapped, readStats, treeSignature } from './fsutil'
 import { resourcesDir } from './paths'

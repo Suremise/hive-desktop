@@ -228,10 +228,12 @@ export interface HiveRequests {
   'session:bulk': (projectPath: string, action: SessionBulkAction, sessionIds: string[]) => SessionBulkResult
   /** Deleted sessions' usage (list items with deleted: true), which totals still count. */
   'session:keptUsage': (projectPath: string) => SessionListItem[]
-  /** What Hive keeps for a project or the Assistant (Project Settings → Storage); the last result unless refresh. */
-  'storage:project': (projectPath: string, refresh?: boolean) => ProjectStorage
-  /** Every project's storage and the Assistant's, biggest first (Settings → Workspace). */
-  'storage:workspace': (refresh?: boolean) => WorkspaceStorage
+  /** What Hive keeps for a project or the Assistant (Project Settings → Storage); the last result unless refresh. `request` lets storage:abandon end the call. */
+  'storage:project': (projectPath: string, refresh?: boolean, request?: string) => ProjectStorage
+  /** Every project's storage and the Assistant's, biggest first (Settings → Workspace); `request` as for storage:project. */
+  'storage:workspace': (refresh?: boolean, request?: string) => WorkspaceStorage
+  /** The window stopped waiting for a storage request (its page closed): the call fails, and a measurement nothing else waits for stops. */
+  'storage:abandon': (request: string) => void
   /** What Clean Up… would move to the Recycle Bin with these options. */
   'storage:cleanupPreview': (projectPath: string, opts: CleanupOptions) => CleanupItem[]
   /** Moves what the preview listed (its paths) to the Recycle Bin, skipping what no longer qualifies. */

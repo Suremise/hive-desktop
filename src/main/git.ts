@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { resolve, sep } from 'path'
-import { lstat, readFile, readlink } from 'fs/promises'
+import { lstat, readFile, readlink } from 'original-fs/promises'
 import { insideReal } from './fsutil'
 import type { GitDiff, GitStatus } from '../shared/types'
 

@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto'
-import { mkdir, open, readdir, rename, rm, stat, unlink } from 'fs/promises'
+import { mkdir, open, readdir, rename, rm, stat, unlink } from 'original-fs/promises'
 import { join } from 'path'
 import { BENCHMARK_LIMITS, aboutOf, compareScopeKey, parseArtifact, readEntry, readKept, summaryOf, type Artifact, type CompareScope, type ImportResult, type KeptEntry, type ParseResult } from '../shared/benchmark'
 import type { MetricsReport } from '../shared/metrics'

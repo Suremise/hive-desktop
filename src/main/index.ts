@@ -1,9 +1,9 @@
 import { initWatches, onWatchedCardsMoved, watchKeepsQuitWaiting } from './watches'
 import { app, BrowserWindow, Menu, nativeTheme, net, Notification, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'child_process'
-import { appendFileSync, existsSync } from 'fs'
+import { appendFileSync, existsSync } from 'original-fs'
 import { basename, join, resolve, sep } from 'path'
-import { readFile } from 'fs/promises'
+import { readFile } from 'original-fs/promises'
 import { pathToFileURL } from 'url'
 import type { AppInfo, McpServerDef, QuitChoice, QuitScope, QuitSession, WindowState } from '../shared/types'
 import { providerService } from './providerService'
@@ -29,7 +29,7 @@ import { startBranchWatch } from './branchWatch'
 import { createLogger, userText, logsDir } from './logger'
 import { killAll } from './ptyHost'
 import { installShims } from './progressReporters/shims'
-import { onCorruptFile } from './fsutil'
+import { insideArchive, onCorruptFile } from './fsutil'
 import { apiEnv, assistantApiUrl, startApiServer, startHookServer } from './servers'
 import { assistantHome, assistantTokenFile, endAssistant, newAssistantToken, newTurn } from './assistantControl'
 import { sessions } from './sessions'
@@ -603,7 +603,7 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission))
   protocol.handle('hive-img', (req) => {
     const p = resolve(decodeURIComponent(new URL(req.url).pathname.slice(1)))
-    if (!SERVABLE_EXT.test(p) || !workspace.isAllowedPath(p)) return new Response('Not found', { status: 404 })
+    if (!SERVABLE_EXT.test(p) || insideArchive(p) || !workspace.isAllowedPath(p)) return new Response('Not found', { status: 404 })
     return net.fetch(pathToFileURL(p).toString())
   })
   nativeTheme.themeSource = config.settings.appearance.theme

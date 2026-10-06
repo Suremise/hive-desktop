@@ -27,5 +27,26 @@
     // Copies taken before loops that change the collection they walk are on purpose.
     "unicorn/no-useless-spread": "off"
   },
+  "overrides": [
+    {
+      // Electron's fs opens an .asar file as an archive when it is stat-ed or read, and keeps it open until Hive quits:
+      // a project's build output (dist/win-unpacked/resources/app.asar) then can't be deleted or replaced (#246). Main
+      // uses original-fs, which treats .asar files as plain files. The scripts that run as plain Node outside the asar
+      // (hive-mcp.js, hive-progress.js) use Node's fs.
+      "files": ["src/main/**/*.ts", "src/main/**/*.mts"],
+      "rules": {
+        "no-restricted-imports": ["error", { "paths": [
+          { "name": "fs", "message": "Use original-fs in the main process (#246)." },
+          { "name": "fs/promises", "message": "Use original-fs/promises in the main process (#246)." },
+          { "name": "node:fs", "message": "Use original-fs in the main process (#246)." },
+          { "name": "node:fs/promises", "message": "Use original-fs/promises in the main process (#246)." }
+        ] }]
+      }
+    },
+    {
+      "files": ["src/main/mcp/hive-mcp.ts", "src/main/progressReporters/hive-progress.ts", "src/main/progressReporters/wrapper.ts", "src/main/progressReporters/report.mts"],
+      "rules": { "no-restricted-imports": "off" }
+    }
+  ],
   "ignorePatterns": ["out/**", "dist/**", "node_modules/**", "reference/**", "build/**", "resources/**", "tests/fixtures/**"]
 }

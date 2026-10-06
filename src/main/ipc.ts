@@ -1,8 +1,8 @@
 import { BrowserWindow, ClipboardItem, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { spawn } from 'child_process'
-import { existsSync } from 'fs'
+import { existsSync } from 'original-fs'
 import { basename, dirname, join } from 'path'
-import { readFile } from 'fs/promises'
+import { readFile } from 'original-fs/promises'
 import type { HiveChannel, HiveRequests } from '../shared/api'
 import * as updater from './updater'
 import type { ProviderId, QuitChoice } from '../shared/types'
@@ -15,7 +15,7 @@ import { clearRecent, recentChanged, recentFor, removeRecent } from './recentWor
 import { emit, emitTo } from './events'
 import { setPinned } from './pin'
 import { presentWindow } from './testQuiet'
-import { insideReal, isFile, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
+import { insideArchive, insideReal, isFile, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { createLogger, logsDir } from './logger'
 import { diagnostics } from './diagnostics'
@@ -81,6 +81,7 @@ function knownProvider(id: unknown): ProviderId {
 }
 
 function guardFile(path: string, write = false): string {
+  if (insideArchive(path)) throw new Error('Hive opens no files inside .asar archives.')
   if (workspace.isAllowedPath(path) || allProviders().some((p) => p.fileAllowed(path, write))) return path
   // The skills that ship with Hive, to view one the workspace doesn't have.
   if (!write && insideReal(path, [skills.bundledSkillsDir()])) return path
@@ -259,7 +260,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (workspace.path && workspaceLive(contextWorkspace()!)) {
         if (!(await quitControl.stopWorkspaceAgents(win(), 'switch'))) return workspace.info()
       }
-      const { mkdir } = await import('fs/promises')
+      const { mkdir } = await import('original-fs/promises')
       await mkdir(r.filePaths[0], { recursive: true })
       return openHere(r.filePaths[0])
     },
@@ -388,8 +389,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:delete': (p, id) => sessions.delete(p, id),
     'session:bulk': (p, action, ids) => sessions.bulk(p, action, ids),
     'session:keptUsage': (p) => sessions.keptUsage(p),
-    'storage:project': (p, refresh) => storage.projectStorage(p, refresh),
-    'storage:workspace': (refresh) => storage.workspaceStorage(refresh),
+    'storage:project': (p, refresh, request) => storage.projectStorage(p, refresh, typeof request === 'string' ? request : undefined),
+    'storage:workspace': (refresh, request) => storage.workspaceStorage(refresh, typeof request === 'string' ? request : undefined),
+    'storage:abandon': (request) => {
+      if (typeof request === 'string') storage.abandonStorage(request)
+    },
     'storage:cleanupPreview': (p, opts) => storage.cleanupPreview(p, opts),
     'storage:cleanup': (p, opts, listed) => storage.cleanup(p, opts, listed),
     'session:clearUsageCache': () => sessions.forgetUsageCache(),
@@ -499,7 +503,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       return r.filePath
     },
     'images:copy': async (path) => {
-      const img = nativeImage.createFromPath(guardFile(path))
+      // From its bytes: nativeImage reading a path itself is asar-aware (#246).
+      const img = nativeImage.createFromBuffer(await readFile(guardFile(path)))
       if (img.isEmpty()) throw new Error('Not an image')
       await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(img.toPNG())], { type: 'image/png' }) })])
     },

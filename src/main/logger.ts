@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from 'original-fs'
 import { join } from 'path'
 
 type Level = 'debug' | 'info' | 'warn' | 'error'

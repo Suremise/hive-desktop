@@ -8,24 +8,47 @@ import { BusyButton, Icon, LoadFailed, Modal, useBusy } from './ui'
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`
 
+/**
+ * Measuring walks every file of every worktree, so the page abandons a call it no longer waits for (a newer one, the page
+ * closed) and Hive stops measuring what nothing else waits for. `start` sends the call with its request; the earlier
+ * one is abandoned after it, so a measurement both wait for carries on. `current` says whether a call is still the latest.
+ */
+function useStorageRequests(): <T>(start: (request: string) => Promise<T>) => { result: Promise<T>; current: () => boolean } {
+  const latest = useRef<string | null>(null)
+  useEffect(
+    () => () => {
+      if (latest.current) void call('storage:abandon', latest.current).catch(() => undefined)
+      latest.current = null
+    },
+    []
+  )
+  return useCallback(<T,>(start: (request: string) => Promise<T>) => {
+    const request = crypto.randomUUID()
+    const result = start(request)
+    if (latest.current) void call('storage:abandon', latest.current).catch(() => undefined)
+    latest.current = request
+    return { result, current: () => latest.current === request }
+  }, [])
+}
+
 /** Project Settings → Storage (and the Assistant's in Settings → Workspace): what Hive keeps, Refresh and Clean Up…. */
 export function StorageView({ path }: { path: string }) {
   const [data, setData] = useState<ProjectStorage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [measuring, setMeasuring] = useState(false)
   const [cleaning, setCleaning] = useState(false)
-  const latest = useRef(path)
-  latest.current = path
+  const request = useStorageRequests()
   const load = useCallback(
     (refresh: boolean) => {
       setMeasuring(true)
       setError(null)
-      call('storage:project', path, refresh).then(
-        (d) => latest.current === path && setData(d),
-        (e) => latest.current === path && setError(errorMessage(e))
-      ).finally(() => latest.current === path && setMeasuring(false))
+      const { result, current } = request((r) => call('storage:project', path, refresh, r))
+      result.then(
+        (d) => current() && setData(d),
+        (e) => current() && setError(errorMessage(e))
+      ).finally(() => current() && setMeasuring(false))
     },
-    [path]
+    [path, request]
   )
   useEffect(() => {
     setData(null)
@@ -261,16 +284,21 @@ export function WorkspaceStorageList() {
   const [error, setError] = useState<string | null>(null)
   const [measuring, setMeasuring] = useState(false)
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const request = useStorageRequests()
   const load = useCallback(
     (refresh: boolean) => {
       if (!workspace) return
       setMeasuring(true)
       setError(null)
-      call('storage:workspace', refresh)
-        .then(setData, (e) => setError(errorMessage(e)))
-        .finally(() => setMeasuring(false))
+      const { result, current } = request((r) => call('storage:workspace', refresh, r))
+      result
+        .then(
+          (d) => current() && setData(d),
+          (e) => current() && setError(errorMessage(e))
+        )
+        .finally(() => current() && setMeasuring(false))
     },
-    [workspace]
+    [workspace, request]
   )
   useEffect(() => {
     setData(null)
