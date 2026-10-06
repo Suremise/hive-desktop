@@ -1,5 +1,6 @@
-// The project header's batch actions and tidy-up (#216): Stop (All), Start New (All) and Archive and Start New (All)
-// beside Resume; Explorer and Terminal in the ⋯ menu (Changes out of it); the Session menu and the palette have both new
+// The project header's batch actions and tidy-up (#216): Stop, Start New and Archive and Start New for every agent
+// beside Resume, each saying how many agents it acts on ("Stop (2)", #275, also in the Session menu and the palette,
+// and beside its icon when narrow), the same agents its question lists, following agents as they start and stop; Explorer and Terminal in the ⋯ menu (Changes out of it); the Session menu and the palette have both new
 // actions; the Project menu lists every tab in the strip's order; thin dividers between agent tabs (none beside the
 // focused one, the page-start marker kept). Three agents run the fake Claude Code (fake-claude/): one working, one idle,
 // one stopped. Start New (All) asks once (the working one flagged), Cancel changes nothing, and then every agent has a
@@ -74,10 +75,21 @@ const check = (name, ok, extra = '') => {
   const before = { w: (await live(w.id)).sessionId, i: (await live(i.id)).sessionId }
   await inv('workspace:refresh')
 
-  // --- The header: Active · Resume · Stop (All) · Start New (All) · Archive and Start New (All) · ⋯
+  // --- The header: Active · Resume · Stop (2) · Start New (3) · Archive and Start New (3) · ⋯ (two running, one stopped
+  // with a session to resume; all three have one to archive).
   const header = page.locator('.project-header .actions')
   const labels = async () => (await header.locator('button').allInnerTexts()).map((t) => t.trim()).filter(Boolean)
-  check('the header shows Resume, Stop (All), Start New (All) and Archive and Start New (All), in that order', !!(await until(async () => JSON.stringify(await labels()) === JSON.stringify(['Resume Agent', 'Stop (All)', 'Start New (All)', 'Archive and Start New (All)']), 5000)), JSON.stringify(await labels()))
+  check('the header shows Resume Agent, Stop (2), Start New (3), Archive and Start New (3) and Remove All (3), in that order', !!(await until(async () => JSON.stringify(await labels()) === JSON.stringify(['Resume Agent', 'Stop (2)', 'Start New (3)', 'Archive and Start New (3)', 'Remove All (3)']), 5000)), JSON.stringify(await labels()))
+  const tipOf = async (name) => {
+    await header.getByRole('button', { name, exact: true }).hover()
+    const tip = page.locator('.tip')
+    await tip.waitFor({ timeout: 3000 }).catch(() => undefined)
+    const t = (await tip.count()) ? (await tip.innerText()).trim() : null
+    await page.mouse.move(0, 0)
+    await lib.sleep(150)
+    return t
+  }
+  check('the tooltips keep the full meaning', (await tipOf('Stop (2)')) === 'Stop the 2 running agents' && /each of the 3 agents/.test((await tipOf('Start New (3)')) ?? ''), `${await tipOf('Stop (2)')} / ${await tipOf('Start New (3)')}`)
   check('no Explorer or Terminal button in the header', (await header.locator('button', { hasText: /Explorer|Terminal/ }).count()) === 0)
   for (const theme of ['dark', 'light']) {
     await inv('settings:update', { appearance: { theme } })
@@ -105,9 +117,9 @@ const check = (name, ok, extra = '') => {
   const allReachable = (list) => list.length > 0 && list.every((a) => a.inside && a.hit)
   await lib.fitWindow(app, page, { width: 1020, height: 900 })
   await lib.sleep(500)
-  const narrowNew = header.getByRole('button', { name: 'Start New (All)', exact: true })
-  const narrowArchive = header.getByRole('button', { name: 'Archive and Start New (All)' })
-  check('narrow: Start New (All) and Archive and Start New (All) are icons with their names', (await narrowNew.count()) === 1 && (await narrowArchive.count()) === 1 && !(await narrowNew.innerText()).trim() && !(await narrowArchive.innerText()).trim(), JSON.stringify(await labels()))
+  const narrowNew = header.getByRole('button', { name: 'Start New (3)', exact: true })
+  const narrowArchive = header.getByRole('button', { name: 'Archive and Start New (3)' })
+  check('narrow: Start New and Archive and Start New are icons with their names, keeping their counts', (await narrowNew.count()) === 1 && (await narrowArchive.count()) === 1 && (await narrowNew.innerText()).trim() === '3' && (await narrowArchive.innerText()).trim() === '3', JSON.stringify(await labels()))
   check('narrow (1020 px): every action is in the header and clickable', allReachable(await actionsAt()), JSON.stringify(await actionsAt()))
   await page.screenshot({ path: path.join(lib.WORK, 'startall-header-narrow.png') })
   for (const theme of ['dark', 'light']) {
@@ -115,19 +127,21 @@ const check = (name, ok, extra = '') => {
     await lib.fitWindow(app, page, { width: 900, height: 900 })
     await lib.sleep(500)
     const at = await actionsAt()
-    check(`${theme}, 900 px: Active, Resume, Stop (All), Start New (All), Archive and Start New (All) and ⋯ are all in the header and clickable`, JSON.stringify(at.map((a) => a.name)) === JSON.stringify(['Active', 'Resume Agent', 'Stop (All)', 'Start New (All)', 'Archive and Start New (All)', 'More actions']) && allReachable(at), JSON.stringify(at))
+    check(`${theme}, 900 px: Active, Resume, Stop (2), Start New (3), Archive and Start New (3) and ⋯ are all in the header and clickable (Remove All in ⋯)`, JSON.stringify(at.map((a) => a.name)) === JSON.stringify(['Active', 'Resume Agent', 'Stop (2)', 'Start New (3)', 'Archive and Start New (3)', 'More actions']) && allReachable(at), JSON.stringify(at))
+    check(`${theme}, 900 px: the icons keep their counts`, JSON.stringify(await labels()) === JSON.stringify(['2', '3', '3']), JSON.stringify(await labels()))
+    check(`${theme}, 900 px: the header keeps one row`, (await page.locator('.project-header').evaluate((el) => el.getBoundingClientRect().height)) < 60)
     await page.screenshot({ path: path.join(lib.WORK, `startall-header-900-${theme}.png`) })
   }
   await inv('settings:update', { appearance: { theme: 'dark' } })
   await lib.sleep(300)
-  // Really clicked at 900 px: Start New (All) asks (Cancel), and ⋯ opens with Explorer and Terminal.
-  await header.getByRole('button', { name: 'Start New (All)', exact: true }).click()
+  // Really clicked at 900 px: Start New asks (Cancel), and ⋯ opens with Explorer and Terminal.
+  await header.getByRole('button', { name: 'Start New (3)', exact: true }).click()
   const asked = page.locator('.dialog', { hasText: 'Start new sessions for all agents?' })
-  check('900 px: Start New (All) opens its question', !!(await lib.until(async () => (await asked.count()) === 1, 5000)))
+  check('900 px: Start New opens its question', !!(await lib.until(async () => (await asked.count()) === 1, 5000)))
   await asked.getByRole('button', { name: 'Cancel' }).click()
   await page.locator('.project-header').getByRole('button', { name: 'More actions' }).click()
   const narrowItems = (await page.locator('.menu .menu-item').allInnerTexts()).map((t) => t.trim())
-  check('900 px: ⋯ opens, with Explorer and Terminal', narrowItems.includes('Explorer') && narrowItems.includes('Terminal'), JSON.stringify(narrowItems))
+  check('900 px: ⋯ opens, with Remove All (3)… first, then Explorer and Terminal', JSON.stringify(narrowItems.slice(0, 3)) === JSON.stringify(['Remove All (3)…', 'Explorer', 'Terminal']), JSON.stringify(narrowItems))
   await page.keyboard.press('Escape')
   // The Assistant's panel open too: the batch actions are in ⋯, and what stays in the header is all reachable.
   await page.evaluate(() => document.activeElement?.blur())
@@ -137,7 +151,7 @@ const check = (name, ok, extra = '') => {
   check('900 px with the Assistant open (a squeezed main area): the batch actions leave the header, the rest stays reachable (wrapping if it must)', !cramped.some((a) => /Start New/.test(a.name)) && allReachable(cramped), JSON.stringify(cramped))
   await page.locator('.project-header').getByRole('button', { name: 'More actions' }).click()
   const crampedItems = (await page.locator('.menu .menu-item').allInnerTexts()).map((t) => t.trim())
-  check('…and are at the top of ⋯', JSON.stringify(crampedItems.slice(0, 4)) === JSON.stringify(['Start New (All)', 'Archive and Start New (All)', 'Explorer', 'Terminal']), JSON.stringify(crampedItems))
+  check('…and are at the top of ⋯', JSON.stringify(crampedItems.slice(0, 5)) === JSON.stringify(['Start New (3)', 'Archive and Start New (3)', 'Remove All (3)…', 'Explorer', 'Terminal']), JSON.stringify(crampedItems))
   await page.screenshot({ path: path.join(lib.WORK, 'startall-header-cramped.png') })
   await page.keyboard.press('Escape')
   await page.evaluate(() => document.activeElement?.blur())
@@ -164,14 +178,18 @@ const check = (name, ok, extra = '') => {
   check('the Project menu lists all 13 tabs in the strip order', JSON.stringify(tabs) === JSON.stringify(['Session', 'Overview', 'Performance', 'Tasks', 'Sessions', 'Files', 'Images', 'Changes', 'Memory', 'Skills', 'Templates', 'MCP', 'Project Settings'].map((t) => `Go to ${t}`)), JSON.stringify(tabs))
   check('and Explorer and Terminal', project.some((t) => /Explorer/.test(t)) && project.some((t) => /Terminal/.test(t)), JSON.stringify(project))
   const session = await menuItems('Session')
-  check('the Session menu has Start New (All)… and Archive and Start New (All)…', session.includes('Start New (All)…') && session.includes('Archive and Start New (All)…') && session.includes('Archive Session and Start New…'), JSON.stringify(session))
-  await page.evaluate(() => document.activeElement?.blur())
-  await page.keyboard.press('Control+Shift+P')
-  await page.locator('.palette input').fill('(All)')
-  await lib.sleep(300)
-  const found = await page.locator('.palette-item').allInnerTexts()
-  check('the palette has both', found.some((t) => t.includes('Start New (All)…')) && found.some((t) => t.includes('Archive and Start New (All)…')), JSON.stringify(found))
-  await page.keyboard.press('Escape')
+  check('the Session menu has Start New (3)… and Archive and Start New (3)…', session.includes('Start New (3)…') && session.includes('Archive and Start New (3)…') && session.includes('Archive Session and Start New…'), JSON.stringify(session))
+  const palette = async () => {
+    await page.evaluate(() => document.activeElement?.blur())
+    await page.keyboard.press('Control+Shift+P')
+    await page.locator('.palette input').fill('Start New')
+    await lib.sleep(300)
+    const found = await page.locator('.palette-item').allInnerTexts()
+    await page.keyboard.press('Escape')
+    return found
+  }
+  const found = await palette()
+  check('the palette has both, with their counts', found.some((t) => t.includes('Start New (3)…')) && found.some((t) => t.includes('Archive and Start New (3)…')), JSON.stringify(found))
 
   // --- Dividers between agent tabs: none beside the focused one (Worker, first), one between Idle and Stopped.
   await page.locator('.agent-tab', { hasText: 'Worker' }).click()
@@ -197,7 +215,7 @@ const check = (name, ok, extra = '') => {
 
   // --- Start New (All): one question listing every agent, the working one flagged; Cancel changes nothing.
   const dialog = page.locator('.dialog', { hasText: 'Start new sessions for all agents?' })
-  await header.getByRole('button', { name: 'Start New (All)', exact: true }).click()
+  await header.getByRole('button', { name: 'Start New (3)', exact: true }).click()
   await dialog.waitFor({ timeout: 5000 })
   const text = await dialog.innerText()
   check('it lists every agent, flagging the working one', /Worker — Working.*\(will be interrupted\)/.test(text) && /Idle — /.test(text) && /Stopped — not running/.test(text), text)
@@ -205,7 +223,7 @@ const check = (name, ok, extra = '') => {
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await lib.sleep(1500) // on purpose: nothing may stop or start after Cancel
   check('Cancel changes nothing', (await live(w.id))?.sessionId === before.w && (await live(w.id))?.status === 'working' && (await live(i.id))?.sessionId === before.i && !(await live(s.id)))
-  await header.getByRole('button', { name: 'Start New (All)', exact: true }).click()
+  await header.getByRole('button', { name: 'Start New (3)', exact: true }).click()
   await dialog.waitFor({ timeout: 5000 })
   await dialog.getByRole('button', { name: 'Start new' }).click()
   const fresh = await until(async () => {
@@ -227,7 +245,7 @@ const check = (name, ok, extra = '') => {
   await type(w.id, 'work 120')
   await until(async () => (await live(w.id))?.status === 'working')
   const archiveDialog = page.locator('.dialog', { hasText: 'Archive and start new for all agents?' })
-  await header.getByRole('button', { name: 'Archive and Start New (All)' }).click()
+  await header.getByRole('button', { name: 'Archive and Start New (3)' }).click()
   await archiveDialog.waitFor({ timeout: 5000 })
   const archiveText = await archiveDialog.innerText()
   check('Archive asks once, listing the agents with sessions, the working one flagged', /Worker — Working.*\(will be interrupted\)/.test(archiveText) && /Idle — /.test(archiveText) && /Stopped — /.test(archiveText) && /\.hive\/archive/.test(archiveText), archiveText)
@@ -242,6 +260,30 @@ const check = (name, ok, extra = '') => {
   check("each agent's session was archived", archivedIds.length === 3, JSON.stringify(after.map((x) => [x.id.slice(0, 8), x.archived])))
   check('in .hive/archive', fs.existsSync(path.join(alpha, '.hive', 'archive')) && fs.readdirSync(path.join(alpha, '.hive', 'archive'), { recursive: true }).length > 0)
   check('no failure notice', (await page.locator('.toast.error').count()) === 0)
+
+  // --- The counts follow the agents (#275): Idle and Stopped stop (after an exchange, so each has a session to resume).
+  for (const a of [i, s]) {
+    if ((await live(a.id))?.status === 'waiting') await inv('pty:write', lib.ptyKey(alpha, a.id), '\r')
+    await until(async () => (await live(a.id))?.status === 'ready')
+    await type(a.id, 'hello')
+    await until(async () => (await live(a.id))?.status === 'finished')
+    await inv('session:stop', alpha, a.id)
+    await until(async () => !(await live(a.id)))
+  }
+  await inv('workspace:refresh')
+  check('one running, two to resume: Resume All Agents (2), Stop Agent, Start New (3), Archive and Start New (3)', !!(await until(async () => JSON.stringify(await labels()) === JSON.stringify(['Resume All Agents (2)', 'Stop Agent', 'Start New (3)', 'Archive and Start New (3)', 'Remove All (3)']), 10000)), JSON.stringify(await labels()))
+  check('…and Resume says which in its tooltip', (await tipOf('Resume All Agents (2)')) === 'Resume the 2 stopped agents (running ones are left alone)')
+  // The count is what the question lists.
+  await header.getByRole('button', { name: 'Archive and Start New (3)' }).click()
+  await archiveDialog.waitFor({ timeout: 5000 })
+  const listed = (await archiveDialog.innerText()).split('\n').filter((l) => l.startsWith('• '))
+  check('Archive and Start New (3) lists 3 agents', listed.length === 3, JSON.stringify(listed))
+  await archiveDialog.getByRole('button', { name: 'Cancel' }).click()
+  // Idle resumes: two running again, one to resume.
+  await header.getByRole('button', { name: 'Resume All Agents (2)' }).waitFor({ timeout: 5000 })
+  const idleSession = (await inv('session:list', alpha)).find((x) => x.agentId === i.id && !x.archived && x.id !== current[i.id])
+  await inv('session:start', alpha, { agentId: i.id, resumeId: idleSession?.id })
+  check('Idle resumed: Resume Agent, Stop (2)', !!(await until(async () => JSON.stringify((await labels()).slice(0, 2)) === JSON.stringify(['Resume Agent', 'Stop (2)']), 15000)), JSON.stringify(await labels()))
 
   await inv('session:stop', alpha)
   await lib.until(async () => (await inv('session:live')).length === 0, 15000)

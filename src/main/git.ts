@@ -24,13 +24,15 @@ export interface GitResult {
  */
 export const GIT_PREFIX = ['--no-optional-locks', '-c', 'diff.autoRefreshIndex=false', '-c', 'core.quotepath=off'] as const
 
-export function git(cwd: string, args: string[], maxBuffer = 16 * 1024 * 1024): Promise<GitResult> {
+export function git(cwd: string, args: string[], maxBuffer = 16 * 1024 * 1024, input?: string): Promise<GitResult> {
   return new Promise((res) => {
-    execFile('git', [...GIT_PREFIX, ...args], { cwd, windowsHide: true, maxBuffer, encoding: 'buffer' }, (err, stdout, stderr) => {
+    const child = execFile('git', [...GIT_PREFIX, ...args], { cwd, windowsHide: true, maxBuffer, encoding: 'buffer' }, (err, stdout, stderr) => {
       const buf = (stdout as unknown as Buffer) ?? Buffer.alloc(0)
       const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as unknown as { code: number }).code : 1) : 0
       res({ out: buf.toString('utf8'), ok: !err, buf, err: ((stderr as unknown as Buffer) ?? Buffer.alloc(0)).toString('utf8').trim(), code })
     })
+    // What the command reads (update-ref --stdin's transaction).
+    if (input !== undefined) child.stdin?.end(input)
   })
 }
 

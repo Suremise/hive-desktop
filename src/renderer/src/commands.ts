@@ -1,5 +1,6 @@
 import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, agentPageCount, projectPerPage, resolveKeybinding } from '@shared/defaults'
 import { PROVIDERS, providerDescriptor } from '@shared/providers'
+import { batchCounts, type BatchCounts } from '@shared/startAll'
 import type { ProviderId, SessionLayout } from '@shared/types'
 import { call } from './api'
 import { checkForUpdates, openReleaseNotes } from './components/Updates'
@@ -47,6 +48,12 @@ const stripMenu = (menu: StripMenu): void => {
 const hasLive = (): boolean => {
   const p = selected()
   return !!p?.agents.find((a) => a.id === focusedAgentId(p))?.live
+}
+
+/** A batch action's label with how many agents it acts on, as the project header shows it (#275); no count with one agent. */
+function batchLabel(name: string, which: keyof BatchCounts): string {
+  const agents = selected()?.agents ?? []
+  return agents.length > 1 ? `${name} (${batchCounts(agents)[which]})…` : `${name}…`
 }
 
 function cycleAgent(delta: number): void {
@@ -267,13 +274,22 @@ export const commands: Command[] = [
   layoutCommand('grid', 4),
   layoutCommand('grid6', 5),
   { id: 'session.archive', label: 'Archive Session and Start New…', category: 'Session', when: hasProject, run: () => actions.archiveCurrent() },
-  // Every agent of the project at once, after one confirmation (#216).
-  { id: 'session.startNewAll', label: 'Start New (All)…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.startNewAll(get().selectedProject!) },
+  // Every agent of the project at once, after one confirmation (#216); the menus and the palette say how many (#275).
+  { id: 'session.startNewAll', label: 'Start New (All)…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, liveLabel: () => batchLabel('Start New', 'startNew'), run: () => void actions.startNewAll(get().selectedProject!) },
   // The project's agents and layout as a template (#126); loading one and adding one of its agents open the agent strip's menus (#286).
   { id: 'template.save', label: 'Save Agents as Template…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.saveTemplate(get().selectedProject!) },
   { id: 'template.load', label: 'Load Template…', category: 'Session', when: () => !!selected(), run: () => stripMenu('loadTemplate') },
   { id: 'template.addAgent', label: 'Add Agent from Template…', category: 'Session', when: () => !!selected(), run: () => stripMenu('addFromTemplate') },
-  { id: 'session.archiveAll', label: 'Archive and Start New (All)…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.startNewAll(get().selectedProject!, true) },
+  { id: 'session.archiveAll', label: 'Archive and Start New (All)…', category: 'Session', when: () => hasProject() && !!batchCounts(selected()?.agents ?? []).archive, liveLabel: () => batchLabel('Archive and Start New', 'archive'), run: () => void actions.startNewAll(get().selectedProject!, true) },
+  // Remove All (#291): every agent of the project after one question; user-only (not in the Agent API).
+  {
+    id: 'session.removeAll',
+    label: 'Remove All Agents…',
+    category: 'Session',
+    when: () => hasProject() && !!selected()?.agents.length,
+    liveLabel: () => ((selected()?.agents.length ?? 0) > 1 ? `Remove All Agents (${selected()!.agents.length})…` : 'Remove Agent…'),
+    run: () => void actions.removeAllAgents(get().selectedProject!)
+  },
   { id: 'view.projects', label: 'Show Projects', category: 'View', keybinding: 'Mod+Shift+E', run: () => setActivity('projects') },
   { id: 'view.overview', label: 'Show Workspace Overview', category: 'View', keybinding: 'Mod+Shift+O', run: () => setActivity('overview') },
   { id: 'view.performance', label: 'Show Performance', category: 'View', run: () => setActivity('performance') },

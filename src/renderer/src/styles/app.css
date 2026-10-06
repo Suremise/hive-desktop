@@ -3685,6 +3685,16 @@ body.pane-resizing .monaco-editor {
 .dialog-select .select {
   width: 100%;
 }
+/* A confirm question's tick box (Remove All's worktrees, #291): its label wraps beside the box. */
+.dialog-check {
+  align-items: flex-start;
+  margin-top: 12px;
+  cursor: pointer;
+}
+.dialog-check input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
 .page-switch {
   margin-right: 6px;
 }
@@ -5321,6 +5331,13 @@ body.pane-resizing-v .monaco-editor {
   letter-spacing: 0.05em;
   cursor: pointer;
   overflow: hidden;
+}
+/* A column's « / » (#276): two chevrons drawn together, the second half over the first. */
+.board-chevrons {
+  display: inline-flex;
+}
+.board-chevrons .codicon + .codicon {
+  margin-left: -10px;
 }
 .board-column-strip:hover {
   background: var(--bg-hover);
