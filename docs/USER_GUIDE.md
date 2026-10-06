@@ -264,7 +264,7 @@ Select a template to see what it holds: each agent's name, role, coding agent, m
 
 Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of every session transcript in the project's `.hive/sessions` folder, and archived sessions in `.hive/archive`. Images you paste or drop into a session are kept in `.hive/images`. Hive only deletes them when you ask (deleting a session sends its transcript copies to the Recycle Bin; its images stay). If the CLI has removed a transcript, Hive restores it from the backup when you resume.
 
-**Storage.** **Project Settings → Storage** (or **Project Storage and Clean Up…** in the command palette) shows how much space Hive keeps for the project: transcript backups (`.hive/sessions`), the archive (`.hive/archive`), images (`.hive/images`) and each agent's worktree. It's measured in the background, so a large worktree never holds up the window; **Refresh** measures again. The coding agents' own transcripts (in `~/.claude` and `~/.codex`) aren't counted. **Settings → Workspace → Storage** shows the workspace's total and its biggest projects, the Hive Assistant included; **Storage** next to one opens its page.
+**Storage.** **Project Settings → Storage** (or **Project Storage and Clean Up…** in the command palette) shows how much space Hive keeps for the project: transcript backups (`.hive/sessions`), the archive (`.hive/archive`), images (`.hive/images`) and each agent's worktree. It's measured in the background, so a large worktree never holds up the window, and leaving the page stops measuring; **Refresh** measures again. The coding agents' own transcripts (in `~/.claude` and `~/.codex`) aren't counted. **Settings → Workspace → Storage** shows the workspace's total and its biggest projects, the Hive Assistant included; **Storage** next to one opens its page.
 
 **Clean Up…** on that page moves old files to the Recycle Bin. Nothing is cleaned up automatically. Choose what goes:
 
@@ -578,7 +578,7 @@ Files with unsaved changes get a ● in the tree. The edits are kept while you l
 
 ## Images
 
-The **Images** tab shows every screenshot and image pasted or dropped into the project's sessions, grouped by session (newest first), with archived sessions at the bottom. Click one to view it large and use ← / → to move between them. From the viewer or the right-click menu you can **Insert into Session**, **Copy Image**, **Copy Path**, **Reveal** it, or **Delete** it (to the Recycle Bin). Click a session's name to read its transcript, or its bin to move all of its images to the Recycle Bin at once. A running session's images can't be deleted until it stops. You can also drag a thumbnail onto the **Session** tab.
+The **Images** tab shows every screenshot and image pasted or dropped into the project's sessions, grouped by session (newest first), with archived sessions at the bottom. Click one to view it large and use ← / → to move between them. From the viewer or the right-click menu you can **Insert into Session**, **Copy Image**, **Copy Path**, **Reveal** it, or **Delete** it (to the Recycle Bin). Click a session's name to read its transcript, or its bin to move all of its images to the Recycle Bin at once. A running session's images can't be deleted until it stops: **Delete** is greyed out (in the viewer too; hover it to see why). You can also drag a thumbnail onto the **Session** tab.
 
 ## Changes
 

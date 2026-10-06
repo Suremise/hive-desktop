@@ -1,6 +1,6 @@
 import { basename, join, resolve, sep } from 'path'
-import { mkdir, readdir, readFile, writeFile, appendFile } from 'fs/promises'
-import { existsSync, statSync } from 'fs'
+import { mkdir, readdir, readFile, writeFile, appendFile } from 'original-fs/promises'
+import { existsSync, statSync, watch, type FSWatcher as RootWatcher } from 'original-fs'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
@@ -49,6 +49,7 @@ export class WorkspaceService {
   path: string | null = null
   private wsConfig: WorkspaceConfig = structuredClone(DEFAULT_WORKSPACE_CONFIG)
   private watcher: FSWatcher | null = null
+  private rootWatcher: RootWatcher | null = null
   private refreshTimer: NodeJS.Timeout | null = null
   private static liveProvider: LiveProvider = async (_p, cfg) => ({ live: null, restartNeeded: false, agents: projectAgents(cfg).map((a) => ({ ...a, live: null, restartNeeded: false, resume: null })) })
   /** Called each time a workspace opens, in its context; `fresh` when Hive set the folder up just now (it had no .hive). */
@@ -186,6 +187,8 @@ export class WorkspaceService {
     }
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
     this.refreshTimer = null
+    this.rootWatcher?.close()
+    this.rootWatcher = null
     await this.watcher?.close()
     this.watcher = null
     this.path = null
@@ -228,19 +231,22 @@ export class WorkspaceService {
 
   private startWatching(): void {
     if (!this.path) return
-    // Watch only the workspace root (projects appearing/disappearing) and the .hive folder.
-    this.watcher = chokidar.watch(this.path, {
-      depth: 6,
+    // Watch only the workspace root (projects appearing/disappearing) and the .hive folder. The root is watched without
+    // listing or stat-ing what is in it: chokidar stats every entry it lists through Electron's fs, which opens and holds
+    // an .asar file (#246). A folder appearing, going or renamed there reads the project list again (a project's own
+    // folder changing reports 'change').
+    try {
+      this.rootWatcher = watch(this.path, (evt) => evt === 'rename' && this.scheduleRefresh())
+      this.rootWatcher.on('error', (e) => log.warn('workspace root watcher error', e))
+    } catch (e) {
+      log.warn('watching the workspace root', e)
+    }
+    const assistantHome = this.assistantHome.toLowerCase()
+    this.watcher = chokidar.watch(this.hiveDir, {
+      depth: 5,
       ignoreInitial: true,
-      ignored: (p: string) => {
-        if (!this.path) return true
-        const rel = p.slice(this.path.length + 1)
-        if (!rel) return false
-        const parts = rel.split(/[\\/]/)
-        // The Assistant's home changes with every launch; nothing in it is shown from the file system.
-        if (parts[0] === HIVE_DIR) return parts[1] === ASSISTANT_DIR
-        return parts.length > 1 // project internals are not our business
-      }
+      // The Assistant's home changes with every launch; nothing in it is shown from the file system.
+      ignored: (p: string) => resolve(p).toLowerCase() === assistantHome
     })
     this.watcher.on('all', (evt, p) => {
       const rel = this.path ? p.slice(this.path.length + 1).replace(/\\/g, '/') : ''
@@ -249,7 +255,6 @@ export class WorkspaceService {
       else if (rel.startsWith(`${HIVE_DIR}/skills`) || rel.startsWith(`${HIVE_DIR}/mcp`)) this.emit({ type: 'skills-changed' })
       else if (rel.startsWith(`${HIVE_DIR}/${PERSONAS_DIR}`)) this.emit({ type: 'personas-changed' })
       else if (rel === `${HIVE_DIR}/workspace.json`) void this.reloadConfig()
-      else if (evt === 'addDir' || evt === 'unlinkDir') this.scheduleRefresh()
     })
     this.watcher.on('error', (e) => log.warn('watcher error', e))
   }

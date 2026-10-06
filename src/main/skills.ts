@@ -1,6 +1,6 @@
 import { join, basename, dirname, extname, relative, resolve, sep } from 'path'
-import { mkdir, readFile, rm, writeFile } from 'fs/promises'
-import { existsSync, type Dirent } from 'fs'
+import { mkdir, readFile, rm, writeFile } from 'original-fs/promises'
+import { existsSync, type Dirent } from 'original-fs'
 import { shell } from 'electron'
 import { unzipSync } from 'fflate'
 import yaml from 'js-yaml'

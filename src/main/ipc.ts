@@ -1,13 +1,14 @@
 import { BrowserWindow, ClipboardItem, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { spawn } from 'child_process'
-import { existsSync } from 'fs'
+import { existsSync } from 'original-fs'
 import { basename, dirname, join } from 'path'
-import { readFile } from 'fs/promises'
+import { readFile } from 'original-fs/promises'
 import type { HiveChannel, HiveRequests } from '../shared/api'
 import * as updater from './updater'
 import type { ProviderId, QuitChoice } from '../shared/types'
 import { instructionFiles, instructionsShared, shareInstructions, SHARED_INSTRUCTIONS, type InstructionsFile } from '../shared/instructions'
 import { isKnownProvider, projectProviderConfig, providerDescriptor } from '../shared/providers'
+import { isProjectPref, projectPrefValue, withProjectPref } from '../shared/uiPrefs'
 import { applyBoardFold } from '../shared/tasks'
 import { allProviders } from './providers'
 import { providerService } from './providerService'
@@ -16,7 +17,7 @@ import { clearRecent, recentChanged, recentFor, removeRecent } from './recentWor
 import { emit, emitTo } from './events'
 import { setPinned } from './pin'
 import { presentWindow } from './testQuiet'
-import { insideReal, isFile, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
+import { insideArchive, insideReal, isFile, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { createLogger, logsDir } from './logger'
 import { diagnostics } from './diagnostics'
@@ -82,6 +83,7 @@ function knownProvider(id: unknown): ProviderId {
 }
 
 function guardFile(path: string, write = false): string {
+  if (insideArchive(path)) throw new Error('Hive opens no files inside .asar archives.')
   if (workspace.isAllowedPath(path) || allProviders().some((p) => p.fileAllowed(path, write))) return path
   // The skills that ship with Hive, to view one the workspace doesn't have.
   if (!write && insideReal(path, [skills.bundledSkillsDir()])) return path
@@ -225,13 +227,25 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'settings:setProviderFallback': (provider, kind, list) => config.setProviderFallback(knownProvider(provider), kind === 'efforts' ? 'efforts' : 'models', list),
     'settings:reset': (section) => config.resetSettings(section),
     'ui:get': () => config.get().ui,
-    'ui:set': (ui) => config.update((c) => Object.assign(c.ui, ui)),
+    // Not the per-project maps: a window's copy of them is stale for other windows' projects (ui:setProjectPref, #245).
+    'ui:set': (ui) => config.update((c) => Object.assign(c.ui, Object.fromEntries(Object.entries(ui ?? {}).filter(([k]) => !isProjectPref(k))))),
     'ui:setPane': (key, size) =>
       config.update((c) => {
         c.ui.panes ??= {}
         if (typeof size === 'number' && Number.isFinite(size)) c.ui.panes[String(key)] = size
         else delete c.ui.panes[String(key)]
       }),
+    'ui:setProjectPref': (pref, project, value) => {
+      if (!isProjectPref(pref) || typeof project !== 'string' || !project) throw new Error('Not a project preference.')
+      const key = project.toLowerCase()
+      const kept = value === null ? null : projectPrefValue(pref, value)
+      if (kept === undefined) throw new Error(`Not a ${pref} value.`)
+      // This project's value merged into the saved map, never the window's whole copy of it.
+      config.update((c) => {
+        ;(c.ui as Record<string, unknown>)[pref] = withProjectPref(c.ui[pref] as Record<string, unknown> | undefined, key, kept)
+      })
+      emit({ type: 'ui-pref-changed', pref, project: key, value: kept })
+    },
     'ui:changeBoardFold': (change) => {
       // This window's workspace only, applied to what is saved now: another window's folds stay as they are.
       const ws = workspace.path
@@ -266,7 +280,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (workspace.path && workspaceLive(contextWorkspace()!)) {
         if (!(await quitControl.stopWorkspaceAgents(win(), 'switch'))) return workspace.info()
       }
-      const { mkdir } = await import('fs/promises')
+      const { mkdir } = await import('original-fs/promises')
       await mkdir(r.filePaths[0], { recursive: true })
       return openHere(r.filePaths[0])
     },
@@ -395,8 +409,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:delete': (p, id) => sessions.delete(p, id),
     'session:bulk': (p, action, ids) => sessions.bulk(p, action, ids),
     'session:keptUsage': (p) => sessions.keptUsage(p),
-    'storage:project': (p, refresh) => storage.projectStorage(p, refresh),
-    'storage:workspace': (refresh) => storage.workspaceStorage(refresh),
+    'storage:project': (p, refresh, request) => storage.projectStorage(p, refresh, typeof request === 'string' ? request : undefined),
+    'storage:workspace': (refresh, request) => storage.workspaceStorage(refresh, typeof request === 'string' ? request : undefined),
+    'storage:abandon': (request) => {
+      if (typeof request === 'string') storage.abandonStorage(request)
+    },
     'storage:cleanupPreview': (p, opts) => storage.cleanupPreview(p, opts),
     'storage:cleanup': (p, opts, listed) => storage.cleanup(p, opts, listed),
     'session:clearUsageCache': () => sessions.forgetUsageCache(),
@@ -506,7 +523,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       return r.filePath
     },
     'images:copy': async (path) => {
-      const img = nativeImage.createFromPath(guardFile(path))
+      // From its bytes: nativeImage reading a path itself is asar-aware (#246).
+      const img = nativeImage.createFromBuffer(await readFile(guardFile(path)))
       if (img.isEmpty()) throw new Error('Not an image')
       await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(img.toPNG())], { type: 'image/png' }) })])
     },

@@ -7,38 +7,51 @@ import { cx } from '../util'
 import { call, errorMessage } from '../api'
 import { formatWhen } from '@shared/dates'
 import { providerName } from '@shared/providers'
+import { placeTip, type Box } from '@shared/tipPlacement'
 
 export function Icon({ name, className, title, spin }: { name: string; className?: string; title?: string; spin?: boolean }) {
   return <i className={cx('codicon', `codicon-${name}`, spin && 'spin', className)} title={title} aria-hidden={!title} />
 }
 
-/** Hover tooltip rendered in a portal so it is never clipped by scroll containers. */
+/**
+ * Hover tooltip rendered in a portal so it is never clipped by scroll containers. It is measured hidden first, then
+ * placed by its real size next to its anchor (placeTip), so one near the window's edge stays beside its button.
+ */
 export function Tooltip({ content, children, delay = 350, block, side }: { content: ReactNode; children: ReactNode; delay?: number; block?: boolean; side?: 'right' }) {
   const ref = useRef<HTMLSpanElement>(null)
-  const [pos, setPos] = useState<{ x: number; y: number; above: boolean; right?: boolean } | null>(null)
+  const tipRef = useRef<HTMLDivElement>(null)
+  const [anchor, setAnchor] = useState<Box | null>(null)
+  const [placed, setPlaced] = useState<{ left: number; top: number } | null>(null)
   const timer = useRef<number | undefined>(undefined)
   const show = (): void => {
     window.clearTimeout(timer.current)
     timer.current = window.setTimeout(() => {
       const r = ref.current?.getBoundingClientRect()
       if (!r) return
-      if (side === 'right') return setPos({ x: r.right + 8, y: r.top + r.height / 2, above: false, right: true })
-      const above = r.bottom + 120 > window.innerHeight
-      setPos({ x: Math.min(r.left, window.innerWidth - 380), y: above ? r.top - 8 : r.bottom + 8, above })
+      setPlaced(null)
+      setAnchor({ left: r.left, top: r.top, right: r.right, bottom: r.bottom })
     }, delay)
   }
   const hide = (): void => {
     window.clearTimeout(timer.current)
-    setPos(null)
+    setAnchor(null)
+    setPlaced(null)
   }
   useEffect(() => () => window.clearTimeout(timer.current), [])
+  // Before it paints, and again when its content changes while shown (placed by its new size; set only on a change).
+  useLayoutEffect(() => {
+    const tip = tipRef.current?.getBoundingClientRect()
+    if (!anchor || !tip) return
+    const next = placeTip(anchor, { width: tip.width, height: tip.height }, { width: window.innerWidth, height: window.innerHeight }, side)
+    if (!placed || next.left !== placed.left || next.top !== placed.top) setPlaced(next)
+  }, [anchor, placed, side, content])
   if (!content) return <>{children}</>
   return (
     <span className="tip-wrap" style={block ? { display: 'flex' } : undefined} ref={ref} onMouseEnter={show} onMouseLeave={hide} onMouseDown={hide}>
       {children}
-      {pos &&
+      {anchor &&
         createPortal(
-          <div className="tip" style={{ left: Math.max(8, pos.x), top: pos.y, transform: pos.right ? 'translateY(-50%)' : pos.above ? 'translateY(-100%)' : undefined }}>
+          <div ref={tipRef} className="tip" style={placed ?? { left: 0, top: 0, visibility: 'hidden' }}>
             {content}
           </div>,
           document.body

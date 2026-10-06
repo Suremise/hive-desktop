@@ -19,13 +19,14 @@ import { call, errorMessage } from '../api'
 import { DocEditor } from '../components/DocEditor'
 import { DiffView } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
-import { DataTable, type DataColumn } from '../components/DataTable'
+import { DataTable, useDateColumns, type DataColumn } from '../components/DataTable'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, statusText, StatusDot, Switch, Tooltip } from '../components/ui'
 import { languageFor } from '../monacoLang'
 import { useScopedLoad } from '../scopedLoad'
 import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
 import { RootSelector } from './FilesTab'
-import { agentProviderOf, confirm, get, notify, openInSessionsTab, set, setActivity, showView, useDateStyle, useFocusedAgent, useStore } from '../store'
+import { agentProviderOf, confirm, notify, openInSessionsTab, set, setActivity, showView, useDateStyle, useFocusedAgent, useStore } from '../store'
+import { rememberProjectPref } from '../projectPrefs'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
 import { useLiveUsage, useNow } from '../usage'
 
@@ -330,7 +331,8 @@ function LastTurn({ c }: { c: CompactionEvent }) {
  * tab's transcript, at its divider, when the transcript (or Hive's backup of it) is there to read.
  */
 function CompactionHistory({ project, session, compactions }: { project: ProjectInfo; session: SessionListItem; compactions: CompactionEvent[] }) {
-  useDateStyle()
+  // Its When filter matches the dates as shown, in the current format.
+  const columns = useDateColumns(COMPACTION_COLUMNS)
   const rows = useMemo(() => compactions.map((c, n) => ({ ...c, n })), [compactions])
   const readable = session.hasTranscript || session.hasBackup
   return (
@@ -338,7 +340,7 @@ function CompactionHistory({ project, session, compactions }: { project: Project
       id="compactions"
       className="compaction-history"
       rows={rows}
-      columns={COMPACTION_COLUMNS}
+      columns={columns}
       rowKey={(c) => String(c.n)}
       defaultSort={{ key: 'when', desc: true }}
       defaultPageSize={10}
@@ -865,22 +867,13 @@ export function ProjectSkillsTab({ project }: { project: ProjectInfo }) {
   const remembered = useStore((s) => s.skillsProvider[key])
   const fallback = projectDefaultProvider(project.config, settings)
   const shown = providers.find((p) => p.id === remembered) ?? providers.find((p) => p.id === fallback) ?? providers[0]
-  /** A per-project view preference, kept for at most 200 projects (the oldest go), in the store and saved in ui. */
-  const remember = <K extends 'skillsProvider' | 'skillsFold'>(pref: K, value: ReturnType<typeof get>[K][string]): void => {
-    const next = { ...get()[pref] } as Record<string, unknown>
-    delete next[key]
-    next[key] = value
-    const kept = Object.fromEntries(Object.entries(next).slice(-200))
-    set({ [pref]: kept } as Partial<ReturnType<typeof get>>)
-    void call('ui:set', { [pref]: kept }).catch(() => undefined)
-  }
-  const showProvider = (id: string): void => remember('skillsProvider', id)
+  const showProvider = (id: ProviderId): void => rememberProjectPref('skillsProvider', key, id)
   // Hive skills (the workspace's, the same in every project) start open at the top; the provider's skills folded under
   // the dropdown. Opening or folding either is remembered for the project (Darren, 5 Oct).
   const fold = useStore((s) => s.skillsFold[key])
   const hiveOpen = fold?.hive ?? true
   const providerOpen = fold?.provider ?? false
-  const setFold = (patch: { hive?: boolean; provider?: boolean }): void => remember('skillsFold', { hive: hiveOpen, provider: providerOpen, ...patch })
+  const setFold = (patch: { hive?: boolean; provider?: boolean }): void => rememberProjectPref('skillsFold', key, { hive: hiveOpen, provider: providerOpen, ...patch })
   const setHiveOpen = (open: boolean): void => setFold({ hive: open })
   const all = skills ?? []
   // This project's agents get the Hive skills for them; those for the Assistant alone are left out, and counted.

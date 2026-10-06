@@ -1,4 +1,4 @@
-import { open, stat } from 'fs/promises'
+import { open, stat } from 'original-fs/promises'
 import type { ProviderId, Transcript, TranscriptItem, TranscriptSearchResult, TranscriptTool } from '../shared/types'
 import { TRANSCRIPT_WINDOW, assertSessionId } from '../shared/defaults'
 import { formatDateTime } from '../shared/dates'

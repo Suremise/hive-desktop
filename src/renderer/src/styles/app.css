@@ -1336,7 +1336,8 @@ textarea.input {
 /* ---------- Cards / stats ---------- */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  /* One column when the page is narrower than a card. */
+  grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr));
   gap: 12px;
   margin-bottom: 20px;
 }
@@ -4275,11 +4276,25 @@ body.pane-resizing .monaco-editor {
 .provider-choice .choice input[type='radio'] {
   margin-top: 0;
 }
+/* In a narrow page (#252) it wraps, the period buttons going under the title, and they wrap too when even their own
+   row is too narrow: the lines between them are shadows, clipped at the control's edge, so rows divide like columns. */
 .overview-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
+}
+.overview-head .segmented {
+  flex-wrap: wrap;
+  flex-shrink: 1;
+  max-width: 100%;
+}
+.overview-head .segmented button + button {
+  border-left: none;
+}
+.overview-head .segmented button {
+  box-shadow: -1px -1px 0 var(--border);
 }
 .overview-head .section {
   margin-bottom: 0;

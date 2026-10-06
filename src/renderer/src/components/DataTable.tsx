@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { PAGE_SIZES, choices, nextSort, tableView, type ColumnRules, type Sort } from '@shared/tableView'
 import { call } from '../api'
-import { set, useStore } from '../store'
+import { set, useDateStyle, useStore } from '../store'
 import { cx } from '../util'
 import { Icon, IconButton, Tooltip } from './ui'
 
@@ -20,6 +20,15 @@ export interface DataColumn<T> extends ColumnRules<T> {
   descFirst?: boolean
   /** How a choice filter names a value (default: the value). */
   choiceLabel?: (value: string) => string
+}
+
+/**
+ * Columns whose cells, filters or sorting read the date and time format (formatDateTime): a new array when the format
+ * changes, so the table filters by what it shows now (#236). The table itself knows nothing of dates.
+ */
+export function useDateColumns<T>(columns: DataColumn<T>[]): DataColumn<T>[] {
+  const style = useDateStyle()
+  return useMemo(() => (style ? [...columns] : columns), [columns, style])
 }
 
 export function DataTable<T>({

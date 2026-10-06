@@ -2,8 +2,8 @@ import { createHash } from 'crypto'
 import { spawn } from 'child_process'
 import { homedir, tmpdir } from 'os'
 import { basename, isAbsolute, join, resolve } from 'path'
-import { appendFile, mkdir, readdir, readFile, stat, writeFile } from 'fs/promises'
-import { existsSync, mkdirSync, readFileSync, statSync } from 'fs'
+import { appendFile, mkdir, readdir, readFile, stat, writeFile } from 'original-fs/promises'
+import { existsSync, mkdirSync, readFileSync, statSync } from 'original-fs'
 import { parse as parseToml } from 'smol-toml'
 import type { AgentInstallInfo, McpServerDef, MemorySource, PermissionMode, ReadinessIssue, SubSession } from '../../../shared/types'
 import { assertSessionId, isSessionId } from '../../../shared/defaults'
@@ -789,7 +789,7 @@ export class CodexAdapter implements ProviderAdapter {
     const root = join(codexHome(), 'sessions')
     const out: string[] = []
     const walk = async (dir: string, depth: number): Promise<void> => {
-      let entries: import('fs').Dirent[]
+      let entries: import('original-fs').Dirent[]
       try {
         entries = await readdir(dir, { withFileTypes: true })
       } catch {

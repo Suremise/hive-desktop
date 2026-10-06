@@ -1,5 +1,5 @@
-import { watch, existsSync, type FSWatcher } from 'fs'
-import { cp, lstat, mkdir, readdir, readFile, rename, rmdir, stat, writeFile } from 'fs/promises'
+import { watch, existsSync, type FSWatcher } from 'original-fs'
+import { cp, lstat, mkdir, readdir, readFile, rename, rmdir, stat, writeFile } from 'original-fs/promises'
 import { basename, dirname, extname, join, relative, resolve, sep } from 'path'
 import { shell } from 'electron'
 import { HIVE_DIR, assertSessionId } from '../shared/defaults'

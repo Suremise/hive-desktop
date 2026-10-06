@@ -1,6 +1,6 @@
 import { basename, dirname, join, resolve } from 'path'
-import { copyFile, mkdir } from 'fs/promises'
-import { existsSync } from 'fs'
+import { copyFile, mkdir } from 'original-fs/promises'
+import { existsSync } from 'original-fs'
 import type { AgentBranchStatus, AgentWorktree, MergeResult } from '../shared/types'
 import { copyDir, isDir } from './fsutil'
 import { git } from './git'

@@ -7,6 +7,9 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
+        // Electron's fs without its .asar handling, which main uses (#246): electron-vite externalises Node's built-ins
+        // and Electron's own modules, not this one.
+        external: ['original-fs', 'original-fs/promises'],
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           'hive-mcp': resolve(__dirname, 'src/main/mcp/hive-mcp.ts'),

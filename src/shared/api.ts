@@ -71,6 +71,7 @@ import type {
 import type { MetricsQuery, MetricsReport } from './metrics'
 import type { Artifact, CompareScope, ImportResult, KeptEntry } from './benchmark'
 import type { TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
+import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
 import type { BoardFoldChange } from './tasks'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
@@ -145,6 +146,8 @@ export interface HiveRequests {
   'ui:set': (ui: Partial<AppConfig['ui']>) => void
   /** Saves one pane's size (null: back to its default), leaving the other panes as they are: several windows save them. */
   'ui:setPane': (key: string, size: number | null) => void
+  /** Saves (null: forgets) one project's view preference (Skills tab provider or groups, Sessions tree), merged into what is saved: several windows save them (#245). */
+  'ui:setProjectPref': <P extends ProjectPref>(pref: P, project: string, value: ProjectPrefValue<P> | null) => void
   /** Changes this window's workspace's board fold (#170), on what is saved now, leaving other workspaces' as they are; replies with them all. */
   'ui:changeBoardFold': (change: BoardFoldChange) => Record<string, BoardFold>
 
@@ -232,10 +235,12 @@ export interface HiveRequests {
   'session:bulk': (projectPath: string, action: SessionBulkAction, sessionIds: string[]) => SessionBulkResult
   /** Deleted sessions' usage (list items with deleted: true), which totals still count. */
   'session:keptUsage': (projectPath: string) => SessionListItem[]
-  /** What Hive keeps for a project or the Assistant (Project Settings → Storage); the last result unless refresh. */
-  'storage:project': (projectPath: string, refresh?: boolean) => ProjectStorage
-  /** Every project's storage and the Assistant's, biggest first (Settings → Workspace). */
-  'storage:workspace': (refresh?: boolean) => WorkspaceStorage
+  /** What Hive keeps for a project or the Assistant (Project Settings → Storage); the last result unless refresh. `request` lets storage:abandon end the call. */
+  'storage:project': (projectPath: string, refresh?: boolean, request?: string) => ProjectStorage
+  /** Every project's storage and the Assistant's, biggest first (Settings → Workspace); `request` as for storage:project. */
+  'storage:workspace': (refresh?: boolean, request?: string) => WorkspaceStorage
+  /** The window stopped waiting for a storage request (its page closed): the call fails, and a measurement nothing else waits for stops. */
+  'storage:abandon': (request: string) => void
   /** What Clean Up… would move to the Recycle Bin with these options. */
   'storage:cleanupPreview': (projectPath: string, opts: CleanupOptions) => CleanupItem[]
   /** Moves what the preview listed (its paths) to the Recycle Bin, skipping what no longer qualifies. */

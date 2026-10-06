@@ -1,5 +1,5 @@
 import { spawn } from 'child_process'
-import { mkdirSync } from 'fs'
+import { mkdirSync } from 'original-fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { CatalogModel } from '../../../shared/types'

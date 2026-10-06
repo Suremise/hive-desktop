@@ -5,6 +5,7 @@ import type { TipsState } from './tips'
 import type { TemplateAgent, TemplateScope } from './templates'
 import type { KeepAwakeSetting } from './keepAwake'
 import type { DateFormat, TimeFormat } from './dates'
+import type { ProjectPref } from './uiPrefs'
 
 export type ThemeSetting = 'dark' | 'light' | 'system'
 /** A coding-agent CLI Hive can run ("claude-code", "codex"). See src/shared/providers.ts. */
@@ -1485,6 +1486,8 @@ export type HiveEvent =
   | { type: 'toast'; toast: ToastMessage }
   | { type: 'chime'; projectPath: string; silent?: boolean }
   | { type: 'settings-changed'; settings: AppSettings }
+  /** One project's view preference saved (ui:setProjectPref): every window's store follows. */
+  | { type: 'ui-pref-changed'; pref: ProjectPref; project: string; value: unknown }
   | { type: 'provider-install'; provider: ProviderId; info: AgentInstallInfo }
   | { type: 'menu-command'; command: string; args?: unknown[] }
   | { type: 'usage-changed'; projectPath: string; sessionId: string }

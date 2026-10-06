@@ -1,6 +1,6 @@
 import { app, screen } from 'electron'
-import { existsSync } from 'fs'
-import { open, readdir } from 'fs/promises'
+import { existsSync } from 'original-fs'
+import { open, readdir } from 'original-fs/promises'
 import { homedir, release, version as osVersion } from 'os'
 import { basename, join } from 'path'
 import { redact, redactLog, type RedactContext } from '../shared/redact'

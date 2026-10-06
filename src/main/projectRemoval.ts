@@ -1,6 +1,6 @@
 import { basename, dirname, extname, join, resolve, sep } from 'path'
-import { copyFile, mkdir, readdir, readFile, rmdir } from 'fs/promises'
-import { existsSync } from 'fs'
+import { copyFile, mkdir, readdir, readFile, rmdir } from 'original-fs/promises'
+import { existsSync } from 'original-fs'
 import { shell } from 'electron'
 import { HIVE_DIR, projectAgents } from '../shared/defaults'
 import { projectHandovers } from '../shared/hiveGuidance'

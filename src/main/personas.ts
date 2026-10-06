@@ -1,5 +1,5 @@
-import { existsSync } from 'fs'
-import { mkdir, readdir, readFile, writeFile } from 'fs/promises'
+import { existsSync } from 'original-fs'
+import { mkdir, readdir, readFile, writeFile } from 'original-fs/promises'
 import { basename, join } from 'path'
 import { shell } from 'electron'
 import { DEFAULT_PERSONA, newPersonaText, parsePersona, personaId } from '../shared/assistant'

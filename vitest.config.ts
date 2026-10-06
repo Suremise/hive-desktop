@@ -3,8 +3,10 @@ import { configDefaults, defineConfig } from 'vitest/config'
 import { progressWanted, VitestProgress } from './tests/progressReport.mts'
 
 export default defineConfig({
-  // Hive's main-process modules import Electron; unit tests use a stub (no Electron binary needed, e.g. in CI).
-  resolve: { alias: { electron: fileURLToPath(new URL('./tests/electron-stub.ts', import.meta.url)) } },
+  // Hive's main-process modules import Electron; unit tests use a stub (no Electron binary needed, e.g. in CI). They
+  // also use Electron's original-fs (no .asar handling, #246), which is Node's fs outside Electron: vi.mock('fs') and
+  // vi.mock('fs/promises') reach them too.
+  resolve: { alias: { electron: fileURLToPath(new URL('./tests/electron-stub.ts', import.meta.url)), 'original-fs': 'fs' } },
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',

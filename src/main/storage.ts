@@ -1,7 +1,7 @@
 // Project Settings → Storage: what Hive keeps per project (backups, archive, images, worktrees), measured in the
 // background, and Clean Up…, which moves what its preview listed to the Recycle Bin.
 import { basename, join, resolve, sep } from 'path'
-import { lstat, opendir, readdir } from 'fs/promises'
+import { lstat, opendir, readdir } from 'original-fs/promises'
 import { shell } from 'electron'
 import { ASSISTANT_NAME } from '../shared/assistant'
 import { HIVE_DIR, projectAgents } from '../shared/defaults'
@@ -26,14 +26,16 @@ const MAX_CACHED_DIRS = 200_000
 
 /**
  * A folder's size, read a directory at a time and handing the event loop back every few hundred entries so a large
- * worktree never holds up the window or a running session. Links and junctions aren't followed. With `cache`, a
- * folder whose modified time hasn't changed counts what it had last time (its subfolders are still checked).
+ * worktree never holds up the window or a running session. Links and junctions aren't followed, and .asar files are
+ * plain files (original-fs, #246). With `cache`, a folder whose modified time hasn't changed counts what it had last
+ * time (its subfolders are still checked). `signal` stops it between entries.
  */
-export async function folderSize(root: string, cache: 'use' | 'refresh' | 'none' = 'none'): Promise<number> {
+export async function folderSize(root: string, cache: 'use' | 'refresh' | 'none' = 'none', signal?: AbortSignal): Promise<number> {
   let total = 0
   let seen = 0
   const stack = [root]
   while (stack.length) {
+    signal?.throwIfAborted()
     const dir = stack.pop()!
     const st = await lstat(dir).catch(() => null)
     if (!st?.isDirectory()) continue
@@ -51,9 +53,13 @@ export async function folderSize(root: string, cache: 'use' | 'refresh' | 'none'
         const p = join(dir, e.name)
         if (e.isDirectory()) dirs.push(p)
         else if (e.isFile()) files += (await lstat(p).catch(() => null))?.size ?? 0
-        if (++seen % 300 === 0) await new Promise((r) => setImmediate(r))
+        if (++seen % 300 === 0) {
+          await new Promise((r) => setImmediate(r))
+          signal?.throwIfAborted()
+        }
       }
-    } catch {
+    } catch (e) {
+      if (signal?.aborted) throw e
       // Gone or unreadable meanwhile: what was read counts.
     }
     if (cache !== 'none') {
@@ -66,38 +72,101 @@ export async function folderSize(root: string, cache: 'use' | 'refresh' | 'none'
   return total
 }
 
+/** A request whose window stopped waiting for it (storage:abandon). */
+export class StorageStopped extends Error {
+  constructor() {
+    super('Measuring stopped: nothing waits for it.')
+  }
+}
+
+/** A measurement under way: the waits for it, and its stop once none is left. */
+interface Measuring {
+  promise: Promise<ProjectStorage>
+  abort: AbortController
+  waiting: Set<object>
+}
+
 const results = new Map<string, ProjectStorage>()
-const running = new Map<string, Promise<ProjectStorage>>()
+const running = new Map<string, Measuring>()
+/** The requests a window can abandon, each with its waits' stops. */
+const requests = new Map<string, Set<() => void>>()
 
 /**
  * What Hive keeps for a project or the Assistant. The last result comes back at once unless `refresh`; one
- * measurement runs per project at a time.
+ * measurement runs per project at a time. With `request`, the window can abandon the call (abandonStorage): the
+ * measurement, which walks every file of every worktree, stops once nothing waits for it.
  */
-export function projectStorage(projectPath: string, refresh = false): Promise<ProjectStorage> {
+export function projectStorage(projectPath: string, refresh = false, request?: string): Promise<ProjectStorage> {
   projectPath = workspace.assertSessionHost(projectPath)
+  return asRequest(request, () => storageOf(projectPath, refresh, request))
+}
+
+/** The window no longer waits for this request: its call fails, and a measurement only it waited for stops. */
+export function abandonStorage(request: string): void {
+  const stops = requests.get(request)
+  requests.delete(request)
+  for (const stop of stops ?? []) stop()
+}
+
+async function asRequest<T>(request: string | undefined, run: () => Promise<T>): Promise<T> {
+  if (request === undefined) return run()
+  requests.set(request, new Set())
+  try {
+    return await run()
+  } finally {
+    requests.delete(request)
+  }
+}
+
+function storageOf(projectPath: string, refresh: boolean, request: string | undefined): Promise<ProjectStorage> {
+  const stops = request === undefined ? undefined : requests.get(request)
+  if (request !== undefined && !stops) return Promise.reject(new StorageStopped())
   const key = projectPath.toLowerCase()
   const last = results.get(key)
   if (last && !refresh) return Promise.resolve(last)
-  let p = running.get(key)
-  if (!p) {
-    p = measure(projectPath, refresh).finally(() => running.delete(key))
-    running.set(key, p)
-  }
-  return p
+  const m = running.get(key) ?? startMeasuring(projectPath, refresh)
+  const wait = {}
+  m.waiting.add(wait)
+  return new Promise((settle, fail) => {
+    const stop = (): void => {
+      if (!m.waiting.delete(wait)) return
+      fail(new StorageStopped())
+      if (m.waiting.size) return
+      // Nothing waits any more: stop walking, and let the next call start afresh.
+      m.abort.abort()
+      if (running.get(key) === m) running.delete(key)
+    }
+    stops?.add(stop)
+    m.promise.then(settle, fail).finally(() => {
+      m.waiting.delete(wait)
+      stops?.delete(stop)
+    })
+  })
 }
 
-async function measure(projectPath: string, refresh: boolean): Promise<ProjectStorage> {
+function startMeasuring(projectPath: string, refresh: boolean): Measuring {
+  const key = projectPath.toLowerCase()
+  const abort = new AbortController()
+  const promise = measure(projectPath, refresh, abort.signal).finally(() => {
+    if (running.get(key)?.promise === promise) running.delete(key)
+  })
+  const m: Measuring = { abort, waiting: new Set(), promise }
+  running.set(key, m)
+  return m
+}
+
+async function measure(projectPath: string, refresh: boolean, signal: AbortSignal): Promise<ProjectStorage> {
   const assistant = workspace.isAssistantHome(projectPath)
   const hive = join(projectPath, HIVE_DIR)
   const cache = refresh ? 'refresh' : 'use'
   // Backups grow in place, so they are always measured afresh (a few files).
-  const backups = await folderSize(join(hive, 'sessions'))
-  const archive = await folderSize(join(hive, 'archive'))
-  const images = await folderSize(join(hive, 'images'), cache)
+  const backups = await folderSize(join(hive, 'sessions'), 'none', signal)
+  const archive = await folderSize(join(hive, 'archive'), 'none', signal)
+  const images = await folderSize(join(hive, 'images'), cache, signal)
   const worktrees: ProjectStorage['worktrees'] = []
   if (!assistant) {
     for (const a of projectAgents(await workspace.projectConfig(projectPath))) {
-      if (a.worktree) worktrees.push({ agent: a.name, path: a.worktree.path, bytes: await folderSize(a.worktree.path, cache) })
+      if (a.worktree) worktrees.push({ agent: a.name, path: a.worktree.path, bytes: await folderSize(a.worktree.path, cache, signal) })
     }
   }
   const result: ProjectStorage = {
@@ -115,19 +184,22 @@ async function measure(projectPath: string, refresh: boolean): Promise<ProjectSt
   return result
 }
 
-/** Every project's storage and the Assistant's, biggest first (one project at a time). */
-export async function workspaceStorage(refresh = false): Promise<WorkspaceStorage> {
-  const hosts = [...(await workspace.listProjectPaths()), workspace.assistantHome]
-  const projects: ProjectStorage[] = []
-  for (const p of hosts) {
-    try {
-      projects.push(await projectStorage(p, refresh))
-    } catch (e) {
-      log.warn(`measuring ${userText(p)}`, e)
+/** Every project's storage and the Assistant's, biggest first (one project at a time); `request` as for projectStorage. */
+export function workspaceStorage(refresh = false, request?: string): Promise<WorkspaceStorage> {
+  return asRequest(request, async () => {
+    const hosts = [...(await workspace.listProjectPaths()), workspace.assistantHome]
+    const projects: ProjectStorage[] = []
+    for (const p of hosts) {
+      try {
+        projects.push(await storageOf(workspace.assertSessionHost(p), refresh, request))
+      } catch (e) {
+        if (e instanceof StorageStopped) throw e
+        log.warn(`measuring ${userText(p)}`, e)
+      }
     }
-  }
-  projects.sort((a, b) => b.total - a.total)
-  return { projects, total: projects.reduce((n, p) => n + p.total, 0) }
+    projects.sort((a, b) => b.total - a.total)
+    return { projects, total: projects.reduce((n, p) => n + p.total, 0) }
+  })
 }
 
 /** What Clean Up needs to know about a project's sessions and images. */

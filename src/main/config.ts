@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { copyFileSync, existsSync } from 'fs'
+import { copyFileSync, existsSync } from 'original-fs'
 import { DEFAULT_APP_CONFIG, mergeDefaults, migrateConfig, withLegacySettings } from '../shared/defaults'
 import type { AppConfig, AppSettings, EffortOption, FallbackModel, ModelPrice, ProviderSettings } from '../shared/types'
 import type { SettingsPatch } from '../shared/api'

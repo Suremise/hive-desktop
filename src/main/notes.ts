@@ -1,7 +1,7 @@
 import { join, relative, resolve, sep, dirname, basename } from 'path'
-import { mkdir, readdir, rename, stat, writeFile } from 'fs/promises'
+import { mkdir, readdir, rename, stat, writeFile } from 'original-fs/promises'
 import { shell } from 'electron'
-import { existsSync } from 'fs'
+import { existsSync } from 'original-fs'
 import { handoverHeader, type HandoverAuthor } from '../shared/hiveGuidance'
 import type { NoteFile } from '../shared/types'
 import { insideReal } from './fsutil'
@@ -20,7 +20,7 @@ export async function notesTree(): Promise<NoteFile[]> {
   const root = workspace.sharedDir
   const walk = async (dir: string, depth: number): Promise<NoteFile[]> => {
     if (depth > 6) return []
-    let entries: import('fs').Dirent[] = []
+    let entries: import('original-fs').Dirent[] = []
     try {
       entries = await readdir(dir, { withFileTypes: true })
     } catch {

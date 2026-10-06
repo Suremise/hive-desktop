@@ -1,5 +1,5 @@
-import { existsSync } from 'fs'
-import { lstat, readdir } from 'fs/promises'
+import { existsSync } from 'original-fs'
+import { lstat, readdir } from 'original-fs/promises'
 import { join } from 'path'
 import { cleanSwaps, contentHash, readJson, SwapAbandoned, swapIn, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
