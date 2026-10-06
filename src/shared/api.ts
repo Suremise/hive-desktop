@@ -72,7 +72,7 @@ import type {
 } from './types'
 import type { MetricsQuery, MetricsReport } from './metrics'
 import type { Artifact, CompareScope, ImportResult, KeptEntry } from './benchmark'
-import type { TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
+import type { AgentTemplate, TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
 import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
 import type { TipsChange, TipsState } from './tips'
 import type { BoardFoldChange } from './tasks'
@@ -311,6 +311,8 @@ export interface HiveRequests {
   'templates:all': () => TemplateEntry[]
   /** Renames a template where it is kept (another of that name there refuses it). */
   'templates:rename': (ref: TemplateRef, name: string) => TemplateEntry
+  /** An edited template (#271), saved where it is kept; `savedAt`: as it was when the editor opened it. */
+  'templates:update': (ref: TemplateRef, edited: Pick<AgentTemplate, 'name' | 'description' | 'layout' | 'agents'>, savedAt: string | null) => TemplateEntry
   /** Copies a template into the workspace or a project; a name taken there gets a number ("Pair (2)"). */
   'templates:duplicate': (ref: TemplateRef, to: TemplateDest) => TemplateEntry
   /** Deletes a template (to the Recycle Bin). */

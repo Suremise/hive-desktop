@@ -8,6 +8,7 @@ import { agentProvider } from '@shared/providers'
 import { setDateStyle } from '@shared/dates'
 import type { ProjectTab } from '@shared/projectTabs'
 import type { ProgressFilter } from '@shared/progress'
+import type { TemplateAgent } from '@shared/templates'
 import type { AgentBranchStatus, AssistantPanelSide, BoardFold, QuitScope, TaskCard, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
 import type {
   AgentApiInfo,
@@ -30,6 +31,21 @@ import type {
 
 export type Activity = 'projects' | 'overview' | 'performance' | 'board' | 'notes' | 'skills' | 'templates' | 'mcp' | 'assistant' | 'docs' | 'settings'
 export type { ProjectTab } from '@shared/projectTabs'
+
+/**
+ * A template agent's Agent Settings (#271): `agent` to edit (null: a new one, named `suggestedName`), the template's other
+ * agents (names to keep unique, roles to suggest), the project whose settings an empty choice shows (a project's
+ * Templates tab; none in the Templates view), and where the answer goes (the agent as saved, or null: cancelled).
+ */
+export interface TemplateAgentRequest {
+  key: number
+  template: string
+  agent: TemplateAgent | null
+  suggestedName: string
+  others: TemplateAgent[]
+  project?: string
+  resolve: (agent: TemplateAgent | null) => void
+}
 
 export interface ConfirmRequest {
   kind: 'confirm'
@@ -216,6 +232,8 @@ interface State {
   addAgentFor: string | null
   /** Agent whose settings dialog (name, model, effort, permission mode) is open. */
   agentSettingsFor: AgentRef | null
+  /** The Agent Settings dialog for a template's agent (#271): open while set; it answers the template editor. */
+  templateAgentFor: TemplateAgentRequest | null
   /** Worktree agent whose Merge dialog is open. */
   mergeFor: AgentRef | null
   /** The agent whose work "Hand Over to…" hands to another agent. */
@@ -355,6 +373,7 @@ export const useStore = create<State>(() => ({
   compactFor: null,
   addAgentFor: null,
   agentSettingsFor: null,
+  templateAgentFor: null,
   mergeFor: null,
   handOverFor: null,
   overviewJump: null,

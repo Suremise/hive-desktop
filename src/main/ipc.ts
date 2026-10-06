@@ -484,6 +484,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'templates:addAgent': (p, scope, file, index, from) => templates.addAgentFromTemplate(p, scope, file, index, from),
     'templates:all': () => templates.listAllTemplates(),
     'templates:rename': (ref, name) => templates.renameTemplate(ref, name),
+    'templates:update': (ref, edited, savedAt) => templates.updateTemplate(ref, edited, savedAt),
     'templates:duplicate': (ref, to) => templates.duplicateTemplate(ref, to),
     'templates:delete': (ref) => templates.deleteTemplate(ref),
     'templates:export': async (ref) => {

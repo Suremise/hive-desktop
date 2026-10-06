@@ -9,6 +9,7 @@ import {
   exportFileName,
   isTemplateFile,
   readTemplate,
+  TEMPLATE_VERSION,
   templateFile,
   templateFrom,
   uniqueName,
@@ -74,7 +75,7 @@ async function readOne(d: TemplateDest, file: string): Promise<TemplateEntry> {
     const name = raw && typeof raw === 'object' && typeof (raw as { name?: unknown }).name === 'string' ? String((raw as { name: string }).name).slice(0, TEMPLATE_NAME_MAX) : file.replace(/\.json$/, '')
     return { ...where, file, name, savedAt: null, layout: 'auto', agents: [], problem: t }
   }
-  return { ...where, file, name: t.name, savedAt: t.savedAt || null, layout: t.layout, agents: t.agents }
+  return { ...where, file, name: t.name, savedAt: t.savedAt || null, layout: t.layout, ...(t.description ? { description: t.description } : {}), agents: t.agents }
 }
 
 /** The templates kept in one place, by file name. */
@@ -115,7 +116,7 @@ async function usable(ref: TemplateRef): Promise<TemplateEntry & { template: Age
   fileOf(ref)
   const e = await readOne(ref, ref.file)
   if (e.problem) throw new TemplateError(`"${e.name}" can't be used: ${e.problem}`)
-  return { ...e, template: { version: 1, name: e.name, savedAt: e.savedAt ?? '', layout: e.layout, agents: e.agents } }
+  return { ...e, template: { version: 1, name: e.name, savedAt: e.savedAt ?? '', layout: e.layout, ...(e.description ? { description: e.description } : {}), agents: e.agents } }
 }
 
 /** A template name as saved: one line, trimmed, refused (saying why) if empty or too long. */
@@ -180,6 +181,27 @@ export async function renameTemplate(ref: TemplateRef, name: string): Promise<Te
     const renamed = await write(ref, ref.file, { ...t.template, name: clean })
     log.info(`Renamed template ${userText(t.name)} to ${userText(clean)}`)
     return renamed
+  })
+}
+
+/**
+ * Saves a template edited in the Templates view (#271): its name, description, layout and agents, in the file it is
+ * kept in (its place stays: Duplicate… moves it). The edit is checked as untrusted (as an import is: 1–12 agents with
+ * unique names, providers' ids, settings as CLIs name them) and refused, saying why, if another template there has its
+ * name or the template changed since it was opened (`savedAt`, as it was then): nothing is half saved, and a change
+ * made meanwhile (a re-save from a project, another window's edit) is never overwritten unasked.
+ */
+export async function updateTemplate(ref: TemplateRef, edited: unknown, savedAt: string | null): Promise<TemplateEntry> {
+  const clean = cleanName(edited && typeof edited === 'object' ? (edited as { name?: unknown }).name : '')
+  const t = readTemplate({ ...(edited as object), version: TEMPLATE_VERSION, name: clean, savedAt: new Date().toISOString() })
+  if (typeof t === 'string') throw new TemplateError(t)
+  return changing(ref, async () => {
+    const now = await usable(ref)
+    if ((now.savedAt ?? null) !== (savedAt ?? null)) throw new TemplateError(`"${now.name}" changed since you started editing it (saved again meanwhile): nothing was saved. Close the editor to see it as it is now.`)
+    if ((await listIn(ref)).some((e) => e.file !== ref.file && e.name.toLowerCase() === clean.toLowerCase())) throw new TemplateError(`There is already a template called "${clean}" there.`)
+    const saved = await write(ref, ref.file, t)
+    log.info(`Edited template ${userText(clean)} (${ref.scope}, ${t.agents.length} agents)`)
+    return saved
   })
 }
 

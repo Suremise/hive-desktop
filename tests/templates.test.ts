@@ -570,6 +570,48 @@ describe('saving and loading templates', () => {
     expect((await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids()))).oldWorktrees).toEqual([])
   })
 
+  it('edits a template where it is kept (#271): agents added, changed, reordered and removed, its name, description and layout; checked first; refused if it changed meanwhile or the name is taken', async () => {
+    const dir = join(alpha, '.hive', 'templates')
+    writeFileSync(join(dir, 'edit-me.json'), JSON.stringify({ version: 1, name: 'Edit me', savedAt: '2026-10-06T10:00:00.000Z', layout: 'auto', agents: [{ name: 'One', provider: 'claude-code', worktree: false }, { name: 'Two', provider: 'claude-code', role: 'reviewer', worktree: true }, { name: 'Three', provider: 'claude-code', worktree: false }] }))
+    const ref = { scope: 'project' as const, project: alpha, file: 'edit-me.json' }
+    const edited = {
+      name: '  Edited   pair ',
+      description: '  Builds, then reviews. ',
+      layout: 'columns2' as const,
+      agents: [
+        { name: 'Two', provider: 'claude-code', role: 'reviewer', model: 'opus', effort: 'high', permissionMode: 'acceptEdits', worktree: false },
+        { name: 'Builder', provider: 'claude-code', role: 'builder', use200kContext: true, worktree: true }
+      ]
+    }
+    const saved = await run(() => templates.updateTemplate(ref, edited, '2026-10-06T10:00:00.000Z'))
+    expect([saved.file, saved.name, saved.description, saved.layout]).toEqual(['edit-me.json', 'Edited pair', 'Builds, then reviews.', 'columns2'])
+    expect(saved.agents).toEqual([
+      { name: 'Two', role: 'reviewer', provider: 'claude-code', model: 'opus', effort: 'high', permissionMode: 'acceptEdits', worktree: false },
+      { name: 'Builder', role: 'builder', provider: 'claude-code', use200kContext: true, worktree: true }
+    ])
+    expect(saved.savedAt).not.toBe('2026-10-06T10:00:00.000Z')
+    expect(JSON.parse(readFileSync(join(dir, 'edit-me.json'), 'utf8')).description).toBe('Builds, then reviews.')
+    // It changed since this editor opened it (the old savedAt): refused, nothing written.
+    await expect(run(() => templates.updateTemplate(ref, { ...edited, name: 'Late' }, '2026-10-06T10:00:00.000Z'))).rejects.toThrow(/changed since you started editing it/)
+    expect(JSON.parse(readFileSync(join(dir, 'edit-me.json'), 'utf8')).name).toBe('Edited pair')
+    // Checked as an import is, whatever the window sends.
+    const now = saved.savedAt
+    await expect(run(() => templates.updateTemplate(ref, { ...edited, name: 'Trees' }, now))).rejects.toThrow(/already a template called "Trees"/)
+    await expect(run(() => templates.updateTemplate(ref, { ...edited, agents: [] }, now))).rejects.toThrow(/no agents/)
+    await expect(run(() => templates.updateTemplate(ref, { ...edited, agents: Array.from({ length: 13 }, (_, i) => ({ name: `A${i}`, provider: 'claude-code', worktree: false })) }, now))).rejects.toThrow(/up to 12/)
+    await expect(run(() => templates.updateTemplate(ref, { ...edited, agents: [edited.agents[0], { ...edited.agents[1], name: 'two' }] }, now))).rejects.toThrow(/Two agents are called "two"/)
+    await expect(run(() => templates.updateTemplate(ref, { ...edited, agents: [{ ...edited.agents[0], provider: '../x' }] }, now))).rejects.toThrow(/coding agent isn't one/)
+    await expect(run(() => templates.updateTemplate(ref, { ...edited, name: ' ' }, now))).rejects.toThrow(/Enter a name/)
+    await expect(run(() => templates.updateTemplate({ ...ref, file: '../project.json' }, edited, now))).rejects.toThrow(/no longer there/)
+    // A description too long (only a window that ignores the field's limit sends one) is left out; none removes it.
+    expect((await run(() => templates.updateTemplate(ref, { ...edited, description: 'x'.repeat(501) }, now))).description).toBeUndefined()
+    // Loaded into a project: exactly those agents, in that order, with that layout.
+    const after = await run(() => templates.listTemplates(alpha))
+    const t = after.find((e) => e.file === 'edit-me.json')!
+    const plan = await run(() => templates.templatePlan(beta, 'project', 'edit-me.json', alpha))
+    expect([plan.name, plan.layout, plan.create.map((a) => [a.name, a.role, a.model, a.worktree])]).toEqual([t.name, 'columns2', [['Two', 'reviewer', 'opus', false], ['Builder', 'builder', undefined, true]]])
+  })
+
   it('changes at once to one place never pick the same file or miss a name: imports, duplicates, saves', async () => {
     const dir = join(base, 'parallel')
     mkdirSync(dir, { recursive: true })
