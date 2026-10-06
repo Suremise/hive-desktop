@@ -88,11 +88,12 @@ export function AntivirusPanel() {
           action === 'add'
             ? {
                 title: 'Stop Defender scanning these folders?',
-                message: op.paths.join('\n'),
+                message: 'Hive asks Defender to exclude:',
+                list: op.paths,
                 detail: 'Defender won’t scan anything in them, including node_modules and whatever agents download there. Windows asks for administrator rights once. You can remove them again here.',
                 confirmLabel: 'Add Exclusions'
               }
-            : { title: 'Remove the exclusions Hive added?', message: op.paths.join('\n'), detail: 'Defender scans these folders again. Exclusions Hive didn’t add stay. Windows asks for administrator rights once.', confirmLabel: 'Remove Exclusions' }
+            : { title: 'Remove the exclusions Hive added?', message: 'Hive asks Defender to scan again:', list: op.paths, detail:'Defender scans these folders again. Exclusions Hive didn’t add stay. Windows asks for administrator rights once.', confirmLabel: 'Remove Exclusions' }
         )
         if (!ok || !current(n, ws)) return
       }

@@ -1738,6 +1738,37 @@ p.hint {
   overflow-wrap: anywhere;
   padding-right: 4px;
 }
+/* A confirm's list (the folders an antivirus change covers, #347): one item per line, a long path wrapping inside itself. */
+.dialog-body .dialog-list {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--bg-input);
+}
+.dialog-list ul {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+  max-height: 40vh;
+  overflow-y: auto;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+/* A wrapped path's continuation is indented, so it can't be read as another path. */
+.dialog-list li {
+  padding-left: 2ch;
+  text-indent: -2ch;
+}
+.dialog-list li + li {
+  margin-top: 2px;
+}
 .dialog-footer {
   display: flex;
   justify-content: flex-end;

@@ -95,6 +95,7 @@ const check = (name, ok, extra = '') => {
   const before = changes().length
   await add()
   check('Add asks first, listing the folders and the trade-off', (await dialog.innerText()).includes(root) && (await dialog.innerText()).includes(tests) && /node_modules/.test(await dialog.innerText()))
+  check('…one folder per line, each whole in its own row (#347)', JSON.stringify(await dialog.locator('.dialog-list li').allInnerTexts()) === JSON.stringify([root, tests]), JSON.stringify(await dialog.locator('.dialog-list li').allInnerTexts()))
   await shot('add-dialog-dark')
   fs.mkdirSync(trees, { recursive: true })
   await dialog.locator('.btn.primary').click()
@@ -118,7 +119,7 @@ const check = (name, ok, extra = '') => {
   await panel.getByRole('button', { name: 'Remove Hive’s Exclusions…' }).click()
   const removeDialog = page.locator('.dialog', { hasText: 'Remove the exclusions Hive added?' })
   await lib.until(async () => (await removeDialog.count()) === 1, 5000)
-  check('Remove lists only the folder Hive added', (await removeDialog.innerText()).includes(tests) && !(await removeDialog.innerText()).includes(`${root}\n`) && !(await removeDialog.innerText()).split('\n').some((l) => l.trim() === root), await removeDialog.innerText())
+  check('Remove lists only the folder Hive added, on its own line', JSON.stringify(await removeDialog.locator('.dialog-list li').allInnerTexts()) === JSON.stringify([tests]) &&!(await removeDialog.innerText()).split('\n').some((l) => l.trim() === root), await removeDialog.innerText())
   await removeDialog.locator('.btn.primary').click()
   check('…one elevated call, for it alone', !!(await lib.until(async () => changes('remove').length === 1, 10000)) && JSON.stringify(changes('remove')[0].paths) === JSON.stringify([tests]), JSON.stringify(changes('remove')))
   check('…the user’s exclusion stays: the workspace excluded, the test area scanned again', !!(await lib.until(async () => /Excluded/.test(await rowText(0)) && /Scanned/.test(await rowText(1)), 5000)), await panel.innerText())
@@ -223,6 +224,19 @@ const check = (name, ok, extra = '') => {
   await page.locator('.antivirus').scrollIntoViewIfNeeded()
   await lib.sleep(500)
   await shot('light')
+  // The Add dialog in a narrow window: each folder still on its own line, a long one wrapping inside itself (#347).
+  setFixture({ probe: probe(), elevated: {} })
+  await panel.getByRole('button', { name: 'Check Again' }).click()
+  await lib.until(async () => (await rows.allInnerTexts()).every((t) => /Unknown/.test(t)), 5000)
+  const offered = (await inv('antivirus:prepare', 'add')).paths
+  await add()
+  await lib.fitWindow(app, page, { width: 560, height: 700 })
+  await lib.sleep(300)
+  const narrow = await dialog.locator('.dialog-list li').evaluateAll((li) => li.map((l) => ({ text: l.textContent, top: l.getBoundingClientRect().top })))
+  check('narrow window: still one folder per row, in order', narrow.length >= 2 && JSON.stringify(narrow.map((l) => l.text)) === JSON.stringify(offered) && narrow.every((l, i) => i === 0 || l.top > narrow[i - 1].top), JSON.stringify({ narrow, offered }))
+  await shot('add-dialog-light-narrow')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await lib.fitWindow(app, page, { width: 1400, height: 950 })
   await inv('settings:update', { appearance: { theme: 'dark' } })
 
   // A test copy without a fixture never asks Defender, and refuses to change it.
