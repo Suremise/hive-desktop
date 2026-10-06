@@ -172,7 +172,7 @@ export function autoCompactLine(provider: ProviderId, contextWindow: number | nu
   const n = (x: number): string => x.toLocaleString()
   const why = [auto?.source, auto?.percent ? `at ${auto.percent}% of it` : null].filter(Boolean).join(', ')
   if (typeof auto?.window === 'number') return `${name} compacts by itself at about ${n(at)}: its auto-compact window is ${n(window)} (${why})`
-  if (auto) return `${name} compacts by itself at about ${n(at)}, its default for this window${why ? ` (${why})` : ''}`
+  if (auto) return `${name} compacts by itself at about ${n(at)}, its default for this window${why ? ` (${why})` : ''}${auto.estimate ? ` (${auto.estimate})` : ''}`
   return `${name} compacts by itself at about ${n(at)} by default (its settings can change this)`
 }
 

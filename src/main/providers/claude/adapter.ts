@@ -325,7 +325,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   autoCompact(ctx: LaunchContext, cmd: CommandSpec, models: string[]): AutoCompactSetting {
     const env = cmd.env ?? ctx.env
     // The user's own arguments (Hive passes no --autocompact; cmd.args may be wrapped for cmd).
-    return autoCompactOf(ctx.extraArgs, env, settingsScopes(ctx.cwd, env.CLAUDE_CONFIG_DIR || claudeHome()), models)
+    return autoCompactOf(ctx.extraArgs, env, settingsScopes(ctx.cwd, env.CLAUDE_CONFIG_DIR || claudeHome(), ctx.extraArgs), models)
   }
 
   backgroundTasks(appended: string): BackgroundTaskEvent[] {

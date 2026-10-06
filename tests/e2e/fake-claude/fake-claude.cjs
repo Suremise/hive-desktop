@@ -12,7 +12,7 @@
 //   (1 s, or N seconds for "work N"), and ends with a reply and Stop. "edit <file>" first sends PreToolUse for
 //   an Edit of that file and records the tool call. "background N" starts a background command that ends after
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
-//   transcript. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
+//   transcript. "context N": the reply's request reports N input tokens, so the session's context is about N. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
 //   "shell: <command line>" runs a command in cmd with the session's environment (fake-shell.jsonl records it).
 //   "boardmove N COLUMN" moves card N as hive_update_task does (the hive tools' API, token and agent, from
 //   --mcp-config) and records the answer in fake-calls.jsonl; "boardreview N ACTION [COLUMN]" reviews it the same way
@@ -278,7 +278,7 @@ async function runPrompt(text) {
   if (background) await startBackgroundTask(Number(background[1]))
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
   await sleep(secs * 1000)
-  await endTurn(`Done: ${text}`)
+  await endTurn(`Done: ${text}`, Number(/\bcontext\s+(\d+)/i.exec(text)?.[1] ?? 20))
   // "window N": the status line reports a context window of N tokens, as Claude Code's does.
   const contextWindow = /\bwindow\s+(\d+)/i.exec(text)
   if (contextWindow && hookUrl) {
@@ -353,8 +353,8 @@ async function login() {
   await endTurn(`Done: ${text}`)
 }
 
-async function endTurn(answer) {
-  write({ type: 'assistant', requestId: `req_${randomUUID().slice(0, 8)}`, message: { model: 'claude-fake', content: [{ type: 'text', text: answer }], usage: { input_tokens: 20, output_tokens: 10 } } })
+async function endTurn(answer, inputTokens = 20) {
+  write({ type: 'assistant', requestId: `req_${randomUUID().slice(0, 8)}`, message: { model: 'claude-fake', content: [{ type: 'text', text: answer }], usage: { input_tokens: inputTokens, output_tokens: 10 } } })
   out(`\r\n${answer}\r\n`)
   await hook('Stop', { last_assistant_message: answer })
   busy = false

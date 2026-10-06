@@ -400,6 +400,10 @@ export interface HiveRequests {
   'assistant:actions': () => AssistantAction[]
   'assistant:questions': () => AssistantQuestion[]
   'assistant:answer': (id: string, yes: boolean) => void
+  /** Revert on a setting the Assistant changed (its activity list): sets it back, and lists that too (#186). */
+  'assistant:revertSetting': (actionId: string) => void
+  /** Switches this workspace's Assistant to a mode (a persona file): told at once if it runs, else when it starts (#259). */
+  'assistant:switchMode': (personaId: string, save?: boolean) => 'told' | 'later' | 'saved'
   /** This window's workspace's progress runs, newest first. */
   'progress:list': () => ProgressRun[]
   /** Moves a finished or stale run to Recent. */

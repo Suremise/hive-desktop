@@ -236,6 +236,16 @@ Changing the task board (`POST /v1/tasks`, `PATCH /v1/tasks/{n}`, comments) is o
 
 With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees, archive or delete cards, or remove projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/deactivate` needs Control agents.
 
+### Settings
+
+Hive's settings, as Settings and Project Settings describe them (one catalog of every setting: `src/shared/settingsCatalog.ts`). Anyone with a token can read them; only the Hive Assistant changes them.
+
+`GET /v1/settings` — every setting a row: `id`, `title`, `value` (as shown: `on`/`off`, a number, `inherit`, `(empty)`), `default` (only when the value differs), `desc` (its first sentence) and `readOnly: true` for those only the user changes. `query` keeps those whose id, place in Settings or text has every word; `scope` one of `app`, `provider`, `workspace` (no value settings yet) or `project`; `project=<name>` adds that project's own settings (ids `project.…`, and `project.<provider>.…`), which need it. Buttons, statuses and lists (Reset, the Agent API's token, Hidden projects…) aren't settings and aren't listed.
+
+`GET /v1/settings/{id}` — one in full: `path` ("Settings → Sessions → Warn when a transcript is over"), `scope`, `value`, `default`, `takes` (its range, options or type), `desc`, `tip`, `helps` (when it is worth suggesting), `restart` (when a change applies, if not at once), `readOnly` (why the Assistant can't change it), `docs` (the user guide's heading). A table's value is its JSON (cut at 3,000 characters); in the listing it is its size. The Assistant's own settings with each provider are entries of their own (`assistant.<provider>.model`, `.effort`, `.permissionMode`, `.extraArgs`, `.use200kContext`): read-only to it. A project's setting takes `?project=<name>`.
+
+`PATCH /v1/settings/{id}` `{ "value", "project"? }` — the Hive Assistant only (others: `403`), and only with **Settings → Assistant → Control → Change settings** on (`403` otherwise, at once when the user turns it off). The value is checked as Settings checks it (`400` with the range or options), and the change is made as Settings makes it. Never for a sensitive setting (`403`): permission modes, the Agent API, what Hive runs (CLI paths, extra arguments, a project's setup command, background sessions, pre-release updates) and the Assistant's own settings (Control above all). A project's number or list takes `null` to inherit Hive's. An effort level must be one the effort picker offers for the model that would run (`takes` lists them), or `""` (the default; `inherit` for a project). Tables take JSON: `board.colors` an object of column → `#rrggbb` (only those named change), `<provider>.prices` the whole table of model → `{input, cachedInput, output, cacheWrite?}`, `<provider>.modelFallback` and `.effortFallback` the whole list of `{value, label}` (`older` for models); `null` puts back Hive's. Shortcuts are read-only for now. The permission, and that the request's Assistant session (its launch's token) is still the running one, are checked again at the moment of the change, under the project's lock for a project's setting (for Revert, also that the value is still what the change set). The reply's `changed` says whether anything changed; for a table, `old` and `new` are the entries that changed. Replies with `old` and `new` (as shown) and `restart` when it applies later. It counts as one of the Assistant's changes, and its panel lists it with old → new and a **Revert** button (which the user, not the API, uses).
+
 ### Shared notes
 
 Shared notes live in the workspace's `.hive/shared` folder. Paths are relative to that folder and cannot escape it.
@@ -472,6 +482,9 @@ The Hive Assistant's `hive` server always runs (even with this setting or the Ag
 | `hive_hand_over` | `POST /v1/projects/{name}/handover` | Control agents |
 | `hive_start_task` | `POST /v1/tasks/{n}/start` | Control agents |
 | `hive_create_project` | `POST /v1/projects` | Control agents and create projects |
+| `hive_list_settings` | `GET /v1/settings`, a line per setting (what each does only with `query`) | any |
+| `hive_read_setting` | `GET /v1/settings/{id}`, as text | any |
+| `hive_update_setting` | `PATCH /v1/settings/{id}`, old → new | Change settings on (any level) |
 
 It also has the board tools above; Claude Code runs `hive_create_task`, `hive_update_task` and `hive_reorder_tasks` without asking from Control agents up. Claude Code runs these without asking (they are Hive's own, and limited by the control level); Codex gets a 15-minute tool timeout for them, since waiting and asking the user can take minutes.
 

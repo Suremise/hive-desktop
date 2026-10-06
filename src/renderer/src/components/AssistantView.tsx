@@ -12,7 +12,7 @@ import { Section } from './Sidebar'
 import { Icon, IconButton, InfoTip, Tooltip } from './ui'
 
 /**
- * The Hive Assistant's view (activity bar): a summary of what it has used, then its personas, its conversations (the
+ * The Hive Assistant's view (activity bar): a summary of what it has used, then its modes, its conversations (the
  * same tree as a project's Sessions tab) and the images pasted into them (a project's Images tab, for its home). Its
  * settings are in Settings → Assistant and its panel.
  */
@@ -28,7 +28,7 @@ export function AssistantSidePanel() {
     <>
       <div className="pane-header">
         Hive Assistant
-        <InfoTip text="Your workspace's overseer: what it has used, its personas, its conversations and the images pasted into them. Its panel is on the right (Ctrl+Alt+I); its defaults are in Settings → Assistant." />
+        <InfoTip text="Your workspace's overseer: what it has used, its modes, its conversations and the images pasted into them. Its panel is on the right (Ctrl+Alt+I); its defaults are in Settings → Assistant." />
         <div className="actions">
           <IconButton icon="layout-sidebar-right" title="Show the Assistant's panel" disabled={!a} onClick={() => setAssistantOpen(true)} />
         </div>
@@ -40,13 +40,13 @@ export function AssistantSidePanel() {
           <>
             <AssistantSummary assistant={a} />
             <Section
-              title="Personas"
+              title="Modes"
               tip={PERSONAS_TIP}
               buttons={
                 <>
-                  <IconButton icon="add" title="New Persona…" onClick={() => void createPersona()} />
+                  <IconButton icon="add" title="New Mode…" onClick={() => void createPersona()} />
                   <IconButton icon="refresh" title="Refresh" onClick={() => set((s) => ({ personasVersion: s.personasVersion + 1 }))} />
-                  <IconButton icon="folder-opened" title="Open Personas Folder" onClick={() => void call('app:openPath', `${workspace.path}\\.hive\\personas`)} />
+                  <IconButton icon="folder-opened" title="Open Modes Folder" onClick={() => void call('app:openPath', `${workspace.path}\\.hive\\personas`)} />
                 </>
               }
             >

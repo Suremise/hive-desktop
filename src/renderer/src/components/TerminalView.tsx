@@ -37,6 +37,17 @@ function makeRoomForWebgl(key: string): void {
   }
 }
 
+/**
+ * Disposes a terminal's WebGL renderer and gives its context back at once. Disposing alone leaves the context alive
+ * until garbage collection, so a batch of new sessions (Start New (All), #293) piled up contexts until Chromium dropped
+ * the window's oldest live one: the Hive Assistant's, which went black and then drew again.
+ */
+function disposeWebgl(webgl: WebglAddon, canvases: HTMLCanvasElement[]): void {
+  webgl.dispose()
+  // A canvas that has a WebGL2 context returns that one; losing a context already lost does nothing.
+  for (const c of canvases) c.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext()
+}
+
 /** How many terminals hold a WebGL context (for tests). */
 ;(window as unknown as { __hiveWebglCount?: () => number }).__hiveWebglCount = () => webglHolders.size
 
@@ -222,6 +233,8 @@ export function TerminalView({
   agentRef.current = agentId
   onFocusRef.current = onFocus
   const webglRef = useRef<WebglAddon | null>(null)
+  /** The canvases the WebGL renderer added, whose context is given back with it (disposeWebgl). */
+  const webglCanvases = useRef<HTMLCanvasElement[]>([])
   const dropWebgl = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -407,6 +420,7 @@ export function TerminalView({
     return () => {
       if (dropWebgl.current) clearTimeout(dropWebgl.current)
       webglHolders.delete(ptyKey)
+      if (webglRef.current) disposeWebgl(webglRef.current, webglCanvases.current)
       webglRef.current = null
       listeners.abort()
       ro.disconnect()
@@ -444,7 +458,7 @@ export function TerminalView({
       if (dropWebgl.current) clearTimeout(dropWebgl.current)
       dropWebgl.current = null
       webglHolders.delete(ptyKey)
-      webglRef.current?.dispose()
+      if (webglRef.current) disposeWebgl(webglRef.current, webglCanvases.current)
       webglRef.current = null
     }
     if (visible) {
@@ -454,15 +468,20 @@ export function TerminalView({
         makeRoomForWebgl(ptyKey)
         try {
           const webgl = new WebglAddon()
+          const canvases = (): HTMLCanvasElement[] => [...(term.element?.querySelectorAll('canvas') ?? [])]
+          const had = new Set(canvases())
           webgl.onContextLoss(() => {
             webgl.dispose()
             if (webglRef.current === webgl) {
               webglRef.current = null
               webglHolders.delete(ptyKey)
+              // The DOM renderer measures its cells differently: fitted again, or the terminal spills past its pane.
+              fitSoon.current()
             }
           })
           term.loadAddon(webgl)
           webglRef.current = webgl
+          webglCanvases.current = canvases().filter((c) => !had.has(c))
         } catch {
           // DOM renderer it is.
         }

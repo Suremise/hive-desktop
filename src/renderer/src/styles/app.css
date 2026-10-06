@@ -4087,6 +4087,15 @@ body.pane-resizing .monaco-editor {
 .assistant-action.failed .codicon {
   color: var(--fg-muted);
 }
+.assistant-action .assistant-revert {
+  flex: none;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+.assistant-action .assistant-revert .codicon {
+  color: inherit;
+}
 .assistant-action-text {
   flex: 1;
   min-width: 0;
