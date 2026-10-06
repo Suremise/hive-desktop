@@ -18,6 +18,8 @@ import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portB
 // @ts-expect-error: plain .mjs modules without types
 import { recordMarkdown } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
+import { makeDist } from '../scripts/distCopy.mjs'
+// @ts-expect-error: plain .mjs modules without types
 import { buildLock, buildStamp, buildStamped, buildStampedAt, builtOnce, devBuild, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
@@ -450,10 +452,35 @@ describe('whether the dev build is from this source (build.mjs)', () => {
     expect(check(false).stale).toBe(true)
   })
 
-  it('npm run dist uses it, and drops an older build-info.json before building', () => {
-    const dist = readFileSync(join(root, 'scripts', 'dist.mjs'), 'utf8')
-    expect(dist).toContain("buildStamped({ root, runBuild: () => run('npm run build') })")
-    expect(dist.indexOf("rmSync(join(root, 'dist', 'build-info.json')")).toBeLessThan(dist.indexOf('buildStamped({'))
+  // What npm run dist does, in order (makeDist, #281): the steps it is given record what it does, in turn.
+  const distSteps = ({ stamped = true } = {}) => {
+    const done: string[] = []
+    const lines = makeDist({
+      root: 'R',
+      here: true,
+      run: (cmd: string) => void done.push(`run ${cmd}`),
+      buildStamped: ({ root: r, runBuild: build }: { root: string; runBuild: () => void }) => {
+        done.push(`buildStamped ${r}`)
+        build()
+        return { stamped, waited: false }
+      },
+      identity: () => (done.push('identity'), 'id'),
+      clear: (d: string) => void done.push(`clear ${d.replace(/\\/g, '/')}`),
+      finish: (o: { here: boolean; before: string; after: string }) => (done.push(`finish here=${o.here} ${o.before}->${o.after}`), ['done']),
+      warn: (m: string) => void done.push(`warn ${m.trim()}`)
+    })
+    return { done, lines }
+  }
+
+  it('npm run dist drops the earlier build records before it builds, builds out/ stamped, then packages and finishes', () => {
+    const { done, lines } = distSteps()
+    expect(done).toEqual(['identity', 'clear R/dist', 'buildStamped R', 'run npm run build', 'run npx electron-builder --win --publish never', 'identity', 'finish here=true id->id'])
+    expect(lines).toEqual(['done'])
+  })
+
+  it('…and says so when the source changed while it built (out/ not stamped)', () => {
+    expect(distSteps({ stamped: false }).done.some((d) => d.startsWith('warn The source changed while it was building'))).toBe(true)
+    expect(distSteps().done.some((d) => d.startsWith('warn'))).toBe(false)
   })
 })
 
