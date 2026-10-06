@@ -228,6 +228,19 @@ const check = (name, ok, extra = '') => {
   check('a project with nothing recorded says so', !!(await until(async () => (await page.locator('.perf-empty').count()) === 1)))
   await shot('empty')
 
+  // A provider chosen elsewhere stays visible in an empty scope, saying it has nothing there, and can be changed (#294).
+  const providerSelect = page.locator('.performance-page:visible select[aria-label="Provider"]')
+  await page.locator('.sidebar .row', { hasText: 'Whole workspace' }).click()
+  await until(async () => (await requests()) === '47')
+  await providerSelect.selectOption('claude-code')
+  await page.locator('.sidebar .row', { hasText: 'gamma' }).click()
+  check('an empty scope keeps a chosen provider’s filter, saying it has nothing there', !!(await until(async () => (await page.locator('.performance-page:visible .perf-empty').count()) === 1 && (await providerSelect.count()) === 1 && (await providerSelect.inputValue()) === 'claude-code' && /Nothing from Claude Code in the last 24 hours/.test(await page.locator('.performance-page:visible .perf-by-provider').innerText()))))
+  await shot('empty-provider')
+  await providerSelect.selectOption('')
+  check('…which can be set back to all providers (then, with nothing to filter, it goes)', !!(await until(async () => (await providerSelect.count()) === 0)))
+  await page.locator('.sidebar .row', { hasText: 'Whole workspace' }).click()
+  check('…and back where there is data, everything shows, all providers', !!(await until(async () => (await requests()) === '47' && (await providerSelect.count()) === 1 && (await providerSelect.inputValue()) === '')))
+
   // Export of the whole workspace: plain, then sanitized.
   await page.locator('.sidebar .row', { hasText: 'Whole workspace' }).click()
   await until(async () => (await requests()) === '47')

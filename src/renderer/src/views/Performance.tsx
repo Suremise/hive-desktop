@@ -251,8 +251,13 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
                   <Icon name="pulse" />
                   Nothing recorded {filters.role !== 'all' ? 'for this filter ' : ''}in the last {range.label}.
                 </div>
-                {/* Nothing to show isn't the same as nothing there: say when session history couldn't be read. */}
-                {report.providersUnreadable ? <ProvidersTable sel={all} note={report.providersNote} unreadable={report.providersUnreadable} hosts={report.providersHosts} /> : null}
+                {/* A provider still chosen keeps its filter, saying it has nothing here, so it can be seen and changed (#294).
+                    Nothing to show isn't the same as nothing there: say when session history couldn't be read. */}
+                {filters.provider ? (
+                  <ByProvider report={report} sel={sel} rangeLabel={range.label} provider={filters.provider} setProvider={(provider) => setFilters({ provider })} />
+                ) : report.providersUnreadable ? (
+                  <ProvidersTable sel={all} note={report.providersNote} unreadable={report.providersUnreadable} hosts={report.providersHosts} />
+                ) : null}
               </>
             ) : (
               <>
