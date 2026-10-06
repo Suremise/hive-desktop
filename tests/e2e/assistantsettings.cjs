@@ -187,6 +187,16 @@ const check = (name, ok, extra = '') => {
   await colours.getByRole('button', { name: /^Revert / }).click()
   check('…and Revert puts the colours back', !!(await lib.until(async () => (await settings()).board.colors.doing !== '#ff0000', 5000)))
 
+  // --- A provider's prices: null puts back Hive's, a shipped model removed from the table too (#315); Revert removes it again.
+  const removedNow = async () => JSON.stringify((await settings()).providers['claude-code'].pricesRemoved ?? [])
+  await inv('settings:setProviderPrices', 'claude-code', {}, ['claude-opus-4-8'])
+  check('it resets the API prices', await say('hive hive_update_setting {"id":"claude-code.prices","value":null}'))
+  check("…and the removed model has Hive's price again", (await removedNow()) === '[]', await removedNow())
+  const reset = panel.locator('.assistant-action', { hasText: 'API prices' }).first()
+  check('…listed as the model put back', /claude-opus-4-8: removed → claude-opus-4-8: Hive's price/.test(await reset.innerText()), await reset.innerText())
+  await reset.getByRole('button', { name: /^Revert / }).click()
+  check('…and Revert removes it again', !!(await lib.until(async () => (await removedNow()) === '["claude-opus-4-8"]', 5000)), await removedNow())
+
   // --- Refused: its own Control, and what Hive runs.
   check('it tries to raise its own Control', await say('hive hive_update_setting {"id":"assistant.control","value":"look"}'))
   check('…which stays as it was', (await settings()).assistant.control === 'projects')

@@ -839,9 +839,21 @@ export function settingValueText(e: SettingEntry, v: unknown, full = false): str
 /**
  * A change as the activity list and the tool's reply show it, old and new: a plain value as settingValueText shows it;
  * a table by what changed in it (the entries of an object whose values differ, "doing: #3b82f6"; a list's values), each
- * side cut at 200 characters, so changing one colour reads as that colour, not as "(6 keys) → (6 keys)".
+ * side cut at 200 characters, so changing one colour reads as that colour, not as "(6 keys) → (6 keys)". A provider's
+ * prices with `removed` (the shipped models removed from its table, before and after) show those too: "m: removed" on
+ * the side that removed it, "m: Hive's price" on the other.
  */
-export function settingChangeTexts(e: SettingEntry, old: unknown, now: unknown): { oldText: string; newText: string } {
+export function settingChangeTexts(e: SettingEntry, old: unknown, now: unknown, removed?: { old: string[]; new: string[] }): { oldText: string; newText: string } {
+  if (removed) {
+    const shown = (prices: unknown, gone: string[], other: string[]): Record<string, unknown> => {
+      const own = isObject(prices) ? prices : {}
+      const out: Record<string, unknown> = { ...own }
+      for (const m of other) if (!(m in own) && !gone.includes(m)) out[m] = "Hive's price"
+      for (const m of gone) if (!(m in own)) out[m] = 'removed'
+      return out
+    }
+    return settingChangeTexts(e, shown(old, removed.old, removed.new), shown(now, removed.new, removed.old))
+  }
   const cut = (s: string): string => (s.length > 200 ? `${s.slice(0, 199)}…` : s)
   if (Array.isArray(old) || Array.isArray(now)) {
     const values = (v: unknown): string => (Array.isArray(v) && v.length ? v.map((x) => (isObject(x) && typeof x.value === 'string' ? x.value : JSON.stringify(x))).join(', ') : "(Hive's list)")

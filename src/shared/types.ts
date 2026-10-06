@@ -242,6 +242,8 @@ export interface AssistantSettingChange {
   path: string
   old: unknown
   new: unknown
+  /** A provider's prices, when the change put back shipped models removed from its table: removed before and after. */
+  removed?: { old: string[]; new: string[] }
   /** As the list shows them. */
   oldText: string
   newText: string

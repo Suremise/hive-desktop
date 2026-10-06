@@ -678,7 +678,7 @@ async function settingsChange(e: SettingEntry, value: unknown, projectPath: stri
     throw new HttpError(403, `${e.readOnly} Tell the user how, instead.`)
   }
   // Checked before it counts as a change: a value it can't take is the Assistant's to fix, not one of its 30.
-  const checked = await settingsCall(() => checkedValue(e, value, projectPath))
+  await settingsCall(() => checkedValue(e, value, projectPath))
   if (!assistant.countAction(ws)) {
     assistant.record(ws, line, `limit of ${assistant.MAX_ACTIONS_PER_TURN} changes for one message`)
     throw new HttpError(429, `You have made ${assistant.MAX_ACTIONS_PER_TURN} changes for this message, the most Hive allows for one. Tell the user what is done and ask whether to go on.`)
@@ -692,12 +692,13 @@ async function settingsChange(e: SettingEntry, value: unknown, projectPath: stri
     if (!assistant.isCurrentToken(ws, token)) throw new SettingRefused(409, "The Assistant's session that asked for this ended before the change was made: nothing changed.")
   }
   try {
-    const r = await applySetting(e, checked, projectPath, stillAllowed)
+    // The value as sent (applySetting checks it again): a provider's prices take null, Hive's own, as more than {}.
+    const r = await applySetting(e, value, projectPath, stillAllowed)
     // What changed, as the list and the reply show it: a table's changed entries, not its size.
-    const { oldText, newText } = settingChangeTexts(e, r.old, r.new)
-    const changed = JSON.stringify(r.old) !== JSON.stringify(r.new)
+    const { oldText, newText } = settingChangeTexts(e, r.old, r.new, r.removed)
+    const changed = JSON.stringify(r.old) !== JSON.stringify(r.new) || !!r.removed
     if (changed) {
-      assistant.record(ws, `Changed ${path}${where}: ${oldText} → ${newText}`, undefined, { setting: { id: e.id, ...(projectPath ? { project: projectPath } : {}), path, old: r.old, new: r.new, oldText, newText } })
+      assistant.record(ws, `Changed ${path}${where}: ${oldText} → ${newText}`, undefined, { setting: { id: e.id, ...(projectPath ? { project: projectPath } : {}), path, old: r.old, new: r.new, ...(r.removed ? { removed: r.removed } : {}), oldText, newText } })
     }
     const restart = restartText(e)
     return { id: e.id, title: e.title, path, ...(projectPath ? { project: basename(projectPath) } : {}), changed, old: oldText, new: newText, ...(restart ? { restart } : {}) }
