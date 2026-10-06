@@ -13,6 +13,7 @@ import { notify, set, setActivity, useStore } from '../store'
 import { useScopedLoad } from '../scopedLoad'
 import { cx, formatBytes, formatTokens, timeAgo } from '../util'
 import { ComparePanel } from './PerformanceCompare'
+import { AntivirusLine } from '../components/Antivirus'
 import { Card } from './WorkspaceOverview'
 
 /**
@@ -228,6 +229,7 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
         {filters.view !== 'compare' && report && all && sel && t && (
           <>
             <Coverage report={report} />
+            {!isTab && <AntivirusLine />}
             {/* Who did the work: everything in this group follows it, and nothing outside does (#270). */}
             <section className="perf-group" aria-label="Filtered by who did the work">
               <div className="perf-group-head">

@@ -47,6 +47,7 @@ import { sessions } from './sessions'
 import { transcripts } from './transcripts'
 import * as skills from './skills'
 import * as storage from './storage'
+import { antivirusStatus, antivirusSuggestion, applyAntivirus, dismissAntivirus, prepareAntivirus } from './antivirus'
 import { contextWorkspace, currentWorkspace, inWorkspace, workspace, workspaceFor, workspaceOf, WorkspaceService } from './workspace'
 import { hiveWindows, windowForPath, windowOf, windowShowing } from './windows'
 import { setTitleBarBackdrops, setTitleBarColors } from './titleBar'
@@ -440,6 +441,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'storage:abandon': (request) => {
       if (typeof request === 'string') storage.abandonStorage(request, win().webContents.id)
     },
+    'antivirus:status': (refresh) => antivirusStatus(refresh === true),
+    'antivirus:prepare': (action) => prepareAntivirus(action),
+    'antivirus:apply': (id) => applyAntivirus(id),
+    'antivirus:suggestion': () => antivirusSuggestion(),
+    'antivirus:dismiss': () => dismissAntivirus(),
     'storage:cleanupPreview': (p, opts) => storage.cleanupPreview(p, opts),
     'storage:cleanup': (p, opts, listed) => storage.cleanup(p, opts, listed),
     'session:clearUsageCache': () => sessions.forgetUsageCache(),
