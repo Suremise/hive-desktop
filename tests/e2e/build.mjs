@@ -179,14 +179,40 @@ export function ensureBuild({ root, build, runBuild, lock: lockOpts = {} }) {
   try {
     const { why, inputs: before } = look()
     if (!why) return { stale: false, built: false, waited, why: null }
-    // The old stamp goes before the build touches out/: a build that fails, or whose source changes while it runs,
-    // leaves output that no stamp vouches for (and a later run with the old source mustn't match the old stamp).
-    rmSync(join(root, STAMP), { force: true })
-    runBuild()
-    const after = buildInputs(root)
-    if (after !== before) return { stale: true, built: true, waited, why: 'the source changed while it was building' }
-    writeFileSync(join(root, STAMP), JSON.stringify({ inputs: before, at: new Date().toISOString() }) + '\n')
+    if (!buildAndStamp(root, before, runBuild)) return { stale: true, built: true, waited, why: 'the source changed while it was building' }
     return { stale: false, built: true, waited, why: null }
+  } finally {
+    process.off('exit', lock.release)
+    lock.release()
+  }
+}
+
+/**
+ * Runs runBuild and stamps out/ with `before` (the inputs it was made from), only if they are still the source's
+ * afterwards: whether it stamped. The old stamp goes before the build touches out/: a build that fails, or whose source
+ * changes while it runs, leaves output that no stamp vouches for (and a later run with the old source mustn't match
+ * the old stamp). Under the worktree's build lock (the callers').
+ */
+function buildAndStamp(root, before, runBuild) {
+  rmSync(join(root, STAMP), { force: true })
+  runBuild()
+  if (buildInputs(root) !== before) return false
+  writeFileSync(join(root, STAMP), JSON.stringify({ inputs: before, at: new Date().toISOString() }) + '\n')
+  return true
+}
+
+/**
+ * Builds out/ whatever its stamp says, and stamps it as --build does (#274): for `npm run dist`, whose `npm run build`
+ * makes the same dev build the packaged app is made from, so a run right after it (packaged checks with --record) finds
+ * out/ from this source. Under the worktree's build lock, so a runner never looks at half a build. { stamped, waited }:
+ * stamped false when the source changed while it built.
+ */
+export function buildStamped({ root, runBuild, lock: lockOpts = {} }) {
+  const lock = buildLock(root, lockOpts)
+  const waited = lock.take()
+  process.on('exit', lock.release)
+  try {
+    return { stamped: buildAndStamp(root, buildInputs(root), runBuild), waited }
   } finally {
     process.off('exit', lock.release)
     lock.release()

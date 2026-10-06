@@ -7,7 +7,9 @@ import { join, resolve } from 'path'
 import { pathToFileURL } from 'url'
 import { afterAll, describe, expect, it } from 'vitest'
 // @ts-expect-error: a plain .mjs module without types
-import { checkoutOf, copySet, copyToMain, finishDist, installerFiles, planCopy, provenanceProblem } from '../scripts/distCopy.mjs'
+import { checkoutOf, clearDistInfo, copySet, copyToMain, finishDist, installerFiles, planCopy, provenanceProblem, readUnpackedInfo } from '../scripts/distCopy.mjs'
+// @ts-expect-error: a plain .mjs module without types
+import { packagedStatus } from './e2e/runner.mjs'
 
 type Info = { version: string; code: string; head: string; branch: string | null; builtAt: string }
 
@@ -189,5 +191,37 @@ console.log(copyToMain({ root: ${JSON.stringify(root)}, version: '9.9.9', info: 
     expect(ok[0]).toMatch(/copied from this worktree/)
     expect(JSON.parse(readFileSync(join(more[0], 'dist', 'build-info.json'), 'utf8'))).toMatchObject({ version: '9.9.9', code: 'b', head, branch: 'hive/wt2', builtAt: '2026-10-05T10:00:00Z' })
     expect(JSON.parse(readFileSync(join(main, 'dist', 'build-info.json'), 'utf8')).code).toBe('b')
+  })
+
+  it("win-unpacked keeps its own record, which a copied installer set never changes: the packaged checks test what is there (#274)", () => {
+    rmSync(join(main, 'dist'), { recursive: true, force: true })
+    rmSync(join(wt, 'dist'), { recursive: true, force: true })
+    const ident = (code: string) => ({ version: '9.9.9', code, head, branch: 'hive/agent' })
+    /** A dist built in a checkout from `code`: the installer set and an unpacked app, then finished as dist.mjs does. */
+    const dist = (dir: string, code: string, replace = false) => {
+      build(dir, info(code))
+      mkdirSync(join(dir, 'dist', 'win-unpacked'), { recursive: true })
+      writeFileSync(join(dir, 'dist', 'win-unpacked', 'artifact-code.txt'), code)
+      return finishDist({ root: dir, before: ident(code), after: ident(code), replace })
+    }
+    // The main checkout's own build A (unpacked there), then a worktree's build B copied over its installer.
+    dist(main, 'A')
+    expect(readUnpackedInfo(join(main, 'dist')).code).toBe('A')
+    expect(dist(wt, 'B', true)[0]).toMatch(/copied from this worktree/)
+    expect(JSON.parse(readFileSync(join(main, 'dist', 'build-info.json'), 'utf8')).code).toBe('B')
+    // The main checkout later at B: its win-unpacked is still A's, and the packaged checks say so.
+    expect(readFileSync(join(main, 'dist', 'win-unpacked', 'artifact-code.txt'), 'utf8')).toBe('A')
+    expect(readUnpackedInfo(join(main, 'dist')).code).toBe('A')
+    expect(packagedStatus(readUnpackedInfo(join(main, 'dist')), 'B')).toMatch(/is from other code \(A, hive\/agent; this is B\)/)
+    // In the worktree that built B, they pass.
+    expect(packagedStatus(readUnpackedInfo(join(wt, 'dist')), 'B')).toBeNull()
+    // Code that changed while it was built leaves no record of either; nor does a dist that starts (clearDistInfo).
+    finishDist({ root: wt, before: ident('C'), after: ident('C+edit') })
+    expect(readUnpackedInfo(join(wt, 'dist'))).toBeNull()
+    expect(packagedStatus(readUnpackedInfo(join(wt, 'dist')), 'C')).toMatch(/no record of what it was built from/)
+    clearDistInfo(join(main, 'dist'))
+    expect(readUnpackedInfo(join(main, 'dist'))).toBeNull()
+    expect(existsSync(join(main, 'dist', 'build-info.json'))).toBe(false)
+    expect(existsSync(join(main, 'dist', 'win-unpacked', 'artifact-code.txt'))).toBe(true)
   })
 })

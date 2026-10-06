@@ -52,6 +52,18 @@ of `src`, `resources`, `docs`, the root files the app bundles and the build conf
 or deleted file is noticed whatever its modification time. A build made another way (`npx electron-vite build`) has no
 stamp: the runner warns that it may hold other code, and a run record made with it is marked not valid. So use
 `--build` with `--record`. Runners in the same worktree build it once between them (Run context, below).
+`npm run dist` builds `out/` the same way (under the worktree's build lock) and stamps it, so a run straight after it
+needs no `--build` (#274).
+
+**The installer's suites** (`packaged*`) test `dist\win-unpacked`, not `out/`: a run of only those doesn't look at
+`out/` (unless `HIVE_PROGRESS_CHECK_DEV=1`). Instead the runner checks what `dist\win-unpacked` itself was built from:
+`npm run dist` records that inside it (`win-unpacked\.hive-build-info.json`) once it is sure, and removes it when it
+starts. Not `dist\build-info.json`: that describes the installer set, which a worktree's `npm run dist` copies into the
+main checkout's `dist` without `win-unpacked`, so there it can describe another build than the one the suites would
+run. When the record's code isn't the fingerprint of the code now, or there is none, the runner warns and a run
+record is marked not valid. So `npm run dist`, then
+`npm run e2e -- packaged packaged-mcp packaged-progress --record`, gives a valid record without `--build`; a `dist` from
+another commit, or from before an edit, is reported.
 
 **Several at once.** Suites run four at a time (`--jobs N` for another number; `--jobs 1` runs them one after
 another). Each gets its own profile, folders and Agent API port: the runner sets `HIVE_E2E_PORT` and `HIVE_API_PORT`,

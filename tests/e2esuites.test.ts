@@ -14,11 +14,11 @@ import { AREAS, EVERYTHING, REAL_TIER, affectedSuites, under } from './e2e/affec
 // @ts-expect-error: plain .mjs modules without types
 import { fingerprint } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { isRealCli, parentSuite, parseArgs, portBase, realNotRun, recordStatus, repeatStatus, selectSuites, suiteOutcome } from './e2e/runner.mjs'
+import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, recordStatus, repeatStatus, selectSuites, suiteOutcome } from './e2e/runner.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { recordMarkdown } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { buildLock, buildStamp, devBuild, ensureBuild } from './e2e/build.mjs'
+import { buildLock, buildStamp, buildStamped, devBuild, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -47,7 +47,7 @@ describe('the e2e suite list', () => {
 
   it('names suites that exist, and every suite file is listed', () => {
     for (const n of names) expect(existsSync(join(dir, `${n}.cjs`)), n).toBe(true)
-    const helpers = ['lib', 'fake-bridge', 'runContext']
+    const helpers = ['lib', 'fake-bridge', 'runContext', 'evidence']
     const files = execFileSync('git', ['ls-files', 'tests/e2e/*.cjs'], { cwd: root, encoding: 'utf8' })
       .split(/\r?\n/)
       .filter(Boolean)
@@ -430,6 +430,56 @@ describe('whether the dev build is from this source (build.mjs)', () => {
     expect(buildLock(buildDir, { dir: lockDir }).heldByOther()).toBe(false)
     expect(buildStamp(buildDir)).toBeNull()
     expect(check(false).stale).toBe(true)
+  })
+
+  it("npm run dist's build (buildStamped) stamps out/ as --build does, under the build lock, and builds even when fresh (#274)", () => {
+    writeFileSync(join(buildDir, 'src', 'a.ts'), 'D\n')
+    const n = builds
+    let lockedMeanwhile = false
+    const stampedBuild = (during?: () => void) =>
+      buildStamped({ root: buildDir, lock: { dir: lockDir }, runBuild: () => { lockedMeanwhile = buildLock(buildDir, { dir: lockDir, owner: -1, alive: () => true }).heldByOther(); runBuild(); during?.() } })
+    expect(stampedBuild()).toEqual({ stamped: true, waited: false })
+    expect(lockedMeanwhile).toBe(true)
+    expect(buildLock(buildDir, { dir: lockDir }).heldByOther()).toBe(false)
+    // A runner right after it finds out/ from this source, without --build.
+    expect(check(false)).toEqual({ stale: false, built: false, waited: false, why: null })
+    // It builds whatever the stamp says (dist packages what it just built), and a change mid-build leaves no stamp.
+    expect(stampedBuild(() => writeFileSync(join(buildDir, 'src', 'a.ts'), 'edited during dist\n'))).toEqual({ stamped: false, waited: false })
+    expect(builds).toBe(n + 2)
+    expect(buildStamp(buildDir)).toBeNull()
+    expect(check(false).stale).toBe(true)
+  })
+
+  it('npm run dist uses it, and drops an older build-info.json before building', () => {
+    const dist = readFileSync(join(root, 'scripts', 'dist.mjs'), 'utf8')
+    expect(dist).toContain("buildStamped({ root, runBuild: () => run('npm run build') })")
+    expect(dist.indexOf("rmSync(join(root, 'dist', 'build-info.json')")).toBeLessThan(dist.indexOf('buildStamped({'))
+  })
+})
+
+describe("the installer's suites check the packaged build they test (#274)", () => {
+  const info = { version: '0.3.1', code: 'abc123+def', head: 'abc123', branch: 'hive/claudio' }
+
+  it('dist/win-unpacked from this code is fine; from other code, or with no record of its own, is said', () => {
+    expect(packagedStatus(info, 'abc123+def')).toBeNull()
+    expect(packagedStatus(info, 'abc123')).toMatch(/is from other code \(abc123\+def, hive\/claudio; this is abc123\)/)
+    expect(packagedStatus(null, 'abc123')).toMatch(/has no record of what it was built from/)
+  })
+
+  it('…and makes a record not valid', () => {
+    const r = recordStatus({ before: 'abc', after: 'abc', buildStale: false, packagedStale: packagedStatus(info, 'abc') })
+    expect(r.valid).toBe(false)
+    expect(r.problems[0]).toMatch(/other code.*run npm run dist/)
+    expect(repeatStatus({ repeat: 1, runs: [{ ok: true }], before: 'abc', after: 'abc', buildStale: false, packagedStale: 'x' }).valid).toBe(false)
+  })
+
+  it("a run of only the installer's suites doesn't need the dev build in out/, unless packaged-progress checks it", () => {
+    const pk = suites.filter((s) => (s.needs ?? []).includes('packaged'))
+    expect(pk.map((s) => s.name)).toEqual(['packaged', 'packaged-mcp', 'packaged-progress', 'packaged-transcript'])
+    expect(needsDevBuild(pk, {})).toBe(false)
+    expect(needsDevBuild(pk, { HIVE_PROGRESS_CHECK_DEV: '1' })).toBe(true)
+    expect(needsDevBuild([...pk, suites.find((s) => s.name === 'board')!], {})).toBe(true)
+    expect(needsDevBuild([], {})).toBe(true)
   })
 })
 

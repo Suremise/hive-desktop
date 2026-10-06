@@ -128,8 +128,8 @@ export function portBase(env = process.env, laneBase = 47940) {
  * the last one's end, with a build from that code. A repeat stops at its first failed run, so a later pass never makes up
  * for it. With one run, a failed suite shows in the record but doesn't make it invalid (it is still a true record).
  */
-export function repeatStatus({ repeat, runs, before, after, buildStale }) {
-  const { problems } = recordStatus({ before, after, buildStale })
+export function repeatStatus({ repeat, runs, before, after, buildStale, packagedStale = null }) {
+  const { problems } = recordStatus({ before, after, buildStale, packagedStale })
   if (repeat > 1) {
     const failedAt = runs.findIndex((r) => !r.ok)
     if (failedAt >= 0) problems.unshift(failedAt + 1 < repeat ? `stopped after run ${failedAt + 1} of ${repeat} failed` : `run ${repeat} of ${repeat} failed`)
@@ -138,9 +138,27 @@ export function repeatStatus({ repeat, runs, before, after, buildStale }) {
   return { valid: !problems.length, problems }
 }
 
-export function recordStatus({ before, after, buildStale }) {
+export function recordStatus({ before, after, buildStale, packagedStale = null }) {
   const problems = []
   if (before !== after) problems.push(`the code changed while the suites ran (${before} at the start, ${after} at the end): these results are for neither, run them again`)
   if (buildStale) problems.push("the dev build isn't known to be from this source, so the suites may have tested other code: run with --build")
+  if (packagedStale) problems.push(`${packagedStale}, so the installer's suites may have tested other code: run npm run dist`)
   return { valid: !problems.length, problems }
 }
+
+/**
+ * Whether the packaged build the installer's suites test (dist/win-unpacked) is from the code as it is now (#274), from
+ * its own record of what it was built from (info: scripts/distCopy.mjs readUnpackedInfo, which `npm run dist` writes
+ * once it is sure): null when its code is this fingerprint, else why not.
+ */
+export function packagedStatus(info, code) {
+  if (!info) return "the packaged build (dist\\win-unpacked) has no record of what it was built from (from an older npm run dist, or one whose code changed while it built), so which code it holds is unknown"
+  if (info.code !== code) return `the packaged build (dist\\win-unpacked) is from other code (${info.code}${info.branch ? `, ${info.branch}` : ''}; this is ${code})`
+  return null
+}
+
+/**
+ * Whether a run needs the dev build in out/ at all: not when every suite is one of the installer's, which test
+ * dist/win-unpacked (packagedStatus checks that one), unless packaged-progress is told to check the dev build's wrapper.
+ */
+export const needsDevBuild = (suites, env = process.env) => !suites.length || !suites.every((s) => (s.needs ?? []).includes('packaged')) || env.HIVE_PROGRESS_CHECK_DEV === '1'

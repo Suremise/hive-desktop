@@ -36,12 +36,13 @@ import { e2eProgress, slotWaitProgress } from '../progressReport.mts'
 import { SUITES } from './suites.mjs'
 import { affectedSuites, changedFiles } from './affected.mjs'
 import { fingerprint, recordMarkdown } from './record.mjs'
-import { isRealCli, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, selectSuites, suiteOutcome } from './runner.mjs'
+import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, selectSuites, suiteOutcome } from './runner.mjs'
 import { devBuild, ensureBuild } from './build.mjs'
 import { finishRunDirs, logsRootFor, newRunDir, pruneRunDirs } from './logs.mjs'
 import { LANES, claimLane, laneWork } from './lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, waitForSlot } from './slots.mjs'
 import { autoClean } from './clean.mjs'
+import { readUnpackedInfo } from '../../scripts/distCopy.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
@@ -120,21 +121,30 @@ const runBuild = () => {
   console.log('Building (the dev build is not from this source)…')
   devBuild(root)
 }
-let buildCheck
+// Only the installer's suites: they test dist/win-unpacked, not out/ (needsDevBuild), so out/ isn't looked at (#274).
+const devBuildNeeded = needsDevBuild(chosen)
+let buildCheck = { stale: false, built: false, waited: false, why: null }
 try {
-  buildCheck = ensureBuild({ root, build: opts.build, runBuild })
+  if (devBuildNeeded) buildCheck = ensureBuild({ root, build: opts.build, runBuild })
 } catch (e) {
   console.error(e.message)
   process.exit(e.status ?? 2)
 }
 if (buildCheck.waited) console.log(`Waited for another runner's build of this worktree${buildCheck.built ? '' : ': it is from this source'}.`)
 const stale = buildCheck.stale
-if (!existsSync(join(root, 'out', 'main', 'index.js'))) {
+if (devBuildNeeded && !existsSync(join(root, 'out', 'main', 'index.js'))) {
   console.error('No dev build: add --build (or run npx electron-vite build first).')
   process.exit(2)
 } else if (stale) {
   console.warn(`Warning: ${buildCheck.why}: the suites may test other code. Add --build to build first (only when needed)${opts.record ? '; the run record will say it is not valid' : ''}.\n`)
 }
+// The installer's suites test dist/win-unpacked: is it from this code? npm run dist records that inside it once it is
+// sure what the build was made from (its own record, never dist/build-info.json, which describes the installer set and
+// can be copied in from a worktree beside an older win-unpacked: scripts/distCopy.mjs). Looked at again at the end,
+// for the record.
+const packagedCheck = () => (chosen.some((s) => (s.needs ?? []).includes('packaged')) && existsSync(join(root, 'dist', 'win-unpacked')) ? packagedStatus(readUnpackedInfo(join(root, 'dist')), fingerprint(root)) : null)
+const packagedStale = packagedCheck()
+if (packagedStale) console.warn(`Warning: ${packagedStale}: the installer's suites may test other code. Run npm run dist first${opts.record ? '; the run record will say it is not valid' : ''}.\n`)
 
 // The runner's lane (lanes.mjs): ports and suite folders no other runner on this machine uses while this one runs, so
 // runners started at the same time from different worktrees don't take each other's. A runner started inside a suite
@@ -346,7 +356,7 @@ let recordInvalid = false
 if (opts.record) {
   // Named for the code as it was when the first run started, and only valid if it is still that code, built fresh (and,
   // for a repeat, every run passed).
-  const status = repeatStatus({ repeat, runs, before: codeBefore, after: fingerprint(root), buildStale: stale })
+  const status = repeatStatus({ repeat, runs, before: codeBefore, after: fingerprint(root), buildStale: stale, packagedStale: packagedStale ?? packagedCheck() })
   recordInvalid = !status.valid
   const md = recordMarkdown({ code: codeBefore, when: new Date().toISOString().slice(0, 16).replace('T', ' '), jobs, results: lastRun.results, logDir: lastRun.logDir, summary, problems: status.problems, notRun: notRun.map((s) => s.name), runs: repeat > 1 ? Object.assign(runs, { repeat }) : null })
   for (const r of runs) writeFileSync(join(r.logDir, 'run-record.md'), md)
