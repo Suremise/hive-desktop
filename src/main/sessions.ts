@@ -134,8 +134,10 @@ interface LiveSession {
   askedAtStart?: boolean
   /** For a CLI whose terminal title says when a person must act (ProviderAdapter.titleAttention): its test, for this launch. */
   titleAttention?: (title: string) => boolean
-  /** The title says a person must act now. */
+  /** The title says a person must act now (as the status has it: applied in order with the hooks). */
   titleAsks?: boolean
+  /** What the title said when last read, maybe not applied yet. */
+  titleRead?: boolean
   /** The unfinished title sequence the last output ended with. */
   titleCarry?: string
   /** Asks its hooks reported that are still open, and the one it waits on (HookStatusInput). */
@@ -1202,10 +1204,18 @@ class SessionManager {
     l.titleCarry = carry
     if (title === null) return
     const asks = l.titleAttention(title)
-    if (asks === !!l.titleAsks) return
-    const step = l.state.status === 'starting' || l.askedAtStart ? null : titleStep(asks, this.statusInput(l))
-    l.titleAsks = asks
-    if (step) this.carryOut(id, l, step, 'title')
+    if (asks === !!l.titleRead) return
+    l.titleRead = asks
+    // After the hooks that came before it: they are answered at once and handled one at a time, so a slow one (the
+    // first records the session) holds back a prompt and an ask that came before the title (#254).
+    const runId = l.state.runId
+    void this.inHookOrder(runId, () => {
+      const now = this.live.get(id)
+      if (!now || now.state.runId !== runId || asks === !!now.titleAsks) return
+      const step = now.state.status === 'starting' || now.askedAtStart ? null : titleStep(asks, this.statusInput(now))
+      now.titleAsks = asks
+      if (step) this.carryOut(id, now, step, 'title')
+    }).catch((e) => log.warn('title: could not apply it', e))
   }
 
   /** For CLIs whose first hook waits for the first prompt: the prompt showing in the terminal means ready. */
@@ -2168,7 +2178,7 @@ class SessionManager {
     this.emitState(l.state)
   }
 
-  /** Each launch's hooks, handled one at a time in the order they came. */
+  /** Each launch's hooks (and its title's changes: watchTitle), handled one at a time in the order they came. */
   private hookQueues = new Map<string, Promise<void>>()
 
   /**
@@ -2176,10 +2186,14 @@ class SessionManager {
    * order: an older one that awaits (recording the session) must not land after a newer one's status.
    */
   handleHook(runId: string | null, body: Record<string, any>): Promise<void> {
-    const key = runId ?? `session:${String(body.session_id ?? '')}`
     // A turn's end releases only the locks claimed before it arrived: PreToolUse claims them at once, outside this queue.
     const arrived = this.lockSeq
-    const run = (this.hookQueues.get(key) ?? Promise.resolve()).then(() => this.handleHookNow(runId, body, arrived))
+    return this.inHookOrder(runId ?? `session:${String(body.session_id ?? '')}`, () => this.handleHookNow(runId, body, arrived))
+  }
+
+  /** Runs `fn` after what is queued for the launch (its hooks, its title), in the order they came. */
+  private inHookOrder(key: string, fn: () => Promise<void> | void): Promise<void> {
+    const run = (this.hookQueues.get(key) ?? Promise.resolve()).then(fn)
     const tail = run.catch(() => undefined)
     this.hookQueues.set(key, tail)
     void tail.then(() => {
