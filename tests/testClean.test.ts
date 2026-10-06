@@ -3,17 +3,17 @@
 import { createRequire } from 'module'
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 // @ts-expect-error: plain .mjs modules without types
 import { clean, holdLane, plan } from './e2e/clean.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { claimLane } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { pruneRunDirs } from './e2e/logs.mjs'
+import { finishRunDirs, newRunDir, pruneRunDirs, pruneRunDirsReleasing } from './e2e/logs.mjs'
 
 const require = createRequire(import.meta.url)
-const { citedBy, readCards, evidence, freshFolder, clearSuiteDir } = require('./e2e/evidence.cjs')
+const { citedBy, readCards, evidence, freshFolder, finishSuiteDir, recordKept, releaseKept, claimedByRuns, MAX_COPIES } = require('./e2e/evidence.cjs')
 const { pruneResults, saveBaseline } = require('./scenarios/benchmark.cjs')
 
 type Card = { number: number; text: string }
@@ -72,11 +72,19 @@ describe('what cards cite (they keep it)', () => {
     expect(citedBy('evidence', [card(246, 'evidence\\gone.png')], ['246-before.png'])).toBe(null)
   })
 
-  it('a folder cited as a whole keeps everything in it: a lane, a scenario lane, a suite folder', () => {
-    expect(citedBy('e2e/lanes/0/board', [card(7, 'everything in hive-test\\e2e\\lanes\\0 is the evidence')])).toBe(7)
+  it('a folder cited as a whole keeps everything in it: a suite folder, a scenario folder', () => {
     expect(citedBy('e2e/lanes/0/board/board-ws', [card(7, 'see lanes\\0\\board\\ for the run')])).toBe(7)
-    expect(citedBy('scenarios/lanes/2/review-card-fake', [card(8, '%LOCALAPPDATA%\\hive-test\\scenarios\\lanes\\2')])).toBe(8)
+    expect(citedBy('e2e/lanes/0/board/board-ws', [card(7, '%LOCALAPPDATA%\\hive-test\\e2e\\lanes\\0\\board')])).toBe(7)
     expect(citedBy('scenarios/lanes/2/review-card-fake/ws', [card(8, 'scenarios\\lanes\\2\\review-card-fake: kept with --keep')])).toBe(8)
+  })
+
+  it('…but a lane is a place, not evidence: naming one keeps nothing in it (#285)', () => {
+    // #285's own description named lane 0, as #253's comments did: every folder every later run made there was kept.
+    const lane0 = [card(285, '`e2e\\lanes\\0` = 23 GB, 2,078 entries'), card(7, 'everything in hive-test\\e2e\\lanes\\0 is the evidence')]
+    for (const rel of ['e2e/lanes/0/board', 'e2e/lanes/0/about-10', 'e2e/lanes/0/codex-setup-14/codex-setup-ws']) expect(citedBy(rel, lane0), rel).toBe(null)
+    expect(citedBy('scenarios/lanes/2/review-card-fake', [card(8, '%LOCALAPPDATA%\\hive-test\\scenarios\\lanes\\2')])).toBe(null)
+    // A suite folder or a file in it named in the same text still is.
+    expect(citedBy('e2e/lanes/0/board', [card(9, 'lanes\\0 has it: e2e\\lanes\\0\\board\\board.png')])).toBe(9)
   })
 
   it('…but a path through a folder keeps only what it names, and a name only with its boundary', () => {
@@ -131,6 +139,7 @@ describe('the clean-up (clean.mjs)', () => {
       'scenarios/results/run1/results.json': 30,
       'scenarios/lanes/0/old-scenario/': 10,
       'scenarios/lanes/0/new-scenario/': 0,
+      'scenarios/lanes/0/new-scenario-3/': 0,
       'scenarios/lanes/2/kept-scenario/ws/': 10,
       'e2e/logs/run-20260101-000000/board.log': 30,
       'e2e/lanes/0/board-profile/Cache/data': 0,
@@ -138,10 +147,12 @@ describe('the clean-up (clean.mjs)', () => {
       'e2e/lanes/0/board/board.png': 0,
       'e2e/lanes/0/about/about-profile/x': 10,
       'e2e/lanes/0/about-2/about-profile/x': 10,
+      'e2e/lanes/0/about-7/about-profile/x': 0,
       'e2e/lanes/1/board-profile/x': 0,
       'e2e/lanes/1/about/': 10,
       'e2e/lanes/3/board-profile/x': 10,
       'e2e/lanes/3/about/': 10,
+      'e2e/lanes/3/plan/plan.png': 10,
       'e2e/review12-probe/': 10,
       'e2e/review13-cited/shot.png': 10,
       'e2e/review14-done/': 10,
@@ -158,11 +169,14 @@ describe('the clean-up (clean.mjs)', () => {
     })
     mkdirSync(lanesDir, { recursive: true })
     writeFileSync(join(lanesDir, 'lane-1.json'), JSON.stringify({ pid: 4242, at: Date.now() }))
+    // A failed run in the logs keeps its suite's folder (about-2) until KEEP_RUNS prunes the run (#285).
+    writeFileSync(join(root, 'e2e', 'logs', 'run-20260101-000000', '.kept-folders.json'), JSON.stringify([join(root, 'e2e', 'lanes', '0', 'about-2')]))
     const cards = [
       card(300, 'kept: hive-test\\e2e\\review13-cited\\shot.png'),
       card(301, 'see evidence\\246-before.png'),
       card(302, 'the whole lane: %LOCALAPPDATA%\\hive-test\\e2e\\lanes\\3'),
-      card(303, 'kept with --keep: hive-test\\scenarios\\lanes\\2\\kept-scenario')
+      card(303, 'kept with --keep: hive-test\\scenarios\\lanes\\2\\kept-scenario'),
+      card(304, 'the failure: e2e\\lanes\\3\\plan\\plan.png')
     ]
     const alive = (pid: number) => pid === 4242
     return { root, lanesDir, cards, alive }
@@ -177,23 +191,25 @@ describe('the clean-up (clean.mjs)', () => {
     const m = machine()
     const r = await run(m)
     const gone = r.removed.map((x: { rel: string }) => x.rel).sort()
-    expect(gone).toEqual(['charts-132', 'checks.txt', 'e2e/lanes/0/about', 'e2e/lanes/0/about-2', 'e2e/lanes/0/board-profile', 'e2e/lanes/0/board.png', 'e2e/review12-probe', 'e2e/review14-done', 'scenarios/lanes/0/old-scenario', 'scratch/claudio-2026-10-01'])
+    expect(gone).toEqual(['charts-132', 'checks.txt', 'e2e/lanes/0/about', 'e2e/lanes/0/about-7', 'e2e/lanes/0/board', 'e2e/lanes/0/board-profile', 'e2e/lanes/0/board.png', 'e2e/lanes/3/about', 'e2e/lanes/3/board-profile', 'e2e/review12-probe', 'e2e/review14-done', 'scenarios/lanes/0/new-scenario-3', 'scenarios/lanes/0/old-scenario', 'scratch/claudio-2026-10-01'])
     // Never the test homes' sign-ins, scenario results, logs, the claims and the timings.
     for (const p of ['codex/auth.json', 'codex/packages', 'claude/.credentials.json', 'scenarios/results/run1/results.json', 'e2e/logs/run-20260101-000000/board.log', 'progress-timings.json', 'heavy-slots', 'build-locks'])
       expect(there(m.root, p), p).toBe(true)
     // A lane a runner holds: nothing in it, legacy or old.
     expect(there(m.root, 'e2e/lanes/1/board-profile/x')).toBe(true)
     expect(there(m.root, 'e2e/lanes/1/about')).toBe(true)
-    // An idle lane: a recent suite folder stays (its screenshots); scenario lanes go by age.
-    expect(there(m.root, 'e2e/lanes/0/board/board.png')).toBe(true)
+    // An idle lane: any suite folder no run keeps goes, however new (#285); a failed run's stays with its logs. Scenario
+    // lanes: what --keep left by age, numbered copies at once.
+    expect(there(m.root, 'e2e/lanes/0/about-2/about-profile/x')).toBe(true)
+    expect(r.items.find((i: { rel: string }) => i.rel === 'e2e/lanes/0/about-2').why).toMatch(/its failed run keeps it/)
     expect(there(m.root, 'scenarios/lanes/0/new-scenario')).toBe(true)
-    // Cited by an open card: kept, and said so; a lane or a scenario folder cited as a whole keeps what is in it.
+    // Cited by an open card: kept, and said so; a scenario folder or suite folder cited keeps what is in it, a whole lane
+    // named keeps nothing (#285).
     expect(there(m.root, 'e2e/review13-cited/shot.png')).toBe(true)
     expect(there(m.root, 'evidence/246-before.png')).toBe(true)
     expect(r.items.find((i: { rel: string }) => i.rel === 'evidence').why).toBe('cited by #301')
-    expect(there(m.root, 'e2e/lanes/3/board-profile/x')).toBe(true)
-    expect(there(m.root, 'e2e/lanes/3/about')).toBe(true)
-    expect(r.items.find((i: { rel: string }) => i.rel === 'e2e/lanes/3/about').why).toBe('cited by #302')
+    expect(there(m.root, 'e2e/lanes/3/plan/plan.png')).toBe(true)
+    expect(r.items.find((i: { rel: string }) => i.rel === 'e2e/lanes/3/plan').why).toBe('cited by #304')
     expect(there(m.root, 'scenarios/lanes/2/kept-scenario/ws')).toBe(true)
     // New things stay.
     for (const p of ['short tmp', 'e2e/board-profile', 'scratch/claudio-2026-10-06']) expect(there(m.root, p), p).toBe(true)
@@ -206,7 +222,7 @@ describe('the clean-up (clean.mjs)', () => {
     const m = machine()
     const dry = await run(m, { dryRun: true })
     expect(dry.removed).toEqual([])
-    expect(dry.items.filter((i: { remove: boolean }) => i.remove).length).toBe(10)
+    expect(dry.items.filter((i: { remove: boolean }) => i.remove).length).toBe(14)
     expect(there(m.root, 'charts-132')).toBe(true)
   })
 
@@ -219,12 +235,12 @@ describe('the clean-up (clean.mjs)', () => {
     for (const p of ['charts-132', 'e2e/lanes/0/board-profile', 'e2e/lanes/0/about', 'scenarios/lanes/0/old-scenario']) expect(there(m.root, p), p).toBe(true)
   })
 
-  it('--days 0 empties idle lanes but still keeps what is held, cited and kept', async () => {
+  it('--days 0 removes everything else, but still keeps what is held, cited and claimed', async () => {
     const m = machine()
     await run(m, { days: 0 })
-    expect(readdirSync(join(m.root, 'e2e', 'lanes', '0'))).toEqual([])
+    expect(readdirSync(join(m.root, 'e2e', 'lanes', '0'))).toEqual(['about-2'])
     expect(there(m.root, 'e2e/lanes/1/board-profile/x')).toBe(true)
-    expect(there(m.root, 'e2e/lanes/3/about')).toBe(true)
+    expect(readdirSync(join(m.root, 'e2e', 'lanes', '3'))).toEqual(['plan'])
     expect(there(m.root, 'e2e/review13-cited')).toBe(true)
     expect(there(m.root, 'codex/auth.json')).toBe(true)
   })
@@ -258,7 +274,9 @@ describe('the clean-up (clean.mjs)', () => {
     const why = (rel: string) => items.find((i: { rel: string }) => i.rel === rel)?.why
     expect(why('e2e/lanes/1')).toBe('a runner holds the lane')
     expect(why('e2e/lanes/0/board-profile')).toMatch(/before suites had folders of their own/)
-    expect(why('e2e/lanes/0/about-2')).toMatch(/days old/)
+    expect(why('e2e/lanes/0/about-2')).toMatch(/its failed run keeps it/)
+    expect(why('e2e/lanes/0/about-7')).toBe('no run keeps it')
+    expect(why('scenarios/lanes/0/new-scenario-3')).toBe('a copy an earlier run left')
     expect(why('charts-132')).toMatch(/days old/)
     expect(why('short tmp')).toBe('newer than 3 days')
     expect(why('codex')).toBe(undefined)
@@ -288,14 +306,185 @@ describe("the runners' own deletions keep evidence too", () => {
     expect(existsSync(join(lane, 'about', 'about.png'))).toBe(true)
   })
 
-  it('after a pass its folders go and its files stay, except a folder a card cited meanwhile', () => {
+  it("after a pass the suite's whole folder goes; a failed one's, or one a card cites something in, stays (#285)", () => {
     const root = temp('hive-clean-suite-')
-    const dir = join(root, 'e2e', 'lanes', '0', 'board')
-    tree(dir, { 'board-profile/Cache/x': 0, 'board-ws/a.ts': 0, 'evidence/shot.png': 0, 'board.png': 0, 'replysize.json': 0 })
-    const ev = rules(root, [card(401, 'lanes\\0\\board\\evidence\\shot.png')])
-    expect(clearSuiteDir(dir, ev)).toEqual({ removed: 2, kept: ['cited by #401'] })
-    expect(readdirSync(dir).sort()).toEqual(['board.png', 'evidence', 'replysize.json'])
-    expect(lstatSync(join(dir, 'evidence', 'shot.png')).isFile()).toBe(true)
+    const lane = join(root, 'e2e', 'lanes', '0')
+    tree(lane, { 'board/board-profile/Cache/x': 0, 'board/evidence/shot.png': 0, 'board/board.png': 0, 'about/about-ws/a.ts': 0, 'about/about.png': 0, 'plan/plan-ws/a.ts': 0 })
+    // A card naming the whole lane keeps nothing; one naming a file in board keeps board.
+    const ev = rules(root, [card(285, '`e2e\\lanes\\0` = 23 GB'), card(401, 'lanes\\0\\board\\evidence\\shot.png')])
+    expect(finishSuiteDir(join(lane, 'about'), ev, true)).toEqual({ removed: true, kept: null })
+    expect(existsSync(join(lane, 'about'))).toBe(false)
+    expect(finishSuiteDir(join(lane, 'board'), ev, true)).toEqual({ removed: false, kept: 'cited by #401' })
+    expect(lstatSync(join(lane, 'board', 'evidence', 'shot.png')).isFile()).toBe(true)
+    expect(finishSuiteDir(join(lane, 'plan'), ev, false)).toEqual({ removed: false, kept: 'it failed' })
+    expect(readdirSync(lane).sort()).toEqual(['board', 'plan'])
+  })
+
+  it('suite folders never pile up: a failed one goes with its run (KEEP_RUNS), a passed one at once (#285)', async () => {
+    const root = temp('hive-clean-runs-')
+    const lane = join(root, 'e2e', 'lanes', '0')
+    const logs = join(root, 'e2e', 'logs')
+    // The runner holds lane 0 (this process), as it does while it prunes its runs.
+    const lanesDir = join(root, 'e2e-lanes')
+    mkdirSync(lanesDir, { recursive: true })
+    writeFileSync(join(lanesDir, 'lane-0.json'), JSON.stringify({ pid: process.pid, at: Date.now() }))
+    const hold = (k: number) => holdLane(lanesDir, k)
+    // Cards naming the lane as a place (as #253's and #285's did) change nothing.
+    const ev = rules(root, [card(285, 'e2e\\lanes\\0 holds 23 GB'), card(253, '`e2e\\lanes\\0–9`')])
+    const suites = ['about', 'board', 'plan']
+    const keep = 1
+    /** One run: each suite in a fresh folder of its own, a file written in it, failed ones kept with the run. */
+    const runOnce = async (sec: number, failing: string[]) => {
+      const runDir = newRunDir(logs, new Date(2026, 9, 6, 12, 0, sec))
+      const claimed = claimedByRuns([logs])
+      for (const s of suites) {
+        const dir = freshFolder(join(lane, s), ev, { claimed: (d: string) => claimed.has(resolve(d).toLowerCase()) })
+        writeFileSync(join(dir, `${s}.png`), 'x'.repeat(1000))
+        mkdirSync(join(dir, `${s}-profile`))
+        const end = finishSuiteDir(dir, ev, !failing.includes(s))
+        if (end.kept) recordKept(runDir, [dir])
+      }
+      finishRunDirs([runDir])
+      await pruneRunDirsReleasing(logs, keep, [runDir], () => false, (p: string) => ev.protects(p), { release: (d: string) => releaseKept(d, ev, { hold, testRoot: root }) })
+      return readdirSync(lane).sort()
+    }
+    // Run 1: about fails, kept with run 1.
+    expect(await runOnce(1, ['about'])).toEqual(['about'])
+    // Run 2: about (run 1 still keeps the old one: about-2) and board fail; run 1's logs go, and its about with them.
+    expect(await runOnce(2, ['about', 'board'])).toEqual(['about-2', 'board'])
+    // Run 3: all pass; run 2's logs go with its folders. Nothing is left.
+    expect(await runOnce(3, [])).toEqual([])
+    // Its own lane's claim is still its own.
+    expect(JSON.parse(readFileSync(join(lanesDir, 'lane-0.json'), 'utf8')).pid).toBe(process.pid)
+    // Many runs, failing in turns: the lane never holds more than the suites' failed folders of the kept runs.
+    for (let i = 0; i < 12; i++) expect((await runOnce(10 + i, [suites[i % 3]])).length, `run ${i}`).toBeLessThanOrEqual(suites.length * (keep + 1))
+  })
+
+  it("a run's kept folders in a lane another runner holds are left for the clean-up, never removed under it", async () => {
+    const root = temp('hive-clean-held-')
+    const lanesDir = join(root, 'e2e-lanes')
+    tree(root, { 'e2e/lanes/0/about/about.png': 0, 'e2e/lanes/2/board/board.png': 0, 'e2e/logs/run-20261006-120000/about.log': 0 })
+    const run = join(root, 'e2e', 'logs', 'run-20261006-120000')
+    recordKept(run, [join(root, 'e2e', 'lanes', '0', 'about'), join(root, 'e2e', 'lanes', '2', 'board')])
+    mkdirSync(lanesDir, { recursive: true })
+    // Lane 0: another runner (alive) holds it. Lane 2: idle, but a runner takes it just as the release looks.
+    writeFileSync(join(lanesDir, 'lane-0.json'), JSON.stringify({ pid: 4242, at: Date.now() }))
+    const alive = (pid: number) => pid === 4242 || pid === 4343
+    const hold = async (k: number) => {
+      if (k === 2) writeFileSync(join(lanesDir, 'lane-2.json'), JSON.stringify({ pid: 4343, at: Date.now() }))
+      return holdLane(lanesDir, k, { owner: 1, alive })
+    }
+    const ev = rules(root, [])
+    expect(await releaseKept(run, ev, { hold, testRoot: root })).toEqual({ removed: 0, deferred: 2, refused: null })
+    expect(existsSync(join(root, 'e2e', 'lanes', '0', 'about', 'about.png'))).toBe(true)
+    expect(existsSync(join(root, 'e2e', 'lanes', '2', 'board', 'board.png'))).toBe(true)
+    // The run's logs go; once the lanes are idle, the clean-up finds the folders no run claims and removes them.
+    rmSync(run, { recursive: true, force: true })
+    for (const k of [0, 2]) rmSync(join(lanesDir, `lane-${k}.json`))
+    const r = await clean({ root, lanesDir, ev, alive, owner: 1 })
+    expect(r.removed.map((x: { rel: string }) => x.rel).sort()).toEqual(['e2e/lanes/0/about', 'e2e/lanes/2/board'])
+  })
+
+  it('a kept-folders manifest authorises nothing unless every entry is a suite folder in a lane', async () => {
+    const root = temp('hive-clean-manifest-')
+    const outside = temp('hive-clean-outside-')
+    tree(root, {
+      'codex/auth.json': 0,
+      'claude/.credentials.json': 0,
+      'scenarios/results/kept-run/results.json': 0,
+      'e2e/lanes/0/about/about.png': 0,
+      'e2e/lanes/0/board/nested/plan/plan.png': 0,
+      'e2e/logs/run-1/a.log': 0
+    })
+    symlinkSync(outside, join(root, 'e2e', 'lanes', '0', 'linked'), 'junction')
+    const run = join(root, 'e2e', 'logs', 'run-1')
+    const ev = rules(root, [])
+    const hold = async () => () => {}
+    const write = (entries: unknown) => writeFileSync(join(run, '.kept-folders.json'), JSON.stringify(entries))
+    const at = (...p: string[]) => join(root, ...p)
+    const bad = [
+      at('codex', 'auth.json'),
+      at('claude', '.credentials.json'),
+      at('codex'),
+      at('scenarios', 'results', 'kept-run'),
+      at('e2e', 'lanes', '0'),
+      at('e2e', 'lanes'),
+      root,
+      `${at('e2e', 'lanes', '0', 'about')}\\..\\..\\..\\..\\codex`,
+      'e2e\\lanes\\0\\about',
+      at('e2e', 'lanes', '0', 'linked'),
+      42
+    ]
+    for (const entry of bad) {
+      // Alone, or beside a valid entry: nothing at all is removed.
+      for (const entries of [[entry], [at('e2e', 'lanes', '0', 'about'), entry]]) {
+        write(entries)
+        const r = await releaseKept(run, ev, { hold, testRoot: root })
+        expect(r.removed, JSON.stringify(entry)).toBe(0)
+        expect(r.refused, JSON.stringify(entry)).toMatch(/not a suite folder in a lane/)
+      }
+    }
+    write({ not: 'a list' })
+    expect((await releaseKept(run, ev, { hold, testRoot: root })).refused).toMatch(/isn't a list/)
+    for (const p of ['codex/auth.json', 'claude/.credentials.json', 'scenarios/results/kept-run/results.json', 'e2e/lanes/0/about/about.png']) expect(existsSync(join(root, p)), p).toBe(true)
+    expect(readdirSync(outside)).toEqual([])
+    // A valid manifest: a suite folder, and a nested run's inside one.
+    write([at('e2e', 'lanes', '0', 'about'), at('e2e', 'lanes', '0', 'board', 'nested', 'plan')])
+    expect(await releaseKept(run, ev, { hold, testRoot: root })).toEqual({ removed: 2, deferred: 0, refused: null })
+    expect(existsSync(at('e2e', 'lanes', '0', 'about'))).toBe(false)
+    expect(existsSync(at('e2e', 'lanes', '0', 'board', 'nested', 'plan'))).toBe(false)
+    expect(existsSync(at('e2e', 'lanes', '0', 'board'))).toBe(true)
+  })
+
+  it('nothing is deleted through a link on the way: a linked lane, a linked parent of a nested run, one linked meanwhile', async () => {
+    const root = temp('hive-clean-linked-')
+    const outside = temp('hive-clean-outside-')
+    tree(outside, { 'about/precious.txt': 0, 'plan/precious.txt': 0, 'swap/plan/precious.txt': 0 })
+    tree(root, { 'e2e/lanes/0/about/about.png': 0, 'e2e/lanes/0/board/board.png': 0, 'e2e/logs/run-1/a.log': 0 })
+    // Lane 1 is a junction to the outside folder; board's nested/ in lane 0 too.
+    symlinkSync(outside, join(root, 'e2e', 'lanes', '1'), 'junction')
+    symlinkSync(outside, join(root, 'e2e', 'lanes', '0', 'board', 'nested'), 'junction')
+    const run = join(root, 'e2e', 'logs', 'run-1')
+    const ev = rules(root, [])
+    const hold = async () => () => {}
+    const write = (entries: string[]) => writeFileSync(join(run, '.kept-folders.json'), JSON.stringify(entries))
+    const valid = join(root, 'e2e', 'lanes', '0', 'about')
+    for (const linked of [join(root, 'e2e', 'lanes', '1', 'about'), join(root, 'e2e', 'lanes', '0', 'board', 'nested', 'plan')]) {
+      write([valid, linked])
+      const r = await releaseKept(run, ev, { hold, testRoot: root })
+      expect(r.removed, linked).toBe(0)
+      expect(r.refused, linked).toMatch(/not a suite folder in a lane/)
+    }
+    expect(existsSync(join(outside, 'about', 'precious.txt'))).toBe(true)
+    expect(existsSync(join(outside, 'plan', 'precious.txt'))).toBe(true)
+    expect(existsSync(join(valid, 'about.png'))).toBe(true)
+    // The rule every deletion asks says so too.
+    expect(ev.protects(join(root, 'e2e', 'lanes', '1', 'about'))).toMatch(/reached through a link/)
+    // A folder on the way turned into a link while the release waited for the lane: checked again, nothing goes.
+    tree(root, { 'e2e/lanes/2/board/nested/plan/plan.png': 0 })
+    write([join(root, 'e2e', 'lanes', '2', 'board', 'nested', 'plan')])
+    const swap = async () => {
+      rmSync(join(root, 'e2e', 'lanes', '2', 'board', 'nested'), { recursive: true, force: true })
+      symlinkSync(join(outside, 'swap'), join(root, 'e2e', 'lanes', '2', 'board', 'nested'), 'junction')
+      return () => {}
+    }
+    const late = await releaseKept(run, ev, { hold: swap, testRoot: root })
+    expect(late.removed).toBe(0)
+    expect(late.refused).toMatch(/no longer a suite folder reached through no link/)
+    expect(existsSync(join(outside, 'swap', 'plan', 'precious.txt'))).toBe(true)
+    // The clean-up doesn't delete through a linked lane either.
+    const cleaned = await clean({ root, lanesDir: join(root, 'e2e-lanes'), ev, owner: 779, days: 0 })
+    expect(cleaned.removed.map((x: { rel: string }) => x.rel)).not.toContain('e2e/lanes/1/about')
+    for (const f of ['about/precious.txt', 'plan/precious.txt', 'swap/plan/precious.txt']) expect(existsSync(join(outside, f)), f).toBe(true)
+  })
+
+  it('the copies of a folder are capped: past MAX_COPIES the suite is refused, saying what keeps them', () => {
+    const root = temp('hive-clean-cap-')
+    const lane = join(root, 'e2e', 'lanes', '0')
+    tree(lane, { 'about/x': 0, 'about-2/x': 0, 'about-3/x': 0 })
+    const all = () => 'cited by #9'
+    expect(() => freshFolder(join(lane, 'about'), { protects: all }, { max: 3 })).toThrow(/3 copies of about are kept .* \(cited by #9\)/)
+    expect(MAX_COPIES).toBeGreaterThanOrEqual(30)
   })
 
   /** A real board folder: cards written as Hive writes them, so a test can change one between two looks. */
@@ -319,7 +508,7 @@ describe("the runners' own deletions keep evidence too", () => {
     expect(ev.protects(profile)).toBe(null)
     // …then a card in Review cites a file in it, and the suite passes at once.
     b.write(2, { column: 'review', comments: [{ text: 'see hive-test/e2e/lanes/0/board/board-profile/evidence.txt' }] })
-    expect(clearSuiteDir(dir, ev)).toEqual({ removed: 1, kept: ['cited by #2'] })
+    expect(finishSuiteDir(dir, ev, true)).toEqual({ removed: false, kept: 'cited by #2' })
     expect(readFileSync(join(profile, 'evidence.txt'), 'utf8')).toHaveLength(100)
     // The same for a folder the next run would take over, and for the clean-up's removals.
     expect(freshFolder(dir, ev)).toBe(`${dir}-2`)
@@ -337,15 +526,15 @@ describe("the runners' own deletions keep evidence too", () => {
     b.write(3, { description: 'hive-test\\e2e\\lanes\\0\\about\\evidence\\shot.png' })
     // A card being saved badly (or the board gone) when the suite passes: everything stays.
     writeFileSync(join(b.dir, '4.json'), '{ half-written')
-    const r = clearSuiteDir(dir, ev)
-    expect(r.removed).toBe(0)
-    expect(r.kept).toHaveLength(2)
-    expect(r.kept[0]).toMatch(/card 4\.json .* can't be read/)
+    const r = finishSuiteDir(dir, ev, true)
+    expect(r.removed).toBe(false)
+    expect(r.kept).toMatch(/card 4\.json .* can't be read/)
     expect(readdirSync(dir).sort()).toEqual(['about-profile', 'about.png', 'evidence'])
-    // Readable again: the cited folder still stays, the rest goes.
+    // Readable again: it still stays (a card cites something in it); an uncited one goes.
     b.write(4, { description: 'fixed' })
-    expect(clearSuiteDir(dir, ev)).toEqual({ removed: 1, kept: ['cited by #3'] })
-    expect(readdirSync(dir).sort()).toEqual(['about.png', 'evidence'])
+    expect(finishSuiteDir(dir, ev, true)).toEqual({ removed: false, kept: 'cited by #3' })
+    const other = freshFolder(join(lane, 'board'), ev)
+    expect(finishSuiteDir(other, ev, true)).toEqual({ removed: true, kept: null })
   })
 
   it("the clean-up checks each removal against the board as it is then, not as it was when it listed them", async () => {

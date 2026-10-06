@@ -29,7 +29,7 @@
 // port, never the environment the runner was started from.
 import { spawn, spawnSync } from 'child_process'
 import { existsSync, writeFileSync } from 'fs'
-import { join, dirname } from 'path'
+import { join, dirname, resolve as resolvePath } from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { e2eProgress, slotWaitProgress } from '../progressReport.mts'
@@ -38,17 +38,17 @@ import { affectedSuites, changedFiles } from './affected.mjs'
 import { fingerprint, recordMarkdown } from './record.mjs'
 import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, selectSuites, suiteOutcome } from './runner.mjs'
 import { devBuild, ensureBuild } from './build.mjs'
-import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, pruneRunDirs } from './logs.mjs'
+import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, pruneRunDirsReleasing } from './logs.mjs'
 import { LANES, claimLane, laneWork } from './lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, waitForSlot } from './slots.mjs'
-import { autoClean } from './clean.mjs'
+import { autoClean, holdLane } from './clean.mjs'
 import { readUnpackedInfo } from '../../scripts/distCopy.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
 const lib = createRequire(import.meta.url)('./lib.cjs')
 const runContext = createRequire(import.meta.url)('./runContext.cjs')
-const { clearSuiteDir, evidenceFor, freshFolder } = createRequire(import.meta.url)('./evidence.cjs')
+const { claimedByRuns, evidenceFor, finishSuiteDir, freshFolder, recordKept, releaseKept } = createRequire(import.meta.url)('./evidence.cjs')
 
 const args = process.argv.slice(2)
 const opts = parseArgs(args, SUITES.map((s) => s.name))
@@ -61,6 +61,15 @@ const { jobs } = opts
 if (opts.fingerprint) {
   console.log(fingerprint(root))
   process.exit(0)
+}
+
+// What may be deleted (#253, evidence.cjs): never what a card that isn't Done cites. That needs the board: without it
+// nothing a run made could be removed, and runs would pile up copies of their suites' folders (#285), so it doesn't
+// start. HIVE_TEST_NO_BOARD=1 says there is no board (a checkout outside a Hive workspace): nothing is evidence then.
+const evidence = evidenceFor(root)
+if (!evidence.ok) {
+  console.error(`Can't tell what the tests may delete: ${evidence.why}. Fix the board, or set HIVE_TEST_NO_BOARD=1 if no Hive board cites test output on this machine.`)
+  process.exit(2)
 }
 
 // --- Which suites.
@@ -176,19 +185,26 @@ if (lane) console.log(`Lane ${lane.lane}: ports ${lane.first}–${lane.last}\n  
  */
 const suiteEnv = (name, port, dir) => runContext.suiteEnv({ name, port, work: dir, runDir: dir ?? lib.WORK })
 /**
- * What may be deleted (#253, evidence.cjs): never what a card that isn't Done cites, nothing earlier while the board
- * can't be read. Each suite has a folder of its own in the lane's, made fresh when it starts (`<suite>`, or `<suite>-2`…
- * while an earlier one holds evidence). When it passes (or skips), its folders go (profiles, workspaces, test homes:
- * over a gigabyte a lane otherwise), checked against the board as it is then: one a card cites stays, and they all stay
- * while the board can't be read (said at the end). Its files stay (screenshots, reports). When it fails, everything
- * stays for a look, until the suite runs again in this lane or the clean-up's age rule (clean.mjs).
+ * Each suite has a folder of its own in the lane's, made fresh when it starts (`<suite>`, or `<suite>-2`… while an
+ * earlier one is kept). When it passes (or skips), the whole folder goes (#285), unless the board, read as it is then,
+ * says it must stay (a card cites it, or the board can't be read: said at the end). When it fails, it stays for a look.
+ * What stays is tied to the run (evidence.cjs recordKept) and goes when the run's logs are pruned (KEEP_RUNS, and a
+ * failed run a day: logs.mjs), so copies never pile up.
  */
-const evidence = evidenceFor(root)
 
 const run = (name, port) =>
   new Promise((resolve) => {
     const started = Date.now()
-    const dir = suiteWork ? freshFolder(join(suiteWork, name), evidence) : null
+    let dir = null
+    try {
+      // Not a folder a failed run still keeps (its evidence goes with the run's logs).
+      const claimed = claimedByRuns([logsRoot])
+      dir = suiteWork ? freshFolder(join(suiteWork, name), evidence, { claimed: (d) => claimed.has(resolvePath(d).toLowerCase()) }) : null
+    } catch (e) {
+      // Too many kept copies of its folder (evidence.cjs MAX_COPIES): it doesn't run, and says why.
+      resolve({ name, ok: false, failed: [`FAIL ${e.message}`], code: 2, out: `FAIL ${e.message}\n`, seconds: 0, dir: null, kept: null })
+      return
+    }
     // No tip card over what a suite clicks, unless its profile turns tips on (tips does).
     const child = spawn(process.execPath, [join(here, `${name}.cjs`)], { cwd: root, env: suiteEnv(name, port, dir) })
     let out = ''
@@ -205,8 +221,7 @@ const run = (name, port) =>
     child.on('exit', (code) => {
       clearTimeout(timer)
       const outcome = suiteOutcome({ code, out })
-      const cleared = dir && (outcome.ok || outcome.skipped) ? clearSuiteDir(dir, evidence) : null
-      const kept = dir && outcome.ok === false ? 'it failed' : cleared?.kept.length ? cleared.kept[0] : null
+      const kept = dir ? finishSuiteDir(dir, evidence, !!(outcome.ok || outcome.skipped)).kept : null
       resolve({ name, ...outcome, code, out, seconds: Math.round((Date.now() - started) / 1000), dir, kept: kept && `${dir} (${kept})` })
     })
   })
@@ -284,6 +299,8 @@ async function runOnce(k) {
     running.delete(s.name)
     progress.done(step(k, s.name), r.seconds * 1000, r.ok !== false)
     writeFileSync(join(logDir, `${s.name}.log`), r.out)
+    // A folder it kept goes with this run's logs (pruneRunDirsReleasing → releaseKept).
+    if (r.kept && r.dir) recordKept(logDir, [r.dir])
     if (r.skipped) console.log(`${s.name.padEnd(22)}SKIP  ${r.seconds}s  (${r.skipped})`)
     else console.log(`${s.name.padEnd(22)}${r.ok ? 'pass' : 'FAIL'}  ${r.seconds}s${r.ok ? '' : `  (exit ${r.code}${r.failed.length ? `; ${r.failed.length} failed check${r.failed.length === 1 ? '' : 's'}` : ''})`}`)
     for (const f of r.skipped ? [] : r.failed) console.log(`    ${f.trim()}`)
@@ -377,7 +394,11 @@ if (opts.record) {
 // own (a repeat of more than ten keeps them all until the next run prunes) or another runner's still going, nor one a
 // card cites (evidence.cjs).
 finishRunDirs(runs.map((r) => r.logDir))
-pruneRunDirs(logsRoot, undefined, runs.map((r) => r.logDir), undefined, (p) => evidence.protects(p))
+// A pruned run's kept suite folders go with it, in lanes this runner may work in (its own, still held, or an idle one
+// it claims); in a lane another runner holds they are left for the clean-up (evidence.cjs releaseKept).
+await pruneRunDirsReleasing(logsRoot, undefined, runs.map((r) => r.logDir), undefined, (p) => evidence.protects(p), {
+  release: (d) => releaseKept(d, evidence, { hold: (k) => holdLane(runContext.LANES_DIR, k) })
+})
 if (keptAfterPass.length) console.log(`\nKept the folders of ${keptAfterPass.length} passed suite${keptAfterPass.length === 1 ? '' : 's'}: ${keptAfterPass.slice(0, 3).join('; ')}${keptAfterPass.length > 3 ? '; …' : ''}`)
 // What tests left in hive-test that is no longer needed (clean.mjs), this lane's included: it is let go first. Not from
 // a runner inside a suite (its parent's does it).

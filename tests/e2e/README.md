@@ -232,9 +232,9 @@ Everything goes in `%LOCALAPPDATA%\hive-test\e2e` (override with `HIVE_E2E_DIR`)
 
 - `lanes\<k>\<suite>`: the profiles (`HIVE_USER_DATA`), workspaces and screenshots of each suite a runner in lane *k*
   runs (above). The runner gives each suite a folder of its own in its lane's as `HIVE_E2E_DIR`, which `lib.WORK`
-  reads, made fresh when the suite starts (`<suite>-2`… while an earlier one holds evidence: Housekeeping, below). When the suite passes (or skips), its folders (profiles, workspaces, test
-  homes) are removed and its files (screenshots, reports) stay; when it fails, everything stays for a look (the runner
-  prints where), until the suite runs again in that lane or the clean-up below removes it.
+  reads, made fresh when the suite starts (`<suite>-2`… while an earlier run keeps it: Housekeeping, below). When the
+  suite passes (or skips), the whole folder is removed; when it fails, it stays for a look (the runner prints where,
+  and copies its screenshots and reports into the run's log folder) and goes with that run's logs.
 - `logs\run-<date>-<time>`: each run's logs and run record, from every lane (above); `logs\run-record.md` is the latest
   record. The newest ten finished runs are kept, counted across every worktree's and agent's runs. A run that **failed**
   (a suite failed, or its record isn't valid) is kept a day beyond that (the newest twenty such; #223), and its failed
@@ -251,10 +251,11 @@ What the tests leave in `%LOCALAPPDATA%\hive-test` is removed once it is no long
 runner and the scenario runner do it when they finish (at most a minute; what is left goes next time), and
 **`npm run test:clean`** does it on demand and prints each area's size (`--dry-run` lists what would go, and what is
 kept and why, without removing anything; `--days N` sets the age, default 3).
-- **Goes:** in a lane no runner holds (the clean-up claims it meanwhile, so no runner starts there), a suite's folder
-  older than the age, and anything left from before suites had folders of their own; scenario lanes' folders older
-  than the age; in `e2e`, anything but `lanes` and `logs` older than the age (suites run on their own, probes); and
-  anything else in `hive-test` older than the age (one-off folders and files).
+- **Goes:** in a lane no runner holds (the clean-up claims it meanwhile, so no runner starts there), every suite
+  folder no run's logs claim, whatever its age (a failed suite's is claimed until its run is pruned: below), and
+  anything left from before suites had folders of their own; in scenario lanes, numbered copies (`<scenario>-2`…) and
+  folders older than the age; in `e2e`, anything but `lanes` and `logs` older than the age (suites run on their own,
+  probes); and anything else in `hive-test` older than the age (one-off folders and files).
 - **Stays:** the CLI test homes (`codex`, `claude`: their sign-ins; never opened), scenario results and baselines, the
   claims and locks, the concurrency checker's folders (it removes its own), the Progress panel's timings; logs (the
   runner keeps the newest ten runs); a lane a runner holds.
@@ -263,13 +264,22 @@ kept and why, without removing anything; `--days N` sets the age, default 3).
   scenario results and older baselines) and listed as `kept: … (cited by #n)`. A card cites a path by writing it: the
   thing itself (`e2e\review158-dark.png`), a path inside a folder (`evidence\x.png` keeps `evidence`;
   `lanes\0\board\board.png` keeps that suite's folder, not the rest of the lane), or a folder as a whole
-  (`hive-test\e2e\lanes\0` keeps the lane). A name alone isn't a citation, nor an area (`hive-test\e2e`, `scratch`).
-  The cards are read from the workspace's board, found up from this repository's main checkout, afresh for every
-  deletion (a card that cites something a moment before it would go keeps it). **While the board can't be read**
-  (none found, or a card that can't be read), nothing is deleted at all: the clean-up removes nothing and says why,
-  logs aren't pruned, a passed suite's or scenario's folders stay (the runner says so at the end), and a suite whose
-  folder is there already gets `<suite>-2` (…) instead. When a suite's earlier folder holds evidence, the same: the run
-  takes the next free one.
+  (`hive-test\evidence`, `lanes\0\board\`). A name alone isn't a citation, nor an area: `hive-test\e2e`, `scratch`, and
+  **a lane** (`e2e\lanes\0`), which is where runs keep their suites' folders, not evidence (#285: cards naming lane 0
+  kept every folder every later run made there, 2,078 of them, 23 GB in six hours). The cards are read from the
+  workspace's board, found up from this repository's main checkout, afresh for every deletion (a card that cites
+  something a moment before it would go keeps it). **Without the board** (none found, or a card that can't be read)
+  the runners don't start: nothing they made could be removed. Set `HIVE_TEST_NO_BOARD=1` on a machine where no Hive
+  board cites test output. Should the board become unreadable during a run, nothing is deleted meanwhile and what
+  stays is tied to the run.
+- **A suite's folder** in its lane (`lanes\<k>\<suite>`): when the suite passes, the whole folder goes; when it fails
+  (or something in it must stay), it is tied to the run (`.kept-folders.json` in the run's log folder) and goes when
+  that run's logs are pruned (the newest ten runs, a failed run a day): only in a lane the pruning runner may work in
+  (its own, or an idle one it claims; in a lane another runner holds it is left, and the clean-up removes it once the
+  lane is idle, since no run claims it then), and only if every entry of that list is a suite folder in a lane
+  (`e2e\lanes\<k>\<suite>`, or a nested run's inside one), never a test home, results or a lane itself. While an earlier run keeps `<suite>`, a run
+  takes `<suite>-2` (…), at most 32 copies: past that the suite is refused, saying what keeps them, rather than filling
+  the disk.
 - Links in what goes (a worktree's `node_modules` junction) are removed as links, never followed.
 
 **Probes** (a reviewer's or builder's screenshots, scripts and profiles outside a suite) go in the agent's own scratchpad

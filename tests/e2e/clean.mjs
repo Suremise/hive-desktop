@@ -9,10 +9,10 @@
 // up; `test:clean` is for on-demand use and for the sizes.
 //
 // What goes:
-// - In an idle lane (no runner holds its claim: lanes.mjs; the clean-up claims it while it works, so no runner starts
-//   in it meanwhile): a suite's folder (kept because the suite failed, or holding its screenshots) older than the age,
-//   and anything left from before suites had folders of their own (their profiles and workspaces directly in the lane),
-//   whatever its age. The same for the scenario runner's lanes.
+// - In an idle e2e lane (no runner holds its claim: lanes.mjs; the clean-up claims it while it works, so no runner starts
+//   in it meanwhile): every suite folder no run claims (a failed suite's is claimed by its run's logs until KEEP_RUNS
+//   prunes them: #285), and anything left from before suites had folders of their own, whatever their age. In an idle
+//   scenario lane: numbered copies (`<scenario>-2`…) whatever their age, the rest (what --keep left) by age.
 // - In the e2e work folder: anything but `lanes` and `logs` older than the age (suites run on their own, probes).
 // - Anything else in hive-test older than the age (one-off folders and files: reviewers' and builders' probes).
 //   `scratch\<agent>-<date>` is the place for probes that must be under hive-test: its folders go by the same age.
@@ -36,7 +36,7 @@ import { SUITES } from './suites.mjs'
 
 const require = createRequire(import.meta.url)
 const runContext = require('./runContext.cjs')
-const { evidenceFor, safeList, sizeOf, removeTree } = require('./evidence.cjs')
+const { claimedByRuns, evidenceFor, safeList, sizeOf, removeTree } = require('./evidence.cjs')
 
 /** Leftovers older than this many days go (--days). */
 export const PRUNE_DAYS = 3
@@ -54,7 +54,10 @@ export const KEPT = {
   'progress-timings.json': "the Progress panel's suite timings"
 }
 
-/** Holds lane k's claim (lanes.mjs) for the clean-up: its release, or null when a runner holds it. */
+/**
+ * Holds lane k's claim (lanes.mjs) for the clean-up: its release, or null when another runner holds it. A lane this
+ * process holds already (owner) is its to work in: a release that leaves the claim alone.
+ */
 export async function holdLane(dir, k, { owner = process.pid, alive = processAlive, now = () => Date.now() } = {}) {
   mkdirSync(dir, { recursive: true })
   return withLock(dir, async () => {
@@ -65,7 +68,11 @@ export async function holdLane(dir, k, { owner = process.pid, alive = processAli
     } catch {
       // No claim.
     }
-    if (claimHeld(claim, alive, now())) return null
+    if (claimHeld(claim, alive, now())) {
+      // This process's own lane (a runner pruning its runs before it lets the lane go): it may work in it, and the
+      // claim stays its.
+      return claim.pid === owner ? () => {} : null
+    }
     writeFileSync(file, JSON.stringify({ pid: owner, at: now(), root: 'test:clean' }))
     return () => {
       try {
@@ -96,13 +103,13 @@ export function lastChanged(p) {
  * anything in it: clean()). ev: the evidence rules (evidence.cjs), which keep what cards cite and, while the board
  * can't be read, everything.
  */
-export function plan({ root, days = PRUNE_DAYS, now = Date.now(), held = () => false, ev, suites = SUITES.map((s) => s.name) }) {
+export function plan({ root, days = PRUNE_DAYS, now = Date.now(), held = () => false, ev, suites = SUITES.map((s) => s.name), claimed = claimedByRuns([join(root, 'e2e', 'logs')]) }) {
   const out = []
   const maxAge = days * DAY
   const suiteNames = new Set(suites)
   /** A suite's folder: its name, or `<name>-2`… when an earlier one was kept (evidence.cjs freshFolder). */
   const suiteFolder = (name) => suiteNames.has(name.replace(/-\d+$/, '')) || suiteNames.has(name)
-  const look = (path, { legacy = false, area }) => {
+  const look = (path, { legacy = false, leftover = null, area }) => {
     const rel = relative(root, path).split(sep).join('/')
     let age
     try {
@@ -115,16 +122,26 @@ export function plan({ root, days = PRUNE_DAYS, now = Date.now(), held = () => f
     const item = { path, rel, area, age }
     if (kept) out.push({ ...item, remove: false, why: kept })
     else if (legacy) out.push({ ...item, remove: true, why: 'left in the lane from before suites had folders of their own' })
+    else if (leftover) out.push({ ...item, remove: true, why: leftover })
+    else if (area === 'lane' && leftover === false) out.push({ ...item, remove: false, why: 'its failed run keeps it (it goes with the run’s logs)' })
     else if (age >= maxAge) out.push({ ...item, remove: true, why: `${(age / DAY).toFixed(1)} days old` })
     else out.push({ ...item, remove: false, why: `newer than ${days} days` })
   }
+  // An e2e lane holds the folders of suites running now (only in a lane a runner holds) and of failed suites, which
+  // their run's logs claim (evidence.cjs recordKept) until KEEP_RUNS prunes them. Anything else in an idle lane is left
+  // over, whatever its age (#285). A scenario lane holds what --keep left, by age, but not numbered copies (`-2`…),
+  // which only pile up.
   const lane = (dir, k, kind) => {
     if (!existsSync(dir)) return
     if (held(k)) {
       out.push({ path: dir, rel: relative(root, dir).split(sep).join('/'), area: 'lane', remove: false, why: 'a runner holds the lane', lane: k })
       return
     }
-    for (const name of safeList(dir)) look(join(dir, name), { area: 'lane', legacy: kind === 'e2e' && !suiteFolder(name) })
+    for (const name of safeList(dir)) {
+      const p = join(dir, name)
+      if (kind === 'e2e') look(p, { area: 'lane', legacy: !suiteFolder(name), leftover: claimed.has(resolve(p).toLowerCase()) ? false : 'no run keeps it' })
+      else look(p, { area: 'lane', leftover: /-\d+$/.test(name) ? 'a copy an earlier run left' : null })
+    }
   }
   const e2e = join(root, 'e2e')
   for (let k = 0; k < LANES; k++) {

@@ -36,6 +36,12 @@ const runContext = require('../e2e/runContext.cjs')
 // What may be deleted (#253): never what a card that isn't Done cites, nothing earlier while the board can't be read.
 const evidence = require('../e2e/evidence.cjs').evidenceFor(lib.ROOT)
 const spare = (p) => evidence.protects(p)
+// Without the board nothing a run made could be removed, so copies would pile up (#285): as the e2e runner, it doesn't
+// start (HIVE_TEST_NO_BOARD=1: no board cites test output on this machine).
+if (!evidence.ok) {
+  console.error(`Can't tell what the tests may delete: ${evidence.why}. Fix the board, or set HIVE_TEST_NO_BOARD=1 if no Hive board cites test output on this machine.`)
+  process.exit(2)
+}
 const { runScenario, sourceFingerprint, claudeSignedIn, CLAUDE_TEST_HOME, PROVIDERS } = require('./harness.cjs')
 const { SCENARIOS, FIXTURES_VERSION } = require('./scenarios.cjs')
 const { benchmarkOf, pruneResults, saveBaseline, resultsFolder, parseBudget, budgetGate, spendText } = require('./benchmark.cjs')

@@ -148,6 +148,26 @@ export function runDirsInOrder(names) {
  * FAILED_MAX of them: #223).
  */
 export function pruneRunDirs(root, keep = KEEP_RUNS, protect = [], alive = processAlive, spare = () => null, { now = Date.now() } = {}) {
+  const old = runDirsToPrune(root, keep, protect, alive, spare, { now })
+  for (const name of old) rmSync(join(root, name), { recursive: true, force: true })
+  return old
+}
+
+/**
+ * pruneRunDirs for the runner (#285): before each run folder goes, release(runDir) removes what the run kept outside it
+ * (its failed suites' folders in a lane: evidence.cjs releaseKept), awaited, in lanes it may work in.
+ */
+export async function pruneRunDirsReleasing(root, keep = KEEP_RUNS, protect = [], alive = processAlive, spare = () => null, { now = Date.now(), release = async () => {} } = {}) {
+  const old = runDirsToPrune(root, keep, protect, alive, spare, { now })
+  for (const name of old) {
+    await release(join(root, name))
+    rmSync(join(root, name), { recursive: true, force: true })
+  }
+  return old
+}
+
+/** The run folders pruneRunDirs removes (oldest first), without removing them. */
+export function runDirsToPrune(root, keep = KEEP_RUNS, protect = [], alive = processAlive, spare = () => null, { now = Date.now() } = {}) {
   if (!existsSync(root)) return []
   const mine = new Set(protect.map((p) => p.split(/[\\/]/).pop()))
   const finished = runDirsInOrder(readdirSync(root)).filter((name) => !runDirActive(join(root, name), alive) && !spare(join(root, name)))
@@ -159,7 +179,5 @@ export function pruneRunDirs(root, keep = KEEP_RUNS, protect = [], alive = proce
       })
       .slice(-FAILED_MAX)
   )
-  const old = finished.slice(0, Math.max(0, finished.length - keep)).filter((name) => !mine.has(name) && !failedRecently.has(name))
-  for (const name of old) rmSync(join(root, name), { recursive: true, force: true })
-  return old
+  return finished.slice(0, Math.max(0, finished.length - keep)).filter((name) => !mine.has(name) && !failedRecently.has(name))
 }
