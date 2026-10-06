@@ -62,7 +62,7 @@ export interface CommandSpec {
   env?: Record<string, string>
   /** Typed into the program once its interface is ready (e.g. Codex's /permissions menu for its sandbox setup). */
   keys?: KeySteps
-  /** Output that means the program is ready for `keys`. */
+  /** What its screen shows once the program is ready for `keys` (matched against the screen its output draws: KeyGate). */
   readyPattern?: RegExp
   /**
    * A window title (set by the program's OSC 0/2 sequences) that means it is busy: `keys` wait until it has been

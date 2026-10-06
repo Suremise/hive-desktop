@@ -77,6 +77,12 @@ function toolCall(tool: string, input: Record<string, unknown>): string {
 
 /** The first Codex version seen to title its terminal "Action Required" while a person must act (titleAttention). */
 const ACTION_REQUIRED_SINCE = '0.160.0'
+/**
+ * Codex has loaded: its session header names the folder (`~\…`, `C:\…`, `\\server\…`) where it said "loading". The
+ * setup task's keys wait for it: its prompt ("› Ask Codex to do anything") is drawn while it is still loading, and its
+ * startup spinner only comes after (#235). Matched positively, so no part of "loading" (output can end anywhere) counts.
+ */
+export const CODEX_LOADED = /OpenAI Codex\s+\(v[^)]*\)[\s│]+(?:~|[A-Za-z]:|[\\/])/
 /** Codex's own terminal title items, set for Hive's sessions so a user's [tui].terminal_title can't hide "Action Required". */
 const TITLE_ITEMS = ['activity', 'project-name']
 
@@ -435,8 +441,8 @@ export class CodexAdapter implements ProviderAdapter {
       const now = this.sandboxKind()
       return !!now && now !== before
     }
-    // Codex puts a spinner in its window title while it works (also just after showing its prompt, as it starts up).
-    return { ...s, keys, readyPattern: /Ask Codex|›/, busyTitle: /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/, done }
+    // Codex puts a spinner in its window title while it works (also as it starts up, once it has loaded).
+    return { ...s, keys, readyPattern: CODEX_LOADED, busyTitle: /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/, done }
   }
 
   /** Codex's model catalog (codex debug models, models.ts): the listed models in Codex's order, with their efforts. */
