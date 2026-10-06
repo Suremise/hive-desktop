@@ -1,4 +1,4 @@
-import type { AgentDef, AppSettings, EffortLevel, PermissionMode, ProjectConfig, ProjectProviderConfig, ProviderId, ProviderSettings } from './types'
+import type { AgentDef, AppSettings, AutoCompactSetting, EffortLevel, PermissionMode, ProjectConfig, ProjectProviderConfig, ProviderId, ProviderSettings } from './types'
 import { CLAUDE_CODE, CLAUDE_DESCRIPTOR } from './claude'
 import { CODEX_DESCRIPTOR } from './codex'
 
@@ -155,15 +155,35 @@ export function autoCompactAt(id: ProviderId | null | undefined, window: number 
 }
 
 /**
- * The context in words, for its tooltips: the total, then (when known) its parts: the last request's input and its
- * output, thinking included; then where the CLI compacts by itself.
+ * Where the CLI compacts by itself, in words (#242). The figure is Hive's estimate from the provider's rule (the window
+ * less what it keeps free), said to be the default unless the launch's settings said otherwise (`auto`, read at launch:
+ * a window set somewhere, which also caps it, a percentage bringing it earlier, or auto-compaction off). Without `auto`
+ * (a session not running now), the settings weren't read: it says they can change it. Null when Hive has no rule.
  */
-export function contextLines(u: { provider: ProviderId; contextTokens: number; contextInputTokens?: number; lastOutputTokens?: number; contextWindow: number | null }): string[] {
+export function autoCompactLine(provider: ProviderId, contextWindow: number | null, auto?: AutoCompactSetting | null): string | null {
+  const name = providerDescriptor(provider).name
+  if (auto?.window === 'off') return `${name} doesn't compact by itself: auto-compaction is off (${auto.source})`
+  const window = typeof auto?.window === 'number' && contextWindow ? Math.min(auto.window, contextWindow) : contextWindow
+  let at = autoCompactAt(provider, window)
+  if (at === null || !window) return null
+  if (auto?.percent) at = Math.min(at, Math.round((window * auto.percent) / 100))
+  const n = (x: number): string => x.toLocaleString()
+  const why = [auto?.source, auto?.percent ? `at ${auto.percent}% of it` : null].filter(Boolean).join(', ')
+  if (typeof auto?.window === 'number') return `${name} compacts by itself at about ${n(at)}: its auto-compact window is ${n(window)} (${why})`
+  if (auto) return `${name} compacts by itself at about ${n(at)}, its default for this window${why ? ` (${why})` : ''}`
+  return `${name} compacts by itself at about ${n(at)} by default (its settings can change this)`
+}
+
+/**
+ * The context in words, for its tooltips: the total, then (when known) its parts: the last request's input and its
+ * output, thinking included; then where the CLI compacts by itself (autoCompactLine; `auto` from the running session).
+ */
+export function contextLines(u: { provider: ProviderId; contextTokens: number; contextInputTokens?: number; lastOutputTokens?: number; contextWindow: number | null }, auto?: AutoCompactSetting | null): string[] {
   const n = (x: number): string => x.toLocaleString()
   const lines = [`Context: ${n(u.contextTokens)} tokens${u.contextWindow ? ` of ${n(u.contextWindow)}` : ''}`]
   if (u.contextInputTokens !== undefined && u.lastOutputTokens) lines.push(`${n(u.contextInputTokens)} input + ${n(u.lastOutputTokens)} output of the last turn (thinking included)`)
-  const at = autoCompactAt(u.provider, u.contextWindow)
-  if (at !== null) lines.push(`${providerDescriptor(u.provider).name} compacts by itself at about ${n(at)}`)
+  const compacts = autoCompactLine(u.provider, u.contextWindow, auto)
+  if (compacts) lines.push(compacts)
   return lines
 }
 

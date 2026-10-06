@@ -420,7 +420,7 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
                 title="Context"
                 value={formatTokens(u.contextTokens)}
                 sub={u.contextInputTokens !== undefined && u.lastOutputTokens ? `${formatTokens(u.contextInputTokens)} input + ${formatTokens(u.lastOutputTokens)} output of the last turn` : `${formatNumber(u.contextTokens)} tokens in the last request`}
-                tip={<span style={{ whiteSpace: 'pre-line' }}>{`How many tokens the conversation occupies now: the last request's input and its output (thinking included), which stays in the context.\n${contextLines(u).slice(1).join('\n')}`.trim()}</span>}
+                tip={<span style={{ whiteSpace: 'pre-line' }}>{`How many tokens the conversation occupies now: the last request's input and its output (thinking included), which stays in the context.\n${contextLines(u, liveState && liveState.sessionId === current?.id ? liveState.autoCompact : undefined).slice(1).join('\n')}`.trim()}</span>}
               >
                 {u.contextWindow ? (
                   <div className="meter">

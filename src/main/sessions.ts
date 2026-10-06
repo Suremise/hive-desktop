@@ -10,7 +10,9 @@ import { formatDateTime } from '../shared/dates'
 import { assistantTools } from '../shared/assistantTools'
 import { COMPACTING_MESSAGE, HIVE_DIR, agentPtyKey, assertSessionId, cliRename, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
 import { agentLaunchSettings, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
+import { resolvedModel } from '../shared/models'
 import type {
+  AutoCompactSetting,
   AgentDef,
   AgentInfo,
   EffortLevel,
@@ -102,6 +104,8 @@ interface LiveSession {
    * model, else the one it reports), learned for the footer (#125). Cleared once learned.
    */
   defaultEffort?: { model: string | null }
+  /** How the CLI compacts by itself for a model it runs as (#242), read again when the session reports another model. */
+  autoCompactFor?: (running?: string) => AutoCompactSetting
   /** Set while a compaction Hive asked for runs. */
   compacting?: Compaction
   /** The user stopped it (e.g. during its worktree setup), so an early exit isn't reported as a failure. */
@@ -964,6 +968,12 @@ class SessionManager {
     if (l.stopRequested || this.live.get(id) !== l || this.starting.get(id)?.cancelled || !workspaceFor(projectPath) || this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error('The agent was stopped before it had started.')
     if (!isProviderEnabled(config.settings, adapter.id)) throw new Error(`${adapter.descriptor.name} was turned off while ${agent.name} was starting.`)
     const cmd = adapter.buildCommand(info.path, ctx)
+    // Where it compacts by itself (#242): for the model it runs as, the choice's (an alias resolved) or the CLI's default.
+    const chosenModel = eff.model || info.defaultModel || ''
+    // Once the session reports the model it runs, that model alone: another model's window isn't its own.
+    const modelsFor = (running?: string): string[] => (running ? [running] : [chosenModel && resolvedModel(info, chosenModel), chosenModel].filter((m): m is string => !!m))
+    l.autoCompactFor = adapter.autoCompact ? (running) => adapter.autoCompact!(ctx, cmd, modelsFor(running)) : undefined
+    state.autoCompact = l.autoCompactFor?.()
     l.titleAttention = adapter.titleAttention?.(info.version) ?? undefined
     // What it was given: Hive's guidance revision and each skill as delivered (the Agent API's project status shows
     // them). A skill not delivered as asked (kept old copy, failed copy) leaves it needing a restart.
@@ -1966,11 +1976,14 @@ class SessionManager {
       l.defaultEffort = undefined
     }
     const st = l.state
-    const next = { effort: d.effort ?? st.effort, modelName: d.modelName ?? st.modelName, modelId: d.modelId ?? st.modelId, costUsd: d.costUsd ?? st.costUsd, planMode: d.planMode ?? st.planMode, permissionMode: d.permissionMode ?? st.permissionMode, contextWindow: d.contextWindow ?? st.contextWindow }
+    // Running another model than expected: its own auto-compact window, if its settings give it one (#242).
+    const autoCompact = d.modelId && d.modelId !== st.modelId && l.autoCompactFor ? l.autoCompactFor(d.modelId) : st.autoCompact
+    const next = { autoCompact, effort: d.effort ?? st.effort, modelName: d.modelName ?? st.modelName, modelId: d.modelId ?? st.modelId, costUsd: d.costUsd ?? st.costUsd, planMode: d.planMode ?? st.planMode, permissionMode: d.permissionMode ?? st.permissionMode, contextWindow: d.contextWindow ?? st.contextWindow }
     if (
       next.effort === st.effort &&
       next.modelName === st.modelName &&
       next.modelId === st.modelId &&
+      JSON.stringify(next.autoCompact) === JSON.stringify(st.autoCompact) &&
       next.costUsd === st.costUsd &&
       next.planMode === st.planMode &&
       next.permissionMode === st.permissionMode &&

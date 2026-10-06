@@ -2,7 +2,7 @@ import { homedir } from 'os'
 import { join, basename } from 'path'
 import { mkdir, readdir, stat, writeFile } from 'original-fs/promises'
 import { existsSync, readFileSync } from 'original-fs'
-import type { AgentInstallInfo, McpServerDef, MemorySource, PathDataCopy, PlanLimit, PlanUsage, ReadinessIssue, SubSession } from '../../../shared/types'
+import type { AgentInstallInfo, AutoCompactSetting, McpServerDef, MemorySource, PathDataCopy, PlanLimit, PlanUsage, ReadinessIssue, SubSession } from '../../../shared/types'
 import { HIVE_DIR, assertSessionId, isSessionId } from '../../../shared/defaults'
 import { CLAUDE_CODE, CLAUDE_DESCRIPTOR, baseModel, canSwitchLive, footerMode, hookMode } from '../../../shared/claude'
 import { providerSettings } from '../../../shared/providers'
@@ -13,6 +13,7 @@ import { createLogger } from '../../logger'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, readFirstLine, run, runsThroughCmd, toSpawnable } from '../common'
 import type { StartHint } from '../../../shared/startFailure'
 import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
+import { autoCompactOf, settingsScopes } from './autoCompact'
 import { claudeBackgroundTasks } from './background'
 import { ConversationParser, claudeImageData } from './conversation'
 import { readClaudeModels } from './models'
@@ -319,6 +320,12 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     if (!ctx.allowBackgroundSessions) env.CLAUDE_CODE_DISABLE_AGENT_VIEW = '1'
     if (ctx.use200kContext) env.CLAUDE_CODE_DISABLE_1M_CONTEXT = '1'
     return { file: s.file, args: s.args, env }
+  }
+
+  autoCompact(ctx: LaunchContext, cmd: CommandSpec, models: string[]): AutoCompactSetting {
+    const env = cmd.env ?? ctx.env
+    // The user's own arguments (Hive passes no --autocompact; cmd.args may be wrapped for cmd).
+    return autoCompactOf(ctx.extraArgs, env, settingsScopes(ctx.cwd, env.CLAUDE_CONFIG_DIR || claudeHome()), models)
   }
 
   backgroundTasks(appended: string): BackgroundTaskEvent[] {

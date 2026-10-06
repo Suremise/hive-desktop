@@ -73,7 +73,27 @@ describe('parseTranscript', () => {
     expect(turnPushedCompaction({ preTokens: 189_560 })).toBe(false)
     // Where Claude Code compacts by itself: about 167K of 200K, 967K of 1M; Codex's rule isn't known.
     expect([autoCompactAt('claude-code', 200_000), autoCompactAt('claude-code', 1_000_000), autoCompactAt('claude-code', null), autoCompactAt('codex', 272_000), autoCompactAt('claude-code', 1000)]).toEqual([167_000, 967_000, null, null, null])
-    expect(contextLines({ ...before, contextWindow: 200_000 })).toEqual(['Context: 188,587 tokens of 200,000', '116,144 input + 72,443 output of the last turn (thinking included)', 'Claude Code compacts by itself at about 167,000'])
+    // Not running: its settings weren't read, so the figure is the default, and said to be (#242).
+    expect(contextLines({ ...before, contextWindow: 200_000 })).toEqual(['Context: 188,587 tokens of 200,000', '116,144 input + 72,443 output of the last turn (thinking included)', 'Claude Code compacts by itself at about 167,000 by default (its settings can change this)'])
+  })
+
+  it('says where the CLI compacts by itself, as its settings were read at launch (#242)', async () => {
+    const { autoCompactLine } = await import('../src/shared/providers')
+    // Read at launch and nothing set: the default for the window.
+    expect(autoCompactLine('claude-code', 200_000, { window: null, source: null })).toBe('Claude Code compacts by itself at about 167,000, its default for this window')
+    expect(autoCompactLine('claude-code', 1_000_000, { window: null, source: null })).toBe('Claude Code compacts by itself at about 967,000, its default for this window')
+    // A window set: on a 1M model it moves; it never goes past the model's own window.
+    expect(autoCompactLine('claude-code', 1_000_000, { window: 500_000, source: 'CLAUDE_CODE_AUTO_COMPACT_WINDOW' })).toBe('Claude Code compacts by itself at about 467,000: its auto-compact window is 500,000 (CLAUDE_CODE_AUTO_COMPACT_WINDOW)')
+    expect(autoCompactLine('claude-code', 200_000, { window: 500_000, source: '--autocompact' })).toBe('Claude Code compacts by itself at about 167,000: its auto-compact window is 200,000 (--autocompact)')
+    // A percentage brings it earlier, never later.
+    expect(autoCompactLine('claude-code', 200_000, { window: null, source: 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE', percent: 50 })).toBe('Claude Code compacts by itself at about 100,000, its default for this window (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, at 50% of it)')
+    expect(autoCompactLine('claude-code', 200_000, { window: null, source: null, percent: 95 })).toBe('Claude Code compacts by itself at about 167,000, its default for this window (at 95% of it)')
+    // Off; "auto" in a settings file (the default, said where).
+    expect(autoCompactLine('claude-code', 200_000, { window: 'off', source: "autoCompactEnabled: false in Claude Code's settings.json" })).toBe("Claude Code doesn't compact by itself: auto-compaction is off (autoCompactEnabled: false in Claude Code's settings.json)")
+    expect(autoCompactLine('claude-code', 200_000, { window: null, source: '--autocompact auto' })).toBe('Claude Code compacts by itself at about 167,000, its default for this window (--autocompact auto)')
+    // No window known, or a provider without a rule: nothing said.
+    expect(autoCompactLine('claude-code', null, { window: 500_000, source: '--autocompact' })).toBeNull()
+    expect(autoCompactLine('codex', 272_000, { window: null, source: null })).toBeNull()
   })
 
   it('reads metadata', () => {

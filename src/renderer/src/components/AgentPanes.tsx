@@ -1011,7 +1011,7 @@ export function PaneFooter({
           content={
             // A click opens the session in the Overview, with its compaction history (the Assistant's footer opens nothing).
             <span className="ctx-tip" style={{ whiteSpace: 'pre-line' }}>
-              {`${contextLines(usage).join('\n')}\n${usage.compactions.length} compaction${usage.compactions.length === 1 ? '' : 's'} so far${over ? ' — consider compacting' : ''}${usage.stale ? '\nCouldn’t read it again just now: this may be behind.' : ''}${onContext ? '' : '\n\nClick to view compaction history'}`}
+              {`${contextLines(usage, live?.autoCompact).join('\n')}\n${usage.compactions.length} compaction${usage.compactions.length === 1 ? '' : 's'} so far${over ? ' — consider compacting' : ''}${usage.stale ? '\nCouldn’t read it again just now: this may be behind.' : ''}${onContext ? '' : '\n\nClick to view compaction history'}`}
             </span>
           }
         >

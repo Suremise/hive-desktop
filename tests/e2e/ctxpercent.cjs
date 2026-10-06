@@ -87,7 +87,7 @@ const until = async (fn, ms = 10000) => {
   await send('and once more window 200000')
   await until(async () => /^\s*\d+ ·\s+0%$/.test(await text()), 8000)
   await ctxItem.hover()
-  check('…and where Claude Code compacts by itself, for a 200K window', !!(await until(async () => (await tip.innerText().catch(() => '')).includes('Claude Code compacts by itself at about 167,000'), 5000)), await tip.innerText().catch(() => ''))
+  check('…and where Claude Code compacts by itself, for a 200K window: its default, nothing set (#242)', !!(await until(async () => (await tip.innerText().catch(() => '')).includes('Claude Code compacts by itself at about 167,000, its default for this window'), 5000)), await tip.innerText().catch(() => ''))
   await page.mouse.move(5, 5)
 
   // --- A narrow footer keeps the percentage.
@@ -116,6 +116,44 @@ const until = async (fn, ms = 10000) => {
   check('a click on the context opens the Overview at its compaction history', !!(await until(async () => (await history.count()) === 1 && (await historyRows.count()) === 1, 20000)), String(await historyRows.count()))
   check('…scrolled into view', !!(await until(async () => history.evaluate((el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.top < window.innerHeight - 40 }), 5000)))
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-3-history.png') })
+
+  // --- Claude Code's settings, read at launch (#242): a window set in the project's .claude/settings.local.json, then
+  // auto-compaction turned off in its settings.json. A new session each time, with a 200K window.
+  const restartWith = async (file, json) => {
+    await inv('session:stop', alpha, agent.id).catch(() => undefined)
+    await until(async () => !(await live()), 10000)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, JSON.stringify(json))
+    await inv('session:start', alpha, { agentId: agent.id })
+    await until(async () => (await live())?.status === 'ready', 20000)
+    await page.locator('.tabs .tab', { hasText: 'Session' }).first().click()
+    await send('hello window 200000')
+    await until(async () => /^\s*\d+ ·\s+\d+%$/.test(await text()), 8000)
+    await page.mouse.move(5, 5)
+    await ctxItem.hover()
+    await until(async () => (await tip.count()) === 1, 5000)
+  }
+  const localSettings = path.join(alpha, '.claude', 'settings.local.json')
+  await restartWith(localSettings, { autoCompactWindow: 150000 })
+  check("a window in the project's settings: where it compacts then, and why", !!(await until(async () => (await tip.innerText().catch(() => '')).includes("Claude Code compacts by itself at about 117,000: its auto-compact window is 150,000 (autoCompactWindow in the project's .claude/settings.local.json)"), 5000)), await tip.innerText().catch(() => ''))
+  check('…in the session as read at launch', JSON.stringify((await live())?.autoCompact) === JSON.stringify({ window: 150000, source: "autoCompactWindow in the project's .claude/settings.local.json" }), JSON.stringify((await live())?.autoCompact))
+  await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-autocompact-dark.png') })
+  await inv('settings:update', { appearance: { theme: 'light' } })
+  await lib.sleep(300)
+  await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-autocompact-light.png') })
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  fs.rmSync(localSettings, { force: true })
+  await restartWith(path.join(claudeHome, 'settings.json'), { autoCompactEnabled: false })
+  check("auto-compaction off in Claude Code's settings: it says it doesn't compact by itself", !!(await until(async () => (await tip.innerText().catch(() => '')).includes("Claude Code doesn't compact by itself: auto-compaction is off (autoCompactEnabled: false in Claude Code's settings.json)"), 5000)), await tip.innerText().catch(() => ''))
+  await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-autocompact-off.png') })
+  // DISABLE_AUTO_COMPACT in the sessions' environment (the test Hive's own, which sessions inherit) turns it off even
+  // over settings that turn it on.
+  await app.evaluate(() => void (process.env.DISABLE_AUTO_COMPACT = '1'))
+  await restartWith(path.join(claudeHome, 'settings.json'), { autoCompactEnabled: true })
+  check('DISABLE_AUTO_COMPACT=1 turns it off over settings that turn it on', !!(await until(async () => (await tip.innerText().catch(() => '')).includes("Claude Code doesn't compact by itself: auto-compaction is off (DISABLE_AUTO_COMPACT)"), 5000)), await tip.innerText().catch(() => ''))
+  await app.evaluate(() => void delete process.env.DISABLE_AUTO_COMPACT)
+  fs.rmSync(path.join(claudeHome, 'settings.json'), { force: true })
+  await page.mouse.move(5, 5)
 
   await inv('session:stop', alpha, agent.id).catch(() => undefined)
   await app.close()
