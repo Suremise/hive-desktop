@@ -88,7 +88,7 @@ const until = async (fn, ms = 10000) => {
   check('an agent moves a card back out of Done', call?.status === 200 && (await card(1)).column === 'doing', JSON.stringify(call))
   check('every move is in its history', JSON.stringify((await moves(1)).slice(-2)) === JSON.stringify(['Mover (alpha): Moved to Done', 'Mover (alpha): Moved to Doing']), JSON.stringify(await moves(1)))
 
-  // --- The card's prompt still asks for Review when the work is done (and Done only when the user asks).
+  // --- The card's prompt still asks for Review when the work is done (and Done only once merged, or when the user asks).
   const n = (await inv('tasks:create', { title: 'Docs', project: 'alpha' })).number
   await inv('tasks:start', n, { kind: 'agent', agentId: agent.id })
   check('Start puts the card in Doing', !!(await until(async () => (await card(n)).column === 'doing', 10000)))
@@ -98,11 +98,11 @@ const until = async (fn, ms = 10000) => {
     return lines.length ? JSON.parse(lines.at(-1)).message.content : null
   }, 15000)
   // The prompt points to the work-on-card skill, which the agent's launch carries, and which says Review when done and
-  // Done only when the user asks (the session's Hive instructions say it too, for a session without the skill).
+  // Done only once merged or when the user asks (#170; the session's Hive instructions say it too, for a session without the skill).
   check('the card prompt points to the work-on-card skill', typeof prompt === 'string' && prompt.includes('Use the work-on-card skill.'), String(prompt))
   const skill = path.join(alpha, '.hive', `launch-${agent.id}`, 'plugin', 'skills', 'work-on-card', 'SKILL.md')
   const skillText = fs.existsSync(skill) ? fs.readFileSync(skill, 'utf8') : ''
-  check('…which says Review when the work is done, and Done only when the user asks', /Move it to `review`/.test(skillText) && /Move it to `done` only when the user asks/.test(skillText), skillText.slice(0, 200))
+  check('…which says Review when the work is done, and Done once merged or when the user asks', /Move it to `review`/.test(skillText) && /`done` means merged: move your card there once its work is merged \(merge-ready\), or when the user asks/.test(skillText), skillText.slice(0, 200))
 
   await inv('session:stop', alpha, agent.id).catch(() => undefined)
   await app.close()

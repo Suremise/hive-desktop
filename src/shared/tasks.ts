@@ -1,19 +1,80 @@
-import type { TaskCard, TaskColumn } from './types'
+import type { BoardFold, TaskCard, TaskColumn } from './types'
 
-/** The board's columns, in order. Fixed: the Assistant, agents and the API all work with these four. */
+/**
+ * The board's columns, in order. Fixed: the Assistant, agents and the API all work with these six (#170). On Hold is
+ * parked work (the user's and the Assistant's), Passed is work that passed its review and waits to be merged, and Done
+ * is merged.
+ */
 export const TASK_COLUMNS: { id: TaskColumn; label: string; description: string }[] = [
-  { id: 'todo', label: 'Todo', description: 'Not started.' },
+  { id: 'hold', label: 'On Hold', description: 'Parked: nobody picks these up until they move to Todo. Only you and the Assistant put cards here.' },
+  { id: 'todo', label: 'Todo', description: 'Ready to start.' },
   { id: 'doing', label: 'Doing', description: 'Being worked on: its agent shows what it is doing now.' },
-  { id: 'review', label: 'Review', description: 'Work done, waiting for you to check it.' },
-  { id: 'done', label: 'Done', description: 'Finished. Only you move cards here; archive them when you no longer need to see them.' }
+  { id: 'review', label: 'Review', description: 'Work done, waiting for its review.' },
+  { id: 'passed', label: 'Passed', description: 'Passed its review, waiting to be merged. A reviewer moves a card here when it passes.' },
+  { id: 'done', label: 'Done', description: 'Merged: its builder moves it here after merging (or you do). Archive cards when you no longer need to see them.' }
 ]
 
 export const isTaskColumn = (v: unknown): v is TaskColumn => typeof v === 'string' && TASK_COLUMNS.some((c) => c.id === v)
 
 export const columnLabel = (c: TaskColumn): string => TASK_COLUMNS.find((x) => x.id === c)?.label ?? c
 
-/** Each column's colour (its heading, and a tint on its cards): slate blue, blue, purple and green. */
-export const DEFAULT_COLUMN_COLORS: Record<TaskColumn, string> = { todo: '#7a88b8', doing: '#3b82f6', review: '#a371f7', done: '#2ea043' }
+/** The column ids, in order, and as an error message lists them ("hold, todo, doing, review, passed or done"). */
+export const COLUMN_IDS: readonly TaskColumn[] = TASK_COLUMNS.map((c) => c.id)
+export const COLUMN_CHOICES = `${COLUMN_IDS.slice(0, -1).join(', ')} or ${COLUMN_IDS.at(-1)}`
+
+/** Each column's colour (its heading, and a tint on its cards): grey, slate blue, blue, purple, teal and green. */
+export const DEFAULT_COLUMN_COLORS: Record<TaskColumn, string> = { hold: '#8b8f98', todo: '#7a88b8', doing: '#3b82f6', review: '#a371f7', passed: '#14b8a6', done: '#2ea043' }
+
+/** The most workspaces whose board folds are kept (the latest changed), and the most folded cards a workspace keeps. */
+export const BOARD_FOLD_WORKSPACES = 50
+export const BOARD_FOLD_CARDS = 5000
+
+/**
+ * A change to one workspace's board fold (#170): columns collapsed or expanded, cards folded or unfolded, and the cards
+ * still on the board (`known`: folds of any other card are dropped). A change, not the whole fold, so a window never
+ * writes back what it read before another window changed it.
+ */
+export interface BoardFoldChange {
+  columns?: { ids: TaskColumn[]; collapsed: boolean }
+  cards?: { numbers: number[]; folded: boolean }
+  known?: number[]
+}
+
+const cardNumbers = (v: unknown): number[] => (Array.isArray(v) ? v.filter((n): n is number => Number.isInteger(n) && n > 0) : [])
+
+/**
+ * Every workspace's board fold with one workspace's changed (by its path, in lower case): applied to what is saved now,
+ * checked (known columns, card numbers, bounded), the workspace moved to the newest, and only the newest
+ * BOARD_FOLD_WORKSPACES kept. An empty fold is removed.
+ */
+export function applyBoardFold(all: Record<string, BoardFold> | undefined, workspace: string, change: BoardFoldChange): Record<string, BoardFold> {
+  const key = workspace.toLowerCase()
+  const out = { ...all }
+  const now = out[key] ?? {}
+  const columns = new Set((Array.isArray(now.columns) ? now.columns : []).filter(isTaskColumn))
+  const cards = new Set(cardNumbers(now.cards))
+  if (change.columns) {
+    for (const c of (Array.isArray(change.columns.ids) ? change.columns.ids : []).filter(isTaskColumn)) {
+      if (change.columns.collapsed) columns.add(c)
+      else columns.delete(c)
+    }
+  }
+  if (change.cards) {
+    for (const n of cardNumbers(change.cards.numbers)) {
+      if (change.cards.folded) cards.add(n)
+      else cards.delete(n)
+    }
+  }
+  if (change.known) {
+    const known = new Set(cardNumbers(change.known))
+    for (const n of cards) if (!known.has(n)) cards.delete(n)
+  }
+  delete out[key]
+  const kept = COLUMN_IDS.filter((c) => columns.has(c))
+  const folded = [...cards].slice(-BOARD_FOLD_CARDS)
+  if (kept.length || folded.length) out[key] = { ...(kept.length ? { columns: kept } : {}), ...(folded.length ? { cards: folded } : {}) }
+  return Object.fromEntries(Object.entries(out).slice(-BOARD_FOLD_WORKSPACES))
+}
 
 /** A column's colour from Settings → Board: the default unless it's a #rrggbb colour (it goes into CSS). */
 export function columnColor(colors: Partial<Record<TaskColumn, string>> | undefined, c: TaskColumn): string {
@@ -24,7 +85,8 @@ export function columnColor(colors: Partial<Record<TaskColumn, string>> | undefi
 /**
  * Why nobody is working on a Doing card, or null when someone is (or it isn't in Doing): it has no agent, its agent
  * was removed, or its agent isn't running. `agentNow` is its agent as it is now (null when removed). An agent that
- * has finished its turn isn't stalled: it is waiting for the user to look.
+ * has finished its turn isn't stalled: it is waiting for the user to look. Cards in any other column never are: nobody is
+ * expected to be on them (On Hold and Passed included, #170).
  */
 export function stalledReason(card: Pick<TaskCard, 'column' | 'archived' | 'agent' | 'agentName'>, agentNow: { name: string; running: boolean } | null): string | null {
   if (card.archived || card.column !== 'doing') return null
@@ -32,6 +94,14 @@ export function stalledReason(card: Pick<TaskCard, 'column' | 'archived' | 'agen
   if (!agentNow) return `${card.agentName ?? 'Its agent'} was removed.`
   if (!agentNow.running) return `${agentNow.name} isn't running.`
   return null
+}
+
+/**
+ * When a card was archived (#249): its latest "Archived…" in its history (by the user, after its days in Done, or with
+ * its project), else its last change. ISO.
+ */
+export function archivedAt(card: Pick<TaskCard, 'history' | 'updatedAt'>): string {
+  return card.history.findLast((h) => h.what.startsWith('Archived'))?.at ?? card.updatedAt
 }
 
 /** Cards in board order: by column, then position. */
@@ -43,9 +113,11 @@ export function sortCards(cards: TaskCard[]): TaskCard[] {
 /** The board at a glance (the Workspace and project Overviews): counts of the cards that aren't archived. */
 export interface TaskOverview {
   total: number
+  hold: number
   todo: number
   doing: number
   review: number
+  passed: number
   done: number
   stalled: number
   blocked: number
@@ -55,7 +127,7 @@ export interface TaskOverview {
 export function taskOverview(cards: readonly TaskCard[], project: string | null, stalled: (c: TaskCard) => boolean): TaskOverview {
   const open = cards.filter((c) => !c.archived && (project === null || c.project.toLowerCase() === project.toLowerCase()))
   const n = (col: TaskColumn): number => open.filter((c) => c.column === col).length
-  return { total: open.length, todo: n('todo'), doing: n('doing'), review: n('review'), done: n('done'), stalled: open.filter(stalled).length, blocked: open.filter((c) => c.blocked && c.column !== 'done').length }
+  return { total: open.length, hold: n('hold'), todo: n('todo'), doing: n('doing'), review: n('review'), passed: n('passed'), done: n('done'), stalled: open.filter(stalled).length, blocked: open.filter((c) => c.blocked && c.column !== 'done').length }
 }
 
 /** The cards an agent of a project has in Doing (not archived), in board order: what it is working on now. */
@@ -90,8 +162,8 @@ const PROMPT_COMMENT_MAX = 4000
  */
 export function taskPrompt(card: TaskCard, withTools: boolean, opts: { from?: TaskColumn; note?: string } = {}): string {
   const parts = [`Work on task #${card.number} from the Hive task board: ${card.title}`]
-  const again = opts.from === 'review' || opts.from === 'done'
-  if (again) parts.push(`It was in ${opts.from === 'review' ? 'Review' : 'Done'} and is back in Doing for more work.`)
+  const again = opts.from === 'review' || opts.from === 'passed' || opts.from === 'done'
+  if (again) parts.push(`It was in ${columnLabel(opts.from!)} and is back in Doing for more work.`)
   if (opts.note?.trim()) parts.push(opts.note.trim())
   if (card.description.trim()) parts.push(card.description.trim())
   if (card.blockedBy.length) parts.push(`It depends on ${card.blockedBy.map((n) => `#${n}`).join(', ')}.`)

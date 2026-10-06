@@ -234,7 +234,7 @@ async function runPrompt(text) {
     for (const m of step.matchAll(/\bskill\s+([a-z0-9][\w-]*)/gi)) readSkill(m[1])
     const move = /\bboardmove\s+(\d+)\s+(\w+)/i.exec(step)
     if (move) await boardPatch(Number(move[1]), { column: move[2].toLowerCase() })
-    const review = /\bboardreview\s+(\d+)\s+(\w+)(?:\s+(todo|doing|review|done)\b)?/i.exec(step)
+    const review = /\bboardreview\s+(\d+)\s+(\w+)(?:\s+(hold|todo|doing|review|passed|done)\b)?/i.exec(step)
     if (review) await boardPatch(Number(review[1]), { review: review[2].toLowerCase(), ...(review[3] ? { column: review[3].toLowerCase(), comment: 'Fake review: passed.' } : {}) })
     const comment = /\bboardcomment\s+(\d+)/i.exec(step)
     if (comment) await boardPatch(Number(comment[1]), { comment: 'Fake: done, see the files.' })

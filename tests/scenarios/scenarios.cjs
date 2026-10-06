@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 9
+const FIXTURES_VERSION = 10
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -133,11 +133,11 @@ module.exports.SCENARIOS = [
         c.interrupted = true
       }
     },
-    prompt: (c) => `Review card #${c.cards.b}; if it passes, you may move it to Done.`,
-    fake: (c) => `skill review-agent-work boardreview ${c.cards.b} start then work 3 then boardreview ${c.cards.b} passed done`,
+    prompt: (c) => `Review card #${c.cards.b}.`,
+    fake: (c) => `skill review-agent-work boardreview ${c.cards.b} start then work 3 then boardreview ${c.cards.b} passed passed`,
     expect: (o) => [
       ['the review started', history(o.cards.b).includes('Started reviewing'), history(o.cards.b).join(' | ')],
-      ['the newer work stays in Doing: no stale verdict moved it to Done', o.cards.b?.column === 'doing', o.cards.b?.column],
+      ['the newer work stays in Doing: no stale verdict moved it to Passed', o.cards.b?.column === 'doing', o.cards.b?.column],
       ['no review passed after the card moved', !history(o.cards.b).slice(Math.max(0, movedInto(o.cards.b, 'Doing', true))).includes('Review passed')]
     ]
   },
@@ -174,18 +174,42 @@ module.exports.SCENARIOS = [
     fakeSkips: ['did the work']
   },
   {
-    id: 'standing-done',
-    title: "A standing instruction to finish a passed card: the reviewer's pass and Done together",
+    id: 'review-passed',
+    title: 'A review that passes: the reviewer moves the card to Passed with its verdict, not to Done (#170)',
     files: { 'greet.js': "module.exports = (name) => 'Hello, ' + name\n" },
     async setup(c) {
       await c.card('e', { title: 'Greeting helper', description: 'greet.js returns "Hello, <name>".', column: 'review', agent: 'implementer' })
     },
-    prompt: (c) => `Review card #${c.cards.e}. Standing instruction: when a review passes, move the card to Done yourself.`,
-    fake: (c) => `skill review-agent-work boardreview ${c.cards.e} start then boardreview ${c.cards.e} passed done`,
+    prompt: (c) => `Review card #${c.cards.e}.`,
+    fake: (c) => `skill review-agent-work boardreview ${c.cards.e} start then boardreview ${c.cards.e} passed passed`,
     expect: (o) => [
       ['the review passed', history(o.cards.e).includes('Review passed'), history(o.cards.e).join(' | ')],
-      ['the card is Done (the user authorised it)', o.cards.e?.column === 'done', o.cards.e?.column],
+      ['the card is in Passed (reviewed, not merged)', o.cards.e?.column === 'passed', o.cards.e?.column],
       ['it kept its implementer', o.cards.e?.agentName === 'Implementer', o.cards.e?.agentName]
+    ]
+  },
+  {
+    id: 'merged-to-done',
+    title: 'A merged branch: its builder moves the Passed card to Done, which means merged (#170)',
+    async setup(c) {
+      await c.card('m', { title: 'Greeting helper', description: 'greet.js returns "Hello, <name>".', column: 'passed', agent: 'coder', comments: ['Review round 1: PASSED.'] })
+    },
+    prompt: (c) => `You merged your branch with card #${c.cards.m}'s work into main a minute ago (I asked you to). Bring the board up to date.`,
+    fake: (c) => `skill merge-ready boardmove ${c.cards.m} done`,
+    expect: (o) => [['the card is in Done', o.cards.m?.column === 'done', o.cards.m?.column]]
+  },
+  {
+    id: 'hold-skipped',
+    title: "The next card: an agent takes the top Todo card, never one On Hold (the user's) (#170)",
+    async setup(c) {
+      await c.card('o', { title: 'Add a LICENSE', description: 'Add an MIT LICENSE file at the root.', column: 'hold' })
+      await c.card('t', { title: 'Add CONTRIBUTING.md', description: 'Add a CONTRIBUTING.md at the root with one line: "Be kind."' })
+    },
+    prompt: 'Take the next card from the board and work on it.',
+    fake: (c) => `skill work-on-card boardmove ${c.cards.t} doing then boardmove ${c.cards.t} review then boardcomment ${c.cards.t}`,
+    expect: (o) => [
+      ['the On Hold card stays On Hold, untouched', o.cards.o?.column === 'hold' && !o.cards.o?.agent, `${o.cards.o?.column} / ${o.cards.o?.agent?.name ?? 'nobody'}`],
+      ['worked on the Todo card', movedInto(o.cards.t, 'Doing') >= 0, history(o.cards.t).join(' | ')]
     ]
   },
   {
@@ -630,7 +654,7 @@ module.exports.SCENARIOS = [
     title: 'A card loop builder woken by one card passing while the other failed at the same moment: it acts on the failed one too (#224)',
     files: { 'sync.js': SYNC_JS },
     async setup(c) {
-      const p = await c.card('p', { title: 'Sync: retry three times', description: 'sync.js: try the sync up to three times.', column: 'review', agent: 'coder', comments: ['Done: three tries. Ready for review (reviewed with the delay card).', 'Review round 1: PASSED.'] })
+      const p = await c.card('p', { title: 'Sync: retry three times', description: 'sync.js: try the sync up to three times.', column: 'passed', agent: 'coder', comments: ['Done: three tries. Ready for review (reviewed with the delay card).', 'Review round 1: PASSED.'] })
       const f = await c.card('f', {
         title: 'Sync: 1 s between retries',
         description: 'sync.js: wait 1 s between the tries.',
@@ -642,7 +666,7 @@ module.exports.SCENARIOS = [
       giveVerdict(c, f, 'failed')
     },
     prompt: (c) =>
-      `You are the builder of a card loop on #${c.cards.p} and #${c.cards.f}, reviewed together by Implementer (rounds: 5); you were watching both. Hive has just woken you with: "[Hive] #${c.cards.p} is in Review: Implementer (alpha) passed it; latest comment by Implementer (alpha): "Review round 1: PASSED.". Your card watch has ended: carry on." Carry on as the builder.`,
+      `You are the builder of a card loop on #${c.cards.p} and #${c.cards.f}, reviewed together by Implementer (rounds: 5); you were watching both. Hive has just woken you with: "[Hive] #${c.cards.p} is in Passed: Implementer (alpha) passed it; latest comment by Implementer (alpha): "Review round 1: PASSED.". Your card watch has ended: carry on." Carry on as the builder.`,
     // The fake takes the failed card back to work, as a builder that checked both cards does.
     fake: (c) => `skill card-loop boardmove ${c.cards.f} doing then boardcomment ${c.cards.f}`,
     expect: (o, c) => {

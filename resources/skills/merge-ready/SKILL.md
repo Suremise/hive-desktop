@@ -28,3 +28,5 @@ In Hive an agent often works in its own git worktree on its own branch. The user
 ## Finishing
 
 Give the user the summary and say plainly whether the branch is ready, and if not, what's in the way. Merging is done from Hive, where the user reviews it first. Rebase, merge, push, delete the branch or publish only when the user asks you to. If the user isn't watching this agent, a short `hive_notify` that the branch is ready helps them notice.
+
+When you have merged the branch (the user asked you to), move its cards from `passed` to `done`: Done means merged. Cards still in Review or Doing stay where they are.

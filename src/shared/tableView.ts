@@ -8,8 +8,11 @@ export interface ColumnRules<T> {
   key: string
   /** The value it sorts by; without one the column doesn't sort. Nulls go last. */
   sortValue?: (row: T) => string | number | null
-  /** Its quick filter: text the cell must contain (any case), or one of the values the rows have. */
-  filter?: { kind: 'text' | 'choice'; value: (row: T) => string }
+  /**
+   * Its quick filter: text the cell must contain (any case), or one of the values the rows have. `values`, for a choice:
+   * a row has several (a card's labels), and passes when one of them is the one chosen.
+   */
+  filter?: { kind: 'text' | 'choice'; value: (row: T) => string; values?: (row: T) => string[] }
 }
 
 export interface Sort {
@@ -49,6 +52,10 @@ export function passes<T>(row: T, columns: ColumnRules<T>[], filters: Record<str
   for (const c of columns) {
     const want = filters[c.key]?.trim()
     if (!want || !c.filter) continue
+    if (c.filter.kind === 'choice' && c.filter.values) {
+      if (!c.filter.values(row).includes(want)) return false
+      continue
+    }
     const have = c.filter.value(row)
     if (c.filter.kind === 'choice' ? have !== want : !have.toLowerCase().includes(want.toLowerCase())) return false
   }
@@ -94,7 +101,7 @@ export function nextSort(current: Sort | null, key: string, descFirst: boolean, 
   return defaultSort
 }
 
-/** The values a choice filter offers: those the rows have, sorted. */
-export function choices<T>(rows: T[], value: (row: T) => string): string[] {
-  return [...new Set(rows.map(value))].filter(Boolean).sort((a, b) => a.localeCompare(b))
+/** The values a choice filter offers: those the rows have (each of a row's `values`, with them), sorted. */
+export function choices<T>(rows: T[], value: (row: T) => string, values?: (row: T) => string[]): string[] {
+  return [...new Set(values ? rows.flatMap(values) : rows.map(value))].filter(Boolean).sort((a, b) => a.localeCompare(b))
 }

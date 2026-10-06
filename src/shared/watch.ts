@@ -10,8 +10,7 @@
  * `column` is a move into it (only when it moves there), or any other change listed ("verdict or into Done").
  */
 import type { TaskCard, TaskColumn } from './types'
-
-const COLUMN_WORD: Record<TaskColumn, string> = { todo: 'Todo', doing: 'Doing', review: 'Review', done: 'Done' }
+import { COLUMN_CHOICES, COLUMN_IDS, TASK_COLUMNS, columnLabel } from './tasks'
 
 /** What counts as a change: a column move, a new comment, a review verdict, a change of agent. Default: any. */
 export type WatchChange = 'column' | 'comment' | 'verdict' | 'agent'
@@ -49,7 +48,7 @@ export interface CardMark {
 
 const VERDICT = /^Review (passed|failed)/
 
-const COLUMNS = ['todo', 'doing', 'review', 'done'] as const
+const COLUMNS: readonly string[] = COLUMN_IDS
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const isTime = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0
 
@@ -68,7 +67,7 @@ export function readSavedCondition(v: unknown): WatchCondition | null {
   if (!cards.length || cards.length > WATCH_MAX_CARDS || cards.some((n) => !Number.isInteger(n) || (n as number) <= 0) || new Set(cards).size !== cards.length) return null
   const changes = v.changes
   if (!changes.length || changes.some((c) => !WATCH_CHANGES.includes(c as WatchChange)) || new Set(changes).size !== changes.length) return null
-  if (v.column !== undefined && !COLUMNS.includes(v.column as TaskColumn)) return null
+  if (v.column !== undefined && !COLUMNS.includes(v.column as string)) return null
   if (v.moveInto !== undefined && (v.moveInto !== true || v.column === undefined)) return null
   // A column goes with `column` among the changes (as readCondition makes it).
   if (v.column !== undefined && !changes.includes('column')) return null
@@ -89,15 +88,15 @@ export function markOf(card: TaskCard | null): CardMark {
  */
 export function movedIntoSince(card: TaskCard | null, column: TaskColumn, since: string): boolean {
   if (!card) return false
-  const w = COLUMN_WORD[column]
+  const w = columnLabel(column)
   // A failed card returned for review without leaving Review (#214) comes back into it as much as one moved there.
   const re = new RegExp(`^(Moved to (the (top|bottom) of )?${w}\\b|Created in ${w}\\b${column === 'review' ? '|Returned for review\\b' : ''})`)
   return card.history.some((h) => h.at > since && re.test(h.what))
 }
 
 /** History that puts a card in a column, and which. */
-const INTO_COLUMN = /^(?:Moved to (?:the (?:top|bottom) of )?|Created in )(Todo|Doing|Review|Done)\b|^(Returned for review)\b/
-const COLUMN_OF: Record<string, TaskColumn> = { Todo: 'todo', Doing: 'doing', Review: 'review', Done: 'done' }
+const INTO_COLUMN = new RegExp(String.raw`^(?:Moved to (?:the (?:top|bottom) of )?|Created in )(${TASK_COLUMNS.map((c) => c.label).join('|')})\b|^(Returned for review)\b`)
+const COLUMN_OF: Record<string, TaskColumn> = Object.fromEntries(TASK_COLUMNS.map((c) => [c.label, c.id]))
 const intoColumn = (what: string): TaskColumn | null => {
   const m = INTO_COLUMN.exec(what)
   return m ? (m[2] ? 'review' : COLUMN_OF[m[1]]) : null
@@ -257,7 +256,7 @@ export function decodeSince(since: string): { marks: Map<number, CardMark>; at: 
   for (const part of since.slice(head[0].length).split(',').filter(Boolean)) {
     const [n, column, comment, verdict, agent, archived] = part.split(':')
     const num = Number(n)
-    if (!Number.isInteger(num) || num <= 0 || !['todo', 'doing', 'review', 'done', 'gone'].includes(column)) return null
+    if (!Number.isInteger(num) || num <= 0 || ![...COLUMNS, 'gone'].includes(column)) return null
     const c = parseInt(comment, 36)
     const v = parseInt(verdict, 36)
     if (!Number.isFinite(c) || !Number.isFinite(v) || (archived !== '0' && archived !== '1')) return null
@@ -286,7 +285,7 @@ export interface CardChange {
 /**
  * What a wake line adds so it can't be misread: `owner`, the agent of the card when another agent has it (its name;
  * null on the watcher's own card or one without an agent), and the review's verdict with its reviewer, when it is what
- * changed or, on another agent's card in Done, when that review passed it there.
+ * changed or, on another agent's card in Passed or Done, when that review passed it there.
  */
 export interface WakeAbout {
   owner: string | null
@@ -299,7 +298,7 @@ export interface WakeAbout {
  * History that starts another round of work or review (back to work, in Review again, a review started, another agent),
  * after which an earlier verdict no longer speaks for the card.
  */
-const NEW_ROUND = /^(Moved to (the (top|bottom) of )?(Todo|Doing|Review)\b|Created in |Given to |Taken from |Moved to the workspace|Started reviewing|Returned for review)/
+const NEW_ROUND = /^(Moved to (the (top|bottom) of )?(On Hold|Todo|Doing|Review)\b|Created in |Given to |Taken from |Moved to the workspace|Started reviewing|Returned for review)/
 
 const INTO_REVIEW = /^(Moved to (the (top|bottom) of )?Review\b|Created in Review\b|Returned for review\b)/
 
@@ -312,8 +311,8 @@ export function wakeAbout(card: TaskCard | null, changes: WatchChange[] | 'gone'
   const i = card.history.findLastIndex((h) => VERDICT.test(h.what))
   const current = i >= 0 && !card.history.slice(i + 1).some((h) => NEW_ROUND.test(h.what)) ? card.history[i] : null
   const passed = current ? VERDICT.exec(current.what)![1] === 'passed' : false
-  // Done on another agent's card names its review only when that review passed it; moved there by hand, none.
-  const wanted = changes.includes('verdict') || (!!owner && card.column === 'done' && passed)
+  // Passed or Done on another agent's card names its review only when that review passed it; moved there by hand, none.
+  const wanted = changes.includes('verdict') || (!!owner && (card.column === 'passed' || card.column === 'done') && passed)
   // Into Review by a return for review (#214): its latest arrival there says so.
   const arrival = changes.includes('column') && card.column === 'review' ? card.history.findLast((h) => INTO_REVIEW.test(h.what)) : undefined
   const returned = arrival ? RETURNED.exec(arrival.what) : null
@@ -343,11 +342,11 @@ export function cardChange(n: number, card: TaskCard | null, changes: WatchChang
   return { number: n, column: card ? card.column : 'gone', changes, by, comment: last ? { by: last.by, firstLine: firstLine(last.text) } : null }
 }
 
-const columnWord = (c: TaskColumn | 'gone'): string => (c === 'gone' ? 'gone' : COLUMN_WORD[c])
+const columnWord = (c: TaskColumn | 'gone'): string => (c === 'gone' ? 'gone' : columnLabel(c))
 
 /**
  * The one line Hive types to wake a watching agent: the card (and whose, when it isn't the watcher's), where it is now
- * (with the reviewer's verdict when that changed; Done on another agent's card says it isn't merged), and its latest
+ * (with the reviewer's verdict when that changed; Passed on another agent's card says it isn't merged yet), and its latest
  * comment's author and first line, then what to do. Kept to one short line (the CLI sends a new line at once).
  */
 export function wakeLine(change: CardChange, more = 0): string {
@@ -371,8 +370,8 @@ function whereNow(change: CardChange): string {
   if (change.changes === 'gone') return ' is gone from your board (archived, deleted or moved to another project)'
   const owner = about?.owner ? ` (${shortName(about.owner)}'s card)` : ''
   const verdict = about?.verdict ? `: ${shortName(about.verdict.by)} ${about.verdict.passed ? 'passed' : 'failed'} it` : ''
-  // Done means the review passed (or the user moved it there), not that the work is merged.
-  const merged = about?.owner && change.column === 'done' ? " (Done isn't merged)" : ''
+  // Passed means the review passed, not that the work is merged: Done is merged (#170).
+  const merged = about?.owner && change.column === 'passed' ? " (Passed isn't merged)" : ''
   return about?.returned ? `${owner} was returned for review (round ${about.returned})${verdict}` : `${owner} is in ${columnWord(change.column)}${verdict}${merged}`
 }
 
@@ -437,7 +436,7 @@ export function readCondition(args: { cards?: unknown; changes?: unknown; until?
   if (!ns.length || ns.length !== raw.length) return 'cards must be card numbers (at least one, no repeats)'
   if (ns.length > WATCH_MAX_CARDS) return `at most ${WATCH_MAX_CARDS} cards`
   const column = args.column
-  if (column !== undefined && !COLUMNS.includes(column as TaskColumn)) return 'column must be todo, doing, review or done'
+  if (column !== undefined && !COLUMNS.includes(column as TaskColumn)) return `column must be ${COLUMN_CHOICES}`
   const list = args.changes ?? args.until
   const given = list !== undefined && list !== 'any'
   // A column alone: arriving in it is all that counts. Otherwise the kinds listed (default: any).

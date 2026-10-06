@@ -7,7 +7,7 @@ import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectL
 import { agentProvider } from '@shared/providers'
 import { setDateStyle } from '@shared/dates'
 import type { ProjectTab } from '@shared/projectTabs'
-import type { AgentBranchStatus, AssistantPanelSide, QuitScope, TaskCard, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
+import type { AgentBranchStatus, AssistantPanelSide, BoardFold, QuitScope, TaskCard, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
@@ -127,6 +127,8 @@ interface State {
   /** Each project's Skills tab groups, open or folded as last left (#118; saved in ui). */
   skillsFold: Record<string, { hive?: boolean; provider?: boolean }>
   sessionsTree: Record<string, Record<string, boolean>>
+  /** Each workspace's board: collapsed columns and folded cards (#170; saved in ui), by workspace path in lower case. */
+  boardFold: Record<string, BoardFold>
   selectedProject: string | null
   projectTabs: Record<string, ProjectTab>
   selectedNote: string | null
@@ -293,6 +295,7 @@ export const useStore = create<State>(() => ({
   skillsProvider: {},
   skillsFold: {},
   sessionsTree: {},
+  boardFold: {},
   selectedProject: null,
   projectTabs: {},
   selectedNote: null,

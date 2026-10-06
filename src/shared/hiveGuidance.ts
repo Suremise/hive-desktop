@@ -43,8 +43,8 @@ export function hiveInstructions(project: string, role: HiveRole = 'agent', prog
     progressRule(progress),
     'Board rules, whatever a skill says, or if it is missing:',
     '- Working on a card: move it to doing first (also when it is back from review), then to review with a comment saying what you did.',
-    '- Reviewing a card is not working on it: it stays in review with its agent (hive_update_task review start, then passed or failed with your verdict). If it leaves review meanwhile, your review is over: leave the card where it is (not back to review, not on to done).',
-    "- Only the user decides done: move a card to done only when the user asks. Add cards for follow-up work rather than doing it unasked. A column's order is its priority."
+    '- Reviewing a card is not working on it: it stays in review with its agent (hive_update_task review start, then failed, or passed with column passed). If it leaves review meanwhile, your review is over: leave the card where it is (not back to review or on to passed).',
+    "- Done means merged: move a card to done only once its work is merged, or when the user asks. On hold is the user's: never move cards in or out unasked. Add cards for follow-up work rather than doing it unasked. A column's order is its priority."
   ].join('\n')
 }
 
