@@ -283,7 +283,9 @@ const check = (name, ok, extra = '') => {
 
   // --- #268: alpha's own template, with a worktree agent ("Tree", on alpha's hive/tree), loaded into beta from the
   // Templates view. beta's new Tree gets a new worktree of beta's: beta already has a hive/tree branch and a tree folder
-  // (its earlier Tree's, kept), so hive/tree-2 in …worktrees\beta\tree-2, as the confirmation said. alpha's is untouched.
+  // (its earlier Tree's, kept) with uncommitted work, so not that one (#289) but hive/tree-2 in …worktrees\beta\tree-2,
+  // as the confirmation said, with why. alpha's is untouched. Then (#289) a template in between and back: Tree works in
+  // a clean worktree of its name again, no new one.
   await select('alpha')
   const srcTree = await lib.addAgent(inv, alpha, { name: 'Tree', location: 'new-worktree' })
   await inv('workspace:refresh')
@@ -295,7 +297,9 @@ const check = (name, ok, extra = '') => {
   check("alpha's own template saved, with its worktree agent (and no path or branch)", !!(await lib.until(async () => fs.existsSync(alphaTrees), 5000)) && /"name": "Tree",[\s\S]*"worktree": true/.test(fs.readFileSync(alphaTrees, 'utf8')) && !/hive\/tree|worktrees/.test(fs.readFileSync(alphaTrees, 'utf8')))
   const srcCfg = JSON.stringify(projectCfg(alpha).agents.find((a) => a.id === srcTree.id).worktree)
   const want = path.join(`${ws}.worktrees`, 'beta', 'tree-2')
-  check("beta already has a hive/tree branch and a tree folder (its earlier Tree's)", lib.git(beta, ['branch', '--list', 'hive/tree']).includes('hive/tree') && fs.existsSync(path.join(`${ws}.worktrees`, 'beta', 'tree')))
+  const oldTree = path.join(`${ws}.worktrees`, 'beta', 'tree')
+  check("beta already has a hive/tree branch and a tree folder (its earlier Tree's)", lib.git(beta, ['branch', '--list', 'hive/tree']).includes('hive/tree') && fs.existsSync(oldTree))
+  fs.writeFileSync(path.join(oldTree, 'wip.txt'), 'unfinished')
   await page.locator('.activitybar [aria-label="Templates"]').click()
   await page.locator('.sidebar .template-row[aria-label="Alpha trees"]').first().click()
   const tplDetail = page.locator('.main-area > .tab-body .template-detail')
@@ -306,6 +310,7 @@ const check = (name, ok, extra = '') => {
   await crossLoad.waitFor({ timeout: 5000 })
   const cl = await crossLoad.innerText()
   check("the confirmation gives Tree's new worktree in beta: hive/tree-2 in …worktrees\\beta\\tree-2", cl.includes('own worktree on hive/tree-2 (from ') && cl.toLowerCase().includes(`in ${want.toLowerCase()}`), `${want}\n${cl}`)
+  check('…not the kept hive/tree, saying why (#289)', cl.includes('(new: hive/tree has 1 uncommitted file)'), cl)
   await page.screenshot({ path: path.join(lib.WORK, 'templates-7-cross-project.png') })
   await crossLoad.getByRole('button', { name: 'Load template' }).click()
   check("loaded into beta: alpha's agents", !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === JSON.stringify(projectCfg(alpha).agents.map((a) => a.name)), 15000)), JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
@@ -315,6 +320,35 @@ const check = (name, ok, extra = '') => {
   check("…a worktree and branch of beta's repository", norm(lib.git(beta, ['worktree', 'list', '--porcelain'])).includes(norm(want)) && lib.git(beta, ['branch', '--list', 'hive/tree-2']).includes('hive/tree-2'))
   check("…not of alpha's", !norm(lib.git(alpha, ['worktree', 'list', '--porcelain'])).includes(norm(want)) && !lib.git(alpha, ['branch', '--list', 'hive/tree-2']).includes('hive/tree-2'))
   check("alpha's Tree and its worktree are untouched", JSON.stringify(projectCfg(alpha).agents.find((a) => a.id === srcTree.id).worktree) === srcCfg && fs.existsSync(srcTree.worktree.path) && lib.git(srcTree.worktree.path, ['rev-parse', '--abbrev-ref', 'HEAD']).trim() === srcTree.worktree.branch && norm(made.path) !== norm(srcTree.worktree.path))
+  check('the kept worktree with uncommitted work is still there, its work too', fs.readFileSync(path.join(oldTree, 'wip.txt'), 'utf8') === 'unfinished')
+
+  // --- #289: "pair" in between (Tree replaced, its worktree kept), then "Alpha trees" again: Tree works in a clean
+  // worktree of its name again, and none is made. The kept hive/tree is clean now too: of the two, the unnumbered one.
+  fs.rmSync(path.join(oldTree, 'wip.txt'))
+  const hiveBranches = () => lib.git(beta, ['branch', '--list', 'hive/*']).split('\n').map((s) => s.replace('*', '').trim()).filter(Boolean).sort().join(',')
+  const branchesBefore = hiveBranches()
+  await page.locator('.activitybar [aria-label="Projects"]').click()
+  await select('beta')
+  await loadMenu()
+  await item('pair').click()
+  const toPair = page.locator('.dialog', { hasText: 'Load "pair"?' })
+  await toPair.waitFor({ timeout: 5000 })
+  check('replaced by "pair", Tree\'s worktree stays', /Tree \(its worktree and branch hive\/tree-2 stay\)/.test(await toPair.innerText()), await toPair.innerText())
+  await toPair.getByRole('button', { name: 'Load template' }).click()
+  await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer"]', 15000)
+  await page.locator('.activitybar [aria-label="Templates"]').click()
+  await page.locator('.sidebar .template-row[aria-label="Alpha trees"]').first().click()
+  await tplDetail.getByRole('button', { name: 'Load into Project…' }).click()
+  await dialog.locator('select').selectOption({ label: 'beta' })
+  await dialog.getByRole('button', { name: 'Continue' }).click()
+  await crossLoad.waitFor({ timeout: 5000 })
+  const back = await crossLoad.innerText()
+  check('back to "Alpha trees": the confirmation says Tree reuses its clean worktree on hive/tree', back.toLowerCase().includes(`reuses its worktree on hive/tree in ${oldTree.toLowerCase()} (clean; its branch is left as it is)`), back)
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-8-reuse.png') })
+  await crossLoad.getByRole('button', { name: 'Load template' }).click()
+  await lib.until(async () => projectCfg(beta).agents.some((a) => a.name === 'Tree'), 15000)
+  const reattached = projectCfg(beta).agents.find((a) => a.name === 'Tree')?.worktree
+  check('…and works in it: no new worktree or branch', norm(reattached?.path ?? '') === norm(oldTree) && reattached.branch === 'hive/tree' && hiveBranches() === branchesBefore, `${JSON.stringify(reattached)} ${hiveBranches()} / ${branchesBefore}`)
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')

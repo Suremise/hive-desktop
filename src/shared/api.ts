@@ -295,7 +295,7 @@ export interface HiveRequests {
   /** Replaces the project's agents and layout with a template's; `expected` is the agents' ids as the user saw them. */
   'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string) => { created: string[]; removed: string[] }
   /** Adds one agent of a template (the `index`-th), the others left alone. */
-  'templates:addAgent': (projectPath: string, scope: TemplateScope, file: string, index: number, from?: string) => AgentDef
+  'templates:addAgent': (projectPath: string, scope: TemplateScope, file: string, index: number, from?: string) => AgentDef & { reused?: true }
   /** Every template of the workspace (#127, the Templates view): the workspace's, then each project's. */
   'templates:all': () => TemplateEntry[]
   /** Renames a template where it is kept (another of that name there refuses it). */

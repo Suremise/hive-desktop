@@ -29,21 +29,24 @@ export function templateAgentSettings(a: TemplateAgent, cfg: Pick<ProjectConfig,
 export function templateLoadDetail(plan: Pick<TemplateLoadPlan, 'remove' | 'create' | 'worktrees' | 'setup'>, cfg: Pick<ProjectConfig, 'providers' | 'defaultProvider'>, settings: AppSettings | null, info: (p: ProviderId) => ModelInfo): string {
   const coming = new Set(plan.create.map((a) => a.name.toLowerCase()))
   const replaced = plan.remove.filter((a) => coming.has(a.name.toLowerCase())).map((a) => a.name.toLowerCase())
+  // Worktrees a created agent works in again (#289): a removed agent's goes on with the new one rather than staying behind.
+  const reused = new Set(plan.worktrees.flatMap((w) => (w?.reuse ? [w.path.toLowerCase()] : [])))
   const lines: string[] = []
   if (plan.remove.length) {
     lines.push('Removed:')
-    for (const a of plan.remove) lines.push(`• ${a.name}${a.worktree ? ` (its worktree and branch ${a.worktree.branch} stay)` : ''}${replaced.includes(a.name.toLowerCase()) ? ': replaced by a new agent with the same name' : ''}`)
+    for (const a of plan.remove) lines.push(`• ${a.name}${a.worktree ? (reused.has(a.worktree.path.toLowerCase()) ? ` (its worktree on ${a.worktree.branch} goes on with the new ${a.name})` : ` (its worktree and branch ${a.worktree.branch} stay)`) : ''}${replaced.includes(a.name.toLowerCase()) ? ': replaced by a new agent with the same name' : ''}`)
     lines.push('')
   }
   lines.push('Created:')
   plan.create.forEach((a, i) => {
     lines.push(`• ${a.name}${a.role ? ` — ${a.role}` : ''}${replaced.includes(a.name.toLowerCase()) ? ' (new)' : ''}: ${providerName(a.provider)}, ${templateAgentSettings(a, cfg, settings, info(a.provider))}`)
     const w = plan.worktrees[i]
-    if (w) lines.push(`    own worktree on ${w.branch} (from ${w.base}) in ${w.path}`)
+    if (w?.reuse) lines.push(`    reuses its worktree on ${w.branch} in ${w.path} (clean; its branch is left as it is)`)
+    else if (w) lines.push(`    own worktree on ${w.branch} (from ${w.base}) in ${w.path}${w.notReused ? ` (new: ${w.notReused})` : ''}`)
     else if (a.worktree) lines.push('    own worktree')
   })
   lines.push('')
-  if (plan.setup && plan.worktrees.some(Boolean)) lines.push(`Each new worktree runs the project's setup command (${plan.setup}) before its agent first starts.`)
+  if (plan.setup && plan.worktrees.some((w) => w && !w.reuse)) lines.push(`Each new worktree runs the project's setup command (${plan.setup}) before its agent first starts.`)
   lines.push(`${plan.remove.length ? 'Their conversations stay in the Sessions tab, and their open cards go back (Doing ones to Todo). ' : ''}The layout becomes the template's.`)
   return lines.join('\n')
 }

@@ -410,6 +410,44 @@ describe('saving and loading templates', () => {
     expect(cfgOf(alpha).agents.find((a: AgentDef) => a.id === source.id)?.worktree).toEqual(source.worktree)
   })
 
+  it('loading the same template again works in the same worktrees; switching templates and back reattaches them; a dirty one gets a new worktree, saying why (#289)', async () => {
+    const ids = (): string[] => cfgOf(beta).agents.map((a: AgentDef) => a.id)
+    const places = (): string[][] => cfgOf(beta).agents.map((a: AgentDef) => [a.name, a.worktree?.branch ?? '', a.worktree?.path.toLowerCase() ?? ''])
+    const branches = (): string[] => git(beta, 'branch', '--list', 'hive/*').toString().split('\n').map((s) => s.replace('*', '').trim()).filter(Boolean).sort()
+    // From the test before: Tree A on hive/tree-a, Tree B on hive/tree-b-2 (hive/tree-b was taken).
+    const trees = places()
+    expect(trees.map((p) => p[1])).toEqual(['hive/tree-a', 'hive/tree-b-2'])
+    const known = branches()
+    let plan = await run(() => templates.templatePlan(beta, 'project', 'trees.json', alpha))
+    expect(plan.worktrees.map((t) => [t?.reuse, t?.branch])).toEqual([[true, 'hive/tree-a'], [true, 'hive/tree-b-2']])
+    await run(() => templates.loadTemplate(beta, 'project', 'trees.json', ids(), alpha))
+    expect(places()).toEqual(trees)
+    expect(branches()).toEqual(known)
+    // Another template replaces them (their worktrees stay), then back: the same worktrees, found by name (Tree B's numbered).
+    await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids()))
+    expect(names(beta)).toEqual(['Builder', 'Reviewer'])
+    plan = await run(() => templates.templatePlan(beta, 'project', 'trees.json', alpha))
+    expect(plan.worktrees.map((t) => t?.reuse)).toEqual([true, true])
+    await run(() => templates.loadTemplate(beta, 'project', 'trees.json', ids(), alpha))
+    expect(places()).toEqual(trees)
+    expect(branches()).toEqual(known)
+    // A worktree with uncommitted work isn't reused: a new one instead, saying why. Nothing is ever removed.
+    await run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids()))
+    const wip = join(trees[0][2], 'wip.txt')
+    writeFileSync(wip, 'unfinished')
+    plan = await run(() => templates.templatePlan(beta, 'project', 'trees.json', alpha))
+    expect(plan.worktrees[0]).toMatchObject({ branch: 'hive/tree-a-2', notReused: 'hive/tree-a has 1 uncommitted file' })
+    expect(plan.worktrees[0]?.reuse).toBeUndefined()
+    expect(plan.worktrees[1]?.reuse).toBe(true)
+    rmSync(wip)
+    expect(existsSync(trees[0][2]) && existsSync(trees[1][2])).toBe(true)
+    // Add Agent from Template: a free, clean worktree of that name is worked in again; one an agent uses never is.
+    const added = await run(() => templates.addAgentFromTemplate(beta, 'project', 'trees.json', 0, alpha))
+    expect([added.name, added.reused, added.worktree?.path.toLowerCase()]).toEqual(['Tree A', true, trees[0][2]])
+    const again = await run(() => templates.addAgentFromTemplate(beta, 'project', 'trees.json', 0, alpha))
+    expect([again.name, again.reused, again.worktree?.branch]).toEqual(['Tree A 2', undefined, 'hive/tree-a-2'])
+  })
+
   it('changes at once to one place never pick the same file or miss a name: imports, duplicates, saves', async () => {
     const dir = join(base, 'parallel')
     mkdirSync(dir, { recursive: true })

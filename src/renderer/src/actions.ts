@@ -766,6 +766,8 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
 export async function addAgentFromTemplate(path: string, entry: Pick<TemplateEntry, 'scope' | 'file'>, index: number): Promise<void> {
   const def = await attempt('Could not add the agent', () => call('templates:addAgent', path, entry.scope, entry.file, index))
   if (!def) return
+  // A clean worktree Hive made for that name, which no agent used, is worked in again rather than a new "-2" (#289).
+  if (def.reused && def.worktree) notify('info', `${def.name} works in its worktree again`, `${def.worktree.branch} in ${def.worktree.path}: it was clean, and its branch is left as it is.`)
   await refreshWorkspace()
   const p = project(path)
   if (p) showAgent(p, def.id)
