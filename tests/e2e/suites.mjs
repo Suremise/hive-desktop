@@ -101,6 +101,7 @@ export const SUITES = [
   { name: 'startall' },
   { name: 'startfail' },
   { name: 'storage' },
+  { name: 'storageclose' },
   { name: 'swap' },
   { name: 'tabstrip' },
   { name: 'taskbar', serial: 'window focus' },

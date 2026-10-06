@@ -42,6 +42,7 @@ import { initUpdater, installNow } from './updater'
 import { flushMetrics } from './metrics'
 import { createWorkspaceService, disposeWorkspaceService, inWorkspace, openWorkspaces, workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
 import { hiveWindows, lastFocused, TITLE_BAR_OVERLAY, registerWindow, unregisterWindow, windowForPath, type HiveWindow } from './windows'
+import { abandonWindowStorage } from './storage'
 import { agentTokenFile } from './agentTokens'
 import { setTaskbarTestHook, startProgress } from './progressService'
 
@@ -245,8 +246,15 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
     }
     void requestCloseWindow(entry)
   })
+  // The page going (the window closed, or the page reloaded) runs none of its clean-up: the Storage measurements it
+  // asked for are abandoned, and those nothing else waits for stop (#260).
+  const contents = win.webContents.id
+  win.webContents.on('did-start-navigation', (e) => {
+    if (e.isMainFrame && !e.isSameDocument) abandonWindowStorage(contents)
+  })
   win.on('closed', () => {
     stopPin()
+    abandonWindowStorage(contents)
     unregisterWindow(entry)
     void disposeWorkspaceService(entry.ws)
     if (!quitting) saveWindows()

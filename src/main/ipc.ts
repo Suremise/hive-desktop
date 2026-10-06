@@ -434,10 +434,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:delete': (p, id) => sessions.delete(p, id),
     'session:bulk': (p, action, ids) => sessions.bulk(p, action, ids),
     'session:keptUsage': (p) => sessions.keptUsage(p),
-    'storage:project': (p, refresh, request) => storage.projectStorage(p, refresh, typeof request === 'string' ? request : undefined),
-    'storage:workspace': (refresh, request) => storage.workspaceStorage(refresh, typeof request === 'string' ? request : undefined),
+    // A request is the calling window's: only it abandons it, and its page going abandons it too (#260).
+    'storage:project': (p, refresh, request) => storage.projectStorage(p, refresh, typeof request === 'string' ? request : undefined, win().webContents.id),
+    'storage:workspace': (refresh, request) => storage.workspaceStorage(refresh, typeof request === 'string' ? request : undefined, win().webContents.id),
     'storage:abandon': (request) => {
-      if (typeof request === 'string') storage.abandonStorage(request)
+      if (typeof request === 'string') storage.abandonStorage(request, win().webContents.id)
     },
     'storage:cleanupPreview': (p, opts) => storage.cleanupPreview(p, opts),
     'storage:cleanup': (p, opts, listed) => storage.cleanup(p, opts, listed),
