@@ -449,15 +449,19 @@ function skip(reason) {
   process.exit(0)
 }
 
-/** What git says when another git process holds the repository's lock (index.lock, or a ref's). */
-const GIT_LOCKED = /Unable to create '[^']+\.lock': File exists|Another git process seems to be running/i
+/**
+ * What git says when another git process holds the repository's lock (index.lock, or a ref's): "File exists", or on
+ * a busy Windows "Permission denied" while the holder's lock is still being deleted (a scanner has it open, #298).
+ */
+const GIT_LOCKED = /Unable to create '[^']+\.lock': (File exists|Permission denied)|Another git process seems to be running/i
 
 /**
  * Runs git in a test repository (cmd: a command line after `git`, or its arguments) and returns its output, waiting out
  * the Hive under test's own git (#199): Hive refreshes branch status and the Changes tab with `git status`, which holds
  * the repository's index.lock for a moment, so a suite's git command that writes at that moment fails with "Unable to
- * create '…/index.lock': File exists". That alone is tried again every 100 ms for up to timeoutMs; any other failure
- * throws at once. opts: execSync's (input, env…).
+ * create '…/index.lock': File exists" (or "Permission denied" while that lock is still being deleted on a busy
+ * machine, #298). That alone is tried again every 100 ms for up to timeoutMs; any other failure throws at once.
+ * opts: execSync's (input, env…).
  */
 function git(cwd, cmd, { timeoutMs = 15_000, ...opts } = {}) {
   const start = Date.now()
@@ -579,4 +583,4 @@ async function haikuAutoCaveat(page, autoOffered) {
   return [ok, JSON.stringify(caveat)]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, git, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
