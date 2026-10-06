@@ -266,20 +266,27 @@ export function App() {
         call('app:info'),
         call('session:live')
       ])
+      // A startup cleaned up meanwhile (StrictMode's first, in development) leaves the window to the newer one (#337).
+      if (!early.active()) return
       set({ settings: s, sidebarWidth: ui.sidebarWidth, sidebarVisible: ui.sidebarVisible, sidebarCompact: !!ui.sidebarCompact, panes: ui.panes ?? {}, skillsProvider: ui.skillsProvider ?? {}, skillsFold: ui.skillsFold ?? {}, sessionsTree: ui.sessionsTree ?? {}, boardFold: ui.boardFold ?? {}, progressFilter: ui.progressFilter ?? {}, tips: tipsState(ui.tips), workspace: ws, recent, providers: ag, api, appInfo: info })
       early.settle()
       set({ assistantOpen: assistantWasOpen(ws?.path) })
       // A window restored on top (its workspace was left pinned) shows its pin lit from the start.
-      void call('window:getAlwaysOnTop').then((on) => set({ alwaysOnTop: on })).catch(() => undefined)
+      void call('window:getAlwaysOnTop').then((on) => {
+        if (early.active()) set({ alwaysOnTop: on })
+      }).catch(() => undefined)
       if (ws) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
       for (const l of live) applyLiveState(l)
       void loadTasks()
-      void call('agents:branchStatuses').then((list) =>
-        set((st) => ({ branchStatus: { ...Object.fromEntries(list.map((b) => [projectKey(b.projectPath, b.agentId), b.status])), ...st.branchStatus } }))
-      )
+      void call('agents:branchStatuses').then((list) => {
+        if (early.active()) set((st) => ({ branchStatus: { ...Object.fromEntries(list.map((b) => [projectKey(b.projectPath, b.agentId), b.status])), ...st.branchStatus } }))
+      })
       // A reloaded window picks up a quit dialog or pending quit that was already in progress.
-      set({ planUsage: await call('app:planUsage'), update: await call('update:state'), keepAwake: await call('app:keepAwake'), windowCount: await call('window:count') })
+      const more = { planUsage: await call('app:planUsage'), update: await call('update:state'), keepAwake: await call('app:keepAwake'), windowCount: await call('window:count') }
+      if (!early.active()) return
+      set(more)
       const q = await call('app:quitState')
+      if (!early.active()) return
       set({ quitRequest: q.request, quitUnsaved: q.unsaved, quitScope: q.scope, quitPending: q.pending ? { working: q.working } : null })
       applyTheme()
       noticeUnmanagedMcp()
@@ -290,6 +297,7 @@ export function App() {
     mq.addEventListener('change', applyTheme)
     return () => {
       off()
+      early.stop()
       mq.removeEventListener('change', applyTheme)
     }
   }, [])
