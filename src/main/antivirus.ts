@@ -5,7 +5,7 @@ import { basename, join, resolve } from 'path'
 import { appendFileSync } from 'original-fs'
 import { mkdir, readFile, realpath, rm, stat } from 'original-fs/promises'
 import { app } from 'electron'
-import { changeOutcome, covered, emptyStatus, folderPlan, listed, normPath, parseProbe, statusOf, testsEligible, type AntivirusStatus, type AvAction, type AvChangeResult, type AvPathKind } from '../shared/antivirus'
+import { changeOutcome, covered, emptyStatus, folderPlan, listed, nextOffer, normPath, offerOf, parseProbe, REMIND_MS, remindAtOf, statusOf, testsEligible, type AntivirusStatus, type AvAction, type AvChangeResult, type AvPathKind, type AvSuggestionReply } from '../shared/antivirus'
 import { config } from './config'
 import { createLogger, userText } from './logger'
 import { worktreesRoot } from './worktrees'
@@ -131,6 +131,8 @@ interface Fixture {
   elevated?: { cancelled?: boolean; launchError?: string; error?: string; partial?: number; policy?: boolean; unlisted?: boolean; redacted?: boolean; exclusions?: string[]; devDrives?: Record<string, string> }
   /** Holds the probe's answer this long (a slow probe, to overlap requests). */
   probeDelayMs?: number
+  /** How long before a reminder for the same folders (a day without it). */
+  remindMs?: number
 }
 
 /** Defender's answer for a hidden list, as a fixture's redacted administrator read gives it. */
@@ -450,32 +452,49 @@ function fixtureChange(f: Fixture, action: AvAction, paths: string[]): AvChangeR
 
 /**
  * Whether to suggest exclusions now (the window saw a reason: several agents running, a long command, or a new
- * worktrees folder while they run): when scanning likely slows this workspace, it wasn't declined for good, and these
- * folders weren't offered before. The check and the claim happen together after the status is known, so two requests
- * can't both offer, and one can't ignore a "Don't ask again" given meanwhile. Null: no suggestion.
+ * worktrees folder while they run): when scanning likely slows this workspace and it wasn't declined for good. Folders
+ * not offered before are suggested at once; the same folders again at most once a day (a reminder, #348), until the
+ * user says "Don't ask again" or they stop being slowed (excluded, a trusted Dev Drive, Defender not active). The check
+ * and the claim happen together after the status is known, so two requests can't both offer, and one can't ignore a
+ * "Don't ask again" given meanwhile. The reply also says when a reminder may come, for the window to ask again then
+ * while the reason lasts.
  */
-export async function antivirusSuggestion(): Promise<AntivirusStatus | null> {
-  const w = currentWorkspace()
+export function antivirusSuggestion(): Promise<AvSuggestionReply> {
+  return suggestionFor(currentWorkspace())
+}
+
+const NO_SUGGESTION: AvSuggestionReply = { offer: null, remindAt: null }
+
+export async function suggestionFor(w: WorkspaceService): Promise<AvSuggestionReply> {
   const root = w.path
-  if (!root) return null
+  if (!root) return NO_SUGGESTION
   const life = w.lifetime
   const key = root.toLowerCase()
-  if (remembered().dismissed?.[key]) return null
+  if (remembered().dismissed?.[key]) return NO_SUGGESTION
+  // A fixture may space reminders closer, so a suite sees one.
+  const spacing = (await readFixture().catch(() => null))?.remindMs ?? REMIND_MS
   const status = await statusFor(w)
-  if (life.aborted || w.path !== root || !status.slowed) return null
+  if (life.aborted || w.path !== root || !status.slowed) return NO_SUGGESTION
   // From here to the claim nothing awaits: what is remembered now is what decides.
   const mem = remembered()
-  if (mem.dismissed?.[key] || mem.offered?.[key] === status.offerKey) return null
+  if (mem.dismissed?.[key]) return NO_SUGGESTION
+  const prev = offerOf(mem.offered?.[key])
+  const offer = nextOffer(prev, status.offerKey, new Date(), spacing)
+  if (!offer) return { offer: null, remindAt: remindAtOf(prev, status.offerKey, spacing) }
   config.update((c) => {
-    c.antivirus = { ...c.antivirus, offered: { ...c.antivirus?.offered, [key]: status.offerKey } }
+    c.antivirus = { ...c.antivirus, offered: { ...c.antivirus?.offered, [key]: offer } }
   })
-  log.info(`antivirus: suggested exclusions for ${userText(basename(root))}`)
-  return status
+  log.info(`antivirus: suggested exclusions for ${userText(basename(root))}${offer.count > 1 ? ` (reminder ${offer.count - 1})` : ''}`)
+  return { offer: { status, count: offer.count }, remindAt: remindAtOf(offer, status.offerKey, spacing) }
 }
 
 /** "Don't ask again" for the window's workspace. */
 export function dismissAntivirus(): void {
-  const root = currentWorkspace().path
+  dismissFor(currentWorkspace())
+}
+
+export function dismissFor(w: WorkspaceService): void {
+  const root = w.path
   if (!root) return
   config.update((c) => {
     c.antivirus = { ...c.antivirus, dismissed: { ...c.antivirus?.dismissed, [root.toLowerCase()]: true } }
