@@ -1,6 +1,6 @@
 import { basename } from 'path'
 import type { SettingsPatch } from '../shared/api'
-import type { EffortOption, FallbackModel, ModelPrice, ProjectConfig } from '../shared/types'
+import type { EffortOption, FallbackModel, ModelPrice, ProjectConfig, ProviderId } from '../shared/types'
 import { modelCaps } from '../shared/models'
 import { projectProviderConfig, providerSettings } from '../shared/providers'
 import { SETTINGS_CATALOG, checkSettingValue, effortTakes, settingDefault, settingEntry, settingKind, settingOptions, settingPatch, settingPath, settingValue, settingValueText, type SettingContext, type SettingEntry, type SettingScope } from '../shared/settingsCatalog'
@@ -146,13 +146,25 @@ export async function checkedValue(e: SettingEntry, raw: unknown, projectPath: s
   return checked.value
 }
 
+/** The shipped models removed from a provider's price table (Settings' table removes them; its Reset puts them back). */
+export const removedPrices = (provider: ProviderId): string[] => [...(providerSettings(config.settings, provider).pricesRemoved ?? [])]
+
 /**
  * Sets a setting to a value as Settings or Project Settings would, and returns what it was and is now. `guard` runs at
  * the moment of the change, with the value as it is then (under the project's lock for a project's setting, or with no
  * wait before Hive's own settings change): it throws to refuse, so a permission withdrawn, or a value changed by
  * someone else, while the call waited is noticed. Never a sensitive setting: those stay the user's.
+ *
+ * A provider's prices: null puts back Hive's, as Settings' Reset to defaults does, the removed shipped models too;
+ * a table keeps them removed, unless `removed` (Revert's) says which. `removed` in the result is set when they changed.
  */
-export async function applySetting(e: SettingEntry, raw: unknown, projectPath: string | null, guard?: (current: unknown) => void): Promise<{ old: unknown; new: unknown }> {
+export async function applySetting(
+  e: SettingEntry,
+  raw: unknown,
+  projectPath: string | null,
+  guard?: (current: unknown) => void,
+  removed?: string[]
+): Promise<{ old: unknown; new: unknown; removed?: { old: string[]; new: string[] } }> {
   if (e.sensitive) throw new SettingRefused(403, e.readOnly ?? `${settingPath(e)} is the user's to change.`)
   const value = await checkedValue(e, raw, e.scope === 'project' ? projectPath : null)
   const change = settingPatch(e, value)
@@ -170,8 +182,13 @@ export async function applySetting(e: SettingEntry, raw: unknown, projectPath: s
   const old = settingValue(e, config.settings)
   guard?.(old)
   if ('settings' in change) config.updateSettings(change.settings as SettingsPatch)
-  else if ('prices' in change) config.setProviderPrices(change.prices.provider, change.prices.value as Record<string, ModelPrice>)
-  else config.setProviderFallback(change.fallback.provider, change.fallback.kind, change.fallback.list as (FallbackModel | EffortOption)[] | null)
+  else if ('prices' in change) {
+    const provider = change.prices.provider
+    const before = removedPrices(provider)
+    config.setProviderPrices(provider, change.prices.value as Record<string, ModelPrice>, raw === null ? [] : removed)
+    const after = removedPrices(provider)
+    return { old, new: settingValue(e, config.settings), ...(JSON.stringify(before) !== JSON.stringify(after) ? { removed: { old: before, new: after } } : {}) }
+  } else config.setProviderFallback(change.fallback.provider, change.fallback.kind, change.fallback.list as (FallbackModel | EffortOption)[] | null)
   return { old, new: settingValue(e, config.settings) }
 }
 
@@ -193,8 +210,9 @@ export async function revertSetting(workspacePath: string, actionId: string): Pr
     const guard = (current: unknown): void => {
       if (assistant.actions(workspacePath).some((a) => a.revertOf === actionId)) throw new Error('It has already been reverted.')
       if (JSON.stringify(current) !== JSON.stringify(change.new)) throw new Error(`${change.path} has changed since (it is ${settingValueText(e, current)} now): change it there.`)
+      if (change.removed && e.provider && JSON.stringify(removedPrices(e.provider)) !== JSON.stringify(change.removed.new)) throw new Error(`${change.path} has changed since (its removed models differ): change it there.`)
     }
-    await applySetting(e, change.old, change.project ?? null, guard)
+    await applySetting(e, change.old, change.project ?? null, guard, change.removed?.old)
     assistant.record(workspacePath, `You reverted ${change.path}${change.project ? ` in ${basename(change.project)}` : ''}: ${change.newText} → ${change.oldText}`, undefined, { revertOf: actionId })
   } finally {
     reverting.delete(actionId)

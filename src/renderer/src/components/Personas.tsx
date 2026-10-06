@@ -10,8 +10,8 @@ import { DocEditor } from './DocEditor'
 import { Icon, IconButton, Tooltip } from './ui'
 
 /**
- * The Hive Assistant's personas: the workspace's Markdown files in .hive/personas, each a role and a character
- * in its own words. Listed in the sidebar and edited in the main area; Hive's own four can be restored.
+ * The Hive Assistant's modes (personas in code): the workspace's Markdown files in .hive/personas, each how the
+ * Assistant works, in its own words. Listed in the sidebar and edited in the main area; Hive's own four can be restored.
  */
 
 export const PERSONAS_TIP =
@@ -26,14 +26,14 @@ export async function createPersona(): Promise<void> {
     validate: (v) => (/[a-z0-9]/i.test(v) ? null : 'Use letters or numbers.')
   })
   if (!name) return
-  const p = await actions.attempt('Could not create the persona', () => call('personas:create', name))
+  const p = await actions.attempt('Could not create the mode', () => call('personas:create', name))
   if (p) set((s) => ({ selectedPersona: p.path, assistantSection: 'personas', personasVersion: s.personasVersion + 1 }))
 }
 
 async function deletePersona(p: PersonaInfo): Promise<void> {
   const ok = await confirm({ title: `Delete ${p.name}?`, message: `${p.id}.md goes to the Recycle Bin.${p.bundled ? ' It ships with Hive, so you can restore it later.' : ''}`, confirmLabel: 'Delete', danger: true })
   if (!ok) return
-  if (!(await actions.attempt('Could not delete the persona', () => call('personas:delete', p.id).then(() => true)))) return
+  if (!(await actions.attempt('Could not delete the mode', () => call('personas:delete', p.id).then(() => true)))) return
   clearEditorDraftsUnder(p.path)
   set((s) => ({ selectedPersona: s.selectedPersona === p.path ? null : s.selectedPersona, personasVersion: s.personasVersion + 1 }))
 }
@@ -43,7 +43,7 @@ async function restorePersona(p: PersonaInfo): Promise<void> {
     const ok = await confirm({ title: `Revert ${p.name} to Hive's version?`, message: 'Your copy goes to the Recycle Bin and Hive puts back the mode as this version ships it.', confirmLabel: 'Revert' })
     if (!ok) return
   }
-  const r = await actions.attempt('Could not restore the persona', () => call('personas:restore', p.id))
+  const r = await actions.attempt('Could not restore the mode', () => call('personas:restore', p.id))
   if (r) clearEditorDraftsUnder(p.path)
   if (r) set((s) => ({ selectedPersona: r.path, personasVersion: s.personasVersion + 1 }))
 }
@@ -81,7 +81,7 @@ export function PersonaList() {
           </div>
         ))}
       <p className="hint" style={{ padding: '4px 14px' }}>
-        The Assistant takes one persona per conversation. Edit one to change its role or character; the next conversation uses it.
+        Choosing a mode switches a running Assistant at once and keeps its conversation. Default marks the one a workspace uses until you choose. Edit a mode to change how the Assistant works in it.
       </p>
     </>
   )
@@ -98,7 +98,7 @@ export function PersonaView() {
     return (
       <div className="empty-state" style={{ paddingTop: '18vh' }}>
         <Icon name="person" />
-        Select a persona to read or edit it. The Hive Assistant takes one in each conversation.
+        Select a mode to read or edit it.
       </div>
     )
   }
