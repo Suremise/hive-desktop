@@ -8,7 +8,7 @@ import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, 
 import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
 import { PROVIDERS, contextLines, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
-import { effortText } from '@shared/models'
+import { effortText, runsAsName } from '@shared/models'
 import { NumberField } from '../components/NumberField'
 import { StorageView } from '../components/Storage'
 import { TaskStrip } from '../components/Board'
@@ -1155,7 +1155,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
     <div className="agent-list">
       {project.agents.map((a) => {
         const provider = agentProviderOf(project, a)
-        const model = a.model ? modelLabel(a.model, provider) : effectiveModelLabel(provider, projectProviderConfig(cfg, provider).model, providerSettings(settings, provider).defaultModel, providers[provider]?.defaultModel ?? null)
+        const model = effectiveModelLabel(provider, a.model || projectProviderConfig(cfg, provider).model, providerSettings(settings, provider).defaultModel, providers[provider])
         const overrides = [a.model && `model ${modelLabel(a.model, provider)}`, a.effort && `effort ${a.effort}`, a.permissionMode && permissionLabel(provider, a.permissionMode), a.use200kContext !== undefined && `200K context ${a.use200kContext ? 'on' : 'off'}`].filter(Boolean)
         const off = !isProviderEnabled(settings, provider)
         return (
@@ -1227,7 +1227,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     const g = providerSettings(settings, id)
     const sect = `provider:${id}` as ProjectSection
     const save = (patch: Partial<typeof pc>): Promise<void> => actions.updateProjectProvider(project.path, id, patch)
-    const globalModel = g.defaultModel ? modelLabel(g.defaultModel, id) : `${p.name} default`
+    const globalModel = g.defaultModel ? runsAsName(id, g.defaultModel, installs[id]) : `${p.name} default`
     // The model this project's agents run unless they choose one, whose effort levels the picker offers (#125).
     const runModel = (pc.model && pc.model !== 'inherit' ? pc.model : g.defaultModel) || installs[id]?.defaultModel || null
     const globalEffort = effortText(id, g.defaultEffort, runModel, installs[id], settings)

@@ -331,9 +331,11 @@ describe('modelLabel', () => {
     expect(modelLabel('some-custom-model')).toBe('some-custom-model')
   })
   it('marks inherited models as the default', () => {
-    expect(effectiveModelLabel('claude-code', 'sonnet', 'opus', 'claude-opus-5-5')).toBe('Sonnet')
-    expect(effectiveModelLabel('claude-code', 'inherit', 'opus', 'claude-opus-5-5')).toBe('Opus (default)')
-    expect(effectiveModelLabel('claude-code', 'inherit', '', 'claude-opus-5-5')).toBe('Opus 5.5 (default)')
+    // Without the CLI's catalog an alias can't be resolved: it shows as named (never guessed).
+    const cliDefault = { defaultModel: 'claude-opus-5-5' }
+    expect(effectiveModelLabel('claude-code', 'sonnet', 'opus', cliDefault)).toBe('Sonnet')
+    expect(effectiveModelLabel('claude-code', 'inherit', 'opus', cliDefault)).toBe('Opus (default)')
+    expect(effectiveModelLabel('claude-code', 'inherit', '', cliDefault)).toBe('Opus 5.5 (default)')
     expect(effectiveModelLabel('claude-code', 'inherit', '', null)).toBe('Claude Code default')
   })
 })

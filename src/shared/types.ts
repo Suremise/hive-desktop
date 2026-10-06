@@ -845,6 +845,8 @@ export interface LiveSessionState {
   /** Reported by the provider once the session has started. */
   effort?: string
   modelName?: string
+  /** The model's id as the session reports it (Claude Code's status line, Codex's rollout): what the footer shows (#248). */
+  modelId?: string
   /** API-equivalent cost of the session so far, in USD. */
   costUsd?: number
   /** The model's context window in tokens, as the provider reports it for the running session (Claude Code's status line). */

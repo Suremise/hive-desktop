@@ -1966,10 +1966,11 @@ class SessionManager {
       l.defaultEffort = undefined
     }
     const st = l.state
-    const next = { effort: d.effort ?? st.effort, modelName: d.modelName ?? st.modelName, costUsd: d.costUsd ?? st.costUsd, planMode: d.planMode ?? st.planMode, permissionMode: d.permissionMode ?? st.permissionMode, contextWindow: d.contextWindow ?? st.contextWindow }
+    const next = { effort: d.effort ?? st.effort, modelName: d.modelName ?? st.modelName, modelId: d.modelId ?? st.modelId, costUsd: d.costUsd ?? st.costUsd, planMode: d.planMode ?? st.planMode, permissionMode: d.permissionMode ?? st.permissionMode, contextWindow: d.contextWindow ?? st.contextWindow }
     if (
       next.effort === st.effort &&
       next.modelName === st.modelName &&
+      next.modelId === st.modelId &&
       next.costUsd === st.costUsd &&
       next.planMode === st.planMode &&
       next.permissionMode === st.permissionMode &&

@@ -310,7 +310,7 @@ Hidden and removed projects aren't counted. It updates like the project Overview
 
 If you use a subscription (a Claude plan for Claude Code, a ChatGPT plan for Codex), the status bar shows how much of each plan's limits is used, one item per provider, for example **5h 34% · Week 12%**: the rolling 5-hour allowance and the weekly one. Hover it to see when each resets; the **Overview** tab shows them with meters in each provider's section. The numbers are for your whole account (every session, not just Hive's) and come from the CLI while a session is running, so after a quiet spell they show when they were last updated. The status bar darkens at 80% and turns red at 95%, and Hive notifies you once when you pass 80% and 95% of each limit in each reset period.
 
-Each agent's footer shows its model and **effort**, e.g. *Opus 5.5 (default) · High*: what the running session reports, otherwise what new sessions will use, otherwise the model's own default once the CLI has said it (*Medium (default)*).
+Each agent's footer shows its model and **effort**, e.g. *Opus 5.5 (default) · High*: the model that actually runs, as the running session reports it, otherwise the model new sessions will use. An alias such as **Opus** shows as the model it stands for (*Opus 5.5*), with *chosen as Opus* in the tooltip; the model pickers list it as *Opus (Opus 5.5)*. *(default)* means the model is inherited, not chosen for this agent or project. With no effort chosen, the effort is the model's own default once the CLI has said it (*Medium (default)*).
 
 ### Performance metrics
 

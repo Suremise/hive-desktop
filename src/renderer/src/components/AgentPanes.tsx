@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
 import { modelCaps } from '@shared/models'
-import { MAX_AGENTS, SESSION_LAYOUTS, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, effectiveModelLabel, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
+import { MAX_AGENTS, SESSION_LAYOUTS, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import type { AgentInfo, LiveSessionState, PageLayout, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import { TEMPLATE_SCOPES, type TemplateEntry, type TemplateScope } from '@shared/templates'
 import type { StartFailure } from '@shared/startFailure'
@@ -969,7 +969,10 @@ export function PaneFooter({
   const pc = projectProviderConfig(project.config, provider)
   const ps = providerSettings(settings, provider)
   const live = a.live
-  const model = effectiveModelLabel(provider, a.model || pc.model, ps.defaultModel, providers[provider]?.defaultModel ?? null)
+  // What runs (#248): the session's reported model while it runs (status line, else its transcript), else what the choice
+  // resolves to; the choice itself in the tooltip when it reads differently (an alias).
+  const shown = agentModelShown(provider, a.model || pc.model, ps.defaultModel, providers[provider], live ? live.modelId || usage?.model || null : null)
+  const model = shown.label
   // With no effort set or reported, the model's own default when the CLI said what it is ("Medium (default)", #125).
   const runModel = a.model || (pc.model && pc.model !== 'inherit' ? pc.model : ps.defaultModel) || providers[provider]?.defaultModel || null
   const effort = effortLabel(provider, live?.effort, a.effort ?? pc.effort, ps.defaultEffort, modelCaps(provider, runModel, providers[provider], settings).defaultEffort, settings)
@@ -991,7 +994,7 @@ export function PaneFooter({
   const [footerRef, fit] = useFooterFit()
   return (
     <div ref={footerRef} className="pane-footer-bar" data-fit={fit} onMouseDown={() => focusAgent(project.path, a.id)}>
-      <Tooltip content={`${providerName(provider)} model${effort ? ' and effort' : ''} ${live ? 'of this session' : 'for new sessions'}${live?.effort ? ' (effort as the session reports it)' : ''}. Change them in ${settingsName}.`}>
+      <Tooltip content={`${shown.chosenAs ? `${model} · chosen as ${shown.chosenAs}. ` : ''}${providerName(provider)} model${effort ? ' and effort' : ''} ${live ? 'of this session' : 'for new sessions'}${live?.effort ? ' (effort as the session reports it)' : ''}. Change them in ${settingsName}.`}>
         <span className="pane-foot-item foot-model fit-clip" onClick={() => (onSettings ? onSettings() : set({ agentSettingsFor: { project: project.path, agentId: a.id } }))}>
           {model}
           {effort && <span className="faint"> · {effort}</span>}

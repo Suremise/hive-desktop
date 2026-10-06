@@ -6,9 +6,9 @@ import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { parseClaudeInitialize } from '../src/main/providers/claude/models'
 import { parseCodexModels } from '../src/main/providers/codex/models'
-import { catalogModel, effortText, fallbackEfforts, fallbackModels, modelCaps, modelGroups, modelSource, modelSourceText, shippedModels } from '../src/shared/models'
+import { catalogLabel, catalogModel, chosenName, effortText, fallbackEfforts, fallbackModels, modelCaps, modelGroups, modelSource, modelSourceText, shippedModels } from '../src/shared/models'
 import { modeCaveat } from '../src/shared/providers'
-import { effortLabel } from '../src/shared/defaults'
+import { agentModelShown, effectiveModelLabel, effortLabel } from '../src/shared/defaults'
 import { modelPrice, priceRows } from '../src/shared/prices'
 import { config } from '../src/main/config'
 import type { AgentInstallInfo, AppSettings, ModelCatalog, ProviderSettings } from '../src/shared/types'
@@ -91,6 +91,65 @@ describe("Claude Code's initialize reply (2.1.289)", () => {
     expect(r.models.filter((m) => m.value === 'opus')).toHaveLength(1)
     const groups = modelGroups('claude-code', catalog(r.models), null)
     expect(groups.map((g) => [g.label, !!g.unavailable])).toEqual([['Claude Code models', false], ['Not available to this account', true]])
+  })
+})
+
+describe("an alias and the model it stands for (#248), from Claude Code 2.1.289's reply", () => {
+  const info = { ...catalog(claude.models), defaultModel: claude.defaultModel }
+  const by = (v: string) => claude.models.find((m) => m.value === v)!
+
+  it('pickers: an alias reads "Opus (Opus 5.5)", a pinned version as the CLI names it', () => {
+    expect(catalogLabel('claude-code', by('opus'), info)).toBe('Opus (Opus 5.5)')
+    expect(catalogLabel('claude-code', by('fable'), info)).toBe('Fable (Fable 5.1)')
+    // Haiku's alias stands for a dated id: named without the date.
+    expect(catalogLabel('claude-code', by('haiku'), info)).toBe('Haiku (Haiku 4.5)')
+    expect(catalogLabel('claude-code', by('claude-opus-4-8'), info)).toBe('Opus 4.8')
+    const labels = modelGroups('claude-code', info, null)[0].models.map((m) => m.label)
+    expect(labels.slice(0, 4)).toEqual(['Opus (Opus 5.5)', 'Fable (Fable 5.1)', 'Sonnet (Sonnet 5.5)', 'Haiku (Haiku 4.5)'])
+    expect(labels).toContain('Sonnet 5')
+  })
+
+  it('a CLI that names the alias itself ("Opus") keeps that name, with the model it stands for', () => {
+    const own = catalog([{ value: 'opus', label: 'Opus', resolved: 'claude-opus-5-5' }, { value: 'claude-opus-5-5', label: 'Opus 5.5 (pinned)' }])
+    expect(catalogLabel('claude-code', own.catalog!.models[0], own)).toBe('Opus (Opus 5.5 (pinned))')
+    expect(chosenName('claude-code', 'opus', own)).toBe('Opus')
+  })
+
+  it('footers: the Assistant on "Opus" and an agent on the default both run Opus 5.5', () => {
+    expect(agentModelShown('claude-code', 'opus', '', info)).toEqual({ label: 'Opus 5.5', chosenAs: 'Opus' })
+    expect(agentModelShown('claude-code', 'inherit', '', info)).toEqual({ label: 'Opus 5.5 (default)', chosenAs: null })
+    // Inherited from Hive's default, an alias.
+    expect(agentModelShown('claude-code', 'inherit', 'sonnet', info)).toEqual({ label: 'Sonnet 5.5 (default)', chosenAs: 'Sonnet' })
+    expect(agentModelShown('claude-code', 'claude-opus-4-8', '', info)).toEqual({ label: 'Opus 4.8', chosenAs: null })
+    expect(effectiveModelLabel('claude-code', 'fable', '', info)).toBe('Fable 5.1')
+  })
+
+  it("the CLI's own default given as an alias (Claude Code's settings.json model: \"opus\") resolves too, still marked default", () => {
+    const configured = { ...catalog(claude.models), defaultModel: 'opus' }
+    expect(agentModelShown('claude-code', 'inherit', '', configured)).toEqual({ label: 'Opus 5.5 (default)', chosenAs: 'Opus' })
+    expect(effectiveModelLabel('claude-code', undefined, '', configured)).toBe('Opus 5.5 (default)')
+    // Not in the catalog (or no catalog): as named.
+    expect(effectiveModelLabel('claude-code', 'inherit', '', { defaultModel: 'opus' })).toBe('Opus (default)')
+  })
+
+  it('a running session shows the model it reports, whatever was chosen', () => {
+    expect(agentModelShown('claude-code', 'opus', '', info, 'claude-opus-5-5')).toEqual({ label: 'Opus 5.5', chosenAs: 'Opus' })
+    // The CLI picked another model than the alias resolved to when Hive last asked: the session says what runs.
+    expect(agentModelShown('claude-code', 'opus', '', info, 'claude-opus-5-6')).toEqual({ label: 'Opus 5.6', chosenAs: 'Opus' })
+    expect(agentModelShown('claude-code', 'inherit', '', info, 'claude-sonnet-5-5')).toEqual({ label: 'Sonnet 5.5 (default)', chosenAs: null })
+  })
+
+  it('never guesses: an alias the CLI does not list, or no catalog at all, shows as named', () => {
+    expect(agentModelShown('claude-code', 'opus', '', null)).toEqual({ label: 'Opus', chosenAs: null })
+    expect(agentModelShown('claude-code', 'opus[1m]', '', info)).toEqual({ label: 'Opus (1M)', chosenAs: null })
+    expect(agentModelShown('claude-code', 'some-model', '', info)).toEqual({ label: 'some-model', chosenAs: null })
+    expect(agentModelShown('claude-code', 'inherit', '', catalog(claude.models))).toEqual({ label: 'Claude Code default', chosenAs: null })
+  })
+
+  it('Codex reports no aliases: its names are unchanged', () => {
+    const cx = catalog(codex.models)
+    expect(modelGroups('codex', cx, null)[0].models[0]).toEqual({ value: 'gpt-6.1-sol', label: 'GPT-6.1 Sol' })
+    expect(agentModelShown('codex', 'gpt-5.5', '', cx, 'gpt-5.5')).toEqual({ label: 'GPT-5.5', chosenAs: null })
   })
 })
 
