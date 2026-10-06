@@ -14,6 +14,7 @@ import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardComman
 import type { StartHint } from '../../../shared/startFailure'
 import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
 import { autoCompactOf, settingsScopes } from './autoCompact'
+import { mergeLaunchSettings, userSettings, withoutSettingsArgs } from './launchSettings'
 import { claudeBackgroundTasks } from './background'
 import { ConversationParser, claudeImageData } from './conversation'
 import { readClaudeModels } from './models'
@@ -217,6 +218,8 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   }
 
   async prepareLaunch(ctx: LaunchContext): Promise<Record<string, SkillDelivery>> {
+    // A --settings of the user's is read first: one Hive can't read stops the launch before anything changes (#330).
+    const theirs = await userSettings(ctx.extraArgs, ctx.cwd)
     const dir = this.launchDir(ctx.projectPath, ctx.agentId)
     await removePath(dir)
     const pluginDir = join(dir, 'plugin')
@@ -284,7 +287,8 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     // The status line forwards Claude Code's status JSON (model, effort, cost, plan limits) to Hive and
     // prints nothing, so no line is added to the terminal.
     const statusLine = { type: 'command', command: hookForwardCommand(`${ctx.hookUrl}&statusline`, token), padding: 0 }
-    await writeJsonAtomic(join(dir, 'settings.json'), { hooks, statusLine })
+    // The user's --settings merged in: Hive passes only this file (#330).
+    await writeJsonAtomic(join(dir, 'settings.json'), mergeLaunchSettings({ hooks, statusLine }, theirs, { url: ctx.hookUrl, envVar: 'HIVE_HOOK_TOKEN' }))
     await writeJsonAtomic(join(dir, 'sync.json'), { launchedAt: new Date().toISOString(), hashes })
     // Instructions for this launch (the Hive Assistant's) are appended to Claude Code's system prompt from a file.
     if (ctx.instructions) await writeFile(join(dir, 'instructions.md'), ctx.instructions)
@@ -310,7 +314,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     if (ctx.model) args.push('--model', ctx.use200kContext ? baseModel(ctx.model) : ctx.model)
     if (ctx.effort) args.push('--effort', ctx.effort)
     if (ctx.permissionMode) args.push('--permission-mode', ctx.permissionMode)
-    args.push(...ctx.extraArgs)
+    args.push(...withoutSettingsArgs(ctx.extraArgs))
     // Claude Code takes a first message as its last argument and starts on it.
     if (ctx.initialPrompt) args.push(promptArg(executable, ctx.initialPrompt))
     const s = toSpawnable(executable, args)
