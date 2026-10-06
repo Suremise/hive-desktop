@@ -153,11 +153,31 @@ const LABELS = ['On Hold', 'Todo', 'Doing', 'Review', 'Passed', 'Done']
     return { cut: t.scrollWidth > t.clientWidth, text: e.innerText }
   })
   check('folded, it shows its number and its title cut short', line.cut && line.text.includes(`#${n.t1}`), JSON.stringify(line))
+  // Escape a moment after a card opens closes it and asks nothing (#288): the card's first render used to take its
+  // fields, not filled in yet, for edits, and its Escape listener kept that render's view until the next one's effects
+  // ran: an Escape in between asked "Discard unsaved changes?". A microtask or a timer after the click was enough, and
+  // on a busy machine the suite's own Escape landed there. Each time on a fresh page: only a dialog's first opening
+  // starts with no fields.
+  const discard = page.locator('.dialog[aria-label="Discard unsaved changes?"]')
+  for (const after of ['a microtask', 'a timer']) {
+    await page.reload()
+    await lib.appReady(page)
+    if (!(await until(async () => (await tile(n.t1).count()) === 1, 3000))) await page.getByRole('button', { name: 'Task Board' }).click()
+    await until(async () => (await tile(n.t1).count()) === 1, 10000)
+    await tile(n.t1).evaluate(async (el, timer) => {
+      el.click()
+      await (timer ? new Promise((r) => setTimeout(r, 0)) : Promise.resolve())
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    }, after === 'a timer')
+    const closed = await until(async () => (await page.locator('.dialog').count()) === 0 || (await discard.count()) === 1, 3000)
+    check(`Escape ${after} after a card opens closes it, asking nothing`, !!closed && (await discard.count()) === 0, `discard asked: ${await discard.count()}`)
+    if (await discard.count()) await discard.getByRole('button', { name: 'Discard' }).click()
+  }
   await tile(n.t1).click()
   const dialog = page.locator('.dialog', { hasText: `#${n.t1}` })
   check('clicking a folded card still opens it', !!(await until(async () => (await dialog.count()) === 1, 5000)))
   await page.keyboard.press('Escape')
-  await until(async () => (await dialog.count()) === 0, 5000)
+  check('…and Escape closes it, asking nothing', !!(await until(async () => (await dialog.count()) === 0, 5000)) && (await discard.count()) === 0)
   await fold(n.t2, `Collapse #${n.t2} to one line`).click()
   check('a folded blocked card keeps its marker', !!(await until(async () => (await tile(n.t2).locator('.task-flag.blocked').count()) === 1, 5000)))
   await fold(n.t1, `Expand #${n.t1}`).click()

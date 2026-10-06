@@ -23,6 +23,8 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await page.keyboard.press('Escape')
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   const live = async () => (await inv('session:live')).find((l) => l.projectPath.toLowerCase() === proj.toLowerCase())
+  /** How many times Hive has launched a session's process (its log's spawn lines): to wait for a relaunch. */
+  const launches = () => (fs.readFileSync(path.join(userData, 'logs', 'hive.log'), 'utf8').match(/ spawn \W?session:/g) ?? []).length
   const waitMode = async (m, ms = 30000) => { const t = Date.now(); while (Date.now() - t < ms) { if ((await live())?.permissionMode === m) return true; await sleep(200) } return false }
   await inv('workspace:open', ws); await sleep(600)
   await inv('project:updateConfig', proj, { providers: {}, layout: 'single', keybindings: {} })
@@ -68,11 +70,19 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await page.locator('.pane-footer-bar .mode-badge').click(); await sleep(300)
   await page.locator('.menu .menu-item', { hasText: "Don't ask" }).click(); await sleep(400)
   check('restart is confirmed first', await page.locator('.dialog', { hasText: "Restart in Don't ask?" }).count() === 1)
+  const before = launches()
   await page.locator('.dialog button', { hasText: 'Restart' }).last().click()
+  // The relaunch can be asked to trust the folder again: the first session's "Yes" may not have been saved yet when the
+  // restart stopped it, a few seconds after it started (#283, on a busy machine). Answered as at the start, once the
+  // relaunch's own process runs: until then the terminal still holds the first session's screen, its question too.
+  await lib.until(async () => launches() > before, 20000)
+  if (await lib.acceptClaudeTrust(inv, proj, agent.id, 30000)) console.log('(the relaunch asked to trust the folder again: answered yes)')
   const t1 = Date.now(); while (Date.now() - t1 < 25000 && !((await live())?.permissionMode === 'dontAsk' && (await live())?.status === 'ready')) await sleep(300)
   const l2 = await live()
   // Nothing was typed in this session, so there is no conversation to resume: it restarts as a new one.
   check("restarted in Don't ask (a new session: nothing to resume yet)", l2?.permissionMode === 'dontAsk' && l2?.status === 'ready' && l2?.sessionId !== sid, JSON.stringify({ m: l2?.permissionMode, status: l2?.status, same: l2?.sessionId === sid }))
+  // What the relaunch's Claude Code shows, when it isn't ready (#283): a question it is waiting on, or why it stopped.
+  if (l2?.status !== 'ready') console.log(`(its terminal: …${lib.plainText(await inv('pty:buffer', lib.ptyKey(proj, agent.id)).catch(() => '')).slice(-1500)})`)
 
   // Settings change: offered, not forced
   await inv('project:updateConfig', proj, { providers: { 'claude-code': { model: 'inherit', effort: 'inherit', permissionMode: 'plan', extraArgs: '' } } }); await inv('workspace:refresh'); await sleep(1200) // A fixed wait on purpose: this checks the mode does NOT change until asked.

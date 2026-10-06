@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch, TaskStartTarget } from '@shared/types'
 import { TASK_COLUMNS, applyBoardFold, archivedAt, columnColor, columnLabel, reviewStalled, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
@@ -864,9 +864,10 @@ export function TaskDialog() {
   // meanwhile (moving the card to Review, say) isn't put back.
   const orig = useRef<Record<string, string>>({})
 
-  // Filled from the card when it opens (later changes by agents show in its comments and history).
+  // Filled from the card when it opens (later changes by agents show in its comments and history), before anything is
+  // drawn or answered: a render with the last card's fields (or none) would show them, and take them for edits (#288).
   const { setError: setActionError } = action
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (open === null) return
     setActionError(null)
     const c = typeof open === 'number' ? get().tasks.find((x) => x.number === open) : null

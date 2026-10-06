@@ -96,7 +96,28 @@ function sourceFingerprint(root = lib.ROOT) {
 }
 
 /**
- * Runs `sc` with `providerKey` (fake, claude-code or codex). `opts`: { model, effort, timeoutMs, port, keep, workRoot }.
+ * What keeps a model trial from running, or null (#302): Hive showing the session waiting for a sign-in, or the CLI's
+ * own words, matched with the e2e runner's list (lib.cjs environmentProblem: a usage or rate limit, the sign-in, an
+ * overloaded API, the network). `replies` are what the CLI said (never the prompt, which may name any of these);
+ * `screen` is its terminal before anything was typed. Such a trial is skipped for the environment, at once.
+ */
+function trialEnvironment({ status = null, replies = [], screen = '' } = {}) {
+  if (status === 'signin') return 'not signed in: Hive shows the session waiting for a sign-in'
+  return lib.environmentProblem([...replies, screen].join('\n'))
+}
+
+/** What to do about an environment skip, said once for the trials it stops (never a sign-in from here). */
+function environmentAdvice(why, providerKey) {
+  if (PROVIDERS[providerKey]?.fake) return 'run them without --signed-out (the fake was started signed out)'
+  const home = providerKey === 'codex' ? `Codex's test home (${lib.CODEX_HOME}), see tests/e2e/README.md` : `Claude Code's test home (${CLAUDE_TEST_HOME}), see tests/scenarios/README.md`
+  if (why.startsWith('not signed in')) return `sign in to ${home}, by hand`
+  if (why.startsWith('usage or rate limit')) return 'run them again once the limit has reset'
+  return 'run them again later'
+}
+
+/**
+ * Runs `sc` with `providerKey` (fake, claude-code or codex). `opts`: { model, effort, timeoutMs, port, keep, workRoot,
+ * signedOut (a fake only: it acts out an expired sign-in, for checking the environment skip) }.
  * Returns { scenario, provider, model, cliVersion, guidance, observed, checks, usage, seconds, error }.
  */
 async function runScenario(sc, providerKey, opts = {}) {
@@ -122,6 +143,8 @@ async function runScenario(sc, providerKey, opts = {}) {
   for (const other of sc.projects ?? []) lib.gitProject(path.join(ws, other), { 'README.md': `# ${other}\n` })
   // The fake trusts these folders; the real Claude Code asks (answered below); Codex reads its test home's trust list.
   fs.writeFileSync(path.join(fakeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase(), ws.toLowerCase()]))
+  // A fake that acts out an expired sign-in: each prompt's turn ends with "Login expired · Please run /login".
+  if (opts.signedOut && p.fake) fs.writeFileSync(path.join(fakeHome, 'fake-signin.json'), JSON.stringify({ expired: true }))
   if (providerKey === 'codex') {
     lib.trustForCodex(alpha)
     lib.trustForCodex(ws)
@@ -230,10 +253,19 @@ async function runScenario(sc, providerKey, opts = {}) {
     if (sc.beforeLaunch) await sc.beforeLaunch(ctx)
     await inv('session:start', host, { agentId })
     const key = lib.ptyKey(host, agentId)
+    // Skipped for the environment (#302): no checks, no cost; the runner stops the provider's other trials.
+    const skipFor = (why) => {
+      result.environment = why
+      result.skipped = `environment: ${why}`
+      return result
+    }
     const readyBy = Date.now() + 90000
     while (Date.now() < readyBy) {
       const s = await live()
       if (s?.status === 'ready' || s?.status === 'finished') break
+      // Nothing typed yet: what the terminal shows is the CLI's own (a sign-in screen, a limit).
+      const before = trialEnvironment({ status: s?.status, screen: plain(await inv('pty:buffer', key).catch(() => '')) })
+      if (before) return skipFor(before)
       if (/trust this folder/i.test(plain(await inv('pty:buffer', key).catch(() => '')))) {
         await inv('pty:write', key, p.provider === 'codex' ? '\r' : '\x1b[B')
         await sleep(300)
@@ -278,6 +310,12 @@ async function runScenario(sc, providerKey, opts = {}) {
     while (Date.now() < limit) {
       const s = await live()
       const status = s?.status ?? 'stopped'
+      // The CLI's own notes in the transcript (an API error, "Login expired · Please run /login", a usage limit: notices,
+      // never the prompt or the model's replies), or Hive waiting for a sign-in: skipped for the environment at once,
+      // rather than waiting out the limit and failing every check (#302).
+      const notices = s?.sessionId ? ((await inv('transcript:read', host, s.sessionId).catch(() => null))?.items ?? []).filter((x) => x.kind === 'notice').map((x) => x.text) : []
+      const stopped = trialEnvironment({ status, replies: notices })
+      if (stopped) return skipFor(stopped)
       if (['working', 'background', 'starting'].includes(status)) {
         sawWork = true
         quietSince = 0
@@ -371,4 +409,4 @@ async function runScenario(sc, providerKey, opts = {}) {
   return result
 }
 
-module.exports = { runScenario, observeTranscript, readMcpLog, sourceFingerprint, metricsTotals, measuresOf, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }
+module.exports = { runScenario, observeTranscript, readMcpLog, sourceFingerprint, metricsTotals, measuresOf, trialEnvironment, environmentAdvice, PROVIDERS, CLAUDE_TEST_HOME, claudeSignedIn }

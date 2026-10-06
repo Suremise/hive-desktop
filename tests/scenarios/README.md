@@ -83,6 +83,15 @@ Hive's test copies run quiet (`src/main/testQuiet.ts`): no window on screen, no 
     Full access.
   - **Without a sign-in**, a trial prints `SKIP all scenarios: … isn't signed in to its test home` and does nothing. It
     never opens a login.
+  - **Stopped by the environment** (#302): a sign-in that has expired since (the credentials file is still there),
+    a usage or rate limit, an overloaded API or the network. When Hive shows the session waiting for a sign-in, or the
+    CLI's own notes say one of these (matched with the e2e runner's list, `environmentProblem` in tests/e2e/lib.cjs;
+    never the prompt or the model's replies), the trial ends at once as `SKIP environment: <why>`: no check is failed,
+    no cost is assumed, and the provider's other trials are skipped with one line saying what to do (sign in to the test
+    home by hand, or run them again later). results.json and summary.md say "skipped: environment: …", and
+    benchmark.json has the sample as incomplete, so Performance → Compare counts no sample for it. To check this
+    without a model: `npm run scenarios -- --only work-on-card --signed-out` (the fake Claude Code acts out an expired
+    sign-in; fakes only).
   - Each scenario is one session of the chosen model, 6 minutes at most. `--budget` (USD, API-equivalent, above 0,
     default 2) stops the run once the scenarios so far cost that much. A trial that reports no cost makes the spend
     unknown, so no further trial starts unless `--allow-unknown-cost` is given; the summary then says the total is

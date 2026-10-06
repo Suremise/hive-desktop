@@ -77,8 +77,14 @@ const check = (name, ok, extra = '') => {
   await inv('workspace:refresh')
   const restart = page.getByRole('button', { name: 'Restart session' })
   check('a new effort offers Restart session', !!(await lib.until(async () => (await restart.count()) > 0, 10000)))
+  const launched = () => fs.readFileSync(path.join(userData, 'logs', 'hive.log'), 'utf8').split('\n').filter((line) => / spawn \W?session:/.test(line) && line.toLowerCase().includes(`#${agent.id.toLowerCase()}`)).length
+  const before = launched()
   await restart.first().click()
   await lib.cliStep('the relaunch with the new effort', { session: lib.ptyKey(proj, agent.id) }, async () => {
+    // A relaunch soon after the first start can be asked to trust the folder again (its "Yes" not saved yet, #283):
+    // answered once the relaunch's own process runs (until then the terminal holds the first session's screen).
+    await lib.until(async () => launched() > before, 20000)
+    if (await lib.acceptClaudeTrust(inv, proj, agent.id, 30000)) console.log('(the relaunch asked to trust the folder again: answered yes)')
     check('Claude Code takes the relaunch', !!(await lib.until(async () => (await restart.count()) === 0 && (await live(proj, agent.id))?.status === 'ready', 60000, 400)), (await live(proj, agent.id))?.status)
   })
   const relaunch = launchLine(`#${agent.id.toLowerCase()}`)
