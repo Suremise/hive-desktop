@@ -2057,10 +2057,14 @@ p.hint {
   color: var(--fg-muted);
   font-size: 15px;
 }
+/* Side by side when there's room, else one under the other; a column is never wider than the page (#265). */
 .welcome-cols {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 40px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 28px 40px;
+}
+.welcome-cols > div {
+  min-width: 0;
 }
 .welcome h3 {
   font-size: 15px;
@@ -2101,7 +2105,7 @@ p.hint {
   color: var(--fg);
   background: var(--bg-hover);
 }
-/* On the welcome page the name stays on one line; only the path shortens. */
+/* On the welcome page the name stays on one line: the path shortens first, and the name only when it alone is too wide. */
 .welcome-link.recent-item {
   min-width: 0;
 }
@@ -2113,6 +2117,18 @@ p.hint {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.welcome-link.recent-item > .codicon,
+.welcome-link.recent-item .recent-remove {
+  flex-shrink: 0;
+}
+.welcome-link.recent-item .recent-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.welcome-link.recent-item .recent-note {
+  flex: 1 1 0;
 }
 .recent-item.missing {
   color: var(--fg-faint);
