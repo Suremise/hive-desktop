@@ -110,6 +110,7 @@ export const SUITES = [
   { name: 'termsize' },
   { name: 'tipcorner' },
   { name: 'tips' },
+  { name: 'tipwindows' },
   { name: 'tooltips' },
   { name: 'transcript' },
   { name: 'unmerged' },

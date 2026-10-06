@@ -1,29 +1,37 @@
-import { localDay, nextTip, sawTip, tipForMoment, tipForToday, usedCommand, type TipMoment, type TipsState } from '@shared/tips'
+import { applyTipsChange, localDay, nextTip, tipForMoment, tipForToday, type TipMoment, type TipsChange, type TipsState } from '@shared/tips'
 import { call } from './api'
 import { get, notify, set, setActivity } from './store'
 
 /**
- * What the tip card shows and what the tips remember (`ui.tips` in the profile, saved shortly after a change).
- * The card and Help → Tips… are in components/Tips.tsx.
+ * What the tip card shows and what the tips remember (`ui.tips` in the profile). Each change shows at once from this
+ * window's store and goes to main as that one change, applied to what is saved (#266), so another window's older copy
+ * of the state can't undo it; every window's store follows (tips-changed). The card and Help → Tips… are in
+ * components/Tips.tsx.
  */
 
-let saveTimer: ReturnType<typeof setTimeout> | null = null
-function update(fn: (s: TipsState) => TipsState): void {
-  set((st) => ({ tips: fn(st.tips) }))
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => void call('ui:set', { tips: get().tips }).catch(() => undefined), 500)
+/** This window's changes main hasn't answered yet. */
+const pending: TipsChange[] = []
+
+function update(change: TipsChange): void {
+  set((st) => ({ tips: applyTipsChange(st.tips, change) }))
+  pending.push(change)
+  const done = (): void => void pending.splice(pending.indexOf(change), 1)
+  void call('ui:changeTips', change).then(done, done)
 }
+
+/** What the tips know, as main saved it (after any window's change), with this window's changes still on their way. */
+export const applyTipsState = (tips: TipsState): void => set({ tips: pending.reduce((s, c) => applyTipsChange(s, c), tips) })
 
 const tipsOn = (): boolean => get().settings?.general.showTips !== false
 
 function show(id: string): void {
-  update((s) => sawTip(s, id))
+  update({ seen: id })
   set({ tipShown: id })
 }
 
 /** Notes a command the user ran, so tips about it aren't shown by themselves. */
 export function noteCommandUsed(id: string): void {
-  if (!get().tips.used.includes(id)) update((s) => usedCommand(s, id))
+  if (!get().tips.used.includes(id)) update({ used: id })
 }
 
 /** The day's tip, when Hive starts: at most one a day, and only with tips on. */
@@ -32,7 +40,7 @@ export function showTodaysTip(): void {
   const now = new Date()
   const tip = tipForToday(get().tips, now)
   if (!tip) return
-  update((s) => ({ ...s, shownOn: localDay(now) }))
+  update({ shownOn: localDay(now) })
   show(tip.id)
 }
 
@@ -40,7 +48,7 @@ export function showTodaysTip(): void {
 export function offerTip(moment: TipMoment): void {
   if (!tipsOn() || get().tips.moments.includes(moment)) return
   const tip = tipForMoment(get().tips, moment)
-  update((s) => ({ ...s, moments: [...s.moments, moment] }))
+  update({ moment })
   if (tip) show(tip.id)
 }
 

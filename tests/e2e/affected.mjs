@@ -123,6 +123,7 @@ export const AREAS = [
   { paths: ['src/renderer/src/components/Resizer.tsx'], suites: ['resize', 'progress'] },
   { paths: ['src/renderer/src/components/Sidebar.tsx'], suites: ['rail', 'windows'] },
   { paths: ['src/renderer/src/components/Tips.tsx', 'src/renderer/src/tips.ts', 'src/shared/tips.ts', 'src/shared/corner.ts', 'docs/USER_GUIDE.md'], suites: ['tips', 'tipcorner'] },
+  { paths: ['src/renderer/src/tips.ts', 'src/shared/tips.ts'], suites: ['tipwindows'] },
   { paths: ['src/renderer/src/components/TitleBar.tsx'], suites: ['windows', 'keys', 'carddialog', 'pin', 'closewindow', 'assistantside', 'startall', 'recent'] },
   { paths: ['src/main/pin.ts'], suites: ['pin', 'windows'] },
   { paths: ['src/renderer/src/scopedLoad.ts', 'src/shared/scoped.ts'], suites: ['loadfail'] },
