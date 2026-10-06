@@ -16,6 +16,8 @@ import { COLUMN_CHOICES, columnLabel, isTaskColumn, reviewStalled, stalledReason
 import type { HandoverAuthor } from '../shared/hiveGuidance'
 import { newestComments, progressLabel, taskRow, withoutHistory, type ProjectRow, type SkillRow, type TaskChange, type TaskReorder, type TaskView } from '../shared/toolReplies'
 import * as assistant from './assistantControl'
+import { SettingRefused, applySetting, checkedValue, entryOf, projectOf, restartText, settingDetail, settingRows } from './settingsTools'
+import { settingChangeTexts, settingPath, type SettingEntry, type SettingScope } from '../shared/settingsCatalog'
 import { addAgent, updateAgent } from './projectAgents'
 import { providerService } from './providerService'
 import { config } from './config'
@@ -135,7 +137,8 @@ let apiToken = ''
  * API governs, or a workspace's Hive Assistant with its own token, which Settings → Assistant → Control governs.
  */
 /** Who is calling: a script with the workspace token, the Assistant, or a project agent (by its own token). */
-type Caller = { kind: 'api' } | { kind: 'assistant'; workspace: string } | ({ kind: 'agent' } & AgentIdentity)
+/** An Assistant caller keeps the token it came with: one launch's, which its later work is checked against (#186). */
+type Caller = { kind: 'api' } | { kind: 'assistant'; workspace: string; token: string } | ({ kind: 'agent' } & AgentIdentity)
 const callerStore = new AsyncLocalStorage<Caller>()
 
 /** The project agent making the call (known by its token), or null. */
@@ -147,6 +150,12 @@ function agentCaller(): AgentIdentity | null {
 function assistantCaller(): string | null {
   const c = callerStore.getStore()
   return c?.kind === 'assistant' ? c.workspace : null
+}
+
+/** The token the Assistant's request came with (its launch's), or null for another caller. */
+function assistantCallerToken(): string | null {
+  const c = callerStore.getStore()
+  return c?.kind === 'assistant' ? c.token : null
 }
 let apiError: string | undefined
 /** Event-stream clients, with the project agent each is (null: a script, which gets every event). */
@@ -607,6 +616,91 @@ route('GET', '/v1/providers', async () => {
     }
   })
 })
+
+// --- Hive's settings (#186): anyone with a token reads them (the settings catalog's entries with their values); only
+// the Hive Assistant changes them, with Settings → Assistant → Control → Change settings on, and never a sensitive one.
+const SETTING_SCOPES: readonly SettingScope[] = ['app', 'provider', 'workspace', 'project']
+
+/** A settings call's project, by name (null without one). */
+const settingsProject = (name: unknown): string | null => (typeof name === 'string' && name.trim() ? projectByName(name.trim()) : null)
+
+/** Runs a settings call, turning what settingsTools refuses into the API's answer. */
+async function settingsCall<T>(fn: () => Promise<T> | T): Promise<T> {
+  try {
+    return await fn()
+  } catch (e) {
+    throw e instanceof SettingRefused ? new HttpError(e.status, e.message) : e
+  }
+}
+
+route('GET', '/v1/settings', ({ query }) =>
+  settingsCall(async () => {
+    const scope = query.get('scope') || undefined
+    if (scope && !SETTING_SCOPES.includes(scope as SettingScope)) throw new HttpError(400, `scope is one of ${SETTING_SCOPES.join(', ')}.`)
+    const p = settingsProject(query.get('project'))
+    if (scope === 'project' && !p) throw new HttpError(400, "A project's settings need its name: project=<name>.")
+    return settingRows({ query: query.get('query') ?? '', scope: scope as SettingScope | undefined, project: await projectOf(p) })
+  })
+)
+
+route('GET', '/v1/settings/:id', ({ params, query }) => settingsCall(async () => settingDetail(entryOf(decodeURIComponent(params[0])), await projectOf(settingsProject(query.get('project'))))))
+
+route('PATCH', '/v1/settings/:id', ({ params, body }) =>
+  settingsCall(async () => {
+    const e = entryOf(decodeURIComponent(params[0]))
+    const p = settingsProject(body?.project)
+    if (e.scope === 'project' && !p) throw new HttpError(400, `${e.id} is a project's setting: say which project.`)
+    return settingsChange(e, body?.value, e.scope === 'project' ? p : null)
+  })
+)
+
+/**
+ * A setting the Hive Assistant changes: only with Change settings on, never a sensitive one (its own Control included),
+ * within this turn's limit of changes, and listed in its panel with old → new for Revert. Other callers can't.
+ */
+async function settingsChange(e: SettingEntry, value: unknown, projectPath: string | null) {
+  const path = settingPath(e)
+  const where = projectPath ? ` in ${basename(projectPath)}` : ''
+  const ws = assistantCaller()
+  if (!ws) throw new HttpError(403, `Only the Hive Assistant can change Hive's settings through the Agent API: the user changes them in ${path}.`)
+  const line = `Change ${path}${where}`
+  if (config.settings.assistant?.changeSettings !== true) {
+    assistant.record(ws, line, 'not allowed: Settings → Assistant → Control → Change settings is off')
+    throw new HttpError(403, `The user's settings don't let you change settings (Settings → Assistant → Control → Change settings is off). Tell the user how to change it in ${path}, or that turning Change settings on lets you.`)
+  }
+  if (e.sensitive) {
+    assistant.record(ws, line, 'only the user can change it')
+    throw new HttpError(403, `${e.readOnly} Tell the user how, instead.`)
+  }
+  // Checked before it counts as a change: a value it can't take is the Assistant's to fix, not one of its 30.
+  const checked = await settingsCall(() => checkedValue(e, value, projectPath))
+  if (!assistant.countAction(ws)) {
+    assistant.record(ws, line, `limit of ${assistant.MAX_ACTIONS_PER_TURN} changes for one message`)
+    throw new HttpError(429, `You have made ${assistant.MAX_ACTIONS_PER_TURN} changes for this message, the most Hive allows for one. Tell the user what is done and ask whether to go on.`)
+  }
+  // Asked again at the moment of the change (a project's under its lock, after any wait for it): Change settings may have
+  // been turned off, or the Assistant stopped, meanwhile.
+  // The same session, too: one started since (a restart) mustn't carry out this one's pending change.
+  const token = assistantCallerToken() ?? ''
+  const stillAllowed = (): void => {
+    if (config.settings.assistant?.changeSettings !== true) throw new SettingRefused(403, `Settings → Assistant → Control → Change settings was turned off before the change was made: nothing changed. Tell the user how to change ${path} themselves.`)
+    if (!assistant.isCurrentToken(ws, token)) throw new SettingRefused(409, "The Assistant's session that asked for this ended before the change was made: nothing changed.")
+  }
+  try {
+    const r = await applySetting(e, checked, projectPath, stillAllowed)
+    // What changed, as the list and the reply show it: a table's changed entries, not its size.
+    const { oldText, newText } = settingChangeTexts(e, r.old, r.new)
+    const changed = JSON.stringify(r.old) !== JSON.stringify(r.new)
+    if (changed) {
+      assistant.record(ws, `Changed ${path}${where}: ${oldText} → ${newText}`, undefined, { setting: { id: e.id, ...(projectPath ? { project: projectPath } : {}), path, old: r.old, new: r.new, oldText, newText } })
+    }
+    const restart = restartText(e)
+    return { id: e.id, title: e.title, path, ...(projectPath ? { project: basename(projectPath) } : {}), changed, old: oldText, new: newText, ...(restart ? { restart } : {}) }
+  } catch (err) {
+    assistant.record(ws, line, (err as Error).message)
+    throw err instanceof SettingRefused ? new HttpError(err.status, err.message) : err
+  }
+}
 
 route('POST', '/v1/projects', async ({ body }) => {
   const name = String(body?.name ?? '').trim()
@@ -1511,7 +1605,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
   // A project agent's own token works while the Agent API is on, as the workspace token does.
   const agent = enabled && bearer && !ownWorkspace ? agentForToken(bearer) : null
   const caller: Caller | null = ownWorkspace
-    ? { kind: 'assistant', workspace: ownWorkspace }
+    ? { kind: 'assistant', workspace: ownWorkspace, token: bearer }
     : agent
       ? { kind: 'agent', ...agent }
       : enabled && tokenMatches(req.headers.authorization, apiToken)

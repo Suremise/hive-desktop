@@ -18,6 +18,12 @@ export function assertSessionId(id: unknown): string {
 }
 export const DEFAULT_API_PORT = 47821
 
+/**
+ * Personas Hive shipped until working modes replaced them (#259), and the mode each became. A workspace's copy Hive
+ * never changed goes; one the user changed is theirs and stays. A choice of a removed one moves to its mode.
+ */
+export const RETIRED_PERSONAS: Record<string, string> = { overseer: 'coordinator', orchestrator: 'coordinator', reviewer: 'qa-triager' }
+
 export const DEFAULT_SETTINGS: AppSettings = {
   keybindings: {},
   updates: {
@@ -85,11 +91,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // The agents' model and effort (empty): a lighter choice saves tokens but makes the Assistant careless.
   assistant: {
     provider: '',
-    persona: 'overseer',
+    persona: 'coordinator',
     control: 'projects',
+    changeSettings: false,
     typingPause: 15,
     enterEndsPause: true,
     panelSide: 'right',
+    compactSuggestTokens: 500000,
     providers: Object.fromEntries(PROVIDERS.map((p) => [p.id, { model: '', effort: '', permissionMode: '', extraArgs: '', use200kContext: '' }]))
   },
   agents: {
@@ -106,7 +114,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
-  version: 6,
+  version: 7,
   settings: DEFAULT_SETTINGS,
   recentWorkspaces: [],
   lastWorkspace: null,
@@ -453,8 +461,14 @@ export function migrateConfig(cfg: AppConfig, raw?: Record<string, any>): AppCon
     // showed while you used Hive. Now notices show in Hive instead, and everyone starts there, whatever it was.
     cfg.settings.notifications.whileFocused = 'inApp'
   }
+  if (raw && (raw.version ?? 1) < 7) {
+    // Up to 0.3.x Hive shipped character personas; working modes replaced them (#259): a default persona that went
+    // becomes the closest mode.
+    const was = cfg.settings.assistant.persona
+    if (RETIRED_PERSONAS[was]) cfg.settings.assistant.persona = RETIRED_PERSONAS[was]
+  }
   delete (cfg.settings.notifications as unknown as Record<string, unknown>).onlyWhenUnfocused
-  cfg.version = 6
+  cfg.version = 7
   // Settings for providers this version doesn't know are kept (a newer Hive wrote them), but never used.
   if (!isKnownProvider(cfg.settings.defaultProvider)) cfg.settings.defaultProvider = DEFAULT_PROVIDER
   return cfg

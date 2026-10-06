@@ -945,7 +945,7 @@ class SessionManager {
       hookUrl: `${this.hookUrl}?run=${state.runId}`,
       guidance: await this.hiveGuidance(projectPath).catch(() => ''),
       instructions: assistantText?.text,
-      trustedHiveTools: workspace.isAssistantHome(projectPath) ? assistantTools(config.settings.assistant?.control) : undefined,
+      trustedHiveTools: workspace.isAssistantHome(projectPath) ? assistantTools(config.settings.assistant?.control, config.settings.assistant?.changeSettings === true) : undefined,
       initialPrompt: l.initialPrompt,
       allowBackgroundSessions: providerSettings(config.settings, adapter.id).allowBackgroundSessions,
       env: withBinOnPath(childEnv({

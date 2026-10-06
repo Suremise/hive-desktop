@@ -273,3 +273,72 @@ export function taskWaitText(r: { done?: string; watching?: string; limitAt?: st
   if (r.timedOut || !r.changes?.length) return `No change.${since}`
   return `${r.changes.map(line).join('\n')}${since}`
 }
+
+/** A setting in a listing (GET /v1/settings): where it is, its value (and default when it differs), what it does. */
+export interface SettingRow {
+  id: string
+  title: string
+  /** As the tools show it: on/off, a number, inherit, (empty). */
+  value: string
+  /** Only when the value differs from it. */
+  default?: string
+  /** Its description's first sentence. */
+  desc: string
+  /** The Assistant can read it but not change it. */
+  readOnly?: true
+}
+
+/**
+ * hive_list_settings: one line a setting, read-only ones marked; what each does only when a query narrowed them (a
+ * title is enough to choose from among them all); hive_read_setting has the rest.
+ */
+export function settingListText(rows: SettingRow[], opts: { query?: string; offset?: number } = {}): string {
+  if (!rows.length) return opts.query ? `No setting matches "${opts.query}".` : 'No settings.'
+  const offset = Math.max(0, opts.offset ?? 0)
+  const shown = rows.slice(offset, offset + MAX_ROWS)
+  const lines = shown.map((r) => `${r.id} = ${r.value}${r.default !== undefined ? ` (default ${r.default})` : ''}${r.readOnly ? ' [read-only]' : ''} · ${r.title}${opts.query ? `: ${r.desc}` : ''}`)
+  const more = rows.length - offset - shown.length
+  if (more > 0) lines.push(`… ${more} more: offset ${offset + shown.length} carries on.`)
+  return lines.join('\n')
+}
+
+/** One setting in full (GET /v1/settings/{id}). */
+export interface SettingDetail {
+  id: string
+  title: string
+  /** "Settings → Sessions → Suggest compacting above". */
+  path: string
+  scope: string
+  project?: string
+  value: string
+  default: string
+  /** "1000 to 2000000, or 0 for Never", "one of: …", "on or off", "text". */
+  takes: string
+  desc: string
+  tip?: string
+  helps?: string
+  restart?: string
+  readOnly?: string
+  docs: string
+}
+
+export function settingText(d: SettingDetail): string {
+  return [
+    `${d.title} (${d.id})${d.project ? ` in ${d.project}` : ''}: ${d.value}${d.value !== d.default ? ` (default ${d.default})` : ' (the default)'}`,
+    `Where: ${d.path}. Takes ${d.takes}.`,
+    d.desc,
+    d.tip && d.tip.trim() !== '' ? d.tip : '',
+    d.helps ? `When it helps: ${d.helps}` : '',
+    d.restart ? `A change applies ${d.restart}.` : '',
+    d.readOnly ? `Read-only to you: ${d.readOnly}` : '',
+    `User guide: "${d.docs}".`
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+/** hive_update_setting's reply: what changed, old → new, and when it applies. */
+export function settingChangedText(c: { title: string; id: string; path: string; project?: string; changed?: boolean; old: string; new: string; restart?: string }): string {
+  if (c.changed === false || (c.changed === undefined && c.old === c.new)) return `${c.path}${c.project ? ` (${c.project})` : ''} was already ${c.new}: nothing changed.`
+  return `Changed ${c.path}${c.project ? ` in ${c.project}` : ''} (${c.id}): ${c.old} → ${c.new}. ${c.restart ? `It applies ${c.restart}.` : 'It applies now.'} The user can revert it in your panel's list.`
+}

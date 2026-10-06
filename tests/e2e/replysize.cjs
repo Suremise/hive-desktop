@@ -105,9 +105,9 @@ const prose = (seed, n) => {
   await until(async () => (await live(home, 'assistant'))?.status === 'ready')
   const asTokenFile = path.join(userData, 'assistant-api', `${createHash('sha256').update(ws.toLowerCase()).digest('hex').slice(0, 16)}.json`)
 
-  /** One hive tool call through hive-mcp.js: the text the agent gets. */
+  /** One hive tool call through hive-mcp.js: the text the agent gets (role 'assistant+settings': with Change settings on). */
   const tool = (name, args, role = 'agent') => {
-    const extra = role === 'assistant' ? { HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'projects', HIVE_API_TOKEN_FILE: asTokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' } : { HIVE_API_TOKEN: apiToken, HIVE_PROJECT: 'alpha', HIVE_AGENT_ID: coder.id }
+    const extra = role.startsWith('assistant') ? { HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'projects', HIVE_ASSISTANT_SETTINGS: role === 'assistant+settings' ? '1' : '0', HIVE_API_TOKEN_FILE: asTokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' } : { HIVE_API_TOKEN: apiToken, HIVE_PROJECT: 'alpha', HIVE_AGENT_ID: coder.id }
     const out = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], {
       input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) + '\n',
       env: lib.childEnv({ HIVE_API_URL: API, HIVE_WORKSPACE: ws, ...extra }),
@@ -211,6 +211,42 @@ const prose = (seed, n) => {
 
   console.log('\n--- hive tools (as the Assistant)')
   measure('hive_list_providers', tool('hive_list_providers', {}, 'assistant'))
+  // Hive's settings (#186): a listing (all, narrowed, a project's), one in full, and a change with Change settings on.
+  const settingsList = measure('hive_list_settings', tool('hive_list_settings', {}, 'assistant'), 6000)
+  check('settings: a line each, id = value, read-only ones marked', /^sessions\.compactSuggestTokens = 200000 · Suggest compacting above$/m.test(settingsList) && /^agentApi\.port = \d+ \[read-only\] · /m.test(settingsList) && !/^advanced\./m.test(settingsList), settingsList.slice(0, 300))
+  const compactList = measure('hive_list_settings (query)', tool('hive_list_settings', { query: 'compact' }, 'assistant'), 1500)
+  check('query narrows it, saying what each does', compactList.split('\n').length < 10 && /^assistant\.compactSuggestTokens = 500000 · Highlight Compact over: Context size/m.test(compactList), compactList)
+  const projectList = measure('hive_list_settings (a project)', tool('hive_list_settings', { project: 'alpha', scope: 'project' }, 'assistant'), 3000)
+  check("a project's own settings, inheriting", /^project\.transcriptWarnMB = inherit · Warn when a transcript is over$/m.test(projectList), projectList.slice(0, 300))
+  const one = measure('hive_read_setting', tool('hive_read_setting', { id: 'sessions.transcriptWarnMB' }, 'assistant'), 1500)
+  check('a setting in full: where, what it takes, when it helps', one.includes('Where: Settings → Sessions → Warn when a transcript is over.') && /When it helps: /.test(one), one)
+  // An unknown tool is a JSON-RPC error (no result at all).
+  const offered = (() => {
+    try {
+      return !tool('hive_update_setting', { id: 'sessions.transcriptWarnMB', value: 50 }, 'assistant').isError
+    } catch {
+      return false
+    }
+  })()
+  check("no change while Change settings is off: the tool isn't offered", !offered && !toolDescription('hive_update_setting', 'assistant') && (await inv('settings:get')).sessions.transcriptWarnMB === 20)
+  await inv('settings:update', { assistant: { changeSettings: true } })
+  const changed = measure('hive_update_setting', tool('hive_update_setting', { id: 'sessions.transcriptWarnMB', value: 50 }, 'assistant+settings'), 400)
+  check('a change: old → new, and that the user can revert it', changed.startsWith('Changed Settings → Sessions → Warn when a transcript is over (sessions.transcriptWarnMB): 20 → 50. It applies now.'), changed)
+  // A table keeping its size: the reply says what changed in it, not "nothing changed".
+  const recolour = measure('hive_update_setting (a table)', tool('hive_update_setting', { id: 'board.colors', value: { doing: '#ff0000' } }, 'assistant+settings'), 400)
+  check('a table change says which entry changed, old → new', /^Changed Settings → Board → Column colours \(board\.colors\): doing: #[0-9a-f]{6} → doing: #ff0000\./.test(recolour), recolour)
+  await inv('settings:update', { board: { colors: { doing: '#3b82f6' } } })
+  const badEffort = tool('hive_update_setting', { id: 'claude-code.defaultEffort', value: 'bananas' }, 'assistant+settings')
+  check("an effort level the picker doesn't offer is refused, naming those it does", badEffort.isError && /takes one of: /.test(badEffort.text) && (await inv('settings:get')).providers['claude-code'].defaultEffort === '', badEffort.text)
+  await inv('settings:update', { assistant: { providers: { 'claude-code': { model: 'opus' } } } })
+  const ownModel = tool('hive_read_setting', { id: 'assistant.claude-code.model' }, 'assistant').text
+  check("the Assistant's own model reads as it is, and is the user's", /\(assistant\.claude-code\.model\): opus \(default \(empty\)\)/.test(ownModel) && /Read-only to you: /.test(ownModel), ownModel)
+  await inv('settings:update', { assistant: { providers: { 'claude-code': { model: '' } } } })
+  const colours = measure('hive_read_setting (a table)', tool('hive_read_setting', { id: 'board.colors' }, 'assistant'), 1500)
+  check('a table reads as its values', /: \{"hold":"#[0-9a-f]{6}",.*"done":"#[0-9a-f]{6}"\}/.test(colours), colours)
+  const refusedOwn = tool('hive_update_setting', { id: 'assistant.control', value: 'projects' }, 'assistant+settings')
+  check('its own Control is refused, saying where the user changes it', refusedOwn.isError && /Settings → Assistant → Control/.test(refusedOwn.text), refusedOwn.text)
+  await inv('settings:update', { sessions: { transcriptWarnMB: 20 }, assistant: { changeSettings: false } })
   // A long last turn in Coder's transcript (as Claude Code writes one): a 5,000-character task, 12 tool calls with long
   // summaries and a 7,000-character reply, longer than either form of the reply gives.
   const coderSession = (await live(alpha, coder.id)).sessionId
