@@ -20,6 +20,7 @@ const { measuresOf, metricsTotals } = require('./benchmark.cjs')
  * never a copy of its credentials, whose refresh could sign the user out). See README.md.
  */
 const { CLAUDE_TEST_HOME } = require('../e2e/runContext.cjs')
+const { freshFolder } = require('../e2e/evidence.cjs')
 const claudeSignedIn = () => fs.existsSync(path.join(CLAUDE_TEST_HOME, '.credentials.json'))
 
 /** The CLI each provider runs here: the fakes, or the real standalone CLIs, each in its test home. */
@@ -101,14 +102,17 @@ function sourceFingerprint(root = lib.ROOT) {
 async function runScenario(sc, providerKey, opts = {}) {
   const p = PROVIDERS[providerKey]
   const id = `${sc.id}-${providerKey}`
-  const root = path.join(opts.workRoot ?? path.join(lib.WORK, '..', 'scenarios'), id)
+  // A folder of its own, made fresh (#253: evidence.cjs keeps an earlier one a card cites, or every earlier one while the
+  // board can't be read, and takes `<id>-2`… instead).
+  const base = path.join(opts.workRoot ?? path.join(lib.WORK, '..', 'scenarios'), id)
+  const root = opts.evidence ? freshFolder(base, opts.evidence) : base
   const userData = path.join(root, 'profile')
   const ws = path.join(root, 'ws')
   const alpha = path.join(ws, 'alpha')
   const fakeHome = path.join(root, 'claude-home')
   const fakeCodexHome = path.join(root, 'codex-home')
   const mcpLog = path.join(root, 'mcp-calls.jsonl')
-  fs.rmSync(root, { recursive: true, force: true })
+  if (!opts.evidence) fs.rmSync(root, { recursive: true, force: true })
   fs.mkdirSync(fakeHome, { recursive: true })
   if (providerKey === 'fake-codex') {
     fs.mkdirSync(fakeCodexHome, { recursive: true })
@@ -353,7 +357,10 @@ async function runScenario(sc, providerKey, opts = {}) {
     await sleep(1500)
     await app.close().catch(() => undefined)
     result.seconds = Math.round((Date.now() - started) / 1000)
-    if (!opts.keep) fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 })
+    // Unless a card cites it now, or the board can't be read (evidence.cjs reads it afresh): then it stays, said in the result.
+    const kept = opts.keep ? null : opts.evidence?.protects(root)
+    if (kept) result.kept = `${root} (${kept})`
+    else if (!opts.keep) fs.rmSync(root, { recursive: true, force: true, maxRetries: 3 })
   }
   return result
 }

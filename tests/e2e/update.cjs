@@ -7,7 +7,7 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path'), http = require('http'), crypto = require('crypto')
 const scratch = lib.WORK
-const lane = /[\\/]lanes[\\/](\d+)$/.exec(scratch)?.[1]
+const lane = /[\\/]lanes[\\/](\d+)[\\/]update(?:-\d+)?$/.exec(scratch)?.[1]
 const cacheName = lane ? `hive-test-updater-${lane}` : 'hive-test-updater'
 const cache = path.join(process.env.LOCALAPPDATA, cacheName)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))

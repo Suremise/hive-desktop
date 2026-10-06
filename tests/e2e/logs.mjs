@@ -93,12 +93,13 @@ export function runDirsInOrder(names) {
  * Removes all but the newest `keep` finished run folders under root. Never one still active (another runner's, or an
  * unfinished repeat's earlier runs), never one in `protect` (the runner prunes once, after saving its record, and
  * protects its own runs, so a repeat of more than `keep` keeps them all until the next runner prunes), and nothing that
- * isn't a run folder (nested/, run-record.md).
+ * isn't a run folder (nested/, run-record.md). Nor one spare(path) keeps (#253: a card cites it as evidence, or the board
+ * can't be read: evidence.cjs); those don't count towards `keep`.
  */
-export function pruneRunDirs(root, keep = KEEP_RUNS, protect = [], alive = processAlive) {
+export function pruneRunDirs(root, keep = KEEP_RUNS, protect = [], alive = processAlive, spare = () => null) {
   if (!existsSync(root)) return []
   const mine = new Set(protect.map((p) => p.split(/[\\/]/).pop()))
-  const finished = runDirsInOrder(readdirSync(root)).filter((name) => !runDirActive(join(root, name), alive))
+  const finished = runDirsInOrder(readdirSync(root)).filter((name) => !runDirActive(join(root, name), alive) && !spare(join(root, name)))
   const old = finished.slice(0, Math.max(0, finished.length - keep)).filter((name) => !mine.has(name))
   for (const name of old) rmSync(join(root, name), { recursive: true, force: true })
   return old

@@ -27,11 +27,15 @@ import { join } from 'path'
 import { devBuild, ensureBuild } from '../e2e/build.mjs'
 import { LANES, claimLane, laneWork } from '../e2e/lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, waitForSlot } from '../e2e/slots.mjs'
+import { autoClean } from '../e2e/clean.mjs'
 import { slotWaitProgress } from '../progressReport.mts'
 
 const require = createRequire(import.meta.url)
 const lib = require('../e2e/lib.cjs')
 const runContext = require('../e2e/runContext.cjs')
+// What may be deleted (#253): never what a card that isn't Done cites, nothing earlier while the board can't be read.
+const evidence = require('../e2e/evidence.cjs').evidenceFor(lib.ROOT)
+const spare = (p) => evidence.protects(p)
 const { runScenario, sourceFingerprint, claudeSignedIn, CLAUDE_TEST_HOME, PROVIDERS } = require('./harness.cjs')
 const { SCENARIOS, FIXTURES_VERSION } = require('./scenarios.cjs')
 const { benchmarkOf, pruneResults, saveBaseline, resultsFolder, parseBudget, budgetGate, spendText } = require('./benchmark.cjs')
@@ -140,7 +144,7 @@ console.log(`Lane ${lane.lane}: Agent API port ${lane.first}, folders in ${workR
 const sourceAtStart = sourceFingerprint()
 const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
 const resultsDir = join(lib.WORK, '..', 'scenarios', 'results')
-pruneResults(resultsDir, 29)
+pruneResults(resultsDir, 29, spare)
 const out = resultsFolder(resultsDir, `${stamp}-${provider}`)
 const results = []
 let spent = 0
@@ -156,7 +160,7 @@ for (let sample = 1; sample <= repeats; sample++) {
       continue
     }
     process.stdout.write(`${sc.id} (${provider}${repeats > 1 ? `, ${sample}/${repeats}` : ''})… `)
-    const r = await runScenario(sc, provider, { model, effort, keep, workRoot, port: lane.first, timeoutMs: fake ? 60000 : 360000 })
+    const r = await runScenario(sc, provider, { model, effort, keep, workRoot, port: lane.first, evidence, timeoutMs: fake ? 60000 : 360000 })
     r.sample = sample
     // A trial's cost as reported; none reported is unknown (counted), never $0.
     if (typeof r.usage?.costUsd === 'number') spent += r.usage.costUsd
@@ -166,7 +170,7 @@ for (let sample = 1; sample <= repeats; sample++) {
     }
     results.push(r)
     const failed = r.checks.filter((c) => c.ok === false)
-    console.log(`${r.error ? `ERROR (${r.error.split('\n')[0]})` : failed.length ? `${failed.length} failed` : 'ok'}, ${r.seconds}s${r.usage?.costUsd ? `, $${r.usage.costUsd.toFixed(3)}` : ''}`)
+    console.log(`${r.error ? `ERROR (${r.error.split('\n')[0]})` : failed.length ? `${failed.length} failed` : 'ok'}, ${r.seconds}s${r.usage?.costUsd ? `, $${r.usage.costUsd.toFixed(3)}` : ''}${r.kept ? ` (its folder is kept: ${r.kept})` : ''}`)
     for (const c of r.checks) console.log(`  ${c.ok === null ? 'SKIP' : c.ok ? 'PASS' : 'FAIL'} ${c.name}${c.ok === false && c.detail ? ` (${c.detail})` : ''}`)
   }
 }
@@ -182,7 +186,7 @@ writeFileSync(join(out, 'results.json'), JSON.stringify({ meta, results }, null,
 const appVersion = JSON.parse(readFileSync(join(lib.ROOT, 'package.json'), 'utf8')).version
 const benchmarkFile = join(out, 'benchmark.json')
 writeFileSync(benchmarkFile, JSON.stringify(benchmarkOf(meta, results, appVersion), null, 2))
-if (baselineName) console.log(`Baseline "${baselineName}": ${saveBaseline(join(lib.WORK, '..', 'scenarios', 'baselines'), baselineName, benchmarkFile)}`)
+if (baselineName) console.log(`Baseline "${baselineName}": ${saveBaseline(join(lib.WORK, '..', 'scenarios', 'baselines'), baselineName, benchmarkFile, spare)}`)
 /** What Hive's own parts cost in the scenario (its measures): tool reply characters, requests, guidance at launch. */
 const hiveCost = (m) => (m ? `${m.toolChars.toLocaleString('en')} chars in ${m.toolCalls} tool calls; ${m.apiRequests} requests; ${(m.coreBytes + m.customBytes + m.roleBytes + m.personaBytes + m.catalogBytes).toLocaleString('en')} B guidance` : 'not measured')
 const row = (r) => {
@@ -207,4 +211,7 @@ writeFileSync(
 )
 console.log(`\nResults: ${out}`)
 const hardFailures = fake ? results.filter((r) => r.error || r.checks?.some((c) => c.ok === false)).length : 0
+// What tests left in hive-test that is no longer needed (tests/e2e/clean.mjs), this lane's included: let go first.
+lane.release()
+await autoClean({ root: lib.ROOT, ev: evidence })
 process.exit(hardFailures ? 1 : 0)

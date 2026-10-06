@@ -58,6 +58,8 @@ export const EVERYTHING = [
   'tests/e2e/lanes.mjs',
   'tests/e2e/runContext.cjs',
   'tests/e2e/slots.mjs',
+  'tests/e2e/clean.mjs',
+  'tests/e2e/evidence.cjs',
   'tests/progressReport.mts',
   'package.json',
   'package-lock.json',

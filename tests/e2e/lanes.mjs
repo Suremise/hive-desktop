@@ -38,7 +38,8 @@ export function lanePorts(k) {
 /**
  * Where lane k's suites keep their profiles, workspaces and screenshots: lanes/<k> inside the work folder, never the
  * work folder itself (a suite run on its own uses that). There are at most LANES of them, each reused by the next
- * runner in that lane (each suite clears its own folders when it starts), so they never pile up.
+ * runner in that lane; each suite has a folder of its own in it, cleared when it passes (run.mjs), and what is left
+ * goes with the clean-up (clean.mjs).
  */
 export function laneWork(work, k) {
   return join(work, 'lanes', String(k))

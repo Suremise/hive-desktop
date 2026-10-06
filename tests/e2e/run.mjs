@@ -41,11 +41,13 @@ import { devBuild, ensureBuild } from './build.mjs'
 import { finishRunDirs, logsRootFor, newRunDir, pruneRunDirs } from './logs.mjs'
 import { LANES, claimLane, laneWork } from './lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, waitForSlot } from './slots.mjs'
+import { autoClean } from './clean.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
 const lib = createRequire(import.meta.url)('./lib.cjs')
 const runContext = createRequire(import.meta.url)('./runContext.cjs')
+const { clearSuiteDir, evidenceFor, freshFolder } = createRequire(import.meta.url)('./evidence.cjs')
 
 const args = process.argv.slice(2)
 const opts = parseArgs(args, SUITES.map((s) => s.name))
@@ -162,13 +164,23 @@ if (lane) console.log(`Lane ${lane.lane}: ports ${lane.first}–${lane.last}\n  
  * same said without the HIVE_ prefix (E2E_RUN_*), which Hive keeps in its sessions: a runner started in an agent's
  * shell inside the suite's Hive (progressreport does) knows it is inside a suite, and which port to keep clear of.
  */
-const suiteEnv = (name, port) => runContext.suiteEnv({ name, port, work: suiteWork, runDir: suiteWork ?? lib.WORK })
+const suiteEnv = (name, port, dir) => runContext.suiteEnv({ name, port, work: dir, runDir: dir ?? lib.WORK })
+/**
+ * What may be deleted (#253, evidence.cjs): never what a card that isn't Done cites, nothing earlier while the board
+ * can't be read. Each suite has a folder of its own in the lane's, made fresh when it starts (`<suite>`, or `<suite>-2`…
+ * while an earlier one holds evidence). When it passes (or skips), its folders go (profiles, workspaces, test homes:
+ * over a gigabyte a lane otherwise), checked against the board as it is then: one a card cites stays, and they all stay
+ * while the board can't be read (said at the end). Its files stay (screenshots, reports). When it fails, everything
+ * stays for a look, until the suite runs again in this lane or the clean-up's age rule (clean.mjs).
+ */
+const evidence = evidenceFor(root)
 
 const run = (name, port) =>
   new Promise((resolve) => {
     const started = Date.now()
+    const dir = suiteWork ? freshFolder(join(suiteWork, name), evidence) : null
     // No tip card over what a suite clicks, unless its profile turns tips on (tips does).
-    const child = spawn(process.execPath, [join(here, `${name}.cjs`)], { cwd: root, env: suiteEnv(name, port) })
+    const child = spawn(process.execPath, [join(here, `${name}.cjs`)], { cwd: root, env: suiteEnv(name, port, dir) })
     let out = ''
     const add = (d) => (out += d)
     child.stdout.on('data', add)
@@ -182,7 +194,10 @@ const run = (name, port) =>
     }, 10 * 60_000)
     child.on('exit', (code) => {
       clearTimeout(timer)
-      resolve({ name, ...suiteOutcome({ code, out }), code, out, seconds: Math.round((Date.now() - started) / 1000) })
+      const outcome = suiteOutcome({ code, out })
+      const cleared = dir && (outcome.ok || outcome.skipped) ? clearSuiteDir(dir, evidence) : null
+      const kept = dir && outcome.ok === false ? 'it failed' : cleared?.kept.length ? cleared.kept[0] : null
+      resolve({ name, ...outcome, code, out, seconds: Math.round((Date.now() - started) / 1000), kept: kept && `${dir} (${kept})` })
     })
   })
 
@@ -264,6 +279,8 @@ async function runOnce(k) {
     for (const f of r.skipped ? [] : r.failed) console.log(`    ${f.trim()}`)
     // A failure with no FAIL line (an exception, a timeout): its last lines say why.
     if (r.ok === false && !r.failed.length) for (const line of r.out.split(/\r?\n/).filter((x) => x.trim()).slice(-5)) console.log(`    | ${line.trim().slice(0, 200)}`)
+    if (r.kept && r.ok === false) console.log(`    its profiles and workspaces are kept: ${r.kept}`)
+    else if (r.kept) keptAfterPass.push(r.kept)
     results.push(r)
     report()
   }
@@ -308,6 +325,9 @@ async function runOnce(k) {
   return { ok: !failed.length, results: ordered, logDir, summary }
 }
 
+// Passed suites whose folders stayed (a card cites them, or the board couldn't be read): said once at the end, so growth
+// while the board can't be read is seen.
+const keptAfterPass = []
 // --repeat N: run after run, stopping at the first that fails (a later pass doesn't make up for it).
 const runs = []
 for (let k = 1; k <= repeat; k++) {
@@ -335,8 +355,16 @@ if (opts.record) {
   console.log(`\n${md}\n\n(Saved as ${join(lastRun.logDir, 'run-record.md')})`)
 }
 // This repeat's folders are finished now (its record is saved). Older finished runs go only now, never this repeat's
-// own (a repeat of more than ten keeps them all until the next run prunes) or another runner's still going.
+// own (a repeat of more than ten keeps them all until the next run prunes) or another runner's still going, nor one a
+// card cites (evidence.cjs).
 finishRunDirs(runs.map((r) => r.logDir))
-pruneRunDirs(logsRoot, undefined, runs.map((r) => r.logDir))
+pruneRunDirs(logsRoot, undefined, runs.map((r) => r.logDir), undefined, (p) => evidence.protects(p))
+if (keptAfterPass.length) console.log(`\nKept the folders of ${keptAfterPass.length} passed suite${keptAfterPass.length === 1 ? '' : 's'}: ${keptAfterPass.slice(0, 3).join('; ')}${keptAfterPass.length > 3 ? '; …' : ''}`)
+// What tests left in hive-test that is no longer needed (clean.mjs), this lane's included: it is let go first. Not from
+// a runner inside a suite (its parent's does it).
+if (lane) {
+  lane.release()
+  await autoClean({ root, ev: evidence })
+}
 await progress.finish(lastRun.ok && runs.length === repeat && !recordInvalid, summary, opts.record ? join(lastRun.logDir, 'run-record.md') : lastRun.logDir)
 process.exit(!lastRun.ok || recordInvalid ? 1 : 0)
