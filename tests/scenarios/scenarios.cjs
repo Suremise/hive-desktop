@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 10
+const FIXTURES_VERSION = 11
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -76,6 +76,8 @@ const SLOW_TESTS = {
   'test.js': "// The full suite: about two minutes on CI.\nsetTimeout(() => console.log('3 passing'), 4000)\n"
 }
 /** The tool calls that ran the test suite. */
+/** A test run through hive-progress with a title of its own (#251), not the command line by default. */
+const titled = (t) => /hive-progress(\.cmd)?\s+--title(\s+|=)\S/.test(t.input)
 const testRuns = (o) => o.tools.filter((t) => !/^(Write|Edit|MultiEdit|Read)$/i.test(t.name) && /npm(\.cmd)? (run )?test\b|node test\.js/.test(t.input))
 /** Whether the session's contract was the one with long commands wrapped (`on`) or not, by its measured size. */
 const contractWas = (o, on) => o.measures?.coreChars === require('../../src/shared/hiveGuidance.ts').hiveInstructions('alpha', 'agent', on).length
@@ -363,9 +365,10 @@ module.exports.SCENARIOS = [
     expect: (o) => [
       ['its guidance said to run long commands through hive-progress', contractWas(o, true), String(o.measures?.coreChars)],
       ['ran the tests through hive-progress', testRuns(o).some((t) => /hive-progress/.test(t.input)), testRuns(o).map((t) => t.input).join(' | ')],
+      ['gave the run a title for the user (#251)', testRuns(o).some(titled), testRuns(o).map((t) => t.input).join(' | ')],
       ['changed nothing on the board', !o.hiveCalls.some((x) => /hive_(create|update|reorder)_task/.test(x.tool))]
     ],
-    fakeSkips: ['ran the tests through hive-progress']
+    fakeSkips: ['ran the tests through hive-progress', 'gave the run a title for the user (#251)']
   },
   {
     id: 'progress-background',
@@ -375,9 +378,10 @@ module.exports.SCENARIOS = [
     fake: 'work 1',
     expect: (o) => [
       ['its guidance said to run long commands through hive-progress', contractWas(o, true), String(o.measures?.coreChars)],
-      ['ran the tests through hive-progress', testRuns(o).some((t) => /hive-progress/.test(t.input)), testRuns(o).map((t) => t.input).join(' | ')]
+      ['ran the tests through hive-progress', testRuns(o).some((t) => /hive-progress/.test(t.input)), testRuns(o).map((t) => t.input).join(' | ')],
+      ['gave the run a title for the user (#251)', testRuns(o).some(titled), testRuns(o).map((t) => t.input).join(' | ')]
     ],
-    fakeSkips: ['ran the tests through hive-progress']
+    fakeSkips: ['ran the tests through hive-progress', 'gave the run a title for the user (#251)']
   },
   {
     id: 'progress-off',

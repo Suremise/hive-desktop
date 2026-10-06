@@ -142,7 +142,10 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   check('alpha is shown to start with', await toAlpha())
   await panel.locator('button[aria-label^="Fold the Progress panel"]').focus()
   await page.keyboard.press('Tab')
-  check('Tab from the header reaches the newest run', await show2.evaluate((b) => b === document.activeElement))
+  // Runs from two projects: the project filter comes first (#251).
+  check('Tab from the header reaches the project filter', await panel.locator('.progress-filter select').first().evaluate((el) => el === document.activeElement))
+  await page.keyboard.press('Tab')
+  check('…then the newest run', await show2.evaluate((b) => b === document.activeElement))
   check('…and the whole row shows the focus', (await row2.evaluate((el) => getComputedStyle(el).outlineStyle)) === 'solid')
   await page.screenshot({ path: path.join(shots, 'dark-run-focused.png') })
   await page.keyboard.press('Enter')
@@ -197,7 +200,7 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   check('opening the panel (window focused) clears the red', !!(await until(async () => taskbar()?.mode === 'none')), JSON.stringify(taskbar()))
   check('the failed run is still listed now it has been seen, with its summary', (await row2.locator('.progress-fail').count()) === 1 && /2 errors in src\/a\.ts/.test((await row2.textContent()) ?? ''))
   // Seen (#220): a few seconds later it folds into Recent, marked red, as a passed run does.
-  check('…then folds into Recent by itself, marked red', !!(await until(async () => (await row2.count()) === 0 && (await panel.locator(`.progress-recent-item[data-run="${run2}"] button.progress-recent.failed`).count()) === 1, 20000)))
+  check('…then folds into Recent by itself, marked red', !!(await until(async () => (await row2.count()) === 0 && (await panel.locator(`.progress-recent-item[data-run="${run2}"] .progress-recent.failed`).count()) === 1, 20000)))
   check('…in red', (await panel.locator(`.progress-recent-item[data-run="${run2}"] .progress-recent-text`).evaluate((el) => getComputedStyle(el).color)) !== (await panel.locator('.progress-recent.passed .progress-recent-text').first().evaluate((el) => getComputedStyle(el).color)))
   // Dismiss still folds one away at once, without showing its agent.
   check('alpha is shown before dismissing', await toAlpha())
@@ -210,12 +213,20 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   check('Dismiss folds a failed run into Recent at once', !!(await until(async () => (await row2b.count()) === 0 && (await panel.locator(`.progress-recent-item[data-run="${run2b}"]`).count()) === 1, 3000)))
   check("…without showing its agent", (await shownProject()) === 'alpha', await shownProject())
   // A Recent run opens its details: what Hive has for it, its agent to show.
-  const recent2 = panel.locator(`.progress-recent-item[data-run="${run2}"] button.progress-recent`)
-  check('a Recent run is a button naming it, for its details', (await recent2.count()) === 1 && /^Betty: npm run build, failed in .*\. Details$/.test((await recent2.getAttribute('aria-label')) ?? '') && (await recent2.getAttribute('aria-expanded')) === 'false', await recent2.getAttribute('aria-label').catch(() => ''))
+  // Each row ends with a chevron after its time (#251), a button for the keyboard: down to show the details, up to hide them.
+  const recent2 = panel.locator(`.progress-recent-item[data-run="${run2}"] button.progress-details-toggle`)
+  check('a Recent run has a chevron button after its time, naming it, for its details', (await recent2.count()) === 1 && (await recent2.getAttribute('aria-label')) === 'Show details for npm run build' && (await recent2.getAttribute('aria-expanded')) === 'false' && (await recent2.locator('.codicon-chevron-down').count()) === 1, await recent2.getAttribute('aria-label').catch(() => ''))
+  const recentBox = await panel.locator(`.progress-recent-item[data-run="${run2}"] .progress-recent`).boundingBox()
+  const tookBox = await panel.locator(`.progress-recent-item[data-run="${run2}"] .progress-recent-took`).boundingBox()
+  const chevBox = await recent2.boundingBox()
+  check('…right-aligned, after the time', !!recentBox && !!tookBox && !!chevBox && chevBox.x >= tookBox.x + tookBox.width - 1 && recentBox.x + recentBox.width - (chevBox.x + chevBox.width) < 12, JSON.stringify({ recentBox, tookBox, chevBox }))
+  const runChevron = panel.locator('.progress-run button.progress-details-toggle').first()
+  check("…as a run's row has", (await runChevron.count()) === 0 || (await runChevron.locator('.codicon-chevron-down, .codicon-chevron-up').count()) === 1)
   await recent2.focus()
   await page.keyboard.press('Enter')
   const recentDetails = panel.locator(`.progress-recent-item[data-run="${run2}"] .progress-details`)
   check('Enter on it opens its details', !!(await until(async () => (await recentDetails.count()) === 1)))
+  check('…and its chevron turns up, to hide them', (await recent2.getAttribute('aria-label')) === 'Hide details for npm run build' && (await recent2.getAttribute('aria-expanded')) === 'true' && (await recent2.locator('.codicon-chevron-up').count()) === 1, await recent2.getAttribute('aria-label').catch(() => ''))
   const detailText = (await recentDetails.innerText().catch(() => '')).replace(/\s+/g, ' ')
   check('…with the agent, provider, started and ended (yyyy-mm-dd hh:mm), how long, its steps, state and summary', !/Command/.test(detailText) && /Agent Betty · beta/.test(detailText) && /Provider Claude Code/.test(detailText) && /Started \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(detailText) && /Ended \d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(detailText) && /Took \d+ (s|min)/.test(detailText) && /State Failed/.test(detailText) && /2 errors in src\/a\.ts/.test(detailText), detailText)
   // Copy writes to the clipboard: stubbed in the page, so the test never touches the real one.
@@ -223,17 +234,101 @@ const near = (a, b) => Math.abs(a - b) < 0.001
     window.__copied = []
     navigator.clipboard.writeText = async (t) => void window.__copied.push(t)
   })
-  await recentDetails.locator('button', { hasText: 'Copy summary' }).click()
-  check('the summary can be copied (no command was reported: nothing to copy there)', JSON.stringify(await page.evaluate(() => window.__copied)) === JSON.stringify(['2 errors in src/a.ts']) && (await recentDetails.locator('button', { hasText: 'Copy command' }).count()) === 0, JSON.stringify(await page.evaluate(() => window.__copied)))
+  // Copy details (#251): every field shown, a "Label: value" line each, then the summary: all of it, to paste.
+  const shownLines = async (details) => details.locator('.progress-detail-row').evaluateAll((rows) => rows.map((x) => `${x.querySelector("dt").textContent}: ${x.querySelector("dd").textContent}`))
+  await recentDetails.locator('button', { hasText: 'Copy details' }).click()
+  const copiedDetails = (await page.evaluate(() => window.__copied)).at(-1) ?? ''
+  const expected = [...(await shownLines(recentDetails)), 'Summary: 2 errors in src/a.ts'].join('\n')
+  check('Copy details copies every field shown, then the summary', copiedDetails === expected && /^Run: npm run build\nAgent: Betty · beta\nProvider: Claude Code\nStarted: \d{4}-\d{2}-\d{2} \d{2}:\d{2}\nEnded: /.test(copiedDetails), JSON.stringify({ copiedDetails, expected }))
+  check('…and there is no Copy summary, nor Copy command without a command', (await recentDetails.locator('button', { hasText: 'Copy summary' }).count()) === 0 && (await recentDetails.locator('button', { hasText: 'Copy command' }).count()) === 0)
   await page.screenshot({ path: path.join(shots, 'dark-recent-details.png') })
   await recentDetails.locator('button', { hasText: 'Show the agent' }).click()
   check('…and "Show the agent" shows Betty', !!(await until(async () => (await shownProject()) === 'beta')), await shownProject())
   const lint = panel.locator(`.progress-recent-item[data-run="${run2b}"]`)
-  await lint.locator('button.progress-recent').click()
+  await lint.locator('.progress-recent').click()
   const lintText = (await lint.locator('.progress-details').innerText().catch(() => '')).replace(/\s+/g, ' ')
   check('a run that gave its exit code shows it', /Exit code 1/.test(lintText) && /Command npm run lint -- --deny-warnings/.test(lintText), lintText)
   await lint.locator('button', { hasText: 'Copy command' }).click()
   check('…and its command can be copied', (await page.evaluate(() => window.__copied)).at(-1) === 'npm run lint -- --deny-warnings', JSON.stringify(await page.evaluate(() => window.__copied)))
+  check('…and has no log buttons: it reported no log', (await lint.locator('button', { hasText: 'Open log' }).count()) === 0 && (await lint.locator('button', { hasText: 'Show in folder' }).count()) === 0)
+
+  // --- A run's log outside the workspace (#251): Open log and Show in folder open what that run reported, looked up by its
+  // id; the window's own file calls still refuse the path. Opening and showing are answered in main, recorded.
+  await app.evaluate(({ shell }) => {
+    globalThis.__shellCalls = []
+    shell.openPath = async (p) => (globalThis.__shellCalls.push(['open', p]), '')
+    shell.showItemInFolder = (p) => void globalThis.__shellCalls.push(['show', p])
+  })
+  const shellCalls = () => app.evaluate(() => globalThis.__shellCalls)
+  const lastShell = async () => JSON.stringify((await shellCalls()).at(-1))
+  const logDir = path.join(lib.WORK, 'progress-logs', 'run-20261005-205800')
+  fs.rmSync(path.dirname(logDir), { recursive: true, force: true })
+  fs.mkdirSync(logDir, { recursive: true })
+  const logFile = path.join(logDir, 'run-record.md')
+  fs.writeFileSync(logFile, '# e2e run record\n')
+  const toast = async (re) => !!(await until(async () => (await page.locator('.toast').allInnerTexts()).some((t) => re.test(t)), 5000))
+  /** A failed run of Alfie's reporting `log`, dismissed into Recent with its details open. */
+  const runWithLog = async (title, log) => {
+    const id = (await call(alfieToken, 'POST', '/v1/progress', { title, command: 'npm run e2e -- --all --build --record', total: 96 })).body?.id
+    await call(alfieToken, 'PATCH', `/v1/progress/${id}`, { step: 95, stepName: 'taskbar' })
+    await call(alfieToken, 'POST', `/v1/progress/${id}/finish`, { ok: false, exitCode: 1, logPath: log, summary: '1 failed: taskbar' })
+    const dismiss = panel.locator(`.progress-run[data-run="${id}"] button[aria-label^="Dismiss"]`)
+    await until(async () => (await dismiss.count()) === 1)
+    await dismiss.click()
+    const item = panel.locator(`.progress-recent-item[data-run="${id}"]`)
+    await until(async () => (await item.count()) === 1)
+    await item.locator('button.progress-details-toggle').click()
+    await until(async () => (await item.locator('.progress-details').count()) === 1)
+    return item
+  }
+  const withLog = await runWithLog('e2e: full set before merging', logFile)
+  const logText = (await withLog.locator('.progress-details').innerText()).replace(/\s+/g, ' ')
+  check('a run that named its log shows it, with its exit code and steps', logText.includes(`Log ${logFile}`) && /Exit code 1/.test(logText) && /Steps 95 of 96 done · last: taskbar/.test(logText), logText)
+  await withLog.locator('button', { hasText: 'Open log' }).click()
+  check("Open log opens that run's log, though it is outside the workspace", !!(await until(async () => (await lastShell()) === JSON.stringify(['open', logFile]), 5000)), JSON.stringify(await shellCalls()))
+  await withLog.locator('button', { hasText: 'Show in folder' }).click()
+  check('Show in folder shows it in its folder', !!(await until(async () => (await lastShell()) === JSON.stringify(['show', logFile]), 5000)), JSON.stringify(await shellCalls()))
+  check("the window's own Show in folder still refuses a path outside the workspace", (await inv('app:showInFolder', logFile).then(() => 'ok', (e) => String(e))) !== 'ok')
+  await withLog.locator('button', { hasText: 'Copy details' }).click()
+  const copiedLog = (await page.evaluate(() => window.__copied)).at(-1) ?? ''
+  check('Copy details includes the command, steps, exit code and log', copiedLog === [...(await shownLines(withLog.locator('.progress-details'))), 'Summary: 1 failed: taskbar'].join('\n') && copiedLog.includes('Command: npm run e2e -- --all --build --record') && copiedLog.includes(`Log: ${logFile}`) && copiedLog.includes('Exit code: 1'), copiedLog)
+  await page.screenshot({ path: path.join(shots, 'dark-log-details.png') })
+  // A log that has gone, and one Hive won't run: an error says why, never silence.
+  const gone = await runWithLog('e2e: log deleted since', path.join(logDir, 'gone.md'))
+  const before = (await shellCalls()).length
+  await gone.locator('button', { hasText: 'Open log' }).click()
+  check("Open log on a log that's gone says so", (await toast(/Couldn.t open the log/)) && (await toast(/isn't there any more/)))
+  check('…and opens nothing', (await shellCalls()).length === before)
+  const exe = path.join(logDir, 'tool.exe')
+  fs.writeFileSync(exe, '')
+  const notText = await runWithLog('build: odd log', exe)
+  await notText.locator('button', { hasText: 'Open log' }).click()
+  check("Open log refuses what isn't a text log or report, saying to use Show in folder", await toast(/opens only text logs and reports.*Show in folder/))
+  check('…and opens nothing', (await shellCalls()).length === before)
+  await notText.locator('button', { hasText: 'Show in folder' }).click()
+  check('…but Show in folder shows it', !!(await until(async () => (await lastShell()) === JSON.stringify(['show', exe]), 5000)))
+
+  // --- The filter (#251): runs from alpha and beta, so the panel offers one project's runs; it applies to running runs
+  // and Recent alike, is remembered for the workspace, and the folded strip follows it.
+  const projectFilter = panel.locator('.progress-filter select[aria-label="Show the runs of"]')
+  check('with runs from two projects, the panel offers a project filter', (await projectFilter.count()) === 1 && JSON.stringify(await projectFilter.locator('option').allTextContents()) === JSON.stringify(['All projects', 'alpha', 'beta']), JSON.stringify(await projectFilter.locator('option').allTextContents().catch(() => [])))
+  const agentsShown = async () => [...new Set((await panel.locator('.progress-recent-text, .progress-agent').allTextContents()).map((t) => t.split(' · ')[0].trim()))].sort()
+  check('…showing every run to start with', JSON.stringify(await agentsShown()) === JSON.stringify(['Alfie', 'Betty']), JSON.stringify(await agentsShown()))
+  await projectFilter.selectOption({ label: 'beta' })
+  check("choosing beta shows only beta's runs, Recent included", !!(await until(async () => JSON.stringify(await agentsShown()) === JSON.stringify(['Betty']), 3000)), JSON.stringify(await agentsShown()))
+  check('…with no agent filter: beta has one agent', (await panel.locator('.progress-filter select').count()) === 1)
+  const wsKey = ws.toLowerCase()
+  check('…remembered for this workspace', !!(await until(async () => JSON.stringify((await inv('ui:get')).progressFilter?.[wsKey]) === JSON.stringify({ project: beta.toLowerCase() }), 3000)), JSON.stringify((await inv('ui:get')).progressFilter))
+  await page.screenshot({ path: path.join(shots, 'dark-filtered.png') })
+  await projectFilter.focus()
+  await page.keyboard.press('Home')
+  check('the filter works from the keyboard: Home is All projects again', !!(await until(async () => JSON.stringify(await agentsShown()) === JSON.stringify(['Alfie', 'Betty']), 3000)), JSON.stringify(await agentsShown()))
+  await projectFilter.selectOption({ label: 'beta' })
+  await page.keyboard.press('Control+Alt+P')
+  check("folded, the strip counts beta's runs only, and says how many there are in all", !!(await until(async () => /^Show the Progress panel \(beta only: .*; \d+ in all\)$/.test((await rail.getAttribute('aria-label').catch(() => '')) ?? ''), 3000)) && (await rail.locator('.progress-rail-filter').count()) === 1, await rail.getAttribute('aria-label').catch(() => ''))
+  await page.keyboard.press('Control+Alt+P')
+  await until(async () => (await panel.count()) === 1)
+  await panel.locator('.progress-filter select[aria-label="Show the runs of"]').selectOption({ label: 'All projects' })
   await page.keyboard.press('Escape')
   check('back to alpha', await toAlpha())
 
@@ -390,7 +485,7 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   await inv('agents:remove', beta, cara.id, { deleteWorktree: false })
   const caraItem = panel.locator(`.progress-recent-item[data-run="${caraRun}"]`)
   await until(async () => (await caraItem.count()) === 1, 20000)
-  await caraItem.locator('button.progress-recent').click()
+  await caraItem.locator('.progress-recent').click()
   check('a removed agent: its run says so, with nothing to show', !!(await until(async () => /Cara has been removed from beta/.test(await caraItem.locator('.progress-details').innerText().catch(() => '')))) && (await caraItem.locator('button', { hasText: 'Show the agent' }).count()) === 0)
   await page.keyboard.press('Escape')
 
@@ -402,7 +497,7 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   check("with the Assistant's panel open, Progress sits to its left", boxes[0] !== null && boxes[1] !== null && boxes[0] < boxes[1], JSON.stringify(boxes))
   await page.screenshot({ path: path.join(shots, 'light-with-assistant.png') })
   await panel.locator('button[aria-label^="Fold the Progress panel"]').focus()
-  await page.keyboard.press('Tab')
+  for (let i = 0; i <= (await panel.locator('.progress-filter select').count()); i++) await page.keyboard.press('Tab')
   const firstRow = panel.locator('.progress-run').first()
   check('light: the focused run shows the focus too', (await firstRow.evaluate((el) => getComputedStyle(el).outlineStyle)) === 'solid')
   await page.screenshot({ path: path.join(shots, 'light-run-focused.png') })
@@ -442,7 +537,7 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   }
   check('on by default', (await inv('settings:get')).general.progressCommands === true)
   let told = await instructionsOf(alpha)
-  check("a session's guidance says to run long commands through hive-progress", /over 30 s.*`hive-progress -- <command>`/.test(told), told.slice(-400))
+  check("a session's guidance says to run long commands through hive-progress", /over 30 s.*`hive-progress --title "<what and why, in a few words>" -- <command>`/.test(told), told.slice(-400))
   await page.keyboard.press('Control+Comma')
   const wrapSwitch = page.getByRole('switch', { name: 'Agents show long commands in the Progress panel' })
   check('Settings → General shows it, on', !!(await until(async () => (await wrapSwitch.count()) === 1)) && (await wrapSwitch.getAttribute('aria-checked')) === 'true' && (await wrapSwitch.isEnabled()))
@@ -461,7 +556,7 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   await inv('session:start', alpha, { agentId: alfie.id })
   check('the agent starts again', !!(await until(async () => (await live(alfie.id))?.status === 'ready', 25000)))
   told = await instructionsOf(alpha)
-  check('a session started afterwards is told: only when the user asks', /hive-progress -- <command>`.*only when the user asks/.test(told) && !/over 30 s/.test(told), told.slice(-400))
+  check('a session started afterwards is told: only when the user asks', /hive-progress --title "[^"]+" -- <command>`.*only when the user asks/.test(told) && !/over 30 s/.test(told), told.slice(-400))
   await inv('settings:update', { general: { progressCommands: true } })
 
   // --- Switching the window to another workspace and back: its runs are gone, old ids unknown, the taskbar clear.

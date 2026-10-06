@@ -388,7 +388,7 @@ Every session Hive starts has `hive-progress` on its `PATH` (cmd, PowerShell and
 hive-progress [--title "e2e"] -- <command> [args...]
 ```
 
-It runs the command with its output passed through unchanged and ends with its exit code, and reports it as the agent's run: the title (the command line when none is given), the finish (passed when the exit code is 0, otherwise failed with `exit code N`), and an estimate from how long the same command in the same folder took the last few times it passed (kept in Hive's data, never in the project). With no Hive variables, Hive unreachable or a refused call, it just runs the command, and it never fails because of Hive. `HIVE_PROGRESS=0` turns reporting off.
+It runs the command with its output passed through unchanged and ends with its exit code, and reports it as the agent's run: the title (the command line when none is given; Hive's session guidance asks agents for a few words saying what and why, such as `--title "e2e: full set before merging"` or `--title "unit tests"`, so the Progress panel reads as a description and its details show the exact command beside it), the finish (passed when the exit code is 0, otherwise failed with `exit code N`), and an estimate from how long the same command in the same folder took the last few times it passed (kept in Hive's data, never in the project). With no Hive variables, Hive unreachable or a refused call, it just runs the command, and it never fails because of Hive. `HIVE_PROGRESS=0` turns reporting off.
 
 **Steps.** A command (or any project's test runner) that prints lines like this gets real steps:
 

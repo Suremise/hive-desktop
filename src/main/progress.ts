@@ -222,6 +222,11 @@ export class ProgressStore {
     this.flush(workspacePath)
   }
 
+  /** The log a run reported when it finished (#251), or null: only that path is ever opened for it. */
+  logOf(workspacePath: string, id: string): string | null {
+    return this.runs.get(key(workspacePath))?.find((r) => r.id === id)?.logPath ?? null
+  }
+
   /** Marks quiet runs, and runs whose agent stopped, as stale. Called on a timer. */
   sweep(): void {
     const now = this.deps.now()

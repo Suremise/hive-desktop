@@ -421,7 +421,7 @@ describe("agents told to run long commands through hive-progress (Settings → G
     expect(wrapsLongCommands({ progressPanel: true, progressCommands: false })).toBe(false)
     expect(wrapsLongCommands({ progressPanel: false, progressCommands: true })).toBe(false)
     expect(hiveInstructions('web')).toContain(progressRule(true))
-    expect(progressRule(true)).toMatch(/over 30 s.*in the background too.*`hive-progress -- <command>`/)
+    expect(progressRule(true)).toMatch(/over 30 s.*in the background too.*`hive-progress --title "<what and why, in a few words>" -- <command>`/)
     expect(hiveInstructions('web', 'agent', false)).toContain(progressRule(false))
     expect(progressRule(false)).toMatch(/only when the user asks/)
     expect(hiveInstructions('', 'assistant')).not.toMatch(/hive-progress/)

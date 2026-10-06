@@ -371,6 +371,8 @@ export interface AppConfig {
     sessionsTree?: Record<string, Record<string, boolean>>
     /** Each workspace's board as the user left it, by workspace path in lower case (#170): collapsed columns, folded cards. */
     boardFold?: Record<string, BoardFold>
+    /** Each workspace's Progress panel filter (#251), by workspace path in lower case: one project's runs (and agent's), or all. */
+    progressFilter?: Record<string, { project: string; agent?: string }>
   }
   /** Per provider: the model last seen in a session started without a model choice (the CLI's own default). */
   observedDefaultModel: Record<ProviderId, string>
