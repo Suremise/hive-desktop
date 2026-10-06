@@ -2,7 +2,7 @@
 // skills folder's 1000 entries, plus personas), unchanged scans, one at a time or ten at once, read no file contents and
 // no headers; past the retention limits the least recently used entries go one at a time, never the whole inventory.
 // MEASURE=1 prints files, bytes, header bytes and time per scan (docs/ARCHITECTURE.md records them).
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -19,8 +19,11 @@ const { RETENTION, revisionOf } = await import('../src/main/revisions')
 const { readStats } = await import('../src/main/fsutil')
 type WS = ReturnType<typeof createWorkspaceService>
 
-/** A workspace with Hive's skills and personas, then skills up to `entries` in the skills folder, and `personas` more. */
-async function workspace(name: string, entries: number, personas: number, body = 'Step.\n'): Promise<{ w: WS; ws: string; personaPaths: string[] }> {
+/**
+ * A workspace with Hive's skills and personas, then skills up to `entries` in the skills folder (s0, s1…: `added` of
+ * them, however many Hive ships), and `personas` more.
+ */
+async function workspace(name: string, entries: number, personas: number, body = 'Step.\n'): Promise<{ w: WS; ws: string; personaPaths: string[]; added: number }> {
   const ws = join(base, name)
   mkdirSync(ws, { recursive: true })
   const w = createWorkspaceService()
@@ -35,7 +38,7 @@ async function workspace(name: string, entries: number, personas: number, body =
   const dir = join(ws, '.hive', 'personas')
   for (let i = 0; i < personas; i++) writeFileSync(join(dir, `p${i}.md`), `---\nname: P${i}\n---\n\nA persona.\n`)
   const personaPaths = (await import('fs')).readdirSync(dir).map((f) => join(dir, f))
-  return { w, ws, personaPaths }
+  return { w, ws, personaPaths, added: entries - have }
 }
 
 /** One scan as Hive does it: every skill's header and revision (the status), and every persona's revision. */
@@ -68,9 +71,10 @@ describe('the largest supported catalog', () => {
   }
 
   it('with larger bodies (64 KB each, 300 skills): warm scans still read nothing', async () => {
-    const { w, personaPaths } = await workspace('bodies', 300, 0, 'Words. '.repeat(64 * 1024 / 7))
+    const { w, personaPaths, added } = await workspace('bodies', 300, 0, 'Words. '.repeat(64 * 1024 / 7))
     const cold = await measure('300 skills of 64 KB, cold', () => scan(w, personaPaths))
-    expect(cold.bytes).toBeGreaterThan(290 * 64 * 1024)
+    // Every big one read (64 KB less a few bytes each), besides Hive's own.
+    expect(cold.bytes).toBeGreaterThan(added * 65_000)
     expect(nothing(await measure('300 skills of 64 KB, warm', () => scan(w, personaPaths)))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
     await disposeWorkspaceService(w)
   }, 180_000)
@@ -78,7 +82,8 @@ describe('the largest supported catalog', () => {
 
 describe('past the retention limits', () => {
   it('the least recently used go one at a time: the most recent stay, so the whole inventory is never cleared', async () => {
-    const { w, ws } = await workspace('overflow', 70, 0)
+    // 60 skills of its own (s0–s59), whatever Hive ships.
+    const { w, ws } = await workspace('overflow', 60 + readdirSync(join(__dirname, '..', 'resources', 'skills')).length, 0)
     const saved = { ...RETENTION }
     RETENTION.revisions = 50
     try {

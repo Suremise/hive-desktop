@@ -34,7 +34,7 @@ describe('the session contract', () => {
     expect(named(agent)).toEqual(expect.arrayContaining(['work-on-card', 'review-agent-work']))
     for (const n of named(agent)) expect(skillFor(catalog.get(n)!.audience, 'agent'), n).toBe(true)
     const forAssistant = [assistant, controlRules('agents'), controlRules('projects')].flatMap(named)
-    expect(forAssistant).toEqual(expect.arrayContaining(['coordinate-agents', 'split-work', 'pick-up', 'workspace-note']))
+    expect(forAssistant).toEqual(expect.arrayContaining(['coordinate-agents', 'split-work', 'tune-settings', 'pick-up', 'workspace-note']))
     for (const n of forAssistant) expect(skillFor(catalog.get(n)!.audience, 'assistant'), n).toBe(true)
     // Unknown names written as "<name> skill" fail too.
     for (const n of [agent, assistant, controlRules('agents')].flatMap(skillsNamed)) expect(catalog.has(n), n).toBe(true)
@@ -76,8 +76,8 @@ describe('the bundled skills', () => {
       expect(s.description.length, name).toBeLessThan(260)
       expect(s.description, name).toMatch(/\bUse (when|only when)\b/)
     }
-    // Every session sees each name and description: together they stay small.
-    expect([...catalog.values()].reduce((n, s) => n + s.description.length, 0)).toBeLessThan(2000)
+    // Every session sees the name and description of each skill for it (agents', or the Assistant's): together they stay small.
+    for (const role of ['agent', 'assistant'] as const) expect([...catalog.values()].filter((s) => skillFor(s.audience, role)).reduce((n, s) => n + s.description.length, 0), role).toBeLessThan(2000)
   })
 
   it('name only skills that exist and reach the same audience', () => {
@@ -92,7 +92,8 @@ describe('the bundled skills', () => {
   })
 
   it("name only hive tools that exist, and that their audience has", () => {
-    const anyAssistant = new Set(assistantTools('projects'))
+    // Every tool an Assistant can have: the highest control level, with Change settings on.
+    const anyAssistant = new Set(assistantTools('projects', true))
     for (const [name, s] of catalog) {
       for (const t of toolsNamed(s.text)) {
         expect(TOOLS, `${name}: ${t}`).toContain(t)

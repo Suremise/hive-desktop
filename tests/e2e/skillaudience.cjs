@@ -128,7 +128,7 @@ const skill = (dir, name, audience) => {
   check("project tab: the Assistant's skills aren't listed", !has('weekly-report') && !has('coordinate-agents'), tabRows.join(' | '))
   check('project tab: the default and both are', has('plain') && has('both-ways') && has('work-on-card'))
   const note = await page.locator('.assistant-only-note').innerText().catch(() => '')
-  check('project tab: says how many are left out, and why', note.startsWith('2 Hive skills are for the Hive Assistant only') && /don't get them/.test(note), note)
+  check('project tab: says how many are left out, and why', note.startsWith('3 Hive skills are for the Hive Assistant only') && /don't get them/.test(note), note)
   const agentsGet = (await inv('skills:list', proj)).filter((s) => s.level === 'hive' && s.audience !== 'assistant').length
   check('project tab: its Hive rows are what project agents are given', tabRows.filter((t) => !/Local|User|Plugin/.test(t)).length >= agentsGet)
 

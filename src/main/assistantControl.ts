@@ -5,7 +5,7 @@ import { mkdir } from 'original-fs/promises'
 import { ASSISTANT_DIR } from '../shared/assistant'
 import { controlAllows } from '../shared/assistantTools'
 import { HIVE_DIR } from '../shared/defaults'
-import type { AssistantAction, AssistantControl, AssistantQuestion } from '../shared/types'
+import type { AssistantAction, AssistantControl, AssistantQuestion, AssistantSettingChange } from '../shared/types'
 import { config } from './config'
 import { emit } from './events'
 import { hashText, writeJsonAtomic } from './fsutil'
@@ -64,6 +64,14 @@ export async function newAssistantToken(workspacePath: string): Promise<void> {
   await writeJsonAtomic(file, { token: s.token, note: "The Hive Assistant's Agent API token for one workspace. Hive replaces it each time the Assistant starts." })
 }
 
+/** Whether a token is the workspace's Assistant's current one: its running session's, not one from before a restart. */
+export function isCurrentToken(workspacePath: string, token: string): boolean {
+  const now = stateOf(workspacePath).token
+  const got = Buffer.from(token)
+  const want = Buffer.from(now)
+  return !!now && got.length === want.length && timingSafeEqual(got, want)
+}
+
 /** The Assistant stopped: its token stops working, and anything it was asking the user is answered no. */
 export function endAssistant(workspacePath: string): void {
   const s = stateOf(workspacePath)
@@ -89,14 +97,18 @@ export function allows(need: AssistantControl): boolean {
   return controlAllows(controlLevel(), need)
 }
 
-/** Records something the Assistant did (or was refused), in its panel's list and hive.log. */
-export function record(workspacePath: string, text: string, error?: string): void {
+/**
+ * Records something the Assistant did (or was refused), in its panel's list and hive.log; with `more`, the setting it
+ * changed (for Revert) or the change the user reverted.
+ */
+export function record(workspacePath: string, text: string, error?: string, more: { setting?: AssistantSettingChange; revertOf?: string } = {}): AssistantAction {
   const s = stateOf(workspacePath)
-  const action: AssistantAction = { id: randomUUID(), at: new Date().toISOString(), text, ok: !error, ...(error ? { error } : {}) }
+  const action: AssistantAction = { id: randomUUID(), at: new Date().toISOString(), text, ok: !error, ...(error ? { error } : {}), ...more }
   s.actions.push(action)
   if (s.actions.length > MAX_LISTED) s.actions.splice(0, s.actions.length - MAX_LISTED)
   log.info(`${userText(workspacePath)}: ${userText(text)}${error ? ` (refused: ${userText(error)})` : ''}`)
   emit({ type: 'assistant-activity', projectPath: assistantHome(workspacePath), action })
+  return action
 }
 
 export function actions(workspacePath: string): AssistantAction[] {

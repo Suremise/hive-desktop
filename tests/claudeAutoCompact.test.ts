@@ -5,7 +5,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { autoCompactOf, parseWindow, settingsScopes } from '../src/main/providers/claude/autoCompact'
+import { autoCompactLine } from '../src/shared/providers'
+import { UNREAD_SOURCES, autoCompactOf, cliSettings, effectiveEnv, parseWindow, settingsScopes } from '../src/main/providers/claude/autoCompact'
 
 const user = (json: unknown) => ({ label: "Claude Code's settings.json", json })
 const project = (json: unknown) => ({ label: "the project's .claude/settings.json", json })
@@ -20,7 +21,7 @@ describe('Claude Code auto-compaction settings (#242)', () => {
   })
 
   it('nothing set: the default', () => {
-    expect(autoCompactOf([], {}, [user(null), project({ model: 'opus' })], OPUS)).toEqual({ window: null, source: null })
+    expect(autoCompactOf([], {}, [user(null), project({ model: 'opus' })], OPUS)).toEqual({ window: null, source: null, estimate: UNREAD_SOURCES })
   })
 
   it('the variable comes first, a plain count only ("500k" reads as 500, the minimum)', () => {
@@ -53,7 +54,7 @@ describe('Claude Code auto-compaction settings (#242)', () => {
 
   it('turned off in settings: off, unless a higher scope turns it on', () => {
     expect(autoCompactOf([], { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '500000' }, [user({ autoCompactEnabled: false })], OPUS)).toEqual({ window: 'off', source: "autoCompactEnabled: false in Claude Code's settings.json" })
-    expect(autoCompactOf([], {}, [project({ autoCompactEnabled: true }), user({ autoCompactEnabled: false })], OPUS)).toEqual({ window: null, source: null })
+    expect(autoCompactOf([], {}, [project({ autoCompactEnabled: true }), user({ autoCompactEnabled: false })], OPUS)).toEqual({ window: null, source: null, estimate: UNREAD_SOURCES })
   })
 
   it('DISABLE_COMPACT and DISABLE_AUTO_COMPACT turn it off over everything, read as Claude Code reads on/off variables', () => {
@@ -68,7 +69,7 @@ describe('Claude Code auto-compaction settings (#242)', () => {
     }
     // DISABLE_AUTO_COMPACT overrides autoCompactEnabled both ways: set off, a settings file turning it off doesn't.
     const disabled = [user({ autoCompactEnabled: false })]
-    expect(autoCompactOf([], { DISABLE_AUTO_COMPACT: '0' }, disabled, OPUS)).toEqual({ window: null, source: null })
+    expect(autoCompactOf([], { DISABLE_AUTO_COMPACT: '0' }, disabled, OPUS)).toEqual({ window: null, source: null, estimate: UNREAD_SOURCES })
     expect(autoCompactOf([], {}, disabled, OPUS).window).toBe('off')
     // DISABLE_COMPACT stops all compaction, whatever DISABLE_AUTO_COMPACT says.
     expect(autoCompactOf([], { DISABLE_COMPACT: '1', DISABLE_AUTO_COMPACT: '0' }, enabled, OPUS)).toEqual({ window: 'off', source: 'DISABLE_COMPACT' })
@@ -82,7 +83,7 @@ describe('Claude Code auto-compaction settings (#242)', () => {
       expect(autoCompactOf([], {}, [user(json)], ['claude-opus-5-5', 'opus']).window).toBe(600_000)
       expect(autoCompactOf([], {}, [user(json)], ['claude-sonnet-5-5'])).toEqual({ window: 300_000, source: "modelSettings › claude-sonnet-5-5 › autoCompactWindow in Claude Code's settings.json" })
       // A model the file doesn't name: the file's top level, or the default; not another model's.
-      expect(autoCompactOf([], {}, [user(json)], ['claude-haiku-4-5'])).toEqual({ window: null, source: null })
+      expect(autoCompactOf([], {}, [user(json)], ['claude-haiku-4-5'])).toEqual({ window: null, source: null, estimate: UNREAD_SOURCES })
     }
     // Within one model, its exact name before other spellings of it, whatever the file's order.
     const spellings = { modelSettings: { 'claude-opus-5-5[1m]': { autoCompactWindow: 900_000 }, 'claude-opus-5-5': { autoCompactWindow: 600_000 } } }
@@ -95,12 +96,46 @@ describe('Claude Code auto-compaction settings (#242)', () => {
   })
 
   it('a percentage, 1–100, kept with the window it applies to', () => {
-    expect(autoCompactOf([], { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '50' }, [], OPUS)).toEqual({ window: null, source: 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE', percent: 50 })
+    expect(autoCompactOf([], { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '50' }, [], OPUS)).toEqual({ window: null, source: 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE', percent: 50, estimate: UNREAD_SOURCES })
     expect(autoCompactOf(['--autocompact', '400k'], { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '80' }, [], OPUS)).toEqual({ window: 400_000, source: '--autocompact', percent: 80 })
-    expect(autoCompactOf([], { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '150' }, [], OPUS)).toEqual({ window: null, source: null })
+    expect(autoCompactOf([], { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '150' }, [], OPUS)).toEqual({ window: null, source: null, estimate: UNREAD_SOURCES })
+  })
+
+  it("reads the variables from a settings file's env block too, over the launch's, the higher scope winning (#273)", () => {
+    // The card's example: the user's settings set the window through env; the launch environment is empty.
+    expect(autoCompactOf([], {}, [user({ env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '150000' } })], OPUS)).toEqual({ window: 150_000, source: "CLAUDE_CODE_AUTO_COMPACT_WINDOW (env in Claude Code's settings.json)" })
+    // A settings file's env beats the launch environment; the project's beats the user's.
+    expect(autoCompactOf([], { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '400000' }, [project({ env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: 300_000 } }), user({ env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '150000' } })], OPUS)).toEqual({ window: 300_000, source: "CLAUDE_CODE_AUTO_COMPACT_WINDOW (env in the project's .claude/settings.json)" })
+    // Turned off through env, as through the launch's.
+    expect(autoCompactOf([], {}, [user({ env: { DISABLE_AUTO_COMPACT: '1' } })], OPUS)).toEqual({ window: 'off', source: "DISABLE_AUTO_COMPACT (env in Claude Code's settings.json)" })
+    // A launch variable no settings file sets keeps its plain name.
+    expect(autoCompactOf([], { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '400000' }, [user({ env: { OTHER: 'x' } })], OPUS)).toEqual({ window: 400_000, source: 'CLAUDE_CODE_AUTO_COMPACT_WINDOW' })
+    expect(effectiveEnv({ A: 'launch', B: 'launch' }, [{ label: 'high', json: { env: { A: 'high' } } }, { label: 'low', json: { env: { A: 'low', B: 'low', C: { no: 1 } } } }])).toEqual({ env: { A: 'high', B: 'low' }, from: { A: 'high', B: 'low' } })
+  })
+
+  it('says a default is an estimate: what Hive cannot read could change it', () => {
+    const d = autoCompactOf([], {}, [], OPUS)
+    expect(d.estimate).toBe(UNREAD_SOURCES)
+    expect(autoCompactLine('claude-code', 200_000, d)).toMatch(/its default for this window \(an estimate: managed policies Hive can't read, such as Windows registry policies/)
+    // A value a setting gives is no estimate.
+    expect(autoCompactOf(['--autocompact', '300000'], {}, [], OPUS).estimate).toBeUndefined()
   })
 
   const dir = mkdtempSync(join(tmpdir(), 'hive-autocompact-'))
+  it("reads the command line's settings: the last --settings, a file or inline JSON, above the folder's (#273)", () => {
+    const cwd = join(dir, 'cli')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(join(cwd, 'mine.json'), JSON.stringify({ autoCompactWindow: 250_000 }))
+    expect(cliSettings(['--settings', 'mine.json'], cwd)).toEqual({ label: '--settings mine.json', json: { autoCompactWindow: 250_000 } })
+    expect(cliSettings(['--settings={"env":{"X":"1"}}'], cwd)).toEqual({ label: '--settings', json: { env: { X: '1' } } })
+    // Claude Code reads only the last.
+    expect(cliSettings(['--settings', 'mine.json', '--settings', '{"autoCompactWindow":600000}'], cwd)?.json).toEqual({ autoCompactWindow: 600_000 })
+    expect(cliSettings(['--settings', '{ broken'], cwd)).toEqual({ label: '--settings', json: null })
+    expect(cliSettings(['--verbose'], cwd)).toBeNull()
+    const scopes = settingsScopes(cwd, join(dir, 'nohome'), ['--settings', 'mine.json'])
+    expect(scopes.map((s) => s.label)).toEqual(['managed settings', '--settings mine.json', "the project's .claude/settings.local.json", "the project's .claude/settings.json", "Claude Code's settings.json"])
+    expect(autoCompactOf(['--settings', 'mine.json'], {}, scopes.slice(1), OPUS)).toEqual({ window: 250_000, source: 'autoCompactWindow in --settings mine.json' })
+  })
   afterAll(() => rmSync(dir, { recursive: true, force: true }))
   it('reads the folder\'s and the config folder\'s settings files, missing or broken ones as unset', () => {
     const cwd = join(dir, 'proj')
