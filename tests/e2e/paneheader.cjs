@@ -6,7 +6,8 @@
 // shrinking and growing, the sidebar, the layout, the count changing, and a header hidden while the width changed.
 // Compact's spinner turns for the whole compaction (after the dialog closes) and stops when it finishes, fails or is
 // cancelled, with no second compaction meanwhile. The agents run the fake Claude Code (fake-claude/). Dev build,
-// throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// throwaway profile, workspace and CLAUDE_CONFIG_DIR. A worktree is only its icon in the agent's tab and header (#287),
+// named for screen readers, its branch, folder and base in one tooltip on hover and on keyboard focus, at both zooms.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -96,6 +97,41 @@ function commits(wt, n) {
   await turn()
   await page.getByRole('button', { name: 'Two columns' }).click()
   await until(async () => (await page.locator('.pane-header-bar').count()) === 2, 5000)
+
+  /** #287: in the header and the strip's tab, the worktree is its icon only, with the details in its name and tooltip. */
+  const worktreeMarks = async (tag) => {
+    const tab = page.locator('.agent-tab', { hasText: long.name })
+    const away = () => page.locator('.agents-area').hover({ position: { x: 40, y: 300 }, force: true })
+    const tips = async () => (await page.locator('.tip').allInnerTexts()).map((t) => t.trim())
+    for (const [where, el] of [['header', page.locator('.pane-header-bar', { has: page.locator('.agent-name', { hasText: long.name }) }).locator('.agent-branch')], ['tab', tab.locator('.agent-branch')]]) {
+      const text = (await el.innerText()).trim()
+      check(`${tag}${where}: the worktree is its icon, without text`, text === '' && (await el.locator('.codicon-worktree').count()) === 1, JSON.stringify(text))
+      const label = await el.getAttribute('aria-label')
+      check(`${tag}…named "Worktree: <branch> in <folder>"`, label === `Worktree: ${long.worktree.branch} in ${long.worktree.path}`, label)
+      const full = (t) => t.length === 1 && t[0].includes(`Worktree: ${long.worktree.branch}`) && t[0].includes(`in ${long.worktree.path}`) && t[0].includes('branched from')
+      await away()
+      await until(async () => (await tips()).length === 0, 3000)
+      await el.hover()
+      await until(async () => full(await tips()), 3000)
+      check(`${tag}…hovered: one tooltip, with its branch, folder and base`, full(await tips()), JSON.stringify(await tips()))
+      await away()
+      await until(async () => (await tips()).length === 0, 3000)
+      // From the keyboard: Tab on to the next control and Shift+Tab back (before it may be a terminal, which keeps Tab).
+      await el.focus()
+      await page.keyboard.press('Tab')
+      await page.keyboard.press('Shift+Tab')
+      await until(async () => full(await tips()), 3000)
+      check(`${tag}…focused from the keyboard: the same tooltip`, (await el.evaluate((n) => n === document.activeElement)) && full(await tips()), JSON.stringify(await tips()))
+      await page.keyboard.press('Tab')
+      await until(async () => (await tips()).length === 0, 3000)
+    }
+    // The last Tab left the next agent's icon focused, its tooltip showing: nothing focused for the pictures.
+    await page.evaluate(() => document.activeElement?.blur())
+    await away()
+    await page.screenshot({ path: path.join(lib.WORK, `paneheader-worktree-icons${tag ? '-125' : ''}.png`) })
+    check(`${tag}no worktree text in any tab or header`, (await page.locator('.agent-tab, .pane-header-bar').allInnerTexts()).every((t) => !t.includes('hive/')))
+  }
+  await worktreeMarks('')
 
   const header = (a) => page.locator('.pane-header-bar', { has: page.locator('.agent-name', { hasText: a.name }) })
   /** The header's mode, its width and everything wrong with its layout. */
@@ -288,6 +324,7 @@ function commits(wt, n) {
   await app.evaluate(({ BrowserWindow }, z) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(z), zoom)
   await lib.sleep(400)
   await atBoundaries('125%: ', 'paneheader-125')
+  await worktreeMarks('125%: ')
   check('125%: header sized to 900px', await widthTo(900))
   await fits('125%, 900px')
   await shot('paneheader-125.png')

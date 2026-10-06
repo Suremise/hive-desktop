@@ -7,6 +7,7 @@ import { agentsToResume, resumeAll } from '@shared/resumeAll'
 import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult } from '@shared/startAll'
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
+import { templateLoadDetail } from '@shared/templateLoad'
 import { formatTokens } from './util'
 import { statusText } from './components/ui'
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
@@ -755,28 +756,43 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
   }
   const p = project(path)
   const expected = (p?.agents ?? []).map((a) => a.id)
+  const removable = plan.oldWorktrees.filter((w) => w.removable)
+  let removeOld = false
+  let result: { oldWorktrees: { branch: string; removed: boolean; why?: string }[] } | undefined
   const ok = await confirm({
     title: `Load "${plan.name}"?`,
     message: plan.remove.length ? `It replaces every agent of ${p?.name ?? 'this project'}.` : `It adds its agents to ${p?.name ?? 'this project'}.`,
-    detail: [
-      ...(plan.remove.length ? ['Removed:', ...plan.remove.map((a) => `• ${a.name}${a.worktree ? ` (its worktree and branch ${a.worktree.branch} stay)` : ''}`), ''] : []),
-      'Created:',
-      ...plan.create.map((a) => `• ${a.name}${a.role ? ` — ${a.role}` : ''} (${providerName(a.provider)}${a.worktree ? ', own worktree' : ''})`),
-      '',
-      `${plan.remove.length ? "Their conversations stay in the Sessions tab, and their open cards go back (Doing ones to Todo). " : ''}The layout becomes the template's.`
-    ].join('\n'),
+    // Who goes and who comes: each new agent's settings, and its new worktree's branch and folder in this project (#268).
+    detail: p ? templateLoadDetail(plan, p.config, get().settings, (id) => get().providers[id]) : undefined,
+    scrollDetail: true,
     confirmLabel: 'Load template',
     busyLabel: 'Loading…',
     danger: plan.remove.length > 0,
-    run: () => call('templates:load', path, entry.scope, entry.file, expected, from)
+    // The removed agents' worktrees that are merged and clean can go with the load, if ticked (off by default, #289).
+    check: removable.length ? { label: removeOldLabel(removable.map((w) => w.branch), plan.mergedInto), initial: false, set: (v) => (removeOld = v) } : undefined,
+    run: async () => {
+      result = await call('templates:load', path, entry.scope, entry.file, expected, from, removeOld ? { paths: removable.map((w) => w.path), mergedInto: plan.mergedInto } : undefined)
+    }
   })
-  if (ok) await refreshWorkspace()
+  if (!ok) return
+  await refreshWorkspace()
+  const gone = result?.oldWorktrees.filter((w) => w.removed) ?? []
+  const kept = result?.oldWorktrees.filter((w) => !w.removed) ?? []
+  if (kept.length) notify('warning', `${kept.length === 1 ? 'An old worktree was' : `${kept.length} old worktrees were`} kept`, [...(gone.length ? [`Removed: ${gone.map((w) => w.branch).join(', ')}.`] : []), ...kept.map((w) => `${w.branch}: ${w.why ?? 'kept'}`)].join('\n'))
+  else if (gone.length) notify('success', `Removed ${gone.length === 1 ? 'an old worktree' : `${gone.length} old worktrees`}`, `${gone.map((w) => w.branch).join(', ')}, with ${gone.length === 1 ? 'its branch' : 'their branches'}: merged and clean.`)
+}
+
+/** The tick box for removing the old worktrees that are merged and clean (#289). */
+function removeOldLabel(branches: string[], into: string | null): string {
+  return `Also remove ${branches.length === 1 ? 'the old worktree' : `${branches.length} old worktrees`} and ${branches.length === 1 ? 'its branch' : 'their branches'} (merged into ${into ?? 'the main branch'} and clean): ${branches.join(', ')}`
 }
 
 /** Adds one agent of a template, the project's others left alone (a name already taken gets a number). */
 export async function addAgentFromTemplate(path: string, entry: Pick<TemplateEntry, 'scope' | 'file'>, index: number): Promise<void> {
   const def = await attempt('Could not add the agent', () => call('templates:addAgent', path, entry.scope, entry.file, index))
   if (!def) return
+  // A clean worktree Hive made for that name, which no agent used, is worked in again rather than a new "-2" (#289).
+  if (def.reused && def.worktree) notify('info', `${def.name} works in its worktree again`, `${def.worktree.branch} in ${def.worktree.path}: it was clean, and its branch is left as it is.`)
   await refreshWorkspace()
   const p = project(path)
   if (p) showAgent(p, def.id)

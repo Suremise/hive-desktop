@@ -113,6 +113,8 @@ export function Dialogs() {
               onClick={() => {
                 const run = dialog.run
                 if (!run) return close(true)
+                // The tick box's answer first: the action may depend on it (a template load removing old worktrees, #289).
+                dialog.check?.set(checked)
                 void action.run('confirm', run).then((r) => r && close(true))
               }}
             >
@@ -122,7 +124,7 @@ export function Dialogs() {
         }
       >
         <div>{dialog.message}</div>
-        {dialog.detail && <div className="detail">{dialog.detail}</div>}
+        {dialog.detail && <div className={cx('detail', dialog.scrollDetail && 'scroll')}>{dialog.detail}</div>}
         {dialog.check && (
           <label className="flex dialog-check">
             <input type="checkbox" checked={checked} disabled={!!action.busy} onChange={(e) => setChecked(e.target.checked)} /> {dialog.check.label}
