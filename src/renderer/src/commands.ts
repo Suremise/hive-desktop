@@ -271,6 +271,15 @@ export const commands: Command[] = [
   // The project's agents and layout as a template (#126); loading and adding one are on the agent strip.
   { id: 'template.save', label: 'Save Agents as Template…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.saveTemplate(get().selectedProject!) },
   { id: 'session.archiveAll', label: 'Archive and Start New (All)…', category: 'Session', when: () => hasProject() && !!batchCounts(selected()?.agents ?? []).archive, liveLabel: () => batchLabel('Archive and Start New', 'archive'), run: () => void actions.startNewAll(get().selectedProject!, true) },
+  // Remove All (#291): every agent of the project after one question; user-only (not in the Agent API).
+  {
+    id: 'session.removeAll',
+    label: 'Remove All Agents…',
+    category: 'Session',
+    when: () => hasProject() && !!selected()?.agents.length,
+    liveLabel: () => ((selected()?.agents.length ?? 0) > 1 ? `Remove All Agents (${selected()!.agents.length})…` : 'Remove Agent…'),
+    run: () => void actions.removeAllAgents(get().selectedProject!)
+  },
   { id: 'view.projects', label: 'Show Projects', category: 'View', keybinding: 'Mod+Shift+E', run: () => setActivity('projects') },
   { id: 'view.overview', label: 'Show Workspace Overview', category: 'View', keybinding: 'Mod+Shift+O', run: () => setActivity('overview') },
   { id: 'view.performance', label: 'Show Performance', category: 'View', run: () => setActivity('performance') },

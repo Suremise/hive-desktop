@@ -1,0 +1,207 @@
+// Whether a worktree can be deleted without losing work (#291 Remove All, shared with #289 templates), and deleting it
+// only then: git lists it, its branch is fully merged into the repository's main branch (a squash merge counts; never
+// whatever branch the project folder has checked out) and nothing is uncommitted. Anything else keeps it, with the
+// reason. The deletion is guarded against anything since the check: a file written or a commit made afterwards, or the
+// main branch changing, keeps the work.
+import { execFileSync } from 'child_process'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { createWorktree, deleteCheckedBranch, mergeWorktree, primaryBranch, removeCheckedWorktree, worktreeCheck } from '../src/main/worktrees'
+
+const run = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' })
+let root = ''
+
+afterEach(() => {
+  if (root) rmSync(root, { recursive: true, force: true })
+  root = ''
+})
+
+type Tree = { path: string; branch: string; base: string }
+
+async function makeProject(main = 'main'): Promise<{ project: string; tree: (name: string) => Promise<Tree> }> {
+  root = mkdtempSync(join(tmpdir(), 'hive-wtcheck-'))
+  const project = join(root, 'project')
+  run(root, 'init', '-q', '-b', main, project)
+  for (const [k, v] of [['user.name', 'Test'], ['user.email', 'test@example.com'], ['core.autocrlf', 'false']]) run(project, 'config', k, v)
+  writeFileSync(join(project, 'a.txt'), 'a\n')
+  run(project, 'add', '-A')
+  run(project, 'commit', '-qm', 'base')
+  return {
+    project,
+    tree: async (name) => {
+      const wt = { path: join(root, 'wt', name), branch: `hive/${name}`, base: main }
+      await createWorktree(project, wt.path, wt.branch, main)
+      return wt
+    }
+  }
+}
+
+const commit = (cwd: string, file: string): void => {
+  writeFileSync(join(cwd, file), `${file}\n`)
+  run(cwd, 'add', '-A')
+  run(cwd, 'commit', '-qm', file)
+}
+const hasBranch = (project: string, b: string): boolean => run(project, 'branch', '--format=%(refname:short)').split(/\r?\n/).includes(b)
+
+describe('worktreeCheck', () => {
+  it('a fresh worktree with nothing on it is removable, against main', async () => {
+    const { project: p, tree } = await makeProject()
+    const c = await worktreeCheck(p, await tree('fresh'))
+    expect(c).toMatchObject({ removable: true, into: 'main' })
+    expect(c.tip).toMatch(/^[0-9a-f]{40}$/)
+  })
+
+  it('a branch merged into main, by a merge commit or a squash, is removable', async () => {
+    const { project: p, tree } = await makeProject()
+    const merged = await tree('merged')
+    commit(merged.path, 'm.txt')
+    expect(await mergeWorktree(p, merged, { squash: false, message: 'merge' })).toEqual({ ok: true })
+    expect((await worktreeCheck(p, merged)).removable).toBe(true)
+    const squashed = await tree('squashed')
+    commit(squashed.path, 's.txt')
+    expect(await mergeWorktree(p, squashed, { squash: true, message: 'squash' })).toEqual({ ok: true })
+    expect((await worktreeCheck(p, squashed)).removable).toBe(true)
+  })
+
+  it('unmerged commits or uncommitted files keep it, saying which', async () => {
+    const { project: p, tree } = await makeProject()
+    const ahead = await tree('ahead')
+    commit(ahead.path, 'x.txt')
+    commit(ahead.path, 'y.txt')
+    expect(await worktreeCheck(p, ahead)).toEqual({ removable: false, into: 'main', reason: '2 commits not merged into main' })
+    const dirty = await tree('dirty')
+    writeFileSync(join(dirty.path, 'new.txt'), 'new\n')
+    expect(await worktreeCheck(p, dirty)).toEqual({ removable: false, into: 'main', reason: '1 uncommitted file' })
+    writeFileSync(join(ahead.path, 'a.txt'), 'changed\n')
+    expect((await worktreeCheck(p, ahead)).reason).toBe('2 commits not merged into main and 1 uncommitted file')
+  })
+
+  it('merged into the branch the project folder has checked out is not enough: main is what counts', async () => {
+    const { project: p, tree } = await makeProject()
+    const wt = await tree('feature')
+    commit(wt.path, 'f.txt')
+    run(p, 'checkout', '-q', '-b', 'feature-target')
+    run(p, 'merge', '-q', '--no-edit', wt.branch)
+    expect(await worktreeCheck(p, wt)).toEqual({ removable: false, into: 'main', reason: '1 commit not merged into main' })
+    // A detached project folder doesn't matter either.
+    run(p, 'checkout', '-q', '--detach')
+    expect((await worktreeCheck(p, wt)).into).toBe('main')
+  })
+
+  it('main is the branch origin/HEAD names, else main, else master; none of them keeps every worktree', async () => {
+    const m = await makeProject('master')
+    expect(await primaryBranch(m.project)).toBe('master')
+    run(m.project, 'branch', 'trunk')
+    run(m.project, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD')
+    run(m.project, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk')
+    expect(await primaryBranch(m.project)).toBe('trunk')
+    rmSync(root, { recursive: true, force: true })
+    const n = await makeProject('develop')
+    const wt = await n.tree('x')
+    expect(await worktreeCheck(n.project, wt)).toMatchObject({ removable: false, into: null })
+  })
+
+  it('only worktrees git lists on their branch: not the project folder, a plain folder or a wrong branch', async () => {
+    const { project: p, tree } = await makeProject()
+    expect((await worktreeCheck(p, { path: p, branch: 'main', base: 'main' })).removable).toBe(false)
+    const plain = join(root, 'plain')
+    mkdirSync(plain)
+    expect(await worktreeCheck(p, { path: plain, branch: 'hive/plain', base: 'main' })).toMatchObject({ removable: false, reason: "git doesn't list it as a worktree on hive/plain" })
+    const wt = await tree('other')
+    expect((await worktreeCheck(p, { ...wt, branch: 'hive/elsewhere' })).removable).toBe(false)
+  })
+})
+
+describe('removeCheckedWorktree', () => {
+  it('deletes a checked, merged, clean worktree and its branch', async () => {
+    const { project: p, tree } = await makeProject()
+    const wt = await tree('done')
+    expect(await removeCheckedWorktree(p, wt, await worktreeCheck(p, wt), 'main')).toEqual({ deleted: true })
+    expect(existsSync(wt.path)).toBe(false)
+    expect(hasBranch(p, wt.branch)).toBe(false)
+  })
+
+  it('keeps one written to after the check (git refuses without --force)', async () => {
+    const { project: p, tree } = await makeProject()
+    const wt = await tree('late')
+    const check = await worktreeCheck(p, wt)
+    expect(check.removable).toBe(true)
+    writeFileSync(join(wt.path, 'late-work.txt'), 'not committed\n')
+    const r = await removeCheckedWorktree(p, wt, check, 'main')
+    expect(r.deleted).toBe(false)
+    expect(r.reason).toMatch(/^git kept it/)
+    expect(existsSync(join(wt.path, 'late-work.txt'))).toBe(true)
+    expect(hasBranch(p, wt.branch)).toBe(true)
+  })
+
+  it('keeps one whose branch moved after the check (a new commit)', async () => {
+    const { project: p, tree } = await makeProject()
+    const wt = await tree('moved')
+    const check = await worktreeCheck(p, wt)
+    commit(wt.path, 'new.txt')
+    expect(await removeCheckedWorktree(p, wt, check, 'main')).toEqual({ deleted: false, reason: 'hive/moved changed since it was checked' })
+    expect(existsSync(join(wt.path, 'new.txt'))).toBe(true)
+    expect(hasBranch(p, wt.branch)).toBe(true)
+  })
+
+  it('keeps it when main is no longer the branch checked or shown, or no longer has its commit', async () => {
+    const { project: p, tree } = await makeProject()
+    const wt = await tree('shown')
+    commit(wt.path, 's.txt')
+    expect(await mergeWorktree(p, wt, { squash: false, message: 'merge' })).toEqual({ ok: true })
+    const check = await worktreeCheck(p, wt)
+    expect(check.removable).toBe(true)
+    // The user was shown another branch.
+    expect((await removeCheckedWorktree(p, wt, check, 'master')).deleted).toBe(false)
+    // main was reset past the merge meanwhile.
+    run(p, 'reset', '-q', '--hard', 'HEAD~1')
+    expect(await removeCheckedWorktree(p, wt, check, 'main')).toEqual({ deleted: false, reason: 'main changed since it was checked' })
+    // main renamed meanwhile.
+    run(p, 'branch', '-m', 'main', 'trunk')
+    expect((await removeCheckedWorktree(p, wt, check, 'main')).deleted).toBe(false)
+    expect(existsSync(wt.path) && hasBranch(p, wt.branch)).toBe(true)
+  })
+
+  it('at the last step, a main branch moved after everything else was checked keeps the branch (one ref transaction)', async () => {
+    const { project: p, tree } = await makeProject()
+    const wt = await tree('race')
+    commit(wt.path, 'unique-work.txt')
+    expect(await mergeWorktree(p, wt, { squash: false, message: 'merge' })).toEqual({ ok: true })
+    const check = await worktreeCheck(p, wt)
+    expect(check).toMatchObject({ removable: true, into: 'main' })
+    // Between the worktree's removal and the branch's: main reset to before the merge, so the commit is unmerged again.
+    run(p, 'reset', '-q', '--hard', 'HEAD~1')
+    expect(await deleteCheckedBranch(p, wt, 'main', check.tip!, check.intoTip!)).toBe('main changed since it was checked')
+    expect(hasBranch(p, wt.branch)).toBe(true)
+    expect(run(p, 'rev-parse', wt.branch).trim()).toBe(check.tip)
+    // Main moved forward (still holding the commit) counts as moved too: the branch is kept rather than re-checked.
+    run(p, 'reset', '-q', '--hard', check.intoTip!)
+    commit(p, 'later.txt')
+    expect(await deleteCheckedBranch(p, wt, 'main', check.tip!, check.intoTip!)).toBe('main changed since it was checked')
+    // The branch moved instead.
+    run(p, 'reset', '-q', '--hard', check.intoTip!)
+    commit(wt.path, 'more.txt')
+    expect(await deleteCheckedBranch(p, wt, 'main', check.tip!, check.intoTip!)).toBe('hive/race changed since it was checked')
+    expect(hasBranch(p, wt.branch)).toBe(true)
+  })
+
+  it('refuses before touching anything when main moved after the check, even still holding the commit', async () => {
+    const { project: p, tree } = await makeProject()
+    const wt = await tree('late-main')
+    const check = await worktreeCheck(p, wt)
+    // main gets a commit after the check: refused before the worktree or the branch is touched.
+    commit(p, 'moved.txt')
+    expect(await removeCheckedWorktree(p, wt, check, 'main')).toEqual({ deleted: false, reason: 'main changed since it was checked' })
+    expect(existsSync(wt.path) && hasBranch(p, wt.branch)).toBe(true)
+  })
+
+  it('does nothing for one the check did not find removable', async () => {
+    const { project: p, tree } = await makeProject()
+    const wt = await tree('busy')
+    commit(wt.path, 'b.txt')
+    expect(await removeCheckedWorktree(p, wt, await worktreeCheck(p, wt), 'main')).toEqual({ deleted: false, reason: '1 commit not merged into main' })
+    expect(existsSync(wt.path)).toBe(true)
+  })
+})

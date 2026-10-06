@@ -2,6 +2,8 @@ import type {
   BoardFold,
   UpdateState,
   WorktreeGone,
+  WorktreeCheck,
+  RemovedAgent,
   MoveOptions,
   MovePlan,
   MoveReport,
@@ -274,8 +276,14 @@ export interface HiveRequests {
   /** Changing provider clears the agent's model, effort and mode, and its session to resume (conversations can't move between providers). */
   /** Changes an agent's name and settings; for the Hive Assistant's home, its settings for this workspace (persona too). */
   'agents:update': (projectPath: string, agentId: string, patch: AgentPatch) => AgentDef
-  /** Removes an agent (its session must be stopped). deleteWorktree also removes its worktree and branch. */
-  'agents:remove': (projectPath: string, agentId: string, opts: { deleteWorktree: boolean; releaseCards?: boolean }) => void
+  /**
+   * Removes an agent (its session must be stopped). deleteWorktree also removes its worktree and branch; 'merged-clean'
+   * only when they are fully merged into the main branch (`mergedInto`, the one the user was shown) and clean then,
+   * guarded against changes while deleting, and never one another agent of the project still works in (#291).
+   */
+  'agents:remove': (projectPath: string, agentId: string, opts: { deleteWorktree: boolean | 'merged-clean'; mergedInto?: string | null; releaseCards?: boolean }) => RemovedAgent
+  /** Whether each worktree agent's worktree could be deleted without losing work (merged and clean), for Remove All's question (#291). */
+  'agents:worktreeChecks': (projectPath: string) => ({ agentId: string } & WorktreeCheck)[]
   /** The agent's worktree when its folder is missing, with whether its branch survives (#146); null when it isn't missing. */
   'agents:missingWorktree': (projectPath: string, agentId: string) => WorktreeGone | null
   /** Makes a missing worktree again: on its branch when it survives, else new from its base (#146). */

@@ -449,6 +449,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'agents:add': (p, opts) => projectAgents.addAgent(p, opts),
     'agents:update': (p, id, patch) => projectAgents.updateAgent(p, id, patch),
     'agents:remove': (p, id, opts) => projectAgents.removeAgent(p, id, opts),
+    'agents:worktreeChecks': (p) => projectAgents.worktreeChecks(p),
     'agents:missingWorktree': (p, id) => missingWorktree(workspace.assertProject(p), String(id)),
     'agents:recreateWorktree': async (p, id) => {
       const project = workspace.assertProject(p)

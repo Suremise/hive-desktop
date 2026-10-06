@@ -2,7 +2,7 @@
 // confirmation, running ones stopped first; the second archives each agent's session first. Pure parts here (which
 // agents, which sessions, what the confirmation says about each, running them one at a time), so they are tested.
 import { agentsToResume } from './resumeAll'
-import type { SessionStatus } from './types'
+import type { SessionStatus, WorktreeCheck } from './types'
 
 export interface BatchAgent {
   id: string
@@ -77,6 +77,23 @@ export function batchLine(agent: BatchAgent, statusText: (live: NonNullable<Batc
   if (!agent.live) return `• ${agent.name} — not running`
   const note = busyNote(agent.live.status)
   return `• ${agent.name} — ${statusText(agent.live)}${note ? ` (${note})` : ''}`
+}
+
+/** A worktree agent's worktree, with whether it could be deleted without losing work (`agents:worktreeChecks`). */
+export interface BatchWorktree {
+  branch: string
+  check?: Pick<WorktreeCheck, 'removable' | 'reason'>
+}
+
+/**
+ * Remove All's line for an agent (#291): what it is doing, as `batchLine`, and for a worktree agent what can happen to
+ * its worktree: deleted only if the box is ticked and it is merged and clean, else always kept (and why).
+ */
+export function removeLine(agent: BatchAgent, statusText: (live: NonNullable<BatchAgent['live']>) => string, worktree?: BatchWorktree): string {
+  const line = batchLine(agent, statusText)
+  if (!worktree) return line
+  const check = worktree.check
+  return `${line} · worktree ${worktree.branch}: ${check?.removable ? 'merged and clean' : `always kept (${check?.reason ?? "couldn't be checked"})`}`
 }
 
 export interface BatchResult {

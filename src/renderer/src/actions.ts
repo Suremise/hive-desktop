@@ -4,7 +4,7 @@ import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemov
 import { MANY_AGENTS, MAX_AGENTS, chosenLayout, moveAgentTo, sessionInAgentFolder, swapAgentsIn } from '@shared/defaults'
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { agentsToResume, resumeAll } from '@shared/resumeAll'
-import { batchLine, eachAgent, sessionsToArchive } from '@shared/startAll'
+import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult } from '@shared/startAll'
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
 import { formatTokens } from './util'
@@ -626,18 +626,26 @@ export async function deleteNote(path: string, label: string, isDir: boolean): P
  * The agent's open cards: asks whether to take them back (nobody has them; Doing ones go to Todo) or leave them
  * (they show the agent as removed, and Doing ones as stalled). Null: cancelled, keep the agent.
  */
-async function cardsOfRemovedAgent(p: ProjectInfo, agentId: string, name: string): Promise<boolean | null> {
-  const open = get().tasks.filter((c) => !c.archived && c.column !== 'done' && c.agent === agentId && c.project.toLowerCase() === p.name.toLowerCase())
+function cardsOfRemovedAgent(p: ProjectInfo, agentId: string, name: string): Promise<boolean | null> {
+  return cardsOfRemovedAgents(p, [{ id: agentId, name }])
+}
+
+/** The same, asked once for several agents' cards together (Remove All, #291). */
+async function cardsOfRemovedAgents(p: ProjectInfo, agents: readonly { id: string; name: string }[]): Promise<boolean | null> {
+  const ids = new Set(agents.map((a) => a.id))
+  const open = get().tasks.filter((c) => !c.archived && c.column !== 'done' && !!c.agent && ids.has(c.agent) && c.project.toLowerCase() === p.name.toLowerCase())
   if (!open.length) return false
   const them = open.length === 1 ? 'it' : 'them'
   const list = open.slice(0, 5).map((c) => `#${c.number} ${c.title}`).join(', ') + (open.length > 5 ? ` and ${open.length - 5} more` : '')
+  const one = agents.length === 1
+  const name = one ? agents[0].name : 'its agent'
   const choice = await choose({
-    title: `${name} has ${open.length} open card${open.length === 1 ? '' : 's'}`,
+    title: `${one ? `${name} has` : `The ${agents.length} agents have`} ${open.length} open card${open.length === 1 ? '' : 's'}`,
     message: list,
     detail:
       open.length === 1
         ? `Move it back: nobody has it, and if it is in Doing it goes to Todo, ready to start on another agent. Leave it: it keeps showing ${name} (removed), and in Doing shows as stalled.`
-        : `Move them back: nobody has them, and those in Doing go to Todo, ready to start on another agent. Leave them: they keep showing ${name} (removed), and those in Doing show as stalled.`,
+        : `Move them back: nobody has them, and those in Doing go to Todo, ready to start on another agent. Leave them: they keep showing ${one ? name : 'their agent'} (removed), and those in Doing show as stalled.`,
     choices: [
       { label: `Leave ${them}`, value: 'leave' },
       { label: `Move ${them} back`, value: 'release' }
@@ -807,6 +815,91 @@ export async function removeAgent(path: string, agentId: string): Promise<void> 
   if (!ok) return
   focusAfterRemoving(p, agentId)
   await refreshWorkspace()
+}
+
+/**
+ * Remove All (#291): every agent of the project after one question (danger style) listing them, running ones flagged
+ * and worktrees marked; running agents are stopped first. Worktrees and branches are kept, unless the box is ticked:
+ * then only those merged into the repository's main branch (the one named in the question) with no uncommitted changes
+ * are deleted, main checking again and guarding the deletion (`removeCheckedWorktree`); unmerged or changed work is
+ * never deleted. Their cards are asked about once. One agent at a time, each
+ * tab showing the spinner until it has gone; failures and kept worktrees are reported together. Sessions stay.
+ */
+export function removeAllAgents(path: string): Promise<void> {
+  return runOnce(`removeAll:${path}`, () => removeAllAgents_(path)).then(() => undefined)
+}
+
+async function removeAllAgents_(path: string): Promise<void> {
+  const p = project(path)
+  if (!p || isAssistantPath(path) || !p.agents.length) return
+  const checks = p.agents.some((a) => a.worktree) ? await attempt('Could not check the worktrees', () => call('agents:worktreeChecks', path)) : []
+  if (!checks) return
+  const checkOf = (id: string) => checks.find((c) => c.agentId === id)
+  const agents = p.agents
+  const one = agents.length === 1
+  const trees = agents.filter((a) => a.worktree)
+  const removable = trees.filter((a) => checkOf(a.id)?.removable)
+  const into = checks.find((c) => c.into)?.into
+  let deleteMerged = false
+  const ok = await confirm({
+    title: one ? `Remove ${agents[0].name}?` : `Remove all ${agents.length} agents?`,
+    message: one ? `${agents[0].name} is removed from ${p.name}:` : `Every agent of ${p.name} is removed:`,
+    detail: [
+      agents.map((a) => removeLine(a, statusText, a.worktree && { branch: a.worktree.branch, check: checkOf(a.id) })).join('\n'),
+      '',
+      [
+        agents.some((a) => a.live) ? 'Running agents are stopped first.' : '',
+        'Their sessions stay in the Sessions tab.',
+        trees.length ? (removable.length ? 'Worktrees and branches are kept unless you tick the box; unmerged or changed ones are kept either way.' : 'Their worktrees and branches are kept.') : ''
+      ]
+        .filter(Boolean)
+        .join(' ')
+    ].join('\n'),
+    check: removable.length
+      ? { label: `Also delete the worktrees and branches fully merged into ${into} with no uncommitted changes: ${removable.map((a) => a.worktree!.branch).join(', ')}`, initial: false, set: (v) => (deleteMerged = v) }
+      : undefined,
+    confirmLabel: one ? 'Remove' : `Remove ${agents.length} agents`,
+    danger: true
+  })
+  if (!ok) return
+  const releaseCards = await cardsOfRemovedAgents(p, agents)
+  if (releaseCards === null) return
+  // Every tab shows the spinner until its agent has gone; a Remove on one meanwhile is ignored.
+  const key = (id: string) => `removeAgent:${path}#${id}`
+  const done = (ids: string[]) => set((s) => ({ running: Object.fromEntries(Object.entries(s.running).filter(([k]) => !ids.some((id) => k === key(id)))) }))
+  set((s) => ({ running: { ...s.running, ...Object.fromEntries(agents.map((a) => [key(a.id), true])) } }))
+  const deleted: string[] = []
+  const kept: string[] = []
+  let result: BatchResult
+  try {
+    for (const a of agents) if (agentOf(project(path), a.id)?.live) await call('session:stop', path, a.id).catch(() => undefined)
+    await Promise.all(agents.map((a) => waitForStop(path, a.id)))
+    result = await eachAgent(agents, async (a) => {
+      try {
+        const r = await call('agents:remove', path, a.id, { deleteWorktree: deleteMerged ? 'merged-clean' : false, mergedInto: into ?? null, releaseCards })
+        const w = r.worktree
+        if (w?.deleted && w.branchKept) kept.push(`branch ${w.branch} (${w.reason}; its worktree was deleted)`)
+        else if (w?.deleted) deleted.push(w.branch)
+        else if (deleteMerged && w) kept.push(`${w.branch} (${w.reason ?? 'not checked'})`)
+      } catch (e) {
+        throw new Error(errorMessage(e), { cause: e })
+      } finally {
+        done([a.id])
+      }
+    })
+  } finally {
+    done(agents.map((a) => a.id))
+  }
+  await refreshWorkspace()
+  const trail = [deleted.length ? `Worktrees deleted: ${deleted.join(', ')}` : '', kept.length ? `Worktrees kept: ${kept.join(', ')}` : ''].filter(Boolean)
+  if (result.failed.length) {
+    const tried = result.failed.length + result.done.length
+    notify(
+      'error',
+      result.failed.length === tried ? (tried === 1 ? 'Could not remove the agent' : 'Could not remove the agents') : `${result.failed.length} of ${tried} agents could not be removed`,
+      [...result.failed.map((f) => `• ${f.name}: ${f.error}`), ...(result.done.length ? [`Removed: ${result.done.join(', ')}`] : []), ...trail].join('\n')
+    )
+  } else if (deleteMerged) notify('success', one ? `Removed ${agents[0].name}` : `Removed ${agents.length} agents`, trail.join('\n'))
 }
 
 /** Removes a worktree agent together with its worktree and branch. */

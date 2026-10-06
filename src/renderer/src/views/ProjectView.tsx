@@ -209,8 +209,8 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const panes = usePanes(project)
   const focusedAgent = useFocusedAgent(project)
   // A narrow header shows its buttons as icons: the batch actions first; tighter, Resume, Stop and Active too (and the
-  // status says less); tighter still (both panels open beside the narrowest window), the batch actions move into ⋯. The
-  // title gives way before any action does (#216).
+  // status says less), and Remove All, the rarest, moves into ⋯; tighter still (both panels open beside the narrowest
+  // window), the other batch actions follow it. The title gives way before any action does (#216, #291).
   const [headerRef, headerWidth] = useWidth<HTMLDivElement>()
   const narrow = headerWidth > 0 && headerWidth < 860
   const tight = headerWidth > 0 && headerWidth < 640
@@ -247,6 +247,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const resuming = !!runningActions[`resumeAll:${project.path}`]
   const startingAll = !!runningActions[`startNewAll:${project.path}`]
   const archivingAll = !!runningActions[`archiveAll:${project.path}`]
+  const removingAll = !!runningActions[`removeAll:${project.path}`]
   // How many agents each batch action acts on, as its confirmation lists them (#275): shown in its label, or beside its
   // icon when narrow.
   const counts = batchCounts(project.agents)
@@ -262,6 +263,15 @@ export function ProjectView({ visible }: { visible: boolean }) {
         count: many ? counts.archive : null,
         tip: many ? (counts.archive === 1 ? `Archive ${project.agents.find((a) => archiveTarget(a))?.name}'s session and start a fresh one` : `Archive the sessions of the ${counts.archive} agents that have one and start fresh ones`) : 'Archive the current session and start a fresh one',
         run: () => void actions.startNewAll(project.path, true)
+      }
+    : null
+  // Remove All (#291): every agent, after one question.
+  const removeAll = project.agents.length
+    ? {
+        label: many ? `Remove All (${project.agents.length})` : 'Remove Agent',
+        count: many ? project.agents.length : null,
+        tip: many ? `Remove the ${project.agents.length} agents (asks first; their sessions are kept)` : `Remove ${project.agents[0].name} (asks first; its sessions are kept)`,
+        run: () => void actions.removeAllAgents(project.path)
       }
     : null
   const dangerous = settings
@@ -350,18 +360,24 @@ export function ProjectView({ visible }: { visible: boolean }) {
               </button>
             </Tooltip>
           )}
+          {removeAll && !tight && (
+            <Tooltip content={removeAll.tip}>
+              <button className="btn subtle" disabled={removingAll} aria-busy={removingAll || undefined} aria-label={removeAll.label} onClick={removeAll.run}>
+                <Icon name={removingAll ? 'loading' : 'trash'} spin={removingAll} />
+                {!narrow && ` ${removeAll.label}`}
+                {narrow && removeAll.count && <span className="btn-count">{removeAll.count}</span>}
+              </button>
+            </Tooltip>
+          )}
           <IconButton
             icon="ellipsis"
             title="More actions"
             onClick={(e) =>
               menu.open(e, [
-                ...(cramped
-                  ? [
-                      ...(startNew ? [{ label: startNew.label, icon: 'add', disabled: startingAll, onClick: startNew.run }] : []),
-                      ...(archiveNew ? [{ label: archiveNew.label, icon: 'archive', disabled: archivingAll, onClick: archiveNew.run }] : []),
-                      ...(startNew ? [{ separator: true as const }] : [])
-                    ]
-                  : []),
+                ...(cramped && startNew ? [{ label: startNew.label, icon: 'add', disabled: startingAll, onClick: startNew.run }] : []),
+                ...(cramped && archiveNew ? [{ label: archiveNew.label, icon: 'archive', disabled: archivingAll, onClick: archiveNew.run }] : []),
+                ...(tight && removeAll ? [{ label: `${removeAll.label}…`, icon: 'trash', disabled: removingAll, onClick: removeAll.run }] : []),
+                ...((cramped && startNew) || (tight && removeAll) ? [{ separator: true as const }] : []),
                 { label: 'Explorer', icon: 'folder-opened', onClick: () => void call('project:openInExplorer', project.path) },
                 { label: 'Terminal', icon: 'terminal', onClick: () => void call('project:openTerminal', project.path) },
                 { separator: true },

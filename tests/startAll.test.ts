@@ -5,7 +5,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { PROJECT_MENU, PROJECT_TABS, tabCommand } from '../src/shared/projectTabs'
-import { archiveTarget, batchCounts, batchLine, busyNote, eachAgent, sessionsToArchive, type BatchAgent } from '../src/shared/startAll'
+import { archiveTarget, batchCounts, batchLine, busyNote, eachAgent, removeLine, sessionsToArchive, type BatchAgent } from '../src/shared/startAll'
 
 const src = (p: string): string => readFileSync(join(__dirname, '..', p), 'utf8')
 
@@ -70,6 +70,14 @@ describe('Start New (All) and Archive and Start New (All)', () => {
     expect(batchLine(agent('i', { live: { sessionId: 's', status: 'ready' } }), text)).toBe('• I — ready')
     expect(batchLine(agent('s'), text)).toBe('• S — not running')
     for (const s of ['ready', 'finished', 'starting', 'error'] as const) expect(busyNote(s)).toBeNull()
+  })
+
+  it("Remove All's question marks each worktree: merged and clean, or always kept and why (#291)", () => {
+    const text = (l: NonNullable<BatchAgent['live']>) => l.status
+    expect(removeLine(agent('w', { live: { sessionId: 's', status: 'working' } }), text)).toBe('• W — working (will be interrupted)')
+    expect(removeLine(agent('m'), text, { branch: 'hive/m', check: { removable: true } })).toBe('• M — not running · worktree hive/m: merged and clean')
+    expect(removeLine(agent('u'), text, { branch: 'hive/u', check: { removable: false, reason: '2 unmerged commits' } })).toBe('• U — not running · worktree hive/u: always kept (2 unmerged commits)')
+    expect(removeLine(agent('x'), text, { branch: 'hive/x' })).toBe("• X — not running · worktree hive/x: always kept (couldn't be checked)")
   })
 
   it('goes one agent at a time: a failure is reported with its reason and the rest still start', async () => {

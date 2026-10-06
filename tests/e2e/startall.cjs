@@ -79,7 +79,7 @@ const check = (name, ok, extra = '') => {
   // with a session to resume; all three have one to archive).
   const header = page.locator('.project-header .actions')
   const labels = async () => (await header.locator('button').allInnerTexts()).map((t) => t.trim()).filter(Boolean)
-  check('the header shows Resume Agent, Stop (2), Start New (3) and Archive and Start New (3), in that order', !!(await until(async () => JSON.stringify(await labels()) === JSON.stringify(['Resume Agent', 'Stop (2)', 'Start New (3)', 'Archive and Start New (3)']), 5000)), JSON.stringify(await labels()))
+  check('the header shows Resume Agent, Stop (2), Start New (3), Archive and Start New (3) and Remove All (3), in that order', !!(await until(async () => JSON.stringify(await labels()) === JSON.stringify(['Resume Agent', 'Stop (2)', 'Start New (3)', 'Archive and Start New (3)', 'Remove All (3)']), 5000)), JSON.stringify(await labels()))
   const tipOf = async (name) => {
     await header.getByRole('button', { name, exact: true }).hover()
     const tip = page.locator('.tip')
@@ -127,8 +127,9 @@ const check = (name, ok, extra = '') => {
     await lib.fitWindow(app, page, { width: 900, height: 900 })
     await lib.sleep(500)
     const at = await actionsAt()
-    check(`${theme}, 900 px: Active, Resume, Stop (2), Start New (3), Archive and Start New (3) and ⋯ are all in the header and clickable`, JSON.stringify(at.map((a) => a.name)) === JSON.stringify(['Active', 'Resume Agent', 'Stop (2)', 'Start New (3)', 'Archive and Start New (3)', 'More actions']) && allReachable(at), JSON.stringify(at))
+    check(`${theme}, 900 px: Active, Resume, Stop (2), Start New (3), Archive and Start New (3) and ⋯ are all in the header and clickable (Remove All in ⋯)`, JSON.stringify(at.map((a) => a.name)) === JSON.stringify(['Active', 'Resume Agent', 'Stop (2)', 'Start New (3)', 'Archive and Start New (3)', 'More actions']) && allReachable(at), JSON.stringify(at))
     check(`${theme}, 900 px: the icons keep their counts`, JSON.stringify(await labels()) === JSON.stringify(['2', '3', '3']), JSON.stringify(await labels()))
+    check(`${theme}, 900 px: the header keeps one row`, (await page.locator('.project-header').evaluate((el) => el.getBoundingClientRect().height)) < 60)
     await page.screenshot({ path: path.join(lib.WORK, `startall-header-900-${theme}.png`) })
   }
   await inv('settings:update', { appearance: { theme: 'dark' } })
@@ -140,7 +141,7 @@ const check = (name, ok, extra = '') => {
   await asked.getByRole('button', { name: 'Cancel' }).click()
   await page.locator('.project-header').getByRole('button', { name: 'More actions' }).click()
   const narrowItems = (await page.locator('.menu .menu-item').allInnerTexts()).map((t) => t.trim())
-  check('900 px: ⋯ opens, with Explorer and Terminal', narrowItems.includes('Explorer') && narrowItems.includes('Terminal'), JSON.stringify(narrowItems))
+  check('900 px: ⋯ opens, with Remove All (3)… first, then Explorer and Terminal', JSON.stringify(narrowItems.slice(0, 3)) === JSON.stringify(['Remove All (3)…', 'Explorer', 'Terminal']), JSON.stringify(narrowItems))
   await page.keyboard.press('Escape')
   // The Assistant's panel open too: the batch actions are in ⋯, and what stays in the header is all reachable.
   await page.evaluate(() => document.activeElement?.blur())
@@ -150,7 +151,7 @@ const check = (name, ok, extra = '') => {
   check('900 px with the Assistant open (a squeezed main area): the batch actions leave the header, the rest stays reachable (wrapping if it must)', !cramped.some((a) => /Start New/.test(a.name)) && allReachable(cramped), JSON.stringify(cramped))
   await page.locator('.project-header').getByRole('button', { name: 'More actions' }).click()
   const crampedItems = (await page.locator('.menu .menu-item').allInnerTexts()).map((t) => t.trim())
-  check('…and are at the top of ⋯', JSON.stringify(crampedItems.slice(0, 4)) === JSON.stringify(['Start New (3)', 'Archive and Start New (3)', 'Explorer', 'Terminal']), JSON.stringify(crampedItems))
+  check('…and are at the top of ⋯', JSON.stringify(crampedItems.slice(0, 5)) === JSON.stringify(['Start New (3)', 'Archive and Start New (3)', 'Remove All (3)…', 'Explorer', 'Terminal']), JSON.stringify(crampedItems))
   await page.screenshot({ path: path.join(lib.WORK, 'startall-header-cramped.png') })
   await page.keyboard.press('Escape')
   await page.evaluate(() => document.activeElement?.blur())
@@ -270,7 +271,7 @@ const check = (name, ok, extra = '') => {
     await until(async () => !(await live(a.id)))
   }
   await inv('workspace:refresh')
-  check('one running, two to resume: Resume All Agents (2), Stop Agent, Start New (3), Archive and Start New (3)', !!(await until(async () => JSON.stringify(await labels()) === JSON.stringify(['Resume All Agents (2)', 'Stop Agent', 'Start New (3)', 'Archive and Start New (3)']), 10000)), JSON.stringify(await labels()))
+  check('one running, two to resume: Resume All Agents (2), Stop Agent, Start New (3), Archive and Start New (3)', !!(await until(async () => JSON.stringify(await labels()) === JSON.stringify(['Resume All Agents (2)', 'Stop Agent', 'Start New (3)', 'Archive and Start New (3)', 'Remove All (3)']), 10000)), JSON.stringify(await labels()))
   check('…and Resume says which in its tooltip', (await tipOf('Resume All Agents (2)')) === 'Resume the 2 stopped agents (running ones are left alone)')
   // The count is what the question lists.
   await header.getByRole('button', { name: 'Archive and Start New (3)' }).click()
