@@ -14,11 +14,11 @@ import { AREAS, EVERYTHING, REAL_TIER, affectedSuites, under } from './e2e/affec
 // @ts-expect-error: plain .mjs modules without types
 import { fingerprint } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { isRealCli, parentSuite, parseArgs, portBase, realNotRun, recordStatus, repeatStatus, selectSuites, suiteOutcome } from './e2e/runner.mjs'
+import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, recordStatus, repeatStatus, selectSuites, suiteOutcome } from './e2e/runner.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { recordMarkdown } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { buildLock, buildStamp, devBuild, ensureBuild } from './e2e/build.mjs'
+import { buildLock, buildStamp, buildStamped, devBuild, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -26,7 +26,7 @@ import { describeClaim, heavySlots, isHeavy, needsSlot, trySlot, waitForSlot } f
 // @ts-expect-error: plain .mjs modules without types
 import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale, removeWorktree } from './e2e/tempWorktrees.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { KEEP_RUNS, finishRunDirs, logsRootFor, newRunDir, pruneRunDirs, runDirActive, runDirsInOrder } from './e2e/logs.mjs'
+import { FAILED_KEEP_MS, FAILED_MAX, KEEP_RUNS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, pruneRunDirs, runDirActive, runDirsInOrder, runFailedAt } from './e2e/logs.mjs'
 import { createRequire } from 'module'
 import { ProgressStore } from '../src/main/progress'
 
@@ -47,7 +47,7 @@ describe('the e2e suite list', () => {
 
   it('names suites that exist, and every suite file is listed', () => {
     for (const n of names) expect(existsSync(join(dir, `${n}.cjs`)), n).toBe(true)
-    const helpers = ['lib', 'fake-bridge', 'runContext']
+    const helpers = ['lib', 'fake-bridge', 'runContext', 'evidence']
     const files = execFileSync('git', ['ls-files', 'tests/e2e/*.cjs'], { cwd: root, encoding: 'utf8' })
       .split(/\r?\n/)
       .filter(Boolean)
@@ -431,6 +431,72 @@ describe('whether the dev build is from this source (build.mjs)', () => {
     expect(buildStamp(buildDir)).toBeNull()
     expect(check(false).stale).toBe(true)
   })
+
+  it("npm run dist's build (buildStamped) stamps out/ as --build does, under the build lock, and builds even when fresh (#274)", () => {
+    writeFileSync(join(buildDir, 'src', 'a.ts'), 'D\n')
+    const n = builds
+    let lockedMeanwhile = false
+    const stampedBuild = (during?: () => void) =>
+      buildStamped({ root: buildDir, lock: { dir: lockDir }, runBuild: () => { lockedMeanwhile = buildLock(buildDir, { dir: lockDir, owner: -1, alive: () => true }).heldByOther(); runBuild(); during?.() } })
+    expect(stampedBuild()).toEqual({ stamped: true, waited: false })
+    expect(lockedMeanwhile).toBe(true)
+    expect(buildLock(buildDir, { dir: lockDir }).heldByOther()).toBe(false)
+    // A runner right after it finds out/ from this source, without --build.
+    expect(check(false)).toEqual({ stale: false, built: false, waited: false, why: null })
+    // It builds whatever the stamp says (dist packages what it just built), and a change mid-build leaves no stamp.
+    expect(stampedBuild(() => writeFileSync(join(buildDir, 'src', 'a.ts'), 'edited during dist\n'))).toEqual({ stamped: false, waited: false })
+    expect(builds).toBe(n + 2)
+    expect(buildStamp(buildDir)).toBeNull()
+    expect(check(false).stale).toBe(true)
+  })
+
+  it('npm run dist uses it, and drops an older build-info.json before building', () => {
+    const dist = readFileSync(join(root, 'scripts', 'dist.mjs'), 'utf8')
+    expect(dist).toContain("buildStamped({ root, runBuild: () => run('npm run build') })")
+    expect(dist.indexOf("rmSync(join(root, 'dist', 'build-info.json')")).toBeLessThan(dist.indexOf('buildStamped({'))
+  })
+})
+
+describe("the installer's suites check the packaged build they test (#274)", () => {
+  const info = { version: '0.3.1', code: 'abc123+def', head: 'abc123', branch: 'hive/claudio' }
+
+  it('dist/win-unpacked from this code is fine; from other code, or with no record of its own, is said', () => {
+    expect(packagedStatus(info, 'abc123+def')).toBeNull()
+    expect(packagedStatus(info, 'abc123')).toMatch(/is from other code \(abc123\+def, hive\/claudio; this is abc123\)/)
+    expect(packagedStatus(null, 'abc123')).toMatch(/has no record of what it was built from/)
+  })
+
+  it('…and makes a record not valid', () => {
+    const r = recordStatus({ before: 'abc', after: 'abc', buildStale: false, packagedStale: packagedStatus(info, 'abc') })
+    expect(r.valid).toBe(false)
+    expect(r.problems[0]).toMatch(/other code.*run npm run dist/)
+    expect(repeatStatus({ repeat: 1, runs: [{ ok: true }], before: 'abc', after: 'abc', buildStale: false, packagedStale: 'x' }).valid).toBe(false)
+  })
+
+  it("a run of only the installer's suites doesn't need the dev build in out/, unless packaged-progress checks it", () => {
+    const pk = suites.filter((s) => (s.needs ?? []).includes('packaged'))
+    expect(pk.map((s) => s.name)).toEqual(['packaged', 'packaged-mcp', 'packaged-progress', 'packaged-transcript'])
+    expect(needsDevBuild(pk, {})).toBe(false)
+    expect(needsDevBuild(pk, { HIVE_PROGRESS_CHECK_DEV: '1' })).toBe(true)
+    expect(needsDevBuild([...pk, suites.find((s) => s.name === 'board')!], {})).toBe(true)
+    expect(needsDevBuild([], {})).toBe(true)
+  })
+})
+
+describe("Claude Code's trust question (lib.acceptClaudeTrust, #218)", () => {
+  const { trustChoice } = createRequire(import.meta.url)('./e2e/lib.cjs') as { trustChoice: (text: string) => string | null }
+  // As Claude Code 2.1.291 draws it (terminal text, control sequences and all): the menu starts on "No, exit".
+  const drawn = (on: 'No' | 'Yes') =>
+    `\x1b[2K Quick safety check: Is this a project you created or one you trust?\r\n \x1b[36m${on === 'No' ? '>' : ' '}\x1b[39m No, exit\r\n ${on === 'Yes' ? '❯' : ' '} Yes, I trust this folder\r\n Enter to confirm · Esc to cancel\x1b[>0q`
+
+  it('reads the selected choice from the latest drawing of the menu, never an earlier one', () => {
+    expect(trustChoice(drawn('No'))).toBe('No, exit')
+    expect(trustChoice(drawn('Yes'))).toBe('Yes, I trust this folder')
+    // Moved to Yes, then back to No (a Down arriving late): the last drawing counts.
+    expect(trustChoice(drawn('No') + drawn('Yes') + drawn('No'))).toBe('No, exit')
+    expect(trustChoice(drawn('No') + drawn('Yes'))).toBe('Yes, I trust this folder')
+    expect(trustChoice('Welcome to Claude Code')).toBeNull()
+  })
 })
 
 describe("progressreport's estimate check (lib.hadEstimate)", () => {
@@ -564,6 +630,52 @@ describe("each run's own log folder (logs.mjs)", () => {
       expect(runDirsInOrder(readdirSync(shared))).toHaveLength(KEEP_RUNS)
     } finally {
       rmSync(shared, { recursive: true, force: true })
+    }
+  })
+
+  it('a failed run survives ten newer passing runs for a day, with its failed suites’ screenshots, then goes (#223)', () => {
+    const runsDir = mkdtempSync(join(tmpdir(), 'hive-failed-'))
+    try {
+      // A failed suite's folder in its lane: screenshots and a report at the top, a profile below.
+      const suite = join(runsDir, 'lane', 'board')
+      mkdirSync(join(suite, 'board-profile', 'Cache'), { recursive: true })
+      writeFileSync(join(suite, 'board-profile', 'Cache', 'data'), 'x')
+      writeFileSync(join(suite, 'board-stalled.png'), 'png')
+      writeFileSync(join(suite, 'board-notify.log'), 'log')
+      writeFileSync(join(suite, 'huge.png'), 'x'.repeat(2000))
+      const logs = join(runsDir, 'logs')
+      const failed = newRunDir(logs, new Date(2026, 9, 4, 15, 0, 0))
+      markRunFailed(failed, 'board')
+      expect(keepSuiteFiles(suite, failed, 'board', { maxBytes: 1000 })).toBe(2)
+      expect(readdirSync(join(failed, 'board')).sort()).toEqual(['board-notify.log', 'board-stalled.png'])
+      // Ten passing runs after it, from other agents.
+      for (let i = 1; i <= KEEP_RUNS; i++) newRunDir(logs, new Date(2026, 9, 4, 15, 0, i))
+      finishRunDirs(runDirsInOrder(readdirSync(logs)).map((n: string) => join(logs, n)))
+      expect(runFailedAt(failed)).not.toBeNull()
+      expect(pruneRunDirs(logs, KEEP_RUNS, [], () => false)).toEqual([])
+      // An eleventh passing run: the oldest passing one goes, the failed one stays.
+      newRunDir(logs, new Date(2026, 9, 4, 15, 0, 11))
+      finishRunDirs(runDirsInOrder(readdirSync(logs)).map((n: string) => join(logs, n)))
+      expect(pruneRunDirs(logs, KEEP_RUNS, [], () => false)).toEqual(['run-20261004-150001'])
+      expect(readFileSync(join(failed, 'board', 'board-stalled.png'), 'utf8')).toBe('png')
+      // A day later it goes like any other.
+      expect(pruneRunDirs(logs, KEEP_RUNS, [], () => false, () => null, { now: Date.now() + FAILED_KEEP_MS + 60_000 })).toEqual(['run-20261004-150000'])
+      expect(existsSync(failed)).toBe(false)
+    } finally {
+      rmSync(runsDir, { recursive: true, force: true })
+    }
+  })
+
+  it('…at most the newest FAILED_MAX failed runs are kept beyond KEEP_RUNS', () => {
+    const runsDir = mkdtempSync(join(tmpdir(), 'hive-failed-'))
+    try {
+      const dirs = Array.from({ length: FAILED_MAX + 2 }, (_, i) => newRunDir(runsDir, new Date(2026, 9, 4, 15, 1, i)))
+      for (const d of dirs) markRunFailed(d, 'x')
+      finishRunDirs(dirs)
+      expect(pruneRunDirs(runsDir, 0, [], () => false)).toEqual(['run-20261004-150100', 'run-20261004-150101'])
+      expect(readdirSync(runsDir)).toHaveLength(FAILED_MAX)
+    } finally {
+      rmSync(runsDir, { recursive: true, force: true })
     }
   })
 
@@ -782,22 +894,46 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
 describe("answering Claude Code's trust question (lib.acceptClaudeTrust, #188)", () => {
   type Accept = (inv: (ch: string, ...a: unknown[]) => Promise<unknown>, proj: string, agentId: string, ms?: number) => Promise<boolean>
   const { acceptClaudeTrust } = createRequire(import.meta.url)('./e2e/lib.cjs') as { acceptClaudeTrust: Accept }
-  /** A session whose terminal shows `screen` and whose Hive status is `status`. */
-  const session = (screen: string, status = 'starting') => {
+  /**
+   * A session whose terminal shows `screen` (or what screen(writes so far) gives: a menu that redraws as keys arrive)
+   * and whose Hive status is `status`.
+   */
+  const session = (screen: string | ((writes: string[]) => string), status = 'starting') => {
     const writes: string[] = []
     const inv = async (ch: string, ...a: unknown[]) => {
-      if (ch === 'pty:buffer') return screen
+      if (ch === 'pty:buffer') return typeof screen === 'function' ? screen(writes) : screen
       if (ch === 'session:live') return [{ projectPath: 'C:\\P', agentId: 'a1', status }]
       writes.push(String(a[1]))
       return undefined
     }
     return { writes, run: async () => { const t = Date.now(); const r = await acceptClaudeTrust(inv, 'c:\\p', 'a1', 4000); return { r, ms: Date.now() - t } } }
   }
+  /** Claude Code 2.1.291's trust menu: it starts on "No, exit", and each Down it takes moves the choice (two choices). */
+  const trustMenu = (taken: (downs: number) => number) => (writes: string[]) => {
+    const on = taken(writes.filter((w) => w === '\x1b[B').length) % 2 ? 'Yes' : 'No'
+    return `Quick safety check: Is this a project you created or one you trust? ${on === 'No' ? '>' : ' '} No, exit ${on === 'Yes' ? '>' : ' '} Yes, I trust this folder Enter to confirm`
+  }
 
-  it('answers the trust question: Down, then Enter', async () => {
-    const s = session('Quick safety check: Is this a project you created or one you trust? \x1b[1m❯\x1b[0m 1. Yes, I trust this folder  2. No, exit')
+  it('answers the trust question: Down to "Yes", and Enter once the terminal shows it chosen', async () => {
+    const s = session(trustMenu((downs) => downs))
     expect((await s.run()).r).toBe(true)
     expect(s.writes).toEqual(['\x1b[B', '\r'])
+  })
+
+  it('a Down dropped while the menu is still drawing (#218) is sent again; Enter never goes on "No, exit"', async () => {
+    // The first Down is lost: the menu stays on No until the second.
+    const s = session(trustMenu((downs) => Math.max(0, downs - 1)))
+    expect((await s.run()).r).toBe(true)
+    expect(s.writes).toEqual(['\x1b[B', '\x1b[B', '\r'])
+    // Already on Yes (an older Claude Code's menu): Enter at once.
+    const yes = session('Quick safety check: Is this a project you created or one you trust? \x1b[1m❯\x1b[0m 1. Yes, I trust this folder  2. No, exit')
+    expect((await yes.run()).r).toBe(true)
+    expect(yes.writes).toEqual(['\r'])
+    // A menu that never moves: no Enter at all (Claude Code is left asking, not quit).
+    const stuck = session(trustMenu(() => 0))
+    expect((await stuck.run()).r).toBe(false)
+    expect(stuck.writes.length).toBeGreaterThan(0)
+    expect(stuck.writes.includes('\r')).toBe(false)
   })
 
   it("in a trusted folder it returns at once: Claude Code 2.1.289's mode footer, the old one, or Hive's ready status", async () => {
@@ -1279,6 +1415,33 @@ describe("the concurrency checker's temporary worktrees: each invocation's own (
     expect(existsSync(join(repo, 'node_modules', 'electron'))).toBe(true)
     // Its registration is pruned in this checkout; the other two stay.
     expect(registered(repo)).toBe(2)
+  })
+
+  it('two checkers sweeping at once: a folder the other removes part way is passed over, never an error (#221)', () => {
+    const repo = checkout('stale-race')
+    const base = join(tmp, 'concurrency4')
+    const first = invocationDir({ base, owner: 301 })
+    const takenFromList = invocationDir({ base, owner: 302 })
+    const takenAfterOwner = invocationDir({ base, owner: 303 })
+    const live = invocationDir({ base, owner: 304 })
+    const kept = invocationDir({ base, owner: 305 })
+    for (const d of [first, takenFromList, takenAfterOwner, live, kept]) addWorktree(repo, d, 'worktree')
+    keepDir(kept)
+    // The other checker, as this one looks: it removes 302's folder (still in this sweep's list, so its owner can't be
+    // read and the folder can't be dated), and 303's just after this sweep read its owner.
+    const alive = (pid: number) => {
+      if (pid === 301) removeInvocation(repo, takenFromList)
+      if (pid === 303) removeInvocation(repo, takenAfterOwner)
+      return pid === 304
+    }
+    expect(removeStale(repo, { base, alive })).toEqual([first])
+    for (const d of [first, takenFromList, takenAfterOwner]) expect(existsSync(d), d).toBe(false)
+    // The live and the kept one are untouched, and no junction was followed.
+    expect(existsSync(join(live, 'worktree', 'node_modules', 'electron')) && existsSync(join(kept, 'worktree', 'a.txt'))).toBe(true)
+    expect(existsSync(join(repo, 'node_modules', 'electron'))).toBe(true)
+    expect(registered(repo)).toBe(2)
+    // The other checker removed the whole base meanwhile: still nothing to stop for.
+    expect(removeStale(repo, { base: join(tmp, 'concurrency-gone'), alive })).toEqual([])
   })
 })
 

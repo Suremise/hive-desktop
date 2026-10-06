@@ -172,20 +172,48 @@ export function copyToMain({ root, version, info, here = false, replace = false 
 }
 
 /**
- * After the build: writes dist/build-info.json and copies to the main checkout (copyToMain) only if what the build is
- * made from didn't change while it ran (before and after: buildIdentity). Otherwise no build-info.json at all (an old
- * one is removed: it would describe other code) and nothing is copied: the installer's code can't be told, so it must
- * be built again on code that stays put. Returns the lines to print.
+ * The packaged app's own record of what it was built from (#274), inside dist/win-unpacked, which the installer's e2e
+ * suites test. Not build-info.json: that describes the installer set beside it, which goes to the main checkout's dist
+ * (copyToMain) without win-unpacked, so there it can describe another build than the win-unpacked it sits next to. This
+ * one never moves: removed before packaging (dist.mjs), written by finishDist once the build's code is certain.
+ */
+export const UNPACKED_INFO = join('win-unpacked', '.hive-build-info.json')
+
+/** What dist/win-unpacked was built from (UNPACKED_INFO), or null: none (an older build, or one whose code changed). */
+export function readUnpackedInfo(dist) {
+  try {
+    return JSON.parse(readFileSync(join(dist, UNPACKED_INFO), 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Before packaging (dist.mjs): neither the installer set's build-info.json nor win-unpacked's record may outlive the
+ * build they describe, should this one fail part way.
+ */
+export function clearDistInfo(dist) {
+  rmSync(join(dist, 'build-info.json'), { force: true })
+  rmSync(join(dist, UNPACKED_INFO), { force: true })
+}
+
+/**
+ * After the build: writes dist/build-info.json and win-unpacked's record (UNPACKED_INFO), and copies to the main
+ * checkout (copyToMain), only if what the build is made from didn't change while it ran (before and after:
+ * buildIdentity). Otherwise neither record (old ones are removed: they would describe other code) and nothing is
+ * copied: the installer's code can't be told, so it must be built again on code that stays put. Returns the lines to
+ * print.
  */
 export function finishDist({ root, before, after, builtAt = new Date().toISOString(), here = false, replace = false }) {
   const dist = join(root, 'dist')
   const exe = join(dist, `Hive-Setup-${after.version}.exe`)
   const problem = provenanceProblem(before, after)
   if (problem) {
-    rmSync(join(dist, 'build-info.json'), { force: true })
+    clearDistInfo(dist)
     return [`The build's code can't be told: ${problem}. No build-info.json was written and nothing was copied to the main checkout: build again once the code stays put.`, `Installer: ${exe} (this worktree, unlabelled)`]
   }
   const info = { ...before, builtAt, builtIn: root }
+  if (existsSync(join(dist, 'win-unpacked'))) writeFileSync(join(dist, UNPACKED_INFO), JSON.stringify(info, null, 2))
   writeFileSync(join(dist, 'build-info.json'), JSON.stringify(info, null, 2))
   const lines = copyToMain({ root, version: before.version, info, here, replace })
   return lines.length ? lines : [`Installer: ${exe}`]

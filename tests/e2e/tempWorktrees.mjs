@@ -103,27 +103,49 @@ export function removeInvocation(root, dir) {
  * Removes the folders in base of checkers that are gone (not kept): their junctions first; a folder whose junction
  * won't go is left. A worktree they registered in another checkout stays listed there until it prunes (git worktree
  * prune, or its next checker); in root it is pruned now. Returns the folders removed.
+ *
+ * Two checkers starting at once sweep the same folders (#221): a folder in this sweep's list may be removed by the
+ * other at any step. That is what this sweep wanted anyway, so a folder that has gone (or goes part way through) is
+ * passed over, never an error that stops the checker starting. Only gone counts: a live owner, a kept folder or one
+ * just made (its owner not written yet) is still left alone, and a junction that won't go still keeps its folder.
  */
 export function removeStale(root, { base = CONCURRENCY_DIR, alive = processAlive } = {}) {
   if (!existsSync(base)) return []
   const removed = []
-  for (const name of readdirSync(base).filter((n) => n.startsWith('run-'))) {
+  let names
+  try {
+    names = readdirSync(base).filter((n) => n.startsWith('run-'))
+  } catch (e) {
+    if (e.code === 'ENOENT') return []
+    throw e
+  }
+  for (const name of names) {
     const dir = join(base, name)
     let o
     try {
       o = JSON.parse(readFileSync(join(dir, OWNER), 'utf8'))
     } catch {
-      // Just made, its owner not written yet; or left so by a crash, once it is a minute old.
-      o = Date.now() - statSync(dir).mtimeMs > 60_000 ? { pid: null } : null
+      // Just made, its owner not written yet; or left so by a crash, once it is a minute old. Gone: another checker
+      // removed it.
+      let age
+      try {
+        age = Date.now() - statSync(dir).mtimeMs
+      } catch (e) {
+        if (e.code === 'ENOENT') continue
+        throw e
+      }
+      o = age > 60_000 ? { pid: null } : null
     }
     if (!o || o.kept || (o.pid && alive(o.pid))) continue
     try {
       for (const e of readdirSync(dir, { withFileTypes: true })) if (e.isDirectory()) unlinkJunction(join(dir, e.name, 'node_modules'))
     } catch {
+      // A junction that won't go: the folder stays (removing it recursively could follow the link). Or the folder
+      // went meanwhile: nothing to do.
       continue
     }
-    rmSync(dir, { recursive: true, force: true })
-    removed.push(dir)
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+    if (!existsSync(dir)) removed.push(dir)
   }
   if (removed.length) spawnSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore', env: runContext.baseEnv() })
   return removed

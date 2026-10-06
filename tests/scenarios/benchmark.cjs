@@ -178,11 +178,11 @@ function benchmarkOf(meta, results, appVersion) {
 }
 
 /** Keeps the newest `keep` run folders in `dir` (named by time), removing older ones. */
-function pruneResults(dir, keep = LIMITS.resultsKept) {
+function pruneResults(dir, keep = LIMITS.resultsKept, spare = () => null) {
   if (!fs.existsSync(dir)) return
   const runs = fs
     .readdirSync(dir, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && /^\d{4}-\d\d-\d\dT/.test(d.name))
+    .filter((d) => d.isDirectory() && /^\d{4}-\d\d-\d\dT/.test(d.name) && !spare(path.join(dir, d.name)))
     .map((d) => d.name)
     .sort()
   for (const old of runs.slice(0, Math.max(0, runs.length - keep))) fs.rmSync(path.join(dir, old), { recursive: true, force: true })
@@ -194,7 +194,7 @@ function pruneResults(dir, keep = LIMITS.resultsKept) {
  * never overwritten, also when saved twice in a second) before the new one replaces it atomically. At most
  * LIMITS.baselinesKept older copies of a name are kept, the oldest going first. Returns the baseline's path.
  */
-function saveBaseline(dir, name, file) {
+function saveBaseline(dir, name, file, spare = () => null) {
   if (!/^[\w-]{1,40}$/.test(name)) throw new Error(`A baseline name is letters, digits, "-" and "_" (at most 40): "${name}"`)
   const data = fs.readFileSync(file)
   fs.mkdirSync(dir, { recursive: true })
@@ -223,7 +223,7 @@ function saveBaseline(dir, name, file) {
   fs.renameSync(tmp, dest)
   const older = fs
     .readdirSync(dir)
-    .filter((f) => f.startsWith(`${name}.`) && f !== `${name}.json` && /^\d{4}-/.test(f.slice(name.length + 1)))
+    .filter((f) => f.startsWith(`${name}.`) && f !== `${name}.json` && /^\d{4}-/.test(f.slice(name.length + 1)) && !spare(path.join(dir, f)))
     .map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs }))
     .sort((a, b) => a.t - b.t || a.f.localeCompare(b.f))
   for (const { f } of older.slice(0, Math.max(0, older.length - LIMITS.baselinesKept))) fs.rmSync(path.join(dir, f), { force: true })

@@ -4,7 +4,9 @@
 //
 // What it does, like Claude Code:
 // - `--version` and `auth status --json` answer as a signed-in CLI.
-// - In a folder it hasn't been told to trust, it first asks "Do you trust this folder?" (Enter trusts it).
+// - In a folder it hasn't been told to trust, it first asks "Do you trust this folder?" with Claude Code's menu, but
+//   starting on "Yes, I trust this folder" (Claude Code's starts on "No, exit"), so Enter trusts it; Down/Up move the
+//   choice, and Enter on "No, exit" quits (exit 1).
 // - It sends SessionStart, then takes prompts: the last command-line argument, or a line typed and sent with
 //   Enter (Ctrl+U clears the line), shown on its input line as it is typed. Each prompt sends UserPromptSubmit, is written to the transcript, "works"
 //   (1 s, or N seconds for "work N"), and ends with a reply and Stop. "edit <file>" first sends PreToolUse for
@@ -376,10 +378,21 @@ async function quit() {
 // What arrives from the terminal: a line, Enter, Ctrl+U, Ctrl+C.
 let line = ''
 let onEnter = null
+/** The trust question while it is asked: { on: 'No' | 'Yes' }, the choice its menu shows. */
+let trustMenu = null
+function drawTrust() {
+  out(`\r\nQuick safety check: Do you trust the files in ${cwd}?\r\n ${trustMenu.on === 'No' ? '>' : ' '} No, exit\r\n ${trustMenu.on === 'Yes' ? '>' : ' '} Yes, I trust this folder\r\n Enter to confirm · Esc to cancel\r\n`)
+}
 let ctrlC = 0
 if (process.stdin.isTTY) process.stdin.setRawMode(true)
 process.stdin.setEncoding('utf8')
 process.stdin.on('data', (data) => {
+  // Down or Up in the trust menu moves its choice (two choices).
+  if (trustMenu)
+    for (const _ of data.matchAll(/\x1b\[[AB]/g)) {
+      trustMenu.on = trustMenu.on === 'No' ? 'Yes' : 'No'
+      drawTrust()
+    }
   for (const ch of data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')) {
     if (ch === '\x03') {
       if (++ctrlC >= 2) void quit()
@@ -421,8 +434,13 @@ async function main() {
   const trustFile = path.join(home, 'fake-trusted.json')
   const trusted = fs.existsSync(trustFile) ? JSON.parse(fs.readFileSync(trustFile, 'utf8')) : []
   if (!trusted.includes(cwd.toLowerCase())) {
-    out(`\r\nDo you trust the files in ${cwd}?\r\n  1. Yes, I trust this folder\r\n  2. No, exit\r\n`)
-    await new Promise((r) => (onEnter = r))
+    // Claude Code's menu, but starting on "Yes" (Claude Code's starts on "No, exit"), so the suites' bare Enter trusts:
+    // Down and Up move it, and Enter on "No, exit" quits (exit 1).
+    trustMenu = { on: 'Yes' }
+    drawTrust()
+    const yes = await new Promise((r) => (onEnter = () => r(trustMenu.on === 'Yes')))
+    trustMenu = null
+    if (!yes) process.exit(1)
     fs.writeFileSync(trustFile, JSON.stringify([...trusted, cwd.toLowerCase()]))
   }
   // --name: Claude Code keeps it as the session's name (a custom title, as /rename does).

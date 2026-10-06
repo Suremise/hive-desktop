@@ -175,16 +175,38 @@ async function acceptClaudeTrust(inv, proj, agentId, timeoutMs = 15000) {
   while (Date.now() - t < timeoutMs) {
     // Terminal UIs draw spaces as cursor moves: control sequences become spaces before matching.
     const text = plainText(await inv('pty:buffer', key).catch(() => ''))
-    if (/trust this folder/i.test(text)) {
-      await inv('pty:write', key, '\x1b[B')
-      await sleep(300)
-      await inv('pty:write', key, '\r')
-      return true
-    }
+    if (/trust this folder/i.test(text)) return chooseTrust(inv, key, Math.max(3000, timeoutMs - (Date.now() - t)))
     if (CLAUDE_AT_PROMPT.test(text)) return false
     const live = (await inv('session:live').catch(() => [])).find((s) => s.projectPath.toLowerCase() === proj.toLowerCase() && s.agentId === agentId)
     if (live?.status === 'ready') return false
     await sleep(500)
+  }
+  return false
+}
+
+/** The trust question's choice the terminal shows selected last ('No, exit' or 'Yes, …'), or null. */
+function trustChoice(text) {
+  const marks = [...plainText(text).matchAll(/[>❯›]\s*(?:\d\.\s*)?(No, exit|Yes, I trust this folder)/g)]
+  return marks.length ? marks.at(-1)[1] : null
+}
+
+/**
+ * Says yes to Claude Code's trust question. Its menu starts on "No, exit", and Enter on that quits Claude Code (exit 1).
+ * A key sent while it is still drawing the menu is dropped on a busy machine (#218: Down lost, Enter chose No), so
+ * Enter is pressed only once the terminal shows "Yes" selected, Down sent again until it does; never on "No". true when
+ * it answered yes.
+ */
+async function chooseTrust(inv, key, timeoutMs = 20000) {
+  const t = Date.now()
+  const choice = async () => trustChoice(await inv('pty:buffer', key).catch(() => ''))
+  while (Date.now() - t < timeoutMs) {
+    // Still "Yes" a moment later: a Down still on its way would have moved it back by then.
+    if ((await choice()) === 'Yes, I trust this folder' && (await sleep(400), (await choice()) === 'Yes, I trust this folder')) {
+      await inv('pty:write', key, '\r')
+      return true
+    }
+    await inv('pty:write', key, '\x1b[B')
+    await until(async () => (await choice()) === 'Yes, I trust this folder', 2000, 150)
   }
   return false
 }
@@ -557,4 +579,4 @@ async function haikuAutoCaveat(page, autoOffered) {
   return [ok, JSON.stringify(caveat)]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, git, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, git, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

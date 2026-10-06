@@ -20,11 +20,11 @@ Unit tests don't show what the user sees. This is how to see it without touching
 - Pick the suites for the feature you changed (`board`, `review`, `cardchip` for the task board; `assistant*` for the Assistant; `skills` for skills). Not every suite for a CSS change.
 - Prefer the fake Claude Code and fake Codex (no sign-in, no tokens). Real-CLI suites (the real tier) cost tokens; Codex ones need the test home, which the user signs in to once. The full set (`--all`) is the fake tier; run the real tier (`--real`, `--only-real`) when `--affected` selects a real suite, before a release and after a Claude Code or Codex update. A real suite skipped for the environment (usage limit, sign-in, network) is no result for the code: say so in the record. Warn the user before anything that may open a browser sign-in, and never press keys on a CLI's login screen.
 - Suites that share a test home or the real CLI run one after another: the runner does that. Runners in different worktrees can run at once: each claims a lane (its own ports and suite folders; `tests/e2e/lanes.mjs`).
-- Each suite works in `%LOCALAPPDATA%\hive-test\e2e` (`HIVE_E2E_DIR`; from the runner, its lane's `lanes\<k>` in it), with its own `HIVE_USER_DATA` profile and workspace. Never point a test at the user's profile, clipboard, `~/.claude` or `~/.codex`.
+- Each suite works in `%LOCALAPPDATA%\hive-test\e2e` (`HIVE_E2E_DIR`; from the runner, its own `lanes\<k>\<suite>` in it, whose profiles and workspaces go when it passes and stay when it fails), with its own `HIVE_USER_DATA` profile and workspace. Never point a test at the user's profile, clipboard, `~/.claude` or `~/.codex`.
 
 ## A one-off check
 
-Start from an existing suite and its `lib.cjs` helpers (`launch`, `fitWindow`, `addAgent`, `gitProject`). In the page, `window.hive.invoke(channel, …)` calls any IPC channel. Then:
+Start from an existing suite and its `lib.cjs` helpers (`launch`, `fitWindow`, `addAgent`, `gitProject`). In the page, `window.hive.invoke(channel, …)` calls any IPC channel. Keep the probe (script, profile, workspace, screenshots) in your own scratchpad (Claude Code's session scratchpad, or `%TEMP%`), not in `hive-test`: one that must be there goes in `hive-test\scratch\<agent>-<date>`, which `npm run test:clean` prunes. Evidence a card needs is cited by its full path, and is kept until the card is Done. Then:
 
 - **Click what the user clicks.** Use Playwright's own clicks, which check hit-testing: an element covered by an overlay, a dialog or a tip fails the click, as it would for the user. `elementFromPoint` at the target's centre tells you what's on top.
 - **Look at screenshots** (`page.screenshot`), and read them; don't only save them. Check light and dark themes, a narrow window and zoom when layout changed, and nested overlays (a dialog over a panel over a pane).
@@ -32,7 +32,7 @@ Start from an existing suite and its `lib.cjs` helpers (`launch`, `fitWindow`, `
 
 ## Cleaning up
 
-Stop only what you started: test Electron processes are found by their test profile in the command line (`hive-test\e2e\lanes\<k>\<suite>-profile`, or `hive-test\e2e\<suite>-profile` for a suite run on its own) or Playwright's `--remote-debugging-port=0`. Never kill `Hive.exe` or `electron.exe` by name: the installed Hive hosting this session is one of them.
+Stop only what you started: test Electron processes are found by their test profile in the command line (`hive-test\e2e\lanes\<k>\<suite>\<suite>-profile`, or `hive-test\e2e\<suite>-profile` for a suite run on its own) or Playwright's `--remote-debugging-port=0`. Never kill `Hive.exe` or `electron.exe` by name: the installed Hive hosting this session is one of them.
 
 ## Report
 

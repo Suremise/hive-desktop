@@ -52,6 +52,18 @@ of `src`, `resources`, `docs`, the root files the app bundles and the build conf
 or deleted file is noticed whatever its modification time. A build made another way (`npx electron-vite build`) has no
 stamp: the runner warns that it may hold other code, and a run record made with it is marked not valid. So use
 `--build` with `--record`. Runners in the same worktree build it once between them (Run context, below).
+`npm run dist` builds `out/` the same way (under the worktree's build lock) and stamps it, so a run straight after it
+needs no `--build` (#274).
+
+**The installer's suites** (`packaged*`) test `dist\win-unpacked`, not `out/`: a run of only those doesn't look at
+`out/` (unless `HIVE_PROGRESS_CHECK_DEV=1`). Instead the runner checks what `dist\win-unpacked` itself was built from:
+`npm run dist` records that inside it (`win-unpacked\.hive-build-info.json`) once it is sure, and removes it when it
+starts. Not `dist\build-info.json`: that describes the installer set, which a worktree's `npm run dist` copies into the
+main checkout's `dist` without `win-unpacked`, so there it can describe another build than the one the suites would
+run. When the record's code isn't the fingerprint of the code now, or there is none, the runner warns and a run
+record is marked not valid. So `npm run dist`, then
+`npm run e2e -- packaged packaged-mcp packaged-progress --record`, gives a valid record without `--build`; a `dist` from
+another commit, or from before an edit, is reported.
 
 **Several at once.** Suites run four at a time (`--jobs N` for another number; `--jobs 1` runs them one after
 another). Each gets its own profile, folders and Agent API port: the runner sets `HIVE_E2E_PORT` and `HIVE_API_PORT`,
@@ -63,7 +75,7 @@ home) and the installer's run last, alone.
 **Several runners at once** (agents in different worktrees each checking their card). Each runner claims a **lane**
 when it starts (`lanes.mjs`): a range of ten Agent API ports (lane *k*'s first slot is 47940 + 20*k*, the CLI lane the
 port below) and a folder of its own for its suites' profiles, workspaces and screenshots (`lanes\<k>` in the work
-folder, below). Claims are files in `%LOCALAPPDATA%\hive-test\e2e-lanes`
+folder, a folder per suite in it, below). Claims are files in `%LOCALAPPDATA%\hive-test\e2e-lanes`
 (`lane-<k>.json`, with the runner's process id), taken under a short lock and released when the runner ends; a crashed
 runner's claim expires (its process is gone, or it is a day old). A lane is only taken when nothing is listening on
 its ports, so anything else holding them (an older runner without lanes, another app) moves the runner to the next
@@ -218,16 +230,52 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
 
 Everything goes in `%LOCALAPPDATA%\hive-test\e2e` (override with `HIVE_E2E_DIR`). In it:
 
-- `lanes\<k>`: the profiles (`HIVE_USER_DATA`), workspaces and screenshots of the suites a runner in lane *k* runs
-  (above). The runner gives each suite its lane's folder as `HIVE_E2E_DIR`, which `lib.WORK` reads. There are at most
-  ten, each reused by the next runner in that lane (each suite clears its own folders when it starts), so they don't
-  pile up.
+- `lanes\<k>\<suite>`: the profiles (`HIVE_USER_DATA`), workspaces and screenshots of each suite a runner in lane *k*
+  runs (above). The runner gives each suite a folder of its own in its lane's as `HIVE_E2E_DIR`, which `lib.WORK`
+  reads, made fresh when the suite starts (`<suite>-2`… while an earlier one holds evidence: Housekeeping, below). When the suite passes (or skips), its folders (profiles, workspaces, test
+  homes) are removed and its files (screenshots, reports) stay; when it fails, everything stays for a look (the runner
+  prints where), until the suite runs again in that lane or the clean-up below removes it.
 - `logs\run-<date>-<time>`: each run's logs and run record, from every lane (above); `logs\run-record.md` is the latest
-  record.
+  record. The newest ten finished runs are kept, counted across every worktree's and agent's runs. A run that **failed**
+  (a suite failed, or its record isn't valid) is kept a day beyond that (the newest twenty such; #223), and its failed
+  suites' own files (screenshots, notification logs, reports: not their profiles) are copied into it, in
+  `<run folder>\<suite>`. The runner says so when the run ends, so the run folder is the path to cite in a card.
 - The work folder itself: suites run on their own (`node tests/e2e/<suite>.cjs`) keep their folders there.
 
 Nothing touches your Hive profile, your clipboard or your real Codex home.
 `HIVE_TEST_CODEX_HOME` points the Codex suites at another test home.
+
+## Housekeeping
+
+What the tests leave in `%LOCALAPPDATA%\hive-test` is removed once it is no longer needed (`clean.mjs`, #253). The e2e
+runner and the scenario runner do it when they finish (at most a minute; what is left goes next time), and
+**`npm run test:clean`** does it on demand and prints each area's size (`--dry-run` lists what would go, and what is
+kept and why, without removing anything; `--days N` sets the age, default 3).
+- **Goes:** in a lane no runner holds (the clean-up claims it meanwhile, so no runner starts there), a suite's folder
+  older than the age, and anything left from before suites had folders of their own; scenario lanes' folders older
+  than the age; in `e2e`, anything but `lanes` and `logs` older than the age (suites run on their own, probes); and
+  anything else in `hive-test` older than the age (one-off folders and files).
+- **Stays:** the CLI test homes (`codex`, `claude`: their sign-ins; never opened), scenario results and baselines, the
+  claims and locks, the concurrency checker's folders (it removes its own), the Progress panel's timings; logs (the
+  runner keeps the newest ten runs); a lane a runner holds.
+- **Evidence stays, whoever deletes** (`evidence.cjs`): anything a card that isn't Done cites is kept by the clean-up,
+  by the runners' own deletions (a suite's or scenario's earlier folder, a passed suite's folders, log pruning,
+  scenario results and older baselines) and listed as `kept: … (cited by #n)`. A card cites a path by writing it: the
+  thing itself (`e2e\review158-dark.png`), a path inside a folder (`evidence\x.png` keeps `evidence`;
+  `lanes\0\board\board.png` keeps that suite's folder, not the rest of the lane), or a folder as a whole
+  (`hive-test\e2e\lanes\0` keeps the lane). A name alone isn't a citation, nor an area (`hive-test\e2e`, `scratch`).
+  The cards are read from the workspace's board, found up from this repository's main checkout, afresh for every
+  deletion (a card that cites something a moment before it would go keeps it). **While the board can't be read**
+  (none found, or a card that can't be read), nothing is deleted at all: the clean-up removes nothing and says why,
+  logs aren't pruned, a passed suite's or scenario's folders stay (the runner says so at the end), and a suite whose
+  folder is there already gets `<suite>-2` (…) instead. When a suite's earlier folder holds evidence, the same: the run
+  takes the next free one.
+- Links in what goes (a worktree's `node_modules` junction) are removed as links, never followed.
+
+**Probes** (a reviewer's or builder's screenshots, scripts and profiles outside a suite) go in the agent's own scratchpad
+(Claude Code's session scratchpad, or `%TEMP%`), not in `hive-test`. One that must be there goes in
+`hive-test\scratch\<agent>-<date>`, which the clean-up prunes by age. Cite evidence a card needs by its full path: it
+stays until the card is Done.
 
 ## Writing one
 
