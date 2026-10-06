@@ -680,6 +680,18 @@ export interface AgentDef {
 export type AgentPatch = Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona' | 'role'>> & { use200kContext?: boolean | null }
 
 /** What loading a template into a project would do (#126), and what stops it now. */
+/**
+ * What happened to an old worktree the user chose to remove with a template's load (#289, #313): `removed` (the folder
+ * went), and `branchKept` when its branch stayed all the same (a ref moved in the last step); `why` it was kept, or why
+ * the branch was.
+ */
+export interface OldWorktreeOutcome {
+  branch: string
+  removed: boolean
+  branchKept?: true
+  why?: string
+}
+
 export interface TemplateLoadPlan {
   scope: TemplateScope
   file: string
@@ -864,7 +876,11 @@ export interface SessionBulkResult {
  * `watching`: its turn has ended and it waits on cards (a wake-on-change watch, #128): Hive types one line to wake it
  * when a watched card changes. It runs nothing meanwhile, but it isn't idle: nothing else is given to it.
  */
-export type SessionStatus = 'stopped' | 'starting' | 'ready' | 'working' | 'waiting' | 'background' | 'watching' | 'finished' | 'error'
+/**
+ * `signin`: its CLI refused the turn because its sign-in has expired (or was refused): it needs the user to sign in
+ * again, and stays idle until then (#309). Every agent of that CLI shares the sign-in.
+ */
+export type SessionStatus = 'stopped' | 'starting' | 'ready' | 'working' | 'waiting' | 'background' | 'watching' | 'finished' | 'error' | 'signin'
 
 /** An agent's wake-on-change watch, as its state shows it: the cards and condition, since when, and its overall limit. */
 export interface TaskWatchInfo {
@@ -925,6 +941,11 @@ export interface LiveSessionState {
   unseen: boolean
   /** Its wake-on-change watch, while it has one (status `watching` while its turn has ended). */
   watch?: TaskWatchInfo
+  /**
+   * Its last turn stopped because its CLI's sign-in was refused, and it hasn't carried on since (#309): the CLI's
+   * message and when. Status `signin` until the CLI is signed in again, then `ready`; Resume (n) carries it on.
+   */
+  signIn?: { message: string; since: string }
   /** Reported by the provider once the session has started. */
   effort?: string
   modelName?: string

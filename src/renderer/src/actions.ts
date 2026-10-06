@@ -3,11 +3,11 @@ import { call, errorMessage } from './api'
 import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemoving, focusAgent, runOnce, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
 import { MANY_AGENTS, MAX_AGENTS, chosenLayout, moveAgentTo, sessionInAgentFolder, swapAgentsIn } from '@shared/defaults'
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
-import { agentsToResume, resumeAll } from '@shared/resumeAll'
+import { agentsToResume, resumeAll, stalledOnSignIn } from '@shared/resumeAll'
 import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult } from '@shared/startAll'
-import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
+import type { OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
-import { templateLoadDetail } from '@shared/templateLoad'
+import { oldWorktreesNotice, templateLoadDetail } from '@shared/templateLoad'
 import { formatTokens } from './util'
 import { statusText } from './components/ui'
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
@@ -455,8 +455,8 @@ export async function stopAllAgents(path: string): Promise<void> {
 
 /**
  * Resumes every stopped agent that has a conversation to resume, one after another; running agents are
- * left alone. Asks first only when some caches have expired; one failure doesn't stop the rest, and the
- * failures are reported together with their reasons.
+ * left alone, except those a refused sign-in stopped, which are told to carry on (#309). Asks first only when some
+ * caches have expired; one failure doesn't stop the rest, and the failures are reported together with their reasons.
  */
 export function resumeAllAgents(path: string): Promise<void> {
   // A second click while it runs is ignored; the button shows a spinner.
@@ -470,6 +470,7 @@ async function resumeAll_(path: string): Promise<void> {
   if (!stopped.length) return notify('info', 'Nothing to resume', 'No stopped agent has a session to resume.')
   const list = (await attempt('Could not list sessions', () => call('session:list', path))) ?? []
   const cold = stopped.flatMap((a) => {
+    if (a.live) return []
     const r = list.find((s) => s.id === a.resume!.id)?.recache
     return r && !r.warm && r.tokens > 20000 ? [`• ${a.name} — about ${formatTokens(r.tokens)} tokens`] : []
   })
@@ -484,6 +485,8 @@ async function resumeAll_(path: string): Promise<void> {
   }
   // The agents as they are now: one may have started while the dialog was open.
   const result = await resumeAll(project(path)?.agents ?? [], async (a) => {
+    // Running, stopped mid-turn by a refused sign-in: a short "carry on" (its CLI resumes nothing itself).
+    if (stalledOnSignIn(a.live)) return void (await call('session:carryOn', path, a.id))
     const provider = agentProviderOf(project(path), a)
     const name = providerName(provider)
     if (!isProviderEnabled(get().settings, provider)) throw new Error(`${name} is turned off in Settings → Providers.`)
@@ -758,7 +761,7 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
   const expected = (p?.agents ?? []).map((a) => a.id)
   const removable = plan.oldWorktrees.filter((w) => w.removable)
   let removeOld = false
-  let result: { oldWorktrees: { branch: string; removed: boolean; why?: string }[] } | undefined
+  let result: { oldWorktrees: OldWorktreeOutcome[] } | undefined
   const ok = await confirm({
     title: `Load "${plan.name}"?`,
     message: plan.remove.length ? `It replaces every agent of ${p?.name ?? 'this project'}.` : `It adds its agents to ${p?.name ?? 'this project'}.`,
@@ -776,10 +779,8 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
   })
   if (!ok) return
   await refreshWorkspace()
-  const gone = result?.oldWorktrees.filter((w) => w.removed) ?? []
-  const kept = result?.oldWorktrees.filter((w) => !w.removed) ?? []
-  if (kept.length) notify('warning', `${kept.length === 1 ? 'An old worktree was' : `${kept.length} old worktrees were`} kept`, [...(gone.length ? [`Removed: ${gone.map((w) => w.branch).join(', ')}.`] : []), ...kept.map((w) => `${w.branch}: ${w.why ?? 'kept'}`)].join('\n'))
-  else if (gone.length) notify('success', `Removed ${gone.length === 1 ? 'an old worktree' : `${gone.length} old worktrees`}`, `${gone.map((w) => w.branch).join(', ')}, with ${gone.length === 1 ? 'its branch' : 'their branches'}: merged and clean.`)
+  const said = oldWorktreesNotice(result?.oldWorktrees ?? [])
+  if (said) notify(said.level, said.title, said.detail)
 }
 
 /** The tick box for removing the old worktrees that are merged and clean (#289). */

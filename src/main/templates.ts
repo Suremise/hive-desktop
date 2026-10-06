@@ -23,7 +23,7 @@ import {
   type TemplateRef,
   type TemplateScope
 } from '../shared/templates'
-import type { AgentDef, ProviderId, TemplateLoadPlan } from '../shared/types'
+import type { AgentDef, OldWorktreeOutcome, ProviderId, TemplateLoadPlan } from '../shared/types'
 import { config } from './config'
 import { readKeptJson, withFileLock, writeKeptJson, writeTextAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
@@ -445,7 +445,7 @@ const loading = new Set<string>()
  *   agent's worktree that no agent works in now, checked again and guarded while deleting (`removeCheckedWorktree`):
  *   one that isn't any more is kept, and the reply says why.
  */
-export async function loadTemplate(projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }): Promise<{ created: string[]; removed: string[]; oldWorktrees: { branch: string; removed: boolean; why?: string }[] }> {
+export async function loadTemplate(projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }): Promise<{ created: string[]; removed: string[]; oldWorktrees: OldWorktreeOutcome[] }> {
   projectPath = workspace.assertProject(projectPath)
   const key = projectPath.toLowerCase()
   if (loading.has(key)) throw new TemplateError('A template is already being loaded into this project.')
@@ -515,11 +515,11 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
  * agent of the project works in it now, and it is merged into the main branch the user was shown and clean now
  * (`worktreeCheck`, then `removeCheckedWorktree`, which deletes nothing if either branch moved). What happened to each.
  */
-async function removeOldWorktrees(projectPath: string, old: AgentDef[], removeOld: { paths: string[]; mergedInto: string | null } | undefined): Promise<{ branch: string; removed: boolean; why?: string }[]> {
+async function removeOldWorktrees(projectPath: string, old: AgentDef[], removeOld: { paths: string[]; mergedInto: string | null } | undefined): Promise<OldWorktreeOutcome[]> {
   const key = (p: string): string => resolve(p).toLowerCase()
   const asked = new Set((Array.isArray(removeOld?.paths) ? removeOld.paths : []).filter((p) => typeof p === 'string').map(key))
   if (!asked.size) return []
-  const out: { branch: string; removed: boolean; why?: string }[] = []
+  const out: OldWorktreeOutcome[] = []
   for (const a of old) {
     const tree = a.worktree
     if (!tree || !asked.has(key(tree.path))) continue
@@ -546,7 +546,8 @@ async function removeOldWorktrees(projectPath: string, old: AgentDef[], removeOl
       }
       await testHooks.removing?.(tree.branch)
       const done = await wt.removeCheckedWorktree(projectPath, tree, await wt.worktreeCheck(projectPath, tree), removeOld?.mergedInto ?? null).catch((e: Error) => ({ deleted: false, reason: e.message.split('\n')[0] }))
-      out.push({ branch: tree.branch, removed: done.deleted, ...(done.reason ? { why: done.reason } : {}) })
+      // The folder went but its branch stayed (a ref moved in the last step): said, so the notice doesn't claim both went.
+      out.push({ branch: tree.branch, removed: done.deleted, ...('branchKept' in done && done.branchKept ? { branchKept: true as const } : {}), ...(done.reason ? { why: done.reason } : {}) })
       // A removed worktree's setup isn't pending any more.
       if (done.deleted) await workspace.mutateProjectConfig(projectPath, (now) => (Array.isArray(now.setupPending) ? { setupPending: now.setupPending.filter((p) => typeof p !== 'string' || key(p) !== key(tree.path)) } : {}))
     } finally {

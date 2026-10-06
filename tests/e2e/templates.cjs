@@ -365,8 +365,10 @@ const check = (name, ok, extra = '') => {
   await page.screenshot({ path: path.join(lib.WORK, 'templates-9-remove-old.png') })
   await toPair.getByRole('button', { name: 'Load template' }).click()
   await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer"]', 15000)
-  check('ticked: the old worktree and its branch are gone', !!(await lib.until(async () => !fs.existsSync(oldTree), 10000)) && !lib.git(beta, ['branch', '--list', 'hive/tree']).includes('hive/tree'))
-  check('…said in a notice', !!(await lib.until(async () => (await page.locator('.toast', { hasText: 'Removed an old worktree' }).count()) === 1, 5000)))
+  // The removal runs once the load is published (after the agents change), and the notice says it is over: waited for
+  // first, as a slow machine can take a while over the git checks.
+  check('ticked: the load says the old worktree went', !!(await lib.until(async () => (await page.locator('.toast', { hasText: 'Removed an old worktree' }).count()) === 1, 30000)))
+  check('…and it and its branch are gone', !fs.existsSync(oldTree) && !lib.git(beta, ['branch', '--list', 'hive/tree']).includes('hive/tree'))
   check('…and nothing else: the other kept worktree stays', fs.existsSync(want) && lib.git(beta, ['branch', '--list', 'hive/tree-2']).includes('hive/tree-2'))
 
   await app.close()

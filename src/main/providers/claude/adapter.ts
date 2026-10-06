@@ -23,7 +23,7 @@ const log = createLogger('claude-code')
 /** Transcripts whose sub-agent check is remembered (by path and mtime). */
 const SUB_CACHE = 2000
 
-export const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'PreCompact', 'PostCompact', 'SessionEnd'] as const
+export const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Notification', 'Stop', 'StopFailure', 'PreCompact', 'PostCompact', 'SessionEnd'] as const
 
 /** Tools that edit files: PreToolUse checks them against other agents' file locks. */
 export const EDIT_TOOLS = 'Edit|Write|MultiEdit|NotebookEdit'
@@ -394,6 +394,14 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       case 'Stop':
         out.event = { kind: 'stop', lastMessage: typeof body.last_assistant_message === 'string' ? body.last_assistant_message : null }
         break
+      case 'StopFailure': {
+        // The turn ended on an API error instead of Stop. `authentication_failed` is the sign-in: expired, revoked or an
+        // invalid key ("Login expired · Please run /login", 2.1.291). Any other error (a rate limit, the server) ends
+        // the turn as Stop does, with the CLI's message, marked failed: it doesn't show the sign-in works.
+        const message = typeof body.last_assistant_message === 'string' ? body.last_assistant_message : null
+        out.event = body.error === 'authentication_failed' ? { kind: 'signIn', message } : { kind: 'stop', lastMessage: message, failed: true }
+        break
+      }
       case 'PreCompact':
         out.event = { kind: 'compactStart', trigger: String(body.trigger ?? 'auto') }
         break

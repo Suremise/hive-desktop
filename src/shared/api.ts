@@ -17,6 +17,7 @@ import type {
   AgentBranchStatus,
   AgentDef,
   TemplateLoadPlan,
+  OldWorktreeOutcome,
   AgentPatch,
   CleanupItem,
   CleanupOptions,
@@ -233,6 +234,8 @@ export interface HiveRequests {
   /** Stops the CLI's background job holding a conversation, then resumes it in the agent. */
   'session:stopBackgroundAndResume': (projectPath: string, agentId: string, jobId: string, sessionId: string) => void
   'session:stop': (projectPath: string, agentId?: string) => void
+  /** Types a short "carry on" into a running agent whose turn a refused sign-in stopped (Resume (n), #309). */
+  'session:carryOn': (projectPath: string, agentId: string) => void
   'session:archive': (projectPath: string, sessionId: string, archived: boolean) => void
   'session:rename': (projectPath: string, sessionId: string, name: string) => void
   /** Deletes a session that isn't running from Hive (its record and backups; the CLI's transcript stays). */
@@ -315,7 +318,7 @@ export interface HiveRequests {
   /** What loading a template would do, and what stops it now. `from`: the project a project's template is kept in, if not this one. */
   'templates:plan': (projectPath: string, scope: TemplateScope, file: string, from?: string) => TemplateLoadPlan
   /** Replaces the project's agents and layout with a template's; `expected` is the agents' ids as the user saw them. */
-  'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }) => { created: string[]; removed: string[]; oldWorktrees: { branch: string; removed: boolean; why?: string }[] }
+  'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }) => { created: string[]; removed: string[]; oldWorktrees: OldWorktreeOutcome[] }
   /** Adds one agent of a template (the `index`-th), the others left alone. */
   'templates:addAgent': (projectPath: string, scope: TemplateScope, file: string, index: number, from?: string) => AgentDef & { reused?: true }
   /** Every template of the workspace (#127, the Templates view): the workspace's, then each project's. */

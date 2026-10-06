@@ -68,6 +68,8 @@ export type HookAction =
   | 'clearTasks'
   /** A turn ended: record it, back up the transcript, and report the state even if the status stays. */
   | 'turnEnded'
+  /** The CLI's sign-in was refused: the agent needs it renewed (told once per CLI and expiry, not per agent). */
+  | 'signedOut'
 
 export interface HookStep {
   /** The new status, or null to keep it. */
@@ -155,7 +157,8 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
         actions: ['answered', 'prompted', ...(s.compacting === 'started' ? (['compactEnded'] as const) : [])]
       }
     case 'toolStart':
-      return { next: null, ...reviewed(s), actions: [] }
+      // An agent whose sign-in was refused works again: it was signed in (/login in its terminal carries the turn on).
+      return { next: s.status === 'signin' ? 'working' : null, ...reviewed(s), actions: [] }
     case 'toolEnd': {
       // A tool ran: the user answered a permission prompt, or the agent carries on after a turn's end. The title is
       // one for everything: while it still asks (a question pending, or the prompt is for another call running
@@ -166,7 +169,7 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
       // Another prompt still up (calls side by side, the title still on): the wait moves on to it, already told.
       const still = answered && s.attention === 'title' && s.titleAsks ? open.findLast((a) => a.blocking) : undefined
       if (still) return { next: null, message: still.message || null, waitingOn: still, open: open.filter((a) => a !== still), ...reviewed(s), actions: [] }
-      const next = answered || s.status === 'ready' || s.status === 'finished' || s.status === 'watching' || s.status === 'background' ? 'working' : null
+      const next = answered || s.status === 'ready' || s.status === 'finished' || s.status === 'watching' || s.status === 'background' || s.status === 'signin' ? 'working' : null
       return { next, ...(open.length !== s.open.length ? { open } : {}), ...(answered ? { waitingOn: null } : {}), ...reviewed(s), actions: [] }
     }
     case 'ask': {
@@ -187,6 +190,11 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
       const notify = next === 'finished' && s.status !== 'finished'
       return { next, message: null, review: null, ...RESOLVED, actions: ['releaseLocks', ...(notify ? (['notifyFinished'] as const) : []), 'turnEnded'] }
     }
+    case 'signIn':
+      // The turn is over, on a refused sign-in: nothing runs until the user signs in again. Not finished, so not
+      // told as finished; told once for every agent of the CLI (SessionManager). The CLI's own message is kept beside
+      // the status (LiveSessionState.signIn): Codex's is a long line with request ids.
+      return { next: 'signin', message: null, review: null, ...RESOLVED, actions: ['releaseLocks', 'signedOut', 'turnEnded'] }
     case 'interrupt':
       // Interrupted turns end without Stop: the agent is idle again, and its claims go.
       return { next: idleAfter(s, 'ready'), message: null, review: null, ...RESOLVED, actions: ['releaseLocks'] }
@@ -223,7 +231,7 @@ export function applyStep(st: { status: SessionStatus; statusMessage?: string; u
   st.status = step.next
   if ((step.next === 'working' || step.next === 'ready') && step.message === undefined) st.statusMessage = undefined
   // Unseen until the window shows its pane (the renderer marks it seen, at once when it is on screen).
-  if (step.next === 'finished' || step.next === 'waiting') st.unseen = true
+  if (step.next === 'finished' || step.next === 'waiting' || step.next === 'signin') st.unseen = true
   return true
 }
 

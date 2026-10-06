@@ -469,32 +469,35 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
                 <Card title="API-equivalent cost" value="Unknown" sub={`no price for ${u.model}`} tip={unpricedText(u.model!, provider.name)} />
               )}
             </div>
-            <table className="table" style={{ marginBottom: 20 }}>
-              <tbody>
-                <tr>
-                  <td className="muted" style={{ width: 180 }}>Model</td>
-                  <td className="mono">{u.model ?? '—'}</td>
-                </tr>
-                <tr>
-                  <td className="muted">{provider.name} version</td>
-                  <td>{u.cliVersion ?? '—'}</td>
-                </tr>
-                <tr>
-                  <td className="muted">Started</td>
-                  <td>{u.firstActivity ? formatDateTime(u.firstActivity) : '—'}</td>
-                </tr>
-                <tr>
-                  <td className="muted">Last activity</td>
-                  <td>{u.lastActivity ? `${formatDateTime(u.lastActivity)} (${timeAgo(u.lastActivity)})` : '—'}</td>
-                </tr>
-                {u.lastPrompt && (
+            {/* Its own sideways scroll in a very narrow page (#307), as the Overview's other tables have. */}
+            <div className="table-wrap session-meta" style={{ marginBottom: 20 }}>
+              <table className="table">
+                <tbody>
                   <tr>
-                    <td className="muted">Last prompt</td>
-                    <td style={{ whiteSpace: 'pre-wrap' }}>{u.lastPrompt.slice(0, 400)}</td>
+                    <td className="muted" style={{ width: 180 }}>Model</td>
+                    <td className="mono">{u.model ?? '—'}</td>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                  <tr>
+                    <td className="muted">{provider.name} version</td>
+                    <td>{u.cliVersion ?? '—'}</td>
+                  </tr>
+                  <tr>
+                    <td className="muted">Started</td>
+                    <td>{u.firstActivity ? formatDateTime(u.firstActivity) : '—'}</td>
+                  </tr>
+                  <tr>
+                    <td className="muted">Last activity</td>
+                    <td>{u.lastActivity ? `${formatDateTime(u.lastActivity)} (${timeAgo(u.lastActivity)})` : '—'}</td>
+                  </tr>
+                  {u.lastPrompt && (
+                    <tr>
+                      <td className="muted">Last prompt</td>
+                      <td style={{ whiteSpace: 'pre-wrap' }}>{u.lastPrompt.slice(0, 400)}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
             {u.compactions.length > 0 && current && (
               <>
                 <h2 className="section" id="compaction-history">

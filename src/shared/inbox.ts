@@ -31,7 +31,7 @@ export interface Inbox {
  * header, inbox, taskbar flash, chime and notifications all go by.
  */
 export function asksYou(live: Pick<LiveSessionState, 'status' | 'question'> | null | undefined): boolean {
-  return !!live && (live.status === 'waiting' || !!live.question)
+  return !!live && (live.status === 'waiting' || live.status === 'signin' || !!live.question)
 }
 
 /** Asked something (seen or not), or finished and not looked at since. */

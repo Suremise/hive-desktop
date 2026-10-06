@@ -172,6 +172,7 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
     'The installer runs `irm https://claude.ai/install.ps1 | iex` in PowerShell and installs to `%USERPROFILE%\\.local\\bin`. After installing, sign in with your Claude account (Pro, Max, Team or Enterprise) or an Anthropic Console account. If the CLI is installed somewhere else, set its path in Settings → Claude Code.',
   extensionNote:
     "You have the Claude Code extension for VS Code (or a similar editor). Hive doesn't use it — the extension's built-in copy moves with every extension update and can't be updated on its own. Install the CLI; your extension keeps working as before.",
+  signInHelp: 'Type /login in one of its agents’ terminals (that agent then carries on by itself), or use Help → Agent Setup → Claude Code → Sign in.',
   modelLabel: claudeModelLabel,
   canSwitchLive
 }
