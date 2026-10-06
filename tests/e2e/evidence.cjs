@@ -17,6 +17,7 @@
 // a word (`scripts`) would be kept by any path with that word (`scripts/licenses.mjs`). Keeping a little more than
 // needed is the safe side.
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 const { execFileSync } = require('child_process')
 const runContext = require('./runContext.cjs')
@@ -25,6 +26,12 @@ const runContext = require('./runContext.cjs')
 const AREAS = new Set(['', 'e2e', 'e2e/lanes', 'e2e/logs', 'e2e/logs/nested', 'scenarios', 'scenarios/lanes', 'scenarios/results', 'scenarios/baselines', 'scratch'])
 /** Whether rel (relative to hive-test, with `/`) is an area: one of AREAS, or a lane (`e2e/lanes/0`, `scenarios/lanes/3`). */
 const isArea = (rel) => AREAS.has(rel) || /^(?:e2e|scenarios)\/lanes\/\d+$/.test(rel)
+
+/**
+ * Areas of the temp folder (clearDir, #304): Claude Code's sessions folder and the folders down to a scratchpad
+ * (`claude`, `claude/<project>`, `claude/<project>/<session>`, `…/scratchpad`). Naming one keeps nothing, as for hive-test's.
+ */
+const isTempArea = (rel) => /^claude(?:\/[^/]+(?:\/[^/]+(?:\/scratchpad)?)?)?$/.test(rel)
 
 /** Text written as a path: lower case, `/` for `\` (and for `\\` in JSON or Markdown). */
 const pathText = (s) => String(s ?? '').toLowerCase().replace(/\\+/g, '/')
@@ -54,13 +61,15 @@ const tails = (parts) => Array.from({ length: Math.max(0, parts.length - 1) }, (
 
 /**
  * The card citing a path under hive-test (rel: relative to it, e.g. `e2e/lanes/0/board`), or null. children: the names
- * in it when it is a folder (so `evidence\x.png` keeps `evidence`; deeper paths keep it too, as `x/…`).
+ * in it when it is a folder (so `evidence\x.png` keeps `evidence`; deeper paths keep it too, as `x/…`). label: the
+ * root's own name as cards write it (`hive-test`; `temp` for paths in the temp folder, clearDir), whose areas don't count.
  */
-function citedBy(rel, cards, children = []) {
+function citedBy(rel, cards, children = [], label = 'hive-test') {
   const own = pathText(rel).split('/').filter(Boolean)
-  const parts = ['hive-test', ...own]
+  const parts = [label, ...own]
   const ancestors = []
-  for (let k = 1; k < own.length; k++) if (!isArea(own.slice(0, k).join('/'))) ancestors.push(['hive-test', ...own.slice(0, k)])
+  const area = label === 'temp' ? isTempArea : isArea
+  for (let k = 1; k < own.length; k++) if (!area(own.slice(0, k).join('/'))) ancestors.push([label, ...own.slice(0, k)])
   for (const { number, text } of cards) {
     for (const t of tails(parts)) if (mentions(text, t)) return number
     for (const c of children) for (const t of tails([...parts, pathText(c)])) if (mentions(text, t)) return number
@@ -123,7 +132,7 @@ function readCards(tasksDir) {
  * an older look: a card that cites something a moment before it would go keeps it. snapshot() reads it once, for
  * listing many things (the clean-up's plan), never for deleting.
  */
-function evidence({ tasksDir, cards, testRoot = runContext.TEST_ROOT } = {}) {
+function evidence({ tasksDir, cards, testRoot = runContext.TEST_ROOT, label = 'hive-test' } = {}) {
   const load = () => {
     if (cards) return { ok: true, cards }
     if (!tasksDir) return { ok: false, why: "no board was found (the workspace's .hive\\tasks, up from this repository's main checkout)" }
@@ -146,7 +155,7 @@ function evidence({ tasksDir, cards, testRoot = runContext.TEST_ROOT } = {}) {
       // A folder on the way that is a link (a junction) would carry the deletion somewhere else.
       const link = linkOnTheWay(testRoot, p)
       if (link) return `reached through a link (${link})`
-      const n = citedBy(rel.split(path.sep).join('/'), s.cards, safeList(p))
+      const n = citedBy(rel.split(path.sep).join('/'), s.cards, safeList(p), label)
       return n === null ? null : `cited by #${n}`
     },
     /** One look at the board, for listing many things (not for deleting): the same ok, why and protects(p). */
@@ -268,6 +277,101 @@ function freshFolder(dir, ev, { max = MAX_COPIES, claimed = () => false } = {}) 
       why = `in use: ${e.code ?? e.message}`
     }
   }
+}
+
+/**
+ * The first link (a junction or a symlink) anywhere on p's path, from the drive's root down to p itself, or null; one
+ * that can't be looked at counts as a link. For clearDir (#304): unlike linkOnTheWay, the allowed root and the folders
+ * above it count too, so a root that is a junction can't carry a delete somewhere else.
+ */
+function linkOnPath(p) {
+  const full = path.resolve(p)
+  const { root } = path.parse(full)
+  let at = root
+  for (const part of full.slice(root.length).split(path.sep).filter(Boolean)) {
+    at = path.join(at, part)
+    try {
+      if (fs.lstatSync(at).isSymbolicLink()) return at
+    } catch (e) {
+      if (e.code === 'ENOENT') return null // Not there: nothing below it either.
+      return at
+    }
+  }
+  return null
+}
+
+/** p as written and, when it (or the part of it that exists) can be resolved, as it really is: for comparing places. */
+function pathForms(p) {
+  const full = path.resolve(p)
+  const forms = new Set([full.toLowerCase()])
+  let at = full
+  const rest = []
+  while (!fs.existsSync(at) && path.dirname(at) !== at) {
+    rest.unshift(path.basename(at))
+    at = path.dirname(at)
+  }
+  try {
+    forms.add(path.join(fs.realpathSync.native(at), ...rest).toLowerCase())
+  } catch {
+    // Can't be resolved: as written only.
+  }
+  return [...forms]
+}
+
+/** p's path relative to root when p is strictly inside it (not root itself), else null. */
+function within(root, p) {
+  const rel = path.relative(path.resolve(root), path.resolve(p))
+  return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : null
+}
+
+/**
+ * Empties a folder of your own so a rerun starts clean (#304), from Node: nobody needs a shell delete on a computed path
+ * (`rm -rf "$(…)"`, which Claude Code can't check, so it asks, and unattended it denies). Only a probe's or a suite's
+ * own folder: inside a Claude Code scratchpad (`<temp>\claude\…\scratchpad\<x>`), a `hive…` folder in the temp folder
+ * (or inside one), or inside hive-test's `scratch` or `e2e` (not its lanes or logs, which the runners own). Never one of
+ * those areas itself, a CLI test home or a folder holding one (as written or as it really is), anything with a link on
+ * its path (the roots and the folders above them included) or a link itself, a file,
+ * or evidence (a card that isn't Done cites it or something in it, or the board can't be read). board: { tasksDir } or
+ * { cards } (evidence()). Returns the folder, made and empty; throws saying why it refused, having deleted nothing.
+ */
+function clearDir(target, { board = {}, temp = os.tmpdir(), testRoot = runContext.TEST_ROOT, homes = [runContext.CODEX_HOME, runContext.CLAUDE_TEST_HOME] } = {}) {
+  if (!target) throw new Error('Name the folder to clear.')
+  const p = path.resolve(String(target))
+  // A link anywhere on the way, the allowed roots and the folders above them included, would carry the delete elsewhere.
+  const link = linkOnPath(p)
+  if (link) throw new Error(link.toLowerCase() === p.toLowerCase() ? `${p} is a link: never cleared.` : `${p} is reached through a link (${link}): never cleared.`)
+  // The test homes, compared as written and as they really are (a home reached through a link elsewhere is still one).
+  const near = (a, b) => a === b || within(a, b) !== null || within(b, a) !== null
+  for (const h of homes) if (pathForms(h).some((hf) => pathForms(p).some((pf) => near(hf, pf)))) throw new Error(`${p} is a CLI test home, or holds or is in one: never cleared (its sign-in).`)
+  let root
+  const inTest = within(testRoot, p)
+  const inTemp = within(temp, p)
+  if (inTest !== null) {
+    const rel = inTest.split(path.sep).join('/').toLowerCase()
+    const own = /^scratch\/[^/]/.test(rel) || (/^e2e\/[^/]/.test(rel) && !/^e2e\/(?:lanes|logs)(?:\/|$)/.test(rel))
+    if (!own || isArea(rel)) throw new Error(`${p} isn't a probe's or a suite's own folder: in hive-test only folders inside scratch, or inside e2e outside its lanes and logs, are cleared.`)
+    root = testRoot
+  } else if (inTemp !== null) {
+    const parts = inTemp.split(path.sep)
+    const pad = parts.findIndex((x) => x.toLowerCase() === 'scratchpad')
+    const own = (parts[0].toLowerCase() === 'claude' && pad > 0 && pad < parts.length - 1) || /^hive/i.test(parts[0])
+    if (!own) throw new Error(`${p} isn't a probe's folder: in the temp folder only folders inside a Claude Code scratchpad, or hive… folders, are cleared.`)
+    root = temp
+  } else throw new Error(`${p} is outside the temp folder and hive-test: never cleared.`)
+  let st = null
+  try {
+    st = fs.lstatSync(p)
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e
+  }
+  if (st?.isSymbolicLink()) throw new Error(`${p} is a link: never cleared.`)
+  if (st && !st.isDirectory()) throw new Error(`${p} is a file, not a folder.`)
+  // Judged as the cards write it: `hive-test\…`, or `Temp\…` for the temp folder.
+  const why = st ? evidence({ ...board, testRoot: root, label: root === testRoot ? 'hive-test' : 'temp' }).protects(p) : null
+  if (why) throw new Error(`${p} must stay: ${why}.`)
+  for (const name of safeList(p)) removeTree(path.join(p, name))
+  fs.mkdirSync(p, { recursive: true })
+  return p
 }
 
 /**
@@ -415,4 +519,4 @@ function claimedByRuns(logsRoots) {
   return out
 }
 
-module.exports = { AREAS, MAX_COPIES, KEPT_FILE, SUITE_FOLDER, suiteFolderTarget, linkOnTheWay, isArea, pathText, mentions, citedBy, findBoard, readCards, evidence, evidenceFor, safeList, sizeOf, removeTree, freshFolder, finishSuiteDir, recordKept, keptBy, releaseKept, claimedByRuns }
+module.exports = { AREAS, MAX_COPIES, KEPT_FILE, SUITE_FOLDER, suiteFolderTarget, linkOnTheWay, isArea, pathText, mentions, citedBy, findBoard, readCards, evidence, evidenceFor, safeList, sizeOf, removeTree, freshFolder, clearDir, finishSuiteDir, recordKept, keptBy, releaseKept, claimedByRuns }

@@ -11,7 +11,7 @@ const { execFileSync, execSync } = require('child_process')
 const { _electron } = require('playwright-core')
 
 // The run context (runContext.cjs): the environments of everything a suite starts, its folders and the CLI test homes.
-const { WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, isHiveEnv } = require('./runContext.cjs')
+const { TEST_ROOT, WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, isHiveEnv } = require('./runContext.cjs')
 
 const ROOT = path.resolve(__dirname, '..', '..')
 /** Electron's executable (the electron package resolves to its path in plain Node). */
@@ -20,6 +20,23 @@ const ELECTRON = require('electron')
 fs.mkdirSync(WORK, { recursive: true })
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * A new folder for a probe of your own (a Playwright script's profile, workspace and screenshots; #304), in
+ * hive-test\scratch, named for it and the time: `scratch\<name>-<yyyymmdd-hhmmss>-<random>`. Every run gets a new one,
+ * so nothing needs deleting first (never `rm -rf` a computed path: Claude Code asks, and unattended it denies). The
+ * clean-up prunes them after a few days (`npm run test:clean`), unless a card that isn't Done cites one.
+ */
+function probeDir(name = 'probe', root = TEST_ROOT) {
+  const base = path.join(root, 'scratch')
+  const label = String(name).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 40) || 'probe'
+  const d = new Date()
+  const two = (n) => String(n).padStart(2, '0')
+  // Local time, as the runs' log folders are named.
+  const stamp = `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`
+  fs.mkdirSync(base, { recursive: true })
+  return fs.mkdtempSync(path.join(base, `${label}-${stamp}-`))
+}
 /**
  * A suite's Agent API port, as a string: the runner's (HIVE_E2E_PORT, one per suite running at the same time, so suites
  * can run side by side), else the suite's own default when it runs alone (node tests/e2e/<suite>.cjs).
@@ -579,4 +596,4 @@ async function haikuAutoCaveat(page, autoOffered) {
   return [ok, JSON.stringify(caveat)]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, git, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, probeDir, hiveEnv, childEnv, baseEnv, git, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
