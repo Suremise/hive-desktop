@@ -4756,15 +4756,12 @@ button.mode-badge.badge:hover {
   padding: 4px 8px;
   vertical-align: middle;
 }
-.kb-table tr.kb-cat td {
-  padding-top: 14px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--fg-muted);
-}
-.kb-table tr:not(.kb-cat):hover td {
+.kb-table tbody tr:hover td {
   background: var(--bg-hover);
+}
+.kb-category {
+  font-size: 12px;
+  white-space: nowrap;
 }
 .kb-table tr.recording td {
   background: var(--accent-soft);
@@ -5817,6 +5814,16 @@ body.pane-resizing-v .monaco-editor {
   font-size: 14px;
   line-height: 1;
 }
+/* A row's detail, opened under it (DataTable `detail`: Compare's scenarios). */
+.table-detail > td {
+  background: var(--bg-elevated);
+  padding: 8px 12px 12px;
+}
+/* Totals under a table's rows (DataTable `foot`). */
+.data-table tfoot td {
+  font-weight: 600;
+  border-top: 1px solid var(--border);
+}
 .data-table-empty {
   padding: 8px 0;
 }
@@ -6198,10 +6205,6 @@ body.pane-resizing-v .monaco-editor {
 }
 .perf-scenarios td:first-child {
   white-space: nowrap;
-}
-.perf-detail > td {
-  background: var(--bg-elevated);
-  padding: 8px 12px 12px;
 }
 .perf-detail-body p {
   margin: 0 0 6px;

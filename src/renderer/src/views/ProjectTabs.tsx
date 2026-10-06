@@ -218,36 +218,13 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
         {project.agents.length > 1 && (
           <>
             <h2 className="section">By agent</h2>
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Agent</th>
-                    <th>Provider</th>
-                    <th className="num">Sessions</th>
-                    <th className="num">Tokens</th>
-                    <th className="num">Cost</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {project.agents.map((a) => {
-                    const t = sumUsage(inPeriod.filter((i) => sessionAgent(project, i) === a.id), from)
-                    const prov = agentProviderOf(project, a)
-                    return (
-                      <tr key={a.id}>
-                        <td>{a.name}</td>
-                        <td className="nowrap">
-                          <ProviderIcon provider={prov} /> {providerName(prov)}
-                        </td>
-                        <td className="num">{t.sessions}</td>
-                        <td className="num">{formatTokens(tokens(t))}</td>
-                        <td className="num">{t.sessions ? costText(t) : '—'}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              id="overview-agents"
+              rows={project.agents.map((a) => ({ id: a.id, name: a.name, provider: agentProviderOf(project, a), t: sumUsage(inPeriod.filter((i) => sessionAgent(project, i) === a.id), from) }))}
+              columns={AGENT_COLUMNS}
+              rowKey={(r) => r.id}
+              empty="No agents."
+            />
           </>
         )}
 
@@ -256,6 +233,32 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
     </div>
   )
 }
+
+/** A row of the Overview's table by agent: what it used in the period. */
+interface AgentRow {
+  id: string
+  name: string
+  provider: ProviderId
+  t: Totals
+}
+const allTokens = (t: Totals): number => t.input + t.cached + t.cacheWrite + t.output
+const AGENT_COLUMNS: DataColumn<AgentRow>[] = [
+  { key: 'agent', header: 'Agent', cell: (r) => r.name, sortValue: (r) => r.name },
+  {
+    key: 'provider',
+    header: 'Provider',
+    className: 'nowrap',
+    cell: (r) => (
+      <>
+        <ProviderIcon provider={r.provider} /> {providerName(r.provider)}
+      </>
+    ),
+    sortValue: (r) => providerName(r.provider)
+  },
+  { key: 'sessions', header: 'Sessions', num: true, descFirst: true, cell: (r) => r.t.sessions, sortValue: (r) => r.t.sessions },
+  { key: 'tokens', header: 'Tokens', num: true, descFirst: true, cell: (r) => formatTokens(allTokens(r.t)), sortValue: (r) => allTokens(r.t) },
+  { key: 'cost', header: 'Cost', num: true, descFirst: true, cell: (r) => (r.t.sessions ? costText(r.t) : '—'), sortValue: (r) => (r.t.sessions ? r.t.cost : null) }
+]
 
 /** One running agent: provider, model, mode, status, context used and cost so far. `onOpen` makes it a link. */
 export function RunningAgent({ project, a, label, onOpen }: { project: ProjectInfo; a: ProjectInfo['agents'][number]; label?: string; onOpen?: () => void }) {

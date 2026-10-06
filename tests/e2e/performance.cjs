@@ -33,12 +33,25 @@ const now = Date.now()
 const hourStart = (t) => Math.floor(t / HOUR) * HOUR
 const bucket = (start, projects, workspace = part()) => ({ start, span: 'hour', projects, workspace, skills: { scans: timed(3, 40), sharedScans: 1, hits: 30, misses: 4, invalidations: 1, tooLarge: 0, files: 40, bytes: 120000, headerBytes: 4000, entries: 60 }, dropped: 0, droppedBy: {} })
 // The last 24 hours: alpha 30 requests (3 failed), beta 12, the workspace's own 5 (scripts); 3 days ago alpha 100 more.
+const MORE_TOOLS = ['hive_list_projects', 'hive_project_status', 'hive_session_usage', 'hive_list_shared_notes', 'hive_read_shared_note', 'hive_write_shared_note', 'hive_read_latest_handover', 'hive_create_handover', 'hive_notify', 'hive_list_providers', 'hive_agent_activity']
 const buckets = [
-  bucket(hourStart(now - 3 * 24 * HOUR), { alpha: part([apiSeries('/v1/tasks', 'agent', 'ok', 100)]) }),
+  bucket(hourStart(now - 3 * 24 * HOUR), { alpha: part([apiSeries('/v1/tasks', 'agent', 'ok', 100)], MORE_TOOLS.map((t, i) => mcpSeries(t, 1, 100 + i))) }),
   bucket(hourStart(now - 5 * HOUR), { alpha: part([apiSeries('/v1/tasks', 'agent', 'ok', 20), apiSeries('/v1/tasks/:n', 'agent', 'server-error', 3, 300)], [mcpSeries('hive_list_tasks', 10, 600), mcpSeries('hive_read_task', 4, 2500)], [launch('claude-code', 2)]) }),
   bucket(hourStart(now - 1 * HOUR), { alpha: part([apiSeries('/v1/tasks', 'agent', 'ok', 7)]), beta: part([apiSeries('/v1/tasks', 'agent', 'ok', 12)], [mcpSeries('hive_list_tasks', 2, 600)], [launch('codex', 1)]) }, part([apiSeries('/v1/tasks', 'api', 'ok', 5)]))
 ]
 fs.mkdirSync(path.join(ws, '.hive', 'metrics'), { recursive: true })
+/** Claude Code sessions in a session host's backups (what Provider usage reads), each a request an hour ago. */
+const sessionsIn = (host, ids) => {
+  const at = new Date(now - HOUR).toISOString()
+  fs.mkdirSync(path.join(host, '.hive', 'sessions'), { recursive: true })
+  for (const id of ids) {
+    const lines = [{ type: 'user', timestamp: at, message: { role: 'user', content: 'Go' } }, { type: 'assistant', requestId: `${id}-r`, timestamp: at, message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Done.' }], usage: { input_tokens: 5, cache_read_input_tokens: 1000, cache_creation_input_tokens: 100, output_tokens: 40 } } }]
+    fs.writeFileSync(path.join(host, '.hive', 'sessions', `${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+  }
+  fs.writeFileSync(path.join(host, '.hive', 'sessions.json'), JSON.stringify({ version: 1, sessions: ids.map((id) => ({ id, agent: 'claude-code', name: id.slice(-4), createdAt: at, lastActiveAt: at, archived: false })) }))
+}
+sessionsIn(path.join(ws, 'alpha'), ['66666666-aaaa-bbbb-cccc-000000000001', '66666666-aaaa-bbbb-cccc-000000000002'])
+sessionsIn(path.join(ws, '.hive', 'assistant'), ['66666666-aaaa-bbbb-cccc-000000000003'])
 // One loss Hive couldn't attribute to a project (its bookkeeping was full), in alpha's hour.
 Object.assign(buckets[1], { dropped: 1, droppedBy: { '\u0000untracked': 1 } })
 // Observed: around the older work, then the last day with a 4-hour gap (Hive closed) 10 to 6 hours ago.
@@ -90,12 +103,52 @@ const check = (name, ok, extra = '') => {
   check('the 24 hours don’t reach history removed for space', !/removed to keep/.test(await page.locator('.perf-coverage').innerText()))
   check('coverage: how long Hive was recording, and the gap', /Recorded for \d+ h/.test(await page.locator('.perf-coverage').innerText()), await page.locator('.perf-coverage').innerText())
   check('…the unrecorded hours are hatched in the trend, not shown as zero', (await page.locator('.perf-trend .daily-col.unobserved').count()) >= 3, String(await page.locator('.perf-trend .daily-col.unobserved').count()))
+  // Each table sorts by a header, and remembers it (#250): the tools by calls, the routes by failures, launches by count.
+  const perfTable = (header) => page.locator('.performance-page:visible .data-table', { has: page.locator('th', { hasText: header }) }).first()
+  const firstCells = async (t) => (await t.locator('tbody tr td:first-child').allInnerTexts()).map((x) => x.trim()).join()
+  const tools = perfTable('Per call')
+  await tools.locator('th button', { hasText: 'Calls' }).click()
+  check('the tools table sorts by Calls, most first', (await firstCells(tools)) === 'hive_list_tasks,hive_read_task', await firstCells(tools))
+  check('…remembered for the table', !!(await until(async () => (await inv('ui:get'))?.panes?.['table-sort:perf-tools:calls'] === 2)), JSON.stringify((await inv('ui:get'))?.panes))
+  await page.locator('.activitybar button[aria-label="Projects"]').click()
+  await page.locator('.activitybar button[aria-label="Performance"]').click()
+  check('…and still sorted so when the view comes back', !!(await until(async () => (await firstCells(tools)) === 'hive_list_tasks,hive_read_task')), await firstCells(tools))
+  await tools.locator('th button', { hasText: 'Calls' }).click()
+  await tools.locator('th button', { hasText: 'Calls' }).click()
+  check('…until it goes back to its default (characters), which keeps nothing', (await firstCells(tools)) === 'hive_read_task,hive_list_tasks' && !Object.keys((await inv('ui:get'))?.panes ?? {}).some((k) => k.startsWith('table-sort:perf-tools:')), await firstCells(tools))
+  const routes = perfTable('Route')
+  await routes.locator('th button', { hasText: 'Failed' }).click()
+  check('the routes table sorts by Failed', /\/v1\/tasks\/:n/.test((await routes.locator('tbody tr').first().innerText()) ?? ''), await routes.locator('tbody tr').first().innerText())
+  await routes.locator('th button', { hasText: 'Failed' }).click()
+  await routes.locator('th button', { hasText: 'Failed' }).click()
+  const launches = perfTable('Launches')
+  await launches.locator('th button', { hasText: 'Launches' }).click()
+  await launches.locator('th button', { hasText: 'Launches' }).click()
+  check('the guidance table sorts by Launches (fewest first)', (await firstCells(launches)) === 'Codex,Claude Code', await firstCells(launches))
+  await launches.locator('th button', { hasText: 'Launches' }).click()
+  const usage = perfTable('Cache read')
+  const usageWho = async () => (await usage.locator('tbody tr td:nth-child(2)').allInnerTexts()).map((x) => x.trim()).join()
+  check('Provider usage has the agents’ and the Assistant’s rows', !!(await until(async () => (await usageWho()).split(',').sort().join() === 'Agents,Assistant')), await usageWho())
+  await usage.locator('th button', { hasText: 'Sessions' }).click()
+  check('…sorted by Sessions, most first: the agents’ two', (await usageWho()) === 'Agents,Assistant', await usageWho())
+  await usage.locator('th button', { hasText: 'Sessions' }).click()
+  check('…then fewest first: the Assistant’s one', (await usageWho()) === 'Assistant,Agents', await usageWho())
+  await usage.locator('th button', { hasText: 'Sessions' }).click()
   check('the guidance table has each part', /Core\|Project\|Role\|Persona/i.test((await page.locator('.table-wrap th').allInnerTexts()).join('|')), (await page.locator('.table-wrap th').allInnerTexts()).join('|'))
   check('cancelled requests are shown apart from failures', /cancelled/.test(await page.locator('.performance-page:visible .card', { hasText: 'API requests' }).innerText()))
   await shot('wide-dark')
 
   await page.locator('.performance-page:visible .segmented button', { hasText: '7 days' }).click()
   check('7 days adds the older work, with a daily trend', !!(await until(async () => (await requests()) === '147')) && (await bars.count()) === 8, `${await requests()} ${await bars.count()}`)
+  const tools7 = perfTable('Per call')
+  const toolPaging = async () => ((await tools7.locator('.table-paging').innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ')
+  check('…its tools table pages: thirteen tools, ten a page', /1–10 of 13/.test(await toolPaging()) && (await tools7.locator('tbody tr').count()) === 10, await toolPaging())
+  await tools7.locator('input[aria-label="Filter Tool"]').fill('shared_note')
+  check('…and filters by tool', !!(await until(async () => (await firstCells(tools7)).split(',').sort().join() === 'hive_list_shared_notes,hive_read_shared_note,hive_write_shared_note')), await firstCells(tools7))
+  await tools7.locator('input[aria-label="Filter Tool"]').fill('nothing like a tool')
+  check('…no matches: says so', (await tools7.locator('.table-no-match').count()) === 1)
+  await tools7.locator('.table-no-match button', { hasText: 'Clear filters' }).click()
+  check('…and Clear filters brings them back', !!(await until(async () => /of 13/.test(await toolPaging()))), await toolPaging())
   check('…and says history Hive removed for space is unavailable', /removed to keep the metrics file under its size limit/.test(await page.locator('.perf-coverage').innerText()), await page.locator('.perf-coverage').innerText())
   await page.locator('.performance-page:visible .segmented button', { hasText: '24 hours' }).click()
   await until(async () => (await requests()) === '47')
@@ -131,7 +184,7 @@ const check = (name, ok, extra = '') => {
   check('Who frames the cards, chart and tables, not the skill service', (await who.locator('.cards').count()) === 1 && (await who.locator('.perf-trend').count()) === 1 && (await who.locator('h2', { hasText: 'Skill service' }).count()) === 0 && (await page.locator('.performance-page:visible .perf-controls select[aria-label="Who did the work"]').count()) === 0)
   check('Provider frames only launches and the providers’ usage', (await byProvider.locator('select[aria-label="Provider"]').count()) === 1 && (await byProvider.locator('.cards').count()) === 0 && (await byProvider.locator('h2', { hasText: 'Hive tools' }).count()) === 0 && (await byProvider.locator('h2', { hasText: 'Guidance at launch' }).count()) === 1)
   const providerOptions = () => page.locator('select[aria-label="Provider"] option').allInnerTexts()
-  const guidanceRows = () => byProvider.locator('tbody tr td:first-child').allInnerTexts()
+  const guidanceRows = () => byProvider.locator('.data-table', { has: page.locator('th', { hasText: 'Launches' }) }).locator('tbody tr td:first-child').allInnerTexts()
   check('…offering every provider with data', (await providerOptions()).join() === 'All providers,Claude Code,Codex', (await providerOptions()).join())
   await page.locator('select[aria-label="Provider"]').selectOption('codex')
   check('picking Codex narrows its sections to Codex', !!(await until(async () => (await guidanceRows()).join() === 'Codex')), (await guidanceRows()).join())

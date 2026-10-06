@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { ProjectInfo } from '@shared/types'
 import { providerName } from '@shared/providers'
-import { LATENCY_BOUNDS_MS, percentile, type MetricsReport, type MetricsScope, type ProviderUsageSummary, type TrendPoint } from '@shared/metrics'
-import { DEFAULT_PERF_FILTERS, PERF_RANGES, WORKSPACE_OWN, byRoute, byTool, isEmpty, pageQuery, providersIn, select, totals, type PerfFilters, type PerfRole, type PerfSelection } from '@shared/metricsView'
+import { LATENCY_BOUNDS_MS, percentile, type GuidanceSeries, type MetricsReport, type MetricsScope, type ProviderUsageSummary, type TrendPoint } from '@shared/metrics'
+import { DEFAULT_PERF_FILTERS, PERF_RANGES, WORKSPACE_OWN, byRoute, byTool, isEmpty, pageQuery, providersIn, select, totals, type PerfFilters, type PerfRole, type PerfSelection, type RouteRow, type ToolRow } from '@shared/metricsView'
 import { compareScopeKey, compareScopeOf } from '@shared/benchmark'
 import { money } from '@shared/usageTotals'
 import { formatDateTime, formatWeekdayTime } from '@shared/dates'
 import { call } from '../api'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip } from '../components/ui'
-import { CellLines } from '../components/DataTable'
+import { CellLines, DataTable, type DataColumn } from '../components/DataTable'
 import { notify, set, setActivity, useStore } from '../store'
 import { useScopedLoad } from '../scopedLoad'
 import { cx, formatBytes, formatTokens, timeAgo } from '../util'
@@ -405,100 +405,64 @@ function Trend({ points, step }: { points: TrendPoint[]; step: 'hour' | 'day' })
   )
 }
 
+const roleName = (role: string): string => (role === 'assistant' ? 'Assistant' : 'Agents')
+
+const TOOL_COLUMNS: DataColumn<ToolRow>[] = [
+  { key: 'tool', header: 'Tool', cell: (r) => r.tool, sortValue: (r) => r.tool, filter: { kind: 'text', value: (r) => r.tool } },
+  { key: 'calls', header: 'Calls', num: true, descFirst: true, cell: (r) => num(r.calls), sortValue: (r) => r.calls },
+  { key: 'chars', header: 'Characters', num: true, descFirst: true, cell: (r) => num(r.chars), sortValue: (r) => r.chars },
+  { key: 'avg', header: 'Per call', num: true, descFirst: true, cell: (r) => num(r.avgChars), sortValue: (r) => r.avgChars },
+  { key: 'detail', header: 'Detail', num: true, descFirst: true, cell: (r) => (r.detail ? num(r.detail) : '—'), sortValue: (r) => r.detail },
+  { key: 'errors', header: 'Errors', num: true, descFirst: true, cell: (r) => (r.errors ? num(r.errors) : '—'), sortValue: (r) => r.errors },
+  { key: 'p95', header: 'p95', num: true, descFirst: true, cell: (r) => ms(r.p95, r.calls), sortValue: (r) => r.p95 }
+]
+
 function ToolsTable({ sel }: { sel: PerfSelection }) {
-  const rows = byTool(sel.mcp)
-  const [all, setAll] = useState(false)
+  const rows = useMemo(() => byTool(sel.mcp), [sel.mcp])
   if (!rows.length) return null
-  const shown = all ? rows : rows.slice(0, 12)
   return (
     <>
       <h2 className="section">
         Hive tools <InfoTip text="Each hive tool's replies as the models got them: characters and UTF-8 bytes, exactly. Detail: calls that asked for the full form. Sorted by characters, what costs a context most." />
       </h2>
-      <div className="table-wrap">
-        <table className="table">
-        <thead>
-          <tr>
-            <th>Tool</th>
-            <th className="num">Calls</th>
-            <th className="num">Characters</th>
-            <th className="num">Per call</th>
-            <th className="num">Detail</th>
-            <th className="num">Errors</th>
-            <th className="num">p95</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((r) => (
-            <tr key={r.tool}>
-              <td>{r.tool}</td>
-              <td className="num">{num(r.calls)}</td>
-              <td className="num">{num(r.chars)}</td>
-              <td className="num">{num(r.avgChars)}</td>
-              <td className="num">{r.detail ? num(r.detail) : '—'}</td>
-              <td className="num">{r.errors ? num(r.errors) : '—'}</td>
-              <td className="num">{ms(r.p95, r.calls)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      </div>
-      {rows.length > 12 && (
-        <button className="btn small subtle" onClick={() => setAll(!all)}>
-          {all ? 'Fewer' : `All ${rows.length}`}
-        </button>
-      )}
+      <DataTable id="perf-tools" rows={rows} columns={TOOL_COLUMNS} rowKey={(r) => r.tool} defaultSort={BY_CHARS} defaultPageSize={10} filterFrom={10} empty="No tool calls." />
     </>
   )
 }
+const BY_CHARS = { key: 'chars', desc: true }
+
+const failedOnly = (r: RouteRow): number => r.failed - r.cancelled
+const ROUTE_COLUMNS: DataColumn<RouteRow>[] = [
+  {
+    key: 'route',
+    header: 'Route',
+    cell: (r) => (
+      <>
+        <span className="faint">{r.method}</span> {r.route}
+      </>
+    ),
+    sortValue: (r) => r.route,
+    filter: { kind: 'text', value: (r) => `${r.method} ${r.route}` }
+  },
+  { key: 'requests', header: 'Requests', num: true, descFirst: true, cell: (r) => num(r.requests), sortValue: (r) => r.requests },
+  { key: 'failed', header: 'Failed', num: true, descFirst: true, cell: (r) => (failedOnly(r) ? `${num(failedOnly(r))} (${pct(failedOnly(r), r.requests)})` : '—'), sortValue: failedOnly },
+  { key: 'cancelled', header: 'Cancelled', num: true, descFirst: true, cell: (r) => (r.cancelled ? `${num(r.cancelled)} (${pct(r.cancelled, r.requests)})` : '—'), sortValue: (r) => r.cancelled },
+  { key: 'p50', header: 'p50', num: true, descFirst: true, cell: (r) => ms(r.p50, r.requests), sortValue: (r) => r.p50 },
+  { key: 'p95', header: 'p95', num: true, descFirst: true, cell: (r) => ms(r.p95, r.requests), sortValue: (r) => r.p95 },
+  { key: 'sent', header: 'Sent', num: true, descFirst: true, cell: (r) => formatBytes(r.responseBytes), sortValue: (r) => r.responseBytes },
+  { key: 'received', header: 'Received', num: true, descFirst: true, cell: (r) => formatBytes(r.requestBytes), sortValue: (r) => r.requestBytes }
+]
+const BY_REQUESTS = { key: 'requests', desc: true }
 
 function RoutesTable({ sel }: { sel: PerfSelection }) {
-  const rows = byRoute(sel.api)
-  const [all, setAll] = useState(false)
+  const rows = useMemo(() => byRoute(sel.api), [sel.api])
   if (!rows.length) return null
-  const shown = all ? rows : rows.slice(0, 12)
   return (
     <>
       <h2 className="section">
         Agent API <InfoTip text="Requests by route (its template, never the path asked for). The hive tools call these too; a tool call and its request are the same work, so don't add them up." />
       </h2>
-      <div className="table-wrap">
-        <table className="table">
-        <thead>
-          <tr>
-            <th>Route</th>
-            <th className="num">Requests</th>
-            <th className="num">Failed</th>
-            <th className="num">Cancelled</th>
-            <th className="num">p50</th>
-            <th className="num">p95</th>
-            <th className="num">Sent</th>
-            <th className="num">Received</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((r) => (
-            <tr key={r.key}>
-              <td>
-                <span className="faint">{r.method}</span> {r.route}
-              </td>
-              <td className="num">{num(r.requests)}</td>
-              <td className="num">{r.failed - r.cancelled ? `${num(r.failed - r.cancelled)}\u00a0(${pct(r.failed - r.cancelled, r.requests)})` : '—'}</td>
-              <td className="num">{r.cancelled ? `${num(r.cancelled)}\u00a0(${pct(r.cancelled, r.requests)})` : '—'}</td>
-              <td className="num">{ms(r.p50, r.requests)}</td>
-              <td className="num">{ms(r.p95, r.requests)}</td>
-              <td className="num">{formatBytes(r.responseBytes)}</td>
-              <td className="num">{formatBytes(r.requestBytes)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      </div>
-      {rows.length > 12 && (
-        <button className="btn small subtle" onClick={() => setAll(!all)}>
-          {all ? 'Fewer' : `All ${rows.length}`}
-        </button>
-      )}
+      <DataTable id="perf-routes" rows={rows} columns={ROUTE_COLUMNS} rowKey={(r) => r.key} defaultSort={BY_REQUESTS} defaultPageSize={10} filterFrom={10} empty="No requests." />
     </>
   )
 }
@@ -545,62 +509,120 @@ function ToolList({ sel }: { sel: PerfSelection }) {
   return <p className="hint">The hive tools’ list, as each session got it: {sel.catalog.map((c) => `${c.role === 'assistant' ? 'Assistant' : 'agents'} ${num(c.starts ? c.tools / c.starts : 0)} tools, ${formatBytes(c.starts ? c.toolsBytes / c.starts : 0)} a start`).join('; ')}.</p>
 }
 
+const perLaunch = (n: number, launches: number): number | null => (launches && n ? n / launches : null)
+const perLaunchColumn = (key: string, header: string, bytes: (g: GuidanceSeries) => number): DataColumn<GuidanceSeries> => ({
+  key,
+  header,
+  num: true,
+  descFirst: true,
+  cell: (g) => {
+    const v = perLaunch(bytes(g), g.launches)
+    return v === null ? '—' : formatBytes(v)
+  },
+  sortValue: (g) => perLaunch(bytes(g), g.launches)
+})
+const GUIDANCE_COLUMNS: DataColumn<GuidanceSeries>[] = [
+  { key: 'provider', header: 'Provider', className: 'nowrap', cell: (g) => providerName(g.provider), sortValue: (g) => providerName(g.provider) },
+  { key: 'role', header: 'Who', className: 'nowrap', cell: (g) => roleName(g.role), sortValue: (g) => roleName(g.role) },
+  { key: 'launches', header: 'Launches', num: true, descFirst: true, cell: (g) => num(g.launches), sortValue: (g) => g.launches },
+  perLaunchColumn('core', 'Core', (g) => g.guidanceBytes),
+  perLaunchColumn('project', 'Project', (g) => g.customBytes),
+  perLaunchColumn('roleBytes', 'Role', (g) => g.roleBytes),
+  perLaunchColumn('persona', 'Persona', (g) => g.personaBytes),
+  { key: 'skills', header: 'Skills', num: true, descFirst: true, cell: (g) => (g.launches ? (g.skills / g.launches).toFixed(1) : '—'), sortValue: (g) => (g.launches ? g.skills / g.launches : null) },
+  perLaunchColumn('catalog', 'Catalog', (g) => g.skillCatalogBytes),
+  perLaunchColumn('disk', 'On disk', (g) => g.skillBytes),
+  {
+    key: 'notGiven',
+    header: 'Not given',
+    num: true,
+    descFirst: true,
+    cell: (g) =>
+      g.skillsNotDelivered || g.skillsUnmeasured ? (
+        <Tooltip content={`${g.skillsNotDelivered} asked for but not delivered; ${g.skillsUnmeasured} delivered but couldn't be measured (left out of the sizes, not counted as zero).`}>
+          <span>
+            {num(g.skillsNotDelivered)}
+            {g.skillsUnmeasured ? ` + ${num(g.skillsUnmeasured)} ?` : ''}
+          </span>
+        </Tooltip>
+      ) : (
+        '—'
+      ),
+    sortValue: (g) => (g.skillsNotDelivered ?? 0) + (g.skillsUnmeasured ?? 0)
+  }
+]
+
+// Totals of sessions none of which reported usage are unknown, not zero: they sort last, either way.
+const allUnknown = (p: ProviderUsageSummary): boolean => p.unknown === p.sessions
+const tokenColumn = (key: string, header: string, n: (p: ProviderUsageSummary) => number): DataColumn<ProviderUsageSummary> => ({
+  key,
+  header,
+  num: true,
+  descFirst: true,
+  cell: (p) => (allUnknown(p) ? 'unknown' : formatTokens(n(p))),
+  sortValue: (p) => (allUnknown(p) ? null : n(p))
+})
+const PROVIDER_COLUMNS: DataColumn<ProviderUsageSummary>[] = [
+  { key: 'provider', header: 'Provider', className: 'nowrap', cell: (p) => providerName(p.provider), sortValue: (p) => providerName(p.provider) },
+  { key: 'role', header: 'Who', className: 'nowrap', cell: (p) => roleName(p.role), sortValue: (p) => roleName(p.role) },
+  {
+    key: 'sessions',
+    header: 'Sessions',
+    num: true,
+    descFirst: true,
+    // Deliberate lines (#241): the count, then who is running and what is unknown.
+    cell: (p) => <CellLines main={num(p.sessions)} sub={[p.running ? `${p.running} running` : '', p.unknown ? `${p.unknown} unknown` : ''].filter(Boolean).join(' · ')} subWarn={!!p.unknown} />,
+    sortValue: (p) => p.sessions
+  },
+  tokenColumn('input', 'Input', (p) => p.inputTokens),
+  tokenColumn('cacheRead', 'Cache read', (p) => p.cacheReadTokens),
+  tokenColumn('cacheWrite', 'Cache write', (p) => p.cacheWriteTokens),
+  tokenColumn('output', 'Output', (p) => p.outputTokens),
+  { key: 'reasoning', header: 'of it reasoning', num: true, descFirst: true, cell: (p) => (p.reasoningTokens ? formatTokens(p.reasoningTokens) : '—'), sortValue: (p) => p.reasoningTokens || null },
+  { key: 'requests', header: 'Requests', num: true, descFirst: true, cell: (p) => (allUnknown(p) ? 'unknown' : num(p.requests)), sortValue: (p) => (allUnknown(p) ? null : p.requests) },
+  {
+    key: 'context',
+    header: 'Context',
+    num: true,
+    descFirst: true,
+    cell: (p) =>
+      p.contextSessions ? (
+        <Tooltip content={`Last request's context, over ${p.contextSessions} session${p.contextSessions === 1 ? '' : 's'}: average ${formatTokens(p.contextAvgTokens)}, largest ${formatTokens(p.contextMaxTokens)}${p.contextWindow ? ` of a ${formatTokens(p.contextWindow)} window` : ''}.`}>
+          <span>
+            <CellLines main={`${formatTokens(p.contextAvgTokens)} avg`} sub={`${formatTokens(p.contextMaxTokens)} max${p.contextWindow ? ` of ${formatTokens(p.contextWindow)}` : ''}`} />
+          </span>
+        </Tooltip>
+      ) : (
+        '—'
+      ),
+    sortValue: (p) => (p.contextSessions ? p.contextAvgTokens : null)
+  },
+  { key: 'compactions', header: 'Compactions', num: true, descFirst: true, cell: (p) => (allUnknown(p) ? 'unknown' : num(p.compactions)), sortValue: (p) => (allUnknown(p) ? null : p.compactions) },
+  {
+    key: 'cost',
+    header: 'Cost',
+    num: true,
+    descFirst: true,
+    cell: (p) =>
+      p.costUnknown === p.sessions ? (
+        'unknown'
+      ) : (
+        // "≈ $25.87" as one unbreakable value; the unknown sessions under it (#241).
+        <CellLines main={`${p.costEstimated ? '≈ ' : ''}${money(p.costUsd)}`} sub={p.costUnknown ? `+ ${p.costUnknown} unknown` : ''} subWarn />
+      ),
+    sortValue: (p) => (p.costUnknown === p.sessions ? null : p.costUsd)
+  }
+]
+
 function GuidanceTable({ sel, unmeasured }: { sel: PerfSelection; unmeasured: number }) {
   if (!sel.guidance.length) return null
-  const per = (n: number, launches: number): string => (launches && n ? formatBytes(n / launches) : '—')
   return (
     <>
       <h2 className="section">
         Guidance at launch{' '}
         <InfoTip text="What Hive gave sessions when they started, per launch on average, exactly. Core: Hive's session contract, the same for every session of a role. Project: what Hive adds for the project (the latest handover's pointer). Role and persona: the Assistant's. Catalog: the skills' names and descriptions (what a CLI lists); on disk: the delivered copies' bytes. A model reads a skill's body only when it uses it, which isn't observable." />
       </h2>
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Provider</th>
-              <th>Who</th>
-              <th className="num">Launches</th>
-              <th className="num">Core</th>
-              <th className="num">Project</th>
-              <th className="num">Role</th>
-              <th className="num">Persona</th>
-              <th className="num">Skills</th>
-              <th className="num">Catalog</th>
-              <th className="num">On disk</th>
-              <th className="num">Not given</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sel.guidance.map((g) => (
-              <tr key={`${g.provider} ${g.role}`}>
-                <td className="nowrap">{providerName(g.provider)}</td>
-                <td className="nowrap">{g.role === 'assistant' ? 'Assistant' : 'Agents'}</td>
-                <td className="num">{num(g.launches)}</td>
-                <td className="num">{per(g.guidanceBytes, g.launches)}</td>
-                <td className="num">{per(g.customBytes, g.launches)}</td>
-                <td className="num">{per(g.roleBytes, g.launches)}</td>
-                <td className="num">{per(g.personaBytes, g.launches)}</td>
-                <td className="num">{g.launches ? (g.skills / g.launches).toFixed(1) : '—'}</td>
-                <td className="num">{per(g.skillCatalogBytes, g.launches)}</td>
-                <td className="num">{per(g.skillBytes, g.launches)}</td>
-                <td className="num">
-                  {g.skillsNotDelivered || g.skillsUnmeasured ? (
-                    <Tooltip content={`${g.skillsNotDelivered} asked for but not delivered; ${g.skillsUnmeasured} delivered but couldn't be measured (left out of the sizes, not counted as zero).`}>
-                      <span>
-                        {num(g.skillsNotDelivered)}
-                        {g.skillsUnmeasured ? ` + ${num(g.skillsUnmeasured)} ?` : ''}
-                      </span>
-                    </Tooltip>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable id="perf-guidance" rows={sel.guidance} columns={GUIDANCE_COLUMNS} rowKey={(g) => `${g.provider} ${g.role}`} empty="No launches." />
       {unmeasured > 0 && <p className="hint">Skills marked ? couldn’t be measured.</p>}
     </>
   )
@@ -623,76 +645,13 @@ function ProvidersTable({ sel, note, unreadable, hosts }: { sel: PerfSelection; 
         {note && <p className="hint">{note}</p>}
       </>
     ) : null
-  // Totals of sessions none of which reported usage are unknown, not zero.
-  const tok = (p: ProviderUsageSummary, n: number): string => (p.unknown === p.sessions ? 'unknown' : formatTokens(n))
   return (
     <>
       <h2 className="section">
         Provider usage{' '}
         <InfoTip text="What the providers reported for the sessions active in the range, by whose sessions they were: each session's whole usage (so a long session counts in full). Reasoning is part of output, shown separately, not added. Context is a snapshot of each session's last request (average and largest), not a sum. Cost is API-equivalent (≈ estimated by Hive where the provider didn't report it); a subscription isn't billed per this. Sessions that reported nothing are unknown, left out of the totals." />
       </h2>
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Provider</th>
-              <th>Who</th>
-              <th className="num">Sessions</th>
-              <th className="num">Input</th>
-              <th className="num">Cache read</th>
-              <th className="num">Cache write</th>
-              <th className="num">Output</th>
-              <th className="num">of it reasoning</th>
-              <th className="num">Requests</th>
-              <th className="num">Context</th>
-              <th className="num">Compactions</th>
-              <th className="num">Cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sel.providers.map((p) => (
-              <tr key={`${p.provider} ${p.role}`}>
-                <td className="nowrap">{providerName(p.provider)}</td>
-                <td className="nowrap">{p.role === 'assistant' ? 'Assistant' : 'Agents'}</td>
-                <td className="num">
-                  {/* Deliberate lines (#241): the count, then who is running and what is unknown. */}
-                  <CellLines
-                    main={num(p.sessions)}
-                    sub={[p.running ? `${p.running} running` : '', p.unknown ? `${p.unknown} unknown` : ''].filter(Boolean).join(' · ')}
-                    subWarn={!!p.unknown}
-                  />
-                </td>
-                <td className="num">{tok(p, p.inputTokens)}</td>
-                <td className="num">{tok(p, p.cacheReadTokens)}</td>
-                <td className="num">{tok(p, p.cacheWriteTokens)}</td>
-                <td className="num">{tok(p, p.outputTokens)}</td>
-                <td className="num">{p.reasoningTokens ? formatTokens(p.reasoningTokens) : '—'}</td>
-                <td className="num">{p.unknown === p.sessions ? 'unknown' : num(p.requests)}</td>
-                <td className="num">
-                  {p.contextSessions ? (
-                    <Tooltip content={`Last request's context, over ${p.contextSessions} session${p.contextSessions === 1 ? '' : 's'}: average ${formatTokens(p.contextAvgTokens)}, largest ${formatTokens(p.contextMaxTokens)}${p.contextWindow ? ` of a ${formatTokens(p.contextWindow)} window` : ''}.`}>
-                      <span>
-                        <CellLines main={`${formatTokens(p.contextAvgTokens)} avg`} sub={`${formatTokens(p.contextMaxTokens)} max${p.contextWindow ? ` of ${formatTokens(p.contextWindow)}` : ''}`} />
-                      </span>
-                    </Tooltip>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td className="num">{p.unknown === p.sessions ? 'unknown' : num(p.compactions)}</td>
-                <td className="num">
-                  {p.costUnknown === p.sessions ? (
-                    'unknown'
-                  ) : (
-                    // "≈ $25.87" as one unbreakable value; the unknown sessions under it (#241).
-                    <CellLines main={`${p.costEstimated ? '≈\u00a0' : ''}${money(p.costUsd)}`} sub={p.costUnknown ? `+ ${p.costUnknown} unknown` : ''} subWarn />
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable id="perf-providers" rows={sel.providers} columns={PROVIDER_COLUMNS} rowKey={(p) => `${p.provider} ${p.role}`} empty="No provider usage." />
       {partial}
       {note && <p className="hint">{note}</p>}
     </>

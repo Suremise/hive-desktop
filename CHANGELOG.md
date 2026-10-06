@@ -12,6 +12,7 @@
 - **A project's Skills tab shows one provider at a time.** Pick Claude Code or Codex from a dropdown (it starts on the project's default provider); its skills sit folded under the Hive skills, and Hive remembers, for each project, the provider you picked and what you left open. The list is much shorter.
 
 ### Hive
+- **Tables work the same everywhere.** The keyboard shortcuts, Performance's and Compare's tables, Storage (with Clean Up…'s preview and every project in Settings → Workspace) and the Overviews' tables by project and by agent now sort by any column, filter and page like the compaction history, and remember each table's sort and rows per page.
 - **Move any dialog out of the way.** Like an open card, every dialog (Add Agent, Agent Settings, Merge, questions…) can now be dragged by its header to see what's behind it; it stays inside the window, Escape while dragging puts it back, and it opens in the middle again next time. A question over a dialog moves on its own, and Escape now closes only the question. The image viewers stay put.
 
 ### Workspaces
