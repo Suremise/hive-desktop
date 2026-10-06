@@ -276,7 +276,7 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
                     title="Guidance per launch"
                     value={formatBytes(t.avgGuidanceBytes + t.avgCustomBytes + t.avgRoleBytes + t.avgPersonaBytes + t.avgSkillCatalogBytes)}
                     sub={`${num(t.launches)} launch${t.launches === 1 ? '' : 'es'} · core ${formatBytes(t.avgGuidanceBytes)} · catalog ${formatBytes(t.avgSkillCatalogBytes)}`}
-                    tip="What Hive gave each session at launch, on average: its session contract (core), what it adds for the project, the Assistant's role and persona, and its skills' catalog (names and descriptions). Skill bodies are separate: a model reads one only when it uses it."
+                    tip="What Hive gave each session at launch, on average: its session contract (core), what it adds for the project, the Assistant's role and mode, and its skills' catalog (names and descriptions). Skill bodies are separate: a model reads one only when it uses it."
                   />
                 </div>
 
@@ -535,7 +535,7 @@ const GUIDANCE_COLUMNS: DataColumn<GuidanceSeries>[] = [
   perLaunchColumn('core', 'Core', (g) => g.guidanceBytes),
   perLaunchColumn('project', 'Project', (g) => g.customBytes),
   perLaunchColumn('roleBytes', 'Role', (g) => g.roleBytes),
-  perLaunchColumn('persona', 'Persona', (g) => g.personaBytes),
+  perLaunchColumn('persona', 'Mode', (g) => g.personaBytes),
   { key: 'skills', header: 'Skills', num: true, descFirst: true, cell: (g) => (g.launches ? (g.skills / g.launches).toFixed(1) : '—'), sortValue: (g) => (g.launches ? g.skills / g.launches : null) },
   perLaunchColumn('catalog', 'Catalog', (g) => g.skillCatalogBytes),
   perLaunchColumn('disk', 'On disk', (g) => g.skillBytes),
@@ -627,7 +627,7 @@ function GuidanceTable({ sel, unmeasured }: { sel: PerfSelection; unmeasured: nu
     <>
       <h2 className="section">
         Guidance at launch{' '}
-        <InfoTip text="What Hive gave sessions when they started, per launch on average, exactly. Core: Hive's session contract, the same for every session of a role. Project: what Hive adds for the project (the latest handover's pointer). Role and persona: the Assistant's. Catalog: the skills' names and descriptions (what a CLI lists); on disk: the delivered copies' bytes. A model reads a skill's body only when it uses it, which isn't observable." />
+        <InfoTip text="What Hive gave sessions when they started, per launch on average, exactly. Core: Hive's session contract, the same for every session of a role. Project: what Hive adds for the project (the latest handover's pointer). Role and mode: the Assistant's. Catalog: the skills' names and descriptions (what a CLI lists); on disk: the delivered copies' bytes. A model reads a skill's body only when it uses it, which isn't observable." />
       </h2>
       <DataTable id="perf-guidance" rows={sel.guidance} columns={GUIDANCE_COLUMNS} rowKey={(g) => `${g.provider} ${g.role}`} empty="No launches." />
       {unmeasured > 0 && <p className="hint">Skills marked ? couldn’t be measured.</p>}

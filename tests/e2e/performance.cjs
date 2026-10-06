@@ -135,7 +135,7 @@ const check = (name, ok, extra = '') => {
   await usage.locator('th button', { hasText: 'Sessions' }).click()
   check('…then fewest first: the Assistant’s one', (await usageWho()) === 'Assistant,Agents', await usageWho())
   await usage.locator('th button', { hasText: 'Sessions' }).click()
-  check('the guidance table has each part', /Core\|Project\|Role\|Persona/i.test((await page.locator('.table-wrap th').allInnerTexts()).join('|')), (await page.locator('.table-wrap th').allInnerTexts()).join('|'))
+  check('the guidance table has each part', /Core\|Project\|Role\|Mode/i.test((await page.locator('.table-wrap th').allInnerTexts()).join('|')), (await page.locator('.table-wrap th').allInnerTexts()).join('|'))
   check('cancelled requests are shown apart from failures', /cancelled/.test(await page.locator('.performance-page:visible .card', { hasText: 'API requests' }).innerText()))
   await shot('wide-dark')
 

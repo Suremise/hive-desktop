@@ -50,9 +50,9 @@ export async function listPersonas(): Promise<PersonaInfo[]> {
 
 export async function createPersona(name: string): Promise<PersonaInfo> {
   const id = personaId(name)
-  if (!validId(id)) throw new Error('Give the persona a name with letters or numbers.')
+  if (!validId(id)) throw new Error('Give the mode a name with letters or numbers.')
   const path = join(workspace.personasDir, `${id}.md`)
-  if (existsSync(path)) throw new Error(`There is already a persona called "${id}".`)
+  if (existsSync(path)) throw new Error(`There is already a mode called "${id}".`)
   await mkdir(workspace.personasDir, { recursive: true })
   await writeFile(path, newPersonaText(name.trim()), { flag: 'wx' })
   return info(path, id)
@@ -60,7 +60,7 @@ export async function createPersona(name: string): Promise<PersonaInfo> {
 
 /** Moves a persona's file to the Recycle Bin. */
 export async function deletePersona(id: string): Promise<void> {
-  if (!validId(id)) throw new Error('Invalid persona')
+  if (!validId(id)) throw new Error('Invalid mode')
   const path = join(workspace.personasDir, `${id}.md`)
   if (existsSync(path)) await shell.trashItem(path)
 }
@@ -68,7 +68,7 @@ export async function deletePersona(id: string): Promise<void> {
 /** Puts back a bundled persona as this version of Hive ships it; the workspace's copy goes to the Recycle Bin. */
 export async function restorePersona(id: string): Promise<PersonaInfo> {
   const src = join(bundledPersonasDir(), `${id}.md`)
-  if (!validId(id) || !existsSync(src)) throw new Error(`"${id}" isn't one of Hive's personas.`)
+  if (!validId(id) || !existsSync(src)) throw new Error(`"${id}" isn't one of Hive's modes.`)
   const dest = join(workspace.personasDir, `${id}.md`)
   if (existsSync(dest)) await shell.trashItem(dest)
   await restoreBundled('personas', id)
