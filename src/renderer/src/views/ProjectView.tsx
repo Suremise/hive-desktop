@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ProjectInfo } from '@shared/types'
 import { agentLaunchSettings, isProviderEnabled, modeOption, providerName } from '@shared/providers'
-import { agentsToResume } from '@shared/resumeAll'
+import { agentsToResume, stalledOnSignIn } from '@shared/resumeAll'
 import { archiveTarget, batchCounts } from '@shared/startAll'
 import { PROJECT_TABS, tabCommand } from '@shared/projectTabs'
 import hexUrl from '../assets/icon.svg'
@@ -252,6 +252,17 @@ export function ProjectView({ visible }: { visible: boolean }) {
   // icon when narrow.
   const counts = batchCounts(project.agents)
   const resumeLabel = resumable.length === 1 ? 'Resume Agent' : `Resume All Agents (${resumable.length})`
+  // Running agents a refused sign-in stopped are carried on, the stopped ones resumed (#309).
+  const stalled = resumable.filter((a) => stalledOnSignIn(a.live)).length
+  const stoppedCount = resumable.length - stalled
+  const resumeTip =
+    resumable.length === 1
+      ? stalled
+        ? `Carry on ${resumable[0].name}: its turn stopped when its sign-in expired`
+        : `Resume ${resumable[0].name}'s last session`
+      : stalled
+        ? `${[stoppedCount ? `Resume the ${stoppedCount === 1 ? 'stopped agent' : `${stoppedCount} stopped agents`}` : '', `${stoppedCount ? 'carry' : 'Carry'} on the ${stalled === 1 ? 'agent' : `${stalled} agents`} a refused sign-in stopped`].filter(Boolean).join(' and ')} (other running ones are left alone)`
+        : `Resume the ${resumable.length} stopped agents (running ones are left alone)`
   const stopLabel = running.length === 1 ? 'Stop Agent' : `Stop (${running.length})`
   // The batch actions, as buttons or (cramped) as ⋯ items; with one agent, no count.
   const startNew = counts.startNew
@@ -305,7 +316,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
               </span>
             }
           >
-            <span className={cx('badge', (combined?.status === 'working' || combined?.status === 'background') && 'accent', combined?.status === 'waiting' && 'warn', combined?.status === 'finished' && 'success')}>
+            <span className={cx('badge', (combined?.status === 'working' || combined?.status === 'background') && 'accent', combined?.status === 'waiting' && 'warn', combined?.status === 'signin' && 'signin', combined?.status === 'finished' && 'success')}>
               <span className={cx('dot', combined?.status ?? 'idle')} /> {combined ? STATUS_TEXT[combined.status] : 'No session'}
               {many && inStatus > 0 && !tight && (
                 <span className="faint">
@@ -324,7 +335,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
             </label>
           </Tooltip>
           {resumable.length > 0 && (
-            <Tooltip content={resumable.length === 1 ? `Resume ${resumable[0].name}'s last session` : `Resume the ${resumable.length} stopped agents (running ones are left alone)`}>
+            <Tooltip content={resumeTip}>
               <button className="btn tint-amber" disabled={resuming} aria-busy={resuming || undefined} aria-label={resumeLabel} onClick={() => void actions.resumeAllAgents(project.path)}>
                 <Icon name={resuming ? 'loading' : 'debug-continue'} spin={resuming} />
                 {!tight && ` ${resuming ? 'Resuming…' : resumable.length === 1 ? 'Resume Agent' : narrow ? `Resume (${resumable.length})` : resumeLabel}`}

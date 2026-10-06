@@ -312,7 +312,12 @@ function progressOf(projectPath: string, agentId: string) {
 }
 
 /** An agent's status message: a watching agent's is what it waits for. */
-const statusMessageOf = (live: LiveSessionState | null | undefined): string | null => (live?.status === 'watching' ? (live.watch?.label ?? null) : (live?.statusMessage ?? null))
+const statusMessageOf = (live: LiveSessionState | null | undefined): string | null =>
+  live?.status === 'watching'
+    ? (live.watch?.label ?? null)
+    : live?.status === 'signin'
+      ? `Its CLI's sign-in has expired: the user must sign in again (${live.signIn?.message ?? 'not signed in'})`
+      : (live?.statusMessage ?? null)
 
 async function projectSummary(p: string) {
   const info = await workspace.projectInfo(p)
@@ -620,10 +625,11 @@ route('POST', '/v1/projects', async ({ body }) => {
   })
 })
 
-const busy = (s: LiveSessionState | null): boolean => !!s && (s.status === 'working' || s.status === 'waiting' || s.status === 'starting' || s.status === 'background')
+const busy = (s: LiveSessionState | null): boolean => !!s && (s.status === 'working' || s.status === 'waiting' || s.status === 'starting' || s.status === 'background' || s.status === 'signin')
 const STATUS_WORDS: Record<string, string> = {
   working: 'working',
   waiting: 'waiting for the user',
+  signin: 'waiting for the user to sign in to its CLI again (its sign-in expired)',
   starting: 'starting',
   background: 'waiting on background tasks it started',
   watching: 'waiting for cards to change (a card watch: its card loop pauses until it is resumed)',
@@ -763,6 +769,7 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
     if (st.status === 'starting') throw new HttpError(409, `${a.name} is still starting. Wait for it (hive_wait_for_agents), then try again.`)
     if (st.status === 'waiting') throw new HttpError(409, `${a.name} is waiting for the user${st.statusMessage ? ` (${st.statusMessage})` : ''}. Tell the user; don't answer for them.`)
     if (st.status === 'working') throw new HttpError(409, `${a.name} is working. Wait until it's idle (hive_wait_for_agents), then give it the task.`)
+    if (st.status === 'signin') throw new HttpError(409, `${a.name}'s CLI needs the user to sign in again (its sign-in expired). Tell the user; nothing it is given runs until then.`)
     if (st.status === 'watching') throw new HttpError(409, `${a.name} is ${st.watch?.label.replace(/^Waiting/, 'waiting') ?? 'waiting on cards'} (a card watch): it takes no other work until it is woken or the user cancels the watch.`)
     if (st.status === 'background') {
       throw new HttpError(409, `${a.name} is waiting on ${tasksWord(st.backgroundTasks ?? 0)} it started (such as a test run) and carries on by itself when they end. Wait for it (hive_wait_for_agents), then give it the task. If it seems stuck, tell the user.`)

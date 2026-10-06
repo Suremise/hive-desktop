@@ -29,6 +29,11 @@
 //   and sends no hook; with "compactfail" in the focus it fails after PreCompact with "Error during compaction".
 // - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does.
 // - Ctrl+C twice, or "/exit", ends it with SessionEnd.
+// - With fake-signin.json in CLAUDE_CONFIG_DIR saying { "expired": true } (read each time; one test home, so one sign-in
+//   for all its agents, #309), it acts out an expired sign-in as Claude Code 2.1.291 does: `auth status --json` says
+//   it isn't logged in, and each prompt's turn ends at once with "Login expired · Please run /login" and a StopFailure
+//   hook (error authentication_failed) instead of Stop. "/login" typed in it signs in (the file says expired: false)
+//   and carries the failed turn on by itself, as Claude Code did: a tool call (PostToolUse), then the reply and Stop.
 // - `--model fail-start` makes it refuse to start, printing an error and exiting with 1, as Claude Code does for an
 //   argument it rejects.
 // - `-p --input-format stream-json` answers the Agent SDK's initialize control request with Claude Code 2.1.289's
@@ -48,8 +53,16 @@ if (args[0] === '--version') {
   console.log('2.1.999 (Claude Code)')
   process.exit(0)
 }
+/** The test home's sign-in has expired (fake-signin.json, #309). */
+function signedOut() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR || '', 'fake-signin.json'), 'utf8')).expired === true
+  } catch {
+    return false
+  }
+}
 if (args[0] === 'auth') {
-  console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai' }))
+  console.log(JSON.stringify(signedOut() ? { loggedIn: false, authMethod: 'none' } : { loggedIn: true, authMethod: 'claude.ai' }))
   process.exit(0)
 }
 /** fake-models.json in the test home ({ haikuAuto }), or null (#234). */
@@ -208,11 +221,23 @@ function wakeScript(text) {
 
 let busy = false
 const isBusy = () => busy
+/** The prompt whose turn the expired sign-in stopped: "/login" carries it on. */
+let refused = null
 async function runPrompt(text) {
   busy = true
   out(`\r\n> ${text}\r\n`)
   write({ type: 'user', message: { role: 'user', content: text } })
   await hook('UserPromptSubmit', { prompt: text })
+  if (signedOut()) {
+    const said = 'Login expired · Please run /login'
+    refused = text
+    write({ type: 'assistant', requestId: `req_${randomUUID().slice(0, 8)}`, message: { model: '<synthetic>', content: [{ type: 'text', text: said }] }, isApiErrorMessage: true })
+    out(`\r\n● ${said}\r\n`)
+    await hook('StopFailure', { error: 'authentication_failed', last_assistant_message: said })
+    busy = false
+    promptLine()
+    return
+  }
   // A line Hive typed to wake it (a card watch): logged, and answered with the next line of its wake script.
   const woken = wakeScript(text)
   if (woken !== null) text = woken
@@ -315,6 +340,19 @@ async function boardPatch(n, change) {
   }
 }
 
+/** "/login": signs the test home in again, and carries on the turn the expired sign-in stopped, by itself. */
+async function login() {
+  fs.writeFileSync(path.join(home, 'fake-signin.json'), JSON.stringify({ expired: false }))
+  out('\r\nLogin successful\r\n')
+  const text = refused
+  refused = null
+  if (!text) return promptLine()
+  busy = true
+  await hook('PostToolUse', { tool_name: 'Bash', tool_input: { command: 'echo carried on' } })
+  await sleep(1000)
+  await endTurn(`Done: ${text}`)
+}
+
 async function endTurn(answer) {
   write({ type: 'assistant', requestId: `req_${randomUUID().slice(0, 8)}`, message: { model: 'claude-fake', content: [{ type: 'text', text: answer }], usage: { input_tokens: 20, output_tokens: 10 } } })
   out(`\r\n${answer}\r\n`)
@@ -414,6 +452,7 @@ process.stdin.on('data', (data) => {
       } else if (text === '/exit') void quit()
       // /rename: the session's name, as Claude Code keeps it (no hook; Hive sees it in the transcript).
       else if ((text === '/compact' || text.startsWith('/compact ')) && !busy) void compact(text.slice(8).trim())
+      else if (text === '/login' && !busy) void login()
       else if (text.startsWith('/rename ')) {
         write({ type: 'custom-title', customTitle: text.slice(8).trim() })
         promptLine()

@@ -122,6 +122,8 @@ export interface ProviderDescriptor {
   installNote: string
   /** Agent Setup, when only an editor extension's copy was found: why Hive doesn't use it. */
   extensionNote: string
+  /** How to sign in again once its sign-in has expired, while agents wait (the needs sign-in status, #309). */
+  signInHelp: string
   modelLabel: (model: string) => string
   /** Whether a running session can switch to a mode without restarting (launched: the mode it started in). */
   canSwitchLive: (target: PermissionMode, current: PermissionMode | undefined, launched: PermissionMode | null | undefined) => boolean

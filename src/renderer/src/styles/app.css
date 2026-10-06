@@ -33,6 +33,8 @@
   --success: #4ec96b;
   --warning: #f5c451;
   --error: #f2555a;
+  /* Needs sign-in (#309): its own colour, not a warning's or an error's. */
+  --signin: #b48cff;
 
   --status-bg: #d97706;
   --status-fg: #1b1208;
@@ -73,6 +75,7 @@
   --success: #1a7f37;
   --warning: #9a6700;
   --error: #cf222e;
+  --signin: #8250df;
 
   --status-bg: #d97706;
   --status-fg: #ffffff;
@@ -750,6 +753,9 @@ kbd {
 /* Waiting on cards (a watch): a ring, not a fill: it runs nothing, but it isn't idle either. */
 .dot.watching { background: transparent; box-shadow: inset 0 0 0 2px var(--info); }
 .dot.error { background: var(--error); }
+/* Needs sign-in: stopped until the user signs in to its CLI again. Steady (it runs nothing), in its own colour. */
+.dot.signin { background: var(--signin); }
+.pane-status.signin { color: var(--signin); }
 .dot.unseen { box-shadow: 0 0 0 3px var(--accent-soft); }
 
 @keyframes pulse {
@@ -982,6 +988,7 @@ textarea.input {
 .badge.warn { background: rgba(245, 196, 81, 0.16); color: var(--warning); }
 .badge.error { background: rgba(242, 85, 90, 0.16); color: var(--error); }
 .badge.success { background: rgba(78, 201, 107, 0.16); color: var(--success); }
+.badge.signin { background: rgba(180, 140, 255, 0.16); color: var(--signin); }
 /* Who gets a Hive skill (Skills.tsx AudienceBadge): in a row, after the name. */
 .badge[data-audience] .codicon { font-size: 12px; }
 .badge.audience { margin-left: 4px; vertical-align: 1px; }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
 import { modelCaps } from '@shared/models'
 import { MAX_AGENTS, SESSION_LAYOUTS, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
@@ -19,7 +19,7 @@ import { ModeBadge } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { contextLines, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
 import { unpricedModel, unpricedText } from '@shared/prices'
-import { Icon, IconButton, ReviewMark, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, ReviewMark, signInNote, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
 /** Height of an agent pane's header (who it is, its controls) and footer (its session's details). */
 export const PANE_HEADER = 30
@@ -570,6 +570,12 @@ function TemplateButton({ project, labelled }: { project: ProjectInfo; labelled:
   )
 }
 
+/** The pane header's status, with what to do when a refused sign-in stopped the agent (#309). */
+function SignInTip({ live, children }: { live: LiveSessionState | null; children: ReactNode }) {
+  const note = signInNote(live)
+  return note ? <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{note}</span>}>{children}</Tooltip> : <>{children}</>
+}
+
 function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const usage = useLiveUsage(project, a.live ? a.id : undefined)
   const cards = useAgentCards(project, a.id)
@@ -578,6 +584,8 @@ function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const live = a.live
   const failure = useStartFailure(project, a)
   const lines = [`${a.name} (${providerName(agentProviderOf(project, a))}): ${live ? statusText(live) : failure ? `failed to start: ${failure.reason.split('\n')[0]}` : 'not running'}`]
+  const signIn = signInNote(live)
+  if (signIn) lines.push(signIn)
   if (a.role) lines.push(`Role: ${a.role}`)
   for (const c of cards) lines.push(`Working on #${c.number} ${c.title}`)
   for (const c of reviewing) lines.push(`Reviewing #${c.number} ${c.title}`)
@@ -851,7 +859,9 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
           </button>
         </span>
       ) : (
-        <span className={cx('faint pane-status', !live && failure && 'failed')}>{live ? statusText(live) : failure ? 'Failed to start' : 'Not running'}</span>
+        <SignInTip live={live}>
+          <span className={cx('faint pane-status', !live && failure && 'failed', live?.status === 'signin' && 'signin')}>{live ? statusText(live) : failure ? 'Failed to start' : 'Not running'}</span>
+        </SignInTip>
       )}
       <ReviewMark live={live} />
       <CardChip project={project} a={a} short={size === 'menu'} />

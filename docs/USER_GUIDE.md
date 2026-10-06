@@ -119,6 +119,7 @@ Status dots:
 | Slow, faint orange | Agent is waiting on background tasks it started (e.g. a test run) and carries on when they end |
 | Blue ring | Agent is waiting for cards on the board to change, and carries on when one does (see [Card loops](#card-loops)) |
 | Green | Agent finished its task |
+| Violet | **Needs sign-in**: its CLI's sign-in has expired, so it stopped (see [When a sign-in expires](#when-a-sign-in-expires)) |
 | Glow | Something happened you haven't looked at yet (it goes once the agent's pane has been on screen) |
 
 The sidebar and the lists in the Sessions, Files, Changes and Memory tabs can be made wider or narrower by dragging their right-hand edge, as can the two halves of a split view in the Files tab. Double-click the edge to reset it. Hive remembers the sizes.
@@ -141,7 +142,7 @@ The coding agents' own transcripts (in `~/.claude` and `~/.codex`) are never tou
 
 Each agent of a project runs one session at a time (most projects have just one agent; see [Several agents in one project](#several-agents-in-one-project)). A project without agents shows **No agents yet**: New Session and Resume add one for you.
 
-**Where things are.** The project header is about the project: its name and combined status, the **Active** switch, **Resume All Agents** while any stopped agent has a session to resume (running agents are left alone; if one can't resume, a notification says which and why, and the others still resume), **Stop** while any runs (it lists them and asks first), **Start New** and **Archive and Start New**, **Remove All**, and **⋯** for **Explorer** (reveal the folder), **Terminal** (open an external terminal there), Project Settings and Remove Project….
+**Where things are.** The project header is about the project: its name and combined status, the **Active** switch, **Resume All Agents** while any stopped agent has a session to resume (running agents are left alone, except those an expired sign-in stopped, which it tells to carry on; if one can't resume, a notification says which and why, and the others still resume), **Stop** while any runs (it lists them and asks first), **Start New** and **Archive and Start New**, **Remove All**, and **⋯** for **Explorer** (reveal the folder), **Terminal** (open an external terminal there), Project Settings and Remove Project….
 
 With several agents, each of these buttons says how many agents it acts on: **Stop (3)** stops the three running agents, **Resume All Agents (2)** resumes the two stopped ones, **Start New (6)** and **Archive and Start New (5)** the agents their question lists. In a narrow window the count stays beside the button's icon; hover for what it does.
 
@@ -708,12 +709,24 @@ With no Hive window focused, you get Windows notifications as always. Plan usage
 
 Hive's own messages (warnings, what an action did) are kept in the **Notifications** panel: the bell at the bottom of the activity bar, or **Ctrl+Alt+U**. While some are unread the bell shows a dot and turns orange; opening the panel marks them read.
 
+### When a sign-in expires
+
+All of Claude Code's agents share one sign-in, and so do all of Codex's. When it expires (or Codex's API key is refused), the CLI stops each agent's next turn. Hive then shows those agents as **Needs sign-in**, with a violet dot, in the agent row, the pane header, the Overview and the Assistant's lists. Hover one to see what the CLI said and how to sign in. You're told once for that CLI, however many of its agents stopped ("3 agents need you to sign in to Claude Code"), and **Help → Agent Setup** shows it signed out.
+
+To sign in again:
+
+- **Claude Code**: type `/login` in one of its agents' terminals, or use **Help → Agent Setup → Claude Code → Sign in**. The agent you signed in from carries on by itself.
+- **Codex**: **Help → Agent Setup → Codex → Sign in**, or `codex login` in a terminal.
+
+Hive notices the sign-in when an agent of that CLI works again, when Agent Setup's **Sign in** finishes, or at its next check (every minute while agents wait). The agents that are still stopped then read **Stopped while signed out**, and **Resume All Agents** in the project header counts them: it types a short "carry on" into each, so a card loop picks up where it stopped. Agents that already carried on aren't prompted again.
+
 ### Agents that need you
 
 With agents working in several projects, the status bar tells you who is waiting on you: **2 need you**. Click it for the list, oldest first, with how long each has been waiting:
 
 - **Needs input**: an agent waiting for your answer, such as a permission. It stays in the list until you answer it.
 - **Asks**: an agent that asked you a question but carries on working meanwhile (Codex can). Its pane says **has a question for you**, and it stays in the list until you answer the question in its terminal.
+- **Needs sign-in**: an agent its CLI stopped because the sign-in has expired. It stays in the list until you sign in again (below).
 - **Finished**: an agent that finished while you weren't looking at it: in another project, on another page of agents, on another tab, or while Hive was in the background. It leaves the list once its pane is on screen.
 
 Click a row to go to that agent (the Assistant's opens its panel). The **Projects** icon in the activity bar shows the same number, and each project in the sidebar shows how many of its agents need you.
@@ -790,6 +803,7 @@ In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts th
 - **"… was damaged and has been restored"** — one of Hive's settings or record files couldn't be read (for example after a hand edit). Hive went back to its last good copy (`.bak`) and kept the damaged file next to it as `.corrupt-<date>`.
 - **"Claude Code is required" / "Codex is required"** — install the CLI from **Help → Agent Setup…**, or set its path in the provider's settings page. Having the VS Code extension isn't enough; Hive needs the standalone CLI.
 - **"… is turned off"** — turn the provider on in **Settings → Providers**.
+- **Agents show Needs sign-in** — their CLI's sign-in has expired: see [When a sign-in expires](#when-a-sign-in-expires).
 - **Codex asks before every command** — its Windows sandbox isn't set up: **Help → Agent Setup… → Codex → Set up**.
 - **An agent couldn't start** — when its CLI quits before it has started (a setting it refuses, a broken install), the bar under its terminal turns red with **Couldn't start:** and what the CLI said, a hint where Hive recognises the problem, **Retry** and **Agent Settings…** (or **Agent Setup…**). Its tab and header turn red, the attention inbox lists it, and if its pane isn't on screen a notification says so. Fix the setting, then Retry; the terminal above keeps everything the CLI printed.
 - **Status dots don't change** — status comes from the CLI's hooks. A Codex agent shows **Ready** once its prompt appears, and reports its session with your first message. Restart the session; if it persists, check **Help → Open Logs Folder**.

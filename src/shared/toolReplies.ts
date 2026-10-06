@@ -116,7 +116,7 @@ export function reorderText(r: TaskReorder): string {
   return `${columnLabel(r.column)} now starts ${r.top.map((n) => `#${n}`).join(', ')}${rest > 0 ? `; its other ${rest} card${rest === 1 ? '' : 's'} keep their order below` : ''}.`
 }
 
-const STATUS: Record<string, string> = { ready: 'idle', finished: 'idle', background: 'waiting on background tasks', waiting: 'waiting for the user', watching: 'waiting for cards' }
+const STATUS: Record<string, string> = { ready: 'idle', finished: 'idle', background: 'waiting on background tasks', waiting: 'waiting for the user', watching: 'waiting for cards', signin: 'waiting for the user to sign in' }
 
 function agentText(a: TaskRow['agent']): string {
   if (!a) return ''

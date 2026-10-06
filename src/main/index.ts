@@ -726,6 +726,8 @@ app.whenReady().then(async () => {
   // An agent no longer waiting for you: its waiting banner closes, in whichever window shows it.
   startNoticeResolver()
   providerService.setLiveSessionCounter((p) => sessions.liveCount(p))
+  // Agents stopped by a refused sign-in can carry on once the CLI is signed in again (#309).
+  providerService.onSignedIn((p) => sessions.signedInAgain(p, true))
 
   await startHookServer()
   await startApiServer()
