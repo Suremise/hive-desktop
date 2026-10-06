@@ -22,8 +22,8 @@ export type HiveRole = 'agent' | 'assistant'
  */
 export function progressRule(wrap: boolean): string {
   return wrap
-    ? "Run commands likely to take over 30 s (tests, builds), in the background too, as `hive-progress -- <command>`: Hive's Progress panel shows them; output and exit code are unchanged."
-    : "Use `hive-progress -- <command>` (Hive's Progress panel) only when the user asks."
+    ? 'Run commands likely to take over 30 s (tests, builds), in the background too, as `hive-progress --title "<what and why, in a few words>" -- <command>`: Hive\'s Progress panel shows them to the user; output and exit code are unchanged.'
+    : 'Use `hive-progress --title "<what and why, in a few words>" -- <command>` (Hive\'s Progress panel) only when the user asks.'
 }
 
 /** Whether agents are told to wrap long commands unasked: the setting, while the Progress panel is on (Settings → General). */

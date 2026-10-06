@@ -9,7 +9,9 @@ import { providerDescriptor, type ModelGroup } from './providers'
  */
 
 type Settings = Pick<AppSettings, 'providers'> | null | undefined
-type Info = Pick<AgentInstallInfo, 'catalog' | 'configuredEffort' | 'observedEfforts' | 'defaultModel'> | null | undefined
+/** What Hive knows of a provider's models (its install info), when it knows anything. */
+export type ModelInfo = Pick<AgentInstallInfo, 'catalog' | 'configuredEffort' | 'observedEfforts' | 'defaultModel'> | null | undefined
+type Info = ModelInfo
 
 const text = (v: unknown): v is string => typeof v === 'string' && v.trim() !== ''
 
@@ -78,9 +80,9 @@ export function modelGroups(provider: ProviderId, info: Info, settings: Settings
   const p = providerDescriptor(provider)
   const c = info?.catalog
   if (c?.models.length) {
-    const groups: ModelGroup[] = [{ label: `${p.name} models`, models: c.models.filter((m) => !m.unavailable).map((m) => ({ value: m.value, label: m.label })) }]
+    const groups: ModelGroup[] = [{ label: `${p.name} models`, models: c.models.filter((m) => !m.unavailable).map((m) => ({ value: m.value, label: catalogLabel(provider, m, info) })) }]
     const off = c.models.filter((m) => m.unavailable)
-    if (off.length) groups.push({ label: 'Not available to this account', unavailable: true, models: off.map((m) => ({ value: m.value, label: m.label })) })
+    if (off.length) groups.push({ label: 'Not available to this account', unavailable: true, models: off.map((m) => ({ value: m.value, label: catalogLabel(provider, m, info) })) })
     return groups
   }
   const own = ownModels(provider, settings)
@@ -90,6 +92,45 @@ export function modelGroups(provider: ProviderId, info: Info, settings: Settings
     { label: `${p.name} models`, models: own.filter((m) => !m.older).map(({ value, label }) => ({ value, label })) },
     ...(older.length ? [{ label: 'Older versions', older: true, models: older.map(({ value, label }) => ({ value, label })) }] : [])
   ]
+}
+
+/** The CLI's entry for exactly this value (an alias or an id, any case), if it lists one. */
+const listed = (info: Info, model: string): CatalogModel | undefined => info?.catalog?.models.find((m) => m.value.toLowerCase() === model.trim().toLowerCase())
+
+/** A model id's name (#248): as the CLI names that very id when it lists it as a version, else as the provider does ("claude-opus-5-5" → "Opus 5.5"). */
+export function modelIdName(provider: ProviderId, id: string, info: Info): string {
+  const m = listed(info, id)
+  return m && !m.resolved ? m.label : providerDescriptor(provider).modelLabel(id)
+}
+
+/** The model a choice runs: the id an alias stands for when the CLI says ("opus" → "claude-opus-5-5"), else the choice itself. */
+export function resolvedModel(info: Info, model: string): string {
+  return listed(info, model)?.resolved ?? model
+}
+
+/** The name of the model a choice runs (#248): an alias by the model it stands for ("opus" → "Opus 5.5"), anything else as named. */
+export function runsAsName(provider: ProviderId, model: string, info: Info): string {
+  return modelIdName(provider, resolvedModel(info, model), info)
+}
+
+/** An alias's own name, without the model it stands for ("Opus"): the CLI's, unless that is the model's name, then the provider's. */
+function aliasName(provider: ProviderId, m: CatalogModel, info: Info): string {
+  const target = modelIdName(provider, m.resolved ?? m.value, info)
+  return m.label !== target ? m.label : providerDescriptor(provider).modelLabel(m.value)
+}
+
+/** A picker's name for one of the CLI's models (#248): an alias with the model it stands for, "Opus (Opus 5.5)"; a version as the CLI names it. */
+export function catalogLabel(provider: ProviderId, m: CatalogModel, info: Info): string {
+  if (!m.resolved) return m.label
+  const target = modelIdName(provider, m.resolved, info)
+  const alias = aliasName(provider, m, info)
+  return alias === target ? target : `${alias} (${target})`
+}
+
+/** What a choice is called where it was made: an alias by its own name ("Opus"), a version as the CLI or the provider names it. */
+export function chosenName(provider: ProviderId, model: string, info: Info): string {
+  const m = listed(info, model)
+  return m ? (m.resolved ? aliasName(provider, m, info) : m.label) : providerDescriptor(provider).modelLabel(model)
 }
 
 /** A model id without what doesn't change the model: a "[1m]"-style suffix, a date ("-20251001"), case. */

@@ -7,6 +7,7 @@ import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectL
 import { agentProvider } from '@shared/providers'
 import { setDateStyle } from '@shared/dates'
 import type { ProjectTab } from '@shared/projectTabs'
+import type { ProgressFilter } from '@shared/progress'
 import type { AgentBranchStatus, AssistantPanelSide, BoardFold, QuitScope, TaskCard, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
 import type {
   AgentApiInfo,
@@ -129,6 +130,8 @@ interface State {
   sessionsTree: Record<string, Record<string, boolean>>
   /** Each workspace's board: collapsed columns and folded cards (#170; saved in ui), by workspace path in lower case. */
   boardFold: Record<string, BoardFold>
+  /** Each workspace's Progress panel filter (#251; saved in ui), by workspace path in lower case. */
+  progressFilter: Record<string, ProgressFilter>
   selectedProject: string | null
   projectTabs: Record<string, ProjectTab>
   selectedNote: string | null
@@ -296,6 +299,7 @@ export const useStore = create<State>(() => ({
   skillsFold: {},
   sessionsTree: {},
   boardFold: {},
+  progressFilter: {},
   selectedProject: null,
   projectTabs: {},
   selectedNote: null,
@@ -558,6 +562,23 @@ const progressOpenKey = (ws: string): string => `progress-open:${ws.toLowerCase(
 /** Whether this window's workspace's Progress panel is open (else it is folded to its strip). */
 export function useProgressOpen(): boolean {
   return useStore((s) => !!s.workspace && s.panes[progressOpenKey(s.workspace.path)] === 1)
+}
+
+/** The Progress panel's filter as chosen for this window's workspace (#251), if any. */
+export function useProgressFilter(): ProgressFilter | undefined {
+  return useStore((s) => (s.workspace ? s.progressFilter[s.workspace.path.toLowerCase()] : undefined))
+}
+
+/** Chooses the Progress panel's filter, remembered per workspace (at most 100 workspaces, the oldest go). */
+export function setProgressFilter(f: ProgressFilter): void {
+  const ws = get().workspace?.path.toLowerCase()
+  if (!ws) return
+  const next = { ...get().progressFilter }
+  delete next[ws]
+  next[ws] = f
+  const kept = Object.fromEntries(Object.entries(next).slice(-100))
+  set({ progressFilter: kept })
+  void window.hive.invoke('ui:set', { progressFilter: kept }).catch(() => undefined)
 }
 
 /** Shows or folds the Progress panel, remembered per workspace. */

@@ -380,6 +380,10 @@ export interface HiveRequests {
   'progress:dismiss': (id: string) => void
   /** The user looked at the Progress panel: the taskbar stops showing a failure in red. */
   'progress:seen': () => void
+  /** Opens the log a run reported (a text log or report, in its default app); an error says why it can't. */
+  'progress:openLog': (id: string) => void
+  /** Shows the log a run reported in its folder. */
+  'progress:showLog': (id: string) => void
   'personas:list': () => PersonaInfo[]
   'personas:create': (name: string) => PersonaInfo
   /** Moves the persona's file to the Recycle Bin. */

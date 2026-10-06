@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react'
-import { RECENT_RUNS, RUN_STATE_WORDS, fractionDone, inStrip, isListed, isOpenRun, isRecent, shortDuration, stripRuns, timeLeft, unseenTrouble } from '@shared/progress'
-import { formatDateTime } from '@shared/dates'
-import { providerName } from '@shared/providers'
+import { ALL_PROJECTS, RECENT_RUNS, RUN_STATE_WORDS, SHOW_ALL, activeFilter, agentChoices, filterChoices, filterRuns, fractionDone, inStrip, isListed, isOpenRun, isRecent, runDetails, runDetailsText, shortDuration, stripRuns, timeLeft, unseenTrouble } from '@shared/progress'
 import type { ProgressRun } from '@shared/types'
-import { selectProject } from '../actions'
+import { attempt, selectProject } from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
-import { findProject, flashPane, get, notify, projectKey, revealAgent, set, setAssistantOpen, setProgressOpen, useDateStyle, useProgressOpen, useStore } from '../store'
+import { findProject, flashPane, get, notify, projectKey, revealAgent, set, setAssistantOpen, setProgressFilter, setProgressOpen, useDateStyle, useProgressFilter, useProgressOpen, useStore } from '../store'
 import { useNow } from '../usage'
 import { cx, formatKeybinding } from '../util'
 import { ProviderIcon } from './ProviderIcon'
@@ -73,6 +71,8 @@ export function ProgressPanel() {
   const on = useStore((s) => s.settings?.general.progressPanel !== false)
   const open = useProgressOpen()
   const runs = useProgressRuns()
+  const chosen = useProgressFilter()
+  const workspace = useStore((s) => s.workspace)
   const focused = useStore((s) => s.windowFocused)
   const width = usePaneSize('progress', 280)
   // The run whose details are open.
@@ -89,9 +89,16 @@ export function ProgressPanel() {
     if (on && open && focused && unseen) void call('progress:seen')
   }, [on, open, focused, unseen, runs])
   if (!on) return null
-  if (!open) return <ProgressRail runs={runs.filter((r) => inStrip(r, now))} />
-  const listed = runs.filter((r) => isListed(r, now))
-  const recent = runs.filter((r) => isRecent(r, now)).slice(0, RECENT_RUNS)
+  // The filter (#251): one project's runs (and one agent's), or all; offered when the runs span more than one project.
+  const nameOf = (p: string): string => workspace?.projects.find((x) => x.path.toLowerCase() === p.toLowerCase())?.name ?? p.split(/[\\/]/).pop() ?? p
+  const choices = filterChoices(runs, nameOf)
+  const filter = activeFilter(runs, chosen)
+  const shown = filterRuns(runs, filter)
+  const filterName = filter === SHOW_ALL ? null : `${choices.find((c) => c.value === filter.project)?.label ?? ''}${filter.agent ? ` · ${shown[0]?.agentName ?? ''}` : ''}`
+  if (!open) return <ProgressRail runs={shown.filter((r) => inStrip(r, now))} filtered={filterName ? { name: filterName, all: runs.filter((r) => inStrip(r, now)).length } : null} />
+  const listed = shown.filter((r) => isListed(r, now))
+  const recent = shown.filter((r) => isRecent(r, now)).slice(0, RECENT_RUNS)
+  const agents = filter.project !== ALL_PROJECTS ? agentChoices(runs, filter.project) : []
   const kb = commandKeybinding('progress.toggle')
   const toggle = (id: string): void => setDetail((d) => (d === id ? null : id))
 
@@ -117,6 +124,28 @@ export function ProgressPanel() {
         <div className="grow" />
         <IconButton icon="chevron-right" title={`Fold the Progress panel${kb ? ` (${formatKeybinding(kb)})` : ''}`} onClick={() => setProgressOpen(false)} />
       </div>
+      {choices.length > 1 && (
+        <div className="progress-filter">
+          <select className="select" aria-label="Show the runs of" value={filter.project} onChange={(e) => setProgressFilter({ project: e.target.value })}>
+            <option value={ALL_PROJECTS}>All projects</option>
+            {choices.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+          {agents.length > 1 && (
+            <select className="select" aria-label="…and of the agent" value={filter.agent ?? ''} onChange={(e) => setProgressFilter({ project: filter.project, ...(e.target.value ? { agent: e.target.value } : {}) })}>
+              <option value="">All agents</option>
+              {agents.map((a) => (
+                <option key={a.value} value={a.value}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
       <div className="progress-body">
         {listed.length === 0 && (
           <div className="pane-empty progress-empty">
@@ -225,9 +254,9 @@ function RunRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number
 function DetailsToggle({ run: r, open, onToggle }: { run: ProgressRun; open: boolean; onToggle: () => void }) {
   return (
     <IconButton
-      icon={open ? 'chevron-up' : 'info'}
+      icon={open ? 'chevron-up' : 'chevron-down'}
       className="progress-details-toggle"
-      title={open ? 'Close the details (Escape)' : `Details of ${r.title}`}
+      title={`${open ? 'Hide' : 'Show'} details for ${r.title}`}
       expanded={open}
       onClick={(e) => {
         e.stopPropagation()
@@ -248,19 +277,28 @@ function RunWho({ run: r, project }: { run: ProgressRun; project: string | null 
   )
 }
 
-/** A finished run under Recent: one line, red when it failed; a click opens its details. */
+/**
+ * A finished run under Recent: one line, red when it failed, with how long it took and a chevron after it (#251); a
+ * click on the line, or the chevron (the keyboard's way), opens its details.
+ */
 function RecentRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number; open: boolean; onToggle: () => void }) {
   const took = r.finishedAt !== null ? shortDuration(r.finishedAt - r.startedAt) : ''
   const icon = r.state === 'passed' ? 'pass' : r.state === 'failed' ? 'error' : 'warning'
   const what = r.state === 'passed' ? 'passed' : r.state === 'failed' ? 'failed' : 'stopped reporting'
   return (
     <div className={cx('progress-recent-item', r.state, open && 'open')} data-run={r.id}>
-      <Tooltip block content={`${r.agentName}: ${r.title} ${what}${took ? ` (${took})` : ''}${r.summary ? `\n${r.summary}` : ''}`}>
-        <button type="button" className={cx('progress-recent', 'progress-details-toggle', r.state)} aria-expanded={open} aria-label={`${r.agentName}: ${r.title}, ${what}${took ? ` in ${took}` : ''}. Details`} onClick={onToggle}>
+      <div
+        className={cx('progress-recent', r.state)}
+        onClick={() => {
+          if (!window.getSelection()?.toString()) onToggle()
+        }}
+      >
+        <Tooltip block content={`${r.agentName}: ${r.title} ${what}${took ? ` (${took})` : ''}${r.summary ? `\n${r.summary}` : ''}`}>
           <Icon name={icon} /> <span className="progress-recent-text">{r.agentName} · {r.title}</span>
-          <span className="faint">{took}</span>
-        </button>
-      </Tooltip>
+          <span className="faint progress-recent-took">{took}</span>
+        </Tooltip>
+        <DetailsToggle run={r} open={open} onToggle={onToggle} />
+      </div>
       {open && <RunDetails run={r} now={now} />}
     </div>
   )
@@ -275,40 +313,22 @@ function copy(what: string, text: string): void {
 }
 
 /**
- * Everything Hive has for a run: what ran (the command, copyable), who (agent, project, provider), when it started and
- * ended (in the user's date and time format), how long against what was expected, its steps, its state and why, the
- * exit code, a log the reporter named, and the failure's summary (copyable); and its agent, to show.
+ * Everything Hive has for a run (`runDetails`): what ran (the command, copyable), who, when, how long, its steps, state,
+ * exit code and the log the reporter named, which opens or shows in its folder (#251); the failure's summary; all of it
+ * copyable at once (Copy details, to paste to the Assistant); and its agent, to show.
  */
 function RunDetails({ run: r, now }: { run: ProgressRun; now: number }) {
   useDateStyle()
   const project = useStore((s) => (r.projectPath ? (findProject(s, r.projectPath)?.name ?? null) : null))
   const why = useStore((s) => whyNotShown(s, r))
-  const took = (r.finishedAt ?? now) - r.startedAt
-  const steps = r.total !== null ? `${Math.min(r.step ?? 0, r.total)} of ${r.total} done${r.stepName ? ` · last: ${r.stepName}` : ''}` : r.stepName ? `Last: ${r.stepName}` : null
-  const state =
-    r.state === 'stale'
-      ? `Stopped reporting: ${r.staleReason === 'agent-stopped' ? 'its agent stopped before it finished' : `no report for ${shortDuration(now - r.updatedAt)}`}`
-      : `${RUN_STATE_WORDS[r.state][0].toUpperCase()}${RUN_STATE_WORDS[r.state].slice(1)}${r.dismissed ? ' (dismissed)' : ''}`
-  const rows: [string, React.ReactNode][] = [
-    ['Run', r.title],
-    ...(r.command ? [['Command', <code key="c">{r.command}</code>] as [string, React.ReactNode]] : []),
-    ['Agent', `${r.agentName}${project ? ` · ${project}` : ''}`],
-    ...(r.provider ? [['Provider', providerName(r.provider)] as [string, React.ReactNode]] : []),
-    ['Started', formatDateTime(r.startedAt)],
-    ...(r.finishedAt !== null ? [['Ended', formatDateTime(r.finishedAt)] as [string, React.ReactNode]] : []),
-    ['Took', `${shortDuration(took)}${r.finishedAt === null ? ' so far' : ''}${r.expectedMs !== null ? ` · expected about ${shortDuration(r.expectedMs)}` : ''}`],
-    ...(steps ? [['Steps', steps] as [string, React.ReactNode]] : []),
-    ['State', state],
-    ...(r.exitCode !== null ? [['Exit code', String(r.exitCode)] as [string, React.ReactNode]] : []),
-    ...(r.logPath ? [['Log', <code key="l">{r.logPath}</code>] as [string, React.ReactNode]] : [])
-  ]
+  const rows = runDetails(r, project, now)
   return (
     <div className="progress-details" role="region" aria-label={`Details of ${r.title}`} onClick={(e) => e.stopPropagation()}>
       <dl>
-        {rows.map(([k, v]) => (
-          <div key={k} className="progress-detail-row">
-            <dt>{k}</dt>
-            <dd>{v}</dd>
+        {rows.map((d) => (
+          <div key={d.label} className="progress-detail-row">
+            <dt>{d.label}</dt>
+            <dd>{d.code ? <code>{d.text}</code> : d.text}</dd>
           </div>
         ))}
       </dl>
@@ -326,15 +346,18 @@ function RunDetails({ run: r, now }: { run: ProgressRun; now: number }) {
             <Icon name="copy" /> Copy command
           </button>
         )}
-        {r.summary && (
-          <button type="button" className="btn small subtle" onClick={() => copy('Summary', r.summary!)}>
-            <Icon name="copy" /> Copy summary
-          </button>
-        )}
+        <button type="button" className="btn small subtle" onClick={() => copy('Details', runDetailsText(r, project, now))}>
+          <Icon name="copy" /> Copy details
+        </button>
         {r.logPath && (
-          <button type="button" className="btn small subtle" onClick={() => void call('app:showInFolder', r.logPath!)}>
-            <Icon name="folder-opened" /> Show log
-          </button>
+          <>
+            <button type="button" className="btn small subtle" onClick={() => void attempt("Couldn't open the log", () => call('progress:openLog', r.id))}>
+              <Icon name="go-to-file" /> Open log
+            </button>
+            <button type="button" className="btn small subtle" onClick={() => void attempt("Couldn't show the log", () => call('progress:showLog', r.id))}>
+              <Icon name="folder-opened" /> Show in folder
+            </button>
+          </>
         )}
       </div>
     </div>
@@ -348,16 +371,18 @@ const MORE_LISTED = 12
  * The folded panel: a strip down the right edge, with a small bar per run (the newest few) while anything runs, and
  * "+N" for the rest, listed on hover and coloured for a failed or stale one among them. Its name counts every run.
  */
-function ProgressRail({ runs }: { runs: ProgressRun[] }) {
+function ProgressRail({ runs, filtered }: { runs: ProgressRun[]; filtered: { name: string; all: number } | null }) {
   const kb = commandKeybinding('progress.toggle')
   const open = (): void => setProgressOpen(true)
   const { bars, more, moreState, summary } = stripRuns(runs)
+  // Filtered (#251): it shows and counts that project's runs, and says how many there are in all.
+  const what = filtered ? `${filtered.name} only: ${summary || 'no runs'}; ${filtered.all} in all` : summary
   return (
     <div
-      className="progress-rail"
+      className={cx('progress-rail', filtered && 'filtered')}
       role="button"
       tabIndex={0}
-      aria-label={`Show the Progress panel${summary ? ` (${summary})` : ''}`}
+      aria-label={`Show the Progress panel${what ? ` (${what})` : ''}`}
       onClick={open}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -371,6 +396,13 @@ function ProgressRail({ runs }: { runs: ProgressRun[] }) {
           <Icon name="chevron-left" />
         </span>
       </Tooltip>
+      {filtered && (
+        <Tooltip content={`Showing ${filtered.name} only (${runs.length} of ${filtered.all})`}>
+          <span className="progress-rail-filter">
+            <Icon name="filter" />
+          </span>
+        </Tooltip>
+      )}
       {bars.map((r) => {
         const f = fractionDone(r)
         return (

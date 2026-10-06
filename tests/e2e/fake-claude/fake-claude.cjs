@@ -127,6 +127,26 @@ function runMode() {
 // Agent API token Hive gave it.
 const launchEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('CLAUDE_CODE_') || k.startsWith('HIVE_API_TOKEN')))
 fs.appendFileSync(path.join(home, 'fake-launches.jsonl'), JSON.stringify({ cwd: process.cwd(), sessionId, opts, env: launchEnv }) + '\n')
+/**
+ * The terminal's size, recorded in fake-sizes.jsonl in its home at the start and at each change (#247): what Hive tells
+ * the CLI. Polled as well as on 'resize', which a ConPTY child doesn't always get.
+ */
+function recordSizes(dir, id) {
+  if (!dir || !process.stdout.isTTY) return
+  let last = ''
+  const note = () => {
+    const s = []
+    if (process.stdout._handle?.getWindowSize?.(s) !== 0 || s.length < 2) return
+    const [cols, rows] = s
+    if (`${cols}x${rows}` === last) return
+    last = `${cols}x${rows}`
+    fs.appendFileSync(path.join(dir, 'fake-sizes.jsonl'), JSON.stringify({ sessionId: id, cols, rows, at: Date.now() }) + '\n')
+  }
+  note()
+  process.stdout.on('resize', note)
+  setInterval(note, 50).unref()
+}
+recordSizes(home, sessionId)
 const settings = opts['--settings'] ? JSON.parse(fs.readFileSync(opts['--settings'], 'utf8')) : {}
 const hookUrl = settings.hooks?.Stop?.[0]?.hooks?.[0]?.url
 const token = process.env.HIVE_HOOK_TOKEN || ''

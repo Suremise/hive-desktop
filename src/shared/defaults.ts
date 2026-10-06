@@ -1,9 +1,9 @@
-import type { AgentBranchStatus, AgentDef, AppConfig, AppSettings, CompactionEvent, KeybindingOverrides, FileLockMode, PageLayout, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderSettings, SessionLayout, SessionRecord, SessionStatus, WorkspaceConfig } from './types'
+import type { AgentBranchStatus, AgentDef, AppConfig, AppSettings, CompactionEvent, KeybindingOverrides, FileLockMode, PageLayout, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderId, ProviderSettings, SessionLayout, SessionRecord, SessionStatus, WorkspaceConfig } from './types'
 import { CLAUDE_CODE } from './claude'
 import { DEFAULT_COLUMN_COLORS } from './tasks'
 import { formatDateTime } from './dates'
 import { DEFAULT_PROVIDER, PROVIDERS, defaultProviderSettings, isKnownProvider, providerDescriptor } from './providers'
-import { effortName } from './models'
+import { chosenName, effortName, modelIdName, resolvedModel, runsAsName, type ModelInfo } from './models'
 
 export const APP_NAME = 'Hive'
 export const HIVE_DIR = '.hive'
@@ -320,14 +320,35 @@ export function modelLabel(model: string, provider: string = DEFAULT_PROVIDER): 
   return providerDescriptor(provider).modelLabel(model)
 }
 
+/** The model an agent runs, for display (#248): its name, and the choice it came from when that reads differently. */
+export interface ModelShown {
+  /** "Opus 5.5", "Opus 5.5 (default)" when inherited (Hive's default or the CLI's own), "Claude Code default" when unknown. */
+  label: string
+  /** The choice's own name when it isn't the model's ("Opus", an alias), else null. */
+  chosenAs: string | null
+}
+
 /**
- * The model an agent's sessions use, for display. An own or project choice shows plainly; anything
- * inherited (Hive's default, or the CLI's own) is marked "(default)".
+ * The model an agent's sessions run, for display (#248): the running session's model when it reports one (`running`:
+ * the status line's or the transcript's model id), else what the choice resolves to (an alias by the model the CLI says
+ * it stands for), else the CLI's default model. Never guessed: what nothing resolves shows as the CLI or provider names
+ * it. An own or project choice shows plainly; anything inherited is marked "(default)".
  */
-export function effectiveModelLabel(provider: string, chosen: string | undefined, globalModel: string, cliDefault: string | null): string {
-  if (chosen && chosen !== 'inherit') return modelLabel(chosen, provider)
-  const m = globalModel || cliDefault
-  return m ? `${modelLabel(m, provider)} (default)` : `${providerDescriptor(provider).name} default`
+export function agentModelShown(provider: ProviderId, chosen: string | undefined, globalModel: string, info: ModelInfo, running?: string | null): ModelShown {
+  const own = chosen && chosen !== 'inherit' ? chosen : ''
+  // Nothing chosen in Hive: the CLI's default, which its own settings may give as an alias too (Claude Code's `model`).
+  const choice = own || globalModel || info?.defaultModel || ''
+  const name = running ? modelIdName(provider, running, info) : choice ? runsAsName(provider, choice, info) : null
+  if (!name) return { label: `${providerDescriptor(provider).name} default`, chosenAs: null }
+  // The CLI's default is named in the tooltip only when it is an alias ("chosen as Opus"): an id was nobody's choice.
+  const fromCli = !own && !globalModel
+  const picked = choice && (!fromCli || resolvedModel(info, choice) !== choice) ? chosenName(provider, choice, info) : null
+  return { label: own ? name : `${name} (default)`, chosenAs: picked && picked !== name ? picked : null }
+}
+
+/** agentModelShown's label for new sessions (no running model). */
+export function effectiveModelLabel(provider: ProviderId, chosen: string | undefined, globalModel: string, info: ModelInfo): string {
+  return agentModelShown(provider, chosen, globalModel, info).label
 }
 
 /** Context size at which a project's Compact button is highlighted (0 = never). */

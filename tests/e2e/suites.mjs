@@ -107,6 +107,7 @@ export const SUITES = [
   { name: 'taskoverview' },
   { name: 'templates' },
   { name: 'templateshare' },
+  { name: 'termsize' },
   { name: 'tipcorner' },
   { name: 'tips' },
   { name: 'tooltips' },

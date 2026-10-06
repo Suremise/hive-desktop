@@ -372,6 +372,8 @@ export interface AppConfig {
     sessionsTree?: Record<string, Record<string, boolean>>
     /** Each workspace's board as the user left it, by workspace path in lower case (#170): collapsed columns, folded cards. */
     boardFold?: Record<string, BoardFold>
+    /** Each workspace's Progress panel filter (#251), by workspace path in lower case: one project's runs (and agent's), or all. */
+    progressFilter?: Record<string, { project: string; agent?: string }>
   }
   /** Per provider: the model last seen in a session started without a model choice (the CLI's own default). */
   observedDefaultModel: Record<ProviderId, string>
@@ -855,6 +857,10 @@ export interface LiveSessionState {
   /** Reported by the provider once the session has started. */
   effort?: string
   modelName?: string
+  /** The model's id as the session reports it (Claude Code's status line, Codex's rollout): what the footer shows (#248). */
+  modelId?: string
+  /** How its CLI was set to compact by itself, as read at launch (providers that say: Claude Code, #242). */
+  autoCompact?: AutoCompactSetting
   /** API-equivalent cost of the session so far, in USD. */
   costUsd?: number
   /** The model's context window in tokens, as the provider reports it for the running session (Claude Code's status line). */
@@ -1062,6 +1068,16 @@ export interface CompactionEvent {
    */
   lastInputTokens?: number
   lastOutputTokens?: number
+}
+
+/** How a session's CLI was set to compact by itself (#242), as far as Hive could read at launch. */
+export interface AutoCompactSetting {
+  /** 'off': auto-compaction is turned off; a number: the auto-compact window it was set to (tokens); null: the CLI's own default. */
+  window: number | 'off' | null
+  /** It compacts at this percentage of the window (1–100), which can only bring it earlier. */
+  percent?: number
+  /** Where that comes from, in words ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "autoCompactWindow in Claude Code's settings.json"); null for the default. */
+  source: string | null
 }
 
 export interface SessionUsage {

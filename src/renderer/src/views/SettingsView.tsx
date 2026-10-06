@@ -3,7 +3,7 @@ import type { AppSettings, ChimeSound, EffortLevel, EffortOption, FallbackModel,
 import { DEFAULT_COLUMN_COLORS, TASK_COLUMNS, columnColor } from '@shared/tasks'
 import { DEFAULT_PERSONA } from '@shared/assistant'
 import { PRICES_CHECKED, SHIPPED_PRICES, priceRows } from '@shared/prices'
-import { effortText, fallbackEfforts, fallbackModels, modelSource, modelSourceText } from '@shared/models'
+import { effortText, fallbackEfforts, fallbackModels, modelSource, modelSourceText, runsAsName } from '@shared/models'
 import type { SettingsPatch } from '@shared/api'
 import { DEFAULT_SETTINGS, FILE_LOCK_MODES } from '@shared/defaults'
 import { PROVIDERS, defaultProviderSettings, enabledProviders, isProviderEnabled, offeredModes, permissionLabel, providerDescriptor, providerSettings, type ProviderDescriptor } from '@shared/providers'
@@ -782,7 +782,7 @@ function AssistantProviderDefaults({ provider }: { provider: ProviderId }) {
   return (
     <div className="agent-form assistant-defaults">
       <label>Model</label>
-      <ModelPicker provider={provider} value={a.model} base={{ value: '', label: `${p.name} default${g.defaultModel ? ` (${p.modelLabel(g.defaultModel)})` : ''}` }} onChange={(v) => save({ model: v })} />
+      <ModelPicker provider={provider} value={a.model} base={{ value: '', label: `${p.name} default${g.defaultModel ? ` (${runsAsName(provider, g.defaultModel, info)})` : ''}` }} onChange={(v) => save({ model: v })} />
       <label>Effort</label>
       <EffortPicker provider={provider} model={runModel} value={a.effort} base={{ value: '', label: `Default (${effortName})` }} onChange={(v) => save({ effort: v as EffortLevel | '' })} />
       <label>Permission mode</label>

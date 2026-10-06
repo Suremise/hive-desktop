@@ -1,4 +1,6 @@
 import type { ProgressRun } from './types'
+import { formatDateTime } from './dates'
+import { providerName } from './providers'
 
 /**
  * The Progress panel's rules, shared by the main process (staleness, taskbar progress) and the panel (time left,
@@ -136,4 +138,91 @@ export function shortDuration(ms: number): string {
   if (min < 60) return `${min} min`
   const h = Math.floor(min / 60)
   return `${h} h${min % 60 ? ` ${min % 60} min` : ''}`
+}
+
+/** One line of a run's details (#251): its label, its text, and whether it is a command or a path (shown as code). */
+export interface RunDetail {
+  label: string
+  text: string
+  code?: boolean
+}
+
+/**
+ * Everything Hive has for a run, in the order its details show it: what ran (its title and command), who (agent,
+ * project, provider), when it started and ended (in the user's date and time format), how long against what was
+ * expected, its steps, its state and why, the exit code and a log the reporter named. `project` is its project's name.
+ */
+export function runDetails(r: ProgressRun, project: string | null, now: number): RunDetail[] {
+  const took = (r.finishedAt ?? now) - r.startedAt
+  const steps = r.total !== null ? `${Math.min(r.step ?? 0, r.total)} of ${r.total} done${r.stepName ? ` · last: ${r.stepName}` : ''}` : r.stepName ? `Last: ${r.stepName}` : null
+  const state =
+    r.state === 'stale'
+      ? `Stopped reporting: ${r.staleReason === 'agent-stopped' ? 'its agent stopped before it finished' : `no report for ${shortDuration(now - r.updatedAt)}`}`
+      : `${RUN_STATE_WORDS[r.state][0].toUpperCase()}${RUN_STATE_WORDS[r.state].slice(1)}${r.dismissed ? ' (dismissed)' : ''}`
+  const out: RunDetail[] = [{ label: 'Run', text: r.title }]
+  if (r.command) out.push({ label: 'Command', text: r.command, code: true })
+  out.push({ label: 'Agent', text: `${r.agentName}${project ? ` · ${project}` : ''}` })
+  if (r.provider) out.push({ label: 'Provider', text: providerName(r.provider) })
+  out.push({ label: 'Started', text: formatDateTime(r.startedAt) })
+  if (r.finishedAt !== null) out.push({ label: 'Ended', text: formatDateTime(r.finishedAt) })
+  out.push({ label: 'Took', text: `${shortDuration(took)}${r.finishedAt === null ? ' so far' : ''}${r.expectedMs !== null ? ` · expected about ${shortDuration(r.expectedMs)}` : ''}` })
+  if (steps) out.push({ label: 'Steps', text: steps })
+  out.push({ label: 'State', text: state })
+  if (r.exitCode !== null) out.push({ label: 'Exit code', text: String(r.exitCode) })
+  if (r.logPath) out.push({ label: 'Log', text: r.logPath, code: true })
+  return out
+}
+
+/** A run's details as plain text for pasting (Copy details, #251): a "Label: text" line for each, then its summary. */
+export function runDetailsText(r: ProgressRun, project: string | null, now: number): string {
+  const lines = runDetails(r, project, now).map((d) => `${d.label}: ${d.text}`)
+  if (r.summary) lines.push(`Summary: ${r.summary}`)
+  return lines.join('\n')
+}
+
+
+/** The Progress panel's filter (#251): `project` is ALL_PROJECTS, NO_PROJECT (the Assistant's and scripts' runs) or a project's path in lower case; `agent` narrows a project to one agent's runs. */
+export interface ProgressFilter {
+  project: string
+  agent?: string
+}
+export const ALL_PROJECTS = '*'
+export const NO_PROJECT = '-'
+export const SHOW_ALL: ProgressFilter = { project: ALL_PROJECTS }
+
+const projectOf = (r: ProgressRun): string => (r.projectPath ? r.projectPath.toLowerCase() : NO_PROJECT)
+const agentOf = (r: ProgressRun): string => r.agentId ?? r.agentName
+
+/** The filter's choices for these runs: each project that has runs, by its name, then "Assistant and scripts" when some run has no project. */
+export function filterChoices(runs: readonly ProgressRun[], nameOf: (projectPath: string) => string): { value: string; label: string }[] {
+  const seen = new Map<string, string>()
+  for (const r of runs) if (r.projectPath && !seen.has(projectOf(r))) seen.set(projectOf(r), nameOf(r.projectPath))
+  const out = [...seen].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))
+  if (runs.some((r) => !r.projectPath)) out.push({ value: NO_PROJECT, label: 'Assistant and scripts' })
+  return out
+}
+
+/** The agents with runs in a project, for the agent filter (named as their runs name them). */
+export function agentChoices(runs: readonly ProgressRun[], project: string): { value: string; label: string }[] {
+  const seen = new Map<string, string>()
+  for (const r of runs) if (projectOf(r) === project && !seen.has(agentOf(r))) seen.set(agentOf(r), r.agentName)
+  return [...seen].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/**
+ * The filter that applies to these runs: the chosen one while its project (and agent) still has runs and the runs span
+ * more than one project; otherwise every run (the filter is hidden when there is nothing to choose between).
+ */
+export function activeFilter(runs: readonly ProgressRun[], chosen: ProgressFilter | undefined): ProgressFilter {
+  if (!chosen || chosen.project === ALL_PROJECTS) return SHOW_ALL
+  const projects = new Set(runs.map(projectOf))
+  if (projects.size < 2 || !projects.has(chosen.project)) return SHOW_ALL
+  if (chosen.agent && !runs.some((r) => projectOf(r) === chosen.project && agentOf(r) === chosen.agent)) return { project: chosen.project }
+  return chosen
+}
+
+/** The runs a filter shows. */
+export function filterRuns(runs: readonly ProgressRun[], f: ProgressFilter): ProgressRun[] {
+  if (f.project === ALL_PROJECTS) return [...runs]
+  return runs.filter((r) => projectOf(r) === f.project && (!f.agent || agentOf(r) === f.agent))
 }

@@ -66,6 +66,10 @@ const check = (name, ok, extra = '') => {
   const options = async (sel) => sel.locator('option').evaluateAll((os) => os.map((o) => ({ value: o.value, label: o.textContent, disabled: o.disabled })))
   const offered = (await options(modelSelect)).map((o) => o.value).filter((v) => v && v !== 'custom')
   check('the Claude Code model picker lists exactly the reported models, Fable included', JSON.stringify(offered) === JSON.stringify(reported.map((m) => m.value)) && offered.includes('fable'), JSON.stringify(offered))
+  // An alias reads with the model it stands for, a pinned version as Claude Code names it (#248).
+  const labelOf = async (v) => (await options(modelSelect)).find((o) => o.value === v)?.label
+  check('the picker lists an alias with its model: Opus (Opus 5.5), Haiku (Haiku 4.5)', (await labelOf('opus')) === 'Opus (Opus 5.5)' && (await labelOf('haiku')) === 'Haiku (Haiku 4.5)', `${await labelOf('opus')}, ${await labelOf('haiku')}`)
+  check('…and a pinned version as Claude Code names it: Opus 4.8', (await labelOf('claude-opus-4-8')) === 'Opus 4.8', await labelOf('claude-opus-4-8'))
   check('Settings says where the models come from', (await page.locator('.fallback-source', { hasText: 'Models now: From Claude Code 2.1.999' }).count()) === 1)
   await page.screenshot({ path: path.join(lib.WORK, 'models-claude-settings.png') })
 
@@ -116,6 +120,33 @@ const check = (name, ok, extra = '') => {
   check('a renamed effort level names the footer’s effort: Mid (default)', !!(await lib.until(async () => /Mid \(default\)/.test(await footerText()), 8000)), await footer.innerText().catch(() => ''))
   await inv('settings:setProviderFallback', 'codex', 'efforts', null)
   check('…and after Reset to defaults, Medium (default) again', !!(await lib.until(async () => /Medium \(default\)/.test(await footerText()), 8000)), await footer.innerText().catch(() => ''))
+
+  // --- The model that runs (#248): an agent and the Assistant on "Opus", and an agent on the default, all show Opus 5.5.
+  await lib.addAgent(inv, alpha, { name: 'Writer', model: 'opus' })
+  await lib.addAgent(inv, alpha, { name: 'Plain' })
+  await page.locator('.layout-switch button[aria-label="Three columns"]').click()
+  const modelOf = (name) => page.locator('.agent-pane', { has: page.locator('.pane-header-bar', { hasText: name }) }).locator('.foot-model')
+  const modelText = async (name) => (await modelOf(name).innerText().catch(() => '')).split(' · ')[0].trim()
+  check('an agent set to Opus shows the model it runs: Opus 5.5', !!(await lib.until(async () => (await modelText('Writer')) === 'Opus 5.5', 8000)), await modelText('Writer'))
+  check('an agent on the default shows Opus 5.5 (default)', (await modelText('Plain')) === 'Opus 5.5 (default)', await modelText('Plain'))
+  await modelOf('Writer').hover()
+  check('…and the tooltip says it was chosen as Opus', !!(await lib.until(async () => (await page.locator('.tip', { hasText: 'Opus 5.5 · chosen as Opus' }).count()) > 0, 3000)))
+  await update({ assistant: { providers: { 'claude-code': { model: 'opus' } } } })
+  if ((await page.locator('.assistant-panel').count()) === 0) await page.locator('.assistant-rail').click()
+  const assistantModel = async () => (await page.locator('.assistant-footer .foot-model').innerText().catch(() => '')).split(' · ')[0].trim()
+  check('the Assistant set to Opus shows Opus 5.5 too', !!(await lib.until(async () => (await assistantModel()) === 'Opus 5.5', 8000)), await assistantModel())
+  await page.screenshot({ path: path.join(lib.WORK, 'models-alias-footers.png') })
+  await light('models-alias-footers-light.png')
+  // Claude Code's own default given as an alias (the test home's settings.json "model"): resolved too, still "(default)".
+  fs.writeFileSync(path.join(claudeHome, 'settings.json'), JSON.stringify({ model: 'opus' }))
+  await inv('provider:refresh', 'claude-code')
+  check("Claude Code's default is now its settings' alias", !!(await lib.until(async () => (await info('claude-code')).defaultModel === 'opus', 15000)), (await info('claude-code')).defaultModel)
+  check('…and an agent on the default still shows Opus 5.5 (default)', !!(await lib.until(async () => (await modelText('Plain')) === 'Opus 5.5 (default)', 8000)), await modelText('Plain'))
+  fs.rmSync(path.join(claudeHome, 'settings.json'), { force: true })
+  await inv('provider:refresh', 'claude-code')
+  await lib.until(async () => (await info('claude-code')).defaultModel === 'claude-opus-5-5', 15000)
+  await update({ assistant: { providers: { 'claude-code': { model: '' } } } })
+  await page.locator('.assistant-header button[aria-label^="Hide the Assistant"]').click()
 
   // --- Without the CLI: the fallback lists, as edited, and Reset to defaults.
   await page.keyboard.press('Control+,')

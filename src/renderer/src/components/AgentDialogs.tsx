@@ -92,7 +92,7 @@ export function Overrides({
   const p = providerDescriptor(provider)
   const pc = projectProviderConfig(project.config, provider)
   const g = providerSettings(settings, provider)
-  const projectModel = effectiveModelLabel(provider, pc.model, g.defaultModel, cliDefault)
+  const projectModel = effectiveModelLabel(provider, pc.model, g.defaultModel, info)
   const projectPermission = permissionLabel(provider, pc.permissionMode === 'inherit' ? g.defaultPermissionMode : pc.permissionMode)
   const modes = offeredModes(provider, settings)
   // What would run: the choice here, else what it inherits.

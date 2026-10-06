@@ -1,7 +1,7 @@
 import { BrowserWindow, ClipboardItem, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { spawn } from 'child_process'
 import { existsSync } from 'original-fs'
-import { basename, dirname, join } from 'path'
+import { basename, dirname, isAbsolute, join } from 'path'
 import { readFile } from 'original-fs/promises'
 import type { HiveChannel, HiveRequests } from '../shared/api'
 import * as updater from './updater'
@@ -90,6 +90,21 @@ function guardFile(path: string, write = false): string {
   throw new Error("Hive can only read and write files inside the workspace, and the agents' instruction, memory and skill files.")
 }
 
+/** The log files Hive opens itself (#251): text and reports. Anything else is only shown in its folder, never run. */
+const OPENABLE_LOG = /\.(md|markdown|txt|log|out|err|json|jsonl|csv|tsv|xml|html?)$/i
+
+/**
+ * A progress run's log, to open or show (#251): only the path that run reported (by its agent's token) when it finished,
+ * looked up by the run's id, never a path the window passes; a full path to a file that is there. Logs can be anywhere
+ * (an e2e run's record is under %LOCALAPPDATA%), so this doesn't go through guardFile.
+ */
+async function runLog(id: unknown): Promise<string> {
+  const p = workspace.path && typeof id === 'string' ? progress.logOf(workspace.path, id) : null
+  if (!p) throw new Error('That run reported no log.')
+  if (!isAbsolute(p)) throw new Error(`The run reported its log without a full path: ${p}`)
+  if (!(await isFile(p))) throw new Error(`The log isn't there any more: ${p}`)
+  return p
+}
 
 /** Quitting and closing windows (index.ts): each call names the window it came from. */
 export interface QuitControl {
@@ -630,6 +645,13 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'progress:seen': () => {
       if (workspace.path) progress.seen(workspace.path)
     },
+    'progress:openLog': async (id) => {
+      const p = await runLog(id)
+      if (!OPENABLE_LOG.test(p)) throw new Error(`Hive opens only text logs and reports, not ${basename(p)}: use Show in folder.`)
+      const failed = await shell.openPath(p)
+      if (failed) throw new Error(failed)
+    },
+    'progress:showLog': async (id) => shell.showItemInFolder(await runLog(id)),
     'personas:list': () => personas.listPersonas(),
     'personas:create': async (name) => {
       const p = await personas.createPersona(name)

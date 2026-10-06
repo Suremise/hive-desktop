@@ -2,8 +2,9 @@
 // updates; stale runs; the taskbar's combined bar; time left.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProgressError, ProgressStore, admitReport, type ProgressCaller } from '../src/main/progress'
-import { MAX_OPEN_PER_OWNER, MAX_RUNS_PER_WORKSPACE, PASSED_SHOWN_MS, STRIP_BARS, inStrip, isListed, isOverdue, isRecent, stripRuns, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
+import { MAX_OPEN_PER_OWNER, MAX_RUNS_PER_WORKSPACE, PASSED_SHOWN_MS, STRIP_BARS, ALL_PROJECTS, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices, filterRuns, inStrip, isListed, isOverdue, isRecent, runDetailsText, stripRuns, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
 import type { ProgressRun } from '../src/shared/types'
+import { setDateStyle } from '../src/shared/dates'
 
 const WS = 'C:\\ws'
 const alfie: ProgressCaller = { source: 'agent', workspacePath: WS, projectPath: 'C:\\ws\\alpha', agentId: 'a-1', agentName: 'Alfie', provider: 'claude-code' }
@@ -497,5 +498,51 @@ describe('progress rules', () => {
     expect(taskbarProgress([run({ state: 'passed', total: 2, step: 2 })], false).mode).toBe('none')
     expect(taskbarProgress([run({ state: 'failed' })], true)).toEqual({ mode: 'error', value: 1 })
     expect(taskbarProgress([run({ total: 4, step: 1 })], true)).toEqual({ mode: 'error', value: 0.25 })
+  })
+
+  it('the filter (#251): one project, one agent in it, or the runs without a project; all when there is nothing to choose', () => {
+    const a1 = run({ id: 'a1', projectPath: 'C:\\ws\\Alpha', agentId: 'x', agentName: 'Alfie', source: 'agent' })
+    const a2 = run({ id: 'a2', projectPath: 'C:\\ws\\alpha', agentId: 'y', agentName: 'Ada', source: 'agent' })
+    const b1 = run({ id: 'b1', projectPath: 'C:\\ws\\beta', agentId: 'z', agentName: 'Betty', source: 'agent' })
+    const s1 = run({ id: 's1', agentName: 'Script' })
+    const all = [a1, a2, b1, s1]
+    const names = (p: string): string => p.split('\\').pop()!.toLowerCase()
+    expect(filterChoices(all, names)).toEqual([{ value: 'c:\\ws\\alpha', label: 'alpha' }, { value: 'c:\\ws\\beta', label: 'beta' }, { value: NO_PROJECT, label: 'Assistant and scripts' }])
+    expect(agentChoices(all, 'c:\\ws\\alpha')).toEqual([{ value: 'y', label: 'Ada' }, { value: 'x', label: 'Alfie' }])
+    const ids = (f: Parameters<typeof filterRuns>[1]): string[] => filterRuns(all, activeFilter(all, f)).map((r) => r.id)
+    expect(ids({ project: 'c:\\ws\\alpha' })).toEqual(['a1', 'a2'])
+    expect(ids({ project: 'c:\\ws\\alpha', agent: 'x' })).toEqual(['a1'])
+    expect(ids({ project: NO_PROJECT })).toEqual(['s1'])
+    expect(ids({ project: ALL_PROJECTS })).toEqual(['a1', 'a2', 'b1', 's1'])
+    // A project with no runs left, or an agent with none: back to all, or to the whole project.
+    expect(activeFilter(all, { project: 'c:\\ws\\gone' })).toBe(SHOW_ALL)
+    expect(activeFilter(all, { project: 'c:\\ws\\beta', agent: 'x' })).toEqual({ project: 'c:\\ws\\beta' })
+    // Every run in one project: nothing to choose between, so no filter.
+    expect(activeFilter([a1, a2], { project: 'c:\\ws\\alpha', agent: 'x' })).toBe(SHOW_ALL)
+    expect(activeFilter(all, undefined)).toBe(SHOW_ALL)
+  })
+
+  it("Copy details is every field the details show, in their order, then the summary (#251)", () => {
+    setDateStyle({ date: 'ymd', time: '24h' })
+    const start = new Date(2026, 9, 5, 20, 57).getTime()
+    const full = run({ title: 'e2e: full set before merging', command: 'npm run e2e -- --all --real --build --record', agentName: 'Claudio', provider: 'claude-code', source: 'agent', total: 96, step: 95, stepName: 'taskbar', startedAt: start, finishedAt: start + 10 * 60_000, expectedMs: 9 * 60_000, state: 'failed', exitCode: 1, logPath: 'C:\\t\\run-record.md', summary: '1 failed: taskbar' })
+    expect(runDetailsText(full, 'hive', start + 11 * 60_000)).toBe(
+      [
+        'Run: e2e: full set before merging',
+        'Command: npm run e2e -- --all --real --build --record',
+        'Agent: Claudio · hive',
+        'Provider: Claude Code',
+        'Started: 2026-10-05 20:57',
+        'Ended: 2026-10-05 21:07',
+        'Took: 10 min · expected about 9 min',
+        'Steps: 95 of 96 done · last: taskbar',
+        'State: Failed',
+        'Exit code: 1',
+        'Log: C:\\t\\run-record.md',
+        'Summary: 1 failed: taskbar'
+      ].join('\n')
+    )
+    // Only what a run has: no command, provider, steps, exit code, log or summary.
+    expect(runDetailsText(run({ title: 'build', agentName: 'Script', startedAt: start }), null, start + 40_000)).toBe(['Run: build', 'Agent: Script', 'Started: 2026-10-05 20:57', 'Took: 40 s so far', 'State: Running'].join('\n'))
   })
 })

@@ -1,4 +1,4 @@
-import type { AgentInstallInfo, CatalogModel, EffortLevel, McpServerDef, MemorySource, PathDataCopy, PermissionMode, PlanUsage, ProviderId, ReadinessIssue, SessionUsage, SubSession, TranscriptImageRef, TranscriptItem } from '../../shared/types'
+import type { AgentInstallInfo, AutoCompactSetting, CatalogModel, EffortLevel, McpServerDef, MemorySource, PathDataCopy, PermissionMode, PlanUsage, ProviderId, ReadinessIssue, SessionUsage, SubSession, TranscriptImageRef, TranscriptItem } from '../../shared/types'
 import type { ProviderDescriptor } from '../../shared/providers'
 import type { StartHint } from '../../shared/startFailure'
 
@@ -225,6 +225,11 @@ export interface ProviderAdapter {
   lockReply(decision: LockDecision): Record<string, unknown>
   /** Claude Code's status-line JSON. */
   statusLine?(body: Record<string, any>): LiveDetails
+  /**
+   * How a launch's CLI will compact by itself, read from its command, environment and the CLI's settings files (never
+   * changed), for the model it runs as (`models`: the id it resolves to, then the choice). Absent: Hive doesn't know.
+   */
+  autoCompact?(ctx: LaunchContext, cmd: CommandSpec, models: string[]): AutoCompactSetting
   /** Details from lines appended to the session's transcript (Codex: model, preset, Plan mode, plan limits). */
   transcriptDetails?(appended: string): LiveDetails
   /**
