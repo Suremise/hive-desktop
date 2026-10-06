@@ -1,5 +1,5 @@
 import type { AppSettings, ProjectConfig, ProjectProviderConfig, ProviderId } from './types'
-import { projectAgents } from './defaults'
+import { DEFAULT_SETTINGS, projectAgents } from './defaults'
 import { PROVIDERS } from './providers'
 
 /**
@@ -48,6 +48,8 @@ export function assistantProjectConfig(cfg: ProjectConfig, settings: Pick<AppSet
     providers,
     agents: [{ ...own, id: ASSISTANT_AGENT_ID, name: ASSISTANT_NAME }],
     layout: 'auto',
+    // Settings → Assistant's, so compactThreshold() gives the Assistant its own (0: never), as it does a project its own.
+    compactSuggestTokens: a?.compactSuggestTokens ?? DEFAULT_SETTINGS.assistant.compactSuggestTokens,
     fileLocks: 'off',
     worktreeSetup: ''
   }

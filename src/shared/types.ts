@@ -198,6 +198,11 @@ export interface AssistantSettings {
   enterEndsPause: boolean
   /** Which side of the window its panel is on (the same in every workspace and window). */
   panelSide: AssistantPanelSide
+  /**
+   * Context size, in tokens, at which its Compact button and context count are highlighted (0: never). Its own, not
+   * settings.sessions.compactSuggestTokens: the Assistant usually runs a bigger context than project agents.
+   */
+  compactSuggestTokens: number
   providers: Partial<Record<ProviderId, AssistantProviderSettings>>
 }
 

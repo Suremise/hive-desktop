@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ASSISTANT_AGENT_ID, assistantPersona } from '@shared/assistant'
-import { isCompacting } from '@shared/defaults'
+import { compactThreshold, isCompacting } from '@shared/defaults'
 import { formatDateTime } from '@shared/dates'
 import { agentProvider, providerDescriptor } from '@shared/providers'
 import type { AgentInfo, AgentPatch, AssistantAction, EffortLevel, PermissionMode, PersonaInfo, ProjectInfo, ProviderId } from '@shared/types'
@@ -308,6 +308,9 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
   const live = a.live
   const idle = live && (live.status === 'ready' || live.status === 'finished')
   const empty = !usage || usage.userMessages === 0 || (usage.contextTokens ?? 0) === 0
+  // Highlighted past Settings → Assistant's threshold (overlaid on its host's config), as an agent's past its project's.
+  const threshold = compactThreshold(project.config, settings?.sessions.compactSuggestTokens ?? 0)
+  const suggested = threshold > 0 && (usage?.contextTokens ?? 0) >= threshold
   const personaId = assistantPersona(a, settings)
   const persona = personas.find((p) => p.id === personaId)
 
@@ -335,7 +338,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
   const stop = (): void => void actions.stopSession(project.path, AGENT)
   const compact = (): void => set({ compactFor: { project: project.path, agentId: AGENT } })
   const compacting = isCompacting(live)
-  const compactTip = compacting ? 'Compacting the conversation…' : empty ? 'Nothing to compact yet' : idle ? `Compact the conversation${usage ? ` (now ${formatTokens(usage.contextTokens ?? 0)} tokens)` : ''}` : 'Compact once the Assistant has finished'
+  const compactTip = compacting ? 'Compacting the conversation…' : empty ? 'Nothing to compact yet' : idle ? `Compact the conversation${usage ? ` (now ${formatTokens(usage.contextTokens ?? 0)} tokens)` : ''}.${suggested ? ' Recommended: the context is over your threshold.' : ''}` : 'Compact once the Assistant has finished'
   /** A header button: an icon with a tooltip, like an agent pane's in its icon size. */
   const btn = (icon: string, label: string, onClick: () => void, tone: string, tip: string, disabled = false, spin = false) => (
     <Tooltip content={tip}>
@@ -393,7 +396,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
       {live ? (
         buttons && (
           <>
-            {btn(compacting ? 'loading' : 'fold', 'Compact', compact, 'subtle', compactTip, !idle || empty, compacting)}
+            {btn(compacting ? 'loading' : 'fold', 'Compact', compact, cx('subtle', suggested && idle && 'suggest'), compactTip, !idle || empty, compacting)}
             {btn('stop-circle', 'Stop', stop, 'tint-red', 'Stop the Assistant (the conversation is kept)')}
           </>
         )

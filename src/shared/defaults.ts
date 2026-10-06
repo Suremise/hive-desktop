@@ -90,6 +90,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     typingPause: 15,
     enterEndsPause: true,
     panelSide: 'right',
+    compactSuggestTokens: 500000,
     providers: Object.fromEntries(PROVIDERS.map((p) => [p.id, { model: '', effort: '', permissionMode: '', extraArgs: '', use200kContext: '' }]))
   },
   agents: {

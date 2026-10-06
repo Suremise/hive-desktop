@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { ASSISTANT_AGENT_ID, assistantPersona, assistantProjectConfig, newPersonaText, parsePersona, personaId } from '../src/shared/assistant'
-import { DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS } from '../src/shared/defaults'
+import { DEFAULT_APP_CONFIG, DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS, compactThreshold, mergeDefaults } from '../src/shared/defaults'
 import { agentLaunchSettings } from '../src/shared/providers'
 import type { AppSettings, ProjectConfig } from '../src/shared/types'
 import { assistantTools, controlAllows } from '../src/shared/assistantTools'
@@ -42,6 +42,33 @@ describe('Assistant settings', () => {
     expect(l).toMatchObject({ provider: 'claude-code', model: 'haiku', effort: 'medium', permissionMode: 'auto' })
     expect(l.extraArgs).toContain('--verbose')
     expect(l.use200kContext).toBe(true)
+  })
+
+  it("highlights Compact past its own threshold (Settings → Assistant, 500K by default), not the agents' (#290)", () => {
+    expect(DEFAULT_SETTINGS.assistant.compactSuggestTokens).toBe(500000)
+    expect(DEFAULT_SETTINGS.sessions.compactSuggestTokens).toBe(200000)
+    // The footer and the header both resolve it with compactThreshold() from the host's (overlaid) config.
+    const at = (assistant: Partial<AppSettings['assistant']>, file: Partial<ProjectConfig> = {}): number => {
+      const s = settings(assistant)
+      return compactThreshold(assistantProjectConfig({ ...cfg(), ...file }, s), s.sessions.compactSuggestTokens)
+    }
+    expect(at({})).toBe(500000)
+    expect(at({ compactSuggestTokens: 300000 })).toBe(300000)
+    expect(at({ compactSuggestTokens: 0 })).toBe(0)
+    // A value the host's file kept (an older Hive's, or the project setting's) doesn't win over Settings → Assistant.
+    expect(at({}, { compactSuggestTokens: 50000 })).toBe(500000)
+    // Settings that lack it (a missing assistant section) still get the default.
+    expect(compactThreshold(assistantProjectConfig(cfg(), {} as AppSettings), 200000)).toBe(500000)
+    // A project's agents keep theirs: the project's value, else Settings → Sessions'.
+    expect(compactThreshold(cfg(), DEFAULT_SETTINGS.sessions.compactSuggestTokens)).toBe(200000)
+  })
+
+  it('gives a config saved before the setting existed the default, and keeps a saved value', () => {
+    const old = { version: 6, settings: { assistant: { provider: 'codex', panelSide: 'left' } } }
+    const merged = mergeDefaults(structuredClone(DEFAULT_APP_CONFIG), old)
+    expect(merged.settings.assistant).toMatchObject({ provider: 'codex', panelSide: 'left', compactSuggestTokens: 500000 })
+    const saved = mergeDefaults(structuredClone(DEFAULT_APP_CONFIG), { version: 6, settings: { assistant: { compactSuggestTokens: 0 } } })
+    expect(saved.settings.assistant.compactSuggestTokens).toBe(0)
   })
 
   it("picks the persona: the workspace's, else the default in Settings", () => {
