@@ -38,7 +38,7 @@ import { affectedSuites, changedFiles } from './affected.mjs'
 import { fingerprint, recordMarkdown } from './record.mjs'
 import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, selectSuites, suiteOutcome } from './runner.mjs'
 import { devBuild, ensureBuild } from './build.mjs'
-import { finishRunDirs, logsRootFor, newRunDir, pruneRunDirs } from './logs.mjs'
+import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, pruneRunDirs } from './logs.mjs'
 import { LANES, claimLane, laneWork } from './lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, waitForSlot } from './slots.mjs'
 import { autoClean } from './clean.mjs'
@@ -207,7 +207,7 @@ const run = (name, port) =>
       const outcome = suiteOutcome({ code, out })
       const cleared = dir && (outcome.ok || outcome.skipped) ? clearSuiteDir(dir, evidence) : null
       const kept = dir && outcome.ok === false ? 'it failed' : cleared?.kept.length ? cleared.kept[0] : null
-      resolve({ name, ...outcome, code, out, seconds: Math.round((Date.now() - started) / 1000), kept: kept && `${dir} (${kept})` })
+      resolve({ name, ...outcome, code, out, seconds: Math.round((Date.now() - started) / 1000), dir, kept: kept && `${dir} (${kept})` })
     })
   })
 
@@ -330,6 +330,13 @@ async function runOnce(k) {
   const minutes = ((Date.now() - startedAt) / 60_000).toFixed(1)
   const summary = `${results.filter((r) => r.ok).length} passed, ${failed.length} failed, ${results.filter((r) => r.skipped).length} skipped in ${minutes} min`
   console.log(`\n${repeat > 1 ? `Run ${k} of ${repeat}: ` : ''}${summary}. Logs: ${logDir}`)
+  // A failed run outlives KEEP_RUNS for a day, with its failed suites' screenshots (#223): a path a builder cites in a
+  // card is still there when the reviewer looks.
+  if (failed.length) {
+    markRunFailed(logDir, failed.map((r) => r.name).join(', '))
+    const copied = failed.filter((r) => r.dir && keepSuiteFiles(r.dir, logDir, r.name) > 0).map((r) => r.name)
+    console.log(`It failed: its logs are kept for ${FAILED_KEEP_MS / 3_600_000} hours${copied.length ? `, with the screenshots and files of ${copied.join(', ')} in ${copied.length === 1 ? `${logDir}\\${copied[0]}` : `${logDir}\\<suite>`}` : ''}.`)
+  }
   // In the chosen order, for the record.
   const ordered = chosen.map((s) => results.find((r) => r.name === s.name)).filter(Boolean)
   return { ok: !failed.length, results: ordered, logDir, summary }
@@ -358,6 +365,8 @@ if (opts.record) {
   // for a repeat, every run passed).
   const status = repeatStatus({ repeat, runs, before: codeBefore, after: fingerprint(root), buildStale: stale, packagedStale: packagedStale ?? packagedCheck() })
   recordInvalid = !status.valid
+  // A record that isn't valid: its run is kept as a failed one's (#223).
+  if (recordInvalid) markRunFailed(lastRun.logDir, `record not valid: ${status.problems.join('; ')}`)
   const md = recordMarkdown({ code: codeBefore, when: new Date().toISOString().slice(0, 16).replace('T', ' '), jobs, results: lastRun.results, logDir: lastRun.logDir, summary, problems: status.problems, notRun: notRun.map((s) => s.name), runs: repeat > 1 ? Object.assign(runs, { repeat }) : null })
   for (const r of runs) writeFileSync(join(r.logDir, 'run-record.md'), md)
   // The latest record is also at logs/run-record.md.

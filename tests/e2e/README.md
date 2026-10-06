@@ -236,7 +236,10 @@ Everything goes in `%LOCALAPPDATA%\hive-test\e2e` (override with `HIVE_E2E_DIR`)
   homes) are removed and its files (screenshots, reports) stay; when it fails, everything stays for a look (the runner
   prints where), until the suite runs again in that lane or the clean-up below removes it.
 - `logs\run-<date>-<time>`: each run's logs and run record, from every lane (above); `logs\run-record.md` is the latest
-  record.
+  record. The newest ten finished runs are kept, counted across every worktree's and agent's runs. A run that **failed**
+  (a suite failed, or its record isn't valid) is kept a day beyond that (the newest twenty such; #223), and its failed
+  suites' own files (screenshots, notification logs, reports: not their profiles) are copied into it, in
+  `<run folder>\<suite>`. The runner says so when the run ends, so the run folder is the path to cite in a card.
 - The work folder itself: suites run on their own (`node tests/e2e/<suite>.cjs`) keep their folders there.
 
 Nothing touches your Hive profile, your clipboard or your real Codex home.

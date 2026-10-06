@@ -2,7 +2,7 @@
 // only the latest few finished ones kept. A run still going (this runner's or another's) is marked active and never
 // pruned. A runner started inside a suite (progressreport runs one) keeps its runs apart, under logs/nested, so they
 // never push real runs out.
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { parentSuite } from './runner.mjs'
 
@@ -64,6 +64,56 @@ export function finishRunDirs(dirs) {
   for (const dir of dirs) rmSync(join(dir, ACTIVE), { force: true })
 }
 
+/**
+ * A run that failed (a suite failed, or its record isn't valid) is kept beyond KEEP_RUNS for a day (#223): with several
+ * agents testing at once, ten newer runs can come within minutes, before a reviewer reads the failure a builder cited.
+ * At most FAILED_MAX of them, the newest; after a day, the usual rule. (A run a card cites stays anyway: evidence.cjs.)
+ */
+export const FAILED_KEEP_MS = 24 * 60 * 60_000
+export const FAILED_MAX = 20
+/** In a run folder whose run failed: what failed. Its time is when the run ended. */
+const FAILED = '.failed'
+
+/** Marks a run folder as a failed run's (what: the failed suites, or why its record isn't valid). */
+export function markRunFailed(dir, what) {
+  writeFileSync(join(dir, FAILED), `${what}\n`)
+}
+
+/** When a run folder was marked failed (ms), or null. */
+export function runFailedAt(dir) {
+  try {
+    return statSync(join(dir, FAILED)).mtimeMs
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Keeps a failed suite's own files with its run (#223): its screenshots, notification logs and reports (the files in
+ * its folder, not its profiles and workspaces) are copied to <run folder>/<suite>, where they stay as long as the run's
+ * logs, whatever later runs do to the lane. Files over maxBytes are left out. Returns how many were copied.
+ */
+export function keepSuiteFiles(suiteDir, runDir, name, { maxBytes = 20 * 1024 * 1024 } = {}) {
+  let names
+  try {
+    names = readdirSync(suiteDir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)
+  } catch {
+    return 0
+  }
+  let n = 0
+  for (const f of names) {
+    try {
+      if (statSync(join(suiteDir, f)).size > maxBytes) continue
+      mkdirSync(join(runDir, name), { recursive: true })
+      copyFileSync(join(suiteDir, f), join(runDir, name, f))
+      n++
+    } catch {
+      // Gone or in use: the rest are still copied.
+    }
+  }
+  return n
+}
+
 /** Whether a run folder's runner is still going: it is marked active by a process that is still running, recently. */
 export function runDirActive(dir, alive = processAlive, now = Date.now()) {
   const marker = join(dir, ACTIVE)
@@ -94,13 +144,22 @@ export function runDirsInOrder(names) {
  * unfinished repeat's earlier runs), never one in `protect` (the runner prunes once, after saving its record, and
  * protects its own runs, so a repeat of more than `keep` keeps them all until the next runner prunes), and nothing that
  * isn't a run folder (nested/, run-record.md). Nor one spare(path) keeps (#253: a card cites it as evidence, or the board
- * can't be read: evidence.cjs); those don't count towards `keep`.
+ * can't be read: evidence.cjs); those don't count towards `keep`. Nor a failed run less than a day old (the newest
+ * FAILED_MAX of them: #223).
  */
-export function pruneRunDirs(root, keep = KEEP_RUNS, protect = [], alive = processAlive, spare = () => null) {
+export function pruneRunDirs(root, keep = KEEP_RUNS, protect = [], alive = processAlive, spare = () => null, { now = Date.now() } = {}) {
   if (!existsSync(root)) return []
   const mine = new Set(protect.map((p) => p.split(/[\\/]/).pop()))
   const finished = runDirsInOrder(readdirSync(root)).filter((name) => !runDirActive(join(root, name), alive) && !spare(join(root, name)))
-  const old = finished.slice(0, Math.max(0, finished.length - keep)).filter((name) => !mine.has(name))
+  const failedRecently = new Set(
+    finished
+      .filter((name) => {
+        const at = runFailedAt(join(root, name))
+        return at !== null && now - at < FAILED_KEEP_MS
+      })
+      .slice(-FAILED_MAX)
+  )
+  const old = finished.slice(0, Math.max(0, finished.length - keep)).filter((name) => !mine.has(name) && !failedRecently.has(name))
   for (const name of old) rmSync(join(root, name), { recursive: true, force: true })
   return old
 }

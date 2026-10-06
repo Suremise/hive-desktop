@@ -26,7 +26,7 @@ import { describeClaim, heavySlots, isHeavy, needsSlot, trySlot, waitForSlot } f
 // @ts-expect-error: plain .mjs modules without types
 import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale, removeWorktree } from './e2e/tempWorktrees.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { KEEP_RUNS, finishRunDirs, logsRootFor, newRunDir, pruneRunDirs, runDirActive, runDirsInOrder } from './e2e/logs.mjs'
+import { FAILED_KEEP_MS, FAILED_MAX, KEEP_RUNS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, pruneRunDirs, runDirActive, runDirsInOrder, runFailedAt } from './e2e/logs.mjs'
 import { createRequire } from 'module'
 import { ProgressStore } from '../src/main/progress'
 
@@ -614,6 +614,52 @@ describe("each run's own log folder (logs.mjs)", () => {
       expect(runDirsInOrder(readdirSync(shared))).toHaveLength(KEEP_RUNS)
     } finally {
       rmSync(shared, { recursive: true, force: true })
+    }
+  })
+
+  it('a failed run survives ten newer passing runs for a day, with its failed suites’ screenshots, then goes (#223)', () => {
+    const runsDir = mkdtempSync(join(tmpdir(), 'hive-failed-'))
+    try {
+      // A failed suite's folder in its lane: screenshots and a report at the top, a profile below.
+      const suite = join(runsDir, 'lane', 'board')
+      mkdirSync(join(suite, 'board-profile', 'Cache'), { recursive: true })
+      writeFileSync(join(suite, 'board-profile', 'Cache', 'data'), 'x')
+      writeFileSync(join(suite, 'board-stalled.png'), 'png')
+      writeFileSync(join(suite, 'board-notify.log'), 'log')
+      writeFileSync(join(suite, 'huge.png'), 'x'.repeat(2000))
+      const logs = join(runsDir, 'logs')
+      const failed = newRunDir(logs, new Date(2026, 9, 4, 15, 0, 0))
+      markRunFailed(failed, 'board')
+      expect(keepSuiteFiles(suite, failed, 'board', { maxBytes: 1000 })).toBe(2)
+      expect(readdirSync(join(failed, 'board')).sort()).toEqual(['board-notify.log', 'board-stalled.png'])
+      // Ten passing runs after it, from other agents.
+      for (let i = 1; i <= KEEP_RUNS; i++) newRunDir(logs, new Date(2026, 9, 4, 15, 0, i))
+      finishRunDirs(runDirsInOrder(readdirSync(logs)).map((n: string) => join(logs, n)))
+      expect(runFailedAt(failed)).not.toBeNull()
+      expect(pruneRunDirs(logs, KEEP_RUNS, [], () => false)).toEqual([])
+      // An eleventh passing run: the oldest passing one goes, the failed one stays.
+      newRunDir(logs, new Date(2026, 9, 4, 15, 0, 11))
+      finishRunDirs(runDirsInOrder(readdirSync(logs)).map((n: string) => join(logs, n)))
+      expect(pruneRunDirs(logs, KEEP_RUNS, [], () => false)).toEqual(['run-20261004-150001'])
+      expect(readFileSync(join(failed, 'board', 'board-stalled.png'), 'utf8')).toBe('png')
+      // A day later it goes like any other.
+      expect(pruneRunDirs(logs, KEEP_RUNS, [], () => false, () => null, { now: Date.now() + FAILED_KEEP_MS + 60_000 })).toEqual(['run-20261004-150000'])
+      expect(existsSync(failed)).toBe(false)
+    } finally {
+      rmSync(runsDir, { recursive: true, force: true })
+    }
+  })
+
+  it('…at most the newest FAILED_MAX failed runs are kept beyond KEEP_RUNS', () => {
+    const runsDir = mkdtempSync(join(tmpdir(), 'hive-failed-'))
+    try {
+      const dirs = Array.from({ length: FAILED_MAX + 2 }, (_, i) => newRunDir(runsDir, new Date(2026, 9, 4, 15, 1, i)))
+      for (const d of dirs) markRunFailed(d, 'x')
+      finishRunDirs(dirs)
+      expect(pruneRunDirs(runsDir, 0, [], () => false)).toEqual(['run-20261004-150100', 'run-20261004-150101'])
+      expect(readdirSync(runsDir)).toHaveLength(FAILED_MAX)
+    } finally {
+      rmSync(runsDir, { recursive: true, force: true })
     }
   })
 
