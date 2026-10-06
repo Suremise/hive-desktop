@@ -87,6 +87,12 @@ describe('Codex: when a person must act', () => {
       const { args } = codex.buildCommand(ctx.executable, ctx)
       expect(args.join(' ')).toContain('tui.terminal_title=')
       expect(args.find((a) => a.includes('tui.terminal_title='))).toMatch(/"activity".*"project-name"/)
+      // The sandbox setup task too: its busy wait reads the spinner the "activity" item puts in the title.
+      const setup = codex.setupCommand('C:\\bin\\codex.exe')
+      expect(setup.busyTitle).toBeTruthy()
+      const title = setup.args.findIndex((a) => a.startsWith('tui.terminal_title='))
+      expect(setup.args[title]).toMatch(/"activity".*"project-name"/)
+      expect(setup.args[title - 1]).toBe('-c')
     } finally {
       if (before === undefined) delete process.env.CODEX_HOME
       else process.env.CODEX_HOME = before
