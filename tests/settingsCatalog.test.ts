@@ -1,0 +1,213 @@
+// The settings catalog (#186): one description of every setting, for Settings, Project Settings and the Assistant's
+// settings tools. A field added to Hive's settings or a project's config without a catalog entry fails here, as does a
+// view drawing a row the catalog doesn't have.
+import { readFileSync } from 'fs'
+import { join } from 'path'
+import { describe, expect, it } from 'vitest'
+import { DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS, mergeDefaults } from '../src/shared/defaults'
+import { PROVIDERS, defaultProviderSettings } from '../src/shared/providers'
+import { APP_SETTINGS_CATALOG, PROJECT_SETTINGS_CATALOG, SETTINGS_CATALOG, checkSettingValue, settingDefault, settingEntry, settingKind, settingChangeTexts, settingPatch, settingPath, settingValue, settingValueText } from '../src/shared/settingsCatalog'
+import type { AppSettings } from '../src/shared/types'
+
+const ids = new Set(SETTINGS_CATALOG.map((e) => e.id))
+const entry = (id: string) => {
+  const e = settingEntry(id)
+  if (!e) throw new Error(`no entry ${id}`)
+  return e
+}
+
+/** Fields that are kept in the settings but aren't settings: what Hive remembers, or set elsewhere. */
+const NOT_SETTINGS = new Set(['keybindings'])
+/** Provider fields that aren't on its page: remembered by Hive, or shown as part of another row. */
+const PROVIDER_INTERNAL = new Set(['pricesRemoved'])
+/** Project config fields that aren't Project Settings rows: kept by Hive, or changed elsewhere (agents, layout, MCP, skills). */
+const PROJECT_INTERNAL = new Set(['version', 'agents', 'layout', 'layouts', 'mcp', 'skills', 'keybindings', 'templates'])
+
+describe('the settings catalog', () => {
+  it('gives every entry a unique id, a title and a description or a reason to have none', () => {
+    expect(ids.size).toBe(SETTINGS_CATALOG.length)
+    for (const e of SETTINGS_CATALOG) {
+      expect(e.title, e.id).toBeTruthy()
+      expect(e.docs, e.id).toBeTruthy()
+      if (!e.action) expect(e.desc, e.id).toBeTruthy()
+    }
+  })
+
+  it("describes every field of Hive's settings", () => {
+    const missing: string[] = []
+    for (const [section, value] of Object.entries(DEFAULT_SETTINGS)) {
+      if (NOT_SETTINGS.has(section)) continue
+      if (section === 'defaultProvider') {
+        if (!ids.has('providers.defaultProvider')) missing.push(section)
+        continue
+      }
+      if (section === 'providers') {
+        for (const p of PROVIDERS) {
+          // A setting the provider's capabilities don't give it has no row (Codex has no 200K switch).
+          const lacks = new Set([...(p.capabilities.contextLimit ? [] : ['use200kContext']), ...(p.capabilities.backgroundSessions ? [] : ['allowBackgroundSessions'])])
+          for (const key of Object.keys(defaultProviderSettings(p))) if (!PROVIDER_INTERNAL.has(key) && !lacks.has(key) && !ids.has(`${p.id}.${key}`)) missing.push(`${p.id}.${key}`)
+        }
+        continue
+      }
+      for (const key of Object.keys(value as object)) {
+        // The Assistant's per-provider settings are one row a provider ("With Claude Code").
+        if (section === 'assistant' && key === 'providers') {
+          for (const p of PROVIDERS) {
+            if (!ids.has(`assistant.provider:${p.id}`)) missing.push(`assistant.provider:${p.id}`)
+            // And each of its fields, an entry of its own (read and explained; the Assistant can't change them).
+            for (const k of Object.keys(DEFAULT_SETTINGS.assistant.providers[p.id] ?? {})) if ((k !== 'use200kContext' || p.capabilities.contextLimit) && !ids.has(`assistant.${p.id}.${k}`)) missing.push(`assistant.${p.id}.${k}`)
+          }
+          continue
+        }
+        if (!ids.has(`${section}.${key}`)) missing.push(`${section}.${key}`)
+      }
+    }
+    expect(missing).toEqual([])
+  })
+
+  it("describes every field of a project's settings", () => {
+    const missing = Object.keys(DEFAULT_PROJECT_CONFIG).filter((k) => !PROJECT_INTERNAL.has(k) && k !== 'providers' && !ids.has(`project.${k}`))
+    for (const p of PROVIDERS) for (const k of ['model', 'effort', 'permissionMode', 'extraArgs', ...(p.capabilities.contextLimit ? ['use200kContext'] : [])]) if (!ids.has(`project.${p.id}.${k}`)) missing.push(`project.${p.id}.${k}`)
+    expect(missing).toEqual([])
+  })
+
+  it('reads each value from where it is kept, with its default', () => {
+    const s = mergeDefaults(structuredClone(DEFAULT_SETTINGS), { sessions: { compactSuggestTokens: 150000 }, providers: { 'claude-code': { extraArgs: '--verbose' } }, defaultProvider: 'codex' }) as AppSettings
+    expect(settingValue(entry('sessions.compactSuggestTokens'), s)).toBe(150000)
+    expect(settingDefault(entry('sessions.compactSuggestTokens'))).toBe(200000)
+    expect(settingValue(entry('claude-code.extraArgs'), s)).toBe('--verbose')
+    expect(settingValue(entry('providers.defaultProvider'), s)).toBe('codex')
+    expect(settingValue(entry('assistant.compactSuggestTokens'), s)).toBe(500000)
+    const cfg = { ...structuredClone(DEFAULT_PROJECT_CONFIG), compactSuggestTokens: 50000 }
+    expect(settingValue(entry('project.compactSuggestTokens'), s, cfg)).toBe(50000)
+    expect(settingValue(entry('project.claude-code.model'), s, cfg)).toBe('inherit')
+    expect(settingDefault(entry('project.transcriptWarnMB'))).toBeNull()
+  })
+
+  it('checks a new value: type, range, Never, options, inherit', () => {
+    const v = (id: string, x: unknown) => checkSettingValue(entry(id), x)
+    expect(v('sessions.compactSuggestTokens', 150000)).toEqual({ value: 150000 })
+    expect(v('sessions.compactSuggestTokens', '150,000')).toEqual({ value: 150000 })
+    expect(v('sessions.compactSuggestTokens', 0)).toEqual({ value: 0 })
+    expect(v('sessions.compactSuggestTokens', 500)).toHaveProperty('error')
+    expect(v('sessions.compactSuggestTokens', 'lots')).toHaveProperty('error')
+    expect(v('general.progressPanel', 'off')).toEqual({ value: false })
+    expect(v('general.progressPanel', 3)).toHaveProperty('error')
+    expect(v('general.keepAwake', 'always')).toEqual({ value: 'always' })
+    expect(v('general.keepAwake', 'sometimes')).toHaveProperty('error')
+    expect(v('notifications.chimeSound', 'bell')).toEqual({ value: 'bell' })
+    expect(v('project.transcriptWarnMB', null)).toEqual({ value: null })
+    expect(v('project.chime', 'inherit')).toEqual({ value: 'inherit' })
+    expect(v('project.claude-code.model', '')).toEqual({ value: 'inherit' })
+    expect(v('agents.worktreeCopy', 'a\nb')).toHaveProperty('error')
+    // Not values: a button, a table.
+    expect(v('advanced.reset', true)).toHaveProperty('error')
+    expect(v('board.colors', {})).toHaveProperty('error')
+  })
+
+  it('makes the change through the same patches as Settings and Project Settings', () => {
+    expect(settingPatch(entry('sessions.transcriptWarnMB'), 50)).toEqual({ settings: { sessions: { transcriptWarnMB: 50 } } })
+    expect(settingPatch(entry('codex.defaultModel'), 'gpt-5')).toEqual({ settings: { providers: { codex: { defaultModel: 'gpt-5' } } } })
+    expect(settingPatch(entry('providers.defaultProvider'), 'codex')).toEqual({ settings: { defaultProvider: 'codex' } })
+    const p = settingPatch(entry('project.claude-code.effort'), 'high')
+    expect('project' in p && p.project(structuredClone(DEFAULT_PROJECT_CONFIG)).providers?.['claude-code']).toMatchObject({ effort: 'high', model: 'inherit' })
+  })
+
+  it("marks what the Assistant can't change: permissions, what runs, the Agent API, its own settings", () => {
+    const ro = (id: string) => !!entry(id).sensitive
+    for (const id of ['agentApi.enabled', 'agentApi.port', 'agentApi.allowSessionInput', 'agentApi.provideHiveMcp', 'assistant.control', 'assistant.typingPause', 'claude-code.defaultPermissionMode', 'claude-code.enableDangerousMode', 'claude-code.executablePath', 'codex.extraArgs', 'project.claude-code.permissionMode', 'project.codex.extraArgs', 'project.worktreeSetup', 'claude-code.allowBackgroundSessions']) expect(ro(id), id).toBe(true)
+    for (const id of ['general.progressPanel', 'sessions.transcriptWarnMB', 'agents.fileLocks', 'claude-code.defaultModel', 'project.compactSuggestTokens', 'assistant.panelSide', 'assistant.compactSuggestTokens']) expect(ro(id), id).toBe(false)
+    expect(entry('assistant.control').readOnly).toMatch(/only the user can change it, in Settings → Assistant → Control/)
+  })
+
+  it('keeps buttons, statuses and lists of things out of the values the tools set; keybindings are read-only', () => {
+    for (const id of ['advanced.reset', 'agentApi.token', 'workspace.hiddenProjects', 'claude-code.status', 'project.reset', 'assistant.provider:claude-code']) expect(entry(id).action, id).toBe(true)
+    expect(settingKind(entry('keybindings.editor'))).toBeNull()
+    expect(entry('keybindings.editor').readOnly).toMatch(/Shortcuts are read-only to the Assistant for now/)
+    for (const id of ['claude-code.prices', 'codex.modelFallback', 'claude-code.effortFallback', 'board.colors']) expect(settingKind(entry(id)), id).toBe('table')
+    expect(settingKind(entry('claude-code.defaultModel'))).toBe('text')
+    expect(settingKind(entry('claude-code.defaultEffort'))).toBe('effort')
+  })
+
+  it("checks tables: column colours, prices, fallback lists (null puts back Hive's)", () => {
+    const v = (id: string, x: unknown) => checkSettingValue(entry(id), x)
+    expect(v('board.colors', { doing: '#FF0000' })).toEqual({ value: { doing: '#ff0000' } })
+    expect(v('board.colors', { nowhere: '#ff0000' })).toHaveProperty('error')
+    expect(v('board.colors', { doing: 'red' })).toHaveProperty('error')
+    expect(v('board.colors', null)).toEqual({ value: DEFAULT_SETTINGS.board.colors })
+    expect(v('claude-code.prices', { 'my-model': { input: 1, cachedInput: 0.1, output: 5 } })).toEqual({ value: { 'my-model': { input: 1, cachedInput: 0.1, output: 5 } } })
+    expect(v('claude-code.prices', { m: { input: -1, cachedInput: 0, output: 1 } })).toHaveProperty('error')
+    expect(v('claude-code.prices', null)).toEqual({ value: {} })
+    expect(v('codex.modelFallback', [{ value: 'gpt-x', label: 'GPT X', older: true }, { value: 'gpt-x' }, { value: 'gpt-y' }])).toEqual({ value: [{ value: 'gpt-x', label: 'GPT X', older: true }, { value: 'gpt-y', label: 'gpt-y' }] })
+    expect(v('codex.modelFallback', 'gpt-x')).toHaveProperty('error')
+    expect(v('codex.effortFallback', null)).toEqual({ value: [] })
+    // Each replaced whole, through the setters Settings uses (a deep merge can't remove an entry).
+    expect(settingPatch(entry('claude-code.prices'), {})).toEqual({ prices: { provider: 'claude-code', value: {} } })
+    expect(settingPatch(entry('codex.modelFallback'), [])).toEqual({ fallback: { provider: 'codex', kind: 'models', list: null } })
+    expect(settingPatch(entry('board.colors'), { doing: '#ff0000' })).toEqual({ settings: { board: { colors: { doing: '#ff0000' } } } })
+    expect(settingValueText(entry('board.colors'), DEFAULT_SETTINGS.board.colors)).toBe('(6 keys)')
+    expect(settingValueText(entry('board.colors'), { doing: '#ff0000' }, true)).toBe('{"doing":"#ff0000"}')
+  })
+
+  it('shows a change to a table by what changed, not by its size', () => {
+    const colours = DEFAULT_SETTINGS.board.colors
+    expect(settingChangeTexts(entry('board.colors'), colours, { ...colours, doing: '#ff0000' })).toEqual({ oldText: `doing: ${colours.doing}`, newText: 'doing: #ff0000' })
+    expect(settingChangeTexts(entry('claude-code.prices'), { a: { input: 1, cachedInput: 0, output: 2 } }, { a: { input: 1, cachedInput: 0, output: 3 } })).toEqual({ oldText: 'a: {"input":1,"cachedInput":0,"output":2}', newText: 'a: {"input":1,"cachedInput":0,"output":3}' })
+    expect(settingChangeTexts(entry('claude-code.prices'), {}, { m: { input: 1, cachedInput: 0, output: 2 } }).oldText).toBe('m: (none)')
+    expect(settingChangeTexts(entry('codex.effortFallback'), [], [{ value: 'low', label: 'Low' }, { value: 'high', label: 'High' }])).toEqual({ oldText: "(Hive's list)", newText: 'low, high' })
+    expect(settingChangeTexts(entry('sessions.transcriptWarnMB'), 20, 50)).toEqual({ oldText: '20', newText: '50' })
+  })
+
+  it('takes only the effort levels the picker offers (or the default)', () => {
+    const levels = [
+      { value: 'low', label: 'Low' },
+      { value: 'high', label: 'High' }
+    ]
+    const ctx = { efforts: () => levels }
+    expect((checkSettingValue(entry('claude-code.defaultEffort'), 'bananas', ctx) as { error: string }).error).toMatch(/one of: low, high/)
+    expect(checkSettingValue(entry('claude-code.defaultEffort'), 'High', ctx)).toEqual({ value: 'high' })
+    expect(checkSettingValue(entry('claude-code.defaultEffort'), '', ctx)).toEqual({ value: '' })
+    expect(checkSettingValue(entry('project.codex.effort'), 'inherit', ctx)).toEqual({ value: 'inherit' })
+    expect(checkSettingValue(entry('project.codex.effort'), 'medium', ctx)).toHaveProperty('error')
+    // With no levels known, only the default.
+    expect(checkSettingValue(entry('codex.defaultEffort'), 'high')).toHaveProperty('error')
+  })
+
+  it("reads the Assistant's own launch settings, a field each, and keeps them the user's", () => {
+    const s = mergeDefaults(structuredClone(DEFAULT_SETTINGS), { assistant: { providers: { 'claude-code': { model: 'opus', effort: 'high', extraArgs: '--verbose' } } } }) as AppSettings
+    expect(settingValue(entry('assistant.claude-code.model'), s)).toBe('opus')
+    expect(settingValue(entry('assistant.claude-code.effort'), s)).toBe('high')
+    expect(settingValue(entry('assistant.codex.model'), s)).toBe('')
+    expect(settingDefault(entry('assistant.claude-code.model'))).toBe('')
+    expect(settingPath(entry('assistant.claude-code.extraArgs'))).toBe('Settings → Assistant → With Claude Code → Extra arguments')
+    for (const k of ['model', 'effort', 'permissionMode', 'extraArgs']) expect(entry(`assistant.codex.${k}`).sensitive, k).toBe(true)
+    expect(entry('assistant.claude-code.model').restart).toBe('assistant')
+    expect(settingPatch(entry('assistant.claude-code.model'), 'haiku')).toEqual({ settings: { assistant: { providers: { 'claude-code': { model: 'haiku' } } } } })
+  })
+
+  it('says where each one is', () => {
+    expect(settingPath(entry('sessions.compactSuggestTokens'))).toBe('Settings → Sessions → Suggest compacting above')
+    expect(settingPath(entry('claude-code.defaultModel'))).toBe('Settings → Claude Code → Default model')
+    expect(settingPath(entry('project.codex.model'))).toBe('Project Settings → Codex → Model')
+  })
+
+  it('is what Settings and Project Settings draw: a custom row has its control there, and every row comes from here', () => {
+    const view = readFileSync(join(__dirname, '../src/renderer/src/views/SettingsView.tsx'), 'utf8')
+    const drawn = new Set([...view.matchAll(/^\s+'([\w.:-]+)': (?:\(\)|\(\{)/gm)].map((m) => m[1]))
+    // The Assistant's row for each provider ("With Claude Code") is drawn from one template.
+    if (view.includes('[`assistant.provider:${p.id}`, () => <AssistantProviderDefaults')) for (const p of PROVIDERS) drawn.add(`assistant.provider:${p.id}`)
+    const custom = APP_SETTINGS_CATALOG.filter((e) => e.type === 'custom' && !e.provider && !e.hidden).map((e) => e.id)
+    expect(custom.filter((id) => !drawn.has(id))).toEqual([])
+    expect([...drawn].filter((id) => !ids.has(id))).toEqual([])
+    expect(view).not.toMatch(/\bdesc: ['"`]/)
+    const projectView = readFileSync(join(__dirname, '../src/renderer/src/views/ProjectTabs.tsx'), 'utf8')
+    const rows = projectView.slice(projectView.indexOf('export function ProjectSettingsTab'), projectView.indexOf('const q = query.trim()', projectView.indexOf('export function ProjectSettingsTab')))
+    // Its rows take their text from the catalog (rowText), none of their own.
+    expect(rows).not.toMatch(/^\s+(title|desc|tip): ['"]/m)
+    for (const m of rows.matchAll(/rowText\((?:'([\w.]+)'|`project\.\$\{id\}\.(\w+)`)\)/g)) {
+      if (m[1]) expect(ids.has(m[1]), m[1]).toBe(true)
+      else for (const p of PROVIDERS) if (m[2] !== 'use200kContext' || p.capabilities.contextLimit) expect(ids.has(`project.${p.id}.${m[2]}`), `project.${p.id}.${m[2]}`).toBe(true)
+    }
+    expect(PROJECT_SETTINGS_CATALOG.length).toBeGreaterThan(10)
+  })
+})

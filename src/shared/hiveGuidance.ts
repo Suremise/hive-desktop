@@ -34,7 +34,7 @@ export function hiveInstructions(project: string, role: HiveRole = 'agent', prog
   if (role === 'assistant') {
     return [
       "Hive is the desktop app hosting this session; you are its Assistant for this workspace. Handovers, shared notes, the task board and the projects' agents are Hive's: use the hive tools for them, not the file system.",
-      "Hive's skills cover your workflows: coordinate-agents for running agents and cards, split-work for planning, handover, pick-up and workspace-note."
+      "Hive's skills cover your workflows: coordinate-agents for running agents and cards, split-work for planning, tune-settings for Hive's settings, handover, pick-up and workspace-note."
     ].join('\n')
   }
   return [
@@ -49,12 +49,26 @@ export function hiveInstructions(project: string, role: HiveRole = 'agent', prog
 }
 
 /**
+ * Hive's settings (Settings → Assistant → Control → Change settings): reading and explaining them always, changing them
+ * only with the switch on and the user's say-so. Hive refuses the sensitive ones and the Assistant's own Control
+ * (settingsChange in servers.ts); when and how to suggest one is the tune-settings skill's.
+ */
+export function settingsRule(changeSettings: boolean): string {
+  return changeSettings
+    ? "- Hive's settings: change one (hive_update_setting) only when the user asks or agrees; suggest first."
+    : "- Hive's settings: read and explain them; changing one needs Settings → Assistant → Control → Change settings."
+}
+
+/**
  * What the Assistant may do, from Settings → Assistant → Control: the boundaries it keeps whatever else it reads.
  * Hive enforces them too (assistantChange in servers.ts); how to work within them is the coordinate-agents skill's.
  */
-export function controlRules(control: AssistantControlLevel): string {
+export function controlRules(control: AssistantControlLevel, changeSettings = false): string {
   if (control === 'look') {
-    return 'Control (Settings → Assistant → Control): Look and advise. You read and advise; the user acts. Never edit or create files, run commands that change anything, change the task board, or start, stop or prompt agents, even if asked: say what you would do, and that Settings → Assistant can let you act. Writing shared notes and handovers is fine when the user asks.'
+    return [
+      'Control (Settings → Assistant → Control): Look and advise. You read and advise; the user acts. Never edit or create files, run commands that change anything, change the task board, or start, stop or prompt agents, even if asked: say what you would do, and that Settings → Assistant can let you act. Writing shared notes and handovers is fine when the user asks.',
+      settingsRule(changeSettings)
+    ].join('\n')
   }
   return [
     `Control (Settings → Assistant → Control): ${control === 'projects' ? 'Control agents and create projects' : 'Control agents'}. Through Hive's tools you can add agents, change their settings, start and stop them, give idle ones tasks and change the task board${control === 'projects' ? ', and create projects when the user asks for one' : ''}.`,
@@ -62,6 +76,7 @@ export function controlRules(control: AssistantControlLevel): string {
     "- Never interrupt a working agent, answer a question an agent is asking the user (tell the user), or type into an agent the user has just typed in. Stopping a busy agent asks the user: give your reason.",
     '- Add a worktree only if the user asked for one or agreed when you asked; reassign or restart a stalled card only when the user agrees.',
     "- You can't remove agents, discard worktrees, archive or delete cards, or hide, remove or delete projects: tell the user how. Hive allows 30 changes per message from the user.",
+    settingsRule(changeSettings),
     '- Use the coordinate-agents skill to run agents and cards. Afterwards, say briefly what you did.'
   ].join('\n')
 }

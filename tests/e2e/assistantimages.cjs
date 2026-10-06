@@ -1,4 +1,4 @@
-// The Hive Assistant view (#243): its sections are Personas, Conversations and Images; Images shows the screenshots
+// The Hive Assistant view (#243): its sections are Modes, Conversations and Images; Images shows the screenshots
 // pasted into its conversations (its home's .hive/images), grouped by conversation, in the project Images tab's grid
 // and viewer; a group's name opens that conversation's transcript in the conversations tree (#239's), and a group can
 // be moved to the Recycle Bin at once. "Show Assistant Images" is a command. Fixtures only (nothing runs): a
@@ -46,11 +46,11 @@ const at = (h) => new Date(Date.UTC(2026, 9, 5, h, 0, 0)).toISOString()
   fs.mkdirSync(imgDir, { recursive: true })
   for (const n of ['2026-10-05T09-10-00.png', '2026-10-05T09-20-00.png']) fs.writeFileSync(path.join(imgDir, n), lib.samplePng())
 
-  // --- The view: Personas, Conversations, Images.
+  // --- The view: Modes, Conversations, Images.
   await page.locator('.activity-btn[aria-label="Hive Assistant"]').click()
   await lib.until(async () => (await page.locator('.assistant-summary').count()) > 0, 10000)
   const sections = (await page.locator('.sidebar .section-header').allTextContents()).map((t) => t.replace(/\d+$/, '').trim())
-  check('sections in order: Personas, Conversations, Images', JSON.stringify(sections) === JSON.stringify(['Personas', 'Conversations', 'Images']), JSON.stringify(sections))
+  check('sections in order: Modes, Conversations, Images', JSON.stringify(sections) === JSON.stringify(['Modes', 'Conversations', 'Images']), JSON.stringify(sections))
 
   // --- Images: the conversation's group, with its name, in the Images grid.
   await page.locator('.row', { hasText: 'All Images' }).click()

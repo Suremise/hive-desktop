@@ -62,8 +62,8 @@ describe('bundled skills', () => {
   const root = join(__dirname, '..', 'resources', 'skills')
   const names = readdirSync(root)
 
-  it('are the ten Hive ships with', () => {
-    expect(names.sort()).toEqual(['card-loop', 'coordinate-agents', 'handover', 'merge-ready', 'pick-up', 'review-agent-work', 'split-work', 'use-hive-api', 'work-on-card', 'workspace-note'])
+  it('are the eleven Hive ships with', () => {
+    expect(names.sort()).toEqual(['card-loop', 'coordinate-agents', 'handover', 'merge-ready', 'pick-up', 'review-agent-work', 'split-work', 'tune-settings', 'use-hive-api', 'work-on-card', 'workspace-note'])
   })
 
   it('each has a SKILL.md named after its folder, with a description', async () => {

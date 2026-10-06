@@ -192,12 +192,22 @@ export interface AssistantSettings {
   persona: string
   /** What the Assistant may do beyond looking (see AssistantControl). */
   control: AssistantControl
+  /**
+   * Whether it may change Hive's settings when the user asks (hive_update_setting), whatever its control level. It can
+   * always read and explain them; sensitive ones, and its own Control, are never its to change (#186).
+   */
+  changeSettings: boolean
   /** Seconds after the user types in an agent's terminal before the Assistant may type there (0: no pause). */
   typingPause: number
   /** The user pressing Enter (sending what they typed) ends that pause. */
   enterEndsPause: boolean
   /** Which side of the window its panel is on (the same in every workspace and window). */
   panelSide: AssistantPanelSide
+  /**
+   * Context size, in tokens, at which its Compact button and context count are highlighted (0: never). Its own, not
+   * settings.sessions.compactSuggestTokens: the Assistant usually runs a bigger context than project agents.
+   */
+  compactSuggestTokens: number
   providers: Partial<Record<ProviderId, AssistantProviderSettings>>
 }
 
@@ -216,6 +226,25 @@ export interface AssistantAction {
   ok: boolean
   /** Why it failed or was refused. */
   error?: string
+  /** A setting it changed (#186): old → new, which the list's Revert puts back. */
+  setting?: AssistantSettingChange
+  /** The user reverted that change (this action's id): the list marks the change as reverted. */
+  revertOf?: string
+}
+
+/** A setting the Hive Assistant changed, as its activity list shows it and Revert undoes it. */
+export interface AssistantSettingChange {
+  /** The settings catalog's id (settingsCatalog.ts). */
+  id: string
+  /** For a project's setting: the project's folder. */
+  project?: string
+  /** "Settings → Sessions → Suggest compacting above". */
+  path: string
+  old: unknown
+  new: unknown
+  /** As the list shows them. */
+  oldText: string
+  newText: string
 }
 
 /** A question the Hive Assistant's action is waiting on (e.g. stopping a busy agent), shown as a card in its panel. */
@@ -343,8 +372,8 @@ export interface WindowState {
 }
 
 export interface AppConfig {
-  /** 6 since notices show in Hive while it is focused; 3 since the Assistant uses the agents' model and effort (0.3.0); 2 since providers (0.2.0); 1 was Claude Code only. */
-  version: 6
+  /** 7 since working modes replaced the shipped personas (#259); 6 since notices show in Hive while it is focused; 3 since the Assistant uses the agents' model and effort (0.3.0); 2 since providers (0.2.0); 1 was Claude Code only. */
+  version: 7
   settings: AppSettings
   recentWorkspaces: string[]
   /** The workspace of the window focused last (what 0.1 reopened); `windows` has every window. */
@@ -1132,6 +1161,8 @@ export interface AutoCompactSetting {
   percent?: number
   /** Where that comes from, in words ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "autoCompactWindow in Claude Code's settings.json"); null for the default. */
   source: string | null
+  /** The default as far as Hive can tell, and why it may not be (sources it can't read), shown with it (#273). */
+  estimate?: string
 }
 
 export interface SessionUsage {
