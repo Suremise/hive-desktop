@@ -187,6 +187,12 @@ const check = (name, ok, extra = '') => {
   await colours.getByRole('button', { name: /^Revert / }).click()
   check('…and Revert puts the colours back', !!(await lib.until(async () => (await settings()).board.colors.doing !== '#ff0000', 5000)))
 
+  // --- A fallback list: a label-only change is listed by that entry, old and new (#317).
+  await inv('settings:setProviderFallback', 'claude-code', 'models', [{ value: 'opus', label: 'Opus' }, { value: 'sonnet', label: 'Sonnet' }])
+  check('it renames a fallback model', await say('hive hive_update_setting {"id":"claude-code.modelFallback","value":[{"value":"opus","label":"Opus (big)"},{"value":"sonnet","label":"Sonnet"}]}'))
+  const renamed = panel.locator('.assistant-action', { hasText: 'Models (fallback)' }).first()
+  check('…listed as the label that changed', /opus: Opus → opus: Opus \(big\)/.test(await renamed.innerText()), await renamed.innerText())
+
   // --- A provider's prices: null puts back Hive's, a shipped model removed from the table too (#315); Revert removes it again.
   const removedNow = async () => JSON.stringify((await settings()).providers['claude-code'].pricesRemoved ?? [])
   await inv('settings:setProviderPrices', 'claude-code', {}, ['claude-opus-4-8'])

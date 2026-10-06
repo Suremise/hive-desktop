@@ -856,7 +856,26 @@ export function settingChangeTexts(e: SettingEntry, old: unknown, now: unknown, 
   }
   const cut = (s: string): string => (s.length > 200 ? `${s.slice(0, 199)}…` : s)
   if (Array.isArray(old) || Array.isArray(now)) {
-    const values = (v: unknown): string => (Array.isArray(v) && v.length ? v.map((x) => (isObject(x) && typeof x.value === 'string' ? x.value : JSON.stringify(x))).join(', ') : "(Hive's list)")
+    const valueOf = (x: unknown): string => (isObject(x) && typeof x.value === 'string' ? x.value : JSON.stringify(x))
+    const values = (v: unknown): string => (Array.isArray(v) && v.length ? v.map(valueOf).join(', ') : "(Hive's list)")
+    const a = Array.isArray(old) ? old : []
+    const b = Array.isArray(now) ? now : []
+    // From or back to Hive's list: the whole list. Otherwise the entries that changed, by value, as an object's are
+    // ("gpt-7: GPT 7 (older)", "(none)" where one side hasn't it), so a label or older flag that changed shows.
+    if (a.length && b.length) {
+      const byValue = (l: unknown[]): Map<string, unknown> => new Map(l.map((x) => [valueOf(x), x]))
+      const A = byValue(a)
+      const B = byValue(b)
+      const keys = [...new Set([...A.keys(), ...B.keys()])].filter((k) => JSON.stringify(A.get(k)) !== JSON.stringify(B.get(k)))
+      const shown = (m: Map<string, unknown>, k: string): string => {
+        const x = m.get(k)
+        if (x === undefined) return `${k}: (none)`
+        if (!isObject(x)) return `${k}: ${JSON.stringify(x)}`
+        return `${k}: ${typeof x.label === 'string' && x.label ? x.label : k}${x.older === true ? ' (older)' : ''}`
+      }
+      // No entry changed means the order did: the whole lists show it.
+      if (keys.length) return { oldText: cut(keys.map((k) => shown(A, k)).join(', ')), newText: cut(keys.map((k) => shown(B, k)).join(', ')) }
+    }
     return { oldText: cut(values(old)), newText: cut(values(now)) }
   }
   if (isObject(old) || isObject(now)) {
