@@ -52,6 +52,31 @@ export function buildStamp(root) {
   }
 }
 
+/** When out/ was stamped (an ISO time), or null. */
+export function buildStampedAt(root) {
+  try {
+    return JSON.parse(readFileSync(join(root, STAMP), 'utf8')).at ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether a worktree's build was made right by the runs started together in it (npm run e2e:concurrency, #282), whoever
+ * built it: not two builds, and a build stamped from this source; when these runs built nothing, it was stamped since
+ * the round began (the checker cleared the stamp first), by another runner in the same worktree (a second checker's).
+ * A checker alone always finds the stamp gone, so its runs build it: zero builds then means someone else stamped it.
+ * { ok, why }. builds: the runs' "Building" lines; stamp, inputs: buildStamp and buildInputs; at: buildStampedAt;
+ * since: when the round cleared the stamp (ms).
+ */
+export function builtOnce({ builds, stamp, inputs, at, since }) {
+  if (builds > 1) return { ok: false, why: `${builds} builds` }
+  if (!stamp || stamp !== inputs) return { ok: false, why: `${builds} builds; ${stamp ? 'stamped from other source' : 'not stamped'}` }
+  if (builds === 1) return { ok: true, why: 'built once by these runs' }
+  const t = Date.parse(at ?? '')
+  return Number.isFinite(t) && t >= since ? { ok: true, why: 'built once by another runner in this worktree, during this round' } : { ok: false, why: `0 builds, and the stamp (${at ?? 'no time'}) is older than this round` }
+}
+
 /** Where the build locks are, one folder per worktree. */
 export const BUILD_LOCKS = join(process.env.LOCALAPPDATA || tmpdir(), 'hive-test', 'build-locks')
 /** A lock held longer than this is from a runner stuck far beyond any build (its process may still be there). */

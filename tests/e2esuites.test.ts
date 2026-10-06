@@ -18,7 +18,7 @@ import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portB
 // @ts-expect-error: plain .mjs modules without types
 import { recordMarkdown } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { buildLock, buildStamp, buildStamped, devBuild, ensureBuild } from './e2e/build.mjs'
+import { buildLock, buildStamp, buildStamped, buildStampedAt, builtOnce, devBuild, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -1449,6 +1449,37 @@ describe("the concurrency checker's temporary worktrees: each invocation's own (
     expect(registered(repo)).toBe(2)
     // The other checker removed the whole base meanwhile: still nothing to stop for.
     expect(removeStale(repo, { base: join(tmp, 'concurrency-gone'), alive })).toEqual([])
+  })
+})
+
+describe('e2e:concurrency checks a worktree was built once, whoever built it (builtOnce, #282)', () => {
+  const since = Date.parse('2026-10-06T10:00:00Z')
+  const fresh = { stamp: 'h', inputs: 'h' }
+  it('these runs built it once, stamped as the source: right', () => {
+    expect(builtOnce({ builds: 1, ...fresh, at: '2026-10-06T10:01:00Z', since }).ok).toBe(true)
+  })
+  it('two builds are wrong, whatever the stamp says', () => {
+    expect(builtOnce({ builds: 2, ...fresh, at: '2026-10-06T10:01:00Z', since })).toEqual({ ok: false, why: '2 builds' })
+  })
+  it('none by these runs is right only when another runner stamped it during this round', () => {
+    expect(builtOnce({ builds: 0, ...fresh, at: '2026-10-06T10:00:05Z', since }).ok).toBe(true)
+    expect(builtOnce({ builds: 0, ...fresh, at: '2026-10-06T09:59:59Z', since }).ok).toBe(false)
+    expect(builtOnce({ builds: 0, ...fresh, at: null, since }).ok).toBe(false)
+  })
+  it('a build not stamped, or stamped from other source, is wrong', () => {
+    expect(builtOnce({ builds: 1, stamp: null, inputs: 'h', at: null, since }).ok).toBe(false)
+    expect(builtOnce({ builds: 0, stamp: 'old', inputs: 'h', at: '2026-10-06T10:00:05Z', since }).ok).toBe(false)
+  })
+  it('the stamp says when it was made', () => {
+    const w = mkdtempSync(join(tmpdir(), 'hive-stampat-'))
+    try {
+      expect(buildStampedAt(w)).toBeNull()
+      mkdirSync(join(w, 'out'), { recursive: true })
+      writeFileSync(join(w, 'out', '.e2e-build.json'), JSON.stringify({ inputs: 'h', at: '2026-10-06T10:00:05.000Z' }))
+      expect(buildStampedAt(w)).toBe('2026-10-06T10:00:05.000Z')
+    } finally {
+      rmSync(w, { recursive: true, force: true })
+    }
   })
 })
 

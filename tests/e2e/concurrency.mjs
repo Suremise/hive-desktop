@@ -10,7 +10,7 @@
 // NODE_OPTIONS loading a script that notes each Node process it starts in), the other with a plain one; the checker's
 // own environment points git at the decoy too, for its own setup (#208). Checked, each round: every run passes; each
 // holds a lane of its own (its own ports and folders) and its own logs folder; each worktree's build is made once (the
-// build lock), stamped as its source; no build lock is left held; each e2e run's record names its own worktree's code;
+// build lock), stamped as its source (by its runs, or by another checker's started in the same worktree, #282); no build lock is left held; each e2e run's record names its own worktree's code;
 // and the decoy is untouched and no Node process but the runners themselves got the NODE_OPTIONS (#208). --repeat N
 // runs N rounds, stopping at the first that fails.
 //
@@ -28,7 +28,7 @@ import http from 'http'
 import { createRequire } from 'module'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
-import { BUILD_LOCKS, buildInputs, buildLock, buildStamp } from './build.mjs'
+import { BUILD_LOCKS, buildInputs, buildLock, buildStamp, buildStampedAt, builtOnce } from './build.mjs'
 import { trySlot } from './slots.mjs'
 import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale } from './tempWorktrees.mjs'
 import { fingerprint } from './record.mjs'
@@ -113,6 +113,7 @@ async function until(fn, ms) {
 async function round(k, wt, decoyHead) {
   console.log(`\n--- Round ${k} of ${repeat}`)
   // Both builds stale: each worktree's runners find it so at the same time.
+  const since = Date.now()
   for (const w of [root, wt]) rmSync(join(w, 'out', '.e2e-build.json'), { force: true })
   rmSync(NODE_SEEN, { force: true })
   const e2e = ['tests/e2e/run.mjs', [...SUITES, '--build', '--record', '--no-progress']]
@@ -141,8 +142,9 @@ async function round(k, wt, decoyHead) {
   for (const [w, label] of [[root, 'this worktree'], [wt, 'the second worktree']]) {
     const inIt = runs.filter((r) => r.cwd === w)
     const builds = inIt.reduce((n, r) => n + (r.out.match(/^Building \(the dev build/gm)?.length ?? 0), 0)
-    check(`${label}: built once by its two runs at the same time`, builds === 1, `${builds} builds`)
-    check(`${label}: its build is stamped as its source`, buildStamp(w) === buildInputs(w))
+    // Once, whoever built it: a second checker started in this worktree at the same time may have built it first (#282).
+    const once = builtOnce({ builds, stamp: buildStamp(w), inputs: buildInputs(w), at: buildStampedAt(w), since })
+    check(`${label}: built once while its two runs ran at the same time, stamped as its source (${once.why})`, once.ok, once.why)
     check(`${label}: no build lock left held`, !existsSync(buildLock(w).folder))
     // The record's code is this worktree's (with GIT_DIR leaked, it would be the decoy's commit).
     const code = fingerprint(w)
