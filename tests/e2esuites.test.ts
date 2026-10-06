@@ -646,7 +646,7 @@ describe("each run's own log folder (logs.mjs)", () => {
       const logs = join(runsDir, 'logs')
       const failed = newRunDir(logs, new Date(2026, 9, 4, 15, 0, 0))
       markRunFailed(failed, 'board')
-      expect(keepSuiteFiles(suite, failed, 'board', { maxBytes: 1000 })).toBe(2)
+      expect(keepSuiteFiles(suite, failed, 'board', { maxBytes: 1000 })).toEqual({ copied: 2, omitted: [{ path: 'huge.png', why: 'over 1 KB' }] })
       expect(readdirSync(join(failed, 'board')).sort()).toEqual(['board-notify.log', 'board-stalled.png'])
       // Ten passing runs after it, from other agents.
       for (let i = 1; i <= KEEP_RUNS; i++) newRunDir(logs, new Date(2026, 9, 4, 15, 0, i))

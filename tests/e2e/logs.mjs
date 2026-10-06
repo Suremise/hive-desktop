@@ -3,8 +3,11 @@
 // pruned. A runner started inside a suite (progressreport runs one) keeps its runs apart, under logs/nested, so they
 // never push real runs out.
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
+import { createRequire } from 'module'
 import { join } from 'path'
 import { parentSuite } from './runner.mjs'
+
+const { linkOnPath } = createRequire(import.meta.url)('./evidence.cjs')
 
 /** How many run folders are kept, at the top level and under nested/ each. */
 export const KEEP_RUNS = 10
@@ -88,31 +91,82 @@ export function runFailedAt(dir) {
   }
 }
 
+/** A suite's folder of screenshots or reports (`restart-shots`, `pshots`, `screenshots`, `artifacts`, `reports`), kept with its files. */
+export const EVIDENCE_DIR = /shots$|^(?:screenshots|artifacts|reports)$/i
 /**
- * Keeps a failed suite's own files with its run (#223): its screenshots, notification logs and reports (the files in
- * its folder, not its profiles and workspaces) are copied to <run folder>/<suite>, where they stay as long as the run's
- * logs, whatever later runs do to the lane. Files over maxBytes are left out. Returns how many were copied.
+ * What is never kept, at any depth, inside a screenshot folder too: a profile (`board-profile`), a workspace (`board-ws`,
+ * `ws-b`, `ws2`, `x-ws.worktrees`), a CLI home (`board-claude-home`, `codex`) or node_modules; and sign-in files.
  */
-export function keepSuiteFiles(suiteDir, runDir, name, { maxBytes = 20 * 1024 * 1024 } = {}) {
-  let names
-  try {
-    names = readdirSync(suiteDir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name)
-  } catch {
-    return 0
+export const PROTECTED_DIR = /(?:^|-)(?:profile|ws\d*|ws-[a-z0-9]+|ws\.worktrees|home|claude-home|codex-home|claude|codex)$|^node_modules$/i
+export const PROTECTED_FILE = /^(?:\.credentials\.json|auth\.json)$/i
+
+/**
+ * Keeps a suite's own files with its run (#223, #284; a failed suite's, or with --keep-files a passed one's): the files
+ * at the top of its folder (screenshots, notification logs, reports) and everything in its folders of screenshots or
+ * reports (EVIDENCE_DIR, at any depth, as laid out), copied to <run folder>/<suite>, where they stay as long as the
+ * run's logs, whatever later runs do to the lane. Never its other folders, and never a profile, workspace, CLI home or
+ * sign-in file at any depth, inside a screenshot folder too (PROTECTED_DIR, PROTECTED_FILE). Never through a link: a
+ * suite folder with a link anywhere on its path is not read at all, and a junction or symlink inside it is left out,
+ * not followed. Left out too: a file over maxBytes, and whatever would go past maxFiles or maxTotal. Returns
+ * { copied, omitted: [{ path, why }] }, paths relative to the suite folder ('.' for the folder itself).
+ */
+export function keepSuiteFiles(suiteDir, runDir, name, { maxBytes = 20 * 1024 * 1024, maxFiles = 500, maxTotal = 200 * 1024 * 1024 } = {}) {
+  const size = (n) => (n >= 1024 * 1024 ? `${Math.round(n / 1024 / 1024)} MB` : `${Math.round(n / 1024)} KB`)
+  const result = { copied: 0, omitted: [] }
+  // A link on the way to the suite's folder (or the folder itself one) would copy from wherever it points.
+  const link = linkOnPath(suiteDir)
+  if (link) {
+    result.omitted.push({ path: '.', why: `reached through a link (${link}): not read` })
+    return result
   }
-  let n = 0
-  for (const f of names) {
+  let total = 0
+  const visit = (rel, inEvidence) => {
+    let entries
     try {
-      if (statSync(join(suiteDir, f)).size > maxBytes) continue
-      mkdirSync(join(runDir, name), { recursive: true })
-      copyFileSync(join(suiteDir, f), join(runDir, name, f))
-      n++
+      entries = readdirSync(join(suiteDir, rel), { withFileTypes: true })
     } catch {
-      // Gone or in use: the rest are still copied.
+      return
+    }
+    for (const e of entries) {
+      const r = rel ? join(rel, e.name) : e.name
+      if (e.isSymbolicLink()) {
+        if (inEvidence || EVIDENCE_DIR.test(e.name) || !rel) result.omitted.push({ path: r, why: 'a link (not followed)' })
+        continue
+      }
+      if (e.isDirectory()) {
+        if (PROTECTED_DIR.test(e.name)) {
+          if (inEvidence) result.omitted.push({ path: r, why: 'a profile, workspace or CLI home' })
+        } else if (inEvidence || EVIDENCE_DIR.test(e.name)) visit(r, true)
+        continue
+      }
+      if (!e.isFile()) continue
+      if (PROTECTED_FILE.test(e.name)) {
+        result.omitted.push({ path: r, why: 'a sign-in file' })
+        continue
+      }
+      try {
+        const bytes = statSync(join(suiteDir, r)).size
+        if (bytes > maxBytes) result.omitted.push({ path: r, why: `over ${size(maxBytes)}` })
+        else if (result.copied >= maxFiles) result.omitted.push({ path: r, why: `past ${maxFiles} files` })
+        else if (total + bytes > maxTotal) result.omitted.push({ path: r, why: `past ${size(maxTotal)} in all` })
+        else {
+          mkdirSync(join(runDir, name, rel), { recursive: true })
+          copyFileSync(join(suiteDir, r), join(runDir, name, r))
+          result.copied++
+          total += bytes
+        }
+      } catch {
+        // Gone or in use: the rest are still copied.
+      }
     }
   }
-  return n
+  visit('', false)
+  return result
 }
+
+/** What keepSuiteFiles left out, said in a line ("big.png (over 20 MB), linked (a link …)", the first few). */
+export const omittedLine = (omitted, max = 5) =>
+  omitted.slice(0, max).map((o) => `${o.path} (${o.why})`).join(', ') + (omitted.length > max ? ` and ${omitted.length - max} more` : '')
 
 /** Whether a run folder's runner is still going: it is marked active by a process that is still running, recently. */
 export function runDirActive(dir, alive = processAlive, now = Date.now()) {
