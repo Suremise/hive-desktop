@@ -83,7 +83,10 @@ describe('personas', () => {
     const p = parsePersona('---\nname: Night Watch\ndescription: "Keeps an eye out."\nicon: 🦉\n---\n\nYou are the Night Watch.\n')
     expect(p).toEqual({ name: 'Night Watch', description: 'Keeps an eye out.', icon: '🦉', body: 'You are the Night Watch.' })
     expect(parsePersona('Just instructions.')).toEqual({ body: 'Just instructions.' })
-    expect(parsePersona(newPersonaText('Night Watch')).name).toBe('Night Watch')
+    const created = parsePersona(newPersonaText('Night Watch'))
+    expect(created.name).toBe('Night Watch')
+    expect(created.summary).toMatch(/^Its habits in a few lines/)
+    expect(newPersonaText('Night Watch')).not.toMatch(/persona/i)
   })
 
   it('names files from persona names', () => {
