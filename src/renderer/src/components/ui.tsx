@@ -6,7 +6,7 @@ import type { LiveSessionState, SessionStatus } from '@shared/types'
 import { cx } from '../util'
 import { call, errorMessage } from '../api'
 import { formatWhen } from '@shared/dates'
-import { providerName } from '@shared/providers'
+import { providerDescriptor, providerName } from '@shared/providers'
 import { placeTip, type Box } from '@shared/tipPlacement'
 
 export function Icon({ name, className, title, spin }: { name: string; className?: string; title?: string; spin?: boolean }) {
@@ -186,7 +186,8 @@ export const STATUS_TEXT: Record<SessionStatus | 'idle', string> = {
   background: 'Background tasks',
   watching: 'Waiting on cards',
   finished: 'Finished',
-  error: 'Error'
+  error: 'Error',
+  signin: 'Needs sign-in'
 }
 
 const tasks = (n: number): string => `${n} background task${n === 1 ? '' : 's'}`
@@ -227,10 +228,25 @@ export function ReviewMark({ live }: { live: Pick<LiveSessionState, 'review' | '
   )
 }
 
+/**
+ * For the tooltips of an agent whose turn a refused sign-in stopped (#309): what its CLI said and how to sign in again
+ * (while it needs sign-in), then that Resume (n) carries it on. Null for any other agent.
+ */
+export function signInNote(live: Pick<LiveSessionState, 'status' | 'signIn' | 'provider'> | null | undefined): string | null {
+  if (!live?.signIn) return null
+  const d = providerDescriptor(live.provider)
+  const said = live.signIn.message.length > 160 ? `${live.signIn.message.slice(0, 160)}…` : live.signIn.message
+  if (live.status === 'signin') return `${d.name} says: ${said}\n${d.signInHelp} Then Resume in the project's header carries on the agents it stopped.`
+  if (live.status === 'ready' || live.status === 'finished') return `Its turn stopped when ${d.name}'s sign-in expired. Resume in the project's header carries it on.`
+  return null
+}
+
 export function StatusDot({ live, active }: { live: LiveSessionState | null; active: boolean }) {
   const status = live?.status ?? (active ? 'idle' : 'stopped')
   const base = !live ? STATUS_TEXT[status] : live.statusMessage ? `${STATUS_TEXT[status]} — ${live.statusMessage}` : statusText(live)
-  const text = live?.review ? `${base} · an action is being reviewed automatically` : base
+  const reviewed = live?.review ? `${base} · an action is being reviewed automatically` : base
+  const note = signInNote(live)
+  const text = note ? <span style={{ whiteSpace: 'pre-line' }}>{`${reviewed}\n${note}`}</span> : reviewed
   return (
     <Tooltip content={text}>
       <span className={cx('dot', status, live?.unseen && 'unseen')} />

@@ -234,6 +234,8 @@ export interface HiveRequests {
   /** Stops the CLI's background job holding a conversation, then resumes it in the agent. */
   'session:stopBackgroundAndResume': (projectPath: string, agentId: string, jobId: string, sessionId: string) => void
   'session:stop': (projectPath: string, agentId?: string) => void
+  /** Types a short "carry on" into a running agent whose turn a refused sign-in stopped (Resume (n), #309). */
+  'session:carryOn': (projectPath: string, agentId: string) => void
   'session:archive': (projectPath: string, sessionId: string, archived: boolean) => void
   'session:rename': (projectPath: string, sessionId: string, name: string) => void
   /** Deletes a session that isn't running from Hive (its record and backups; the CLI's transcript stays). */

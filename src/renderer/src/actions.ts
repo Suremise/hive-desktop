@@ -3,7 +3,7 @@ import { call, errorMessage } from './api'
 import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemoving, focusAgent, runOnce, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView } from './store'
 import { MANY_AGENTS, MAX_AGENTS, chosenLayout, moveAgentTo, sessionInAgentFolder, swapAgentsIn } from '@shared/defaults'
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
-import { agentsToResume, resumeAll } from '@shared/resumeAll'
+import { agentsToResume, resumeAll, stalledOnSignIn } from '@shared/resumeAll'
 import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult } from '@shared/startAll'
 import type { OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
@@ -455,8 +455,8 @@ export async function stopAllAgents(path: string): Promise<void> {
 
 /**
  * Resumes every stopped agent that has a conversation to resume, one after another; running agents are
- * left alone. Asks first only when some caches have expired; one failure doesn't stop the rest, and the
- * failures are reported together with their reasons.
+ * left alone, except those a refused sign-in stopped, which are told to carry on (#309). Asks first only when some
+ * caches have expired; one failure doesn't stop the rest, and the failures are reported together with their reasons.
  */
 export function resumeAllAgents(path: string): Promise<void> {
   // A second click while it runs is ignored; the button shows a spinner.
@@ -470,6 +470,7 @@ async function resumeAll_(path: string): Promise<void> {
   if (!stopped.length) return notify('info', 'Nothing to resume', 'No stopped agent has a session to resume.')
   const list = (await attempt('Could not list sessions', () => call('session:list', path))) ?? []
   const cold = stopped.flatMap((a) => {
+    if (a.live) return []
     const r = list.find((s) => s.id === a.resume!.id)?.recache
     return r && !r.warm && r.tokens > 20000 ? [`• ${a.name} — about ${formatTokens(r.tokens)} tokens`] : []
   })
@@ -484,6 +485,8 @@ async function resumeAll_(path: string): Promise<void> {
   }
   // The agents as they are now: one may have started while the dialog was open.
   const result = await resumeAll(project(path)?.agents ?? [], async (a) => {
+    // Running, stopped mid-turn by a refused sign-in: a short "carry on" (its CLI resumes nothing itself).
+    if (stalledOnSignIn(a.live)) return void (await call('session:carryOn', path, a.id))
     const provider = agentProviderOf(project(path), a)
     const name = providerName(provider)
     if (!isProviderEnabled(get().settings, provider)) throw new Error(`${name} is turned off in Settings → Providers.`)
