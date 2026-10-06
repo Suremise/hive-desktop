@@ -1016,6 +1016,8 @@ export function ImagesTab({ project: owner, assistant = false }: { project: Proj
           image={viewing}
           images={all}
           live={!!project.live}
+          // Worked out for the image shown, so it follows navigation and its session starting or stopping (main refuses too).
+          deleteBlocked={running(viewing) ? `Its ${noun} is running` : null}
           onNavigate={setViewing}
           onClose={() => setViewing(null)}
           onInsert={(img) => {
@@ -1034,6 +1036,7 @@ function ImageViewer({
   image,
   images,
   live,
+  deleteBlocked,
   onNavigate,
   onClose,
   onInsert,
@@ -1042,6 +1045,8 @@ function ImageViewer({
   image: SessionImage
   images: SessionImage[]
   live: boolean
+  /** Why this image can't be deleted now (its session is running), or null. */
+  deleteBlocked: string | null
   onNavigate: (img: SessionImage) => void
   onClose: () => void
   onInsert: (img: SessionImage) => void
@@ -1074,9 +1079,11 @@ function ImageViewer({
           <span className="faint" style={{ marginRight: 'auto' }}>
             {i + 1} of {images.length} · {formatBytes(image.size)}
           </span>
-          <button className="btn subtle danger-text" onClick={() => onDelete(image)}>
-            <Icon name="trash" /> Delete
-          </button>
+          <Tooltip content={deleteBlocked}>
+            <button className="btn subtle danger-text" disabled={!!deleteBlocked} aria-description={deleteBlocked ?? undefined} onClick={() => onDelete(image)}>
+              <Icon name="trash" /> Delete
+            </button>
+          </Tooltip>
           <button className="btn subtle" onClick={() => void call('app:showInFolder', image.path)}>
             <Icon name="folder-opened" /> Reveal
           </button>
