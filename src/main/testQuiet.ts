@@ -1,4 +1,4 @@
-import { appendFileSync } from 'fs'
+import { appendFileSync } from 'original-fs'
 import { app, screen, type BrowserWindow } from 'electron'
 
 /**

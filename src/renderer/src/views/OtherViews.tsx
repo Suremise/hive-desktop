@@ -76,7 +76,8 @@ export function WelcomeView() {
                 title={recentTip(r)}
                 tabIndex={0}
                 onClick={() => void actions.openRecent(r.path)}
-                onKeyDown={(e) => e.key === 'Enter' && void actions.openRecent(r.path)}
+                // The row's own Enter only: one on its ✕ removes the entry (the button's own activation), never opens it.
+                onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && void actions.openRecent(r.path)}
                 onContextMenu={(e) => recentMenu.open(e, [{ label: 'Remove from Recent', icon: 'close', onClick: () => void actions.removeRecent(r.path) }])}
               >
                 <Icon name={r.exists ? 'root-folder' : 'warning'} /> <span className="recent-name">{basename(r.path)}</span> <span className="muted recent-note">{recentNote(r)}</span>

@@ -1,4 +1,4 @@
-import { existsSync } from 'fs'
+import { existsSync } from 'original-fs'
 import { resolve } from 'path'
 import type { RecentWorkspace } from '../shared/types'
 import { config } from './config'

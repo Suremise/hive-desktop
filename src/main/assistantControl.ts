@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID, timingSafeEqual } from 'crypto'
 import { app } from 'electron'
 import { dirname, join } from 'path'
-import { mkdir } from 'fs/promises'
+import { mkdir } from 'original-fs/promises'
 import { ASSISTANT_DIR } from '../shared/assistant'
 import { controlAllows } from '../shared/assistantTools'
 import { HIVE_DIR } from '../shared/defaults'

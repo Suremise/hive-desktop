@@ -1,7 +1,8 @@
 // Recent workspaces (#144): a folder that no longer exists is greyed with "not found", and opening it offers Remove
 // from Recent; an entry is removed with its ✕ or right-click → Remove from Recent, on the welcome page and in File →
 // Open Recent; Clear Recently Opened asks, then keeps only the workspace open; a workspace open in another window is
-// marked so; and every window's list follows a change made in another. Dev build, throwaway profile and workspaces.
+// marked so; every window's list follows a change made in another; and on the welcome page, Enter or Space on an
+// entry's ✕ only removes it, while Enter on the entry opens it (#237). Dev build, throwaway profile and workspaces.
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -101,6 +102,34 @@ const check = (name, ok, extra = '') => {
   await ask.getByRole('button', { name: 'Clear' }).click()
   check('…then keeps only the workspace open', !!(await lib.until(async () => JSON.stringify(await recent()) === '["recent-alpha"]', 5000)), JSON.stringify(await recent()))
   check('…and the other window’s list follows', !!(await lib.until(async () => (await page2.locator('.welcome .recent-item').count()) === 1, 5000)))
+
+  // The keyboard on the other window's welcome page (#237): Enter or Space on an entry's ✕ removes it and opens nothing
+  // (its folder stays); Enter on the entry itself opens it.
+  fs.mkdirSync(path.join(wsC, 'app'), { recursive: true })
+  for (const w of [wsC, wsB, wsA]) await lib.openWorkspace(inv, page, w)
+  await lib.until(async () => (await page2.locator('.welcome .recent-item').count()) === 3, 5000)
+  const welcome2 = async () => (await page2.locator('.welcome').count()) === 1
+  // As from the keyboard: the entry, then Tab to its ✕ (shown once the entry has the focus).
+  await entry2('recent-beta').focus()
+  await page2.keyboard.press('Tab')
+  check(`Tab from beta's entry reaches its ✕`, await entry2('recent-beta').locator('.recent-remove').evaluate((b) => b === document.activeElement))
+  await page2.keyboard.press('Enter')
+  check('Enter on an entry’s ✕ removes it', !!(await lib.until(async () => !(await recent()).includes('recent-beta'), 5000)), JSON.stringify(await recent()))
+  await lib.sleep(500)
+  check('…and opens nothing: the window still shows the welcome page, beta stays forgotten', (await welcome2()) && !(await recent()).includes('recent-beta'), JSON.stringify(await recent()))
+  check('…leaving its folder alone', fs.existsSync(wsB))
+  // As from the keyboard: the entry, then Tab to its ✕ (shown once the entry has the focus).
+  await entry2('recent-gone').focus()
+  await page2.keyboard.press('Tab')
+  check(`Tab from gone's entry reaches its ✕`, await entry2('recent-gone').locator('.recent-remove').evaluate((b) => b === document.activeElement))
+  await page2.keyboard.press('Space')
+  check('Space on an entry’s ✕ removes it too, opening nothing', !!(await lib.until(async () => !(await recent()).includes('recent-gone'), 5000)) && (await welcome2()), JSON.stringify(await recent()))
+  await lib.openWorkspace(inv, page, wsB)
+  await lib.openWorkspace(inv, page, wsA)
+  await lib.until(async () => (await entry2('recent-beta').count()) === 1, 5000)
+  await entry2('recent-beta').focus()
+  await page2.keyboard.press('Enter')
+  check('Enter on the entry itself opens it', !!(await lib.until(() => page2.evaluate(() => document.title.includes('recent-beta')).catch(() => false), 10000)), await page2.title())
   await app.close()
   if (failed) console.log(`${failed} failed`)
   process.exit(failed ? 1 : 0)

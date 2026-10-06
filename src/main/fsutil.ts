@@ -1,8 +1,8 @@
-import { closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Dirent, type Stats } from 'fs'
-import { copyFile, link, lstat, mkdir, open, opendir, readFile, readlink, rename, writeFile, stat, symlink, cp, rm, utimes } from 'fs/promises'
+import { closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync, type Dirent, type Stats } from 'original-fs'
+import { copyFile, link, lstat, mkdir, open, opendir, readFile, readlink, rename, writeFile, stat, symlink, cp, rm, utimes } from 'original-fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'path'
 import { createHash } from 'crypto'
-import { readdir } from 'fs/promises'
+import { readdir } from 'original-fs/promises'
 import { join } from 'path'
 
 export async function readJson<T>(path: string, fallback: T): Promise<T> {
@@ -114,6 +114,15 @@ export function realPath(p: string): string {
       head = up
     }
   }
+}
+
+/**
+ * Whether a path is inside an .asar archive (`…\app.asar\icon.png`). Such a path isn't a file on disk, and Electron's
+ * readers that take a path (nativeImage, the file: protocol hive-img: fetches through) open the archive for it and keep
+ * it open until Hive quits, so a build can't replace it (#246). Hive's file routes refuse them; the .asar itself is fine.
+ */
+export function insideArchive(p: string): boolean {
+  return /\.asar[\\/]/i.test(p)
 }
 
 /** Whether a path is inside one of the folders: as written, and by its real location (a link inside can't lead outside). */

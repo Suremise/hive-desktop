@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'crypto'
 import { app } from 'electron'
-import { mkdir } from 'fs/promises'
+import { mkdir } from 'original-fs/promises'
 import { dirname, join } from 'path'
 import { hashText, writeJsonAtomic } from './fsutil'
 

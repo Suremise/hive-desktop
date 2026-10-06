@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, readSync, writeFileSync } from 'fs'
+import { closeSync, existsSync, mkdirSync, openSync, readSync, writeFileSync } from 'original-fs'
 import { join, resolve } from 'path'
 import { createHash } from 'crypto'
 import { config } from './config'

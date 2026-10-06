@@ -988,8 +988,8 @@ export function ImagesTab({ project: owner, assistant = false }: { project: Proj
         <InfoTip
           text={
             assistant
-              ? "Screenshots and images pasted or dropped into the Assistant's conversations, kept in its home's .hive/images. Click a conversation's name to read it."
-              : "Screenshots and images pasted or dropped into this project's sessions, kept in .hive/images. Drag one onto the Session tab to send it again; click a session's name to read it."
+              ? "Kept in the Assistant's home, .hive/images. Click a conversation's name to read it."
+              : "Kept in the project's .hive/images. Drag one onto the Session tab to send it again; click a session's name to read it."
           }
         />
         <span className="faint">
@@ -1000,6 +1000,7 @@ export function ImagesTab({ project: owner, assistant = false }: { project: Proj
         <IconButton icon="refresh" title="Refresh" onClick={load} />
         <IconButton icon="folder-opened" title="Open Images Folder" onClick={() => void call('app:openPath', `${project.path}\\.hive\\images`)} />
       </div>
+      <p className="hint images-desc">{assistant ? 'Images pasted or dropped into the Assistant, by conversation.' : "Images pasted or dropped into this project's agents' sessions, by session."}</p>
       {error && <StaleNote what="the images" error={error} at={loaded.at} onRetry={load} />}
       {current.map(renderGroup)}
       {archived.length > 0 && (
@@ -1015,6 +1016,8 @@ export function ImagesTab({ project: owner, assistant = false }: { project: Proj
           image={viewing}
           images={all}
           live={!!project.live}
+          // Worked out for the image shown, so it follows navigation and its session starting or stopping (main refuses too).
+          deleteBlocked={running(viewing) ? `Its ${noun} is running` : null}
           onNavigate={setViewing}
           onClose={() => setViewing(null)}
           onInsert={(img) => {
@@ -1033,6 +1036,7 @@ function ImageViewer({
   image,
   images,
   live,
+  deleteBlocked,
   onNavigate,
   onClose,
   onInsert,
@@ -1041,6 +1045,8 @@ function ImageViewer({
   image: SessionImage
   images: SessionImage[]
   live: boolean
+  /** Why this image can't be deleted now (its session is running), or null. */
+  deleteBlocked: string | null
   onNavigate: (img: SessionImage) => void
   onClose: () => void
   onInsert: (img: SessionImage) => void
@@ -1073,9 +1079,11 @@ function ImageViewer({
           <span className="faint" style={{ marginRight: 'auto' }}>
             {i + 1} of {images.length} · {formatBytes(image.size)}
           </span>
-          <button className="btn subtle danger-text" onClick={() => onDelete(image)}>
-            <Icon name="trash" /> Delete
-          </button>
+          <Tooltip content={deleteBlocked}>
+            <button className="btn subtle danger-text" disabled={!!deleteBlocked} aria-description={deleteBlocked ?? undefined} onClick={() => onDelete(image)}>
+              <Icon name="trash" /> Delete
+            </button>
+          </Tooltip>
           <button className="btn subtle" onClick={() => void call('app:showInFolder', image.path)}>
             <Icon name="folder-opened" /> Reveal
           </button>

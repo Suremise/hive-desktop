@@ -673,16 +673,19 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
             // Another page's most urgent agent shows as a dot on its button, or one the Assistant added there.
             const state = page === i ? null : mostUrgent(onPage.map((a) => a.live))
             const added = page !== i && onPage.some((a) => fresh.includes(a.id))
+            // A drop here moves the agent to this page's last place: not a target where it already is (#238). Held over,
+            // the button still shows its page, to drop on a pane there.
+            const moves = !!dragging && pageEndIndex(project.agents.length, i, perPage) !== project.agents.findIndex((a) => a.id === dragging)
             return (
               <Tooltip key={i} content={`Page ${i + 1}: ${onPage.length === 1 ? `agent ${i * perPage + 1}` : `agents ${i * perPage + 1}–${i * perPage + onPage.length}`}${added ? ', with an agent the Assistant added' : ''}${pageKb ? ` (${formatKeybinding(pageKb)} for the next page)` : ''}`}>
                 <button
-                  className={cx(page === i && 'active', dragging && dropPage === i && 'drop-target')}
+                  className={cx(page === i && 'active', moves && dropPage === i && 'drop-target')}
                   onClick={() => showPage(project, i)}
                   aria-label={`Agent page ${i + 1}`}
                   onDragOver={(e) => {
                     if (!dragging) return
-                    e.preventDefault()
-                    setDropPage(i)
+                    if (moves) e.preventDefault()
+                    setDropPage(moves ? i : null)
                     setDropBefore(undefined)
                     // Held over another page's button for a moment, that page shows, to drop on one of its panes (#135).
                     if (i !== page && pageHover.current?.page !== i) {
@@ -701,7 +704,7 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
                     e.preventDefault()
                     if (pageHover.current) clearTimeout(pageHover.current.timer)
                     pageHover.current = null
-                    if (dragging) dropAgent(project, pageEndIndex(project.agents.length, i, perPage))
+                    if (moves) dropAgent(project, pageEndIndex(project.agents.length, i, perPage))
                   }}
                 >
                   {i + 1}
@@ -1181,6 +1184,8 @@ export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (s
   const dragging = useAgentDrag(project)
   const [over, setOver] = useState<string | null>(null)
   useEffect(() => setOver(null), [dragging])
+  // An empty pane moves the dragged agent to the end: nothing to do for the last one (#238).
+  const draggingLast = !!dragging && project.agents.at(-1)?.id === dragging
   return (
     <>
       {panes.map((id, i) => {
@@ -1201,9 +1206,10 @@ export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (s
             {a && <PaneFooter project={project} a={a} />}
             {/*
               While an agent is dragged (#135): drop it on another agent's pane to swap their places, or on an empty pane
-              (the last page's spare ones) to move it there. Not on its own pane: that would do nothing.
+              (the last page's spare ones) to move it there. Not where it would do nothing: its own pane, or an empty one
+              when it is already last.
             */}
-            {dragging && a?.id !== dragging && (
+            {dragging && a?.id !== dragging && (a || !draggingLast) && (
               <div
                 className={cx('pane-drop', over === (a?.id ?? `empty:${i}`) && 'over')}
                 onDragOver={(e) => {

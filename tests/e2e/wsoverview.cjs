@@ -1,5 +1,6 @@
 // Workspace Overview: totals across projects for a period, the table by project, the stacked chart (a tile a day),
-// the board strip and the hidden-project note. Transcripts are Hive backups (.hive/sessions) dated relative to today; no
+// the board strip and the hidden-project note; in a narrow window the page doesn't scroll sideways (its period buttons
+// wrap, #252) while the table keeps its own scroll. Transcripts are Hive backups (.hive/sessions) dated relative to today; no
 // agent is started.
 const lib = require('./lib.cjs')
 const fs = require('fs')
@@ -81,6 +82,29 @@ const check = (name, ok, extra = '') => {
   check('and re-sorts the table', !!(await until(async () => (await names())[0] === 'gamma', 3000)), JSON.stringify(await names()))
   await page.locator('.ws-projects th', { hasText: 'Project' }).click()
   check('a column header sorts by it', JSON.stringify(await names()) === JSON.stringify(['alpha', 'beta', 'gamma']), JSON.stringify(await names()))
+
+  // Narrow (#252): the sidebar open, at 620 px and at 125% zoom. The page fits its width (the period buttons wrap under
+  // the title); the table by project still scrolls inside itself.
+  const fits = () =>
+    page.evaluate(() => {
+      const scroller = document.querySelector('.overview-head').closest('.scroll-page')
+      const box = scroller.getBoundingClientRect()
+      const seg = document.querySelector('.overview-head .segmented').getBoundingClientRect()
+      return { page: scroller.scrollWidth <= scroller.clientWidth + 1, buttons: seg.right <= box.right && seg.left >= box.left, table: !!document.querySelector('.ws-projects')?.closest('.table-wrap') }
+    })
+  for (const [width, zoom] of [[620, 1], [760, 1.25]]) {
+    await app.evaluate(({ BrowserWindow }, z) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(z), zoom)
+    await lib.fitWindow(app, page, { width, height: 900 })
+    const f = await until(async () => {
+      const x = await fits()
+      return x.page && x.buttons ? x : null
+    }, 3000)
+    check(`${width} px at ${zoom * 100}%: the page doesn't scroll sideways, its period buttons inside it`, !!f, JSON.stringify(await fits()))
+    check(`${width} px at ${zoom * 100}%: …the table keeps its own scroll`, (await fits()).table)
+    await page.screenshot({ path: path.join(lib.WORK, `wsoverview-${width}-${zoom * 100}.png`) })
+  }
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
+  await lib.fitWindow(app, page, { width: 1400, height: 950 })
 
   await rows.filter({ hasText: 'beta' }).click()
   const opened = await until(async () => (await page.locator('.tab.active', { hasText: 'Overview' }).count()) === 1 && (await page.locator('.project-header, .project-title').first().innerText().catch(() => '')).includes('beta'), 5000)

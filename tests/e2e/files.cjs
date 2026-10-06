@@ -175,6 +175,8 @@ const check = (name, ok) => {
   await lib.until(async () => (await page.locator('.thumb').count()) === 4, 10000)
   await page.screenshot({ path: path.join(shots, '4-images.png') })
   check('images: 4 thumbnails', (await page.locator('.thumb').count()) === 4)
+  const desc = await page.locator('.images-desc').innerText().catch(() => '')
+  check('images: a line says what the tab holds', desc === "Images pasted or dropped into this project's agents' sessions, by session.", desc)
   check('images: thumbnails load', await page.locator('.thumb img').first().evaluate((i) => i.complete && i.naturalWidth > 0))
   check('images: archived heading', (await page.locator('.images-archived').count()) === 1)
   await page.locator('.thumb').first().click()

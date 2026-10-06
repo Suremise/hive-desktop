@@ -1,6 +1,6 @@
 import { shell } from 'electron'
-import { existsSync } from 'fs'
-import { mkdir, readFile, readdir, stat } from 'fs/promises'
+import { existsSync } from 'original-fs'
+import { mkdir, readFile, readdir, stat } from 'original-fs/promises'
 import { basename, join, resolve } from 'path'
 import { HIVE_DIR, projectAgents } from '../shared/defaults'
 import { agentProvider, isKnownProvider, isProviderEnabled, providerDescriptor } from '../shared/providers'

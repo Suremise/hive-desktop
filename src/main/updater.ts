@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { writeFileSync } from 'fs'
+import { writeFileSync } from 'original-fs'
 import { join } from 'path'
 import { autoUpdater, type ProgressInfo, type UpdateInfo } from 'electron-updater'
 import type { UpdateState } from '../shared/types'

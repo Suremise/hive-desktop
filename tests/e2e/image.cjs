@@ -1,5 +1,6 @@
 // Image paste (Ctrl+V) and drag-and-drop into an agent's terminal: each image's path reaches the CLI's input line, a
-// pasted one saved with the session; and the ended-session bar. The agent runs the fake Claude Code (fake-claude/, #195),
+// pasted one saved with the session; the Images tab's viewer, whose Delete waits for the session to stop (#258); and the
+// ended-session bar. The agent runs the fake Claude Code (fake-claude/, #195),
 // which shows what is typed as Claude Code does. Throwaway profile.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -87,11 +88,50 @@ fs.mkdirSync(shots, { recursive: true })
   const shown = (await images()).map((p) => path.basename(p))
   check('both are saved with the session, as the paths say', saved.length === 2 && shown.every((f) => saved.includes(f)) && pasted?.toLowerCase().includes(st.sessionId.toLowerCase()), JSON.stringify({ saved, shown }))
 
+  // The Images tab's viewer (#258): Delete is greyed out, saying why, on the running session's images, not on a stopped
+  // session's; moving between them changes it, and so does the session stopping.
+  const pastDir = path.join(proj, '.hive', 'images', '0b6e0000-0000-4000-8000-000000000258')
+  fs.mkdirSync(pastDir, { recursive: true })
+  const pastPng = path.join(pastDir, '2026-01-01T09-00-00.png')
+  fs.writeFileSync(pastPng, lib.samplePng())
+  fs.utimesSync(pastPng, new Date('2026-01-01T09:00:00Z'), new Date('2026-01-01T09:00:00Z'))
+  const tab = (label) => page.locator('.tab', { has: page.locator('.tab-label', { hasText: new RegExp(`^${label}$`) }) })
+  await tab('Images').click()
+  await lib.until(async () => (await page.locator('.thumb').count()) === 3, 10000)
+  const viewerTitle = () => page.locator('.dialog[role="dialog"]').first().getAttribute('aria-label', { timeout: 2000 }).then((x) => x ?? '', () => '')
+  const del = page.locator('.dialog-footer button', { hasText: /^\s*Delete$/ })
+  await page.locator('.image-group', { has: page.locator('.badge', { hasText: 'Running' }) }).locator('.thumb').first().click()
+  await lib.until(async () => (await page.locator('.image-viewer').count()) === 1, 5000)
+  check("viewer: a running session's image can't be deleted", await del.isDisabled(), await viewerTitle())
+  await del.hover({ force: true })
+  const why = await lib.until(async () => (await page.locator('.tip', { hasText: 'Its session is running' }).count()) > 0, 3000)
+  check('viewer: … and its Delete says why', !!why, await page.locator('.tip').allInnerTexts().then((x) => x.join(' | ')))
+  await page.screenshot({ path: path.join(shots, '3-viewer-running.png') })
+  await inv('settings:update', { appearance: { theme: 'light' } })
+  await page.screenshot({ path: path.join(shots, '3-viewer-running-light.png') })
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await page.mouse.move(10, 10)
+  for (let i = 0; i < 3 && !/2026-01-01T09-00-00/.test(await viewerTitle()); i++) await page.keyboard.press('ArrowRight')
+  check("viewer: moving to a stopped session's image enables Delete", /2026-01-01T09-00-00/.test(await viewerTitle()) && (await del.isEnabled()), await viewerTitle())
+  await page.keyboard.press('ArrowLeft')
+  check('viewer: … and moving back disables it again', !!(await lib.until(() => del.isDisabled(), 3000)), await viewerTitle())
+  await page.keyboard.press('Escape')
+  await lib.until(async () => (await page.locator('.image-viewer').count()) === 0, 3000)
+  await tab('Session').click()
+
   // Ended bar: clear the input first so nothing is sent, then stop.
   await inv('session:stop', proj)
   await lib.until(async () => (await inv('session:live')).length === 0, 15000)
   check('the ended bar shows once it stops', !!(await lib.until(async () => (await page.locator('.session-ended').count()) === 1, 10000)))
-  await page.screenshot({ path: path.join(shots, '3-ended.png') })
+  await page.screenshot({ path: path.join(shots, '4-ended.png') })
+
+  // Its images can be deleted now it has stopped (the dialog is cancelled: nothing goes).
+  await tab('Images').click()
+  await lib.until(async () => (await page.locator('.thumb').count()) === 3, 10000)
+  await page.locator('.thumb').first().click()
+  await lib.until(async () => (await page.locator('.image-viewer').count()) === 1, 5000)
+  check("viewer: once the session stops, its image's Delete is enabled", !!(await lib.until(() => del.isEnabled(), 5000)), await viewerTitle())
+  await page.keyboard.press('Escape')
   await app.close()
   process.exit(failed ? 1 : 0)
 })().catch((e) => {

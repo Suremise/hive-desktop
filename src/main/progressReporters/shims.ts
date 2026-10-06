@@ -1,7 +1,7 @@
 // The hive-progress command on every session's PATH: a .cmd (cmd, PowerShell) and an extensionless sh script (Git
 // Bash) in Hive's bin folder, each starting hive-progress.js with Hive's own executable as Node. Timings for its
 // estimates are kept beside them, in Hive's data (never in the user's project).
-import { mkdir, readFile, writeFile } from 'fs/promises'
+import { mkdir, readFile, writeFile } from 'original-fs/promises'
 import { join } from 'path'
 
 export interface ShimPaths {

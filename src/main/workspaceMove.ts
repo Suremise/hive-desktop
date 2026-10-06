@@ -1,5 +1,5 @@
-import { existsSync } from 'fs'
-import { readFile, stat } from 'fs/promises'
+import { existsSync } from 'original-fs'
+import { readFile, stat } from 'original-fs/promises'
 import { basename, join, resolve } from 'path'
 import type { MoveHostPlan, MoveOptions, MovePlan, MoveReport, MoveWorktree, PathDataCopy, WorkspaceMoved } from '../shared/types'
 import { HIVE_DIR, projectAgents } from '../shared/defaults'

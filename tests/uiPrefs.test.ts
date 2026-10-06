@@ -1,0 +1,55 @@
+// Per-project view preferences are saved one project at a time and merged into what is saved (#245), so a window's
+// stale copy of a map can't drop another window's projects; values are cleaned and bounded.
+import { describe, expect, it } from 'vitest'
+import { MAX_PREF_PROJECTS, MAX_TREE_PREFS, isProjectPref, projectPrefValue, withProjectPref } from '../src/shared/uiPrefs'
+
+describe('withProjectPref', () => {
+  it("sets one project's value as the newest, keeping the others", () => {
+    const saved = { a: 'codex', b: 'claude-code' }
+    expect(withProjectPref(saved, 'a', 'claude-code')).toEqual({ b: 'claude-code', a: 'claude-code' })
+    expect(Object.keys(withProjectPref(saved, 'a', 'claude-code'))).toEqual(['b', 'a'])
+    expect(saved).toEqual({ a: 'codex', b: 'claude-code' })
+  })
+
+  it('forgets a project with null, and starts a map that is missing', () => {
+    expect(withProjectPref({ a: 1, b: 2 }, 'a', null)).toEqual({ b: 2 })
+    expect(withProjectPref(undefined, 'a', 1)).toEqual({ a: 1 })
+  })
+
+  it('keeps the most recently changed projects only', () => {
+    const many = Object.fromEntries(Array.from({ length: MAX_PREF_PROJECTS }, (_, i) => [`p${i}`, i]))
+    const next = withProjectPref(many, 'new', -1)
+    expect(Object.keys(next)).toHaveLength(MAX_PREF_PROJECTS)
+    expect(next.p0).toBeUndefined()
+    expect(next.new).toBe(-1)
+  })
+})
+
+describe('projectPrefValue', () => {
+  it('takes a known provider only for skillsProvider', () => {
+    expect(projectPrefValue('skillsProvider', 'codex')).toBe('codex')
+    expect(projectPrefValue('skillsProvider', 'no-such')).toBeUndefined()
+    expect(projectPrefValue('skillsProvider', 3)).toBeUndefined()
+  })
+
+  it('keeps only the two booleans of skillsFold', () => {
+    expect(projectPrefValue('skillsFold', { hive: false, provider: true, extra: 1 })).toEqual({ hive: false, provider: true })
+    expect(projectPrefValue('skillsFold', { hive: 'yes' })).toEqual({})
+    expect(projectPrefValue('skillsFold', [true])).toBeUndefined()
+    expect(projectPrefValue('skillsFold', null)).toBeUndefined()
+  })
+
+  it("keeps a Sessions tree's boolean branches, the newest MAX_TREE_PREFS", () => {
+    expect(projectPrefValue('sessionsTree', { a: true, b: 'x', c: false })).toEqual({ a: true, c: false })
+    const many = Object.fromEntries(Array.from({ length: MAX_TREE_PREFS + 5 }, (_, i) => [`k${i}`, true]))
+    const kept = projectPrefValue('sessionsTree', many)!
+    expect(Object.keys(kept)).toHaveLength(MAX_TREE_PREFS)
+    expect(kept.k0).toBeUndefined()
+  })
+
+  it('knows which preferences are per project', () => {
+    expect(['skillsProvider', 'skillsFold', 'sessionsTree'].every(isProjectPref)).toBe(true)
+    expect(isProjectPref('sidebarWidth')).toBe(false)
+    expect(isProjectPref('tips')).toBe(false)
+  })
+})

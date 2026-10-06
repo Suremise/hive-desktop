@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
-import { existsSync, readFileSync, statSync } from 'fs'
-import { open } from 'fs/promises'
+import { existsSync, readFileSync, statSync } from 'original-fs'
+import { open } from 'original-fs/promises'
 import { basename, delimiter, dirname, join } from 'path'
 import type { RecacheEstimate, SessionUsage } from '../../shared/types'
 
