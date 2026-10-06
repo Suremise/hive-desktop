@@ -95,7 +95,7 @@ export const AREAS = [
   { paths: ['src/main/progressReporters/'], suites: ['progressreport', 'packaged-progress'] },
   { paths: ['src/main/projectAgents.ts'], suites: ['agents', 'agents-ui', 'reorder', 'pages', 'unmerged'] },
   { paths: ['src/main/projectRemoval.ts', 'src/renderer/src/components/ProjectRemoval.tsx'], suites: ['board', 'storage'] },
-  { paths: ['src/main/providerService.ts'], suites: ['providers', 'codex-setup', 'startfail', 'models'] },
+  { paths: ['src/main/providerService.ts', 'src/main/taskKeys.ts'], suites: ['providers', 'codex-setup', 'startfail', 'models'] },
   { paths: ['src/main/rendererWatch.ts'], suites: ['rendercrash'] },
   { paths: ['src/main/storage.ts', 'src/shared/storage.ts', 'src/renderer/src/components/Storage.tsx'], suites: ['storage', 'asarfiles'] },
   { paths: ['src/shared/tipPlacement.ts'], suites: ['tooltips'] },
