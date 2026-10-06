@@ -5,7 +5,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { PROJECT_MENU, PROJECT_TABS, tabCommand } from '../src/shared/projectTabs'
-import { batchLine, busyNote, eachAgent, sessionsToArchive, type BatchAgent } from '../src/shared/startAll'
+import { archiveTarget, batchCounts, batchLine, busyNote, eachAgent, sessionsToArchive, type BatchAgent } from '../src/shared/startAll'
 
 const src = (p: string): string => readFileSync(join(__dirname, '..', p), 'utf8')
 
@@ -28,22 +28,38 @@ describe('the Project menu is the tab strip', () => {
 describe('Start New (All) and Archive and Start New (All)', () => {
   const agent = (id: string, over: Partial<BatchAgent> = {}): BatchAgent => ({ id, name: id.toUpperCase(), live: null, resume: null, ...over })
 
-  it('archives a running agent its current session, a stopped one its last if not archived yet, and leaves out agents with none', () => {
+  it("archives a running agent its current session, a stopped one the session its Resume would open, and leaves out agents with none", () => {
     const agents = [
       agent('w', { live: { sessionId: 's1', status: 'working' } }),
-      agent('i', { lastSessionId: 's2', resume: { id: 's2' } }),
-      agent('a', { lastSessionId: 's3' }),
-      agent('r', { resume: { id: 's4' } }),
-      agent('n'),
-      agent('g', { lastSessionId: 'gone' })
+      agent('i', { resume: { id: 's2' } }),
+      // Archived meanwhile, or gone from Hive's list: nothing to archive.
+      agent('a', { resume: { id: 's3' } }),
+      agent('g', { resume: { id: 'gone' } }),
+      agent('n')
     ]
-    const sessions = [{ id: 's1' }, { id: 's2' }, { id: 's3', archived: true }, { id: 's4' }]
+    const sessions = [{ id: 's1' }, { id: 's2' }, { id: 's3', archived: true }]
     expect(sessionsToArchive(agents, sessions).map((x) => [x.agent.id, x.sessionId])).toEqual([
       ['w', 's1'],
-      ['i', 's2'],
-      ['r', 's4']
+      ['i', 's2']
     ])
     expect(sessionsToArchive([agent('n')], sessions)).toEqual([])
+    expect(agents.map(archiveTarget)).toEqual(['s1', 's2', 's3', 'gone', null])
+  })
+
+  it('counts the agents each header action acts on, by the rules its confirmation uses (#275)', () => {
+    const agents = [
+      agent('w', { live: { sessionId: 's1', status: 'working' } }),
+      agent('i', { live: { sessionId: 's2', status: 'ready' } }),
+      agent('s', { resume: { id: 's3' } }),
+      agent('t', { resume: { id: 's4' } }),
+      agent('n'),
+      agent('m')
+    ]
+    expect(batchCounts(agents)).toEqual({ stop: 2, resume: 2, startNew: 6, archive: 4 })
+    // Archive's count is the agents its confirmation lists (when Hive keeps their sessions).
+    const sessions = ['s1', 's2', 's3', 's4'].map((id) => ({ id }))
+    expect(sessionsToArchive(agents, sessions)).toHaveLength(batchCounts(agents).archive)
+    expect(batchCounts([])).toEqual({ stop: 0, resume: 0, startNew: 0, archive: 0 })
   })
 
   it('flags what stopping a running agent costs, as the quit dialog does; idle and stopped ones get no flag', () => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { ProjectInfo } from '@shared/types'
 import { agentLaunchSettings, isProviderEnabled, modeOption, providerName } from '@shared/providers'
 import { agentsToResume } from '@shared/resumeAll'
+import { archiveTarget, batchCounts } from '@shared/startAll'
 import { PROJECT_TABS, tabCommand } from '@shared/projectTabs'
 import hexUrl from '../assets/icon.svg'
 import * as actions from '../actions'
@@ -246,14 +247,22 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const resuming = !!runningActions[`resumeAll:${project.path}`]
   const startingAll = !!runningActions[`startNewAll:${project.path}`]
   const archivingAll = !!runningActions[`archiveAll:${project.path}`]
-  // Some agent has a session to archive (running, or one it ran or would resume); the dialog lists exactly which.
-  const archivable = project.agents.some((a) => a.live || a.lastSessionId || a.resume)
-  // The batch actions, as buttons or (cramped) as ⋯ items.
-  const startNew = project.agents.length
-    ? { label: many ? 'Start New (All)' : 'Start New', tip: many ? `Start a fresh session for every agent (${project.agents.length}); running ones are stopped first` : 'Start a fresh session; a running one is stopped first', run: () => void actions.startNewAll(project.path) }
+  // How many agents each batch action acts on, as its confirmation lists them (#275): shown in its label, or beside its
+  // icon when narrow.
+  const counts = batchCounts(project.agents)
+  const resumeLabel = resumable.length === 1 ? 'Resume Agent' : `Resume All Agents (${resumable.length})`
+  const stopLabel = running.length === 1 ? 'Stop Agent' : `Stop (${running.length})`
+  // The batch actions, as buttons or (cramped) as ⋯ items; with one agent, no count.
+  const startNew = counts.startNew
+    ? { label: many ? `Start New (${counts.startNew})` : 'Start New', count: many ? counts.startNew : null, tip: many ? `Start a fresh session for each of the ${counts.startNew} agents; running ones are stopped first` : 'Start a fresh session; a running one is stopped first', run: () => void actions.startNewAll(project.path) }
     : null
-  const archiveNew = archivable
-    ? { label: many ? 'Archive and Start New (All)' : 'Archive and Start New', tip: many ? "Archive every agent's current session and start fresh ones" : 'Archive the current session and start a fresh one', run: () => void actions.startNewAll(project.path, true) }
+  const archiveNew = counts.archive
+    ? {
+        label: many ? `Archive and Start New (${counts.archive})` : 'Archive and Start New',
+        count: many ? counts.archive : null,
+        tip: many ? (counts.archive === 1 ? `Archive ${project.agents.find((a) => archiveTarget(a))?.name}'s session and start a fresh one` : `Archive the sessions of the ${counts.archive} agents that have one and start fresh ones`) : 'Archive the current session and start a fresh one',
+        run: () => void actions.startNewAll(project.path, true)
+      }
     : null
   const dangerous = settings
     ? project.agents.flatMap((a) => {
@@ -305,27 +314,30 @@ export function ProjectView({ visible }: { visible: boolean }) {
             </label>
           </Tooltip>
           {resumable.length > 0 && (
-            <Tooltip content={resumable.length === 1 ? `Resume ${resumable[0].name}'s last session` : `Resume all ${resumable.length} stopped agents (running ones are left alone)`}>
-              <button className="btn tint-amber" disabled={resuming} aria-busy={resuming || undefined} aria-label={resumable.length === 1 ? 'Resume Agent' : 'Resume All Agents'} onClick={() => void actions.resumeAllAgents(project.path)}>
+            <Tooltip content={resumable.length === 1 ? `Resume ${resumable[0].name}'s last session` : `Resume the ${resumable.length} stopped agents (running ones are left alone)`}>
+              <button className="btn tint-amber" disabled={resuming} aria-busy={resuming || undefined} aria-label={resumeLabel} onClick={() => void actions.resumeAllAgents(project.path)}>
                 <Icon name={resuming ? 'loading' : 'debug-continue'} spin={resuming} />
-                {!tight && ` ${resuming ? 'Resuming…' : resumable.length === 1 ? 'Resume Agent' : narrow ? 'Resume All' : 'Resume All Agents'}`}
+                {!tight && ` ${resuming ? 'Resuming…' : resumable.length === 1 ? 'Resume Agent' : narrow ? `Resume (${resumable.length})` : resumeLabel}`}
+                {tight && resumable.length > 1 && <span className="btn-count">{resumable.length}</span>}
               </button>
             </Tooltip>
           )}
           {running.length > 0 && (
-            <Tooltip content={running.length === 1 ? 'Stop the running agent' : `Stop all ${running.length} running agents`}>
-              <button className="btn tint-red" aria-label={running.length === 1 ? 'Stop Agent' : 'Stop (All)'} onClick={() => void actions.stopAllAgents(project.path)}>
+            <Tooltip content={running.length === 1 ? 'Stop the running agent' : `Stop the ${running.length} running agents`}>
+              <button className="btn tint-red" aria-label={stopLabel} onClick={() => void actions.stopAllAgents(project.path)}>
                 <Icon name="stop-circle" />
-                {!tight && ` ${running.length === 1 ? 'Stop Agent' : 'Stop (All)'}`}
+                {!tight && ` ${stopLabel}`}
+                {tight && running.length > 1 && <span className="btn-count">{running.length}</span>}
               </button>
             </Tooltip>
           )}
-          {/* Every agent at once, after one confirmation (#216): icons when narrow, in ⋯ when even those don't fit. */}
+          {/* Every agent at once, after one confirmation (#216): icons (and their counts) when narrow, in ⋯ when even those don't fit. */}
           {startNew && !cramped && (
             <Tooltip content={startNew.tip}>
               <button className="btn subtle" disabled={startingAll} aria-busy={startingAll || undefined} aria-label={startNew.label} onClick={startNew.run}>
                 <Icon name={startingAll ? 'loading' : 'add'} spin={startingAll} />
                 {!narrow && ` ${startNew.label}`}
+                {narrow && startNew.count && <span className="btn-count">{startNew.count}</span>}
               </button>
             </Tooltip>
           )}
@@ -334,6 +346,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
               <button className="btn subtle" disabled={archivingAll} aria-busy={archivingAll || undefined} aria-label={archiveNew.label} onClick={archiveNew.run}>
                 <Icon name={archivingAll ? 'loading' : 'archive'} spin={archivingAll} />
                 {!narrow && ` ${archiveNew.label}`}
+                {narrow && archiveNew.count && <span className="btn-count">{archiveNew.count}</span>}
               </button>
             </Tooltip>
           )}
