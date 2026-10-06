@@ -49,6 +49,7 @@ vi.mock('../src/main/workspace', () => ({
 }))
 
 const { StorageStopped, abandonStorage, abandonWindowStorage, projectStorage, workspaceStorage } = await import('../src/main/storage')
+const { workspace } = await import('../src/main/workspace')
 
 /** Holds every opendir until released. */
 function hold(): () => void {
@@ -253,6 +254,27 @@ describe("a window's requests", () => {
     expect(reads(slow.tree) - before).toBeLessThanOrEqual(1)
     // A new call with the id after it was abandoned is a request of its own, and runs.
     expect((await projectStorage(slow.path, true, 'storage-3', 10)).worktrees[0].bytes).toBe(DIRS * 100)
+  })
+
+  // A call abandoned while it lists the projects, then the same id sent again by the same window (#338): the new call
+  // is a request of its own and runs; the old one stays abandoned rather than carrying on under the new one.
+  it('a workspace call abandoned while listing projects stays abandoned when its id is sent again', async () => {
+    projects.clear()
+    const p = project('reused-id')
+    projects.set(p.path, p.tree)
+    let list!: (paths: string[]) => void
+    vi.spyOn(workspace, 'listProjectPaths').mockImplementationOnce(() => new Promise((r) => (list = r)))
+    const release = hold()
+    const old = workspaceStorage(true, 'storage-4', 11)
+    abandonStorage('storage-4', 11)
+    const fresh = workspaceStorage(true, 'storage-4', 11)
+    const stopped = expect(old).rejects.toBeInstanceOf(StorageStopped)
+    list([p.path])
+    await settle()
+    release()
+    await stopped
+    expect((await fresh).projects.find((x) => x.path === p.path)?.worktrees[0].bytes).toBe(DIRS * 100)
+    projects.clear()
   })
 
   it("stops a closed window's workspace measurement before the next project", async () => {
