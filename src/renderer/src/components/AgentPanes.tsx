@@ -14,9 +14,10 @@ import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
 import { offerTip } from '../tips'
+import { onStripMenu, takeStripMenu, type StripMenu } from '../stripMenus'
 import { ModeBadge } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
-import { contextLines, isProviderEnabled, projectDefaultProvider, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
+import { contextLines, projectProviderConfig, providerName, providerSettings } from '@shared/providers'
 import { unpricedModel, unpricedText } from '@shared/prices'
 import { Icon, IconButton, ReviewMark, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
@@ -381,32 +382,48 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
 }
 
 /**
- * Add Agent split button: the main part adds an agent at once (the default provider with its default
- * settings, in the project folder); ▾ opens the dialog to choose the provider, where it works and its settings.
+ * Add Agent split button (#286): the main part is Configure Agent and Add… (the Add Agent dialog: provider, where it
+ * works, settings); ▾ offers it too and, for a project, Add Agent from Template (one agent of a template). The quick add
+ * with default settings is the palette's Add Agent (Ctrl+Alt+Shift+N). `strip`: the agent strip's, which also answers
+ * the palette's Add Agent from Template….
  */
-export function AddAgentButton({ project, className, label = 'Add Agent' }: { project: ProjectInfo; className?: string; label?: string }) {
-  const settings = useStore((s) => s.settings)
-  const installed = useStore((s) => s.providers)
+export function AddAgentButton({ project, className, label = 'Add Agent', strip }: { project: ProjectInfo; className?: string; label?: string; strip?: boolean }) {
+  const menu = useContextMenu()
+  const caret = useRef<HTMLButtonElement>(null)
   const full = project.agents.length >= MAX_AGENTS
-  const provider = projectDefaultProvider(project.config, settings)
-  const ready = isProviderEnabled(settings, provider) && !!installed[provider]?.found
-  const tip = full
-    ? `A project can have up to ${MAX_AGENTS} agents`
-    : ready
-      ? `Add a ${providerName(provider)} agent with its default settings, working in the project folder. ▾ to choose the provider, a worktree and settings.`
-      : 'Add an agent: choose its provider, where it works and its settings'
+  const templates = !isAssistantPath(project.path)
+  const configure = (): void => set({ addAgentFor: project.path })
+  const tip = full ? `A project can have up to ${MAX_AGENTS} agents` : 'Configure Agent and Add…: choose its provider, where it works and its settings'
+  const fromTemplate = async (keyboard: boolean): Promise<void> => {
+    const at = caret.current && below(caret.current)
+    const all = await templateList(project.path)
+    if (at && all) menu.openAt(...at, addFromTemplateItems(project, all), keyboard)
+  }
+  const open = (keyboard: boolean): void => {
+    if (!caret.current) return
+    menu.openAt(
+      ...below(caret.current),
+      [
+        { label: 'Configure Agent and Add…', icon: 'settings-gear', disabled: full, onClick: configure },
+        ...(templates ? [{ label: 'Add Agent from Template', icon: 'library', more: true, disabled: full, onClick: (k: boolean) => void fromTemplate(k) }] : [])
+      ],
+      keyboard
+    )
+  }
+  useStripMenu(strip ? project.path : null, 'addFromTemplate', () => void fromTemplate(true))
   return (
     <span className="split-btn">
       <Tooltip content={tip}>
-        <button className={cx('btn', className)} disabled={full} onClick={() => void actions.quickAddAgent(project.path)}>
+        <button className={cx('btn', className)} disabled={full} onClick={configure}>
           <Icon name="add" /> {label}
         </button>
       </Tooltip>
-      <Tooltip content="Add Agent… (choose the provider, where it works and its settings)">
-        <button className={cx('btn split-caret', className)} disabled={full} onClick={() => set({ addAgentFor: project.path })} aria-label="Add Agent…">
+      <Tooltip content={templates ? 'Configure Agent and Add…, or Add Agent from Template' : 'Configure Agent and Add… (choose the provider, where it works and its settings)'}>
+        <button ref={caret} className={cx('btn split-caret', className)} disabled={full} onClick={(e) => open(e.detail === 0)} aria-label="Add Agent…" aria-haspopup="menu">
           <Icon name="chevron-down" />
         </button>
       </Tooltip>
+      {menu.element}
     </span>
   )
 }
@@ -447,102 +464,87 @@ function Locks({ a }: { a: AgentInfo }) {
   )
 }
 
-/** The row above the Session tab: one tab per agent, Add Agent and the layout choice. */
-/** How the strip shows its template controls: labelled, icons, or one ⋯ menu when it is narrow. */
-type TemplateFit = 'labels' | 'icons' | 'menu'
+/** Where a menu opens under a button. */
+const below = (el: Element): [number, number] => {
+  const r = el.getBoundingClientRect()
+  return [r.left, r.bottom + 2]
+}
 
 const layoutName = (l: PageLayout): string => (l === 'auto' ? 'automatic layout' : (SESSION_LAYOUTS.find((x) => x.value === l)?.label ?? l).toLowerCase())
 const scopeName = (s: TemplateScope): string => (s === 'workspace' ? 'Workspace' : 'This project')
 
+/** The templates a project can use (the workspace's and its own), or null after saying why they couldn't be listed. */
+const templateList = (path: string): Promise<TemplateEntry[] | null> =>
+  call('templates:list', path).catch((e) => {
+    notify('error', 'Could not list the templates', errorMessage(e))
+    return null
+  })
+
+/** Add Agent from Template: each usable template's agents, under its name and scope (#126). */
+function addFromTemplateItems(project: ProjectInfo, list: TemplateEntry[]): MenuEntry[] {
+  const all = list.filter((t) => !t.problem)
+  const full = project.agents.length >= MAX_AGENTS
+  return all.length
+    ? all.flatMap((t) => [
+        { header: true, label: `${t.name} · ${scopeName(t.scope).toLowerCase()}` },
+        ...t.agents.map((a, i) => ({
+          label: a.name,
+          icon: 'person-add',
+          detail: [a.role, providerName(a.provider), a.worktree ? 'own worktree' : ''].filter(Boolean).join(' · '),
+          disabled: full,
+          onClick: () => void actions.addAgentFromTemplate(project.path, t, i)
+        }))
+      ])
+    : [{ label: 'No templates yet: Template ▾ → Save Template… first', disabled: true }]
+}
+
+/** Template ▾: Save Template…, then the templates to load, by scope (loading replaces the agents, after saying who goes and who comes). */
+function templateMenuItems(project: ProjectInfo, all: TemplateEntry[]): MenuEntry[] {
+  const load: MenuEntry[] = all.length
+    ? TEMPLATE_SCOPES.flatMap((scope) => {
+        const here = all.filter((t) => t.scope === scope)
+        return here.length
+          ? [
+              { header: true, label: `${scopeName(scope)} templates` },
+              ...here.map((t) => ({ label: t.name, icon: 'library', detail: t.problem ?? `${t.agents.length} ${t.agents.length === 1 ? 'agent' : 'agents'} · ${layoutName(t.layout)}`, disabled: !!t.problem, onClick: () => void actions.loadTemplate(project.path, t) }))
+            ]
+          : []
+      })
+    : [{ label: 'No templates saved yet', disabled: true }]
+  return [{ label: 'Save Template…', icon: 'save', disabled: !project.agents.length, onClick: () => void actions.saveTemplate(project.path) }, { separator: true }, ...load]
+}
+
+/** Opens a strip menu the palette asked for, now or once this strip shows (`project` null: not the strip's). */
+function useStripMenu(project: string | null, which: StripMenu, open: () => void): void {
+  const run = useRef(open)
+  run.current = open
+  useEffect(() => {
+    if (!project) return
+    const check = (): void => void (takeStripMenu(project, which) && run.current())
+    check()
+    return onStripMenu(check)
+  }, [project, which])
+}
+
 /**
- * The agent strip's templates (#126): load one into the project (it replaces the agents, after saying who goes and who
- * comes), save the project's agents and layout as one, or add one agent from one. Labelled when there's room, icons
- * when less, one ⋯ menu when the strip is narrow; the agent tabs give way first (they scroll).
+ * The agent strip's Template ▾ (#126, #286): Save Template…, then the workspace's and the project's templates to load.
+ * Labelled when there's room, its icon when less; the agent tabs give way first (they scroll).
  */
-function TemplateControls({ project, fit }: { project: ProjectInfo; fit: TemplateFit }) {
+function TemplateButton({ project, labelled }: { project: ProjectInfo; labelled: boolean }) {
   const menu = useContextMenu()
-  const below = (el: Element): [number, number] => {
-    const r = el.getBoundingClientRect()
-    return [r.left, r.bottom + 2]
+  const button = useRef<HTMLButtonElement>(null)
+  const open = async (keyboard: boolean): Promise<void> => {
+    const at = button.current && below(button.current)
+    const all = await templateList(project.path)
+    if (at && all) menu.openAt(...at, templateMenuItems(project, all), keyboard)
   }
-  const list = (): Promise<TemplateEntry[] | null> =>
-    call('templates:list', project.path).catch((e) => {
-      notify('error', 'Could not list the templates', errorMessage(e))
-      return null
-    })
-  const loadMenu = async (x: number, y: number): Promise<void> => {
-    const all = await list()
-    if (!all) return
-    const items: MenuEntry[] = all.length
-      ? TEMPLATE_SCOPES.flatMap((scope) => {
-          const here = all.filter((t) => t.scope === scope)
-          return here.length
-            ? [
-                { header: true, label: `${scopeName(scope)} templates` },
-                ...here.map((t) => ({ label: t.name, icon: 'library', detail: t.problem ?? `${t.agents.length} ${t.agents.length === 1 ? 'agent' : 'agents'} · ${layoutName(t.layout)}`, disabled: !!t.problem, onClick: () => void actions.loadTemplate(project.path, t) }))
-              ]
-            : []
-        })
-      : [{ label: 'No templates yet: Save Template… first', disabled: true }]
-    menu.openAt(x, y, items)
-  }
-  const addMenu = async (x: number, y: number): Promise<void> => {
-    const all = (await list())?.filter((t) => !t.problem)
-    if (!all) return
-    const full = project.agents.length >= MAX_AGENTS
-    const items: MenuEntry[] = all.length
-      ? all.flatMap((t) => [
-          { header: true, label: `${t.name} · ${scopeName(t.scope).toLowerCase()}` },
-          ...t.agents.map((a, i) => ({
-            label: a.name,
-            icon: 'person-add',
-            detail: [a.role, providerName(a.provider), a.worktree ? 'own worktree' : ''].filter(Boolean).join(' · '),
-            disabled: full,
-            onClick: () => void actions.addAgentFromTemplate(project.path, t, i)
-          }))
-        ])
-      : [{ label: 'No templates yet: Save Template… first', disabled: true }]
-    menu.openAt(x, y, items)
-  }
-  const save = (): void => void actions.saveTemplate(project.path)
-  if (fit === 'menu') {
-    return (
-      <>
-        <IconButton
-          icon="library"
-          title="Templates"
-          onClick={(e) => {
-            const [x, y] = below(e.currentTarget)
-            menu.openAt(x, y, [
-              { label: 'Load Template…', icon: 'library', onClick: () => void loadMenu(x, y) },
-              { label: 'Save Template…', icon: 'save', disabled: !project.agents.length, onClick: save },
-              { label: 'Add Agent from Template…', icon: 'person-add', onClick: () => void addMenu(x, y) }
-            ])
-          }}
-        />
-        {menu.element}
-      </>
-    )
-  }
-  const labels = fit === 'labels'
+  useStripMenu(project.path, 'loadTemplate', () => void open(true))
   return (
     <div className="template-controls">
-      <Tooltip content="Load a template: it replaces this project's agents and layout">
-        <button className="btn subtle small" aria-label="Template" onClick={(e) => void loadMenu(...below(e.currentTarget))}>
+      <Tooltip content="Templates: save this project's agents and layout as one, or load one (it replaces the agents and layout)">
+        <button ref={button} className="btn subtle small" aria-label="Template" aria-haspopup="menu" onClick={(e) => void open(e.detail === 0)}>
           <Icon name="library" />
-          {labels && ' Template'} <Icon name="chevron-down" />
-        </button>
-      </Tooltip>
-      <Tooltip content="Save this project's agents and layout as a template">
-        <button className="btn subtle small" aria-label="Save Template…" disabled={!project.agents.length} onClick={save}>
-          <Icon name="save" />
-          {labels && ' Save Template…'}
-        </button>
-      </Tooltip>
-      <Tooltip content="Add one agent from a template; the others stay">
-        <button className="btn subtle small" aria-label="Add Agent from Template" onClick={(e) => void addMenu(...below(e.currentTarget))}>
-          <Icon name="person-add" />
-          {labels && ' Add Agent from Template'} <Icon name="chevron-down" />
+          {labelled && ' Template'} <Icon name="chevron-down" />
         </button>
       </Tooltip>
       {menu.element}
@@ -568,10 +570,10 @@ function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   return <span style={{ whiteSpace: 'pre-line' }}>{lines.join('\n')}</span>
 }
 
-/** The strip's width from which its template controls are labelled, and from which they are icons (else one ⋯ menu). */
-const TEMPLATE_LABELS_FROM = 1250
-const TEMPLATE_ICONS_FROM = 720
+/** The strip's width from which Template ▾ is labelled (else its icon). */
+const TEMPLATE_LABEL_FROM = 720
 
+/** The row above the Session tab: one tab per agent, Add Agent, Template ▾, the pages and the layout choice. */
 export function AgentStrip({ project }: { project: ProjectInfo }) {
   const panes = usePanes(project)
   const [stripRef, stripWidth] = useWidth<HTMLDivElement>()
@@ -664,8 +666,10 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
         </Tooltip>
       ))}
       </div>
-      <AddAgentButton project={project} className="subtle small agent-add" />
+      <AddAgentButton project={project} className="subtle small agent-add" strip />
       <div className="grow" />
+      {/* On the right: Template ▾, then the pages beside the layouts they follow from (#292). */}
+      {!isAssistantPath(project.path) && <TemplateButton project={project} labelled={stripWidth >= TEMPLATE_LABEL_FROM} />}
       {pages > 1 && (
         <div className="segmented page-switch">
           {Array.from({ length: pages }, (_, i) => {
@@ -715,7 +719,6 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
           })}
         </div>
       )}
-      {!isAssistantPath(project.path) && <TemplateControls project={project} fit={stripWidth >= TEMPLATE_LABELS_FROM ? 'labels' : stripWidth >= TEMPLATE_ICONS_FROM || !stripWidth ? 'icons' : 'menu'} />}
       {(many || layout !== 'single') && (
         <div className="segmented layout-switch">
           {SESSION_LAYOUTS.map((l) => (

@@ -494,13 +494,31 @@ export interface MenuEntry {
   detail?: string
   /** Shown greyed out but still clickable. */
   muted?: boolean
-  onClick?: () => void
+  /** Opens another menu in its place (a ▸ at its end; → opens it too). */
+  more?: boolean
+  /** `keyboard`: chosen with Enter or →, so a menu it opens can take the keys too. */
+  onClick?: (keyboard: boolean) => void
 }
 
-/** A menu at x, y. `above`: where its anchor's top is, so a menu that doesn't fit below opens above it instead. */
-export function ContextMenu({ x, y, above, items, onClose }: { x: number; y: number; above?: number; items: MenuEntry[]; onClose: () => void }) {
+/** Whether a menu entry can be chosen (with the arrow keys too). */
+const choosable = (it: MenuEntry): boolean => !it.separator && !it.header && !it.disabled
+
+/**
+ * A menu at x, y. `above`: where its anchor's top is, so a menu that doesn't fit below opens above it instead. ↑ and ↓
+ * move through its entries (Home, End), Enter chooses one, → opens one that leads to another menu; `keyboard` (opened
+ * from the keyboard) starts on its first entry.
+ */
+export function ContextMenu({ x, y, above, items, keyboard, onClose }: { x: number; y: number; above?: number; items: MenuEntry[]; keyboard?: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ x, y })
+  const [active, setActive] = useState(() => (keyboard ? items.findIndex(choosable) : -1))
+  const activeRef = useRef(active)
+  activeRef.current = active
+  const choose = (it: MenuEntry, byKey: boolean): void => {
+    if (it.disabled) return
+    onClose()
+    it.onClick?.(byKey)
+  }
   useLayoutEffect(() => {
     const r = ref.current?.getBoundingClientRect()
     if (!r) return
@@ -512,7 +530,27 @@ export function ContextMenu({ x, y, above, items, onClose }: { x: number; y: num
       if (!ref.current?.contains(e.target as Node)) onClose()
     }
     const key = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') return onClose()
+      const order = items.map((it, i) => (choosable(it) ? i : -1)).filter((i) => i >= 0)
+      const at = order.indexOf(activeRef.current)
+      const it = items[activeRef.current]
+      let next: number | undefined
+      if (e.key === 'ArrowDown') next = order[at < 0 ? 0 : (at + 1) % order.length]
+      else if (e.key === 'ArrowUp') next = order[at <= 0 ? order.length - 1 : at - 1]
+      else if (e.key === 'Home') next = order[0]
+      else if (e.key === 'End') next = order[order.length - 1]
+      else if (e.key === 'Enter' || (e.key === 'ArrowRight' && it?.more)) {
+        // Taken from whatever has the focus (a button that opened the menu would open it again).
+        e.preventDefault()
+        e.stopPropagation()
+        if (!it || !choosable(it)) return
+        onClose()
+        it.onClick?.(true)
+        return
+      } else return
+      e.preventDefault()
+      e.stopPropagation()
+      if (next !== undefined) setActive(next)
     }
     window.addEventListener('mousedown', close, true)
     window.addEventListener('keydown', key, true)
@@ -522,12 +560,15 @@ export function ContextMenu({ x, y, above, items, onClose }: { x: number; y: num
       window.removeEventListener('keydown', key, true)
       window.removeEventListener('blur', onClose)
     }
-  }, [onClose])
+  }, [onClose, items])
+  useEffect(() => {
+    if (active >= 0) ref.current?.querySelectorAll('[data-menu-index]').forEach((el) => el.getAttribute('data-menu-index') === String(active) && el.scrollIntoView({ block: 'nearest' }))
+  }, [active])
   return createPortal(
-    <div className="menu" ref={ref} style={{ left: pos.x, top: pos.y }}>
+    <div className="menu" ref={ref} role="menu" style={{ left: pos.x, top: pos.y }}>
       {items.map((it, i) =>
         it.separator ? (
-          <div key={i} className="menu-sep" />
+          <div key={i} className="menu-sep" role="separator" />
         ) : it.header ? (
           <div key={i} className="menu-header">
             {it.label}
@@ -535,12 +576,12 @@ export function ContextMenu({ x, y, above, items, onClose }: { x: number; y: num
         ) : (
           <div
             key={i}
-            className={cx('menu-item', it.disabled && 'disabled', it.muted && 'muted', it.detail && 'two-line')}
-            onClick={() => {
-              if (it.disabled) return
-              onClose()
-              it.onClick?.()
-            }}
+            data-menu-index={i}
+            role="menuitem"
+            aria-disabled={it.disabled || undefined}
+            className={cx('menu-item', it.disabled && 'disabled', it.muted && 'muted', it.detail && 'two-line', active === i && 'active')}
+            onMouseMove={() => active !== i && choosable(it) && setActive(i)}
+            onClick={() => choose(it, false)}
           >
             <Icon name={it.icon ?? 'blank'} />
             {it.detail ? (
@@ -552,6 +593,11 @@ export function ContextMenu({ x, y, above, items, onClose }: { x: number; y: num
               <span style={it.danger ? { color: 'var(--error)' } : undefined}>{it.label}</span>
             )}
             {it.keybinding && <span className="menu-key">{it.keybinding}</span>}
+            {it.more && (
+              <span className="menu-key">
+                <Icon name="chevron-right" />
+              </span>
+            )}
           </div>
         )
       )}
@@ -561,14 +607,16 @@ export function ContextMenu({ x, y, above, items, onClose }: { x: number; y: num
 }
 
 export function useContextMenu() {
-  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[]; keyboard?: boolean; n: number } | null>(null)
+  // Counts openings, so a menu opened from another's entry (closed in the same update) is a new one.
+  const opened = useRef(0)
   const open = (e: React.MouseEvent, items: MenuEntry[]): void => {
     e.preventDefault()
     e.stopPropagation()
-    setMenu({ x: e.clientX, y: e.clientY, items })
+    setMenu({ x: e.clientX, y: e.clientY, items, n: ++opened.current })
   }
-  /** Opens the menu at a point, e.g. under a button. */
-  const openAt = (x: number, y: number, items: MenuEntry[]): void => setMenu({ x, y, items })
-  const element = menu ? <ContextMenu {...menu} onClose={() => setMenu(null)} /> : null
+  /** Opens the menu at a point, e.g. under a button; `keyboard`: opened from the keyboard, on its first entry. */
+  const openAt = (x: number, y: number, items: MenuEntry[], keyboard?: boolean): void => setMenu({ x, y, items, keyboard, n: ++opened.current })
+  const element = menu ? <ContextMenu key={menu.n} x={menu.x} y={menu.y} items={menu.items} keyboard={menu.keyboard} onClose={() => setMenu(null)} /> : null
   return { open, openAt, element }
 }

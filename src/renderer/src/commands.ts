@@ -6,6 +6,7 @@ import { checkForUpdates, openReleaseNotes } from './components/Updates'
 import { openModeMenu } from './components/PermissionMode'
 import * as actions from './actions'
 import { noteCommandUsed } from './tips'
+import { requestStripMenu, type StripMenu } from './stripMenus'
 import { agentPage, assistantOnLeft, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
 
 export interface Command {
@@ -35,6 +36,13 @@ const severalWindows = (): boolean => get().windowCount > 1
 const hasWorkspace = (): boolean => !!get().workspace
 const hasProject = (): boolean => !!get().selectedProject && hasWorkspace()
 const selected = () => get().workspace?.projects.find((p) => p.path === get().selectedProject)
+/** One of the agent strip's template menus, on the Session tab of the project shown. */
+const stripMenu = (menu: StripMenu): void => {
+  const p = get().selectedProject
+  if (!p) return
+  setProjectTab(p, 'session')
+  requestStripMenu(p, menu)
+}
 /** The focused agent of the selected project has a running session. */
 const hasLive = (): boolean => {
   const p = selected()
@@ -261,8 +269,10 @@ export const commands: Command[] = [
   { id: 'session.archive', label: 'Archive Session and Start New…', category: 'Session', when: hasProject, run: () => actions.archiveCurrent() },
   // Every agent of the project at once, after one confirmation (#216).
   { id: 'session.startNewAll', label: 'Start New (All)…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.startNewAll(get().selectedProject!) },
-  // The project's agents and layout as a template (#126); loading and adding one are on the agent strip.
+  // The project's agents and layout as a template (#126); loading one and adding one of its agents open the agent strip's menus (#286).
   { id: 'template.save', label: 'Save Agents as Template…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.saveTemplate(get().selectedProject!) },
+  { id: 'template.load', label: 'Load Template…', category: 'Session', when: () => !!selected(), run: () => stripMenu('loadTemplate') },
+  { id: 'template.addAgent', label: 'Add Agent from Template…', category: 'Session', when: () => !!selected(), run: () => stripMenu('addFromTemplate') },
   { id: 'session.archiveAll', label: 'Archive and Start New (All)…', category: 'Session', when: () => hasProject() && !!selected()?.agents.length, run: () => void actions.startNewAll(get().selectedProject!, true) },
   { id: 'view.projects', label: 'Show Projects', category: 'View', keybinding: 'Mod+Shift+E', run: () => setActivity('projects') },
   { id: 'view.overview', label: 'Show Workspace Overview', category: 'View', keybinding: 'Mod+Shift+O', run: () => setActivity('overview') },

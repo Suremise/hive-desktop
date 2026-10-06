@@ -140,6 +140,7 @@ export const AREAS = [
   { paths: ['src/shared/startAll.ts'], suites: ['startall'] },
   { paths: ['src/shared/startFailure.ts'], suites: ['startfail'] },
   { paths: ['src/main/templates.ts', 'src/shared/templates.ts'], suites: ['templates', 'templateshare'] },
+  { paths: ['src/renderer/src/stripMenus.ts'], suites: ['templates'] },
   { paths: ['src/renderer/src/components/Templates.tsx'], suites: ['templateshare'] },
   { paths: ['src/renderer/src/assets/'], suites: ['about', 'providers'] },
   // The providers' adapters are under src/main/providers/ (every suite, above); these say which suites each mainly drives.

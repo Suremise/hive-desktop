@@ -76,7 +76,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `contex
   // Add Agent: the choice is there for Claude Code, and On is stored on the agent.
   await page.getByText('demo', { exact: true }).first().click()
   await lib.sleep(600)
-  await page.locator('.agent-add.split-caret').click()
+  await page.locator('.agent-add.split-caret').click(); await page.locator('.menu .menu-item', { hasText: 'Configure Agent and Add…' }).click()
   await lib.sleep(800)
   const dialog = page.locator('.dialog', { hasText: 'Add an agent' })
   const ctxLabel = dialog.locator('.agent-form > label', { hasText: 'Use 200K context (instead of 1M)' })

@@ -27,11 +27,20 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await page.getByText('demo', { exact: true }).first().click(); await sleep(500)
   await inv('project:updateConfig', proj, { worktreeSetup: 'npm install' }); await inv('workspace:refresh'); await sleep(300)
 
-  // A new project starts with no agents; the quick add gives one with the default provider.
+  // A new project starts with no agents. Add Agent's main click is Configure Agent and Add… (#286): the dialog, nothing
+  // added yet; the quick add (Ctrl+Alt+Shift+N) gives one with the default provider.
   let p0 = (await inv('workspace:refresh')).projects[0]
   check('new project has no agents', p0.agents.length === 0, String(p0.agents.length))
   check('empty Session tab offers Add Agent', (await page.getByText('No agents yet').count()) === 1)
-  await page.locator('.agent-add:not(.split-caret)').click(); await lib.until(async () => (await inv('workspace:refresh')).projects[0].agents.length === 1, 10000)
+  await page.locator('.agent-add:not(.split-caret)').click()
+  const addDialog = page.locator('.dialog', { hasText: 'Add an agent' })
+  check("Add Agent's main click opens the Add Agent dialog", !!(await lib.until(async () => (await addDialog.count()) === 1, 5000)))
+  await sleep(500)
+  check('…without adding an agent', (await inv('workspace:refresh')).projects[0].agents.length === 0)
+  await page.keyboard.press('Escape')
+  await lib.until(async () => (await addDialog.count()) === 0, 3000)
+  await page.evaluate(() => document.activeElement?.blur())
+  await page.keyboard.press('Control+Alt+Shift+N'); await lib.until(async () => (await inv('workspace:refresh')).projects[0].agents.length === 1, 10000)
   p0 = (await inv('workspace:refresh')).projects[0]
   check('quick add: Agent 1, default provider, project folder', p0.agents.length === 1 && p0.agents[0].name === 'Agent 1' && p0.agents[0].provider === 'claude-code' && !p0.agents[0].worktree, JSON.stringify(p0.agents))
   check('one agent: one pane, automatically', (p0.config.layout ?? 'auto') === 'auto' && (await page.locator('.agent-pane').count()) === 1, JSON.stringify(p0.config.layout))
@@ -44,7 +53,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   check('the status bar has no agent model or mode', (await page.locator('.statusbar .mode-badge, .statusbar .status-item', { hasText: /ctx$|Auto$/ }).count()) === 0)
 
   // Add Agent dialog (▾), new worktree option
-  await page.locator('.agent-add.split-caret').click(); await sleep(800)
+  await page.locator('.agent-add.split-caret').click(); await page.locator('.menu .menu-item', { hasText: 'Configure Agent and Add…' }).click(); await sleep(800)
   check('dialog open', await page.locator('.dialog', { hasText: 'Add an agent' }).count() === 1)
   await page.locator('.choice', { hasText: 'New worktree' }).click(); await sleep(400)
   await page.screenshot({ path: path.join(scratch, 'ui-1-add.png') })
