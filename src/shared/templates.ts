@@ -17,6 +17,8 @@ export const TEMPLATE_SCOPES: readonly TemplateScope[] = ['workspace', 'project'
 export const TEMPLATE_EXPORT_SUFFIX = '.hive-template.json'
 /** A file to import is at most this big (a template of 12 agents is a few KB). */
 export const TEMPLATE_IMPORT_MAX = 256 * 1024
+/** A template's description (#271, optional) is at most this long. */
+export const TEMPLATE_DESCRIPTION_MAX = 500
 
 /** Where templates are kept: the workspace's, or a project's (its path). */
 export interface TemplateDest {
@@ -53,6 +55,8 @@ export interface AgentTemplate {
   savedAt: string
   /** The project's one layout (#134). */
   layout: PageLayout
+  /** What it is for, in a few words (#271; optional). */
+  description?: string
   agents: TemplateAgent[]
 }
 
@@ -66,6 +70,7 @@ export interface TemplateEntry {
   name: string
   savedAt: string | null
   layout: PageLayout
+  description?: string
   agents: TemplateAgent[]
   /** It can't be used (damaged, made by a newer Hive…): why. */
   problem?: string
@@ -133,7 +138,9 @@ export function readTemplate(raw: unknown): AgentTemplate | string {
   }
   const layout: PageLayout = raw.layout === 'auto' || SESSION_LAYOUTS.some((l) => l.value === raw.layout) ? (raw.layout as PageLayout) : 'auto'
   const savedAt = typeof raw.savedAt === 'string' && Number.isFinite(Date.parse(raw.savedAt)) ? raw.savedAt : ''
-  return { version, name: raw.name.trim(), savedAt, layout, agents }
+  // A description that isn't one (not text, or too long) is left out rather than refusing the template.
+  const description = typeof raw.description === 'string' && raw.description.length <= TEMPLATE_DESCRIPTION_MAX ? raw.description.trim() : ''
+  return { version, name: raw.name.trim(), savedAt, layout, ...(description ? { description } : {}), agents }
 }
 
 /** A provider's id as Hive writes one: known to this Hive or not. */
@@ -149,7 +156,7 @@ export function unknownProviders(agents: readonly TemplateAgent[]): string[] {
  * are in a template, and anything else a file had is dropped when it is read).
  */
 export function exportable(t: AgentTemplate): AgentTemplate {
-  return { version: TEMPLATE_VERSION, name: t.name, savedAt: t.savedAt, layout: t.layout, agents: t.agents.map((a) => ({ ...a })) }
+  return { version: TEMPLATE_VERSION, name: t.name, savedAt: t.savedAt, layout: t.layout, ...(t.description ? { description: t.description } : {}), agents: t.agents.map((a) => ({ ...a })) }
 }
 
 /** A template's export file name: its name, made safe for a file name ("Build and review.hive-template.json"). */

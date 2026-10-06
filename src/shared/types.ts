@@ -386,6 +386,11 @@ export interface AppConfig {
   windows?: (WindowState & { workspace: string | null })[]
   /** Always on Top: the workspaces (lowercased paths) whose window was left pinned. This machine's, never in .hive. */
   alwaysOnTop?: Record<string, true>
+  /**
+   * Antivirus scanning (#316), this machine's: the exclusions Hive added (resolved paths), Defender's list as last read
+   * with administrator rights, and per workspace (lowercased path) the folders last offered and "Don't ask again".
+   */
+  antivirus?: { added?: string[]; adminCheck?: { at: string; exclusions: string[]; devDrives?: Record<string, 'trusted' | 'untrusted' | 'no'> }; offered?: Record<string, string>; dismissed?: Record<string, true> }
   /** `panes`: resizable pane sizes by key (pixels, or a fraction for split views). `tips`: what the tips know (shared/tips.ts). */
   ui: {
     sidebarWidth: number
@@ -619,6 +624,11 @@ export interface ProjectConfig {
    * all copied yet (#146): kept until a copy works, so Repair tries again, after a restart too.
    */
   pendingCopies?: { from: string; to: string; of: string }[]
+  /**
+   * Worktrees kept after their agent was replaced (#289: loading a template) before its first session ran the worktree
+   * setup command: an agent that works in one again runs it first (needsSetup), so it isn't lost, nor run twice.
+   */
+  setupPending?: string[]
   fileLocks: Inherit<FileLockMode>
   /** Overrides settings.agents.worktreeCopy; null inherits. */
   worktreeCopy: string | null
@@ -678,6 +688,21 @@ export interface TemplateLoadPlan {
   /** The project's agents, all removed: running ones and uncommitted worktree work block the load. */
   remove: { id: string; name: string; running: boolean; dirty: number; worktree?: { path: string; branch: string } }[]
   create: TemplateAgent[]
+  /**
+   * Where each created agent's worktree is (#268), by `create`'s order: a branch in this project's repository and a folder
+   * in its worktree location; null for an agent in the project folder. `reuse`: a clean worktree of that name it works in
+   * again, its branch left as it is (#289); else a new one, with `notReused` saying why the one of that name can't be.
+   */
+  worktrees: ({ branch: string; path: string; base: string; reuse?: true; notReused?: string } | null)[]
+  /**
+   * The removed agents' worktrees no created agent works in again (#289): `removable` when merged into the main branch
+   * (`mergedInto`) and clean (`worktreeCheck`), which the load can remove with their branches if asked; else kept, `why`.
+   */
+  oldWorktrees: { agent: string; path: string; branch: string; removable: boolean; why?: string }[]
+  /** The main branch the old worktrees were checked against: a removal is refused if it is another by then. */
+  mergedInto: string | null
+  /** The project's worktree setup command, which each new worktree runs before its agent first starts (null: none). */
+  setup: string | null
   /** Providers the template needs that are off or not installed, and which of its agents need each. */
   missing: { provider: ProviderId; reason: string; agents: string[] }[]
   /** Why it can't be loaded now (empty: it can). */

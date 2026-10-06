@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
@@ -13,15 +13,28 @@ export function Icon({ name, className, title, spin }: { name: string; className
   return <i className={cx('codicon', `codicon-${name}`, spin && 'spin', className)} title={title} aria-hidden={!title} />
 }
 
+/** A tooltip's way to tell the one around it that it is showing, so only the innermost one shows (#287). */
+const TipParent = createContext<((inner: boolean) => void) | null>(null)
+
 /**
  * Hover tooltip rendered in a portal so it is never clipped by scroll containers. It is measured hidden first, then
- * placed by its real size next to its anchor (placeTip), so one near the window's edge stays beside its button.
+ * placed by its real size next to its anchor (placeTip), so one near the window's edge stays beside its button. One
+ * inside another's (an icon in an agent tab) hides the outer one while it shows. `focus`: also shown while what it
+ * wraps has the keyboard focus.
  */
-export function Tooltip({ content, children, delay = 350, block, side }: { content: ReactNode; children: ReactNode; delay?: number; block?: boolean; side?: 'right' }) {
+export function Tooltip({ content, children, delay = 350, block, side, focus }: { content: ReactNode; children: ReactNode; delay?: number; block?: boolean; side?: 'right'; focus?: boolean }) {
   const ref = useRef<HTMLSpanElement>(null)
   const tipRef = useRef<HTMLDivElement>(null)
   const [anchor, setAnchor] = useState<Box | null>(null)
   const [placed, setPlaced] = useState<{ left: number; top: number } | null>(null)
+  const [inner, setInner] = useState(false)
+  const parent = useContext(TipParent)
+  const shown = !!anchor
+  useEffect(() => {
+    if (!parent || !shown) return
+    parent(true)
+    return () => parent(false)
+  }, [parent, shown])
   const timer = useRef<number | undefined>(undefined)
   const show = (): void => {
     window.clearTimeout(timer.current)
@@ -47,9 +60,19 @@ export function Tooltip({ content, children, delay = 350, block, side }: { conte
   }, [anchor, placed, side, content])
   if (!content) return <>{children}</>
   return (
-    <span className="tip-wrap" style={block ? { display: 'flex' } : undefined} ref={ref} onMouseEnter={show} onMouseLeave={hide} onMouseDown={hide}>
-      {children}
+    <span
+      className="tip-wrap"
+      style={block ? { display: 'flex' } : undefined}
+      ref={ref}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onMouseDown={hide}
+      onFocus={focus ? (e) => (e.target as Element).matches(':focus-visible') && show() : undefined}
+      onBlur={focus ? hide : undefined}
+    >
+      <TipParent.Provider value={setInner}>{children}</TipParent.Provider>
       {anchor &&
+        !inner &&
         createPortal(
           <div ref={tipRef} className="tip" style={placed ?? { left: 0, top: 0, visibility: 'hidden' }}>
             {content}

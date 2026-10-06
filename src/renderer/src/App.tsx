@@ -1,10 +1,11 @@
+import { useAntivirusOffer } from './components/Antivirus'
 import { useEffect, useRef } from 'react'
 import type { HiveEvent } from '@shared/types'
 import { call } from './api'
 import { playChime } from './chime'
 import { matchKeybinding, runCommand } from './commands'
 import { AboutDialog, AgentSetupDialog, DiagnosticsDialog, CommandPalette, CompactDialog, Dialogs, NotificationCenter, ProvidersBanner, QuitDialog, QuitPendingBanner, ShortcutsDialog, Toasts } from './components/Overlays'
-import { AddAgentDialog, AgentSettingsDialog, HandOverDialog, MergeDialog } from './components/AgentDialogs'
+import { AddAgentDialog, AgentSettingsDialog, HandOverDialog, MergeDialog, TemplateAgentDialog } from './components/AgentDialogs'
 import { BoardView, MoveToDoingDialog, TaskDialog, TaskStartDialog } from './components/Board'
 import { WorkspaceOverviewView } from './views/WorkspaceOverview'
 import { PerformanceView } from './views/Performance'
@@ -237,6 +238,7 @@ function scheduleTasksLoad(): void {
 
 export function App() {
   const workspace = useStore((s) => s.workspace)
+  useAntivirusOffer()
   const assistantLeft = useStore(assistantOnLeft)
   const activity = useStore((s) => s.activity)
   const settings = useStore((s) => s.settings)
@@ -402,6 +404,7 @@ export function App() {
       <MoveRepairDialog />
       <AddAgentDialog />
       <AgentSettingsDialog />
+      <TemplateAgentDialog />
       <AssistantSettingsDialog />
       <MergeDialog />
       <HandOverDialog />

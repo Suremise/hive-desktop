@@ -1,3 +1,4 @@
+import type { AntivirusStatus, AvAction, AvChangeResult } from './antivirus'
 import type {
   BoardFold,
   UpdateState,
@@ -72,7 +73,7 @@ import type {
 } from './types'
 import type { MetricsQuery, MetricsReport } from './metrics'
 import type { Artifact, CompareScope, ImportResult, KeptEntry } from './benchmark'
-import type { TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
+import type { AgentTemplate, TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
 import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
 import type { TipsChange, TipsState } from './tips'
 import type { BoardFoldChange } from './tasks'
@@ -246,6 +247,16 @@ export interface HiveRequests {
   'storage:workspace': (refresh?: boolean, request?: string) => WorkspaceStorage
   /** The window stopped waiting for a storage request (its page closed): the call fails, and a measurement nothing else waits for stops. */
   'storage:abandon': (request: string) => void
+  /** Antivirus scanning of the window's workspace (#316, main/antivirus.ts): cached unless refresh. */
+  'antivirus:status': (refresh?: boolean) => AntivirusStatus
+  /** Works out a change (add or remove the workspace's exclusions, or read Defender's list) for the user to confirm: its exact folders. */
+  'antivirus:prepare': (action: AvAction) => { id: string; action: AvAction; paths: string[]; workspacePath: string }
+  /** Runs a prepared change exactly as confirmed, with administrator rights (one UAC prompt); refused if anything changed. Status null: the workspace changed meanwhile. */
+  'antivirus:apply': (id: string) => { result: AvChangeResult; status: AntivirusStatus | null }
+  /** Whether to suggest exclusions now (marks the offer made): the status, or null. */
+  'antivirus:suggestion': () => AntivirusStatus | null
+  /** "Don't ask again" for the window's workspace. */
+  'antivirus:dismiss': () => void
   /** What Clean Up… would move to the Recycle Bin with these options. */
   'storage:cleanupPreview': (projectPath: string, opts: CleanupOptions) => CleanupItem[]
   /** Moves what the preview listed (its paths) to the Recycle Bin, skipping what no longer qualifies. */
@@ -304,13 +315,15 @@ export interface HiveRequests {
   /** What loading a template would do, and what stops it now. `from`: the project a project's template is kept in, if not this one. */
   'templates:plan': (projectPath: string, scope: TemplateScope, file: string, from?: string) => TemplateLoadPlan
   /** Replaces the project's agents and layout with a template's; `expected` is the agents' ids as the user saw them. */
-  'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string) => { created: string[]; removed: string[] }
+  'templates:load': (projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }) => { created: string[]; removed: string[]; oldWorktrees: { branch: string; removed: boolean; why?: string }[] }
   /** Adds one agent of a template (the `index`-th), the others left alone. */
-  'templates:addAgent': (projectPath: string, scope: TemplateScope, file: string, index: number, from?: string) => AgentDef
+  'templates:addAgent': (projectPath: string, scope: TemplateScope, file: string, index: number, from?: string) => AgentDef & { reused?: true }
   /** Every template of the workspace (#127, the Templates view): the workspace's, then each project's. */
   'templates:all': () => TemplateEntry[]
   /** Renames a template where it is kept (another of that name there refuses it). */
   'templates:rename': (ref: TemplateRef, name: string) => TemplateEntry
+  /** An edited template (#271), saved where it is kept; `savedAt`: as it was when the editor opened it. */
+  'templates:update': (ref: TemplateRef, edited: Pick<AgentTemplate, 'name' | 'description' | 'layout' | 'agents'>, savedAt: string | null) => TemplateEntry
   /** Copies a template into the workspace or a project; a name taken there gets a number ("Pair (2)"). */
   'templates:duplicate': (ref: TemplateRef, to: TemplateDest) => TemplateEntry
   /** Deletes a template (to the Recycle Bin). */

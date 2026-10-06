@@ -439,6 +439,24 @@ function useUnmerged(project: ProjectInfo, a: AgentInfo): ReturnType<typeof unme
   return a.worktree ? unmergedWork(st) : null
 }
 
+/**
+ * A worktree agent's mark on its tab and pane header (#287): the worktree icon only; its branch, folder, base and what
+ * is left to merge are in its tooltip (on hover, or keyboard focus) and its accessible name.
+ */
+function WorktreeMark({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
+  const work = useUnmerged(project, a)
+  if (!a.worktree) return null
+  const { branch, path, base } = a.worktree
+  const tip = [`Worktree: ${branch}`, `in ${path}`, `branched from ${base}`, ...(work?.badge ? [`To merge: ${work.text}`] : [])].join('\n')
+  return (
+    <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>} focus>
+      <span className="agent-branch" role="img" tabIndex={0} aria-label={`Worktree: ${branch} in ${path}`}>
+        <Icon name="worktree" />
+      </span>
+    </Tooltip>
+  )
+}
+
 /** On an agent's tab: ↑ and its unmerged commits (• for only uncommitted files). */
 function UnmergedBadge({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const work = useUnmerged(project, a)
@@ -654,11 +672,7 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
             {removing[`removeAgent:${project.path}#${a.id}`] ? <Icon name="loading" spin title="Removing…" /> : <AgentDot project={project} a={a} />}
             <ProviderIcon provider={agentProviderOf(project, a)} />
             <span className="agent-name">{a.name}</span>
-            {a.worktree && (
-              <span className="agent-branch">
-                <Icon name="git-branch" /> {a.worktree.branch}
-              </span>
-            )}
+            <WorktreeMark project={project} a={a} />
             <CardChip project={project} a={a} short tip={false} />
             <Locks a={a} />
             <UnmergedBadge project={project} a={a} />
@@ -819,13 +833,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       <span className="agent-name" title={a.name}>
         {a.name}
       </span>
-      {a.worktree && (
-        <Tooltip content={`Worktree ${a.worktree.path}, branched from ${a.worktree.base}`}>
-          <span className="agent-branch">
-            <Icon name="git-branch" /> <span className="agent-branch-name">{a.worktree.branch}</span>
-          </span>
-        </Tooltip>
-      )}
+      <WorktreeMark project={project} a={a} />
       {live?.question ? (
         <Tooltip content={live.question.text ? `Asks: ${live.question.text}` : 'Asks you something'}>
           <span className="faint pane-status asks">{statusText(live)}</span>

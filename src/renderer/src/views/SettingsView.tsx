@@ -20,6 +20,7 @@ import { UpdateStatusRow } from '../components/Updates'
 import { KeybindingsEditor } from '../components/Keybindings'
 import { HiddenProjectsList } from '../components/ProjectRemoval'
 import { WorkspaceStorageList } from '../components/Storage'
+import { AntivirusPanel } from '../components/Antivirus'
 import { choose, confirm, get, notify, set, useStore } from '../store'
 import { cx } from '../util'
 
@@ -46,6 +47,7 @@ const CONTROLS: Record<string, () => React.ReactNode> = {
   'sessions.resetPerformance': () => <ResetMetricsButton />,
   'workspace.hiddenProjects': () => <HiddenProjectsList />,
   'workspace.storage': () => <WorkspaceStorageList />,
+  'workspace.antivirus': () => <AntivirusPanel />,
   'board.colors': () => <ColumnColors />,
   'assistant.provider': () => <AssistantProviderPicker />,
   'assistant.persona': () => <AssistantPersonaPicker />,

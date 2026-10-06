@@ -198,6 +198,15 @@ const APP_ROWS: Row[] = [
     type: 'custom',
     wide: true
   },
+  {
+    section: 'workspace',
+    key: 'antivirus',
+    title: 'Antivirus scanning',
+    desc: "Whether Microsoft Defender scans the workspace's folders as Hive's work changes them (builds, tests, git, worktrees), and the exclusions Hive can add for them, with your consent.",
+    tip: 'Hive checks without administrator rights, so Defender may not show its exclusions (unknown). Adding or removing exclusions asks for administrator rights once. Hive only ever offers these folders: the workspace, its worktrees folder once it exists, and its test area for people developing Hive. It never changes other antivirus products.',
+    type: 'custom',
+    wide: true
+  },
   // Agents
   {
     section: 'agents',
@@ -447,6 +456,7 @@ const ACTIONS = new Set([
   'sessions.resetPerformance',
   'workspace.hiddenProjects',
   'workspace.storage',
+  'workspace.antivirus',
   'agentApi.status',
   'agentApi.token',
   'advanced.logs',

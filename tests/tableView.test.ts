@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { latencyOrder } from '../src/shared/metricsView'
 import { choices, nextSort, passes, rememberedSort, sortPanes, sorted, tableView, type ColumnRules, type TableState } from '../src/shared/tableView'
 
 interface Row {
@@ -93,5 +94,19 @@ describe('tableView', () => {
     expect(sortPanes(panes, 'tools', { key: 'chars', desc: true }, { key: 'chars', desc: true })).toEqual({ clear: ['table-sort:tools:chars'], set: null })
     expect(sortPanes(panes, 'tools', null, null).set).toBeNull()
     expect(sortPanes(panes, 'tools', { key: 'chars', desc: false }, null).set).toEqual(['table-sort:tools:chars', 1])
+  })
+
+  it('latency past the histogram’s last bound sorts as the slowest; no measurement last either way (#305)', () => {
+    type L = { name: string; p95: number | null; count: number }
+    const latencies: L[] = [
+      { name: 'none', p95: null, count: 0 },
+      { name: 'over', p95: null, count: 3 },
+      { name: 'fast', p95: 10, count: 5 },
+      { name: 'slow', p95: 10000, count: 2 }
+    ]
+    const cols: ColumnRules<L>[] = [{ key: 'p95', sortValue: (r) => latencyOrder(r.p95, r.count) }]
+    expect(sorted(latencies, cols, { key: 'p95', desc: true }).map((r) => r.name)).toEqual(['over', 'slow', 'fast', 'none'])
+    expect(sorted(latencies, cols, { key: 'p95', desc: false }).map((r) => r.name)).toEqual(['fast', 'slow', 'over', 'none'])
+    expect([latencyOrder(5, 1), latencyOrder(null, 0), latencyOrder(null, 1)]).toEqual([5, null, 10001])
   })
 })
