@@ -86,9 +86,11 @@ const check = (name, ok, extra = '') => {
   await page.locator('.menu .menu-item', { hasText: 'Tips…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Tips' })
   check('Help → Tips… lists them by group', !!(await until(async () => (await dialog.count()) === 1, 3000)) && (await dialog.locator('h3').count()) >= 5 && (await dialog.locator('.tips-item').count()) >= 25)
+  // Narrows them: some, not all (a number fixed here would break with each new tip that mentions worktrees).
+  const all = await dialog.locator('.tips-item').count()
   await dialog.getByPlaceholder('Search tips').fill('worktree')
   const found = await dialog.locator('.tips-item').count()
-  check('search narrows them', found >= 1 && found < 6, String(found))
+  check('search narrows them', found >= 1 && found < all / 2, `${found} of ${all}`)
   await page.screenshot({ path: path.join(lib.WORK, 'tips-3-dialog.png') })
   await dialog.getByPlaceholder('Search tips').fill('task board')
   await dialog.locator('.tips-item', { hasText: 'Plan work on the task board' }).getByRole('button', { name: 'Try it' }).click()
