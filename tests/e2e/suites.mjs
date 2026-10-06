@@ -107,6 +107,7 @@ export const SUITES = [
   { name: 'skills', serial: 'the shared Codex test home' },
   { name: 'startall' },
   { name: 'startfail' },
+  { name: 'stopswitch' },
   { name: 'storage' },
   { name: 'storageclose' },
   { name: 'swap' },

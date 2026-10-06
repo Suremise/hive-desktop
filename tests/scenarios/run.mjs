@@ -4,6 +4,10 @@
 //   npm run scenarios -- --provider fake-codex            # the fake Codex, the same
 //   npm run scenarios -- --provider claude-code --model haiku --budget 2      # model trials (opt-in, cost tokens)
 //   npm run scenarios -- --provider codex --model gpt-5.6-luna --only work-on-card,review-card
+//   npm run scenarios -- --only work-on-card --signed-out   # the fake signed out: the trial is skipped for the environment
+//
+// A trial that Hive shows waiting for a sign-in, or whose CLI says it hit a limit or can't reach its API, is skipped for
+// the environment at once (no checks failed, no cost), and so are the provider's other trials, said once (#302).
 //
 // More than five scenarios, or --repeat, waits for a test slot (tests/e2e/slots.mjs; --no-wait fails at once instead),
 // unless started inside an e2e suite, whose run holds one.
@@ -42,7 +46,7 @@ if (!evidence.ok) {
   console.error(`Can't tell what the tests may delete: ${evidence.why}. Fix the board, or set HIVE_TEST_NO_BOARD=1 if no Hive board cites test output on this machine.`)
   process.exit(2)
 }
-const { runScenario, sourceFingerprint, claudeSignedIn, CLAUDE_TEST_HOME, PROVIDERS } = require('./harness.cjs')
+const { runScenario, sourceFingerprint, claudeSignedIn, environmentAdvice, CLAUDE_TEST_HOME, PROVIDERS } = require('./harness.cjs')
 const { SCENARIOS, FIXTURES_VERSION } = require('./scenarios.cjs')
 const { benchmarkOf, pruneResults, saveBaseline, resultsFolder, parseBudget, budgetGate, spendText } = require('./benchmark.cjs')
 
@@ -69,6 +73,12 @@ const baselineName = arg('save-baseline', '')
 const fake = !!PROVIDERS[provider]?.fake
 if (!PROVIDERS[provider]) {
   console.error(`Unknown provider "${provider}": fake, fake-codex, claude-code or codex.`)
+  process.exit(2)
+}
+// The fake Claude Code acting out an expired sign-in: to check that a trial the environment stops is skipped (#302).
+const signedOut = argv.includes('--signed-out')
+if (signedOut && provider !== 'fake') {
+  console.error('--signed-out is for the fake Claude Code (--provider fake) only: a real CLI is never signed out from here.')
   process.exit(2)
 }
 // Model trials run only in the providers' test homes, signed in once by hand: never the user's own, never a login here.
@@ -157,8 +167,18 @@ let spent = 0
 let unknownCostTrials = 0
 // Models of the trials without a cost (the guard names them: usually Hive has no price for one).
 const noCostModels = new Set()
+// A trial the environment stopped (not signed in, a limit, the network: #302): the provider's other trials would meet it
+// too, so they are skipped, said once.
+let environment = null
+let saidRest = false
 for (let sample = 1; sample <= repeats; sample++) {
   for (const sc of chosen) {
+    if (environment) {
+      results.push({ scenario: sc.id, title: sc.title, provider, sample, skipped: `environment: ${environment.why}`, environment: environment.why })
+      if (!saidRest) console.log(`SKIP the other trials: ${environment.why}. To run them: ${environment.advice}.`)
+      saidRest = true
+      continue
+    }
     const gate = budgetGate({ fake, budget, spentKnown: spent, unknownCostTrials, allowUnknownCost, noCostModels: [...noCostModels] })
     if (!gate.ok) {
       results.push({ scenario: sc.id, title: sc.title, provider, sample, skipped: gate.reason })
@@ -166,8 +186,15 @@ for (let sample = 1; sample <= repeats; sample++) {
       continue
     }
     process.stdout.write(`${sc.id} (${provider}${repeats > 1 ? `, ${sample}/${repeats}` : ''})… `)
-    const r = await runScenario(sc, provider, { model, effort, keep, workRoot, port: lane.first, evidence, timeoutMs: fake ? 60000 : 360000 })
+    const r = await runScenario(sc, provider, { model, effort, keep, workRoot, port: lane.first, evidence, signedOut, timeoutMs: fake ? 60000 : 360000 })
     r.sample = sample
+    if (r.environment) {
+      // Not a result of the scenario: no checks, and no cost assumed.
+      environment = { why: r.environment, advice: environmentAdvice(r.environment, provider) }
+      results.push(r)
+      console.log(`SKIP environment: ${r.environment}, ${r.seconds}s${r.kept ? ` (its folder is kept: ${r.kept})` : ''}`)
+      continue
+    }
     // A trial's cost as reported; none reported is unknown (counted), never $0.
     if (typeof r.usage?.costUsd === 'number') spent += r.usage.costUsd
     else if (!fake) {

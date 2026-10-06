@@ -15,6 +15,8 @@ interface PtyEntry {
   onResize?: (cols: number, rows: number) => void
   buffer: string[]
   size: number
+  /** Asked to stop: until it exits, nothing more is sent to it, nor another kill (killPty). */
+  killed?: boolean
 }
 
 const entries = new Map<string, PtyEntry>()
@@ -94,13 +96,14 @@ export function spawnPty(key: string, opts: SpawnOptions): IPty {
 }
 
 export function writePty(key: string, data: string): void {
-  entries.get(key)?.proc.write(data)
+  const e = entries.get(key)
+  if (e && !e.killed) e.proc.write(data)
 }
 
 export function resizePty(key: string, cols: number, rows: number): void {
   const e = entries.get(key)
   // An unchanged size isn't passed on: every resize makes a TUI like Claude Code redraw (#247).
-  if (!e || cols < 2 || rows < 2 || (e.proc.cols === Math.floor(cols) && e.proc.rows === Math.floor(rows))) return
+  if (!e || e.killed || cols < 2 || rows < 2 || (e.proc.cols === Math.floor(cols) && e.proc.rows === Math.floor(rows))) return
   try {
     e.proc.resize(Math.floor(cols), Math.floor(rows))
     e.onResize?.(Math.floor(cols), Math.floor(rows))
@@ -117,12 +120,21 @@ export function hasPty(key: string): boolean {
   return entries.has(key)
 }
 
+/**
+ * Stops a terminal's process, once. On Windows node-pty closes the pseudoconsole a moment after kill() (it first asks
+ * which processes are attached), and a second kill before the first has finished closes it again: that corrupts the
+ * heap and Hive's main process dies, with nothing in its log (#297). It happened whenever a session being stopped was
+ * stopped again before it exited: Stop, then switching or closing the workspace or quitting at once (which stop every
+ * live session). So a terminal is killed once and then left alone until it exits.
+ */
 export function killPty(key: string): void {
   const e = entries.get(key)
-  if (!e) return
+  if (!e || e.killed) return
+  e.killed = true
   try {
     e.proc.kill()
   } catch (err) {
+    e.killed = false
     log.warn(`kill ${userText(key)} failed`, err)
   }
 }

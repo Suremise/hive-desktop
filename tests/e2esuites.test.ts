@@ -3,7 +3,7 @@
 // fingerprint in a run record (record.mjs).
 import { execFileSync, spawn } from 'child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { tmpdir, userInfo } from 'os'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -18,7 +18,9 @@ import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portB
 // @ts-expect-error: plain .mjs modules without types
 import { recordMarkdown } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { buildLock, buildStamp, buildStamped, devBuild, ensureBuild } from './e2e/build.mjs'
+import { makeDist } from '../scripts/distCopy.mjs'
+// @ts-expect-error: plain .mjs modules without types
+import { buildLock, buildStamp, buildStamped, buildStampedAt, builtOnce, devBuild, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { LANES, LANE_PORTS, claimHeld, claimLane, lanePorts, laneWork, pickLane, portFree } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -450,10 +452,35 @@ describe('whether the dev build is from this source (build.mjs)', () => {
     expect(check(false).stale).toBe(true)
   })
 
-  it('npm run dist uses it, and drops an older build-info.json before building', () => {
-    const dist = readFileSync(join(root, 'scripts', 'dist.mjs'), 'utf8')
-    expect(dist).toContain("buildStamped({ root, runBuild: () => run('npm run build') })")
-    expect(dist.indexOf("rmSync(join(root, 'dist', 'build-info.json')")).toBeLessThan(dist.indexOf('buildStamped({'))
+  // What npm run dist does, in order (makeDist, #281): the steps it is given record what it does, in turn.
+  const distSteps = ({ stamped = true } = {}) => {
+    const done: string[] = []
+    const lines = makeDist({
+      root: 'R',
+      here: true,
+      run: (cmd: string) => void done.push(`run ${cmd}`),
+      buildStamped: ({ root: r, runBuild: build }: { root: string; runBuild: () => void }) => {
+        done.push(`buildStamped ${r}`)
+        build()
+        return { stamped, waited: false }
+      },
+      identity: () => (done.push('identity'), 'id'),
+      clear: (d: string) => void done.push(`clear ${d.replace(/\\/g, '/')}`),
+      finish: (o: { here: boolean; before: string; after: string }) => (done.push(`finish here=${o.here} ${o.before}->${o.after}`), ['done']),
+      warn: (m: string) => void done.push(`warn ${m.trim()}`)
+    })
+    return { done, lines }
+  }
+
+  it('npm run dist drops the earlier build records before it builds, builds out/ stamped, then packages and finishes', () => {
+    const { done, lines } = distSteps()
+    expect(done).toEqual(['identity', 'clear R/dist', 'buildStamped R', 'run npm run build', 'run npx electron-builder --win --publish never', 'identity', 'finish here=true id->id'])
+    expect(lines).toEqual(['done'])
+  })
+
+  it('…and says so when the source changed while it built (out/ not stamped)', () => {
+    expect(distSteps({ stamped: false }).done.some((d) => d.startsWith('warn The source changed while it was building'))).toBe(true)
+    expect(distSteps().done.some((d) => d.startsWith('warn'))).toBe(false)
   })
 })
 
@@ -1452,6 +1479,37 @@ describe("the concurrency checker's temporary worktrees: each invocation's own (
   })
 })
 
+describe('e2e:concurrency checks a worktree was built once, whoever built it (builtOnce, #282)', () => {
+  const since = Date.parse('2026-10-06T10:00:00Z')
+  const fresh = { stamp: 'h', inputs: 'h' }
+  it('these runs built it once, stamped as the source: right', () => {
+    expect(builtOnce({ builds: 1, ...fresh, at: '2026-10-06T10:01:00Z', since }).ok).toBe(true)
+  })
+  it('two builds are wrong, whatever the stamp says', () => {
+    expect(builtOnce({ builds: 2, ...fresh, at: '2026-10-06T10:01:00Z', since })).toEqual({ ok: false, why: '2 builds' })
+  })
+  it('none by these runs is right only when another runner stamped it during this round', () => {
+    expect(builtOnce({ builds: 0, ...fresh, at: '2026-10-06T10:00:05Z', since }).ok).toBe(true)
+    expect(builtOnce({ builds: 0, ...fresh, at: '2026-10-06T09:59:59Z', since }).ok).toBe(false)
+    expect(builtOnce({ builds: 0, ...fresh, at: null, since }).ok).toBe(false)
+  })
+  it('a build not stamped, or stamped from other source, is wrong', () => {
+    expect(builtOnce({ builds: 1, stamp: null, inputs: 'h', at: null, since }).ok).toBe(false)
+    expect(builtOnce({ builds: 0, stamp: 'old', inputs: 'h', at: '2026-10-06T10:00:05Z', since }).ok).toBe(false)
+  })
+  it('the stamp says when it was made', () => {
+    const w = mkdtempSync(join(tmpdir(), 'hive-stampat-'))
+    try {
+      expect(buildStampedAt(w)).toBeNull()
+      mkdirSync(join(w, 'out'), { recursive: true })
+      writeFileSync(join(w, 'out', '.e2e-build.json'), JSON.stringify({ inputs: 'h', at: '2026-10-06T10:00:05.000Z' }))
+      expect(buildStampedAt(w)).toBe('2026-10-06T10:00:05.000Z')
+    } finally {
+      rmSync(w, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('the build lock: runners started together in one worktree build it once (build.mjs, #200)', () => {
   const tmp = mkdtempSync(join(tmpdir(), 'hive-buildlock-'))
   afterAll(() => rmSync(tmp, { recursive: true, force: true }))
@@ -1643,18 +1701,43 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
 
 describe("a suite's git waits out the Hive under test's own (lib.git, #199)", () => {
   type Git = (cwd: string, cmd: string | string[], opts?: { timeoutMs?: number }) => string
-  const { git } = createRequire(import.meta.url)('./e2e/lib.cjs') as { git: Git }
+  const { git, GIT_LOCKED, baseEnv } = createRequire(import.meta.url)('./e2e/lib.cjs') as { git: Git; GIT_LOCKED: RegExp; baseEnv: () => NodeJS.ProcessEnv }
   const repo = mkdtempSync(join(tmpdir(), 'hive-gitlock-'))
   afterAll(() => rmSync(repo, { recursive: true, force: true }))
   git(repo, 'init -q -b main')
   git(repo, ['config', 'user.email', 't@t'])
   git(repo, ['config', 'user.name', 't'])
   const lock = join(repo, '.git', 'index.lock')
+  /**
+   * Creates index.lock, as another git would. On a busy Windows the last lock can still be on its way out (a scanner
+   * has it open), and creating it again fails with EPERM until it has gone (#298): wait for that, not a fixed time.
+   */
+  const takeLock = () => {
+    const t0 = Date.now()
+    for (;;) {
+      try {
+        return writeFileSync(lock, '')
+      } catch (e) {
+        if (!['EPERM', 'EACCES', 'EBUSY'].includes((e as NodeJS.ErrnoException).code ?? '') || Date.now() - t0 > 10_000) throw e
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+      }
+    }
+  }
   /** Another process (the Hive under test's git status) holding index.lock for ms, then letting go. */
   const holdLock = (ms: number) => {
-    writeFileSync(lock, '')
+    takeLock()
     spawn(process.execPath, ['-e', `setTimeout(() => require('fs').rmSync(${JSON.stringify(lock)}, { force: true }), ${ms})`], { stdio: 'ignore' })
   }
+  /**
+   * Windows refusing to create index.lock for ms, as it does while the last one is still being deleted (#298): an
+   * access rule on .git that denies creating files, which another process lifts after ms.
+   */
+  const user = userInfo().username
+  const denyLock = (ms: number) => {
+    execFileSync('icacls', [join(repo, '.git'), '/deny', `${user}:(WD)`], { stdio: 'pipe', env: baseEnv() })
+    spawn(process.execPath, ['-e', `setTimeout(() => require('child_process').execFileSync('icacls', [${JSON.stringify(join(repo, '.git'))}, '/remove:d', ${JSON.stringify(user)}], { stdio: 'ignore' }), ${ms})`], { stdio: 'ignore', env: baseEnv() })
+  }
+  afterAll(() => void execFileSync('icacls', [join(repo, '.git'), '/remove:d', user], { stdio: 'pipe', env: baseEnv() }))
 
   it('a write while another git holds index.lock waits for it, then runs', () => {
     writeFileSync(join(repo, 'a.txt'), 'a\n')
@@ -1668,8 +1751,29 @@ describe("a suite's git waits out the Hive under test's own (lib.git, #199)", ()
     expect(git(repo, 'log --oneline').trim()).toMatch(/ a$/)
   })
 
+  it("a lock Windows won't create yet (Permission denied, while the last one is deleted) is waited out too (#298)", () => {
+    writeFileSync(join(repo, 'b.txt'), 'b\n')
+    denyLock(600)
+    const t0 = Date.now()
+    git(repo, 'add -A')
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(400)
+    expect(git(repo, ['diff', '--cached', '--name-only']).trim()).toBe('b.txt')
+    git(repo, 'commit -q -m "b"')
+  })
+
+  it("knows git's lock messages, and only those", () => {
+    for (const held of [
+      "fatal: Unable to create 'C:/t/.git/index.lock': File exists.",
+      "fatal: Unable to create 'C:/t/.git/index.lock': Permission denied",
+      "fatal: Unable to create 'C:/t/.git/refs/heads/main.lock': Permission denied",
+      'Another git process seems to be running in this repository'
+    ])
+      expect(GIT_LOCKED.test(held), held).toBe(true)
+    for (const other of ["error: open(\"a.txt\"): Permission denied", "fatal: Unable to create 'C:/t/.git/index.lock': Is a directory", "fatal: not a git repository"]) expect(GIT_LOCKED.test(other), other).toBe(false)
+  })
+
   it('a lock that stays is an error after the timeout; any other failure throws at once', () => {
-    writeFileSync(lock, '')
+    takeLock()
     try {
       expect(() => git(repo, 'add -A', { timeoutMs: 300 })).toThrow(/index\.lock/)
     } finally {

@@ -220,3 +220,34 @@ describe('the fixtures fail when nothing was done', () => {
     expect(run([{ tool: 'hive_start_task', ok: true }, { tool: 'hive_wait_for_agents', ok: true }])).toEqual(['the agent did it: the card is in Review and the file is there'])
   })
 })
+
+// A model trial the environment stops is skipped at once (#302): Hive waiting for a sign-in, or the CLI's own notes
+// matched with the e2e runner's list (lib.cjs), never the prompt.
+describe('a trial the environment stops (trialEnvironment)', () => {
+  const { trialEnvironment, environmentAdvice } = require('./scenarios/harness.cjs') as {
+    trialEnvironment: (o: { status?: string | null; replies?: string[]; screen?: string }) => string | null
+    environmentAdvice: (why: string, provider: string) => string
+  }
+
+  it("Claude Code's expired sign-in is an environment skip", () => {
+    const why = trialEnvironment({ status: 'finished', replies: ['Login expired · Please run /login'] })
+    expect(why).toMatch(/^not signed in: /)
+    expect(environmentAdvice(why!, 'claude-code')).toMatch(/^sign in to Claude Code's test home .*, by hand$/)
+  })
+
+  it('so is a usage limit, and Hive showing the session waiting for a sign-in', () => {
+    const why = trialEnvironment({ replies: ["You've hit your usage limit · resets 5pm (Europe/London)"] })
+    expect(why).toMatch(/^usage or rate limit: /)
+    expect(environmentAdvice(why!, 'claude-code')).toBe('run them again once the limit has reset')
+    expect(trialEnvironment({ status: 'signin' })).toMatch(/^not signed in/)
+  })
+
+  it('a sign-in screen before anything was typed', () => {
+    expect(trialEnvironment({ status: 'starting', screen: 'Welcome to Claude Code Select login method: 1. Claude account' })).toMatch(/^not signed in/)
+  })
+
+  it('a trial that works is not', () => {
+    expect(trialEnvironment({ status: 'working', replies: ['Interrupted by you'] })).toBeNull()
+    expect(trialEnvironment({})).toBeNull()
+  })
+})

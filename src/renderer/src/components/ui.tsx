@@ -392,6 +392,10 @@ export function Modal({
 }) {
   const busyNow = useRef(busy)
   busyNow.current = busy
+  // Escape runs this render's onClose, never an earlier one's: a dialog whose fields fill in after it opens would
+  // otherwise answer an Escape with its first render's view of them (#288).
+  const onCloseNow = useRef(onClose)
+  onCloseNow.current = onClose
   // Dialogs open over each other (a question over a card), and the command palette over them: Escape is for the top one.
   const isTop = useBackdrop()
   const dialog = useRef<HTMLDivElement>(null)
@@ -416,7 +420,8 @@ export function Modal({
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [movable])
-  useEffect(() => {
+  // Listening from the moment it is on screen (a layout effect), so an Escape straight after it opens closes it.
+  useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape' || !isTop()) return
       // Every dialog listens on the window: only this one may act on this Escape. Once it closes, the one under it is on
@@ -424,11 +429,13 @@ export function Modal({
       e.stopImmediatePropagation()
       // While it is being dragged, Escape puts it back instead.
       if (drag.current) return endDrag(true)
-      if (!busyNow.current) onClose()
+      if (!busyNow.current) onCloseNow.current()
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [onClose, isTop])
+    // endDrag works through refs and state setters, so the first render's is as good as the latest.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTop])
   // Closed, it gives the keyboard back to what had it (a terminal, a list): noted while rendering for the
   // first time, before a field inside takes the focus.
   const opener = useRef(document.activeElement)

@@ -10,7 +10,7 @@
 import { spawnSync } from 'child_process'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
-import { buildIdentity, clearDistInfo, finishDist } from './distCopy.mjs'
+import { makeDist } from './distCopy.mjs'
 import { buildStamped } from '../tests/e2e/build.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -24,14 +24,7 @@ const run = (cmd) => {
   const r = spawnSync(cmd, { cwd: root, stdio: 'inherit', shell: true })
   if (r.status !== 0) process.exit(r.status ?? 1)
 }
-// What the build is made from, before and after: an edit or a commit while it runs leaves its code unknown.
-const before = buildIdentity(root)
-// An earlier build's records go first (build-info.json, and win-unpacked's own): a build that fails part way leaves
-// an installer and a dist/win-unpacked that nothing vouches for, and the e2e runner's packaged checks say so
-// (tests/e2e/runner.mjs packagedStatus).
-clearDistInfo(join(root, 'dist'))
-const { stamped } = buildStamped({ root, runBuild: () => run('npm run build') })
-if (!stamped) console.warn("\nThe source changed while it was building: out/ isn't stamped as this source's (npm run e2e -- --build rebuilds it).\n")
-run('npx electron-builder --win --publish never')
-const lines = finishDist({ root, before, after: buildIdentity(root), here: args.includes('--here'), replace: args.includes('--replace') })
+// An earlier build's records go first, so a build that fails part way leaves nothing vouching for its installer and
+// dist/win-unpacked, and the e2e runner's packaged checks say so (tests/e2e/runner.mjs packagedStatus): makeDist.
+const lines = makeDist({ root, here: args.includes('--here'), replace: args.includes('--replace'), run, buildStamped })
 console.log(`\n${lines.join('\n')}`)

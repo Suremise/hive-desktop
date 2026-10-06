@@ -198,6 +198,23 @@ export function clearDistInfo(dist) {
 }
 
 /**
+ * What npm run dist does, in order (scripts/dist.mjs gives it the real steps; tests give fakes, #281): notes what the
+ * build is made from; removes an earlier build's records (build-info.json and win-unpacked's own: a build that fails part
+ * way would leave an installer and a dist/win-unpacked they describe wrongly); builds out/ and stamps it (buildStamped,
+ * under the worktree's build lock); packages the installer; then finishDist. run(cmd) runs a command and exits on
+ * failure. Returns finishDist's lines.
+ */
+export function makeDist({ root, here = false, replace = false, run, buildStamped, identity = buildIdentity, clear = clearDistInfo, finish = finishDist, warn = console.warn }) {
+  // What the build is made from, before and after: an edit or a commit while it runs leaves its code unknown.
+  const before = identity(root)
+  clear(join(root, 'dist'))
+  const { stamped } = buildStamped({ root, runBuild: () => run('npm run build') })
+  if (!stamped) warn("\nThe source changed while it was building: out/ isn't stamped as this source's (npm run e2e -- --build rebuilds it).\n")
+  run('npx electron-builder --win --publish never')
+  return finish({ root, before, after: identity(root), here, replace })
+}
+
+/**
  * After the build: writes dist/build-info.json and win-unpacked's record (UNPACKED_INFO), and copies to the main
  * checkout (copyToMain), only if what the build is made from didn't change while it ran (before and after:
  * buildIdentity). Otherwise neither record (old ones are removed: they would describe other code) and nothing is
