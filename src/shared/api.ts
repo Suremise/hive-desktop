@@ -2,6 +2,8 @@ import type {
   BoardFold,
   UpdateState,
   WorktreeGone,
+  WorktreeCheck,
+  RemovedAgent,
   MoveOptions,
   MovePlan,
   MoveReport,
@@ -72,6 +74,7 @@ import type { MetricsQuery, MetricsReport } from './metrics'
 import type { Artifact, CompareScope, ImportResult, KeptEntry } from './benchmark'
 import type { TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
 import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
+import type { TipsChange, TipsState } from './tips'
 import type { BoardFoldChange } from './tasks'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
@@ -149,6 +152,8 @@ export interface HiveRequests {
   /** Saves (null: forgets) one project's view preference (Skills tab provider or groups, Sessions tree), merged into what is saved: several windows save them (#245). */
   'ui:setProjectPref': <P extends ProjectPref>(pref: P, project: string, value: ProjectPrefValue<P> | null) => void
   /** Changes this window's workspace's board fold (#170), on what is saved now, leaving other workspaces' as they are; replies with them all. */
+  /** Applies one change to what the tips know, on what is saved (#266): several windows change it. Replies with the state saved. */
+  'ui:changeTips': (change: TipsChange) => TipsState
   'ui:changeBoardFold': (change: BoardFoldChange) => Record<string, BoardFold>
 
   'workspace:get': () => WorkspaceInfo | null
@@ -274,8 +279,14 @@ export interface HiveRequests {
   /** Changing provider clears the agent's model, effort and mode, and its session to resume (conversations can't move between providers). */
   /** Changes an agent's name and settings; for the Hive Assistant's home, its settings for this workspace (persona too). */
   'agents:update': (projectPath: string, agentId: string, patch: AgentPatch) => AgentDef
-  /** Removes an agent (its session must be stopped). deleteWorktree also removes its worktree and branch. */
-  'agents:remove': (projectPath: string, agentId: string, opts: { deleteWorktree: boolean; releaseCards?: boolean }) => void
+  /**
+   * Removes an agent (its session must be stopped). deleteWorktree also removes its worktree and branch; 'merged-clean'
+   * only when they are fully merged into the main branch (`mergedInto`, the one the user was shown) and clean then,
+   * guarded against changes while deleting, and never one another agent of the project still works in (#291).
+   */
+  'agents:remove': (projectPath: string, agentId: string, opts: { deleteWorktree: boolean | 'merged-clean'; mergedInto?: string | null; releaseCards?: boolean }) => RemovedAgent
+  /** Whether each worktree agent's worktree could be deleted without losing work (merged and clean), for Remove All's question (#291). */
+  'agents:worktreeChecks': (projectPath: string) => ({ agentId: string } & WorktreeCheck)[]
   /** The agent's worktree when its folder is missing, with whether its branch survives (#146); null when it isn't missing. */
   'agents:missingWorktree': (projectPath: string, agentId: string) => WorktreeGone | null
   /** Makes a missing worktree again: on its branch when it survives, else new from its base (#146). */

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { ProjectInfo, SessionListItem } from '@shared/types'
 import { PROVIDERS, isProviderEnabled } from '@shared/providers'
 import { PERIODS, activeIn, costText, periodFrom, stackedDaily, sumUsage, totalTokens, type DayTotal, type UsageGroup } from '@shared/usageTotals'
@@ -10,6 +10,7 @@ import { useNow } from '../usage'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip } from '../components/ui'
 import { ProviderIcon } from '../components/ProviderIcon'
 import { TaskStrip } from '../components/Board'
+import { DataTable, type DataColumn } from '../components/DataTable'
 import { PlanLimits, RunningAgent } from './ProjectTabs'
 
 /** Live updates come at most this often (each checks every project's transcripts against the usage cache). */
@@ -149,7 +150,41 @@ function StackedChart({ series, days }: { series: { key: string; label: string }
   )
 }
 
-type SortKey = 'name' | 'sessions' | 'tokens' | 'cost' | 'last'
+/** A row of the table by project: a project (or the Assistant) and what it used in the period. */
+interface ProjectRow {
+  g: UsageGroup
+  t: ReturnType<typeof sumUsage>
+  tokens: number
+  last: string | null
+}
+const BIGGEST_FIRST = { key: 'tokens', desc: true }
+
+/** The table by project's columns; `all` is every project's tokens, for each one's share. */
+function projectColumns(all: number): DataColumn<ProjectRow>[] {
+  return [
+    { key: 'name', header: 'Project', cell: (r) => (r.g.key === 'assistant' ? <span className="muted">Assistant</span> : r.g.label), sortValue: (r) => r.g.label.toLowerCase(), filter: { kind: 'text', value: (r) => r.g.label } },
+    { key: 'sessions', header: 'Sessions', num: true, descFirst: true, cell: (r) => r.t.sessions, sortValue: (r) => r.t.sessions },
+    { key: 'tokens', header: 'Tokens', num: true, descFirst: true, cell: (r) => formatTokens(r.tokens), sortValue: (r) => r.tokens },
+    { key: 'cost', header: 'Cost', num: true, descFirst: true, cell: (r) => (r.t.sessions ? costText(r.t) : '—'), sortValue: (r) => (r.t.sessions ? r.t.cost : null) },
+    {
+      key: 'share',
+      header: 'Share',
+      num: true,
+      cell: (r) => {
+        const share = all ? (r.tokens / all) * 100 : 0
+        return (
+          <>
+            <span className="share">
+              <span className="share-bar" style={{ width: `${share}%` }} />
+            </span>
+            {r.tokens ? `${share < 1 ? '< 1' : Math.round(share)}%` : '—'}
+          </>
+        )
+      }
+    },
+    { key: 'last', header: 'Last active', num: true, descFirst: true, className: 'faint', cell: (r) => (r.last ? timeAgo(r.last) : '—'), sortValue: (r) => r.last }
+  ]
+}
 
 /** The Workspace Overview (activity bar): the whole workspace's usage for a period, what runs now, each project and provider. */
 export function WorkspaceOverviewView() {
@@ -161,7 +196,6 @@ export function WorkspaceOverviewView() {
   const workspace = useStore((s) => s.workspace)
   const settings = useStore((s) => s.settings)
   const now = useNow(60000)
-  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'tokens', desc: true })
   const groups = useMemo(() => (usage ? usageGroups() : []), [usage])
   if (!workspace) return <div className="empty-state">Open a workspace to see its overview.</div>
   if (!usage || usage.workspacePath !== workspace.path) {
@@ -184,27 +218,17 @@ export function WorkspaceOverviewView() {
   const providers = PROVIDERS.filter((p) => used.has(p.id) || isProviderEnabled(settings, p.id))
   const all$ = totalTokens(total)
 
-  const rows = groups.map((g) => {
-    const t = sumUsage(g.items, from)
-    return { g, t, tokens: totalTokens(t), last: lastActive(g.items) }
-  })
-  const value = (r: (typeof rows)[number]): string | number => (sort.key === 'name' ? r.g.label.toLowerCase() : sort.key === 'sessions' ? r.t.sessions : sort.key === 'tokens' ? r.tokens : sort.key === 'cost' ? r.t.cost : (r.last ?? ''))
-  const sorted = [...rows].sort((a, b) => {
-    const x = value(a)
-    const y = value(b)
-    const c = x < y ? -1 : x > y ? 1 : a.g.label.localeCompare(b.g.label)
-    return sort.desc ? -c : c
-  })
-  const header = (key: SortKey, label: string, num = true) => (
-    <th className={cx(num && 'num', 'sortable')} onClick={() => setSort((s) => ({ key, desc: s.key === key ? !s.desc : key !== 'name' }))} aria-sort={sort.key === key ? (sort.desc ? 'descending' : 'ascending') : undefined}>
-      {label}
-      {sort.key === key && <Icon name={sort.desc ? 'chevron-down' : 'chevron-up'} />}
-    </th>
-  )
+  // By name first, so projects that used the same keep that order whichever column sorts them.
+  const rows: ProjectRow[] = groups
+    .map((g) => {
+      const t = sumUsage(g.items, from)
+      return { g, t, tokens: totalTokens(t), last: lastActive(g.items) }
+    })
+    .sort((a, b) => a.g.label.localeCompare(b.g.label))
   const stack = from && period !== 'today' ? stackedDaily(groups, from, now) : null
 
   return (
-    <div className="scroll-page">
+    <div className="scroll-page overview-page">
       <div className="page-narrow">
         <div className="board-header">
           <h1>Workspace Overview</h1>
@@ -262,40 +286,18 @@ export function WorkspaceOverviewView() {
         )}
 
         <h2 className="section">By project</h2>
-        <div className="table-wrap">
-          <table className="table ws-projects">
-            <thead>
-              <tr>
-                {header('name', 'Project', false)}
-                {header('sessions', 'Sessions')}
-                {header('tokens', 'Tokens')}
-                {header('cost', 'Cost')}
-                <th className="num">Share</th>
-                {header('last', 'Last active')}
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((r) => {
-                const share = all$ ? (r.tokens / all$) * 100 : 0
-                return (
-                  <tr key={r.g.key} className="clickable" onClick={() => openProjectOverview(r.g.key)} title={r.g.key === 'assistant' ? 'Open the Assistant view' : `Open ${r.g.label}'s Overview`}>
-                    <td>{r.g.key === 'assistant' ? <span className="muted">Assistant</span> : r.g.label}</td>
-                    <td className="num">{r.t.sessions}</td>
-                    <td className="num">{formatTokens(r.tokens)}</td>
-                    <td className="num">{r.t.sessions ? costText(r.t) : '—'}</td>
-                    <td className="num">
-                      <span className="share">
-                        <span className="share-bar" style={{ width: `${share}%` }} />
-                      </span>
-                      {r.tokens ? `${share < 1 ? '< 1' : Math.round(share)}%` : '—'}
-                    </td>
-                    <td className="num faint">{r.last ? timeAgo(r.last) : '—'}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          id="ws-projects"
+          className="ws-projects"
+          rows={rows}
+          columns={projectColumns(all$)}
+          rowKey={(r) => r.g.key}
+          defaultSort={BIGGEST_FIRST}
+          filterFrom={10}
+          onRowClick={(r) => openProjectOverview(r.g.key)}
+          rowLabel={(r) => (r.g.key === 'assistant' ? 'Open the Assistant view' : `Open ${r.g.label}'s Overview`)}
+          empty="Nothing used in this period."
+        />
         {usage.hidden > 0 && (
           <p className="hint">
             {usage.hidden} hidden or removed project{usage.hidden === 1 ? " isn't" : "s aren't"} counted (Settings → Workspace).

@@ -793,6 +793,9 @@ describe('trend, the Performance view and export', () => {
     const codex = select(r, { ...DEFAULT_PERF_FILTERS, provider: 'codex' })
     expect([totals(codex).launches, codex.providers.map((p) => p.provider)]).toEqual([1, ['codex']])
     expect(providersIn(r)).toEqual(['claude-code', 'codex'])
+    // The filter's choices keep its current one even when the range has none of it (#270).
+    expect(providersIn(report(metrics.queryMetrics(w, { scope: { kind: 'project', project: 'beta' } })), 'claude-code')).toEqual(['claude-code', 'codex'])
+    expect(providersIn(r, 'codex')).toEqual(['claude-code', 'codex'])
     expect(isEmpty(select(r, { ...DEFAULT_PERF_FILTERS, project: 'gamma' }))).toBe(false) // provider usage is the scope's
     expect(isEmpty(select(report(metrics.queryMetrics(w, { scope: { kind: 'workspace' } })), { ...DEFAULT_PERF_FILTERS, project: 'gamma' }))).toBe(true)
 
@@ -988,7 +991,7 @@ describe('#116 round 1: filters, coverage, attribution, unknown usage, guidance 
 
   it('an export holds the filters, coverage and range it was made with', async () => {
     const { metricsExport } = await import('../src/main/metricsUsage')
-    const { queryFor, WORKSPACE_OWN, DEFAULT_PERF_FILTERS } = await import('../src/shared/metricsView')
+    const { queryFor, pageQuery, WORKSPACE_OWN, DEFAULT_PERF_FILTERS } = await import('../src/shared/metricsView')
     const { w } = await open()
     metrics.recordApi(metrics.metricsHandle(w), 'alpha', api())
     metrics.recordApi(metrics.metricsHandle(w), null, api('/v1/tasks', { role: 'api' }))
@@ -1002,6 +1005,10 @@ describe('#116 round 1: filters, coverage, attribution, unknown usage, guidance 
     expect(out.range).toEqual({ from: r.from, to: r.to })
     // A project's tab: never own work, whatever its filters say.
     expect(queryFor({ kind: 'project', project: 'alpha' }, { ...DEFAULT_PERF_FILTERS, project: WORKSPACE_OWN }, now).own).toBeUndefined()
+    // The page's query (its load, Export and Keep current view): the same, every provider's (#270).
+    const page = pageQuery({ kind: 'workspace' }, { ...DEFAULT_PERF_FILTERS, project: WORKSPACE_OWN, role: 'api', provider: 'codex' }, now)
+    expect(page).toEqual({ ...q, provider: undefined })
+    expect('provider' in page).toBe(false)
     await disposeWorkspaceService(w)
   })
 })

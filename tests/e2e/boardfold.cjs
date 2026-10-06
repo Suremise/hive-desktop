@@ -1,7 +1,7 @@
 // The board's six columns and how it folds (#170): On Hold before Todo and Passed between Review and Done, through the
 // Agent API too; each column collapses to a narrow strip with its name and count, and the expanded
 // ones share the freed width (1, 3 and 5 collapsed, narrow and wide windows); a card dropped on a strip goes to the top
-// of that column; cards fold to one line, one by one or all of a column from its menu; and all of it is kept for the
+// of that column (its true top with a search on, #263); columns fold sideways with « / », cards with ▾ / ▸ (#276); cards fold to one line, one by one or all of a column from its menu; and all of it is kept for the
 // workspace after a reload and a restart, also with two windows (each its own workspace) that read the folds before
 // either changed them. Both themes. No agents. Dev build, throwaway profile and workspaces.
 const lib = require('./lib.cjs')
@@ -130,6 +130,18 @@ const LABELS = ['On Hold', 'Todo', 'Doing', 'Review', 'Passed', 'Done']
   check('Enter on the strip expands the column', !!(await until(async () => (await tile(n.hold).count()) === 1, 5000)))
   await inv('tasks:update', n.t3, { column: 'todo', position: 'bottom' })
 
+  // With a search on, the strip still puts the card at the true top of its column, above the cards the search hides
+  // (#263): not at the top of the ones it shows, which here are none.
+  const search = page.getByPlaceholder('Search cards (#12, words, labels)')
+  await search.fill('t3 card')
+  await collapse('On Hold')
+  check('the search hides the other cards', !!(await until(async () => (await tile(n.t3).count()) === 1 && (await tile(n.t1).count()) === 0, 5000)))
+  await tile(n.t3).dragTo(strip)
+  check("with a search on, a card dropped on a collapsed column still goes to its true top", !!(await until(async () => (await saved('hold')).join() === [n.t3, n.hold].join(), 5000)), (await saved('hold')).join())
+  await search.fill('')
+  await expand('On Hold')
+  await inv('tasks:update', n.t3, { column: 'todo', position: 'bottom' })
+
   // Cards fold to one line, and back.
   const fold = (x, name) => tile(x).getByRole('button', { name })
   const height = (x) => tile(x).evaluate((e) => e.getBoundingClientRect().height)
@@ -171,10 +183,27 @@ const LABELS = ['On Hold', 'Todo', 'Doing', 'Review', 'Passed', 'Done']
     folded: await page.locator('.task-card.folded').evaluateAll((els) => els.map((e) => Number(e.dataset.task)).sort((a, b) => a - b))
   })
   const before = await state()
+  // Columns fold sideways (#276): « on an expanded column's header, » on a strip; cards keep ▾ / ▸ (Todo's are folded).
+  const icons = (loc) => loc.locator('.codicon').evaluateAll((els) => els.map((e) => [...e.classList].find((c) => c.startsWith('codicon-'))))
+  const collapseButton = column('Review').getByRole('button', { name: 'Collapse Review' })
+  check('an expanded column collapses with « (two left chevrons), still named "Collapse Review" and expanded', JSON.stringify(await icons(collapseButton)) === JSON.stringify(['codicon-chevron-left', 'codicon-chevron-left']) && (await collapseButton.getAttribute('aria-expanded')) === 'true', JSON.stringify(await icons(collapseButton)))
+  const doneStrip = column('Done').getByRole('button', { name: 'Expand Done' })
+  check('a strip expands with » (two right chevrons)', JSON.stringify(await icons(doneStrip)) === JSON.stringify(['codicon-chevron-right', 'codicon-chevron-right']), JSON.stringify(await icons(doneStrip)))
+  check("cards keep ▸ when folded and ▾ when not", JSON.stringify(await icons(tile(n.t1).locator('.task-fold'))) === JSON.stringify(['codicon-chevron-right']) && JSON.stringify(await icons(tile(n.review).locator('.task-fold'))) === JSON.stringify(['codicon-chevron-down']))
+  const chevronsFit = await collapseButton.evaluate((b) => {
+    const r = b.getBoundingClientRect()
+    return [...b.querySelectorAll('.codicon')].every((i) => {
+      const c = i.getBoundingClientRect()
+      return c.left >= r.left - 0.5 && c.right <= r.right + 0.5
+    })
+  })
+  check('the « sits inside its button', chevronsFit)
   await page.screenshot({ path: path.join(lib.WORK, 'boardfold-dark.png') })
+  await page.locator('.board').screenshot({ path: path.join(lib.WORK, 'boardfold-arrows-dark.png') })
   await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'))
   await lib.sleep(200)
   await page.screenshot({ path: path.join(lib.WORK, 'boardfold-light.png') })
+  await page.locator('.board').screenshot({ path: path.join(lib.WORK, 'boardfold-arrows-light.png') })
   const stripColour = await column('Done').locator('.board-column-strip .board-column-label').evaluate((e) => getComputedStyle(e).color)
   check('a strip reads in the light theme too', stripColour !== 'rgba(0, 0, 0, 0)', stripColour)
   await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'))

@@ -193,7 +193,7 @@ const APP_ROWS: Row[] = [
     section: 'workspace',
     key: 'storage',
     title: 'Storage',
-    desc: "What Hive keeps for the workspace's biggest projects and the Hive Assistant: transcript backups, archived sessions, images and worktrees. Storage opens a project's page, with Clean Up….",
+    desc: "What Hive keeps for each of the workspace's projects (the biggest first) and the Hive Assistant: transcript backups, archived sessions, images and worktrees. Storage opens a project's page, with Clean Up….",
     tip: "Measured in the background, a project at a time. The coding agents' own transcripts (in ~/.claude and ~/.codex) aren't counted. Hidden projects aren't included.",
     type: 'custom',
     wide: true

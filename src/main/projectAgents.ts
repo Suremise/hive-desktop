@@ -2,7 +2,8 @@ import { randomBytes } from 'crypto'
 import { basename, join, resolve } from 'path'
 import { MAX_AGENTS, ROLE_MAX, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
 import { agentProvider, isKnownProvider } from '../shared/providers'
-import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, MergeResult, ProjectConfig, ProjectGitInfo } from '../shared/types'
+import { samePath } from '../shared/movePaths'
+import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, MergeResult, ProjectConfig, ProjectGitInfo, RemovedAgent, WorktreeCheck } from '../shared/types'
 import { config } from './config'
 import { toast } from './events'
 import { realPath, withFileLock } from './fsutil'
@@ -150,19 +151,43 @@ export async function updateAgent(projectPath: string, agentId: string, patch: A
   return def
 }
 
-/** Removes an agent (stopped). `releaseCards` takes its open cards from it too (Doing ones back to Todo). */
-export async function removeAgent(projectPath: string, agentId: string, opts: { deleteWorktree: boolean; releaseCards?: boolean }): Promise<void> {
+/**
+ * Removes an agent (stopped). `releaseCards` takes its open cards from it too (Doing ones back to Todo). `deleteWorktree`
+ * deletes its worktree and branch; 'merged-clean' (Remove All, #291) only when they are merged into the main branch (the
+ * one the user was shown, `mergedInto`) and clean now, checked here and guarded while deleting (`removeCheckedWorktree`),
+ * and no other agent of the project works in that worktree: otherwise they are kept and the reply says why.
+ */
+export async function removeAgent(projectPath: string, agentId: string, opts: { deleteWorktree: boolean | 'merged-clean'; mergedInto?: string | null; releaseCards?: boolean }): Promise<RemovedAgent> {
   projectPath = workspace.assertProject(projectPath)
   if (sessions.liveFor(projectPath, agentId)) throw new Error('Stop the agent before removing it.')
   const cfg = await workspace.projectConfig(projectPath)
   const def = cfg.agents.find((a) => a.id === agentId)
-  if (!def) return
-  if (def.worktree && opts.deleteWorktree) await wt.removeWorktree(projectPath, def.worktree, true)
+  if (!def) return {}
+  const tree = def.worktree
+  let result: RemovedAgent = {}
+  if (tree && opts.deleteWorktree === 'merged-clean') {
+    const shared = projectAgents(cfg).some((a) => a.id !== agentId && a.worktree && samePath(a.worktree.path, tree.path))
+    const done = shared ? { deleted: false, reason: 'another agent works in it' } : await wt.removeCheckedWorktree(projectPath, tree, await wt.worktreeCheck(projectPath, tree), opts.mergedInto)
+    result = { worktree: { path: tree.path, branch: tree.branch, ...done } }
+  } else if (tree && opts.deleteWorktree) {
+    await wt.removeWorktree(projectPath, tree, true)
+    result = { worktree: { path: tree.path, branch: tree.branch, deleted: true } }
+  } else if (tree) result = { worktree: { path: tree.path, branch: tree.branch, deleted: false } }
   await workspace.mutateProjectConfig(projectPath, (now) => ({ agents: now.agents.filter((a) => a.id !== agentId) }))
   if (opts.releaseCards) await releaseAgentCards(basename(projectPath), agentId, { kind: 'user' })
   // A review it left going (from before Hive last started) ends with it.
   await endReviews(basename(projectPath), agentId, 'the agent was removed', workspaceOf(projectPath))
   await workspaceOf(projectPath).refresh()
+  return result
+}
+
+/** For each worktree agent of the project, whether its worktree could be deleted without losing work (#291). */
+export async function worktreeChecks(projectPath: string): Promise<({ agentId: string } & WorktreeCheck)[]> {
+  projectPath = workspace.assertProject(projectPath)
+  const agents = projectAgents(await workspace.projectConfig(projectPath))
+  const out: ({ agentId: string } & WorktreeCheck)[] = []
+  for (const a of agents) if (a.worktree) out.push({ agentId: a.id, ...(await wt.worktreeCheck(projectPath, a.worktree)) })
+  return out
 }
 
 /** Moves an agent to `index` in the project's order (its position afterwards); returns the agents' ids in the new order. */

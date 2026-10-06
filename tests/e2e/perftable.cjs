@@ -39,7 +39,7 @@ const check = (name, ok, extra = '') => {
   await lib.until(async () => (await live())?.status === 'finished', 15000)
 
   await page.locator('.activitybar button[aria-label="Performance"]').click()
-  const row = page.locator('.performance-page:visible .table-wrap .table:has(th:text-is("Sessions")) tbody tr', { hasText: 'Claude Code' }).first()
+  const row = page.locator('.performance-page:visible .table-wrap .table:has(th .th-sort:text-is("Sessions")) tbody tr', { hasText: 'Claude Code' }).first()
   check('Provider usage has the session’s row', !!(await lib.until(async () => (await row.count()) === 1, 15000)))
 
   /** Each cell's lines: how many lines of text each of its parts takes, and whether the table scrolls. */
