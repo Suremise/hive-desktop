@@ -15,13 +15,13 @@ import { Icon, IconButton, Tooltip } from './ui'
  */
 
 export const PERSONAS_TIP =
-  "A persona is who the Hive Assistant is: its role and its character, in a Markdown file in the workspace (.hive/personas). The panel's persona menu switches between them; Settings → Assistant sets the default."
+  "A mode is how the Hive Assistant works: what it puts first and how it hands things back, in a Markdown file in the workspace (.hive/personas). The panel's mode menu switches between them at once, keeping the conversation; Settings → Assistant sets the default."
 
 export async function createPersona(): Promise<void> {
   const name = await prompt({
-    title: 'New Persona',
-    message: 'Creates .hive/personas/<name>.md in the workspace, to describe the role and character in your own words.',
-    placeholder: 'Persona name',
+    title: 'New Mode',
+    message: 'Creates .hive/personas/<name>.md in the workspace, to describe in your own words how the Assistant should work.',
+    placeholder: 'Mode name',
     confirmLabel: 'Create',
     validate: (v) => (/[a-z0-9]/i.test(v) ? null : 'Use letters or numbers.')
   })
@@ -40,7 +40,7 @@ async function deletePersona(p: PersonaInfo): Promise<void> {
 
 async function restorePersona(p: PersonaInfo): Promise<void> {
   if (p.bundled === 'changed') {
-    const ok = await confirm({ title: `Revert ${p.name} to Hive's version?`, message: 'Your copy goes to the Recycle Bin and Hive puts back the persona as this version ships it.', confirmLabel: 'Revert' })
+    const ok = await confirm({ title: `Revert ${p.name} to Hive's version?`, message: 'Your copy goes to the Recycle Bin and Hive puts back the mode as this version ships it.', confirmLabel: 'Revert' })
     if (!ok) return
   }
   const r = await actions.attempt('Could not restore the persona', () => call('personas:restore', p.id))
@@ -73,9 +73,9 @@ export function PersonaList() {
             </div>
             <div className="row-actions" onClick={(e) => e.stopPropagation()}>
               {p.bundled === 'missing' ? (
-                <IconButton icon="history" title="Restore this persona that ships with Hive" onClick={() => void restorePersona(p)} />
+                <IconButton icon="history" title="Restore this mode that ships with Hive" onClick={() => void restorePersona(p)} />
               ) : (
-                <IconButton icon="trash" title="Delete persona" onClick={() => void deletePersona(p)} />
+                <IconButton icon="trash" title="Delete mode" onClick={() => void deletePersona(p)} />
               )}
             </div>
           </div>
@@ -130,18 +130,18 @@ export function PersonaView() {
               </Tooltip>
             )}
             {p.bundled === 'changed' && (
-              <Tooltip content="Put back the persona as Hive ships it (your copy goes to the Recycle Bin). Hive keeps edited copies as they are; unedited ones it updates itself.">
+              <Tooltip content="Put back the mode as Hive ships it (your copy goes to the Recycle Bin). Hive keeps edited copies as they are; unedited ones it updates itself.">
                 <button className="btn small subtle" onClick={() => void restorePersona(p)}>
                   <Icon name="discard" /> Revert to Default
                 </button>
               </Tooltip>
             )}
-            <Tooltip content={inUse ? "This workspace's Assistant uses this persona" : "Make this the persona of this workspace's Assistant (a running Assistant restarts, after asking)"}>
+            <Tooltip content={inUse ? "This workspace's Assistant uses this mode" : "Make this the mode of this workspace's Assistant (a running Assistant is told at once, keeping its conversation)"}>
               <button className="btn small subtle" disabled={inUse} onClick={() => void choosePersona(p)}>
                 <Icon name={inUse ? 'check' : 'person'} /> {inUse ? 'In Use' : 'Use in This Workspace'}
               </button>
             </Tooltip>
-            <IconButton icon="trash" title="Delete persona" onClick={() => void deletePersona(p)} />
+            <IconButton icon="trash" title="Delete mode" onClick={() => void deletePersona(p)} />
           </>
         }
       />

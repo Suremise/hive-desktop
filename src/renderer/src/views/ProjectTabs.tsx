@@ -9,6 +9,7 @@ import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, turnPushedCompaction, effe
 import { PROVIDERS, contextLines, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { effortText, runsAsName } from '@shared/models'
+import { PROJECT_SETTINGS_SECTIONS, settingEntry } from '@shared/settingsCatalog'
 import { NumberField } from '../components/NumberField'
 import { StorageView } from '../components/Storage'
 import { TaskStrip } from '../components/Board'
@@ -1110,14 +1111,16 @@ function SettingRow({ title, desc, tip, children, modified }: { title: string; d
 
 type ProjectSection = 'agents' | 'sessions' | 'storage' | 'keys' | 'advanced' | `provider:${string}`
 
-const PROJECT_SECTIONS: { id: ProjectSection; label: string; icon: string; desc: string; provider?: ProviderId }[] = [
-  { id: 'agents', label: 'Agents & Worktrees', icon: 'organization', desc: 'The project’s agents and their providers, file locks between them, and how new worktrees are set up.' },
-  ...PROVIDERS.map((p) => ({ id: `provider:${p.id}` as ProjectSection, label: p.name, icon: 'blank', provider: p.id, desc: `Model, effort and permissions for this project’s ${p.name} agents. Agents can override these for themselves.` })),
-  { id: 'sessions', label: 'Sessions', icon: 'history', desc: 'Compacting and notifications for this project.' },
-  { id: 'storage', label: 'Storage', icon: 'database', desc: 'What Hive keeps for this project: transcript backups, archived sessions, images and the agents’ worktrees. Clean Up… moves old backups and images to the Recycle Bin.' },
-  { id: 'keys', label: 'Keyboard Shortcuts', icon: 'keyboard', desc: 'Shortcuts for project and session commands while this project is selected, over the global ones.' },
-  { id: 'advanced', label: 'Advanced', icon: 'tools', desc: 'Where the settings are stored, and resetting them.' }
-]
+const PROJECT_SECTION_ICONS: Record<string, string> = { agents: 'organization', sessions: 'history', storage: 'database', keys: 'keyboard', advanced: 'tools' }
+
+const PROJECT_SECTIONS: { id: ProjectSection; label: string; icon: string; desc: string; provider?: ProviderId }[] = PROJECT_SETTINGS_SECTIONS.map((s) => ({ ...s, id: s.id as ProjectSection, icon: PROJECT_SECTION_ICONS[s.id] ?? 'blank' }))
+
+/** A row's text from the settings catalog (settingsCatalog.ts), which Settings, Project Settings and the Assistant's settings tools share. */
+function rowText(id: string): { title: string; desc: string; tip?: string; wide?: boolean } {
+  const e = settingEntry(id)
+  if (!e) throw new Error(`No settings catalog entry ${id}`)
+  return { title: e.title, desc: e.desc, ...(e.tip ? { tip: e.tip } : {}), ...(e.wide ? { wide: true } : {}) }
+}
 
 interface ProjectSettingDef {
   section: ProjectSection
@@ -1233,27 +1236,23 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       {
         section: sect,
         key: `${id}.model`,
-        title: 'Model',
-        desc: `Model for this project's ${p.name} agents. Inherit uses the global default (${globalModel}).`,
-        tip: `Passed to ${p.name} when a session starts. Agents can choose their own.`,
+        ...rowText(`project.${id}.model`),
         modified: pc.model !== 'inherit',
         render: () => <ModelPicker provider={id} value={pc.model} base={{ value: 'inherit', label: `Inherit (${globalModel})` }} onChange={(v) => void save({ model: v })} />
       },
       {
         section: sect,
         key: `${id}.effort`,
-        title: 'Effort',
-        desc: 'How much reasoning effort the model uses. Higher is more thorough but slower and uses more tokens.',
-        tip: `Passed to ${p.name} when a session starts.`,
+        ...rowText(`project.${id}.effort`),
         modified: pc.effort !== 'inherit',
         render: () => <EffortPicker provider={id} model={runModel} value={pc.effort} base={{ value: 'inherit', label: `Inherit (${globalEffort})` }} onChange={(v) => void save({ effort: v })} />
       },
       {
         section: sect,
         key: `${id}.permissionMode`,
-        title: 'Permission mode',
-        desc: modeOption(id, mode)?.description ?? '',
-        tip: `The mode sessions start in.${p.capabilities.liveModeSwitch === 'cycle' ? ' You can still switch modes inside a running session with Shift+Tab.' : ''}`,
+        ...rowText(`project.${id}.permissionMode`),
+        // What the mode in use does, after what the setting is.
+        desc: `${rowText(`project.${id}.permissionMode`).desc} Now: ${modeOption(id, mode)?.description ?? permissionLabel(id, mode)}`,
         modified: pc.permissionMode !== 'inherit',
         render: () => (
           <select
@@ -1279,9 +1278,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
             {
               section: sect,
               key: `${id}.use200kContext`,
-              title: 'Use 200K context (instead of 1M)',
-              desc: `A 200K-token context window for this project's ${p.name} agents instead of the model's 1M one. Inherit uses the global setting (${g.use200kContext ? 'On' : 'Off'}).`,
-              tip: 'Applies to sessions started afterwards. Agents can choose for themselves.',
+              ...rowText(`project.${id}.use200kContext`),
               modified: (pc.use200kContext ?? 'inherit') !== 'inherit',
               render: () => (
                 <select className="select" value={pc.use200kContext ?? 'inherit'} onChange={(e) => void save({ use200kContext: e.target.value as 'inherit' | 'on' | 'off' })}>
@@ -1296,9 +1293,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       {
         section: sect,
         key: `${id}.extraArgs`,
-        title: 'Extra arguments',
-        desc: `Additional ${p.cliName} command-line arguments for this project, added after the global ones.`,
-        tip: 'Split like a command line; quote arguments with spaces.',
+        ...rowText(`project.${id}.extraArgs`),
         modified: !!pc.extraArgs,
         render: () => <DraftInput className="input mono" value={pc.extraArgs} placeholder="--add-dir ../lib" onCommit={(v) => void save({ extraArgs: v })} />
       }
@@ -1309,9 +1304,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     {
       section: 'agents',
       key: 'defaultProvider',
-      title: 'Default provider',
-      desc: `The provider Add Agent uses for this project's new agents (the dialog can choose another). Inherit uses the global default (${globalDefault}).`,
-      tip: 'Each agent keeps the provider it was given; change it in the agent’s settings.',
+      ...rowText('project.defaultProvider'),
       modified: cfg.defaultProvider !== 'inherit',
       render: () => (
         <select className="select" value={cfg.defaultProvider} onChange={(e) => void update({ defaultProvider: e.target.value })}>
@@ -1329,9 +1322,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     {
       section: 'sessions',
       key: 'compactSuggestTokens',
-      title: 'Suggest compacting above',
-      desc: `Context size (tokens) at which Compact is highlighted for this project. Empty inherits the global value (${globalCompact}).`,
-      tip: 'Only changes when the Compact button turns orange; compacting is always available once the agent has finished.',
+      ...rowText('project.compactSuggestTokens'),
       modified: cfg.compactSuggestTokens !== null,
       render: () => (
         <NumberField
@@ -1349,9 +1340,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     {
       section: 'sessions',
       key: 'transcriptWarnMB',
-      title: 'Warn when a transcript is over',
-      desc: `Size, in MB, at which a running conversation's transcript is flagged for this project. Empty inherits the global value (${globalWarn}).`,
-      tip: "A long conversation slows down the CLI and Hive; handing the work over to a new conversation makes it short again.",
+      ...rowText('project.transcriptWarnMB'),
       modified: cfg.transcriptWarnMB !== null,
       render: () => (
         <NumberField
@@ -1369,9 +1358,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     {
       section: 'sessions',
       key: 'chime',
-      title: 'Completion chime',
-      desc: 'Play a sound when an agent in this project finishes or needs input.',
-      tip: 'Inherit follows Settings → Notifications.',
+      ...rowText('project.chime'),
       modified: cfg.chime !== 'inherit',
       render: () => (
         <select className="select" value={cfg.chime} onChange={(e) => void update({ chime: e.target.value as ProjectConfig['chime'] })}>
@@ -1384,33 +1371,29 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     {
       section: 'storage',
       key: 'storage',
-      title: 'What Hive keeps',
-      desc: 'Measured in the background; Refresh measures again. The coding agents’ own transcripts (in ~/.claude and ~/.codex) aren’t counted, and Clean Up… never touches them.',
+      ...rowText('project.storage'),
       wide: true,
       render: () => <StorageView path={project.path} />
     },
     {
       section: 'keys',
       key: 'keybindings',
-      title: 'Shortcuts',
-      desc: 'Change one to give this project its own; Reset returns it to the global shortcut. Stored in the project’s .hive folder, which is not committed.',
+      ...rowText('project.keybindings'),
       wide: true,
       render: () => <KeybindingsEditor project={project} />
     },
     {
       section: 'agents',
       key: 'agents',
-      title: 'Agents',
-      desc: `Up to ${MAX_AGENTS} agents can work on the project at once, each in the project folder or its own worktree. Agents without their own settings use this project's.`,
+      ...rowText('project.agents'),
       wide: true,
       render: () => <AgentList project={project} />
     },
     {
       section: 'agents',
       key: 'fileLocks',
-      title: 'File locks',
-      desc: FILE_LOCK_MODES.find((m) => m.value === lockMode)?.description ?? '',
-      tip: 'Applies to agents sharing a folder (agents in their own worktrees never collide). An agent claims a file when it edits it and releases it when its turn ends. Edits made through shell commands are not covered.',
+      ...rowText('project.fileLocks'),
+      desc: `${rowText('project.fileLocks').desc} Now: ${FILE_LOCK_MODES.find((m) => m.value === lockMode)?.description ?? lockMode}`,
       modified: cfg.fileLocks !== 'inherit',
       render: () => (
         <select className="select" value={cfg.fileLocks} onChange={(e) => void update({ fileLocks: e.target.value as ProjectConfig['fileLocks'] })}>
@@ -1426,9 +1409,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     {
       section: 'agents',
       key: 'worktreeCopy',
-      title: 'Copy into new worktrees',
-      desc: `Git-ignored files to copy from the project folder into a new worktree, such as .env files. One pattern per line; empty inherits the global list (${settings.agents.worktreeCopy.replace(/\n/g, ', ') || 'nothing'}).`,
-      tip: 'A new worktree only gets the files git tracks. Patterns without a slash match a file or folder name anywhere (e.g. .env*); with a slash they match a path from the project root (e.g. config/local.json). Large folders such as node_modules are better recreated by the setup command.',
+      ...rowText('project.worktreeCopy'),
       modified: cfg.worktreeCopy !== null,
       render: () => (
         <DraftTextarea className="input mono" rows={3} value={cfg.worktreeCopy ?? ''} placeholder={`Inherit:\n${settings.agents.worktreeCopy}`} onCommit={(v) => void update({ worktreeCopy: v.trim() ? v : null })} />
@@ -1437,17 +1418,14 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     {
       section: 'agents',
       key: 'worktreeSetup',
-      title: 'Setup command',
-      desc: "Runs in a new worktree before its agent's first session, e.g. npm install. Its output shows in the agent's pane.",
-      tip: 'Runs with cmd.exe in the worktree folder. If it fails, the pane offers to retry or to start the agent without it.',
+      ...rowText('project.worktreeSetup'),
       modified: !!cfg.worktreeSetup,
       render: () => <DraftInput className="input mono" value={cfg.worktreeSetup} placeholder="npm install" onCommit={(v) => void update({ worktreeSetup: v.trim() })} />
     },
     {
       section: 'advanced',
       key: 'metadata',
-      title: 'Settings file',
-      desc: `Stored in ${project.name}/.hive/project.json (excluded from git). Changes apply to new sessions; restart a running session to apply them.`,
+      ...rowText('project.metadata'),
       render: () => (
         <button className="btn subtle" onClick={() => void call('app:openPath', `${project.path}\\.hive`)}>
           <Icon name="folder-opened" /> Open .hive folder
@@ -1457,8 +1435,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     {
       section: 'advanced',
       key: 'reset',
-      title: 'Reset project settings',
-      desc: 'Everything on this page goes back to Inherit. Agents, and skill and MCP opt-outs, are kept.',
+      ...rowText('project.reset'),
       render: () => (
         <button
           className="btn subtle"

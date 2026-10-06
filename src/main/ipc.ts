@@ -32,6 +32,8 @@ import * as removal from './projectRemoval'
 import * as tasks from './tasks'
 import { startTask } from './taskStart'
 import * as assistantControl from './assistantControl'
+import { revertSetting } from './settingsTools'
+import { switchMode } from './assistantMode'
 import * as personas from './personas'
 import { syncBundled } from './bundled'
 import { checkMoved, finishPending, movePlan, repairMove } from './workspaceMove'
@@ -47,6 +49,7 @@ import { sessions } from './sessions'
 import { transcripts } from './transcripts'
 import * as skills from './skills'
 import * as storage from './storage'
+import { antivirusStatus, antivirusSuggestion, applyAntivirus, dismissAntivirus, prepareAntivirus } from './antivirus'
 import { contextWorkspace, currentWorkspace, inWorkspace, workspace, workspaceFor, workspaceOf, WorkspaceService } from './workspace'
 import { hiveWindows, windowForPath, windowOf, windowShowing } from './windows'
 import { setTitleBarBackdrops, setTitleBarColors } from './titleBar'
@@ -440,6 +443,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'storage:abandon': (request) => {
       if (typeof request === 'string') storage.abandonStorage(request, win().webContents.id)
     },
+    'antivirus:status': (refresh) => antivirusStatus(refresh === true),
+    'antivirus:prepare': (action) => prepareAntivirus(action),
+    'antivirus:apply': (id) => applyAntivirus(id),
+    'antivirus:suggestion': () => antivirusSuggestion(),
+    'antivirus:dismiss': () => dismissAntivirus(),
     'storage:cleanupPreview': (p, opts) => storage.cleanupPreview(p, opts),
     'storage:cleanup': (p, opts, listed) => storage.cleanup(p, opts, listed),
     'session:clearUsageCache': () => sessions.forgetUsageCache(),
@@ -651,6 +659,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'assistant:actions': () => (workspace.path ? assistantControl.actions(workspace.path) : []),
     'assistant:questions': () => (workspace.path ? assistantControl.questions(workspace.path) : []),
     'assistant:answer': (id, yes) => assistantControl.answer(id, yes),
+    'assistant:switchMode': (personaId, save) => switchMode(String(personaId), save !== false),
+    'assistant:revertSetting': async (actionId) => {
+      if (!workspace.path) throw new Error('No workspace is open.')
+      await revertSetting(workspace.path, String(actionId))
+    },
     'progress:list': () => (workspace.path ? progress.list(workspace.path) : []),
     'progress:dismiss': (id) => {
       if (workspace.path) progress.dismiss(workspace.path, String(id))

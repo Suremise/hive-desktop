@@ -42,6 +42,9 @@
       "9f3b17bc4a73bdd1",
       "125641bf5c31d814"
     ],
+    "tune-settings": [
+      "734ef492088145a7"
+    ],
     "use-hive-api": [
       "c0281b780bf4d213"
     ],
@@ -58,6 +61,9 @@
     ]
   },
   "personas": {
+    "coordinator": [
+      "2cd699f6b4a7c3b1"
+    ],
     "orchestrator": [
       "21ce0d9749e31d4d",
       "781cc38e432cb154",
@@ -71,7 +77,14 @@
     "planner": [
       "038463ff624effe4",
       "105748c5136c8384",
-      "3eff9745091ff58c"
+      "3eff9745091ff58c",
+      "20e2ba7c90ec0932"
+    ],
+    "qa-triager": [
+      "1fac81c2d6f4fa25"
+    ],
+    "release-manager": [
+      "bbd2aa88c583d7b0"
     ],
     "reviewer": [
       "1e0061343258e607",

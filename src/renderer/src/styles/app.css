@@ -4080,6 +4080,15 @@ body.pane-resizing .monaco-editor {
 .assistant-action.failed .codicon {
   color: var(--fg-muted);
 }
+.assistant-action .assistant-revert {
+  flex: none;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+.assistant-action .assistant-revert .codicon {
+  color: inherit;
+}
 .assistant-action-text {
   flex: 1;
   min-width: 0;
@@ -4208,6 +4217,20 @@ body.pane-resizing .monaco-editor {
 .storage-table .storage-total td {
   font-weight: 600;
   border-bottom: none;
+}
+/* Antivirus scanning (components/Antivirus.tsx, #316): Settings → Workspace's status and Performance's line. */
+.antivirus-scan,
+.antivirus-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.antivirus-folders td:first-child .mono {
+  margin-left: 4px;
+}
+.perf-antivirus a {
+  cursor: pointer;
 }
 .storage-actions {
   display: flex;

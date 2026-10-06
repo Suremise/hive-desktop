@@ -652,6 +652,36 @@ export async function swapIn(src: string, dest: string, o: { prepare?: (copy: st
 }
 
 /**
+ * Removes `dest` (a file or a folder) only while it is exactly `expected` (a contentHash): a retired item of Hive's that
+ * the user never changed (#259). As swapIn guards a replacement: checked under Hive's own editors' file locks, again once
+ * it has been moved aside (a dot-name, which scans skip), and again just before it goes (a write through a file left
+ * open). Any difference puts it back in its place, or keeps it beside it as a `-conflict-` copy when something new has
+ * taken that place, and throws SwapAbandoned: nothing that may hold the user's work is removed. `cleanSwaps` tidies what
+ * a crash between the steps leaves.
+ */
+export async function swapOut(dest: string, expected: string): Promise<void> {
+  const tag = `${process.pid}-${++swapCounter}`
+  const parent = dirname(dest)
+  const name = dest.slice(parent.length + 1)
+  const old = join(parent, `.${name}.hive-old-${tag}`)
+  const remove = async (): Promise<void> => {
+    if ((await hashOrNone(dest)) !== expected) throw new SwapAbandoned(`${name} changed before it could be removed`)
+    await renameRetrying(dest, old, 5)
+    const putBack = async (why: string): Promise<never> => {
+      if (!(await exists(dest))) await renameRetrying(old, dest).catch(() => keepAsConflict(old, parent, name))
+      else await keepAsConflict(old, parent, name)
+      throw new SwapAbandoned(why)
+    }
+    if ((await hashOrNone(old)) !== expected) await putBack(`${name} changed while it was being removed`)
+    // Something new in its place meanwhile is the user's: it stays, and so does what was moved aside (as a conflict copy
+    // if it was changed: it is removed only while it is still exactly Hive's).
+    if ((await hashOrNone(old)) !== expected) await putBack(`${name} changed while it was being removed`)
+    await rm(old, { recursive: true, force: true })
+  }
+  await withFileLocks(await filesIn(dest), remove)
+}
+
+/**
  * Keeps `p` (something a swap set aside that may hold the user's work) beside the item as `<name>-conflict-<time>`
  * (`<base>-conflict-<time><ext>` for a file), where the user can find it; it stays where it is if even that fails.
  */

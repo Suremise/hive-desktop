@@ -223,11 +223,19 @@ describe('providers migration', () => {
 
   it('a fresh install starts with every provider off', () => {
     expect(Object.values(DEFAULT_SETTINGS.providers).every((p) => !p.enabled)).toBe(true)
-    expect(DEFAULT_APP_CONFIG.version).toBe(6)
+    expect(DEFAULT_APP_CONFIG.version).toBe(7)
+  })
+  it('moves a default persona that went to its working mode, once (#259)', () => {
+    expect(load({ version: 6, settings: { assistant: { persona: 'overseer' } } }).settings.assistant.persona).toBe('coordinator')
+    expect(load({ version: 6, settings: { assistant: { persona: 'reviewer' } } }).settings.assistant.persona).toBe('qa-triager')
+    expect(load({ version: 6, settings: { assistant: { persona: 'my-own' } } }).settings.assistant.persona).toBe('my-own')
+    // Saved since (version 7): a persona of the user's named like an old one stays.
+    expect(load({ version: 7, settings: { assistant: { persona: 'overseer' } } }).settings.assistant.persona).toBe('overseer')
+    expect(DEFAULT_SETTINGS.assistant.persona).toBe('coordinator')
   })
   it('moves 0.1 Claude Code settings over and keeps Claude Code on', () => {
     const c = load(v1)
-    expect(c.version).toBe(6)
+    expect(c.version).toBe(7)
     expect(c.settings.defaultProvider).toBe('claude-code')
     expect(c.settings.providers['claude-code']).toMatchObject({ enabled: true, executablePath: 'C:\\x\\claude.exe', defaultModel: 'opus', defaultEffort: 'high', defaultPermissionMode: 'acceptEdits', enableDangerousMode: true, extraArgs: '--verbose', checkUpdatesOnLaunch: false })
     expect(c.observedDefaultModel).toEqual({ 'claude-code': 'claude-opus-5-5' })

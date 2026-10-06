@@ -151,6 +151,7 @@ describe('a workspace', () => {
   ;(electron.shell as unknown as { trashItem: (p: string) => Promise<void> }).trashItem = async (p) => rmSync(p, { recursive: true, force: true })
   const skillsDir = (ws: string) => join(ws, '.hive', 'skills')
   const OLD_HANDOVER = '---\nname: handover\ndescription: An older handover skill.\n---\n\nOld text.\n'
+  const OLD_OVERSEER = '---\nname: Overseer\ndescription: A lighthouse keeper.\nicon: 🗼\n---\n\nYou keep the light.\n'
   let mod: typeof import('../src/main/bundled')
   let wsMod: typeof import('../src/main/workspace')
   let skills: typeof import('../src/main/skills')
@@ -164,6 +165,9 @@ describe('a workspace', () => {
     const history = structuredClone(HISTORY) as Record<'skills' | 'personas', Record<string, string[]>>
     oldHash = await contentHash(old)
     history.skills.handover = [oldHash, ...history.skills.handover]
+    // An Overseer persona this Hive "shipped" before working modes replaced it (#259).
+    writeFileSync(join(base, 'old-overseer.md'), OLD_OVERSEER)
+    history.personas.overseer = [...(history.personas.overseer ?? []), await contentHash(join(base, 'old-overseer.md'))]
     vi.resetModules()
     vi.doMock('../src/main/bundledHistory.json', () => ({ default: history }))
     mod = await import('../src/main/bundled')
@@ -228,6 +232,34 @@ describe('a workspace', () => {
       // Restore puts one back as Hive's, and later updates follow it again.
       await wsMod.inWorkspace(w, () => skills.restoreBundledSkill('pick-up'))
       expect((await wsMod.inWorkspace(w, () => skills.hiveSkills(true))).find((s) => s.name === 'pick-up')?.bundled).toBe('same')
+    } finally {
+      await wsMod.disposeWorkspaceService(w)
+    }
+  })
+
+  it('retires the old personas (#259): an untouched copy goes, an edited one stays, and an Assistant that used one moves to its mode', async () => {
+    const ws = join(base, 'retired')
+    const personas = join(ws, '.hive', 'personas')
+    mkdirSync(personas, { recursive: true })
+    writeFileSync(join(personas, 'overseer.md'), OLD_OVERSEER.replace(/\n/g, '\r\n'))
+    writeFileSync(join(personas, 'reviewer.md'), '---\nname: Reviewer\n---\n\nMy own reviewer.\n')
+    // The workspace's Assistant chose the Overseer.
+    mkdirSync(join(ws, '.hive', 'assistant', '.hive'), { recursive: true })
+    writeFileSync(join(ws, '.hive', 'assistant', '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [{ id: 'assistant', name: 'Assistant', persona: 'overseer' }] }))
+    const w = await opened(ws)
+    try {
+      await wsMod.inWorkspace(w, () => mod.syncBundled())
+      expect(existsSync(join(personas, 'overseer.md'))).toBe(false)
+      expect(readFileSync(join(personas, 'reviewer.md'), 'utf8')).toContain('My own reviewer.')
+      // The new modes are added (Planner, which shipped before as a persona, counts as deleted here: no manifest).
+      for (const mode of ['coordinator', 'qa-triager', 'release-manager']) expect(existsSync(join(personas, `${mode}.md`)), mode).toBe(true)
+      const cfg = await wsMod.inWorkspace(w, () => w.projectConfig(w.assistantHome))
+      expect(cfg.agents.find((a) => a.id === 'assistant')?.persona).toBe('coordinator')
+      const m = JSON.parse(readFileSync(join(ws, '.hive', 'bundled.json'), 'utf8'))
+      expect(m.personas.overseer).toBeUndefined()
+      // Again: nothing more to do (the edited one is the user's).
+      await wsMod.inWorkspace(w, () => mod.syncBundled())
+      expect(existsSync(join(personas, 'reviewer.md'))).toBe(true)
     } finally {
       await wsMod.disposeWorkspaceService(w)
     }

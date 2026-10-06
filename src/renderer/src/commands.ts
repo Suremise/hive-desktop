@@ -8,6 +8,7 @@ import { openModeMenu } from './components/PermissionMode'
 import * as actions from './actions'
 import { noteCommandUsed } from './tips'
 import { requestStripMenu, type StripMenu } from './stripMenus'
+import { showAntivirus } from './components/Antivirus'
 import { agentPage, assistantOnLeft, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
 
 export interface Command {
@@ -142,6 +143,8 @@ export const commands: Command[] = [
   { id: 'settings.providers', label: 'Choose Coding Agents (Providers)', category: 'Preferences', run: () => { set({ settingsSection: 'providers', settingsQuery: '' }); setActivity('settings') } },
   { id: 'settings.keybindings', label: 'Customise Keyboard Shortcuts', category: 'Preferences', run: () => { set({ settingsSection: 'keybindings', settingsQuery: '' }); setActivity('settings') } },
   { id: 'settings.notifications', label: 'Notification Settings', category: 'Preferences', run: () => { set({ settingsSection: 'notifications', settingsQuery: '' }); setActivity('settings') } },
+  { id: 'antivirus.show', label: 'Antivirus Scanning of the Workspace', category: 'Preferences', run: () => showAntivirus() },
+  { id: 'antivirus.dismiss', label: 'Don’t Suggest Antivirus Exclusions Again', category: 'Preferences', internal: true, run: () => void call('antivirus:dismiss') },
   { id: 'window.new', label: 'New Window', category: 'File', keybinding: 'Mod+K Mod+N', run: () => call('window:new') },
   { id: 'workspace.open', label: 'Open Workspace…', category: 'File', keybinding: 'Mod+K Mod+O', run: (path?: string) => actions.openWorkspace(path) },
   { id: 'workspace.create', label: 'New Workspace…', category: 'File', run: () => actions.createWorkspace() },
@@ -328,7 +331,7 @@ export const commands: Command[] = [
   { id: 'view.mcp', label: 'Show MCP Servers', category: 'View', keybinding: 'Mod+Shift+M', run: () => setActivity('mcp') },
   { id: 'view.assistant', label: 'Show Hive Assistant View', category: 'View', run: () => setActivity('assistant') },
   { id: 'view.assistantConversations', label: 'Show Assistant Conversations', category: 'View', run: () => showAssistantView('conversations') },
-  { id: 'view.personas', label: 'Show Assistant Personas', category: 'View', run: () => showAssistantView('personas') },
+  { id: 'view.personas', label: 'Show Assistant Modes', category: 'View', run: () => showAssistantView('personas') },
   { id: 'view.assistantImages', label: 'Show Assistant Images', category: 'View', run: () => showAssistantView('images') },
   { id: 'assistant.toggle', label: 'Toggle Hive Assistant', category: 'Assistant', keybinding: 'Mod+Alt+I', when: hasWorkspace, run: () => setAssistantOpen(!get().assistantOpen) },
   { id: 'assistant.settings', label: 'Assistant Settings…', category: 'Assistant', when: hasWorkspace, run: () => set({ assistantSettingsOpen: true }) },
