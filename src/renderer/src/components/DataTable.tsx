@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
-import { PAGE_SIZES, choices, nextSort, tableView, type ColumnRules, type Sort } from '@shared/tableView'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import { PAGE_SIZES, choices, nextSort, rememberedSort, sortPanes, tableView, type ColumnRules, type Sort } from '@shared/tableView'
 import { call } from '../api'
 import { set, useDateStyle, useStore } from '../store'
 import { cx } from '../util'
-import { Icon, IconButton, Tooltip } from './ui'
+import { Icon, IconButton, InfoTip, Tooltip } from './ui'
 
 /**
  * A table that can grow: sorting by a header, quick filters under the headers, and pages under it (with rows per page,
  * remembered per table). The same look as Hive's other tables (.table in .table-wrap, as Performance's): real table
- * markup, aria-sort on the sorted header, labelled filters and paging buttons. Only the current page is rendered.
+ * markup, aria-sort on the sorted header, labelled filters and paging buttons. Only the current page is rendered. Its
+ * rows per page and its sort are remembered per table (`id`).
  */
 
 export interface DataColumn<T> extends ColumnRules<T> {
@@ -20,6 +21,10 @@ export interface DataColumn<T> extends ColumnRules<T> {
   descFirst?: boolean
   /** How a choice filter names a value (default: the value). */
   choiceLabel?: (value: string) => string
+  /** An (i) after the header, saying what the column is. */
+  headerTip?: string
+  /** A class for its header and cells (e.g. nowrap). */
+  className?: string
 }
 
 /**
@@ -43,7 +48,11 @@ export function DataTable<T>({
   pageSizes = PAGE_SIZES,
   defaultPageSize = 20,
   className,
-  selection
+  selection,
+  rowClassName,
+  detail,
+  foot,
+  filterFrom = 0
 }: {
   /** Names the table for its remembered rows per page ("compactions"). */
   id: string
@@ -66,20 +75,46 @@ export function DataTable<T>({
    * through (on every page). `selected` holds row keys; the caller keeps it and acts on it.
    */
   selection?: { selected: ReadonlySet<string>; onChange: (selected: Set<string>) => void; label: (row: T) => string }
+  /** A row's own class (e.g. one being edited). */
+  rowClassName?: (row: T) => string | false | undefined
+  /** A row's detail, shown in a row of its own under it while it isn't null (a clickable row then has aria-expanded). */
+  detail?: (row: T) => React.ReactNode | null
+  /** Rows under the table's (totals), in a tfoot: whole `<tr>`s with the same columns. */
+  foot?: React.ReactNode
+  /** The quick filters show only with more rows than this (a small table needs none), or while one is set. */
+  filterFrom?: number
 }) {
   const sizeKey = `table-rows:${id}`
   const saved = useStore((s) => s.panes[sizeKey])
   const pageSize = saved && pageSizes.includes(saved) ? saved : defaultPageSize
-  const [sort, setSort] = useState<Sort | null>(defaultSort)
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [page, setPage] = useState(1)
+  // The sort, remembered per table with its rows per page (#250); the default order keeps nothing. The selector returns
+  // a string, so it is stable between renders.
+  const sortable = columns.filter((c) => c.sortValue).map((c) => c.key)
+  const savedSort = useStore((s) => {
+    const r = rememberedSort(s.panes, id, sortable)
+    return r ? `${r.desc ? '-' : '+'}${r.key}` : ''
+  })
+  const sort = useMemo((): Sort | null => (savedSort ? { key: savedSort.slice(1), desc: savedSort[0] === '-' } : defaultSort), [savedSort, defaultSort])
+  const setSort = (next: Sort | null): void => {
+    const { clear, set: keep } = sortPanes(useStore.getState().panes, id, next, defaultSort)
+    set((s) => {
+      const panes = { ...s.panes }
+      for (const k of clear) delete panes[k]
+      if (keep) panes[keep[0]] = keep[1]
+      return { panes }
+    })
+    for (const k of clear) if (k !== keep?.[0]) void call('ui:setPane', k, null)
+    if (keep) void call('ui:setPane', keep[0], keep[1])
+  }
   const view = useMemo(() => tableView(rows, columns, { sort, filters, page, pageSize }), [rows, columns, sort, filters, page, pageSize])
   // Kept within the pages there are (rows went, a filter narrowed them).
   useEffect(() => {
     if (view.page !== page) setPage(view.page)
   }, [view.page, page])
   const filtered = Object.values(filters).some((v) => v.trim())
-  const hasFilters = columns.some((c) => c.filter)
+  const hasFilters = columns.some((c) => c.filter) && (rows.length > filterFrom || filtered)
   // Selecting every row the filters let through, not only this page's.
   const matchingKeys = useMemo(() => (selection ? tableView(rows, columns, { sort: null, filters, page: 1, pageSize: Math.max(1, rows.length) }).rows.map((r, i) => rowKey(r, i)) : []), [selection, rows, columns, filters, rowKey])
   const allSelected = !!selection && matchingKeys.length > 0 && matchingKeys.every((k) => selection.selected.has(k))
@@ -129,14 +164,20 @@ export function DataTable<T>({
               {columns.map((c) => {
                 const sorted = sort?.key === c.key
                 return (
-                  <th key={c.key} className={cx(c.num && 'num', c.sortValue && 'sortable')} aria-sort={sorted ? (sort!.desc ? 'descending' : 'ascending') : undefined}>
+                  <th key={c.key} className={cx(c.num && 'num', c.sortValue && 'sortable', c.className)} aria-sort={sorted ? (sort!.desc ? 'descending' : 'ascending') : undefined}>
                     {c.sortValue ? (
-                      <button type="button" className="th-sort" onClick={() => setSort((s) => nextSort(s, c.key, !!c.descFirst, defaultSort))} title={`Sort by ${c.header.toLowerCase()}`}>
+                      <button type="button" className="th-sort" onClick={() => setSort(nextSort(sort, c.key, !!c.descFirst, defaultSort))} title={`Sort by ${c.header.toLowerCase()}`}>
                         {c.header}
                         {sorted && <Icon name={sort!.desc ? 'chevron-down' : 'chevron-up'} />}
                       </button>
                     ) : (
                       c.header
+                    )}
+                    {c.headerTip && (
+                      <>
+                        {' '}
+                        <InfoTip text={c.headerTip} />
+                      </>
                     )}
                   </th>
                 )
@@ -167,17 +208,21 @@ export function DataTable<T>({
             {view.rows.map((r, i) => {
               const key = rowKey(r, (view.page - 1) * pageSize + i)
               const picked = !!selection?.selected.has(key)
+              const more = detail ? detail(r) : null
               return (
+                <Fragment key={key}>
                 <tr
-                key={key}
-                className={cx(onRowClick && 'clickable', picked && 'selected')}
+                className={cx(onRowClick && 'clickable', picked && 'selected', rowClassName?.(r))}
                 tabIndex={onRowClick ? 0 : undefined}
                 aria-label={onRowClick ? rowLabel?.(r) : undefined}
+                aria-expanded={detail && onRowClick ? more !== null : undefined}
                 onClick={onRowClick ? () => onRowClick(r) : undefined}
                 onKeyDown={
                   onRowClick
                     ? (e) => {
-                        if (e.key === 'Enter') {
+                        // A row is a button: Enter or Space on it (not on a control inside it) opens it; Space doesn't
+                        // scroll the page.
+                        if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
                           e.preventDefault()
                           onRowClick(r)
                         }
@@ -191,11 +236,17 @@ export function DataTable<T>({
                   </td>
                 )}
                 {columns.map((c) => (
-                  <td key={c.key} className={cx(c.num && 'num')}>
+                  <td key={c.key} className={cx(c.num && 'num', c.className)}>
                     {c.cell(r)}
                   </td>
                 ))}
               </tr>
+                {more !== null && (
+                  <tr className="table-detail">
+                    <td colSpan={columns.length + (selection ? 1 : 0)}>{more}</td>
+                  </tr>
+                )}
+                </Fragment>
               )
             })}
             {view.matched === 0 && (
@@ -211,6 +262,7 @@ export function DataTable<T>({
               </tr>
             )}
           </tbody>
+          {foot && view.matched > 0 && <tfoot>{foot}</tfoot>}
         </table>
       </div>
       {/* Also on one page while there are more rows than the fewest per page, so a bigger size can be made smaller again. */}
