@@ -28,6 +28,8 @@ const log = createLogger('antivirus')
 /** How long a probe may take, and how long its answer is kept. */
 const PROBE_TIMEOUT_MS = 20_000
 const CACHE_MS = 10 * 60_000
+/** How many workspaces' statuses are kept at once (#322): the oldest probe's goes first. */
+const CACHE_MAX = 16
 /** How long the elevated change may take, the UAC prompt included (the user may take a while to answer it). */
 const ELEVATED_TIMEOUT_MS = 5 * 60_000
 /** How long a prepared change waits for the user's answer, and how many may wait at once. */
@@ -134,8 +136,9 @@ interface Fixture {
 /** Defender's answer for a hidden list, as a fixture's redacted administrator read gives it. */
 const HIDDEN = 'N/A: Must be an administrator to view exclusions'
 
-/** The exclusion list a fixture's elevated changes act on (as administrator rights would see it), per fixture file. */
+/** The exclusion list a fixture's elevated changes act on (as administrator rights would see it), per fixture file: the last few. */
 const simulated = new Map<string, string[]>()
+const SIMULATED_MAX = 4
 
 async function readFixture(): Promise<Fixture | null> {
   const file = fixtureFile()
@@ -223,11 +226,45 @@ const remembered = () => config.get().antivirus ?? {}
 /** The folder set, as a key: a status for another set (a worktrees folder appeared) is probed again. */
 const folderKey = (folders: { path: string }[]): string => folders.map((f) => normPath(f.path)).join('|')
 
-/** The status of each workspace opened while Hive runs, by path in lower case, with its folder set, age and probe's order. */
-const cache = new Map<string, { status: AntivirusStatus; folders: string; at: number; seq: number }>()
+interface Cached {
+  status: AntivirusStatus
+  folders: string
+  at: number
+  seq: number
+  life: AbortSignal
+}
+
+/**
+ * The status of open workspaces, by path in lower case, with its folder set, age, probe's order and the workspace's
+ * lifetime: at most CACHE_MAX, the oldest probe's first out; expired ones go whenever one is kept, and a workspace's go
+ * when it closes (#322).
+ */
+const cache = new Map<string, Cached>()
 /** Probes under way, by workspace path and folder set: shared only by requests for the same set and workspace lifetime. */
 const inFlight = new Map<string, { life: AbortSignal; seq: number; promise: Promise<AntivirusStatus> }>()
+/** Lifetimes whose close already retires what was kept for them (one listener each). */
+const retiring = new WeakSet<AbortSignal>()
 let probes = 0
+
+function keep(key: string, entry: Cached): void {
+  const now = Date.now()
+  for (const [k, e] of cache) if (now - e.at >= CACHE_MS || e.life.aborted) cache.delete(k)
+  // Kept last: the order is the probes', oldest first.
+  cache.delete(key)
+  cache.set(key, entry)
+  while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!)
+  const life = entry.life
+  if (retiring.has(life)) return
+  retiring.add(life)
+  life.addEventListener(
+    'abort',
+    () => {
+      for (const [k, e] of cache) if (e.life === life) cache.delete(k)
+      for (const [k, f] of inFlight) if (f.life === life) inFlight.delete(k)
+    },
+    { once: true }
+  )
+}
 
 /** The window's workspace's status: cached for ten minutes unless `refresh` or its folders changed. */
 export function antivirusStatus(refresh = false): Promise<AntivirusStatus> {
@@ -254,7 +291,7 @@ export async function statusFor(w: WorkspaceService, refresh = false): Promise<A
       // A workspace closed meanwhile isn't cached (its window may show another), and an older probe finishing late
       // never replaces a newer one's answer.
       const now = cache.get(key)
-      if (!life.aborted && w.path === root && (!now || now.seq < seq)) cache.set(key, { status, folders: set, at: Date.now(), seq })
+      if (!life.aborted && w.path === root && (!now || now.seq < seq)) keep(key, { status, folders: set, at: Date.now(), seq, life })
       return status
     })
     .finally(() => {
@@ -390,7 +427,10 @@ function fixtureChange(f: Fixture, action: AvAction, paths: string[]): AvChangeR
   testLog({ call: action, paths })
   const e = f.elevated ?? {}
   const file = fixtureFile()!
-  if (!simulated.has(file)) simulated.set(file, [...(e.exclusions ?? [])])
+  if (!simulated.has(file)) {
+    while (simulated.size >= SIMULATED_MAX) simulated.delete(simulated.keys().next().value!)
+    simulated.set(file, [...(e.exclusions ?? [])])
+  }
   let current = simulated.get(file)!
   if (e.cancelled) return changeOutcome(action, { started: false, cancelled: true }, null)
   if (e.launchError) return changeOutcome(action, { started: false, error: e.launchError }, null)
