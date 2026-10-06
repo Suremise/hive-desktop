@@ -14,6 +14,8 @@ Hive is a desktop workspace for coding with AI agents. It runs coding agents (**
 
 Hive shows a **tip** about something it can do when it starts, at most one a day, in a small card in the bottom-right corner: **Try it** does it, **Learn more** opens the part of this guide about it, and **Next tip** shows another. A few tips come at the moment they help, once each: the first time a transcript turns amber, the context passes your Compact threshold, you add a second agent, or you paste a screenshot. Tips about things you already do are skipped. The card never blocks anything: it steps aside while you type in a terminal under it, sits left of the Assistant's panel while that is open, and moves up above a bar with buttons (such as **Resume** and **New** when a conversation has ended). **Don't show tips** turns them off (**Settings → General → Show a tip when Hive starts** turns them back on); **Help → Tips…** lists them all, searchable, either way.
 
+With several Hive windows open, they share what the tips remember: a tip seen, the day's tip shown, a moment's tip used or a command you've run in one window counts in all of them, and stays that way after a restart. Another window doesn't show you the same tip again.
+
 ### Moving dialogs
 
 Any dialog (Add Agent, Agent Settings, a card, a question…) can be moved out of the way: drag it by its header. It stays inside the window, and **Escape** while dragging puts it back. A dialog opens in the middle again next time. A question over a dialog moves on its own, and Escape closes just the question. The image viewers stay where they are.
