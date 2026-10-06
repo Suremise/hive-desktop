@@ -88,6 +88,7 @@ const until = async (fn, ms = 10000) => {
   await until(async () => /^\s*\d+ ·\s+0%$/.test(await text()), 8000)
   await ctxItem.hover()
   check('…and where Claude Code compacts by itself, for a 200K window: its default, nothing set (#242)', !!(await until(async () => (await tip.innerText().catch(() => '')).includes('Claude Code compacts by itself at about 167,000, its default for this window'), 5000)), await tip.innerText().catch(() => ''))
+  check("…called an estimate, since policies Hive can't read could change it (#273)", (await tip.innerText().catch(() => '')).includes("(an estimate: managed policies Hive can't read"), await tip.innerText().catch(() => ''))
   await page.mouse.move(5, 5)
 
   // --- A narrow footer keeps the percentage.
@@ -152,7 +153,19 @@ const until = async (fn, ms = 10000) => {
   await restartWith(path.join(claudeHome, 'settings.json'), { autoCompactEnabled: true })
   check('DISABLE_AUTO_COMPACT=1 turns it off over settings that turn it on', !!(await until(async () => (await tip.innerText().catch(() => '')).includes("Claude Code doesn't compact by itself: auto-compaction is off (DISABLE_AUTO_COMPACT)"), 5000)), await tip.innerText().catch(() => ''))
   await app.evaluate(() => void delete process.env.DISABLE_AUTO_COMPACT)
+  // A window set through Claude Code's settings env block (#273): read as Claude Code reads it, over the environment.
+  await restartWith(path.join(claudeHome, 'settings.json'), { env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '150000' } })
+  check("a window in the env block of Claude Code's settings: shown, and why (#273)", !!(await until(async () => (await tip.innerText().catch(() => '')).includes("Claude Code compacts by itself at about 117,000: its auto-compact window is 150,000 (CLAUDE_CODE_AUTO_COMPACT_WINDOW (env in Claude Code's settings.json))"), 5000)), await tip.innerText().catch(() => ''))
+  await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-autocompact-env.png') })
   fs.rmSync(path.join(claudeHome, 'settings.json'), { force: true })
+  // A --settings file in the agent's own arguments (#273): the command line's settings, over the project's.
+  await inv('project:updateProvider', alpha, 'claude-code', { extraArgs: '--settings cli-settings.json' })
+  await restartWith(path.join(alpha, 'cli-settings.json'), { autoCompactWindow: 250000 })
+  // What the session read at launch (its tooltip has no window to show: a --settings of the user's replaces Hive's own,
+  // which carries the status line that reports it; a follow-up card).
+  check('a window in a --settings file of its arguments: read at launch, and why (#273)', JSON.stringify((await live())?.autoCompact) === JSON.stringify({ window: 250000, source: 'autoCompactWindow in --settings cli-settings.json' }), JSON.stringify((await live())?.autoCompact))
+  await inv('project:updateProvider', alpha, 'claude-code', { extraArgs: '' })
+  fs.rmSync(path.join(alpha, 'cli-settings.json'), { force: true })
   await page.mouse.move(5, 5)
 
   await inv('session:stop', alpha, agent.id).catch(() => undefined)
