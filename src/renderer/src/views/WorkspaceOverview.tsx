@@ -204,7 +204,7 @@ export function WorkspaceOverviewView() {
   const stack = from && period !== 'today' ? stackedDaily(groups, from, now) : null
 
   return (
-    <div className="scroll-page">
+    <div className="scroll-page overview-page">
       <div className="page-narrow">
         <div className="board-header">
           <h1>Workspace Overview</h1>

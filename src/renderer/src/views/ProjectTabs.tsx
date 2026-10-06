@@ -151,7 +151,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
   const costTip = 'What this work would have cost at API prices: reported by the provider where it does (Claude Code), else estimated by Hive from token counts and the prices in Settings → the provider. On a subscription you are not charged this; it shows how heavy the work was.'
 
   return (
-    <div className="scroll-page">
+    <div className="scroll-page overview-page">
       <div className="page-narrow">
         <TaskStrip project={project} />
         <div className="overview-head">
