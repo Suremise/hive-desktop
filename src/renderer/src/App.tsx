@@ -17,7 +17,7 @@ import { TitleBar } from './components/TitleBar'
 import { isProviderEnabled } from '@shared/providers'
 import { tipsState } from '@shared/tips'
 import { CornerPlacement, TipCard, TipsDialog } from './components/Tips'
-import { showTodaysTip } from './tips'
+import { applyTipsState, showTodaysTip } from './tips'
 import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
 import { ProgressPanel } from './components/Progress'
 import { AssistantMain } from './components/AssistantView'
@@ -141,6 +141,9 @@ function handleEvent(e: HiveEvent): void {
     }
     case 'ui-pref-changed':
       applyProjectPref(e.pref, e.project, e.value)
+      break
+    case 'tips-changed':
+      applyTipsState(tipsState(e.tips))
       break
     case 'settings-changed':
       set({ settings: e.settings })

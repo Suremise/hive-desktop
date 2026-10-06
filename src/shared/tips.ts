@@ -168,3 +168,29 @@ export function tipsState(v: unknown): TipsState {
   const list = (x: unknown): string[] => (Array.isArray(x) ? x.filter((y): y is string => typeof y === 'string') : [])
   return { seen: list(o.seen), moments: list(o.moments), used: list(o.used), ...(typeof o.shownOn === 'string' ? { shownOn: o.shownOn } : {}) }
 }
+
+/**
+ * One change to what the tips know. Each window sends its changes, not its whole copy (#266): main applies them to
+ * what is saved, so a window that loaded the state before another window's change can't undo it.
+ */
+export type TipsChange = { seen: string } | { shownOn: string } | { moment: TipMoment } | { used: string }
+
+/** The change as main keeps it, or undefined if it isn't one. */
+export function tipsChange(v: unknown): TipsChange | undefined {
+  const o = (v && typeof v === 'object' && !Array.isArray(v) ? v : {}) as Record<string, unknown>
+  const keys = Object.keys(o)
+  if (keys.length !== 1 || typeof o[keys[0]] !== 'string' || !o[keys[0]]) return undefined
+  const value = o[keys[0]] as string
+  if (keys[0] === 'seen' || keys[0] === 'used') return { [keys[0]]: value } as TipsChange
+  if (keys[0] === 'shownOn') return /^\d{4}-\d\d-\d\d$/.test(value) ? { shownOn: value } : undefined
+  if (keys[0] === 'moment') return Object.hasOwn(TIP_MOMENTS, value) ? { moment: value as TipMoment } : undefined
+  return undefined
+}
+
+/** The state with one change applied. */
+export function applyTipsChange(s: TipsState, change: TipsChange, tips: Tip[] = TIPS): TipsState {
+  if ('seen' in change) return sawTip(s, change.seen, tips)
+  if ('used' in change) return usedCommand(s, change.used)
+  if ('moment' in change) return s.moments.includes(change.moment) ? s : { ...s, moments: [...s.moments, change.moment] }
+  return { ...s, shownOn: change.shownOn }
+}

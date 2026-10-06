@@ -1504,6 +1504,8 @@ export type HiveEvent =
   | { type: 'settings-changed'; settings: AppSettings }
   /** One project's view preference saved (ui:setProjectPref): every window's store follows. */
   | { type: 'ui-pref-changed'; pref: ProjectPref; project: string; value: unknown }
+  /** What the tips know changed (ui:changeTips): every window's store follows. */
+  | { type: 'tips-changed'; tips: TipsState }
   | { type: 'provider-install'; provider: ProviderId; info: AgentInstallInfo }
   | { type: 'menu-command'; command: string; args?: unknown[] }
   | { type: 'usage-changed'; projectPath: string; sessionId: string }

@@ -3,7 +3,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { EMPTY_TIPS_STATE, TIP_ENTRIES, TIP_GROUPS, TIP_MOMENTS, TIPS, localDay, nextTip, sawTip, tipForMoment, tipForToday, tipsState, usedCommand, type Tip, type TipsState } from '../src/shared/tips'
+import { EMPTY_TIPS_STATE, TIP_ENTRIES, TIP_GROUPS, TIP_MOMENTS, TIPS, applyTipsChange, localDay, nextTip, sawTip, tipForMoment, tipForToday, tipsChange, tipsState, usedCommand, type Tip, type TipsChange, type TipsState } from '../src/shared/tips'
 
 const t = (id: string, command?: string, knownBy?: string[]): Tip => ({ id, group: 'Sessions', order: 0, title: id, text: id, command, knownBy })
 const tips = [t('a', 'cmd.a'), t('b'), t('c', 'cmd.c'), t('d', 'cmd.d', [])]
@@ -74,5 +74,36 @@ describe('the tips', () => {
 
   it('cover every moment', () => {
     for (const id of Object.values(TIP_MOMENTS)) expect(TIPS.some((x) => x.id === id), id).toBe(true)
+  })
+})
+
+// Each window sends its changes, and main applies them to what is saved (#266): one window's older copy can't undo another's.
+describe('changes from several windows', () => {
+  it("applies each change to what is saved, keeping the other windows' changes", () => {
+    const saved: TipsState = { ...EMPTY_TIPS_STATE, seen: ['a'] }
+    // Window 1 saw b; window 2, which loaded before that, ran a command and used a moment.
+    const changes: TipsChange[] = [{ seen: 'b' }, { used: 'cmd.x' }, { moment: 'second-agent' }, { shownOn: '2026-10-06' }]
+    const after = changes.reduce((s, c) => applyTipsChange(s, c, tips), saved)
+    expect(after).toEqual({ seen: ['a', 'b'], used: ['cmd.x'], moments: ['second-agent'], shownOn: '2026-10-06' })
+    expect(saved).toEqual({ ...EMPTY_TIPS_STATE, seen: ['a'] })
+  })
+
+  it('gives the same state when a change comes twice (a window reapplies its own over what main sends)', () => {
+    const changes: TipsChange[] = [{ seen: 'b' }, { used: 'cmd.x' }, { moment: 'image-pasted' }]
+    const once = changes.reduce((s, c) => applyTipsChange(s, c, tips), EMPTY_TIPS_STATE)
+    expect(changes.reduce((s, c) => applyTipsChange(s, c, tips), once)).toEqual(once)
+  })
+
+  it('starts a new round as seeing a tip does', () => {
+    const s: TipsState = { ...EMPTY_TIPS_STATE, seen: ['a', 'b', 'c'] }
+    expect(applyTipsChange(s, { seen: 'd' }, tips)).toEqual(sawTip(s, 'd', tips))
+  })
+
+  it('keeps only well-formed changes', () => {
+    expect(tipsChange({ seen: 'a' })).toEqual({ seen: 'a' })
+    expect(tipsChange({ used: 'view.projects' })).toEqual({ used: 'view.projects' })
+    expect(tipsChange({ moment: 'second-agent' })).toEqual({ moment: 'second-agent' })
+    expect(tipsChange({ shownOn: '2026-10-06' })).toEqual({ shownOn: '2026-10-06' })
+    for (const bad of [null, 'a', [], {}, { seen: '' }, { seen: 1 }, { seen: 'a', used: 'b' }, { moment: 'toString' }, { moment: 'nope' }, { shownOn: 'today' }, { tips: { seen: [] } }]) expect(tipsChange(bad)).toBeUndefined()
   })
 })

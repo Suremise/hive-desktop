@@ -117,13 +117,13 @@ const check = (name, ok, extra = '') => {
   check('the list has the setting, on', (await sw.getAttribute('aria-checked')) === 'true')
   await dialog.getByRole('button', { name: 'Close' }).last().click()
   // The next day: as if the last tip showed long ago.
-  await inv('ui:set', { tips: { ...saved(), shownOn: '2000-01-01' } })
+  await inv('ui:changeTips', { shownOn: '2000-01-01' })
   await page.reload()
   check('the next day, a tip again', !!(await until(async () => (await card.count()) === 1, 10000)))
   await card.getByRole('button', { name: "Don't show tips" }).click()
   check("Don't show tips closes it and says where they are", !!(await until(async () => (await card.count()) === 0 && (await page.locator('.toast', { hasText: 'Tips are off' }).count()) === 1, 3000)))
   check('and turns the setting off', !!(await until(async () => JSON.parse(fs.readFileSync(cfgFile, 'utf8')).settings.general.showTips === false, 3000)))
-  await inv('ui:set', { tips: { ...saved(), shownOn: '2000-01-01' } })
+  await inv('ui:changeTips', { shownOn: '2000-01-01' })
   await page.reload()
   await lib.sleep(6000) // A fixed wait on purpose: this checks that no tip shows on start (one would within 4 s of loading), which no condition can show.
   check('with tips off, none shows on start', (await card.count()) === 0)
