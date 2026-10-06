@@ -1,6 +1,7 @@
 // The archived cards as a table (#249): Archived (n) on the board shows them in a DataTable, newest archived first,
 // with paging (rows per page remembered), sorting, filters (text for number, title and agent; a choice for project,
-// labels and the column a card was archived from), the board's search narrowing it too; a row opens its card; Unarchive
+// labels and the column a card was archived from), the board's search narrowing it too; a row opens its card (from the
+// keyboard too, while Enter on its Unarchive button unarchives it, #267); Unarchive
 // brings one back to the end of its column, and Unarchive Selected every selected one (also all that match a filter).
 // 35 archived fake cards, no agents. Both themes. Dev build, throwaway profile and workspace.
 const lib = require('./lib.cjs')
@@ -111,6 +112,23 @@ const check = (name, ok, extra = '') => {
   check('Unarchive brings a card back to the column it was archived from', !!back && back.column === one.column, JSON.stringify(back && { column: back.column, was: one.column }))
   check('…and it leaves the table', !!(await until(async () => (await rows.count()) === 34, 3000)))
 
+  // From the keyboard (#267): Enter and Space on a row open its card; Enter on its Unarchive button unarchives it and
+  // doesn't open it.
+  const keyCard = made[10]
+  const keyRow = async () => rows.nth((await numbers()).indexOf(keyCard.number))
+  const keyDialog = page.locator('.dialog', { hasText: `#${keyCard.number}` })
+  for (const key of ['Enter', ' ']) {
+    await (await keyRow()).focus()
+    await page.keyboard.press(key)
+    check(`${key === ' ' ? 'Space' : 'Enter'} on a row opens its card`, !!(await until(async () => (await keyDialog.count()) === 1, 5000)))
+    await page.keyboard.press('Escape')
+    await until(async () => (await keyDialog.count()) === 0, 5000)
+  }
+  await (await keyRow()).getByRole('button', { name: 'Unarchive' }).focus()
+  await page.keyboard.press('Enter')
+  check('Enter on a row’s Unarchive unarchives the card', !!(await until(async () => !(await inv('tasks:list')).find((x) => x.number === keyCard.number).archived, 5000)))
+  check('…without opening it', (await keyDialog.count()) === 0 && !!(await until(async () => (await rows.count()) === 33, 3000)), String(await rows.count()))
+
   // Select several, Unarchive Selected.
   const picks = [made[1], made[2], made[3]]
   for (const c of picks) await table.getByLabel(`Select #${c.number}`, { exact: true }).check()
@@ -122,7 +140,7 @@ const check = (name, ok, extra = '') => {
     return picks.every((p) => list.find((x) => x.number === p.number && !x.archived && x.column === p.column)) && list
   }, 8000)
   check('Unarchive Selected brings each back to its own column', !!allBack)
-  check('the table and its selection follow', !!(await until(async () => (await rows.count()) === 31, 3000)) && (await page.locator('.task-archive-actions button').innerText()).trim().endsWith('Unarchive Selected'))
+  check('the table and its selection follow', !!(await until(async () => (await rows.count()) === 30, 3000)) && (await page.locator('.task-archive-actions button').innerText()).trim().endsWith('Unarchive Selected'))
 
   // Select all that match a filter (on every page), then bring them back.
   await table.locator('.table-page-size select').selectOption('10')
