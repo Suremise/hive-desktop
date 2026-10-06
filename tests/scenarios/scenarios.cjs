@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 13
+const FIXTURES_VERSION = 15
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -37,6 +37,49 @@ const giveVerdict = (c, n, result) => {
 }
 const reviewMoves = (card) => history(card).filter((w) => /^Moved to (the (top|bottom) of )?Review\b/.test(w)).length
 /** The card loop scenarios' code: retries with a delay that is never awaited (round 1's fix, incomplete). */
+/**
+ * The project's checks for merge-main-moved (#306): each run records the commit it checked and where the base was at
+ * that moment, `<HEAD> <base>` a line (check-runs.txt, ignored).
+ */
+const checkJs = (base) => `const git = (args) => require('child_process').execSync('git ' + args, { encoding: 'utf8' }).trim()
+require('fs').appendFileSync('check-runs.txt', git('rev-parse HEAD') + ' ' + git('rev-parse ${base}') + '\\n')
+console.log('checks passed')
+`
+/**
+ * How the branch went into the base: { tip, before }, the branch tip merged and the base just before. From the base's
+ * reflog, the latest update that brought c.merge.feature in (the base before and after it): after a merge commit its
+ * second parent, after a fast-forward the commit itself. Without a reflog, the base's first-parent line: the newest
+ * commit whose parent doesn't have the feature yet. Null when the feature isn't in the base.
+ */
+const mergedInto = (c) => {
+  const { base, feature } = c.merge
+  if (!ancestor(c, feature, base)) return null
+  const tipOf = (after, before) => {
+    const parents = c.git('rev-list', '--parents', '-n', '1', after).trim().split(' ').slice(1)
+    return { tip: parents.length > 1 && parents[0] === before ? parents[1] : after, before }
+  }
+  let log = []
+  try {
+    log = c.git('reflog', 'show', '--format=%H', `refs/heads/${base}`).split(/\s+/).filter(Boolean)
+  } catch {
+    // No reflog: the first-parent line below.
+  }
+  // Newest first: the latest update that brought it in (a merge undone and done again counts as done again).
+  for (let k = 0; k < log.length - 1; k++) if (ancestor(c, feature, log[k]) && !ancestor(c, feature, log[k + 1])) return tipOf(log[k], log[k + 1])
+  const line = c.git('rev-list', '--first-parent', base).split(/\s+/).filter(Boolean)
+  const i = line.findIndex((x) => !ancestor(c, feature, x))
+  return i < 1 ? null : tipOf(line[i - 1], line[i])
+}
+/** Whether commit a is in b's history (git merge-base --is-ancestor). */
+const ancestor = (c, a, b) => {
+  try {
+    c.git('merge-base', '--is-ancestor', a, b)
+    return true
+  } catch {
+    return false
+  }
+}
+
 const SYNC_JS = `const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 module.exports = async function sync(run) {
@@ -189,6 +232,51 @@ module.exports.SCENARIOS = [
       ['the card is in Passed (reviewed, not merged)', o.cards.e?.column === 'passed', o.cards.e?.column],
       ['it kept its implementer', o.cards.e?.agentName === 'Implementer', o.cards.e?.agentName]
     ]
+  },
+  {
+    id: 'merge-main-moved',
+    title: 'Merging when the base moved after the checks: merge it in again, rerun the checks, then merge (#306)',
+    async setup(c) {
+      c.git('config', 'user.email', 'agent@example.com')
+      c.git('config', 'user.name', 'Agent')
+      const base = c.git('branch', '--show-current').trim()
+      c.write('.gitignore', 'check-runs.txt\n')
+      c.write('check.js', checkJs(base))
+      c.git('add', '-A')
+      c.git('commit', '-qm', 'The checks')
+      c.git('checkout', '-qb', 'feature')
+      c.write('feature.js', "module.exports = 'feature'\n")
+      c.git('add', '-A')
+      c.git('commit', '-qm', 'The feature')
+      const feature = c.git('rev-parse', 'HEAD').trim()
+      c.git('checkout', '-q', base)
+      const checked = c.git('rev-parse', 'HEAD').trim()
+      // The checks passed on the branch, with the base as it was then.
+      c.write('check-runs.txt', `${feature} ${checked}\n`)
+      // Then another branch was merged: the base moved after the checks.
+      c.write('other.js', "module.exports = 'other'\n")
+      c.git('add', '-A')
+      c.git('commit', '-qm', 'Another branch, merged meanwhile')
+      c.merge = { base, checked, moved: c.git('rev-parse', 'HEAD').trim(), feature }
+    },
+    prompt: (c) =>
+      `The branch feature is ready. Its checks (node check.js) passed a while ago, with ${c.merge.base} at ${c.merge.checked.slice(0, 7)}. I'm asking you to merge it into ${c.merge.base} now: ${c.merge.base} is checked out in this folder.`,
+    fake: (c) => `skill merge-ready then shell: git checkout -q feature && git merge -q --no-edit ${c.merge.base} && node check.js && git checkout -q ${c.merge.base} && git merge -q --no-ff --no-edit feature`,
+    expect: (o, c) => {
+      const merged = mergedInto(c)
+      const checkRuns = (c.read('check-runs.txt') ?? '').split(/\r?\n/).filter(Boolean).map((l) => l.split(' '))
+      return [
+        ['read the merge-ready skill', read(o, 'merge-ready'), o.skillsRead.join(',')],
+        ['the branch is merged into the base', !!merged],
+        ['it merged the moved base into the branch first', !!merged && ancestor(c, c.merge.moved, merged.tip), merged?.tip],
+        // What went in is what was checked: that exact tip, before the merge, with the base where the merge found it.
+        [
+          'the exact tip it merged was checked before merging, against the base as it was then',
+          !!merged && checkRuns.some(([head, base]) => head === merged.tip && base === merged.before),
+          `${JSON.stringify(merged)} | ${checkRuns.map((r) => r.join('@')).join(', ')}`
+        ]
+      ]
+    }
   },
   {
     id: 'merged-to-done',

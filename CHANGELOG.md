@@ -13,6 +13,7 @@
 - **The Assistant's panel can go on the left.** If Windows notifications or other apps cover the right of the screen, **View → Move Assistant Panel to the Left** (also in the command palette and the panel's ⋯ menu) or **Settings → Assistant → Panel side** puts it between the project list and your work. It folds and resizes on that side, and the choice is kept for every workspace and after a restart.
 
 ### Skills
+- **Agents merge only what they checked.** When several agents merge into the same branch, one could merge work checked against an older main, so main held a combination nobody had tested. The **merge-ready** skill now has agents note main's commit when they start their checks, compare it just before merging, and if another branch was merged meanwhile, merge main in again and rerun the checks first. It also says to wait and retry when another merge holds git's lock, never deleting it. **card-loop** points to it.
 - **A project's Skills tab shows one provider at a time.** Pick Claude Code or Codex from a dropdown (it starts on the project's default provider); its skills sit folded under the Hive skills, and Hive remembers, for each project, the provider you picked and what you left open. The list is much shorter.
 
 ### Hive

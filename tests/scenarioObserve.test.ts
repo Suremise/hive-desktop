@@ -113,6 +113,92 @@ describe("a run's source fingerprint", () => {
 })
 
 describe('the fixtures fail when nothing was done', () => {
+  it('merge-main-moved (#306): merging without taking the moved base in, or without checking it again, fails', async () => {
+    const fs = require('fs') as typeof import('fs')
+    const path = require('path') as typeof import('path')
+    const { execFileSync } = require('child_process') as typeof import('child_process')
+    const repo = fs.mkdtempSync(path.join(require('os').tmpdir(), 'hive-merge-moved-'))
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' })
+    const ctx: Record<string, unknown> & { merge?: { base: string; moved: string } } = {
+      git,
+      write: (rel: string, text: string) => fs.writeFileSync(path.join(repo, rel), text),
+      read: (rel: string) => (fs.existsSync(path.join(repo, rel)) ? fs.readFileSync(path.join(repo, rel), 'utf8') : null)
+    }
+    try {
+      git('init', '-q')
+      git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init')
+      const sc = scenario('merge-main-moved') as unknown as { setup: (c: unknown) => Promise<void>; expect: (o: unknown, c: unknown) => [string, boolean, string?][] }
+      await sc.setup(ctx)
+      const into = ctx.merge!.base
+      const o = { ...base, skillsRead: ['merge-ready'] }
+      const MERGED = 'the branch is merged into the base'
+      const REMERGED = 'it merged the moved base into the branch first'
+      const CHECKED = 'the exact tip it merged was checked before merging, against the base as it was then'
+      const check = () => execFileSync(process.execPath, ['check.js'], { cwd: repo })
+      const start = { base: git('rev-parse', into).trim(), feature: git('rev-parse', 'feature').trim(), runs: fs.readFileSync(path.join(repo, 'check-runs.txt'), 'utf8') }
+      /** Back to the scenario's start: the base moved, feature as checked, only the old check run. */
+      const reset = () => {
+        git('checkout', '-q', into)
+        git('reset', '-q', '--hard', start.base)
+        git('branch', '-f', 'feature', start.feature)
+        fs.writeFileSync(path.join(repo, 'check-runs.txt'), start.runs)
+      }
+      const remerge = () => {
+        git('checkout', '-q', 'feature')
+        git('merge', '-q', '--no-edit', into)
+      }
+      const merge = (ff = false) => {
+        git('checkout', '-q', into)
+        git('merge', '-q', ff ? '--ff-only' : '--no-ff', '--no-edit', 'feature')
+      }
+      // Nothing done.
+      expect(failed(sc.expect(o, ctx))).toEqual([MERGED, REMERGED, CHECKED])
+      // Merged as it was checked: the moved base never went through the checks with it.
+      merge()
+      expect(failed(sc.expect(o, ctx))).toEqual([REMERGED, CHECKED])
+      // The base merged into the branch again, but not checked again.
+      reset()
+      remerge()
+      merge()
+      expect(failed(sc.expect(o, ctx))).toEqual([CHECKED])
+      // Checked only after the merge, on the base (round 1's false pass) or on the branch: not what was merged, then.
+      check()
+      git('checkout', '-q', 'feature')
+      check()
+      git('checkout', '-q', into)
+      expect(failed(sc.expect(o, ctx))).toEqual([CHECKED])
+      // Checked, then another commit on the branch, and merged: that commit was never checked.
+      reset()
+      remerge()
+      check()
+      fs.writeFileSync(path.join(repo, 'late.js'), 'late\n')
+      git('add', '-A')
+      git('commit', '-qm', 'late')
+      merge()
+      expect(failed(sc.expect(o, ctx))).toEqual([CHECKED])
+      // Checked, then the base moved again before the merge: checked against an older base.
+      reset()
+      remerge()
+      check()
+      git('checkout', '-q', into)
+      fs.writeFileSync(path.join(repo, 'again.js'), 'again\n')
+      git('add', '-A')
+      git('commit', '-qm', 'again')
+      merge()
+      expect(failed(sc.expect(o, ctx))).toEqual([CHECKED])
+      // Right: the moved base merged in, the exact tip checked, then merged (a merge commit, or a fast-forward).
+      for (const ff of [false, true]) {
+        reset()
+        remerge()
+        check()
+        merge(ff)
+        expect(failed(sc.expect(o, ctx)), ff ? 'fast-forward' : 'merge commit').toEqual([])
+      }
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
   const base = { skillsRead: [] as string[], hiveCalls: [] as unknown[], hiveMentions: [], tools: [] as { name: string; input: string; result: string; isError: boolean }[], replies: [], finalReply: '', cards: {}, allCards: [], notes: [], gitStatus: '', live: [], tokenLeak: false }
   const scenario = (id: string) => SCENARIOS.find((s) => s.id === id)!
   const failed = (checks: [string, boolean, string?][]) => checks.filter(([, ok]) => !ok).map(([n]) => n)
