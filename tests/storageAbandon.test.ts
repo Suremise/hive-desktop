@@ -197,6 +197,64 @@ describe("a window's requests", () => {
     expect((await mine).worktrees[0].bytes).toBe(DIRS * 100)
   })
 
+  // A page that sends the same request id again while the first call still runs (#299): every call under it is
+  // abandoned with the page, while another window's and an anonymous caller's go on.
+  it('abandons every call that reused a request id, not only the latest', async () => {
+    const alpha = project('dup-alpha')
+    const beta = project('dup-beta')
+    projects.set(alpha.path, alpha.tree)
+    projects.set(beta.path, beta.tree)
+    const release = hold()
+    const first = projectStorage(alpha.path, true, 'storage-1', 7)
+    const again = projectStorage(alpha.path, true, 'storage-1', 7)
+    const other = projectStorage(beta.path, true, 'storage-1', 7)
+    const theirs = projectStorage(beta.path, true, 'storage-1', 8)
+    const plain = projectStorage(alpha.path, true)
+    await settle()
+    abandonWindowStorage(7)
+    for (const call of [first, again, other]) await expect(call).rejects.toBeInstanceOf(StorageStopped)
+    release()
+    expect((await theirs).worktrees[0].bytes).toBe(DIRS * 100)
+    expect((await plain).worktrees[0].bytes).toBe(DIRS * 100)
+  })
+
+  it('stops the walk once every call that reused the id is abandoned', async () => {
+    const p = project('dup-alone')
+    projects.set(p.path, p.tree)
+    const release = hold()
+    const first = projectStorage(p.path, true, 'storage-2', 9)
+    const again = projectStorage(p.path, true, 'storage-2', 9)
+    await settle()
+    abandonStorage('storage-2', 9)
+    await expect(first).rejects.toBeInstanceOf(StorageStopped)
+    await expect(again).rejects.toBeInstanceOf(StorageStopped)
+    const before = reads(p.tree)
+    release()
+    await settle()
+    expect(reads(p.tree) - before).toBeLessThanOrEqual(1)
+  })
+
+  it('keeps the request while any call under it runs: one answering first leaves the others abandonable', async () => {
+    const quick = project('dup-quick')
+    const slow = project('dup-slow')
+    projects.set(quick.path, quick.tree)
+    projects.set(slow.path, slow.tree)
+    await projectStorage(quick.path, true)
+    const release = hold()
+    const waiting = projectStorage(slow.path, true, 'storage-3', 10)
+    // Answered at once from the last result, under the same request, while the other still runs.
+    expect((await projectStorage(quick.path, false, 'storage-3', 10)).worktrees[0].bytes).toBe(DIRS * 100)
+    await settle()
+    abandonWindowStorage(10)
+    await expect(waiting).rejects.toBeInstanceOf(StorageStopped)
+    const before = reads(slow.tree)
+    release()
+    await settle()
+    expect(reads(slow.tree) - before).toBeLessThanOrEqual(1)
+    // A new call with the id after it was abandoned is a request of its own, and runs.
+    expect((await projectStorage(slow.path, true, 'storage-3', 10)).worktrees[0].bytes).toBe(DIRS * 100)
+  })
+
   it("stops a closed window's workspace measurement before the next project", async () => {
     projects.clear()
     const a = project('wsw-a')

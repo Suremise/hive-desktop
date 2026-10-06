@@ -90,10 +90,11 @@ const results = new Map<string, ProjectStorage>()
 const running = new Map<string, Measuring>()
 /**
  * The requests a window can abandon, by the window that sent them (its web contents' id; none for a caller that isn't
- * a window) and its request id, each with its waits' stops. A window abandons only its own, and all of them when its
- * page goes (abandonWindowStorage, #260): closing a window or reloading its page runs none of the page's clean-up.
+ * a window) and its request id, each with its waits' stops and how many calls run under it (asRequest). A window
+ * abandons only its own, and all of them when its page goes (abandonWindowStorage, #260): closing a window or
+ * reloading its page runs none of the page's clean-up.
  */
-const requests = new Map<string, { window: number | undefined; stops: Set<() => void> }>()
+const requests = new Map<string, { window: number | undefined; stops: Set<() => void>; calls: number }>()
 const requestKey = (request: string, window: number | undefined): string => `${window ?? ''}:${request}`
 
 /**
@@ -123,16 +124,22 @@ function abandon(key: string): void {
   for (const stop of r?.stops ?? []) stop()
 }
 
+/**
+ * Runs a call under its request. Calls with the same window and id while one is still going share its entry (#299):
+ * abandoning the request (the page going) reaches every one of their waits, and the entry goes with the last of them.
+ * One sent after the request was abandoned starts a new entry.
+ */
 async function asRequest<T>(request: string | undefined, window: number | undefined, run: (key: string | undefined) => Promise<T>): Promise<T> {
   if (request === undefined) return run(undefined)
   const key = requestKey(request, window)
-  const mine = { window, stops: new Set<() => void>() }
+  const mine = requests.get(key) ?? { window, stops: new Set<() => void>(), calls: 0 }
   requests.set(key, mine)
+  mine.calls++
   try {
     return await run(key)
   } finally {
-    // Only its own entry: the same id sent again meanwhile has its own.
-    if (requests.get(key) === mine) requests.delete(key)
+    // The last call of its own entry (an abandoned one was already removed, and the same id may have a new one).
+    if (--mine.calls === 0 && requests.get(key) === mine) requests.delete(key)
   }
 }
 

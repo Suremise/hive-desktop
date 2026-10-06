@@ -385,8 +385,22 @@ export async function deliveredSkillSizes(adapter: ProviderAdapter, ctx: LaunchC
   return { catalog, bytes, unmeasured }
 }
 
+/** Agents whose sign-in is refused at about the same time are told in one notice, this long after the first. */
+const SIGNED_OUT_GATHER_MS = 3000
+/** How often a CLI's sign-in is checked again while its agents wait for it (its own check, e.g. claude auth status). */
+const SIGN_IN_RECHECK_MS = 60_000
+/** The status message of an agent stopped by a refused sign-in once its CLI is signed in again (#309). */
+const SIGNED_IN_AGAIN = 'Stopped while signed out'
+/** What Resume (n) types into such an agent. */
+const CARRY_ON_PROMPT = 'Your last turn stopped because your sign-in had expired. It is renewed now: carry on where you left off.'
+
 class SessionManager {
   private live = new Map<string, LiveSession>()
+  /**
+   * CLIs whose sign-in was refused, until signed in again (#309): the user is told once per CLI and expiry (agents
+   * stopping later only show it), and the CLI's own check runs again meanwhile, to notice the sign-in.
+   */
+  private signedOut = new Map<ProviderId, { gather?: ReturnType<typeof setTimeout>; recheck?: ReturnType<typeof setInterval> }>()
   /** runId → liveId: hooks name their launch, so they reach the right agent even before the session id is known. */
   private runs = new Map<string, string>()
   /** The status each state was last sent with, so statusSince moves only when the status changes. */
@@ -1949,6 +1963,75 @@ class SessionManager {
     emit({ type: 'session-status', state: { ...state } })
   }
 
+  /** A CLI refused an agent's sign-in: told once for this expiry, with every agent it has stopped by then. */
+  private signInLost(provider: ProviderId): void {
+    if (this.signedOut.has(provider)) return
+    const out: { gather?: ReturnType<typeof setTimeout>; recheck?: ReturnType<typeof setInterval> } = {}
+    this.signedOut.set(provider, out)
+    out.gather = setTimeout(() => this.tellSignedOut(provider), SIGNED_OUT_GATHER_MS)
+    // Agent Setup shows it signed out, and the next check that finds it signed in again ends this (providerService).
+    void providerService.refresh(provider, false).catch(() => undefined)
+    out.recheck = setInterval(() => {
+      // Kept until it is shown signed in again: only when no agent it stopped runs any more (they exited) is there
+      // nothing left to tell or carry on, and it ends quietly. An agent trying again (working) still counts.
+      if (!this.liveStates().some((s) => s.provider === provider && s.signIn)) return void this.endSignedOut(provider)
+      void providerService.refresh(provider, false).catch(() => undefined)
+    }, SIGN_IN_RECHECK_MS)
+  }
+
+  private tellSignedOut(provider: ProviderId): void {
+    const waiting = this.liveStates().filter((s) => s.provider === provider && s.status === 'signin')
+    if (!waiting.length) return
+    const d = providerAdapter(provider).descriptor
+    const first = waiting[0]
+    const title = waiting.length === 1 ? `${this.label(first)} needs you to sign in to ${d.name}` : `${waiting.length} agents need you to sign in to ${d.name}`
+    log.info(`${d.name}: sign-in refused for ${waiting.length} agent(s)`)
+    this.notify(first.projectPath, title, `${d.name}'s sign-in has expired. ${d.signInHelp}`, 'waiting', undefined, first.agentId)
+  }
+
+  private endSignedOut(provider: ProviderId): boolean {
+    const out = this.signedOut.get(provider)
+    if (!out) return false
+    clearTimeout(out.gather)
+    clearInterval(out.recheck)
+    this.signedOut.delete(provider)
+    return true
+  }
+
+  /**
+   * The CLI is signed in again (an agent of it works, its check says so, its Sign in task ended well): agents it
+   * stopped are idle again, and Resume (n) carries them on (they keep LiveSessionState.signIn until they do).
+   */
+  signedInAgain(provider: ProviderId, checked = false): void {
+    if (!this.endSignedOut(provider)) return
+    // Agent Setup (and its banner) learn it too, unless its own check is what said so.
+    if (!checked) void providerService.refresh(provider, false).catch(() => undefined)
+    const stopped = this.liveStates().filter((s) => s.provider === provider && s.status === 'signin')
+    for (const st of stopped) {
+      st.status = 'ready'
+      st.statusMessage = SIGNED_IN_AGAIN
+      this.emitState(st)
+    }
+    const name = providerAdapter(provider).descriptor.name
+    log.info(`${name}: signed in again; ${stopped.length} agent(s) stopped meanwhile`)
+    if (stopped.length) toast('info', `Signed in to ${name} again`, `${stopped.length === 1 ? `${this.label(stopped[0])} stopped` : `${stopped.length} agents stopped`} while it was signed out: Resume in the project's header carries ${stopped.length === 1 ? 'it' : 'them'} on.`, undefined, stopped[0].projectPath)
+  }
+
+  /**
+   * Types a short "carry on" into an agent whose turn a refused sign-in stopped (Resume (n), #309): only while it is
+   * still idle and hasn't carried on by itself.
+   */
+  async carryOn(projectPath: string, agentId: string): Promise<void> {
+    const stalled = (): LiveSessionState | null => {
+      const st = this.liveFor(projectPath, agentId)
+      return st?.signIn && (st.status === 'ready' || st.status === 'finished' || st.status === 'signin') ? st : null
+    }
+    if (!stalled()) throw new Error('It has already carried on.')
+    await this.sendPrompt(projectPath, agentId, CARRY_ON_PROMPT, () => {
+      if (!stalled()) throw new Error('It carried on by itself.')
+    })
+  }
+
   /** The launch a hook call belongs to: named by its run id, else (older launch folders) by session id. */
   private findLaunch(runId: string | null, sessionId: unknown): [string, LiveSession] | null {
     if (runId) {
@@ -1978,6 +2061,16 @@ class SessionManager {
   }
 
   private applyDetails(l: LiveSession, d: ReturnType<NonNullable<ProviderAdapter['statusLine']>>): void {
+    // The session's log says a turn ended on a refused sign-in (Codex, which sends no hook then): as a hook would, in
+    // order with the launch's hooks.
+    // A conversation's log read from its start (a resumed one) may end on an older refusal: only this launch's count.
+    const refused = d.signIn && !(d.signInAt && Date.parse(d.signInAt) < Date.parse(l.state.startedAt)) ? d.signIn : null
+    if (refused) {
+      const id = liveId(l.state.projectPath, l.state.agentId)
+      void this.inHookOrder(l.state.runId, () => {
+        if (this.live.get(id) === l) this.carryOut(id, l, hookStep({ kind: 'signIn', message: refused }, this.statusInput(l)), 'transcript', { kind: 'signIn', message: refused })
+      })
+    }
     if (d.planUsage) reportPlanUsage(l.state.provider, d.planUsage)
     const learn = l.defaultEffort
     const learnModel = d.modelId ?? learn?.model
@@ -2266,6 +2359,13 @@ class SessionManager {
   private carryOut(id: string, l: LiveSession, step: HookStep, cause: string, ev: HookEvent | null = null, arrived = this.lockSeq): void {
     const st = l.state
     const label = this.label(st)
+    // A request that worked (a tool call, a turn that ended well). Not a prompt (sent, not yet answered), an interrupt
+    // or a turn that failed on something else (a rate limit): none of those shows the CLI is signed in.
+    const worked = ev?.kind === 'toolStart' || ev?.kind === 'toolEnd' || (ev?.kind === 'stop' && !ev.failed)
+    // An agent a refused sign-in stopped tries again (its own prompt, Resume's) and doesn't get through (interrupted, or
+    // failed on something else) while the sign-in is still expired: it needs sign-in again, not told as finished.
+    if (st.signIn && this.signedOut.has(st.provider) && (ev?.kind === 'interrupt' || (ev?.kind === 'stop' && ev.failed)))
+      step = { ...step, next: 'signin', message: null, actions: step.actions.filter((a) => a !== 'notifyFinished') }
     if (step.open !== undefined) l.open = step.open
     if (step.waitingOn !== undefined) l.waitingOn = step.waitingOn
     for (const action of step.actions) {
@@ -2307,6 +2407,10 @@ class SessionManager {
         case 'clearTasks':
           this.clearTasks(l)
           break
+        case 'signedOut':
+          st.signIn = { message: (ev?.kind === 'signIn' && ev.message?.slice(0, 500)) || `${l.adapter.descriptor.name} isn't signed in.`, since: new Date().toISOString() }
+          this.signInLost(st.provider)
+          break
         case 'turnEnded':
           // Not awaited: a prompt arriving meanwhile must not be overwritten by this older Stop.
           if (st.sessionId) void workspace.upsertSession(st.projectPath, { id: st.sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
@@ -2314,9 +2418,15 @@ class SessionManager {
           break
       }
     }
+    // An agent stopped by a refused sign-in has carried on once a request of its own works (it keeps its mark through a
+    // retry that doesn't, so Resume (n) still counts it).
+    const carriedOn = !!st.signIn && worked
+    if (carriedOn) st.signIn = undefined
     const needed = asksYou(st)
     // A turn's end is reported even when the status stays (its background task count may have changed).
-    if (applyStep(st, step) || step.actions.includes('turnEnded')) this.emitState(st)
+    if (applyStep(st, step) || step.actions.includes('turnEnded') || carriedOn) this.emitState(st)
+    // The CLI is signed in again, for its other agents too (this one's status is already set).
+    if (worked) this.signedInAgain(st.provider)
     // A turn's end types the go-ahead for an Allow given during it; an interrupt (the user stopping it) drops it.
     if (step.actions.includes('turnEnded')) this.sendGoAheads(id, l)
     else if (step.actions.includes('releaseLocks')) this.dropGoAheads(id)

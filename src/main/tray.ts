@@ -52,7 +52,8 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   background: 'Background tasks',
   watching: 'Waiting on cards',
   finished: 'Finished',
-  error: 'Error'
+  error: 'Error',
+  signin: 'Needs sign-in'
 }
 
 /** Items the tray lists per section; the rest are counted. */

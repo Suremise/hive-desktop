@@ -100,6 +100,7 @@ export const SUITES = [
   { name: 'sessionname' },
   { name: 'sessionorigin' },
   { name: 'sessiontree' },
+  { name: 'signin' },
   { name: 'skillaudience' },
   { name: 'skilldelivery' },
   { name: 'skillprefs' },

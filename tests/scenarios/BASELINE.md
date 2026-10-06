@@ -51,8 +51,8 @@ each run ran), the before run with only that line put back as it was:
 - **Codex: 2 of 2 pass** (`results/2026-10-06T13-52-42-codex`, $0.003), one sample each: both ran
   `hive-progress --title "Run full npm test suite" -- npm test` (the background one through `exec_command` with a 1 s
   yield).
-- **Claude Code** (sonnet, CLI 2.1.290, its test home): no result. Claude Code answered the prompt with "Login expired ·
-  Please run /login" at once (`2026-10-06T13-54-07-claude-code`; the 6 Oct 02:05 and 00:18/00:24 tries were the same),
+- **Claude Code** (sonnet, CLI 2.1.291, its test home): no result. Claude Code answered the prompt with "Login expired ·
+  Please run /login" at once (`2026-10-06T13-54-07-claude-code`; the 6 Oct 02:05 and 00:18/00:24 tries, on 2.1.290, were the same),
   and the harness waited out its 6 minutes. The test home needs signing in again, by hand.
 
 ## On Hold and Passed: fakes, Codex (`gpt-5.6-luna`, CLI 0.160.0), fixtures v10, 6 October 2026

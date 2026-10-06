@@ -143,6 +143,57 @@ const check = (name, ok, extra = '') => {
   check("a project's row opens its Overview", !!opened)
   await page.screenshot({ path: path.join(lib.WORK, 'wsoverview-project.png') })
 
+  // The project Overview at the same extremes (#307): beta's most recent session has data, and its details table
+  // (model, version, started, last activity) scrolls inside itself, so the page doesn't widen; scrolled, it shows all.
+  check("the project Overview shows the session's details", !!(await until(async () => (await page.locator('.session-meta td', { hasText: 'Last activity' }).count()) === 1, 5000)))
+  const projectFits = () =>
+    page.evaluate(() => {
+      const meta = document.querySelector('.session-meta')
+      const scroller = meta.closest('.scroll-page')
+      const box = scroller.getBoundingClientRect()
+      const right = box.left + scroller.clientWidth
+      const seg = document.querySelector('.overview-page .overview-head .segmented').getBoundingClientRect()
+      meta.scrollLeft = meta.scrollWidth
+      const table = meta.querySelector('table').getBoundingClientRect()
+      const wrap = meta.getBoundingClientRect()
+      const reached = table.right <= wrap.right + 1
+      meta.scrollLeft = 0
+      // Its labels stay whole (one line each), so a table wider than the page scrolls rather than breaking them.
+      const lines = (td) => {
+        const r = document.createRange()
+        r.selectNodeContents(td)
+        return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size
+      }
+      const labels = [...meta.querySelectorAll('td:first-child')]
+      return {
+        page: scroller.scrollWidth <= scroller.clientWidth + 1,
+        width: scroller.clientWidth,
+        own: getComputedStyle(meta).overflowX === 'auto' && wrap.right <= right + 0.5,
+        whole: labels.every((td) => lines(td) === 1),
+        scrolls: meta.scrollWidth > meta.clientWidth + 1,
+        reached,
+        buttons: seg.right <= right + 0.5 && seg.left >= box.left - 0.5
+      }
+    })
+  for (const [width, zoom, theme, side] of [[620, 1.25, 'dark', null], [820, 1, 'dark', 'right'], [820, 1, 'light', 'left']]) {
+    await inv('settings:update', { appearance: { theme } })
+    await setAssistant(side)
+    await app.evaluate(({ BrowserWindow }, z) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(z), zoom)
+    await lib.fitWindow(app, page, { width, height: 900 })
+    const label = `project Overview, ${width} px at ${zoom * 100}%${side ? `, the Assistant on the ${side}` : ''} (${theme})`
+    const f = await until(async () => {
+      const x = await projectFits()
+      // Too narrow for the table (under 300 px of page here), so it scrolls: in its own box, to its end.
+      return x.page && x.own && x.whole && x.scrolls && x.reached && x.buttons ? x : null
+    }, 3000)
+    check(`${label}: the page doesn't scroll sideways; the session details keep their labels whole and scroll in their own box, to the end; the period buttons fit`, !!f, JSON.stringify(await projectFits()))
+    await page.evaluate(() => document.querySelector('.session-meta').scrollIntoView({ block: 'center' }))
+    await page.screenshot({ path: path.join(lib.WORK, `wsoverview-project-${width}-${zoom * 100}${side ? `-${side}` : ''}-${theme}.png`) })
+  }
+  await setAssistant(null)
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
+
   await app.close()
   process.exit(failed ? 1 : 0)
 })().catch((e) => {

@@ -118,6 +118,21 @@ const check = (name, ok, extra = '') => {
   const sw = dialog.getByRole('switch', { name: 'Show a tip when Hive starts' })
   check('the list has the setting, on', (await sw.getAttribute('aria-checked')) === 'true')
   await dialog.getByRole('button', { name: 'Close' }).last().click()
+  // Another window shows the day's tip while this one is still loading (#295): this one's older snapshot mustn't undo
+  // it. Its startup is held on a slowed call, and the change comes meanwhile (as R5's probe for #266 did).
+  await inv('ui:changeTips', { shownOn: '2000-01-01' })
+  await app.evaluate(() => {
+    process.env.HIVE_TEST_SLOW_IPC = 'provider:info=2500*1'
+  })
+  await page.reload()
+  await page.waitForLoadState('domcontentloaded')
+  await lib.sleep(500) // A fixed wait on purpose: the change must come while startup waits on the slowed call (2.5 s).
+  const now = new Date()
+  await inv('ui:changeTips', { shownOn: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}` })
+  await lib.appReady(page)
+  await lib.sleep(6000) // A fixed wait on purpose: this checks that no tip shows on start (one would within 4 s of loading), which no condition can show.
+  check("a tip another window showed while this one loaded counts (none again today)", (await card.count()) === 0)
+
   // The next day: as if the last tip showed long ago.
   await inv('ui:changeTips', { shownOn: '2000-01-01' })
   await page.reload()

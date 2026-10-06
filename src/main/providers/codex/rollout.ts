@@ -88,13 +88,43 @@ export function presetFromSettings(ts: Record<string, any>): string | null {
   return null
 }
 
-/** Session details from appended rollout lines: model, effort, plan mode, preset and plan limits. */
+/**
+ * Codex's message when a turn's error is its sign-in being refused (#309), else null. Its structured error info decides
+ * when there is one: `unauthorized`, or HTTP 401 in any of its connection variants (an invalid API key, 0.160.0:
+ * `http_connection_failed: { http_status_code: 401 }`). Without it, only Codex's own sign-in messages: a 401 status
+ * line, or a refresh token that has expired, was used or was revoked.
+ */
+export function signInRefused(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null
+  const e = error as { message?: unknown; codex_error_info?: unknown }
+  const message = typeof e.message === 'string' ? e.message : ''
+  const info = e.codex_error_info
+  if (info !== undefined && info !== null) {
+    const refused = info === 'unauthorized' || (typeof info === 'object' && Object.values(info).some((v) => (v as { http_status_code?: unknown } | null)?.http_status_code === 401))
+    return refused ? message || 'Codex isn’t signed in.' : null
+  }
+  return /^unexpected status 401 Unauthorized\b|access token could not be refreshed|refresh token (?:has expired|was already used|was revoked)/i.test(message) ? message : null
+}
+
+/** Session details from appended rollout lines: model, effort, plan mode, preset, plan limits and a refused sign-in. */
 export function rolloutDetails(text: string): LiveDetails {
   const out: LiveDetails = {}
   for (const line of text.split('\n')) {
     const r = parseLine(line)
     const p = r?.payload
     if (!p) continue
+    // A turn that ended because the sign-in was refused; a turn after it (started or ended) is the agent carrying on.
+    if (r.type === 'event_msg' && (p.type === 'task_complete' || p.type === 'task_started')) {
+      const refused = p.type === 'task_complete' ? signInRefused(p.error) : null
+      if (refused) {
+        out.signIn = refused
+        if (typeof r.timestamp === 'string') out.signInAt = r.timestamp
+        else delete out.signInAt
+      } else {
+        delete out.signIn
+        delete out.signInAt
+      }
+    }
     if (r.type === 'event_msg' && p.type === 'token_count') {
       const u = rolloutPlanUsage(p.rate_limits, r.timestamp ?? new Date().toISOString())
       if (u) out.planUsage = u

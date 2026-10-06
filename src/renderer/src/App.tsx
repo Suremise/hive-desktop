@@ -19,6 +19,7 @@ import { isProviderEnabled } from '@shared/providers'
 import { tipsState } from '@shared/tips'
 import { CornerPlacement, TipCard, TipsDialog } from './components/Tips'
 import { applyTipsState, showTodaysTip } from './tips'
+import { startupReplay } from './startupReplay'
 import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
 import { ProgressPanel } from './components/Progress'
 import { AssistantMain } from './components/AssistantView'
@@ -248,7 +249,12 @@ export function App() {
   const setupShown = useRef(false)
 
   useEffect(() => {
-    const off = window.hive.onEvent(handleEvent)
+    // What another window changes while this one loads must outlive the older snapshot it loads (#295).
+    const early = startupReplay(handleEvent)
+    const off = window.hive.onEvent((e) => {
+      handleEvent(e)
+      early.note(e)
+    })
     void (async () => {
       const [s, ui, ws, recent, ag, api, info, live] = await Promise.all([
         call('settings:get'),
@@ -261,6 +267,7 @@ export function App() {
         call('session:live')
       ])
       set({ settings: s, sidebarWidth: ui.sidebarWidth, sidebarVisible: ui.sidebarVisible, sidebarCompact: !!ui.sidebarCompact, panes: ui.panes ?? {}, skillsProvider: ui.skillsProvider ?? {}, skillsFold: ui.skillsFold ?? {}, sessionsTree: ui.sessionsTree ?? {}, boardFold: ui.boardFold ?? {}, progressFilter: ui.progressFilter ?? {}, tips: tipsState(ui.tips), workspace: ws, recent, providers: ag, api, appInfo: info })
+      early.settle()
       set({ assistantOpen: assistantWasOpen(ws?.path) })
       // A window restored on top (its workspace was left pinned) shows its pin lit from the start.
       void call('window:getAlwaysOnTop').then((on) => set({ alwaysOnTop: on })).catch(() => undefined)

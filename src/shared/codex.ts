@@ -94,6 +94,7 @@ export const CODEX_DESCRIPTOR: ProviderDescriptor = {
     'The installer runs `irm https://chatgpt.com/codex/install.ps1 | iex` in PowerShell and installs to `%LOCALAPPDATA%\\Programs\\OpenAI\\Codex`. After installing, sign in with your ChatGPT account (Plus, Pro, Business or Enterprise) or an API key, then set up its Windows sandbox once. If the CLI is installed somewhere else, set its path in Settings → Codex.',
   extensionNote:
     "You have the Codex extension for VS Code (or a similar editor). Hive doesn't use it — the extension's built-in copy moves with every extension update. Install the CLI; your extension keeps working as before.",
+  signInHelp: 'Sign in again in Help → Agent Setup → Codex → Sign in (or run codex login in a terminal).',
   modelLabel: codexModelLabel,
   // Every preset is in Codex's /permissions menu, so each can be switched to in a running session.
   canSwitchLive: () => true

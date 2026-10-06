@@ -93,9 +93,25 @@ class ProviderService {
     this.liveSessionCount = fn
   }
 
+  private signedInListeners: ((provider: ProviderId) => void)[] = []
+
+  /**
+   * Called when a CLI is signed in again: its check says so after saying it wasn't, or its Sign in task ended well
+   * (agents stopped by a refused sign-in can carry on, #309).
+   */
+  onSignedIn(fn: (provider: ProviderId) => void): void {
+    this.signedInListeners.push(fn)
+  }
+
+  private signedIn(id: ProviderId): void {
+    for (const fn of this.signedInListeners) fn(id)
+  }
+
   private set(id: ProviderId, info: AgentInstallInfo): void {
+    const was = this.infos.get(id)?.loggedIn
     this.infos.set(id, info)
     emit({ type: 'provider-install', provider: id, info })
+    if (was === false && info.loggedIn === true) this.signedIn(id)
   }
 
   /** Refreshes one provider, or all of them. Latest versions are only looked up for enabled providers. */
@@ -214,6 +230,7 @@ class ProviderService {
         gate?.dispose()
         if (code === 0 || finished) toast('success', `${label} finished`)
         else toast('warning', `${label} exited with code ${code}`)
+        if (task === 'login' && code === 0) this.signedIn(id)
         void this.refresh(id, true)
       }
     })

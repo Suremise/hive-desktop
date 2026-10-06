@@ -105,7 +105,13 @@ export type HookEvent =
   | { kind: 'toolEnd'; call?: string }
   /** The CLI asks the user something (whether a person is asked now is the status rules' call: see hookStatus). */
   | { kind: 'ask'; ask: Ask }
-  | { kind: 'stop'; lastMessage: string | null }
+  /**
+   * The turn ended. `failed`: on an error (a rate limit, the server; not the sign-in), which ends it as Stop does but
+   * is no request that worked: it says nothing of the CLI's sign-in.
+   */
+  | { kind: 'stop'; lastMessage: string | null; failed?: true }
+  /** The turn ended because the CLI's sign-in was refused (expired, revoked, an invalid key): `message` is the CLI's. */
+  | { kind: 'signIn'; message: string | null }
   | { kind: 'interrupt' }
   | { kind: 'compactStart'; trigger: string }
   | { kind: 'compactEnd' }
@@ -136,6 +142,10 @@ export interface LiveDetails {
   planUsage?: PlanUsage | null
   /** The model's context window in tokens. */
   contextWindow?: number
+  /** A turn ended because the CLI's sign-in was refused (Codex's rollout): the CLI's message (see HookEvent signIn). */
+  signIn?: string
+  /** When the CLI recorded that turn's end (ISO), when it says: one from before this launch (a resumed log) is history. */
+  signInAt?: string
 }
 
 /**

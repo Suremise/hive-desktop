@@ -270,7 +270,7 @@ export function layoutPanes(layout: SessionLayout | undefined): number {
   return SESSION_LAYOUTS.find((l) => l.value === layout)?.panes ?? 1
 }
 
-const URGENCY: Record<string, number> = { waiting: 7, working: 6, background: 5, error: 4, starting: 3, finished: 2, ready: 1, stopped: 0 }
+const URGENCY: Record<string, number> = { signin: 8, waiting: 7, working: 6, background: 5, error: 4, starting: 3, finished: 2, ready: 1, stopped: 0 }
 
 /**
  * The state that speaks for several agents in one dot: the most urgent status (needs input, then
@@ -306,6 +306,8 @@ export function mergeBlocked(name: string, status: SessionStatus | null | undefi
       return `${name} is waiting on background tasks it started. Merge once it has finished.`
     case 'watching':
       return `${name} is waiting for cards to change (a card watch) and carries on when they do. Merge once it has finished, or cancel its watch first.`
+    case 'signin':
+      return `${name} stopped in the middle of a task when its sign-in expired. Sign in again and let it finish first.`
     default:
       return null
   }
