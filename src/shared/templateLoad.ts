@@ -16,9 +16,13 @@ export function templateAgentSettings(a: TemplateAgent, cfg: Pick<ProjectConfig,
   const pc = projectProviderConfig(cfg, provider)
   const ps = providerSettings(settings, provider)
   const own = (v: string | undefined): v is string => !!v && v !== 'inherit'
-  const model = agentModelShown(provider, own(a.model) ? a.model : pc.model, ps.defaultModel, info).label
-  const runModel = (own(a.model) ? a.model : own(pc.model) ? pc.model : ps.defaultModel) || info?.defaultModel || null
   const def = (s: string): string => (s.endsWith('(default)') ? s : `${s} (default)`)
+  // What it resolves to here; marked "(default)" whenever the template leaves it to the project or Hive, the project's own
+  // choice included (#310), as its effort and mode are.
+  const shownModel = agentModelShown(provider, own(a.model) ? a.model : pc.model, ps.defaultModel, info).label
+  // ("Claude Code default", when nothing says which model, is one already.)
+  const model = own(a.model) || shownModel.endsWith(' default') ? shownModel : def(shownModel)
+  const runModel = (own(a.model) ? a.model : own(pc.model) ? pc.model : ps.defaultModel) || info?.defaultModel || null
   const effortShown = effortLabel(provider, undefined, a.effort ?? pc.effort, ps.defaultEffort, modelCaps(provider, runModel, info, settings).defaultEffort, settings)
   const effort = effortShown && (own(a.effort) ? effortShown : def(effortShown))
   const mode = settings ? permissionLabel(provider, agentLaunchSettings({ provider, model: a.model, effort: a.effort, permissionMode: a.permissionMode, use200kContext: a.use200kContext }, cfg, settings).permissionMode) : null

@@ -20,6 +20,16 @@ describe('the Load template dialog (#268)', () => {
     expect(inherited).toMatch(/^Opus 5\.5 \(default\) · Medium \(default\)/)
   })
 
+  it('marks a model the template leaves to a project that chose one as the default too (#310); one the agent chose, not', () => {
+    const opusProject = { providers: { 'claude-code': { model: 'opus', effort: 'inherit', permissionMode: 'inherit', extraArgs: '' } }, defaultProvider: undefined } as unknown as Pick<ProjectConfig, 'providers' | 'defaultProvider'>
+    expect(templateAgentSettings({ name: 'R', provider: 'claude-code', worktree: false }, opusProject, settings, info)).toMatch(/^Opus 5\.5 \(default\) · /)
+    expect(templateAgentSettings({ name: 'B', provider: 'claude-code', model: 'opus', worktree: false }, opusProject, settings, info)).toMatch(/^Opus 5\.5 · /)
+    // Nothing says which model: named as the CLI's default, once.
+    const none = templateAgentSettings({ name: 'N', provider: 'claude-code', worktree: false }, cfg, settings, null)
+    expect(none).toMatch(/^Claude Code default · /)
+    expect(none).not.toMatch(/default \(default\)/)
+  })
+
   it("marks agents a new one of the same name replaces, gives each new worktree's branch and folder, and the setup command", () => {
     const plan = {
       remove: [
