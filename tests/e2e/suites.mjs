@@ -12,6 +12,7 @@ export const SUITES = [
   { name: 'asarfiles' },
   { name: 'assistant' },
   { name: 'assistant-control' },
+  { name: 'assistantbatch' },
   { name: 'assistantend' },
   { name: 'assistantimages' },
   { name: 'assistantoverview' },
