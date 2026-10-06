@@ -107,6 +107,7 @@
 - **The Overview charts show every day.** In the project Overview and the Workspace Overview, each day of the 7- and 30-day charts is now a tile of its own, as in the Performance chart, so a quiet day reads as its own column instead of empty space. The three charts share one look.
 
 ### Fixes
+- **The Workspace Overview fits a narrow window.** With the sidebar open in a small window (or zoomed in), its period buttons stuck out and the whole page scrolled sideways. They now go under the title and wrap when space is short, and the summary cards stack, while the table by project still scrolls on its own.
 - **Dragging an agent only highlights places where dropping it does something.** The last agent no longer gets **Move here** on the spare panes, or a highlighted page button for the page it's already at the end of; dropping there changed nothing.
 - **A date filter in the Overview's compaction table follows a change of date format.** After switching **Settings → General → Date format**, the When filter kept matching the old format until something else changed; it now matches the dates as they're shown.
 - **Two windows no longer undo each other's Skills tab and Sessions tree choices.** With a workspace in each window, the provider and open groups you chose in one project's Skills tab (or the Sessions branches you opened) could be lost when you changed another project's in the other window, and come back reset after a restart. Each project's choice is now saved on its own.
