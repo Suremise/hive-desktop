@@ -61,16 +61,33 @@ const check = (name, ok, extra = '') => {
   // The Board view, and a card added there.
   await page.getByRole('button', { name: 'Task Board' }).click()
   check('the Board shows six columns', !!(await until(async () => (await page.locator('.board-column').count()) === 6, 5000)))
-  await page.getByRole('button', { name: 'New Card', exact: true }).click()
   const dialog = page.locator('.dialog', { hasText: 'New Card' })
+  await page.getByRole('button', { name: 'New Card', exact: true }).click()
+  check('a new card’s title takes the keyboard', !!(await until(() => page.evaluate(() => !!document.activeElement?.classList.contains('task-title-input')), 5000)))
+  await page.keyboard.press('Escape')
+  await until(async () => (await dialog.count()) === 0, 5000)
+  // That focus comes on a short timer, which a busy window runs late (#229): hold the dialog's short timers until the
+  // description has the keyboard, then run them just before the text arrives. It still lands in the description.
+  await page.evaluate(() => {
+    const orig = window.setTimeout
+    const held = (window.__held = [])
+    window.setTimeout = (fn, ms, ...a) => (ms <= 100 ? (held.push(() => fn(...a)), 0) : orig(fn, ms, ...a))
+    const onFocus = (e) => {
+      if (!e.target.classList?.contains('task-description-input')) return
+      document.removeEventListener('focusin', onFocus)
+      window.setTimeout = orig
+      orig(() => held.splice(0).forEach((f) => f()), 0)
+    }
+    document.addEventListener('focusin', onFocus)
+  })
+  await page.getByRole('button', { name: 'New Card', exact: true }).click()
   await dialog.locator('.task-title-input').fill('Add a greeting')
   await dialog.locator('select').first().selectOption('alpha')
-  // Choosing the project re-renders the dialog: fill the description once its field is there, and check both fields
-  // hold what was typed before adding (under load, text typed into a field being replaced lands in the title).
   const desc = dialog.locator('.task-description-input')
-  await desc.waitFor({ state: 'visible' })
   await desc.fill('Write `hello()` in a.ts and test it.')
-  await lib.until(async () => (await dialog.locator('.task-title-input').inputValue()) === 'Add a greeting' && (await desc.inputValue()).startsWith('Write'), 5000)
+  await until(() => page.evaluate(() => window.__held.length === 0), 5000)
+  const typed = { title: await dialog.locator('.task-title-input').inputValue(), description: await desc.inputValue() }
+  check('a late title focus leaves the description’s text in the description', typed.title === 'Add a greeting' && typed.description.startsWith('Write'), JSON.stringify(typed))
   await dialog.getByRole('button', { name: 'Add Card' }).click()
   check('a new card shows in Todo', !!(await until(async () => (await column('Todo').locator('.task-card[data-task="1"]').count()) === 1, 5000)))
   const c1 = await card(1)
