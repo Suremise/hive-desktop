@@ -192,6 +192,11 @@ export interface AssistantSettings {
   persona: string
   /** What the Assistant may do beyond looking (see AssistantControl). */
   control: AssistantControl
+  /**
+   * Whether it may change Hive's settings when the user asks (hive_update_setting), whatever its control level. It can
+   * always read and explain them; sensitive ones, and its own Control, are never its to change (#186).
+   */
+  changeSettings: boolean
   /** Seconds after the user types in an agent's terminal before the Assistant may type there (0: no pause). */
   typingPause: number
   /** The user pressing Enter (sending what they typed) ends that pause. */
@@ -221,6 +226,25 @@ export interface AssistantAction {
   ok: boolean
   /** Why it failed or was refused. */
   error?: string
+  /** A setting it changed (#186): old → new, which the list's Revert puts back. */
+  setting?: AssistantSettingChange
+  /** The user reverted that change (this action's id): the list marks the change as reverted. */
+  revertOf?: string
+}
+
+/** A setting the Hive Assistant changed, as its activity list shows it and Revert undoes it. */
+export interface AssistantSettingChange {
+  /** The settings catalog's id (settingsCatalog.ts). */
+  id: string
+  /** For a project's setting: the project's folder. */
+  project?: string
+  /** "Settings → Sessions → Suggest compacting above". */
+  path: string
+  old: unknown
+  new: unknown
+  /** As the list shows them. */
+  oldText: string
+  newText: string
 }
 
 /** A question the Hive Assistant's action is waiting on (e.g. stopping a busy agent), shown as a card in its panel. */

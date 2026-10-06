@@ -87,6 +87,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     provider: '',
     persona: 'overseer',
     control: 'projects',
+    changeSettings: false,
     typingPause: 15,
     enterEndsPause: true,
     panelSide: 'right',

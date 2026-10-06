@@ -374,6 +374,8 @@ export interface HiveRequests {
   'assistant:actions': () => AssistantAction[]
   'assistant:questions': () => AssistantQuestion[]
   'assistant:answer': (id: string, yes: boolean) => void
+  /** Revert on a setting the Assistant changed (its activity list): sets it back, and lists that too (#186). */
+  'assistant:revertSetting': (actionId: string) => void
   /** This window's workspace's progress runs, newest first. */
   'progress:list': () => ProgressRun[]
   /** Moves a finished or stale run to Recent. */

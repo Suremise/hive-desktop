@@ -13,7 +13,7 @@ import { createInterface } from 'readline'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../../shared/hiveGuidance'
 import { ASSISTANT_ONLY_TOOLS, assistantTools } from '../../shared/assistantTools'
 import { COLUMN_IDS } from '../../shared/tasks'
-import { MAX_ROWS, changedText, createdText, noteText, notesListText, projectListText, reorderText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SkillRow, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
+import { MAX_ROWS, changedText, createdText, noteText, notesListText, projectListText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 
 const VERSION = '1.0.0'
 const API = (process.env.HIVE_API_URL || 'http://127.0.0.1:47821').replace(/\/$/, '')
@@ -23,6 +23,8 @@ const WORKSPACE = process.env.HIVE_WORKSPACE || ''
 /** The Hive Assistant's session gets the tools to run agents, as far as its control level allows. */
 const ASSISTANT = process.env.HIVE_ROLE === 'assistant'
 const CONTROL = process.env.HIVE_ASSISTANT_CONTROL || 'projects'
+/** Settings → Assistant → Control → Change settings: hive_update_setting is offered only then. */
+const CHANGE_SETTINGS = process.env.HIVE_ASSISTANT_SETTINGS === '1'
 
 function token(): string {
   const t = process.env.HIVE_API_TOKEN
@@ -452,11 +454,46 @@ const tools: Tool[] = [
       const p = a.project || PROJECT
       return skillListText((await api('GET', `/v1/skills${p ? `?project=${enc(p)}` : ''}`)) as SkillRow[])
     }
+  },
+  {
+    name: 'hive_list_settings',
+    description:
+      "Hive's settings, a line each: id = value (and its default when it differs), [read-only] for those only the user changes, and its name; with query, only those matching every word (\"compact\", \"notifications\"), each with what it does. scope narrows them to app, provider or project; project adds that project's own settings (Project Settings, ids project.…). At most 200 lines: offset carries on. hive_read_setting explains one.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        scope: { type: 'string', enum: ['app', 'provider', 'workspace', 'project'] },
+        project: { type: 'string', description: "A project's own settings too (its name)." },
+        offset: { type: 'number', description: 'Skip this many settings (the reply says where to carry on).' }
+      }
+    },
+    run: async (a) => {
+      const q = [a.query ? `query=${enc(a.query)}` : '', a.scope ? `scope=${enc(a.scope)}` : '', a.project ? `project=${enc(a.project)}` : ''].filter(Boolean).join('&')
+      return settingListText((await api('GET', `/v1/settings${q ? `?${q}` : ''}`)) as SettingRow[], { query: a.query, offset: Number(a.offset) || 0 })
+    }
+  },
+  {
+    name: 'hive_read_setting',
+    description: "One setting in full: where the user finds it, its value and default, what it takes, what it does, when it helps, whether a change waits for a restart, and whether you may change it. project: the project, for a project's setting (project.…).",
+    inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'From hive_list_settings, e.g. sessions.transcriptWarnMB.' }, project: { type: 'string' } }, required: ['id'] },
+    run: async (a) => settingText((await api('GET', `/v1/settings/${enc(a.id)}${a.project ? `?project=${enc(a.project)}` : ''}`)) as SettingDetail)
+  },
+  {
+    name: 'hive_update_setting',
+    description:
+      "Change one of Hive's settings to value, as Settings would: only when the user asked or agreed. project: the project, for a project's setting (null inherits Hive's). Refused for [read-only] settings (permission modes, the Agent API, what Hive runs, your own Control): tell the user where to change those. It shows in your panel's list with old → new, where the user can revert it, and counts towards your 30 changes per message. Replies with old → new and when it applies.",
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, value: { type: ['string', 'number', 'boolean', 'null', 'object', 'array'], description: 'What hive_read_setting says it takes (a table is an object or a list).' }, project: { type: 'string' } },
+      required: ['id', 'value']
+    },
+    run: async (a) => settingChangedText((await api('PATCH', `/v1/settings/${enc(a.id)}`, { value: a.value, project: a.project })) as Parameters<typeof settingChangedText>[0])
   }
 ]
 
 /** Agents get Hive's common tools; the Assistant also those its control level allows. */
-const allowed = new Set(assistantTools(CONTROL))
+const allowed = new Set(assistantTools(CONTROL, CHANGE_SETTINGS))
 const offered = tools.filter((t) => (ASSISTANT ? !ASSISTANT_ONLY_TOOLS.includes(t.name) || allowed.has(t.name) : !ASSISTANT_ONLY_TOOLS.includes(t.name)))
 
 const INSTRUCTIONS = hiveInstructions(PROJECT, ASSISTANT ? 'assistant' : 'agent', process.env.HIVE_PROGRESS_COMMANDS !== '0')

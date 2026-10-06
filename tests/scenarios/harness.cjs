@@ -141,6 +141,8 @@ async function runScenario(sc, providerKey, opts = {}) {
       ...cfg.settings.assistant,
       provider: p.provider,
       control: sc.control ?? 'projects',
+      // Settings → Assistant → Control → Change settings (#186): off unless the scenario turns it on.
+      changeSettings: sc.changeSettings === true,
       providers: { ...cfg.settings.assistant?.providers, [p.provider]: { model: opts.model ?? '', effort: opts.effort ?? '', permissionMode: p.mode, extraArgs: p.extraArgs ?? '' } }
     }
   }
@@ -325,6 +327,8 @@ async function runScenario(sc, providerKey, opts = {}) {
     })
     observed.gitStatus = ctx.git('status', '--porcelain')
     observed.live = (await inv('session:live')).map((x) => ({ project: path.basename(x.projectPath), agentId: x.agentId, status: x.status }))
+    // Hive's settings afterwards, for scenarios about changing them.
+    observed.settings = await inv('settings:get')
     result.usage = sessionId ? await inv('session:usage', host, sessionId).catch(() => null) : null
     // A fake acts a scenario out with scripted board moves: checks only a model's own work can meet are skipped there.
     result.measures = metricsBefore && metricsAfter ? measuresOf(metricsBefore, metricsAfter, observed, result.usage) : null
@@ -349,7 +353,7 @@ async function runScenario(sc, providerKey, opts = {}) {
     )
     // Kept short in the results (whole tool calls can be large, and must not carry a token).
     const short = (v) => tokens.reduce((x, t) => x.split(t).join('<token>'), String(v)).slice(0, 400)
-    result.observed = { ...observed, tools: observed.tools.map((t) => ({ ...t, input: short(t.input), result: short(t.result) })), replies: undefined, finalReply: short(observed.finalReply) }
+    result.observed = { ...observed, tools: observed.tools.map((t) => ({ ...t, input: short(t.input), result: short(t.result) })), replies: undefined, settings: undefined, finalReply: short(observed.finalReply) }
   } catch (e) {
     result.error = String(e?.stack ?? e)
   } finally {

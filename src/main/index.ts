@@ -641,6 +641,8 @@ app.whenReady().then(async () => {
           HIVE_WORKSPACE: ws,
           HIVE_ROLE: 'assistant',
           HIVE_ASSISTANT_CONTROL: config.settings.assistant?.control ?? 'projects',
+          // Its settings tool (hive_update_setting) is offered only with Change settings on: a change restarts it.
+          HIVE_ASSISTANT_SETTINGS: config.settings.assistant?.changeSettings === true ? '1' : '0',
           ...testMcpLog()
         }
       }
@@ -703,7 +705,7 @@ app.whenReady().then(async () => {
     if (assistantHome(ws).toLowerCase() === resolve(projectPath).toLowerCase()) endAssistant(ws)
   }
   // The Assistant's role and persona (its workspace's choice, else Settings → Assistant's), for its launches.
-  sessions.assistantInstructions = (projectPath, agent) => inWorkspace(workspaceOf(projectPath), () => assistantInstructions(assistantPersona(agent, config.settings), config.settings.assistant?.control ?? 'projects'))
+  sessions.assistantInstructions = (projectPath, agent) => inWorkspace(workspaceOf(projectPath), () => assistantInstructions(assistantPersona(agent, config.settings), config.settings.assistant?.control ?? 'projects', config.settings.assistant?.changeSettings === true))
   // A project's notifications and focus checks use the window showing it.
   sessions.setWindowProvider((projectPath) => (projectPath ? windowForPath(projectPath)?.win : null) ?? lastFocused()?.win ?? null)
   // The window the user is using, for in-app banners (#157): visible, not minimised, focused.

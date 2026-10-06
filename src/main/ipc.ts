@@ -31,6 +31,7 @@ import * as removal from './projectRemoval'
 import * as tasks from './tasks'
 import { startTask } from './taskStart'
 import * as assistantControl from './assistantControl'
+import { revertSetting } from './settingsTools'
 import * as personas from './personas'
 import { syncBundled } from './bundled'
 import { checkMoved, finishPending, movePlan, repairMove } from './workspaceMove'
@@ -638,6 +639,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'assistant:actions': () => (workspace.path ? assistantControl.actions(workspace.path) : []),
     'assistant:questions': () => (workspace.path ? assistantControl.questions(workspace.path) : []),
     'assistant:answer': (id, yes) => assistantControl.answer(id, yes),
+    'assistant:revertSetting': async (actionId) => {
+      if (!workspace.path) throw new Error('No workspace is open.')
+      await revertSetting(workspace.path, String(actionId))
+    },
     'progress:list': () => (workspace.path ? progress.list(workspace.path) : []),
     'progress:dismiss': (id) => {
       if (workspace.path) progress.dismiss(workspace.path, String(id))

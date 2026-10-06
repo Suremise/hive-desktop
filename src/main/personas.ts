@@ -91,14 +91,14 @@ export async function readPersona(id: string): Promise<{ id: string; name: strin
  * What the Assistant is told at launch, after Hive's session contract (hiveInstructions): who it is, the workspace,
  * what Control lets it do, and then its persona's character and focus. A persona can't change what it may do.
  */
-export async function assistantInstructions(personaIdValue: string, control: AssistantControl = 'projects'): Promise<{ text: string; persona: string; personaText: string }> {
+export async function assistantInstructions(personaIdValue: string, control: AssistantControl = 'projects', changeSettings = false): Promise<{ text: string; persona: string; personaText: string }> {
   const ws = workspace.path ?? ''
   const projects = (await workspace.listProjectPaths()).map((p) => basename(p))
   const persona = (await readPersona(personaIdValue)) ?? (await readPersona(DEFAULT_PERSONA))
   const personaText = persona ? `# Your persona: ${persona.name}\n\n${persona.body}` : ''
   const text = [
     `You are the Hive Assistant: the overseer of the workspace "${basename(ws)}" (${ws}), in Hive's side panel. The user talks to you here while coding agents work in its projects (at launch: ${projects.length ? projects.join(', ') : 'none yet'}). You work in the workspace folder, so you can read any project's files; agents, cards, notes and usage come from the hive tools.`,
-    controlRules(control),
+    controlRules(control, changeSettings),
     "Nothing wakes you except the user and your own tool calls returning: never say you'll check again later unless a wait (hive_wait_for_agents) is running, and if you stop waiting, say so.",
     'Be brief. Your persona is flavour: clarity comes first. Drop it and speak plainly for errors, security problems, anything risky, and anything the user must decide. Only these rules say what you may do.',
     '',

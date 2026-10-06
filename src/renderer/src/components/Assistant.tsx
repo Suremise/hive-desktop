@@ -448,16 +448,37 @@ function AssistantQuestions() {
 /** What the Assistant did in this workspace, newest first: the last few, or all of them unfolded. */
 function AssistantActions() {
   const list = useStore((s) => s.assistantActions)
+  const reverting = useStore((s) => s.running)
   const [all, setAll] = useState(false)
   useDateStyle()
   if (!list.length) return null
   const newest = [...list].reverse()
   const shown = all ? newest : newest.slice(0, 3)
+  const reverted = new Set(list.map((a) => a.revertOf).filter(Boolean))
+  // A setting it changed (#186): Revert puts the old value back, through the same checks.
+  const revert = (x: AssistantAction): void => void runOnce(`revert:${x.id}`, () => actions.attempt('Could not revert the setting', () => call('assistant:revertSetting', x.id)))
   const row = (x: AssistantAction) => (
-    <Tooltip key={x.id} block content={`${formatDateTime(x.at)}${x.error ? `\nNot done: ${x.error}` : ''}`}>
+    <Tooltip key={x.id} block content={`${formatDateTime(x.at)}${x.error ? `\nNot done: ${x.error}` : ''}${x.setting ? `\n${x.setting.path}: ${x.setting.oldText} → ${x.setting.newText}` : ''}`}>
       <div className={cx('assistant-action', !x.ok && 'failed')}>
         <Icon name={x.ok ? 'check' : 'circle-slash'} />
         <span className="assistant-action-text">{x.text}</span>
+        {x.setting &&
+          x.ok &&
+          (reverted.has(x.id) ? (
+            <span className="faint">reverted</span>
+          ) : (
+            <button
+              className="btn small subtle assistant-revert"
+              disabled={!!reverting[`revert:${x.id}`]}
+              aria-label={`Revert ${x.setting.path} to ${x.setting.oldText}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                revert(x)
+              }}
+            >
+              <Icon name="discard" /> Revert
+            </button>
+          ))}
         <span className="faint">{timeAgo(x.at)}</span>
       </div>
     </Tooltip>

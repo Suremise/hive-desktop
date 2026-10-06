@@ -16,7 +16,7 @@ const dump = path.join(lib.WORK, 'skills-dump')
 const sleep = lib.sleep
 /** The bundled skills from before Hive kept track of them (an existing workspace without them deleted them), and the newer ones. */
 const EARLIER = ['handover', 'merge-ready', 'pick-up', 'review-agent-work', 'split-work', 'workspace-note']
-const NEWER = ['card-loop', 'coordinate-agents', 'use-hive-api', 'work-on-card']
+const NEWER = ['card-loop', 'coordinate-agents', 'tune-settings', 'use-hive-api', 'work-on-card']
 const BUNDLED = [...EARLIER, ...NEWER]
 let failed = 0
 const check = (name, ok, extra = '') => {

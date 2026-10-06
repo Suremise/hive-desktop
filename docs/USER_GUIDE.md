@@ -440,6 +440,12 @@ It never removes agents, discards worktrees, archives or deletes cards, or remov
 
 When an agent's CLI asks whether to trust a new folder before it starts, the agent shows as **waiting** for you: answer in its terminal.
 
+### The Assistant and Hive's settings
+
+Hive has a lot of settings. Ask the Assistant what one does (*"what does Warn when a transcript is over do?"*) or how to make Hive behave differently (*"the chime is driving me mad"*), and it finds the setting, explains it and says where it is. It reads the same descriptions Settings shows. When it notices something a setting would help with, such as a transcript growing very large or several agents editing the same files, it suggests that setting in a line, and changes nothing unless you agree.
+
+To let it make the change for you, turn on **Settings → Assistant → Control → Change settings** (off by default; a running Assistant takes it after a restart). With it on, the Assistant changes a setting when you ask it to or agree to its suggestion, in Settings or in a project's Project Settings. Each change shows under **Done by the Assistant** with the old and new value and a **Revert** button that puts the old value back. Some settings stay yours whatever you allow: its own Control and the other Settings → Assistant permissions, permission modes, the Agent API, and what Hive runs (CLI paths, extra arguments, a project's setup command). For those it tells you where to change them. An agent's own model, effort or mode is part of running agents (Control agents), not of this switch.
+
 ### The Assistant view
 
 The **Hive Assistant** button in the activity bar (the robot) opens everything else about it. At the top, **Used so far**: its conversations, prompts, tokens and API-equivalent cost, for Today, 7 days, 30 days or All time. These aren't counted in any project's Overview. Below that:
