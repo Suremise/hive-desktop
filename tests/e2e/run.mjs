@@ -48,7 +48,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
 const lib = createRequire(import.meta.url)('./lib.cjs')
 const runContext = createRequire(import.meta.url)('./runContext.cjs')
-const { claimedByRuns, evidenceFor, finishSuiteDir, freshFolder, recordKept, releaseKept } = createRequire(import.meta.url)('./evidence.cjs')
+const { claimedByRuns, clearDir, evidenceFor, findBoard, finishSuiteDir, freshFolder, recordKept, releaseKept } = createRequire(import.meta.url)('./evidence.cjs')
 
 const args = process.argv.slice(2)
 const opts = parseArgs(args, SUITES.map((s) => s.name))
@@ -61,6 +61,19 @@ const { jobs } = opts
 if (opts.fingerprint) {
   console.log(fingerprint(root))
   process.exit(0)
+}
+
+// --clear-dir <folder>: empties a probe's or a suite's own folder from Node, for a rerun into the same place (#304), so
+// nobody needs a shell delete on a computed path; it refuses anything else and evidence (evidence.cjs clearDir).
+if (opts.clearDir) {
+  try {
+    const board = process.env.HIVE_TEST_NO_BOARD === '1' ? { cards: [] } : { tasksDir: findBoard(root) }
+    console.log(`Emptied ${clearDir(opts.clearDir, { board })}`)
+    process.exit(0)
+  } catch (e) {
+    console.error(`Not cleared: ${e.message}`)
+    process.exit(2)
+  }
 }
 
 // What may be deleted (#253, evidence.cjs): never what a card that isn't Done cites. That needs the board: without it
@@ -221,6 +234,9 @@ const run = (name, port) =>
     child.on('exit', (code) => {
       clearTimeout(timer)
       const outcome = suiteOutcome({ code, out })
+      // --keep-files: a passed suite's own files (screenshots, reports) go into the run's log folder before its folder
+      // does, as a failed one's do at the end (#304): a new place every run, pruned with the logs.
+      if (opts.keepFiles && dir && outcome.ok && keepSuiteFiles(dir, runLogDir, name) > 0) filesKept.push(name)
       const kept = dir ? finishSuiteDir(dir, evidence, !!(outcome.ok || outcome.skipped)).kept : null
       resolve({ name, ...outcome, code, out, seconds: Math.round((Date.now() - started) / 1000), dir, kept: kept && `${dir} (${kept})` })
     })
@@ -285,9 +301,14 @@ let finished = 0
 // Each run keeps its own logs (logs.mjs): a folder no other run shares, the last few kept; a runner started inside a
 // suite keeps its runs under logs/nested.
 const logsRoot = logsRootFor(lib.WORK)
+// The run now going (runOnce) and, with --keep-files, the passed suites whose files were kept in it.
+let runLogDir = null
+const filesKept = []
 /** Runs the chosen suites once (run k of the repeat): { ok, results, logDir, summary }. */
 async function runOnce(k) {
   const logDir = newRunDir(logsRoot)
+  runLogDir = logDir
+  filesKept.length = 0
   const results = []
   const startedAt = Date.now()
   const running = new Set()
@@ -347,6 +368,7 @@ async function runOnce(k) {
   const minutes = ((Date.now() - startedAt) / 60_000).toFixed(1)
   const summary = `${results.filter((r) => r.ok).length} passed, ${failed.length} failed, ${results.filter((r) => r.skipped).length} skipped in ${minutes} min`
   console.log(`\n${repeat > 1 ? `Run ${k} of ${repeat}: ` : ''}${summary}. Logs: ${logDir}`)
+  if (filesKept.length) console.log(`Kept the screenshots and files of ${filesKept.join(', ')} in ${filesKept.length === 1 ? `${logDir}\\${filesKept[0]}` : `${logDir}\\<suite>`} (--keep-files).`)
   // A failed run outlives KEEP_RUNS for a day, with its failed suites' screenshots (#223): a path a builder cites in a
   // card is still there when the reviewer looks.
   if (failed.length) {

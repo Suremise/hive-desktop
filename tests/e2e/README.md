@@ -14,6 +14,8 @@ npm run e2e -- <suites> --build --record # and print a run record for the card (
 npm run e2e -- --fingerprint     # the code's fingerprint, to compare with a run record
 npm run e2e -- <suites> --repeat 3 --build --record # three runs, stopping at the first that fails; one record for all
 npm run e2e -- --all --no-wait   # a heavy run: fail at once rather than wait while two others hold the test slots
+npm run e2e -- <suites> --build --keep-files # passed suites' screenshots and files kept too, in the run's log folder (<run>\<suite>)
+npm run e2e -- --clear-dir <folder>          # empty a probe's or a suite's own folder from Node, for a rerun into the same place
 npm run dist && npm run e2e -- --packaged   # also the installed-app suites (dist/win-unpacked)
 ```
 
@@ -240,7 +242,9 @@ Everything goes in `%LOCALAPPDATA%\hive-test\e2e` (override with `HIVE_E2E_DIR`)
   (a suite failed, or its record isn't valid) is kept a day beyond that (the newest twenty such; #223), and its failed
   suites' own files (screenshots, notification logs, reports: not their profiles) are copied into it, in
   `<run folder>\<suite>`. The runner says so when the run ends, so the run folder is the path to cite in a card.
-- The work folder itself: suites run on their own (`node tests/e2e/<suite>.cjs`) keep their folders there.
+- The work folder itself: suites run on their own (`node tests/e2e/<suite>.cjs`) keep their folders there (each run
+  empties its own subfolders, and its screenshots replace the last run's). To keep a run's screenshots, run it through
+  the runner with `--keep-files` instead: they land in that run's new log folder.
 
 Nothing touches your Hive profile, your clipboard or your real Codex home.
 `HIVE_TEST_CODEX_HOME` points the Codex suites at another test home.
@@ -282,10 +286,14 @@ kept and why, without removing anything; `--days N` sets the age, default 3).
   the disk.
 - Links in what goes (a worktree's `node_modules` junction) are removed as links, never followed.
 
-**Probes** (a reviewer's or builder's screenshots, scripts and profiles outside a suite) go in the agent's own scratchpad
-(Claude Code's session scratchpad, or `%TEMP%`), not in `hive-test`. One that must be there goes in
-`hive-test\scratch\<agent>-<date>`, which the clean-up prunes by age. Cite evidence a card needs by its full path: it
-stays until the card is Done.
+**Probes** (a reviewer's or builder's screenshots, scripts and profiles outside a suite) take **a new folder each run**,
+so nothing needs deleting before a rerun (#304): `require('./tests/e2e/lib.cjs').probeDir('<what>')` makes
+`hive-test\scratch\<what>-<date>-<time>-<random>`, which the clean-up prunes by age; or a new folder of your own in your
+scratchpad (Claude Code's session scratchpad, or `%TEMP%`). Never in the lanes or logs. A folder that has to be reused
+is emptied from Node with `npm run e2e -- --clear-dir <folder>` (`clearDir` in `evidence.cjs`): only inside a Claude
+Code scratchpad, a `hive…` folder in `%TEMP%`, or `hive-test\scratch` or `e2e` outside the lanes and logs; never an area
+itself, a CLI test home, a link or what a card cites. Cite evidence a card needs by its full path: it stays until the
+card is Done.
 
 ## Writing one
 
