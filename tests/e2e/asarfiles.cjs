@@ -1,7 +1,7 @@
 // A project holding .asar files (an Electron app's build output, dist/win-unpacked/resources/app.asar) stays a set of
 // plain files to Hive (#246): Electron's own fs opens an .asar it stats as an archive and keeps it open until the app
 // quits, so `npm run dist` couldn't replace it. Storage, the Files tab (listing, watch, find, read), Changes, Images and
-// image previews (a path inside an archive is refused) go over a project and an agent's worktree with .asar files in
+// image previews (a path inside an archive is refused; a real folder named art.asar is just a folder, #261) go over a project and an agent's worktree with .asar files in
 // them, then each file is deleted from outside Hive.
 // The workspace watcher still notices projects coming and going and .hive changes. Dev build, throwaway profile and
 // workspace.
@@ -14,6 +14,8 @@ const userData = path.join(lib.WORK, 'asarfiles-profile')
 const ws = path.join(lib.WORK, 'asarfiles-ws')
 const alpha = path.join(ws, 'alpha')
 const beta = path.join(ws, 'beta')
+/** A 1×1 PNG. */
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
 const SAMPLE = path.join(path.dirname(lib.ELECTRON), 'resources', 'default_app.asar')
 let failed = 0
 const check = (name, ok, extra = '') => {
@@ -106,6 +108,33 @@ const deleteFromOutside = (file) => {
     inside
   )
   check('an image path inside an .asar is refused, not opened', shown === 'refused', shown)
+  // A real folder whose name ends in .asar is just a folder (#261): its images show and its files open, as do others.
+  const artDir = path.join(alpha, 'art.asar')
+  fs.mkdirSync(artDir, { recursive: true })
+  fs.writeFileSync(path.join(artDir, 'icon.png'), PNG)
+  fs.writeFileSync(path.join(artDir, 'notes.md'), '# Art\n')
+  fs.writeFileSync(path.join(alpha, 'plain.png'), PNG)
+  const show = (file) =>
+    page.evaluate(
+      (u) =>
+        new Promise((r) => {
+          const img = new Image()
+          img.addEventListener('load', () => r(`loaded ${img.naturalWidth}x${img.naturalHeight}`))
+          img.addEventListener('error', () => r('refused'))
+          img.src = u
+        }),
+      `hive-img://img/${encodeURIComponent(file)}`
+    )
+  const artShown = await show(path.join(artDir, 'icon.png'))
+  check('an image in a real folder named art.asar shows', artShown === 'loaded 1x1', artShown)
+  const plainShown = await show(path.join(alpha, 'plain.png'))
+  check('… as does one in an ordinary folder', plainShown === 'loaded 1x1', plainShown)
+  const missingShown = await show(path.join(artDir, 'missing.png'))
+  check('… and a missing one is refused', missingShown === 'refused', missingShown)
+  const artRead = await inv('file:read', path.join(artDir, 'notes.md')).catch((e) => `error: ${e}`)
+  check('a file in art.asar opens', artRead === '# Art\n', JSON.stringify(artRead))
+  const artListed = await inv('files:list', alpha, 'art.asar').catch((e) => [{ error: String(e) }])
+  check('… and Files lists the folder', artListed.some((e) => e.name === 'icon.png'), JSON.stringify(artListed))
   // Copy Image on a path inside one fails before Electron's image reader (also asar-aware) opens the archive. The file
   // doesn't exist, so the clipboard is never written, even if this regressed.
   const copied = await inv('images:copy', path.join(projectRootAsar, 'missing.png')).then(() => 'copied', (e) => String(e))
@@ -128,6 +157,8 @@ const deleteFromOutside = (file) => {
     const err = deleteFromOutside(file)
     check(`the .asar in ${name} can be deleted while Hive runs`, !err, err)
   }
+  const artErr = deleteFromOutside(path.join(alpha, 'art.asar', 'icon.png'))
+  check('the image shown from art.asar can be deleted while Hive runs', !artErr, artErr)
   let distGone = null
   try {
     fs.rmSync(path.join(alpha, 'dist'), { recursive: true })

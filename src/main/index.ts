@@ -1,10 +1,10 @@
 import { initWatches, onWatchedCardsMoved, watchKeepsQuitWaiting } from './watches'
-import { app, BrowserWindow, Menu, nativeTheme, net, Notification, protocol, screen, session, shell } from 'electron'
+import { app, BrowserWindow, Menu, nativeTheme, Notification, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'child_process'
-import { appendFileSync, existsSync } from 'original-fs'
+import { appendFileSync, createReadStream, existsSync } from 'original-fs'
 import { basename, join, resolve, sep } from 'path'
-import { readFile } from 'original-fs/promises'
-import { pathToFileURL } from 'url'
+import { readFile, stat } from 'original-fs/promises'
+import { Readable } from 'stream'
 import type { AppInfo, McpServerDef, QuitChoice, QuitScope, QuitSession, WindowState } from '../shared/types'
 import { providerService } from './providerService'
 import { handoverSession, hiveInstructions, projectHandovers, withLatestHandover, wrapsLongCommands } from '../shared/hiveGuidance'
@@ -15,7 +15,7 @@ import { MARKED_LOG } from '../shared/redact'
 import { PROVIDERS, projectProviderConfig, providerSettings } from '../shared/providers'
 import { projectAgents } from '../shared/defaults'
 import { setDateStyle } from '../shared/dates'
-import { SERVABLE_EXT, unwatchAll } from './files'
+import { SERVABLE_EXT, servableType, unwatchAll } from './files'
 import { config } from './config'
 import { archiveOldDone, endReviews } from './tasks'
 import { emit, emitTo, onHiveEvent, toast } from './events'
@@ -609,10 +609,13 @@ app.whenReady().then(async () => {
   config.load()
   session.defaultSession.setPermissionRequestHandler((_wc, permission, done) => done(ALLOWED_PERMISSIONS.has(permission)))
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission))
-  protocol.handle('hive-img', (req) => {
+  protocol.handle('hive-img', async (req) => {
     const p = resolve(decodeURIComponent(new URL(req.url).pathname.slice(1)))
     if (!SERVABLE_EXT.test(p) || insideArchive(p) || !workspace.isAllowedPath(p)) return new Response('Not found', { status: 404 })
-    return net.fetch(pathToFileURL(p).toString())
+    // Read with original-fs, never Electron's file: loader, which would open an archive on the path and keep it (#246, #261).
+    const st = await stat(p).catch(() => null)
+    if (!st?.isFile()) return new Response('Not found', { status: 404 })
+    return new Response(Readable.toWeb(createReadStream(p)) as ReadableStream, { headers: { 'Content-Type': servableType(p), 'Content-Length': String(st.size) } })
   })
   nativeTheme.themeSource = config.settings.appearance.theme
   setDateStyle({ date: config.settings.general.dateFormat, time: config.settings.general.timeFormat })
