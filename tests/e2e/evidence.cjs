@@ -519,4 +519,4 @@ function claimedByRuns(logsRoots) {
   return out
 }
 
-module.exports = { AREAS, MAX_COPIES, KEPT_FILE, SUITE_FOLDER, suiteFolderTarget, linkOnTheWay, isArea, pathText, mentions, citedBy, findBoard, readCards, evidence, evidenceFor, safeList, sizeOf, removeTree, freshFolder, clearDir, finishSuiteDir, recordKept, keptBy, releaseKept, claimedByRuns }
+module.exports = { AREAS, MAX_COPIES, KEPT_FILE, SUITE_FOLDER, suiteFolderTarget, linkOnTheWay, linkOnPath, isArea, pathText, mentions, citedBy, findBoard, readCards, evidence, evidenceFor, safeList, sizeOf, removeTree, freshFolder, clearDir, finishSuiteDir, recordKept, keptBy, releaseKept, claimedByRuns }

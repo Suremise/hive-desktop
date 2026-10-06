@@ -38,7 +38,7 @@ import { affectedSuites, changedFiles } from './affected.mjs'
 import { fingerprint, recordMarkdown } from './record.mjs'
 import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, selectSuites, suiteOutcome } from './runner.mjs'
 import { devBuild, ensureBuild } from './build.mjs'
-import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, pruneRunDirsReleasing } from './logs.mjs'
+import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, omittedLine, pruneRunDirsReleasing } from './logs.mjs'
 import { LANES, claimLane, laneWork } from './lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, waitForSlot } from './slots.mjs'
 import { autoClean, holdLane } from './clean.mjs'
@@ -236,7 +236,11 @@ const run = (name, port) =>
       const outcome = suiteOutcome({ code, out })
       // --keep-files: a passed suite's own files (screenshots, reports) go into the run's log folder before its folder
       // does, as a failed one's do at the end (#304): a new place every run, pruned with the logs.
-      if (opts.keepFiles && dir && outcome.ok && keepSuiteFiles(dir, runLogDir, name) > 0) filesKept.push(name)
+      if (opts.keepFiles && dir && outcome.ok) {
+        const files = keepSuiteFiles(dir, runLogDir, name)
+        if (files.copied) filesKept.push(name)
+        if (files.omitted.length) filesLeftOut.push(`${name}: ${omittedLine(files.omitted)}`)
+      }
       const kept = dir ? finishSuiteDir(dir, evidence, !!(outcome.ok || outcome.skipped)).kept : null
       resolve({ name, ...outcome, code, out, seconds: Math.round((Date.now() - started) / 1000), dir, kept: kept && `${dir} (${kept})` })
     })
@@ -301,14 +305,16 @@ let finished = 0
 // Each run keeps its own logs (logs.mjs): a folder no other run shares, the last few kept; a runner started inside a
 // suite keeps its runs under logs/nested.
 const logsRoot = logsRootFor(lib.WORK)
-// The run now going (runOnce) and, with --keep-files, the passed suites whose files were kept in it.
+// The run now going (runOnce) and, with --keep-files, the passed suites whose files were kept in it (and what was left out).
 let runLogDir = null
 const filesKept = []
+const filesLeftOut = []
 /** Runs the chosen suites once (run k of the repeat): { ok, results, logDir, summary }. */
 async function runOnce(k) {
   const logDir = newRunDir(logsRoot)
   runLogDir = logDir
   filesKept.length = 0
+  filesLeftOut.length = 0
   const results = []
   const startedAt = Date.now()
   const running = new Set()
@@ -373,9 +379,15 @@ async function runOnce(k) {
   // card is still there when the reviewer looks.
   if (failed.length) {
     markRunFailed(logDir, failed.map((r) => r.name).join(', '))
-    const copied = failed.filter((r) => r.dir && keepSuiteFiles(r.dir, logDir, r.name) > 0).map((r) => r.name)
+    const copied = []
+    for (const r of failed.filter((x) => x.dir)) {
+      const files = keepSuiteFiles(r.dir, logDir, r.name)
+      if (files.copied) copied.push(r.name)
+      if (files.omitted.length) filesLeftOut.push(`${r.name}: ${omittedLine(files.omitted)}`)
+    }
     console.log(`It failed: its logs are kept for ${FAILED_KEEP_MS / 3_600_000} hours${copied.length ? `, with the screenshots and files of ${copied.join(', ')} in ${copied.length === 1 ? `${logDir}\\${copied[0]}` : `${logDir}\\<suite>`}` : ''}.`)
   }
+  if (filesLeftOut.length) console.log(`Left out of the kept files: ${filesLeftOut.join('; ')}.`)
   // In the chosen order, for the record.
   const ordered = chosen.map((s) => results.find((r) => r.name === s.name)).filter(Boolean)
   return { ok: !failed.length, results: ordered, logDir, summary }

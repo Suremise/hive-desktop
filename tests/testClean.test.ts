@@ -10,7 +10,7 @@ import { clean, holdLane, plan } from './e2e/clean.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { claimLane } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { finishRunDirs, newRunDir, pruneRunDirs, pruneRunDirsReleasing } from './e2e/logs.mjs'
+import { finishRunDirs, keepSuiteFiles, newRunDir, omittedLine, pruneRunDirs, pruneRunDirsReleasing } from './e2e/logs.mjs'
 
 const require = createRequire(import.meta.url)
 const { citedBy, readCards, evidence, freshFolder, clearDir, finishSuiteDir, recordKept, releaseKept, claimedByRuns, MAX_COPIES } = require('./e2e/evidence.cjs')
@@ -730,5 +730,113 @@ describe('no shell deletes before a rerun (#304): a new folder each run, or clea
       expect(d.split(/[\\/]/).pop()).toMatch(/^r2-291-probe-\d{8}-\d{6}-/)
     }
     expect(probeDir('', root).split(/[\\/]/).pop()).toMatch(/^probe-/)
+  })
+})
+
+describe("a suite's kept files include its screenshot folders (#284)", () => {
+  it('copies the top-level files and the *shots / reports folders at any depth; never profiles, workspaces or through links; survives the suite folder being reused', () => {
+    const root = temp('hive-keep-')
+    const lane = join(root, 'e2e', 'lanes', '0')
+    const suite = join(lane, 'restart')
+    const outside = temp('hive-keep-outside-')
+    tree(root, {
+      'e2e/lanes/0/restart/restart-1.png': 0,
+      'e2e/lanes/0/restart/notify.log': 0,
+      'e2e/lanes/0/restart/restart-shots/3-restart-failed.png': 0,
+      'e2e/lanes/0/restart/restart-shots/round-2/4-again.png': 0,
+      'e2e/lanes/0/restart/pshots/5-session.png': 0,
+      'e2e/lanes/0/restart/reports/summary.json': 0,
+      'e2e/lanes/0/restart/restart-profile/Cache/data': 0,
+      'e2e/lanes/0/restart/restart-ws/demo/a.ts': 0,
+      'e2e/lanes/0/restart/restart-claude-home/.credentials.json': 0
+    })
+    tree(outside, { 'precious.png': 0, 'deep/secret.png': 0 })
+    // Links: in a screenshot folder, at the top, and a screenshot folder that is itself a link.
+    symlinkSync(outside, join(suite, 'restart-shots', 'linked'), 'junction')
+    symlinkSync(outside, join(suite, 'linked-top'), 'junction')
+    symlinkSync(outside, join(suite, 'cshots'), 'junction')
+    const logs = join(root, 'e2e', 'logs')
+    const run = newRunDir(logs, new Date(2026, 9, 6, 22, 0, 0))
+    const kept = keepSuiteFiles(suite, run, 'restart')
+    const got = (readdirSync(join(run, 'restart'), { recursive: true }) as string[]).map((f) => f.split(/[\\/]/).join('/')).sort()
+    expect(got).toEqual(['notify.log', 'pshots', 'pshots/5-session.png', 'reports', 'reports/summary.json', 'restart-1.png', 'restart-shots', 'restart-shots/3-restart-failed.png', 'restart-shots/round-2', 'restart-shots/round-2/4-again.png'])
+    expect(kept.copied).toBe(6)
+    expect(kept.omitted.map((o: { path: string }) => o.path.split(/[\\/]/).join('/')).sort()).toEqual(['cshots', 'linked-top', 'restart-shots/linked'])
+    expect(kept.omitted.every((o: { why: string }) => /a link/.test(o.why))).toBe(true)
+    expect(omittedLine(kept.omitted)).toMatch(/\(a link \(not followed\)\)/)
+    // The links' targets are untouched, and nothing of them was copied.
+    expect(existsSync(join(outside, 'precious.png')) && existsSync(join(outside, 'deep', 'secret.png'))).toBe(true)
+    // The lane's folder reused by the next run (emptied): the run's copies stay.
+    expect(freshFolder(suite, rules(root, []))).toBe(suite)
+    expect(readdirSync(suite)).toEqual([])
+    expect(readFileSync(join(run, 'restart', 'restart-shots', '3-restart-failed.png'), 'utf8')).toHaveLength(100)
+    expect(readFileSync(join(run, 'restart', 'restart-shots', 'round-2', '4-again.png'), 'utf8')).toHaveLength(100)
+  })
+
+  it('never a profile, workspace, CLI home or sign-in file, even inside a screenshot folder (round 2)', () => {
+    const root = temp('hive-keep-nested-')
+    const suite = join(root, 'e2e', 'lanes', '0', 'restart')
+    tree(root, {
+      'e2e/lanes/0/restart/shots/good.png': 0,
+      'e2e/lanes/0/restart/shots/deeper/also-good.png': 0,
+      'e2e/lanes/0/restart/shots/restart-profile/Cache/private.txt': 0,
+      'e2e/lanes/0/restart/shots/restart-ws/project/source.ts': 0,
+      'e2e/lanes/0/restart/shots/ws2/x.ts': 0,
+      'e2e/lanes/0/restart/shots/restart-claude-home/.credentials.json': 0,
+      'e2e/lanes/0/restart/shots/codex/auth.json': 0,
+      'e2e/lanes/0/restart/shots/deeper/auth.json': 0,
+      'e2e/lanes/0/restart/.credentials.json': 0,
+      'e2e/lanes/0/restart/reports/node_modules/x/index.js': 0
+    })
+    const run = newRunDir(join(root, 'e2e', 'logs'), new Date(2026, 9, 6, 23, 0, 0))
+    const kept = keepSuiteFiles(suite, run, 'restart')
+    const got = (readdirSync(join(run, 'restart'), { recursive: true }) as string[]).map((f) => f.split(/[\\/]/).join('/')).sort()
+    expect(got).toEqual(['shots', 'shots/deeper', 'shots/deeper/also-good.png', 'shots/good.png'])
+    const omitted = Object.fromEntries(kept.omitted.map((o: { path: string; why: string }) => [o.path.split(/[\\/]/).join('/'), o.why]))
+    expect(omitted).toEqual({
+      'shots/restart-profile': 'a profile, workspace or CLI home',
+      'shots/restart-ws': 'a profile, workspace or CLI home',
+      'shots/ws2': 'a profile, workspace or CLI home',
+      'shots/restart-claude-home': 'a profile, workspace or CLI home',
+      'shots/codex': 'a profile, workspace or CLI home',
+      'shots/deeper/auth.json': 'a sign-in file',
+      '.credentials.json': 'a sign-in file',
+      'reports/node_modules': 'a profile, workspace or CLI home'
+    })
+    // Reused for the next run: only the screenshots were kept.
+    freshFolder(suite, rules(root, []))
+    expect(readFileSync(join(run, 'restart', 'shots', 'deeper', 'also-good.png'), 'utf8')).toHaveLength(100)
+  })
+
+  it('never through a link to the suite folder or a folder above it', () => {
+    const root = temp('hive-keep-rootlink-')
+    const outside = temp('hive-keep-rootlink-outside-')
+    tree(outside, { 'outside-secret.png': 0, 'restart/inside-secret.png': 0 })
+    tree(root, { 'logs/.keep': 0 })
+    // The suite folder itself a junction; and a junction above it.
+    symlinkSync(outside, join(root, 'suite-alias'), 'junction')
+    symlinkSync(outside, join(root, 'lane-alias'), 'junction')
+    for (const [dir, name] of [[join(root, 'suite-alias'), 'alias'], [join(root, 'lane-alias', 'restart'), 'nested']]) {
+      const run = join(root, 'logs', name)
+      const kept = keepSuiteFiles(dir, run, 'restart')
+      expect(kept.copied, dir).toBe(0)
+      expect(kept.omitted, dir).toEqual([{ path: '.', why: expect.stringMatching(/^reached through a link .*: not read$/) }])
+      expect(existsSync(join(run, 'restart')), dir).toBe(false)
+    }
+    expect(existsSync(join(outside, 'outside-secret.png')) && existsSync(join(outside, 'restart', 'inside-secret.png'))).toBe(true)
+  })
+
+  it('keeps within its limits, saying what it left out', () => {
+    const root = temp('hive-keep-limits-')
+    tree(root, { 'suite/a.png': 0, 'suite/b.png': 0, 'suite/shots/c.png': 0, 'suite/shots/d.png': 0 })
+    writeFileSync(join(root, 'suite', 'huge.png'), 'x'.repeat(5000))
+    const files = keepSuiteFiles(join(root, 'suite'), join(root, 'run1'), 's', { maxBytes: 1000, maxFiles: 3 })
+    expect(files.copied).toBe(3)
+    expect(files.omitted).toEqual(expect.arrayContaining([{ path: 'huge.png', why: 'over 1 KB' }]))
+    expect(files.omitted.filter((o: { why: string }) => o.why === 'past 3 files')).toHaveLength(1)
+    const total = keepSuiteFiles(join(root, 'suite'), join(root, 'run2'), 's', { maxTotal: 250 })
+    expect(total.copied).toBe(2)
+    expect(total.omitted.filter((o: { why: string }) => /past 0 KB in all/.test(o.why))).toHaveLength(3)
+    expect(omittedLine([{ path: 'a', why: 'x' }, { path: 'b', why: 'y' }], 1)).toBe('a (x) and 1 more')
   })
 })

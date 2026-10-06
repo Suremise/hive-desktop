@@ -29,4 +29,12 @@ In Hive an agent often works in its own git worktree on its own branch. The user
 
 Give the user the summary and say plainly whether the branch is ready, and if not, what's in the way. Merging is done from Hive, where the user reviews it first. Rebase, merge, push, delete the branch or publish only when the user asks you to. If the user isn't watching this agent, a short `hive_notify` that the branch is ready helps them notice.
 
-When you have merged the branch (the user asked you to), move its cards from `passed` to `done`: Done means merged. Cards still in Review or Doing stay where they are.
+## Merging, when the user asks you to
+
+Other agents merge into the same base. What you merge must be what you checked:
+1. **Note the base's commit** (`git rev-parse <base>`) when you start the checks, with the base already merged into your branch.
+2. **Just before merging, compare it** with the base's commit now. If the base has moved (another branch was merged meanwhile), your branch and that work were never checked together: merge the base into your branch again, rerun the checks the combined change needs (all of them when the new commits touch shared code or test tooling), and compare again.
+3. **Merge** only when nothing moved since your checks, in the checkout where the base is (`git -C <that checkout> merge --no-ff <branch>`). If git says `index.lock` exists, another merge is under way there: wait and try again; never delete the lock.
+4. **Report** the merge commit and the base commit your checks ran on.
+
+Then move the branch's cards from `passed` to `done`: Done means merged. Cards still in Review or Doing stay where they are.

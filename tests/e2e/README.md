@@ -240,8 +240,13 @@ Everything goes in `%LOCALAPPDATA%\hive-test\e2e` (override with `HIVE_E2E_DIR`)
 - `logs\run-<date>-<time>`: each run's logs and run record, from every lane (above); `logs\run-record.md` is the latest
   record. The newest ten finished runs are kept, counted across every worktree's and agent's runs. A run that **failed**
   (a suite failed, or its record isn't valid) is kept a day beyond that (the newest twenty such; #223), and its failed
-  suites' own files (screenshots, notification logs, reports: not their profiles) are copied into it, in
-  `<run folder>\<suite>`. The runner says so when the run ends, so the run folder is the path to cite in a card.
+  suites' own files are copied into it, in `<run folder>\<suite>`: the files at the top of the suite's folder
+  (screenshots, notification logs, reports) and its folders of screenshots and reports at any depth (`*shots`, such as
+  `restart-shots` or `pshots`; `screenshots`, `artifacts`, `reports`; #284), never a profile, workspace, CLI home or
+  sign-in file at any depth (inside a screenshot folder too), and never through a link (a suite folder with a link
+  anywhere on its path isn't read at all). A file over 20 MB, or past 500 files or 200 MB in all, is left out (`keepSuiteFiles` in
+  `logs.mjs`). The runner says so when the run ends, with anything it left out, so the run folder is the path to cite in
+  a card. A suite writing screenshots into a folder of its own names it to match.
 - The work folder itself: suites run on their own (`node tests/e2e/<suite>.cjs`) keep their folders there (each run
   empties its own subfolders, and its screenshots replace the last run's). To keep a run's screenshots, run it through
   the runner with `--keep-files` instead: they land in that run's new log folder.
