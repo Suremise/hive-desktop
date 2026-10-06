@@ -36,6 +36,25 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Long commands get a title: fakes, Codex (`gpt-5.6-luna`, CLI 0.160.0), fixtures v11, 6 October 2026
+
+#251 changed the session contract's hive-progress line to `hive-progress --title "<what and why, in a few words>" --
+<command>` (and "shows them to the user"); fixtures v11 added the model-only check **gave the run a title for the user**
+to progress-long-command and progress-background. #272 measured it cleanly, on one source (`7030a62`, unchanged while
+each run ran), the before run with only that line put back as it was:
+- **Fakes** (work-on-card and the three progress scenarios; baselines `b6-272-before` and `b6-272-after`, results
+  `2026-10-06T13-48-37-fake` and `2026-10-06T13-50-39-fake`): all pass both times, and Performance → Compare finds them
+  comparable. The launch guidance grows **+53 bytes** (1,506 → 1,559 characters of the contract; +41 with wrapping off,
+  progress-off), so each scenario reads *Larger or worse*; no check passed or ran less often. Everything else is
+  unchanged. The fakes skip both "ran through hive-progress" and "gave the run a title": they show the size, not what a
+  model does with the line.
+- **Codex: 2 of 2 pass** (`results/2026-10-06T13-52-42-codex`, $0.003), one sample each: both ran
+  `hive-progress --title "Run full npm test suite" -- npm test` (the background one through `exec_command` with a 1 s
+  yield).
+- **Claude Code** (sonnet, CLI 2.1.290, its test home): no result. Claude Code answered the prompt with "Login expired ·
+  Please run /login" at once (`2026-10-06T13-54-07-claude-code`; the 6 Oct 02:05 and 00:18/00:24 tries were the same),
+  and the harness waited out its 6 minutes. The test home needs signing in again, by hand.
+
 ## On Hold and Passed: fakes, Codex (`gpt-5.6-luna`, CLI 0.160.0), fixtures v10, 6 October 2026
 
 #170 adds the On Hold and Passed columns: the session contract, card-loop, review-agent-work, work-on-card, merge-ready and

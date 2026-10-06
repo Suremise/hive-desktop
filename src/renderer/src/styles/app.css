@@ -301,12 +301,15 @@ kbd {
   font-size: 14px;
   color: var(--fg-muted);
 }
-.menu-item:hover:not(.disabled) {
+.menu-item:hover:not(.disabled),
+.menu-item.active:not(.disabled) {
   background: var(--accent);
   color: var(--accent-fg);
 }
 .menu-item:hover:not(.disabled) .codicon,
-.menu-item:hover:not(.disabled) .menu-key {
+.menu-item:hover:not(.disabled) .menu-key,
+.menu-item.active:not(.disabled) .codicon,
+.menu-item.active:not(.disabled) .menu-key {
   color: var(--accent-fg);
 }
 .menu-item.disabled {
@@ -3592,7 +3595,7 @@ body.pane-resizing .monaco-editor {
   height: calc(50% - 0.5px);
 }
 /* Agent pages (more than six agents): 1 · 2, with a dot for another page's most urgent agent. */
-/* The agent strip's templates (#126): Template ▾, Save Template…, Add Agent from Template ▾ (icons, or one ⋯, when narrow). */
+/* The agent strip's Template ▾ (#126, #286): Save Template… and the templates to load (its icon when narrow). */
 .template-controls {
   display: flex;
   align-items: center;
@@ -4766,15 +4769,12 @@ button.mode-badge.badge:hover {
   padding: 4px 8px;
   vertical-align: middle;
 }
-.kb-table tr.kb-cat td {
-  padding-top: 14px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--fg-muted);
-}
-.kb-table tr:not(.kb-cat):hover td {
+.kb-table tbody tr:hover td {
   background: var(--bg-hover);
+}
+.kb-category {
+  font-size: 12px;
+  white-space: nowrap;
 }
 .kb-table tr.recording td {
   background: var(--accent-soft);
@@ -5827,6 +5827,16 @@ body.pane-resizing-v .monaco-editor {
   font-size: 14px;
   line-height: 1;
 }
+/* A row's detail, opened under it (DataTable `detail`: Compare's scenarios). */
+.table-detail > td {
+  background: var(--bg-elevated);
+  padding: 8px 12px 12px;
+}
+/* Totals under a table's rows (DataTable `foot`). */
+.data-table tfoot td {
+  font-weight: 600;
+  border-top: 1px solid var(--border);
+}
 .data-table-empty {
   padding: 8px 0;
 }
@@ -6166,6 +6176,36 @@ body.pane-resizing-v .monaco-editor {
   font-size: 12px;
   font-weight: normal;
 }
+/* A filter and the sections it changes, framed together, so what it doesn't change isn't under it (#270): Who around
+   the cards, chart and tables; Provider, inside it, around launches and the providers' usage. */
+.perf-group {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0 0 12px;
+  min-width: 0;
+}
+.perf-group.perf-by-provider {
+  margin: 24px 0 12px;
+}
+.perf-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.perf-group-head + .empty-state.perf-empty {
+  padding: 24px 0;
+}
+.perf-group .perf-group-head + h2.section,
+.perf-group-head + .table-wrap {
+  margin-top: 0;
+}
+.perf-provider-empty {
+  margin: 0;
+}
 /* Performance → Compare (views/PerformanceCompare.tsx). */
 .good-text {
   color: var(--success);
@@ -6178,10 +6218,6 @@ body.pane-resizing-v .monaco-editor {
 }
 .perf-scenarios td:first-child {
   white-space: nowrap;
-}
-.perf-detail > td {
-  background: var(--bg-elevated);
-  padding: 8px 12px 12px;
 }
 .perf-detail-body p {
   margin: 0 0 6px;

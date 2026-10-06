@@ -88,8 +88,9 @@ const check = (name, ok, extra = '') => {
   await choose('Grid of six')
   check('six agents in the grid of six: one page, saved as automatic', (await buttons()) === 0 && (await panes()) === 6 && (await cfg()).layout === 'auto', JSON.stringify((await cfg()).layout))
 
-  // The seventh (added here) opens page 2 of the automatic grid, with a note about memory.
-  await page.locator('.agent-add:not(.split-caret)').click()
+  // The seventh (added here, the quick add) opens page 2 of the automatic grid, with a note about memory.
+  await page.evaluate(() => document.activeElement?.blur())
+  await page.keyboard.press('Control+Alt+Shift+N')
   await lib.until(async () => (await active()) === '2', 10000)
   check('the seventh agent opens page 2', (await active()) === '2')
   check('page 2 shows it, its spare panes empty', (await shown()) === 'Agent 7' && (await panes()) === 6, `${await shown()} / ${await panes()}`)

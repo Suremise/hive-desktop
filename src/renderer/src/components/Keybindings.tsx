@@ -5,8 +5,9 @@ import * as actions from '../actions'
 import { call } from '../api'
 import { commands, eventToKey, isProjectScoped, terminalReserved, type Command } from '../commands'
 import { confirm, notify, set, useStore } from '../store'
-import { cx, formatKeybinding } from '../util'
+import { formatKeybinding } from '../util'
 import { Icon, IconButton, Tooltip } from './ui'
+import { DataTable, type DataColumn } from './DataTable'
 
 /** Waits this long after the first combination for a second one, which makes a chord ("Ctrl+K Ctrl+S"). */
 const CHORD_WAIT = 1200
@@ -113,7 +114,6 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
 
   const q = query.trim().toLowerCase()
   const shown = rows.filter((r) => !q || `${r.c.category} ${r.c.label} ${r.c.id} ${r.key ? formatKeybinding(r.key) : ''}`.toLowerCase().includes(q))
-  const categories = [...new Set(shown.map((r) => r.c.category))]
 
   const save = async (id: string, key: string | null | undefined): Promise<void> => {
     if (project) {
@@ -147,8 +147,7 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
     } else set({ settings: await call('settings:reset', 'keybindings') })
   }
 
-  const sourceLabel = (r: Row): string =>
-    r.source === 'default' ? '' : r.source === 'changed' ? 'Changed' : r.source === 'project' ? 'This project' : r.source === 'removed' ? 'Removed' : 'Global'
+  const columns = keyColumns({ project, recording, setRecording, record: (id, k) => void record(id, k), save: (id, k) => void save(id, k), conflicts })
 
   return (
     <div className="kb-editor">
@@ -160,65 +159,98 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
         </button>
       </div>
       {project && <p className="faint kb-note">Changes here apply while {project.name} is selected, over the global shortcuts. Other commands are set in Settings → Keyboard Shortcuts.</p>}
-      <table className="table kb-table">
-        <tbody>
-          {categories.map((cat) => (
-            <FragmentRows key={cat} title={cat}>
-              {shown
-                .filter((r) => r.c.category === cat)
-                .map((r) => {
-                  const clash = r.key ? (conflicts.get(r.key.toUpperCase()) ?? []).filter((l) => l !== r.c.label) : []
-                  const terminal = r.key && terminalReserved().has(r.key.toUpperCase())
-                  return (
-                    <tr key={r.c.id} className={cx(recording === r.c.id && 'recording')}>
-                      <td className="kb-label">
-                        {r.c.label}
-                        <div className="faint kb-id">{r.c.id}</div>
-                      </td>
-                      <td className="kb-key" onDoubleClick={() => setRecording(r.c.id)}>
-                        {recording === r.c.id ? (
-                          <Recorder onDone={(k) => void record(r.c.id, k)} onCancel={() => setRecording(null)} />
-                        ) : (
-                          <>
-                            <Kbd keys={r.key} />
-                            {clash.length > 0 && (
-                              <Tooltip content={`Also used by ${clash.join(', ')}`}>
-                                <Icon name="warning" className="kb-warn" />
-                              </Tooltip>
-                            )}
-                            {terminal && (
-                              <Tooltip content="While an agent's terminal has focus this key goes to the agent, so the shortcut only works elsewhere.">
-                                <Icon name="terminal" className="faint" />
-                              </Tooltip>
-                            )}
-                          </>
-                        )}
-                      </td>
-                      <td className="kb-source faint">{sourceLabel(r)}</td>
-                      <td className="kb-actions">
-                        <IconButton icon="edit" title="Change shortcut (or double-click it)" onClick={() => setRecording(r.c.id)} />
-                        <IconButton icon="close" title="Remove shortcut" disabled={!r.key} onClick={() => void save(r.c.id, null)} />
-                        <IconButton icon="discard" title={project ? 'Use the global shortcut' : `Reset to default${r.c.keybinding ? ` (${formatKeybinding(r.c.keybinding)})` : ''}`} disabled={!r.overridden} onClick={() => void save(r.c.id, undefined)} />
-                      </td>
-                    </tr>
-                  )
-                })}
-            </FragmentRows>
-          ))}
-        </tbody>
-      </table>
-      {shown.length === 0 && <div className="pane-empty">No commands match.</div>}
+      {/* Every command on one page (a settings page scrolls): sorting and the Category and Source filters, no paging. */}
+      <DataTable
+        id={project ? 'shortcuts-project' : 'shortcuts'}
+        className="kb-table"
+        rows={shown}
+        columns={columns}
+        rowKey={(r) => r.c.id}
+        pageSizes={ALL_ROWS}
+        defaultPageSize={ALL_ROWS[0]}
+        rowClassName={(r) => recording === r.c.id && 'recording'}
+        empty="No commands match."
+      />
     </div>
   )
 }
 
-function FragmentRows({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <>
-      <tr className="kb-cat">
-        <td colSpan={4}>{title}</td>
-      </tr>
-      {children}
-    </>
-  )
+const ALL_ROWS = [1000]
+
+const sourceLabel = (r: Row): string => (r.source === 'default' ? '' : r.source === 'changed' ? 'Changed' : r.source === 'project' ? 'This project' : r.source === 'removed' ? 'Removed' : 'Global')
+
+interface KeyEditing {
+  project?: ProjectInfo
+  recording: string | null
+  setRecording: (id: string | null) => void
+  record: (id: string, key: string) => void
+  save: (id: string, key: string | null | undefined) => void
+  conflicts: Map<string, string[]>
+}
+
+/** The editor's columns: the command, its category, its shortcut (recorded in place), where it comes from, and its actions. */
+function keyColumns({ project, recording, setRecording, record, save, conflicts }: KeyEditing): DataColumn<Row>[] {
+  return [
+    {
+      key: 'command',
+      header: 'Command',
+      className: 'kb-label',
+      cell: (r) => (
+        <>
+          {r.c.label}
+          <div className="faint kb-id">{r.c.id}</div>
+        </>
+      ),
+      sortValue: (r) => r.c.label
+    },
+    { key: 'category', header: 'Category', className: 'kb-category faint', cell: (r) => r.c.category, sortValue: (r) => r.c.category, filter: { kind: 'choice', value: (r) => r.c.category } },
+    {
+      key: 'key',
+      header: 'Shortcut',
+      className: 'kb-key',
+      cell: (r) => {
+        if (recording === r.c.id) return <Recorder onDone={(k) => record(r.c.id, k)} onCancel={() => setRecording(null)} />
+        const clash = r.key ? (conflicts.get(r.key.toUpperCase()) ?? []).filter((l) => l !== r.c.label) : []
+        const terminal = r.key && terminalReserved().has(r.key.toUpperCase())
+        return (
+          <span className="kb-key-value" onDoubleClick={() => setRecording(r.c.id)}>
+            <Kbd keys={r.key} />
+            {clash.length > 0 && (
+              <Tooltip content={`Also used by ${clash.join(', ')}`}>
+                <Icon name="warning" className="kb-warn" />
+              </Tooltip>
+            )}
+            {terminal && (
+              <Tooltip content="While an agent's terminal has focus this key goes to the agent, so the shortcut only works elsewhere.">
+                <Icon name="terminal" className="faint" />
+              </Tooltip>
+            )}
+          </span>
+        )
+      },
+      // Commands without a shortcut sort last.
+      sortValue: (r) => (r.key ? formatKeybinding(r.key) : null)
+    },
+    {
+      key: 'source',
+      header: 'Set',
+      className: 'kb-source faint',
+      cell: sourceLabel,
+      sortValue: (r) => sourceLabel(r) || null,
+      filter: { kind: 'choice', value: (r) => sourceLabel(r) || (project ? 'Global' : 'Default') },
+      choiceLabel: (v) => v
+    },
+    {
+      key: 'actions',
+      header: '',
+      className: 'kb-actions',
+      cell: (r) => (
+        <>
+          <IconButton icon="edit" title="Change shortcut (or double-click it)" onClick={() => setRecording(r.c.id)} />
+          <IconButton icon="close" title="Remove shortcut" disabled={!r.key} onClick={() => save(r.c.id, null)} />
+          <IconButton icon="discard" title={project ? 'Use the global shortcut' : `Reset to default${r.c.keybinding ? ` (${formatKeybinding(r.c.keybinding)})` : ''}`} disabled={!r.overridden} onClick={() => save(r.c.id, undefined)} />
+        </>
+      )
+    }
+  ]
 }
