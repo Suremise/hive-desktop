@@ -357,8 +357,9 @@ export function Board({ project, query, archived }: { project: string | null; qu
     const list = cards.filter((c) => c.column === column)
     const tile = at.closest<HTMLElement>('.task-card')
     let before: number | null
-    // A collapsed column's strip: at its top.
-    if (colEl.classList.contains('collapsed')) before = list.find((c) => c.number !== d.n)?.number ?? null
+    // A collapsed column's strip: at its top, the true top of the board's cards there (#263), not the top of those the
+    // search shows: a card the search hides would otherwise stay above it.
+    if (colEl.classList.contains('collapsed')) before = all.find((c) => !c.archived && c.column === column && c.number !== d.n && (project === null || c.project.toLowerCase() === project.toLowerCase()))?.number ?? null
     else if (tile) {
       const n = Number(tile.dataset.task)
       const r = tile.getBoundingClientRect()

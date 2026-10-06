@@ -1,7 +1,7 @@
 // The board's six columns and how it folds (#170): On Hold before Todo and Passed between Review and Done, through the
 // Agent API too; each column collapses to a narrow strip with its name and count, and the expanded
 // ones share the freed width (1, 3 and 5 collapsed, narrow and wide windows); a card dropped on a strip goes to the top
-// of that column; cards fold to one line, one by one or all of a column from its menu; and all of it is kept for the
+// of that column (its true top with a search on, #263); cards fold to one line, one by one or all of a column from its menu; and all of it is kept for the
 // workspace after a reload and a restart, also with two windows (each its own workspace) that read the folds before
 // either changed them. Both themes. No agents. Dev build, throwaway profile and workspaces.
 const lib = require('./lib.cjs')
@@ -128,6 +128,18 @@ const LABELS = ['On Hold', 'Todo', 'Doing', 'Review', 'Passed', 'Done']
   await strip.focus()
   await page.keyboard.press('Enter')
   check('Enter on the strip expands the column', !!(await until(async () => (await tile(n.hold).count()) === 1, 5000)))
+  await inv('tasks:update', n.t3, { column: 'todo', position: 'bottom' })
+
+  // With a search on, the strip still puts the card at the true top of its column, above the cards the search hides
+  // (#263): not at the top of the ones it shows, which here are none.
+  const search = page.getByPlaceholder('Search cards (#12, words, labels)')
+  await search.fill('t3 card')
+  await collapse('On Hold')
+  check('the search hides the other cards', !!(await until(async () => (await tile(n.t3).count()) === 1 && (await tile(n.t1).count()) === 0, 5000)))
+  await tile(n.t3).dragTo(strip)
+  check("with a search on, a card dropped on a collapsed column still goes to its true top", !!(await until(async () => (await saved('hold')).join() === [n.t3, n.hold].join(), 5000)), (await saved('hold')).join())
+  await search.fill('')
+  await expand('On Hold')
   await inv('tasks:update', n.t3, { column: 'todo', position: 'bottom' })
 
   // Cards fold to one line, and back.
