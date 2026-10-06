@@ -26,7 +26,7 @@ import type { AgentDef, ProviderId, TemplateLoadPlan } from '../shared/types'
 import { config } from './config'
 import { readKeptJson, withFileLock, writeKeptJson, writeTextAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
-import { addAgent, prepareAgent } from './projectAgents'
+import { addAgent, newWorktreePlace, prepareAgent } from './projectAgents'
 import { providerService } from './providerService'
 import { sessions } from './sessions'
 import { endReviews, releaseAgentCards } from './tasks'
@@ -307,8 +307,24 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
     if (why) missing.push({ provider: id, reason: why, agents: t.agents.filter((a) => a.provider === id).map((a) => a.name) })
   }
   for (const m of missing) blocked.push(`${m.reason}, needed by ${m.agents.join(', ')}.`)
-  if (t.agents.some((a) => a.worktree) && !(await wt.currentBranch(projectPath))) blocked.push('Its worktree agents need the project to be a git repository on a branch.')
-  return { scope: t.scope, file: t.file, name: t.name, layout: t.layout, remove, create: t.agents, missing, blocked }
+  const base = t.agents.some((a) => a.worktree) ? await wt.currentBranch(projectPath) : null
+  if (t.agents.some((a) => a.worktree) && !base) blocked.push('Its worktree agents need the project to be a git repository on a branch.')
+  // Where each new worktree would go, as the load makes them, one after another: in this project, never the template's
+  // project (a template holds only whether an agent has its own worktree, #268).
+  const taken = { branches: new Set<string>(), folders: new Set<string>() }
+  const worktrees: TemplateLoadPlan['worktrees'] = []
+  for (const a of t.agents) {
+    if (!a.worktree || !base) {
+      worktrees.push(null)
+      continue
+    }
+    const spot = await newWorktreePlace(projectPath, a.name, undefined, taken)
+    taken.branches.add(spot.branch)
+    taken.folders.add(spot.path.toLowerCase())
+    worktrees.push({ ...spot, base })
+  }
+  const setup = cfg.worktreeSetup.trim() || null
+  return { scope: t.scope, file: t.file, name: t.name, layout: t.layout, remove, create: t.agents, worktrees, setup, missing, blocked }
 }
 
 /** Seams for unit tests: called after each of a load's agents is staged (its name), before the load is published. */

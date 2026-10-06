@@ -379,15 +379,35 @@ describe('saving and loading templates', () => {
     await expect(run(() => templates.addAgentFromTemplate(beta, 'workspace', t!.file, 1))).rejects.toThrow(/doesn't know the coding agent "gemini"/)
   })
 
-  it("a project's template loads into another project (from the Templates view)", async () => {
+  it("a project's template loads into another project (from the Templates view), its worktrees new ones in that project only (#268)", async () => {
+    // alpha has its own worktree agent "Tree A" (on alpha's hive/tree-a); beta already has a hive/tree-b branch, and a setup command.
+    const source = await run(() => addAgent(alpha, { name: 'Tree A', location: 'new-worktree' }))
+    git(beta, 'branch', 'hive/tree-b')
+    writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ ...cfgOf(beta), worktreeSetup: 'npm install' }))
     const ids = cfgOf(beta).agents.map((a: AgentDef) => a.id)
     const plan = await run(() => templates.templatePlan(beta, 'project', 'trees.json', alpha))
     expect([plan.name, plan.blocked]).toEqual(['Trees', []])
+    expect(plan.setup).toBe('npm install')
+    // Where each new worktree goes: beta's own branches (taken ones numbered) and folders under beta's name.
+    expect(plan.worktrees.map((tree) => tree?.branch)).toEqual(['hive/tree-a', 'hive/tree-b-2'])
+    expect(plan.worktrees.every((tree) => !!tree && basename(join(tree.path, '..')) === 'beta' && tree.base === 'main')).toBe(true)
+    expect(plan.worktrees[0]!.path.toLowerCase()).not.toBe(source.worktree!.path.toLowerCase())
     // Without `from`, beta's own folder: it has no trees.json.
     await expect(run(() => templates.templatePlan(beta, 'project', 'trees.json'))).rejects.toThrow(/no longer there/)
     const r = await run(() => templates.loadTemplate(beta, 'project', 'trees.json', ids, alpha))
     expect(r.created).toEqual(['Tree A', 'Tree B'])
     expect(cfgOf(beta).layout).toBe(plan.layout)
+    // What the plan showed is what was made: new worktrees on new branches of beta's repository, set up on first start.
+    const made = cfgOf(beta).agents.map((a: AgentDef) => a.worktree)
+    expect(made.map((tree: AgentDef['worktree']) => [tree!.branch, tree!.path.toLowerCase()])).toEqual(plan.worktrees.map((tree) => [tree!.branch, tree!.path.toLowerCase()]))
+    expect(cfgOf(beta).agents.every((a: AgentDef) => a.needsSetup)).toBe(true)
+    const betaTrees = git(beta, 'worktree', 'list', '--porcelain').toString().toLowerCase()
+    for (const tree of made) expect(betaTrees).toContain(tree!.path.toLowerCase().replace(/\\/g, '/'))
+    expect(git(beta, 'branch', '--list', 'hive/tree-a').toString()).toMatch(/hive\/tree-a/)
+    // Nothing points at alpha's: its worktree and branch are alpha's alone, untouched.
+    expect(made.some((tree: AgentDef['worktree']) => tree!.path.toLowerCase() === source.worktree!.path.toLowerCase())).toBe(false)
+    expect(git(alpha, 'worktree', 'list', '--porcelain').toString().toLowerCase()).not.toContain('/beta/')
+    expect(cfgOf(alpha).agents.find((a: AgentDef) => a.id === source.id)?.worktree).toEqual(source.worktree)
   })
 
   it('changes at once to one place never pick the same file or miss a name: imports, duplicates, saves', async () => {

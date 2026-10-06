@@ -36,6 +36,8 @@ export interface ConfirmRequest {
   title: string
   message: string
   detail?: string
+  /** A long detail scrolls in its own box, the dialog's buttons staying in view (a template's agents, #268). */
+  scrollDetail?: boolean
   confirmLabel?: string
   cancelLabel?: string
   danger?: boolean

@@ -7,6 +7,7 @@ import { agentsToResume, resumeAll } from '@shared/resumeAll'
 import { batchLine, eachAgent, sessionsToArchive } from '@shared/startAll'
 import type { ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
+import { templateLoadDetail } from '@shared/templateLoad'
 import { formatTokens } from './util'
 import { statusText } from './components/ui'
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
@@ -750,13 +751,9 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
   const ok = await confirm({
     title: `Load "${plan.name}"?`,
     message: plan.remove.length ? `It replaces every agent of ${p?.name ?? 'this project'}.` : `It adds its agents to ${p?.name ?? 'this project'}.`,
-    detail: [
-      ...(plan.remove.length ? ['Removed:', ...plan.remove.map((a) => `• ${a.name}${a.worktree ? ` (its worktree and branch ${a.worktree.branch} stay)` : ''}`), ''] : []),
-      'Created:',
-      ...plan.create.map((a) => `• ${a.name}${a.role ? ` — ${a.role}` : ''} (${providerName(a.provider)}${a.worktree ? ', own worktree' : ''})`),
-      '',
-      `${plan.remove.length ? "Their conversations stay in the Sessions tab, and their open cards go back (Doing ones to Todo). " : ''}The layout becomes the template's.`
-    ].join('\n'),
+    // Who goes and who comes: each new agent's settings, and its new worktree's branch and folder in this project (#268).
+    detail: p ? templateLoadDetail(plan, p.config, get().settings, (id) => get().providers[id]) : undefined,
+    scrollDetail: true,
     confirmLabel: 'Load template',
     busyLabel: 'Loading…',
     danger: plan.remove.length > 0,

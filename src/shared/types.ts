@@ -649,6 +649,10 @@ export interface TemplateLoadPlan {
   /** The project's agents, all removed: running ones and uncommitted worktree work block the load. */
   remove: { id: string; name: string; running: boolean; dirty: number; worktree?: { path: string; branch: string } }[]
   create: TemplateAgent[]
+  /** Where each created agent's new worktree goes (#268), by `create`'s order: a branch in this project's repository and a folder in its worktree location; null for an agent in the project folder. */
+  worktrees: ({ branch: string; path: string; base: string } | null)[]
+  /** The project's worktree setup command, which each new worktree runs before its agent first starts (null: none). */
+  setup: string | null
   /** Providers the template needs that are off or not installed, and which of its agents need each. */
   missing: { provider: ProviderId; reason: string; agents: string[] }[]
   /** Why it can't be loaded now (empty: it can). */

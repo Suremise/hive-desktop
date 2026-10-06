@@ -119,7 +119,7 @@ export function Dialogs() {
         }
       >
         <div>{dialog.message}</div>
-        {dialog.detail && <div className="detail">{dialog.detail}</div>}
+        {dialog.detail && <div className={cx('detail', dialog.scrollDetail && 'scroll')}>{dialog.detail}</div>}
       </Modal>
     )
   }

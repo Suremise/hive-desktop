@@ -1723,6 +1723,14 @@ p.hint {
   margin-top: 6px;
   white-space: pre-line;
 }
+/* A long list (a template's agents, #268) scrolls in its own box. Its indented lines (a worktree's place) keep their indent. */
+.dialog-body .detail.scroll {
+  max-height: 50vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding-right: 4px;
+}
 .dialog-footer {
   display: flex;
   justify-content: flex-end;

@@ -61,6 +61,19 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
 }
 
 /**
+ * Where a new worktree for an agent called `name` goes in this project: a new branch `hive/<name>` in the project's own
+ * repository and a folder in the workspace's worktree location under the project's name, each numbered (`-2`) when taken.
+ * `taken`: branches and (lower-cased) folders a plan has already given out. Shared by adding an agent and by a template's
+ * load plan (#268), so what the plan shows is what the load makes.
+ */
+export async function newWorktreePlace(projectPath: string, name: string, branch?: string, taken: { branches: ReadonlySet<string>; folders: ReadonlySet<string> } = { branches: new Set(), folders: new Set() }): Promise<{ branch: string; path: string }> {
+  return {
+    branch: await wt.uniqueBranch(projectPath, branch?.trim() || `hive/${slugify(name)}`, taken.branches),
+    path: wt.uniqueFolder(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!, slugify(name)), taken.folders)
+  }
+}
+
+/**
  * A new agent's definition, ready to add but not added (#126: a template stages its agents, then adds them all at once):
  * its id, settings and, for a new worktree, the worktree made for it. `others` are the agents it must not clash with (a
  * worktree in use). `discard` removes a worktree made for it, for when it isn't added after all.
@@ -83,8 +96,7 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
   if (opts.location === 'new-worktree') {
     const base = opts.base || (await wt.currentBranch(projectPath))
     if (!base) throw new Error('The project folder is not on a branch. Choose the branch to start from.')
-    const branch = await wt.uniqueBranch(projectPath, opts.branch?.trim() || `hive/${slugify(name)}`)
-    const dest = wt.uniqueFolder(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!, slugify(name)))
+    const { branch, path: dest } = await newWorktreePlace(projectPath, name, opts.branch)
     await wt.createWorktree(projectPath, dest, branch, base)
     const s = config.settings.agents
     const copied = await wt.copyIgnored(projectPath, dest, cfg.worktreeCopy ?? s.worktreeCopy)

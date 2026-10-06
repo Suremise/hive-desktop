@@ -38,16 +38,19 @@ export async function listWorktrees(cwd: string): Promise<{ path: string; branch
   return out
 }
 
-/** A branch name that doesn't exist yet: wanted, else wanted-2, wanted-3… */
-export async function uniqueBranch(cwd: string, wanted: string): Promise<string> {
+/** A branch name that doesn't exist yet: wanted, else wanted-2, wanted-3… `taken`: names to avoid too (a plan's earlier ones). */
+export async function uniqueBranch(cwd: string, wanted: string, taken: ReadonlySet<string> = new Set()): Promise<string> {
   const existing = new Set(await localBranches(cwd))
-  if (!existing.has(wanted)) return wanted
-  for (let i = 2; ; i++) if (!existing.has(`${wanted}-${i}`)) return `${wanted}-${i}`
+  const free = (b: string): boolean => !existing.has(b) && !taken.has(b)
+  if (free(wanted)) return wanted
+  for (let i = 2; ; i++) if (free(`${wanted}-${i}`)) return `${wanted}-${i}`
 }
 
-export function uniqueFolder(wanted: string): string {
-  if (!existsSync(wanted)) return wanted
-  for (let i = 2; ; i++) if (!existsSync(`${wanted}-${i}`)) return `${wanted}-${i}`
+/** A folder that doesn't exist yet: wanted, else wanted-2… `taken`: folders to avoid too, lower-cased (a plan's earlier ones). */
+export function uniqueFolder(wanted: string, taken: ReadonlySet<string> = new Set()): string {
+  const free = (f: string): boolean => !existsSync(f) && !taken.has(f.toLowerCase())
+  if (free(wanted)) return wanted
+  for (let i = 2; ; i++) if (free(`${wanted}-${i}`)) return `${wanted}-${i}`
 }
 
 export async function createWorktree(projectPath: string, dest: string, branch: string, base: string): Promise<void> {

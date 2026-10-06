@@ -142,6 +142,32 @@ const check = (name, ok, extra = '') => {
   check("the removed worktree agent's worktree stays", fs.existsSync(tree.worktree.path))
   await lib.until(async () => (await page.locator('.agent-tab').allInnerTexts()).join('|').includes('Reviewer'), 5000)
 
+  // #268: the warning says where each new worktree goes in this project (its branch and folder), marks the agents a new
+  // one of the same name replaces, gives each new agent's settings, and the setup command its worktree runs. Cancelled.
+  fs.writeFileSync(path.join(ws, '.hive', 'templates', 'trees.json'), JSON.stringify({ version: 1, name: 'Trees', savedAt: new Date().toISOString(), layout: 'columns2', agents: [{ name: 'Builder', provider: 'claude-code', model: 'opus', effort: 'high', worktree: true }, { name: 'Helper', provider: 'claude-code', worktree: false }] }))
+  await inv('project:updateConfig', beta, { worktreeSetup: 'npm install' })
+  await inv('workspace:refresh')
+  await loadMenu()
+  await item('Trees').click()
+  const treesWarn = page.locator('.dialog', { hasText: 'Load "Trees"?' })
+  await treesWarn.waitFor({ timeout: 5000 })
+  const tw = await treesWarn.innerText()
+  const treePath = path.join(`${ws}.worktrees`, 'beta', 'builder')
+  check('the warning marks Builder, replaced by a new agent of the same name', /• Builder: replaced by a new agent with the same name/.test(tw) && !/• Reviewer: replaced/.test(tw), tw)
+  check("…gives each new agent's settings (inherited ones as their default)", /• Builder \(new\): Claude Code, Opus 5\.5 · High · [^\n]+/.test(tw) && /• Helper: Claude Code, Opus 5\.5 \(default\) · ([^\n]* \(default\) · )?[^\n·]* \(default\)\n/.test(tw), tw)
+  check("…and the new worktree's branch and folder, in this project", tw.includes(`own worktree on hive/builder (from `) && tw.toLowerCase().includes(`in ${treePath.toLowerCase()}`), `${treePath}\n${tw}`)
+  check('…and the setup command it runs', tw.includes("Each new worktree runs the project's setup command (npm install) before its agent first starts."), tw)
+  for (const theme of ['dark', 'light']) {
+    await inv('settings:update', { appearance: { theme } })
+    await lib.sleep(300)
+    await page.screenshot({ path: path.join(lib.WORK, `templates-6-load-details-${theme}.png`) })
+  }
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await treesWarn.getByRole('button', { name: 'Cancel' }).click()
+  check('cancelled: nothing changed', JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer"]' && !fs.existsSync(treePath))
+  await inv('project:updateConfig', beta, { worktreeSetup: '' })
+  fs.rmSync(path.join(ws, '.hive', 'templates', 'trees.json'))
+
   // --- Add Agent ▾ → Add Agent from Template: one agent, the others left alone; Builder's name is taken, so "Builder 2".
   const caret = strip.locator('.agent-add.split-caret')
   await caret.click()
@@ -254,6 +280,42 @@ const check = (name, ok, extra = '') => {
 
   await inv('session:stop', beta)
   await lib.until(async () => (await inv('session:live')).length === 0, 15000)
+
+  // --- #268: alpha's own template, with a worktree agent ("Tree", on alpha's hive/tree), loaded into beta from the
+  // Templates view. beta's new Tree gets a new worktree of beta's: beta already has a hive/tree branch and a tree folder
+  // (its earlier Tree's, kept), so hive/tree-2 in …worktrees\beta\tree-2, as the confirmation said. alpha's is untouched.
+  await select('alpha')
+  const srcTree = await lib.addAgent(inv, alpha, { name: 'Tree', location: 'new-worktree' })
+  await inv('workspace:refresh')
+  await saveTemplate()
+  await dialog.waitFor({ timeout: 5000 })
+  await dialog.locator('input.input').fill('Alpha trees')
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  const alphaTrees = path.join(alpha, '.hive', 'templates', 'alpha-trees.json')
+  check("alpha's own template saved, with its worktree agent (and no path or branch)", !!(await lib.until(async () => fs.existsSync(alphaTrees), 5000)) && /"name": "Tree",[\s\S]*"worktree": true/.test(fs.readFileSync(alphaTrees, 'utf8')) && !/hive\/tree|worktrees/.test(fs.readFileSync(alphaTrees, 'utf8')))
+  const srcCfg = JSON.stringify(projectCfg(alpha).agents.find((a) => a.id === srcTree.id).worktree)
+  const want = path.join(`${ws}.worktrees`, 'beta', 'tree-2')
+  check("beta already has a hive/tree branch and a tree folder (its earlier Tree's)", lib.git(beta, ['branch', '--list', 'hive/tree']).includes('hive/tree') && fs.existsSync(path.join(`${ws}.worktrees`, 'beta', 'tree')))
+  await page.locator('.activitybar [aria-label="Templates"]').click()
+  await page.locator('.sidebar .template-row[aria-label="Alpha trees"]').first().click()
+  const tplDetail = page.locator('.main-area > .tab-body .template-detail')
+  await tplDetail.getByRole('button', { name: 'Load into Project…' }).click()
+  await dialog.locator('select').selectOption({ label: 'beta' })
+  await dialog.getByRole('button', { name: 'Continue' }).click()
+  const crossLoad = page.locator('.dialog', { hasText: 'Load "Alpha trees"?' })
+  await crossLoad.waitFor({ timeout: 5000 })
+  const cl = await crossLoad.innerText()
+  check("the confirmation gives Tree's new worktree in beta: hive/tree-2 in …worktrees\\beta\\tree-2", cl.includes('own worktree on hive/tree-2 (from ') && cl.toLowerCase().includes(`in ${want.toLowerCase()}`), `${want}\n${cl}`)
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-7-cross-project.png') })
+  await crossLoad.getByRole('button', { name: 'Load template' }).click()
+  check("loaded into beta: alpha's agents", !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === JSON.stringify(projectCfg(alpha).agents.map((a) => a.name)), 15000)), JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
+  const made = projectCfg(beta).agents.find((a) => a.name === 'Tree')?.worktree
+  check("beta's Tree is where the confirmation said: hive/tree-2 in …worktrees\\beta\\tree-2", made?.branch === 'hive/tree-2' && made.path.toLowerCase() === want.toLowerCase(), JSON.stringify(made))
+  const norm = (p) => p.toLowerCase().replace(/\\/g, '/')
+  check("…a worktree and branch of beta's repository", norm(lib.git(beta, ['worktree', 'list', '--porcelain'])).includes(norm(want)) && lib.git(beta, ['branch', '--list', 'hive/tree-2']).includes('hive/tree-2'))
+  check("…not of alpha's", !norm(lib.git(alpha, ['worktree', 'list', '--porcelain'])).includes(norm(want)) && !lib.git(alpha, ['branch', '--list', 'hive/tree-2']).includes('hive/tree-2'))
+  check("alpha's Tree and its worktree are untouched", JSON.stringify(projectCfg(alpha).agents.find((a) => a.id === srcTree.id).worktree) === srcCfg && fs.existsSync(srcTree.worktree.path) && lib.git(srcTree.worktree.path, ['rev-parse', '--abbrev-ref', 'HEAD']).trim() === srcTree.worktree.branch && norm(made.path) !== norm(srcTree.worktree.path))
+
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
   process.exit(failed ? 1 : 0)
