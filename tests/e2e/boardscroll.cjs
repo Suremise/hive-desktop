@@ -1,6 +1,7 @@
 // Dragging a card in a column taller than the window: held near the column's top or bottom edge (still, with no
 // further mouse moves), the column scrolls until it can't, and the card drops where the marker shows: the very top,
-// the very bottom, or into another long column scrolled elsewhere. Leaving the board stops the scrolling, and the
+// the very bottom, or into another long column scrolled elsewhere; a column scrolled by anything else under the still
+// pointer moves the marker too. Leaving the board stops the scrolling, and the
 // columns scroll normally afterwards. No agents. Dev build, throwaway profile and workspace.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -126,10 +127,18 @@ const check = (name, ok, extra = '') => {
   await pick(moved)
   const doingBox = await body('Doing').boundingBox()
   await holdAt(doingBox.x + doingBox.width / 2, doingBox.y + 200)
+  // Scrolled by something other than the board's own edge scrolling (Chromium scrolls a column near its edge during
+  // a drag too, #256), with the pointer still: the marker follows the card now under it, the sixth.
+  const sixth = await body('Doing').evaluate((el, [n, y]) => {
+    const r = el.querySelector(`.task-card[data-task="${n}"]`).getBoundingClientRect()
+    el.scrollTop += r.top + r.height / 4 - y
+    return el.scrollTop
+  }, [doing[5], held.y])
+  check('scrolled under a still pointer, the marker follows', sixth > 50 && !!(await until(async () => (await marker('Doing')) === doing[5], 2000)), `${sixth}: ${await marker('Doing')}`)
   await holdAt(doingBox.x + doingBox.width / 2, doingBox.y + 6)
   check('over Doing, Doing scrolls to its top', !!(await until(async () => (await scroll('Doing')).top === 0, 8000)))
   check("Todo doesn't scroll meanwhile", (await scroll('Todo')).top === 0)
-  check('the marker is before Doing\'s first card', (await marker('Doing')) === doing[0], String(await marker('Doing')))
+  check('the marker is before Doing\'s first card', !!(await until(async () => (await marker('Doing')) === doing[0], 2000)), String(await marker('Doing')))
   await release()
   // Into Doing from another column asks who works on it (Move to Doing): the card has no agent, so Nobody yet.
   const ask = page.locator('.dialog', { hasText: `Move #${moved} to Doing` })

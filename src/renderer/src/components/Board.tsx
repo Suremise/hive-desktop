@@ -344,7 +344,7 @@ export function Board({ project, query, archived }: { project: string | null; qu
   /**
    * Where the dragged card would land with the pointer at (x, y), from what is under it now: over a card, before it
    * (its top half) or the next one; below a column's last card (or in an empty column), at the end; in a gap between
-   * cards, where it was. Called on every dragover, and after each step of scrolling, so the marker follows what
+   * cards, where it was. Called on every dragover, and after each step of scrolling (the board's or the browser's), so the marker follows what
    * scrolling brings under the pointer.
    */
   const place = (x: number, y: number): void => {
@@ -393,9 +393,17 @@ export function Board({ project, query, archived }: { project: string | null; qu
     const leave = (e: DragEvent): void => {
       if (!e.relatedTarget) stop()
     }
+    // Scrolled by something else (Chromium's own drag autoscroll near an edge, the wheel): what is under the pointer
+    // changed too. Otherwise, when Chromium takes a column the last step to its top, no frame below moves it and the
+    // marker stays a card off (#256).
+    const scrolled = (): void => {
+      const p = pointer.current
+      if (p) placeNow.current(p.x, p.y)
+    }
     document.addEventListener('dragover', over, true)
     document.addEventListener('drop', stop, true)
     document.addEventListener('dragleave', leave, true)
+    document.addEventListener('scroll', scrolled, true)
     let frame = 0
     let last = performance.now()
     const step = (now: number): void => {
@@ -429,6 +437,7 @@ export function Board({ project, query, archived }: { project: string | null; qu
       document.removeEventListener('dragover', over, true)
       document.removeEventListener('drop', stop, true)
       document.removeEventListener('dragleave', leave, true)
+      document.removeEventListener('scroll', scrolled, true)
       pointer.current = null
     }
   }, [dragging])
@@ -865,7 +874,12 @@ export function TaskDialog() {
     setPreview(!!c?.description)
     setComment('')
     setShowHistory(false)
-    setTimeout(() => (c ? null : titleRef.current?.focus()), 30)
+    // A new card's title takes the keyboard, unless it is already in the dialog: in a busy window the timer can fire
+    // after the user has moved on to another field, and what they type next would land in the title (#229).
+    setTimeout(() => {
+      const t = titleRef.current
+      if (!c && t && !t.closest('.dialog')?.contains(document.activeElement)) t.focus()
+    }, 30)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
