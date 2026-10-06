@@ -80,7 +80,7 @@ const check = (name, ok, extra = '') => {
   await page.locator('.segmented button', { hasText: 'All time' }).click()
   check('All time counts older work too', !!(await until(async () => (await tokens.innerText()) === '9.6k', 3000)), await tokens.innerText())
   check('and re-sorts the table', !!(await until(async () => (await names())[0] === 'gamma', 3000)), JSON.stringify(await names()))
-  await page.locator('.ws-projects th', { hasText: 'Project' }).click()
+  await page.locator('.ws-projects th button', { hasText: 'Project' }).click()
   check('a column header sorts by it', JSON.stringify(await names()) === JSON.stringify(['alpha', 'beta', 'gamma']), JSON.stringify(await names()))
 
   // Narrow (#252): the sidebar open, at 620 px and at 125% zoom. The page fits its width (the period buttons wrap under
@@ -102,7 +102,7 @@ const check = (name, ok, extra = '') => {
         width: scroller.clientWidth,
         buttons: seg.right <= right + 0.5 && seg.left >= box.left,
         clipped: clipped.map((el) => el.textContent.trim().slice(0, 20)),
-        table: !!document.querySelector('.ws-projects')?.closest('.table-wrap')
+        table: !!document.querySelector('.ws-projects .table-wrap')
       }
     })
   // Extremes (#269): 620 px at 125% (about 100 px of page), in both themes, and the Assistant's panel open on either
