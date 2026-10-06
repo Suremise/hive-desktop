@@ -8,9 +8,11 @@
 //   `%LOCALAPPDATA%\hive-test\evidence`;
 // - a path inside a folder keeps the folder: `evidence\x.png` keeps `evidence`, `lanes\0\board\board.png` keeps the
 //   suite folder `lanes\0\board` (but not the rest of lane 0);
-// - a folder as a whole keeps everything in it: `hive-test\e2e\lanes\0` (ending there) keeps lane 0. Only folders that
-//   hold evidence count, not the areas themselves (`hive-test`, `e2e`, `e2e\lanes`, `scratch`…), which cards name when
-//   they talk about the tests.
+// - a folder as a whole keeps everything in it: `hive-test\evidence` (ending there) keeps what is in it, and
+//   `lanes\0\board\` keeps that suite's folder. Only folders that hold evidence count, not the areas themselves
+//   (`hive-test`, `e2e`, `e2e\lanes`, a lane `e2e\lanes\0`, `scratch`…), which cards name when they talk about the
+//   tests: a lane is where runs keep their suites' folders, not evidence, and a card naming one kept every folder every
+//   later run made in it (#285).
 // A name alone isn't a citation: a card listing leftovers to remove names them (`charts-132`), and a folder named like
 // a word (`scripts`) would be kept by any path with that word (`scripts/licenses.mjs`). Keeping a little more than
 // needed is the safe side.
@@ -21,6 +23,8 @@ const runContext = require('./runContext.cjs')
 
 /** Areas: folders that hold evidence rather than being it (relative to hive-test). Naming one keeps nothing. */
 const AREAS = new Set(['', 'e2e', 'e2e/lanes', 'e2e/logs', 'e2e/logs/nested', 'scenarios', 'scenarios/lanes', 'scenarios/results', 'scenarios/baselines', 'scratch'])
+/** Whether rel (relative to hive-test, with `/`) is an area: one of AREAS, or a lane (`e2e/lanes/0`, `scenarios/lanes/3`). */
+const isArea = (rel) => AREAS.has(rel) || /^(?:e2e|scenarios)\/lanes\/\d+$/.test(rel)
 
 /** Text written as a path: lower case, `/` for `\` (and for `\\` in JSON or Markdown). */
 const pathText = (s) => String(s ?? '').toLowerCase().replace(/\\+/g, '/')
@@ -56,7 +60,7 @@ function citedBy(rel, cards, children = []) {
   const own = pathText(rel).split('/').filter(Boolean)
   const parts = ['hive-test', ...own]
   const ancestors = []
-  for (let k = 1; k < own.length; k++) if (!AREAS.has(own.slice(0, k).join('/'))) ancestors.push(['hive-test', ...own.slice(0, k)])
+  for (let k = 1; k < own.length; k++) if (!isArea(own.slice(0, k).join('/'))) ancestors.push(['hive-test', ...own.slice(0, k)])
   for (const { number, text } of cards) {
     for (const t of tails(parts)) if (mentions(text, t)) return number
     for (const c of children) for (const t of tails([...parts, pathText(c)])) if (mentions(text, t)) return number
@@ -139,6 +143,9 @@ function evidence({ tasksDir, cards, testRoot = runContext.TEST_ROOT } = {}) {
       if (!s.ok) return s.why
       const rel = path.relative(testRoot, p)
       if (rel.startsWith('..') || path.isAbsolute(rel)) return 'outside hive-test'
+      // A folder on the way that is a link (a junction) would carry the deletion somewhere else.
+      const link = linkOnTheWay(testRoot, p)
+      if (link) return `reached through a link (${link})`
       const n = citedBy(rel.split(path.sep).join('/'), s.cards, safeList(p))
       return n === null ? null : `cited by #${n}`
     },
@@ -151,8 +158,32 @@ function evidence({ tasksDir, cards, testRoot = runContext.TEST_ROOT } = {}) {
   return rules(load)
 }
 
-/** The evidence rules for the repository at root (its workspace's board). */
-const evidenceFor = (root, opts = {}) => evidence({ tasksDir: findBoard(root), ...opts })
+/**
+ * The evidence rules for the repository at root (its workspace's board). HIVE_TEST_NO_BOARD=1 says there is no board
+ * whose cards could cite test output (a checkout outside a Hive workspace): then nothing is evidence. Without it, no
+ * board found means nothing may be deleted, and the runners won't start (#285: copies would pile up run after run).
+ */
+const evidenceFor = (root, opts = {}, env = process.env) => (env.HIVE_TEST_NO_BOARD === '1' ? evidence({ cards: [], ...opts }) : evidence({ tasksDir: findBoard(root), ...opts }))
+
+/**
+ * The first folder between root and p (root and p themselves not counted) that is a link (a junction or a symlink), or
+ * null; one that can't be looked at counts as a link. Anything deleted below it would be deleted where it points (#285).
+ * p itself may be a link: removeTree removes a link as a link.
+ */
+function linkOnTheWay(root, p) {
+  const parts = path.relative(path.resolve(root), path.resolve(p)).split(path.sep).filter(Boolean)
+  let at = path.resolve(root)
+  for (const part of parts.slice(0, -1)) {
+    at = path.join(at, part)
+    try {
+      if (fs.lstatSync(at).isSymbolicLink()) return at
+    } catch (e) {
+      if (e.code === 'ENOENT') return null // Not there: nothing below it either.
+      return at
+    }
+  }
+  return null
+}
 
 function safeList(dir) {
   try {
@@ -205,53 +236,183 @@ function removeTree(p) {
 }
 
 /**
- * A folder of its own for a run to fill (a suite's in its lane, a scenario's): `dir` itself, emptied, unless something
- * in it must stay (ev.protects: cited, or the board can't be read), then the first of `dir-2`, `dir-3`… that is free or
- * may be emptied. So a run never deletes evidence from an earlier one. Returns the folder, made and empty.
+ * At most this many copies of one folder (`dir`, `dir-2`… `dir-32`): a failed suite's is kept with its run (KEEP_RUNS,
+ * and failed runs a day: logs.mjs), so a suite failing in every kept run needs about thirty. More means something keeps
+ * them that shouldn't (#285: a card naming a lane kept 2,078 of them): freshFolder stops there rather than fill the disk.
  */
-function freshFolder(dir, ev) {
+const MAX_COPIES = 32
+
+/**
+ * A folder of its own for a run to fill (a suite's in its lane, a scenario's): `dir` itself, emptied, unless something
+ * in it must stay (ev.protects: cited, or the board can't be read; or claimed(d): a failed run still keeps it), then the
+ * first of `dir-2`, `dir-3`… that is free or may be emptied. So a run never deletes evidence from an earlier one.
+ * Returns the folder, made and empty; throws when all `max` are taken (saying what keeps them).
+ */
+function freshFolder(dir, ev, { max = MAX_COPIES, claimed = () => false } = {}) {
+  let why = null
   for (let n = 1; ; n++) {
+    if (n > max) throw new Error(`${max} copies of ${path.basename(dir)} are kept in ${path.dirname(dir)} and none may be reused (${why}): remove them (npm run test:clean, once nothing cites them)`)
     const d = n === 1 ? dir : `${dir}-${n}`
     if (!fs.existsSync(d)) {
       fs.mkdirSync(d, { recursive: true })
       return d
     }
-    if (ev.protects(d)) continue
+    why = ev.protects(d) || (claimed(d) ? 'a failed run keeps it' : null)
+    if (why) continue
     try {
       removeTree(d)
       fs.mkdirSync(d, { recursive: true })
       return d
-    } catch {
+    } catch (e) {
       // Still in use (a test Hive of a crashed run): take the next.
+      why = `in use: ${e.code ?? e.message}`
     }
   }
 }
 
 /**
- * A suite's folder after it passed (or skipped): its folders go (profiles, workspaces, test homes), its files stay
- * (screenshots, notification logs, reports) for a look afterwards; they go with the age rule. Each folder is checked
- * against the board as it is at that moment (ev.protects reads it afresh): one a card cites stays, and while the board
- * can't be read they all stay (the clean-up removes them once it can). Returns { removed, kept: [why] }.
+ * A suite's folder when it ends (#285): when it passed (or skipped), the whole folder goes, unless the board, read as
+ * it is now, says it must stay (a card cites it, or the board can't be read). A failed suite's stays for a look. What
+ * stays is the run's to remove: recordKept() ties it to the run's log folder, and it goes when that run's logs are
+ * pruned (releaseKept). Returns { removed, kept: why or null }.
  */
-function clearSuiteDir(dir, ev) {
-  const out = { removed: 0, kept: [] }
-  for (const name of safeList(dir)) {
-    const p = path.join(dir, name)
+function finishSuiteDir(dir, ev, passed) {
+  if (!passed) return { removed: false, kept: 'it failed' }
+  const why = ev.protects(dir)
+  if (why) return { removed: false, kept: why }
+  try {
+    removeTree(dir)
+    return { removed: true, kept: null }
+  } catch (e) {
+    return { removed: false, kept: `in use: ${e.code ?? e.message}` }
+  }
+}
+
+/** In a run's log folder: the suite folders the run kept (failed, or not removable when it ended). */
+const KEPT_FILE = '.kept-folders.json'
+
+/** Ties folders to a run (its log folder): they are removed when the run's logs are (releaseKept). */
+function recordKept(runDir, dirs) {
+  if (!dirs.length) return
+  let had = []
+  try {
+    had = JSON.parse(fs.readFileSync(path.join(runDir, KEPT_FILE), 'utf8'))
+  } catch {
+    // None yet.
+  }
+  fs.writeFileSync(path.join(runDir, KEPT_FILE), JSON.stringify([...new Set([...had, ...dirs])], null, 1))
+}
+
+/** The folders a run (its log folder) kept. */
+function keptBy(runDir) {
+  try {
+    const dirs = JSON.parse(fs.readFileSync(path.join(runDir, KEPT_FILE), 'utf8'))
+    return Array.isArray(dirs) ? dirs.filter((d) => typeof d === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+/** A run's own suite folder in a lane: `e2e/lanes/<k>/<suite>`, or a nested run's inside one (`…/<suite>/nested/<suite>`). */
+const SUITE_FOLDER = /^e2e\/lanes\/(\d+)\/[a-z0-9][a-z0-9._-]*(?:\/nested\/[a-z0-9][a-z0-9._-]*)*$/i
+
+/**
+ * Where a manifest entry may be removed from: { path, lane } when it is a suite folder in a lane under testRoot (that
+ * shape exactly, no `..`, a real folder and not a link), else null. A manifest is the runner's own record, but a wrong
+ * or damaged one must never point a deletion at a test home, scenario results or a lane itself.
+ */
+function suiteFolderTarget(entry, testRoot) {
+  const shape = suiteFolderShape(entry, testRoot)
+  if (!shape) return null
+  try {
+    const st = fs.lstatSync(shape.path)
+    if (!st.isDirectory() || st.isSymbolicLink()) return null
+    // Really there, not through a link: no folder on the way is one, and its real path is where its path says.
+    if (linkOnTheWay(testRoot, shape.path)) return null
+    const real = path.relative(fs.realpathSync.native(testRoot), fs.realpathSync.native(shape.path))
+    if (real.toLowerCase() !== path.relative(path.resolve(testRoot), shape.path).toLowerCase()) return null
+  } catch {
+    return null
+  }
+  return shape
+}
+
+/** suiteFolderTarget's path checks alone (not whether it is there): { path, lane } or null. */
+function suiteFolderShape(entry, testRoot) {
+  if (typeof entry !== 'string' || !path.isAbsolute(entry) || /(^|[\\/])\.\.?([\\/]|$)/.test(entry)) return null
+  const rel = path.relative(testRoot, path.resolve(entry))
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
+  const m = SUITE_FOLDER.exec(rel.split(path.sep).join('/'))
+  return m ? { path: path.resolve(entry), lane: Number(m[1]) } : null
+}
+
+/**
+ * Before a run's logs are pruned: removes the suite folders it kept (#285). Only when its manifest is entirely valid
+ * (every entry a suite folder in a lane: suiteFolderTarget), else nothing at all; only in a lane this runner may work
+ * in (hold(k): its own, or an idle one it claims under the lanes' lock; null when another runner holds it), else that
+ * folder is left, and with its run gone no run claims it, so the clean-up removes it once the lane is idle; and each
+ * unless the board, read now, says it must stay. Returns { removed, deferred, refused } (refused: why the manifest
+ * authorised nothing).
+ */
+async function releaseKept(runDir, ev, { hold, testRoot = runContext.TEST_ROOT } = {}) {
+  const out = { removed: 0, deferred: 0, refused: null }
+  let entries
+  try {
+    entries = JSON.parse(fs.readFileSync(path.join(runDir, KEPT_FILE), 'utf8'))
+  } catch (e) {
+    if (e.code !== 'ENOENT') out.refused = `${KEPT_FILE} can't be read`
+    return out
+  }
+  if (!Array.isArray(entries)) return { ...out, refused: `${KEPT_FILE} isn't a list` }
+  const live = []
+  for (const entry of entries) {
+    const refused = { ...out, refused: `${KEPT_FILE} names ${JSON.stringify(entry)}, not a suite folder in a lane` }
+    if (!suiteFolderShape(entry, testRoot)) return refused
+    if (!fs.existsSync(entry)) continue // Gone already.
+    const t = suiteFolderTarget(entry, testRoot)
+    if (!t) return refused
+    live.push(t)
+  }
+  for (const lane of new Set(live.map((t) => t.lane))) {
+    const release = hold ? await hold(lane) : null
+    const here = live.filter((t) => t.lane === lane)
+    if (!release) {
+      out.deferred += here.length
+      continue
+    }
     try {
-      const st = fs.lstatSync(p)
-      if (!st.isDirectory() && !st.isSymbolicLink()) continue
-      const why = ev.protects(p)
-      if (why) {
-        out.kept.push(why)
-        continue
+      for (const t of here) {
+        // Checked again now the lane is held, just before it goes: still a suite folder reached through no link.
+        if (!suiteFolderTarget(t.path, testRoot)) {
+          out.refused = `${t.path} is no longer a suite folder reached through no link`
+          return out
+        }
+        if (ev.protects(t.path)) continue
+        try {
+          removeTree(t.path)
+          out.removed++
+        } catch {
+          // In use: no run claims it once this run is gone, so the clean-up removes it.
+          out.deferred++
+        }
       }
-      removeTree(p)
-      out.removed++
-    } catch {
-      // Still in use (a test Hive just closing): the next clean-up removes it.
+    } finally {
+      release()
     }
   }
   return out
 }
 
-module.exports = { AREAS, pathText, mentions, citedBy, findBoard, readCards, evidence, evidenceFor, safeList, sizeOf, removeTree, freshFolder, clearSuiteDir }
+/** Every suite folder a run still in logsRoots (and their nested/) claims: lowercase paths. */
+function claimedByRuns(logsRoots) {
+  const out = new Set()
+  for (const root of logsRoots)
+    for (const name of safeList(root)) {
+      const d = path.join(root, name)
+      if (name === 'nested') for (const n of safeList(d)) for (const k of keptBy(path.join(d, n))) out.add(path.resolve(k).toLowerCase())
+      for (const k of keptBy(d)) out.add(path.resolve(k).toLowerCase())
+    }
+  return out
+}
+
+module.exports = { AREAS, MAX_COPIES, KEPT_FILE, SUITE_FOLDER, suiteFolderTarget, linkOnTheWay, isArea, pathText, mentions, citedBy, findBoard, readCards, evidence, evidenceFor, safeList, sizeOf, removeTree, freshFolder, finishSuiteDir, recordKept, keptBy, releaseKept, claimedByRuns }
