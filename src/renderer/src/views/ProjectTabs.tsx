@@ -19,7 +19,7 @@ import { call, errorMessage } from '../api'
 import { DocEditor } from '../components/DocEditor'
 import { DiffView } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
-import { DataTable, type DataColumn } from '../components/DataTable'
+import { DataTable, useDateColumns, type DataColumn } from '../components/DataTable'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, statusText, StatusDot, Switch, Tooltip } from '../components/ui'
 import { languageFor } from '../monacoLang'
 import { useScopedLoad } from '../scopedLoad'
@@ -331,7 +331,8 @@ function LastTurn({ c }: { c: CompactionEvent }) {
  * tab's transcript, at its divider, when the transcript (or Hive's backup of it) is there to read.
  */
 function CompactionHistory({ project, session, compactions }: { project: ProjectInfo; session: SessionListItem; compactions: CompactionEvent[] }) {
-  useDateStyle()
+  // Its When filter matches the dates as shown, in the current format.
+  const columns = useDateColumns(COMPACTION_COLUMNS)
   const rows = useMemo(() => compactions.map((c, n) => ({ ...c, n })), [compactions])
   const readable = session.hasTranscript || session.hasBackup
   return (
@@ -339,7 +340,7 @@ function CompactionHistory({ project, session, compactions }: { project: Project
       id="compactions"
       className="compaction-history"
       rows={rows}
-      columns={COMPACTION_COLUMNS}
+      columns={columns}
       rowKey={(c) => String(c.n)}
       defaultSort={{ key: 'when', desc: true }}
       defaultPageSize={10}

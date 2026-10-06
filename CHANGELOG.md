@@ -107,6 +107,7 @@
 - **The Overview charts show every day.** In the project Overview and the Workspace Overview, each day of the 7- and 30-day charts is now a tile of its own, as in the Performance chart, so a quiet day reads as its own column instead of empty space. The three charts share one look.
 
 ### Fixes
+- **A date filter in the Overview's compaction table follows a change of date format.** After switching **Settings → General → Date format**, the When filter kept matching the old format until something else changed; it now matches the dates as they're shown.
 - **Two windows no longer undo each other's Skills tab and Sessions tree choices.** With a workspace in each window, the provider and open groups you chose in one project's Skills tab (or the Sessions branches you opened) could be lost when you changed another project's in the other window, and come back reset after a restart. Each project's choice is now saved on its own.
 - **Enter on a recent workspace's ✕ on the welcome page only removes it.** It used to open the workspace as well, putting it back at the top of the list. Enter on the entry itself still opens it.
 - **The image viewer no longer offers Delete for a running session's image.** In a project's Images tab and the Assistant's, Delete is greyed out (hover it to see why) while the image's session or conversation runs, as the right-click menu already was; it comes back as you move to another session's image or the session stops.
