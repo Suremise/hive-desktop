@@ -8,8 +8,8 @@ import type { KeySteps } from './providers/types'
 import { config } from './config'
 import { emit, toast } from './events'
 import { createLogger } from './logger'
-import { childEnv, hasPty, killPty, spawnPty, writePty } from './ptyHost'
-import { lastTitle } from './terminalTitle'
+import { childEnv, hasPty, killPty, PTY_COLS, PTY_ROWS, spawnPty, writePty } from './ptyHost'
+import { KeyGate } from './taskKeys'
 
 const log = createLogger('providers')
 /** How many models' default efforts are kept per provider (observeDefaultEffort). */
@@ -160,14 +160,10 @@ class ProviderService {
     const key = `task:${id}:${task}`
     if (hasPty(key)) return key
     const s = toSpawnable(file, args)
-    let seen = ''
     let sent = !typed
     let finished = false
-    let ready = false
-    let busy = false
-    let titleCarry = ''
-    /** When the program last showed or stopped showing that it is busy. */
-    let busyChanged = 0
+    // Typed once its screen shows it ready (typeWhenIdle).
+    const gate = typed?.ready ? new KeyGate({ ready: typed.ready, busyTitle: typed.busyTitle, cols: PTY_COLS, rows: PTY_ROWS, onReady: () => typeWhenIdle() }) : null
     let typeTimer: NodeJS.Timeout | null = null
     // A program that stays open after its job (Codex after its sandbox setup) is closed once the job is done.
     const watch = typed?.done
@@ -179,7 +175,7 @@ class ProviderService {
       : null
     // Some tasks are keys typed into the CLI once its interface is ready (Codex's sandbox setup).
     /** Not busy, and not for half a second (the output changes as it settles). */
-    const settled = (): boolean => !busy && Date.now() - busyChanged >= 500
+    const settled = (): boolean => !gate || gate.settled(500)
     const type = async (): Promise<void> => {
       if (sent || !typed) return
       sent = true
@@ -197,9 +193,9 @@ class ProviderService {
       if (sent || typeTimer) return
       const wait = (): void => {
         typeTimer = null
-        if (sent) return
-        const idleFor = Date.now() - busyChanged
-        if (busy || idleFor < 1000) typeTimer = setTimeout(wait, busy ? 300 : 1000 - idleFor)
+        if (sent || !gate) return
+        const idleFor = gate.idleFor()
+        if (idleFor < 1000) typeTimer = setTimeout(wait, gate.busy ? 300 : 1000 - idleFor)
         else void type()
       }
       typeTimer = setTimeout(wait, 800)
@@ -211,22 +207,11 @@ class ProviderService {
       cwd: homedir(),
       env: childEnv(),
       onData: (d) => {
-        if (!typed?.ready || finished) return
-        if (typed.busyTitle) {
-          const { title, carry } = lastTitle(titleCarry, d)
-          titleCarry = carry
-          if (title !== null && typed.busyTitle.test(title) !== busy) {
-            busy = !busy
-            busyChanged = Date.now()
-          }
-        }
-        if (sent) return
-        seen = (seen + d.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ')).slice(-2000)
-        if (!ready && typed.ready.test(seen)) ready = true
-        if (ready) typeWhenIdle()
+        if (gate && !finished) gate.feed(d)
       },
       onExit: (code) => {
         if (watch) clearInterval(watch)
+        gate?.dispose()
         if (code === 0 || finished) toast('success', `${label} finished`)
         else toast('warning', `${label} exited with code ${code}`)
         void this.refresh(id, true)
