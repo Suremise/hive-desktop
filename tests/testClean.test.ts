@@ -13,7 +13,8 @@ import { claimLane } from './e2e/lanes.mjs'
 import { finishRunDirs, newRunDir, pruneRunDirs, pruneRunDirsReleasing } from './e2e/logs.mjs'
 
 const require = createRequire(import.meta.url)
-const { citedBy, readCards, evidence, freshFolder, finishSuiteDir, recordKept, releaseKept, claimedByRuns, MAX_COPIES } = require('./e2e/evidence.cjs')
+const { citedBy, readCards, evidence, freshFolder, clearDir, finishSuiteDir, recordKept, releaseKept, claimedByRuns, MAX_COPIES } = require('./e2e/evidence.cjs')
+const { probeDir } = require('./e2e/lib.cjs')
 const { pruneResults, saveBaseline } = require('./scenarios/benchmark.cjs')
 
 type Card = { number: number; text: string }
@@ -584,5 +585,150 @@ describe("the runners' own deletions keep evidence too", () => {
       saveBaseline(baselines, 'x', file, (p: string) => cited.protects(p))
     }
     expect(readdirSync(baselines)).toContain('x.2026-01-01T00-00-00.json')
+  })
+})
+
+describe('no shell deletes before a rerun (#304): a new folder each run, or clearDir from Node', () => {
+  /** A temp folder and a hive-test of their own, with a scratchpad, a CLI test home and some evidence. */
+  function roots() {
+    const top = temp('hive-cleardir-')
+    const tmp = join(top, 'Temp')
+    const testRoot = join(top, 'hive-test')
+    const pad = join(tmp, 'claude', 'D--proj', 'session', 'scratchpad')
+    tree(top, {
+      'Temp/claude/D--proj/session/scratchpad/shots/a.png': 0,
+      'Temp/claude/D--proj/session/scratchpad/kept/b.png': 0,
+      'Temp/hive-r2-291-x/c.png': 0,
+      'Temp/other-app/d.txt': 0,
+      'hive-test/scratch/probe-1/e.png': 0,
+      'hive-test/e2e/startall-ws/f.ts': 0,
+      'hive-test/e2e/lanes/0/board/g.png': 0,
+      'hive-test/e2e/logs/run-1/h.log': 0,
+      'hive-test/codex/auth.json': 0,
+      'hive-test/claude/.credentials.json': 0
+    })
+    const homes = [join(testRoot, 'codex'), join(testRoot, 'claude')]
+    const board = { cards: [card(401, `evidence: ${join(pad, 'kept', 'b.png')}`)] }
+    const clear = (p: string, b: object = board) => clearDir(p, { board: b, temp: tmp, testRoot, homes })
+    return { top, tmp, testRoot, pad, homes, clear }
+  }
+
+  it('empties (or makes) a probe’s folder in a scratchpad, a hive… temp folder, hive-test\\scratch or a suite’s own e2e folder', () => {
+    const { tmp, testRoot, pad, clear } = roots()
+    for (const p of [join(pad, 'shots'), join(tmp, 'hive-r2-291-x'), join(testRoot, 'scratch', 'probe-1'), join(testRoot, 'e2e', 'startall-ws')]) {
+      expect(clear(p)).toBe(p)
+      expect(readdirSync(p)).toEqual([])
+    }
+    // Not there yet: made.
+    expect(readdirSync(clear(join(pad, 'new', 'deeper')))).toEqual([])
+  })
+
+  it('refuses anything outside the temp folder and hive-test, the areas themselves and other apps’ temp folders', () => {
+    const { top, tmp, testRoot, pad, clear } = roots()
+    const refused = [
+      // Holding the test homes: refused for that first.
+      [top, /CLI test home/],
+      [testRoot, /CLI test home/],
+      [tmp, /outside the temp folder and hive-test/],
+      [join(top, 'elsewhere'), /outside the temp folder and hive-test/],
+      [join(tmp, 'other-app'), /isn't a probe's folder/],
+      [join(tmp, 'claude'), /isn't a probe's folder/],
+      [join(tmp, 'claude', 'D--proj', 'session'), /isn't a probe's folder/],
+      [pad, /isn't a probe's folder/],
+      [join(testRoot, 'scratch'), /isn't a probe's or a suite's own folder/],
+      [join(testRoot, 'e2e'), /isn't a probe's or a suite's own folder/],
+      [join(testRoot, 'e2e', 'lanes', '0', 'board'), /isn't a probe's or a suite's own folder/],
+      [join(testRoot, 'e2e', 'logs', 'run-1'), /isn't a probe's or a suite's own folder/],
+      [join(testRoot, 'scenarios', 'results'), /isn't a probe's or a suite's own folder/],
+      ['', /Name the folder/]
+    ] as const
+    for (const [p, why] of refused) expect(() => clear(p), p).toThrow(why)
+    expect(readFileSync(join(tmp, 'other-app', 'd.txt'), 'utf8')).toHaveLength(100)
+    expect(readFileSync(join(testRoot, 'e2e', 'lanes', '0', 'board', 'g.png'), 'utf8')).toHaveLength(100)
+  })
+
+  it('never a CLI test home, in one or holding one, whatever the area', () => {
+    const { testRoot, homes } = roots()
+    const tmp2 = temp('hive-cleardir-home-')
+    // A test home inside the scratch area (HIVE_TEST_CODEX_HOME pointed there): still refused, and its parent too.
+    const home = join(testRoot, 'scratch', 'my-codex')
+    tree(testRoot, { 'scratch/my-codex/auth.json': 0 })
+    for (const p of [...homes, join(homes[0], 'sessions'), home, join(home, 'x')]) expect(() => clearDir(p, { board: { cards: [] }, temp: tmp2, testRoot, homes: [...homes, home] }), p).toThrow(/CLI test home/)
+    expect(existsSync(join(home, 'auth.json')) && existsSync(join(homes[0], 'auth.json'))).toBe(true)
+  })
+
+  it('never through a link or a link itself, nor a file', () => {
+    const { tmp, pad, clear } = roots()
+    const outside = temp('hive-cleardir-outside-')
+    tree(outside, { 'precious.txt': 0 })
+    symlinkSync(outside, join(pad, 'linked'), 'junction')
+    expect(() => clear(join(pad, 'linked'))).toThrow(/is a link/)
+    expect(() => clear(join(pad, 'linked', 'sub'))).toThrow(/reached through a link/)
+    expect(existsSync(join(outside, 'precious.txt'))).toBe(true)
+    writeFileSync(join(tmp, 'hive-file'), 'x')
+    expect(() => clear(join(tmp, 'hive-file'))).toThrow(/is a file/)
+  })
+
+  it('never when an allowed root, or a folder above it, is a link: the delete would land outside (round 2)', () => {
+    const top = temp('hive-cleardir-rootlink-')
+    const outside = join(top, 'outside')
+    tree(top, { 'outside/scratch/probe/sentinel.txt': 0, 'outside/scratch/probe/auth.json': 0, 'outside/Temp/hive-x/sentinel.txt': 0, 'realtmp/hive-y/keep.txt': 0 })
+    // hive-test itself is a junction to the outside folder; and the configured home is that outside place.
+    const testRoot = join(top, 'hive-test')
+    symlinkSync(outside, testRoot, 'junction')
+    const home = join(outside, 'scratch', 'probe')
+    expect(() => clearDir(join(testRoot, 'scratch', 'probe'), { board: { cards: [] }, temp: join(top, 'realtmp'), testRoot, homes: [home] })).toThrow(/reached through a link/)
+    expect(() => clearDir(join(testRoot, 'scratch', 'probe'), { board: { cards: [] }, temp: join(top, 'realtmp'), testRoot, homes: [] })).toThrow(/reached through a link/)
+    // A folder above the temp root is a junction.
+    const above = join(top, 'linkedparent')
+    symlinkSync(outside, above, 'junction')
+    expect(() => clearDir(join(above, 'Temp', 'hive-x'), { board: { cards: [] }, temp: join(above, 'Temp'), testRoot: join(top, 'nowhere'), homes: [] })).toThrow(/reached through a link/)
+    // Everything is where it was.
+    for (const f of ['scratch/probe/sentinel.txt', 'scratch/probe/auth.json', 'Temp/hive-x/sentinel.txt']) expect(existsSync(join(outside, f)), f).toBe(true)
+  })
+
+  it('a test home is recognised as it really is: one reached through a link elsewhere still protects its folder', () => {
+    const top = temp('hive-cleardir-homelink-')
+    tree(top, { 'hive-test/scratch/probe/auth.json': 0, 'Temp/x.txt': 0 })
+    const real = join(top, 'hive-test', 'scratch', 'probe')
+    const alias = join(top, 'codex-home-link')
+    symlinkSync(real, alias, 'junction')
+    expect(() => clearDir(real, { board: { cards: [] }, temp: join(top, 'Temp'), testRoot: join(top, 'hive-test'), homes: [alias] })).toThrow(/CLI test home/)
+    expect(existsSync(join(real, 'auth.json'))).toBe(true)
+  })
+
+  it('keeps evidence: a folder a card cites (or something in it), and everything when the board can’t be read', () => {
+    const { tmp, pad, clear } = roots()
+    expect(() => clear(join(pad, 'kept'))).toThrow(/must stay: cited by #401/)
+    expect(readdirSync(join(pad, 'kept'))).toEqual(['b.png'])
+    expect(() => clear(join(tmp, 'hive-r2-291-x'), { tasksDir: null })).toThrow(/must stay: no board was found/)
+    // Paths in the temp folder are matched as `Temp\\…`: a card naming hive-test's own claude home doesn't keep a
+    // scratchpad under `Temp\\claude` (it did, read as `hive-test\\claude`); nor does one naming the scratchpads' folders
+    // as a pattern (areas, like hive-test's lanes).
+    const others = {
+      cards: [
+        card(186, 'the Claude test home is C:\\Users\\X\\AppData\\Local\\hive-test\\claude, beside hive-test\\codex'),
+        card(304, 'only inside a Claude Code scratchpad (`Temp\\claude\\…\\scratchpad\\<x>`)'),
+        card(305, `the session's folder ${join(pad, '..')}\\…`)
+      ]
+    }
+    expect(clear(join(pad, 'shots'), others)).toBe(join(pad, 'shots'))
+    // …while the temp path itself, as a card writes it, does.
+    const cited = { cards: [card(402, 'see C:\\Users\\X\\AppData\\Local\\Temp\\hive-r2-291-x\\c.png')] }
+    expect(() => clear(join(tmp, 'hive-r2-291-x'), cited)).toThrow(/cited by #402/)
+    expect(readdirSync(join(tmp, 'hive-r2-291-x'))).toEqual(['c.png'])
+  })
+
+  it('probeDir gives a new folder every call, in hive-test\\scratch, named for the probe', () => {
+    const root = temp('hive-probedir-')
+    const a = probeDir('R2 #291 probe!', root)
+    const b = probeDir('R2 #291 probe!', root)
+    expect(a).not.toBe(b)
+    for (const d of [a, b]) {
+      expect(lstatSync(d).isDirectory()).toBe(true)
+      expect(resolve(d, '..')).toBe(join(root, 'scratch'))
+      expect(d.split(/[\\/]/).pop()).toMatch(/^r2-291-probe-\d{8}-\d{6}-/)
+    }
+    expect(probeDir('', root).split(/[\\/]/).pop()).toMatch(/^probe-/)
   })
 })
