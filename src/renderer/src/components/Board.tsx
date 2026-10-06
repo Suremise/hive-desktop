@@ -865,7 +865,12 @@ export function TaskDialog() {
     setPreview(!!c?.description)
     setComment('')
     setShowHistory(false)
-    setTimeout(() => (c ? null : titleRef.current?.focus()), 30)
+    // A new card's title takes the keyboard, unless it is already in the dialog: in a busy window the timer can fire
+    // after the user has moved on to another field, and what they type next would land in the title (#229).
+    setTimeout(() => {
+      const t = titleRef.current
+      if (!c && t && !t.closest('.dialog')?.contains(document.activeElement)) t.focus()
+    }, 30)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
