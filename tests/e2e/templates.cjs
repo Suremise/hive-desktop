@@ -132,7 +132,7 @@ const check = (name, ok, extra = '') => {
   const warn = page.locator('.dialog', { hasText: 'Load "pair"?' })
   await warn.waitFor({ timeout: 5000 })
   const text = await warn.innerText()
-  check('the warning lists who goes and who comes', /Removed:[\s\S]*Old[\s\S]*Tree \(its worktree and branch hive\/tree stay\)[\s\S]*Created:[\s\S]*Builder — builder[\s\S]*Reviewer/.test(text), text)
+  check('the warning lists who goes and who comes', /Removed:[\s\S]*Old[\s\S]*Tree \(its worktree and branch hive\/tree, merged into \w+ and clean, stay unless you tick below\)[\s\S]*Created:[\s\S]*Builder — builder[\s\S]*Reviewer/.test(text), text)
   await page.screenshot({ path: path.join(lib.WORK, 'templates-3-warning.png') })
   await warn.getByRole('button', { name: 'Load template' }).click()
   const loaded = await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer"]', 15000)
@@ -333,7 +333,7 @@ const check = (name, ok, extra = '') => {
   await item('pair').click()
   const toPair = page.locator('.dialog', { hasText: 'Load "pair"?' })
   await toPair.waitFor({ timeout: 5000 })
-  check('replaced by "pair", Tree\'s worktree stays', /Tree \(its worktree and branch hive\/tree-2 stay\)/.test(await toPair.innerText()), await toPair.innerText())
+  check('replaced by "pair", Tree\'s worktree stays', /Tree \(its worktree and branch hive\/tree-2, merged into \w+ and clean, stay unless you tick below\)/.test(await toPair.innerText()), await toPair.innerText())
   await toPair.getByRole('button', { name: 'Load template' }).click()
   await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer"]', 15000)
   await page.locator('.activitybar [aria-label="Templates"]').click()
@@ -349,6 +349,25 @@ const check = (name, ok, extra = '') => {
   await lib.until(async () => projectCfg(beta).agents.some((a) => a.name === 'Tree'), 15000)
   const reattached = projectCfg(beta).agents.find((a) => a.name === 'Tree')?.worktree
   check('…and works in it: no new worktree or branch', norm(reattached?.path ?? '') === norm(oldTree) && reattached.branch === 'hive/tree' && hiveBranches() === branchesBefore, `${JSON.stringify(reattached)} ${hiveBranches()} / ${branchesBefore}`)
+
+  // --- #289: "pair" again: Tree's worktree (hive/tree: nothing of its own, so merged, and clean) is offered for removal,
+  // unticked; ticked, it goes with its branch once the load is done.
+  await page.locator('.activitybar [aria-label="Projects"]').click()
+  await select('beta')
+  await loadMenu()
+  await item('pair').click()
+  await toPair.waitFor({ timeout: 5000 })
+  const tick = toPair.locator('.dialog-check input[type="checkbox"]')
+  const tickLabel = (await toPair.locator('.dialog-check').innerText().catch(() => '')).trim()
+  check('the dialog offers to remove the merged, clean old worktree, unticked', /^Also remove the old worktree and its branch \(merged into \w+ and clean\): hive\/tree$/.test(tickLabel) && !(await tick.isChecked()), tickLabel)
+  check('…and says so on its line', /Tree \(its worktree and branch hive\/tree, merged into \w+ and clean, stay unless you tick below\)/.test(await toPair.innerText()), await toPair.innerText())
+  await tick.check()
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-9-remove-old.png') })
+  await toPair.getByRole('button', { name: 'Load template' }).click()
+  await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer"]', 15000)
+  check('ticked: the old worktree and its branch are gone', !!(await lib.until(async () => !fs.existsSync(oldTree), 10000)) && !lib.git(beta, ['branch', '--list', 'hive/tree']).includes('hive/tree'))
+  check('…said in a notice', !!(await lib.until(async () => (await page.locator('.toast', { hasText: 'Removed an old worktree' }).count()) === 1, 5000)))
+  check('…and nothing else: the other kept worktree stays', fs.existsSync(want) && lib.git(beta, ['branch', '--list', 'hive/tree-2']).includes('hive/tree-2'))
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')

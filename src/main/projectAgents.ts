@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto'
+import { existsSync } from 'original-fs'
 import { basename, join, resolve } from 'path'
 import { MAX_AGENTS, ROLE_MAX, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
 import { agentProvider, isKnownProvider } from '../shared/providers'
@@ -32,6 +33,53 @@ export async function gitInfo(projectPath: string): Promise<ProjectGitInfo> {
   }
 }
 
+/**
+ * Removals of worktrees (#289), by lower-cased path: when each started and, once over, ended, on one counter. Whatever
+ * gives an agent a worktree (`addAgent`, a template's load) takes a mark (`claimMark`) before it looks at the project's
+ * worktrees, and refuses, under the project file's lock, one whose removal was going on at any time since
+ * (`removedSince`): a claim that saw the worktree before or while it was removed never publishes an agent in it. A few
+ * hundred kept at most (the oldest ended ones go first); removals are rare.
+ */
+const removals = new Map<string, { start: number; end?: number }>()
+let removalClock = 0
+const REMOVALS_KEPT = 200
+const worktreeKey = (path: string): string => resolve(path).toLowerCase()
+
+/** Reserves a worktree while it is checked and removed; the function returned ends the removal. */
+export function reserveForRemoval(path: string): () => void {
+  const key = worktreeKey(path)
+  const was = removals.get(key)
+  if (was && was.end === undefined) throw new Error('That worktree is already being removed.')
+  const entry: { start: number; end?: number } = { start: ++removalClock }
+  removals.delete(key)
+  removals.set(key, entry)
+  for (const [k, r] of removals) {
+    if (removals.size <= REMOVALS_KEPT) break
+    if (r.end !== undefined) removals.delete(k)
+  }
+  return () => void (entry.end = ++removalClock)
+}
+
+/** A point to check claims against: taken before looking at the project's worktrees. */
+export const claimMark = (): number => removalClock
+
+/** Whether a worktree's removal was going on at any time since `mark` (or is now): a claim from then can't have it. */
+export function removedSince(path: string, mark: number): boolean {
+  const r = removals.get(worktreeKey(path))
+  return !!r && (r.end === undefined || r.end > mark)
+}
+
+/**
+ * An agent given an existing worktree whose setup never ran (#289: kept after its agent was replaced before its first
+ * session) runs it first: its definition marked, and the worktree taken off the project's list. Called under the lock.
+ */
+export function takePendingSetup(now: ProjectConfig, def: AgentDef): Pick<ProjectConfig, 'setupPending'> | null {
+  const pending = Array.isArray(now.setupPending) ? now.setupPending.filter((p) => typeof p === 'string') : []
+  if (!def.worktree || !pending.some((p) => worktreeKey(p) === worktreeKey(def.worktree!.path))) return null
+  if (now.worktreeSetup.trim()) def.needsSetup = true
+  return { setupPending: pending.filter((p) => worktreeKey(p) !== worktreeKey(def.worktree!.path)) }
+}
+
 export async function addAgent(projectPath: string, opts: AddAgentOptions): Promise<AgentDef> {
   projectPath = workspace.assertProject(projectPath)
   const cfg = await workspace.projectConfig(projectPath)
@@ -41,6 +89,8 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
   while (agents.some((a) => a.name === `Agent ${n}`)) n++
   const name = opts.name?.trim() || `Agent ${n}`
   if (agents.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an agent called "${name}".`)
+  // Before the worktrees are looked at: a removal since then refuses the claim (#289).
+  const mark = claimMark()
   const { def, discard } = await prepareAgent(projectPath, cfg, opts, name, agents)
   try {
     await workspace.mutateProjectConfig(projectPath, (now) => {
@@ -50,8 +100,11 @@ export async function addAgent(projectPath: string, opts: AddAgentOptions): Prom
       if (list.some((a) => a.name.toLowerCase() === name.toLowerCase())) throw new Error(`There is already an agent called "${name}".`)
       const wtPath = def.worktree?.path.toLowerCase()
       if (wtPath && list.some((a) => a.worktree?.path.toLowerCase() === wtPath)) throw new Error('Another agent already works in that worktree.')
+      if (def.worktree && (removedSince(def.worktree.path, mark) || !existsSync(def.worktree.path))) throw new Error('That worktree is being removed, or was just removed.')
+      // An existing worktree whose setup never ran runs it first (#289).
+      const pending = opts.location === 'existing-worktree' ? takePendingSetup(now, def) : null
       // An automatic layout follows the agents, so the new one shows; with one chosen by hand, a full page sends it to the next (#134).
-      return { agents: [...list, def] }
+      return { agents: [...list, def], ...pending }
     })
   } catch (e) {
     await discard()

@@ -590,6 +590,11 @@ export interface ProjectConfig {
    * all copied yet (#146): kept until a copy works, so Repair tries again, after a restart too.
    */
   pendingCopies?: { from: string; to: string; of: string }[]
+  /**
+   * Worktrees kept after their agent was replaced (#289: loading a template) before its first session ran the worktree
+   * setup command: an agent that works in one again runs it first (needsSetup), so it isn't lost, nor run twice.
+   */
+  setupPending?: string[]
   fileLocks: Inherit<FileLockMode>
   /** Overrides settings.agents.worktreeCopy; null inherits. */
   worktreeCopy: string | null
@@ -655,6 +660,13 @@ export interface TemplateLoadPlan {
    * again, its branch left as it is (#289); else a new one, with `notReused` saying why the one of that name can't be.
    */
   worktrees: ({ branch: string; path: string; base: string; reuse?: true; notReused?: string } | null)[]
+  /**
+   * The removed agents' worktrees no created agent works in again (#289): `removable` when merged into the main branch
+   * (`mergedInto`) and clean (`worktreeCheck`), which the load can remove with their branches if asked; else kept, `why`.
+   */
+  oldWorktrees: { agent: string; path: string; branch: string; removable: boolean; why?: string }[]
+  /** The main branch the old worktrees were checked against: a removal is refused if it is another by then. */
+  mergedInto: string | null
   /** The project's worktree setup command, which each new worktree runs before its agent first starts (null: none). */
   setup: string | null
   /** Providers the template needs that are off or not installed, and which of its agents need each. */

@@ -26,7 +26,7 @@ import type { AgentDef, ProviderId, TemplateLoadPlan } from '../shared/types'
 import { config } from './config'
 import { readKeptJson, withFileLock, writeKeptJson, writeTextAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
-import { addAgent, newWorktreePlace, prepareAgent } from './projectAgents'
+import { addAgent, claimMark, newWorktreePlace, prepareAgent, removedSince, reserveForRemoval, takePendingSetup } from './projectAgents'
 import { providerService } from './providerService'
 import { sessions } from './sessions'
 import { endReviews, releaseAgentCards } from './tasks'
@@ -380,11 +380,26 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
     worktrees.push({ ...spot, base, ...(found ? { notReused: found.why } : {}) })
   }
   const setup = cfg.worktreeSetup.trim() || null
-  return { scope: t.scope, file: t.file, name: t.name, layout: t.layout, remove, create: t.agents, worktrees, setup, missing, blocked }
+  // The removed agents' worktrees nobody works in again: which could go with the load, merged and clean (#289).
+  const reused = new Set(worktrees.flatMap((w) => (w?.reuse ? [resolve(w.path).toLowerCase()] : [])))
+  const oldWorktrees: TemplateLoadPlan['oldWorktrees'] = []
+  let mergedInto: string | null = null
+  for (const a of current) {
+    if (!a.worktree || reused.has(resolve(a.worktree.path).toLowerCase())) continue
+    const check = await wt.worktreeCheck(projectPath, a.worktree)
+    mergedInto = check.into
+    oldWorktrees.push({ agent: a.name, path: a.worktree.path, branch: a.worktree.branch, removable: check.removable, ...(check.removable ? {} : { why: check.reason ?? 'not checked' }) })
+  }
+  return { scope: t.scope, file: t.file, name: t.name, layout: t.layout, remove, create: t.agents, worktrees, setup, oldWorktrees, mergedInto, missing, blocked }
 }
 
 /** Seams for unit tests: called after each of a load's agents is staged (its name), before the load is published. */
-export const testHooks: { staged?: (name: string) => Promise<void> } = {}
+export const testHooks: {
+  staged?: (name: string) => Promise<void>
+  /** Before an old worktree the user chose is reserved for removal (#289), and once it is checked, just before it goes. */
+  beforeRemoval?: (branch: string) => Promise<void>
+  removing?: (branch: string) => Promise<void>
+} = {}
 
 /** Loads under way, by project: one at a time each. */
 const loading = new Set<string>()
@@ -401,15 +416,22 @@ const loading = new Set<string>()
  *   exactly those shown and none runs or is starting. Anything else (an agent added or removed meanwhile) refuses the
  *   load, and the staged worktrees go: no change made meanwhile is lost, and nothing half loaded is ever seen.
  * - The removed agents' worktrees and branches stay (to merge or reuse), their conversations stay in the Sessions tab,
- *   and their open cards go back (nobody has them; Doing ones to Todo).
+ *   and their open cards go back (nobody has them; Doing ones to Todo). A created agent of the same name may work in
+ *   one again (#289).
+ * - `removeOld` (#289): the old worktrees the user chose to remove with their branches, which the dialog listed as merged
+ *   into `mergedInto` and clean. Only once the load is published (a refused load removes nothing), and only a removed
+ *   agent's worktree that no agent works in now, checked again and guarded while deleting (`removeCheckedWorktree`):
+ *   one that isn't any more is kept, and the reply says why.
  */
-export async function loadTemplate(projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string): Promise<{ created: string[]; removed: string[] }> {
+export async function loadTemplate(projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }): Promise<{ created: string[]; removed: string[]; oldWorktrees: { branch: string; removed: boolean; why?: string }[] }> {
   projectPath = workspace.assertProject(projectPath)
   const key = projectPath.toLowerCase()
   if (loading.has(key)) throw new TemplateError('A template is already being loaded into this project.')
   loading.add(key)
   const unfence = sessions.fenceStarts(projectPath, 'A template is being loaded into this project')
   try {
+    // Before the plan looks at the worktrees: one removed since then isn't worked in again (#289).
+    const mark = claimMark()
     const plan = await templatePlan(projectPath, scope, file, from)
     if (plan.blocked.length) throw new TemplateError(`The template can't be loaded yet:\n${plan.blocked.map((b) => `• ${b}`).join('\n')}`)
     const changed = (ids: string[]): boolean => !Array.isArray(expected) || ids.length !== expected.length || ids.some((id, i) => id !== expected[i])
@@ -430,8 +452,21 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
         const list = projectAgents(now)
         if (changed(list.map((a) => a.id))) throw new TemplateError("The project's agents changed while the template was loading: nothing was changed. Open the template again.")
         if (list.some((a) => busy(projectPath, a.id))) throw new TemplateError('An agent started meanwhile: nothing was changed. Stop it first.')
+        if (staged.some((s) => s.def.worktree && (removedSince(s.def.worktree.path, mark) || !existsSync(s.def.worktree.path)))) throw new TemplateError('A worktree it would work in again is being removed, or was just removed: nothing was changed. Open the template again.')
         old = list
-        return { agents: staged.map((s) => s.def), layout: plan.layout }
+        // A worktree whose setup never ran keeps that (#289): an agent working in it again runs it first, and one kept
+        // without an agent is remembered for the next.
+        const pathKey = (p: string): string => resolve(p).toLowerCase()
+        const taking = new Set(staged.flatMap((s) => (s.def.worktree ? [pathKey(s.def.worktree.path)] : [])))
+        const pendingBefore = new Set(list.filter((a) => a.worktree && a.needsSetup).map((a) => pathKey(a.worktree!.path)))
+        let pending = Array.isArray(now.setupPending) ? now.setupPending.filter((p) => typeof p === 'string') : []
+        for (const s of staged) {
+          if (!s.def.worktree || s.def.needsSetup) continue
+          if (pendingBefore.has(pathKey(s.def.worktree.path)) && now.worktreeSetup.trim()) s.def.needsSetup = true
+          else pending = takePendingSetup({ ...now, setupPending: pending }, s.def)?.setupPending ?? pending
+        }
+        pending = [...pending.filter((p) => !taking.has(pathKey(p))), ...list.filter((a) => a.worktree && a.needsSetup && !taking.has(pathKey(a.worktree.path))).map((a) => a.worktree!.path)]
+        return { agents: staged.map((s) => s.def), layout: plan.layout, setupPending: [...new Map(pending.map((p) => [pathKey(p), p])).values()].slice(-50) }
       })
     } catch (e) {
       for (const s of staged) await s.discard()
@@ -443,14 +478,61 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
       await endReviews(project, a.id, 'the agent was removed', workspaceOf(projectPath)).catch(() => undefined)
     }
     log.info(`Loaded template ${userText(plan.name)} into ${userText(projectPath)}: ${old.length} agents removed, ${staged.length} created`)
+    const oldWorktrees = await removeOldWorktrees(projectPath, old, removeOld)
     await workspaceOf(projectPath).refresh()
-    return { created: staged.map((s) => s.def.name), removed: old.map((a) => a.name) }
+    return { created: staged.map((s) => s.def.name), removed: old.map((a) => a.name), oldWorktrees }
   } finally {
     unfence()
     loading.delete(key)
   }
 }
 
+
+/**
+ * After a load, the removed agents' worktrees the user chose to remove (#289): each only if it was a removed agent's, no
+ * agent of the project works in it now, and it is merged into the main branch the user was shown and clean now
+ * (`worktreeCheck`, then `removeCheckedWorktree`, which deletes nothing if either branch moved). What happened to each.
+ */
+async function removeOldWorktrees(projectPath: string, old: AgentDef[], removeOld: { paths: string[]; mergedInto: string | null } | undefined): Promise<{ branch: string; removed: boolean; why?: string }[]> {
+  const key = (p: string): string => resolve(p).toLowerCase()
+  const asked = new Set((Array.isArray(removeOld?.paths) ? removeOld.paths : []).filter((p) => typeof p === 'string').map(key))
+  if (!asked.size) return []
+  const out: { branch: string; removed: boolean; why?: string }[] = []
+  for (const a of old) {
+    const tree = a.worktree
+    if (!tree || !asked.has(key(tree.path))) continue
+    asked.delete(key(tree.path))
+    await testHooks.beforeRemoval?.(tree.branch)
+    // Reserved first, so no agent can be given it from now on (addAgent and a load refuse it under the project file's
+    // lock); then, under that lock, whether one was given it before. Either an agent has it and it stays, or none can.
+    let release: () => void
+    try {
+      release = reserveForRemoval(tree.path)
+    } catch (e) {
+      out.push({ branch: tree.branch, removed: false, why: (e as Error).message })
+      continue
+    }
+    try {
+      let owned = false
+      await workspace.mutateProjectConfig(projectPath, (now) => {
+        owned = projectAgents(now).some((x) => x.worktree && key(x.worktree.path) === key(tree.path))
+        return {}
+      })
+      if (owned) {
+        out.push({ branch: tree.branch, removed: false, why: 'an agent works in it now' })
+        continue
+      }
+      await testHooks.removing?.(tree.branch)
+      const done = await wt.removeCheckedWorktree(projectPath, tree, await wt.worktreeCheck(projectPath, tree), removeOld?.mergedInto ?? null).catch((e: Error) => ({ deleted: false, reason: e.message.split('\n')[0] }))
+      out.push({ branch: tree.branch, removed: done.deleted, ...(done.reason ? { why: done.reason } : {}) })
+      // A removed worktree's setup isn't pending any more.
+      if (done.deleted) await workspace.mutateProjectConfig(projectPath, (now) => (Array.isArray(now.setupPending) ? { setupPending: now.setupPending.filter((p) => typeof p !== 'string' || key(p) !== key(tree.path)) } : {}))
+    } finally {
+      release()
+    }
+  }
+  return out
+}
 
 /** Adds one agent of a template to the project, the others left alone; a name already taken gets a number ("Builder 2"). */
 export async function addAgentFromTemplate(projectPath: string, scope: TemplateScope, file: string, index: number, from?: string): Promise<AgentDef & { reused?: true }> {

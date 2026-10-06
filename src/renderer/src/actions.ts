@@ -756,6 +756,9 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
   }
   const p = project(path)
   const expected = (p?.agents ?? []).map((a) => a.id)
+  const removable = plan.oldWorktrees.filter((w) => w.removable)
+  let removeOld = false
+  let result: { oldWorktrees: { branch: string; removed: boolean; why?: string }[] } | undefined
   const ok = await confirm({
     title: `Load "${plan.name}"?`,
     message: plan.remove.length ? `It replaces every agent of ${p?.name ?? 'this project'}.` : `It adds its agents to ${p?.name ?? 'this project'}.`,
@@ -765,9 +768,23 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
     confirmLabel: 'Load template',
     busyLabel: 'Loading…',
     danger: plan.remove.length > 0,
-    run: () => call('templates:load', path, entry.scope, entry.file, expected, from)
+    // The removed agents' worktrees that are merged and clean can go with the load, if ticked (off by default, #289).
+    check: removable.length ? { label: removeOldLabel(removable.map((w) => w.branch), plan.mergedInto), initial: false, set: (v) => (removeOld = v) } : undefined,
+    run: async () => {
+      result = await call('templates:load', path, entry.scope, entry.file, expected, from, removeOld ? { paths: removable.map((w) => w.path), mergedInto: plan.mergedInto } : undefined)
+    }
   })
-  if (ok) await refreshWorkspace()
+  if (!ok) return
+  await refreshWorkspace()
+  const gone = result?.oldWorktrees.filter((w) => w.removed) ?? []
+  const kept = result?.oldWorktrees.filter((w) => !w.removed) ?? []
+  if (kept.length) notify('warning', `${kept.length === 1 ? 'An old worktree was' : `${kept.length} old worktrees were`} kept`, [...(gone.length ? [`Removed: ${gone.map((w) => w.branch).join(', ')}.`] : []), ...kept.map((w) => `${w.branch}: ${w.why ?? 'kept'}`)].join('\n'))
+  else if (gone.length) notify('success', `Removed ${gone.length === 1 ? 'an old worktree' : `${gone.length} old worktrees`}`, `${gone.map((w) => w.branch).join(', ')}, with ${gone.length === 1 ? 'its branch' : 'their branches'}: merged and clean.`)
+}
+
+/** The tick box for removing the old worktrees that are merged and clean (#289). */
+function removeOldLabel(branches: string[], into: string | null): string {
+  return `Also remove ${branches.length === 1 ? 'the old worktree' : `${branches.length} old worktrees`} and ${branches.length === 1 ? 'its branch' : 'their branches'} (merged into ${into ?? 'the main branch'} and clean): ${branches.join(', ')}`
 }
 
 /** Adds one agent of a template, the project's others left alone (a name already taken gets a number). */

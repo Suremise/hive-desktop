@@ -43,6 +43,17 @@ describe('the Load template dialog (#268)', () => {
     // No worktrees, or no setup command: no setup line.
     expect(templateLoadDetail({ ...plan, setup: null }, cfg, settings, () => info)).not.toContain('setup command')
     expect(templateLoadDetail({ ...plan, worktrees: [null, null] }, cfg, settings, () => info)).not.toContain('setup command')
+    // #289: a worktree a created agent works in again goes on with it; a merged, clean one can be removed (the tick box);
+    // one with unmerged work stays, saying why.
+    const reuse = templateLoadDetail({ ...plan, worktrees: [{ branch: 'hive/claude', path: 'D:/x/site/claude', base: 'main', reuse: true }, null] }, cfg, settings, () => info)
+    expect(reuse).toContain('• Claude (its worktree on hive/claude goes on with the new Claude): replaced by a new agent with the same name')
+    expect(reuse).toContain('    reuses its worktree on hive/claude in D:/x/site/claude (clean; its branch is left as it is)')
+    expect(reuse).not.toContain('setup command')
+    const old = { ...plan, remove: [{ id: 'c', name: 'Codex', running: false, dirty: 0, worktree: { path: 'D:/x/site/codex', branch: 'hive/codex' } }, { id: 'd', name: 'Dev', running: false, dirty: 0, worktree: { path: 'D:/x/site/dev', branch: 'hive/dev' } }], mergedInto: 'main', oldWorktrees: [{ agent: 'Codex', path: 'D:/x/site/codex', branch: 'hive/codex', removable: true }, { agent: 'Dev', path: 'D:/x/site/dev', branch: 'hive/dev', removable: false, why: '2 commits not merged into main' }] }
+    const both = templateLoadDetail(old, cfg, settings, () => info)
+    expect(both).toContain('• Codex (its worktree and branch hive/codex, merged into main and clean, stay unless you tick below)')
+    expect(both).toContain('• Dev (its worktree and branch hive/dev stay: 2 commits not merged into main)')
+    expect(templateLoadDetail({ ...plan, worktrees: [{ branch: 'hive/claude-2', path: 'D:/x/site/claude-2', base: 'main', notReused: 'hive/claude has 1 uncommitted file' }, null] }, cfg, settings, () => info)).toContain('in D:/x/site/claude-2 (new: hive/claude has 1 uncommitted file)')
     // Nothing removed: no Removed list and nothing about removed agents.
     const fresh = templateLoadDetail({ ...plan, remove: [] }, cfg, settings, () => info)
     expect(fresh.startsWith('Created:')).toBe(true)

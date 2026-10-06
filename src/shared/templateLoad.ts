@@ -26,7 +26,7 @@ export function templateAgentSettings(a: TemplateAgent, cfg: Pick<ProjectConfig,
 }
 
 /** The dialog's detail: Removed and Created, the setup command, and what happens to the removed agents. */
-export function templateLoadDetail(plan: Pick<TemplateLoadPlan, 'remove' | 'create' | 'worktrees' | 'setup'>, cfg: Pick<ProjectConfig, 'providers' | 'defaultProvider'>, settings: AppSettings | null, info: (p: ProviderId) => ModelInfo): string {
+export function templateLoadDetail(plan: Pick<TemplateLoadPlan, 'remove' | 'create' | 'worktrees' | 'setup'> & Partial<Pick<TemplateLoadPlan, 'oldWorktrees' | 'mergedInto'>>, cfg: Pick<ProjectConfig, 'providers' | 'defaultProvider'>, settings: AppSettings | null, info: (p: ProviderId) => ModelInfo): string {
   const coming = new Set(plan.create.map((a) => a.name.toLowerCase()))
   const replaced = plan.remove.filter((a) => coming.has(a.name.toLowerCase())).map((a) => a.name.toLowerCase())
   // Worktrees a created agent works in again (#289): a removed agent's goes on with the new one rather than staying behind.
@@ -34,7 +34,15 @@ export function templateLoadDetail(plan: Pick<TemplateLoadPlan, 'remove' | 'crea
   const lines: string[] = []
   if (plan.remove.length) {
     lines.push('Removed:')
-    for (const a of plan.remove) lines.push(`• ${a.name}${a.worktree ? (reused.has(a.worktree.path.toLowerCase()) ? ` (its worktree on ${a.worktree.branch} goes on with the new ${a.name})` : ` (its worktree and branch ${a.worktree.branch} stay)`) : ''}${replaced.includes(a.name.toLowerCase()) ? ': replaced by a new agent with the same name' : ''}`)
+    // What happens to each removed agent's worktree: worked in again, removable (merged and clean: the tick box), or kept, why (#289).
+    const old = (a: TemplateLoadPlan['remove'][number]): string => {
+      if (!a.worktree) return ''
+      if (reused.has(a.worktree.path.toLowerCase())) return ` (its worktree on ${a.worktree.branch} goes on with the new ${a.name})`
+      const o = plan.oldWorktrees?.find((w) => w.path.toLowerCase() === a.worktree!.path.toLowerCase())
+      if (o?.removable) return ` (its worktree and branch ${a.worktree.branch}, merged into ${plan.mergedInto ?? 'the main branch'} and clean, stay unless you tick below)`
+      return ` (its worktree and branch ${a.worktree.branch} stay${o?.why ? `: ${o.why}` : ''})`
+    }
+    for (const a of plan.remove) lines.push(`• ${a.name}${old(a)}${replaced.includes(a.name.toLowerCase()) ? ': replaced by a new agent with the same name' : ''}`)
     lines.push('')
   }
   lines.push('Created:')
