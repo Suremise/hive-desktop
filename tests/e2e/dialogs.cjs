@@ -74,14 +74,14 @@ const check = (name, ok, extra = '') => {
   }
 
   // --- Add Agent.
-  await page.locator('.agent-add.split-caret').click()
+  await page.locator('.agent-add.split-caret').click(); await page.locator('.menu .menu-item', { hasText: 'Configure Agent and Add…' }).click()
   const add = page.locator('.dialog', { hasText: 'Add an agent' })
   await lib.until(async () => (await add.count()) === 1, 5000)
   const addStart = await movesWell('Add Agent', add)
   await page.screenshot({ path: path.join(lib.WORK, 'dialogs-add-moved.png') })
   await page.keyboard.press('Escape')
   await lib.until(async () => (await add.count()) === 0, 3000)
-  await page.locator('.agent-add.split-caret').click()
+  await page.locator('.agent-add.split-caret').click(); await page.locator('.menu .menu-item', { hasText: 'Configure Agent and Add…' }).click()
   await lib.until(async () => (await add.count()) === 1, 5000)
   check('Add Agent: opens centred again next time', near(addStart, await box(add)), JSON.stringify(await box(add)))
   await page.keyboard.press('Escape')
