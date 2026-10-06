@@ -36,6 +36,23 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## On Hold and Passed: fakes, Codex (`gpt-5.6-luna`, CLI 0.160.0), fixtures v10, 6 October 2026
+
+#170 adds the On Hold and Passed columns: the session contract, card-loop, review-agent-work, work-on-card, merge-ready and
+coordinate-agents now say a reviewer moves a passing card to Passed, Done means merged and On Hold is the user's. Fixtures
+v10 replace **standing-done** with **review-passed** and add **merged-to-done** and **hold-skipped**; **review-interrupted**
+no longer offers Done, and **card-loop-two-cards**' passed card is in Passed.
+- **Fakes**, before (`card170-before-claude` / `-codex` baselines, results `2026-10-05T23-18-53-fake` and
+  `2026-10-05T23-20-02-fake-codex`, v9: 35 of 35 pass) and after (`2026-10-05T23-43-40-fake` and
+  `2026-10-06T00-06-02-fake-codex`, v10: 37 of 37 pass). The versions differ, so Performance → Compare only shows them;
+  over the 34 scenarios both ran: the session contract +5.5% (about 80 characters a launch), skills +1.0%, the hive tools'
+  list +2.1%, tool replies unchanged.
+- **Codex: 8 of 8 pass** (`results/2026-10-06T00-07-15-codex`, $0.08): work-on-card, review-card, review-interrupted,
+  done-card-more-work, **review-passed** (the reviewer moved it to Passed with its verdict), **merged-to-done**,
+  **hold-skipped** (took the Todo card, left the On Hold one alone) and card-loop-two-cards.
+- **Claude Code** (CLI 2.1.290, its test home): no result. Two tries (`2026-10-06T00-18-23-claude-code`,
+  `2026-10-06T00-24-57-claude-code`) timed out with no reply and no tokens used, the environment rather than the change.
+
 ## Card loops: Codex (default `gpt-6.1-sol`, CLI 0.160.0), fixtures v9, 5 October 2026
 
 The card-loop scenarios only (#143: wake lines name a dependency's agent and say Done isn't merged; the skill covers

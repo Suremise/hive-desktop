@@ -12,6 +12,7 @@ import { appendFileSync, readFileSync } from 'fs'
 import { createInterface } from 'readline'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../../shared/hiveGuidance'
 import { ASSISTANT_ONLY_TOOLS, assistantTools } from '../../shared/assistantTools'
+import { COLUMN_IDS } from '../../shared/tasks'
 import { MAX_ROWS, changedText, createdText, noteText, notesListText, projectListText, reorderText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SkillRow, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 
 const VERSION = '1.0.0'
@@ -68,7 +69,7 @@ const settingsArgs = {
 }
 const agentPath = (a: Record<string, any>): string => `/v1/projects/${proj(a)}/agents/${enc(a.agent || '')}`
 /** Which agent is changing a card, for its history (Hive fills in the name). */
-const columnArg = { type: 'string', enum: ['todo', 'doing', 'review', 'done'] }
+const columnArg = { type: 'string', enum: [...COLUMN_IDS] }
 const cardsArg = (what: string) => ({ type: 'array', items: { type: 'number' }, description: what })
 
 interface Tool {
@@ -327,7 +328,7 @@ const tools: Tool[] = [
       properties: {
         cards: { type: 'array', items: { type: 'number' }, description: 'Card numbers (#12 is 12).' },
         changes: { type: 'array', items: { type: 'string', enum: ['column', 'comment', 'verdict', 'agent'] }, description: 'What counts (default: any).' },
-        column: { type: 'string', enum: ['todo', 'doing', 'review', 'done'] },
+        column: columnArg,
         wake: { type: 'boolean' },
         limitMinutes: { type: 'number' },
         timeoutSeconds: { type: 'number' },
@@ -365,7 +366,7 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_create_task',
-    description: `Add a card, in todo unless column says otherwise (never done). ${ASSISTANT ? "Give it a project: without one it is about the workspace and can't be started on an agent." : "It is your project's: you can't add cards for other projects or the whole workspace (tell the user)."}${ASSISTANT ? '' : ' Created in doing without agent, it is given to you.'} Replies with its number and place.`,
+    description: `Add a card, in todo unless column says otherwise (never done${ASSISTANT ? '' : ' or hold'}). ${ASSISTANT ? "Give it a project: without one it is about the workspace and can't be started on an agent." : "It is your project's: you can't add cards for other projects or the whole workspace (tell the user)."}${ASSISTANT ? '' : ' Created in doing without agent, it is given to you.'} Replies with its number and place.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -386,8 +387,8 @@ const tools: Tool[] = [
   {
     name: 'hive_update_task',
     description: ASSISTANT
-      ? "Change a card and/or comment on it. column moves it: into doing it keeps its agent (or none) and starts nothing; when the user only says to move a card to doing, ask whether they want nobody on it, an agent assigned (agent), or an agent started on it (hive_start_task). position (top, bottom) or before (a card in the column it ends in) places it; blocked sets a reason (empty clears it); blockedBy and links replace their lists; agent gives it to an agent of its project (empty takes it away); project moves it to another project, taking it from its agent. Done is the user's call: move a card there only when they ask. Archived cards can't change. Replies with what changed and where the card is now."
-      : "Change a card of your project and/or comment on it. column moves it: into doing from another column without agent gives it to you. position (top, bottom) or before (a card in the column it ends in) places it; blocked sets a reason (empty clears it); blockedBy and links replace their lists; agent gives it to an agent of the project (empty takes it away). review: on a card in review, start marks you as its reviewer (it keeps its column and agent: reviewing isn't working on it); passed or failed, with your verdict as comment, ends your review; your own card failed and still in review, column review returns it for its next round (wakes its reviewer). Done is the user's call: move a card there only when they ask. A card in doing with another agent is its work in progress: you can't move it to review or done (refused). Archived cards can't change. Replies with what changed and where the card is now.",
+      ? "Change a card and/or comment on it. column moves it: into doing it keeps its agent (or none) and starts nothing; when the user only says to move a card to doing, ask whether they want nobody on it, an agent assigned (agent), or an agent started on it (hive_start_task). position (top, bottom) or before (a card in the column it ends in) places it; blocked sets a reason (empty clears it); blockedBy and links replace their lists; agent gives it to an agent of its project (empty takes it away); project moves it to another project, taking it from its agent. hold parks a card and done means merged: move a card to either only when the user asks. Archived cards can't change. Replies with what changed and where the card is now."
+      : "Change a card of your project and/or comment on it. column moves it: into doing from another column without agent gives it to you. position (top, bottom) or before (a card in the column it ends in) places it; blocked sets a reason (empty clears it); blockedBy and links replace their lists; agent gives it to an agent of the project (empty takes it away). review: on a card in review, start marks you as its reviewer (it keeps its column and agent: reviewing isn't working on it); passed or failed, with your verdict as comment, ends your review (passed with column passed moves it on: reviewed, not merged); your own card failed and still in review, column review returns it for its next round (wakes its reviewer). done means merged: move your card there once its work is merged, or when the user asks. hold is the user's (refused). A card in doing with another agent is its work in progress: you can't move it to review, passed or done (refused). Archived cards can't change. Replies with what changed and where the card is now.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -420,7 +421,7 @@ const tools: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        column: { type: 'string', enum: ['todo', 'doing', 'review'] },
+        column: { type: 'string', enum: COLUMN_IDS.filter((c) => c !== 'done') },
         cards: cardsArg('Card numbers, highest priority first.')
       },
       required: ['column', 'cards']

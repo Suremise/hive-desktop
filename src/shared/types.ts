@@ -369,6 +369,8 @@ export interface AppConfig {
     skillsFold?: Record<string, { hive?: boolean; provider?: boolean }>
     /** Each project's Sessions tree branches the user opened (true) or folded (false), by project path in lower case (#239). */
     sessionsTree?: Record<string, Record<string, boolean>>
+    /** Each workspace's board as the user left it, by workspace path in lower case (#170): collapsed columns, folded cards. */
+    boardFold?: Record<string, BoardFold>
   }
   /** Per provider: the model last seen in a session started without a model choice (the CLI's own default). */
   observedDefaultModel: Record<ProviderId, string>
@@ -429,7 +431,14 @@ export interface HiddenProject {
 // Task board: one per workspace, a card per file in .hive/tasks.
 // ---------------------------------------------------------------------------
 
-export type TaskColumn = 'todo' | 'doing' | 'review' | 'done'
+/** On Hold, Todo, Doing, Review, Passed, Done (#170): Passed is reviewed and waiting to be merged, Done is merged. */
+export type TaskColumn = 'hold' | 'todo' | 'doing' | 'review' | 'passed' | 'done'
+
+/** A board as the user left it (a view preference, never in the cards' files): collapsed columns and folded cards. */
+export interface BoardFold {
+  columns?: TaskColumn[]
+  cards?: number[]
+}
 
 export interface TaskComment {
   at: string

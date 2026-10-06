@@ -60,7 +60,7 @@ const check = (name, ok, extra = '') => {
 
   // The Board view, and a card added there.
   await page.getByRole('button', { name: 'Task Board' }).click()
-  check('the Board shows four columns', !!(await until(async () => (await page.locator('.board-column').count()) === 4, 5000)))
+  check('the Board shows six columns', !!(await until(async () => (await page.locator('.board-column').count()) === 6, 5000)))
   await page.getByRole('button', { name: 'New Card', exact: true }).click()
   const dialog = page.locator('.dialog', { hasText: 'New Card' })
   await dialog.locator('.task-title-input').fill('Add a greeting')
@@ -279,7 +279,7 @@ const check = (name, ok, extra = '') => {
   await inv('tasks:archive', 1, true)
   check('archived cards leave the board', !!(await until(async () => (await page.locator('.board-view.in-tab .task-card').count()) === 1, 5000)))
   await page.locator('.board-view.in-tab label', { hasText: 'Archived' }).click()
-  check('and are listed under Archived', !!(await until(async () => (await page.locator('.task-archive-row').count()) === 1, 5000)))
+  check('and are listed under Archived', !!(await until(async () => (await page.locator('.archived-cards tbody tr.clickable').count()) === 1, 5000)))
   await page.screenshot({ path: path.join(lib.WORK, 'board-tab.png') })
 
   // Project → Remove Project…: Hide delta.
@@ -302,7 +302,7 @@ const check = (name, ok, extra = '') => {
   await page.getByRole('button', { name: 'Settings' }).click()
   // Settings → Board: the switch and a picker per column (Doing was changed and put back, so no reset shows).
   await page.locator('.settings-nav .row').filter({ has: page.getByText('Board', { exact: true }) }).click()
-  check('Settings → Board has a colour picker per column', !!(await until(async () => (await page.locator('.column-color input[type="color"]').count()) === 4, 5000)))
+  check('Settings → Board has a colour picker per column', !!(await until(async () => (await page.locator('.column-color input[type="color"]').count()) === 6, 5000)))
   check('only changed colours offer a reset', (await page.locator('.column-color .icon-btn').count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'board-settings-colours.png') })
   await page.locator('.settings-nav .row', { hasText: 'Workspace' }).click()

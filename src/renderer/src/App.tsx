@@ -251,7 +251,7 @@ export function App() {
         call('app:info'),
         call('session:live')
       ])
-      set({ settings: s, sidebarWidth: ui.sidebarWidth, sidebarVisible: ui.sidebarVisible, sidebarCompact: !!ui.sidebarCompact, panes: ui.panes ?? {}, skillsProvider: ui.skillsProvider ?? {}, skillsFold: ui.skillsFold ?? {}, sessionsTree: ui.sessionsTree ?? {}, tips: tipsState(ui.tips), workspace: ws, recent, providers: ag, api, appInfo: info })
+      set({ settings: s, sidebarWidth: ui.sidebarWidth, sidebarVisible: ui.sidebarVisible, sidebarCompact: !!ui.sidebarCompact, panes: ui.panes ?? {}, skillsProvider: ui.skillsProvider ?? {}, skillsFold: ui.skillsFold ?? {}, sessionsTree: ui.sessionsTree ?? {}, boardFold: ui.boardFold ?? {}, tips: tipsState(ui.tips), workspace: ws, recent, providers: ag, api, appInfo: info })
       set({ assistantOpen: assistantWasOpen(ws?.path) })
       // A window restored on top (its workspace was left pinned) shows its pin lit from the start.
       void call('window:getAlwaysOnTop').then((on) => set({ alwaysOnTop: on })).catch(() => undefined)
