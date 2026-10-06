@@ -2,7 +2,8 @@
 // the two (running or stopped), in a fresh window and after clicking agents into panes (what failed before, when a
 // stored pane arrangement won over the order); the strip inserts like browser tabs; holding a dragged agent over a
 // page button switches to that page, to drop it on a pane there (the swap crosses pages); a drop on a page button
-// moves it to that page's last place; a drop on an empty pane moves it there. After every step the panes show the
+// moves it to that page's last place; a drop on an empty pane moves it there; and no target is offered where a drop
+// would change nothing (the last agent over the spare panes or its own page's button, #238). After every step the panes show the
 // agents in their saved order. Four agents in three columns (pages abc | d); one runs the fake Claude Code
 // (fake-claude/) and keeps its session throughout. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
@@ -162,6 +163,33 @@ const check = (name, ok, extra = '') => {
   await lib.until(async () => (await activePage()) === 2, 5000)
   await drag(tab('Two'), [page.locator('.agent-pane:not(:has(.pane-header-bar))').last()])
   check('a drop on an empty pane moves the agent there', !!(await settle('One,Three,Four,Two')), `${saved()} / ${await paneNames()}`)
+
+  // --- No target where a drop would change nothing (#238): Two is now last, alone on page 2 with two spare panes. Each
+  // hover is shorter than the page switch (600 ms).
+  const order = saved().join(',')
+  const t2 = await at(header('Two'))
+  await page.mouse.move(t2.x, t2.y)
+  await page.mouse.down()
+  await page.mouse.move(t2.x + 8, t2.y, { steps: 3 })
+  await lib.sleep(150)
+  const hover = async (loc) => {
+    const b = await at(loc)
+    await page.mouse.move(b.x, b.y, { steps: 8 })
+    await lib.sleep(120)
+    await page.mouse.move(b.x + 1, b.y, { steps: 2 })
+    await lib.sleep(120)
+  }
+  await hover(page.locator('.agent-pane:not(:has(.pane-header-bar))').last())
+  check('the last agent dragged: no "Move here" on the spare panes (it is already at the end)', (await page.locator('.pane-drop').count()) === 0, `${await page.locator('.pane-drop').count()} drop targets`)
+  const button = (n) => page.locator(`.page-switch button[aria-label="Agent page ${n}"]`)
+  await hover(button(2))
+  check("…nor its own page's button", (await page.locator('.page-switch button.drop-target').count()) === 0)
+  await hover(button(1))
+  check("…while page 1's button is one (a drop there moves it)", (await button(1).getAttribute('class'))?.includes('drop-target'), await button(1).getAttribute('class'))
+  await hover(button(2))
+  await page.mouse.up()
+  await lib.sleep(400)
+  check("released on its own page's button: nothing moved, the drag has ended", saved().join(',') === order && (await matches()) && (await page.locator('.pane-drop, .page-switch button.drop-target').count()) === 0, `${saved()} / ${await paneNames()}`)
   await page.screenshot({ path: path.join(lib.WORK, 'swap-done.png') })
   check('One still runs its own session', (await live(one.id))?.sessionId === session)
 
