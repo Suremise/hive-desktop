@@ -7,11 +7,13 @@
       "19e10ed7ebcb0f61",
       "1ff93e821cbfd5e8",
       "198b2ef7331696ab",
-      "93d7ab8fd93b9b94"
+      "93d7ab8fd93b9b94",
+      "b4ea1df77a096062"
     ],
     "coordinate-agents": [
       "148fcb5639058ac2",
-      "34de3836eb3faff9"
+      "34de3836eb3faff9",
+      "88b81643966bc8b9"
     ],
     "handover": [
       "60ac1268a067e829",
@@ -21,7 +23,8 @@
     "merge-ready": [
       "280e0ba668e1fd5c",
       "a56a6daa8b10f075",
-      "b442e6e13ee19fe8"
+      "b442e6e13ee19fe8",
+      "0d474a8946a6c7d1"
     ],
     "pick-up": [
       "022c3f69d3c24d7f",
@@ -31,7 +34,8 @@
       "857a3bd37ac4cc00",
       "37dc8f0a66499983",
       "933180c35b672963",
-      "9f4f1995db1d7443"
+      "9f4f1995db1d7443",
+      "4693c06462a22b4a"
     ],
     "split-work": [
       "9f3b17bc4a73bdd1",
@@ -44,7 +48,8 @@
       "bc38bd6b1cfee0b6",
       "98fce35fd3553303",
       "b8787681faa01a4a",
-      "449d0cc8d59ffef7"
+      "449d0cc8d59ffef7",
+      "3e6f6f54a091dfaf"
     ],
     "workspace-note": [
       "5ecc6339b89ba668",

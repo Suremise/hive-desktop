@@ -21,6 +21,7 @@ export const SUITES = [
   { name: 'banners' },
   { name: 'bell' },
   { name: 'board' },
+  { name: 'boardfold' },
   { name: 'boardscope' },
   { name: 'boardscroll' },
   { name: 'bridgereport' },

@@ -1,4 +1,5 @@
 import type {
+  BoardFold,
   UpdateState,
   WorktreeGone,
   MoveOptions,
@@ -70,6 +71,7 @@ import type {
 import type { MetricsQuery, MetricsReport } from './metrics'
 import type { Artifact, CompareScope, ImportResult, KeptEntry } from './benchmark'
 import type { TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
+import type { BoardFoldChange } from './tasks'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
 export type SettingsPatch = DeepPartial<AppSettings>
@@ -143,6 +145,8 @@ export interface HiveRequests {
   'ui:set': (ui: Partial<AppConfig['ui']>) => void
   /** Saves one pane's size (null: back to its default), leaving the other panes as they are: several windows save them. */
   'ui:setPane': (key: string, size: number | null) => void
+  /** Changes this window's workspace's board fold (#170), on what is saved now, leaving other workspaces' as they are; replies with them all. */
+  'ui:changeBoardFold': (change: BoardFoldChange) => Record<string, BoardFold>
 
   'workspace:get': () => WorkspaceInfo | null
   'workspace:open': (path?: string) => WorkspaceInfo | null

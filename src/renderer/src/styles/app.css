@@ -5172,21 +5172,72 @@ body.pane-resizing-v .monaco-editor {
 .board-search .input {
   flex: 1;
 }
+/* The expanded columns share the board's width; a collapsed one is a narrow strip (#170), and the others grow into
+   the room it leaves. The board scrolls sideways only when even their least widths don't fit. */
 .board {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  display: flex;
   gap: 10px;
   overflow-x: auto;
 }
 .board-column {
+  flex: 1 1 0;
+  min-width: 160px;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--bg-sidebar);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
+  transition:
+    flex-grow 0.16s ease,
+    flex-basis 0.16s ease,
+    min-width 0.16s ease;
+}
+.board-column.collapsed {
+  flex: 0 0 34px;
+  min-width: 34px;
+}
+.board-column-strip {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  min-height: 0;
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  overflow: hidden;
+}
+.board-column-strip:hover {
+  background: var(--bg-hover);
+}
+.board-column-strip:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.board-column-strip .board-column-label {
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+}
+.board-column-strip .count {
+  font-weight: 400;
+  color: var(--fg-faint);
+}
+@media (prefers-reduced-motion: reduce) {
+  .board-column {
+    transition: none;
+  }
 }
 .board-column.drag-over {
   border-color: var(--accent);
@@ -5195,7 +5246,7 @@ body.pane-resizing-v .monaco-editor {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px;
+  padding: 8px 6px 8px 4px;
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
@@ -5264,8 +5315,8 @@ body.pane-resizing-v .monaco-editor {
   font-weight: 400;
   color: var(--fg-faint);
 }
-.board-column-header .icon-btn {
-  margin-left: auto;
+.board-column-header .grow {
+  min-width: 0;
 }
 .board-column-body {
   flex: 1;
@@ -5327,6 +5378,54 @@ body.pane-resizing-v .monaco-editor {
   align-items: center;
   gap: 6px;
   font-size: 11px;
+}
+/* A card's fold arrow (#170), small and quiet beside its number. */
+.task-card .task-fold {
+  width: 16px;
+  height: 16px;
+  margin: -2px -2px -2px -4px;
+  flex: none;
+  color: var(--fg-faint);
+}
+.task-card .task-fold:hover {
+  color: var(--fg);
+}
+/* A folded card: one line with its number, title (cut short), markers and agent. */
+.task-card.folded {
+  padding: 4px 9px;
+}
+.task-card-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+.task-card-line > .tip-wrap:has(> .task-title) {
+  flex: 1;
+  min-width: 0;
+}
+.task-card-line .task-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.task-flag {
+  display: inline-flex;
+  flex: none;
+}
+.task-flag.blocked {
+  color: var(--error);
+}
+.task-flag.stalled {
+  color: var(--warning);
+}
+.task-folded-agent {
+  display: inline-flex;
+  flex: none;
 }
 .task-number {
   color: var(--fg-faint);

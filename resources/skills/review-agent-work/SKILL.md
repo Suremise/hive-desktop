@@ -53,11 +53,10 @@ Say how sure you are when you aren't certain. Then give the verdict, with what y
 For a card, end your review with `hive_update_task`:
 
 - `review: "passed"` or `"failed"`, with the report as `comment`.
-- The card stays in Review either way.
-- Move it to `done` in the same change only if the user asked you to (now or as a standing instruction) and it passed.
-- Leave a failed card's fixes to whoever the user asks to make them.
+- **Passed**: move it to `passed` in the same change (`column: "passed"`): reviewed, waiting to be merged. Not to `done`, which means merged.
+- **Failed**: it stays in Review. Leave its fixes to whoever the user asks to make them.
 
-If the card leaves Review while you review it (taken back to Doing for more work), your review is over. Leave the card where it is: don't move it back to Review or on to Done (even if you were allowed to finish it), start another review or give a verdict: tell the user what you found, so the newer work is reviewed when it's ready. Only if your own session ended mid-review, with the card still in Review, start the review again.
+If the card leaves Review while you review it (taken back to Doing for more work), your review is over. Leave the card where it is: don't move it back to Review or on to Passed, start another review or give a verdict: tell the user what you found, so the newer work is reviewed when it's ready. Only if your own session ended mid-review, with the card still in Review, start the review again.
 
 ## Reviewing again
 

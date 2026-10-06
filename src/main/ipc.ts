@@ -8,6 +8,7 @@ import * as updater from './updater'
 import type { ProviderId, QuitChoice } from '../shared/types'
 import { instructionFiles, instructionsShared, shareInstructions, SHARED_INSTRUCTIONS, type InstructionsFile } from '../shared/instructions'
 import { isKnownProvider, projectProviderConfig, providerDescriptor } from '../shared/providers'
+import { applyBoardFold } from '../shared/tasks'
 import { allProviders } from './providers'
 import { providerService } from './providerService'
 import { config } from './config'
@@ -231,6 +232,12 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
         if (typeof size === 'number' && Number.isFinite(size)) c.ui.panes[String(key)] = size
         else delete c.ui.panes[String(key)]
       }),
+    'ui:changeBoardFold': (change) => {
+      // This window's workspace only, applied to what is saved now: another window's folds stay as they are.
+      const ws = workspace.path
+      if (ws && change && typeof change === 'object') config.update((c) => void (c.ui.boardFold = applyBoardFold(c.ui.boardFold, ws, change)))
+      return config.get().ui.boardFold ?? {}
+    },
 
     'workspace:get': () => workspace.info(),
     'workspace:open': async (path) => {
