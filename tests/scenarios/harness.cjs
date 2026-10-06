@@ -143,6 +143,8 @@ async function runScenario(sc, providerKey, opts = {}) {
       control: sc.control ?? 'projects',
       // Settings → Assistant → Control → Change settings (#186): off unless the scenario turns it on.
       changeSettings: sc.changeSettings === true,
+      // Its mode (#259): the scenario's, else Hive's default.
+      ...(sc.persona ? { persona: sc.persona } : {}),
       providers: { ...cfg.settings.assistant?.providers, [p.provider]: { model: opts.model ?? '', effort: opts.effort ?? '', permissionMode: p.mode, extraArgs: p.extraArgs ?? '' } }
     }
   }

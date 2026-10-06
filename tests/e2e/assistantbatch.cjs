@@ -136,7 +136,7 @@ const check = (name, ok, extra = '') => {
   const header = page.locator('.project-header')
   for (let b = 1; b <= BATCHES; b++) {
     const old = Object.fromEntries(await Promise.all(agents.map(async (a) => [a.id, (await liveOf(alpha, a.id))?.sessionId])))
-    await header.getByRole('button', { name: 'Start New (All)', exact: true }).click()
+    await header.getByRole('button', { name: `Start New (${AGENTS})`, exact: true }).click()
     const asked = page.locator('.dialog', { hasText: 'Start new sessions for all agents?' })
     await until(async () => (await asked.count()) === 1, 5000)
     await asked.getByRole('button', { name: 'Start new', exact: true }).click()

@@ -484,10 +484,10 @@ function AssistantProviderPicker() {
 
 /** Hive's personas, for choosing a default before a workspace is open. */
 const SHIPPED_PERSONAS = [
-  { id: 'overseer', name: 'Overseer', icon: '🗼' },
-  { id: 'planner', name: 'Planner', icon: '🎩' },
-  { id: 'reviewer', name: 'Reviewer', icon: '🦎' },
-  { id: 'orchestrator', name: 'Orchestrator', icon: '🛫' }
+  { id: 'coordinator', name: 'Coordinator', icon: '🧭' },
+  { id: 'planner', name: 'Planner', icon: '🗺️' },
+  { id: 'qa-triager', name: 'QA triager', icon: '🔍' },
+  { id: 'release-manager', name: 'Release manager', icon: '📦' }
 ]
 
 function AssistantPersonaPicker() {

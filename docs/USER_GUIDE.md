@@ -430,7 +430,7 @@ Each workspace has a **Hive Assistant**, its overseer, in a panel on the right. 
 
 Ask it anything about the workspace: what the agents are doing, what a project is, what changed, what things cost, or for a plan or a review. It reads any project's files and uses Hive's own tools to see projects, agents, usage, shared notes and handovers. It doesn't edit project files itself: the agents do the work. What else it may do, from only advising to running agents and creating projects, is up to you (see **What the Assistant may do** below).
 
-**The panel.** At the top: the Assistant's status, its persona (click to switch), Compact and Stop while it runs; when it doesn't, **Resume** (|▷) to go back to its last conversation and New conversation, or Start if there is nothing to resume (in **⋯** when the panel is narrow, apart from Resume), and **⋯** (New Conversation while it runs or Resume when it doesn't, Resume a Conversation…, All Conversations…, Assistant Settings…, Manage Personas…). Under it, the workspace at a glance: agents waiting for you (or in trouble) first, then your active projects, each with its agents listed under it, and clicking one takes you there. Inactive projects fold into one row at the end; click it to show them. Drag the line under it to give it more or less room. Then the Assistant's terminal, and a footer with its model and effort, permission mode, context and cost, as agents have. While it isn't running, the panel offers **Start Assistant**, **Resume** and its past conversations. While the panel is hidden, the strip shows a dot for what the Assistant is doing.
+**The panel.** At the top: the Assistant's status, its mode (click to switch), Compact and Stop while it runs; when it doesn't, **Resume** (|▷) to go back to its last conversation and New conversation, or Start if there is nothing to resume (in **⋯** when the panel is narrow, apart from Resume), and **⋯** (New Conversation while it runs or Resume when it doesn't, Resume a Conversation…, All Conversations…, Assistant Settings…, Manage Personas…). Under it, the workspace at a glance: agents waiting for you (or in trouble) first, then your active projects, each with its agents listed under it, and clicking one takes you there. Inactive projects fold into one row at the end; click it to show them. Drag the line under it to give it more or less room. Then the Assistant's terminal, and a footer with its model and effort, permission mode, context and cost, as agents have. While it isn't running, the panel offers **Start Assistant**, **Resume** and its past conversations. While the panel is hidden, the strip shows a dot for what the Assistant is doing.
 
 It doesn't use one of a project's agent slots, and it runs in the workspace folder. Closing the workspace or the window, or quitting, stops it like any agent (the dialogs call it "Assistant"), and its conversations can be resumed.
 
@@ -456,35 +456,39 @@ To let it make the change for you, turn on **Settings → Assistant → Control 
 
 The **Hive Assistant** button in the activity bar (the robot) opens everything else about it. At the top, **Used so far**: its conversations, prompts, tokens and API-equivalent cost, for Today, 7 days, 30 days or All time. These aren't counted in any project's Overview. Below that:
 
-- **Personas** lists its personas (below).
+- **Modes** lists its modes (below).
 - **All Conversations** shows every conversation you've had with it, in the same tree as a project's **Sessions** tab (by provider, with any sessions a conversation started under it). Search them, read any in full, export, rename, archive, delete or resume one, or archive or delete a whole branch. **Show** on the running conversation opens the panel.
 - **All Images** shows the screenshots and images you've pasted or dropped into its conversations, grouped by conversation, newest first, like a project's **Images** tab. Click one to view it, or right-click it to copy, open or reveal it. Click a conversation's name to read it. The bin next to it moves all of that conversation's images to the Recycle Bin (none if another program has one open). Images of a conversation that is running can't be deleted until it stops.
 
-The panel's **⋯** menu opens the same view with **All Conversations…** or **Manage Personas…**; the command palette has **Show Assistant Conversations**, **Show Assistant Personas** and **Show Assistant Images**.
+The panel's **⋯** menu opens the same view with **All Conversations…** or **Manage Modes…**; the command palette has **Show Assistant Conversations**, **Show Assistant Modes** and **Show Assistant Images**.
 
-### Personas
+### Modes
 
-A **persona** is who the Assistant is: its role and its character, written as instructions in a Markdown file in the workspace's `.hive/personas` folder. Hive comes with four, each with a serious job and a character to match:
+A **mode** is how the Assistant works: what it puts first, its habits, and the shape of what it hands back. It is written as instructions in a Markdown file in the workspace's `.hive/personas` folder. Hive comes with four:
 
-- 🗼 **Overseer** (the default): a lighthouse keeper who keeps a watch log of the workspace. Projects are ships, and an agent waiting for you is signalling.
-- 🎩 **Planner**: plans every task like a heist, with the job, the crew, the vault and always the getaway.
-- 🦎 **Reviewer**: reviews code like a hushed wildlife documentary narrator, with real findings ranked by severity.
-- 🛫 **Orchestrator**: coordinates the agents like an air traffic controller, sequencing who goes first and who holds.
+- 🧭 **Coordinator** (the default): runs the work across your agents. It checks the board and the agents before acting, reports in short status tables, starts agents on settled cards, follows the lanes until they end, and asks you only for real decisions.
+- 🗺️ **Planner**: shapes work before anyone starts it. It leads with the open design questions (a recommendation each), compares options, splits the work into lanes by the files it touches, and writes complete cards.
+- 🔍 **QA triager**: turns a report (what you did, what you saw) into a card. It reproduces the problem or reads the code to find the likely cause, says what it checked, and files the card with the evidence and a proposed fix in the right lane.
+- 📦 **Release manager**: takes a release through the project's checklist (release notes, licences, the packaged build), and changes the version, tags or publishes only when you ask.
 
-Whatever the character, they speak plainly about errors, security and anything you must decide. A persona is a character and a focus: what the Assistant may do is **Settings → Assistant → Control**, whatever a persona says, and how it runs agents and cards comes from Hive's own skills. Hive keeps its own personas up to date in each workspace as it does its skills (below): one you've edited stays as you wrote it.
+A mode never changes what the Assistant may do: that is **Settings → Assistant → Control**, whatever a mode says, and how it runs agents and cards comes from Hive's own skills. When a request clearly fits another mode, the Assistant may suggest switching in a line; it never switches by itself.
 
-The **Personas** section of the Assistant view (below) lists them. Click one to read or edit it, **+** to write your own, and the bin (on hover, or at the top of an open one) to delete one. Hive's own come back with **Restore** or **Revert to Default**. **Use in This Workspace** makes one the Assistant's. Switching persona while the Assistant is running asks first, because it starts a new conversation. A conversation keeps the persona it started with.
+**Switching mode** (the mode menu in the panel's header) takes effect at once and keeps the conversation: Hive tells the running Assistant the new mode and its habits in a short line (`[Hive] Mode: Planner …`), or tells it as soon as it has finished what it is doing. Its next conversation starts in that mode. **Restart in This Mode…** (in the same menu) resumes the same conversation with the mode's full instructions; it caches the whole conversation again, so it costs more than switching.
+
+The **Modes** section of the Assistant view lists them. Click one to read or edit it, **+** to write your own, and the bin (on hover, or at the top of an open one) to delete one. Hive's own come back with **Restore** or **Revert to Default**, and Hive keeps them up to date in each workspace as it does its skills: one you've edited stays as you wrote it. **Use in This Workspace** makes one the Assistant's. A mode of your own can have a `summary:` in its header (its habits in a few lines), which is what Hive tells the Assistant when you switch to it; without one, Hive uses the first lines of its instructions.
+
+**From personas to modes.** Up to 0.3, Hive shipped character personas (Overseer, Planner, Reviewer, Orchestrator). The modes replace them: a workspace's unedited copies go, and an Assistant that used one moves to the closest mode (Overseer and Orchestrator → Coordinator, Reviewer → QA triager), which Hive says once. Personas you wrote or edited stay as they are.
 
 ### Assistant settings
 
 **Settings → Assistant** sets the defaults for every workspace:
 
 - The provider (Claude Code or Codex, whatever your agents use).
-- The default persona.
+- The default mode (Coordinator unless you choose another).
 - **Highlight Compact over**: the context size at which the Assistant's **Compact** button and the context in its footer turn orange, as an agent's do past **Settings → Sessions → Suggest compacting above**. It's 500,000 tokens by default, higher than your agents' 200,000, since the Assistant usually works with a bigger context; **Never** turns it off.
 - For each provider: its model, effort, permission mode, extra arguments and, for Claude Code, **Use 200K context (instead of 1M)**.
 
-It uses the same model and effort as your agents (each provider's defaults in Settings), since a lighter model or low effort makes it careless: it may say it will check on an agent later and never do. Its mode, like your agents', approves safe actions itself and only asks about risky ones: **Auto** for Claude Code and **Approve for me** for Codex. Claude Code says which models it runs in Auto, for your version and account (currently not **Haiku**), and the settings warn you when you pick a model without it in Auto, for the Assistant or an agent: the session then runs in Manual instead (asking before edits and commands), and Hive shows that mode. **Assistant Settings** in the panel changes any of them for one workspace. Changing its provider or persona restarts it, after asking.
+It uses the same model and effort as your agents (each provider's defaults in Settings), since a lighter model or low effort makes it careless: it may say it will check on an agent later and never do. Its mode, like your agents', approves safe actions itself and only asks about risky ones: **Auto** for Claude Code and **Approve for me** for Codex. Claude Code says which models it runs in Auto, for your version and account (currently not **Haiku**), and the settings warn you when you pick a model without it in Auto, for the Assistant or an agent: the session then runs in Manual instead (asking before edits and commands), and Hive shows that mode. **Assistant Settings** in the panel changes any of them for one workspace. Changing its provider restarts it, after asking; a new mode is told to it at once.
 
 ## Skills
 

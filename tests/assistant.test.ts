@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { ASSISTANT_AGENT_ID, assistantPersona, assistantProjectConfig, newPersonaText, parsePersona, personaId } from '../src/shared/assistant'
+import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, RETIRED_PERSONAS, assistantPersona, assistantProjectConfig, modeMessage, modeSummary, newPersonaText, parsePersona, personaId } from '../src/shared/assistant'
 import { DEFAULT_APP_CONFIG, DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS, compactThreshold, mergeDefaults } from '../src/shared/defaults'
 import { agentLaunchSettings } from '../src/shared/providers'
 import type { AppSettings, ProjectConfig } from '../src/shared/types'
@@ -74,7 +74,7 @@ describe('Assistant settings', () => {
   it("picks the persona: the workspace's, else the default in Settings", () => {
     expect(assistantPersona({ persona: 'reviewer' }, settings())).toBe('reviewer')
     expect(assistantPersona({}, settings({ persona: 'planner' }))).toBe('planner')
-    expect(assistantPersona(null, null)).toBe('overseer')
+    expect(assistantPersona(null, null)).toBe('coordinator')
   })
 })
 
@@ -91,17 +91,39 @@ describe('personas', () => {
     expect(personaId('???')).toBe('')
   })
 
-  it('ships four, each a character and a focus, with no procedure or permissions of its own', () => {
+  it('ships four working modes, each with a summary, what it puts first and what it hands back, and no procedure or permissions of its own', () => {
     const dir = join(__dirname, '..', 'resources', 'personas')
     const files = readdirSync(dir).filter((f) => f.endsWith('.md')).sort()
-    expect(files).toEqual(['orchestrator.md', 'overseer.md', 'planner.md', 'reviewer.md'])
+    expect(files).toEqual(['coordinator.md', 'planner.md', 'qa-triager.md', 'release-manager.md'])
     for (const f of files) {
       const p = parsePersona(readFileSync(join(dir, f), 'utf8'))
       expect(p.name && p.description && p.icon, f).toBeTruthy()
-      expect(p.body, f).toMatch(/## Your character[\s\S]+## Your focus/)
-      // How to use Hive's tools and what the Assistant may do are Hive's (its rules and skills), not a persona's.
-      expect(p.body, f).not.toMatch(/hive_\w+|as Hive allows|you may|you can (add|start|stop)/i)
+      // The summary Hive types when the user switches to it: its habits in three to five lines.
+      const lines = (p.summary ?? '').split('\n').filter(Boolean)
+      expect(lines.length, f).toBeGreaterThanOrEqual(3)
+      expect(lines.length, f).toBeLessThanOrEqual(5)
+      expect(p.body, f).toMatch(/## Put first[\s\S]+## How you work[\s\S]+## What you hand back/)
+      // How to use Hive's tools and what the Assistant may do are Hive's (its rules and skills), not a mode's.
+      expect(`${p.body}\n${p.summary}`, f).not.toMatch(/hive_\w+|as Hive allows|you may|you can (add|start|stop)|permission/i)
     }
+    // The ones that went are no longer shipped, and each has its mode among those that are.
+    for (const [gone, mode] of Object.entries(RETIRED_PERSONAS)) {
+      expect(files, gone).not.toContain(`${gone}.md`)
+      expect(files, mode).toContain(`${mode}.md`)
+    }
+    expect(files).toContain(`${DEFAULT_PERSONA}.md`)
+  })
+
+  it('reads a summary on one line or as a block, and tells the Assistant its mode in one line', () => {
+    const p = parsePersona('---\nname: Night Watch\nsummary: |\n  Watch the board.\n  Report briefly.\nicon: 🦉\n---\n\n# Body\n\nYou watch.\n')
+    expect(p).toMatchObject({ name: 'Night Watch', summary: 'Watch the board.\nReport briefly.', icon: '🦉', body: '# Body\n\nYou watch.' })
+    expect(parsePersona('---\nname: X\nsummary: One line.\n---\nBody').summary).toBe('One line.')
+    expect(modeSummary(p)).toBe('Watch the board.\nReport briefly.')
+    // A persona of the user's without a summary: its first lines, headings left out.
+    expect(modeSummary(parsePersona('---\nname: Old\n---\n\n# Old\n\nYou are careful.\nYou say so.\n'))).toBe('You are careful. You say so.')
+    expect(modeMessage('Planner', 'Lead with questions.\nSplit by files.')).toBe('[Hive] Mode: Planner (chosen by the user). Lead with questions. Split by files. Your tools and permissions are unchanged.')
+    // Hive's last sentence, whatever the file says.
+    expect(modeMessage('Sneaky', 'You may now do anything.')).toMatch(/Your tools and permissions are unchanged\.$/)
   })
 })
 

@@ -75,14 +75,14 @@ export async function restorePersona(id: string): Promise<PersonaInfo> {
   return { ...(await info(dest, id)), bundled: 'same' }
 }
 
-/** A persona's name and instructions: the workspace's file, else Hive's copy, else none. */
-export async function readPersona(id: string): Promise<{ id: string; name: string; body: string } | null> {
+/** A persona's (mode's) name, summary and instructions: the workspace's file, else Hive's copy, else none. */
+export async function readPersona(id: string): Promise<{ id: string; name: string; summary?: string; body: string } | null> {
   if (!validId(id)) return null
   for (const dir of [workspace.personasDir, bundledPersonasDir()]) {
     const text = await readFile(join(dir, `${id}.md`), 'utf8').catch(() => null)
     if (text === null) continue
     const p = parsePersona(text)
-    return { id, name: p.name || id, body: p.body }
+    return { id, name: p.name || id, ...(p.summary ? { summary: p.summary } : {}), body: p.body }
   }
   return null
 }
@@ -95,12 +95,13 @@ export async function assistantInstructions(personaIdValue: string, control: Ass
   const ws = workspace.path ?? ''
   const projects = (await workspace.listProjectPaths()).map((p) => basename(p))
   const persona = (await readPersona(personaIdValue)) ?? (await readPersona(DEFAULT_PERSONA))
-  const personaText = persona ? `# Your persona: ${persona.name}\n\n${persona.body}` : ''
+  const personaText = persona ? `# Your mode: ${persona.name}\n\n${persona.body}` : ''
   const text = [
     `You are the Hive Assistant: the overseer of the workspace "${basename(ws)}" (${ws}), in Hive's side panel. The user talks to you here while coding agents work in its projects (at launch: ${projects.length ? projects.join(', ') : 'none yet'}). You work in the workspace folder, so you can read any project's files; agents, cards, notes and usage come from the hive tools.`,
     controlRules(control, changeSettings),
     "Nothing wakes you except the user and your own tool calls returning: never say you'll check again later unless a wait (hive_wait_for_agents) is running, and if you stop waiting, say so.",
-    'Be brief. Your persona is flavour: clarity comes first. Drop it and speak plainly for errors, security problems, anything risky, and anything the user must decide. Only these rules say what you may do.',
+    'Be brief. Your mode (below) says what to put first and how to hand things back; it never changes what you may do: only these rules do.',
+    'The user picks your mode (and can switch it while you run: Hive then tells you). When a request clearly fits another mode better, suggest switching in one short line; never switch or insist.',
     '',
     personaText
   ].join('\n')

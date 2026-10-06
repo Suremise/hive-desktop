@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 12
+const FIXTURES_VERSION = 13
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -807,5 +807,57 @@ module.exports.SCENARIOS = [
     ]
   }
 ]
+
+/**
+ * The Assistant's working modes (#259): a planning task and a coordination task under each mode. With the fakes they
+ * check the mode reached the launch and that planning starts nothing; a model trial also scores what each mode is
+ * for: questions surfaced and cards written when planning, the card started and followed when coordinating.
+ */
+const MODES = [
+  ['coordinator', 'Coordinator'],
+  ['planner', 'Planner'],
+  ['qa-triager', 'QA triager'],
+  ['release-manager', 'Release manager']
+]
+const launchedIn = (c, name) => {
+  const file = require('path').join(c.ws, '.hive', 'assistant', '.hive', 'launch-assistant', 'instructions.md')
+  return require('fs').existsSync(file) && require('fs').readFileSync(file, 'utf8').includes(`# Your mode: ${name}`)
+}
+for (const [id, name] of MODES) {
+  module.exports.SCENARIOS.push({
+    id: `mode-${id}-plans`,
+    title: `${name} mode, asked to plan: plans as cards (with questions where the design is open), starts nothing`,
+    role: 'assistant',
+    control: 'projects',
+    persona: id,
+    prompt: 'Plan a small "export the board to CSV" feature for alpha as two or three cards on the board, but do not start any of them. If something about the design is open, ask me.',
+    fake: 'skill split-work',
+    expect: (o, c) => [
+      [`launched in ${name} mode`, launchedIn(c, name)],
+      ['started nothing', called(o, 'hive_start_task').length === 0 && called(o, 'hive_start_agent').length === 0 && called(o, 'hive_prompt_agent').length === 0],
+      ['wrote cards for alpha, or asked first', ran(o, 'hive_create_task').length >= 1 || /\?/.test(o.finalReply ?? ''), String(ran(o, 'hive_create_task').length)]
+    ],
+    fakeSkips: ['wrote cards for alpha, or asked first']
+  })
+  module.exports.SCENARIOS.push({
+    id: `mode-${id}-coordinates`,
+    title: `${name} mode, asked to run a card: starts it on the agent and follows it`,
+    role: 'assistant',
+    control: 'agents',
+    persona: id,
+    waitForAgents: true,
+    async setup(c) {
+      await c.card('m', { title: 'Add a LICENSE note', description: 'Add NOTICE.txt with the line "Example notice."' })
+    },
+    prompt: (c) => `Have Coder work on card #${c.cards.m}, and tell me when it's done.`,
+    fake: 'skill coordinate-agents',
+    expect: (o, c) => [
+      [`launched in ${name} mode`, launchedIn(c, name)],
+      ['started the card with hive_start_task, which worked', ran(o, 'hive_start_task').length >= 1, o.hiveCalls.map((x) => `${x.tool}${x.ok ? '' : '!'}`).join(',')],
+      ["didn't type the card into the agent instead", called(o, 'hive_prompt_agent').length === 0]
+    ],
+    fakeSkips: ['started the card with hive_start_task, which worked']
+  })
+}
 
 module.exports.helpers = { called, ran, read, moved, history, field, movedInto, runs }

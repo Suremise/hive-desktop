@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ASSISTANT_AGENT_ID, assistantPersona } from '@shared/assistant'
+import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, assistantPersona } from '@shared/assistant'
 import { compactThreshold, isCompacting } from '@shared/defaults'
 import { formatDateTime } from '@shared/dates'
 import { agentProvider, providerDescriptor } from '@shared/providers'
@@ -7,7 +7,7 @@ import type { AgentInfo, AgentPatch, AssistantAction, EffortLevel, PermissionMod
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
-import { agentProviderOf, confirm, get, NO_PROJECTS, projectKey, revealAgent, runOnce, set, setActivity, setAssistantOpen, showAssistantView, showView, useDateStyle, useStore, assistantOnLeft, setAssistantSide } from '../store'
+import { agentProviderOf, confirm, get, notify, NO_PROJECTS, projectKey, revealAgent, runOnce, set, setActivity, setAssistantOpen, showAssistantView, showView, useDateStyle, useStore, assistantOnLeft, setAssistantSide } from '../store'
 import { useInbox } from '../inbox'
 import { useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -65,16 +65,43 @@ async function changeAssistant(patch: Omit<AgentPatch, 'name'>, restart: { title
   return !!done
 }
 
-/** Makes a persona this workspace's; a running Assistant restarts as it (after asking). */
+/**
+ * Makes a mode (a persona file) this workspace's Assistant's, at once and without a restart (#259): a running Assistant
+ * is told in its conversation (now, or when it has finished what it is doing), which keeps its context; its next
+ * launch starts in the mode.
+ */
 export async function choosePersona(p: Pick<PersonaInfo, 'id' | 'name'>): Promise<void> {
   const agent = get().workspace?.assistant?.agents[0]
   if (!agent) return
-  const current = assistantPersona(agent, get().settings)
-  if (current === p.id && agent.persona === p.id) return
-  await changeAssistant(
-    { persona: p.id },
-    current === p.id ? null : { title: `Switch to ${p.name}?`, message: `The Assistant is running as another persona. Switching stops this conversation and starts a new one as ${p.name}.` }
-  )
+  if (assistantPersona(agent, get().settings) === p.id && agent.persona === p.id) return
+  const how = await actions.attempt('Could not switch the mode', () => call('assistant:switchMode', p.id))
+  await actions.refreshWorkspace()
+  if (how === 'told') notify('info', `Mode: ${p.name}`, 'The Assistant has been told, in this conversation.')
+  else if (how === 'later') notify('info', `Mode: ${p.name}`, 'The Assistant will be told as soon as it has finished what it is doing.')
+}
+
+/**
+ * Restart in This Mode: the Assistant stops and resumes the same conversation with the mode's full instructions (a
+ * switch only tells it the mode's habits). Its whole conversation is cached again, so it asks first.
+ */
+export async function restartInMode(p: Pick<PersonaInfo, 'id' | 'name'>): Promise<void> {
+  const a = get().workspace?.assistant
+  const agent = a?.agents[0]
+  const live = agent?.live
+  if (!a || !agent || !live) return
+  const ok = await confirm({
+    title: `Restart in ${p.name} mode?`,
+    message: `The Assistant stops and resumes this conversation with the ${p.name} mode's full instructions.`,
+    detail: 'The whole conversation is cached again, which costs more than switching (switching keeps everything and only tells the Assistant the mode).',
+    confirmLabel: 'Restart'
+  })
+  if (!ok) return
+  if (!(await actions.attempt('Could not save the mode', () => call('agents:update', a.path, AGENT, { persona: p.id })))) return
+  const item = (await call('session:list', a.path)).find((s) => s.id === live.sessionId)
+  await actions.attempt('Could not stop the Assistant', () => call('session:stop', a.path, AGENT))
+  await actions.waitForStop(a.path, AGENT)
+  await actions.refreshWorkspace()
+  await actions.resumeSession(a.path, { id: live.sessionId, recache: null, title: null, name: item?.name, agentId: AGENT, cwd: item?.cwd }, AGENT)
 }
 
 // ---------------------------------------------------------------------------
@@ -316,8 +343,9 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
 
   const personaMenu = (e: React.MouseEvent): void => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const current = personas.find((p) => p.id === personaId)
     menu.openAt(r.left, r.bottom + 2, [
-      { header: true, label: live ? 'Switch persona (starts a new conversation)' : 'Persona' },
+      { header: true, label: live ? 'Mode (switches now, keeping the conversation)' : 'Mode' },
       ...personas
         .filter((p) => p.bundled !== 'missing')
         .map(
@@ -329,7 +357,8 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
           })
         ),
       { separator: true },
-      { label: 'Manage Personas…', icon: 'person', onClick: () => showAssistantView('personas') }
+      ...(live && current ? [{ label: 'Restart in This Mode…', icon: 'refresh', onClick: () => void restartInMode(current) } as MenuEntry] : []),
+      { label: 'Manage Modes…', icon: 'person', onClick: () => showAssistantView('personas') }
     ])
   }
   const start = (): void => void actions.newSession(project.path, AGENT)
@@ -367,7 +396,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
       { label: 'All Conversations…', icon: 'comment-discussion', onClick: () => showAssistantView('conversations') },
       { separator: true },
       { label: 'Assistant Settings…', icon: 'settings', onClick: () => set({ assistantSettingsOpen: true }) },
-      { label: 'Manage Personas…', icon: 'person', onClick: () => showAssistantView('personas') },
+      { label: 'Manage Modes…', icon: 'person', onClick: () => showAssistantView('personas') },
       { separator: true },
       { label: left ? 'Move Panel to the Right' : 'Move Panel to the Left', icon: left ? 'layout-sidebar-right' : 'layout-sidebar-left', onClick: () => void setAssistantSide(left ? 'right' : 'left') },
       { label: 'Hide the Assistant', icon: left ? 'layout-sidebar-left-off' : 'layout-sidebar-right-off', onClick: () => setAssistantOpen(false) }
@@ -383,7 +412,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
         </span>
       </Tooltip>
       <strong className="assistant-title">Assistant</strong>
-      <Tooltip content={persona ? `${persona.name}: ${persona.description}` : 'Choose a persona'}>
+      <Tooltip content={persona ? `${persona.name}: ${persona.description}` : 'Choose a mode'}>
         <button className="btn subtle small assistant-persona" onClick={personaMenu}>
           <span className="assistant-persona-icon">{persona?.icon || '🐝'}</span>
           <span className="assistant-persona-name">{persona?.name ?? personaId}</span>
@@ -621,7 +650,7 @@ export function AssistantSettingsDialog() {
       setContext('')
     }
   }
-  const defaultPersona = personas.find((p) => p.id === (settings?.assistant.persona || 'overseer'))
+  const defaultPersona = personas.find((p) => p.id === (settings?.assistant.persona || DEFAULT_PERSONA))
   const save = async (): Promise<void> => {
     const providerChanged = provider !== current
     const personaChanged = assistantPersona({ persona }, settings) !== assistantPersona(agent, settings)
@@ -635,15 +664,15 @@ export function AssistantSettingsDialog() {
         permissionMode: (permission || undefined) as PermissionMode | undefined,
         use200kContext: contextValue(context)
       },
-      providerChanged || personaChanged
+      providerChanged
         ? {
             title: 'Restart the Assistant?',
-            message: providerChanged
-              ? `Switching to ${providerDescriptor(provider).name} stops this conversation (${providerDescriptor(current).name} conversations can't move to another provider) and starts a new one.`
-              : 'A new persona needs a new conversation: this one stops and a new one starts.'
+            message: `Switching to ${providerDescriptor(provider).name} stops this conversation (${providerDescriptor(current).name} conversations can't move to another provider) and starts a new one.`
           }
         : null
     )
+    // A new mode needs no restart: the running Assistant is told it (#259).
+    if (ok && personaChanged && !providerChanged && agent.live) await actions.attempt('Could not tell the Assistant its mode', () => call('assistant:switchMode', assistantPersona({ persona }, settings), false))
     if (ok) close()
   }
   return (
@@ -676,7 +705,7 @@ export function AssistantSettingsDialog() {
         .
       </p>
       <div className="agent-form">
-        <label>Persona</label>
+        <label>Mode</label>
         <select className="select" value={persona} onChange={(e) => setPersona(e.target.value)}>
           <option value="">Default ({defaultPersona?.name ?? settings?.assistant.persona ?? 'Overseer'})</option>
           {personas
@@ -693,7 +722,7 @@ export function AssistantSettingsDialog() {
       <ProviderChoice value={provider} current={current} onChange={chooseProvider} />
       <h3 className="agent-dialog-h">Settings</h3>
       <Overrides project={a} provider={provider} model={model} effort={effort} permission={permission} context={context} onModel={setModel} onEffort={setEffort} onPermission={setPermission} onContext={setContext} inherit="Default" />
-      {agent.live && <div className="detail">Model, effort, mode and context apply when the Assistant next starts. A new provider or persona restarts it now (after asking).</div>}
+      {agent.live && <div className="detail">Model, effort, mode and context apply when the Assistant next starts. A new mode is told to it at once; a new provider restarts it now (after asking).</div>}
     </Modal>
   )
 }

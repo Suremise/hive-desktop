@@ -372,8 +372,8 @@ export interface WindowState {
 }
 
 export interface AppConfig {
-  /** 6 since notices show in Hive while it is focused; 3 since the Assistant uses the agents' model and effort (0.3.0); 2 since providers (0.2.0); 1 was Claude Code only. */
-  version: 6
+  /** 7 since working modes replaced the shipped personas (#259); 6 since notices show in Hive while it is focused; 3 since the Assistant uses the agents' model and effort (0.3.0); 2 since providers (0.2.0); 1 was Claude Code only. */
+  version: 7
   settings: AppSettings
   recentWorkspaces: string[]
   /** The workspace of the window focused last (what 0.1 reopened); `windows` has every window. */

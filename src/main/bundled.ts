@@ -1,12 +1,15 @@
 import { existsSync } from 'original-fs'
 import { lstat, readdir } from 'original-fs/promises'
 import { join } from 'path'
-import { cleanSwaps, contentHash, readJson, SwapAbandoned, swapIn, withFileLock, writeJsonAtomic } from './fsutil'
+import { cleanSwaps, contentHash, readJson, SwapAbandoned, swapIn, swapOut, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { resourcesDir } from './paths'
 import { revisionOf } from './revisions'
 import { workspace } from './workspace'
 import HISTORY from './bundledHistory.json'
+import { RETIRED_PERSONAS, projectAgents } from '../shared/defaults'
+import { ASSISTANT_AGENT_ID } from '../shared/assistant'
+import { toast } from './events'
 
 /**
  * Keeps a workspace's copies of Hive's bundled skills and personas up to date, without overriding the user:
@@ -175,8 +178,62 @@ export async function syncBundled(opts: { fresh?: boolean } = {}): Promise<void>
         }
       }
     }
+    await retirePersonas(m)
     await writeJsonAtomic(manifestPath(), m)
   })
+}
+
+/**
+ * Personas Hive no longer ships (working modes replaced them, #259): a workspace copy that is a version Hive shipped,
+ * never changed, goes (nothing of the user's is lost); one the user changed is theirs and stays. A workspace whose
+ * Assistant used one that went moves to its mode, and is told once (this happens once: afterwards there is no copy).
+ */
+async function retirePersonas(m: Manifest): Promise<void> {
+  const moved: string[] = []
+  const name = (id: string): string => (id === 'qa-triager' ? 'QA triager' : id.charAt(0).toUpperCase() + id.slice(1))
+  for (const [id, mode] of Object.entries(RETIRED_PERSONAS)) {
+    const dest = itemPath(workspace.personasDir, 'personas', id)
+    const present = await lstat(dest).then(() => true, () => false)
+    if (present) {
+      const copy = await contentHash(dest).catch(() => 'unreadable')
+      if (!(history.personas[id] ?? []).includes(copy)) continue
+      try {
+        // Only while it is still that copy: an edit or a replacement of the user's meanwhile stays (swapOut).
+        await swapOut(dest, copy)
+        log.info(`Removed the retired persona ${userText(id)}: it is now the ${userText(mode)} mode`)
+      } catch (e) {
+        if (e instanceof SwapAbandoned) log.info(`Kept the retired persona ${userText(id)}: it changed while Hive was removing it, so it is the user's`)
+        else log.warn(`Could not remove the retired persona ${userText(id)}; trying again next time`, e)
+        continue
+      }
+    }
+    delete m.personas[id]
+    // One of the user's in its place meanwhile (made while it was being removed): theirs, and the choice of it stays.
+    if (await lstat(dest).then(() => true, () => false)) continue
+    if (await chooseModeFor(id, mode)) moved.push(`${name(id)} → ${name(mode)}`)
+    else if (present) moved.push(`${name(id)} → ${name(mode)}`)
+  }
+  if (moved.length) toast('info', "The Assistant's personas are now working modes", `Coordinator, Planner, QA triager and Release manager replace Hive's character personas (${moved.join(', ')}). Switch modes from the Assistant's header; your own personas are unchanged.`)
+}
+
+/**
+ * The workspace's Assistant chose a persona that went: its mode instead. Decided under the Assistant home's config lock
+ * on the choice as it is then, so a choice the user made meanwhile stays; true when it moved.
+ */
+async function chooseModeFor(id: string, mode: string): Promise<boolean> {
+  const home = workspace.assistantHome
+  // Most workspaces never chose it: nothing is written then.
+  if ((await workspace.projectConfig(home).catch(() => null))?.agents?.find((a) => a.id === ASSISTANT_AGENT_ID)?.persona !== id) return false
+  let moved = false
+  await workspace
+    .mutateProjectConfig(home, (cfg) => {
+      const agents = projectAgents(cfg)
+      if (agents.find((a) => a.id === ASSISTANT_AGENT_ID)?.persona !== id) return {}
+      moved = true
+      return { agents: agents.map((a) => (a.id === ASSISTANT_AGENT_ID ? { ...a, persona: mode } : a)) }
+    })
+    .catch((e) => log.warn('moving the Assistant to its mode', e))
+  return moved
 }
 
 /** Puts back an item as this Hive ships it (Restore, Revert), and records that the copy is Hive's again. */

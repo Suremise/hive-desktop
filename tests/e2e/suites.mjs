@@ -16,6 +16,7 @@ export const SUITES = [
   { name: 'assistantcompact' },
   { name: 'assistantend' },
   { name: 'assistantimages' },
+  { name: 'assistantmode' },
   { name: 'assistantoverview' },
   { name: 'assistantsettings' },
   { name: 'assistantside' },

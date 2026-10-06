@@ -16,7 +16,10 @@ export const ASSISTANT_AGENT_ID = 'assistant'
 export const ASSISTANT_NAME = 'Assistant'
 /** Where the workspace's personas are, in its .hive folder. */
 export const PERSONAS_DIR = 'personas'
-export const DEFAULT_PERSONA = 'overseer'
+/** The mode (a persona file) new conversations use unless Settings or the workspace chooses another (#259). */
+export const DEFAULT_PERSONA = 'coordinator'
+
+export { RETIRED_PERSONAS } from './defaults'
 
 /** Hive's tools that only read: the Assistant uses them without being asked each time (the ones that write still ask). */
 export const ASSISTANT_TRUSTED_TOOLS = [
@@ -60,16 +63,54 @@ export function assistantPersona(agent: { persona?: string } | null | undefined,
   return agent?.persona || settings?.assistant?.persona || DEFAULT_PERSONA
 }
 
-/** A persona file's header (name, description, icon) and its instructions. */
-export function parsePersona(text: string): { name?: string; description?: string; icon?: string; body: string } {
+/**
+ * A persona (mode) file's header (name, description, icon, and summary: its habits in a few lines, on one line or as
+ * an indented `summary: |` block) and its instructions.
+ */
+export function parsePersona(text: string): { name?: string; description?: string; icon?: string; summary?: string; body: string } {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text)
   if (!m) return { body: text.trim() }
-  const out: { name?: string; description?: string; icon?: string; body: string } = { body: text.slice(m[0].length).trim() }
-  for (const line of m[1].split(/\r?\n/)) {
-    const kv = /^(name|description|icon):\s*(.*)$/.exec(line.trim())
-    if (kv) out[kv[1] as 'name' | 'description' | 'icon'] = kv[2].replace(/^["']|["']$/g, '').trim()
+  const out: { name?: string; description?: string; icon?: string; summary?: string; body: string } = { body: text.slice(m[0].length).trim() }
+  const lines = m[1].split(/\r?\n/)
+  for (let i = 0; i < lines.length; i++) {
+    const kv = /^(name|description|icon|summary):\s*(.*)$/.exec(lines[i].trim())
+    if (!kv) continue
+    let value = kv[2]
+    // A block: the indented lines that follow.
+    if (/^[|>][-+]?$/.test(value.trim())) {
+      const block: string[] = []
+      while (i + 1 < lines.length && (/^\s+\S/.test(lines[i + 1]) || !lines[i + 1].trim())) block.push(lines[++i].trim())
+      value = block.join('\n').trim()
+    }
+    out[kv[1] as 'name' | 'description' | 'icon' | 'summary'] = value.replace(/^["']|["']$/g, '').trim()
   }
   return out
+}
+
+/**
+ * A mode's habits in a few lines, for the message that switches the Assistant to it: its summary, else (a persona the
+ * user wrote without one) the first lines of its instructions, headings left out.
+ */
+export function modeSummary(p: { summary?: string; body: string }): string {
+  if (p.summary?.trim()) return p.summary.trim()
+  const lines = p.body
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'))
+  let out = ''
+  for (const l of lines) {
+    if (out && `${out} ${l}`.length > 400) break
+    out = out ? `${out} ${l}` : l
+  }
+  return out.length > 400 ? `${out.slice(0, 399)}…` : out
+}
+
+/**
+ * What Hive types into a running Assistant when the user switches its mode: the mode and its habits, marked as Hive's
+ * (not a task), and always Hive's last sentence (never the file's): a mode can't change what the Assistant may do.
+ */
+export function modeMessage(name: string, summary: string): string {
+  return `[Hive] Mode: ${name} (chosen by the user). ${summary.replace(/\s+/g, ' ').trim()} Your tools and permissions are unchanged.`
 }
 
 /** A new persona's file: a header and a starting point for its instructions. */
