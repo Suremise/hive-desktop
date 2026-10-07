@@ -44,6 +44,12 @@ describe('the rules use those tokens (#360)', () => {
     expect(rule('.btn.primary:hover:not(:disabled)')).toMatch(/background: var\(--accent-strong\)/)
     expect(rule('.btn.tint-amber')).toMatch(/color: var\(--act-resume-fg\)/)
   })
+  it("fills a chosen menu entry and the palette's chosen row with --accent-fill, its other parts taking the label's colour (#362)", () => {
+    expect(rule('.menu-item.active:not(.disabled)')).toMatch(/background: var\(--accent-fill\)/)
+    expect(rule('.palette-item.active')).toMatch(/background: var\(--accent-fill\)/)
+    expect(rule('.menu-item.recent-item:is(:hover, .active) .recent-remove:not(:hover)')).toMatch(/color: inherit/)
+    expect(css).toContain('.menu-item:is(:hover, .active):not(.disabled) :is(.menu-detail, .menu-label),')
+  })
 })
 
 describe.each([
@@ -99,6 +105,12 @@ describe.each([
   // Only as dark as AA needs: the primary fill keeps the accent's amber hue (#360).
   it("keeps the primary button's amber: the accent's hue", () => {
     expect(Math.abs(hue(hex('--accent-fill')) - hue(hex('--accent')))).toBeLessThan(2)
+  })
+
+  // A hovered or keyboard-chosen menu entry and the palette's chosen row (#362): the label (and the icon, shortcut,
+  // second line and a greyed entry's label, which take it) on the same fill as the primary button.
+  it("gives a chosen menu entry's label AA contrast on its fill", () => {
+    expect(contrast(hex('--accent-fg'), hex('--accent-fill'))).toBeGreaterThanOrEqual(4.5)
   })
 
   // The tinted Add Agent (#360): Resume's tinted label on the accent's wash (12% resting, 22% hovered) on each surface.

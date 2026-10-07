@@ -1265,6 +1265,22 @@ describe('the run context: what a test starts gets only the allowlist and its ow
     expect(runner).not.toMatch(/['"]--version['"]/)
   })
 
+  // Hive looks for both CLIs when it starts, and their sign-in checks read the home they are given, else the user's.
+  // Suites added since (#333, #362, #365) give every Hive they start both homes; #382 brings the older ones in.
+  it('newer suites give each test Hive their own Claude Code and Codex homes (#362)', () => {
+    for (const name of ['claudesettings', 'menucontrast', 'testedclis']) {
+      const src = readFileSync(join(root, 'tests', 'e2e', `${name}.cjs`), 'utf8')
+      const launches = [...src.matchAll(/lib\.launch\(\{[^\n]*\}\)/g)].map((m) => m[0])
+      expect(launches.length, name).toBeGreaterThan(0)
+      for (const l of launches) {
+        // The homes are passed directly, through `homes`, or with the fake Claude Code's (lib.fakeClaude's CLAUDE_CONFIG_DIR).
+        const claude = /CLAUDE_CONFIG_DIR|env: homes|\.\.\.claude\b/.test(l)
+        const codex = /CODEX_HOME|env: homes/.test(l)
+        expect(claude && codex, `${name}: ${l}`).toBe(true)
+      }
+    }
+  })
+
   it('every variable Hive sets for its sessions and its hive-progress wrapper is left out (#202)', () => {
     const src = ['src/main/progressReporters/wrapper.ts', 'src/main/progressReporters/shims.ts', 'src/main/ptyHost.ts', 'src/main/sessions.ts'].map((f) => readFileSync(join(root, f), 'utf8')).join('\n')
     const sessionVars = [...new Set([...src.matchAll(/\b(HIVE_[A-Z0-9_]+|ELECTRON_RUN_AS_NODE|NO_COLOR|FORCE_COLOR)\b/g)].map((m) => m[1]))]

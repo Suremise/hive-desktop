@@ -341,9 +341,12 @@ kbd {
   font-size: 14px;
   color: var(--fg-muted);
 }
+/* Hovered or chosen from the keyboard: filled with --accent-fill, so every part of the entry reads at AA on it in both
+   themes (#362): the label, icon and shortcut in --accent-fg, and a second line, a greyed entry's label and Recent's ✕
+   like the label. Session actions take their own wash instead (below). */
 .menu-item:hover:not(.disabled),
 .menu-item.active:not(.disabled) {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-fg);
 }
 .menu-item:hover:not(.disabled) .codicon,
@@ -351,6 +354,10 @@ kbd {
 .menu-item.active:not(.disabled) .codicon,
 .menu-item.active:not(.disabled) .menu-key {
   color: var(--accent-fg);
+}
+.menu-item:is(:hover, .active):not(.disabled) :is(.menu-detail, .menu-label),
+.menu-item.recent-item:is(:hover, .active) .recent-remove:not(:hover) {
+  color: inherit;
 }
 .menu-item.disabled {
   color: var(--fg-faint);
@@ -1907,7 +1914,7 @@ p.hint {
   color: var(--fg-muted);
 }
 .palette-item.active {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-fg);
 }
 .palette-item.active .cat,
