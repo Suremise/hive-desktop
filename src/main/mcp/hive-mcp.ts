@@ -8,6 +8,7 @@
  * each later turn. A change confirms what changed, a listing returns a short line per item, full detail comes on
  * request; structured reads are compact JSON. Each tool's description says what its reply holds and how to get more.
  */
+import { AsyncLocalStorage } from 'async_hooks'
 import { appendFileSync, readFileSync } from 'fs'
 import { createInterface } from 'readline'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../../shared/hiveGuidance'
@@ -44,6 +45,9 @@ function token(): string {
   return ''
 }
 
+/** Lines Hive adds to a tool call's reply (#357's "new decision" flag), gathered from the call's API replies. */
+const notices = new AsyncLocalStorage<Set<string>>()
+
 /**
  * Calls the Agent API. `replyMs` is how long the reply may take: a wait passes its own (waitReplyMs), the rest take the
  * usual limit. Not fetch, whose 300 s limit on a reply's headers cut longer waits short (#371).
@@ -51,6 +55,13 @@ function token(): string {
 async function api(method: string, path: string, body?: unknown, replyMs?: number): Promise<unknown> {
   const headers = { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json', ...(WORKSPACE ? { 'X-Hive-Workspace': encodeURIComponent(WORKSPACE) } : {}) }
   const res = await agentApiCall(API + path, method, headers, body === undefined ? undefined : JSON.stringify(body), replyMs)
+  if (res.notice) {
+    try {
+      notices.getStore()?.add(decodeURIComponent(res.notice))
+    } catch {
+      // A malformed header adds nothing.
+    }
+  }
   const text = res.text
   let data: unknown = text
   try {
@@ -380,7 +391,7 @@ const tools: Tool[] = [
   {
     name: 'hive_read_task',
     description:
-      'One card as JSON: description, comments, links, agent and reviewer. comments=n gives only its newest n comments (commentsOmitted counts the others); latestComment=true only the newest (comment null if none); history=true adds who changed what and when (historyEntries says how many entries there are).',
+      "One card as JSON: its decisions first (what the user decided: they win over the description), then description, comments, links, agent and reviewer. comments=n gives only its newest n comments (commentsOmitted counts the others); latestComment=true only the newest (comment null if none); history=true adds who changed what and when (historyEntries says how many entries there are).",
     inputSchema: {
       type: 'object',
       properties: {
@@ -439,13 +450,14 @@ const tools: Tool[] = [
         labels: { type: 'array', items: { type: 'string' } },
         blockedBy: cardsArg('Cards that have to be done first (replaces the list).'),
         links: cardsArg('Related cards (replaces the list).'),
+        decision: { type: 'string', description: "Records a decision the user made about the card (scope, wording, a default), in a sentence; it is attributed to the user. Only what the user decided, never your own choice. Only the user changes or removes decisions." },
         ...(ASSISTANT ? {} : { review: { type: 'string', enum: ['start', 'passed', 'failed'] } })
       },
       required: ['number']
     },
     run: async (a) => {
       const body: Record<string, unknown> = { reply: 'short' }
-      for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links', 'review']) if (a[k] !== undefined) body[k] = a[k]
+      for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links', 'decision', 'review']) if (a[k] !== undefined) body[k] = a[k]
       return changedText((await api('PATCH', `/v1/tasks/${enc(String(a.number))}`, body)) as TaskChange)
     }
   },
@@ -685,11 +697,14 @@ async function handle(msg: { id?: unknown; method?: string; params?: any }): Pro
       calling++
       let text: string
       let ok = true
+      const said = new Set<string>()
       try {
-        const result = await tool.run(args)
+        const result = await notices.run(said, () => tool.run(args))
         testLog(tool.name, params?.arguments, null)
         // Compact: indenting JSON makes it about a third bigger for the model, and no easier for it to read.
         text = typeof result === 'string' ? result : JSON.stringify(result)
+        // Hive's flag (a new decision on a card the agent works on) goes after the reply, on its own line.
+        if (said.size) text += `\n${[...said].join('\n')}`
         reply(id, { content: [{ type: 'text', text }] })
       } catch (e) {
         testLog(tool.name, params?.arguments, (e as Error).message)

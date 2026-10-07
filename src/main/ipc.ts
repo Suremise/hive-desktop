@@ -62,6 +62,7 @@ import { showWindow } from './tray'
 import { resetMetrics } from './metrics'
 import { metricsExport, metricsReport } from './metricsUsage'
 import { cancelWatch } from './watches'
+import { cardBusy } from './cardBusy'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
 
 /** The instruction files of the given providers in a project, with their content. */
@@ -411,6 +412,14 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'tasks:update': (n, patch) => tasks.updateTask(n, patch, { kind: 'user' }),
     'tasks:comment': (n, text) => tasks.commentTask(n, text, { kind: 'user' }),
     'tasks:archive': (n, archived) => tasks.archiveTask(n, archived),
+    'tasks:editDecision': (n, id, text) => tasks.editDecision(n, id, text, { kind: 'user' }),
+    'tasks:archiveBatch': (numbers, req) => {
+      // Who is on a card is checked again as each is archived (#351), in this window's workspace.
+      const ws = currentWorkspace()
+      return tasks.archiveBatch(numbers, req, { kind: 'user' }, { busy: (c) => cardBusy(ws, c) })
+    },
+    'tasks:unarchiveBatch': (id) => tasks.unarchiveBatch(id, { kind: 'user' }),
+    'tasks:archiveBatches': () => tasks.archiveBatches(),
     'tasks:delete': (n) => tasks.deleteTask(n),
     'tasks:start': async (n, target) => {
       const r = await startTask(n, target, { kind: 'user' })

@@ -38,7 +38,8 @@ import * as tasks from './tasks'
 import { startTask } from './taskStart'
 import { hiveSkills, listSkills, skillFiles, validSkillName } from './skills'
 import { transcripts } from './transcripts'
-import { contextWorkspace, inWorkspace, openWorkspaces, workspace, workspaceOf, type WorkspaceService } from './workspace'
+import { contextWorkspace, inWorkspace, openWorkspaces, workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
+import { lastCardRead, newDecisions, noteCardRead, noticeText } from './decisionNotices'
 import { appMetrics, clock as metricsClock, knownRoute, metricsHandle, recordApi, recordCatalog, recordMcp, MCP_REPORT_LIMITS, type MetricsHandle } from './metrics'
 import { metricsReport } from './metricsUsage'
 import type { MetricOutcome, MetricsQuery } from '../shared/metrics'
@@ -84,11 +85,11 @@ class HttpError extends Error {
   }
 }
 
-function send(res: ServerResponse, status: number, body: unknown): void {
+function send(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   const text = body === undefined ? '' : JSON.stringify(body)
   const m = apiRequests.get(res)
   if (m) m.responseBytes = Buffer.byteLength(text, 'utf8')
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers })
   res.end(text)
 }
 
@@ -1158,7 +1159,18 @@ async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType
   }
   // Nobody working on a Doing card: the Assistant reports these and suggests who could take them.
   // Entry ids are the card watches' (#224): left out, so replies stay as lean as before.
-  const view: TaskView = { ...c, comments: c.comments.map(tasks.withoutId), history: c.history.map(tasks.withoutId), agent, stalled: stalledReason(c, now) }
+  // Its decisions first (#357): what the user decided, which agents follow over the description.
+  const { number, title, decisions, ...rest } = c
+  const view: TaskView = {
+    number,
+    title,
+    ...(decisions?.length ? { decisions: decisions.map(tasks.withoutId) } : {}),
+    ...rest,
+    comments: c.comments.map(tasks.withoutId),
+    history: c.history.map(tasks.withoutId),
+    agent,
+    stalled: stalledReason(c, now)
+  }
   // A review whose reviewer has gone or isn't running (Hive ends those, but one can show while that happens).
   if (c.review && c.project) {
     try {
@@ -1209,6 +1221,8 @@ function columnParam(v: unknown): TaskColumn | undefined {
 /** The fields of a request body a card change may set. */
 function taskPatch(body: any): TaskPatch {
   const out: TaskPatch = {}
+  // Archiving is the user's (#351), one card or a batch: no call of the Agent API's makes it.
+  if (body?.archived !== undefined) throw new HttpError(403, 'Only the user archives cards or brings them back, from the board: ask the user.')
   for (const k of ['title', 'description', 'project', 'blocked'] as const) if (body?.[k] !== undefined) out[k] = body[k] === null ? (null as never) : String(body[k])
   if (body?.agent !== undefined) out.agent = body.agent ? String(body.agent) : null
   if (body?.column !== undefined) out.column = columnParam(body.column)
@@ -1218,6 +1232,7 @@ function taskPatch(body: any): TaskPatch {
     out.position = body.position
   }
   for (const k of ['labels', 'blockedBy', 'links'] as const) if (body?.[k] !== undefined) out[k] = body[k]
+  if (body?.decision !== undefined && body.decision !== null) out.decision = String(body.decision)
   if (body?.review !== undefined && body.review !== null && body.review !== '') {
     if (body.review !== 'start' && body.review !== 'passed' && body.review !== 'failed') throw new HttpError(400, `Unknown review "${String(body.review)}": start, passed or failed.`)
     out.review = body.review
@@ -1239,6 +1254,9 @@ route('GET', '/v1/tasks', async ({ query }) => {
 route('GET', '/v1/tasks/:n', async ({ params, query }) => {
   requireWorkspace()
   const view = await taskView(await tasks.readTask(taskNumber(params[0]), await taskActor()))
+  // Read in full, decisions included: those aren't new to the agent any more (#357).
+  const me = agentCaller()
+  if (me) noteCardRead(me, view.number)
   const raw = query.get('comments')
   const n = raw === null ? null : Number(raw)
   if (n !== null && (!Number.isInteger(n) || n < 1)) throw new HttpError(400, `comments must be a whole number from 1: "${raw}"`)
@@ -1289,7 +1307,8 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
             ? `moved it ${at}`
             : '',
       comment ? 'commented' : '',
-      Object.keys(patch).some((k) => k !== 'column' && k !== 'before' && k !== 'position') ? 'changed it' : ''
+      patch.decision !== undefined ? 'recorded a decision' : '',
+      Object.keys(patch).some((k) => k !== 'column' && k !== 'before' && k !== 'position' && k !== 'decision') ? 'changed it' : ''
     ]
       .filter(Boolean)
       .join(', ')
@@ -1414,8 +1433,9 @@ route('POST', '/v1/tasks/wait', async ({ body }) => {
         const card = await read(n)
         const kinds = changesBetween(from.get(n)!, now.get(n)!, cond, !!cond.moveInto && !!cond.column && movedIntoSince(card, cond.column, sinceIso))
         const reached = alreadyThere(now.get(n)!, cond) && !alreadyThere(from.get(n)!, cond)
-        // A card gone (or out of the caller's view) is told as gone: nothing of its state.
-        if (kinds === 'gone' || kinds.length || reached) changes.push(cardChange(n, kinds === 'gone' ? null : card, kinds === 'gone' ? 'gone' : kinds.length ? kinds : ['column']))
+        // A card gone (or out of the caller's view) is told as gone: nothing of its state but whether it was archived.
+        if (kinds === 'gone') changes.push({ ...cardChange(n, null, 'gone'), ...(card?.archived ? { archived: true } : {}) })
+        else if (kinds.length || reached) changes.push(cardChange(n, card, kinds.length ? kinds : ['column']))
       }
       return { changes, now }
     }
@@ -1754,13 +1774,47 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
       if (!res.writableEnded) gone.abort()
     })
     const run = (): Promise<unknown> => r.handler({ params, query: url.searchParams, body, signal: gone.signal })
+    // A project agent's replies say when a card it works on or reviews has a new decision (#357), whatever it called:
+    // the hive tools add the line to their reply. (The bridge's own reports about its calls aren't the agent's.) Its
+    // cards as they were when the call began count too, so the call that moves a card on (to Review, say) still hears
+    // of a decision it hasn't read, unless the call read it.
+    const flagged = r.template !== '/v1/metrics/mcp'
+    const began = Date.now()
+    const before = flagged ? await decisionsNew(ws) : null
     const result = ws ? await inWorkspace(ws, run) : await run()
-    send(res, 200, result ?? null)
+    const notice = flagged ? await decisionsNotice(ws, before, began) : null
+    send(res, 200, result ?? null, notice ? { 'X-Hive-Notice': encodeURIComponent(notice) } : {})
   } catch (e) {
     const status = e instanceof HttpError ? e.status : e instanceof tasks.TaskPermissionError ? 403 : e instanceof tasks.TaskConflictError ? 409 : statusFor(e as Error)
     if (status === 500) log.error(`API ${req.method} ${url.pathname}`, e)
     send(res, status, { error: (e as Error).message, ...(e instanceof HttpError ? e.extra : undefined) })
   }
+}
+
+/** A project agent's cards with decisions new to it (#357), now; null for other callers. Never fails the call. */
+async function decisionsNew(ws: WorkspaceService | null): Promise<Map<number, number> | null> {
+  const me = agentCaller()
+  const w = ws ?? (me ? workspaceFor(me.projectPath) : null)
+  if (!me || !w) return null
+  try {
+    const actor = await inWorkspace(w, taskActor)
+    return await newDecisions(w, me, tasks.actorName(actor))
+  } catch (e) {
+    log.warn('decision notice', e)
+    return null
+  }
+}
+
+/**
+ * The "new decision" flag for a project agent's reply to any call (null for others, or when there is none): its cards
+ * now, and those it had when the call began (`before`, at `began`) unless the call read them in full.
+ */
+async function decisionsNotice(ws: WorkspaceService | null, before: Map<number, number> | null, began: number): Promise<string | null> {
+  const me = agentCaller()
+  const now = await decisionsNew(ws)
+  if (!me || !now) return null
+  for (const [n, k] of before ?? []) if (!now.has(n) && lastCardRead(me, n) < began) now.set(n, k)
+  return noticeText(now)
 }
 
 /** The HTTP status for an error thrown by the session and workspace services, which don't know about HTTP. */

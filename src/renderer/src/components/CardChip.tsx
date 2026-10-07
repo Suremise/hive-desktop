@@ -56,6 +56,8 @@ export function CardChip({ project, a, short, tip = true }: { project: ProjectIn
     </span>
   )
   if (!tip) return chip
-  const list = (title: string, l: TaskCard[]): string => (l.length ? `${title}:\n${l.map((c) => `#${c.number} ${c.title}`).join('\n')}\n` : '')
+  // Each card's decisions counted (#357): what the user decided about it, read in the card.
+  const decided = (c: TaskCard): string => (c.decisions?.length ? ` (decisions: ${c.decisions.length})` : '')
+  const list = (title: string, l: TaskCard[]): string => (l.length ? `${title}:\n${l.map((c) => `#${c.number} ${c.title}${decided(c)}`).join('\n')}\n` : '')
   return <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${list('Working on (Doing)', doing)}${list('Reviewing', reviewing)}Click to open #${first.number}.`}</span>}>{chip}</Tooltip>
 }

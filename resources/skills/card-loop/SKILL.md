@@ -29,7 +29,7 @@ Wait with `hive_wait_for_tasks`, `wake: true`:
 
 **Start the watch before the step that lets the other side act**, so a quick answer isn't missed: the builder just before moving the card to Review, the reviewer just before posting a failed verdict. Your own move doesn't wake you. Then finish that step and **end your turn**, saying what you're waiting for. Don't poll, don't sleep in a command, and don't start other work: Hive types one line into your session when the card changes ("[Hive] #12 is in Review: Codex failed it; latest comment by …"), or when the wait passes with no change.
 
-When woken, read only what you need: `hive_read_task` with `latestComment: true` (or `comments: n` for the last few). Read the whole card again only when the comment says to. The line names every watched card that changed; when you wait on more than one (cards reviewed together), check each one's column and latest verdict before watching again, not only the one you expected, and watch them all in one watch.
+When woken, read only what you need: `hive_read_task` with `latestComment: true` (or `comments: n` for the last few). A reviewer whose card is back in Review reads it with `comments: 1` instead: its decisions, listed first, may have changed since the last round. Read the whole card again only when the comment says to, or a reply says the card has a new decision (then check the work against it before your next step). The line names every watched card that changed; when you wait on more than one (cards reviewed together), check each one's column and latest verdict before watching again, not only the one you expected, and watch them all in one watch.
 
 If a wake isn't possible (the tool says so), wait in the call instead: `hive_wait_for_tasks` without `wake`, `timeoutSeconds` up to 840, and pass the reply's `since` to the next call.
 
@@ -61,7 +61,7 @@ A round is one build and its review: round 1 is the first build and the first re
 
 - **When the review of round *rounds* fails** (as many failed reviews as **rounds**): stop and ask, don't give up. The reviewer says in that failed verdict that it was the last round; the builder doesn't fix it again but `hive_notify`s the user with a line per round (what was found, and whether it was fixed), asking: carry on (how many more rounds), split the card, accept it with follow-up cards, or take it over.
 - **A finding that comes back** (the fix missed part of it): the reviewer says so in the failed verdict ("recurring from round 2") and the loop carries on; the line per round at the limit shows it. A finding the builder **disputes**, rather than missed, is a design question: stop and ask.
-- **Stop and ask** on a design question the card doesn't answer, on a blocked card, or when the wait passes with no change (Hive wakes you to say so). Stopping and asking is always `hive_notify` to the user, saying what you need decided, and no further verdict or round meanwhile: a comment on the card alone doesn't reach them.
+- **Stop and ask** on a design question the card doesn't answer, on a blocked card, when the wait passes with no change (Hive wakes you to say so), or when a card of the loop is archived or gone (the wake line says so: only the user brings it back). Stopping and asking is always `hive_notify` to the user, saying what you need decided, and no further verdict or round meanwhile: a comment on the card alone doesn't reach them.
 
 ## At the end
 
