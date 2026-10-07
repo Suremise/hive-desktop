@@ -59,6 +59,9 @@
   --status-bg: #d97706;
   --status-fg: #1b1208;
   --status-hover: rgba(0, 0, 0, 0.12);
+  /* Items that stand out on the bar (#384): lighter, since the label is dark (a darker wash brought it to 3.3:1). */
+  --status-caution: rgba(255, 255, 255, 0.28);
+  --status-raised: rgba(255, 255, 255, 0.18);
 
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   --scrollbar: rgba(121, 121, 121, 0.4);
@@ -114,9 +117,13 @@
   --act-resume-on: #1b1b1b;
   --act-resume-shade: #ffffff;
 
-  --status-bg: #d97706;
+  /* The amber darkened only as far as AA needs for the white label (#384, as the primary button's, #360): 4.6:1. Hovered
+     and the items that stand out go darker, never lighter. */
+  --status-bg: var(--accent-fill);
   --status-fg: #ffffff;
-  --status-hover: rgba(255, 255, 255, 0.16);
+  --status-hover: rgba(0, 0, 0, 0.12);
+  --status-caution: rgba(0, 0, 0, 0.28);
+  --status-raised: rgba(0, 0, 0, 0.18);
 
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
   --scrollbar: rgba(100, 100, 100, 0.3);
@@ -446,7 +453,7 @@ kbd {
   min-width: 16px;
   height: 16px;
   border-radius: 8px;
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-fg);
   font-size: 10px;
   font-weight: 700;
@@ -845,11 +852,8 @@ kbd {
   color: #fff;
 }
 .status-item.caution {
-  background: rgba(0, 0, 0, 0.28);
+  background: var(--status-caution);
   font-weight: 600;
-}
-.status-sub {
-  opacity: 0.8;
 }
 /* Between a provider's plan limits ("5h 55% · Week 35%"): larger, bold and spaced, so it's seen. */
 .status-sep {
@@ -5024,12 +5028,13 @@ body.pane-resizing .monaco-editor {
 
 /* ---------- Hive updates ---------- */
 .statusbar .status-item.update-item {
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--status-raised);
   font-weight: 600;
 }
+/* Ready to install: a light chip on the bar, its amber label at AA (the tinted Resume's, #384). */
 .statusbar .status-item.update-item.ready {
   background: var(--bg-elevated);
-  color: var(--accent);
+  color: var(--act-resume-fg);
 }
 .update-dialog {
   min-width: 380px;
@@ -6671,7 +6676,7 @@ textarea.input.task-blocked-input {
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-fg);
   font-size: 10px;
   font-weight: 700;

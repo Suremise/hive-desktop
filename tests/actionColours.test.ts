@@ -1,6 +1,7 @@
 // One colour per session action (#344): each action's tokens exist in both themes, Stop's and Remove's differ, and
 // every label meets WCAG AA (4.5:1) on its button: on the tinted wash, resting and hovered, over each surface the
-// buttons sit on, and on the solid fill. The amber primary button and the tinted Add Agent too (#360).
+// buttons sit on, and on the solid fill. The amber primary button and the tinted Add Agent too (#360), chosen menu
+// entries (#362), and the status bar and count badges (#384).
 import { readFileSync } from 'fs'
 import { describe, expect, it } from 'vitest'
 
@@ -27,6 +28,12 @@ const contrast = (a: number[], b: number[]): number => {
   return (x + 0.05) / (y + 0.05)
 }
 const mix = (c: number[], bg: number[], p: number): number[] => c.map((v, i) => v * p + bg[i] * (1 - p))
+/** An rgba() wash laid over a colour. */
+const overlay = (wash: string, under: number[]): number[] => {
+  const m = /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/.exec(wash)
+  if (!m) throw new Error(`not an rgba() wash: ${wash}`)
+  return mix([Number(m[1]), Number(m[2]), Number(m[3])], under, Number(m[4]))
+}
 const hue = ([r, g, b]: number[]): number => {
   const [max, min] = [Math.max(r, g, b), Math.min(r, g, b)]
   const d = max - min
@@ -49,6 +56,14 @@ describe('the rules use those tokens (#360)', () => {
     expect(rule('.palette-item.active')).toMatch(/background: var\(--accent-fill\)/)
     expect(rule('.menu-item.recent-item:is(:hover, .active) .recent-remove:not(:hover)')).toMatch(/color: inherit/)
     expect(css).toContain('.menu-item:is(:hover, .active):not(.disabled) :is(.menu-detail, .menu-label),')
+  })
+  it('draws the status bar and the count badges with those tokens, with no faded secondary text (#384)', () => {
+    expect(rule('.status-item:hover')).toMatch(/background: var\(--status-hover\)/)
+    expect(rule('.status-item.caution')).toMatch(/background: var\(--status-caution\)/)
+    expect(rule('.statusbar .status-item.update-item')).toMatch(/background: var\(--status-raised\)/)
+    expect(rule('.statusbar .status-item.update-item.ready')).toMatch(/color: var\(--act-resume-fg\)/)
+    for (const badge of ['.activity-badge', '.project-need-count']) expect(rule(badge), badge).toMatch(/background: var\(--accent-fill\)/)
+    expect(css).not.toMatch(/\.status-sub \{[^}]*opacity/)
   })
 })
 
@@ -111,6 +126,18 @@ describe.each([
   // second line and a greyed entry's label, which take it) on the same fill as the primary button.
   it("gives a chosen menu entry's label AA contrast on its fill", () => {
     expect(contrast(hex('--accent-fg'), hex('--accent-fill'))).toBeGreaterThanOrEqual(4.5)
+  })
+
+  // The status bar (#384): its label on the bar, resting and hovered, and on the items that stand out (caution, update);
+  // the update-ready chip's amber label on its light chip. A warning item is white on its own red. The count badges
+  // (activity bar, a project's needs) are --accent-fg on --accent-fill, as the chosen menu entry (above).
+  it('gives the status bar AA contrast: resting, hovered, caution and update items, and the update-ready chip', () => {
+    const bar = hex('--status-bg')
+    const fg = hex('--status-fg')
+    expect(contrast(fg, bar), 'resting').toBeGreaterThanOrEqual(4.5)
+    for (const wash of ['--status-hover', '--status-caution', '--status-raised']) expect(contrast(fg, overlay(t[wash], bar)), wash).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(hex('--act-resume-fg'), hex('--bg-elevated')), 'update ready').toBeGreaterThanOrEqual(4.5)
+    expect(contrast(rgb('#ffffff'), rgb('#b91c1c')), 'warning').toBeGreaterThanOrEqual(4.5)
   })
 
   // The tinted Add Agent (#360): Resume's tinted label on the accent's wash (12% resting, 22% hovered) on each surface.
