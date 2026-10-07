@@ -107,11 +107,11 @@ const HOOKS: { event: HookEvent; label: string; matcher?: string; timeout: numbe
 
 /**
  * Codex runs hook commands with PowerShell on Windows, where a quoted program path is an expression and
- * a bare @- is splatting: so curl.exe unquoted (it is on PATH) and "@-" quoted.
+ * a bare @- is splatting: hookForwardCommand's form (curl.exe unquoted, "@-" quoted) works there. The header comes from
+ * the launch's auth file, so the -c arguments (seen in process listings) carry no token (#345).
  */
-function hookCommand(url: string, token: string): string {
-  if (process.platform !== 'win32') return hookForwardCommand(url, token)
-  return `curl.exe -s -m 5 -X POST -H "Authorization: Bearer ${token}" -H "Content-Type: application/json" --data-binary "@-" "${url}"`
+function hookCommand(url: string, authFile: string): string {
+  return hookForwardCommand(url, authFile)
 }
 
 const sortDeep = (v: unknown): unknown =>
@@ -128,8 +128,8 @@ export function hookHash(label: string, matcher: string | undefined, command: st
 }
 
 /** -c overrides for Hive's hooks, with the trust records that let them run without a review prompt. */
-function hookOverrides(url: string, token: string, hashes?: Record<string, string>): string[] {
-  const command = hookCommand(url, token)
+function hookOverrides(url: string, authFile: string, hashes?: Record<string, string>): string[] {
+  const command = hookCommand(url, authFile)
   const args: string[] = []
   const state: Record<string, { trusted_hash: string }> = {}
   for (const h of HOOKS) {
@@ -610,9 +610,8 @@ export class CodexAdapter implements ProviderAdapter {
   /** Which hook hashes to trust for this launch (hashesByRun): Hive's own, unless this Codex version hashes differently. */
   private async checkHookHashes(ctx: LaunchContext): Promise<void> {
     const version = (await run(ctx.executable, ['--version'], 10000)).stdout.match(/(\d+\.\d+\.\d+[\w.-]*)/)?.[1] ?? 'unknown'
-    const token = ctx.env.HIVE_HOOK_TOKEN ?? ''
     // Hooks only (without the trust records), to ask Codex what it calls and hashes them.
-    const hooksOnly = hookOverrides(ctx.hookUrl, token).slice(0, -2)
+    const hooksOnly = hookOverrides(ctx.hookUrl, ctx.hookAuthFile).slice(0, -2)
     const known = this.hashCheck.get(version)
     if (known === true) return
     if (this.unreachable.has(version)) return
@@ -624,7 +623,7 @@ export class CodexAdapter implements ProviderAdapter {
       return
     }
     if (known === undefined) {
-      const command = hookCommand(ctx.hookUrl, token)
+      const command = hookCommand(ctx.hookUrl, ctx.hookAuthFile)
       const same = HOOKS.every((h) => theirs[`${SESSION_FLAGS}:${h.label}:0:0`] === hookHash(h.label, h.matcher, command, h.timeout))
       this.hashCheck.set(version, same)
       if (same) return
@@ -638,7 +637,7 @@ export class CodexAdapter implements ProviderAdapter {
     if (ctx.resume && ctx.sessionId) args.push('resume', ctx.sessionId)
     // Options come after "resume <id>": before it, Codex ignores them.
     args.push('--no-daemon')
-    args.push(...hookOverrides(ctx.hookUrl, ctx.env.HIVE_HOOK_TOKEN ?? '', this.hashesByRun.get(ctx.runId)))
+    args.push(...hookOverrides(ctx.hookUrl, ctx.hookAuthFile, this.hashesByRun.get(ctx.runId)))
     this.hashesByRun.delete(ctx.runId)
     args.push('-c', `tui.terminal_title=${toToml(TITLE_ITEMS)}`)
     if (ctx.model) args.push('-m', ctx.model)

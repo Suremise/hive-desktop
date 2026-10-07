@@ -57,7 +57,15 @@ if (args[0] === 'app-server') {
 if (process.env.CODEX_HOME) fs.appendFileSync(path.join(process.env.CODEX_HOME, 'fake-launches.jsonl'), JSON.stringify({ cwd: process.cwd(), args }) + '\n')
 
 const hookUrl = /(http:\/\/127\.0\.0\.1:\d+\/hook\?run=[\w-]+)/.exec(args.find((a) => a.startsWith('hooks.Stop=')) ?? '')?.[1]
-const token = process.env.HIVE_HOOK_TOKEN || ''
+// Codex runs Hive's hook command, whose curl reads the Authorization header from the launch's auth file (#345).
+const authFile = /-H \\?"@([^"\\]+)\\?"/.exec(args.find((a) => a.startsWith('hooks.Stop=')) ?? '')?.[1]
+const authHeader = () => {
+  try {
+    return fs.readFileSync(authFile, 'utf8').replace(/^Authorization:\s*/i, '').trim()
+  } catch {
+    return ''
+  }
+}
 const project = path.basename(process.cwd())
 // "resume <id>" carries on that conversation, as Codex does; otherwise a new one.
 const resuming = args[0] === 'resume' && /^[0-9a-f-]{36}$/i.test(args[1] ?? '')
@@ -120,7 +128,7 @@ async function hook(event, extra = {}) {
   if (!hookUrl) return
   await fetch(hookUrl, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ hook_event_name: event, session_id: sessionId, transcript_path: rollout, cwd: process.cwd(), model: 'gpt-fake', permission_mode: 'default', turn_id: 't', ...extra })
   }).catch(() => undefined)
 }

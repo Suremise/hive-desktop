@@ -168,7 +168,7 @@ const until = async (fn, ms = 10000) => {
   check('…and the tooltip shows it: the status line still reports (#330)', !!(await until(async () => / of 200,000\n[\s\S]*its auto-compact window is 200,000 \(autoCompactWindow in --settings cli-settings\.json\)/.test(await tip.innerText().catch(() => '')), 5000)), await tip.innerText().catch(() => ''))
   const lastLaunch = fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).pop()
   const given = lastLaunch?.opts?.['--settings'] ? JSON.parse(fs.readFileSync(lastLaunch.opts['--settings'], 'utf8')) : null
-  check("…given Hive's settings file, with Hive's hooks and status line and the user's setting merged in (#330)", path.basename(path.dirname(lastLaunch?.opts?.['--settings'] ?? '')).startsWith('launch-') && given?.autoCompactWindow === 250000 && !!given?.hooks?.Stop && !!given?.statusLine, JSON.stringify(lastLaunch?.opts))
+  check("…given Hive's settings file, with Hive's hooks and status line and the user's setting merged in (#330)", path.dirname(lastLaunch?.opts?.['--settings'] ?? '').toLowerCase().startsWith(path.join(userData, 'launches').toLowerCase()) && given?.autoCompactWindow === 250000 && !!given?.hooks?.Stop && !!given?.statusLine, JSON.stringify(lastLaunch?.opts))
   await inv('project:updateProvider', alpha, 'claude-code', { extraArgs: '' })
   fs.rmSync(path.join(alpha, 'cli-settings.json'), { force: true })
   await page.mouse.move(5, 5)

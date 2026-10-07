@@ -92,14 +92,15 @@ describe("a --settings in a Claude Code agent's arguments (#330)", () => {
     writeFileSync(join(base, 'mine.json'), JSON.stringify({ env: { B: '2' }, autoCompactWindow: 250000 }))
     const ctx = {
       projectPath: project, agentId: 'a1', executable: 'C:\\bin\\claude.exe', cwd: base, workspacePath: base, runId: 'r', sessionId: '00000000-0000-4000-8000-000000000000',
-      resume: false, name: '', skills: [], mcpServers: {}, model: null, effort: null, permissionMode: null, extraArgs: ['--verbose', '--settings', 'mine.json'], hookUrl: 'http://127.0.0.1:9/hook?run=r', guidance: '', env: {}, allowBackgroundSessions: true, use200kContext: false
+      resume: false, name: '', skills: [], mcpServers: {}, model: null, effort: null, permissionMode: null, extraArgs: ['--verbose', '--settings', 'mine.json'], hookUrl: 'http://127.0.0.1:9/hook?run=r', hookAuthFile: 'C:/hive/hook-auth/r.txt', privateDir: join(base, 'private-r'), guidance: '', env: {}, allowBackgroundSessions: true, use200kContext: false
     }
     await claudeCode.prepareLaunch(ctx as never)
     const cmd = claudeCode.buildCommand(ctx.executable, ctx as never)
     const settingsArgs = cmd.args.filter((a) => a === '--settings')
     expect(settingsArgs).toHaveLength(1)
     const file = cmd.args[cmd.args.indexOf('--settings') + 1]
-    expect(file).toBe(join(claudeCode.launchDir(project, 'a1'), 'settings.json'))
+    // In the launch's private folder, outside the project (#345).
+    expect(file).toBe(join(ctx.privateDir, 'settings.json'))
     expect(cmd.args).toContain('--verbose')
     expect(cmd.args).not.toContain('mine.json')
     const merged = JSON.parse(readFileSync(file, 'utf8'))

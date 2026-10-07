@@ -91,8 +91,10 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n
   check('worktree session runs in the worktree', l3 && path.resolve(l3.cwd).toLowerCase() === path.resolve(wtPath).toLowerCase(), l3?.cwd)
   p = await project()
   check('setup cleared', !p.agents.find((a) => a.id === a3.id).needsSetup)
-  check('launch folders per agent', fs.existsSync(path.join(proj, '.hive', `launch-${a1.id}`, 'settings.json')) && fs.existsSync(path.join(proj, '.hive', `launch-${a3.id}`, 'settings.json')))
-  const argsOk = JSON.stringify(fs.readFileSync(path.join(proj, '.hive', `launch-${a3.id}`, 'settings.json'), 'utf8')).includes('PreToolUse')
+  check('launch folders per agent', fs.existsSync(path.join(proj, '.hive', `launch-${a1.id}`, 'plugin')) && fs.existsSync(path.join(proj, '.hive', `launch-${a3.id}`, 'plugin')))
+  // Settings and MCP config in each launch's private folder, in Hive's user data, not the project (#345).
+  check("each launch's settings outside the project", fs.existsSync(path.join(lib.launchDir(userData, l1.runId), 'settings.json')) && fs.existsSync(path.join(lib.launchDir(userData, l3.runId), 'settings.json')) && !fs.existsSync(path.join(proj, '.hive', `launch-${a1.id}`, 'settings.json')))
+  const argsOk = fs.readFileSync(path.join(lib.launchDir(userData, l3.runId), 'settings.json'), 'utf8').includes('PreToolUse')
   check('PreToolUse hook registered', argsOk)
 
   // --- Layouts
@@ -114,10 +116,10 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n
   check('its pane header shows it focused', (await page.locator('.pane-header-bar.focused .agent-name').innerText()).includes('Reviewer'))
 
   // --- File locks via synthetic PreToolUse calls
-  const launch = fs.readFileSync(path.join(proj, '.hive', `launch-${a1.id}`, 'settings.json'), 'utf8')
-  const token = /Bearer ([0-9a-f]+)/.exec(launch)[1]
-  const url = /"(http:\/\/127\.0\.0\.1:\d+\/hook)/.exec(launch.replace(/\\"/g, '"'))[1]
-  const hook = (body) => fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json())
+  // Each launch's hooks carry its own run id and token (#345): a hook goes as the agent whose session it names.
+  const hooks = {}
+  const post = (h, body) => fetch(h.url, { method: 'POST', headers: { Authorization: `Bearer ${h.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const hook = (body) => post(hooks[body.session_id], body).then((r) => r.json())
   // Agent 2 must run to share the folder with Agent 1.
   await inv('session:start', proj, { agentId: a2.id })
   await lib.acceptClaudeTrust(inv, proj, a2.id)
@@ -125,6 +127,12 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n
   live = await inv('session:live')
   const l2 = live.find((l) => l.agentId === a2.id)
   check('Agent 2 live', !!l2)
+  for (const l of [l1, l2, l3]) hooks[l.sessionId] = lib.launchHook(userData, l.runId)
+  check("each launch's hook URL and token found, a token of its own", Object.values(hooks).every(Boolean) && new Set(Object.values(hooks).map((h) => h?.token)).size === 3)
+  // Another launch's token, or none, isn't taken (#345).
+  const [h1, h2] = [hooks[l1.sessionId], hooks[l2.sessionId]]
+  check("another launch's token is refused", (await post({ url: h1.url, token: h2.token }, { session_id: l1.sessionId, hook_event_name: 'Notification' })).status === 401)
+  check('a call naming no launch is refused', (await post({ url: h1.url.replace(/\?.*/, ''), token: h1.token }, { session_id: l1.sessionId, hook_event_name: 'Notification' })).status === 401)
   const file = path.join(proj, 'app.txt')
   const pre = (sid, f = file, tool = 'Edit') => hook({ session_id: sid, hook_event_name: 'PreToolUse', tool_name: tool, tool_input: { file_path: f }, cwd: proj })
   let r = await pre(l1.sessionId)
@@ -159,10 +167,9 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n
 
   // --- A new conversation started in the CLI (/clear, /new): its first prompt carries another session id
   // for the same launch, and Hive moves the agent to it.
-  const run = /hook\?run=([0-9a-f]+)/.exec(launch)[1]
   const before = (await inv('session:live')).find((l) => l.agentId === a1.id).sessionId
   const newId = '33333333-4444-4555-8666-777777777777'
-  await fetch(`${url}?run=${run}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: newId, hook_event_name: 'UserPromptSubmit', cwd: proj }) })
+  await post(hooks[before], { session_id: newId, hook_event_name: 'UserPromptSubmit', cwd: proj })
   await sleep(800)
   const moved = (await inv('session:live')).find((l) => l.agentId === a1.id)
   check('follows a new conversation started in the CLI', moved.sessionId === newId && before !== newId, `${before} → ${moved.sessionId}`)

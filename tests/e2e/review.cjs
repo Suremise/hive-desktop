@@ -153,7 +153,8 @@ function mcp(config, msgs) {
   check("the reviewer's session records the card as reviewed", !!rec?.cards?.some((x) => x.number === n && x.review === true), JSON.stringify(rec?.cards))
 
   // --- What the agents' hive tools say, from the MCP server as the reviewer's mcp.json starts it.
-  const mcpFile = path.join(alpha, '.hive', `launch-${reviewer.id}`, 'mcp.json')
+  // In the launch's private folder in Hive's user data, not the project (#345).
+  const mcpFile = path.join(lib.launchDir(userData, (await live(reviewer.id)).runId), 'mcp.json')
   const server = JSON.parse(fs.readFileSync(mcpFile, 'utf8')).mcpServers.hive
   const [init, list] = await mcp(server, [
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } },

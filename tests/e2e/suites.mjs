@@ -1,5 +1,6 @@
 // Hive's end-to-end suites (tests/e2e/<name>.cjs), for run.mjs, the affected-suite map and their tests.
 // needs: claude = starts the real Claude Code; codex = the signed-in test Codex home; packaged = dist/win-unpacked.
+// claudeHome: 'own' = its Claude Code runs in a home of its own with a made-up API key (no sign-in: the runner asks about none).
 // Suites that start a real CLI (claude, codex) share it with each other, so they run one at a time, in a lane beside
 // the others; those marked serial (with why) and the installer's run last, alone; every other suite is safe to run
 // beside others (its own profile, folders and Agent API port). Sorted by name, so suites added on different
@@ -39,6 +40,7 @@ export const SUITES = [
   { name: 'cardloop' },
   { name: 'changes' },
   { name: 'claude-real', needs: ['claude'] },
+  { name: 'claudehome', needs: ['claude'], claudeHome: 'own' },
   { name: 'closewindow' },
   { name: 'codex', needs: ['codex'] },
   { name: 'codex-background', needs: ['codex'] },
@@ -56,6 +58,7 @@ export const SUITES = [
   { name: 'filelinks' },
   { name: 'files' },
   { name: 'footerfit' },
+  { name: 'hivevcs' },
   { name: 'icons' },
   { name: 'image' },
   { name: 'inbox', serial: 'window focus' },

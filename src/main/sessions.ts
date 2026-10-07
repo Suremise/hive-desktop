@@ -64,6 +64,7 @@ import { headerOf } from './revisions'
 import { utf8Bytes } from '../shared/metrics'
 import { inWorkspace, workspace, workspaceFor, workspaceOf } from './workspace'
 import { endAgentToken, newAgentToken } from './agentTokens'
+import { endHookToken, newHookToken } from './hookTokens'
 import { beingRead, viewingWindows } from './transcriptReads'
 
 const log = createLogger('sessions')
@@ -416,7 +417,6 @@ class SessionManager {
   private lockGoAhead = new Map<string, string>()
   /** Go-aheads put off while the user was typing in the agent's terminal: tried again when the pause ends. */
   private goAheadTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  readonly hookToken = randomBytes(24).toString('hex')
   hookUrl = ''
   apiEnv: (projectPath: string, agentId: string) => Record<string, string> = () => ({})
   /** Hive's bin folder (hive-progress), first on each session's PATH; null until written, or when it couldn't be. */
@@ -857,7 +857,10 @@ class SessionManager {
 
   private forget(id: string): void {
     const l = this.live.get(id)
-    if (l) this.runs.delete(l.state.runId)
+    if (l) {
+      this.runs.delete(l.state.runId)
+      endHookToken(l.state.runId)
+    }
     // An Assistant that didn't start: the token made for this launch stops working too.
     if (l && basename(l.state.projectPath) === ASSISTANT_DIR) this.onAssistantExit(l.state.projectPath)
     else if (l) endAgentToken(l.state.projectPath, l.state.agentId, l.state.runId)
@@ -939,6 +942,8 @@ class SessionManager {
     // Its own Agent API token for this launch, which confines its board calls to its project (the Assistant has its own).
     if (!workspace.isAssistantHome(projectPath)) await newAgentToken({ workspace: workspaceOf(projectPath).path!, projectPath, agentId: agent.id }, state.runId)
     const assistantText = workspace.isAssistantHome(projectPath) ? await this.assistantInstructions(projectPath, agent).catch(() => null) : null
+    // This launch's own hook token (#345): in its environment for HTTP hooks, in a file outside the project for hook commands.
+    const hookAuth = await newHookToken(state.runId)
     const ctx = {
       projectPath,
       agentId: agent.id,
@@ -957,13 +962,15 @@ class SessionManager {
       extraArgs: eff.extraArgs,
       use200kContext: eff.use200kContext,
       hookUrl: `${this.hookUrl}?run=${state.runId}`,
+      hookAuthFile: hookAuth.file,
+      privateDir: hookAuth.dir,
       guidance: await this.hiveGuidance(projectPath).catch(() => ''),
       instructions: assistantText?.text,
       trustedHiveTools: workspace.isAssistantHome(projectPath) ? assistantTools(config.settings.assistant?.control, config.settings.assistant?.changeSettings === true) : undefined,
       initialPrompt: l.initialPrompt,
       allowBackgroundSessions: providerSettings(config.settings, adapter.id).allowBackgroundSessions,
       env: withBinOnPath(childEnv({
-        HIVE_HOOK_TOKEN: this.hookToken,
+        HIVE_HOOK_TOKEN: hookAuth.token,
         HIVE_PROJECT: basename(projectPath),
         HIVE_PROJECT_PATH: projectPath,
         HIVE_WORKSPACE: workspaceOf(projectPath).path!,
@@ -1654,6 +1661,8 @@ class SessionManager {
       this.live.delete(id)
     }
     this.runs.delete(runId)
+    // Its hook token ends with it: hooks of an ended launch were ignored anyway (findLaunch).
+    endHookToken(runId)
     this.releaseLocks(id)
     // Even when its workspace has just closed.
     if (basename(projectPath) === ASSISTANT_DIR) this.onAssistantExit(projectPath)

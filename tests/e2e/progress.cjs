@@ -556,6 +556,9 @@ const near = (a, b) => Math.abs(a - b) < 0.001
     return text
   }
   check('on by default', (await inv('settings:get')).general.progressCommands === true)
+  // A launch's MCP config is in its private folder only while it runs (#345): the agent stopped above starts again.
+  await inv('session:start', alpha, { agentId: alfie.id })
+  await until(async () => (await live(alfie.id))?.status === 'ready', 25000)
   let told = await instructionsOf(alpha)
   check("a session's guidance says to run long commands through hive-progress", /over 30 s.*`hive-progress --title "<what and why, in a few words>" -- <command>`/.test(told), told.slice(-400))
   await page.keyboard.press('Control+Comma')

@@ -82,7 +82,7 @@ describe('Codex: when a person must act', () => {
       const { codex } = await import('../src/main/providers/codex/adapter')
       const ctx = {
         projectPath: home, agentId: 'a-1', executable: 'C:\\bin\\codex.exe', cwd: home, workspacePath: home, runId: 'r', sessionId: '',
-        resume: false, name: '', skills: [], mcpServers: {}, model: null, effort: null, permissionMode: null, extraArgs: [], hookUrl: 'http://127.0.0.1:1/hook?run=r', guidance: '', env: {}, allowBackgroundSessions: false, use200kContext: false
+        resume: false, name: '', skills: [], mcpServers: {}, model: null, effort: null, permissionMode: null, extraArgs: [], hookUrl: 'http://127.0.0.1:1/hook?run=r', hookAuthFile: 'C:/hive/hook-auth/r.txt', privateDir: 'C:/hive/launches/r', guidance: '', env: {}, allowBackgroundSessions: false, use200kContext: false
       }
       const { args } = codex.buildCommand(ctx.executable, ctx)
       expect(args.join(' ')).toContain('tui.terminal_title=')

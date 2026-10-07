@@ -201,6 +201,8 @@ export interface HiveRequests {
   'project:create': (name: string) => WorkspaceInfo | null
   'project:setActive': (projectPath: string, active: boolean) => WorkspaceInfo | null
   'project:updateConfig': (projectPath: string, patch: Partial<ProjectConfig>) => ProjectConfig
+  /** Adds the project's .hive to its git repository's info/exclude (#345); refuses where no git repository holds it. */
+  'project:excludeHive': (projectPath: string) => WorkspaceInfo
   /** Changes one provider's overrides for a project, merged under the file lock. */
   'project:updateProvider': (projectPath: string, provider: ProviderId, patch: Partial<ProjectProviderConfig>) => ProjectConfig
   'project:openInExplorer': (projectPath: string) => void

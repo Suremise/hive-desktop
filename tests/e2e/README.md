@@ -220,6 +220,13 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
   when `--affected` needs them. Run them when what they test can't be done with the fake Claude Code (below), and
   prefer the fake where it covers the case. Warn the user first if one could
   reach a sign-in screen; never send key presses to one.
+- **`claudehome`** (#345) runs the real Claude Code in a home of its own (`claudeHome: 'own'` in `suites.mjs`), never
+  the default one: a new folder each run with onboarding done and a made-up API key approved in its `.claude.json`, so
+  Claude Code starts at its prompt with no sign-in, and is sent nothing (no tokens, nothing reaches Anthropic). It
+  checks Hive's hooks with it: SessionStart and the status line (curl reading the header from the launch's auth file)
+  reaching Hive, the launch's settings, MCP config and auth file in its private folder in Hive's user data, and the
+  token refused once the session ends. The runner asks about no sign-in for it. The other real Claude suites still use
+  the default home (#368).
 - **Codex** for the `codex*` suites, signed in to the **test home** `%LOCALAPPDATA%\hive-test\codex` (never your
   own `~/.codex`). Sign in once:
   ```powershell
