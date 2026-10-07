@@ -315,9 +315,10 @@ export async function removeUnusedWorktree(projectPath: string, path: string, op
     if (owned) return { deleted: false, reason: 'an agent works in it now' }
     let done: UnusedWorktreeRemoval
     if (opts.force !== undefined) {
-      if (!taken?.ok) return { deleted: false, reason: taken?.reason ?? 'what it holds was not checked for this removal: look again' }
+      // Refusals a new look settles are marked `lookAgain` (#377): the window checks again and asks again.
+      if (!taken?.ok) return { deleted: false, lookAgain: true, reason: taken?.reason ?? 'what it holds was not checked for this removal: look again' }
       const shown = taken.preview
-      if (shown.project !== key(projectPath) || shown.snap.path !== realPath(resolve(listed.path))) return { deleted: false, reason: 'what it holds was not checked for this removal: look again' }
+      if (shown.project !== key(projectPath) || shown.snap.path !== realPath(resolve(listed.path))) return { deleted: false, lookAgain: true, reason: 'what it holds was not checked for this removal: look again' }
       let now: Snapshot
       try {
         now = await snapshot(projectPath, listed.path)
@@ -325,7 +326,7 @@ export async function removeUnusedWorktree(projectPath: string, path: string, op
         return { deleted: false, reason: (e as Error).message }
       }
       const changed = (Object.keys(now) as (keyof Snapshot)[]).filter((k) => now[k] !== shown.snap[k])
-      if (changed.length) return { deleted: false, reason: `it changed since you were shown what it holds (${changed.map((k) => SNAPSHOT_FIELD[k]).join(', ')}): nothing was removed, look again` }
+      if (changed.length) return { deleted: false, lookAgain: true, reason: `it changed since you were shown what it holds (${changed.map((k) => SNAPSHOT_FIELD[k]).join(', ')}): nothing was removed, look again` }
       const snap = shown.snap
       await wt.removeWorktree(projectPath, { path: listed.path, branch: snap.branch ?? '', base: '' }, false)
       // The branch shown, and only from the commit shown (git refuses otherwise).

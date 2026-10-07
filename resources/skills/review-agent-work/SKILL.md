@@ -20,7 +20,7 @@ You are the reviewer: find what's wrong, don't fix it. Leave the code, the branc
 
 ## 2. Know the intent
 
-Check the change against what was asked: the card, the user's request, a handover (`hive_read_latest_handover`) or a plan in the shared notes. A clean change can still do the wrong thing.
+Check the change against what was asked: the card, the user's request, a handover (`hive_read_latest_handover`) or a plan in the shared notes. A clean change can still do the wrong thing. A card's **decisions** (listed first by `hive_read_task`) are what the user decided, and win over its description: check the work against every one, and work that doesn't follow one is a blocking finding.
 
 ## 3. Review
 
@@ -60,4 +60,4 @@ If the card leaves Review while you review it (taken back to Doing for more work
 
 ## Reviewing again
 
-When the card comes back after fixes, review what changed since your last verdict: the new commits, and the comments after yours. Re-run a check only when what it covers has changed, and confirm each earlier finding is fixed or still open.
+When the card comes back after fixes, review what changed since your last verdict: the new commits, the comments after yours, and any decision recorded since (a reply flags a new one). Re-run a check only when what it covers has changed, and confirm each earlier finding is fixed or still open.

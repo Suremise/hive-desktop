@@ -36,6 +36,31 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Card decisions: fakes, Codex (`gpt-5.6-luna`, CLI 0.160.1), Claude Code (sonnet), fixtures v18, 7 October 2026
+
+#357 adds a card's **Decisions** and the "new decision" flag on an agent's replies, and changes work-on-card (read decisions
+first; read the card again as part of moving it to Review), review-agent-work (a decision the work ignores is blocking),
+card-loop (a reviewer back in Review reads the card with `comments: 1`) and coordinate-agents (record the user's decisions
+as decisions), plus two tool descriptions (`hive_update_task` `decision`, `hive_read_task` decisions first). Fixtures v16
+added **card-decision** and **review-against-decision**, v17 **review-decision-next-round**, v18 loosened card-decision's
+model-only file check (it wanted the original `<input name="user">` markup).
+- **Fakes**, one source, unchanged while each ran, the before run with only #357's guidance put back (the four skills and
+  the two descriptions; baselines `b5-357-before-v18` and `b5-357-after-v18`, results `2026-10-07T13-09-06-fake` and
+  `2026-10-07T13-30-28-fake`): the same checks pass both times (154 pass, 40 skipped, 0 fail; the fakes act the decision
+  scenarios out by script, so they show Hive's side: the flag in the reply, the board, the costs). The session contract
+  and every tool reply are unchanged; the tool list grows **+3.0%** (204,284 → 210,458 bytes over the run); skill text
+  read grows +626 bytes in each of the two scenarios that read work-on-card's edited copy.
+- **Codex: 3 of 3 pass** (`2026-10-07T13-46-14-codex`, $0.036): the builder read the card again after the decision and
+  before Review, the reviewer read the card in full and failed work that ignores the decision, and in round 2 it read the
+  card in full before its verdict. (A first try of review-decision-next-round, `12-43-37`, hung for its 6 minutes with no
+  tool call after "I'm continuing the card loop…"; it passed when run again, `12-52-39`.)
+- **Claude Code (sonnet): 2 of 3 pass** (`2026-10-07T13-44-27-claude-code`, $0.374). Both reviews pass. In card-decision it
+  moved the card to Review 6 s after the decision without reading the card again; that reply carried the flag (the card was
+  its own when the call began), it read the card at once, changed login.html to match ("Aligned with the new decision")
+  and said so, leaving the card in Review rather than moving it back to Doing for the fix. The first trial
+  (`12-56-21`, before the flag counted the cards an agent had when a call began) had no flag on that reply and didn't
+  notice the decision.
+
 ## Long commands get a title: fakes, Codex (`gpt-5.6-luna`, CLI 0.160.0), fixtures v11, 6 October 2026
 
 #251 changed the session contract's hive-progress line to `hive-progress --title "<what and why, in a few words>" --

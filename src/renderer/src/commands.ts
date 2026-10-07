@@ -3,6 +3,7 @@ import { PROVIDERS, providerDescriptor } from '@shared/providers'
 import { batchCounts, type BatchCounts } from '@shared/startAll'
 import type { ProviderId, SessionLayout } from '@shared/types'
 import { call } from './api'
+import { unarchiveBatch } from './boardBatches'
 import { checkForUpdates, openReleaseNotes } from './components/Updates'
 import { openModeMenu } from './components/PermissionMode'
 import * as actions from './actions'
@@ -309,6 +310,14 @@ export const commands: Command[] = [
       const p = s.activity === 'projects' ? selected()?.name : s.boardProject
       set({ taskOpen: { project: p ?? '' } })
     }
+  },
+  {
+    id: 'task.undoArchive',
+    label: 'Undo Archive',
+    category: 'Tasks',
+    // The Undo of an Archived n cards toast (#351): its batch back where it was.
+    internal: true,
+    run: (id: string) => void unarchiveBatch(id)
   },
   {
     id: 'agent.show',

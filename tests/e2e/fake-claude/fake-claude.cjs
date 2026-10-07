@@ -28,6 +28,12 @@
 //   seconds when the focus has "hold N"), then PostCompact. With no messages yet it says "Not enough messages to compact."
 //   and sends no hook; with "compactfail" in the focus it fails after PreCompact with "Error during compaction".
 // - `--name` and "/rename <name>" set the session's name in the transcript (a custom title), as Claude Code does.
+// - Its system prompt (the --append-system-prompt-file's text) is recorded on a conversation's first request and that
+//   record used on every later one and every resume, as Claude Code does since 2.1.267, until it compacts;
+//   `--system-prompt-snapshot off` uses the file's text each time instead (#334). A prompt with "whatmode" says the
+//   mode its system prompt is in ("# Your mode: <name>", the Hive Assistant's) at the end of its reply. With
+//   fake-resume-draw.json ({ "ms": N }) in CLAUDE_CONFIG_DIR, a resumed session loses each Enter for its first N ms,
+//   keeping what was typed, as Claude Code can while it draws a long conversation.
 // - Ctrl+C twice, or "/exit", ends it with SessionEnd.
 // - With fake-signin.json in CLAUDE_CONFIG_DIR saying { "expired": true } (read each time; one test home, so one sign-in
 //   for all its agents, #309), it acts out an expired sign-in as Claude Code 2.1.291 does: `auth status --json` says
@@ -115,7 +121,7 @@ if (!home) {
 }
 
 // Options that take a value, so the first task (the last plain argument) can be told apart.
-const WITH_VALUE = new Set(['--session-id', '--resume', '--name', '--plugin-dir', '--mcp-config', '--settings', '--append-system-prompt-file', '--allowedTools', '--model', '--effort', '--permission-mode'])
+const WITH_VALUE = new Set(['--session-id', '--resume', '--name', '--plugin-dir', '--mcp-config', '--settings', '--append-system-prompt-file', '--allowedTools', '--model', '--effort', '--permission-mode', '--system-prompt-snapshot'])
 const opts = {}
 let firstPrompt = ''
 for (let i = 0; i < args.length; i++) {
@@ -128,6 +134,15 @@ if (opts['--model'] === 'fail-start') {
   process.exit(1)
 }
 const sessionId = opts['--resume'] || opts['--session-id'] || randomUUID()
+/**
+ * With fake-resume-draw.json in its home ({ "ms": N }, read at launch), a resumed session loses each Enter for its
+ * first N ms, keeping what was typed, as Claude Code can while it draws a long conversation (#334).
+ */
+const drawingUntil = (() => {
+  const file = home && path.join(home, 'fake-resume-draw.json')
+  if (!opts['--resume'] || !file || !fs.existsSync(file)) return 0
+  return Date.now() + Number(JSON.parse(fs.readFileSync(file, 'utf8')).ms ?? 0)
+})()
 /**
  * The mode it really runs in: the one asked for, unless fake-models.json has it act out Haiku without Auto (#234): then
  * Auto with Haiku runs in Manual ("default", as Claude Code's hooks say), as Claude Code 2.1.286 and 2.1.289 do.
@@ -229,6 +244,18 @@ function wakeScript(text) {
   return next ?? null
 }
 
+/** The system prompt a request sends: the conversation's recorded one, recorded now if it has none (#334). */
+function systemPrompt() {
+  const file = opts['--append-system-prompt-file']
+  const current = file && fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
+  if (opts['--system-prompt-snapshot'] === 'off' || !home) return current
+  const record = path.join(home, 'fake-prompts', `${sessionId}.txt`)
+  if (fs.existsSync(record)) return fs.readFileSync(record, 'utf8')
+  fs.mkdirSync(path.dirname(record), { recursive: true })
+  fs.writeFileSync(record, current)
+  return current
+}
+
 let busy = false
 const isBusy = () => busy
 /** The prompt whose turn the expired sign-in stopped: "/login" carries it on. */
@@ -248,6 +275,7 @@ async function runPrompt(text) {
     promptLine()
     return
   }
+  const prompt = systemPrompt()
   // A line Hive typed to wake it (a card watch): logged, and answered with the next line of its wake script.
   const woken = wakeScript(text)
   if (woken !== null) text = woken
@@ -288,7 +316,8 @@ async function runPrompt(text) {
   if (background) await startBackgroundTask(Number(background[1]))
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
   await sleep(secs * 1000)
-  await endTurn(`Done: ${text}`, Number(/\bcontext\s+(\d+)/i.exec(text)?.[1] ?? 20))
+  const mode = /\bwhatmode\b/i.test(text) ? ` (system prompt mode: ${/^# Your mode: (.+)$/m.exec(prompt)?.[1]?.trim() ?? 'none'})` : ''
+  await endTurn(`Done: ${text}${mode}`, Number(/\bcontext\s+(\d+)/i.exec(text)?.[1] ?? 20))
   // "window N": the status line reports a context window of N tokens, as Claude Code's does.
   const contextWindow = /\bwindow\s+(\d+)/i.exec(text)
   if (contextWindow && hookUrl) {
@@ -411,6 +440,8 @@ async function compact(focus) {
     out('\r\nError during compaction: Error: API Error: 500\r\n')
   } else {
     write({ type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted', compactMetadata: { trigger: 'manual', preTokens: 30, postTokens: 10 } })
+    // The next request records the system prompt afresh.
+    if (home) fs.rmSync(path.join(home, 'fake-prompts', `${sessionId}.txt`), { force: true })
     out('\r\nConversation compacted.\r\n')
     await hook('PostCompact', { trigger: 'manual' })
   }
@@ -451,6 +482,9 @@ process.stdin.on('data', (data) => {
     if (ch === '\x15') {
       if (line) out('\r\x1b[K')
       line = ''
+    } else if ((ch === '\r' || ch === '\n') && !onEnter && Date.now() < drawingUntil) {
+      // Still drawing the resumed conversation: the Enter is lost, what was typed stays on the line (#334).
+      continue
     } else if (ch === '\r' || ch === '\n') {
       const text = line.trim()
       if (line) out('\r\n')

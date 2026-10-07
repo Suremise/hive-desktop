@@ -32,6 +32,7 @@ The checks are positive and negative:
   card that went back to Doing under it. **A review that passes** moves the card to Passed with its verdict, not to
   Done.
 - **Done means merged**: the builder moves its Passed card to Done once its branch is merged.
+- **Card decisions** (#357): a decision the user records while the agent works on the card is flagged in its next board reply, and the agent reads the card again before moving it to Review; a reviewer fails work that ignores one of the card's decisions, also when woken for round 2 with a decision recorded since round 1 (its first reply flags it, and it reads the card in full before its verdict).
 - **Merging when the base moved** after the checks (another branch merged meanwhile): the agent merges the base into
   its branch again and reruns the checks on that combination before merging (the fakes do it with real git commands).
 - **Handovers**: the latest handover's next step, or the named one's, is done, and the other isn't. A wrap-up writes a
@@ -120,7 +121,7 @@ Bump `FIXTURES_VERSION` in `scenarios.cjs` when a scenario's setup or checks cha
 Each run also writes `benchmark.json` (schema `hive-benchmark/1`, `benchmark.cjs`): for every scenario and sample, whether
 it passed its checks and what Hive's own parts cost in it. Hive's performance metrics are read before the launch and after
 the turn (`GET /v1/metrics` of the run's own workspace), and the difference is the scenario's:
-- **Context Hive gave the session**: launch guidance in parts (core, project, role, persona, the skills' catalog), the
+- **Context Hive gave the session**: launch guidance in parts (core, project, the Assistant's role and mode, the skills' catalog), the
   hive tools' list, and every tool reply (characters and UTF-8 bytes, exact; never tokens).
 - **Work**: tool calls (detail ones too), calls the hive server ran, repeated identical calls, failures, Agent API
   requests and bytes (the harness's own reads are left out), time.

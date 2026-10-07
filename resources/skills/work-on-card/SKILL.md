@@ -11,21 +11,22 @@ The card is the brief, and the board is how the user, the Hive Assistant and oth
 
 ## Start
 
-1. **Read the card** with `hive_read_task`: its description, comments, links and the cards it depends on. On a long card back for more work, the description and the newest comments (`comments: 5`) usually say what is wanted now; read further back when they refer to earlier ones.
+1. **Read the card** with `hive_read_task`: its decisions, description, comments, links and the cards it depends on. Its **decisions** (listed first) are what the user decided: where they differ from the description or a comment, follow the decisions. On a long card back for more work, the description and the newest comments (`comments: 5`) usually say what is wanted now; read further back when they refer to earlier ones.
 2. **Work or review?** If you are asked to check work rather than do it, this is a review: use the review-agent-work skill and leave the card where it is.
 3. **Can it start?** Cards it depends on (`blockedBy`) that aren't done, or a question only the user can answer, block it: set `blocked` with the reason, tell the user, and don't guess.
 4. **Move it to `doing`** with `hive_update_task` before you change anything, which gives it to you. Do this also when it comes back from Review, Passed or Done. A card On Hold is parked: work on it only when the user asks.
 
 ## While working
 
-- Comment when something is worth knowing later: a decision and why, a finding that changes the plan, a partial result. Not a running log.
+- Comment when something is worth knowing later: a choice you made and why, a finding that changes the plan, a partial result. Not a running log. A decision the user tells you about the card goes on it as a decision (`hive_update_task` with `decision`), not only as a comment.
+- A reply that says your card has a new decision: finish the step you're on, then read the card (`hive_read_task`) and bring the work in line with it.
 - Work you find but weren't asked to do goes on a new card (`hive_create_task`, described well enough to start from cold), not into this one.
 - If you can't go on, set `blocked` with the reason; an empty `blocked` clears it.
 
 ## Finish
 
 1. **Check the work**: run the project's checks that matter for this change. Note what you ran, the result, and what you didn't run, as a **run record** a reviewer can trust instead of repeating it: the checks, the exact code they ran on (the commit, and whether there were uncommitted changes; the project's notes may give a command that prints a fingerprint), each result, and where the logs are. Run long commands through `hive-progress` as Hive's session guidance says, so the Progress panel shows how far along they are.
-2. **Move it to `review`** with a comment saying what you did: what changed, how to check it, the checks and their results, and anything left open. Also when it was in Passed or Done before.
+2. **Read the card again, then move it to `review`.** First `hive_read_task`: decisions may have been recorded while you worked, so check the work against each one and fix what doesn't match. Then move it to `review` with a comment saying what you did: what changed, how to check it, the checks and their results, and anything left open. Also when it was in Passed or Done before.
 3. **Passed and Done aren't yours.** A reviewer moves a card that passes to `passed`. `done` means merged: move your card there once its work is merged (merge-ready), or when the user asks.
 
 ## Priorities

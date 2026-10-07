@@ -537,9 +537,72 @@ export interface TaskCard {
    * removed (restoring the project brings those back).
    */
   archivedFor?: 'user' | 'done' | 'project-hidden' | 'project-removed'
+  /** The bulk archive it went with (an ArchiveBatch's id, #351): Undo and "Unarchive this batch" bring that batch back. */
+  archivedBatch?: string
+  /** What the user decided about it (#357), oldest first: agents follow these over the description. Absent when none. */
+  decisions?: TaskDecision[]
   createdAt: string
   createdBy: string
   updatedAt: string
+}
+
+/**
+ * A bulk archive by the user (#351): Archive All in a column, or Archive All Cards. Kept so the batch can be brought back
+ * later (Undo, "Unarchive this batch"), each card where it was.
+ */
+export interface ArchiveBatch {
+  id: string
+  at: string
+  by: string
+  /** What was archived, in a few words: "All in Done", "5 shown in Todo", "All Cards". */
+  label: string
+  /** The cards it archived. */
+  cards: number[]
+  /** Each column the cards left: its cards, top to bottom, as it was then (the batch's and those that stayed). */
+  columns: Partial<Record<TaskColumn, number[]>>
+}
+
+/** What the user asked Archive All for (#351): main checks it again on each card as it is when it is archived. */
+export interface ArchiveRequest {
+  /** What it was, in a few words (ArchiveBatch.label). */
+  label: string
+  /** The column it was for; null: the whole board. */
+  column: TaskColumn | null
+  /** The project the board showed (null: every project) and its search: a card that has left them stays. */
+  project: string | null
+  query: string
+  /** Also cards agents are on (in Doing with their running agent, being reviewed, watched). */
+  includeBusy: boolean
+}
+
+export interface ArchiveResult {
+  batch: ArchiveBatch | null
+  archived: number[]
+  /** Cards left on the board after all: changed meanwhile (an agent took one, it moved), or not readable or saved. */
+  skipped: { number: number; why: string }[]
+}
+
+/** A batch brought back: `failed` couldn't be read or saved, stay archived, and keep the batch for another try. */
+export interface UnarchiveResult {
+  restored: number[]
+  failed: number[]
+}
+
+/**
+ * A decision the user made about a card (#357): scope, wording, a default, "option B". The card is the record: agents
+ * read these when they start and before Review, and reviewers check the work against them.
+ */
+export interface TaskDecision {
+  /** Unique on its card: the user edits or removes a decision by it. */
+  id: string
+  text: string
+  /** Always the user: an agent or the Assistant only records what the user decided. */
+  decidedBy: 'user'
+  /** Who wrote it down: "You" (the user), "Assistant", or an agent ("B5 (hive)"). */
+  recordedBy: string
+  at: string
+  /** When the user last changed its words. */
+  editedAt?: string
 }
 
 /** An agent reviewing a card (TaskCard.review). */
@@ -571,6 +634,8 @@ export interface TaskPatch {
   blocked?: string | null
   blockedBy?: number[]
   links?: number[]
+  /** Records a decision the user made (#357), attributed to the user whoever records it. Editing or removing one is the user's (tasks:editDecision). */
+  decision?: string
 }
 
 /** Which agent Start gives a card to. */
@@ -831,6 +896,8 @@ export interface UnusedWorktreePreview {
 /** What removing an unused worktree did: deleted it (and its branch), or kept it and why. */
 export interface UnusedWorktreeRemoval {
   deleted: boolean
+  /** Refused because what was shown is out of date (expired, used, or the worktree changed): a fresh preview can be confirmed (#377). */
+  lookAgain?: boolean
   branchKept?: boolean
   reason?: string
 }
@@ -889,6 +956,11 @@ export interface SessionRecord {
   keptUsage?: SessionUsage
   /** A session the CLI started for another one (e.g. a Codex guardian review), kept when it was adopted. */
   sub?: SubSession
+  /**
+   * A Hive Assistant conversation's mode (a persona id) it was last given: the one it started in, or the last one Hive
+   * told it. A resume in another mode (or with none recorded) tells it the mode once (#334).
+   */
+  persona?: string
 }
 
 /**
@@ -1643,6 +1715,8 @@ export interface ToastMessage {
   source?: string
   /** Kept in the Notifications panel (the bell) only, not shown as a toast: a notice told another way, or not at all (#157). */
   quiet?: boolean
+  /** How long the toast stays (ms), when not the usual for its kind (an Undo's ~10 s, #351). */
+  timeoutMs?: number
 }
 
 export interface AppInfo {

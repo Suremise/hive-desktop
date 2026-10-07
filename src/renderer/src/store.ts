@@ -11,7 +11,7 @@ import type { ProjectTab } from '@shared/projectTabs'
 import type { ProgressFilter } from '@shared/progress'
 import type { TemplateAgent } from '@shared/templates'
 import type { GitTool } from '@shared/gitTool'
-import type { AgentBranchStatus, AssistantPanelSide, BoardFold, QuitScope, TaskCard, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
+import type { AgentBranchStatus, AssistantPanelSide, BoardFold, QuitScope, TaskCard, TaskColumn, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
@@ -49,6 +49,19 @@ export interface TemplateAgentRequest {
   others: TemplateAgent[]
   project?: string
   resolve: (agent: TemplateAgent | null) => void
+}
+
+/**
+ * Archive All in a column, or Archive All Cards (column null), as the board shows them (#351): the project it shows
+ * (null: every project) and its search. `scope` is the board it is part of (a project's Tasks tab: that project; the
+ * Board view: null, its project choice being a filter): when the filter or search hides some of those cards, only the
+ * cards shown are archived.
+ */
+export interface ArchiveAllRequest {
+  column: TaskColumn | null
+  project: string | null
+  scope: string | null
+  query: string
 }
 
 export interface ConfirmRequest {
@@ -294,6 +307,8 @@ interface State {
   taskOpen: number | { project: string } | null
   /** The card whose Start dialog is open. */
   taskStartFor: number | null
+  /** The Archive All dialog (#351): a column's (or the whole board's, column null) cards as the board shows them. */
+  boardArchiveAll: ArchiveAllRequest | null
   /** A card being moved to Doing: the Move to Doing dialog asks who has it. */
   taskDoing: DoingRequest | null
   /** The project whose Remove Project dialog is open. */
@@ -419,6 +434,7 @@ export const useStore = create<State>(() => ({
   boardArchived: false,
   taskOpen: null,
   taskStartFor: null,
+  boardArchiveAll: null,
   taskDoing: null,
   removeProjectFor: null,
 
@@ -780,7 +796,7 @@ export function pushToast(t: ToastMessage): void {
     unread: s.showNotifications ? s.unread : s.unread + 1
   }))
   if (t.quiet) return
-  const timeout = t.level === 'error' ? 12000 : t.actions?.length ? 15000 : 6000
+  const timeout = t.timeoutMs ?? (t.level === 'error' ? 12000 : t.actions?.length ? 15000 : 6000)
   setTimeout(() => dismissToast(t.id), timeout)
 }
 

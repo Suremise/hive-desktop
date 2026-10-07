@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 15
+const FIXTURES_VERSION = 18
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -23,16 +23,20 @@ const movedInto = (card, column, last = false) => {
   const hit = (w) => new RegExp(`^Moved to (the (top|bottom) of )?${column}\\b`).test(w)
   return last ? h.findLastIndex(hit) : h.findIndex(hit)
 }
+/** When a card's history says something happened (ms), the latest such entry; 0 if never. */
+const historyAt = (card, re) => Date.parse((card?.history ?? []).findLast((h) => re.test(h.what))?.at ?? '') || 0
+/** Full reads of card n (hive_read_task without latestComment) that the server ran, with their times (ms). */
+const cardReads = (o, n) => ran(o, 'hive_read_task').filter((x) => field(x.args, 'number', n) && !/latestComment"?\s*:\s*true/.test(String(x.args))).map((x) => Date.parse(x.at))
 /** How many times a card moved into Review (the setup's own move counts). */
 /**
  * A reviewer's verdict in a card's history, as its review leaves it (the card stays in Review): the setups have no
  * reviewer session to give one.
  */
-const giveVerdict = (c, n, result) => {
+const giveVerdict = (c, n, result, by = 'Implementer (alpha)') => {
   const file = require('path').join(c.ws, '.hive', 'tasks', `${n}.json`)
   const card = JSON.parse(require('fs').readFileSync(file, 'utf8'))
   const at = new Date().toISOString()
-  card.history.push({ at, by: 'Implementer (alpha)', what: 'Started reviewing' }, { at, by: 'Implementer (alpha)', what: `Review ${result}` })
+  card.history.push({ at, by, what: 'Started reviewing' }, { at, by, what: `Review ${result}` })
   require('fs').writeFileSync(file, JSON.stringify(card, null, 2))
 }
 const reviewMoves = (card) => history(card).filter((w) => /^Moved to (the (top|bottom) of )?Review\b/.test(w)).length
@@ -217,6 +221,95 @@ module.exports.SCENARIOS = [
       ['did the work', /Be patient/.test(c.read('CONTRIBUTING.md') ?? '')]
     ],
     fakeSkips: ['did the work']
+  },
+  {
+    id: 'card-decision',
+    title: 'A decision recorded while the agent works on the card (#357): flagged in its next board reply, and it re-reads the card before Review',
+    files: { 'login.html': '<form><input name="user"><input name="password" type="password"></form>\n' },
+    async setup(c) {
+      await c.card('a', { title: 'Login form errors', description: 'Show the login form\'s validation errors (empty user, empty password) in login.html.' })
+      await c.inv('tasks:update', c.cards.a, { decision: 'Keep the form at login.html; no new page.' })
+    },
+    // Once the agent has the card in Doing, the user decides something more about it.
+    async during(c) {
+      if (c.decidedAt) return
+      const card = (await c.api('GET', `/v1/tasks/${c.cards.a}`)).body
+      if (card?.column !== 'doing') return
+      await c.inv('tasks:update', c.cards.a, { decision: 'Show each error under its own field, not in a banner at the top.' })
+      c.decidedAt = Date.now()
+    },
+    prompt: (c) => `Work on card #${c.cards.a}.`,
+    fake: (c) =>
+      `skill work-on-card then hive hive_read_task {"number":${c.cards.a}} then boardmove ${c.cards.a} doing then work 4 then hive hive_update_task {"number":${c.cards.a},"comment":"Halfway: the errors show."} then hive hive_read_task {"number":${c.cards.a}} then boardmove ${c.cards.a} review then boardcomment ${c.cards.a}`,
+    expect: (o, c) => {
+      const decided = historyAt(o.cards.a, /^Recorded a decision: "Show each error/)
+      const review = historyAt(o.cards.a, /^Moved to (the (top|bottom) of )?Review\b/)
+      // Board calls between the decision and the agent's next full read of the card: their replies carry the flag.
+      const reread = cardReads(o, c.cards.a).find((t) => t > decided) ?? Infinity
+      const between = o.hiveCalls.filter((x) => x.ok && /^hive_(update|read|list|wait_for)_task/.test(x.tool) && Date.parse(x.at) > decided && Date.parse(x.at) < reread)
+      return [
+        ['read the work-on-card skill', read(o, 'work-on-card'), o.skillsRead.join(',')],
+        ['the decision came while it worked on the card', decided > 0, history(o.cards.a).join(' | ')],
+        ['a board reply before it read the card again flagged the new decision', !between.length || /has 1 new decision/.test(replies(o, 'hive_update_task', 'hive_read_task', 'hive_list_tasks', 'hive_wait_for_tasks')), `${between.length} call(s) between`],
+        ['read the card again after the decision, before moving it to Review', decided > 0 && review > 0 && cardReads(o, c.cards.a).some((t) => t > decided && t < review), `decided ${decided}, review ${review}, reads ${cardReads(o, c.cards.a).join(',')}`],
+        ['it ends in Review', o.cards.a?.column === 'review', o.cards.a?.column],
+        // An error element after the user field and before the password field, however the form is marked up.
+        ['the errors are under their fields', /name=["']?user\b[\s\S]*?(error|invalid)[\s\S]*?name=["']?password\b/i.test(c.read('login.html') ?? ''), (c.read('login.html') ?? '').slice(0, 400)]
+      ]
+    },
+    fakeSkips: ['the errors are under their fields']
+  },
+  {
+    id: 'review-against-decision',
+    title: "A reviewer checks the work against the card's decisions (#357): work that ignores one fails",
+    files: { 'greet.js': "module.exports = (name) => 'Hello, ' + name\n" },
+    async setup(c) {
+      await c.card('h', { title: 'Greeting helper', description: 'greet.js returns a greeting for a name.', column: 'review', agent: 'implementer', comments: ['Done: greet.js returns "Hello, <name>".'] })
+      await c.inv('tasks:update', c.cards.h, { decision: 'Greet with "Hi, <name>", never "Hello".' })
+    },
+    prompt: (c) => `Review card #${c.cards.h}.`,
+    fake: (c) =>
+      `skill review-agent-work then hive hive_read_task {"number":${c.cards.h}} then hive hive_update_task {"number":${c.cards.h},"review":"start"} then hive hive_update_task {"number":${c.cards.h},"review":"failed","comment":"1. greet.js:1 says Hello; the card's decision says Hi."}`,
+    expect: (o, c) => [
+      ['read the review-agent-work skill', read(o, 'review-agent-work'), o.skillsRead.join(',')],
+      ['read the card in full (its decisions first)', cardReads(o, c.cards.h).length > 0],
+      ['failed it: the work ignores a decision', history(o.cards.h).includes('Review failed') && !history(o.cards.h).includes('Review passed'), history(o.cards.h).join(' | ')],
+      ['the card stays in Review with the implementer', o.cards.h?.column === 'review' && o.cards.h?.agent?.id === c.agents.implementer.id, `${o.cards.h?.column} / ${o.cards.h?.agent?.name}`],
+      ['changed no files (a review only reads)', o.gitStatus.trim() === '', o.gitStatus]
+    ]
+  },
+  {
+    id: 'review-decision-next-round',
+    title: "A reviewer woken for round 2 reads the card again (#357): a decision recorded since round 1 is flagged, and work that ignores it fails",
+    files: { 'greet.js': "module.exports = (name) => 'Hello, ' + name\n" },
+    async setup(c) {
+      await c.card('r', { title: 'Greeting helper', description: 'greet.js returns a greeting for a name.', column: 'review', agent: 'implementer', comments: ['Done: greet.js added.'] })
+      // Round 1: this agent (Coder) reviewed it and failed it; the implementer fixed the typo; then the user decided.
+      giveVerdict(c, c.cards.r, 'failed', 'Coder (alpha)')
+      await c.api('POST', `/v1/tasks/${c.cards.r}/comments`, { text: 'Round 1: failed. 1. greet.js says "Helo".' })
+      await c.api('POST', `/v1/tasks/${c.cards.r}/comments`, { text: 'Fixed: greet.js says "Hello, <name>" now.' })
+      await new Promise((r) => setTimeout(r, 20))
+      await c.inv('tasks:update', c.cards.r, { decision: 'Greet with "Hi, <name>", never "Hello".' })
+    },
+    prompt: (c) =>
+      `You are the reviewer of card #${c.cards.r} in a card loop with the card-loop skill (rounds: 5); you failed it in round 1. [Hive] #${c.cards.r} is in Review; latest comment: "Fixed: greet.js says 'Hello, <name>' now.". Your card watch has ended: carry on.`,
+    fake: (c) =>
+      `skill card-loop then hive hive_read_task {"number":${c.cards.r},"latestComment":true} then hive hive_read_task {"number":${c.cards.r},"comments":1} then hive hive_update_task {"number":${c.cards.r},"review":"start"} then hive hive_update_task {"number":${c.cards.r},"review":"failed","comment":"Round 2: failed. 1. greet.js says Hello; the card's decision says Hi."}`,
+    expect: (o, c) => {
+      const verdict = historyAt(o.cards.r, /^Review (passed|failed)$/)
+      const decided = historyAt(o.cards.r, /^Recorded a decision/)
+      // Its latest-comment reads before it read the card in full: their replies carry the flag.
+      const full = cardReads(o, c.cards.r)
+      const latest = ran(o, 'hive_read_task').filter((x) => field(x.args, 'number', c.cards.r) && /latestComment"?\s*:\s*true/.test(String(x.args)) && Date.parse(x.at) < (full[0] ?? Infinity))
+      return [
+        ['read the card-loop or review-agent-work skill', read(o, 'card-loop') || read(o, 'review-agent-work'), o.skillsRead.join(',')],
+        ['a latest-comment read before reading the card flagged the new decision', !latest.length || /has 1 new decision/.test(replies(o, 'hive_read_task')), `${latest.length} latest-comment read(s) first`],
+        ['read the card in full (decisions first) before its round 2 verdict', verdict > decided && full.some((t) => t < verdict), `reads ${full.join(',')}, verdict ${verdict}`],
+        ['failed round 2: the work ignores the decision', verdict > decided && history(o.cards.r).at(-1) !== 'Review passed' && history(o.cards.r).filter((h) => h === 'Review failed').length === 2, history(o.cards.r).join(' | ')],
+        ['the card stays in Review with the implementer', o.cards.r?.column === 'review' && o.cards.r?.agent?.id === c.agents.implementer.id, `${o.cards.r?.column} / ${o.cards.r?.agent?.name}`],
+        ['changed no files (a review only reads)', o.gitStatus.trim() === '', o.gitStatus]
+      ]
+    }
   },
   {
     id: 'review-passed',
