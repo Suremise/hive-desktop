@@ -86,8 +86,14 @@ export interface CommandSpec {
   done?: () => boolean
 }
 
-/** Keys typed into a CLI's own interface (a menu, a slash command), with pauses between them. */
-export type KeySteps = { keys: string; waitMs?: number }[]
+/**
+ * Keys typed into a CLI's own interface (a menu, a slash command), with pauses between them. A step is keys as they
+ * are, or a pick: it reads the CLI's screen as rendered and returns what to type, null until the screen shows it, for
+ * a menu whose order the CLI can change (Codex's /permissions, #396); `what` names what it looks for, for the error
+ * when it never shows (main/keySteps.ts).
+ */
+export type KeyStep = { keys: string; waitMs?: number } | { pick: (screen: string) => string | null; what: string; waitMs?: number }
+export type KeySteps = KeyStep[]
 
 export interface ExternalSession {
   id: string

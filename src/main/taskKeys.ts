@@ -19,13 +19,21 @@ export class KeyGate {
   private readonly busyTitle?: RegExp
   private readonly clock: () => number
   private readonly onReady?: () => void
+  private readonly keepScreen: boolean
 
-  constructor(opts: { ready: RegExp; busyTitle?: RegExp; cols: number; rows: number; clock?: () => number; onReady?: () => void }) {
+  /** keepScreen: the screen is still rendered once ready, for keys picked from it (a menu, #396); dispose() ends it. */
+  constructor(opts: { ready: RegExp; busyTitle?: RegExp; cols: number; rows: number; clock?: () => number; onReady?: () => void; keepScreen?: boolean }) {
     this.readyPattern = opts.ready
     this.busyTitle = opts.busyTitle
     this.clock = opts.clock ?? Date.now
     this.onReady = opts.onReady
+    this.keepScreen = !!opts.keepScreen
     this.screen = new TerminalScreen(opts.cols, opts.rows)
+  }
+
+  /** The screen as rendered now, or null once it has gone. */
+  text(): string | null {
+    return this.screen?.text() ?? null
   }
 
   feed(data: string): void {
@@ -43,7 +51,7 @@ export class KeyGate {
       this.ready = true
       // Idle since it became ready, not before: its startup spinner may come just after (#235).
       if (!this.busy) this.changed = this.clock()
-      queueMicrotask(() => this.dispose())
+      if (!this.keepScreen) queueMicrotask(() => this.dispose())
       this.onReady?.()
     })
   }
@@ -58,7 +66,7 @@ export class KeyGate {
     return !this.busy && this.clock() - this.changed >= ms
   }
 
-  /** Lets the screen go (once ready it isn't read again, and the title is enough). */
+  /** Lets the screen go (once ready it isn't read again, unless kept for picks, and the title is enough). */
   dispose(): void {
     this.screen?.dispose()
     this.screen = null

@@ -10,6 +10,7 @@ import { emit, toast } from './events'
 import { createLogger } from './logger'
 import { childEnv, hasPty, killPty, PTY_COLS, PTY_ROWS, spawnPty, writePty } from './ptyHost'
 import { KeyGate } from './taskKeys'
+import { PickNotFound, typeKeySteps } from './keySteps'
 import { compareTested, noteSelectedCli, testedVersion } from './testedClis'
 
 const log = createLogger('providers')
@@ -184,7 +185,9 @@ class ProviderService {
     let sent = !typed
     let finished = false
     // Typed once its screen shows it ready (typeWhenIdle).
-    const gate = typed?.ready ? new KeyGate({ ready: typed.ready, busyTitle: typed.busyTitle, cols: PTY_COLS, rows: PTY_ROWS, onReady: () => typeWhenIdle() }) : null
+    // A key picked from the screen (a menu entry, #396) needs the screen after it is ready too.
+    const picks = !!typed?.keys.some((k) => 'pick' in k)
+    const gate = typed?.ready ? new KeyGate({ ready: typed.ready, busyTitle: typed.busyTitle, cols: PTY_COLS, rows: PTY_ROWS, onReady: () => typeWhenIdle(), keepScreen: picks }) : null
     let typeTimer: NodeJS.Timeout | null = null
     // A program that stays open after its job (Codex after its sandbox setup) is closed once the job is done.
     const watch = typed?.done
@@ -200,13 +203,24 @@ class ProviderService {
     const type = async (): Promise<void> => {
       if (sent || !typed) return
       sent = true
-      for (const step of typed.keys) {
-        // Each key waits while the program is busy (it can get busy again after showing its prompt): an Enter
-        // typed then would queue the command rather than run it. At most 30 seconds, then it goes in anyway.
-        for (const t0 = Date.now(); !settled() && Date.now() - t0 < 30_000; ) await new Promise((r) => setTimeout(r, 200))
-        if (!hasPty(key)) return
-        writePty(key, step.keys)
-        await new Promise((r) => setTimeout(r, step.waitMs ?? 60))
+      try {
+        await typeKeySteps(typed.keys, {
+          write: (keys) => writePty(key, keys),
+          screen: () => gate?.text() ?? null,
+          // Each key waits while the program is busy (it can get busy again after showing its prompt): an Enter
+          // typed then would queue the command rather than run it. At most 30 seconds, then it goes in anyway.
+          ready: async () => {
+            for (const t0 = Date.now(); !settled() && Date.now() - t0 < 30_000; ) await new Promise((r) => setTimeout(r, 200))
+            return hasPty(key)
+          }
+        })
+      } catch (e) {
+        if (!(e instanceof PickNotFound)) throw e
+        // The CLI doesn't show what the task needs (another version): the terminal stays open for the user to do it.
+        log.warn(`${label}: couldn't find ${e.what}`)
+        toast('warning', `${label}: Hive couldn't find ${e.what}. Do it in the terminal, or update Hive.`)
+      } finally {
+        if (picks) gate?.dispose()
       }
     }
     // Typed once the interface is ready and has been idle for a moment (or, failing that, after 30 seconds).

@@ -19,6 +19,7 @@ import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, Ke
 import { codexBackgroundMemo, codexBackgroundTasks, type CodexBackgroundMemo } from './background'
 import { CodexConversationParser, CodexUsageParser, codexImageData, parseRollout, patchPaths, rolloutDetails, rolloutSubSession } from './rollout'
 import { parseCodexModels } from './models'
+import { PERMISSIONS_MENU_LABELS, permissionsMenuNumber } from './permissionsMenu'
 
 const log = createLogger('codex')
 
@@ -751,17 +752,17 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   /**
-   * Codex's /permissions menu numbers the presets in CODEX_PERMISSION_MODES order, and typing the number
-   * picks one (arrow keys wrap around, so counting presses is unreliable). Hive confirms the result from the
-   * rollout's thread_settings_applied, which Codex writes at once.
+   * Codex's /permissions menu numbers its presets, and typing a number picks one (arrow keys wrap around, so counting
+   * presses is unreliable). Which number is read from the menu Codex draws, by the preset's label: Codex 0.161 reordered
+   * the menu (#396, permissionsMenu.ts), and a label it doesn't show fails the pick rather than choosing another preset.
+   * Hive confirms the result from the rollout's thread_settings_applied, which Codex writes at once.
    */
   modeMenuKeys(target: PermissionMode): KeySteps {
-    const index = CODEX_PERMISSION_MODES.findIndex((m) => m.value === target)
     return [
       { keys: '\x15', waitMs: 150 },
       { keys: '/permissions', waitMs: 200 },
-      { keys: '\r', waitMs: 900 },
-      { keys: String(index + 1), waitMs: 300 }
+      { keys: '\r', waitMs: 200 },
+      { pick: (screen) => permissionsMenuNumber(screen, target), what: `"${PERMISSIONS_MENU_LABELS[target] ?? target}" in Codex's /permissions menu`, waitMs: 300 }
     ]
   }
 

@@ -727,7 +727,7 @@ Codex has its own presets:
 | Approve for me | An automatic reviewer approves safe actions and asks only about risky ones (default) |
 | Full access | No sandbox and no approvals |
 
-When you switch a running Codex agent's preset, the badge says **Switching to …** until Codex confirms it; if Codex doesn't, the badge goes back and Hive tells you.
+When you switch a running Codex agent's preset, the badge says **Switching to …** until Codex confirms it; if Codex doesn't, the badge goes back and Hive tells you. Hive chooses the preset by the name Codex shows in its `/permissions` menu, whatever order a Codex version lists them in. If a Codex version doesn't show that name (renamed or dropped), Hive closes the menu without choosing another preset and says it couldn't find it: switch in the agent's terminal with `/permissions` instead, and update Hive when a new version is out.
 
 In **Approve for me**, Codex's reviewer decides on risky actions itself: while it does, the agent stays **Working…** with a small shield beside its status (hover it to see what's being checked), and Hive doesn't ask for you. Hive tells you an agent needs you only when Codex actually puts a question or an approval to you, and once for each, even when a new session is slow to start on a busy computer.
 
@@ -737,6 +737,8 @@ On Windows, Codex runs commands in a sandbox, which it sets up once. **Help → 
 
 - **Set up default sandbox** (recommended): commands run under two local Windows accounts that Codex creates for them (`CodexSandboxOffline` and `CodexSandboxOnline`), with a firewall rule that keeps them offline unless you allow it. It isolates commands best. Windows asks for Administrator permission once.
 - **Use non-admin sandbox**: needs no Administrator permission. Commands run under your own account with restricted rights. It protects your files and blocks internet access in most cases, but Codex warns it carries more risk if the agent is tricked by instructions hidden in a file or web page it reads (prompt injection).
+
+If **Set up** can't find what it needs in Codex (a Codex version that names its `/permissions` presets differently), Hive shows a warning saying what it couldn't find and leaves Codex's terminal open: choose **Ask for approval** in its `/permissions` menu yourself to bring up the sandbox setup, or update Hive.
 
 Once Codex has set the sandbox up, Hive closes it and Agent Setup says so. With the non-admin sandbox, Agent Setup shows **Upgrade** to switch to the default one later. Codex agents that are running keep their sandbox until they restart. **Full access** doesn't use the sandbox at all.
 

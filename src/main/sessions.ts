@@ -53,6 +53,7 @@ import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
 import { PTY_COLS, PTY_ROWS, childEnv, killPty, spawnPty, writePty } from './ptyHost'
 import { TerminalScreen } from './terminalScreen'
+import { PickNotFound, typeKeySteps } from './keySteps'
 import { withBinOnPath } from './progressReporters/shims'
 import { hiveSkills, parseSkillFrontmatter, skillFor } from './skills'
 import { GUIDANCE_REVISION, launchParts, launchRecord } from './guidance'
@@ -89,6 +90,8 @@ const COST_INTERVAL_MS = 30_000
 interface LiveSession {
   state: LiveSessionState
   adapter: ProviderAdapter
+  /** The terminal as rendered, for an adapter that reads it (its footer's mode, or a menu to pick from: #396). */
+  screen?: TerminalScreen | null
   /** The transcript's modified time and size at the last look ("mtime:size"). */
   transcriptMtime: string
   /** Where the provider writes this session's transcript, once known (from a hook, or found by id). */
@@ -1092,8 +1095,10 @@ class SessionManager {
     l.defaultModel = !eff.model
     l.defaultEffort = eff.effort ? undefined : { model: eff.model }
 
-    // The footer is read from the rendered screen: a CLI may redraw only the characters that changed.
-    const screen = l.adapter.footerMode ? new TerminalScreen(PTY_COLS, PTY_ROWS) : null
+    // The footer is read from the rendered screen: a CLI may redraw only the characters that changed. So is a mode
+    // menu, whose entries Hive picks by what they say (#396).
+    const screen = l.adapter.footerMode || l.adapter.modeMenuKeys ? new TerminalScreen(PTY_COLS, PTY_ROWS) : null
+    l.screen = screen
     const proc = spawnPty(this.key(projectPath, agent.id), {
       file: cmd.file,
       args: cmd.args,
@@ -1381,9 +1386,17 @@ class SessionManager {
       st.modeSwitching = mode
       l.switchTail = ''
       this.emitState(st)
-      for (const step of l.adapter.modeMenuKeys(mode)) {
-        writePty(key, step.keys)
-        await new Promise((r) => setTimeout(r, step.waitMs ?? 60))
+      try {
+        await typeKeySteps(l.adapter.modeMenuKeys(mode), { write: (keys) => writePty(key, keys), screen: () => l.screen?.text() ?? null })
+      } catch (e) {
+        if (!(e instanceof PickNotFound)) throw e
+        // The menu doesn't show the mode (another CLI version): closed again, nothing chosen, nothing assumed.
+        writePty(key, '\x1b')
+        l.switchTail = undefined
+        st.modeSwitching = undefined
+        this.emitState(st)
+        log.warn(`${userText(this.label(st))}: ${name}: couldn't find ${e.what}`)
+        return { ok: false, message: `Hive couldn't find ${e.what}, so it didn't switch to ${permissionLabel(p, mode)}. Check its terminal, or switch there.` }
       }
       // The CLI records the new settings in its transcript at once: read them back rather than assume.
       const src = await this.liveTranscript(l)

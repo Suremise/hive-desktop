@@ -1,3 +1,5 @@
+import { readFileSync as readText } from 'fs'
+import { join as joinPath } from 'path'
 import { describe, expect, it } from 'vitest'
 import { codexMcpServer, hookHash, toToml } from '../src/main/providers/codex/adapter'
 import { CodexConversationParser, parseRollout, patchPaths, presetFromSettings, rolloutDetails, rolloutPlanUsage } from '../src/main/providers/codex/rollout'
@@ -225,15 +227,65 @@ describe('Codex skill copies', () => {
   })
 })
 
-describe('Codex permission menu', () => {
-  it('picks a preset by its number and reads the confirmation Codex prints', async () => {
+describe('Codex permission menu (#396)', () => {
+  // Codex's /permissions menu as rendered: 0.161.0's own (captured in a test home, with Read Only and with Ask for
+  // approval current), and 0.160's order (Read Only first) in the same layout, as Hive's earlier number picks assumed.
+  const screen = (name: string) => readText(joinPath(__dirname, 'fixtures', `codex-${name}.txt`), 'utf8')
+  const MODES = ['read-only', 'ask', 'approve-for-me', 'full-access'] as const
+
+  it('finds each preset by the label Codex draws, in either order', async () => {
+    const { permissionsMenuNumber } = await import('../src/main/providers/codex/permissionsMenu')
+    for (const name of ['0.161-permissions-readonly', '0.161-permissions-ask']) expect(MODES.map((m) => permissionsMenuNumber(screen(name), m)), name).toEqual(['4', '1', '2', '3'])
+    expect(MODES.map((m) => permissionsMenuNumber(screen('0.160-permissions-readonly'), m))).toEqual(['1', '2', '3', '4'])
+  })
+
+  it('finds nothing while the menu isn\'t drawn, or a label it doesn\'t show', async () => {
+    const { permissionsMenuNumber } = await import('../src/main/providers/codex/permissionsMenu')
+    const start = screen('0.161-permissions-ask').split('Update Model Permissions')[0]
+    // The start screen names /permissions, but no numbered preset.
+    for (const m of MODES) expect(permissionsMenuNumber(start, m), m).toBeNull()
+    // A menu without a preset (renamed, or dropped by a Codex version): that one isn't found, the others are.
+    const renamed = screen('0.161-permissions-ask').replace('Full Access', 'Full Control')
+    expect(permissionsMenuNumber(renamed, 'full-access')).toBeNull()
+    expect(permissionsMenuNumber(renamed, 'read-only')).toBe('4')
+    // A label inside another's description isn't taken for it.
+    expect(permissionsMenuNumber('  1. Approve for me   Unlike Ask for approval, it asks less', 'ask')).toBeNull()
+  })
+
+  it("opens /permissions and picks the number from the menu on Codex's screen; reads the confirmation Codex prints", async () => {
     const { codex } = await import('../src/main/providers/codex/adapter')
-    const keys = codex.modeMenuKeys('read-only').map((s) => s.keys)
-    expect(keys).toEqual(['\x15', '/permissions', '\r', '1'])
-    expect(codex.modeMenuKeys('full-access').at(-1)!.keys).toBe('4')
+    const steps = codex.modeMenuKeys('ask')
+    expect(steps.slice(0, 3).map((s) => ('keys' in s ? s.keys : null))).toEqual(['\x15', '/permissions', '\r'])
+    const pick = steps[3]
+    if (!('pick' in pick)) throw new Error('the last step picks from the screen')
+    expect(pick.what).toBe('"Ask for approval" in Codex\'s /permissions menu')
+    expect(pick.pick(screen('0.161-permissions-readonly'))).toBe('1')
+    expect(pick.pick(screen('0.160-permissions-readonly'))).toBe('2')
     expect(codex.modeFromOutput('… • Permission selection requested: Read Only › Ask Codex to do anything')).toBe('read-only')
     expect(codex.modeFromOutput('Permission selection requested: Approve for me Permission selection requested: Full Access')).toBe('full-access')
     expect(codex.modeFromOutput('nothing yet')).toBeNull()
+  })
+
+  it('types the steps, waits for a pick to show, and fails clearly when it never does', async () => {
+    const { PickNotFound, typeKeySteps } = await import('../src/main/keySteps')
+    const { codex } = await import('../src/main/providers/codex/adapter')
+    // The menu shows a moment after Enter.
+    let shown = ''
+    const typed: string[] = []
+    await typeKeySteps(codex.modeMenuKeys('full-access'), {
+      write: (k) => {
+        typed.push(k)
+        if (k === '\r') setTimeout(() => (shown = screen('0.161-permissions-readonly')), 150)
+      },
+      screen: () => shown
+    })
+    expect(typed).toEqual(['\x15', '/permissions', '\r', '3'])
+    // Never shown: the keys before it went in, nothing is chosen, and the error says what was missing.
+    const before: string[] = []
+    const err = await typeKeySteps(codex.modeMenuKeys('ask'), { write: (k) => before.push(k), screen: () => 'no menu here', pickTimeoutMs: 300 }).catch((e) => e)
+    expect(err).toBeInstanceOf(PickNotFound)
+    expect(err.message).toBe('Couldn\'t find "Ask for approval" in Codex\'s /permissions menu.')
+    expect(before).toEqual(['\x15', '/permissions', '\r'])
   })
 })
 
