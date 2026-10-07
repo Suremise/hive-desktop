@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ProjectInfo, UnusedWorktree, UnusedWorktreePreview, UnusedWorktrees } from '@shared/types'
+import type { ProjectInfo, UnusedWorktree, UnusedWorktreePreview, UnusedWorktreeRemoval, UnusedWorktrees } from '@shared/types'
 import { formatSize } from '@shared/storage'
 import { UNUSED_WORKTREES_GUIDE, holdsWork, lostByRemoving, unusedState, unusedWorkNotice } from '@shared/unusedWorktrees'
 import { call, errorMessage } from '../api'
@@ -100,33 +100,56 @@ export function UnusedWorktreesSection({ project }: { project: ProjectInfo }) {
   }
 
   // What it loses, checked now in main (not the list's older counts), under a token the removal presents: main removes it
-  // only if nothing in it changed since (#353).
+  // only if nothing in it changed since (#353), and spends the token whatever comes of it (#373). A refusal never leaves
+  // the question offering to try that token again (#377): it closes, and when a new look settles it (expired, or the
+  // worktree changed) a new preview is taken and asked about afresh, its own token and loss list, nothing removed meanwhile.
   const removeAnyway = async (w: UnusedWorktree): Promise<void> => {
-    setBusy(w.path)
-    let preview: UnusedWorktreePreview
-    try {
-      preview = await call('worktrees:removalPreview', project.path, w.path)
-    } catch (e) {
-      notify('error', 'Nothing was removed', errorMessage(e))
-      reload()
-      return
-    } finally {
-      setBusy(null)
-    }
-    await confirm({
-      title: 'Remove the worktree anyway?',
-      message: `This deletes ${preview.path}${preview.branch ? ` and its branch ${preview.branch}` : ''}, with work that is nowhere else:`,
-      list: preview.lost,
-      detail: "It can't be undone. If anything in it changes before you confirm (a file, its branch, its commit), nothing is removed.",
-      danger: true,
-      confirmLabel: 'Remove Anyway',
-      busyLabel: 'Removing…',
-      run: async () => {
-        const r = await call('worktrees:removeUnused', project.path, w.path, { force: preview.token })
-        if (!r.deleted) throw new Error(r.reason ?? 'It was kept.')
-        if (r.branchKept) notify('warning', `${w.path} was removed, its branch kept`, r.reason)
+    let refused: string | null = null
+    for (;;) {
+      setBusy(w.path)
+      let preview: UnusedWorktreePreview
+      try {
+        preview = await call('worktrees:removalPreview', project.path, w.path)
+      } catch (e) {
+        notify('error', 'Nothing was removed', refused ? `${refused}. Checking it again failed: ${errorMessage(e)}` : errorMessage(e))
+        break
+      } finally {
+        setBusy(null)
       }
-    })
+      const outcome: { removal: UnusedWorktreeRemoval | null; error: string | null } = { removal: null, error: null }
+      const ok = await confirm({
+        title: refused ? 'Checked again: remove it anyway?' : 'Remove the worktree anyway?',
+        message: `${refused ? `Nothing was removed: ${refused}. As it is now, this` : 'This'} deletes ${preview.path}${preview.branch ? ` and its branch ${preview.branch}` : ''}, with work that is nowhere else:`,
+        list: preview.lost,
+        detail: "It can't be undone. If anything in it changes before you confirm (a file, its branch, its commit), nothing is removed.",
+        danger: true,
+        confirmLabel: 'Remove Anyway',
+        busyLabel: 'Removing…',
+        run: async () => {
+          // Never thrown: a failed run would offer Try Again with this spent token.
+          outcome.removal = await call('worktrees:removeUnused', project.path, w.path, { force: preview.token }).catch((e: unknown) => {
+            outcome.error = errorMessage(e)
+            return null
+          })
+        }
+      })
+      if (!ok) break
+      const r = outcome.removal
+      if (outcome.error || !r) {
+        notify('error', "Couldn't remove the worktree", outcome.error ?? undefined)
+        break
+      }
+      if (r.deleted) {
+        if (r.branchKept) notify('warning', `${w.path} was removed, its branch kept`, r.reason)
+        break
+      }
+      if (!r.lookAgain) {
+        notify('warning', `${w.branch ?? w.path} was kept`, r.reason)
+        break
+      }
+      // Its own "look again" is what follows: the question says it once.
+      refused = (r.reason ?? 'what it holds changed').replace(/:\s*(nothing was removed, )?look again$/, '')
+    }
     // Removed, kept or cancelled: the list as it is now.
     reload()
   }
