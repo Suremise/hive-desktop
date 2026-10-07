@@ -10,9 +10,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 let failing: ((cwd: string, args: string[]) => boolean) | null = null
 vi.mock('../src/main/git', async (importOriginal) => {
   const real = await importOriginal<typeof import('../src/main/git')>()
-  const git: typeof real.git = (cwd, args, ...rest) =>
-    failing?.(cwd, args) ? Promise.resolve({ out: '', ok: false, buf: Buffer.alloc(0), err: 'fatal: injected failure', code: 128 }) : real.git(cwd, args, ...rest)
-  return { ...real, git }
+  const failed = (): ReturnType<typeof real.git> => Promise.resolve({ out: '', ok: false, buf: Buffer.alloc(0), err: 'fatal: injected failure', code: 128 })
+  const git: typeof real.git = (cwd, args, ...rest) => (failing?.(cwd, args) ? failed() : real.git(cwd, args, ...rest))
+  const gitReading: typeof real.gitReading = (cwd, args) => (failing?.(cwd, args) ? failed() : real.gitReading(cwd, args))
+  return { ...real, git, gitReading }
 })
 
 const { gitStatus } = await import('../src/main/git')

@@ -4,6 +4,9 @@ import type {
   UpdateState,
   WorktreeGone,
   WorktreeCheck,
+  UnusedWorktrees,
+  UnusedWorktreeRemoval,
+  UnusedWorktreePreview,
   RemovedAgent,
   MoveOptions,
   MovePlan,
@@ -74,7 +77,7 @@ import type {
 } from './types'
 import type { MetricsQuery, MetricsReport } from './metrics'
 import type { Artifact, CompareScope, ImportResult, KeptEntry } from './benchmark'
-import type { AgentTemplate, TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
+import type { AgentTemplate, TemplateDeleted, TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
 import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
 import type { TipsChange, TipsState } from './tips'
 import type { GitTool } from './gitTool'
@@ -333,7 +336,8 @@ export interface HiveRequests {
   /** Copies a template into the workspace or a project; a name taken there gets a number ("Pair (2)"). */
   'templates:duplicate': (ref: TemplateRef, to: TemplateDest) => TemplateEntry
   /** Deletes a template (to the Recycle Bin). */
-  'templates:delete': (ref: TemplateRef) => void
+  /** Deletes it; says the unused worktrees its worktree agents left, per project (#353). */
+  'templates:delete': (ref: TemplateRef) => TemplateDeleted
   /** Exports a template to a file the user chooses (a save dialog); its path, or null if cancelled. */
   'templates:export': (ref: TemplateRef) => string | null
   /** Picks a file to import (an open dialog) and checks it: what it holds, refused saying why; null if cancelled. */
@@ -346,6 +350,12 @@ export interface HiveRequests {
   /** Every worktree agent's unmerged work known so far (then `branch-status` events as it changes). */
   'agents:branchStatuses': () => { projectPath: string; agentId: string; status: AgentBranchStatus | null }[]
   /** Commits the worktree's changes and merges its branch into the project folder's current branch. */
+  /** The project's worktrees no agent works in, each checked: merged into the main branch and clean, or why not (#353). */
+  'worktrees:unused': (projectPath: string) => UnusedWorktrees
+  /** What removing one anyway loses, checked now, under a token the removal presents; throws when git can't say. */
+  'worktrees:removalPreview': (projectPath: string, path: string) => UnusedWorktreePreview
+  /** Removes one (the user's choice): a merged, clean one; or with `force`, a preview's token, only while nothing in it changed since. */
+  'worktrees:removeUnused': (projectPath: string, path: string, opts: { expectInto?: string | null; force?: string }) => UnusedWorktreeRemoval
   'agents:merge': (projectPath: string, agentId: string, opts: { squash: boolean; message: string; cleanup: boolean; moveBranch?: boolean }) => MergeResult
 
   /** The conversation for the transcript viewer; null when the file has not grown since knownSize. Long tool input/output is shortened. */

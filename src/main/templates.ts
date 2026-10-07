@@ -18,6 +18,7 @@ import {
   TEMPLATE_IMPORT_MAX,
   TEMPLATE_NAME_MAX,
   type AgentTemplate,
+  type TemplateDeleted,
   type TemplateDest,
   type TemplateEntry,
   type TemplateRef,
@@ -34,6 +35,7 @@ import { endReviews, releaseAgentCards } from './tasks'
 import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
 import { gitProblem } from './gitTool'
+import { unusedWorktreesNamed } from './unusedWorktrees'
 
 /**
  * Agent templates (#126): a project's agents and layout saved under a name, in the workspace (`<workspace>/.hive/
@@ -218,14 +220,26 @@ export async function duplicateTemplate(ref: TemplateRef, to: TemplateDest): Pro
   })
 }
 
-/** Deletes a template: its file (and the copy kept beside it) go to the Recycle Bin. */
-export async function deleteTemplate(ref: TemplateRef): Promise<void> {
+/**
+ * Deletes a template: its file (and the copy kept beside it) go to the Recycle Bin. A template touches no worktree; but
+ * the worktrees its worktree agents left, now no agent's, are said (#353): per project, those named after its agents.
+ */
+export async function deleteTemplate(ref: TemplateRef): Promise<TemplateDeleted> {
+  const names = await readOne(ref, ref.file).then((t) => t.agents.filter((a) => a.worktree).map((a) => a.name)).catch(() => [] as string[])
   await changing(ref, async () => {
     const f = fileOf(ref)
     await shell.trashItem(f)
     if (existsSync(`${f}.bak`)) await shell.trashItem(`${f}.bak`).catch((e) => log.warn('Could not remove the copy of a deleted template', e))
     log.info(`Deleted template ${userText(ref.file)} (${ref.scope})`)
   })
+  if (!names.length) return { unusedWorktrees: [] }
+  const projects = ref.scope === 'project' ? [workspace.assertProject(String(ref.project ?? ''))] : await (ref.project ? workspaceOf(ref.project) : workspace).listProjectPaths()
+  const unused: TemplateDeleted['unusedWorktrees'] = []
+  for (const p of projects) {
+    const paths = await unusedWorktreesNamed(p, names)
+    if (paths.length) unused.push({ project: p, count: paths.length })
+  }
+  return { unusedWorktrees: unused }
 }
 
 /** The file name an export of a template suggests ("Build and review.hive-template.json"); refused if it can't be used. */

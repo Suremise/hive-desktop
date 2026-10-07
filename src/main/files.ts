@@ -6,7 +6,7 @@ import { HIVE_DIR, assertSessionId } from '../shared/defaults'
 import type { FileContent, FileEntry, SessionImage, SessionImageGroup } from '../shared/types'
 import { emit } from './events'
 import { heldOpen, insideReal, isInUse, trashAllOrNothing, withFileLock } from './fsutil'
-import { git } from './git'
+import { INDEX_BUSY, git } from './git'
 import { createLogger, userText } from './logger'
 import { sessions } from './sessions'
 import { workspace } from './workspace'
@@ -61,8 +61,6 @@ function uniqueName(dir: string, name: string): string {
 /** check-ignore's tries when git can't open or read the index (another git command is rewriting it), and the pause. */
 export const IGNORE_TRIES = 4
 const IGNORE_RETRY_MS = 50
-/** Git couldn't read the index for a moment: worth trying again (#222). */
-const INDEX_BUSY = /index file open failed|unable to (open|read|create).*index|could not read.*index|index\.lock|index file smaller than expected|bad index file/i
 const NOT_A_REPO = /not a git repository/i
 
 /**

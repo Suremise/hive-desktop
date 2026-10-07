@@ -3,7 +3,7 @@ import { copyFile, mkdir } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import type { AgentBranchStatus, AgentWorktree, MergeResult, WorktreeCheck } from '../shared/types'
 import { copyDir, isDir } from './fsutil'
-import { git } from './git'
+import { git, gitReading } from './git'
 import { gitProblem } from './gitTool'
 import { samePath } from '../shared/movePaths'
 import { createLogger, userText } from './logger'
@@ -131,8 +131,8 @@ export async function copyIgnored(projectPath: string, dest: string, patterns: s
 }
 
 /** Uncommitted files in a worktree; null when git can't say (a damaged index, say). */
-async function dirtyCount(cwd: string): Promise<number | null> {
-  const r = await git(cwd, ['status', '--porcelain', '-z'])
+export async function dirtyCount(cwd: string): Promise<number | null> {
+  const r = await gitReading(cwd, ['status', '--porcelain', '-z'])
   return r.ok ? r.out.split('\0').filter((l) => l && !l.slice(3).startsWith('.hive/')).length : null
 }
 
@@ -159,23 +159,35 @@ export async function branchStatus(projectPath: string, wt: AgentWorktree): Prom
 /**
  * The repository's main branch, which a worktree must be merged into before Hive deletes it unasked (#291, #289): the
  * local branch origin/HEAD names, else main, else master. Not the project folder's current branch, which can be any
- * feature branch and change at any time. Null: none of them.
+ * feature branch and change at any time. Null: none of them, or git couldn't say (`primaryBranchStrict` tells them apart).
  */
 export async function primaryBranch(projectPath: string): Promise<string | null> {
-  const local = new Set(await localBranches(projectPath))
+  return primaryBranchStrict(projectPath).catch(() => null)
+}
+
+/**
+ * `primaryBranch`, strictly (#353): null only when git says the repository has none of them; throws when git can't list
+ * the branches or read origin/HEAD (anything but its "no such symbolic ref", exit 1 with nothing said), so a removal
+ * never takes an unknown main branch for none.
+ */
+export async function primaryBranchStrict(projectPath: string): Promise<string | null> {
+  const heads = await git(projectPath, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
+  if (!heads.ok) throw new Error(`git couldn't list the branches (${gitProblem() ?? (heads.err.split(/\r?\n/)[0] || 'for-each-ref failed')})`)
+  const local = new Set(heads.out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean))
   const remote = await git(projectPath, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
+  if (!remote.ok && !(remote.code === 1 && !remote.err)) throw new Error(`git couldn't read origin/HEAD (${gitProblem() ?? (remote.err.split(/\r?\n/)[0] || 'symbolic-ref failed')})`)
   const named = remote.ok ? remote.out.trim().replace(/^origin\//, '') : ''
   return [named, 'main', 'master'].find((b) => b && local.has(b)) ?? null
 }
 
 /** The commit a branch points at, or null. */
-async function tipOf(projectPath: string, branch: string): Promise<string | null> {
+export async function tipOf(projectPath: string, branch: string): Promise<string | null> {
   const r = await git(projectPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}^{commit}`])
   return r.ok ? r.out.trim() || null : null
 }
 
 /** Commits of `tip` not in `into`, or 0 when its changes are there already (a squash merge); null when git can't say. */
-async function unmergedCommits(projectPath: string, into: string, tip: string): Promise<number | null> {
+export async function unmergedCommits(projectPath: string, into: string, tip: string): Promise<number | null> {
   const count = await git(projectPath, ['rev-list', '--count', `${into}..${tip}`])
   if (!count.ok) return null
   const n = parseInt(count.out.trim(), 10) || 0
@@ -202,7 +214,7 @@ export async function worktreeCheck(projectPath: string, wt: AgentWorktree): Pro
   const [ahead, dirty] = tip && intoTip ? await Promise.all([unmergedCommits(projectPath, intoTip, tip), dirtyCount(wt.path)]) : [null, null]
   if (!tip || !intoTip || ahead === null || dirty === null) return unusable(`git couldn't check ${wt.branch}`)
   const why = [ahead ? `${ahead} commit${ahead === 1 ? '' : 's'} not merged into ${into}` : '', dirty ? `${dirty} uncommitted file${dirty === 1 ? '' : 's'}` : ''].filter(Boolean)
-  return why.length ? { removable: false, into, reason: why.join(' and ') } : { removable: true, into, tip, intoTip }
+  return why.length ? { removable: false, into, reason: why.join(' and '), ahead, dirty, tip, intoTip } : { removable: true, into, tip, intoTip, ahead: 0, dirty: 0 }
 }
 
 /** Why the refs a check rested on no longer hold, or null when both still point at the commits checked. */

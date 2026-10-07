@@ -129,6 +129,7 @@ export const SUITES = [
   { name: 'unmerged' },
   { name: 'unpricedcost' },
   { name: 'unsaved' },
+  { name: 'unusedwt' },
   { name: 'update' },
   { name: 'welcomefit' },
   { name: 'windows' },

@@ -194,12 +194,17 @@ export function AddAgentDialog() {
     setBusy(false)
     setGit(null)
     setExisting('')
-    setLocation('project')
+    // Opened to give an unused worktree to an agent (#353): Existing worktree, that one chosen once git lists it free.
+    const preset = useStore.getState().addAgentPreset
+    const wanted = preset?.project === path ? preset.worktreePath.toLowerCase() : null
+    if (preset) set({ addAgentPreset: null })
+    setLocation(wanted ? 'existing-worktree' : 'project')
     void call('agents:gitInfo', path)
       .then((g) => {
         setGit(g)
         setBase(g.current ?? g.branches[0] ?? '')
-        setExisting(g.worktrees.find((w) => !w.used)?.path ?? '')
+        const free = g.worktrees.filter((w) => !w.used)
+        setExisting((wanted && free.find((w) => w.path.toLowerCase() === wanted)?.path) || (free[0]?.path ?? ''))
       })
       .catch((e) => setGit({ isRepo: false, current: null, branches: [], worktrees: [], worktreesRoot: '', error: errorMessage(e) }))
     // Only when the dialog opens for a project.

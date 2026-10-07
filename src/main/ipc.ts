@@ -21,6 +21,7 @@ import { presentWindow } from './testQuiet'
 import { insideArchive, insideReal, isFile, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { checkGit, gitTool } from './gitTool'
+import { removalPreview, removeUnusedWorktree, unusedWorktrees } from './unusedWorktrees'
 import { createLogger, logsDir } from './logger'
 import { diagnostics } from './diagnostics'
 import { keepAwakeCount } from './power'
@@ -527,6 +528,16 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'agents:branchStatuses': () => branchWatch.statuses(),
     'agents:merge': (p, id, opts) => projectAgents.merge(p, id, opts),
+    'worktrees:unused': (p) => unusedWorktrees(p),
+    'worktrees:removalPreview': (p, path) => removalPreview(p, path),
+    'worktrees:removeUnused': async (p, path, opts) => {
+      const r = await removeUnusedWorktree(p, path, opts ?? {})
+      if (r.deleted) {
+        storage.forgetStorage(p)
+        workspace.scheduleRefresh()
+      }
+      return r
+    },
 
     'files:list': (p, rel) => files.listDir(p, rel),
     'files:create': (p, parent, name, isDir) => files.create(p, parent, name, isDir),

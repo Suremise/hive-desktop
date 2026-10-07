@@ -47,6 +47,21 @@ export function git(cwd: string, args: string[], maxBuffer = 16 * 1024 * 1024, i
   })
 }
 
+/** Git couldn't read the index for a moment (another git command, a user's `git add`, is rewriting it): worth trying again (#222). */
+export const INDEX_BUSY = /index file open failed|unable to (open|read|create).*index|could not read.*index|index\.lock|index file smaller than expected|bad index file/i
+const BUSY_TRIES = 4
+const BUSY_RETRY_MS = 50
+
+/** git(), tried again briefly while the index is busy (`INDEX_BUSY`): a read that fails only for that moment isn't a failure. */
+export async function gitReading(cwd: string, args: string[]): Promise<GitResult> {
+  let r = await git(cwd, args)
+  for (let t = 1; t < BUSY_TRIES && !r.ok && INDEX_BUSY.test(r.err); t++) {
+    await new Promise((res) => setTimeout(res, BUSY_RETRY_MS))
+    r = await git(cwd, args)
+  }
+  return r
+}
+
 /** Why a git command failed, for an error the window shows: git missing, else git's own first line. */
 function failure(what: string, r: GitResult): Error {
   return new Error(`${what} failed: ${gitProblem() ?? (r.err.split(/\r?\n/)[0] || `exit code ${r.code}`)}`)
@@ -69,7 +84,7 @@ export async function gitStatus(projectPath: string, base?: string): Promise<Git
   if (!base || !status.isRepo) return status
   const mb = await mergeBase(projectPath, base)
   if (!mb) return status
-  const r = await git(projectPath, ['diff', '--name-status', '--no-renames', '-z', mb])
+  const r = await gitReading(projectPath, ['diff', '--name-status', '--no-renames', '-z', mb])
   // A failed diff is no list of changes: the tab shows the error, not an empty list (#346).
   if (!r.ok) throw failure('git diff', r)
   const files: GitStatus['files'] = []
@@ -105,7 +120,7 @@ async function withoutStatOnly(projectPath: string, mb: string, files: GitStatus
 /** The working tree's status, and the paths whose working copy differs from the index (or isn't in it). */
 async function workingStatus(projectPath: string): Promise<{ status: GitStatus; inWorktree: Set<string> }> {
   const inWorktree = new Set<string>()
-  const r = await git(projectPath, ['status', '--porcelain=v1', '-b', '-z', '--untracked-files=all'])
+  const r = await gitReading(projectPath, ['status', '--porcelain=v1', '-b', '-z', '--untracked-files=all'])
   if (!r.ok) {
     // Only git's own "not a git repository" says it isn't one (#346). Git that can't run says nothing about that; any
     // other failure (a damaged index, a dubious owner) is an error the tab shows with Retry, not an empty repository.

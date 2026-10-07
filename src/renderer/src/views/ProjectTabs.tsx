@@ -5,6 +5,7 @@ import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, 
 import { unpricedModel, unpricedText } from '@shared/prices'
 import { formatDateTime } from '@shared/dates'
 import { gitFixText } from '@shared/gitTool'
+import { UnusedWorkNotice, UnusedWorktreesSection } from '../components/UnusedWorktrees'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
 import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
 import { PROVIDERS, contextLines, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
@@ -231,6 +232,8 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
             />
           </>
         )}
+
+        <UnusedWorktreesSection project={project} />
 
         <SessionDetails project={project} items={items} />
       </div>
@@ -661,6 +664,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
           </div>
         </div>
         {selector}
+        <UnusedWorkNotice project={owner} />
         {statusError && (
           <div className="banner warn">
             <Icon name="warning" /> Could not refresh: {statusError}
