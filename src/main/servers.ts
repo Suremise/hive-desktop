@@ -1139,6 +1139,8 @@ function columnParam(v: unknown): TaskColumn | undefined {
 /** The fields of a request body a card change may set. */
 function taskPatch(body: any): TaskPatch {
   const out: TaskPatch = {}
+  // Archiving is the user's (#351), one card or a batch: no call of the Agent API's makes it.
+  if (body?.archived !== undefined) throw new HttpError(403, 'Only the user archives cards or brings them back, from the board: ask the user.')
   for (const k of ['title', 'description', 'project', 'blocked'] as const) if (body?.[k] !== undefined) out[k] = body[k] === null ? (null as never) : String(body[k])
   if (body?.agent !== undefined) out.agent = body.agent ? String(body.agent) : null
   if (body?.column !== undefined) out.column = columnParam(body.column)
@@ -1344,8 +1346,9 @@ route('POST', '/v1/tasks/wait', async ({ body }) => {
         const card = await read(n)
         const kinds = changesBetween(from.get(n)!, now.get(n)!, cond, !!cond.moveInto && !!cond.column && movedIntoSince(card, cond.column, sinceIso))
         const reached = alreadyThere(now.get(n)!, cond) && !alreadyThere(from.get(n)!, cond)
-        // A card gone (or out of the caller's view) is told as gone: nothing of its state.
-        if (kinds === 'gone' || kinds.length || reached) changes.push(cardChange(n, kinds === 'gone' ? null : card, kinds === 'gone' ? 'gone' : kinds.length ? kinds : ['column']))
+        // A card gone (or out of the caller's view) is told as gone: nothing of its state but whether it was archived.
+        if (kinds === 'gone') changes.push({ ...cardChange(n, null, 'gone'), ...(card?.archived ? { archived: true } : {}) })
+        else if (kinds.length || reached) changes.push(cardChange(n, card, kinds.length ? kinds : ['column']))
       }
       return { changes, now }
     }

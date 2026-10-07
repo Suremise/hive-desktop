@@ -256,6 +256,7 @@ export interface WaitChange {
   changes: string[] | 'gone'
   by: string | null
   comment: { by: string; firstLine: string } | null
+  archived?: boolean
 }
 
 /**
@@ -266,7 +267,7 @@ export interface WaitChange {
 export function taskWaitText(r: { done?: string; watching?: string; limitAt?: string; already?: WaitChange; changes?: WaitChange[]; timedOut?: boolean; since?: string }): string {
   if (r.done) return r.done
   const line = (c: WaitChange): string =>
-    `#${c.number} ${c.changes === 'gone' ? 'was archived or deleted' : `is in ${c.column[0].toUpperCase()}${c.column.slice(1)} (${c.changes.join(', ')}${c.by ? `, by ${c.by}` : ''})`}${c.comment ? `; latest comment by ${c.comment.by}: "${c.comment.firstLine}"` : ''}`
+    `#${c.number} ${c.changes === 'gone' ? (c.archived ? 'was archived' : 'was archived or deleted') : `is in ${c.column[0].toUpperCase()}${c.column.slice(1)} (${c.changes.join(', ')}${c.by ? `, by ${c.by}` : ''})`}${c.comment ? `; latest comment by ${c.comment.by}: "${c.comment.firstLine}"` : ''}`
   if (r.watching) return `${r.watching}. End your turn now: Hive types a line into this session when it changes, or at ${r.limitAt ?? 'the limit'} if nothing does. Nothing runs meanwhile.`
   if (r.already) return `Already: ${line(r.already)}.`
   const since = r.since ? `\nsince: ${r.since}` : ''

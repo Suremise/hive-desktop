@@ -61,7 +61,7 @@ A round is one build and its review: round 1 is the first build and the first re
 
 - **When the review of round *rounds* fails** (as many failed reviews as **rounds**): stop and ask, don't give up. The reviewer says in that failed verdict that it was the last round; the builder doesn't fix it again but `hive_notify`s the user with a line per round (what was found, and whether it was fixed), asking: carry on (how many more rounds), split the card, accept it with follow-up cards, or take it over.
 - **A finding that comes back** (the fix missed part of it): the reviewer says so in the failed verdict ("recurring from round 2") and the loop carries on; the line per round at the limit shows it. A finding the builder **disputes**, rather than missed, is a design question: stop and ask.
-- **Stop and ask** on a design question the card doesn't answer, on a blocked card, or when the wait passes with no change (Hive wakes you to say so). Stopping and asking is always `hive_notify` to the user, saying what you need decided, and no further verdict or round meanwhile: a comment on the card alone doesn't reach them.
+- **Stop and ask** on a design question the card doesn't answer, on a blocked card, when the wait passes with no change (Hive wakes you to say so), or when a card of the loop is archived or gone (the wake line says so: only the user brings it back). Stopping and asking is always `hive_notify` to the user, saying what you need decided, and no further verdict or round meanwhile: a comment on the card alone doesn't reach them.
 
 ## At the end
 

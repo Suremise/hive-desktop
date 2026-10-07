@@ -5838,7 +5838,8 @@ body.pane-resizing-v .monaco-editor {
   background: var(--accent);
   flex: none;
 }
-/* The archived cards (#249): a data table under a line saying how many, with Unarchive Selected. */
+/* The archived cards (#249): a data table under a line saying how many, with Unarchive Selected and, when there are
+   bulk archives, their Batch and Unarchive this batch (#351). */
 .task-archive {
   flex: 1;
   min-height: 0;
@@ -5846,11 +5847,47 @@ body.pane-resizing-v .monaco-editor {
 }
 .task-archive-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 6px 10px;
   margin-bottom: 6px;
   font-size: 12px;
+}
+.task-archive-actions > :first-child {
+  margin-right: auto;
+}
+.archive-batch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.archive-batch .select {
+  max-width: 340px;
+}
+/* Archive All (#351): per-column counts, the cards agents are on (a list), and the warning when they're included. */
+.archive-all {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.archive-all-counts {
+  color: var(--fg-strong);
+  font-variant-numeric: tabular-nums;
+}
+.archive-all-held {
+  margin-top: 6px;
+  color: var(--fg-muted);
+}
+.archive-all .dialog-list ul {
+  font-family: inherit;
+  font-size: 12.5px;
+  max-height: 30vh;
+}
+.archive-all .dialog-check {
+  margin-top: 4px;
+}
+.archive-all-warning {
+  color: var(--warning);
 }
 .archived-cards .archive-title {
   display: inline-block;

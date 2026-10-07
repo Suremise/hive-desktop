@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { AgentInfo, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch, TaskStartTarget } from '@shared/types'
-import { TASK_COLUMNS, applyBoardFold, archivedAt, columnColor, columnLabel, reviewStalled, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
+import type { AgentInfo, ArchiveBatch, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch, TaskStartTarget } from '@shared/types'
+import { TASK_COLUMNS, applyBoardFold, cardMatches, archivedAt, columnColor, columnLabel, reviewStalled, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
-import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useDateStyle, useStore, type DoingRequest } from '../store'
+import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useDateStyle, useStore, type ArchiveAllRequest, type DoingRequest } from '../store'
 import { selectProject } from '../actions'
 import { cx, timeAgo } from '../util'
 import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
@@ -11,6 +11,8 @@ import { formatDateTime } from '@shared/dates'
 import { returnRound } from '@shared/watch'
 import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, STATUS_TEXT, statusText, Tooltip, useBusy, useContextMenu, type MenuEntry } from './ui'
 import { DataTable, type DataColumn } from './DataTable'
+import { DialogList } from './Overlays'
+import { reportArchived, unarchiveBatch } from '../boardBatches'
 import { ProviderIcon } from './ProviderIcon'
 
 const NO_TASKS: TaskCard[] = []
@@ -61,12 +63,43 @@ export function cardStalled(projects: ProjectInfo[], c: TaskCard): string | null
   return stalledReason(c, agent ? { name: agent.name, running: !!agent.live } : null)
 }
 
-/** A card matches the search: its number (#12 or 12), title, description, labels, project or agent. */
-function matches(c: TaskCard, q: string): boolean {
-  const s = q.trim().toLowerCase()
-  if (!s) return true
-  if (/^#?\d+$/.test(s)) return c.number === Number(s.replace('#', ''))
-  return [c.title, c.description, c.project, c.agentName ?? '', ...c.labels].some((x) => x.toLowerCase().includes(s))
+
+const inProject = (c: TaskCard, project: string | null): boolean => project === null || c.project.toLowerCase() === project.toLowerCase()
+
+/**
+ * Who has a card now, so Archive All passes over it unless asked (#351): its agent working on it (in Doing, running), its
+ * reviewer, or an agent (or the Assistant) watching it. Null when nobody is on it.
+ */
+function cardBusy(c: TaskCard, projects: ProjectInfo[], assistant: ProjectInfo | null): string | null {
+  if (c.column === 'doing') {
+    const { agent } = cardAgent(projects, c)
+    if (agent?.live) return `${agent.name} is working on it`
+  }
+  if (c.review) return `${c.review.agentName} is reviewing it`
+  for (const p of assistant ? [...projects, assistant] : projects) {
+    const a = p.agents.find((x) => x.live?.watch?.cards.includes(c.number))
+    if (a) return `${p === assistant ? 'The Assistant' : a.name} is watching it`
+  }
+  return null
+}
+
+/** The cards Archive All would take (#351): those of the column (or board) shown, and how many there are in all. */
+function archiveScope(all: TaskCard[], r: Pick<ArchiveAllRequest, 'column' | 'project' | 'scope' | 'query'>): { shown: TaskCard[]; total: number } {
+  const there = all.filter((c) => !c.archived && (r.column === null || c.column === r.column) && inProject(c, r.scope))
+  return { shown: there.filter((c) => inProject(c, r.project) && cardMatches(c, r.query)), total: there.length }
+}
+
+/** The menu item that opens Archive All: a column's, or the board's (column null). Counted, and off with nothing shown. */
+function archiveAllItem(all: TaskCard[], r: ArchiveAllRequest): MenuEntry {
+  const { shown, total } = archiveScope(all, r)
+  const where = r.column === null ? null : columnLabel(r.column)
+  const label =
+    shown.length < total
+      ? `Archive the ${shown.length} Shown${where ? '' : ` Card${shown.length === 1 ? '' : 's'}`} (of ${total})…`
+      : where
+        ? `Archive All in ${where} (${total})…`
+        : `Archive All Cards (${total})…`
+  return { label, icon: 'archive', disabled: !shown.length, onClick: () => set({ boardArchiveAll: r }) }
 }
 
 async function change(n: number, patch: TaskPatch, what = 'Could not change the card'): Promise<boolean> {
@@ -332,9 +365,10 @@ type DragState = { n: number; column: TaskColumn; before: number | null }
 /**
  * The board: six columns of cards (one project's, or all of them). Cards drag between and within columns;
  * click opens one, right-click has the rest. Each column collapses to a narrow strip and each card folds to one line
- * (#170), as the user leaves them for this workspace. With archived, the archived cards as a list instead.
+ * (#170), as the user leaves them for this workspace. With archived, the archived cards as a list instead. scope: the
+ * board this is part of (a project's Tasks tab: its project), for Archive All's "the n shown (of m)" (#351).
  */
-export function Board({ project, query, archived }: { project: string | null; query: string; archived: boolean }) {
+export function Board({ project, scope = null, query, archived }: { project: string | null; scope?: string | null; query: string; archived: boolean }) {
   const all = useStore((s) => s.tasks)
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   const colored = useStore((s) => s.settings?.board.columnColors ?? true)
@@ -350,7 +384,7 @@ export function Board({ project, query, archived }: { project: string | null; qu
     showDrag(d)
   }
   const cards = useMemo(
-    () => all.filter((c) => c.archived === archived && (project === null || c.project.toLowerCase() === project.toLowerCase()) && matches(c, query)),
+    () => all.filter((c) => c.archived === archived && (project === null || c.project.toLowerCase() === project.toLowerCase()) && cardMatches(c, query)),
     [all, project, query, archived]
   )
   const boardRef = useRef<HTMLDivElement>(null)
@@ -477,7 +511,9 @@ export function Board({ project, query, archived }: { project: string | null; qu
     { label: 'Collapse All Cards', icon: 'collapse-all', disabled: !list.some((c) => !folded.has(c.number)), onClick: () => foldCards(list.map((c) => c.number), true) },
     { label: 'Expand All Cards', icon: 'expand-all', disabled: !list.some((c) => folded.has(c.number)), onClick: () => foldCards(list.map((c) => c.number), false) },
     { separator: true },
-    { label: `Collapse ${col.label}`, icon: 'chevron-left', onClick: () => collapseColumn(col.id, true) }
+    { label: `Collapse ${col.label}`, icon: 'chevron-left', onClick: () => collapseColumn(col.id, true) },
+    { separator: true },
+    archiveAllItem(all, { column: col.id, project, scope, query })
   ]
 
   return (
@@ -611,12 +647,45 @@ const ARCHIVED_COLUMNS_ONE_PROJECT = ARCHIVED_COLUMNS.filter((c) => c.key !== 'p
 /**
  * The archived cards (#249): a table that sorts, filters and pages (DataTable), newest archived first. A row opens its
  * card; Unarchive brings one back, or every selected one, to the end of the column it was archived from. The board's
- * search narrows the rows too.
+ * search narrows the rows too. Batch picks one bulk archive (#351): its cards, and "Unarchive this batch", which brings
+ * them all back where they were.
  */
-function ArchivedTable({ cards, project, query }: { cards: TaskCard[]; project: string | null; query: string }) {
+function ArchivedTable({ cards: archivedCards, project, query }: { cards: TaskCard[]; project: string | null; query: string }) {
   useDateStyle()
+  const all = useStore((s) => s.tasks)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [bringing, setBringing] = useState(false)
+  const [batches, setBatches] = useState<ArchiveBatch[]>([])
+  const [batch, setBatch] = useState('')
+  useEffect(() => {
+    let current = true
+    void call('tasks:archiveBatches')
+      .then((b) => current && setBatches(b))
+      .catch(() => undefined)
+    return () => {
+      current = false
+    }
+  }, [all])
+  // The batches that still have archived cards, newest first, each with how many.
+  const kept = useMemo(
+    () =>
+      batches
+        .map((b) => ({ b, n: all.filter((c) => c.archived && c.archivedBatch === b.id).length }))
+        .filter((x) => x.n > 0)
+        .reverse(),
+    [batches, all]
+  )
+  const chosen = kept.find((x) => x.b.id === batch) ?? null
+  const cards = useMemo(() => (chosen ? archivedCards.filter((c) => c.archivedBatch === chosen.b.id) : archivedCards), [archivedCards, chosen])
+  const bringBatch = async (id: string): Promise<void> => {
+    setBringing(true)
+    try {
+      // Cards that couldn't come back stay with the batch, still shown here to try again.
+      if (await unarchiveBatch(id)) setBatch('')
+    } finally {
+      setBringing(false)
+    }
+  }
   // Only cards still archived (and shown) stay selected.
   const shown = useMemo(() => new Set(cards.map((c) => String(c.number))), [cards])
   const picked = [...selected].filter((k) => shown.has(k))
@@ -633,7 +702,7 @@ function ArchivedTable({ cards, project, query }: { cards: TaskCard[]; project: 
       setBringing(false)
     }
   }
-  if (!cards.length) return <div className="empty-state">No archived cards{query ? ' match' : ''}.</div>
+  if (!archivedCards.length) return <div className="empty-state">No archived cards{query ? ' match' : ''}.</div>
   return (
     <div className="task-archive">
       <div className="task-archive-actions">
@@ -644,6 +713,26 @@ function ArchivedTable({ cards, project, query }: { cards: TaskCard[]; project: 
         <button className="btn small" disabled={!picked.length || bringing} onClick={() => void unarchiveSelected()}>
           <Icon name="discard" /> Unarchive Selected{picked.length ? ` (${picked.length})` : ''}
         </button>
+        {kept.length > 0 && (
+          <label className="archive-batch faint">
+            Batch
+            <select className="select" aria-label="Batch" value={chosen ? chosen.b.id : ''} onChange={(e) => setBatch(e.target.value)}>
+              <option value="">All archived cards</option>
+              {kept.map(({ b, n }) => (
+                <option key={b.id} value={b.id}>
+                  {formatDateTime(b.at)} · {b.label} · {cardsWord(n)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {chosen && (
+          <Tooltip content={`Bring the ${cardsWord(chosen.n)} archived in this batch back to their columns, where they were`}>
+            <button className="btn small" disabled={bringing} onClick={() => void bringBatch(chosen.b.id)}>
+              <Icon name="discard" /> Unarchive this batch ({chosen.n})
+            </button>
+          </Tooltip>
+        )}
       </div>
       <DataTable
         id="archived-cards"
@@ -662,9 +751,24 @@ function ArchivedTable({ cards, project, query }: { cards: TaskCard[]; project: 
   )
 }
 
-/** The board's toolbar: search, archived, and New Card. */
-export function BoardToolbar({ project, query, setQuery, archived, setArchived }: { project: string | null; query: string; setQuery: (q: string) => void; archived: boolean; setArchived: (v: boolean) => void }) {
+/** The board's toolbar: search, archived, New Card, and its ⋯ menu (Archive All Cards…). */
+export function BoardToolbar({
+  project,
+  scope = null,
+  query,
+  setQuery,
+  archived,
+  setArchived
+}: {
+  project: string | null
+  scope?: string | null
+  query: string
+  setQuery: (q: string) => void
+  archived: boolean
+  setArchived: (v: boolean) => void
+}) {
   const count = useStore((s) => (s.tasks ?? NO_TASKS).filter((c) => c.archived && (project === null || c.project.toLowerCase() === project.toLowerCase())).length)
+  const menu = useContextMenu()
   return (
     <div className="board-toolbar">
       <div className="board-search">
@@ -678,6 +782,18 @@ export function BoardToolbar({ project, query, setQuery, archived, setArchived }
       <button className="btn primary" onClick={() => set({ taskOpen: { project: project ?? '' } })}>
         <Icon name="add" /> New Card
       </button>
+      {!archived && (
+        <IconButton
+          icon="ellipsis"
+          title="Board: more"
+          className="board-more"
+          onClick={(e) => {
+            const b = (e.currentTarget as HTMLElement).getBoundingClientRect()
+            menu.openAt(b.left, b.bottom, [archiveAllItem(get().tasks, { column: null, project, scope, query })])
+          }}
+        />
+      )}
+      {menu.element}
     </div>
   )
 }
@@ -729,6 +845,95 @@ export function TaskStrip({ project }: { project: ProjectInfo | null }) {
   )
 }
 
+const cardsWord = (n: number): string => `${n} card${n === 1 ? '' : 's'}`
+
+/**
+ * Archive All in a column, or Archive All Cards (#351): what it takes (the cards the board shows, every one when nothing
+ * hides any), cards agents are on passed over unless the box is ticked, and per column for the whole board. Archived as
+ * one batch; the toast's Undo (and "Unarchive this batch" in Archived) brings it back where it was.
+ */
+export function ArchiveAllDialog() {
+  const req = useStore((s) => s.boardArchiveAll)
+  const all = useStore((s) => s.tasks)
+  const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
+  const assistant = useStore((s) => s.workspace?.assistant ?? null)
+  const [include, setInclude] = useState(false)
+  const action = useBusy()
+  const { setError } = action
+  useEffect(() => {
+    setInclude(false)
+    setError(null)
+  }, [req, setError])
+  if (!req) return null
+  const close = (): void => set({ boardArchiveAll: null })
+  const { shown, total } = archiveScope(all, req)
+  const held = shown.flatMap((c) => {
+    const why = cardBusy(c, projects, assistant)
+    return why ? [{ c, why }] : []
+  })
+  const going = include ? shown : shown.filter((c) => !held.some((h) => h.c === c))
+  const filtered = shown.length < total
+  const where = req.column === null ? null : columnLabel(req.column)
+  const title = where ? (filtered ? `Archive the ${shown.length} Shown in ${where}?` : `Archive All in ${where}?`) : filtered ? `Archive the ${shown.length} Shown Cards?` : 'Archive All Cards?'
+  const message = !going.length
+    ? `Every card here is one an agent is on. Tick the box below to archive ${shown.length === 1 ? 'it' : 'them'} anyway.`
+    : `Archive ${filtered ? `the ${cardsWord(going.length)} shown` : cardsWord(going.length)}${where ? ` in ${where}` : ''}${filtered ? ` (of ${total})` : ''}? You can unarchive them from Archived.`
+  const perColumn = TASK_COLUMNS.flatMap((col) => {
+    const n = going.filter((c) => c.column === col.id).length
+    return n ? [`${col.label} ${n}`] : []
+  })
+  const label = where ? (filtered ? `${going.length} shown in ${where}` : `All in ${where}`) : filtered ? `${going.length} shown cards` : 'All Cards'
+  // Main checks each card again as it archives it (still in the column, project and search shown, and nobody on it
+  // unless the box is ticked), so a card an agent took while this was open stays.
+  const run = async (): Promise<void> => {
+    const r = await call(
+      'tasks:archiveBatch',
+      going.map((c) => c.number),
+      { label, column: req.column, project: req.project, query: req.query, includeBusy: include }
+    )
+    await loadTasks()
+    close()
+    reportArchived(r)
+  }
+  return (
+    <Modal
+      title={title}
+      icon={where ? 'question' : 'warning'}
+      onClose={close}
+      busy={!!action.busy}
+      error={action.error}
+      footer={
+        <>
+          <button className="btn subtle" onClick={close}>
+            Cancel
+          </button>
+          <BusyButton className={where ? 'primary' : 'danger'} autoFocus disabled={!going.length} busy={action.busy === 'archive'} busyLabel="Archiving…" onClick={() => void action.run('archive', run)}>
+            {action.error ? 'Try Again' : `Archive ${cardsWord(going.length)}`}
+          </BusyButton>
+        </>
+      }
+    >
+      <div className="archive-all">
+        <div>{message}</div>
+        {filtered && <div className="faint">Cards the search or filter hides stay on the board.</div>}
+        {!where && perColumn.length > 0 && <div className="archive-all-counts">{perColumn.join(' · ')}</div>}
+        {held.length > 0 && (
+          <>
+            <div className="archive-all-held">
+              {include ? 'Archived too' : 'Skipped'}: {held.length === 1 ? 'a card an agent is on' : `${held.length} cards agents are on`}
+            </div>
+            <DialogList items={held.map((h) => `#${h.c.number} ${h.c.title} · ${h.why}${include ? '' : ' · skipped'}`)} />
+            <label className="flex dialog-check">
+              <input type="checkbox" checked={include} disabled={!!action.busy} onChange={(e) => setInclude(e.target.checked)} /> Also archive cards agents are working on
+            </label>
+            {include && <div className="archive-all-warning">Their agents lose their card: an archived card can't be changed or moved by them, and a watch on it ends, telling the agent it was archived.</div>}
+          </>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 /** The Board view (activity bar): every project's cards, or the one chosen in the sidebar. */
 export function BoardView() {
   const project = useStore((s) => s.boardProject)
@@ -764,8 +969,8 @@ export function ProjectTasksTab({ project }: { project: ProjectInfo }) {
   }, [project.path])
   return (
     <div className="board-view in-tab">
-      <BoardToolbar project={project.name} query={query} setQuery={setQuery} archived={archived} setArchived={setArchived} />
-      <Board project={project.name} query={query} archived={archived} />
+      <BoardToolbar project={project.name} scope={project.name} query={query} setQuery={setQuery} archived={archived} setArchived={setArchived} />
+      <Board project={project.name} scope={project.name} query={query} archived={archived} />
     </div>
   )
 }

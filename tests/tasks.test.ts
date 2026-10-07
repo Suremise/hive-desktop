@@ -1,7 +1,7 @@
 // The task board (.hive/tasks) and removing projects: who may change what, card numbers and order, and what Hide,
 // Remove from Hive and Delete do with a project's cards, handovers and folder (and what restoring brings back).
 import { execFileSync } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -15,6 +15,7 @@ const base = mkdtempSync(join(tmpdir(), 'hive-tasks-'))
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
 const tasks = await import('../src/main/tasks')
+const { restoreOrders } = await import('../src/shared/tasks')
 const removal = await import('../src/main/projectRemoval')
 const { sessions } = await import('../src/main/sessions')
 type WS = ReturnType<typeof createWorkspaceService>
@@ -422,6 +423,161 @@ describe('task board', () => {
     for (const n of [recent, back, review]) expect((await run(() => tasks.getTask(n))).archived).toBe(false)
     // Already archived: left as it is.
     expect(await tasks.archiveOldDone(w, now)).toEqual([])
+  })
+})
+
+// Bulk archiving (#351): Archive All in a column and Archive All Cards, as batches that come back where they were.
+describe('archiving in batches', () => {
+  let w: WS
+  const wsPath = join(base, 'ws-batch')
+  beforeAll(async () => {
+    project(wsPath, 'alpha', [{ id: 'a1', name: 'Agent 1' }])
+    project(wsPath, 'beta')
+    w = await open(wsPath)
+  })
+  afterAll(async () => disposeWorkspaceService(w))
+  const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
+  const make = async (title: string, column: 'todo' | 'done' | 'review' = 'todo'): Promise<number> => (await run(() => tasks.createTask({ title, project: 'alpha', column }, user))).number
+  const column = async (col: 'todo' | 'done'): Promise<string[]> => (await run(() => tasks.listTasks({ column: col }))).map((c) => c.title)
+  // What the board asked for: the whole board by default, nobody's cards included.
+  const req = (label: string, more: Partial<Parameters<typeof tasks.archiveBatch>[1]> = {}): Parameters<typeof tasks.archiveBatch>[1] => ({ label, column: null, project: null, query: '', includeBusy: false, ...more })
+  const cardFile = (n: number): string => join(wsPath, '.hive', 'tasks', `${n}.json`)
+
+  it("is the user's alone: agents, scripts and the Assistant are refused", async () => {
+    const n = await make('Mine')
+    const own = { kind: 'agent', name: 'Agent 1 (alpha)', self: { project: 'alpha', agentId: 'a1' }, scope: 'alpha' } as const
+    for (const who of [agent, assistant, own]) {
+      await expect(run(() => tasks.archiveBatch([n], req('All in Todo'), who))).rejects.toBeInstanceOf(tasks.TaskPermissionError)
+    }
+    await expect(run(() => tasks.unarchiveBatch('b1', agent))).rejects.toBeInstanceOf(tasks.TaskPermissionError)
+    expect((await run(() => tasks.getTask(n))).archived).toBe(false)
+    await expect(run(() => tasks.archiveBatch([], req('x'), user))).rejects.toThrow(/list the cards/)
+    await expect(run(() => tasks.archiveBatch(['x'], req('x'), user))).rejects.toThrow(/card numbers/)
+    await run(() => tasks.archiveTask(n, true))
+  })
+
+  it("records the batch, its columns as they were, and a line in each card's history", async () => {
+    const [a, b, c, d] = [await make('A', 'done'), await make('B', 'done'), await make('C', 'done'), await make('D')]
+    const already = await make('Already', 'done')
+    await run(() => tasks.archiveTask(already, true))
+    const { batch, archived, skipped } = await run(() => tasks.archiveBatch([a, c, d, already, 999], req('All Cards'), user))
+    // In board order: Todo before Done.
+    expect([archived, skipped]).toEqual([[d, a, c], []])
+    expect(batch).toMatchObject({ by: 'You', label: 'All Cards', cards: [d, a, c], columns: { done: [a, b, c], todo: [d] } })
+    const card = await run(() => tasks.getTask(c))
+    expect([card.archived, card.archivedFor, card.archivedBatch, card.history.at(-1)?.what]).toEqual([true, 'user', batch!.id, 'Archived in a batch of 3 (All Cards)'])
+    expect((await run(() => tasks.getTask(already))).archivedBatch).toBeUndefined()
+    expect((await run(() => tasks.archiveBatches())).map((x) => x.id)).toContain(batch!.id)
+    // Nothing left to archive: no batch.
+    expect(await run(() => tasks.archiveBatch([a, already], req('All Cards'), user))).toEqual({ batch: null, archived: [], skipped: [] })
+  })
+
+  it('checks each card again as it archives it: still in the column, project and search shown, and nobody on it', async () => {
+    const [plan, login, other, taken] = [await make('Plan'), await make('Login page'), await make('Other'), await make('Taken')]
+    await run(() => tasks.updateTask(other, { project: 'beta' }, user))
+    // Who is on a card, as main sees it now: here, any card in Doing with an agent.
+    const busy = (c: { column: string; agent: string | null }): string | null => (c.column === 'doing' && c.agent ? 'Agent 1 is working on it' : null)
+    await run(() => tasks.updateTask(taken, { column: 'doing', agent: 'a1' }, user))
+    const r = await run(() => tasks.archiveBatch([plan, login, other], req('2 shown in Todo', { column: 'todo', project: 'alpha', query: 'login' }), user, { busy }))
+    expect(r.archived).toEqual([login])
+    expect(r.skipped).toEqual([
+      { number: plan, why: 'no longer matches the search' },
+      { number: other, why: 'moved to another project' }
+    ])
+    expect(r.batch!.cards).toEqual([login])
+    // A card an agent is on stays unless the user includes it.
+    const kept = await run(() => tasks.archiveBatch([taken], req('All Cards'), user, { busy }))
+    expect([kept.batch, kept.archived, kept.skipped]).toEqual([null, [], [{ number: taken, why: 'Agent 1 is working on it' }]])
+    expect((await run(() => tasks.getTask(taken))).archived).toBe(false)
+    const included = await run(() => tasks.archiveBatch([taken], req('All Cards', { includeBusy: true }), user, { busy }))
+    expect(included.archived).toEqual([taken])
+  })
+
+  it('a card an agent takes while the archive waits is left on the board (race)', async () => {
+    const [idle, alsoIdle] = [await make('Idle'), await make('Also idle')]
+    const busy = (c: { column: string; agent: string | null }): string | null => (c.column === 'doing' && c.agent ? 'Agent 1 is working on it' : null)
+    // The agent takes the card (under its lock) just as the archive, sent for it as idle, reaches it.
+    const [, inTodo] = await Promise.all([run(() => tasks.updateTask(idle, { column: 'doing', agent: 'a1' }, user)), run(() => tasks.archiveBatch([idle], req('All in Todo', { column: 'todo' }), user, { busy }))])
+    expect([inTodo.archived, inTodo.skipped]).toEqual([[], [{ number: idle, why: 'moved to Doing' }]])
+    const [, board] = await Promise.all([run(() => tasks.updateTask(alsoIdle, { column: 'doing', agent: 'a1' }, user)), run(() => tasks.archiveBatch([alsoIdle], req('All Cards'), user, { busy }))])
+    expect([board.archived, board.skipped]).toEqual([[], [{ number: alsoIdle, why: 'Agent 1 is working on it' }]])
+    for (const n of [idle, alsoIdle]) expect((await run(() => tasks.getTask(n))).archived).toBe(false)
+  })
+
+  it('brings a batch back to its columns and order; a card brought back on its own leaves it', async () => {
+    const x = [await make('X1', 'done'), await make('X2', 'done'), await make('X3', 'done')]
+    const keep = await make('Keep', 'done')
+    const solo = await make('Solo', 'review')
+    const shape = await column('done')
+    const { batch } = await run(() => tasks.archiveBatch([x[0], x[2], solo], req('All Cards'), user))
+    expect(await column('done')).toEqual(shape.filter((t) => t !== 'X1' && t !== 'X3'))
+    // Moved on meanwhile: Keep goes to the top of Done; Solo comes back by itself.
+    await run(() => tasks.updateTask(keep, { position: 'top' }, user))
+    await run(() => tasks.archiveTask(solo, false))
+    expect((await run(() => tasks.getTask(solo))).archivedBatch).toBeUndefined()
+    const back = await run(() => tasks.unarchiveBatch(batch!.id, user))
+    expect([back.restored.sort((p, q) => p - q), back.failed]).toEqual([[x[0], x[2]], []])
+    // X1 after the card that was above it, X3 after X2: where they were among the cards still there.
+    expect(await column('done')).toEqual(['Keep', ...shape.filter((t) => t !== 'Keep')])
+    const card = await run(() => tasks.getTask(x[0]))
+    expect([card.archived, card.archivedFor, card.archivedBatch, card.history.at(-1)?.what]).toEqual([false, undefined, undefined, 'Brought back with its batch (All Cards)'])
+    // A batch is brought back once, then forgotten.
+    expect((await run(() => tasks.archiveBatches())).map((b) => b.id)).not.toContain(batch!.id)
+    await expect(run(() => tasks.unarchiveBatch(batch!.id, user))).rejects.toThrow(/no longer kept/)
+  })
+
+  it("keeps the batch while a card can't come back, and brings the rest; another try brings that one", async () => {
+    const [ok, stuck] = [await make('Comes back', 'done'), await make('Stuck', 'done')]
+    const { batch } = await run(() => tasks.archiveBatch([ok, stuck], req('All in Done', { column: 'done' }), user))
+    // Its file can be read but not replaced (open in another program, read-only).
+    chmodSync(cardFile(stuck), 0o444)
+    try {
+      const first = await run(() => tasks.unarchiveBatch(batch!.id, user))
+      expect([first.restored, first.failed]).toEqual([[ok], [stuck]])
+      expect((await run(() => tasks.getTask(stuck))).archived).toBe(true)
+      expect((await run(() => tasks.archiveBatches())).map((b) => b.id)).toContain(batch!.id)
+    } finally {
+      chmodSync(cardFile(stuck), 0o666)
+    }
+    const again = await run(() => tasks.unarchiveBatch(batch!.id, user))
+    expect([again.restored, again.failed]).toEqual([[stuck], []])
+    expect(await column('done')).toEqual(expect.arrayContaining(['Comes back', 'Stuck']))
+    expect((await run(() => tasks.archiveBatches())).map((b) => b.id)).not.toContain(batch!.id)
+  }, 20_000)
+
+  it('a card whose neighbours are gone comes back at the top; two batches at once each keep their cards', async () => {
+    const [p, q, r] = [await make('P'), await make('Q'), await make('R')]
+    const { batch } = await run(() => tasks.archiveBatch([q], req('1 shown in Todo'), user))
+    // Every card that was around it goes (p and r among them); a new one comes.
+    for (const c of await run(() => tasks.listTasks({ column: 'todo' }))) await run(() => tasks.archiveTask(c.number, true))
+    expect([(await run(() => tasks.getTask(p))).archived, (await run(() => tasks.getTask(r))).archived]).toEqual([true, true])
+    await make('New')
+    await run(() => tasks.unarchiveBatch(batch!.id, user))
+    expect(await column('todo')).toEqual(['Q', 'New'])
+    // Two at once (two windows): one after the other under the board's lock, both recorded, nothing lost.
+    const [m, n] = [await make('M'), await make('N')]
+    const [one, two] = await Promise.all([run(() => tasks.archiveBatch([m], req('one'), user)), run(() => tasks.archiveBatch([n], req('two'), user))])
+    expect((await run(() => tasks.archiveBatches())).map((b) => b.id)).toEqual(expect.arrayContaining([one.batch!.id, two.batch!.id]))
+    expect([(await run(() => tasks.getTask(m))).archivedBatch, (await run(() => tasks.getTask(n))).archivedBatch]).toEqual([one.batch!.id, two.batch!.id])
+  })
+})
+
+describe('where a batch comes back (restoreOrders)', () => {
+  const live = (...xs: [number, number][]): { number: number; order: number }[] => xs.map(([number, order]) => ({ number, order }))
+  const sorted = (l: { number: number; order: number }[], m: Map<number, number>): number[] =>
+    [...l, ...[...m].map(([number, order]) => ({ number, order }))].sort((a, b) => a.order - b.order).map((c) => c.number)
+
+  it('puts each card after the one above it, else before the one below it, else at the top', () => {
+    const l = live([2, 2], [4, 4])
+    expect(sorted(l, restoreOrders(l, [1, 2, 3, 4, 5], [1, 3, 5]))).toEqual([1, 2, 3, 4, 5])
+    // The ones above gone: before the next one still there.
+    const l2 = live([9, 1], [4, 5])
+    expect(sorted(l2, restoreOrders(l2, [1, 2, 3, 4], [2, 3]))).toEqual([9, 2, 3, 4])
+    // Every old neighbour gone: at the top, in their old order.
+    const l3 = live([7, 1], [8, 2])
+    expect(sorted(l3, restoreOrders(l3, [1, 2, 3], [1, 3]))).toEqual([1, 3, 7, 8])
+    // An empty column.
+    expect(sorted([], restoreOrders([], [5, 6], [6, 5]))).toEqual([5, 6])
   })
 })
 

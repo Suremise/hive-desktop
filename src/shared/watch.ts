@@ -278,6 +278,8 @@ export interface CardChange {
   changes: WatchChange[] | 'gone'
   by: string | null
   comment: { by: string; firstLine: string } | null
+  /** Gone because it was archived (#351), not deleted or moved out of view: only the user brings it back. */
+  archived?: boolean
   /** For a wake line only (wakeAbout): whose card it is and the review's verdict. */
   about?: WakeAbout
 }
@@ -339,7 +341,7 @@ const firstLine = (text: string, max = 160): string => {
 export function cardChange(n: number, card: TaskCard | null, changes: WatchChange[] | 'gone'): CardChange {
   const last = card?.comments.at(-1)
   const by = card ? ([...card.history].sort((a, b) => a.at.localeCompare(b.at)).at(-1)?.by ?? null) : null
-  return { number: n, column: card ? card.column : 'gone', changes, by, comment: last ? { by: last.by, firstLine: firstLine(last.text) } : null }
+  return { number: n, column: card ? card.column : 'gone', changes, by, comment: last ? { by: last.by, firstLine: firstLine(last.text) } : null, ...(changes === 'gone' && card?.archived ? { archived: true } : {}) }
 }
 
 const columnWord = (c: TaskColumn | 'gone'): string => (c === 'gone' ? 'gone' : columnLabel(c))
@@ -367,7 +369,7 @@ export function wakeLine(change: CardChange, more = 0): string {
 function whereNow(change: CardChange): string {
   const about = change.about
   // Gone also covers a card moved out of what the agent may see (another project): nothing about it is said then.
-  if (change.changes === 'gone') return ' is gone from your board (archived, deleted or moved to another project)'
+  if (change.changes === 'gone') return change.archived ? ' was archived (off the board: only the user brings it back)' : ' is gone from your board (archived, deleted or moved to another project)'
   const owner = about?.owner ? ` (${shortName(about.owner)}'s card)` : ''
   const verdict = about?.verdict ? `: ${shortName(about.verdict.by)} ${about.verdict.passed ? 'passed' : 'failed'} it` : ''
   // Passed means the review passed, not that the work is merged: Done is merged (#170).
@@ -411,7 +413,7 @@ export function wakeLines(changes: CardChange[]): string {
 
 /** A card in a few words, for a wake line too long to tell each in full: where it is, its verdict, nothing else. */
 function brief(c: CardChange): string {
-  if (c.changes === 'gone' || c.column === 'gone') return `#${c.number} gone`
+  if (c.changes === 'gone' || c.column === 'gone') return `#${c.number} ${c.archived ? 'archived' : 'gone'}`
   const a = c.about
   if (a?.returned) return `#${c.number} returned for review (round ${a.returned})`
   return `#${c.number} in ${columnWord(c.column)}${a?.verdict ? (a.verdict.passed ? ', passed' : ', failed') : ''}`

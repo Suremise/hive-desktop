@@ -104,6 +104,53 @@ export function archivedAt(card: Pick<TaskCard, 'history' | 'updatedAt'>): strin
   return card.history.findLast((h) => h.what.startsWith('Archived'))?.at ?? card.updatedAt
 }
 
+/**
+ * Where cards brought back from a bulk archive go in their column (#351): each just after the nearest card that was above
+ * it then and is in the column now (on the board, or coming back with it), else just before the nearest one that was
+ * below it, else at the top. `live`: the column's cards on the board now, top to bottom; `was`: the column as it was when
+ * the batch was archived; `back`: the batch's cards coming back to it. Returns each one's new order; the others keep theirs.
+ */
+export function restoreOrders(live: { number: number; order: number }[], was: number[], back: number[]): Map<number, number> {
+  const coming = new Set(back)
+  const fixed = new Map(live.map((c) => [c.number, c.order]))
+  const seq = live.map((c) => c.number)
+  for (const [i, n] of was.entries()) {
+    if (!coming.has(n) || fixed.has(n)) continue
+    const above = was.slice(0, i).findLast((x) => seq.includes(x))
+    const below = above === undefined ? was.slice(i + 1).find((x) => fixed.has(x)) : undefined
+    seq.splice(above !== undefined ? seq.indexOf(above) + 1 : below !== undefined ? seq.indexOf(below) : 0, 0, n)
+  }
+  // A card coming back that the snapshot doesn't have (it shouldn't happen): at the top too.
+  for (const n of back) if (!seq.includes(n) && !fixed.has(n)) seq.unshift(n)
+  // Orders for each run of cards coming back, between the fixed cards around it.
+  const out = new Map<number, number>()
+  for (let i = 0; i < seq.length; ) {
+    if (fixed.has(seq[i])) {
+      i++
+      continue
+    }
+    let j = i
+    while (j < seq.length && !fixed.has(seq[j])) j++
+    const before = i > 0 ? fixed.get(seq[i - 1]) : undefined
+    const after = j < seq.length ? fixed.get(seq[j]) : undefined
+    const k = j - i
+    for (let x = 0; x < k; x++) {
+      const order = before !== undefined && after !== undefined ? before + ((after - before) * (x + 1)) / (k + 1) : before !== undefined ? before + x + 1 : after !== undefined ? after - (k - x) : x + 1
+      out.set(seq[i + x], order)
+    }
+    i = j
+  }
+  return out
+}
+
+/** A card matches the board's search: its number (#12 or 12), title, description, labels, project or agent. */
+export function cardMatches(c: Pick<TaskCard, 'number' | 'title' | 'description' | 'project' | 'agentName' | 'labels'>, q: string): boolean {
+  const s = q.trim().toLowerCase()
+  if (!s) return true
+  if (/^#?\d+$/.test(s)) return c.number === Number(s.replace('#', ''))
+  return [c.title, c.description, c.project, c.agentName ?? '', ...c.labels].some((x) => x.toLowerCase().includes(s))
+}
+
 /** Cards in board order: by column, then position. */
 export function sortCards(cards: TaskCard[]): TaskCard[] {
   const col = (c: TaskCard): number => TASK_COLUMNS.findIndex((x) => x.id === c.column)

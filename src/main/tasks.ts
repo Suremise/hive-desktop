@@ -4,9 +4,9 @@ import { mkdir, readdir } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { shell } from 'electron'
 import { projectAgents } from '../shared/defaults'
-import { COLUMN_CHOICES, TASK_COLUMNS, isTaskColumn, sortCards } from '../shared/tasks'
+import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders, sortCards } from '../shared/tasks'
 import { ordinal } from '../shared/toolReplies'
-import type { TaskCard, TaskColumn, TaskComment, TaskPatch } from '../shared/types'
+import type { ArchiveBatch, ArchiveRequest, ArchiveResult, TaskCard, TaskColumn, TaskComment, TaskPatch, UnarchiveResult } from '../shared/types'
 import { returnRound } from '../shared/watch'
 import { config } from './config'
 import { emit } from './events'
@@ -95,6 +95,7 @@ function clean(raw: Partial<TaskCard>, n: number): TaskCard {
     history: Array.isArray(raw.history) ? raw.history.filter((h) => h && typeof h.what === 'string') : [],
     archived: raw.archived === true,
     ...(raw.archivedFor ? { archivedFor: raw.archivedFor } : {}),
+    ...(raw.archived === true && typeof raw.archivedBatch === 'string' && raw.archivedBatch ? { archivedBatch: raw.archivedBatch } : {}),
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now,
     createdBy: typeof raw.createdBy === 'string' ? raw.createdBy : '',
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : now
@@ -661,6 +662,8 @@ export async function archiveTask(n: number, archived: boolean): Promise<TaskCar
     c.archived = archived
     if (archived) c.archivedFor = 'user'
     else delete c.archivedFor
+    // Brought back on its own, it leaves its batch: that batch's Undo no longer moves it.
+    delete c.archivedBatch
     note(c, 'You', archived ? 'Archived' : 'Brought back from the archive')
     // Back at the end of its column.
     if (!archived) c.order = orderIn(await allTasks(ws), c.column, n, null)
@@ -669,6 +672,173 @@ export async function archiveTask(n: number, archived: boolean): Promise<TaskCar
   })
   changed(ws)
   return card
+}
+
+// ---------------------------------------------------------------------------
+// Bulk archiving (#351): the user's Archive All in a column and Archive All Cards. Each is a batch, recorded with its
+// columns as they were, so Undo and "Unarchive this batch" bring its cards back where they were. One batch at a time
+// on the board (the batches file's lock), and the board is told once, not once a card.
+// ---------------------------------------------------------------------------
+
+const MAX_BATCH = 5000
+const KEEP_BATCHES = 50
+
+const batchesFile = (ws: WorkspaceService): string => join(tasksDir(ws), 'archive-batches.json')
+
+const isBatch = (b: unknown): b is ArchiveBatch => {
+  const x = b as ArchiveBatch | null
+  return !!x && typeof x.id === 'string' && typeof x.at === 'string' && typeof x.label === 'string' && Array.isArray(x.cards) && !!x.columns && typeof x.columns === 'object'
+}
+
+async function readBatches(ws: WorkspaceService): Promise<ArchiveBatch[]> {
+  const raw = await readJson<{ batches?: unknown }>(batchesFile(ws), {})
+  return Array.isArray(raw.batches) ? raw.batches.filter(isBatch) : []
+}
+
+/** The bulk archives kept (the latest 50), oldest first. */
+export async function archiveBatches(ws: WorkspaceService = workspace): Promise<ArchiveBatch[]> {
+  return ws.path ? readBatches(ws) : []
+}
+
+/**
+ * Archives the cards listed, as one batch: the user's alone (agents and the Assistant never archive). Each card is checked
+ * again as it is when it is archived (under its lock), against what the user asked for: still in the column and project
+ * the board showed and matching its search, and, unless `includeBusy`, not one an agent is on now (`busy`: its running
+ * agent in Doing, its reviewer, an agent watching it). Those that aren't, or can't be read or saved, stay on the board
+ * and come back in `skipped` with why; cards already archived or gone are passed over. Returns the batch (null when
+ * nothing was archived) and the cards it archived.
+ */
+export async function archiveBatch(numbers: unknown, req: ArchiveRequest, actor: TaskActor, opts: { busy?: (card: TaskCard) => string | null } = {}): Promise<ArchiveResult> {
+  if (actor.kind !== 'user') throw new TaskPermissionError('Only the user archives cards.')
+  if (!Array.isArray(numbers) || !numbers.length) throw new Error('cards: list the cards to archive.')
+  if (numbers.length > MAX_BATCH) throw new Error(`cards: at most ${MAX_BATCH} cards at once.`)
+  const nums = [...new Set(numbers.map((x) => Number(x)))]
+  if (nums.some((x) => !Number.isInteger(x) || x < 1)) throw new Error('cards: card numbers only.')
+  if (req.column !== null && !isTaskColumn(req.column)) throw new Error(`Unknown column "${String(req.column)}": ${COLUMN_CHOICES}.`)
+  const ws = workspace
+  if (!ws.path) throw new Error('No workspace is open')
+  const what = String(req.label ?? '').trim().slice(0, 80) || 'Archive All'
+  const project = typeof req.project === 'string' ? req.project : null
+  const query = typeof req.query === 'string' ? req.query : ''
+  const busy = req.includeBusy === true ? null : (opts.busy ?? null)
+  // Why a card, as it is now, isn't one the user asked to archive (null: it is).
+  const outside = (c: TaskCard): string | null =>
+    req.column !== null && c.column !== req.column
+      ? `moved to ${COLUMN_WORD[c.column]}`
+      : project !== null && c.project.toLowerCase() !== project.toLowerCase()
+        ? 'moved to another project'
+        : !cardMatches(c, query)
+          ? 'no longer matches the search'
+          : (busy?.(c) ?? null)
+  await mkdir(tasksDir(ws), { recursive: true })
+  const result = await withFileLock(batchesFile(ws), async (): Promise<ArchiveResult> => {
+    const all = await allTasks(ws)
+    const want = new Set(nums)
+    const going = all.filter((c) => want.has(c.number) && !c.archived)
+    if (!going.length) return { batch: null, archived: [], skipped: [] }
+    // Each column the batch leaves, as it is now: where its cards come back to.
+    const columns: Partial<Record<TaskColumn, number[]>> = {}
+    for (const c of going) columns[c.column] ??= all.filter((x) => x.column === c.column && !x.archived).map((x) => x.number)
+    const batch: ArchiveBatch = { id: `b${Date.now().toString(36)}${randomBytes(3).toString('hex')}`, at: new Date().toISOString(), by: 'You', label: what, cards: going.map((c) => c.number), columns }
+    const kept = await readBatches(ws)
+    // Recorded first: a card is in the batch only once it is archived with its id, so a batch cut short brings back
+    // only what it archived.
+    await writeJsonAtomic(batchesFile(ws), { version: 1, batches: [...kept, batch].slice(-KEEP_BATCHES) })
+    const done: number[] = []
+    const skipped: { number: number; why: string }[] = []
+    for (const c of going) {
+      await withFileLock(cardFile(c.number, ws), async () => {
+        if (!existsSync(cardFile(c.number, ws))) return
+        const fresh = await getTask(c.number, ws).catch(() => null)
+        if (!fresh) return void skipped.push({ number: c.number, why: "couldn't be read" })
+        if (fresh.archived) return
+        const why = outside(fresh)
+        if (why) return void skipped.push({ number: c.number, why })
+        fresh.archived = true
+        fresh.archivedFor = 'user'
+        fresh.archivedBatch = batch.id
+        note(fresh, 'You', `Archived in a batch of ${going.length} (${what})`)
+        await writeJsonAtomic(cardFile(c.number, ws), fresh)
+        done.push(c.number)
+      }).catch((e) => {
+        log.warn(`Could not archive #${c.number} with its batch`, e)
+        skipped.push({ number: c.number, why: "couldn't be saved" })
+      })
+    }
+    if (done.length !== batch.cards.length) {
+      batch.cards = done
+      await writeJsonAtomic(batchesFile(ws), { version: 1, batches: [...kept, ...(done.length ? [batch] : [])].slice(-KEEP_BATCHES) })
+    }
+    return { batch: done.length ? batch : null, archived: done, skipped }
+  })
+  if (result.archived.length) {
+    log.info(`Archived ${result.archived.length} card(s) in batch ${result.batch!.id} (${what})${result.skipped.length ? `; ${result.skipped.length} left on the board` : ''}`)
+    changed(ws)
+  }
+  return result
+}
+
+/**
+ * Brings a batch back (Undo, "Unarchive this batch"): the user's alone. Each of its cards still archived with it goes back
+ * to its column, where it was among the cards there (restoreOrders); one brought back on its own meanwhile, archived
+ * again since, or deleted is left as it is. A card that can't be read or saved stays archived with the batch and is in
+ * `failed`: the batch is kept, so bringing it back again retries those. Once nothing failed, the batch is forgotten.
+ */
+export async function unarchiveBatch(id: string, actor: TaskActor): Promise<UnarchiveResult> {
+  if (actor.kind !== 'user') throw new TaskPermissionError('Only the user brings archived cards back.')
+  const ws = workspace
+  if (!ws.path) throw new Error('No workspace is open')
+  const result = await withFileLock(batchesFile(ws), async (): Promise<UnarchiveResult> => {
+    const batches = await readBatches(ws)
+    const batch = batches.find((b) => b.id === id)
+    if (!batch) throw new Error('That batch is no longer kept: unarchive its cards from Archived.')
+    const failed = new Set<number>()
+    // The batch's own list, read card by card: one that can't be read now still belongs to it.
+    const back: TaskCard[] = []
+    for (const n of batch.cards) {
+      if (!existsSync(cardFile(n, ws))) continue
+      const c = await getTask(n, ws).catch(() => null)
+      if (!c) failed.add(n)
+      else if (c.archived && c.archivedBatch === id) back.push(c)
+    }
+    const all = await allTasks(ws)
+    const restored: number[] = []
+    for (const { id: column } of TASK_COLUMNS) {
+      const mine = back.filter((c) => c.column === column)
+      if (!mine.length) continue
+      const orders = restoreOrders(
+        all.filter((c) => c.column === column && !c.archived),
+        batch.columns[column] ?? [],
+        mine.map((c) => c.number)
+      )
+      for (const c of mine) {
+        await withFileLock(cardFile(c.number, ws), async () => {
+          if (!existsSync(cardFile(c.number, ws))) return
+          const fresh = await getTask(c.number, ws).catch(() => null)
+          if (!fresh) return void failed.add(c.number)
+          if (!fresh.archived || fresh.archivedBatch !== id) return
+          fresh.archived = false
+          delete fresh.archivedFor
+          delete fresh.archivedBatch
+          fresh.order = orders.get(c.number) ?? orderIn(await allTasks(ws), column, c.number, null)
+          note(fresh, 'You', `Brought back with its batch (${batch.label})`)
+          await writeJsonAtomic(cardFile(c.number, ws), fresh)
+          restored.push(c.number)
+        }).catch((e) => {
+          log.warn(`Could not bring #${c.number} back with its batch`, e)
+          failed.add(c.number)
+        })
+      }
+    }
+    // Kept while any of its cards couldn't come back: bringing it back again tries those (the others aren't its any more).
+    if (!failed.size) await writeJsonAtomic(batchesFile(ws), { version: 1, batches: batches.filter((b) => b.id !== id) })
+    return { restored, failed: [...failed] }
+  })
+  if (result.restored.length) {
+    log.info(`Brought back ${result.restored.length} card(s) of batch ${id}${result.failed.length ? `; ${result.failed.length} couldn't be` : ''}`)
+    changed(ws)
+  }
+  return result
 }
 
 /** The open cards (not archived or done) given to one agent of a project. */

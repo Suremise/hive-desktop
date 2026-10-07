@@ -6,7 +6,7 @@ import { playChime } from './chime'
 import { matchKeybinding, runCommand } from './commands'
 import { AboutDialog, AgentSetupDialog, DiagnosticsDialog, CommandPalette, CompactDialog, Dialogs, NotificationCenter, ProvidersBanner, QuitDialog, QuitPendingBanner, ShortcutsDialog, Toasts } from './components/Overlays'
 import { AddAgentDialog, AgentSettingsDialog, HandOverDialog, MergeDialog, TemplateAgentDialog } from './components/AgentDialogs'
-import { BoardView, MoveToDoingDialog, TaskDialog, TaskStartDialog } from './components/Board'
+import { ArchiveAllDialog, BoardView, MoveToDoingDialog, TaskDialog, TaskStartDialog } from './components/Board'
 import { WorkspaceOverviewView } from './views/WorkspaceOverview'
 import { PerformanceView } from './views/Performance'
 import { RemoveProjectDialog } from './components/ProjectRemoval'
@@ -424,6 +424,7 @@ export function App() {
       <MergeDialog />
       <HandOverDialog />
       <TaskDialog />
+      <ArchiveAllDialog />
       <TaskStartDialog />
       <MoveToDoingDialog />
       <RemoveProjectDialog />
