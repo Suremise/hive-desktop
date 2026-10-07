@@ -6,6 +6,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { attempt } from '../actions'
 import { call } from '../api'
+import { deferredFocus } from '../deferredFocus'
 import { isAppShortcut } from '../commands'
 import { fileLinkProvider } from '../fileLinks'
 import { useStore } from '../store'
@@ -499,8 +500,10 @@ export function TerminalView({
     // observer once it has its size).
     holdBottom.current()
     fitSoon.current()
+    // The next frame's focus, unless the user chose otherwise meanwhile (#327).
+    const current = deferredFocus(() => host.current)
     requestAnimationFrame(() => {
-      if (autoFocus) termRef.current?.focus()
+      if (autoFocus && current()) termRef.current?.focus()
     })
   }, [visible, ptyKey, autoFocus])
 

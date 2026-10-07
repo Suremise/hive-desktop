@@ -4,7 +4,7 @@ import { call, errorMessage } from '../api'
 import { commandKeybinding, commandLabel, commands, runCommand } from '../commands'
 import { closeDialog, dismissToast, findProject, NO_PROJECTS, notify, set, setActivity, useStore } from '../store'
 import { cacheState, useLiveUsage } from '../usage'
-import { cx, formatKeybinding, formatTokens, timeAgo } from '../util'
+import { actClass, cx, formatKeybinding, formatTokens, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
 import { UpdateStatusRow } from './Updates'
 import { discardDrafts, saveAllDrafts, unsavedFiles } from './FileView'
@@ -67,7 +67,7 @@ export function Dialogs() {
               Cancel
             </button>
             {dialog.choices.map((c, i) => (
-              <button key={c.value} className={cx('btn', i === dialog.choices.length - 1 ? (dialog.danger ? 'danger' : 'primary') : 'subtle')} autoFocus={i === dialog.choices.length - 1} onClick={() => answer(c.value)}>
+              <button key={c.value} className={cx('btn', i === dialog.choices.length - 1 ? (c.action ? cx(actClass(c.action), 'solid') : dialog.danger ? 'danger' : 'primary') : (actClass(c.action) || 'subtle'))} autoFocus={i === dialog.choices.length - 1} onClick={() => answer(c.value)}>
                 {c.label}
               </button>
             ))}
@@ -106,7 +106,7 @@ export function Dialogs() {
               {dialog.cancelLabel ?? 'Cancel'}
             </button>
             <BusyButton
-              className={dialog.danger ? 'danger' : 'primary'}
+              className={dialog.action ? cx(actClass(dialog.action), 'solid') : dialog.danger ? 'danger' : 'primary'}
               autoFocus
               busy={action.busy === 'confirm'}
               busyLabel={dialog.busyLabel ?? 'Working…'}
@@ -124,6 +124,7 @@ export function Dialogs() {
         }
       >
         <div>{dialog.message}</div>
+        {dialog.list && dialog.list.length > 0 && <DialogList items={dialog.list} />}
         {dialog.detail && <div className={cx('detail', dialog.scrollDetail && 'scroll')}>{dialog.detail}</div>}
         {dialog.check && (
           <label className="flex dialog-check">
@@ -174,6 +175,29 @@ export function Dialogs() {
         </label>
       )}
     </Modal>
+  )
+}
+
+/** A confirm's list (paths): one per line, a long one wrapping inside itself, and a Copy button for them all (#347). */
+function DialogList({ items }: { items: readonly string[] }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="dialog-list">
+      <ul>
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+      <IconButton
+        icon={copied ? 'check' : 'copy'}
+        title={items.length === 1 ? 'Copy' : 'Copy all'}
+        onClick={() => {
+          void navigator.clipboard.writeText(items.join('\n'))
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        }}
+      />
+    </div>
   )
 }
 

@@ -6,7 +6,8 @@
 // user had already excluded and Remove leaving it, a change refused when the folders changed after the user was asked;
 // a run whose list wasn't read staying unknown; a declined prompt, a policy block, another antivirus, ReFS only a
 // maybe and a trusted Dev Drive only from the administrator check, not Windows; Performance's line; the suggestion once
-// when several agents run, again when a worktree agent adds its folder, never after "Don't ask again"; and a test copy
+// when several agents run, again when a worktree agent adds its folder, a reminder after its spacing (a fixture's),
+// never after "Don't ask again"; and a test copy
 // without a fixture refusing to touch Defender. Screenshots in both themes.
 const lib = require('./lib.cjs')
 const fs = require('fs')
@@ -95,6 +96,7 @@ const check = (name, ok, extra = '') => {
   const before = changes().length
   await add()
   check('Add asks first, listing the folders and the trade-off', (await dialog.innerText()).includes(root) && (await dialog.innerText()).includes(tests) && /node_modules/.test(await dialog.innerText()))
+  check('…one folder per line, each whole in its own row (#347)', JSON.stringify(await dialog.locator('.dialog-list li').allInnerTexts()) === JSON.stringify([root, tests]), JSON.stringify(await dialog.locator('.dialog-list li').allInnerTexts()))
   await shot('add-dialog-dark')
   fs.mkdirSync(trees, { recursive: true })
   await dialog.locator('.btn.primary').click()
@@ -118,7 +120,7 @@ const check = (name, ok, extra = '') => {
   await panel.getByRole('button', { name: 'Remove Hive’s Exclusions…' }).click()
   const removeDialog = page.locator('.dialog', { hasText: 'Remove the exclusions Hive added?' })
   await lib.until(async () => (await removeDialog.count()) === 1, 5000)
-  check('Remove lists only the folder Hive added', (await removeDialog.innerText()).includes(tests) && !(await removeDialog.innerText()).includes(`${root}\n`) && !(await removeDialog.innerText()).split('\n').some((l) => l.trim() === root), await removeDialog.innerText())
+  check('Remove lists only the folder Hive added, on its own line', JSON.stringify(await removeDialog.locator('.dialog-list li').allInnerTexts()) === JSON.stringify([tests]) &&!(await removeDialog.innerText()).split('\n').some((l) => l.trim() === root), await removeDialog.innerText())
   await removeDialog.locator('.btn.primary').click()
   check('…one elevated call, for it alone', !!(await lib.until(async () => changes('remove').length === 1, 10000)) && JSON.stringify(changes('remove')[0].paths) === JSON.stringify([tests]), JSON.stringify(changes('remove')))
   check('…the user’s exclusion stays: the workspace excluded, the test area scanned again', !!(await lib.until(async () => /Excluded/.test(await rowText(0)) && /Scanned/.test(await rowText(1)), 5000)), await panel.innerText())
@@ -177,7 +179,8 @@ const check = (name, ok, extra = '') => {
   await line.locator('a').click()
   check('…linking to the status', !!(await lib.until(async () => (await page.locator('.antivirus').count()) === 1, 5000)))
 
-  // The suggestion: once when several agents run; again when a worktree agent adds its folder; never after "Don't ask again".
+  // The suggestion: once when several agents run; again when a worktree agent adds its folder; reminders while they run
+  // and when they're back; never after "Don't ask again".
   const toast = page.locator('.toast', { hasText: 'Defender is scanning this workspace' })
   const a1 = await lib.addAgent(inv, alpha, { name: 'One' })
   const a2 = await lib.addAgent(inv, alpha, { name: 'Two' })
@@ -191,28 +194,52 @@ const check = (name, ok, extra = '') => {
     for (const a of [a1, a2]) await inv('session:stop', alpha, a.id).catch(() => undefined)
     await lib.until(async () => (await inv('session:live')).filter((x) => ours.includes(x.agentId)).length === 0, 15000)
   }
-  const closeToast = () => toast.locator('button[aria-label="Close"], button[aria-label="Dismiss"], .toast-close').first().click().catch(() => undefined)
+  const closeToast = (t = toast) => t.locator('button[aria-label="Close"], button[aria-label="Dismiss"], .toast-close').first().click().catch(() => undefined)
   await startBoth()
   check('two agents running: the suggestion, once', !!(await lib.until(async () => (await toast.count()) === 1, 10000)))
   await shot('suggestion-dark')
   await lib.sleep(1500) // A fixed wait on purpose: checks that no second suggestion comes.
   check('…not twice', (await toast.count()) === 1)
-  check('…and not again for the same folders', (await inv('antivirus:suggestion')) === null)
+  check('…and not again for the same folders', (await inv('antivirus:suggestion')).offer === null)
   await closeToast()
   await lib.until(async () => (await toast.count()) === 0, 5000)
+  // Reminders (#348), a fixture's 12 s apart here (a day in use): set before the worktree suggestion, whose answer says
+  // when a reminder may come.
+  const REMIND = 12000
+  setFixture({ probe: probe({ volumes: [{ drive, fs: 'NTFS' }] }), elevated: {}, remindMs: REMIND })
   // While they run, a worktree agent makes the worktrees folder: suggested again, without anything asking for a status.
   await lib.addAgent(inv, alpha, { name: 'Tree', location: 'new-worktree' })
   check('a worktree agent adds the worktrees folder: suggested again', !!(await lib.until(async () => (await toast.count()) === 1, 15000)))
+  const offeredAt = Date.now()
   s = await inv('antivirus:status', false)
   check('…the worktrees folder is in the set', s.paths.some((p) => p.kind === 'worktrees' && p.path === fs.realpathSync.native(trees)), JSON.stringify(s.paths))
-  await toast.getByRole('button', { name: 'Don’t Ask Again' }).click()
+  // Closed without an answer while the agents keep running: nothing restarts and the suite asks nothing, yet a reminder
+  // comes once the spacing has passed, saying it's a reminder and how to stop it.
+  await closeToast()
+  await lib.until(async () => (await toast.count()) === 0, 5000)
+  const reminder = page.locator('.toast', { hasText: 'Defender is still scanning this workspace' })
+  check('…closed: no reminder before the spacing', (await reminder.count()) === 0)
+  check('agents kept running: a reminder once the spacing has passed, nothing restarted', !!(await lib.until(async () => (await reminder.count()) === 1, REMIND + 10000)) && Date.now() - offeredAt >= REMIND - 1000 && (await live()) === 2, `${Date.now() - offeredAt} ms, ${await live()} running`)
+  check('…saying so, with Review… and Don’t Ask Again', /A reminder/.test(await reminder.innerText()) && /at most once a day/.test(await reminder.innerText()) && (await reminder.getByRole('button', { name: 'Review…' }).count()) === 1, await reminder.innerText())
+  await shot('reminder-dark')
+  const remindedAt = Date.now()
+  await closeToast(reminder)
+  await lib.until(async () => (await reminder.count()) === 0, 5000)
+  // The reason goes and comes back before the next reminder is due: none at once, and that one when it is due.
   await stopBoth()
+  await startBoth()
+  const back = Date.now() - remindedAt
+  check('agents back before the next reminder is due: none at once', back < REMIND - 2000 && (await reminder.count()) === 0, `back after ${back} ms`)
+  check('…the reminder when it is due, without anything restarting', !!(await lib.until(async () => (await reminder.count()) === 1, REMIND + 10000)) && Date.now() - remindedAt >= REMIND - 1000, `${Date.now() - remindedAt} ms`)
+  await reminder.getByRole('button', { name: 'Don’t Ask Again' }).click()
+  await stopBoth()
+  check('after Don’t Ask Again: no reminder, however long it has been', (await inv('antivirus:suggestion')).offer === null)
   // Something else changes the folders to offer; after Don't Ask Again nothing is suggested anyway.
   setFixture({ probe: probe({ exclusions: [tests] }), elevated: {} })
   await inv('antivirus:status', true)
   await startBoth()
   await lib.sleep(2500) // A fixed wait on purpose: checks that no suggestion comes.
-  check('after Don’t Ask Again: never again for this workspace', (await toast.count()) === 0 && (await inv('antivirus:suggestion')) === null)
+  check('after Don’t Ask Again: never again for this workspace', (await toast.count()) === 0 && (await inv('antivirus:suggestion')).offer === null)
   await stopBoth()
 
   // Light theme.
@@ -223,6 +250,19 @@ const check = (name, ok, extra = '') => {
   await page.locator('.antivirus').scrollIntoViewIfNeeded()
   await lib.sleep(500)
   await shot('light')
+  // The Add dialog in a narrow window: each folder still on its own line, a long one wrapping inside itself (#347).
+  setFixture({ probe: probe(), elevated: {} })
+  await panel.getByRole('button', { name: 'Check Again' }).click()
+  await lib.until(async () => (await rows.allInnerTexts()).every((t) => /Unknown/.test(t)), 5000)
+  const offered = (await inv('antivirus:prepare', 'add')).paths
+  await add()
+  await lib.fitWindow(app, page, { width: 560, height: 700 })
+  await lib.sleep(300)
+  const narrow = await dialog.locator('.dialog-list li').evaluateAll((li) => li.map((l) => ({ text: l.textContent, top: l.getBoundingClientRect().top })))
+  check('narrow window: still one folder per row, in order', narrow.length >= 2 && JSON.stringify(narrow.map((l) => l.text)) === JSON.stringify(offered) && narrow.every((l, i) => i === 0 || l.top > narrow[i - 1].top), JSON.stringify({ narrow, offered }))
+  await shot('add-dialog-light-narrow')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await lib.fitWindow(app, page, { width: 1400, height: 950 })
   await inv('settings:update', { appearance: { theme: 'dark' } })
 
   // A test copy without a fixture never asks Defender, and refuses to change it.

@@ -1,5 +1,6 @@
 // Types shared by the main process, preload bridge and renderer.
 
+import type { AvOffer } from './antivirus'
 import type { StartFailure } from './startFailure'
 import type { TipsState } from './tips'
 import type { TemplateAgent, TemplateScope } from './templates'
@@ -390,9 +391,10 @@ export interface AppConfig {
   alwaysOnTop?: Record<string, true>
   /**
    * Antivirus scanning (#316), this machine's: the exclusions Hive added (resolved paths), Defender's list as last read
-   * with administrator rights, and per workspace (lowercased path) the folders last offered and "Don't ask again".
+   * with administrator rights, and per workspace (lowercased path) the last suggestion (its folders, when and how many
+   * times; a plain string is #316's form, the folders only) and "Don't ask again".
    */
-  antivirus?: { added?: string[]; adminCheck?: { at: string; exclusions: string[]; devDrives?: Record<string, 'trusted' | 'untrusted' | 'no'> }; offered?: Record<string, string>; dismissed?: Record<string, true> }
+  antivirus?: { added?: string[]; adminCheck?: { at: string; exclusions: string[]; devDrives?: Record<string, 'trusted' | 'untrusted' | 'no'> }; offered?: Record<string, string | AvOffer>; dismissed?: Record<string, true> }
   /** `panes`: resizable pane sizes by key (pixels, or a fraction for split views). `tips`: what the tips know (shared/tips.ts). */
   ui: {
     sidebarWidth: number

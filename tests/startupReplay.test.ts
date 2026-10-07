@@ -64,3 +64,70 @@ describe('a window starting while another changes things', () => {
     expect(store.settings).toBe('old')
   })
 })
+
+describe('a startup run twice (StrictMode in development: setup, cleanup, setup) (#337)', () => {
+  const old: TipsState = { ...EMPTY_TIPS_STATE, shownOn: '2000-01-01' }
+  const today = applyTipsChange(old, { shownOn: '2026-10-06' })
+
+  /** App.tsx's startup effect: listen, load the snapshot, apply it unless cleaned up meanwhile, then replay. */
+  function effect(bus: Set<(e: HiveEvent) => void>, w: ReturnType<typeof windowStore>, snapshot: Promise<{ tips: TipsState; panes: Record<string, unknown> }>) {
+    const early = startupReplay(w.handle)
+    const listener = (e: HiveEvent): void => {
+      w.handle(e)
+      early.note(e)
+    }
+    bus.add(listener)
+    const done = (async () => {
+      const s = await snapshot
+      if (!early.active()) return
+      w.store.tips = s.tips
+      w.store.panes = s.panes
+      early.settle()
+    })()
+    return {
+      done,
+      cleanup: () => {
+        bus.delete(listener)
+        early.stop()
+      }
+    }
+  }
+
+  it("the first run finishing last doesn't apply its older snapshot over the second's and a change only the second heard", async () => {
+    const bus = new Set<(e: HiveEvent) => void>()
+    const w = windowStore()
+    let first!: (s: { tips: TipsState; panes: Record<string, unknown> }) => void
+    const one = effect(bus, w, new Promise((r) => (first = r)))
+    one.cleanup()
+    let second!: (s: { tips: TipsState; panes: Record<string, unknown> }) => void
+    const two = effect(bus, w, new Promise((r) => (second = r)))
+    // Another window shows the day's tip and changes a layout: only the second run listens.
+    for (const l of bus) {
+      l({ type: 'tips-changed', tips: today } as HiveEvent)
+      l({ type: 'ui-pref-changed', pref: 'panes', project: 'alpha', value: { layout: 'columns' } } as unknown as HiveEvent)
+    }
+    second({ tips: old, panes: { beta: { layout: 'single' } } })
+    await two.done
+    expect(w.store.tips.shownOn).toBe('2026-10-06')
+    expect(w.store.panes).toEqual({ beta: { layout: 'single' }, alpha: { layout: 'columns' } })
+    // The first run's slow snapshot, read before both changes, arrives last.
+    first({ tips: old, panes: {} })
+    await one.done
+    expect(w.store.tips.shownOn).toBe('2026-10-06')
+    expect(w.store.panes).toEqual({ beta: { layout: 'single' }, alpha: { layout: 'columns' } })
+  })
+
+  it('a stopped run keeps and replays nothing', () => {
+    const w = windowStore()
+    const seen: string[] = []
+    const early = startupReplay<HiveEvent>((e) => seen.push(e.type))
+    early.note({ type: 'tips-changed', tips: today } as HiveEvent)
+    expect(early.active()).toBe(true)
+    early.stop()
+    early.note({ type: 'tips-changed', tips: today } as HiveEvent)
+    early.settle()
+    expect(early.active()).toBe(false)
+    expect(seen).toEqual([])
+    expect(w.store.tips).toBe(EMPTY_TIPS_STATE)
+  })
+})

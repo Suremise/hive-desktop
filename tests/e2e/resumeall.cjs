@@ -78,7 +78,7 @@ const check = (name, ok, extra = '') => {
   check('Resume All shows while agents are stopped', !!(await until(async () => (await button.count()) === 1, 5000)))
   await page.screenshot({ path: path.join(lib.WORK, 'resumeall-1-header.png') })
   // Its colours are those of the agent header's Resume button (an icon in a narrow pane), in both themes and on hover.
-  const agentResume = page.locator('.pane-header-bar button.tint-amber').first()
+  const agentResume = page.locator('.pane-header-bar button.act-resume').first()
   const colours = (b) => b.evaluate((el) => ['color', 'background-color', 'border-color'].map((k) => getComputedStyle(el).getPropertyValue(k)).join(' | '))
   const seen = []
   for (const theme of ['dark', 'light']) {

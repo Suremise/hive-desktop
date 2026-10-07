@@ -265,7 +265,7 @@ function AssistantIdle({ project, a, ended }: { project: ProjectInfo; a: AgentIn
         <Icon name="debug-disconnect" />
         <span className="grow">The conversation has ended.</span>
         {resume}
-        <button className="btn primary small" onClick={() => void actions.newSession(project.path, AGENT)}>
+        <button className="btn act-start solid small" onClick={() => void actions.newSession(project.path, AGENT)}>
           <Icon name="add" /> New
         </button>
       </div>
@@ -279,7 +279,7 @@ function AssistantIdle({ project, a, ended }: { project: ProjectInfo; a: AgentIn
       </p>
       <p className="faint">It doesn't edit files itself. Within Settings → Assistant → Control, it can run agents for you and create projects; everything it does is listed here.</p>
       <div className="btns">
-        <button className="btn primary" onClick={() => void actions.newSession(project.path, AGENT)}>
+        <button className="btn act-start solid" onClick={() => void actions.newSession(project.path, AGENT)}>
           <Icon name="play" /> Start Assistant
         </button>
         {resume}
@@ -384,15 +384,15 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
       : live
         ? [
             { label: 'Compact…', icon: 'fold', disabled: !idle || empty, onClick: compact },
-            { label: 'Stop', icon: 'debug-stop', onClick: stop }
+            { label: 'Stop', icon: 'debug-stop', action: 'stop', onClick: stop }
           ]
-        : [a.resume ? { label: 'New Conversation', icon: 'add', onClick: start } : { label: 'Start', icon: 'play', onClick: start }]
+        : [a.resume ? { label: 'New Conversation', icon: 'add', action: 'start', onClick: start } : { label: 'Start', icon: 'play', action: 'start', onClick: start }]
     menu.openAt(x, y, [
       ...folded,
       live
-        ? { label: 'New Conversation', icon: 'add', onClick: start }
-        : { label: 'Resume', icon: 'debug-continue', disabled: !a.resume, onClick: resume },
-      { label: 'Resume a Conversation…', icon: 'history', onClick: () => void picker.openAt(project, x, y) },
+        ? { label: 'New Conversation', icon: 'add', action: 'start', onClick: start }
+        : { label: 'Resume', icon: 'debug-continue', action: 'resume', disabled: !a.resume, onClick: resume },
+      { label: 'Resume a Conversation…', icon: 'history', action: 'resume', onClick: () => void picker.openAt(project, x, y) },
       { label: 'All Conversations…', icon: 'comment-discussion', onClick: () => showAssistantView('conversations') },
       { separator: true },
       { label: 'Assistant Settings…', icon: 'settings', onClick: () => set({ assistantSettingsOpen: true }) },
@@ -426,17 +426,17 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
         buttons && (
           <>
             {btn(compacting ? 'loading' : 'fold', 'Compact', compact, cx('subtle', suggested && idle && 'suggest'), compactTip, !idle || empty, compacting)}
-            {btn('stop-circle', 'Stop', stop, 'tint-red', 'Stop the Assistant (the conversation is kept)')}
+            {btn('stop-circle', 'Stop', stop, 'act-stop', 'Stop the Assistant (the conversation is kept)')}
           </>
         )
       ) : a.resume ? (
         // A conversation to go back to: Resume first, and stays when the header narrows; New folds into ⋯.
         <>
-          {btn('debug-continue', 'Resume', resume, 'primary', resumeTip)}
-          {buttons && btn('add', 'New conversation', start, 'subtle', 'Start a new conversation')}
+          {btn('debug-continue', 'Resume', resume, 'act-resume solid', resumeTip)}
+          {buttons && btn('add', 'New conversation', start, 'act-start', 'Start a new conversation')}
         </>
       ) : (
-        buttons && btn('play', 'Start', start, 'primary', 'Start the Assistant')
+        buttons && btn('play', 'Start', start, 'act-start solid', 'Start the Assistant')
       )}
       <IconButton icon="ellipsis" title="More" onClick={moreMenu} />
       <IconButton icon={left ? 'chevron-left' : 'chevron-right'} title={`Hide the Assistant (it keeps running)${kb ? ` (${formatKeybinding(kb)})` : ''}`} onClick={() => setAssistantOpen(false)} />

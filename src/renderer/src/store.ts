@@ -6,6 +6,7 @@ import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
 import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectLayout, projectPerPage } from '@shared/defaults'
 import { agentProvider } from '@shared/providers'
 import { setDateStyle } from '@shared/dates'
+import { chooseFocus, deferredFocus } from './deferredFocus'
 import type { ProjectTab } from '@shared/projectTabs'
 import type { ProgressFilter } from '@shared/progress'
 import type { TemplateAgent } from '@shared/templates'
@@ -28,6 +29,7 @@ import type {
   Notice,
   WorkspaceInfo
 } from '@shared/types'
+import type { SessionAction } from './util'
 
 export type Activity = 'projects' | 'overview' | 'performance' | 'board' | 'notes' | 'skills' | 'templates' | 'mcp' | 'assistant' | 'docs' | 'settings'
 export type { ProjectTab } from '@shared/projectTabs'
@@ -51,12 +53,16 @@ export interface ConfirmRequest {
   kind: 'confirm'
   title: string
   message: string
+  /** Items (paths) under the message, one per line, with a Copy button (#347): never lines joined into message. */
+  list?: readonly string[]
   detail?: string
   /** A long detail scrolls in its own box, the dialog's buttons staying in view (a template's agents, #268). */
   scrollDetail?: boolean
   confirmLabel?: string
   cancelLabel?: string
   danger?: boolean
+  /** The session action it confirms (Stop, Remove…): the confirm button takes its colour (#344). */
+  action?: SessionAction
   /** The action, run with the dialog open (a spinner, no closing) until it's done: a failure stays in the dialog. */
   run?: () => Promise<unknown>
   /** The confirm button's label while `run` runs ("Deleting…"). */
@@ -86,8 +92,8 @@ export interface ChoiceRequest {
   message: string
   detail?: string
   danger?: boolean
-  /** Buttons left to right; the last is the default. */
-  choices: { label: string; value: string }[]
+  /** Buttons left to right; the last is the default. A session action's button takes its colour (#344). */
+  choices: { label: string; value: string; action?: SessionAction }[]
   /** A drop-down above the buttons (where to put something); `set` gets the user's pick before the dialog resolves with a button. */
   select?: { label: string; options: { label: string; value: string }[]; initial: string; set: (value: string) => void }
   resolve: (value: string | null) => void
@@ -681,11 +687,15 @@ export function flashPane(key: string): void {
     if (get().paneFlash?.at === at) set({ paneFlash: null })
   }, PANE_FLASH_MS)
   // Once its terminal is on screen (it may be on another page, or its project only now shown), for up to a second.
-  // Timers, not animation frames: those wait while the window is behind others.
+  // Timers, not animation frames: those wait while the window is behind others. Only while nothing newer chose where
+  // the keyboard goes (#327): the user pressing a key or clicking meanwhile, or another agent shown.
+  chooseFocus()
+  const host = (): HTMLElement | undefined => [...document.querySelectorAll<HTMLElement>('.terminal-host[data-pty]')].find((h) => h.dataset.pty === key && !h.classList.contains('hidden'))
+  const current = deferredFocus(host)
   let tries = 0
   const focus = (): void => {
-    const host = [...document.querySelectorAll<HTMLElement>('.terminal-host[data-pty]')].find((h) => h.dataset.pty === key && !h.classList.contains('hidden'))
-    const input = host?.querySelector<HTMLTextAreaElement>('textarea')
+    if (!current()) return
+    const input = host()?.querySelector<HTMLTextAreaElement>('textarea')
     if (input) input.focus()
     else if (++tries < 20) setTimeout(focus, 50)
   }

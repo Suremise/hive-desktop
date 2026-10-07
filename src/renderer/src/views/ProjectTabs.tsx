@@ -1188,7 +1188,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
             </div>
             <IconButton icon="settings" title="Agent settings…" onClick={() => set({ agentSettingsFor: { project: project.path, agentId: a.id } })} />
             {a.worktree && <IconButton icon="git-merge" title={mergeBlocked(a.name, a.live?.status) ?? 'Merge…'} disabled={!!mergeBlocked(a.name, a.live?.status)} onClick={() => set({ mergeFor: { project: project.path, agentId: a.id } })} />}
-            <IconButton icon="close" title="Remove agent…" onClick={() => void actions.removeAgent(project.path, a.id)} />
+            <IconButton icon="close" title="Remove agent…" className="act-remove" onClick={() => void actions.removeAgent(project.path, a.id)} />
           </div>
         )
       })}

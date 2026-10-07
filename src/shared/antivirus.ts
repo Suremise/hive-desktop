@@ -255,6 +255,62 @@ export function statusOf(workspacePath: string, probe: AvProbe, folders: { path:
   }
 }
 
+/** Hive's last suggestion for a workspace (#348): the folders it was about, when, and how many times for them. */
+export interface AvOffer {
+  offerKey: string
+  /** For the wording (a reminder from the second) and diagnostics: never a limit. */
+  count: number
+  /** ISO time. */
+  lastAt: string
+}
+
+/** A suggestion to show: the status, and which time it is for these folders (1, then reminders). */
+export interface AvSuggestion {
+  status: AntivirusStatus
+  count: number
+}
+
+/**
+ * The answer to "suggest now?": the suggestion to show, if any, and when a reminder for these folders may come (while
+ * what makes scanning matter lasts, the window asks again then): null when nothing would be suggested (declined for
+ * good, not slowed).
+ */
+export interface AvSuggestionReply {
+  offer: AvSuggestion | null
+  remindAt: string | null
+}
+
+/** A reminder for the same folders comes a day after the last suggestion at the earliest. */
+export const REMIND_MS = 24 * 60 * 60_000
+
+/** A remembered offer, also #316's form (only the folders' key: suggested once, when not known). Null: none, or not one. */
+export function offerOf(v: unknown): AvOffer | null {
+  if (typeof v === 'string') return v ? { offerKey: v, count: 1, lastAt: '' } : null
+  if (!v || typeof v !== 'object') return null
+  const o = v as Partial<AvOffer>
+  if (typeof o.offerKey !== 'string' || !o.offerKey) return null
+  return { offerKey: o.offerKey, count: typeof o.count === 'number' && o.count >= 1 ? Math.floor(o.count) : 1, lastAt: typeof o.lastAt === 'string' ? o.lastAt : '' }
+}
+
+/**
+ * Whether to suggest now, for the folders a slowed status is about (`offerKey`, empty when nothing is slowed): the
+ * offer to remember, or null. Folders not offered before are suggested at once (a new count); the same folders again
+ * only `spacing` after the last time (when that isn't known, now), with no limit: "Don't ask again" is the user's stop.
+ */
+export function nextOffer(prev: AvOffer | null, offerKey: string, now: Date, spacing = REMIND_MS): AvOffer | null {
+  if (!offerKey) return null
+  if (!prev || prev.offerKey !== offerKey) return { offerKey, count: 1, lastAt: now.toISOString() }
+  const last = Date.parse(prev.lastAt)
+  if (Number.isFinite(last) && now.getTime() - last < spacing) return null
+  return { offerKey, count: prev.count + 1, lastAt: now.toISOString() }
+}
+
+/** When a reminder for these folders may come after `offer` (the last suggestion): null when it was for other folders. */
+export function remindAtOf(offer: AvOffer | null, offerKey: string, spacing = REMIND_MS): string | null {
+  const last = offer && offerKey && offer.offerKey === offerKey ? Date.parse(offer.lastAt) : NaN
+  return Number.isFinite(last) ? new Date(last + spacing).toISOString() : null
+}
+
 /** A status with nothing checked: not Windows, a test copy, or the probe failed. */
 export function emptyStatus(workspacePath: string, scan: 'not-applicable' | 'test-copy' | 'unavailable', folders: { path: string; kind: AvPathKind; unsafe?: string }[], now: Date, error?: string): AntivirusStatus {
   return {

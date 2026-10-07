@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { changeOutcome, covered, devDriveOf, emptyStatus, folderPlan, normPath, parseProbe, pathList, productOn, readableList, statusOf, testsEligible, unsafeFolder, type AvPathKind } from '../src/shared/antivirus'
 
 // Fixtures in the shape main/antivirus.ts's probe prints (Get-MpComputerStatus, Get-MpPreference, Security Center, Get-Volume).
@@ -200,5 +203,60 @@ describe('antivirus scripts (#316)', () => {
     }
     // The paths are single-quoted literals: nothing in them is expanded or run.
     expect(elevatedScript('add', odd, [], 'o')).toContain("'D:\\It''s here\\$env:X'")
+  })
+})
+
+describe('antivirus status cache (#322)', () => {
+  // On a fixture only (HIVE_TEST_ANTIVIRUS): every probe is logged, so a request that probes again shows the status wasn't kept.
+  const base = mkdtempSync(join(tmpdir(), 'hive-av-cache-'))
+  const fixture = join(base, 'fixture.json')
+  const callLog = join(base, 'calls.log')
+  const env = { fixture: process.env.HIVE_TEST_ANTIVIRUS, log: process.env.HIVE_TEST_ANTIVIRUS_LOG }
+  beforeAll(() => {
+    writeFileSync(fixture, JSON.stringify({ probe: probe() }))
+    process.env.HIVE_TEST_ANTIVIRUS = fixture
+    process.env.HIVE_TEST_ANTIVIRUS_LOG = callLog
+  })
+  afterAll(() => {
+    for (const [k, v] of [['HIVE_TEST_ANTIVIRUS', env.fixture], ['HIVE_TEST_ANTIVIRUS_LOG', env.log]] as const) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+    rmSync(base, { recursive: true, force: true })
+  })
+  const probes = (): number => readFileSync(callLog, 'utf8').split('\n').filter((l) => l.includes('"probe"')).length
+  let n = 0
+  /** A workspace as the status needs it: a folder, its lifetime and no projects. */
+  const open = () => {
+    const path = join(base, `ws${++n}`)
+    mkdirSync(path)
+    const life = new AbortController()
+    return { w: { path, lifetime: life.signal, listProjectPaths: async () => [] } as never, close: () => life.abort() }
+  }
+
+  it('keeps one probe per workspace, at most 16 workspaces, and retires a workspace’s status when it closes', async () => {
+    const { statusFor } = await import('../src/main/antivirus')
+    writeFileSync(callLog, '')
+    const first = open()
+    await Promise.all([statusFor(first.w), statusFor(first.w)])
+    await statusFor(first.w)
+    expect(probes()).toBe(1) // Two at once share a probe, and the answer is kept.
+
+    // Sixteen more workspaces: the first one's status, the oldest, is no longer kept; the latest still is.
+    const more = Array.from({ length: 16 }, open)
+    for (const m of more) await statusFor(m.w)
+    expect(probes()).toBe(17)
+    await statusFor(more[15].w)
+    expect(probes()).toBe(17)
+    await statusFor(first.w)
+    expect(probes()).toBe(18)
+
+    // Closing a workspace retires its status: opened again (a new lifetime), it is probed again.
+    await statusFor(more[14].w)
+    expect(probes()).toBe(18)
+    more[14].close()
+    const again = { ...(more[14].w as object), lifetime: new AbortController().signal } as never
+    await statusFor(again)
+    expect(probes()).toBe(19)
   })
 })

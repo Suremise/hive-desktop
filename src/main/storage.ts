@@ -94,7 +94,8 @@ const running = new Map<string, Measuring>()
  * abandons only its own, and all of them when its page goes (abandonWindowStorage, #260): closing a window or
  * reloading its page runs none of the page's clean-up.
  */
-const requests = new Map<string, { window: number | undefined; stops: Set<() => void>; calls: number }>()
+type Request = { window: number | undefined; stops: Set<() => void>; calls: number; abandoned: boolean }
+const requests = new Map<string, Request>()
 const requestKey = (request: string, window: number | undefined): string => `${window ?? ''}:${request}`
 
 /**
@@ -105,7 +106,7 @@ const requestKey = (request: string, window: number | undefined): string => `${w
  */
 export function projectStorage(projectPath: string, refresh = false, request?: string, window?: number): Promise<ProjectStorage> {
   projectPath = workspace.assertSessionHost(projectPath)
-  return asRequest(request, window, (key) => storageOf(projectPath, refresh, key))
+  return asRequest(request, window, (entry) => storageOf(projectPath, refresh, entry))
 }
 
 /** The window no longer waits for this request: its call fails, and a measurement only it waited for stops. */
@@ -121,32 +122,35 @@ export function abandonWindowStorage(window: number): void {
 function abandon(key: string): void {
   const r = requests.get(key)
   requests.delete(key)
-  for (const stop of r?.stops ?? []) stop()
+  if (!r) return
+  r.abandoned = true
+  for (const stop of r.stops) stop()
 }
 
 /**
  * Runs a call under its request. Calls with the same window and id while one is still going share its entry (#299):
  * abandoning the request (the page going) reaches every one of their waits, and the entry goes with the last of them.
- * One sent after the request was abandoned starts a new entry.
+ * One sent after the request was abandoned starts a new entry. Each call keeps its own entry, not the id: one abandoned
+ * while it awaited something stays abandoned, whatever a later call with the same id starts (#338).
  */
-async function asRequest<T>(request: string | undefined, window: number | undefined, run: (key: string | undefined) => Promise<T>): Promise<T> {
+async function asRequest<T>(request: string | undefined, window: number | undefined, run: (entry: Request | undefined) => Promise<T>): Promise<T> {
   if (request === undefined) return run(undefined)
   const key = requestKey(request, window)
-  const mine = requests.get(key) ?? { window, stops: new Set<() => void>(), calls: 0 }
+  const mine = requests.get(key) ?? { window, stops: new Set<() => void>(), calls: 0, abandoned: false }
   requests.set(key, mine)
   mine.calls++
   try {
-    return await run(key)
+    return await run(mine)
   } finally {
     // The last call of its own entry (an abandoned one was already removed, and the same id may have a new one).
     if (--mine.calls === 0 && requests.get(key) === mine) requests.delete(key)
   }
 }
 
-/** `request`: the request's key in `requests`, if it can be abandoned. */
-function storageOf(projectPath: string, refresh: boolean, request: string | undefined): Promise<ProjectStorage> {
-  const stops = request === undefined ? undefined : requests.get(request)?.stops
-  if (request !== undefined && !stops) return Promise.reject(new StorageStopped())
+/** `request`: the call's request entry (asRequest), if it can be abandoned. */
+function storageOf(projectPath: string, refresh: boolean, request: Request | undefined): Promise<ProjectStorage> {
+  if (request?.abandoned) return Promise.reject(new StorageStopped())
+  const stops = request?.stops
   const key = projectPath.toLowerCase()
   const last = results.get(key)
   if (last && !refresh) return Promise.resolve(last)
@@ -212,12 +216,12 @@ async function measure(projectPath: string, refresh: boolean, signal: AbortSigna
 
 /** Every project's storage and the Assistant's, biggest first (one project at a time); `request` as for projectStorage. */
 export function workspaceStorage(refresh = false, request?: string, window?: number): Promise<WorkspaceStorage> {
-  return asRequest(request, window, async (key) => {
+  return asRequest(request, window, async (entry) => {
     const hosts = [...(await workspace.listProjectPaths()), workspace.assistantHome]
     const projects: ProjectStorage[] = []
     for (const p of hosts) {
       try {
-        projects.push(await storageOf(workspace.assertSessionHost(p), refresh, key))
+        projects.push(await storageOf(workspace.assertSessionHost(p), refresh, entry))
       } catch (e) {
         if (e instanceof StorageStopped) throw e
         log.warn(`measuring ${userText(p)}`, e)
