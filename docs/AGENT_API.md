@@ -252,15 +252,15 @@ Shared notes live in the workspace's `.hive/shared` folder. Paths are relative t
 
 `GET /v1/shared` — the notes tree.
 
-`GET /v1/shared/file?path=handovers/2026-09-28-api-auth.md` — `{ path, content }`.
+`GET /v1/shared/file?path=handovers/2026-09-28-api-auth.md` — `{ path, content, revision }`. The revision is a short hash of the note's text.
 
 `PUT /v1/shared/file?path=conventions.md` — create or replace a note:
 
 ```json
-{ "content": "# Conventions\n…", "append": false }
+{ "content": "# Conventions\n…", "append": false, "expectedRevision": "3f9a0c1d2e4b" }
 ```
 
-Set `"append": true` to add to the end of an existing note.
+Set `"append": true` to add to the end of an existing note. `expectedRevision` is optional: with it, the note is written only if it is still at that revision (checked and written under one lock, so two writers that read the same text can't both pass); otherwise nothing is written and the reply is `409` with `{ error, revision }`, the note's current revision (`null` if it no longer exists): read it again, merge, and retry. Without it, the note is written as before; given but not a revision (empty, `null`, not a string), it is refused with `400` and nothing is written. The reply is `{ ok, path, revision }`, the note's new revision.
 
 `POST /v1/shared/handovers` — write a dated handover note into `shared/handovers/`:
 
@@ -349,6 +349,18 @@ Placing a card with `position` or `before` adds a line to its history when it mo
 While an agent watches, its status is `watching` (below), `POST …/agents/{agent}/prompt` is `409`, and starting a card on it is refused.
 
 `POST /v1/tasks/{n}/start` — **the Hive Assistant only** (Control agents): gives the card to an agent of its project, with the card as its prompt, and moves it to `doing`. The prompt is the card's own words (title, `note`, description, the cards it depends on) and, when the agent has Hive's tools, a pointer to the work-on-card skill and how many comments to read. A card in `review` or `done` can be started again for more work; the prompt says it is back and carries its latest comment (the feedback it came back with). `note`: what to do now (up to 4000 characters, such as "address the latest review comment"), added to the prompt before the card. If the card is moved to `done` while the start is under way, it stays there and the start fails. `agent` (name or id): an existing agent that is stopped (a new conversation) or idle (its next message); `409` if it is busy. Without `agent`, Hive adds one: `name`, `provider`, and `worktree: true` for its own git worktree. Returns `{ ok, agent, added, card }`.
+
+### Merge slot
+
+One merge at a time into a project's branch, so the branch can't move while an agent checks and merges (the **merge-ready** skill says when to take it). A slot is per project and branch; `branch` defaults to the branch the project folder is on (what Hive's Merge dialog merges into). Only a running agent of the project, with its own token, can claim or release its slot. Scripts and the Assistant can read it. An agent asking about another project gets `403`.
+
+`GET /v1/projects/{name}/merge-slot?branch=main` — the slot: `{ project, branch, holder, waiting }`. `holder` is `null` when the slot is free, else `{ kind: "agent" | "user", name, cards, since, until, taken }` (times in epoch ms; `taken` is `false` while it is an agent's turn that hasn't claimed it again yet). `waiting` lists who waits, in order.
+
+`POST /v1/projects/{name}/merge-slot/claim` — `{ "branch": "main", "cards": [305], "timeoutSeconds": 240 }` (all optional; 240 by default, at most 290, under the 300 seconds after which Node's `fetch` stops waiting for a reply). It waits in the call until the agent holds the slot, then replies `{ held: true, until, extended, slot }`. On timeout the reply is `{ held: false, position, holder, slot }`: the agent keeps its place for 2 minutes, so claiming again carries on in line. Claiming while holding extends the hold. A hold lasts 60 minutes; a Progress run the holder keeps reporting to (`/v1/progress`) keeps it longer. A hold that runs out goes to the next in line and is reported to the user. An agent whose hold ended without its release (it expired, or the user released it) gets `lost: { branch, why, at }` in its next reply.
+
+`POST /v1/projects/{name}/merge-slot/release` — `{ "branch": "main" }`: `{ released: true, next }` (who has it now), `{ left: true }` (it was waiting, and has left the line) or `{ none: true, holder }`.
+
+A slot is released when its agent's session ends. Hive's Merge dialog takes the slot for the length of the user's merge, and waits while an agent holds or waits for it.
 
 ### Skills and MCP
 
@@ -463,6 +475,7 @@ When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP se
 | `hive_update_task` | `PATCH /v1/tasks/{n}` (with `comment`), short reply |
 | `hive_reorder_tasks` | `POST /v1/tasks/reorder`, short reply |
 | `hive_wait_for_tasks` | `POST /v1/tasks/wait` (`wake: true` for a card watch, `cancel: true` to end it), a line per change |
+| `hive_merge_slot` | `GET /v1/projects/{name}/merge-slot`, `POST …/merge-slot/claim` or `…/release` (the session's project), a line (project agents only) |
 
 Tools default to the session's own project, so an agent can simply say *"create a handover"*. The board tools send the agent's id and project, so a card's history and comments name the agent.
 

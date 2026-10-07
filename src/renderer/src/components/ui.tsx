@@ -203,11 +203,13 @@ export const STATUS_TEXT: Record<SessionStatus | 'idle', string> = {
 const tasks = (n: number): string => `${n} background task${n === 1 ? '' : 's'}`
 
 /** What an agent is doing, in words: its status message, else its status with any background tasks it is running. */
-export function statusText(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'backgroundTasks' | 'question' | 'watch'>): string {
+export function statusText(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'mergeSlot' | 'backgroundTasks' | 'question' | 'watch'>): string {
   const text = ((): string => {
     // Waiting on cards: what for ("Waiting for #12 → Review").
     if (live.status === 'watching' && live.watch) return live.watch.label
     if (live.statusMessage) return live.statusMessage
+    // At the merge slot (#350): waiting for it, or merging.
+    if (live.mergeSlot) return live.mergeSlot
     const n = live.backgroundTasks ?? 0
     if (live.status === 'background') return `Waiting on ${tasks(n)}`
     return n && (live.status === 'finished' || live.status === 'ready') ? `${STATUS_TEXT[live.status]} · ${tasks(n)} running` : STATUS_TEXT[live.status]
@@ -253,7 +255,8 @@ export function signInNote(live: Pick<LiveSessionState, 'status' | 'signIn' | 'p
 
 export function StatusDot({ live, active }: { live: LiveSessionState | null; active: boolean }) {
   const status = live?.status ?? (active ? 'idle' : 'stopped')
-  const base = !live ? STATUS_TEXT[status] : live.statusMessage ? `${STATUS_TEXT[status]} — ${live.statusMessage}` : statusText(live)
+  const said = live?.statusMessage ?? live?.mergeSlot
+  const base = !live ? STATUS_TEXT[status] : said ? `${STATUS_TEXT[status]} — ${said}` : statusText(live)
   const reviewed = live?.review ? `${base} · an action is being reviewed automatically` : base
   const note = signInNote(live)
   const text = note ? <span style={{ whiteSpace: 'pre-line' }}>{`${reviewed}\n${note}`}</span> : reviewed

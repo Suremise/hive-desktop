@@ -31,6 +31,7 @@ import { RootSelector } from './FilesTab'
 import { agentProviderOf, confirm, notify, openInSessionsTab, set, setActivity, showView, useDateStyle, useFocusedAgent, useStore } from '../store'
 import { rememberProjectPref } from '../projectPrefs'
 import { HiveVcsNotice } from '../components/HiveVcsNotice'
+import { MergeSlotList, projectSlots, useMergeSlots } from '../components/MergeSlots'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
 import { useLiveUsage, useNow } from '../usage'
 
@@ -141,6 +142,7 @@ function sessionAgent(project: ProjectInfo, s: SessionListItem): string {
 export function OverviewTab({ project }: { project: ProjectInfo }) {
   const { items, kept, reload, loadedAt, error } = useSessions(project)
   const settings = useStore((s) => s.settings)
+  const slots = projectSlots(useMergeSlots(), project.path)
   const [period, setPeriod] = useState<Period>('all')
   const now = useNow(60000)
   if (!items) return error ? <LoadFailed what="the sessions" error={error} onRetry={reload} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
@@ -159,6 +161,12 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
       <div className="page-narrow">
         <TaskStrip project={project} />
         <HiveVcsNotice project={project} dismissible />
+        {slots.length > 0 && (
+          <>
+            <h2 className="section">Merge slot</h2>
+            <MergeSlotList slots={slots} projectName={() => project.name} showProject={false} />
+          </>
+        )}
         <div className="overview-head">
           <h2 className="section">Project summary</h2>
           <Tooltip content={`Updated ${timeAgo(new Date(loadedAt).toISOString())}. How often it updates: Settings → Sessions → Overview updates.`}>

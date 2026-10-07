@@ -10,6 +10,7 @@ import { agentProviderOf, confirm, focusAfterRemoving, notify, projectKey, set, 
 import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { cx } from '../util'
+import { MergeSlotNote, projectSlots, useMergeSlots } from './MergeSlots'
 import { EffortPicker, ModelPicker } from './ModelPicker'
 import { effortText, modelCaps } from '@shared/models'
 import { pasteIntoTerminal } from './TerminalView'
@@ -768,6 +769,7 @@ export function MergeDialog() {
   const [moveBranch, setMoveBranch] = useState(true)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<MergeResult | null>(null)
+  const slots = useMergeSlots()
 
   useEffect(() => {
     setStatus(null)
@@ -793,6 +795,9 @@ export function MergeDialog() {
   const blocked = mergeBlocked(agent.name, agent.live?.status)
   const nothing = status && status.ahead === 0 && status.dirty === 0
   const folderAgent = project.agents.find((a) => !a.worktree && a.live && (a.live.status === 'ready' || a.live.status === 'finished'))
+  // The branch it merges into is being merged into by an agent, or agents wait for it (#350): Merge waits until it is free.
+  const slot = status?.into ? (projectSlots(slots, project.path).find((s) => s.branch === status.into) ?? null) : null
+  const slotTaken = !!slot && (!!slot.holder || slot.waiting.length > 0)
 
   const merge = async (): Promise<void> => {
     setBusy(true)
@@ -834,7 +839,7 @@ export function MergeDialog() {
             {result?.conflicts ? 'Close' : 'Cancel'}
           </button>
           {!result?.conflicts && (
-            <button className="btn primary" disabled={busy || !status || !!nothing || !status.into || !!blocked} onClick={() => void merge()}>
+            <button className="btn primary" disabled={busy || !status || !!nothing || !status.into || !!blocked || slotTaken} onClick={() => void merge()}>
               <Icon name={busy ? 'loading' : 'git-merge'} spin={busy} /> Merge
             </button>
           )}
@@ -915,6 +920,7 @@ export function MergeDialog() {
             </div>
           )}
           {!status.into && <div className="banner warn">The project folder is not on a branch. Check one out first.</div>}
+          <MergeSlotNote slot={slot} />
           {status.into && status.into !== agent.worktree.base && (
             <div className="banner warn">
               <Icon name="info" /> {agent.name}'s branch started from {agent.worktree.base}, but the project folder is on {status.into}.

@@ -149,9 +149,30 @@ const prose = (seed, n) => {
   const notes = measure('hive_list_shared_notes', tool('hive_list_shared_notes', {}), 1500)
   check('notes: one path a line', /^notes\/note-1\.md \(\d{4}-\d\d-\d\d\)$/m.test(notes), notes)
   const note = measure('hive_read_shared_note', tool('hive_read_shared_note', { path: 'notes/note-1.md' }))
-  check('a note reads as its text', note.startsWith('notes/note-1.md\n\n## Why\n'), note.slice(0, 80))
-  check('writing a note confirms it', measure('hive_write_shared_note', tool('hive_write_shared_note', { path: 'notes/new.md', content: prose(300, 2500) }), 200) === 'Wrote notes/new.md (2,500 characters).' || /^Wrote notes\/new\.md \([\d,]+ characters\)\.$/.test(texts.hive_write_shared_note), texts.hive_write_shared_note)
+  check('a note reads as its text, with its revision', /^notes\/note-1\.md \(revision [0-9a-f]{12}\)\n\n## Why\n/.test(note), note.slice(0, 80))
+  check('writing a note confirms it', /^Wrote notes\/new\.md \([\d,]+ characters, revision [0-9a-f]{12}\)\.$/.test(measure('hive_write_shared_note', tool('hive_write_shared_note', { path: 'notes/new.md', content: prose(300, 2500) }), 200)), texts.hive_write_shared_note)
+  const written = texts.hive_write_shared_note.match(/revision ([0-9a-f]{12})/)?.[1]
   measure('hive_write_shared_note (append)', tool('hive_write_shared_note', { path: 'notes/new.md', content: prose(301, 500), append: true }), 200)
+  // A rewrite naming the revision before that append is refused, with the current one.
+  const stale = tool('hive_write_shared_note', { path: 'notes/new.md', content: 'lost?', expectedRevision: written })
+  measure('hive_write_shared_note (conflict)', stale)
+  check('a stale revision is refused with the current one, in a few lines', stale.isError && /expectedRevision [0-9a-f]{12}/.test(stale.text) && stale.text.length <= 300, stale.text)
+  // A revision given but empty or not a string is refused, never taken as "unguarded" (only leaving it out is).
+  const noteNow = async () => (await api('GET', '/v1/shared/file?path=notes%2Fnew.md')).body
+  const noteBefore = await noteNow()
+  const bad = []
+  for (const v of ['', false, 0, null]) {
+    const r = tool('hive_write_shared_note', { path: 'notes/new.md', content: 'unguarded?', expectedRevision: v })
+    if (!r.isError || !/expectedRevision must be/.test(r.text)) bad.push(`tool ${JSON.stringify(v)}: ${r.text}`)
+  }
+  for (const v of ['', null, 7]) {
+    const r = await api('PUT', '/v1/shared/file?path=notes%2Fnew.md', { content: 'unguarded?', expectedRevision: v })
+    if (r.status !== 400) bad.push(`API ${JSON.stringify(v)}: ${r.status} ${r.text}`)
+  }
+  const noteAfter = await noteNow()
+  check('an empty or invalid revision is refused and changes nothing (tool and API)', !bad.length && noteAfter.content === noteBefore.content && noteAfter.revision === noteBefore.revision, bad.join('; ') || 'the note changed')
+  const fresh = await api('PUT', '/v1/shared/file?path=notes%2Fnew.md', { content: `${noteBefore.content}\nmore`, expectedRevision: noteBefore.revision })
+  check('the current revision writes, and the API gives the new one', fresh.status === 200 && fresh.body.revision !== noteBefore.revision && (await noteNow()).revision === fresh.body.revision, fresh.text)
   measure('hive_read_latest_handover', tool('hive_read_latest_handover', {}))
   check('a handover is saved and named', /^Handover saved as handovers\/.+\.md\.$/.test(measure('hive_create_handover', tool('hive_create_handover', { title: 'Measured', content: prose(400, 3500) }), 300)), texts.hive_create_handover)
   measure('hive_notify', tool('hive_notify', { title: 'Hello', message: 'Measuring' }), 100)
@@ -425,6 +446,21 @@ const prose = (seed, n) => {
   check('metrics: recording adds well under a millisecond to a request', onMs - offMs < 1, `${onMs.toFixed(2)} vs ${offMs.toFixed(2)}`)
   const off = (await api('GET', `/v1/metrics?scope=workspace&from=${encodeURIComponent(since)}`)).body
   check('metrics: turned off, nothing was recorded', workspaceCalls(off) - callsBefore === 1200, String(workspaceCalls(off) - callsBefore))
+
+  // The merge slot (#350): an agent's own launch holds it; replies are a line each.
+  console.log('\n--- merge slot')
+  const slot = (args) => {
+    const r = asCoder('tools/call', { name: 'hive_merge_slot', arguments: { branch: 'main', ...args } })
+    return { text: r.content[0].text, isError: !!r.isError }
+  }
+  check('merge slot: free, in a line', /^Merge slot for main: free\.$/.test(measure('hive_merge_slot (status, free)', slot({ action: 'status' }), 120)), texts['hive_merge_slot (status, free)'])
+  check('merge slot: a claim says it is held and for how long', /^You hold the merge slot for main, \d+ min left\. Release it once merged\.$/.test(measure('hive_merge_slot (claim)', slot({ action: 'claim', cards: [7] }), 160)), texts['hive_merge_slot (claim)'])
+  check('merge slot: claiming again extends it', /\(extended\)/.test(measure('hive_merge_slot (claim, extend)', slot({ action: 'claim' }), 160)), texts['hive_merge_slot (claim, extend)'])
+  check('merge slot: the status names the holder and the cards', /^Merge slot for main: \w+ is merging #7 \(/.test(measure('hive_merge_slot (status, held)', slot({ action: 'status' }), 200)), texts['hive_merge_slot (status, held)'])
+  const scriptClaim = tool('hive_merge_slot', { action: 'claim', branch: 'main' })
+  check("merge slot: a script can't claim it", scriptClaim.isError && /Only a project's own agents hold its merge slot/.test(scriptClaim.text), scriptClaim.text)
+  check('merge slot: released in a line', /^Released the merge slot for main\.$/.test(measure('hive_merge_slot (release)', slot({ action: 'release' }), 120)), texts['hive_merge_slot (release)'])
+  check("merge slot: agents have the tool, the Assistant doesn't", !!toolDescription('hive_merge_slot') && !toolDescription('hive_merge_slot', 'assistant'))
 
   // A request that began in this workspace and ends after the window opened another: counted nowhere (not the next).
   const nextWs = path.join(lib.WORK, 'replysize-next-ws')

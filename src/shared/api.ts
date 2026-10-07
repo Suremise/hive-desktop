@@ -42,6 +42,7 @@ import type {
   LiveSessionState,
   McpServerInfo,
   MergeResult,
+  MergeSlotInfo,
   ModelPrice,
   MemorySource,
   NoteFile,
@@ -422,6 +423,10 @@ export interface HiveRequests {
   'assistant:revertSetting': (actionId: string) => void
   /** Switches this workspace's Assistant to a mode (a persona file): told at once if it runs, else when it starts (#259). */
   'assistant:switchMode': (personaId: string, save?: boolean) => 'told' | 'later' | 'saved'
+  /** This window's workspace's merge slots: those held or waited for (#350). */
+  'mergeSlots:list': () => MergeSlotInfo[]
+  /** The user releases the hold they confirmed (its id) of a project's merge slot; refused if the slot changed hands since. Returns who held it. */
+  'mergeSlots:release': (projectPath: string, branch: string, holdId: string) => string
   /** This window's workspace's progress runs, newest first. */
   'progress:list': () => ProgressRun[]
   /** Moves a finished or stale run to Recent. */
