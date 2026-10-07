@@ -109,8 +109,6 @@ interface LiveSession {
   autoCompactFor?: (running?: string) => AutoCompactSetting
   /** Set while a compaction Hive asked for runs. */
   compacting?: Compaction
-  /** Prompts the CLI has taken in this launch (UserPromptSubmit): a typed line is taken once this goes up (#376). */
-  prompts?: number
   /** The user stopped it (e.g. during its worktree setup), so an early exit isn't reported as a failure. */
   stopRequested?: boolean
   /** Terminal output tail, to see the CLI ready or asking something at the start. */
@@ -160,7 +158,7 @@ interface LiveSession {
   resumed?: boolean
   /** The Hive Assistant's mode (a persona id) its conversation was last given, started in or told: recorded with it. */
   mode?: string
-  /** Prompts the CLI has reported submitted in this launch (UserPromptSubmit), for sendPrompt's confirm. */
+  /** Prompts the CLI has reported submitted in this launch (UserPromptSubmit), for sendPrompt's confirm and a wake's (#376). */
   prompts?: number
 }
 
