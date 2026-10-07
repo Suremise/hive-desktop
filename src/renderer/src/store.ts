@@ -51,6 +51,8 @@ export interface ConfirmRequest {
   kind: 'confirm'
   title: string
   message: string
+  /** Items (paths) under the message, one per line, with a Copy button (#347): never lines joined into message. */
+  list?: readonly string[]
   detail?: string
   /** A long detail scrolls in its own box, the dialog's buttons staying in view (a template's agents, #268). */
   scrollDetail?: boolean
