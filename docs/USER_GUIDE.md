@@ -31,6 +31,12 @@ Hive calls the coding agents it can run **providers**. Each agent in a project c
 - **Conversations stay with their provider.** A Claude Code session can only be resumed by a Claude Code agent, and a Codex session by a Codex agent. To move work to another provider, use **Hand Over to…** (see [Sessions](#sessions)).
 - **What both share.** The workspace's Hive skills (those for project agents), its MCP servers and Hive's own `hive` tools reach every agent, whichever provider it uses. Neither CLI loads MCP servers from your user settings in Hive sessions. Hive never changes either CLI's own configuration files.
 
+### Git
+
+Worktree agents, merging, the **Changes** tab, the unmerged counts on agent tabs, agent templates with worktrees and **Remove All**'s clean-up all use **git**. Install **Git for Windows**, version **2.38 or later** (git-scm.com). **Help → Agent Setup…** shows a **Git** row under every tab: the version Hive found and where, or **Git not found** with how to fix it and a **Git for Windows** button. With an older git, the row says what doesn't work (for example, squash-merged branches still count as unmerged, so their worktrees are kept).
+
+Hive uses the git on its own PATH. If you install git while Hive is open, or Hive was started from the Start menu with a different PATH from your terminal, restart Hive, then **Check again**. While git is missing, the status bar shows **Git** in red, and the screens that need it say *"Git isn't installed (or isn't on Hive's PATH)"* rather than that the project isn't a git repository. Hive never deletes a worktree or branch it can't check with git: they're kept, and it says why. Claude Code also uses Git for Windows' Bash for its commands when it's installed (else PowerShell).
+
 ### Models, effort levels and prices
 
 Hive asks each CLI which models it has and what each can do, so a new model, or one your plan now includes, shows up without waiting for a Hive update. Claude Code and Codex answer for your installed version and your account (asking uses no tokens, and never starts a session). **Settings → <provider> → Models (fallback)** says where the models come from now, for example *From Claude Code 2.1.289*.
@@ -641,6 +647,8 @@ The **Images** tab shows every screenshot and image pasted or dropped into the p
 
 The **Changes** tab lists files changed in the project's git working tree and shows each one as a side-by-side diff against the last commit — a quick way to review what the agent did.
 
+Without git, the tab says so, with the fix (see [Git](#git)).
+
 Hive checks your projects' git status in the background (this tab, branch status, the Files tab's dimmed entries) without writing to the repository's index, so your own `git add` or `git commit`, or an agent's, never fails with *"index.lock: File exists"* because of it. Hive's own git actions, such as **Merge**, still update it as git does. If git is busy when the Files tab lists a folder, ignored entries keep their dimming and the folder is listed again a moment later.
 
 ## Project settings
@@ -831,6 +839,7 @@ In the terminal, Ctrl+C copies when text is selected (otherwise it interrupts th
 - **"… was damaged and has been restored"** — one of Hive's settings or record files couldn't be read (for example after a hand edit). Hive went back to its last good copy (`.bak`) and kept the damaged file next to it as `.corrupt-<date>`.
 - **"Claude Code is required" / "Codex is required"** — install the CLI from **Help → Agent Setup…**, or set its path in the provider's settings page. Having the VS Code extension isn't enough; Hive needs the standalone CLI.
 - **"… is turned off"** — turn the provider on in **Settings → Providers**.
+- **"Git isn't installed (or isn't on Hive's PATH)"**, or **Git** in red in the status bar — install Git for Windows 2.38 or later, or add the folder holding `git.exe` to your PATH, then restart Hive: see [Git](#git).
 - **Agents show Needs sign-in** — their CLI's sign-in has expired: see [When a sign-in expires](#when-a-sign-in-expires).
 - **Codex asks before every command** — its Windows sandbox isn't set up: **Help → Agent Setup… → Codex → Set up**.
 - **An agent couldn't start** — when its CLI quits before it has started (a setting it refuses, a broken install), the bar under its terminal turns red with **Couldn't start:** and what the CLI said, a hint where Hive recognises the problem, **Retry** and **Agent Settings…** (or **Agent Setup…**). Its tab and header turn red, the attention inbox lists it, and if its pane isn't on screen a notification says so. Fix the setting, then Retry; the terminal above keeps everything the CLI printed.

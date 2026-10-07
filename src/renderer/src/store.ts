@@ -10,6 +10,7 @@ import { chooseFocus, deferredFocus } from './deferredFocus'
 import type { ProjectTab } from '@shared/projectTabs'
 import type { ProgressFilter } from '@shared/progress'
 import type { TemplateAgent } from '@shared/templates'
+import type { GitTool } from '@shared/gitTool'
 import type { AgentBranchStatus, AssistantPanelSide, BoardFold, QuitScope, TaskCard, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
 import type {
   AgentApiInfo,
@@ -123,6 +124,8 @@ interface State {
   recent: RecentWorkspace[]
   /** Each provider's installed CLI (install state, version, sign-in, readiness). */
   providers: Record<ProviderId, AgentInstallInfo>
+  /** Whether git itself runs (#346); null until asked. */
+  gitTool: GitTool | null
   /** Subscription limits each provider last reported (account-wide), by provider. */
   planUsage: Record<ProviderId, PlanUsage>
   /** Worktree agents' unmerged work, by projectKey (null: git couldn't check it). */
@@ -307,6 +310,7 @@ export const useStore = create<State>(() => ({
   workspace: null,
   recent: [],
   providers: {},
+  gitTool: null,
   planUsage: {},
   branchStatus: {},
   startFailures: {},

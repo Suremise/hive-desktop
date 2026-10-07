@@ -20,6 +20,7 @@ import { setPinned } from './pin'
 import { presentWindow } from './testQuiet'
 import { insideArchive, insideReal, isFile, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
+import { checkGit, gitTool } from './gitTool'
 import { createLogger, logsDir } from './logger'
 import { diagnostics } from './diagnostics'
 import { keepAwakeCount } from './power'
@@ -725,10 +726,12 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
 
     'git:status': (root, base) => gitStatus(workspace.assertRoot(root), base),
     'git:diff': (root, f, base) => gitDiff(workspace.assertRoot(root), f, base),
+    'git:tool': (recheck) => (recheck ? checkGit() : gitTool()),
 
     'provider:info': () => providerService.all(),
     'provider:refresh': async (id) => {
-      await providerService.refresh(id, true)
+      // Agent Setup's Check again looks at git too (#346).
+      await Promise.all([providerService.refresh(id, true), checkGit()])
       return providerService.all()
     },
     'provider:task': (id, task) => providerService.runProviderTask(id, task),

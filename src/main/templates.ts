@@ -33,6 +33,7 @@ import { sessions } from './sessions'
 import { endReviews, releaseAgentCards } from './tasks'
 import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
+import { gitProblem } from './gitTool'
 
 /**
  * Agent templates (#126): a project's agents and layout saved under a name, in the workspace (`<workspace>/.hive/
@@ -301,7 +302,7 @@ async function notReusable(projectPath: string, w: Reuse, base: string, listed: 
   if (!there) return `git doesn't list ${w.path} as a worktree any more`
   if (there.branch !== w.branch) return `its worktree is on ${there.branch ?? 'no branch'}, not ${w.branch}`
   try {
-    const { dirty } = await wt.branchStatus(projectPath, { path: there.path, branch: w.branch, base }, { strict: true })
+    const { dirty } = await wt.branchStatus(projectPath, { path: there.path, branch: w.branch, base })
     return dirty ? `${w.branch} has ${dirty} uncommitted ${dirty === 1 ? 'file' : 'files'}` : null
   } catch (e) {
     return `Hive couldn't check ${w.branch} (${(e as Error).message.split('\n')[0]})`
@@ -360,7 +361,7 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
     if (a.worktree && existsSync(a.worktree.path)) {
       // As Remove Agent checks before a worktree goes: strictly, so a git that fails never reads as "nothing to lose".
       try {
-        dirty = (await wt.branchStatus(projectPath, a.worktree, { strict: true })).dirty
+        dirty = (await wt.branchStatus(projectPath, a.worktree)).dirty
       } catch (e) {
         blocked.push(`Hive couldn't check ${a.name}'s worktree (${a.worktree.path}): ${(e as Error).message.split('\n')[0]}`)
       }
@@ -376,7 +377,7 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
   }
   for (const m of missing) blocked.push(`${m.reason}, needed by ${m.agents.join(', ')}.`)
   const base = t.agents.some((a) => a.worktree) ? await wt.currentBranch(projectPath) : null
-  if (t.agents.some((a) => a.worktree) && !base) blocked.push('Its worktree agents need the project to be a git repository on a branch.')
+  if (t.agents.some((a) => a.worktree) && !base) blocked.push(gitProblem() ? `${gitProblem()}: its worktree agents need git.` : 'Its worktree agents need the project to be a git repository on a branch.')
   // Where each worktree agent works, as the load makes them, one after another: in this project, never the template's
   // project (a template holds only whether an agent has its own worktree, #268). A clean worktree of the same name is
   // worked in again (#289: the replaced agent's, or an earlier load's), else a new one.

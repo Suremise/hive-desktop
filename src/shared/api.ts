@@ -77,6 +77,7 @@ import type { Artifact, CompareScope, ImportResult, KeptEntry } from './benchmar
 import type { AgentTemplate, TemplateDest, TemplateEntry, TemplateRef, TemplateScope } from './templates'
 import type { ProjectPref, ProjectPrefValue } from './uiPrefs'
 import type { TipsChange, TipsState } from './tips'
+import type { GitTool } from './gitTool'
 import type { BoardFoldChange } from './tasks'
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
@@ -466,6 +467,8 @@ export interface HiveRequests {
   /** root is a project or one of its agents' worktrees. With base, lists everything changed since the branch left base. */
   'git:status': (root: string, base?: string) => GitStatus
   'git:diff': (root: string, file: string, base?: string) => GitDiff
+  /** Whether git itself runs (#346): as last checked, or checked again with `recheck`. */
+  'git:tool': (recheck?: boolean) => GitTool
 
   /** Each provider's installed CLI, by provider. */
   'provider:info': () => Record<ProviderId, AgentInstallInfo>

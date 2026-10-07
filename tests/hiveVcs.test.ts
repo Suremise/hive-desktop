@@ -22,8 +22,9 @@ describe('.hive kept out of version control (#345)', () => {
     const p = folder('project')
     mkdirSync(join(p, '.git', 'info'), { recursive: true })
     writeFileSync(join(p, '.git', 'info', 'exclude'), '# mine\n*.log')
-    expect(await ensureHiveExcluded(p)).toEqual({ excluded: true, root: p, added: true })
-    expect(await ensureHiveExcluded(p)).toEqual({ excluded: true, root: p, added: false })
+    // Not a repository git can read (a bare .git folder): the line is written, but git couldn't confirm it (#346).
+    expect(await ensureHiveExcluded(p)).toEqual({ excluded: true, root: p, added: true, unconfirmed: true })
+    expect(await ensureHiveExcluded(p)).toEqual({ excluded: true, root: p, added: false, unconfirmed: true })
     expect(readFileSync(join(p, '.git', 'info', 'exclude'), 'utf8')).toBe('# mine\n*.log\n# Hive project metadata (added by Hive)\n/.hive/\n')
     expect(await hiveVcs(p)).toEqual({ state: 'excluded' })
   })

@@ -8,6 +8,7 @@ import { readFile, stat } from 'original-fs/promises'
 import { Readable } from 'stream'
 import type { AppInfo, McpServerDef, QuitChoice, QuitScope, QuitSession, WindowState } from '../shared/types'
 import { providerService } from './providerService'
+import { checkGit } from './gitTool'
 import { handoverSession, hiveInstructions, projectHandovers, withLatestHandover, wrapsLongCommands } from '../shared/hiveGuidance'
 import { notesTree } from './notes'
 import { assistantInstructions } from './personas'
@@ -809,6 +810,7 @@ app.whenReady().then(async () => {
     }
   })
   void providerService.refresh()
+  void checkGit()
 })
 
 app.on('second-instance', () => {

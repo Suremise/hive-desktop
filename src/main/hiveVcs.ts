@@ -89,7 +89,7 @@ async function gitIgnores(projectPath: string, excludeFile: string): Promise<boo
   const kept = ignoredCache.get(key)
   if (kept && kept.stamp === stamp && Date.now() - kept.at < 60_000) return kept.ignored
   const r = await git(projectPath, ['check-ignore', '-q', '--no-index', '--', `${HIVE_DIR}/`])
-  // 0: ignored; 1: not; anything else (128, git missing): couldn't say.
+  // 0: ignored; 1: not; anything else (128, git missing: -1): couldn't say.
   if (r.code !== 0 && r.code !== 1) return null
   ignoredCache.set(key, { at: Date.now(), stamp, ignored: r.code === 0 })
   if (ignoredCache.size > 500) ignoredCache.delete(ignoredCache.keys().next().value!)
@@ -99,9 +99,10 @@ async function gitIgnores(projectPath: string, excludeFile: string): Promise<boo
 /**
  * Adds the project's .hive to the info/exclude of the git repository holding it, if it isn't there, then asks git
  * whether it ignores it now (a line Hive wrote isn't proof: a `.gitignore` rule can bring .hive back). Returns that, the
- * repository's working folder and whether Hive added the line; null when no git repository holds the project.
+ * repository's working folder, whether Hive added the line and whether git confirmed it (`unconfirmed`: git couldn't be
+ * asked, missing say, #346); null when no git repository holds the project.
  */
-export async function ensureHiveExcluded(projectPath: string): Promise<{ excluded: boolean; root: string; added: boolean } | null> {
+export async function ensureHiveExcluded(projectPath: string): Promise<{ excluded: boolean; root: string; added: boolean; unconfirmed?: boolean } | null> {
   const found = vcsOf(projectPath)
   if (found?.kind !== 'git') return null
   const gd = await gitDirOf(found.root)
@@ -121,7 +122,7 @@ export async function ensureHiveExcluded(projectPath: string): Promise<{ exclude
   }
   // Git's own answer; only when git can't be asked, the line Hive found or wrote.
   const ignored = await gitIgnores(projectPath, f)
-  return { excluded: ignored ?? true, root: found.root, added }
+  return { excluded: ignored ?? true, root: found.root, added, ...(ignored === null ? { unconfirmed: true } : {}) }
 }
 
 /** Folders sync services copy (OneDrive's from Windows' variables, Dropbox's from its info.json), with their names. */

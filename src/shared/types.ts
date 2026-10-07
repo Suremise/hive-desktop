@@ -7,6 +7,7 @@ import type { TemplateAgent, TemplateScope } from './templates'
 import type { KeepAwakeSetting } from './keepAwake'
 import type { DateFormat, TimeFormat } from './dates'
 import type { ProjectPref } from './uiPrefs'
+import type { GitTool } from './gitTool'
 
 export type ThemeSetting = 'dark' | 'light' | 'system'
 /** A coding-agent CLI Hive can run ("claude-code", "codex"). See src/shared/providers.ts. */
@@ -760,6 +761,8 @@ export interface AddAgentOptions {
 
 export interface ProjectGitInfo {
   isRepo: boolean
+  /** Git can't run (missing or too old, #346): what to say instead of "Needs a git repository". */
+  gitProblem?: string
   current: string | null
   branches: string[]
   /** Worktrees of the project other than the project folder, and whether an agent uses them. */
@@ -1430,6 +1433,8 @@ export interface GitFileChange {
 
 export interface GitStatus {
   isRepo: boolean
+  /** Git can't run (missing or too old, #346): what the Changes tab says instead of "not a git repository". */
+  gitProblem?: string
   branch: string | null
   ahead: number
   behind: number
@@ -1622,6 +1627,8 @@ export type HiveEvent =
   /** What the tips know changed (ui:changeTips): every window's store follows. */
   | { type: 'tips-changed'; tips: TipsState }
   | { type: 'provider-install'; provider: ProviderId; info: AgentInstallInfo }
+  /** Whether git runs changed (#346): every window's store follows. */
+  | { type: 'git-tool'; git: GitTool }
   | { type: 'menu-command'; command: string; args?: unknown[] }
   | { type: 'usage-changed'; projectPath: string; sessionId: string }
   | { type: 'notes-changed' }
