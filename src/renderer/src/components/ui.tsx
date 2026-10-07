@@ -376,6 +376,46 @@ function clampOffset(dialog: HTMLElement, offset: { x: number; y: number }, want
 /** What a press on a dialog's header leaves alone: its buttons and anything typed in or selected. */
 const NOT_A_HANDLE = 'button, a, input, textarea, select, [contenteditable=""], [contenteditable="true"]'
 
+/** The keys held down now, so a dialog that one of them closes can keep the rest of that key press from its opener. */
+const heldKeys = new Set<string>()
+/** Keys whose press, still going on, is kept from what has the focus now (holdBackKeyPress), each until it is released. */
+const heldBack = new Set<string>()
+window.addEventListener('keydown', (e) => heldKeys.add(e.key), true)
+// Enter's keypress (which presses a button) and Space's keyup (likewise) of a held-back press go nowhere.
+window.addEventListener(
+  'keypress',
+  (e) => {
+    if (!heldBack.has(e.key)) return
+    e.preventDefault()
+    e.stopPropagation()
+  },
+  true
+)
+window.addEventListener(
+  'keyup',
+  (e) => {
+    heldKeys.delete(e.key)
+    if (!heldBack.delete(e.key)) return
+    e.preventDefault()
+    e.stopPropagation()
+  },
+  true
+)
+// Released in another window, a key's keyup never comes here: nothing stays held, or held back (#355).
+window.addEventListener('blur', () => {
+  heldKeys.clear()
+  heldBack.clear()
+})
+
+/**
+ * A dialog closed by Enter or Space (Enter in a prompt's field) gives the focus back to its opener while that key is
+ * still down: the rest of the press (Enter's keypress, Space's keyup) would press the opener, a button that opens the
+ * dialog again (#355). Kept from it until that key is released (each key on its own), or the window loses the focus.
+ */
+function holdBackKeyPress(): void {
+  for (const k of ['Enter', ' ']) if (heldKeys.has(k)) heldBack.add(k)
+}
+
 /**
  * A dialog. While `busy` (an action it started is running) it can't be closed (Escape, outside, ×) and its fields and
  * other buttons are disabled; `error` shows the action's failure above the buttons. Every dialog can be dragged by its
@@ -455,7 +495,10 @@ export function Modal({
   useEffect(() => {
     const before = opener.current
     return () => {
-      if (before instanceof HTMLElement && before.isConnected) before.focus()
+      if (before instanceof HTMLElement && before.isConnected) {
+        before.focus()
+        holdBackKeyPress()
+      }
     }
   }, [])
   return (
