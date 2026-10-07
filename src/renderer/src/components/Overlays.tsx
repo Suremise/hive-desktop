@@ -124,6 +124,7 @@ export function Dialogs() {
         }
       >
         <div>{dialog.message}</div>
+        {dialog.list && dialog.list.length > 0 && <DialogList items={dialog.list} />}
         {dialog.detail && <div className={cx('detail', dialog.scrollDetail && 'scroll')}>{dialog.detail}</div>}
         {dialog.check && (
           <label className="flex dialog-check">
@@ -174,6 +175,29 @@ export function Dialogs() {
         </label>
       )}
     </Modal>
+  )
+}
+
+/** A confirm's list (paths): one per line, a long one wrapping inside itself, and a Copy button for them all (#347). */
+function DialogList({ items }: { items: readonly string[] }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="dialog-list">
+      <ul>
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+      <IconButton
+        icon={copied ? 'check' : 'copy'}
+        title={items.length === 1 ? 'Copy' : 'Copy all'}
+        onClick={() => {
+          void navigator.clipboard.writeText(items.join('\n'))
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        }}
+      />
+    </div>
   )
 }
 

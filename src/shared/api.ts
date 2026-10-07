@@ -1,4 +1,4 @@
-import type { AntivirusStatus, AvAction, AvChangeResult } from './antivirus'
+import type { AntivirusStatus, AvAction, AvChangeResult, AvSuggestionReply } from './antivirus'
 import type {
   BoardFold,
   UpdateState,
@@ -256,8 +256,8 @@ export interface HiveRequests {
   'antivirus:prepare': (action: AvAction) => { id: string; action: AvAction; paths: string[]; workspacePath: string }
   /** Runs a prepared change exactly as confirmed, with administrator rights (one UAC prompt); refused if anything changed. Status null: the workspace changed meanwhile. */
   'antivirus:apply': (id: string) => { result: AvChangeResult; status: AntivirusStatus | null }
-  /** Whether to suggest exclusions now (marks the offer made): the status, or null. */
-  'antivirus:suggestion': () => AntivirusStatus | null
+  /** Whether to suggest exclusions now (marks the offer made): the suggestion (status, which time) or null, and when a reminder may come. */
+  'antivirus:suggestion': () => AvSuggestionReply
   /** "Don't ask again" for the window's workspace. */
   'antivirus:dismiss': () => void
   /** What Clean Up… would move to the Recycle Bin with these options. */
