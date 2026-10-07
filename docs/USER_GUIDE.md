@@ -18,7 +18,7 @@ With several Hive windows open, they share what the tips remember: a tip seen, t
 
 ### Moving dialogs
 
-Any dialog (Add Agent, Agent Settings, a card, a question…) can be moved out of the way: drag it by its header. It stays inside the window, and **Escape** while dragging puts it back. A dialog opens in the middle again next time. A question over a dialog moves on its own, and Escape closes just the question. The image viewers stay where they are.
+Any dialog (Add Agent, Agent Settings, a card, a question…) can be moved out of the way: drag it by its header. It stays inside the window, and **Escape** while dragging puts it back. A dialog opens in the middle again next time. A question over a dialog moves on its own, and Escape closes just the question. The image viewers stay where they are. When a dialog closes, the keyboard goes back to what had it before, such as the button that opened it. Pressing **Enter** to confirm a name (New Mode…, a rename) never presses that button again, so the dialog doesn't reopen.
 
 ## Coding agents: Claude Code and Codex
 
