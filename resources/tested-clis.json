@@ -1,12 +1,12 @@
 {
   "codex": {
-    "version": "0.160.1",
+    "version": "0.161.0",
     "testedAt": "2026-10-07",
-    "record": "74957c24bde9"
+    "record": "05b2f5a8609e"
   },
   "claude-code": {
-    "version": "2.1.292",
+    "version": "2.1.293",
     "testedAt": "2026-10-07",
-    "record": "74957c24bde9"
+    "record": "05b2f5a8609e"
   }
 }
