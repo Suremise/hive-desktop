@@ -120,7 +120,7 @@ Bump `FIXTURES_VERSION` in `scenarios.cjs` when a scenario's setup or checks cha
 Each run also writes `benchmark.json` (schema `hive-benchmark/1`, `benchmark.cjs`): for every scenario and sample, whether
 it passed its checks and what Hive's own parts cost in it. Hive's performance metrics are read before the launch and after
 the turn (`GET /v1/metrics` of the run's own workspace), and the difference is the scenario's:
-- **Context Hive gave the session**: launch guidance in parts (core, project, role, persona, the skills' catalog), the
+- **Context Hive gave the session**: launch guidance in parts (core, project, the Assistant's role and mode, the skills' catalog), the
   hive tools' list, and every tool reply (characters and UTF-8 bytes, exact; never tokens).
 - **Work**: tool calls (detail ones too), calls the hive server ran, repeated identical calls, failures, Agent API
   requests and bytes (the harness's own reads are left out), time.
