@@ -505,7 +505,7 @@ const CUSTOM_VALUES: Record<string, SettingEntry['value']> = {
 const SENSITIVE: [RegExp, string][] = [
   [/^agentApi\./, 'The Agent API decides what other programs can do through Hive'],
   [/^assistant\.(control|changeSettings|typingPause|enterEndsPause)$/, "These are the Assistant's own permissions"],
-  [/^assistant\.(provider|persona)$|^assistant\.provider:|^assistant\.[\w-]+\.\w+$/, 'It decides how the Assistant itself runs (its provider, persona, model, effort, mode and arguments)'],
+  [/^assistant\.(provider|persona)$|^assistant\.provider:|^assistant\.[\w-]+\.\w+$/, 'It decides how the Assistant itself runs (its provider, working mode, model, effort, permission mode and arguments)'],
   [/^(project\.)?[\w-]+\.(defaultPermissionMode|permissionMode|enableDangerousMode)$/, 'A permission mode decides how much agents do without asking'],
   [/^(project\.)?[\w-]+\.(executablePath|extraArgs)$/, 'It decides what Hive runs: a CLI and its arguments'],
   [/^[\w-]+\.allowBackgroundSessions$/, "It lets sessions run out of Hive's reach (Hive can't see or stop them)"],
