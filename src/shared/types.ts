@@ -896,6 +896,8 @@ export interface UnusedWorktreePreview {
 /** What removing an unused worktree did: deleted it (and its branch), or kept it and why. */
 export interface UnusedWorktreeRemoval {
   deleted: boolean
+  /** Refused because what was shown is out of date (expired, used, or the worktree changed): a fresh preview can be confirmed (#377). */
+  lookAgain?: boolean
   branchKept?: boolean
   reason?: string
 }

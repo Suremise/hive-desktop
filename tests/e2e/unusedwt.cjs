@@ -134,16 +134,30 @@ function pathWithoutGit() {
   await lib.until(async () => (await danger.count()) === 1, 5000)
   check('Remove anyway… names what goes', (await danger.innerText()).includes(`1 commit on ${ahead.worktree.branch} not on ${main}`), await danger.innerText())
   await shot('anyway')
-  // Changed while the question is open: confirming removes nothing, and says why in the dialog.
+  // Changed while the question is open: confirming removes nothing; the question closes, Hive checks again and asks
+  // afresh with what it holds now (#377), never a Try Again with the spent check.
   fs.writeFileSync(path.join(ahead.worktree.path, 'later.txt'), 'written after the question')
   await danger.getByRole('button', { name: 'Remove Anyway' }).click()
-  check('a worktree changed while the question was open is kept, saying why', !!(await lib.until(async () => /changed since you were shown/.test(await danger.innerText().catch(() => '')), 8000)) && fs.existsSync(path.join(ahead.worktree.path, 'later.txt')), await danger.innerText().catch(() => ''))
-  await page.keyboard.press('Escape')
-  await lib.until(async () => (await danger.count()) === 0, 3000)
-  await aheadRow.getByRole('button', { name: 'Remove anyway…' }).click()
-  await lib.until(async () => (await danger.count()) === 1, 5000)
-  check('asked again, it names the new file too', (await danger.innerText()).includes('2 uncommitted files') || (await danger.innerText()).includes('1 uncommitted file'), await danger.innerText())
-  await danger.getByRole('button', { name: 'Remove Anyway' }).click()
+  const again = page.locator('.dialog', { hasText: 'Checked again: remove it anyway?' })
+  check('a worktree changed while the question was open is kept, and asked about again as it is now', !!(await lib.until(async () => (await again.count()) === 1, 8000)) && /Nothing was removed: it changed since you were shown/.test(await again.innerText()) && (await again.innerText()).includes('1 uncommitted file') && fs.existsSync(path.join(ahead.worktree.path, 'later.txt')), await page.locator('.dialog').last().innerText().catch(() => ''))
+  check('…no Try Again', (await page.getByRole('button', { name: 'Try Again' }).count()) === 0)
+  await shot('again-dark')
+  await theme('light')
+  await shot('again-light')
+  await theme('dark')
+  // Left open past 15 minutes (main's clock moved on in this test copy only): refused, then checked and asked again.
+  await app.evaluate(() => {
+    const real = Date.now.bind(Date)
+    globalThis.__realNow = real
+    Date.now = () => real() + 16 * 60_000
+  })
+  await again.getByRole('button', { name: 'Remove Anyway' }).click()
+  const expired = page.locator('.dialog', { hasText: 'more than 15 minutes ago' })
+  check('a question left open past 15 minutes removes nothing, and asks again with a new check', !!(await lib.until(async () => (await expired.count()) === 1, 8000)) && fs.existsSync(ahead.worktree.path), await page.locator('.dialog').last().innerText().catch(() => ''))
+  await app.evaluate(() => {
+    Date.now = globalThis.__realNow
+  })
+  await expired.getByRole('button', { name: 'Remove Anyway' }).click()
   check('…and removes it, branch too (the branch goes just after the folder)', !!(await lib.until(async () => !fs.existsSync(ahead.worktree.path) && !branches().includes(ahead.worktree.branch), 10000)), JSON.stringify([fs.existsSync(ahead.worktree.path), branches(), (await page.locator('.toast').allInnerTexts()).join(' | ')]))
   check('the section goes with the last of them', !!(await lib.until(async () => (await section.count()) === 0, 8000)))
   await page.locator('.tab', { hasText: 'Changes' }).click()
