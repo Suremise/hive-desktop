@@ -153,7 +153,7 @@ export const AREAS = [
   { paths: ['src/renderer/src/components/Templates.tsx'], suites: ['templateshare'] },
   { paths: ['src/renderer/src/assets/'], suites: ['about', 'providers'] },
   // The providers' adapters are under src/main/providers/ (every suite, above); these say which suites each mainly drives.
-  { paths: ['src/main/providers/claude/'], suites: ['agents', 'agentview', 'launchrace', 'restart', 'resume', 'mode', 'compact', 'image', 'plan', 'claude-real', 'claudehome'] },
+  { paths: ['src/main/providers/claude/'], suites: ['agents', 'agentview', 'launchrace', 'restart', 'resume', 'mode', 'compact', 'image', 'plan', 'claude-real', 'claudehome', 'assistantmode', 'assistantresume'] },
   { paths: ['src/main/providers/codex/'], suites: ['codex', 'codex-background', 'codex-extra', 'codex-handover', 'codex-setup', 'attention', 'skilldelivery', 'sessiontree'] },
   // The run context: every suite (above); isolation checks what it gives a test Hive and the children a suite starts.
   { paths: ['tests/e2e/runContext.cjs', 'src/main/testQuiet.ts'], suites: ['isolation'] },
@@ -161,7 +161,7 @@ export const AREAS = [
   { paths: ['tests/e2e/fake-codex/'], suites: ['attention', 'footerfit', 'skilldelivery', 'models', 'sessiontree', 'termsize'] },
   // Hive's bundled skills and personas, read at runtime (not documentation).
   { paths: ['resources/skills/', 'src/main/bundledHistory.json'], suites: ['skills', 'skillaudience', 'skilldelivery', 'cardloop', 'replysize'] },
-  { paths: ['resources/personas/', 'src/main/assistantMode.ts'], suites: ['assistant', 'assistant-control', 'assistantend', 'assistantmode'] },
+  { paths: ['resources/personas/', 'src/main/assistantMode.ts'], suites: ['assistant', 'assistant-control', 'assistantend', 'assistantmode', 'assistantresume'] },
   // Bundled into the Docs view (About's licence pages, Release Notes, the Agent API reference).
   { paths: ['docs/', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'scripts/licenses.mjs', 'scripts/licenseText.mjs'], suites: ['about'] },
   // The installer's copies (npm run dist first).

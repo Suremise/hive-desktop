@@ -257,19 +257,21 @@ const cliInstalled = {
 }
 /**
  * False only when Claude Code itself says it isn't signed in (`claude auth status --json`); an answer that can't be read
- * counts as signed in, so the suites run and say what is wrong. Asked once a run.
+ * counts as signed in, so the suites run and say what is wrong. Asked once a run for each home: the default one, or
+ * 'test' (CLAUDE_TEST_HOME).
  */
-let claudeSignedIn
-const claudeLoggedIn = () => {
-  if (claudeSignedIn !== undefined) return claudeSignedIn
+const claudeSignedIn = {}
+const claudeLoggedIn = (home = 'default') => {
+  if (claudeSignedIn[home] !== undefined) return claudeSignedIn[home]
   // In the environment the suites' Claude Code gets (no CLAUDE_CONFIG_DIR of the runner's), so it asks about the same sign-in.
-  const r = spawnSync(cliInstalled.claude(), ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 30_000, env: runContext.childEnv() })
+  const env = runContext.childEnv(home === 'test' ? { CLAUDE_CONFIG_DIR: runContext.CLAUDE_TEST_HOME } : {})
+  const r = spawnSync(cliInstalled.claude(), ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 30_000, env })
   try {
-    claudeSignedIn = JSON.parse(r.stdout).loggedIn !== false
+    claudeSignedIn[home] = JSON.parse(r.stdout).loggedIn !== false
   } catch {
-    claudeSignedIn = true
+    claudeSignedIn[home] = true
   }
-  return claudeSignedIn
+  return claudeSignedIn[home]
 }
 
 /** Why a suite can't run here, or null. "environment: …" for the machine's CLIs (the record says so). */
@@ -278,7 +280,8 @@ function skipReason(s) {
   if (needs.includes('packaged') && !existsSync(join(root, 'dist', 'win-unpacked'))) return 'no dist/win-unpacked (npm run dist)'
   if (needs.includes('claude') && !cliInstalled.claude()) return "environment: Claude Code isn't installed (claude)"
   // A suite with a Claude Code home of its own (claudeHome: 'own', a made-up API key) needs no sign-in: none is asked about.
-  if (needs.includes('claude') && s.claudeHome !== 'own' && !claudeLoggedIn()) return "environment: Claude Code isn't signed in (claude auth status)"
+  if (needs.includes('claude') && s.claudeHome === 'test' && !claudeLoggedIn('test')) return `environment: Claude Code isn't signed in to its test home ${runContext.CLAUDE_TEST_HOME} (tests/e2e/README.md)`
+  if (needs.includes('claude') && !s.claudeHome && !claudeLoggedIn()) return "environment: Claude Code isn't signed in (claude auth status)"
   if (needs.includes('codex') && !cliInstalled.codex()) return "environment: Codex isn't installed (codex)"
   if (needs.includes('codex') && !lib.codexSignedIn()) return `environment: Codex isn't signed in to ${lib.CODEX_HOME}`
   return null

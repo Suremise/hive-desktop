@@ -91,7 +91,7 @@ export async function readPersona(id: string): Promise<{ id: string; name: strin
  * What the Assistant is told at launch, after Hive's session contract (hiveInstructions): who it is, the workspace,
  * what Control lets it do, and then its persona's character and focus. A persona can't change what it may do.
  */
-export async function assistantInstructions(personaIdValue: string, control: AssistantControl = 'projects', changeSettings = false): Promise<{ text: string; persona: string; personaText: string }> {
+export async function assistantInstructions(personaIdValue: string, control: AssistantControl = 'projects', changeSettings = false): Promise<{ text: string; persona: string; personaId: string; personaText: string }> {
   const ws = workspace.path ?? ''
   const projects = (await workspace.listProjectPaths()).map((p) => basename(p))
   const persona = (await readPersona(personaIdValue)) ?? (await readPersona(DEFAULT_PERSONA))
@@ -106,5 +106,5 @@ export async function assistantInstructions(personaIdValue: string, control: Ass
     personaText
   ].join('\n')
   // The persona ends the text: a launch measures it as the persona, the rest as the Assistant's role.
-  return { text, persona: persona?.name ?? '', personaText }
+  return { text, persona: persona?.name ?? '', personaId: persona?.id ?? '', personaText }
 }

@@ -847,6 +847,11 @@ export interface SessionRecord {
   keptUsage?: SessionUsage
   /** A session the CLI started for another one (e.g. a Codex guardian review), kept when it was adopted. */
   sub?: SubSession
+  /**
+   * A Hive Assistant conversation's mode (a persona id) it was last given: the one it started in, or the last one Hive
+   * told it. A resume in another mode (or with none recorded) tells it the mode once (#334).
+   */
+  persona?: string
 }
 
 /**

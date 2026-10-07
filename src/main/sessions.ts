@@ -156,6 +156,10 @@ interface LiveSession {
   sizeWarned?: string
   /** This launch resumes a conversation (a failed start's Retry resumes it again). */
   resumed?: boolean
+  /** The Hive Assistant's mode (a persona id) its conversation was last given, started in or told: recorded with it. */
+  mode?: string
+  /** Prompts the CLI has reported submitted in this launch (UserPromptSubmit), for sendPrompt's confirm. */
+  prompts?: number
 }
 
 export interface EffectiveSettings {
@@ -432,8 +436,13 @@ class SessionManager {
   onAssistantExit: (projectPath: string) => void = () => undefined
   /** When the user last typed in each terminal (by pty key), so nothing else types over them. */
   private userInput = new Map<string, { at: number; enter: boolean }>()
-  /** The Hive Assistant's instructions for a launch (who it is, and its persona's), and the persona's name. */
-  assistantInstructions: (projectPath: string, agent: AgentDef) => Promise<{ text: string; persona: string; personaText: string }> = async () => ({ text: '', persona: '', personaText: '' })
+  /** The Hive Assistant's instructions for a launch (who it is, and its persona's), and the persona's name and id. */
+  assistantInstructions: (projectPath: string, agent: AgentDef) => Promise<{ text: string; persona: string; personaId: string; personaText: string }> = async () => ({ text: '', persona: '', personaId: '', personaText: '' })
+  /**
+   * A Hive Assistant conversation was resumed in the mode `persona` (an id): main/assistantMode.ts tells it that mode
+   * once it is idle, if the conversation was last given another (#334).
+   */
+  onAssistantResumed: (projectPath: string, runId: string, sessionId: string, persona: string) => void = () => undefined
   /** An agent's wake-on-change watch, if it has one (main/watches.ts sets this). */
   watchFor: (projectPath: string, agentId: string) => TaskWatchInfo | null = () => null
 
@@ -942,12 +951,15 @@ class SessionManager {
     // Its own Agent API token for this launch, which confines its board calls to its project (the Assistant has its own).
     if (!workspace.isAssistantHome(projectPath)) await newAgentToken({ workspace: workspaceOf(projectPath).path!, projectPath, agentId: agent.id }, state.runId)
     const assistantText = workspace.isAssistantHome(projectPath) ? await this.assistantInstructions(projectPath, agent).catch(() => null) : null
+    // A new conversation starts in its mode; a resumed one is told it if it was last given another (below).
+    l.mode = !resume ? assistantText?.personaId || undefined : undefined
     // This launch's own hook token (#345): in its environment for HTTP hooks, in a file outside the project for hook commands.
     const hookAuth = await newHookToken(state.runId)
     const ctx = {
       projectPath,
       agentId: agent.id,
       executable: info.path,
+      cliVersion: info.version,
       cwd,
       workspacePath: workspaceOf(projectPath).path!,
       runId: state.runId,
@@ -1049,6 +1061,7 @@ class SessionManager {
     l.backupTimer = setInterval(() => void this.backup(projectPath, agent.id), 5000)
     // The process runs now: failing to record it (a full disk) must not leave it untracked.
     if (state.sessionId) await this.recordSession(projectPath, agent, l).catch((e) => log.warn(`${userText(this.label(state))}: could not record session ${state.sessionId}`, e))
+    if (resume && state.sessionId && assistantText?.personaId) this.onAssistantResumed(projectPath, state.runId, state.sessionId, assistantText.personaId)
 
     // Launched as active: starting a session implies working on the project.
     if (!workspace.isAssistantHome(projectPath) && !workspaceOf(projectPath).activeNames().includes(basename(projectPath))) workspace.setActive(projectPath, true)
@@ -1077,6 +1090,8 @@ class SessionManager {
       // The agent running it now; a session can move between agents that share a folder. Its name too, for once it's gone.
       agentId: agent.id,
       agentName: agent.name,
+      // The Assistant's mode its conversation was last given (a resumed one's is unknown until it is told: assistantMode.ts).
+      ...(l.mode ? { persona: l.mode } : {}),
       // Providers that choose their own ids file transcripts by date, not folder: remember where.
       ...(l.transcriptPath && !l.adapter.descriptor.capabilities.fixedSessionId ? { transcriptPath: l.transcriptPath } : {}),
       // Where it ran, when not the project folder (a worktree, or the Assistant's workspace folder).
@@ -1391,6 +1406,17 @@ class SessionManager {
     return Date.now() - u.at < (s?.typingPause ?? 15) * 1000
   }
 
+  /**
+   * The run `runId` of the Hive Assistant was told its mode `persona` (an id): its conversation records it, so a resume
+   * tells it again only after another switch (#334).
+   */
+  async modeGiven(projectPath: string, agentId: string, runId: string, persona: string): Promise<void> {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (!l || l.state.runId !== runId) return
+    l.mode = persona
+    if (l.state.sessionId) await workspace.upsertSession(projectPath, { id: l.state.sessionId, persona })
+  }
+
   /** When the user last typed in an agent's terminal (ms since the epoch), or 0. */
   userTypedAt(projectPath: string, agentId: string): number {
     return this.userInput.get(this.key(projectPath, agentId))?.at ?? 0
@@ -1413,9 +1439,10 @@ class SessionManager {
    * cleared, before each part is typed and before it is sent. Stopped part-way, what Hive typed is cleared again,
    * unless the user has typed since (their input stays).
    */
-  async sendPrompt(projectPath: string, agentId: string, text: string, guard?: () => void): Promise<void> {
+  async sendPrompt(projectPath: string, agentId: string, text: string, guard?: () => void, opts: { confirm?: boolean } = {}): Promise<void> {
     const key = this.key(projectPath, agentId)
-    const runId = this.live.get(liveId(projectPath, agentId))?.state.runId
+    const l = this.live.get(liveId(projectPath, agentId))
+    const runId = l?.state.runId
     if (this.delivering.has(key)) throw new Error('Hive is already typing a prompt into this agent; it is busy.')
     this.delivering.add(key)
     const same = (): boolean => !!runId && this.live.get(liveId(projectPath, agentId))?.state.runId === runId
@@ -1434,7 +1461,29 @@ class SessionManager {
       await typeInto(key, text.replace(/\s+/g, ' ').trim(), () => (check(), true))
       await new Promise((r) => setTimeout(r, 300))
       check()
+      const before = l?.prompts ?? 0
       writePty(key, '\r')
+      // confirm: until the CLI reports the prompt submitted. One just resumed and still drawing its conversation can
+      // drop the Enter, or take it as a new line (#334): Enter again, which an empty prompt ignores. Still not
+      // reported (a CLI that doesn't report prompts), it counts as sent: typing it again could send it twice.
+      const taken = (): boolean => (l?.prompts ?? 0) !== before || !same()
+      for (let i = 0; opts.confirm && i < 3; i++) {
+        const t = Date.now()
+        while (!taken() && Date.now() - t < 3000) await new Promise((r) => setTimeout(r, 100))
+        if (taken()) break
+        if (i === 2) {
+          log.warn(`${userText(this.label(l!.state))}: the CLI didn't report Hive's prompt submitted`)
+          break
+        }
+        // Never an Enter that would send what the user has begun typing, or into a session that got busy.
+        if (this.userTypedAt(projectPath, agentId) >= since) break
+        try {
+          check()
+        } catch {
+          break
+        }
+        writePty(key, '\r')
+      }
     } catch (e) {
       if (typed && same() && this.userTypedAt(projectPath, agentId) < since) writePty(key, '\x15')
       throw e
@@ -2383,6 +2432,7 @@ class SessionManager {
           this.startupAnswered(l)
           break
         case 'prompted':
+          l.prompts = (l.prompts ?? 0) + 1
           if (workspace.isAssistantHome(st.projectPath)) this.onAssistantPrompt(st.projectPath)
           break
         case 'compactBegan':

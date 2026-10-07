@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Hive Assistant
+- **A resumed Assistant uses its current mode.** Resuming the Assistant's conversation kept the instructions it started with: Claude Code sends a conversation's first system prompt again on every resume, so a mode chosen while the Assistant was stopped, **Restart in This Mode…**, or a Hive update's new instructions didn't reach it. Hive now resumes it with its current mode's instructions, and when you switched mode while it wasn't running, tells it the new mode in its conversation once it is ready, as a switch while it runs does.
 - **See the images you've pasted to the Assistant.** The Assistant view (the robot in the activity bar) now has **Modes**, **Conversations** and **Images**. **All Images** shows every screenshot you've pasted or dropped into its conversations, grouped by conversation, with the same viewer as a project's Images tab; click a conversation's name to read it, or move a whole conversation's images to the Recycle Bin at once. Its conversations use the new Sessions tree. Also in the command palette: **Show Assistant Images**.
 - **The Images views say what they hold.** A line under the heading of a project's **Images** tab and the Assistant's **All Images** says whose images they are: those pasted or dropped into the project's agents' sessions, or into the Assistant.
 - **The Assistant's workspace overview lists each project's agents under its name**, with a small indent, however wide the panel is. They used to start a third of the way across, drifting right as the panel widened.
