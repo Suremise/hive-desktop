@@ -10,6 +10,7 @@ import { config } from './config'
 import { logsDir } from './logger'
 import { provider } from './providers'
 import { providerService } from './providerService'
+import { gitTool } from './gitTool'
 import { hiveWindows } from './windows'
 import { GUIDANCE_REVISION } from './guidance'
 import { hiveSkills } from './skills'
@@ -76,6 +77,8 @@ export async function diagnostics(): Promise<string> {
     ]
     return [head, ...extra]
   })
+  const g = gitTool()
+  providerLines.push(`- **Git**: ${g.state === 'missing' ? "not found on Hive's PATH" : g.version ? `${g.version}${g.path ? ` at \`${g.path}\`` : ''}${g.state === 'old' ? ' (older than Hive needs)' : ''}` : `unknown${g.error ? ` (${g.error})` : ''}`}`)
 
   // Bundled skills: Hive's own names, so they are shown; the user's own skills only as a count.
   const skillLines: string[] = []

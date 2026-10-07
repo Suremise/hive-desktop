@@ -91,7 +91,7 @@ export async function removalInfo(projectPath: string): Promise<ProjectRemovalIn
   for (const a of projectAgents(await ws.projectConfig(p))) {
     if (!a.worktree) continue
     // Unknown is not clean: a worktree git can't check counts as holding work.
-    const st = await wt.branchStatus(p, a.worktree, { strict: true }).then(
+    const st = await wt.branchStatus(p, a.worktree).then(
       (s) => ({ ahead: s.ahead, dirty: s.dirty, error: undefined as string | undefined }),
       (e: Error) => ({ ahead: 0, dirty: 0, error: e.message })
     )

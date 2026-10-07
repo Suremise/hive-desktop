@@ -23,7 +23,7 @@ import { providerService } from './providerService'
 import { config } from './config'
 import { emit, onHiveEvent, toast } from './events'
 import { cancelWatch, encodeSince, registerWatch, scopedCard } from './watches'
-import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
+import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
 import { insideReal, readCapped, readJson, withFileLock, writeJsonAtomic, writeTextAtomic } from './fsutil'
 import { GUIDANCE_REVISION, skillRevisions } from './guidance'
 import agentApiDoc from '../../docs/AGENT_API.md?raw'
@@ -42,6 +42,7 @@ import { metricsReport } from './metricsUsage'
 import type { MetricOutcome, MetricsQuery } from '../shared/metrics'
 import { agentForToken, agentToken, agentTokenFile, type AgentIdentity } from './agentTokens'
 import { hookTokenMatches } from './hookTokens'
+import { unusedWorktreeCounts } from './unusedWorktrees'
 
 const log = createLogger('servers')
 const MAX_BODY = 2 * 1024 * 1024
@@ -476,7 +477,13 @@ route('GET', '/v1/projects', async ({ query }) => {
   return out
 })
 
-route('GET', '/v1/projects/:name', async ({ params }) => projectSummary(projectByName(params[0])))
+// One project, with its unused worktrees (#353) when it has any, for the Assistant to mention: counts only, here alone
+// (a git check per worktree, too much for every listing). Removing them is the user's (no route).
+route('GET', '/v1/projects/:name', async ({ params }) => {
+  const p = projectByName(params[0])
+  const unused = await unusedWorktreeCounts(p)
+  return { ...(await projectSummary(p)), ...(unused ? { unusedWorktrees: unused } : {}) }
+})
 
 route('POST', '/v1/projects/:name/activate', async ({ params }) => {
   const p = projectByName(params[0])
@@ -966,7 +973,7 @@ route('POST', '/v1/agents/wait', async ({ body }) => {
     const ws = requireWorkspace()
     targets = sessions.liveStates().filter((s) => busy(s) && workspaceOf(s.projectPath) === ws && !workspace.isAssistantHome(s.projectPath)).map((s) => ({ p: s.projectPath, id: s.agentId }))
   }
-  const limit = Math.min(600, Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
+  const limit = Math.min(AGENT_WAIT_MAX_SECONDS, Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
   // An agent waiting on its background tasks carries on when they end: not done yet, unless the caller says so.
   const throughBackground = body?.ignoreBackground !== true
   const t0 = Date.now()

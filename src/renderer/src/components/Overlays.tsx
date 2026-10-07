@@ -11,6 +11,7 @@ import { discardDrafts, saveAllDrafts, unsavedFiles } from './FileView'
 import type { ProviderId, ProviderTask, QuitChoice, QuitSession, SessionStatus } from '@shared/types'
 import { PROVIDERS, enabledProviders, isProviderEnabled, providerDescriptor } from '@shared/providers'
 import { distinguishingParents } from '@shared/folderLabels'
+import { GIT_DOWNLOAD, GIT_MIN, gitFixText, gitOldText, gitProblemText } from '@shared/gitTool'
 import { ProviderIcon } from './ProviderIcon'
 import { BusyButton, Icon, IconButton, LoadFailed, Modal, STATUS_TEXT, useBackdrop, useBusy } from './ui'
 
@@ -588,6 +589,58 @@ function CodeText({ text }: { text: string }) {
   return <>{text.split('**').map((part, k) => (k % 2 ? <strong key={k}>{code(part, k)}</strong> : code(part, k)))}</>
 }
 
+/**
+ * Git, under every provider's tab (#346): worktrees, merging, the Changes tab and the unmerged counts need it, whichever
+ * CLI runs. Check again looks at it too.
+ */
+function GitSetupRow() {
+  const git = useStore((s) => s.gitTool)
+  const problem = gitProblemText(git)
+  const download = (
+    <button className="btn" onClick={() => void call('app:openExternal', GIT_DOWNLOAD)}>
+      <Icon name="link-external" /> Git for Windows
+    </button>
+  )
+  if (!git || (git.state === 'unknown' && !git.error)) {
+    return (
+      <div className="setup-status setup-git">
+        <Icon name="loading" spin />
+        <div>Looking for Git…</div>
+      </div>
+    )
+  }
+  if (git.state === 'ok') {
+    return (
+      <div className="setup-status setup-git" data-git="ok">
+        <Icon name="pass-filled" />
+        <div className="grow">
+          <div>
+            <strong>Git {git.version}</strong> <span className="muted">— for worktrees, merging and the Changes tab</span>
+          </div>
+          {git.path && <div className="muted mono" style={{ fontSize: 11 }}>{git.path}</div>}
+        </div>
+      </div>
+    )
+  }
+  const title = git.state === 'missing' ? 'Git not found' : git.state === 'old' ? `Git ${git.version} is older than ${GIT_MIN}` : "Couldn't check Git"
+  const detail =
+    git.state === 'old' && !problem
+      ? `${gitOldText(git.version!)} Update Git for Windows to ${GIT_MIN} or later, then restart Hive.`
+      : git.state === 'unknown'
+        ? `${git.error}. Hive needs Git ${GIT_MIN} or later for worktrees, merging and the Changes tab.`
+        : `${problem}: worktree agents, merging, the Changes tab and the unmerged counts don't work. ${gitFixText(git)}`
+  return (
+    <div className="setup-status setup-git" data-git={git.state}>
+      <Icon name="warning" />
+      <div className="grow">
+        <strong>{title}</strong>
+        <div className="muted">{detail}</div>
+      </div>
+      {download}
+    </div>
+  )
+}
+
 /** Installing, updating, signing in to and setting up each provider's CLI, one tab per provider. */
 export function AgentSetupDialog() {
   const open = useStore((s) => s.setupOpen)
@@ -779,6 +832,7 @@ export function AgentSetupDialog() {
           <Icon name="info" /> Ignored {info.rejected.length === 1 ? 'a copy' : 'copies'} bundled with an editor extension (<code>{info.rejected[0]}</code>). Hive only uses the standalone CLI.
         </p>
       )}
+      <GitSetupRow />
       {finished && (
         <div className="banner success" style={{ borderRadius: 6, marginTop: 10 }}>
           <Icon name="pass-filled" />

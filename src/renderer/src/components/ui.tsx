@@ -27,6 +27,8 @@ export function Tooltip({ content, children, delay = 350, block, side, focus }: 
   const tipRef = useRef<HTMLDivElement>(null)
   const [anchor, setAnchor] = useState<Box | null>(null)
   const [placed, setPlaced] = useState<{ left: number; top: number } | null>(null)
+  // Taller than the window at its usual width: as wide as the window (and, still too tall, cut at its height and faded).
+  const [fit, setFit] = useState<'normal' | 'wide' | 'clipped'>('normal')
   const [inner, setInner] = useState(false)
   const parent = useContext(TipParent)
   const shown = !!anchor
@@ -42,6 +44,7 @@ export function Tooltip({ content, children, delay = 350, block, side, focus }: 
       const r = ref.current?.getBoundingClientRect()
       if (!r) return
       setPlaced(null)
+      setFit('normal')
       setAnchor({ left: r.left, top: r.top, right: r.right, bottom: r.bottom })
     }, delay)
   }
@@ -49,15 +52,22 @@ export function Tooltip({ content, children, delay = 350, block, side, focus }: 
     window.clearTimeout(timer.current)
     setAnchor(null)
     setPlaced(null)
+    setFit('normal')
   }
   useEffect(() => () => window.clearTimeout(timer.current), [])
   // Before it paints, and again when its content changes while shown (placed by its new size; set only on a change).
   useLayoutEffect(() => {
-    const tip = tipRef.current?.getBoundingClientRect()
-    if (!anchor || !tip) return
+    const el = tipRef.current
+    const tip = el?.getBoundingClientRect()
+    if (!anchor || !el || !tip) return
+    // Taller than the window has room for (its max-height cuts it): measured again as wide as the window allows before
+    // it is placed, and only if it still doesn't fit, cut and faded (#372).
+    const cut = el.scrollHeight > el.clientHeight + 1
+    if (cut && fit === 'normal') return setFit('wide')
+    if (cut && fit === 'wide') return setFit('clipped')
     const next = placeTip(anchor, { width: tip.width, height: tip.height }, { width: window.innerWidth, height: window.innerHeight }, side)
     if (!placed || next.left !== placed.left || next.top !== placed.top) setPlaced(next)
-  }, [anchor, placed, side, content])
+  }, [anchor, placed, side, content, fit])
   if (!content) return <>{children}</>
   return (
     <span
@@ -74,7 +84,7 @@ export function Tooltip({ content, children, delay = 350, block, side, focus }: 
       {anchor &&
         !inner &&
         createPortal(
-          <div ref={tipRef} className="tip" style={placed ?? { left: 0, top: 0, visibility: 'hidden' }}>
+          <div ref={tipRef} className={cx('tip', fit !== 'normal' && 'wide', fit === 'clipped' && 'clipped')} style={placed ?? { left: 0, top: 0, visibility: 'hidden' }}>
             {content}
           </div>,
           document.body

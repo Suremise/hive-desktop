@@ -13,6 +13,8 @@ import { createInterface } from 'readline'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../../shared/hiveGuidance'
 import { ASSISTANT_ONLY_TOOLS, assistantTools } from '../../shared/assistantTools'
 import { COLUMN_IDS } from '../../shared/tasks'
+import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
+import { agentApiCall } from './agentApiCall'
 import { MAX_ROWS, changedText, createdText, noteText, notesListText, projectListText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 
 const VERSION = '1.0.0'
@@ -40,22 +42,26 @@ function token(): string {
   return ''
 }
 
-async function api(method: string, path: string, body?: unknown): Promise<unknown> {
-  const res = await fetch(API + path, {
-    method,
-    headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json', ...(WORKSPACE ? { 'X-Hive-Workspace': encodeURIComponent(WORKSPACE) } : {}) },
-    body: body === undefined ? undefined : JSON.stringify(body)
-  })
-  const text = await res.text()
+/**
+ * Calls the Agent API. `replyMs` is how long the reply may take: a wait passes its own (waitReplyMs), the rest take the
+ * usual limit. Not fetch, whose 300 s limit on a reply's headers cut longer waits short (#371).
+ */
+async function api(method: string, path: string, body?: unknown, replyMs?: number): Promise<unknown> {
+  const headers = { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json', ...(WORKSPACE ? { 'X-Hive-Workspace': encodeURIComponent(WORKSPACE) } : {}) }
+  const res = await agentApiCall(API + path, method, headers, body === undefined ? undefined : JSON.stringify(body), replyMs)
+  const text = res.text
   let data: unknown = text
   try {
     data = text ? JSON.parse(text) : null
   } catch {
     // keep text
   }
-  if (!res.ok) throw new Error(typeof data === 'object' && data && 'error' in data ? String((data as { error: unknown }).error) : `HTTP ${res.status}`)
+  if (res.status < 200 || res.status >= 300) throw new Error(typeof data === 'object' && data && 'error' in data ? String((data as { error: unknown }).error) : `HTTP ${res.status}`)
   return data
 }
+
+/** How long a wait's reply may take: the wait as Hive will hold it (at most `max`), and a minute to spare. */
+const waitReplyMs = (seconds: unknown, fallback: number, max: number): number => (Math.min(max, Math.max(1, Number(seconds) || fallback)) + 60) * 1000
 
 const projectArg = {
   type: 'string',
@@ -219,7 +225,7 @@ const tools: Tool[] = [
         ignoreBackground: { type: 'boolean' }
       }
     },
-    run: (a) => api('POST', '/v1/agents/wait', { agents: a.agents, timeoutSeconds: a.timeoutSeconds ?? 50, ignoreBackground: a.ignoreBackground === true })
+    run: (a) => api('POST', '/v1/agents/wait', { agents: a.agents, timeoutSeconds: a.timeoutSeconds ?? 50, ignoreBackground: a.ignoreBackground === true }, waitReplyMs(a.timeoutSeconds, 50, AGENT_WAIT_MAX_SECONDS))
   },
   {
     name: 'hive_create_project',
@@ -342,7 +348,7 @@ const tools: Tool[] = [
       taskWaitText(
         (await api('POST', '/v1/tasks/wait', {
           ...(a.cancel ? { cancel: true } : { cards: a.cards, changes: a.changes, column: a.column, wake: a.wake === true, limitMinutes: a.limitMinutes, timeoutSeconds: a.timeoutSeconds, since: a.since })
-        })) as Parameters<typeof taskWaitText>[0]
+        }, a.cancel || a.wake === true ? undefined : waitReplyMs(a.timeoutSeconds, 300, WAIT_MAX_SECONDS))) as Parameters<typeof taskWaitText>[0]
       )
   },
   {

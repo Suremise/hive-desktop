@@ -2,7 +2,8 @@ import { dirname, join, relative, resolve } from 'path'
 import { appendFile, mkdir, readFile } from 'original-fs/promises'
 import { existsSync, readFileSync, statSync } from 'original-fs'
 import { HIVE_DIR } from '../shared/defaults'
-import { git } from './git'
+import { git, gitReading } from './git'
+import { gitProblem } from './gitTool'
 import type { HiveVcs } from '../shared/types'
 
 /**
@@ -89,7 +90,7 @@ async function gitIgnores(projectPath: string, excludeFile: string): Promise<boo
   const kept = ignoredCache.get(key)
   if (kept && kept.stamp === stamp && Date.now() - kept.at < 60_000) return kept.ignored
   const r = await git(projectPath, ['check-ignore', '-q', '--no-index', '--', `${HIVE_DIR}/`])
-  // 0: ignored; 1: not; anything else (128, git missing): couldn't say.
+  // 0: ignored; 1: not; anything else (128, git missing: -1): couldn't say.
   if (r.code !== 0 && r.code !== 1) return null
   ignoredCache.set(key, { at: Date.now(), stamp, ignored: r.code === 0 })
   if (ignoredCache.size > 500) ignoredCache.delete(ignoredCache.keys().next().value!)
@@ -99,9 +100,10 @@ async function gitIgnores(projectPath: string, excludeFile: string): Promise<boo
 /**
  * Adds the project's .hive to the info/exclude of the git repository holding it, if it isn't there, then asks git
  * whether it ignores it now (a line Hive wrote isn't proof: a `.gitignore` rule can bring .hive back). Returns that, the
- * repository's working folder and whether Hive added the line; null when no git repository holds the project.
+ * repository's working folder, whether Hive added the line and whether git confirmed it (`unconfirmed`: git couldn't be
+ * asked, missing say, #346); null when no git repository holds the project.
  */
-export async function ensureHiveExcluded(projectPath: string): Promise<{ excluded: boolean; root: string; added: boolean } | null> {
+export async function ensureHiveExcluded(projectPath: string): Promise<{ excluded: boolean; root: string; added: boolean; unconfirmed?: boolean } | null> {
   const found = vcsOf(projectPath)
   if (found?.kind !== 'git') return null
   const gd = await gitDirOf(found.root)
@@ -121,7 +123,79 @@ export async function ensureHiveExcluded(projectPath: string): Promise<{ exclude
   }
   // Git's own answer; only when git can't be asked, the line Hive found or wrote.
   const ignored = await gitIgnores(projectPath, f)
-  return { excluded: ignored ?? true, root: found.root, added }
+  return { excluded: ignored ?? true, root: found.root, added, ...(ignored === null ? { unconfirmed: true } : {}) }
+}
+
+/** A working folder's own index file (a worktree's is in its own git dir, not the common one), or null. */
+function indexOf(folder: string): string | null {
+  const g = join(folder, '.git')
+  try {
+    if (statSync(g).isDirectory()) return join(g, 'index')
+    const m = readFileSync(g, 'utf8').match(/gitdir:\s*(.+)/)
+    return m ? join(resolve(folder, m[1].trim()), 'index') : null
+  } catch {
+    return null
+  }
+}
+
+/** What git said is tracked under a project's .hive, kept until the repository's index changes (#364). */
+const trackedCache = new Map<string, { stamp: string; files: string[] | null }>()
+
+/**
+ * Files under the project's .hive that git tracks (#364): committed before Hive excluded it (an exclude rule only keeps
+ * untracked files out, so git goes on committing changes to these). `git ls-files` in the project, asked again only
+ * when the repository's index changes (a commit, `git rm --cached`), not at every refresh, or with `fresh`. Null when git
+ * can't say (not kept: asked again next time).
+ */
+export async function trackedHiveFiles(projectPath: string, root: string, opts: { fresh?: boolean } = {}): Promise<string[] | null> {
+  const key = projectPath.toLowerCase()
+  let stamp = ''
+  const index = indexOf(root)
+  try {
+    if (index) {
+      const s = statSync(index)
+      stamp = `${s.mtimeMs}:${s.size}`
+    }
+  } catch {
+    // no index yet: nothing committed
+  }
+  const kept = trackedCache.get(key)
+  if (!opts.fresh && kept && kept.stamp === stamp) return kept.files
+  const r = await gitReading(projectPath, ['ls-files', '-z', '--', HIVE_DIR])
+  trackedCache.delete(key)
+  // Only git's answer is kept: a failed read is asked again next time, never remembered as "nothing tracked".
+  if (!r.ok) return null
+  const files = r.out.split('\0').filter(Boolean)
+  trackedCache.set(key, { stamp, files })
+  if (trackedCache.size > 500) trackedCache.delete(trackedCache.keys().next().value!)
+  return files
+}
+
+/** Paths per `git rm` call, to stay under Windows' command-line limit. */
+const RM_CHUNK = 100
+
+/**
+ * Untracks the files under the project's .hive the user was shown (#364), and only those: git is asked afresh what it
+ * tracks there, and if that isn't exactly the confirmed list (a file staged or untracked since), nothing changes. Then
+ * `git rm --cached` on those literal paths alone (`--literal-pathspecs`, never the folder, so nothing added meanwhile is
+ * touched), which stages their removal and leaves them on disk; the user commits it. Returns how many.
+ */
+export async function untrackHive(projectPath: string, confirmed: string[]): Promise<number> {
+  const found = vcsOf(projectPath)
+  if (found?.kind !== 'git') throw new Error('No git repository holds this project.')
+  const now = await trackedHiveFiles(projectPath, found.root, { fresh: true })
+  if (now === null) throw new Error(`Git couldn't list the files it tracks in .hive${gitProblem() ? ` (${gitProblem()})` : ''}.`)
+  const shown = new Set(Array.isArray(confirmed) ? confirmed.filter((f) => typeof f === 'string') : [])
+  if (now.length !== shown.size || now.some((f) => !shown.has(f))) throw new Error('The files git tracks in .hive changed since you were shown them: nothing was untracked. Look again.')
+  try {
+    for (let i = 0; i < now.length; i += RM_CHUNK) {
+      const r = await git(projectPath, ['--literal-pathspecs', 'rm', '--cached', '--quiet', '--', ...now.slice(i, i + RM_CHUNK)])
+      if (!r.ok) throw new Error(`git rm --cached failed: ${gitProblem() ?? (r.err.split(/\r?\n/)[0] || `exit code ${r.code}`)}`)
+    }
+  } finally {
+    trackedCache.delete(projectPath.toLowerCase())
+  }
+  return now.length
 }
 
 /** Folders sync services copy (OneDrive's from Windows' variables, Dropbox's from its info.json), with their names. */
@@ -162,5 +236,7 @@ export async function hiveVcs(projectPath: string): Promise<HiveVcs> {
   if (!found) return withSync({ state: 'none' })
   if (found.kind === 'other') return withSync({ state: 'other-vcs', vcs: found.name })
   const r = await ensureHiveExcluded(projectPath).catch(() => null)
-  return withSync(r?.excluded ? { state: 'excluded' } : { state: 'not-excluded' })
+  // Excluded or not, files committed before stay tracked (#364).
+  const tracked = (await trackedHiveFiles(projectPath, found.root).catch(() => null))?.length ?? 0
+  return withSync({ state: r?.excluded ? 'excluded' : 'not-excluded', ...(tracked ? { tracked } : {}) })
 }
