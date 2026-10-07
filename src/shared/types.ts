@@ -7,6 +7,7 @@ import type { TemplateAgent, TemplateScope } from './templates'
 import type { KeepAwakeSetting } from './keepAwake'
 import type { DateFormat, TimeFormat } from './dates'
 import type { ProjectPref } from './uiPrefs'
+import type { GitTool } from './gitTool'
 
 export type ThemeSetting = 'dark' | 'light' | 'system'
 /** A coding-agent CLI Hive can run ("claude-code", "codex"). See src/shared/providers.ts. */
@@ -760,6 +761,8 @@ export interface AddAgentOptions {
 
 export interface ProjectGitInfo {
   isRepo: boolean
+  /** Git can't run (missing or too old, #346): what to say instead of "Needs a git repository". */
+  gitProblem?: string
   current: string | null
   branches: string[]
   /** Worktrees of the project other than the project folder, and whether an agent uses them. */
@@ -788,9 +791,48 @@ export interface WorktreeCheck {
   /** The branch it must be merged into: the repository's main branch (`primaryBranch`; null: it has none). */
   into: string | null
   reason?: string
-  /** The branch's commit that was checked, and the main branch's commit it was found merged into (removable ones). */
+  /** The branch's commit that was checked, and the main branch's commit it was checked against (it is merged into it when removable). */
   tip?: string
   intoTip?: string
+  /** Once git could count them: commits not merged into `into`, and uncommitted files. */
+  ahead?: number
+  dirty?: number
+}
+
+/**
+ * A git worktree of a project that no agent of it works in (#353): kept when its agent was removed, or made outside
+ * Hive. `check` is the merged-and-clean check (#291's `worktreeCheck`; git failing counts as not removable).
+ */
+export interface UnusedWorktree {
+  path: string
+  /** Null: detached. */
+  branch: string | null
+  check: WorktreeCheck
+  /** The commit its folder has checked out; with `check.dirty`, what Remove anyway was shown it would lose. */
+  head?: string
+  /** Its last commit: when (ISO) and its subject. */
+  lastCommit?: { at: string; subject: string }
+}
+
+/** A project's unused worktrees, or why git couldn't list them. */
+export interface UnusedWorktrees {
+  worktrees: UnusedWorktree[]
+  gitProblem?: string
+}
+
+/** Remove anyway's confirmation (#353): what it loses, checked now; `token` is what the removal presents. */
+export interface UnusedWorktreePreview {
+  token: string
+  path: string
+  branch: string | null
+  lost: string[]
+}
+
+/** What removing an unused worktree did: deleted it (and its branch), or kept it and why. */
+export interface UnusedWorktreeRemoval {
+  deleted: boolean
+  branchKept?: boolean
+  reason?: string
 }
 
 /** What removing an agent did with its worktree: deleted it (and its branch), or kept it and why (Remove All, #291). */
@@ -1016,6 +1058,8 @@ export interface HiveVcs {
   state: 'excluded' | 'not-excluded' | 'other-vcs' | 'none'
   vcs?: string
   sync?: string
+  /** Files under .hive git tracks (#364): committed before it was excluded, so git goes on committing their changes. */
+  tracked?: number
 }
 
 export interface WorkspaceInfo {
@@ -1293,6 +1337,8 @@ export interface ProjectStorage {
   images: number
   /** The agents' worktree folders. */
   worktrees: { agent: string; path: string; bytes: number }[]
+  /** Worktrees no agent works in (#353), counted in the total. */
+  unusedWorktrees?: { path: string; branch: string | null; bytes: number }[]
   total: number
   computedAt: string
 }
@@ -1435,6 +1481,8 @@ export interface GitFileChange {
 
 export interface GitStatus {
   isRepo: boolean
+  /** Git can't run (missing or too old, #346): what the Changes tab says instead of "not a git repository". */
+  gitProblem?: string
   branch: string | null
   ahead: number
   behind: number
@@ -1627,6 +1675,8 @@ export type HiveEvent =
   /** What the tips know changed (ui:changeTips): every window's store follows. */
   | { type: 'tips-changed'; tips: TipsState }
   | { type: 'provider-install'; provider: ProviderId; info: AgentInstallInfo }
+  /** Whether git runs changed (#346): every window's store follows. */
+  | { type: 'git-tool'; git: GitTool }
   | { type: 'menu-command'; command: string; args?: unknown[] }
   | { type: 'usage-changed'; projectPath: string; sessionId: string }
   | { type: 'notes-changed' }

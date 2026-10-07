@@ -1,7 +1,9 @@
 // A project's .hive kept out of version control (#345): a repository's own info/exclude gets it at once; a project with
 // no repository shows the notice in its Overview (which ✕ dismisses) and Project Settings (which always shows it); a
 // `git init` made later is excluded at the next refresh, and the notice goes. Exclude refuses where no git repository
-// holds the project. Dev build, throwaway profile and workspace, quiet.
+// holds the project. A project whose .hive was committed before (#364) says how many files git still tracks, with the
+// command, and Untrack… (after a confirmation listing them) untracks them, leaving them on disk. Dev build, throwaway
+// profile and workspace, quiet.
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -10,6 +12,7 @@ const userData = path.join(lib.WORK, 'hivevcs-profile')
 const ws = path.join(lib.WORK, 'hivevcs-ws')
 const plain = path.join(ws, 'plain')
 const repo = path.join(ws, 'repo')
+const committed = path.join(ws, 'committed')
 let failed = 0
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
@@ -28,6 +31,10 @@ const excludeOf = (p) => {
   fs.mkdirSync(plain, { recursive: true })
   fs.writeFileSync(path.join(plain, 'notes.md'), '# Notes\n')
   lib.gitProject(repo)
+  // .hive committed with add -A, before Hive ever excluded it.
+  fs.mkdirSync(path.join(committed, '.hive'), { recursive: true })
+  fs.writeFileSync(path.join(committed, '.hive', 'notes.md'), 'kept by an old Hive')
+  lib.gitProject(committed)
   lib.enableProviders(userData)
   const { app, page, inv } = await lib.launch({ userData, viewport: { width: 1300, height: 800 } })
   page.on('pageerror', (e) => check('no page errors', false, e.message))
@@ -69,6 +76,35 @@ const excludeOf = (p) => {
   // Exclude on a repository: nothing to add, nothing repeated.
   await inv('project:excludeHive', plain)
   check('Exclude on an excluded repository adds nothing more', (excludeOf(plain).match(/\/\.hive\//g) ?? []).length === 1, excludeOf(plain))
+
+  // --- Committed before it was excluded (#364).
+  const tracked = await state(committed)
+  check('a committed .hive: excluded, and its tracked files counted', tracked?.state === 'excluded' && tracked.tracked === 1, JSON.stringify(tracked))
+  await page.getByText('committed', { exact: true }).first().click()
+  await page.locator('.tabs .tab', { hasText: 'Overview' }).click()
+  const trackedNotice = page.locator('.hive-vcs-notice', { hasText: 'committed to git' })
+  check('the Overview says it is committed, with the command and Untrack…', !!(await lib.until(async () => (await trackedNotice.count()) === 1, 10000)) && (await trackedNotice.innerText()).includes('git rm -r --cached .hive') && (await trackedNotice.getByRole('button', { name: 'Untrack…' }).count()) === 1, await trackedNotice.innerText().catch(() => ''))
+  await shot('tracked-dark')
+  await inv('settings:update', { appearance: { theme: 'light' } })
+  await lib.sleep(300)
+  await shot('tracked-light')
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await trackedNotice.getByRole('button', { name: 'Untrack…' }).click()
+  const ask = page.locator('.dialog', { hasText: 'Untrack this file?' })
+  check('Untrack… lists the file first', !!(await lib.until(async () => (await ask.count()) === 1, 5000)) && (await ask.innerText()).includes('.hive/notes.md'), await ask.innerText().catch(() => ''))
+  await shot('untrack')
+  // A file staged while the question is open isn't one the user agreed to: nothing is untracked, and it says so.
+  fs.writeFileSync(path.join(committed, '.hive', 'later.md'), 'staged after the question')
+  lib.git(committed, ['add', '-f', '.hive/later.md'])
+  await ask.getByRole('button', { name: 'Untrack' }).click()
+  check('a file staged while the question was open: nothing untracked, saying why', !!(await lib.until(async () => /changed since you were shown them/.test(await ask.innerText().catch(() => '')), 8000)) && lib.git(committed, ['ls-files', '--', '.hive']).includes('.hive/later.md') && lib.git(committed, ['ls-files', '--', '.hive']).includes('.hive/notes.md'), await ask.innerText().catch(() => ''))
+  await ask.getByRole('button', { name: 'Cancel' }).click()
+  lib.git(committed, ['rm', '--cached', '-q', '.hive/later.md'])
+  await trackedNotice.getByRole('button', { name: 'Untrack…' }).click()
+  await lib.until(async () => (await ask.count()) === 1, 5000)
+  await ask.getByRole('button', { name: 'Untrack' }).click()
+  check('…untracks it: the notice goes', !!(await lib.until(async () => (await trackedNotice.count()) === 0 && !(await state(committed))?.tracked, 10000)))
+  check('…the file stays on disk, its removal staged for the user to commit', fs.existsSync(path.join(committed, '.hive', 'notes.md')) && /^D  \.hive\/notes\.md$/m.test(lib.git(committed, ['status', '--porcelain'])), lib.git(committed, ['status', '--porcelain']))
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')

@@ -42,6 +42,7 @@ import { metricsReport } from './metricsUsage'
 import type { MetricOutcome, MetricsQuery } from '../shared/metrics'
 import { agentForToken, agentToken, agentTokenFile, type AgentIdentity } from './agentTokens'
 import { hookTokenMatches } from './hookTokens'
+import { unusedWorktreeCounts } from './unusedWorktrees'
 
 const log = createLogger('servers')
 const MAX_BODY = 2 * 1024 * 1024
@@ -476,7 +477,13 @@ route('GET', '/v1/projects', async ({ query }) => {
   return out
 })
 
-route('GET', '/v1/projects/:name', async ({ params }) => projectSummary(projectByName(params[0])))
+// One project, with its unused worktrees (#353) when it has any, for the Assistant to mention: counts only, here alone
+// (a git check per worktree, too much for every listing). Removing them is the user's (no route).
+route('GET', '/v1/projects/:name', async ({ params }) => {
+  const p = projectByName(params[0])
+  const unused = await unusedWorktreeCounts(p)
+  return { ...(await projectSummary(p)), ...(unused ? { unusedWorktrees: unused } : {}) }
+})
 
 route('POST', '/v1/projects/:name/activate', async ({ params }) => {
   const p = projectByName(params[0])

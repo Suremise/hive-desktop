@@ -14,6 +14,7 @@ import { createLogger, userText } from './logger'
 import { allProviders } from './providers'
 import { worktreesRoot } from './worktrees'
 import { ensureHiveExcluded, gitDirOf, hiveVcs } from './hiveVcs'
+import { gitProblem } from './gitTool'
 
 const log = createLogger('workspace')
 
@@ -386,6 +387,8 @@ export class WorkspaceService {
   async ensureGitExclude(projectPath: string): Promise<void> {
     const r = await ensureHiveExcluded(projectPath)
     if (r?.added) log.info(`Excluded .hive from git in ${userText(r.root)}`)
+    // The line is there whatever git can do; git missing only means it couldn't confirm a .gitignore doesn't bring .hive back (#346).
+    if (r?.unconfirmed) log.info(`Git couldn't confirm .hive is ignored in ${userText(r.root)}${gitProblem() ? ` (${gitProblem()})` : ''}`)
   }
 
   async branch(projectPath: string): Promise<string | null> {
