@@ -1,8 +1,8 @@
 // The Progress panel's store and rules: a run is its starter's (by token), others can't touch it; limits; merged
 // updates; stale runs; the taskbar's combined bar; time left.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ProgressError, ProgressStore, admitReport, type ProgressCaller } from '../src/main/progress'
-import { MAX_OPEN_PER_OWNER, MAX_RUNS_PER_WORKSPACE, PASSED_SHOWN_MS, STRIP_BARS, ALL_PROJECTS, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices, filterRuns, inStrip, isListed, isOverdue, isRecent, runDetailsText, stripRuns, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
+import { ProgressError, ProgressStore, admitReport, keptRuns, type ProgressCaller, type ProgressHistory } from '../src/main/progress'
+import { MAX_OPEN_PER_OWNER, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices, filterRuns, inStrip, isListed, isOverdue, isRecent, runDetailsText, stripRuns, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
 import type { ProgressRun } from '../src/shared/types'
 import { setDateStyle } from '../src/shared/dates'
 
@@ -107,17 +107,26 @@ describe('progress runs', () => {
     expect(status(() => s.start(alfie, { title: 'room again' }))).toBeNull()
   })
 
-  it(`keeps at most ${MAX_RUNS_PER_WORKSPACE} runs, dropping finished ones oldest first, never open ones`, () => {
+  it(`keeps the newest ${RECENT_KEPT} ended runs (the next drops the oldest), never dropping open ones`, () => {
     const s = store()
     const first = s.start(betty, { title: 'open, oldest' })
-    for (let i = 0; i < MAX_RUNS_PER_WORKSPACE + 5; i++) {
-      const r = s.start(alfie, { title: `r${i}` })
-      s.finish(alfie, r.id, { ok: true })
-    }
+    for (let i = 0; i < RECENT_KEPT; i++) s.finish(alfie, s.start(alfie, { title: `r${i}` }).id, { ok: true })
+    expect(s.list(WS).length).toBe(RECENT_KEPT + 1)
+    expect(s.list(WS).at(-2)?.title).toBe('r0')
+    // The 201st ended run: r0, the oldest ended, goes; the open one stays.
+    s.finish(alfie, s.start(alfie, { title: `r${RECENT_KEPT}` }).id, { ok: false })
     const list = s.list(WS)
-    expect(list.length).toBe(MAX_RUNS_PER_WORKSPACE)
+    expect(list.length).toBe(RECENT_KEPT + 1)
+    expect(list.some((r) => r.title === 'r0')).toBe(false)
+    expect(list.at(-2)?.title).toBe('r1')
     expect(list.some((r) => r.id === first.id)).toBe(true)
-    expect(list[0].title).toBe(`r${MAX_RUNS_PER_WORKSPACE + 4}`)
+    expect(list[0].title).toBe(`r${RECENT_KEPT}`)
+    // A dismissed stale run ends too, and counts the same.
+    running = false
+    s.sweep()
+    s.dismiss(WS, first.id)
+    expect(s.list(WS).length).toBe(RECENT_KEPT)
+    expect(s.list(WS).some((r) => r.id === first.id)).toBe(false)
   })
 
   it('finishing: passed fills the bar, failed marks the failure unseen until the panel is looked at; no changes after', () => {
@@ -230,23 +239,23 @@ describe('progress runs', () => {
 
   // --- Review round 1 (Codex): each finding, as found.
 
-  it(`holds the workspace to ${MAX_RUNS_PER_WORKSPACE} runs across many owners, stale ones counting as open`, () => {
+  it(`holds the workspace to ${MAX_OPEN_PER_WORKSPACE} open runs across many owners, stale ones counting as open`, () => {
     const s = store()
     const owner = (i: number): ProgressCaller => ({ ...alfie, agentId: `a-${i}`, agentName: `A${i}` })
     const first = s.start(owner(0), { title: 'stale soon' })
     running = false
     s.sweep() // the first goes stale: still open
     running = true
-    for (let i = 1; i < MAX_RUNS_PER_WORKSPACE; i++) s.start(owner(i), { title: `r${i}` })
-    expect(s.list(WS).length).toBe(MAX_RUNS_PER_WORKSPACE)
+    for (let i = 1; i < MAX_OPEN_PER_WORKSPACE; i++) s.start(owner(i), { title: `r${i}` })
+    expect(s.list(WS).length).toBe(MAX_OPEN_PER_WORKSPACE)
     expect(status(() => s.start(owner(999), { title: 'one too many' }))).toBe(429)
     expect(status(() => s.start(script, { title: 'a script too' }))).toBe(429)
-    expect(s.list(WS).length).toBe(MAX_RUNS_PER_WORKSPACE)
-    // An ended run makes room: a dismissed stale one, then a finished one.
+    expect(s.list(WS).length).toBe(MAX_OPEN_PER_WORKSPACE)
+    // A run that ends makes room: a dismissed stale one, which stays under Recent.
     s.dismiss(WS, first.id)
     expect(status(() => s.start(owner(999), { title: 'room' }))).toBeNull()
-    expect(s.list(WS).length).toBe(MAX_RUNS_PER_WORKSPACE)
-    expect(s.list(WS).some((r) => r.id === first.id)).toBe(false)
+    expect(s.list(WS).length).toBe(MAX_OPEN_PER_WORKSPACE + 1)
+    expect(s.list(WS).some((r) => r.id === first.id)).toBe(true)
     expect(status(() => s.start(owner(1000), { title: 'full again' }))).toBe(429)
     // Another workspace has its own bound.
     expect(status(() => s.start(otherWsScript, { title: 'elsewhere' }))).toBeNull()
@@ -544,5 +553,136 @@ describe('progress rules', () => {
     )
     // Only what a run has: no command, provider, steps, exit code, log or summary.
     expect(runDetailsText(run({ title: 'build', agentName: 'Script', startedAt: start }), null, start + 40_000)).toBe(['Run: build', 'Agent: Script', 'Started: 2026-10-05 20:57', 'Took: 40 s so far', 'State: Running'].join('\n'))
+  })
+})
+
+describe('progress history (#352): Recent kept across restarts', () => {
+  /** A kept file per workspace, in memory, with the calls made. */
+  const files = (): ProgressHistory & { saved: Map<string, unknown>; forgot: number } => {
+    const saved = new Map<string, unknown>()
+    const h = {
+      saved,
+      forgot: 0,
+      load: async (ws: string) => structuredClone(saved.get(ws.toLowerCase()) ?? null),
+      save: async (ws: string, runs: ProgressRun[]) => void saved.set(ws.toLowerCase(), structuredClone({ version: 1, runs })),
+      forget: async () => {
+        saved.clear()
+        h.forgot++
+      }
+    }
+    return h
+  }
+  const kept = (h: ReturnType<typeof files>, ws = WS): ProgressRun[] => (h.saved.get(ws.toLowerCase()) as { runs: ProgressRun[] } | undefined)?.runs ?? []
+  const withHistory = (h: ProgressHistory): ProgressStore =>
+    new ProgressStore({ now: () => now, changed: (ws, runs) => changes.push({ ws, runs }), ownerRunning: () => running, emitEveryMs: 250, history: h, saveAfterMs: 2000 })
+
+  it('saves ended runs shortly after they end (not open ones); a restart brings them back, seen, under Recent', async () => {
+    const h = files()
+    const s = withHistory(h)
+    await s.loadHistory(WS)
+    const open = s.start(alfie, { title: 'still going' })
+    const a = s.start(alfie, { title: 'unit' })
+    s.finish(alfie, a.id, { ok: false, summary: '2 failed', logPath: 'C:\\logs\\unit.log' })
+    now += 1000
+    const b = s.start(script, { title: 'build' })
+    s.finish(script, b.id, { ok: true })
+    expect(kept(h)).toEqual([])
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(kept(h).map((r) => r.title)).toEqual(['build', 'unit'])
+    // After a restart: a new store, a run reported before the window asked.
+    now += 60_000
+    const after = withHistory(h)
+    const early = after.start(betty, { title: 'early' })
+    await after.loadHistory(WS)
+    const list = after.list(WS)
+    expect(list.map((r) => r.title)).toEqual(['early', 'build', 'unit'])
+    expect(list.some((r) => r.id === open.id)).toBe(false)
+    const unit = list.find((r) => r.id === a.id)!
+    expect(unit).toMatchObject({ state: 'failed', summary: '2 failed', logPath: 'C:\\logs\\unit.log', workspacePath: WS })
+    expect(isRecent(unit, now)).toBe(true)
+    expect(after.logOf(WS, a.id)).toBe('C:\\logs\\unit.log')
+    expect(after.list(WS)[0].id).toBe(early.id)
+    expect(changes.at(-1)?.runs.length).toBe(3)
+    // Loading again in the same opening changes nothing.
+    await after.loadHistory(WS)
+    expect(after.list(WS).length).toBe(3)
+  })
+
+  it('a save before the history has loaded keeps what the file holds; the cap holds across both', async () => {
+    const h = files()
+    h.saved.set(WS.toLowerCase(), { runs: Array.from({ length: RECENT_KEPT }, (_, i) => ({ id: `old-${i}`, title: `old ${i}`, state: 'passed', source: 'api', agentName: 'Script', startedAt: 500_000 - i, finishedAt: 500_001 - i })) })
+    const s = withHistory(h)
+    s.finish(alfie, s.start(alfie, { title: 'new' }).id, { ok: true })
+    await vi.advanceTimersByTimeAsync(2000)
+    const titles = kept(h).map((r) => r.title)
+    expect(titles.length).toBe(RECENT_KEPT)
+    expect(titles[0]).toBe('new')
+    expect(titles.at(-1)).toBe(`old ${RECENT_KEPT - 2}`)
+  })
+
+  it('a closing workspace saves at once; turning the panel off forgets every kept run, and a load under way lands nowhere', async () => {
+    const h = files()
+    const s = withHistory(h)
+    await s.loadHistory(WS)
+    s.finish(alfie, s.start(alfie, { title: 'just ended' }).id, { ok: true })
+    s.clear(WS)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(kept(h).map((r) => r.title)).toEqual(['just ended'])
+    // Opened again: back.
+    await s.loadHistory(WS)
+    expect(s.list(WS).map((r) => r.title)).toEqual(['just ended'])
+    // Closed while it loads: nothing lands.
+    s.clear(WS)
+    const loading = s.loadHistory(WS)
+    s.clear(WS)
+    await loading
+    expect(s.list(WS)).toEqual([])
+    // The panel turned off: memory and files go, a save waiting doesn't happen.
+    await s.loadHistory(WS)
+    s.finish(script, s.start(script, { title: 'pending save' }).id, { ok: true })
+    s.clear()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(h.forgot).toBe(1)
+    expect(h.saved.size).toBe(0)
+    expect(s.list(WS)).toEqual([])
+  })
+
+  it('saveNow (quitting) writes the saves still waiting', async () => {
+    const h = files()
+    const s = withHistory(h)
+    s.finish(betty, s.start(betty, { title: 'last one' }).id, { ok: true })
+    await s.saveNow()
+    expect(kept(h).map((r) => r.title)).toEqual(['last one'])
+  })
+
+  it('a damaged or edited file gives only well-formed runs, cut to their limits, each once, at most RECENT_KEPT', () => {
+    expect(keptRuns(null, WS)).toEqual([])
+    expect(keptRuns('nonsense', WS)).toEqual([])
+    expect(keptRuns({ runs: 'x' }, WS)).toEqual([])
+    const good = { id: 'g', title: 'ok', state: 'failed', source: 'agent', agentName: 'Alfie', agentId: 'a-1', projectPath: 'C:\\ws\\alpha', provider: 'claude-code', startedAt: 1, finishedAt: 2 }
+    const runs = keptRuns(
+      {
+        runs: [
+          good,
+          { ...good }, // the same id again
+          { ...good, id: 'running', state: 'running' },
+          { ...good, id: 'no-end', finishedAt: null },
+          { ...good, id: 'no-title', title: '' },
+          { ...good, id: 'bad-source', source: 'mallory' },
+          7,
+          null,
+          { ...good, id: 'long', title: 'x'.repeat(5000), summary: 'y'.repeat(5000), provider: 'mallory', workspacePath: 'C:\\elsewhere', seenAt: null },
+          { ...good, id: 'script', source: 'api', agentId: 'a-1', projectPath: 'C:\\ws\\alpha' }
+        ]
+      },
+      WS
+    )
+    expect(runs.map((r) => r.id)).toEqual(['g', 'long', 'script'])
+    const long = runs[1]
+    expect(long.title.length).toBeLessThanOrEqual(120)
+    expect(long.summary!.length).toBeLessThanOrEqual(500)
+    expect(long).toMatchObject({ provider: null, workspacePath: WS, seenAt: 2, estimateMs: null })
+    expect(runs[2]).toMatchObject({ agentId: null, projectPath: null })
+    expect(keptRuns({ runs: Array.from({ length: RECENT_KEPT + 50 }, (_, i) => ({ ...good, id: `r${i}` })) }, WS).length).toBe(RECENT_KEPT)
   })
 })

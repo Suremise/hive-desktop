@@ -6834,6 +6834,41 @@ button.progress-run-show:focus-visible {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A list showing its first few, with Show all n for the rest (ShowAllList, #352): unfolded, they all scroll inside the
+   same height, so nothing around it moves. */
+.show-all-list.all {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+.show-all-fold {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 5px 0;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+.show-all-fold:hover {
+  color: var(--fg);
+}
+.show-all-fold .codicon {
+  font-size: 14px;
+}
+.progress-panel .show-all-fold {
+  padding: 4px 12px;
+}
+.progress-recent-list.all {
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
 .progress-section {
   margin: 10px 12px 4px;
   font-size: 11px;

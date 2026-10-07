@@ -16,14 +16,16 @@ export const PASSED_SHOWN_MS = 10_000
 
 /** Open runs one agent (or the Assistant, or scripts in a workspace) may have at once. */
 export const MAX_OPEN_PER_OWNER = 5
-/** Runs kept in a workspace, whoever reported them: ended ones make room (oldest first); beyond it, no new run starts. */
-export const MAX_RUNS_PER_WORKSPACE = 30
+/** Open runs a workspace may have at once, whoever reported them: beyond it, no new run starts. */
+export const MAX_OPEN_PER_WORKSPACE = 30
+/** Ended runs a workspace keeps for Recent (#352), across restarts: the oldest go first. */
+export const RECENT_KEPT = 200
 export const MAX_TITLE = 120
 export const MAX_STEP_NAME = 120
 export const MAX_COMMAND = 200
 export const MAX_SUMMARY = 500
 export const MAX_LOG_PATH = 400
-/** Recent keeps this many ended runs. */
+/** Recent shows this many ended runs at first; Show all shows the rest it keeps (RECENT_KEPT). */
 export const RECENT_RUNS = 10
 export const MAX_TOTAL = 100_000
 export const MAX_ESTIMATE_MS = 7 * 24 * 3_600_000

@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import { join } from 'path'
 import { ASSISTANT_AGENT_ID, ASSISTANT_DIR } from '../shared/assistant'
 import { HIVE_DIR } from '../shared/defaults'
@@ -5,14 +6,23 @@ import { taskbarProgress } from '../shared/progress'
 import type { ProgressRun } from '../shared/types'
 import { config } from './config'
 import { emit } from './events'
+import { hashText, readJson, removePath, writeTextAtomic } from './fsutil'
+import { createLogger, userText } from './logger'
 import { ProgressStore } from './progress'
 import { sessions } from './sessions'
 import { hiveWindows, windowShowing } from './windows'
 import { WorkspaceService } from './workspace'
 
+const log = createLogger('progress')
+
+/** Where Recent's runs are kept between starts (#352): a file per workspace in Hive's profile. */
+const historyDir = (): string => join(app.getPath('userData'), 'progress-history')
+const historyFile = (workspacePath: string): string => join(historyDir(), `${hashText(workspacePath.toLowerCase())}.json`)
+
 /**
  * The app's progress runs: the store, wired to the windows (the panel's event and the taskbar's bar), to sessions
- * (a stopped agent's runs go stale), and to Settings → General → Progress panel (off forgets every run).
+ * (a stopped agent's runs go stale), to each workspace's kept history, and to Settings → General → Progress panel
+ * (off forgets every run, kept ones too).
  */
 export const progress = new ProgressStore({
   now: () => Date.now(),
@@ -24,6 +34,12 @@ export const progress = new ProgressStore({
     const path = run.source === 'assistant' ? join(run.workspacePath, HIVE_DIR, ASSISTANT_DIR) : run.projectPath
     const agent = run.source === 'assistant' ? ASSISTANT_AGENT_ID : run.agentId
     return !!path && !!agent && sessions.liveFor(path, agent) !== null
+  },
+  history: {
+    load: (workspacePath) => readJson<unknown>(historyFile(workspacePath), null),
+    save: (workspacePath, runs) =>
+      writeTextAtomic(historyFile(workspacePath), JSON.stringify({ version: 1, runs })).catch((e) => log.warn(`could not keep Recent for ${userText(workspacePath)}`, e)),
+    forget: () => removePath(historyDir()).catch((e) => log.warn('could not forget Recent', e))
   }
 })
 
