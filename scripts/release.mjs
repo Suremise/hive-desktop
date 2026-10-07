@@ -3,7 +3,8 @@
 // CLI's login. Nothing reaches users until the draft is reviewed and published on GitHub.
 // See RELEASING.md.
 import { execSync, spawnSync } from 'child_process'
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
+import { MANIFEST, manifestStale } from './testedClis.mjs'
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 let token
@@ -16,6 +17,17 @@ try {
 const dirty = execSync('git status --porcelain').toString().trim()
 if (dirty) {
   console.error('Commit or stash your changes first; a release is built from a clean tree.\n' + dirty)
+  process.exit(1)
+}
+// The CLI versions this release was tested with (#365): made from the real tier's run record on this code.
+const manifestFile = new URL(`../${MANIFEST}`, import.meta.url)
+const changedSince = (commit) => {
+  const r = spawnSync('git', ['diff', '--name-only', commit, 'HEAD'], { encoding: 'utf8' })
+  return r.status === 0 ? r.stdout.split(/\r?\n/).filter(Boolean) : null
+}
+const stale = manifestStale(existsSync(manifestFile) ? JSON.parse(readFileSync(manifestFile, 'utf8')) : null, changedSince)
+if (stale) {
+  console.error(`${MANIFEST} isn't of this code: ${stale}. Run the real tier on this commit (npm run e2e -- --all --real --build --record), then npm run tested-clis, and commit the manifest (RELEASING.md).`)
   process.exit(1)
 }
 

@@ -5,6 +5,7 @@ import { homedir, release, version as osVersion } from 'os'
 import { basename, join } from 'path'
 import { redact, redactLog, type RedactContext } from '../shared/redact'
 import { providerName } from '../shared/providers'
+import { testedComparison } from '../shared/testedClis'
 import type { AgentInstallInfo, ProviderId } from '../shared/types'
 import { config } from './config'
 import { logsDir } from './logger'
@@ -69,6 +70,8 @@ export async function diagnostics(): Promise<string> {
     const set = s.providers[id]
     const head = `- **${providerName(id)}**: ${set?.enabled ? 'on' : 'off'}; ${info.found ? `${info.version ?? 'version unknown'} at \`${info.path ?? '?'}\`${info.source ? ` (${info.source})` : ''}` : 'not found'}; signed in: ${yesNo(info.loggedIn)}${info.updateAvailable && info.latestVersion ? `; ${info.latestVersion} available` : ''}`
     const extra = [
+      // The version this release was tested with (#365): what a bug report about the CLI needs first.
+      ...(info.tested ? [`  - this Hive release was tested with ${info.tested.version}${info.tested.testedAt ? ` (${info.tested.testedAt})` : ''}; installed: ${info.found ? testedComparison(info.tested) : 'not found'}`] : ['  - no tested version recorded for this Hive release']),
       ...(set?.executablePath ? ['  - its path is set in Settings'] : []),
       ...(set?.extraArgs ? ['  - extra arguments are set'] : []),
       ...(info.editorExtensionOnly ? ["  - only an editor extension's copy was found"] : []),

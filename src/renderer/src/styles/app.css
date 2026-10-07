@@ -7,6 +7,8 @@
   --accent-strong: #d97706;
   --accent-soft: rgba(245, 158, 11, 0.16);
   --accent-fg: #1b1b1b;
+  /* A fill carrying an --accent-fg label (the primary button, #360): the accent itself here, 8.0:1. */
+  --accent-fill: var(--accent);
   --honey-light: #ffc444;
   /* The accent as an icon on the activity bar: at least 3:1 against it (6.5:1 here). */
   --accent-on-activity: var(--accent);
@@ -57,6 +59,9 @@
   --status-bg: #d97706;
   --status-fg: #1b1208;
   --status-hover: rgba(0, 0, 0, 0.12);
+  /* Items that stand out on the bar (#384): lighter, since the label is dark (a darker wash brought it to 3.3:1). */
+  --status-caution: rgba(255, 255, 255, 0.28);
+  --status-raised: rgba(255, 255, 255, 0.18);
 
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   --scrollbar: rgba(121, 121, 121, 0.4);
@@ -69,6 +74,9 @@
   --accent-strong: #b45309;
   --accent-soft: rgba(217, 119, 6, 0.14);
   --accent-fg: #ffffff;
+  /* A fill carrying an --accent-fg label (the primary button, #360). White on --accent is 3.2:1; this is the same
+     amber hue darkened only as far as AA needs (4.6:1). Hovered, --accent-strong (5.0:1). */
+  --accent-fill: #b16105;
   --honey-light: #f59e0b;
   /* --accent is 2.6:1 on the light activity bar; the stronger one is 4.1:1. */
   --accent-on-activity: var(--accent-strong);
@@ -109,9 +117,13 @@
   --act-resume-on: #1b1b1b;
   --act-resume-shade: #ffffff;
 
-  --status-bg: #d97706;
+  /* The amber darkened only as far as AA needs for the white label (#384, as the primary button's, #360): 4.6:1. Hovered
+     and the items that stand out go darker, never lighter. */
+  --status-bg: var(--accent-fill);
   --status-fg: #ffffff;
-  --status-hover: rgba(255, 255, 255, 0.16);
+  --status-hover: rgba(0, 0, 0, 0.12);
+  --status-caution: rgba(0, 0, 0, 0.28);
+  --status-raised: rgba(0, 0, 0, 0.18);
 
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.16);
   --scrollbar: rgba(100, 100, 100, 0.3);
@@ -336,9 +348,12 @@ kbd {
   font-size: 14px;
   color: var(--fg-muted);
 }
+/* Hovered or chosen from the keyboard: filled with --accent-fill, so every part of the entry reads at AA on it in both
+   themes (#362): the label, icon and shortcut in --accent-fg, and a second line, a greyed entry's label and Recent's ✕
+   like the label. Session actions take their own wash instead (below). */
 .menu-item:hover:not(.disabled),
 .menu-item.active:not(.disabled) {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-fg);
 }
 .menu-item:hover:not(.disabled) .codicon,
@@ -346,6 +361,10 @@ kbd {
 .menu-item.active:not(.disabled) .codicon,
 .menu-item.active:not(.disabled) .menu-key {
   color: var(--accent-fg);
+}
+.menu-item:is(:hover, .active):not(.disabled) :is(.menu-detail, .menu-label),
+.menu-item.recent-item:is(:hover, .active) .recent-remove:not(:hover) {
+  color: inherit;
 }
 .menu-item.disabled {
   color: var(--fg-faint);
@@ -434,7 +453,7 @@ kbd {
   min-width: 16px;
   height: 16px;
   border-radius: 8px;
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-fg);
   font-size: 10px;
   font-weight: 700;
@@ -833,11 +852,8 @@ kbd {
   color: #fff;
 }
 .status-item.caution {
-  background: rgba(0, 0, 0, 0.28);
+  background: var(--status-caution);
   font-weight: 600;
-}
-.status-sub {
-  opacity: 0.8;
 }
 /* Between a provider's plan limits ("5h 55% · Week 35%"): larger, bold and spaced, so it's seen. */
 .status-sep {
@@ -874,7 +890,7 @@ kbd {
   cursor: default;
 }
 .btn.primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-fg);
   font-weight: 600;
 }
@@ -1902,7 +1918,7 @@ p.hint {
   color: var(--fg-muted);
 }
 .palette-item.active {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-fg);
 }
 .palette-item.active .cat,
@@ -2482,6 +2498,22 @@ p.hint {
 }
 .setup-detail {
   margin: -4px 2px 12px;
+}
+/* The CLI version Hive was tested with (#365). */
+.setup-tested {
+  margin-top: 2px;
+  font-size: 12px;
+}
+.setup-tested .codicon {
+  font-size: inherit;
+  margin-left: 4px;
+  vertical-align: -2px;
+}
+.setup-tested-ok {
+  color: var(--success);
+}
+.setup-tested .hint {
+  margin: 2px 0 0;
 }
 .setup-detail .hint {
   margin: 0 0 6px;
@@ -3114,10 +3146,11 @@ p.hint {
   line-height: 1.5;
 }
 
-/* A tinted button: a soft wash of the accent (Add Agent where Resume would be). Session actions have their own colours (below). */
+/* A tinted button: a soft wash of the accent (Add Agent where Resume would be), labelled like the tinted Resume beside
+   which it stands (--act-resume-fg: AA on the wash, #360). Session actions have their own colours (below). */
 .btn.tint-amber {
   --tint: var(--accent);
-  color: var(--tint);
+  color: var(--act-resume-fg);
   background: color-mix(in srgb, var(--tint) 12%, transparent);
   border-color: color-mix(in srgb, var(--tint) 45%, transparent);
 }
@@ -4995,12 +5028,13 @@ body.pane-resizing .monaco-editor {
 
 /* ---------- Hive updates ---------- */
 .statusbar .status-item.update-item {
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--status-raised);
   font-weight: 600;
 }
+/* Ready to install: a light chip on the bar, its amber label at AA (the tinted Resume's, #384). */
 .statusbar .status-item.update-item.ready {
   background: var(--bg-elevated);
-  color: var(--accent);
+  color: var(--act-resume-fg);
 }
 .update-dialog {
   min-width: 380px;
@@ -5333,6 +5367,92 @@ body.pane-resizing-v .monaco-editor {
   position: relative;
   height: 24px;
   flex-shrink: 0;
+}
+/* The status line under the header (#312): one calm line, in the attention colour when it needs you. */
+.assistant-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.assistant-status.busy {
+  color: var(--fg);
+}
+.assistant-status.attention {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+.assistant-status > .tip-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.assistant-status-text {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assistant-status-card {
+  padding: 0 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-active);
+  color: var(--fg);
+  font: inherit;
+  font-size: 11px;
+  line-height: 15px;
+  cursor: pointer;
+}
+.assistant-status-card:hover {
+  border-color: var(--accent);
+}
+/* What the Assistant did, under the footer (#312): the last 3, Show all scrolling inside the same height. */
+.assistant-actions {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-subtle);
+  padding-bottom: 2px;
+}
+.assistant-actions-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  text-align: left;
+}
+.assistant-actions-head:hover {
+  color: var(--fg);
+}
+.assistant-actions-head .faint {
+  font-weight: normal;
+}
+.assistant-actions-head .codicon {
+  font-size: 14px;
+}
+/* Every row the same height, a setting's with its Revert button too, so the list's 3 rows are its height unfolded. */
+.assistant-actions .assistant-action {
+  box-sizing: border-box;
+  height: 24px;
+}
+.assistant-actions .show-all-fold {
+  padding: 3px 12px;
+  font-size: 12px;
 }
 .assistant-idle {
   position: absolute;
@@ -6556,7 +6676,7 @@ textarea.input.task-blocked-input {
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-fg);
   font-size: 10px;
   font-weight: 700;

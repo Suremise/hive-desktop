@@ -36,10 +36,72 @@ export function fingerprint(root = process.cwd()) {
   return `${head}+${h.digest('hex').slice(0, 12)}`
 }
 
+/** The real CLIs a run can use (suites.mjs `needs`): the provider each one is, by its id and name. */
+export const REAL_CLIS = { claude: { id: 'claude-code', name: 'Claude Code' }, codex: { id: 'codex', name: 'Codex' } }
+
+/** The file in a suite's folder where its test copies of Hive note the CLIs they selected (HIVE_TEST_CLI_LOG). */
+export const CLI_LOG = 'hive-clis.jsonl'
+
+/**
+ * The CLIs a suite's test copies of Hive selected (#365): each provider's executable and version as Hive's own
+ * detection chose them (main's noteSelectedCli writes a line per check to HIVE_TEST_CLI_LOG), once each. Not a probe of
+ * the runner's: what the suite ran is what Hive picked (a standalone CLI, never an editor extension's copy).
+ */
+export function readCliLog(text) {
+  const seen = new Map()
+  for (const line of String(text ?? '').split(/\r?\n/)) {
+    try {
+      const o = JSON.parse(line)
+      if (typeof o?.provider === 'string' && typeof o?.version === 'string') seen.set(`${o.provider}\0${o.version}\0${o.path ?? ''}`, { provider: o.provider, version: o.version, path: typeof o.path === 'string' ? o.path : null })
+    } catch {
+      // Not a line Hive wrote (a partial one): ignored.
+    }
+  }
+  return [...seen.values()]
+}
+
+/**
+ * The versions of each real CLI that the real suites of it ran, from what their Hive selected: { claude: ['2.1.292'] }.
+ * More than one means the suites ran different versions.
+ */
+export function realCliVersions(results, suites) {
+  const out = {}
+  for (const [need, { id }] of Object.entries(REAL_CLIS)) {
+    const names = new Set(suites.filter((s) => (s.needs ?? []).includes(need)).map((s) => s.name))
+    const versions = [...new Set(results.filter((r) => names.has(r.name)).flatMap((r) => (r.clis ?? []).filter((c) => c.provider === id).map((c) => c.version)))]
+    if (versions.length) out[need] = versions.sort()
+  }
+  return out
+}
+
+/** The real CLIs' versions, in words: "Claude Code 2.1.292, Codex 0.160.1" (several: "Codex 0.160.1 and 0.161.0"). */
+const cliLine = (clis) =>
+  Object.entries(clis)
+    .map(([k, v]) => `${REAL_CLIS[k]?.name ?? k} ${v.join(' and ')}`)
+    .join(', ')
+
+/**
+ * The record as data (run-record.json beside run-record.md), for scripts: `npm run tested-clis` makes the release's
+ * tested-with manifest from it (#365). The code, whether it can be trusted, the real CLIs' versions, each suite's
+ * result (the last run's, for a repeat: a valid record had every run pass) with the CLIs its Hive selected.
+ */
+export function recordJson({ code, when, results, problems = [], notRun = [], clis = {} }) {
+  return {
+    code,
+    when,
+    valid: !problems.length,
+    problems,
+    clis,
+    results: results.map((r) => ({ name: r.name, ok: !!r.ok, skipped: r.skipped ?? null, environment: !!r.environment, clis: r.clis ?? [] })),
+    notRun
+  }
+}
+
 /** The record as Markdown, to paste into a card comment: the fingerprint, each suite's result and time, the logs; and
- * first, if it can't be trusted (recordStatus), why. After the table: the real tier not run (notRun), and the suites
- * skipped for the environment (a real CLI's usage limit, sign-in, network), which are no result for the code. */
-export function recordMarkdown({ code, when, jobs, results, logDir, summary, problems = [], runs = null, notRun = [] }) {
+ * first, if it can't be trusted (recordStatus), why. After the table: the real CLIs' versions (clis, when real suites
+ * ran), the real tier not run (notRun), and the suites skipped for the environment (a real CLI's usage limit, sign-in,
+ * network), which are no result for the code. */
+export function recordMarkdown({ code, when, jobs, results, logDir, summary, problems = [], runs = null, notRun = [], clis = {} }) {
   // A skip's reason can quote the CLI: no | to break the table.
   const skippedCell = (r) => `skipped: ${r.skipped.replace(/\|/g, '/')}`
   const cell = (r) => (!r ? '–' : r.skipped ? skippedCell(r) : `${r.ok ? 'pass' : `**FAIL**${r.failed?.length ? ` (${r.failed.length} check${r.failed.length === 1 ? '' : 's'})` : ''}`} ${r.seconds ?? '–'}s`)
@@ -48,6 +110,7 @@ export function recordMarkdown({ code, when, jobs, results, logDir, summary, pro
   const head = `**e2e run record** · code \`${code}\` · ${when} · ${jobs > 1 ? `${jobs} at a time` : 'one at a time'}`
   const envSkipped = [...new Set((runs ?? [{ results }]).flatMap((r) => r.results.filter((x) => x.environment).map((x) => x.name)))]
   const notes = [
+    ...(Object.keys(clis).length ? [`Real CLIs (as Hive selected them): ${cliLine(clis)}.`] : []),
     ...(notRun.length ? [`Not run: the real tier (\`--real\`): ${notRun.join(', ')}.`] : []),
     ...(envSkipped.length ? [`**Skipped for the environment** (no result for the code; the reviewer decides whether a merge needs them run again): ${envSkipped.join(', ')}.`] : [])
   ]

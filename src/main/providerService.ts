@@ -10,6 +10,7 @@ import { emit, toast } from './events'
 import { createLogger } from './logger'
 import { childEnv, hasPty, killPty, PTY_COLS, PTY_ROWS, spawnPty, writePty } from './ptyHost'
 import { KeyGate } from './taskKeys'
+import { compareTested, noteSelectedCli, testedVersion } from './testedClis'
 
 const log = createLogger('providers')
 /** How many models' default efforts are kept per provider (observeDefaultEffort). */
@@ -135,6 +136,8 @@ class ProviderService {
     try {
       const found = await adapter.locate()
       const latest = latestWanted ? await adapter.latestVersion() : prev.latestVersion
+      // The version this release was tested with, against the installed one (#365).
+      const tested = await testedVersion(id)
       // The CLI's own models and what each can do, so new models show without a Hive update (#125). If it can't say,
       // its last good answer for this version, else none (the pickers then use the fallbacks in Settings).
       const read = found.path && adapter.listModels ? await adapter.listModels(found.path, childEnv()).catch(() => null) : null
@@ -160,6 +163,7 @@ class ProviderService {
         catalog,
         configuredEffort: adapter.configuredDefaultEffort?.() ?? null,
         observedEfforts: this.observedEfforts(id),
+        tested: tested ? compareTested(tested, found.version, (a, b) => adapter.isNewer(a, b)) : null,
         checking: false
       }
     } catch (e) {
@@ -169,6 +173,7 @@ class ProviderService {
     next.readiness = adapter.readiness(next)
     if (this.refreshes.get(id) !== run) return this.info(id)
     this.set(id, next)
+    await noteSelectedCli(next)
     return next
   }
 

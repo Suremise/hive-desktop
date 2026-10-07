@@ -624,6 +624,8 @@ route('GET', '/v1/providers', async () => {
       enabled: isProviderEnabled(s, p.id),
       installed: info.found,
       version: info.version,
+      // The version this Hive release was tested with, and how the installed one compares (#365).
+      tested: info.tested ? { version: info.tested.version, installed: info.found ? info.tested.installed : 'not installed' } : null,
       problem: info.readiness?.find((r) => r.level === 'error')?.message ?? null,
       isDefault: s.defaultProvider === p.id,
       defaultModel: info.defaultModel ?? null,

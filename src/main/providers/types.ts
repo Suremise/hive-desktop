@@ -24,6 +24,8 @@ export interface LaunchContext {
   agentId: string
   /** The provider's CLI, as found (providerService). */
   executable: string
+  /** Its version, as it reported it (null when it didn't), for arguments only some versions take. */
+  cliVersion?: string | null
   /** Folder the agent works in: the project folder or its worktree. */
   cwd: string
   workspacePath: string

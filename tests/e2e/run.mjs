@@ -28,14 +28,14 @@
 // Each suite's environment comes from the run context (runContext.cjs): an allowlist and the suite's own folder and
 // port, never the environment the runner was started from.
 import { spawn, spawnSync } from 'child_process'
-import { existsSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join, dirname, resolve as resolvePath } from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import { e2eProgress, slotWaitProgress } from '../progressReport.mts'
 import { SUITES } from './suites.mjs'
 import { affectedSuites, changedFiles } from './affected.mjs'
-import { fingerprint, recordMarkdown } from './record.mjs'
+import { CLI_LOG, fingerprint, readCliLog, realCliVersions, recordJson, recordMarkdown } from './record.mjs'
 import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, selectSuites, suiteOutcome } from './runner.mjs'
 import { devBuild, ensureBuild } from './build.mjs'
 import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, omittedLine, pruneRunDirsReleasing } from './logs.mjs'
@@ -196,7 +196,15 @@ if (lane) console.log(`Lane ${lane.lane}: ports ${lane.first}–${lane.last}\n  
  * same said without the HIVE_ prefix (E2E_RUN_*), which Hive keeps in its sessions: a runner started in an agent's
  * shell inside the suite's Hive (progressreport does) knows it is inside a suite, and which port to keep clear of.
  */
-const suiteEnv = (name, port, dir) => runContext.suiteEnv({ name, port, work: dir, runDir: dir ?? lib.WORK })
+const suiteEnv = (name, port, dir) => runContext.suiteEnv({ name, port, work: dir, runDir: dir ?? lib.WORK, cliLog: dir ? join(dir, CLI_LOG) : null })
+/** The CLIs the suite's test copies of Hive selected (record.mjs readCliLog), read before its folder goes. */
+const suiteClis = (dir) => {
+  try {
+    return dir ? readCliLog(readFileSync(join(dir, CLI_LOG), 'utf8')) : []
+  } catch {
+    return []
+  }
+}
 /**
  * Each suite has a folder of its own in the lane's, made fresh when it starts (`<suite>`, or `<suite>-2`… while an
  * earlier one is kept). When it passes (or skips), the whole folder goes (#285), unless the board, read as it is then,
@@ -233,7 +241,7 @@ const run = (name, port) =>
     }, 10 * 60_000)
     child.on('exit', (code) => {
       clearTimeout(timer)
-      const outcome = suiteOutcome({ code, out })
+      const outcome = { ...suiteOutcome({ code, out }), clis: suiteClis(dir) }
       // --keep-files: a passed suite's own files (screenshots, reports) go into the run's log folder before its folder
       // does, as a failed one's do at the end (#304): a new place every run, pruned with the logs.
       if (opts.keepFiles && dir && outcome.ok) {
@@ -257,19 +265,21 @@ const cliInstalled = {
 }
 /**
  * False only when Claude Code itself says it isn't signed in (`claude auth status --json`); an answer that can't be read
- * counts as signed in, so the suites run and say what is wrong. Asked once a run.
+ * counts as signed in, so the suites run and say what is wrong. Asked once a run for each home: the default one, or
+ * 'test' (CLAUDE_TEST_HOME).
  */
-let claudeSignedIn
-const claudeLoggedIn = () => {
-  if (claudeSignedIn !== undefined) return claudeSignedIn
+const claudeSignedIn = {}
+const claudeLoggedIn = (home = 'default') => {
+  if (claudeSignedIn[home] !== undefined) return claudeSignedIn[home]
   // In the environment the suites' Claude Code gets (no CLAUDE_CONFIG_DIR of the runner's), so it asks about the same sign-in.
-  const r = spawnSync(cliInstalled.claude(), ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 30_000, env: runContext.childEnv() })
+  const env = runContext.childEnv(home === 'test' ? { CLAUDE_CONFIG_DIR: runContext.CLAUDE_TEST_HOME } : {})
+  const r = spawnSync(cliInstalled.claude(), ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 30_000, env })
   try {
-    claudeSignedIn = JSON.parse(r.stdout).loggedIn !== false
+    claudeSignedIn[home] = JSON.parse(r.stdout).loggedIn !== false
   } catch {
-    claudeSignedIn = true
+    claudeSignedIn[home] = true
   }
-  return claudeSignedIn
+  return claudeSignedIn[home]
 }
 
 /** Why a suite can't run here, or null. "environment: …" for the machine's CLIs (the record says so). */
@@ -278,7 +288,8 @@ function skipReason(s) {
   if (needs.includes('packaged') && !existsSync(join(root, 'dist', 'win-unpacked'))) return 'no dist/win-unpacked (npm run dist)'
   if (needs.includes('claude') && !cliInstalled.claude()) return "environment: Claude Code isn't installed (claude)"
   // A suite with a Claude Code home of its own (claudeHome: 'own', a made-up API key) needs no sign-in: none is asked about.
-  if (needs.includes('claude') && s.claudeHome !== 'own' && !claudeLoggedIn()) return "environment: Claude Code isn't signed in (claude auth status)"
+  if (needs.includes('claude') && s.claudeHome === 'test' && !claudeLoggedIn('test')) return `environment: Claude Code isn't signed in to its test home ${runContext.CLAUDE_TEST_HOME} (tests/e2e/README.md)`
+  if (needs.includes('claude') && !s.claudeHome && !claudeLoggedIn()) return "environment: Claude Code isn't signed in (claude auth status)"
   if (needs.includes('codex') && !cliInstalled.codex()) return "environment: Codex isn't installed (codex)"
   if (needs.includes('codex') && !lib.codexSignedIn()) return `environment: Codex isn't signed in to ${lib.CODEX_HOME}`
   return null
@@ -419,10 +430,19 @@ if (opts.record) {
   recordInvalid = !status.valid
   // A record that isn't valid: its run is kept as a failed one's (#223).
   if (recordInvalid) markRunFailed(lastRun.logDir, `record not valid: ${status.problems.join('; ')}`)
-  const md = recordMarkdown({ code: codeBefore, when: new Date().toISOString().slice(0, 16).replace('T', ' '), jobs, results: lastRun.results, logDir: lastRun.logDir, summary, problems: status.problems, notRun: notRun.map((s) => s.name), runs: repeat > 1 ? Object.assign(runs, { repeat }) : null })
-  for (const r of runs) writeFileSync(join(r.logDir, 'run-record.md'), md)
-  // The latest record is also at logs/run-record.md.
+  const when = new Date().toISOString().slice(0, 16).replace('T', ' ')
+  // The real CLIs the real suites ran, as their Hive selected them (#365: the release's tested-with manifest).
+  const clis = realCliVersions(lastRun.results, SUITES)
+  const md = recordMarkdown({ code: codeBefore, when, jobs, results: lastRun.results, logDir: lastRun.logDir, summary, problems: status.problems, notRun: notRun.map((s) => s.name), runs: repeat > 1 ? Object.assign(runs, { repeat }) : null, clis })
+  const json = `${JSON.stringify(recordJson({ code: codeBefore, when, results: lastRun.results, problems: status.problems, notRun: notRun.map((s) => s.name), clis }), null, 2)}
+`
+  for (const r of runs) {
+    writeFileSync(join(r.logDir, 'run-record.md'), md)
+    writeFileSync(join(r.logDir, 'run-record.json'), json)
+  }
+  // The latest record is also at logs/run-record.md (and .json).
   writeFileSync(join(logsRoot, 'run-record.md'), md)
+  writeFileSync(join(logsRoot, 'run-record.json'), json)
   console.log(`\n${md}\n\n(Saved as ${join(lastRun.logDir, 'run-record.md')})`)
 }
 // This repeat's folders are finished now (its record is saved). Older finished runs go only now, never this repeat's

@@ -172,7 +172,11 @@ same code while every required check still runs:
 
 - **The builder** runs the suites the card names and moves the card to Review with a **run record**
   (`--build --record`): the code's fingerprint (HEAD, plus a hash of any uncommitted changes), each suite's result and time,
-  and the logs folder. Paste the printed block into the card comment.
+  and the logs folder. Paste the printed block into the card comment. When real suites ran, the record also names the
+  real CLIs' versions as the suites' test copies of Hive selected them ("Real CLIs (as Hive selected them): Claude Code
+  2.1.292, Codex 0.160.1"; each Hive notes its choice in the suite's `hive-clis.jsonl`, `HIVE_TEST_CLI_LOG`), and
+  `run-record.json` beside it holds them per suite: `npm run tested-clis` makes the release's "Tested with" manifest
+  from it (#365, RELEASING.md). The runner itself never starts a CLI.
 - **The reviewer** checks the record's fingerprint is the code it's reviewing (`npm run e2e -- --fingerprint` in the
   builder's folder) and trusts it for those suites. It reruns the quick checks (`npm run typecheck`, `npm run lint`,
   `npm test`) and the one or two suites closest to the riskiest change, and spends the rest of its time on its own
@@ -227,6 +231,18 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
   reaching Hive, the launch's settings, MCP config and auth file in its private folder in Hive's user data, and the
   token refused once the session ends. The runner asks about no sign-in for it. The other real Claude suites still use
   the default home (#368).
+- **`claudesettings`** (#333) runs the real Claude Code in a home of its own too, with `-p --init-only` (hooks only,
+  no conversation: no sign-in, no tokens), the Claude Code a test copy of Hive selects in that home (started briefly). A SessionStart hook in each settings file shows which
+  files it reads under `--setting-sources` and `--restricted`, and which `--settings` files it refuses (over 2 MiB, a
+  folder, missing): what Hive's compaction reader and its launch read of a user's `--settings` assume. Run it after a
+  Claude Code update; a failure means `providers/claude/autoCompact.ts` no longer matches the CLI.
+- **`assistantresume`** (#334) sends prompts (five short ones, with Haiku), so it runs in the **Claude Code test home**
+  (`claudeHome: 'test'` in `suites.mjs`: `CLAUDE_TEST_HOME`, `%LOCALAPPDATA%\hive-test\claude`), never your own
+  `~/.claude`: sign in to it once by hand as tests/scenarios/README.md says (Model trials); without that sign-in it is
+  skipped for the environment. It checks that a resumed Assistant answers from its current mode's instructions (a
+  codeword only those give), not the system prompt Claude Code recorded: after Restart in This Mode… and after a switch
+  while it was stopped. `node tests/e2e/assistantresume.cjs --snapshot-on` is its negative control (the recorded
+  prompt asked for: the old codeword comes back).
 - **Codex** for the `codex*` suites, signed in to the **test home** `%LOCALAPPDATA%\hive-test\codex` (never your
   own `~/.codex`). Sign in once:
   ```powershell
@@ -335,7 +351,7 @@ the profile's Claude Code path (`settings.providers['claude-code'].executablePat
 new folder (Enter trusts it), sends Claude Code's hooks, writes its transcripts, starts on a task given on the
 command line, and answers each prompt after a second (`work N` takes N seconds; `edit <file>` makes an Edit, with
 its file lock; `pad N` adds N KB to its transcript; `ask` sends a permission prompt; `window N` makes its status line report an N-token context window; `boardmove N COLUMN` moves card N as its hive tools would, and `boardreview N ACTION [COLUMN]` reviews it (both recording the answer in `fake-calls.jsonl`); `background N` starts a background command that ends after N seconds, whose task notification then
-starts a turn by itself; `/compact [focus]` compacts (PreCompact, a compaction in the transcript after 1 s or `hold N` seconds, PostCompact; `compactfail` in the focus fails it, and with no messages yet it says "Not enough messages to compact."); `--model fail-start` makes it refuse to start, printing an error and exiting with 1). Each launch is recorded in `fake-launches.jsonl` in `CLAUDE_CONFIG_DIR` (its options and
+starts a turn by itself; `/compact [focus]` compacts (PreCompact, a compaction in the transcript after 1 s or `hold N` seconds, PostCompact; `compactfail` in the focus fails it, and with no messages yet it says "Not enough messages to compact."); it records a conversation's system prompt (the `--append-system-prompt-file`) on its first request and uses that record on resume, as Claude Code does, unless launched with `--system-prompt-snapshot off`, and `whatmode` in a prompt ends its reply with the mode that prompt is in (#334); `--model fail-start` makes it refuse to start, printing an error and exiting with 1). Each launch is recorded in `fake-launches.jsonl` in `CLAUDE_CONFIG_DIR` (its options and
 `CLAUDE_CODE_*` variables). `assistant-control`, `context`, `background`, `longsession`, `resumeall`, `cardchip`, `sessionorigin`, `assistantend`, `tipcorner`, `review`, `reorder`, `busy`, `startfail`, `filelinks`, `quitwait`, `rendercrash`, `bursts`, `taskbar`, `ctxpercent`, `donemove`, `doingmove`, `paneheader`, `tabstrip`, `closewindow`, `storage`, `skilldelivery`, `quit`, `windows`, `launchrace`, `resume`, `agents`, `image`, `assistant`, `restart` and `board` use it (`board` also sends a small test folder to the Recycle Bin, as Delete Project does, and `storage` sends its fixture images and backups there, as Clean Up does). `codex-background` checks Codex's background
 terminals with the real Codex (one short prompt).
 

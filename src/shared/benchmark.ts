@@ -41,7 +41,7 @@ export interface MeasureDef {
 
 /** A scenario sample's measures (tests/scenarios/harness.cjs measuresOf), with what the comparison derives from them. */
 export const SCENARIO_MEASURES: MeasureDef[] = [
-  { key: 'contextBytes', label: 'Hive context', unit: 'bytes', group: 'context', tip: 'What Hive put in the session’s context: launch guidance (core, project, role, persona, skills’ catalog), the hive tools’ list and every tool reply. Exact UTF-8 bytes, not tokens. Unknown if any part wasn’t measured.' },
+  { key: 'contextBytes', label: 'Hive context', unit: 'bytes', group: 'context', tip: 'What Hive put in the session’s context: launch guidance (core, project, the Assistant’s role and mode, skills’ catalog), the hive tools’ list and every tool reply. Exact UTF-8 bytes, not tokens. Unknown if any part wasn’t measured.' },
   { key: 'guidanceBytes', label: 'Launch guidance', unit: 'bytes', group: 'context', tip: 'Core contract, project additions, the Assistant’s role and mode, and the skills’ catalog, at launch.' },
   { key: 'guidanceChars', label: 'Launch guidance (characters)', unit: 'chars', group: 'context', tip: 'The same parts in characters (UTF-16 code units); the catalog has bytes only.' },
   { key: 'toolListBytes', label: 'Tool list', unit: 'bytes', group: 'context', tip: 'The hive tools’ names, descriptions and schemas as the CLI got them.' },
@@ -89,7 +89,7 @@ export const EXPORT_MEASURES: MeasureDef[] = [
   { key: 'toolChars', label: 'Tool replies', unit: 'chars', group: 'context', tip: 'Characters, per hour recorded.' },
   { key: 'detailCalls', label: 'Detail calls', unit: 'count', group: 'work', tip: 'Per hour recorded.' },
   { key: 'launches', label: 'Launches', unit: 'count', group: 'work', tip: 'Per hour recorded.' },
-  { key: 'guidancePerLaunch', label: 'Guidance a launch', unit: 'bytes', group: 'context', tip: 'Core, project, role, persona and catalog, on average (not per hour).' }
+  { key: 'guidancePerLaunch', label: 'Guidance a launch', unit: 'bytes', group: 'context', tip: 'Core, project, the Assistant’s role and mode, and catalog, on average (not per hour).' }
 ]
 
 // ---------------------------------------------------------------------------
