@@ -5,7 +5,7 @@ import { basename, join, resolve } from 'path'
 import { appendFileSync } from 'original-fs'
 import { mkdir, readFile, realpath, rm, stat } from 'original-fs/promises'
 import { app } from 'electron'
-import { changeOutcome, covered, emptyStatus, folderPlan, listed, normPath, parseProbe, statusOf, testsEligible, type AntivirusStatus, type AvAction, type AvChangeResult, type AvPathKind } from '../shared/antivirus'
+import { changeOutcome, covered, emptyStatus, folderPlan, listed, nextOffer, normPath, offerOf, parseProbe, REMIND_MS, remindAtOf, statusOf, testsEligible, type AntivirusStatus, type AvAction, type AvChangeResult, type AvPathKind, type AvSuggestionReply } from '../shared/antivirus'
 import { config } from './config'
 import { createLogger, userText } from './logger'
 import { worktreesRoot } from './worktrees'
@@ -28,6 +28,8 @@ const log = createLogger('antivirus')
 /** How long a probe may take, and how long its answer is kept. */
 const PROBE_TIMEOUT_MS = 20_000
 const CACHE_MS = 10 * 60_000
+/** How many workspaces' statuses are kept at once (#322): the oldest probe's goes first. */
+const CACHE_MAX = 16
 /** How long the elevated change may take, the UAC prompt included (the user may take a while to answer it). */
 const ELEVATED_TIMEOUT_MS = 5 * 60_000
 /** How long a prepared change waits for the user's answer, and how many may wait at once. */
@@ -129,13 +131,16 @@ interface Fixture {
   elevated?: { cancelled?: boolean; launchError?: string; error?: string; partial?: number; policy?: boolean; unlisted?: boolean; redacted?: boolean; exclusions?: string[]; devDrives?: Record<string, string> }
   /** Holds the probe's answer this long (a slow probe, to overlap requests). */
   probeDelayMs?: number
+  /** How long before a reminder for the same folders (a day without it). */
+  remindMs?: number
 }
 
 /** Defender's answer for a hidden list, as a fixture's redacted administrator read gives it. */
 const HIDDEN = 'N/A: Must be an administrator to view exclusions'
 
-/** The exclusion list a fixture's elevated changes act on (as administrator rights would see it), per fixture file. */
+/** The exclusion list a fixture's elevated changes act on (as administrator rights would see it), per fixture file: the last few. */
 const simulated = new Map<string, string[]>()
+const SIMULATED_MAX = 4
 
 async function readFixture(): Promise<Fixture | null> {
   const file = fixtureFile()
@@ -223,11 +228,45 @@ const remembered = () => config.get().antivirus ?? {}
 /** The folder set, as a key: a status for another set (a worktrees folder appeared) is probed again. */
 const folderKey = (folders: { path: string }[]): string => folders.map((f) => normPath(f.path)).join('|')
 
-/** The status of each workspace opened while Hive runs, by path in lower case, with its folder set, age and probe's order. */
-const cache = new Map<string, { status: AntivirusStatus; folders: string; at: number; seq: number }>()
+interface Cached {
+  status: AntivirusStatus
+  folders: string
+  at: number
+  seq: number
+  life: AbortSignal
+}
+
+/**
+ * The status of open workspaces, by path in lower case, with its folder set, age, probe's order and the workspace's
+ * lifetime: at most CACHE_MAX, the oldest probe's first out; expired ones go whenever one is kept, and a workspace's go
+ * when it closes (#322).
+ */
+const cache = new Map<string, Cached>()
 /** Probes under way, by workspace path and folder set: shared only by requests for the same set and workspace lifetime. */
 const inFlight = new Map<string, { life: AbortSignal; seq: number; promise: Promise<AntivirusStatus> }>()
+/** Lifetimes whose close already retires what was kept for them (one listener each). */
+const retiring = new WeakSet<AbortSignal>()
 let probes = 0
+
+function keep(key: string, entry: Cached): void {
+  const now = Date.now()
+  for (const [k, e] of cache) if (now - e.at >= CACHE_MS || e.life.aborted) cache.delete(k)
+  // Kept last: the order is the probes', oldest first.
+  cache.delete(key)
+  cache.set(key, entry)
+  while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!)
+  const life = entry.life
+  if (retiring.has(life)) return
+  retiring.add(life)
+  life.addEventListener(
+    'abort',
+    () => {
+      for (const [k, e] of cache) if (e.life === life) cache.delete(k)
+      for (const [k, f] of inFlight) if (f.life === life) inFlight.delete(k)
+    },
+    { once: true }
+  )
+}
 
 /** The window's workspace's status: cached for ten minutes unless `refresh` or its folders changed. */
 export function antivirusStatus(refresh = false): Promise<AntivirusStatus> {
@@ -254,7 +293,7 @@ export async function statusFor(w: WorkspaceService, refresh = false): Promise<A
       // A workspace closed meanwhile isn't cached (its window may show another), and an older probe finishing late
       // never replaces a newer one's answer.
       const now = cache.get(key)
-      if (!life.aborted && w.path === root && (!now || now.seq < seq)) cache.set(key, { status, folders: set, at: Date.now(), seq })
+      if (!life.aborted && w.path === root && (!now || now.seq < seq)) keep(key, { status, folders: set, at: Date.now(), seq, life })
       return status
     })
     .finally(() => {
@@ -390,7 +429,10 @@ function fixtureChange(f: Fixture, action: AvAction, paths: string[]): AvChangeR
   testLog({ call: action, paths })
   const e = f.elevated ?? {}
   const file = fixtureFile()!
-  if (!simulated.has(file)) simulated.set(file, [...(e.exclusions ?? [])])
+  if (!simulated.has(file)) {
+    while (simulated.size >= SIMULATED_MAX) simulated.delete(simulated.keys().next().value!)
+    simulated.set(file, [...(e.exclusions ?? [])])
+  }
   let current = simulated.get(file)!
   if (e.cancelled) return changeOutcome(action, { started: false, cancelled: true }, null)
   if (e.launchError) return changeOutcome(action, { started: false, error: e.launchError }, null)
@@ -410,32 +452,49 @@ function fixtureChange(f: Fixture, action: AvAction, paths: string[]): AvChangeR
 
 /**
  * Whether to suggest exclusions now (the window saw a reason: several agents running, a long command, or a new
- * worktrees folder while they run): when scanning likely slows this workspace, it wasn't declined for good, and these
- * folders weren't offered before. The check and the claim happen together after the status is known, so two requests
- * can't both offer, and one can't ignore a "Don't ask again" given meanwhile. Null: no suggestion.
+ * worktrees folder while they run): when scanning likely slows this workspace and it wasn't declined for good. Folders
+ * not offered before are suggested at once; the same folders again at most once a day (a reminder, #348), until the
+ * user says "Don't ask again" or they stop being slowed (excluded, a trusted Dev Drive, Defender not active). The check
+ * and the claim happen together after the status is known, so two requests can't both offer, and one can't ignore a
+ * "Don't ask again" given meanwhile. The reply also says when a reminder may come, for the window to ask again then
+ * while the reason lasts.
  */
-export async function antivirusSuggestion(): Promise<AntivirusStatus | null> {
-  const w = currentWorkspace()
+export function antivirusSuggestion(): Promise<AvSuggestionReply> {
+  return suggestionFor(currentWorkspace())
+}
+
+const NO_SUGGESTION: AvSuggestionReply = { offer: null, remindAt: null }
+
+export async function suggestionFor(w: WorkspaceService): Promise<AvSuggestionReply> {
   const root = w.path
-  if (!root) return null
+  if (!root) return NO_SUGGESTION
   const life = w.lifetime
   const key = root.toLowerCase()
-  if (remembered().dismissed?.[key]) return null
+  if (remembered().dismissed?.[key]) return NO_SUGGESTION
+  // A fixture may space reminders closer, so a suite sees one.
+  const spacing = (await readFixture().catch(() => null))?.remindMs ?? REMIND_MS
   const status = await statusFor(w)
-  if (life.aborted || w.path !== root || !status.slowed) return null
+  if (life.aborted || w.path !== root || !status.slowed) return NO_SUGGESTION
   // From here to the claim nothing awaits: what is remembered now is what decides.
   const mem = remembered()
-  if (mem.dismissed?.[key] || mem.offered?.[key] === status.offerKey) return null
+  if (mem.dismissed?.[key]) return NO_SUGGESTION
+  const prev = offerOf(mem.offered?.[key])
+  const offer = nextOffer(prev, status.offerKey, new Date(), spacing)
+  if (!offer) return { offer: null, remindAt: remindAtOf(prev, status.offerKey, spacing) }
   config.update((c) => {
-    c.antivirus = { ...c.antivirus, offered: { ...c.antivirus?.offered, [key]: status.offerKey } }
+    c.antivirus = { ...c.antivirus, offered: { ...c.antivirus?.offered, [key]: offer } }
   })
-  log.info(`antivirus: suggested exclusions for ${userText(basename(root))}`)
-  return status
+  log.info(`antivirus: suggested exclusions for ${userText(basename(root))}${offer.count > 1 ? ` (reminder ${offer.count - 1})` : ''}`)
+  return { offer: { status, count: offer.count }, remindAt: remindAtOf(offer, status.offerKey, spacing) }
 }
 
 /** "Don't ask again" for the window's workspace. */
 export function dismissAntivirus(): void {
-  const root = currentWorkspace().path
+  dismissFor(currentWorkspace())
+}
+
+export function dismissFor(w: WorkspaceService): void {
+  const root = w.path
   if (!root) return
   config.update((c) => {
     c.antivirus = { ...c.antivirus, dismissed: { ...c.antivirus?.dismissed, [root.toLowerCase()]: true } }

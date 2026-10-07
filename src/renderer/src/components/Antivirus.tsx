@@ -88,11 +88,12 @@ export function AntivirusPanel() {
           action === 'add'
             ? {
                 title: 'Stop Defender scanning these folders?',
-                message: op.paths.join('\n'),
+                message: 'Hive asks Defender to exclude:',
+                list: op.paths,
                 detail: 'Defender won’t scan anything in them, including node_modules and whatever agents download there. Windows asks for administrator rights once. You can remove them again here.',
                 confirmLabel: 'Add Exclusions'
               }
-            : { title: 'Remove the exclusions Hive added?', message: op.paths.join('\n'), detail: 'Defender scans these folders again. Exclusions Hive didn’t add stay. Windows asks for administrator rights once.', confirmLabel: 'Remove Exclusions' }
+            : { title: 'Remove the exclusions Hive added?', message: 'Hive asks Defender to scan again:', list: op.paths, detail:'Defender scans these folders again. Exclusions Hive didn’t add stay. Windows asks for administrator rights once.', confirmLabel: 'Remove Exclusions' }
         )
         if (!ok || !current(n, ws)) return
       }
@@ -228,46 +229,67 @@ const SLOW_RUN_MS = 2 * 60_000
 type StoreState = ReturnType<typeof get>
 const hostsOf = (s: StoreState) => [...(s.workspace?.projects ?? []), ...(s.workspace?.assistant ? [s.workspace.assistant] : [])]
 
+/** A reminder's wait is checked at least this often, so a computer that slept doesn't push it back. */
+const RECHECK_MS = 60 * 60_000
+
 /**
- * Suggests the exclusions once when scanning matters (#316): when several agents run at once, or a command in the
- * Progress panel took two minutes or more; and again, while that lasts, when an agent gets a worktree (its folder may
- * be new). Main decides (scanning slows the workspace, not declined for good, these folders not offered before) and
- * claims the offer, so the same folders are offered once, and folders added since once more.
+ * Suggests the exclusions when scanning matters (#316): when several agents run at once, or a command in the Progress
+ * panel took two minutes or more; and again, while that lasts, when an agent gets a worktree (its folder may be new).
+ * Main decides (scanning slows the workspace, not declined for good, these folders not offered in the last day, #348)
+ * and claims the offer: folders added since are suggested at once, the same ones again as a reminder at most once a day.
+ * While agents keep running, the window asks again when main says a reminder may come; a long command is a reason once
+ * (each new one asks again), not for a day later.
  */
 export function useAntivirusOffer(): void {
   const workspace = useStore((s) => s.workspace?.path ?? null)
   const agents = useStore((s) => hostsOf(s).reduce((n, p) => n + p.agents.filter((a) => a.live && !a.live.settingUp).length, 0))
   // The workspace's worktree agents, as a count: a new one may have made the worktrees folder.
   const worktrees = useStore((s) => hostsOf(s).reduce((n, p) => n + p.agents.filter((a) => a.worktree).length, 0))
-  const slowRun = useStore((s) => s.progressRuns.some((r) => r.finishedAt !== null && r.finishedAt - r.startedAt >= SLOW_RUN_MS))
-  const asked = useRef<string | null>(null)
+  // When the latest long command finished (0: none): each new one is a reason to ask.
+  const slowRun = useStore((s) => s.progressRuns.reduce((t, r) => (r.finishedAt !== null && r.finishedAt - r.startedAt >= SLOW_RUN_MS ? Math.max(t, r.finishedAt) : t), 0))
   const reason = agents >= 2 ? 'agents' : slowRun ? 'slow' : null
+  // Asks once per key: when the reason comes (back), the worktrees change, or another long command finishes.
+  const key = workspace && reason ? `${workspace.toLowerCase()}|${reason}|${worktrees}|${reason === 'slow' ? slowRun : ''}` : null
   useEffect(() => {
-    // Asks again only once the reason has gone and come back, or the worktrees changed meanwhile.
-    if (!workspace || !reason) {
-      asked.current = null
-      return
+    if (!key || !workspace || !reason) return
+    let live = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const wait = (due: number): void => {
+      timer = setTimeout(() => (Date.now() >= due ? ask() : wait(due)), Math.min(Math.max(due - Date.now(), 1000), RECHECK_MS))
     }
-    const key = `${workspace.toLowerCase()}|${reason}|${worktrees}`
-    if (asked.current === key) return
-    asked.current = key
-    call('antivirus:suggestion').then(
-      (s) => {
-        // An answer for a workspace the window no longer shows is dropped.
-        if (!s || get().workspace?.path !== workspace) return
-        pushToast({
-          id: 'antivirus',
-          level: 'info',
-          title: 'Defender is scanning this workspace',
-          message: `Microsoft Defender scans every file Hive’s work creates or opens (${reason === 'agents' ? 'several agents are running' : 'a long command just ran'}). Excluding the workspace’s folders, or a Dev Drive, can make builds, tests and git much faster.`,
-          actions: [
-            { label: 'Review…', command: 'antivirus.show' },
-            { label: 'Don’t Ask Again', command: 'antivirus.dismiss' }
-          ],
-          timestamp: new Date().toISOString()
-        })
-      },
-      () => undefined
-    )
-  }, [workspace, reason, worktrees])
+    const ask = (): void => {
+      call('antivirus:suggestion').then(
+        (r) => {
+          // An answer for a workspace the window no longer shows is dropped. One that came after the reason went is
+          // still shown (main has counted it), but asks nothing more.
+          if (r.offer && get().workspace?.path === workspace) showOffer(r.offer.count, reason)
+          if (live && reason === 'agents' && r.remindAt) wait(Date.parse(r.remindAt))
+        },
+        () => undefined
+      )
+    }
+    ask()
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
+  }, [key, workspace, reason])
+}
+
+function showOffer(count: number, reason: 'agents' | 'slow'): void {
+  const why = reason === 'agents' ? 'several agents are running' : 'a long command just ran'
+  const reminder = count > 1
+  pushToast({
+    id: 'antivirus',
+    level: 'info',
+    title: reminder ? 'Defender is still scanning this workspace' : 'Defender is scanning this workspace',
+    message: reminder
+      ? `A reminder: Microsoft Defender still scans every file Hive’s work creates or opens (${why}). Excluding the workspace’s folders, or a Dev Drive, can make builds, tests and git much faster. Hive reminds you at most once a day; Don’t Ask Again stops it for this workspace.`
+      : `Microsoft Defender scans every file Hive’s work creates or opens (${why}). Excluding the workspace’s folders, or a Dev Drive, can make builds, tests and git much faster.`,
+    actions: [
+      { label: 'Review…', command: 'antivirus.show' },
+      { label: 'Don’t Ask Again', command: 'antivirus.dismiss' }
+    ],
+    timestamp: new Date().toISOString()
+  })
 }

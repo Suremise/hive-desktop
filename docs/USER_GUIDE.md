@@ -303,7 +303,7 @@ On Windows, Microsoft Defender's real-time protection scans every file as it is 
 
 On the machine Hive is developed on, with several agents at work, Hive's full test run took about 3 to 5% less time with these folders excluded (for example 12.0 minutes before, 11.6 after); a single heavy install or build may gain more or less.
 
-When Defender scans the workspace and it matters (two or more agents running at once, or a command in the Progress panel that took two minutes or more), Hive suggests this once, with **Review…** and **Don't Ask Again** (for this workspace). It suggests again only for a folder added since, such as the worktrees folder. The Performance view says so too.
+When Defender scans the workspace and it matters (two or more agents running at once, or a command in the Progress panel that took two minutes or more), Hive suggests this, with **Review…** and **Don't Ask Again** (for this workspace). If you close it, or review without adding exclusions, Hive reminds you later: at most once a day, and only when scanning matters again. It stops when you pick **Don't Ask Again**, or once the folders are excluded or on a trusted Dev Drive, or Defender isn't the active antivirus. A folder added since, such as the worktrees folder, is suggested straight away. The Performance view says so too.
 
 ### Token use, cache and compaction
 
