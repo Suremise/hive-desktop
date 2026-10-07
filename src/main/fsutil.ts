@@ -117,6 +117,16 @@ export function realPath(p: string): string {
 }
 
 /**
+ * A path's key for telling whether two paths are the same place: its real location (`realPath`), lower-cased. Git lists
+ * worktrees by their real, long names, so a path Hive was given or saved as an 8.3 short name (C:\Users\RUNNER~1\…),
+ * through a junction or a symlink only matches git's by this (#389). One that can't be resolved keys as written.
+ */
+export const placeKey = (p: string): string => realPath(p).toLowerCase()
+
+/** Whether two paths are the same place (`placeKey`). */
+export const samePlace = (a: string, b: string): boolean => placeKey(a) === placeKey(b)
+
+/**
  * Whether a path is inside an .asar archive (`…\app.asar\icon.png`). Such a path isn't a file on disk, and Electron's
  * readers that take a path (nativeImage, its file: loader) open the archive for it and keep it open until Hive quits,
  * so a build can't replace it (#246). Hive's file routes refuse them; the .asar itself is fine. Only an archive counts:

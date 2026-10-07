@@ -11,6 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import * as electron from 'electron'
 import { holdsWork, lostByRemoving, templateWorktreesHint, unusedState, unusedWorkNotice } from '../src/shared/unusedWorktrees'
 import type { UnusedWorktree } from '../src/shared/types'
+import { junction } from './pathAliases'
 
 const base = mkdtempSync(join(tmpdir(), 'hive-unusedwt-'))
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
@@ -30,6 +31,8 @@ const { createWorktree } = await import('../src/main/worktrees')
 const { reserveForRemoval } = await import('../src/main/projectAgents')
 const { gitOnPath, setGitToolForTests } = await import('../src/main/gitTool')
 const templates = await import('../src/main/templates')
+// Paths compared as places: git lists the long names of folders Hive may know by short (8.3) ones, as on CI (#389).
+const { placeKey } = await import('../src/main/fsutil')
 
 const git = (cwd: string, ...a: string[]): string => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd, encoding: 'utf8' })
 const wsPath = join(base, 'ws')
@@ -53,7 +56,7 @@ const commit = (cwd: string, file: string): void => {
 }
 const branches = (): string[] => git(proj, 'branch', '--format=%(refname:short)').split(/\r?\n/).filter(Boolean)
 const listOf = async (): Promise<UnusedWorktree[]> => (await run(() => unusedWorktrees(proj))).worktrees
-const find = async (path: string): Promise<UnusedWorktree | undefined> => (await listOf()).find((x) => x.path.toLowerCase() === path.toLowerCase())
+const find = async (path: string): Promise<UnusedWorktree | undefined> => (await listOf()).find((x) => placeKey(x.path) === placeKey(path))
 /** Agents of the project, with these worktrees. */
 const agents = (trees: { path: string; branch: string }[]): void =>
   writeFileSync(join(proj, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: trees.map((t, i) => ({ id: `a${i}`, name: `A${i}`, provider: 'claude-code', worktree: { ...t, base: 'main' } })) }))
@@ -83,9 +86,9 @@ describe('listing', () => {
     writeFileSync(join(dirty.path, 'new.txt'), 'new\n')
     agents([used])
     const list = await listOf()
-    const paths = list.map((x) => x.path.toLowerCase())
-    expect(paths).not.toContain(used.path.toLowerCase())
-    expect(paths).not.toContain(proj.toLowerCase())
+    const paths = list.map((x) => placeKey(x.path))
+    expect(paths).not.toContain(placeKey(used.path))
+    expect(paths).not.toContain(placeKey(proj))
     const f = list.find((x) => x.branch === fresh.branch)!
     expect(f.check).toMatchObject({ removable: true, into: 'main', ahead: 0, dirty: 0 })
     expect(f.lastCommit?.subject).toBe('a.txt')
@@ -99,6 +102,17 @@ describe('listing', () => {
     expect(unusedState(d)).toBe('1 changed file')
     expect(lostByRemoving(d)).toEqual([`1 uncommitted file in ${d.path}`, 'the files git ignores in its folder (build output, copied .env files)'])
     expect(await run(() => unusedWorktreeCounts(proj))).toMatchObject({ merged: expect.any(Number), count: list.length })
+    agents([])
+  })
+
+  it('an agent whose worktree is saved by another name (a junction, an 8.3 name) works in it: not listed (#389)', async () => {
+    const t = await tree(`aliased${++n}`)
+    expect(await find(t.path)).toBeDefined()
+    const via = junction(t.path, join(base, `via${n}`))
+    agents([{ ...t, path: via }])
+    expect(await find(t.path)).toBeUndefined()
+    expect(await run(() => removeUnusedWorktree(proj, t.path))).toMatchObject({ deleted: false })
+    expect(existsSync(t.path)).toBe(true)
     agents([])
   })
 
@@ -336,8 +350,8 @@ describe("a deleted template's worktree agents", () => {
     const b = await tree(`claudette${n}-2`)
     const other = await tree(`someone${n}`)
     const found = await run(() => unusedWorktreesNamed(proj, [`Claudette${n}`, 'Nobody']))
-    expect(found.map((p) => p.toLowerCase()).sort()).toEqual([a.path, b.path].map((p) => p.toLowerCase()).sort())
-    expect(found.map((p) => p.toLowerCase())).not.toContain(other.path.toLowerCase())
+    expect(found.map(placeKey).sort()).toEqual([a.path, b.path].map(placeKey).sort())
+    expect(found.map(placeKey)).not.toContain(placeKey(other.path))
 
     const t = { version: 1, name: `Trio ${n}`, savedAt: '2026-10-06T10:00:00.000Z', layout: 'auto', agents: [{ name: `Claudette${n}`, provider: 'claude-code', worktree: true }, { name: 'Folder', provider: 'claude-code', worktree: false }] }
     mkdirSync(join(proj, '.hive', 'templates'), { recursive: true })

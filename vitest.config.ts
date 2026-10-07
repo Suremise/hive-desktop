@@ -10,6 +10,8 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',
+    // fs.watch watches real paths, so a short (8.3) temp folder can't trip Node's libuv (tests/watchRealPaths.ts, #389).
+    setupFiles: ['tests/watchRealPaths.ts'],
     // Under load (e2e sets, scenario runs and other agents' tests on the same machine), Vitest's defaults (5 s a test, a
     // worker per core) made timing-sensitive tests fail that pass alone (#189, #196, #204): half the cores, so a full run
     // beside an e2e set leaves it room, and longer limits for a slow moment (a test that waits for something still says

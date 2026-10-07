@@ -26,7 +26,7 @@ import {
 } from '../shared/templates'
 import type { AgentDef, OldWorktreeOutcome, ProviderId, TemplateLoadPlan } from '../shared/types'
 import { config } from './config'
-import { readKeptJson, withFileLock, writeKeptJson, writeTextAtomic } from './fsutil'
+import { placeKey, readKeptJson, withFileLock, writeKeptJson, writeTextAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { addAgent, claimMark, newWorktreePlace, prepareAgent, removedSince, reserveForRemoval, takePendingSetup } from './projectAgents'
 import { providerService } from './providerService'
@@ -312,7 +312,8 @@ type Reuse = { path: string; branch: string }
 
 /** Why a worktree can't be worked in again (null: it can): git must list it on `branch`, with nothing uncommitted (strict). */
 async function notReusable(projectPath: string, w: Reuse, base: string, listed: { path: string; branch: string | null }[]): Promise<string | null> {
-  const there = listed.find((x) => x.path.toLowerCase() === resolve(w.path).toLowerCase())
+  const here = placeKey(w.path)
+  const there = listed.find((x) => placeKey(x.path) === here)
   if (!there) return `git doesn't list ${w.path} as a worktree any more`
   if (there.branch !== w.branch) return `its worktree is on ${there.branch ?? 'no branch'}, not ${w.branch}`
   try {
@@ -326,23 +327,23 @@ async function notReusable(projectPath: string, w: Reuse, base: string, listed: 
 /**
  * The worktree a template's agent called `name` can work in again instead of a new one (#289), its branch left as it is:
  * the worktree of the agent of that name it replaces (`own`); else one Hive made for that name that git lists and no
- * agent works in (`inUse`, lower-cased paths): `hive/<name>` in that name's folder in the project's worktree location,
- * or one numbered when it was made (`-2`…: an earlier load's, kept when its agent was replaced). Only a clean one
+ * agent works in (`inUse`, `placeKey`s): `hive/<name>` in that name's folder in the project's worktree location, or one
+ * numbered when it was made (`-2`…: an earlier load's, kept when its agent was replaced). Only a clean one
  * (`notReusable`); of several clean ones, the unnumbered one, else none (ambiguous). `reuse`, or why the one that
- * matches can't be (null: none matches).
+ * matches can't be (null: none matches). Paths are compared by their real names (#389): git lists the long ones.
  */
 async function reusableWorktree(projectPath: string, name: string, base: string, own: Reuse | undefined, inUse: ReadonlySet<string>, listed: { path: string; branch: string | null }[]): Promise<{ reuse: Reuse } | { why: string } | null> {
   if (own) {
-    if (inUse.has(resolve(own.path).toLowerCase())) return { why: `another agent works in ${own.branch}'s worktree` }
+    if (inUse.has(placeKey(own.path))) return { why: `another agent works in ${own.branch}'s worktree` }
     const why = await notReusable(projectPath, own, base, listed)
     return why ? { why } : { reuse: { path: resolve(own.path), branch: own.branch } }
   }
   const slug = slugify(name)
-  const root = resolve(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!)).toLowerCase()
+  const root = placeKey(join(workspaceOf(projectPath).worktreesRoot, projectPath.split(/[\\/]/).pop()!))
   const numbered = (s: string, stem: string): boolean => s === stem || (s.startsWith(`${stem}-`) && /^\d+$/.test(s.slice(stem.length + 1)))
-  const mine = listed.filter((w) => !!w.branch && dirname(w.path).toLowerCase() === root && numbered(basename(w.path).toLowerCase(), slug) && numbered(w.branch.toLowerCase(), `hive/${slug}`))
+  const mine = listed.filter((w) => !!w.branch && placeKey(dirname(w.path)) === root && numbered(basename(w.path).toLowerCase(), slug) && numbered(w.branch.toLowerCase(), `hive/${slug}`))
   if (!mine.length) return null
-  const free = mine.filter((w) => !inUse.has(w.path.toLowerCase()))
+  const free = mine.filter((w) => !inUse.has(placeKey(w.path)))
   if (!free.length) return { why: `another agent works in ${mine[0].branch}'s worktree` }
   const checked = await Promise.all(free.map(async (w) => ({ w: { path: w.path, branch: w.branch! }, why: await notReusable(projectPath, { path: w.path, branch: w.branch! }, base, listed) })))
   const clean = checked.filter((c) => !c.why)
@@ -407,22 +408,22 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
     const found = await reusableWorktree(projectPath, a.name, base, own && { path: own.path, branch: own.branch }, taken.folders, listed)
     if (found && 'reuse' in found) {
       taken.branches.add(found.reuse.branch)
-      taken.folders.add(resolve(found.reuse.path).toLowerCase())
+      taken.folders.add(placeKey(found.reuse.path))
       worktrees.push({ ...found.reuse, base, reuse: true })
       continue
     }
     const spot = await newWorktreePlace(projectPath, a.name, undefined, taken)
     taken.branches.add(spot.branch)
-    taken.folders.add(resolve(spot.path).toLowerCase())
+    taken.folders.add(placeKey(spot.path))
     worktrees.push({ ...spot, base, ...(found ? { notReused: found.why } : {}) })
   }
   const setup = cfg.worktreeSetup.trim() || null
   // The removed agents' worktrees nobody works in again: which could go with the load, merged and clean (#289).
-  const reused = new Set(worktrees.flatMap((w) => (w?.reuse ? [resolve(w.path).toLowerCase()] : [])))
+  const reused = new Set(worktrees.flatMap((w) => (w?.reuse ? [placeKey(w.path)] : [])))
   const oldWorktrees: TemplateLoadPlan['oldWorktrees'] = []
   let mergedInto: string | null = null
   for (const a of current) {
-    if (!a.worktree || reused.has(resolve(a.worktree.path).toLowerCase())) continue
+    if (!a.worktree || reused.has(placeKey(a.worktree.path))) continue
     const check = await wt.worktreeCheck(projectPath, a.worktree)
     mergedInto = check.into
     oldWorktrees.push({ agent: a.name, path: a.worktree.path, branch: a.worktree.branch, removable: check.removable, ...(check.removable ? {} : { why: check.reason ?? 'not checked' }) })
@@ -493,7 +494,7 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
         old = list
         // A worktree whose setup never ran keeps that (#289): an agent working in it again runs it first, and one kept
         // without an agent is remembered for the next.
-        const pathKey = (p: string): string => resolve(p).toLowerCase()
+        const pathKey = placeKey
         const taking = new Set(staged.flatMap((s) => (s.def.worktree ? [pathKey(s.def.worktree.path)] : [])))
         const pendingBefore = new Set(list.filter((a) => a.worktree && a.needsSetup).map((a) => pathKey(a.worktree!.path)))
         let pending = Array.isArray(now.setupPending) ? now.setupPending.filter((p) => typeof p === 'string') : []
@@ -531,7 +532,7 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
  * (`worktreeCheck`, then `removeCheckedWorktree`, which deletes nothing if either branch moved). What happened to each.
  */
 async function removeOldWorktrees(projectPath: string, old: AgentDef[], removeOld: { paths: string[]; mergedInto: string | null } | undefined): Promise<OldWorktreeOutcome[]> {
-  const key = (p: string): string => resolve(p).toLowerCase()
+  const key = placeKey
   const asked = new Set((Array.isArray(removeOld?.paths) ? removeOld.paths : []).filter((p) => typeof p === 'string').map(key))
   if (!asked.size) return []
   const out: OldWorktreeOutcome[] = []
@@ -584,7 +585,7 @@ export async function addAgentFromTemplate(projectPath: string, scope: TemplateS
   const name = uniqueName(a.name, agents.map((x) => x.name))
   // A clean worktree Hive made for that name that no agent works in is worked in again (#289), else a new one.
   const base = a.worktree ? await wt.currentBranch(projectPath) : null
-  const inUse = new Set(agents.flatMap((x) => (x.worktree ? [resolve(x.worktree.path).toLowerCase()] : [])))
+  const inUse = new Set(agents.flatMap((x) => (x.worktree ? [placeKey(x.worktree.path)] : [])))
   const found = base ? await reusableWorktree(projectPath, name, base, undefined, inUse, await wt.listWorktrees(projectPath)) : null
   const reuse = found && 'reuse' in found ? found.reuse : null
   const settings = { name, role: a.role, provider: a.provider, model: a.model, effort: a.effort, permissionMode: a.permissionMode, use200kContext: a.use200kContext }

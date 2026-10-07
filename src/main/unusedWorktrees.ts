@@ -5,7 +5,7 @@ import { lstat, readdir, readlink } from 'original-fs/promises'
 import { projectAgents, slugify } from '../shared/defaults'
 import type { AgentWorktree, UnusedWorktree, UnusedWorktreePreview, UnusedWorktreeRemoval, UnusedWorktrees } from '../shared/types'
 import { lostLines } from '../shared/unusedWorktrees'
-import { realPath } from './fsutil'
+import { placeKey, realPath } from './fsutil'
 import { git, gitReading } from './git'
 import { gitProblem } from './gitTool'
 import { createLogger, userText } from './logger'
@@ -24,11 +24,11 @@ const log = createLogger('worktrees')
  * through `removeCheckedWorktree`; Remove anyway (forced) only what the user was shown it would lose.
  */
 
-const key = (p: string): string => realPath(resolve(p)).toLowerCase()
-/** Whether `a` is `b` or a folder containing it. */
+const key = placeKey
+/** Whether `a` is `b` or a folder containing it, by real paths (#389). */
 const contains = (a: string, b: string): boolean => {
-  const x = resolve(a).toLowerCase().replace(/[\\/]$/, '')
-  const y = resolve(b).toLowerCase()
+  const x = key(a).replace(/[\\/]$/, '')
+  const y = key(b)
   return x === y || y.startsWith(x + sep)
 }
 

@@ -64,6 +64,8 @@ const { providerService } = await import('../src/main/providerService')
 const { sessions } = await import('../src/main/sessions')
 const tasks = await import('../src/main/tasks')
 const { addAgent, claimMark, removedSince, reserveForRemoval } = await import('../src/main/projectAgents')
+// Paths compared as places: git lists the long names of folders Hive may know by short (8.3) ones, as on CI (#389).
+const { placeKey } = await import('../src/main/fsutil')
 
 describe('the template format', () => {
   const agents: AgentDef[] = [
@@ -452,8 +454,8 @@ describe('saving and loading templates', () => {
     const made = cfgOf(beta).agents.map((a: AgentDef) => a.worktree)
     expect(made.map((tree: AgentDef['worktree']) => [tree!.branch, tree!.path.toLowerCase()])).toEqual(plan.worktrees.map((tree) => [tree!.branch, tree!.path.toLowerCase()]))
     expect(cfgOf(beta).agents.every((a: AgentDef) => a.needsSetup)).toBe(true)
-    const betaTrees = git(beta, 'worktree', 'list', '--porcelain').toString().toLowerCase()
-    for (const tree of made) expect(betaTrees).toContain(tree!.path.toLowerCase().replace(/\\/g, '/'))
+    const betaTrees = [...git(beta, 'worktree', 'list', '--porcelain').toString().matchAll(/^worktree (.+)$/gm)].map((m) => placeKey(m[1].trim()))
+    for (const tree of made) expect(betaTrees).toContain(placeKey(tree!.path))
     expect(git(beta, 'branch', '--list', 'hive/tree-a').toString()).toMatch(/hive\/tree-a/)
     // Nothing points at alpha's: its worktree and branch are alpha's alone, untouched.
     expect(made.some((tree: AgentDef['worktree']) => tree!.path.toLowerCase() === source.worktree!.path.toLowerCase())).toBe(false)
@@ -463,7 +465,7 @@ describe('saving and loading templates', () => {
 
   it('loading the same template again works in the same worktrees; switching templates and back reattaches them; a dirty one gets a new worktree, saying why (#289)', async () => {
     const ids = (): string[] => cfgOf(beta).agents.map((a: AgentDef) => a.id)
-    const places = (): string[][] => cfgOf(beta).agents.map((a: AgentDef) => [a.name, a.worktree?.branch ?? '', a.worktree?.path.toLowerCase() ?? ''])
+    const places = (): string[][] => cfgOf(beta).agents.map((a: AgentDef) => [a.name, a.worktree?.branch ?? '', a.worktree ? placeKey(a.worktree.path) : ''])
     const branches = (): string[] => git(beta, 'branch', '--list', 'hive/*').toString().split('\n').map((s) => s.replace('*', '').trim()).filter(Boolean).sort()
     // From the test before: Tree A on hive/tree-a, Tree B on hive/tree-b-2 (hive/tree-b was taken).
     const trees = places()
@@ -473,7 +475,7 @@ describe('saving and loading templates', () => {
     expect(plan.worktrees.map((t) => [t?.reuse, t?.branch])).toEqual([[true, 'hive/tree-a'], [true, 'hive/tree-b-2']])
     // Neither has started yet, so neither has run beta's setup command (npm install): loaded again, both still will.
     const setup = (): boolean[] => cfgOf(beta).agents.map((a: AgentDef) => !!a.needsSetup)
-    const pending = (): string[] => (cfgOf(beta).setupPending ?? []).map((p: string) => p.toLowerCase())
+    const pending = (): string[] => (cfgOf(beta).setupPending ?? []).map((p: string) => placeKey(p))
     expect(setup()).toEqual([true, true])
     await run(() => templates.loadTemplate(beta, 'project', 'trees.json', ids(), alpha))
     expect(places()).toEqual(trees)
@@ -506,7 +508,7 @@ describe('saving and loading templates', () => {
     // Add Agent from Template: a free, clean worktree of that name is worked in again; one an agent uses never is.
     expect(pending()).toEqual([trees[1][2]])
     const added = await run(() => templates.addAgentFromTemplate(beta, 'project', 'trees.json', 0, alpha))
-    expect([added.name, added.reused, added.worktree?.path.toLowerCase(), !!added.needsSetup]).toEqual(['Tree A', true, trees[0][2], false])
+    expect([added.name, added.reused, added.worktree && placeKey(added.worktree.path), !!added.needsSetup]).toEqual(['Tree A', true, trees[0][2], false])
     // Tree B's worktree, never set up, given to an agent again (Add Agent → Existing worktree): it sets up first.
     const b = await run(() => addAgent(beta, { name: 'Tree B', location: 'existing-worktree', worktreePath: trees[1][2] }))
     expect(!!b.needsSetup).toBe(true)
@@ -621,28 +623,28 @@ describe('saving and loading templates', () => {
 
   it("Remove Agent keeping its worktree keeps a setup that never ran (#319): the next agent there runs it; a done one isn't run again; a deleted worktree is forgotten", async () => {
     const { removeAgent } = await import('../src/main/projectAgents')
-    const pending = (): string[] => (cfgOf(beta).setupPending ?? []).map((p: string) => p.toLowerCase())
+    const pending = (): string[] => (cfgOf(beta).setupPending ?? []).map((p: string) => placeKey(p))
     const agent = (name: string): AgentDef => cfgOf(beta).agents.find((a: AgentDef) => a.name === name)
     expect(cfgOf(beta).worktreeSetup).toBe('npm install')
     // Never started: its setup is still to run. Removed, its worktree kept: remembered, and run by the next agent there.
     const keeper = await run(() => addAgent(beta, { name: 'Keeper', location: 'new-worktree' }))
     expect(keeper.needsSetup).toBe(true)
     await run(() => removeAgent(beta, keeper.id, { deleteWorktree: false }))
-    expect(pending()).toContain(keeper.worktree!.path.toLowerCase())
+    expect(pending()).toContain(placeKey(keeper.worktree!.path))
     const again = await run(() => addAgent(beta, { name: 'Keeper again', location: 'existing-worktree', worktreePath: keeper.worktree!.path }))
     expect(again.needsSetup).toBe(true)
-    expect(pending()).not.toContain(keeper.worktree!.path.toLowerCase())
+    expect(pending()).not.toContain(placeKey(keeper.worktree!.path))
     // Its setup done (its first start): removed and given again, it doesn't run again.
     writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ ...cfgOf(beta), agents: cfgOf(beta).agents.map((a: AgentDef) => (a.id === again.id ? { ...a, needsSetup: false } : a)) }))
     await run(() => removeAgent(beta, again.id, { deleteWorktree: false }))
-    expect(pending()).not.toContain(keeper.worktree!.path.toLowerCase())
+    expect(pending()).not.toContain(placeKey(keeper.worktree!.path))
     const third = await run(() => addAgent(beta, { name: 'Keeper 3', location: 'existing-worktree', worktreePath: keeper.worktree!.path }))
     expect(!!third.needsSetup).toBe(false)
     // A worktree another agent still works in is that agent's: nothing is remembered for it.
     const shared = await run(() => addAgent(beta, { name: 'Sharer', location: 'new-worktree' }))
     writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ ...cfgOf(beta), agents: [...cfgOf(beta).agents, { ...agent('Sharer'), id: 'a-twin', name: 'Twin' }] }))
     await run(() => removeAgent(beta, shared.id, { deleteWorktree: false }))
-    expect(pending()).not.toContain(shared.worktree!.path.toLowerCase())
+    expect(pending()).not.toContain(placeKey(shared.worktree!.path))
     // Remove All (#291): one with work of its own is kept, so remembered; a merged, clean one is deleted, and forgotten.
     const busy = await run(() => addAgent(beta, { name: 'Busy', location: 'new-worktree' }))
     writeFileSync(join(busy.worktree!.path, 'own.txt'), 'work')
@@ -650,17 +652,17 @@ describe('saving and loading templates', () => {
     git(busy.worktree!.path, 'commit', '-qm', 'own work')
     const busyGone = await run(() => removeAgent(beta, busy.id, { deleteWorktree: 'merged-clean', mergedInto: 'main' }))
     expect(busyGone.worktree?.deleted).toBe(false)
-    expect(pending()).toContain(busy.worktree!.path.toLowerCase())
+    expect(pending()).toContain(placeKey(busy.worktree!.path))
     const neat = await run(() => addAgent(beta, { name: 'Neat', location: 'new-worktree' }))
     await run(() => removeAgent(beta, neat.id, { deleteWorktree: false }))
-    expect(pending()).toContain(neat.worktree!.path.toLowerCase())
+    expect(pending()).toContain(placeKey(neat.worktree!.path))
     const neatAgain = await run(() => addAgent(beta, { name: 'Neat again', location: 'existing-worktree', worktreePath: neat.worktree!.path }))
     // (Listed again, as a worktree kept from before would be: deleting it takes it off the list.)
     writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ ...cfgOf(beta), setupPending: [...(cfgOf(beta).setupPending ?? []), neat.worktree!.path] }))
-    expect(pending()).toContain(neat.worktree!.path.toLowerCase())
+    expect(pending()).toContain(placeKey(neat.worktree!.path))
     const neatGone = await run(() => removeAgent(beta, neatAgain.id, { deleteWorktree: 'merged-clean', mergedInto: 'main' }))
     expect(neatGone.worktree?.deleted).toBe(true)
-    expect(pending()).not.toContain(neat.worktree!.path.toLowerCase())
+    expect(pending()).not.toContain(placeKey(neat.worktree!.path))
   })
 
   it("says when an old worktree's folder went but its branch stayed (#313)", async () => {

@@ -5,6 +5,7 @@ import type { AgentDef, WorktreeGone } from '../shared/types'
 import { projectAgents, slugify } from '../shared/defaults'
 import { samePath } from '../shared/movePaths'
 import { config } from './config'
+import { samePlace } from './fsutil'
 import { git } from './git'
 import { createLogger, userText } from './logger'
 import { sessions } from './sessions'
@@ -73,12 +74,12 @@ export async function recreateWorktree(projectPath: string, agentId: string, opt
   const old = a.worktree
   if (existsSync(old.path)) throw new Error(`${a.name}'s worktree folder is there (${old.path}): there's nothing to recreate.`)
   if (sessions.liveFor(projectPath, agentId)) throw new Error(`Stop ${a.name} first.`)
-  const others = (await prunable(projectPath)).filter((p) => !samePath(p, old.path) && !(opts.alsoRecreating ?? []).some((q) => samePath(p, q)))
+  const others = (await prunable(projectPath)).filter((p) => !samePlace(p, old.path) && !(opts.alsoRecreating ?? []).some((q) => samePlace(p, q)))
   if (others.length) {
     throw new Error(`Recreating runs git worktree prune, which would also drop git's link to ${others.join(', ')} (missing too). Locate, recreate or remove ${others.length === 1 ? 'that worktree' : 'those worktrees'} first.`)
   }
   await git(projectPath, ['worktree', 'prune'])
-  if ((await listWorktrees(projectPath)).some((l) => samePath(l.path, old.path))) throw new Error(`git still lists ${old.path} as a worktree (it may be locked): unlock it, or run git worktree prune, then try again.`)
+  if ((await listWorktrees(projectPath)).some((l) => samePlace(l.path, old.path))) throw new Error(`git still lists ${old.path} as a worktree (it may be locked): unlock it, or run git worktree prune, then try again.`)
   const fallback = (): string => uniqueFolder(join(workspaceOf(projectPath).worktreesRoot, basename(projectPath), slugify(a.name)))
   let dest = opts.prefer ?? old.path
   if (existsSync(dest) || !(await usableParent(dest))) dest = fallback()
