@@ -118,4 +118,33 @@ describe('runTask: the setup keys go in once Codex has loaded and is idle', () =
     expect(pty.typed.map((t) => t.keys)).toEqual(keys.map((k) => k.keys))
     expect(pty.typed[0].at - idleAt).toBeGreaterThanOrEqual(1000)
   })
+
+  // Codex 0.161 reordered /permissions (#396): the setup task reads the menu Codex draws for "Ask for approval".
+  const menu = (codexVersion: string) => readFileSync(join(__dirname, 'fixtures', `codex-${codexVersion}-permissions-readonly.txt`), 'utf8').split('\n').slice(-12).join('\r\n')
+  for (const [codexVersion, want] of [['0.161', '1'], ['0.160', '2']]) {
+    it(`picks "Ask for approval" from the menu on the screen (Codex ${codexVersion}'s order: ${want})`, async () => {
+      vi.useFakeTimers({ now: 0 })
+      const { codex } = await import('../src/main/providers/codex/adapter')
+      const run = (providerService as unknown as { runTask: (...a: unknown[]) => string }).runTask.bind(providerService)
+      run('codex', 'setup', 'codex.exe', [], 'Codex setup', { keys: codex.modeMenuKeys('ask'), ready: CODEX_LOADED, busyTitle: BUSY })
+      pty.onData!(stream)
+      await vi.advanceTimersByTimeAsync(3000)
+      // The menu is open; the number isn't typed until it shows.
+      expect(pty.typed.map((t) => t.keys)).toEqual(['\x15', '/permissions', '\r'])
+      pty.onData!(`\r\n${menu(codexVersion)}`)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(pty.typed.map((t) => t.keys)).toEqual(['\x15', '/permissions', '\r', want])
+    })
+  }
+
+  it('types nothing more when the menu never shows the preset, and says so', async () => {
+    vi.useFakeTimers({ now: 0 })
+    const { codex } = await import('../src/main/providers/codex/adapter')
+    const run = (providerService as unknown as { runTask: (...a: unknown[]) => string }).runTask.bind(providerService)
+    run('codex', 'setup', 'codex.exe', [], 'Codex setup', { keys: codex.modeMenuKeys('ask'), ready: CODEX_LOADED, busyTitle: BUSY })
+    pty.onData!(stream)
+    pty.onData!('\r\n  1. Approve for me   Only ask for actions detected as potentially unsafe')
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(pty.typed.map((t) => t.keys)).toEqual(['\x15', '/permissions', '\r'])
+  })
 })
