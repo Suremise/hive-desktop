@@ -447,6 +447,21 @@ const prose = (seed, n) => {
   const off = (await api('GET', `/v1/metrics?scope=workspace&from=${encodeURIComponent(since)}`)).body
   check('metrics: turned off, nothing was recorded', workspaceCalls(off) - callsBefore === 1200, String(workspaceCalls(off) - callsBefore))
 
+  // The merge slot (#350): an agent's own launch holds it; replies are a line each.
+  console.log('\n--- merge slot')
+  const slot = (args) => {
+    const r = asCoder('tools/call', { name: 'hive_merge_slot', arguments: { branch: 'main', ...args } })
+    return { text: r.content[0].text, isError: !!r.isError }
+  }
+  check('merge slot: free, in a line', /^Merge slot for main: free\.$/.test(measure('hive_merge_slot (status, free)', slot({ action: 'status' }), 120)), texts['hive_merge_slot (status, free)'])
+  check('merge slot: a claim says it is held and for how long', /^You hold the merge slot for main, \d+ min left\. Release it once merged\.$/.test(measure('hive_merge_slot (claim)', slot({ action: 'claim', cards: [7] }), 160)), texts['hive_merge_slot (claim)'])
+  check('merge slot: claiming again extends it', /\(extended\)/.test(measure('hive_merge_slot (claim, extend)', slot({ action: 'claim' }), 160)), texts['hive_merge_slot (claim, extend)'])
+  check('merge slot: the status names the holder and the cards', /^Merge slot for main: \w+ is merging #7 \(/.test(measure('hive_merge_slot (status, held)', slot({ action: 'status' }), 200)), texts['hive_merge_slot (status, held)'])
+  const scriptClaim = tool('hive_merge_slot', { action: 'claim', branch: 'main' })
+  check("merge slot: a script can't claim it", scriptClaim.isError && /Only a project's own agents hold its merge slot/.test(scriptClaim.text), scriptClaim.text)
+  check('merge slot: released in a line', /^Released the merge slot for main\.$/.test(measure('hive_merge_slot (release)', slot({ action: 'release' }), 120)), texts['hive_merge_slot (release)'])
+  check("merge slot: agents have the tool, the Assistant doesn't", !!toolDescription('hive_merge_slot') && !toolDescription('hive_merge_slot', 'assistant'))
+
   // A request that began in this workspace and ends after the window opened another: counted nowhere (not the next).
   const nextWs = path.join(lib.WORK, 'replysize-next-ws')
   fs.rmSync(nextWs, { recursive: true, force: true })

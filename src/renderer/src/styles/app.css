@@ -7089,3 +7089,39 @@ button.progress-run-show:focus-visible {
   border-radius: 6px;
   margin: 8px 0 12px;
 }
+
+/* The merge slots (#350): in the Progress panel, the project's Overview and the Merge dialog. */
+.merge-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.merge-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  min-width: 0;
+}
+.page-narrow .merge-slots {
+  margin-bottom: 16px;
+}
+.page-narrow .merge-slot {
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+.merge-slot.late > .codicon {
+  color: var(--warning);
+}
+.merge-slot-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.merge-slot-branch {
+  font-family: var(--font-mono, monospace);
+}
+.merge-slot-waiting {
+  font-size: 12px;
+}

@@ -47,6 +47,7 @@ import { hiveWindows, lastFocused, TITLE_BAR_OVERLAY, registerWindow, unregister
 import { abandonWindowStorage } from './storage'
 import { agentTokenFile } from './agentTokens'
 import { progress, setTaskbarTestHook, startProgress } from './progressService'
+import { startMergeSlots } from './mergeSlotHost'
 
 const log = createLogger('main')
 let quitting = false
@@ -770,6 +771,7 @@ app.whenReady().then(async () => {
   startTaskbarFlash()
   // Long runs agents report (the Progress panel): stale runs, and the setting.
   startProgress()
+  startMergeSlots()
   // Test builds can record the taskbar's progress calls, which the page can't see.
   if (!app.isPackaged && process.env.HIVE_TEST_TASKBAR_LOG) {
     const file = process.env.HIVE_TEST_TASKBAR_LOG

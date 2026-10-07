@@ -194,6 +194,9 @@ function handleEvent(e: HiveEvent): void {
     case 'progress-changed':
       if (e.workspacePath.toLowerCase() === get().workspace?.path.toLowerCase()) set({ progressRuns: e.runs })
       break
+    case 'merge-slots-changed':
+      if (e.workspacePath.toLowerCase() === get().workspace?.path.toLowerCase()) set({ mergeSlots: e.slots })
+      break
     case 'assistant-questions': {
       const before = get().assistantQuestions
       set({ assistantQuestions: e.questions })

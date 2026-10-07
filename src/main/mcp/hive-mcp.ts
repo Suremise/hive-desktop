@@ -11,9 +11,10 @@
 import { appendFileSync, readFileSync } from 'fs'
 import { createInterface } from 'readline'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../../shared/hiveGuidance'
-import { ASSISTANT_ONLY_TOOLS, assistantTools } from '../../shared/assistantTools'
+import { AGENT_ONLY_TOOLS, ASSISTANT_ONLY_TOOLS, assistantTools } from '../../shared/assistantTools'
 import { COLUMN_IDS } from '../../shared/tasks'
-import { MAX_ROWS, changedText, createdText, noteText, notesListText, noteWrittenText, projectListText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
+import { MAX_ROWS, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
+import type { MergeSlotInfo } from '../../shared/types'
 
 const VERSION = '1.0.0'
 const API = (process.env.HIVE_API_URL || 'http://127.0.0.1:47821').replace(/\/$/, '')
@@ -347,6 +348,29 @@ const tools: Tool[] = [
       )
   },
   {
+    name: 'hive_merge_slot',
+    description:
+      "Your project's merge slot: one merge at a time into a branch (default: the project folder's). claim waits up to timeoutSeconds (default 240, max 290): you hold it, or your place (claim again to keep it); claiming again extends the 60-min hold; your session ending releases it. release gives it up or leaves the line. cards: what you merge.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['claim', 'release', 'status'] },
+        branch: { type: 'string' },
+        cards: { type: 'array', items: { type: 'number' } },
+        timeoutSeconds: { type: 'number' }
+      },
+      required: ['action']
+    },
+    run: async (a) => {
+      const base = `/v1/projects/${enc(PROJECT)}/merge-slot`
+      const branch = a.branch !== undefined ? { branch: a.branch } : {}
+      if (a.action === 'status') return mergeSlotText((await api('GET', `${base}${a.branch !== undefined ? `?branch=${enc(String(a.branch))}` : ''}`)) as MergeSlotInfo, Date.now())
+      if (a.action === 'release') return releaseText((await api('POST', `${base}/release`, branch)) as Parameters<typeof releaseText>[0])
+      if (a.action !== 'claim') throw new Error('action must be claim, release or status')
+      return claimText((await api('POST', `${base}/claim`, { ...branch, ...(a.cards !== undefined ? { cards: a.cards } : {}), ...(a.timeoutSeconds !== undefined ? { timeoutSeconds: a.timeoutSeconds } : {}) })) as Parameters<typeof claimText>[0], Date.now())
+    }
+  },
+  {
     name: 'hive_read_task',
     description:
       'One card as JSON: description, comments, links, agent and reviewer. comments=n gives only its newest n comments (commentsOmitted counts the others); latestComment=true only the newest (comment null if none); history=true adds who changed what and when (historyEntries says how many entries there are).',
@@ -495,7 +519,7 @@ const tools: Tool[] = [
 
 /** Agents get Hive's common tools; the Assistant also those its control level allows. */
 const allowed = new Set(assistantTools(CONTROL, CHANGE_SETTINGS))
-const offered = tools.filter((t) => (ASSISTANT ? !ASSISTANT_ONLY_TOOLS.includes(t.name) || allowed.has(t.name) : !ASSISTANT_ONLY_TOOLS.includes(t.name)))
+const offered = tools.filter((t) => (ASSISTANT ? (!ASSISTANT_ONLY_TOOLS.includes(t.name) || allowed.has(t.name)) && !AGENT_ONLY_TOOLS.includes(t.name) : !ASSISTANT_ONLY_TOOLS.includes(t.name)))
 
 const INSTRUCTIONS = hiveInstructions(PROJECT, ASSISTANT ? 'assistant' : 'agent', process.env.HIVE_PROGRESS_COMMANDS !== '0')
 

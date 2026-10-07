@@ -5,7 +5,8 @@
  * returns a short row per item, and full detail comes on request. No imports beyond shared code without side
  * effects: hive-mcp.js runs outside the app bundle.
  */
-import type { TaskCard, TaskColumn } from './types'
+import type { MergeSlotInfo, TaskCard, TaskColumn } from './types'
+import { holderText, minutes, slotLine } from './mergeSlot'
 import { columnLabel } from './tasks'
 import { shortDuration } from './progress'
 
@@ -347,4 +348,34 @@ export function settingText(d: SettingDetail): string {
 export function settingChangedText(c: { title: string; id: string; path: string; project?: string; changed?: boolean; old: string; new: string; restart?: string }): string {
   if (c.changed === false || (c.changed === undefined && c.old === c.new)) return `${c.path}${c.project ? ` (${c.project})` : ''} was already ${c.new}: nothing changed.`
   return `Changed ${c.path}${c.project ? ` in ${c.project}` : ''} (${c.id}): ${c.old} → ${c.new}. ${c.restart ? `It applies ${c.restart}.` : 'It applies now.'} The user can revert it in your panel's list.`
+}
+
+// The merge slot (#350): what an agent claiming, releasing or looking at it is told, in a line.
+
+type SlotHolder = MergeSlotInfo['holder']
+interface SlotLost {
+  branch: string
+  why: string
+}
+const lostText = (l: SlotLost | undefined): string => (l ? `Your earlier hold on the merge slot for ${l.branch} ended: ${l.why}. ` : '')
+
+/** A claim's reply: held (and how long is left), or its place in line and who holds the slot. */
+export function claimText(r: { held: boolean; branch: string; until?: number; extended?: boolean; position?: number; holder?: SlotHolder; lost?: SlotLost }, now: number): string {
+  const lost = lostText(r.lost)
+  if (r.held) return `${lost}You hold the merge slot for ${r.branch}${r.extended ? ' (extended)' : ''}, ${minutes((r.until ?? now) - now)} left. Release it once merged.`
+  if (!r.position) return `${lost}You aren't in line for the merge slot for ${r.branch} any more: claim it again.`
+  return `${lost}Waiting for the merge slot for ${r.branch}: ${ordinal(r.position)} in line${r.holder ? `; ${holderText(r.holder)}` : ''}. Claim again to keep your place.`
+}
+
+/** A release's reply. */
+export function releaseText(r: { branch: string; released?: boolean; next?: string | null; left?: boolean; none?: boolean; holder?: SlotHolder; lost?: SlotLost }): string {
+  const lost = lostText(r.lost)
+  if (r.released) return `${lost}Released the merge slot for ${r.branch}${r.next ? `; ${r.next} has it now` : ''}.`
+  if (r.left) return `${lost}Left the line for the merge slot for ${r.branch}.`
+  return `${lost}You don't hold the merge slot for ${r.branch} (${r.holder ? holderText(r.holder) : 'it is free'}).`
+}
+
+/** A slot's status in a line: who holds it, for how long, and who waits. */
+export function mergeSlotText(s: MergeSlotInfo, now: number): string {
+  return `Merge slot for ${s.branch}: ${slotLine(s, now)}${s.waiting.length ? `; waiting: ${s.waiting.map((w) => w.name).join(', ')}` : ''}.`
 }

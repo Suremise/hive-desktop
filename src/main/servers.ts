@@ -30,6 +30,8 @@ import agentApiDoc from '../../docs/AGENT_API.md?raw'
 import { createLogger } from './logger'
 import { listMcp } from './mcp'
 import { assertInShared, createHandover, NoteConflict, notesTree, readNote, writeNote } from './notes'
+import { mergeSlots } from './mergeSlotHost'
+import { DEFAULT_WAIT_MS, MAX_WAIT_MS, MergeSlotError, slotBranch, slotCards, type SlotAgent } from './mergeSlots'
 import { writePty } from './ptyHost'
 import { sessions } from './sessions'
 import * as tasks from './tasks'
@@ -330,7 +332,7 @@ const statusMessageOf = (live: LiveSessionState | null | undefined): string | nu
     ? (live.watch?.label ?? null)
     : live?.status === 'signin'
       ? `Its CLI's sign-in has expired: the user must sign in again (${live.signIn?.message ?? 'not signed in'})`
-      : (live?.statusMessage ?? null)
+      : (live?.statusMessage ?? live?.mergeSlot ?? null)
 
 async function projectSummary(p: string) {
   const info = await workspace.projectInfo(p)
@@ -377,7 +379,8 @@ async function agentParam(p: string, value: unknown): Promise<string> {
   return a.id
 }
 
-type Handler = (ctx: { params: string[]; query: URLSearchParams; body: any }) => Promise<unknown>
+/** `signal` aborts when the client goes away before its reply (a long wait it no longer waits for). */
+type Handler = (ctx: { params: string[]; query: URLSearchParams; body: any; signal: AbortSignal }) => Promise<unknown>
 
 const LEVEL_NAME: Record<AssistantControl, string> = { look: 'Look and advise', agents: 'Control agents', projects: 'Control agents and create projects' }
 
@@ -985,6 +988,65 @@ route('POST', '/v1/agents/wait', async ({ body }) => {
   }
   return { timedOut: working(), waitedSeconds: Math.round((Date.now() - t0) / 1000), agents }
 })
+
+// The merge slot (#350): one merge at a time into a project's branch. Its own project's only, for an agent; held by
+// a running agent (its launch), never by what a request says.
+
+/** The calling agent as a holder of its project's slot. Scripts and the Assistant can look, not claim. */
+async function slotAgent(p: string): Promise<SlotAgent> {
+  const a = agentCaller()
+  if (!a) throw new HttpError(403, "Only a project's own agents hold its merge slot (with their own token). Scripts and the Assistant can read it.")
+  ownProjectOnly(p, 'The merge slot')
+  const live = sessions.liveFor(a.projectPath, a.agentId)
+  if (!live) throw new HttpError(409, 'Only a running agent can hold the merge slot.')
+  const def = projectAgents(await workspace.projectConfig(a.projectPath)).find((x) => x.id === a.agentId)
+  return { projectPath: a.projectPath, agentId: a.agentId, agentName: def?.name ?? a.agentId, runId: live.runId }
+}
+
+/** The branch a slot call names, or the one the project folder is on (what Hive's Merge dialog merges into). */
+async function slotBranchFor(p: string, v: unknown): Promise<string> {
+  if (v !== undefined && v !== null) return slotBranch(v)
+  const b = await workspace.branch(p)
+  if (!b) throw new HttpError(409, "The project folder isn't on a branch: name the branch to merge into.")
+  return b
+}
+
+const slotCall = async <T>(fn: () => Promise<T> | T): Promise<T> => {
+  try {
+    return await fn()
+  } catch (e) {
+    throw e instanceof MergeSlotError ? new HttpError(e.status, e.message) : e
+  }
+}
+
+route('GET', '/v1/projects/:name/merge-slot', async ({ params, query }) =>
+  slotCall(async () => {
+    const p = projectByName(params[0])
+    ownProjectOnly(p, "Reading a project's merge slot")
+    return mergeSlots.status(p, await slotBranchFor(p, query.get('branch') ?? undefined))
+  })
+)
+
+route('POST', '/v1/projects/:name/merge-slot/claim', async ({ params, body, signal }) =>
+  slotCall(async () => {
+    const p = projectByName(params[0])
+    const agent = await slotAgent(p)
+    const branch = await slotBranchFor(p, body?.branch)
+    const cards = slotCards(body?.cards)
+    const t = body?.timeoutSeconds
+    if (t !== undefined && (typeof t !== 'number' || !Number.isFinite(t) || t < 0)) throw new HttpError(400, 'timeoutSeconds must be a number of seconds')
+    const waitMs = t === undefined ? DEFAULT_WAIT_MS : Math.min(MAX_WAIT_MS, t * 1000)
+    return { ...(await mergeSlots.claim(agent, p, branch, cards, waitMs, signal)), slot: mergeSlots.status(p, branch) }
+  })
+)
+
+route('POST', '/v1/projects/:name/merge-slot/release', async ({ params, body }) =>
+  slotCall(async () => {
+    const p = projectByName(params[0])
+    const agent = await slotAgent(p)
+    return mergeSlots.release(agent, p, await slotBranchFor(p, body?.branch))
+  })
+)
 
 route('GET', '/v1/shared', async () => inWorkspace(requireWorkspace(), () => notesTree()))
 
@@ -1680,7 +1742,11 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     const params = url.pathname.match(r.pattern)!.slice(1)
     // With several Hive windows, a request is for one workspace: the one it names, or the only one open.
     const ws = requestWorkspace(req, url)
-    const run = (): Promise<unknown> => r.handler({ params, query: url.searchParams, body })
+    const gone = new AbortController()
+    res.on('close', () => {
+      if (!res.writableEnded) gone.abort()
+    })
+    const run = (): Promise<unknown> => r.handler({ params, query: url.searchParams, body, signal: gone.signal })
     const result = ws ? await inWorkspace(ws, run) : await run()
     send(res, 200, result ?? null)
   } catch (e) {
