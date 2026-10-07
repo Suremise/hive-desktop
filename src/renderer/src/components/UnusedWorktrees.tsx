@@ -1,0 +1,203 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ProjectInfo, UnusedWorktree, UnusedWorktreePreview, UnusedWorktrees } from '@shared/types'
+import { formatSize } from '@shared/storage'
+import { UNUSED_WORKTREES_GUIDE, holdsWork, lostByRemoving, unusedState, unusedWorkNotice } from '@shared/unusedWorktrees'
+import { call, errorMessage } from '../api'
+import { confirm, giveWorktreeToAgent, notify, set, useStore } from '../store'
+import { runCommand } from '../commands'
+import { openGuideAt } from '../tips'
+import { cx, timeAgo } from '../util'
+import { BusyButton, Icon } from './ui'
+import { useStorageRequests } from './Storage'
+
+/** The project's unused worktrees, as git says now: loaded again when its agents' worktrees change, or on `reload`. */
+function useUnusedWorktrees(project: ProjectInfo): { data: UnusedWorktrees | null; reload: () => void } {
+  const [data, setData] = useState<UnusedWorktrees | null>(null)
+  const loads = useRef(0)
+  // The agents' worktrees: one removed (its worktree kept) or given to an agent changes the list.
+  const trees = project.agents.map((a) => a.worktree?.path ?? '').join('|')
+  const reload = useCallback(() => {
+    const n = ++loads.current
+    void call('worktrees:unused', project.path).then(
+      (d) => n === loads.current && setData(d),
+      () => n === loads.current && setData(null)
+    )
+  }, [project.path])
+  useEffect(() => {
+    setData(null)
+    reload()
+  }, [reload, trees])
+  return { data, reload }
+}
+
+/**
+ * The project Overview's "Unused worktrees (n)" (#353): worktrees no agent works in, each merged and clean (Remove, with
+ * its branch) or holding work (what is at stake, Give to an agent…, Remove anyway…), with their last commit and size.
+ * Hidden when there are none. Removing is the user's: the Assistant can only see them.
+ */
+export function UnusedWorktreesSection({ project }: { project: ProjectInfo }) {
+  const { data, reload } = useUnusedWorktrees(project)
+  const [sizes, setSizes] = useState<Record<string, number> | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const head = useRef<HTMLHeadingElement>(null)
+  const jump = useStore((s) => s.unusedJump)
+  const request = useStorageRequests()
+  const list = data?.worktrees ?? []
+  const paths = list.map((w) => w.path).join('|')
+
+  // Sizes as Storage measures them (once, cached there; cancelled when the Overview closes).
+  useEffect(() => {
+    setSizes(null)
+    if (!paths) return
+    const { result, current } = request((r) => call('storage:project', project.path, false, r))
+    void result.then(
+      (s) => current() && setSizes(Object.fromEntries((s.unusedWorktrees ?? []).map((w) => [w.path.toLowerCase(), w.bytes]))),
+      () => undefined
+    )
+  }, [paths, project.path, request])
+
+  useEffect(() => {
+    if (!jump || jump.project !== project.path || !data) return
+    set({ unusedJump: null })
+    setTimeout(() => head.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60)
+  }, [jump, project.path, data])
+
+  if (!list.length) return null
+  const merged = list.filter((w) => w.check.removable)
+  const into = list.find((w) => w.check.into)?.check.into ?? 'the main branch'
+
+  const removeOne = async (w: UnusedWorktree): Promise<void> => {
+    setBusy(w.path)
+    try {
+      const r = await call('worktrees:removeUnused', project.path, w.path, { expectInto: w.check.into })
+      if (!r.deleted) notify('warning', `${w.branch ?? w.path} was kept`, r.reason)
+      else if (r.branchKept) notify('warning', `${w.path} was removed, its branch kept`, r.reason)
+    } catch (e) {
+      notify('error', "Couldn't remove the worktree", errorMessage(e))
+    } finally {
+      setBusy(null)
+      reload()
+    }
+  }
+
+  const removeMerged = async (): Promise<void> => {
+    const kept: string[] = []
+    const ok = await confirm({
+      title: `Remove ${merged.length} merged worktree${merged.length === 1 ? '' : 's'}?`,
+      message: `Each is merged into ${into} and clean: its folder and its branch are deleted. One that changed since is kept.`,
+      list: merged.map((w) => `${w.branch} — ${w.path}`),
+      confirmLabel: 'Remove',
+      busyLabel: 'Removing…',
+      run: async () => {
+        for (const w of merged) {
+          const r = await call('worktrees:removeUnused', project.path, w.path, { expectInto: w.check.into }).catch((e: unknown) => ({ deleted: false, reason: errorMessage(e) }))
+          if (!r.deleted) kept.push(`${w.branch}: ${r.reason ?? 'kept'}`)
+        }
+      }
+    })
+    reload()
+    if (ok && kept.length) notify('warning', `${kept.length} worktree${kept.length === 1 ? ' was' : 's were'} kept`, kept.join('\n'))
+  }
+
+  // What it loses, checked now in main (not the list's older counts), under a token the removal presents: main removes it
+  // only if nothing in it changed since (#353).
+  const removeAnyway = async (w: UnusedWorktree): Promise<void> => {
+    setBusy(w.path)
+    let preview: UnusedWorktreePreview
+    try {
+      preview = await call('worktrees:removalPreview', project.path, w.path)
+    } catch (e) {
+      notify('error', 'Nothing was removed', errorMessage(e))
+      reload()
+      return
+    } finally {
+      setBusy(null)
+    }
+    await confirm({
+      title: 'Remove the worktree anyway?',
+      message: `This deletes ${preview.path}${preview.branch ? ` and its branch ${preview.branch}` : ''}, with work that is nowhere else:`,
+      list: preview.lost,
+      detail: "It can't be undone. If anything in it changes before you confirm (a file, its branch, its commit), nothing is removed.",
+      danger: true,
+      confirmLabel: 'Remove Anyway',
+      busyLabel: 'Removing…',
+      run: async () => {
+        const r = await call('worktrees:removeUnused', project.path, w.path, { force: preview.token })
+        if (!r.deleted) throw new Error(r.reason ?? 'It was kept.')
+        if (r.branchKept) notify('warning', `${w.path} was removed, its branch kept`, r.reason)
+      }
+    })
+    // Removed, kept or cancelled: the list as it is now.
+    reload()
+  }
+
+  return (
+    <div className="unused-worktrees">
+      <h2 className="section" id="unused-worktrees" ref={head}>
+        Unused worktrees <span className="badge">{list.length}</span>
+        <div className="grow" />
+        {merged.length > 0 && (
+          <button className="btn small" onClick={() => void removeMerged()}>
+            Remove all merged ({merged.length})…
+          </button>
+        )}
+        <button className="btn small subtle" onClick={() => openGuideAt(UNUSED_WORKTREES_GUIDE)}>
+          Learn more
+        </button>
+      </h2>
+      <p className="hint">Worktrees no agent of {project.name} works in, kept when their agent was removed. Those merged into {into} and clean can go with their branches; the others hold work that is nowhere else.</p>
+      {list.map((w) => {
+        const size = sizes?.[w.path.toLowerCase()]
+        return (
+          <div key={w.path} className="unused-wt" data-path={w.path}>
+            <Icon name="git-branch" />
+            <div className="grow">
+              <div>
+                <strong>{w.branch ?? '(detached)'}</strong>{' '}
+                <span className={cx('badge', w.check.removable ? 'success' : holdsWork(w) ? 'warn' : '')}>{unusedState(w)}</span>
+              </div>
+              <div className="muted mono" style={{ fontSize: 11 }}>
+                {w.path}
+              </div>
+              <div className="faint" style={{ fontSize: 12 }}>
+                {[w.lastCommit ? `${timeAgo(w.lastCommit.at)}: ${w.lastCommit.subject}` : '', size === undefined ? (sizes ? '' : 'measuring…') : formatSize(size)].filter(Boolean).join(' · ')}
+              </div>
+            </div>
+            <div className="flex">
+              {w.check.removable ? (
+                <BusyButton className="btn small" busy={busy === w.path} busyLabel="Removing…" disabled={!!busy} onClick={() => void removeOne(w)}>
+                  Remove
+                </BusyButton>
+              ) : (
+                <>
+                  <button className="btn small" onClick={() => giveWorktreeToAgent(project.path, w.path)}>
+                    Give to an agent…
+                  </button>
+                  {lostByRemoving(w) && (
+                    <BusyButton className="btn small danger-text" busy={busy === w.path} busyLabel="Checking…" disabled={!!busy} onClick={() => void removeAnyway(w)}>
+                      Remove anyway…
+                    </BusyButton>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/** The Changes tab's notice (#353): only when an unused worktree holds work that isn't on the main branch. */
+export function UnusedWorkNotice({ project }: { project: ProjectInfo }) {
+  const { data } = useUnusedWorktrees(project)
+  const text = data ? unusedWorkNotice(data.worktrees) : null
+  if (!text) return null
+  return (
+    <div className="unused-work-notice">
+      <Icon name="git-branch" />
+      <span>{text}</span>
+      <a onClick={() => runCommand('project.unusedWorktrees', project.path)}>Review</a>
+    </div>
+  )
+}

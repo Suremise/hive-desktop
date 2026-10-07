@@ -1,7 +1,9 @@
 import { execFile } from 'child_process'
 import { resolve, sep } from 'path'
 import { lstat, readFile, readlink } from 'original-fs/promises'
+import { existsSync } from 'original-fs'
 import { insideReal } from './fsutil'
+import { gitProblem, noteGitMissing, noteGitRan } from './gitTool'
 import type { GitDiff, GitStatus } from '../shared/types'
 
 const MAX_DIFF_BYTES = 2 * 1024 * 1024
@@ -12,7 +14,10 @@ export interface GitResult {
   buf: Buffer
   /** Standard error, for messages to show when a command fails. */
   err: string
+  /** The exit code; -1 when git couldn't be started (`missing`), so no caller takes it for git's own "no" (exit 1). */
   code: number
+  /** Git couldn't be started: not installed, or not on Hive's PATH (#346). Never an answer about the repository. */
+  missing?: boolean
 }
 
 /**
@@ -28,18 +33,46 @@ export function git(cwd: string, args: string[], maxBuffer = 16 * 1024 * 1024, i
   return new Promise((res) => {
     const child = execFile('git', [...GIT_PREFIX, ...args], { cwd, windowsHide: true, maxBuffer, encoding: 'buffer' }, (err, stdout, stderr) => {
       const buf = (stdout as unknown as Buffer) ?? Buffer.alloc(0)
-      const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as unknown as { code: number }).code : 1) : 0
-      res({ out: buf.toString('utf8'), ok: !err, buf, err: ((stderr as unknown as Buffer) ?? Buffer.alloc(0)).toString('utf8').trim(), code })
+      const errCode = (err as { code?: unknown } | null)?.code
+      // Git didn't start. Node says ENOENT for a missing working folder too: that one is a failure, not a missing git.
+      const missing = (errCode === 'ENOENT' || errCode === 'EACCES' || errCode === 'EPERM' || errCode === 'UNKNOWN') && existsSync(cwd)
+      const code = err ? (typeof errCode === 'number' ? errCode : missing ? -1 : 1) : 0
+      if (missing) noteGitMissing()
+      // Git ran (whatever it answered): not one that didn't start for another reason (no working folder, output too big).
+      else if (!err || typeof errCode === 'number') noteGitRan()
+      res({ out: buf.toString('utf8'), ok: !err, buf, err: ((stderr as unknown as Buffer) ?? Buffer.alloc(0)).toString('utf8').trim(), code, ...(missing ? { missing } : {}) })
     })
     // What the command reads (update-ref --stdin's transaction).
     if (input !== undefined) child.stdin?.end(input)
   })
 }
 
-/** The commit where HEAD left base, or null if there is none. */
+/** Git couldn't read the index for a moment (another git command, a user's `git add`, is rewriting it): worth trying again (#222). */
+export const INDEX_BUSY = /index file open failed|unable to (open|read|create).*index|could not read.*index|index\.lock|index file smaller than expected|bad index file/i
+const BUSY_TRIES = 4
+const BUSY_RETRY_MS = 50
+
+/** git(), tried again briefly while the index is busy (`INDEX_BUSY`): a read that fails only for that moment isn't a failure. */
+export async function gitReading(cwd: string, args: string[]): Promise<GitResult> {
+  let r = await git(cwd, args)
+  for (let t = 1; t < BUSY_TRIES && !r.ok && INDEX_BUSY.test(r.err); t++) {
+    await new Promise((res) => setTimeout(res, BUSY_RETRY_MS))
+    r = await git(cwd, args)
+  }
+  return r
+}
+
+/** Why a git command failed, for an error the window shows: git missing, else git's own first line. */
+function failure(what: string, r: GitResult): Error {
+  return new Error(`${what} failed: ${gitProblem() ?? (r.err.split(/\r?\n/)[0] || `exit code ${r.code}`)}`)
+}
+
+/** The commit where HEAD left base, or null if there is none (git's exit 1). Throws when git can't say (#346). */
 async function mergeBase(cwd: string, base: string): Promise<string | null> {
   const r = await git(cwd, ['merge-base', base, 'HEAD'])
-  return r.ok ? r.out.trim() : null
+  if (r.ok) return r.out.trim()
+  if (r.code === 1 && !r.err) return null
+  throw failure(`git merge-base ${base}`, r)
 }
 
 /**
@@ -51,7 +84,9 @@ export async function gitStatus(projectPath: string, base?: string): Promise<Git
   if (!base || !status.isRepo) return status
   const mb = await mergeBase(projectPath, base)
   if (!mb) return status
-  const r = await git(projectPath, ['diff', '--name-status', '--no-renames', '-z', mb])
+  const r = await gitReading(projectPath, ['diff', '--name-status', '--no-renames', '-z', mb])
+  // A failed diff is no list of changes: the tab shows the error, not an empty list (#346).
+  if (!r.ok) throw failure('git diff', r)
   const files: GitStatus['files'] = []
   const parts = r.out.split('\0').filter(Boolean)
   for (let i = 0; i + 1 < parts.length; i += 2) {
@@ -85,8 +120,15 @@ async function withoutStatOnly(projectPath: string, mb: string, files: GitStatus
 /** The working tree's status, and the paths whose working copy differs from the index (or isn't in it). */
 async function workingStatus(projectPath: string): Promise<{ status: GitStatus; inWorktree: Set<string> }> {
   const inWorktree = new Set<string>()
-  const r = await git(projectPath, ['status', '--porcelain=v1', '-b', '-z', '--untracked-files=all'])
-  if (!r.ok) return { status: { isRepo: false, branch: null, ahead: 0, behind: 0, files: [] }, inWorktree }
+  const r = await gitReading(projectPath, ['status', '--porcelain=v1', '-b', '-z', '--untracked-files=all'])
+  if (!r.ok) {
+    // Only git's own "not a git repository" says it isn't one (#346). Git that can't run says nothing about that; any
+    // other failure (a damaged index, a dubious owner) is an error the tab shows with Retry, not an empty repository.
+    const problem = gitProblem()
+    if (problem) return { status: { isRepo: false, gitProblem: problem, branch: null, ahead: 0, behind: 0, files: [] }, inWorktree }
+    if (/not a git repository/i.test(r.err)) return { status: { isRepo: false, branch: null, ahead: 0, behind: 0, files: [] }, inWorktree }
+    throw failure('git status', r)
+  }
   const parts = r.out.split('\0').filter(Boolean)
   const status: GitStatus = { isRepo: true, branch: null, ahead: 0, behind: 0, files: [] }
   for (let i = 0; i < parts.length; i++) {

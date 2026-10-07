@@ -11,6 +11,7 @@ import { UpdateStatusItem } from './Updates'
 import { asksYou } from '@shared/inbox'
 import { InboxStatusItem } from './Inbox'
 import { keepAwakeText } from '@shared/keepAwake'
+import { GIT_MIN, gitFixText, gitProblemText } from '@shared/gitTool'
 import { useInbox } from '../inbox'
 
 const ACTIVITIES: { id: Activity; icon: string; label: string; command: string }[] = [
@@ -218,7 +219,22 @@ function ProviderStatusItems() {
           </Tooltip>
         )
       })}
+      <GitStatusItem />
     </>
+  )
+}
+
+/** Git, only when it can't run or is older than Hive needs (#346): every worktree, merge and Changes view depends on it. */
+function GitStatusItem() {
+  const git = useStore((s) => s.gitTool)
+  if (!git || git.state === 'ok' || git.state === 'unknown') return null
+  const problem = gitProblemText(git)
+  return (
+    <Tooltip content={problem ? `${problem}. ${gitFixText(git)}` : `Git ${git.version} is older than ${GIT_MIN}: some git features don't work.`}>
+      <div className={cx('status-item', problem ? 'warn' : 'caution')} onClick={() => set({ setupOpen: true })}>
+        <Icon name="warning" /> {problem ? 'Git' : `Git ${git.version}`}
+      </div>
+    </Tooltip>
   )
 }
 

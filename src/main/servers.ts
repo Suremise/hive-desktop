@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from 'async_hooks'
 import { randomBytes, timingSafeEqual } from 'crypto'
 import { app } from 'electron'
 import { basename, dirname, join, relative, resolve as resolvePath } from 'path'
-import { readFile, stat } from 'original-fs/promises'
+import { stat } from 'original-fs/promises'
 import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
@@ -23,13 +23,15 @@ import { providerService } from './providerService'
 import { config } from './config'
 import { emit, onHiveEvent, toast } from './events'
 import { cancelWatch, encodeSince, registerWatch, scopedCard } from './watches'
-import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
-import { insideReal, readCapped, readJson, withFileLock, writeJsonAtomic, writeTextAtomic } from './fsutil'
+import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
+import { insideReal, readCapped, readJson, writeJsonAtomic } from './fsutil'
 import { GUIDANCE_REVISION, skillRevisions } from './guidance'
 import agentApiDoc from '../../docs/AGENT_API.md?raw'
 import { createLogger } from './logger'
 import { listMcp } from './mcp'
-import { assertInShared, createHandover, notesTree } from './notes'
+import { assertInShared, createHandover, NoteConflict, notesTree, readNote, writeNote } from './notes'
+import { mergeSlots } from './mergeSlotHost'
+import { DEFAULT_WAIT_MS, MAX_WAIT_MS, MergeSlotError, slotBranch, slotCards, type SlotAgent } from './mergeSlots'
 import { writePty } from './ptyHost'
 import { sessions } from './sessions'
 import * as tasks from './tasks'
@@ -42,6 +44,7 @@ import { metricsReport } from './metricsUsage'
 import type { MetricOutcome, MetricsQuery } from '../shared/metrics'
 import { agentForToken, agentToken, agentTokenFile, type AgentIdentity } from './agentTokens'
 import { hookTokenMatches } from './hookTokens'
+import { unusedWorktreeCounts } from './unusedWorktrees'
 
 const log = createLogger('servers')
 const MAX_BODY = 2 * 1024 * 1024
@@ -73,7 +76,9 @@ function readBody(req: IncomingMessage, onChunk?: (bytes: number) => void): Prom
 class HttpError extends Error {
   constructor(
     public status: number,
-    message: string
+    message: string,
+    /** More of the reply's body, beside `error` (a conflict's current revision). */
+    public extra?: Record<string, unknown>
   ) {
     super(message)
   }
@@ -328,7 +333,7 @@ const statusMessageOf = (live: LiveSessionState | null | undefined): string | nu
     ? (live.watch?.label ?? null)
     : live?.status === 'signin'
       ? `Its CLI's sign-in has expired: the user must sign in again (${live.signIn?.message ?? 'not signed in'})`
-      : (live?.statusMessage ?? null)
+      : (live?.statusMessage ?? live?.mergeSlot ?? null)
 
 async function projectSummary(p: string) {
   const info = await workspace.projectInfo(p)
@@ -375,7 +380,8 @@ async function agentParam(p: string, value: unknown): Promise<string> {
   return a.id
 }
 
-type Handler = (ctx: { params: string[]; query: URLSearchParams; body: any }) => Promise<unknown>
+/** `signal` aborts when the client goes away before its reply (a long wait it no longer waits for). */
+type Handler = (ctx: { params: string[]; query: URLSearchParams; body: any; signal: AbortSignal }) => Promise<unknown>
 
 const LEVEL_NAME: Record<AssistantControl, string> = { look: 'Look and advise', agents: 'Control agents', projects: 'Control agents and create projects' }
 
@@ -476,7 +482,13 @@ route('GET', '/v1/projects', async ({ query }) => {
   return out
 })
 
-route('GET', '/v1/projects/:name', async ({ params }) => projectSummary(projectByName(params[0])))
+// One project, with its unused worktrees (#353) when it has any, for the Assistant to mention: counts only, here alone
+// (a git check per worktree, too much for every listing). Removing them is the user's (no route).
+route('GET', '/v1/projects/:name', async ({ params }) => {
+  const p = projectByName(params[0])
+  const unused = await unusedWorktreeCounts(p)
+  return { ...(await projectSummary(p)), ...(unused ? { unusedWorktrees: unused } : {}) }
+})
 
 route('POST', '/v1/projects/:name/activate', async ({ params }) => {
   const p = projectByName(params[0])
@@ -966,7 +978,7 @@ route('POST', '/v1/agents/wait', async ({ body }) => {
     const ws = requireWorkspace()
     targets = sessions.liveStates().filter((s) => busy(s) && workspaceOf(s.projectPath) === ws && !workspace.isAssistantHome(s.projectPath)).map((s) => ({ p: s.projectPath, id: s.agentId }))
   }
-  const limit = Math.min(600, Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
+  const limit = Math.min(AGENT_WAIT_MAX_SECONDS, Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
   // An agent waiting on its background tasks carries on when they end: not done yet, unless the caller says so.
   const throughBackground = body?.ignoreBackground !== true
   const t0 = Date.now()
@@ -984,13 +996,72 @@ route('POST', '/v1/agents/wait', async ({ body }) => {
   return { timedOut: working(), waitedSeconds: Math.round((Date.now() - t0) / 1000), agents }
 })
 
+// The merge slot (#350): one merge at a time into a project's branch. Its own project's only, for an agent; held by
+// a running agent (its launch), never by what a request says.
+
+/** The calling agent as a holder of its project's slot. Scripts and the Assistant can look, not claim. */
+async function slotAgent(p: string): Promise<SlotAgent> {
+  const a = agentCaller()
+  if (!a) throw new HttpError(403, "Only a project's own agents hold its merge slot (with their own token). Scripts and the Assistant can read it.")
+  ownProjectOnly(p, 'The merge slot')
+  const live = sessions.liveFor(a.projectPath, a.agentId)
+  if (!live) throw new HttpError(409, 'Only a running agent can hold the merge slot.')
+  const def = projectAgents(await workspace.projectConfig(a.projectPath)).find((x) => x.id === a.agentId)
+  return { projectPath: a.projectPath, agentId: a.agentId, agentName: def?.name ?? a.agentId, runId: live.runId }
+}
+
+/** The branch a slot call names, or the one the project folder is on (what Hive's Merge dialog merges into). */
+async function slotBranchFor(p: string, v: unknown): Promise<string> {
+  if (v !== undefined && v !== null) return slotBranch(v)
+  const b = await workspace.branch(p)
+  if (!b) throw new HttpError(409, "The project folder isn't on a branch: name the branch to merge into.")
+  return b
+}
+
+const slotCall = async <T>(fn: () => Promise<T> | T): Promise<T> => {
+  try {
+    return await fn()
+  } catch (e) {
+    throw e instanceof MergeSlotError ? new HttpError(e.status, e.message) : e
+  }
+}
+
+route('GET', '/v1/projects/:name/merge-slot', async ({ params, query }) =>
+  slotCall(async () => {
+    const p = projectByName(params[0])
+    ownProjectOnly(p, "Reading a project's merge slot")
+    return mergeSlots.status(p, await slotBranchFor(p, query.get('branch') ?? undefined))
+  })
+)
+
+route('POST', '/v1/projects/:name/merge-slot/claim', async ({ params, body, signal }) =>
+  slotCall(async () => {
+    const p = projectByName(params[0])
+    const agent = await slotAgent(p)
+    const branch = await slotBranchFor(p, body?.branch)
+    const cards = slotCards(body?.cards)
+    const t = body?.timeoutSeconds
+    if (t !== undefined && (typeof t !== 'number' || !Number.isFinite(t) || t < 0)) throw new HttpError(400, 'timeoutSeconds must be a number of seconds')
+    const waitMs = t === undefined ? DEFAULT_WAIT_MS : Math.min(MAX_WAIT_MS, t * 1000)
+    return { ...(await mergeSlots.claim(agent, p, branch, cards, waitMs, signal)), slot: mergeSlots.status(p, branch) }
+  })
+)
+
+route('POST', '/v1/projects/:name/merge-slot/release', async ({ params, body }) =>
+  slotCall(async () => {
+    const p = projectByName(params[0])
+    const agent = await slotAgent(p)
+    return mergeSlots.release(agent, p, await slotBranchFor(p, body?.branch))
+  })
+)
+
 route('GET', '/v1/shared', async () => inWorkspace(requireWorkspace(), () => notesTree()))
 
 route('GET', '/v1/shared/file', async ({ query }) => {
   const rel = query.get('path')
   if (!rel) throw new HttpError(400, 'path is required')
   const abs = inWorkspace(requireWorkspace(), () => assertInShared(rel))
-  return { path: rel, content: await readFile(abs, 'utf8').catch(() => { throw new HttpError(404, 'Not found') }) }
+  return { path: rel, ...(await readNote(abs).catch(() => { throw new HttpError(404, 'Not found') })) }
 })
 
 route('PUT', '/v1/shared/file', async ({ query, body }) => {
@@ -998,15 +1069,14 @@ route('PUT', '/v1/shared/file', async ({ query, body }) => {
   if (!rel) throw new HttpError(400, 'path is required')
   const abs = inWorkspace(requireWorkspace(), () => assertInShared(rel))
   const content = String(body?.content ?? '')
-  // Locked from read to write, so two agents appending at once both keep their text.
-  await withFileLock(abs, async () => {
-    if (body?.append) {
-      const existing = await readFile(abs, 'utf8').catch(() => '')
-      await writeTextAtomic(abs, existing + (existing && !existing.endsWith('\n') ? '\n' : '') + content)
-    } else await writeTextAtomic(abs, content)
+  // Only a write that leaves it out is unguarded: one given (null, empty, not a string) must be a revision.
+  const expected: unknown = body && typeof body === 'object' && 'expectedRevision' in body ? body.expectedRevision : undefined
+  if (expected !== undefined && (typeof expected !== 'string' || !expected)) throw new HttpError(400, 'expectedRevision must be the revision reading the note gave; nothing was written')
+  const { revision } = await writeNote(abs, rel, content, { append: !!body?.append, expectedRevision: expected as string | undefined }).catch((e) => {
+    throw e instanceof NoteConflict ? new HttpError(409, e.message, { revision: e.current }) : e
   })
   emit({ type: 'notes-changed' })
-  return { ok: true, path: rel }
+  return { ok: true, path: rel, revision }
 })
 
 /**
@@ -1679,13 +1749,17 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     const params = url.pathname.match(r.pattern)!.slice(1)
     // With several Hive windows, a request is for one workspace: the one it names, or the only one open.
     const ws = requestWorkspace(req, url)
-    const run = (): Promise<unknown> => r.handler({ params, query: url.searchParams, body })
+    const gone = new AbortController()
+    res.on('close', () => {
+      if (!res.writableEnded) gone.abort()
+    })
+    const run = (): Promise<unknown> => r.handler({ params, query: url.searchParams, body, signal: gone.signal })
     const result = ws ? await inWorkspace(ws, run) : await run()
     send(res, 200, result ?? null)
   } catch (e) {
     const status = e instanceof HttpError ? e.status : e instanceof tasks.TaskPermissionError ? 403 : e instanceof tasks.TaskConflictError ? 409 : statusFor(e as Error)
     if (status === 500) log.error(`API ${req.method} ${url.pathname}`, e)
-    send(res, status, { error: (e as Error).message })
+    send(res, status, { error: (e as Error).message, ...(e instanceof HttpError ? e.extra : undefined) })
   }
 }
 

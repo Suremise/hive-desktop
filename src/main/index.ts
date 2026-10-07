@@ -8,6 +8,7 @@ import { readFile, stat } from 'original-fs/promises'
 import { Readable } from 'stream'
 import type { AppInfo, McpServerDef, QuitChoice, QuitScope, QuitSession, WindowState } from '../shared/types'
 import { providerService } from './providerService'
+import { checkGit } from './gitTool'
 import { handoverSession, hiveInstructions, projectHandovers, withLatestHandover, wrapsLongCommands } from '../shared/hiveGuidance'
 import { notesTree } from './notes'
 import { assistantInstructions } from './personas'
@@ -46,7 +47,8 @@ import { createWorkspaceService, disposeWorkspaceService, inWorkspace, openWorks
 import { hiveWindows, lastFocused, TITLE_BAR_OVERLAY, registerWindow, unregisterWindow, windowForPath, type HiveWindow } from './windows'
 import { abandonWindowStorage } from './storage'
 import { agentTokenFile } from './agentTokens'
-import { setTaskbarTestHook, startProgress } from './progressService'
+import { progress, setTaskbarTestHook, startProgress } from './progressService'
+import { startMergeSlots } from './mergeSlotHost'
 
 const log = createLogger('main')
 let quitting = false
@@ -521,6 +523,7 @@ async function quitNow(tellUser: boolean): Promise<void> {
   }
   await sessions.stopAllAndWait(3000)
   await sessions.flushUsageCache()
+  await progress.saveNow().catch(() => undefined)
   await flushMetrics().catch(() => undefined)
   await config.flush()
   if (installOnQuit) installNow()
@@ -769,6 +772,7 @@ app.whenReady().then(async () => {
   startTaskbarFlash()
   // Long runs agents report (the Progress panel): stale runs, and the setting.
   startProgress()
+  startMergeSlots()
   // Test builds can record the taskbar's progress calls, which the page can't see.
   if (!app.isPackaged && process.env.HIVE_TEST_TASKBAR_LOG) {
     const file = process.env.HIVE_TEST_TASKBAR_LOG
@@ -809,6 +813,7 @@ app.whenReady().then(async () => {
     }
   })
   void providerService.refresh()
+  void checkGit()
 })
 
 app.on('second-instance', () => {

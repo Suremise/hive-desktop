@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { MAX_AGENTS, SESSION_LAYOUTS } from '@shared/defaults'
 import { isKnownProvider, providerDescriptor, providerName } from '@shared/providers'
-import { TEMPLATE_DESCRIPTION_MAX, TEMPLATE_NAME_MAX, uniqueName, unknownProviders, type TemplateAgent, type TemplateDest, type TemplateEntry, type TemplateRef } from '@shared/templates'
+import { TEMPLATE_DESCRIPTION_MAX, TEMPLATE_NAME_MAX, uniqueName, unknownProviders, type TemplateAgent, type TemplateDest, type TemplateDeleted, type TemplateEntry, type TemplateRef } from '@shared/templates'
 import type { PageLayout, ProjectInfo } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
 import { useScopedLoad } from '../scopedLoad'
-import { choose, confirm, get, notify, prompt, set, showView, useStore } from '../store'
+import { choose, confirm, findProject, get, notify, prompt, set, showView, useStore } from '../store'
+import { templateWorktreesHint } from '@shared/unusedWorktrees'
 import { cx, timeAgo } from '../util'
 import { PaneResizer, usePaneSize } from './Resizer'
 import { BusyButton, Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip, useBusy } from './ui'
@@ -79,8 +80,21 @@ async function duplicateTemplate(t: TemplateEntry, initial: string): Promise<Tem
 }
 
 async function deleteTemplate(t: TemplateEntry): Promise<boolean> {
-  const ok = await confirm({ title: `Delete "${t.name}"?`, message: `The template goes to the Recycle Bin (from ${placeText(t)}).`, confirmLabel: 'Delete', danger: true, busyLabel: 'Deleting…', run: () => call('templates:delete', refOf(t)) })
+  let left: TemplateDeleted | null = null
+  const ok = await confirm({
+    title: `Delete "${t.name}"?`,
+    message: `The template goes to the Recycle Bin (from ${placeText(t)}).`,
+    confirmLabel: 'Delete',
+    danger: true,
+    busyLabel: 'Deleting…',
+    run: async () => {
+      left = await call('templates:delete', refOf(t))
+    }
+  })
   if (ok) bump()
+  // Deleting it touches no worktree; but its worktree agents' worktrees, no agent's now, are worth a look (#353): once.
+  const hint = ok && left ? templateWorktreesHint(left, (p) => findProject(get(), p)?.name ?? p) : null
+  if (hint) notify('info', hint.title, hint.detail, [{ label: 'Review', command: 'project.unusedWorktrees', args: [hint.project] }])
   return ok
 }
 

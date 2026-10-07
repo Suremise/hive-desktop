@@ -31,10 +31,12 @@ Give the user the summary and say plainly whether the branch is ready, and if no
 
 ## Merging, when the user asks you to
 
-Other agents merge into the same base. What you merge must be what you checked:
-1. **Note the base's commit** (`git rev-parse <base>`) when you start the checks, with the base already merged into your branch.
-2. **Just before merging, compare it** with the base's commit now. If the base has moved (another branch was merged meanwhile), your branch and that work were never checked together: merge the base into your branch again, rerun the checks the combined change needs (all of them when the new commits touch shared code or test tooling), and compare again.
-3. **Merge** only when nothing moved since your checks, in the checkout where the base is (`git -C <that checkout> merge --no-ff <branch>`). If git says `index.lock` exists, another merge is under way there: wait and try again; never delete the lock.
-4. **Report** the merge commit and the base commit your checks ran on.
+Other agents merge into the same base. What you merge must be what you checked, so merges into a base take turns through Hive's **merge slot**:
+1. **Claim the slot** for the base with `hive_merge_slot` (`claim`, with the cards you are merging). If it replies that you are still in line, claim again: you keep your place. Without Hive's tools, go on without it; step 4 still protects the merge.
+2. **Merge the base into your branch, note its commit** (`git rev-parse <base>`) **and run the checks** the combined change needs. While you hold the slot nobody merges into the base through Hive, so one run is enough. The hold lasts 60 minutes: claim again to extend it, or run long checks through `hive-progress`.
+3. **If something fails**, release the slot (`release`) before fixing it, and claim it again when you are ready.
+4. **Just before merging, compare** the base's commit with the one you noted. If it moved anyway (a merge from outside Hive), merge the base in again, rerun the checks (all of them when the new commits touch shared code or test tooling) and compare again.
+5. **Merge** in the checkout where the base is (`git -C <that checkout> merge --no-ff <branch>`). If git says `index.lock` exists, another merge is under way there: wait and try again; never delete the lock.
+6. **Release the slot** once merged, and **report** the merge commit and the base commit your checks ran on.
 
 Then move the branch's cards from `passed` to `done`: Done means merged. Cards still in Review or Doing stay where they are.

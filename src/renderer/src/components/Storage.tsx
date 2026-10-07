@@ -3,6 +3,7 @@ import type { CleanupItem, CleanupOptions, ProjectStorage, WorkspaceStorage } fr
 import { DEFAULT_CLEANUP, formatSize } from '@shared/storage'
 import { call, errorMessage } from '../api'
 import { notify, openProjectSettings, useStore } from '../store'
+import { runCommand } from '../commands'
 import { cx, timeAgo } from '../util'
 import { BusyButton, Icon, LoadFailed, Modal, useBusy } from './ui'
 import { DataTable, type DataColumn } from './DataTable'
@@ -14,6 +15,8 @@ interface StorageRow {
   label: string
   where: string
   bytes: number
+  /** The project whose Overview lists them, for a Review link (unused worktrees, #353). */
+  review?: string
 }
 const STORAGE_COLUMNS: DataColumn<StorageRow>[] = [
   {
@@ -22,6 +25,14 @@ const STORAGE_COLUMNS: DataColumn<StorageRow>[] = [
     cell: (r) => (
       <>
         {r.label} <span className="faint small mono">{r.where}</span>
+        {r.review && (
+          <>
+            {' '}
+            <a className="small" onClick={() => runCommand('project.unusedWorktrees', r.review)}>
+              Review
+            </a>
+          </>
+        )}
       </>
     ),
     sortValue: (r) => r.label
@@ -34,7 +45,7 @@ const STORAGE_COLUMNS: DataColumn<StorageRow>[] = [
  * closed) and Hive stops measuring what nothing else waits for. `start` sends the call with its request; the earlier
  * one is abandoned after it, so a measurement both wait for carries on. `current` says whether a call is still the latest.
  */
-function useStorageRequests(): <T>(start: (request: string) => Promise<T>) => { result: Promise<T>; current: () => boolean } {
+export function useStorageRequests(): <T>(start: (request: string) => Promise<T>) => { result: Promise<T>; current: () => boolean } {
   const latest = useRef<string | null>(null)
   useEffect(
     () => () => {
@@ -82,7 +93,11 @@ export function StorageView({ path }: { path: string }) {
         { label: 'Transcript backups', where: '.hive/sessions', bytes: data.sessions },
         { label: 'Archive', where: '.hive/archive', bytes: data.archive },
         { label: 'Images', where: '.hive/images', bytes: data.images },
-        ...data.worktrees.map((w) => ({ label: `${w.agent}'s worktree`, where: w.path, bytes: w.bytes }))
+        ...data.worktrees.map((w) => ({ label: `${w.agent}'s worktree`, where: w.path, bytes: w.bytes })),
+        // The worktrees no agent works in (#353), on one line: the Overview lists and tidies them.
+        ...(data.unusedWorktrees?.length
+          ? [{ label: `Unused worktrees (${data.unusedWorktrees.length})`, where: data.unusedWorktrees.map((w) => w.branch ?? w.path).join(', '), bytes: data.unusedWorktrees.reduce((n, w) => n + w.bytes, 0), review: data.path }]
+          : [])
       ]
     : []
   return (

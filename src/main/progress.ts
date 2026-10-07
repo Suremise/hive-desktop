@@ -1,11 +1,13 @@
 import { randomUUID } from 'crypto'
 import type { ProgressRun, ProgressSource, ProviderId } from '../shared/types'
-import { MAX_COMMAND, MAX_ESTIMATE_MS, MAX_LOG_PATH, MAX_OPEN_PER_OWNER, MAX_RUNS_PER_WORKSPACE, MAX_STEP_NAME, MAX_SUMMARY, MAX_TITLE, MAX_TOTAL, isOpenRun, isOverdue, timeLeft } from '../shared/progress'
+import { MAX_COMMAND, MAX_ESTIMATE_MS, MAX_LOG_PATH, MAX_OPEN_PER_OWNER, MAX_OPEN_PER_WORKSPACE, MAX_STEP_NAME, MAX_SUMMARY, MAX_TITLE, MAX_TOTAL, RECENT_KEPT, isOpenRun, isOverdue, timeLeft } from '../shared/progress'
+import { PROVIDERS } from '../shared/providers'
 
 /**
- * Long runs agents report (tests, builds) for the Progress panel, per workspace, in memory: a restart forgets them,
- * and a reporter treats an unknown id as nothing to update. Who may update a run is decided by who started it (the
- * caller's token), never by what a request says.
+ * Long runs agents report (tests, builds) for the Progress panel, per workspace. Open runs live in memory: a restart
+ * forgets them, and a reporter treats an unknown id as nothing to update. Ended ones (Recent) are also kept in a small
+ * file per workspace (`history`, #352), the newest RECENT_KEPT, so Recent survives a restart. Who may update a run is
+ * decided by who started it (the caller's token), never by what a request says.
  */
 
 /** Who reports or changes a run, as the Agent API knows the caller. */
@@ -42,6 +44,15 @@ export class ProgressError extends Error {
   }
 }
 
+/** Where a workspace's ended runs are kept between starts (#352). What `load` gives back is checked like a request. */
+export interface ProgressHistory {
+  /** The workspace's kept file as it was saved, or null when there is none (or it can't be read). */
+  load: (workspacePath: string) => Promise<unknown>
+  save: (workspacePath: string, runs: ProgressRun[]) => Promise<void>
+  /** Forgets every workspace's kept runs (Settings → General → Progress panel turned off). */
+  forget: () => Promise<void>
+}
+
 export interface ProgressDeps {
   now: () => number
   /** A workspace's runs changed (newest first): tell its window. Called at most every `emitEveryMs` per workspace. */
@@ -49,6 +60,10 @@ export interface ProgressDeps {
   /** Whether a run's agent still has a running session (a stopped one's runs go stale). */
   ownerRunning: (run: ProgressRun) => boolean
   emitEveryMs?: number
+  /** Keeps ended runs across restarts; without it they are kept in memory only. */
+  history?: ProgressHistory
+  /** How long after a run ends its workspace's history is saved (runs ending together save once). */
+  saveAfterMs?: number
 }
 
 const key = (p: string): string => p.toLowerCase()
@@ -70,17 +85,136 @@ function text(v: unknown, name: string, max: number): string | undefined {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s
 }
 
+const KEPT_STATES = new Set<unknown>(['passed', 'failed', 'stale'])
+const SOURCES = new Set<unknown>(['agent', 'assistant', 'api'])
+
+/** A kept text field, cut to its limit, or null when it isn't text. */
+const keptText = (v: unknown, max: number): string | null => (typeof v === 'string' ? text(v, '', max) || null : null)
+const keptNumber = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+
+/**
+ * The ended runs a workspace's kept file holds, checked as untrusted input (the file may be damaged or edited): an
+ * entry missing what a run needs is left out, and text is cut to its limits. They count as seen, so a failure from
+ * before the restart is under Recent rather than listed, and they are the opening workspace's.
+ */
+export function keptRuns(saved: unknown, workspacePath: string): ProgressRun[] {
+  const list = saved && typeof saved === 'object' && Array.isArray((saved as { runs?: unknown }).runs) ? (saved as { runs: unknown[] }).runs : []
+  const out: ProgressRun[] = []
+  const ids = new Set<string>()
+  for (const v of list) {
+    if (out.length >= RECENT_KEPT) break
+    if (!v || typeof v !== 'object') continue
+    const r = v as Record<string, unknown>
+    const id = keptText(r.id, 100)
+    const title = keptText(r.title, MAX_TITLE)
+    const startedAt = keptNumber(r.startedAt)
+    const finishedAt = keptNumber(r.finishedAt)
+    if (!id || ids.has(id) || !title || startedAt === null || finishedAt === null || !KEPT_STATES.has(r.state) || !SOURCES.has(r.source)) continue
+    ids.add(id)
+    const source = r.source as ProgressSource
+    out.push({
+      id,
+      workspacePath,
+      projectPath: source === 'agent' ? keptText(r.projectPath, 1000) : null,
+      agentId: source === 'agent' ? keptText(r.agentId, 200) : null,
+      agentName: keptText(r.agentName, MAX_TITLE) ?? (source === 'api' ? 'Script' : 'Agent'),
+      provider: PROVIDERS.some((p) => p.id === r.provider) ? (r.provider as ProviderId) : null,
+      source,
+      title,
+      command: keptText(r.command, MAX_COMMAND),
+      total: keptNumber(r.total),
+      step: keptNumber(r.step),
+      stepName: keptText(r.stepName, MAX_STEP_NAME),
+      estimateMs: null,
+      startedAt,
+      updatedAt: keptNumber(r.updatedAt) ?? finishedAt,
+      finishedAt,
+      state: r.state as ProgressRun['state'],
+      staleReason: r.staleReason === 'quiet' || r.staleReason === 'agent-stopped' ? r.staleReason : null,
+      summary: keptText(r.summary, MAX_SUMMARY),
+      dismissed: r.dismissed === true,
+      seenAt: keptNumber(r.seenAt) ?? finishedAt,
+      expectedMs: keptNumber(r.expectedMs),
+      exitCode: keptNumber(r.exitCode),
+      logPath: keptText(r.logPath, MAX_LOG_PATH)
+    })
+  }
+  return out
+}
+
+/** A workspace's list (newest first) with at most RECENT_KEPT ended runs: the oldest ended ones go; open ones stay. */
+function capEnded(list: ProgressRun[]): ProgressRun[] {
+  let ended = 0
+  return list.filter((r) => r.finishedAt === null || ++ended <= RECENT_KEPT)
+}
+
+/** One workspace's runs and its kept ones as one list, newest first, each run once (a run in memory wins). */
+function mergeRuns(mine: ProgressRun[], kept: ProgressRun[]): ProgressRun[] {
+  const ids = new Set(mine.map((r) => r.id))
+  return capEnded([...mine, ...kept.filter((r) => !ids.has(r.id))].sort((a, b) => b.startedAt - a.startedAt))
+}
+
 export class ProgressStore {
   private runs = new Map<string, ProgressRun[]>()
   private unseenFailure = new Set<string>()
   private pending = new Map<string, NodeJS.Timeout>()
   private lastEmit = new Map<string, number>()
+  /** Each workspace's history load, once per opening (forgotten with its runs). */
+  private loads = new Map<string, Promise<void>>()
+  /** Workspaces whose history has been merged into their runs: their runs are saved as they are. */
+  private loaded = new Set<string>()
+  /** Saves waiting to run, a timer per workspace, by its path. */
+  private saves = new Map<string, { timer: NodeJS.Timeout; path: string }>()
+  /** Changes each time a workspace's runs are forgotten: a load that began before lands nowhere. */
+  private epochs = new Map<string, number>()
+  /** Every read and write of the kept files, one at a time, in order. */
+  private io: Promise<unknown> = Promise.resolve()
 
   constructor(private deps: ProgressDeps) {}
 
   /** A workspace's runs, newest first. */
   list(workspacePath: string): ProgressRun[] {
     return [...(this.runs.get(key(workspacePath)) ?? [])]
+  }
+
+  /**
+   * Merges a workspace's kept runs (from before a restart) into its runs, once per opening, and tells its window. Runs
+   * reported meanwhile stay; a workspace closed (or the panel turned off) while it loads gets nothing.
+   */
+  loadHistory(workspacePath: string): Promise<void> {
+    const history = this.deps.history
+    const k = key(workspacePath)
+    if (!history) return Promise.resolve()
+    const known = this.loads.get(k)
+    if (known) return known
+    const epoch = this.epochs.get(k) ?? 0
+    const current = (): boolean => (this.epochs.get(k) ?? 0) === epoch
+    const load = this.queue(() => history.load(workspacePath)).then(
+      (saved) => {
+        if (!current()) return
+        this.loaded.add(k)
+        const kept = keptRuns(saved, workspacePath)
+        if (!kept.length) return
+        this.runs.set(k, mergeRuns(this.runs.get(k) ?? [], kept))
+        this.flush(workspacePath)
+      },
+      () => {
+        // Unreadable: Recent starts from the runs there are, and the next save replaces the file.
+        if (current()) this.loaded.add(k)
+      }
+    )
+    this.loads.set(k, load)
+    return load
+  }
+
+  /** Saves at once each workspace's history that has a save waiting, and waits for every write (Hive is quitting). */
+  async saveNow(): Promise<void> {
+    for (const [k, { timer, path }] of [...this.saves]) {
+      clearTimeout(timer)
+      this.saves.delete(k)
+      this.save(path)
+    }
+    await this.io
   }
 
   /** Whether a run failed in this workspace since the user last looked at the panel. */
@@ -125,9 +259,8 @@ export class ProgressStore {
     const list = this.runs.get(key(caller.workspacePath)) ?? []
     const mine = list.filter((r) => isOpenRun(r) && this.owns(caller, r, true))
     if (mine.length >= MAX_OPEN_PER_OWNER) throw new ProgressError(429, `At most ${MAX_OPEN_PER_OWNER} runs can be open at once: finish one first`)
-    // The workspace's bound holds whoever reports: ended runs make room (oldest first); open ones are never dropped.
-    const kept = this.makeRoom(list)
-    if (kept.length >= MAX_RUNS_PER_WORKSPACE) throw new ProgressError(429, `This workspace already has ${MAX_RUNS_PER_WORKSPACE} open runs: finish some first`)
+    // The workspace's bound holds whoever reports. Ended runs don't count: Recent keeps the newest RECENT_KEPT.
+    if (list.filter((r) => r.finishedAt === null).length >= MAX_OPEN_PER_WORKSPACE) throw new ProgressError(429, `This workspace already has ${MAX_OPEN_PER_WORKSPACE} open runs: finish some first`)
     const now = this.deps.now()
     const run: ProgressRun = {
       id: randomUUID(),
@@ -155,7 +288,7 @@ export class ProgressStore {
       exitCode: null,
       logPath: null
     }
-    this.runs.set(key(caller.workspacePath), [run, ...kept])
+    this.runs.set(key(caller.workspacePath), [run, ...list])
     this.flush(caller.workspacePath)
     return run
   }
@@ -206,7 +339,7 @@ export class ProgressStore {
     if (logPath) run.logPath = logPath
     if (run.state === 'passed' && run.total !== null) run.step = run.total
     if (run.state === 'failed') this.unseenFailure.add(key(run.workspacePath))
-    this.flush(run.workspacePath)
+    this.ended(run.workspacePath)
     return run
   }
 
@@ -219,7 +352,7 @@ export class ProgressStore {
     if (!run || run.state === 'running' || run.dismissed) return
     run.dismissed = true
     if (run.finishedAt === null) run.finishedAt = this.deps.now()
-    this.flush(workspacePath)
+    this.ended(workspacePath)
   }
 
   /** The log a run reported when it finished (#251), or null: only that path is ever opened for it. */
@@ -248,13 +381,23 @@ export class ProgressStore {
 
   /**
    * Forgets a workspace's runs (it closed, or its window switched to another) or every run (the panel was turned off):
-   * its window hears there are none (clearing the taskbar), and nothing of it is kept, timers included. Its old ids
-   * are unknown from then on.
+   * its window hears there are none (clearing the taskbar), and nothing of it stays in memory, timers included. Its
+   * old ids are unknown from then on. A closing workspace's history is saved first if a save was waiting, for when it
+   * opens again; turning the panel off forgets every workspace's history too.
    */
   clear(workspacePath?: string): void {
     const paths = workspacePath ? [workspacePath] : [...this.runs.values()].map((l) => l[0]?.workspacePath).filter((p): p is string => !!p)
     for (const p of paths) {
       const k = key(p)
+      const save = this.saves.get(k)
+      if (save) {
+        clearTimeout(save.timer)
+        this.saves.delete(k)
+        if (workspacePath) this.save(p)
+      }
+      this.epochs.set(k, (this.epochs.get(k) ?? 0) + 1)
+      this.loads.delete(k)
+      this.loaded.delete(k)
       const had = this.runs.delete(k)
       this.unseenFailure.delete(k)
       if (had) this.deps.changed(p, [])
@@ -263,6 +406,15 @@ export class ProgressStore {
       this.pending.delete(k)
       this.lastEmit.delete(k)
     }
+    if (workspacePath) return
+    // Off: loads and saves waiting or under way land nowhere, and the kept files go after them.
+    for (const { timer } of this.saves.values()) clearTimeout(timer)
+    this.saves.clear()
+    for (const k of this.loads.keys()) this.epochs.set(k, (this.epochs.get(k) ?? 0) + 1)
+    this.loads.clear()
+    this.loaded.clear()
+    const history = this.deps.history
+    if (history) void this.queue(() => history.forget()).catch(() => undefined)
   }
 
   /** Whether a caller may change a run: its own agent, the Assistant its own, a script any in its workspace. */
@@ -280,18 +432,44 @@ export class ProgressStore {
     return run
   }
 
-  /** The list with room for one more if ended runs can make it: the oldest ended ones go first; open ones stay. */
-  private makeRoom(list: ProgressRun[]): ProgressRun[] {
-    let over = list.length - (MAX_RUNS_PER_WORKSPACE - 1)
-    if (over <= 0) return list
-    const out = [...list]
-    for (let i = out.length - 1; i >= 0 && over > 0; i--) {
-      if (out[i].finishedAt !== null) {
-        out.splice(i, 1)
-        over--
-      }
-    }
-    return out
+  /**
+   * A run ended (finished, or dismissed while stale): ended runs past RECENT_KEPT go (the oldest), the window hears,
+   * and the workspace's history is saved shortly.
+   */
+  private ended(workspacePath: string): void {
+    const k = key(workspacePath)
+    this.runs.set(k, capEnded(this.runs.get(k) ?? []))
+    this.flush(workspacePath)
+    if (!this.deps.history || this.saves.has(k)) return
+    const timer = setTimeout(() => {
+      this.saves.delete(k)
+      this.save(workspacePath)
+    }, this.deps.saveAfterMs ?? 2000)
+    timer.unref?.()
+    this.saves.set(k, { timer, path: workspacePath })
+  }
+
+  /**
+   * Saves a workspace's ended runs as they are now. Before its history has loaded, what the file holds is merged in
+   * first, so a save never loses runs from before the restart.
+   */
+  private save(workspacePath: string): void {
+    const history = this.deps.history
+    if (!history) return
+    const k = key(workspacePath)
+    const runs = capEnded((this.runs.get(k) ?? []).filter((r) => r.finishedAt !== null))
+    const merge = !this.loaded.has(k)
+    void this.queue(async () => history.save(workspacePath, merge ? mergeRuns(runs, keptRuns(await history.load(workspacePath), workspacePath)) : runs)).catch(() => undefined)
+  }
+
+  /** Runs one read or write of the kept files after the ones before it; one that fails doesn't stop the next. */
+  private queue<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.io.then(fn)
+    this.io = next.then(
+      () => undefined,
+      () => undefined
+    )
+    return next
   }
 
   /** Tells the window now, unless it was told very recently (then once that interval has passed). */

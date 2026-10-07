@@ -4,6 +4,8 @@ import { KeybindingsEditor } from '../components/Keybindings'
 import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
 import { unpricedModel, unpricedText } from '@shared/prices'
 import { formatDateTime } from '@shared/dates'
+import { gitFixText } from '@shared/gitTool'
+import { UnusedWorkNotice, UnusedWorktreesSection } from '../components/UnusedWorktrees'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
 import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
 import { PROVIDERS, contextLines, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
@@ -29,6 +31,7 @@ import { RootSelector } from './FilesTab'
 import { agentProviderOf, confirm, notify, openInSessionsTab, set, setActivity, showView, useDateStyle, useFocusedAgent, useStore } from '../store'
 import { rememberProjectPref } from '../projectPrefs'
 import { HiveVcsNotice } from '../components/HiveVcsNotice'
+import { MergeSlotList, projectSlots, useMergeSlots } from '../components/MergeSlots'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
 import { useLiveUsage, useNow } from '../usage'
 
@@ -139,6 +142,7 @@ function sessionAgent(project: ProjectInfo, s: SessionListItem): string {
 export function OverviewTab({ project }: { project: ProjectInfo }) {
   const { items, kept, reload, loadedAt, error } = useSessions(project)
   const settings = useStore((s) => s.settings)
+  const slots = projectSlots(useMergeSlots(), project.path)
   const [period, setPeriod] = useState<Period>('all')
   const now = useNow(60000)
   if (!items) return error ? <LoadFailed what="the sessions" error={error} onRetry={reload} /> : <div className="empty-state"><Icon name="loading" spin />Loading…</div>
@@ -157,6 +161,12 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
       <div className="page-narrow">
         <TaskStrip project={project} />
         <HiveVcsNotice project={project} dismissible />
+        {slots.length > 0 && (
+          <>
+            <h2 className="section">Merge slot</h2>
+            <MergeSlotList slots={slots} projectName={() => project.name} showProject={false} />
+          </>
+        )}
         <div className="overview-head">
           <h2 className="section">Project summary</h2>
           <Tooltip content={`Updated ${timeAgo(new Date(loadedAt).toISOString())}. How often it updates: Settings → Sessions → Overview updates.`}>
@@ -230,6 +240,8 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
             />
           </>
         )}
+
+        <UnusedWorktreesSection project={project} />
 
         <SessionDetails project={project} items={items} />
       </div>
@@ -547,6 +559,7 @@ const GIT_LABEL: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Delet
 export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
   const usageVersion = useStore((s) => s.usageVersion[owner.path] ?? 0)
   const rootId = useStore((s) => s.changesRoot[owner.path])
+  const gitTool = useStore((s) => s.gitTool)
   const listWidth = usePaneSize('changes', 280)
   const [status, setStatus] = useState<GitStatus | null>(null)
   const [file, setFile] = useState<string | null>(null)
@@ -620,6 +633,24 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
     )
   }
   if (!status) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+  if (status.gitProblem) {
+    // Not "not a git repository": git can't run, so Hive can't tell (#346).
+    return (
+      <div className="empty-state changes-git-missing" style={{ paddingTop: '15vh' }}>
+        <Icon name="warning" />
+        {status.gitProblem}, so Hive can't show {project.name}'s changes.
+        <p className="hint">{gitFixText(gitTool)}</p>
+        <div className="flex" style={{ justifyContent: 'center' }}>
+          <button className="btn small" onClick={() => set({ setupOpen: true })}>
+            <Icon name="hubot" /> Agent Setup
+          </button>
+          <button className="btn small" onClick={load}>
+            <Icon name="refresh" /> Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
   if (!status.isRepo) {
     return (
       <div className="empty-state" style={{ paddingTop: '15vh' }}>
@@ -641,6 +672,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
           </div>
         </div>
         {selector}
+        <UnusedWorkNotice project={owner} />
         {statusError && (
           <div className="banner warn">
             <Icon name="warning" /> Could not refresh: {statusError}

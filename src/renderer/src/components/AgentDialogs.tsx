@@ -3,12 +3,14 @@ import { DEFAULT_PROJECT_CONFIG, MAX_AGENTS, ROLE_MAX, effectiveModelLabel, form
 import { PROVIDERS, agentProvider, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerSettings } from '@shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId } from '@shared/types'
 import type { TemplateAgent } from '@shared/templates'
+import { gitFixText, gitProblemText } from '@shared/gitTool'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { agentProviderOf, confirm, focusAfterRemoving, notify, projectKey, set, setActivity, showAgent, useStore } from '../store'
 import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { cx } from '../util'
+import { MergeSlotNote, projectSlots, useMergeSlots } from './MergeSlots'
 import { EffortPicker, ModelPicker } from './ModelPicker'
 import { effortText, modelCaps } from '@shared/models'
 import { pasteIntoTerminal } from './TerminalView'
@@ -193,12 +195,17 @@ export function AddAgentDialog() {
     setBusy(false)
     setGit(null)
     setExisting('')
-    setLocation('project')
+    // Opened to give an unused worktree to an agent (#353): Existing worktree, that one chosen once git lists it free.
+    const preset = useStore.getState().addAgentPreset
+    const wanted = preset?.project === path ? preset.worktreePath.toLowerCase() : null
+    if (preset) set({ addAgentPreset: null })
+    setLocation(wanted ? 'existing-worktree' : 'project')
     void call('agents:gitInfo', path)
       .then((g) => {
         setGit(g)
         setBase(g.current ?? g.branches[0] ?? '')
-        setExisting(g.worktrees.find((w) => !w.used)?.path ?? '')
+        const free = g.worktrees.filter((w) => !w.used)
+        setExisting((wanted && free.find((w) => w.path.toLowerCase() === wanted)?.path) || (free[0]?.path ?? ''))
       })
       .catch((e) => setGit({ isRepo: false, current: null, branches: [], worktrees: [], worktreesRoot: '', error: errorMessage(e) }))
     // Only when the dialog opens for a project.
@@ -299,7 +306,7 @@ export function AddAgentDialog() {
           <input type="radio" disabled={!git?.isRepo} checked={location === 'new-worktree'} onChange={() => setLocation('new-worktree')} />
           <div>
             <strong>New worktree</strong>
-            <div className="faint">{git?.error ? `Could not read the git repository: ${git.error}` : git?.isRepo === false ? 'Needs a git repository.' : 'Its own checkout on its own branch. Review and merge its work when it is done.'}</div>
+            <div className="faint">{git?.error ? `Could not read the git repository: ${git.error}` : git?.gitProblem ? `${git.gitProblem}. Agent Setup says how to fix it.` : git?.isRepo === false ? 'Needs a git repository.' : 'Its own checkout on its own branch. Review and merge its work when it is done.'}</div>
             {location === 'new-worktree' && (
               <div className="agent-form nested">
                 <label>Branch</label>
@@ -753,15 +760,20 @@ export function MergeDialog() {
   const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.mergeFor?.project) ?? null)
   const agent = project?.agents.find((a) => a.id === target?.agentId) ?? null
   const [status, setStatus] = useState<AgentBranchStatus | null>(null)
+  /** Why the branch couldn't be read (git missing, say, #346): shown instead of a merge that can't be checked. */
+  const [readError, setReadError] = useState<string | null>(null)
+  const gitTool = useStore((s) => s.gitTool)
   const [squash, setSquash] = useState(true)
   const [message, setMessage] = useState('')
   const [cleanup, setCleanup] = useState(false)
   const [moveBranch, setMoveBranch] = useState(true)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<MergeResult | null>(null)
+  const slots = useMergeSlots()
 
   useEffect(() => {
     setStatus(null)
+    setReadError(null)
     setResult(null)
     setBusy(false)
     if (!target || !agent?.worktree) return
@@ -771,7 +783,7 @@ export function MergeDialog() {
     setMoveBranch(true)
     void call('agents:branchStatus', target.project, target.agentId)
       .then(setStatus)
-      .catch((e) => notify('error', 'Could not read the branch', errorMessage(e)))
+      .catch((e) => setReadError(errorMessage(e)))
     // Reset when the dialog opens for another agent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.project, target?.agentId])
@@ -783,6 +795,9 @@ export function MergeDialog() {
   const blocked = mergeBlocked(agent.name, agent.live?.status)
   const nothing = status && status.ahead === 0 && status.dirty === 0
   const folderAgent = project.agents.find((a) => !a.worktree && a.live && (a.live.status === 'ready' || a.live.status === 'finished'))
+  // The branch it merges into is being merged into by an agent, or agents wait for it (#350): Merge waits until it is free.
+  const slot = status?.into ? (projectSlots(slots, project.path).find((s) => s.branch === status.into) ?? null) : null
+  const slotTaken = !!slot && (!!slot.holder || slot.waiting.length > 0)
 
   const merge = async (): Promise<void> => {
     setBusy(true)
@@ -824,14 +839,22 @@ export function MergeDialog() {
             {result?.conflicts ? 'Close' : 'Cancel'}
           </button>
           {!result?.conflicts && (
-            <button className="btn primary" disabled={busy || !status || !!nothing || !status.into || !!blocked} onClick={() => void merge()}>
+            <button className="btn primary" disabled={busy || !status || !!nothing || !status.into || !!blocked || slotTaken} onClick={() => void merge()}>
               <Icon name={busy ? 'loading' : 'git-merge'} spin={busy} /> Merge
             </button>
           )}
         </>
       }
     >
-      {!status ? (
+      {readError ? (
+        <div className="banner warn">
+          <Icon name="warning" />
+          <span>
+            {readError}
+            {gitProblemText(gitTool) ? ` ${gitFixText(gitTool)}` : ''} Nothing can be merged until Hive can read the branch.
+          </span>
+        </div>
+      ) : !status ? (
         <p className="muted">
           <Icon name="loading" spin /> Reading {agent.worktree.branch}…
         </p>
@@ -897,6 +920,7 @@ export function MergeDialog() {
             </div>
           )}
           {!status.into && <div className="banner warn">The project folder is not on a branch. Check one out first.</div>}
+          <MergeSlotNote slot={slot} />
           {status.into && status.into !== agent.worktree.base && (
             <div className="banner warn">
               <Icon name="info" /> {agent.name}'s branch started from {agent.worktree.base}, but the project folder is on {status.into}.

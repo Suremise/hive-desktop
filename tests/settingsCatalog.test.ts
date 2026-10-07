@@ -6,7 +6,7 @@ import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS, mergeDefaults } from '../src/shared/defaults'
 import { PROVIDERS, defaultProviderSettings } from '../src/shared/providers'
-import { APP_SETTINGS_CATALOG, PROJECT_SETTINGS_CATALOG, SETTINGS_CATALOG, checkSettingValue, settingDefault, settingEntry, settingKind, settingChangeTexts, settingPatch, settingPath, settingValue, settingValueText } from '../src/shared/settingsCatalog'
+import { APP_SETTINGS_CATALOG, PROJECT_SETTINGS_CATALOG, PROJECT_SETTINGS_SECTIONS, SETTINGS_CATALOG, SETTINGS_SECTIONS, checkSettingValue, settingDefault, settingEntry, settingKind, settingChangeTexts, settingPatch, settingPath, settingValue, settingValueText } from '../src/shared/settingsCatalog'
 import type { AppSettings } from '../src/shared/types'
 
 const ids = new Set(SETTINGS_CATALOG.map((e) => e.id))
@@ -24,6 +24,16 @@ const PROVIDER_INTERNAL = new Set(['pricesRemoved'])
 const PROJECT_INTERNAL = new Set(['version', 'agents', 'layout', 'layouts', 'mcp', 'skills', 'keybindings', 'templates'])
 
 describe('the settings catalog', () => {
+  it("calls the Assistant's working mode a mode, never a persona, wherever the user or an agent reads it (#375)", () => {
+    const shown = [
+      ...SETTINGS_CATALOG.flatMap((e) => [e.title, e.desc, e.tip, e.helps, e.readOnly, e.docs, ...(e.options ?? []).map((o) => o.label)]),
+      ...[...SETTINGS_SECTIONS, ...PROJECT_SETTINGS_SECTIONS].flatMap((x) => [x.label, x.desc])
+    ].filter((t): t is string => !!t)
+    // The folder keeps its name (.hive/personas): a path, not what the setting is called.
+    expect(shown.filter((t) => /persona/i.test(t.replace(/\.hive[\\/]personas/g, '')))).toEqual([])
+    expect(settingEntry('assistant.persona')?.readOnly).toContain('working mode')
+  })
+
   it('gives every entry a unique id, a title and a description or a reason to have none', () => {
     expect(ids.size).toBe(SETTINGS_CATALOG.length)
     for (const e of SETTINGS_CATALOG) {

@@ -19,7 +19,9 @@ They are not for:
 
 1. **Check what exists.** `hive_list_shared_notes`, then read the notes that may cover this already (`hive_read_shared_note`). Updating a note beats adding a near-duplicate.
 2. **Decide where it goes.**
-   - An existing note on the topic: update it, keeping its structure. Use `append` only for log-style notes; otherwise rewrite the section.
+   - An existing note on the topic: update it, keeping its structure.
+     - A busy, log-like note several agents add to (a status log, a follow-up list, a shared handover): `append` one entry, a line or bullet starting with the date and who you are. Appends never lose another agent's entry.
+     - A slow-changing reference note (conventions, decisions): rewrite the section.
    - A new topic: a short, descriptive path in a folder by kind: `conventions/` for rules to follow, `decisions/` for choices and their reasons, `setup/` for how-tos, and `plans/` for plans. `handovers/` is Hive's, for handovers.
 3. **Write it for a reader with no context.**
    - The point first: the decision, rule or fact, in a sentence or two.
@@ -28,6 +30,6 @@ They are not for:
    - The date, and the project it came from.
 
    Keep it short, name files, commands and settings exactly, and never include secrets, tokens or personal data.
-4. **Save it** with `hive_write_shared_note`.
+4. **Save it** with `hive_write_shared_note`. Rewriting an existing note, pass `expectedRevision`, the revision your read gave, so you never drop a change someone made since. If it is refused, read the note again, merge your change into what is there now, and write with the new revision.
 
 Tell the user in a line which note you created or changed. Without Hive's tools, show the note in your reply and suggest where it goes.

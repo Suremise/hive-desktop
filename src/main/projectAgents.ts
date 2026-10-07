@@ -14,6 +14,7 @@ import { sessions } from './sessions'
 import { endReviews, releaseAgentCards } from './tasks'
 import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
+import { gitProblem } from './gitTool'
 
 const log = createLogger('agents')
 
@@ -24,8 +25,11 @@ export async function gitInfo(projectPath: string): Promise<ProjectGitInfo> {
   const used = new Set(projectAgents(cfg).map((a) => a.worktree?.path.toLowerCase()).filter(Boolean))
   const current = await wt.currentBranch(projectPath)
   const all = await wt.listWorktrees(projectPath)
+  // No worktrees listed because git can't run is not "not a repository" (#346).
+  const problem = all.length ? null : gitProblem()
   return {
     isRepo: all.length > 0,
+    ...(problem ? { gitProblem: problem } : {}),
     current,
     branches: await wt.localBranches(projectPath),
     worktrees: all.filter((w) => w.path.toLowerCase() !== resolve(projectPath).toLowerCase()).map((w) => ({ ...w, used: used.has(w.path.toLowerCase()) })),
@@ -162,7 +166,7 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
 
   if (opts.location === 'new-worktree') {
     const base = opts.base || (await wt.currentBranch(projectPath))
-    if (!base) throw new Error('The project folder is not on a branch. Choose the branch to start from.')
+    if (!base) throw new Error(gitProblem() ? `${gitProblem()}, so Hive can't make a worktree.` : 'The project folder is not on a branch. Choose the branch to start from.')
     const { branch, path: dest } = await newWorktreePlace(projectPath, name, opts.branch)
     await wt.createWorktree(projectPath, dest, branch, base)
     const s = config.settings.agents
@@ -174,7 +178,7 @@ export async function prepareAgent(projectPath: string, cfg: ProjectConfig, opts
     if (!opts.worktreePath) throw new Error('Choose a worktree.')
     const target = resolve(opts.worktreePath).toLowerCase()
     const found = (await wt.listWorktrees(projectPath)).find((w) => realPath(w.path).toLowerCase() === realPath(target).toLowerCase())
-    if (!found || target === resolve(projectPath).toLowerCase()) throw new Error('That folder is not a worktree of this project.')
+    if (!found || target === resolve(projectPath).toLowerCase()) throw new Error(gitProblem() ? `${gitProblem()}, so Hive can't check that worktree.` : 'That folder is not a worktree of this project.')
     if (others.some((a) => a.worktree?.path.toLowerCase() === target)) throw new Error('Another agent already works in that worktree.')
     if (!found.branch) throw new Error('That worktree is not on a branch (detached HEAD).')
     def.worktree = { path: found.path, branch: found.branch, base: (await wt.currentBranch(projectPath)) ?? found.branch }
@@ -316,6 +320,15 @@ export async function branchStatus(projectPath: string, agentId: string): Promis
   return wt.branchStatus(projectPath, (await worktreeOf(projectPath, agentId)).worktree)
 }
 
+/**
+ * Runs the user's merge holding the merge slot of the branch it merges into (#350). mergeSlotHost sets it at startup
+ * (this module stays below the slot service); until then a merge runs as it is.
+ */
+let userMergeSlot: (projectPath: string, branch: string, run: () => Promise<MergeResult>) => Promise<MergeResult> = (_p, _b, run) => run()
+export function setUserMergeSlot(fn: typeof userMergeSlot): void {
+  userMergeSlot = fn
+}
+
 export async function merge(projectPath: string, agentId: string, opts: { squash: boolean; message: string; cleanup: boolean; moveBranch?: boolean }): Promise<MergeResult> {
   projectPath = workspace.assertProject(projectPath)
   const { def, worktree } = await worktreeOf(projectPath, agentId)
@@ -323,9 +336,12 @@ export async function merge(projectPath: string, agentId: string, opts: { squash
   // Its uncommitted work is committed first: not while it is still in the middle of a task.
   const blocked = mergeBlocked(def.name, sessions.liveFor(projectPath, agentId)?.status)
   if (blocked) throw new Error(blocked)
-  // One merge at a time per project folder: two would stage and commit into each other.
-  // A branch that is removed afterwards isn't moved.
-  const result = await withFileLock(join(projectPath, '.git', 'hive-merge'), () => wt.mergeWorktree(projectPath, worktree, { ...opts, moveBranch: opts.moveBranch && !opts.cleanup }))
+  // One merge at a time per project folder: two would stage and commit into each other. It holds the merge slot of the
+  // branch it merges into (#350), so an agent's merge doesn't land in the middle (refused while one holds or waits for
+  // it: the Merge dialog waits until it is free). A branch that is removed afterwards isn't moved.
+  const into = await workspace.branch(projectPath)
+  const run = (): Promise<MergeResult> => withFileLock(join(projectPath, '.git', 'hive-merge'), () => wt.mergeWorktree(projectPath, worktree, { ...opts, moveBranch: opts.moveBranch && !opts.cleanup }))
+  const result = into ? await userMergeSlot(projectPath, into, run) : await run()
   // The project folder's branch moved on: every worktree agent's unmerged work is counted again.
   if (!result.ok || !opts.cleanup) {
     workspaceOf(projectPath).scheduleRefresh()

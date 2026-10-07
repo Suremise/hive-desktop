@@ -20,10 +20,14 @@ import { setPinned } from './pin'
 import { presentWindow } from './testQuiet'
 import { insideArchive, insideReal, isFile, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
+import { checkGit, gitTool } from './gitTool'
+import { removalPreview, removeUnusedWorktree, unusedWorktrees } from './unusedWorktrees'
 import { createLogger, logsDir } from './logger'
 import { diagnostics } from './diagnostics'
 import { keepAwakeCount } from './power'
 import { progress } from './progressService'
+import { mergeSlots, recoverMergeSlots, workspaceSlots } from './mergeSlotHost'
+import { slotBranch } from './mergeSlots'
 import { badgeDescription } from '../shared/taskbar'
 import * as files from './files'
 import * as mcp from './mcp'
@@ -51,7 +55,7 @@ import * as skills from './skills'
 import * as storage from './storage'
 import { antivirusStatus, antivirusSuggestion, applyAntivirus, dismissAntivirus, prepareAntivirus } from './antivirus'
 import { contextWorkspace, currentWorkspace, inWorkspace, workspace, workspaceFor, workspaceOf, WorkspaceService } from './workspace'
-import { ensureHiveExcluded } from './hiveVcs'
+import { ensureHiveExcluded, trackedHiveFiles, untrackHive, vcsOf } from './hiveVcs'
 import { hiveWindows, windowForPath, windowOf, windowShowing } from './windows'
 import { setTitleBarBackdrops, setTitleBarColors } from './titleBar'
 import { showWindow } from './tray'
@@ -158,6 +162,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     void tasks.archiveOldDone(ws).catch((e) => log.warn('archiving old Done cards', e))
     // Moved since it was last opened (#146)? In the background: the window opens meanwhile, and a banner follows.
     void checkMoved(contextWorkspace()!).catch((e) => log.warn('checking whether the workspace moved', e))
+    // A merge slot an agent held when Hive closed: its merge may be half done (#350).
+    if (ws.path) void recoverMergeSlots(ws.path).catch((e) => log.warn('recovering the merge slots', e))
   }
   /** The window the current request came from. */
   const win = (): BrowserWindow => {
@@ -425,6 +431,19 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (!r.excluded) throw new Error("Git still doesn't ignore .hive here: a rule in a .gitignore (a line starting with !) may bring it back. Hive doesn't edit .gitignore files.")
       return workspace.refresh()
     },
+    'project:hiveTracked': async (p) => {
+      p = workspace.assertProject(p)
+      const found = vcsOf(p)
+      if (found?.kind !== 'git') return []
+      const tracked = await trackedHiveFiles(p, found.root, { fresh: true })
+      if (tracked === null) throw new Error("Git couldn't list the files it tracks in .hive.")
+      return tracked
+    },
+    'project:untrackHive': async (p, confirmed) => {
+      p = workspace.assertProject(p)
+      await untrackHive(p, confirmed)
+      return workspace.refresh()
+    },
     'project:updateProvider': (p, provider, patch) => {
       const id = knownProvider(provider)
       return workspace.mutateProjectConfig(workspace.assertProject(p), (cfg) => ({ providers: { ...cfg.providers, [id]: { ...projectProviderConfig(cfg, id), ...patch } } }))
@@ -526,6 +545,16 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'agents:branchStatuses': () => branchWatch.statuses(),
     'agents:merge': (p, id, opts) => projectAgents.merge(p, id, opts),
+    'worktrees:unused': (p) => unusedWorktrees(p),
+    'worktrees:removalPreview': (p, path) => removalPreview(p, path),
+    'worktrees:removeUnused': async (p, path, opts) => {
+      const r = await removeUnusedWorktree(p, path, opts ?? {})
+      if (r.deleted) {
+        storage.forgetStorage(p)
+        workspace.scheduleRefresh()
+      }
+      return r
+    },
 
     'files:list': (p, rel) => files.listDir(p, rel),
     'files:create': (p, parent, name, isDir) => files.create(p, parent, name, isDir),
@@ -673,7 +702,18 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (!workspace.path) throw new Error('No workspace is open.')
       await revertSetting(workspace.path, String(actionId))
     },
-    'progress:list': () => (workspace.path ? progress.list(workspace.path) : []),
+    'mergeSlots:list': () => (workspace.path ? workspaceSlots(workspace.path) : []),
+    'mergeSlots:release': (p, branch, holdId) => {
+      if (typeof holdId !== 'string' || !holdId) throw new Error('Which hold to release is required')
+      return mergeSlots.releaseByUser(workspace.assertProject(p), slotBranch(branch), holdId)
+    },
+    'progress:list': async () => {
+      const ws = workspace.path
+      if (!ws) return []
+      // Recent from before a restart joins the runs the first time the window asks (#352).
+      await progress.loadHistory(ws)
+      return progress.list(ws)
+    },
     'progress:dismiss': (id) => {
       if (workspace.path) progress.dismiss(workspace.path, String(id))
     },
@@ -725,10 +765,12 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
 
     'git:status': (root, base) => gitStatus(workspace.assertRoot(root), base),
     'git:diff': (root, f, base) => gitDiff(workspace.assertRoot(root), f, base),
+    'git:tool': (recheck) => (recheck ? checkGit() : gitTool()),
 
     'provider:info': () => providerService.all(),
     'provider:refresh': async (id) => {
-      await providerService.refresh(id, true)
+      // Agent Setup's Check again looks at git too (#346).
+      await Promise.all([providerService.refresh(id, true), checkGit()])
       return providerService.all()
     },
     'provider:task': (id, task) => providerService.runProviderTask(id, task),
