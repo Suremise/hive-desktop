@@ -23,7 +23,7 @@ import { providerService } from './providerService'
 import { config } from './config'
 import { emit, onHiveEvent, toast } from './events'
 import { cancelWatch, encodeSince, registerWatch, scopedCard } from './watches'
-import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
+import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
 import { insideReal, readCapped, readJson, withFileLock, writeJsonAtomic, writeTextAtomic } from './fsutil'
 import { GUIDANCE_REVISION, skillRevisions } from './guidance'
 import agentApiDoc from '../../docs/AGENT_API.md?raw'
@@ -966,7 +966,7 @@ route('POST', '/v1/agents/wait', async ({ body }) => {
     const ws = requireWorkspace()
     targets = sessions.liveStates().filter((s) => busy(s) && workspaceOf(s.projectPath) === ws && !workspace.isAssistantHome(s.projectPath)).map((s) => ({ p: s.projectPath, id: s.agentId }))
   }
-  const limit = Math.min(600, Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
+  const limit = Math.min(AGENT_WAIT_MAX_SECONDS, Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
   // An agent waiting on its background tasks carries on when they end: not done yet, unless the caller says so.
   const throughBackground = body?.ignoreBackground !== true
   const t0 = Date.now()
