@@ -1,0 +1,206 @@
+// A card's decisions (#357): the card dialog pins them above the comments, newest last, each saying who recorded it;
+// the user adds one (Ctrl+Enter too), changes and removes one (the history keeps what it said); one recorded after work
+// on the card started is marked "new since start"; one recorded through the Agent API is the user's decision, recorded
+// by the caller, and the API can't change or remove one. The card's tile counts them, with a tooltip. GET /v1/tasks/{n}
+// lists them first. Closing the card while a decision is being changed asks first, and waits for one being saved. An agent
+// working on the card hears of a decision recorded meanwhile in its next reply, also from a tool that isn't the board's
+// (its own token; the real hive MCP server adds the line). The agent runs the fake Claude Code. Both themes. Dev build,
+// throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const { execFileSync } = require('child_process')
+const fs = require('fs')
+const path = require('path')
+
+const userData = path.join(lib.WORK, 'decisions-profile')
+const ws = path.join(lib.WORK, 'decisions-ws')
+const claudeHome = path.join(lib.WORK, 'decisions-claude-home')
+const alpha = path.join(ws, 'alpha')
+const PORT = Number(lib.port(47888))
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+
+;(async () => {
+  for (const d of [userData, ws, claudeHome]) fs.rmSync(d, { recursive: true, force: true })
+  fs.mkdirSync(claudeHome, { recursive: true })
+  lib.gitProject(alpha)
+  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase()]))
+  lib.enableProviders(userData)
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: String(PORT), CLAUDE_CONFIG_DIR: claudeHome })
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.fitWindow(app, page, { width: 1400, height: 900 })
+  await lib.appReady(page)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await lib.openWorkspace(inv, page, ws)
+  const until = (fn, ms = 10000) => lib.until(fn, ms)
+  const token = JSON.parse(fs.readFileSync(path.join(userData, 'agent-api.json'), 'utf8')).token
+  const api = async (method, p, body) => {
+    const res = await fetch(`http://127.0.0.1:${PORT}${p}`, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
+    return { status: res.status, body: await res.json().catch(() => null) }
+  }
+  const card = async (n) => (await inv('tasks:list')).find((c) => c.number === n)
+  const shot = async (name) => {
+    await page.screenshot({ path: path.join(lib.WORK, `decisions-${name}-dark.png`) })
+    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'))
+    await lib.sleep(200)
+    await page.screenshot({ path: path.join(lib.WORK, `decisions-${name}-light.png`) })
+    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'))
+  }
+
+  const n = (await inv('tasks:create', { title: 'Login form errors', project: 'alpha', description: 'Show the validation errors.' })).number
+  await inv('tasks:comment', n, 'Started looking at the form.')
+  await page.getByRole('button', { name: 'Task Board' }).click()
+  const tile = page.locator(`.task-card[data-task="${n}"]`)
+  await until(async () => (await tile.count()) === 1)
+  check('a card without decisions shows no marker', (await tile.locator('.task-decision-count').count()) === 0)
+
+  // The user records one in the dialog.
+  await tile.click()
+  const dialog = page.locator('.dialog', { hasText: `#${n}` })
+  await until(async () => (await dialog.count()) === 1, 5000)
+  const section = dialog.locator('.task-decisions')
+  const above = await page.evaluate(() => {
+    const d = document.querySelector('.dialog .task-decisions')
+    const c = document.querySelector('.dialog .task-comment')
+    return !!d && !!c && !!(d.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+  check('the dialog has Decisions (0), above the comments', /Decisions \(0\)/i.test(await section.innerText()) && above, (await section.innerText()).slice(0, 80))
+  await dialog.getByLabel('New decision').fill('Keep the form at login.html; no new page.')
+  await dialog.getByRole('button', { name: 'Add Decision' }).click()
+  const items = section.locator('.task-decision')
+  check('Add Decision records it', !!(await until(async () => (await items.count()) === 1, 5000)) && /Keep the form at login\.html/.test(await items.first().innerText()) && /Decided by you/.test(await items.first().innerText()) && !/recorded by/.test(await items.first().innerText()))
+  check('…decided by the user, recorded by You, in the history', !!(await until(async () => {
+    const c = await card(n)
+    return c.decisions?.[0]?.decidedBy === 'user' && c.decisions[0].recordedBy === 'You' && c.history.at(-1).what === 'Recorded a decision: "Keep the form at login.html; no new page."'
+  }, 5000)))
+  check('…and the field is empty again', (await dialog.getByLabel('New decision').inputValue()) === '')
+  await page.keyboard.press('Escape')
+  await until(async () => (await dialog.count()) === 0, 5000)
+
+  // Work on it starts; an agent's (here the Agent API's) record comes after: "new since start", recorded by the caller.
+  await inv('tasks:update', n, { column: 'doing' })
+  await lib.sleep(20)
+  const recorded = await api('PATCH', `/v1/tasks/${n}`, { decision: 'Show each error under its own field, not in a banner.', reply: 'short' })
+  check('the Agent API records a decision', recorded.status === 200 && JSON.stringify(recorded.body).includes('Recorded a decision'), JSON.stringify(recorded))
+  const read = await api('GET', `/v1/tasks/${n}`)
+  check('GET /v1/tasks/{n} lists the decisions first, without ids', JSON.stringify(Object.keys(read.body).slice(0, 3)) === JSON.stringify(['number', 'title', 'decisions']) && read.body.decisions.length === 2 && read.body.decisions.every((d) => !('id' in d) && d.decidedBy === 'user') && read.body.decisions[1].recordedBy === 'Agent API', JSON.stringify(Object.keys(read.body).slice(0, 4)))
+  check('the tile counts them', !!(await until(async () => (await tile.locator('.task-decision-count').innerText().catch(() => '')).trim() === '2', 5000)))
+  await tile.locator('.task-decision-count').hover()
+  check('…with a tooltip that lists them', !!(await until(async () => /Decisions: 2\. Keep the form/.test(await page.locator('.tip').innerText().catch(() => '')), 3000)))
+
+  await tile.click()
+  await until(async () => (await dialog.count()) === 1, 5000)
+  check('newest last, with who recorded it', /Show each error/.test(await items.nth(1).innerText()) && /recorded by Agent API/.test(await items.nth(1).innerText()))
+  check('the later one is new since start, the first not', /new since start/.test(await items.nth(1).innerText()) && !/new since start/.test(await items.nth(0).innerText()))
+  await shot('dialog')
+
+  // Changing and removing are the user's.
+  const id = (await card(n)).decisions[1].id
+  check('the Agent API has no way to replace or remove them (an unknown field changes nothing)', (await api('PATCH', `/v1/tasks/${n}`, { decisions: [] })).status === 200 && (await card(n)).decisions.length === 2)
+  await items.nth(1).getByRole('button', { name: 'Change this decision' }).click()
+  const editor = items.nth(1).getByLabel('Decision')
+  await editor.fill('Show each error under its own field.')
+  await page.keyboard.press('Control+Enter')
+  check('changing one saves it, marked edited', !!(await until(async () => /Show each error under its own field\.\s/.test(await items.nth(1).innerText()) && /edited/.test(await items.nth(1).innerText()), 5000)))
+  check('…and the history says what it was', (await card(n)).history.at(-1).what === 'Changed a decision to "Show each error under its own field." (was "Show each error under its own field, not in a banner.")')
+  await items.nth(0).getByRole('button', { name: 'Remove this decision' }).click()
+  const confirmRemove = page.locator('.dialog', { hasText: 'Remove this decision?' })
+  await until(async () => (await confirmRemove.count()) === 1, 5000)
+  await confirmRemove.getByRole('button', { name: 'Remove', exact: true }).click()
+  check('removing one asks, then removes it', !!(await until(async () => (await items.count()) === 1 && (await card(n)).decisions.length === 1 && (await card(n)).decisions[0].id === id, 5000)))
+  check('…and the history keeps its words', (await card(n)).history.at(-1).what === 'Removed a decision: "Keep the form at login.html; no new page."')
+
+  // A decision being written: closing asks before it is lost; Ctrl+Enter adds it.
+  await dialog.getByLabel('New decision').fill('Errors in red.')
+  await page.keyboard.press('Escape')
+  const discard = page.locator('.dialog', { hasText: 'Discard unsaved changes?' })
+  check('closing with a decision half-written asks', !!(await until(async () => (await discard.count()) === 1, 5000)) && /the decision you are writing/.test(await discard.innerText()))
+  await discard.getByRole('button', { name: 'Keep Editing' }).click()
+  await dialog.getByLabel('New decision').focus()
+  await page.keyboard.press('Control+Enter')
+  check('Ctrl+Enter adds it', !!(await until(async () => (await items.count()) === 2, 5000)))
+  await shot('edited')
+
+  // A decision being changed: Escape and Cancel ask first, and Keep Editing keeps the words.
+  const changing = items.nth(0)
+  await changing.getByRole('button', { name: 'Change this decision' }).click()
+  await changing.getByLabel('Decision').fill('Show each error under its field, in red.')
+  await page.keyboard.press('Escape')
+  check('Escape with a decision being changed asks', !!(await until(async () => (await discard.count()) === 1, 5000)) && /your change to a decision/.test(await discard.innerText()), await discard.innerText().catch(() => ''))
+  await discard.getByRole('button', { name: 'Keep Editing' }).click()
+  check('…and Keep Editing keeps the words', (await dialog.count()) === 1 && (await changing.getByLabel('Decision').inputValue()) === 'Show each error under its field, in red.')
+  await dialog.locator('.dialog-footer').getByRole('button', { name: 'Cancel' }).click()
+  check('Cancel asks too', !!(await until(async () => (await discard.count()) === 1, 5000)))
+  await discard.getByRole('button', { name: 'Keep Editing' }).click()
+  // Saving it slowly: the card can't close until it is saved.
+  await app.evaluate(() => {
+    process.env.HIVE_TEST_SLOW_IPC = 'tasks:editDecision=2500*1'
+  })
+  await changing.getByRole('button', { name: 'Save' }).click()
+  await lib.sleep(300)
+  await page.keyboard.press('Escape')
+  await lib.sleep(300)
+  check('closing waits while a decision is being saved', (await dialog.count()) === 1 && (await discard.count()) === 0)
+  check('…which then saves it', !!(await until(async () => (await card(n)).decisions[0].text === 'Show each error under its field, in red.', 8000)))
+  await app.evaluate(() => {
+    delete process.env.HIVE_TEST_SLOW_IPC
+  })
+  await until(async () => (await changing.getByLabel('Decision').count()) === 0, 5000)
+  await page.keyboard.press('Escape')
+  check('with nothing unsaved, the card closes', !!(await until(async () => (await dialog.count()) === 0, 5000)))
+
+  // An agent on the card: its next reply flags a decision recorded since it read the card, whatever tool it called.
+  const coder = await lib.addAgent(inv, alpha, { name: 'Coder' })
+  await inv('session:start', alpha, { agentId: coder.id })
+  check('Coder starts', !!(await until(async () => (await inv('session:live')).some((x) => x.agentId === coder.id && ['ready', 'waiting'].includes(x.status)), 20000)))
+  const launch = fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1)
+  const coderToken = launch.env.HIVE_API_TOKEN
+  const asCoder = async (p, method = 'GET', body) => {
+    const res = await fetch(`http://127.0.0.1:${PORT}${p}`, { method, headers: { Authorization: `Bearer ${coderToken}`, 'X-Hive-Workspace': encodeURIComponent(ws), 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
+    const notice = res.headers.get('x-hive-notice')
+    return { status: res.status, notice: notice ? decodeURIComponent(notice) : null }
+  }
+  await inv('tasks:update', n, { agent: coder.id })
+  check("the agent's read of its card has no flag", (await asCoder(`/v1/tasks/${n}`)).notice === null)
+  await lib.sleep(20)
+  await inv('tasks:update', n, { decision: 'Errors stay on screen until fixed.' })
+  const status = await asCoder('/v1/projects/alpha')
+  check('a decision recorded since: its next reply, from a tool that is not the board, flags it', status.status === 200 && status.notice === `[Hive] #${n} has 1 new decision since you last read it: read the card (hive_read_task) at your next checkpoint.`, JSON.stringify(status))
+  // Through the real hive MCP server, as the agent's tools see it: the reply ends with the line.
+  const viaMcp = JSON.parse(
+    execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], {
+      input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'hive_project_status', arguments: {} } }) + '\n',
+      env: lib.childEnv({ HIVE_API_URL: `http://127.0.0.1:${PORT}`, HIVE_WORKSPACE: ws, HIVE_API_TOKEN: coderToken, HIVE_API_TOKEN_FILE: '', HIVE_PROJECT: 'alpha', HIVE_AGENT_ID: coder.id }),
+      timeout: 60000
+    })
+      .toString()
+      .split('\n')[0]
+  ).result
+  check('…and hive_project_status ends with it', !viaMcp.isError && viaMcp.content[0].text.endsWith(`\n[Hive] #${n} has 1 new decision since you last read it: read the card (hive_read_task) at your next checkpoint.`), viaMcp.content?.[0]?.text?.slice(-200))
+  await asCoder(`/v1/tasks/${n}`)
+  check('read in full, it is no longer flagged', (await asCoder('/v1/projects/alpha')).notice === null)
+  // The call that moves the card on (to Review) still hears of a decision it hasn't read: the card was its own when the
+  // call began.
+  await lib.sleep(20)
+  await inv('tasks:update', n, { decision: 'One message per field.' })
+  const moved = await asCoder(`/v1/tasks/${n}`, 'PATCH', { column: 'review', reply: 'short' })
+  check('moving the card to Review with a decision unread: that reply flags it', moved.status === 200 && moved.notice === `[Hive] #${n} has 1 new decision since you last read it: read the card (hive_read_task) at your next checkpoint.`, JSON.stringify(moved))
+  check('…and once out of its hands, its next replies say nothing more', (await asCoder('/v1/projects/alpha')).notice === null)
+
+  await app.close()
+  console.log(failed ? `\n${failed} check(s) failed` : '\nAll checks passed')
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

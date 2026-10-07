@@ -236,6 +236,8 @@ export interface HiveRequests {
   'tasks:create': (input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[] }) => TaskCard
   'tasks:update': (n: number, patch: TaskPatch) => TaskCard
   'tasks:comment': (n: number, text: string) => TaskCard
+  /** Changes the words of one of a card's decisions, or removes it (text null): the user's (#357). */
+  'tasks:editDecision': (n: number, id: string, text: string | null) => TaskCard
   'tasks:archive': (n: number, archived: boolean) => TaskCard
   /** Archives the cards listed as one batch (#351), the user's: Undo or "Unarchive this batch" brings it back. */
   'tasks:archiveBatch': (numbers: number[], req: ArchiveRequest) => ArchiveResult

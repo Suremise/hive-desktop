@@ -5,12 +5,14 @@
  * returns a short row per item, and full detail comes on request. No imports beyond shared code without side
  * effects: hive-mcp.js runs outside the app bundle.
  */
-import type { TaskCard, TaskColumn } from './types'
+import type { TaskCard, TaskColumn, TaskDecision } from './types'
 import { columnLabel } from './tasks'
 import { shortDuration } from './progress'
 
 /** A card as the Agent API shows it: with what its agent is doing now, and why it is stalled. */
-export interface TaskView extends Omit<TaskCard, 'agent'> {
+export interface TaskView extends Omit<TaskCard, 'agent' | 'decisions'> {
+  /** The user's decisions, first (#357); without their ids. Absent when there are none. */
+  decisions?: Omit<TaskDecision, 'id'>[]
   agent: { id: string; name: string; status: string; backgroundTasks: number } | null
   stalled: string | null
   /** With a review going on (TaskCard.review): why it has stalled (its reviewer removed or not running), if it has. */

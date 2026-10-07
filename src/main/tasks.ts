@@ -6,7 +6,7 @@ import { shell } from 'electron'
 import { projectAgents } from '../shared/defaults'
 import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders, sortCards } from '../shared/tasks'
 import { ordinal } from '../shared/toolReplies'
-import type { ArchiveBatch, ArchiveRequest, ArchiveResult, TaskCard, TaskColumn, TaskComment, TaskPatch, UnarchiveResult } from '../shared/types'
+import type { ArchiveBatch, ArchiveRequest, ArchiveResult, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskPatch, UnarchiveResult } from '../shared/types'
 import { returnRound } from '../shared/watch'
 import { config } from './config'
 import { emit } from './events'
@@ -53,6 +53,8 @@ const MAX_TITLE = 200
 const MAX_TEXT = 20_000
 const MAX_LABELS = 12
 const MAX_COMMENTS = 500
+const MAX_DECISIONS = 100
+const MAX_DECISION = 4000
 /**
  * A new history entry's or comment's id, unique on its card (#224): two entries alike in time, author and words are
  * still two. Card watches count what they have seen by it; the Agent API's card views leave it out.
@@ -96,10 +98,31 @@ function clean(raw: Partial<TaskCard>, n: number): TaskCard {
     archived: raw.archived === true,
     ...(raw.archivedFor ? { archivedFor: raw.archivedFor } : {}),
     ...(raw.archived === true && typeof raw.archivedBatch === 'string' && raw.archivedBatch ? { archivedBatch: raw.archivedBatch } : {}),
+    ...decisionsOf(raw.decisions),
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : now,
     createdBy: typeof raw.createdBy === 'string' ? raw.createdBy : '',
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : now
   }
+}
+
+/** A card's decisions as read from disk (#357): only well-formed ones, each with an id; none, no field. */
+function decisionsOf(v: unknown): { decisions?: TaskDecision[] } {
+  if (!Array.isArray(v)) return {}
+  const out = v.flatMap((d): TaskDecision[] =>
+    d && typeof d.text === 'string' && d.text.trim()
+      ? [
+          {
+            id: typeof d.id === 'string' && d.id ? d.id : entryId(),
+            text: d.text,
+            decidedBy: 'user',
+            recordedBy: typeof d.recordedBy === 'string' ? d.recordedBy : '',
+            at: typeof d.at === 'string' ? d.at : new Date(0).toISOString(),
+            ...(typeof d.editedAt === 'string' ? { editedAt: d.editedAt } : {})
+          }
+        ]
+      : []
+  )
+  return out.length ? { decisions: out } : {}
 }
 
 /**
@@ -352,6 +375,12 @@ export async function reorderTasks(column: TaskColumn, numbers: unknown, actor: 
   return (await allTasks(ws)).filter((c) => c.column === column && !c.archived && inScope(c, scope))
 }
 
+/** Words quoted in a history line, cut short. */
+const clip = (s: string, max = 80): string => {
+  const one = s.replace(/\s+/g, ' ').trim()
+  return one.length > max ? `${one.slice(0, max - 1)}…` : one
+}
+
 function note(card: TaskCard, by: string, what: string): void {
   const at = new Date().toISOString()
   card.history = [...card.history, { at, by, what, id: entryId() }].slice(-MAX_HISTORY)
@@ -524,6 +553,16 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
       card.order = order
       card.column = column
     }
+    if (patch.decision !== undefined) {
+      // Recorded by whoever calls (the user, the Assistant, an agent), decided by the user: agents only write down what
+      // the user decided (their tool's description says so). Editing or removing one is the user's (editDecision).
+      const t = text(patch.decision, MAX_DECISION, 'decision').trim()
+      if (!t) throw new Error('The decision is empty.')
+      const list = card.decisions ?? []
+      if (list.length >= MAX_DECISIONS) throw new Error(`A card can have up to ${MAX_DECISIONS} decisions.`)
+      card.decisions = [...list, { id: entryId(), text: t, decidedBy: 'user', recordedBy: by, at: new Date().toISOString() }]
+      said.push(`Recorded a decision: "${clip(t)}"`)
+    }
     if (patch.labels !== undefined) {
       card.labels = labelsOf(patch.labels)
       said.push(card.labels.length ? `Labels: ${card.labels.join(', ')}` : 'Removed the labels')
@@ -646,6 +685,36 @@ export async function commentTask(n: number, comment: string, actor: TaskActor):
     if (!inScope(c, scopeOf(actor))) throw unknownTask(n)
     if (c.archived && actor.kind !== 'user') throw new TaskPermissionError(`#${n} is archived. Only the user can bring it back.`)
     addComment(c, actorName(actor), t)
+    await writeJsonAtomic(cardFile(n, ws), c)
+    return c
+  })
+  changed(ws)
+  return card
+}
+
+/**
+ * Changes the words of one of a card's decisions, or removes it (text null): the user's alone (#357). Agents and the
+ * Assistant only record decisions; the history keeps what each said.
+ */
+export async function editDecision(n: number, id: string, newText: string | null, actor: TaskActor): Promise<TaskCard> {
+  if (actor.kind !== 'user') throw new TaskPermissionError("Only the user changes or removes a card's decisions.")
+  const ws = workspace
+  const t = newText === null ? null : text(newText, MAX_DECISION, 'decision').trim()
+  if (t === '') throw new Error('The decision is empty: remove it instead.')
+  const card = await withFileLock(cardFile(n, ws), async () => {
+    const c = await getTask(n, ws)
+    const d = c.decisions?.find((x) => x.id === id)
+    if (!d) throw new Error(`That decision is no longer on #${n}.`)
+    if (t === null) {
+      c.decisions = c.decisions!.filter((x) => x.id !== id)
+      if (!c.decisions.length) delete c.decisions
+      note(c, 'You', `Removed a decision: "${clip(d.text)}"`)
+    } else {
+      if (t === d.text) return c
+      note(c, 'You', `Changed a decision to "${clip(t)}" (was "${clip(d.text)}")`)
+      d.text = t
+      d.editedAt = new Date().toISOString()
+    }
     await writeJsonAtomic(cardFile(n, ws), c)
     return c
   })

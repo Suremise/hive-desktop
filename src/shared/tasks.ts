@@ -143,6 +143,21 @@ export function restoreOrders(live: { number: number; order: number }[], was: nu
   return out
 }
 
+/** History that starts work on a card: a move into Doing, or creating it there. */
+const INTO_DOING = /^(Moved to (the (top|bottom) of )?Doing\b|Created in Doing\b)/
+
+/** When work on a card last started (ms): its latest move into Doing; 0 when it never went there. */
+export function workStartedAt(card: Pick<TaskCard, 'history'>): number {
+  const h = card.history.findLast((x) => INTO_DOING.test(x.what))
+  return h ? Date.parse(h.at) || 0 : 0
+}
+
+/** A decision recorded after work on the card last started (#357): the card dialog marks it "new since start". */
+export function newSinceStart(card: Pick<TaskCard, 'history'>, d: { at: string }): boolean {
+  const start = workStartedAt(card)
+  return start > 0 && (Date.parse(d.at) || 0) > start
+}
+
 /** A card matches the board's search: its number (#12 or 12), title, description, labels, project or agent. */
 export function cardMatches(c: Pick<TaskCard, 'number' | 'title' | 'description' | 'project' | 'agentName' | 'labels'>, q: string): boolean {
   const s = q.trim().toLowerCase()

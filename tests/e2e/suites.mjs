@@ -51,6 +51,7 @@ export const SUITES = [
   { name: 'compact', needs: ['claude'] },
   { name: 'context' },
   { name: 'ctxpercent' },
+  { name: 'decisions' },
   { name: 'dialogs' },
   { name: 'doingmove' },
   { name: 'donemove' },

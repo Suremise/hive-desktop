@@ -102,7 +102,7 @@ const until = async (fn, ms = 10000) => {
   check('the card prompt points to the work-on-card skill', typeof prompt === 'string' && prompt.includes('Use the work-on-card skill.'), String(prompt))
   const skill = path.join(alpha, '.hive', `launch-${agent.id}`, 'plugin', 'skills', 'work-on-card', 'SKILL.md')
   const skillText = fs.existsSync(skill) ? fs.readFileSync(skill, 'utf8') : ''
-  check('…which says Review when the work is done, and Done once merged or when the user asks', /Move it to `review`/.test(skillText) && /`done` means merged: move your card there once its work is merged \(merge-ready\), or when the user asks/.test(skillText), skillText.slice(0, 200))
+  check('…which says Review when the work is done, and Done once merged or when the user asks', /[Mm]ove it to `review`/.test(skillText) && /`done` means merged: move your card there once its work is merged \(merge-ready\), or when the user asks/.test(skillText), skillText.slice(0, 200))
 
   await inv('session:stop', alpha, agent.id).catch(() => undefined)
   await app.close()

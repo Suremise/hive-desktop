@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { AgentInfo, ArchiveBatch, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch, TaskStartTarget } from '@shared/types'
+import type { AgentInfo, ArchiveBatch, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskDecision, TaskPatch, TaskStartTarget } from '@shared/types'
 import { gitProblemText } from '@shared/gitTool'
-import { TASK_COLUMNS, applyBoardFold, cardMatches, archivedAt, columnColor, columnLabel, reviewStalled, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
+import { TASK_COLUMNS, applyBoardFold, cardMatches, newSinceStart, archivedAt, columnColor, columnLabel, reviewStalled, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
 import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useDateStyle, useStore, type ArchiveAllRequest, type DoingRequest } from '../store'
@@ -341,7 +341,7 @@ function CardTile({
           </Tooltip>
         )}
         <ReviewLine c={c} projects={projects} />
-        {(c.labels.length > 0 || c.blockedBy.length > 0 || c.comments.length > 0) && (
+        {(c.labels.length > 0 || c.blockedBy.length > 0 || c.comments.length > 0 || !!c.decisions?.length) && (
           <div className="task-meta">
             {c.labels.map((l) => (
               <span key={l} className="task-label" title={l}>
@@ -359,6 +359,13 @@ function CardTile({
               <span className="faint">
                 <Icon name="comment" /> {c.comments.length}
               </span>
+            )}
+            {!!c.decisions?.length && (
+              <Tooltip content={`Decisions: ${c.decisions.length}. ${c.decisions.map((d) => (d.text.length > 80 ? `${d.text.slice(0, 79)}…` : d.text)).join(' · ')}`}>
+                <span className="faint task-decision-count" aria-label={`Decisions: ${c.decisions.length}`}>
+                  <Icon name="law" /> {c.decisions.length}
+                </span>
+              </Tooltip>
             )}
           </div>
         )}
@@ -943,6 +950,115 @@ export function ArchiveAllDialog() {
   )
 }
 
+/** A decision being changed in the card dialog: its new words, and its words when the change began. */
+interface DecisionEdit {
+  id: string
+  text: string
+  was: string
+}
+
+/**
+ * A card's decisions (#357), pinned above its comments: what the user decided, newest last, each saying who recorded it
+ * (the user decides; an agent or the Assistant may write it down) and "new since start" when it came after work on the
+ * card began. The user adds, changes and removes them; agents and the Assistant can only add one (hive_update_task).
+ */
+function Decisions({
+  card,
+  draft,
+  setDraft,
+  editing,
+  setEditing,
+  setBusy
+}: {
+  card: TaskCard
+  draft: string
+  setDraft: (v: string) => void
+  editing: DecisionEdit | null
+  setEditing: (v: DecisionEdit | null) => void
+  setBusy: (busy: boolean) => void
+}) {
+  const action = useBusy()
+  // The card dialog waits for a decision being saved before it closes.
+  useEffect(() => setBusy(!!action.busy), [action.busy, setBusy])
+  const list = card.decisions ?? []
+  const add = (): void =>
+    void action.run('add', async () => {
+      await call('tasks:update', card.number, { decision: draft })
+      await loadTasks()
+      setDraft('')
+    })
+  const save = (): void => {
+    if (!editing) return
+    void action.run('edit', async () => {
+      await call('tasks:editDecision', card.number, editing.id, editing.text)
+      await loadTasks()
+      setEditing(null)
+    })
+  }
+  const removeDecision = (d: TaskDecision): void =>
+    void confirm({
+      title: 'Remove this decision?',
+      message: `"${d.text.length > 200 ? `${d.text.slice(0, 199)}…` : d.text}" leaves #${card.number}. Its history keeps what it said.`,
+      confirmLabel: 'Remove',
+      busyLabel: 'Removing…',
+      danger: true,
+      run: async () => {
+        await call('tasks:editDecision', card.number, d.id, null)
+        await loadTasks()
+      }
+    })
+  return (
+    <div className="task-decisions">
+      <div className="task-section-h">
+        Decisions ({list.length})
+        <InfoTip text="What you decided about this card: scope, wording, a default. Agents read them when they start and again before Review, and follow them where the description says otherwise; reviewers check the work against them. An agent or the Assistant can write down a decision you made; only you change or remove one." />
+      </div>
+      {list.map((d) => (
+        <div key={d.id} className={cx('task-decision', newSinceStart(card, d) && 'new')}>
+          {editing?.id === d.id ? (
+            <div className="task-decision-edit">
+              <textarea className="input" aria-label="Decision" value={editing.text} autoFocus onChange={(e) => setEditing({ ...editing, text: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && save()} />
+              <div className="flex">
+                <button className="btn small subtle" disabled={!!action.busy} onClick={() => setEditing(null)}>
+                  Cancel
+                </button>
+                <BusyButton className="small" busy={action.busy === 'edit'} busyLabel="Saving…" disabled={!editing.text.trim() || editing.text.trim() === d.text} onClick={save}>
+                  Save
+                </BusyButton>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="task-decision-text">{d.text}</div>
+              <div className="task-decision-by faint">
+                Decided by you{d.recordedBy && d.recordedBy !== 'You' ? ` · recorded by ${d.recordedBy}` : ''} · <Tooltip content={formatDateTime(d.at)}><span>{timeAgo(d.at)}</span></Tooltip>
+                {d.editedAt ? ' · edited' : ''}
+                {newSinceStart(card, d) && <span className="badge accent">new since start</span>}
+                <span className="grow" />
+                {!card.archived && (
+                  <>
+                    <IconButton icon="edit" title="Change this decision" onClick={() => setEditing({ id: d.id, text: d.text, was: d.text })} />
+                    <IconButton icon="trash" title="Remove this decision" onClick={() => removeDecision(d)} />
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      ))}
+      {!card.archived && (
+        <div className="task-decision-new">
+          <textarea className="input" aria-label="New decision" placeholder="Record a decision you made about this card (agents follow it over the description)" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && draft.trim() && add()} />
+          <BusyButton className="small" busy={action.busy === 'add'} busyLabel="Adding…" disabled={!draft.trim()} onClick={add}>
+            Add Decision
+          </BusyButton>
+        </div>
+      )}
+      {action.error && <div className="field-error">{action.error}</div>}
+    </div>
+  )
+}
+
 /** The Board view (activity bar): every project's cards, or the one chosen in the sidebar. */
 export function BoardView() {
   const project = useStore((s) => s.boardProject)
@@ -1071,6 +1187,11 @@ export function TaskDialog() {
   const [links, setLinks] = useState('')
   const [preview, setPreview] = useState(false)
   const [comment, setComment] = useState('')
+  // A decision being written, one being changed (with its words before) and whether one is being saved (#357): the
+  // dialog keeps them, so closing asks before they are lost and waits for a save.
+  const [decision, setDecision] = useState('')
+  const [decisionEdit, setDecisionEdit] = useState<DecisionEdit | null>(null)
+  const [decisionBusy, setDecisionBusy] = useState(false)
   const action = useBusy()
   const [showHistory, setShowHistory] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -1107,6 +1228,8 @@ export function TaskDialog() {
     }
     setPreview(!!c?.description)
     setComment('')
+    setDecision('')
+    setDecisionEdit(null)
     setShowHistory(false)
     // A new card's title takes the keyboard, unless it is already in the dialog: in a busy window the timer can fire
     // after the user has moved on to another field, and what they type next would land in the title (#229).
@@ -1127,13 +1250,21 @@ export function TaskDialog() {
   const fields: Record<string, string> = { title, description, project, agent, column, labels, blocked, blockedBy, links }
   // Edits not saved yet: the fields as they opened, or a comment being written.
   const edited = Object.keys(fields).filter((k) => fields[k] !== (orig.current[k] ?? ''))
-  const unsaved = edited.length > 0 || !!comment.trim()
+  const decisionChanged = !!decisionEdit && decisionEdit.text.trim() !== decisionEdit.was
+  const unsaved = edited.length > 0 || !!comment.trim() || !!decision.trim() || decisionChanged
 
   /** Closing (Escape, ×, outside, Cancel): asks first when something would be lost. */
   const tryClose = async (): Promise<void> => {
-    if (action.busy) return
+    if (action.busy || decisionBusy) return
     if (unsaved) {
-      const what = [edited.length ? (isNew ? 'this new card' : 'your changes to the card') : '', comment.trim() ? 'the comment you are writing' : ''].filter(Boolean).join(' and ')
+      const what = [
+        edited.length ? (isNew ? 'this new card' : 'your changes to the card') : '',
+        comment.trim() ? 'the comment you are writing' : '',
+        decision.trim() ? 'the decision you are writing' : '',
+        decisionChanged ? 'your change to a decision' : ''
+      ]
+        .filter(Boolean)
+        .join(' and ')
       const choice = await choose({
         title: 'Discard unsaved changes?',
         message: `Closing loses ${what}.`,
@@ -1250,7 +1381,7 @@ export function TaskDialog() {
       icon="checklist"
       wide
       onClose={() => void tryClose()}
-      busy={!!action.busy}
+      busy={!!action.busy || decisionBusy}
       error={action.error}
       footer={
         <>
@@ -1375,6 +1506,7 @@ export function TaskDialog() {
       )}
       {card && (
         <>
+          <Decisions card={card} draft={decision} setDraft={setDecision} editing={decisionEdit} setEditing={setDecisionEdit} setBusy={setDecisionBusy} />
           <div className="task-section-h">Comments ({card.comments.length})</div>
           {card.comments.map((c, i) => (
             <div key={i} className="task-comment">

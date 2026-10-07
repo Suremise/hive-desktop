@@ -15,7 +15,8 @@ const base = mkdtempSync(join(tmpdir(), 'hive-tasks-'))
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
 const tasks = await import('../src/main/tasks')
-const { restoreOrders } = await import('../src/shared/tasks')
+const { newSinceStart, restoreOrders, workStartedAt } = await import('../src/shared/tasks')
+const { decisionNotice, noteCardRead } = await import('../src/main/decisionNotices')
 const removal = await import('../src/main/projectRemoval')
 const { sessions } = await import('../src/main/sessions')
 type WS = ReturnType<typeof createWorkspaceService>
@@ -559,6 +560,174 @@ describe('archiving in batches', () => {
     const [one, two] = await Promise.all([run(() => tasks.archiveBatch([m], req('one'), user)), run(() => tasks.archiveBatch([n], req('two'), user))])
     expect((await run(() => tasks.archiveBatches())).map((b) => b.id)).toEqual(expect.arrayContaining([one.batch!.id, two.batch!.id]))
     expect([(await run(() => tasks.getTask(m))).archivedBatch, (await run(() => tasks.getTask(n))).archivedBatch]).toEqual([one.batch!.id, two.batch!.id])
+  })
+})
+
+// A card's decisions (#357): recorded by anyone for the user, changed or removed by the user only, kept under the
+// card's lock and in its history; the flag an agent's reply gets when one is new to it.
+describe('card decisions', () => {
+  let w: WS
+  const wsPath = join(base, 'ws-decisions')
+  const alpha = join(wsPath, 'alpha')
+  const coder = { kind: 'agent', name: 'Coder (alpha)', self: { project: 'alpha', agentId: 'a1' }, scope: 'alpha' } as const
+  const reviewer = { kind: 'agent', name: 'Reviewer (alpha)', self: { project: 'alpha', agentId: 'r1' }, scope: 'alpha' } as const
+  const betaAgent = { kind: 'agent', name: 'B (beta)', self: { project: 'beta', agentId: 'b1' }, scope: 'beta' } as const
+  beforeAll(async () => {
+    project(wsPath, 'alpha', [
+      { id: 'a1', name: 'Coder' },
+      { id: 'r1', name: 'Reviewer' }
+    ])
+    project(wsPath, 'beta', [{ id: 'b1', name: 'B' }])
+    w = await open(wsPath)
+  })
+  afterAll(async () => disposeWorkspaceService(w))
+  const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
+  const make = async (title: string): Promise<number> => (await run(() => tasks.createTask({ title, project: 'alpha' }, user))).number
+
+  it('the user, the Assistant and agents record decisions, each decided by the user; history says who recorded what', async () => {
+    const n = await make('Login page')
+    await run(() => tasks.updateTask(n, { decision: '  Keep the old URL.  ' }, user))
+    await run(() => tasks.updateTask(n, { decision: 'Option B for the layout.' }, assistant))
+    const said: string[] = []
+    const c = await run(() => tasks.updateTask(n, { decision: 'No new dependency.' }, coder, { said }))
+    expect(said).toEqual(['Recorded a decision: "No new dependency."'])
+    expect(c.decisions!.map((d) => [d.text, d.decidedBy, d.recordedBy])).toEqual([
+      ['Keep the old URL.', 'user', 'You'],
+      ['Option B for the layout.', 'user', 'Assistant'],
+      ['No new dependency.', 'user', 'Coder (alpha)']
+    ])
+    expect(new Set(c.decisions!.map((d) => d.id)).size).toBe(3)
+    expect(c.history.slice(-3).map((h) => [h.by, h.what])).toEqual([
+      ['You', 'Recorded a decision: "Keep the old URL."'],
+      ['Assistant', 'Recorded a decision: "Option B for the layout."'],
+      ['Coder (alpha)', 'Recorded a decision: "No new dependency."']
+    ])
+    await expect(run(() => tasks.updateTask(n, { decision: '   ' }, coder))).rejects.toThrow(/decision is empty/)
+    await expect(run(() => tasks.updateTask(n, { decision: 'x'.repeat(4001) }, coder))).rejects.toThrow(/too long/)
+    // Another project's agent can't reach the card; an archived card is the user's.
+    await expect(run(() => tasks.updateTask(n, { decision: 'Mine' }, betaAgent))).rejects.toThrow(`Unknown task #${n}`)
+    const archived = await make('Archived')
+    await run(() => tasks.archiveTask(archived, true))
+    await expect(run(() => tasks.updateTask(archived, { decision: 'Late' }, coder))).rejects.toThrow(/archived/)
+  })
+
+  it('only the user changes or removes one, and the history keeps what it said', async () => {
+    const n = await make('Wording')
+    const [d] = (await run(() => tasks.updateTask(n, { decision: 'Say "workspace", not "folder".' }, coder))).decisions!
+    for (const who of [coder, assistant, { kind: 'agent', name: 'Agent API' } as const]) {
+      await expect(run(() => tasks.editDecision(n, d.id, 'Changed', who))).rejects.toBeInstanceOf(tasks.TaskPermissionError)
+      await expect(run(() => tasks.editDecision(n, d.id, null, who))).rejects.toBeInstanceOf(tasks.TaskPermissionError)
+    }
+    const changed = await run(() => tasks.editDecision(n, d.id, 'Say "workspace".', user))
+    expect([changed.decisions![0].text, changed.decisions![0].recordedBy, !!changed.decisions![0].editedAt]).toEqual(['Say "workspace".', 'Coder (alpha)', true])
+    expect(changed.history.at(-1)?.what).toBe('Changed a decision to "Say "workspace"." (was "Say "workspace", not "folder".")')
+    await expect(run(() => tasks.editDecision(n, d.id, ' ', user))).rejects.toThrow(/remove it instead/)
+    const removed = await run(() => tasks.editDecision(n, d.id, null, user))
+    expect(removed.decisions).toBeUndefined()
+    expect(removed.history.at(-1)?.what).toBe('Removed a decision: "Say "workspace"."')
+    await expect(run(() => tasks.editDecision(n, d.id, null, user))).rejects.toThrow(/no longer on/)
+  })
+
+  it('two recorded at once are both kept (the card lock); damaged entries in the file are left out', async () => {
+    const n = await make('Busy')
+    await Promise.all([run(() => tasks.updateTask(n, { decision: 'One' }, coder)), run(() => tasks.updateTask(n, { decision: 'Two' }, assistant)), run(() => tasks.updateTask(n, { decision: 'Three' }, user))])
+    expect((await run(() => tasks.getTask(n))).decisions!.map((d) => d.text).sort()).toEqual(['One', 'Three', 'Two'])
+    const file = join(wsPath, '.hive', 'tasks', `${n}.json`)
+    const raw = JSON.parse(readFileSync(file, 'utf8'))
+    writeFileSync(file, JSON.stringify({ ...raw, decisions: [...raw.decisions, null, { text: 5 }, { text: 'By hand' }] }))
+    const c = await run(() => tasks.getTask(n))
+    expect(c.decisions!.map((d) => d.text)).toEqual([...raw.decisions.map((d: { text: string }) => d.text), 'By hand'])
+    expect(c.decisions!.at(-1)).toMatchObject({ decidedBy: 'user', recordedBy: '' })
+  })
+
+  it("flags a decision new to the agent working on the card or reviewing it, until it reads the card", async () => {
+    const me = { projectPath: alpha, agentId: 'a1' }
+    const n = (await run(() => tasks.createTask({ title: 'Flagged', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    const notice = (who = me, self = 'Coder (alpha)'): Promise<string | null> => decisionNotice(w, who, self)
+    await new Promise((r) => setTimeout(r, 5))
+    expect(await notice()).toBeNull()
+    await run(() => tasks.updateTask(n, { decision: 'Use the old API.' }, user))
+    expect(await notice()).toBe(`[Hive] #${n} has 1 new decision since you last read it: read the card (hive_read_task) at your next checkpoint.`)
+    // Read in full: not new any more. Its own records never are.
+    noteCardRead(me, n)
+    expect(await notice()).toBeNull()
+    await new Promise((r) => setTimeout(r, 5))
+    await run(() => tasks.updateTask(n, { decision: 'Recorded by me' }, coder))
+    expect(await notice()).toBeNull()
+    // Changed by the user since it read the card: new again. Another project's agent, or one not on the card, hears nothing.
+    const mine = (await run(() => tasks.getTask(n))).decisions![0]
+    await new Promise((r) => setTimeout(r, 5))
+    await run(() => tasks.editDecision(n, mine.id, 'Use the old API, v2.', user))
+    expect(await notice()).toMatch(new RegExp(`^\\[Hive\\] #${n} has 1 new decision`))
+    expect(await notice({ projectPath: alpha, agentId: 'r1' }, 'Reviewer (alpha)')).toBeNull()
+    // In Review with a reviewer: the reviewer hears of one recorded after its review began; the builder, out of Doing, doesn't.
+    await run(() => tasks.updateTask(n, { column: 'review' }, coder))
+    await run(() => tasks.updateTask(n, { review: 'start' }, reviewer))
+    await new Promise((r) => setTimeout(r, 5))
+    expect(await notice({ projectPath: alpha, agentId: 'r1' }, 'Reviewer (alpha)')).toBeNull()
+    await run(() => tasks.updateTask(n, { decision: 'Mobile first.' }, assistant))
+    expect(await notice({ projectPath: alpha, agentId: 'r1' }, 'Reviewer (alpha)')).toMatch(new RegExp(`#${n} has 1 new decision`))
+    expect(await notice()).toBeNull()
+  })
+
+  it("flags the user's change to a decision the agent recorded itself", async () => {
+    const me = { projectPath: alpha, agentId: 'a1' }
+    const n = (await run(() => tasks.createTask({ title: 'Colour', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    const [d] = (await run(() => tasks.updateTask(n, { decision: 'User chose blue.' }, coder))).decisions!
+    noteCardRead(me, n)
+    expect(await decisionNotice(w, me, 'Coder (alpha)')).toBeNull()
+    await new Promise((r) => setTimeout(r, 5))
+    await run(() => tasks.editDecision(n, d.id, 'User now chooses green.', user))
+    expect(await decisionNotice(w, me, 'Coder (alpha)')).toMatch(new RegExp(`#${n} has 1 new decision`))
+    // Recorded by the agent before its work began and corrected by the user after: new too.
+    await run(() => tasks.updateTask(n, { column: 'todo' }, user))
+    const m = (await run(() => tasks.createTask({ title: 'Early', project: 'alpha' }, user))).number
+    const [e] = (await run(() => tasks.updateTask(m, { decision: 'User chose tabs.' }, coder))).decisions!
+    await new Promise((r) => setTimeout(r, 5))
+    await run(() => tasks.updateTask(m, { column: 'doing', agent: 'a1' }, user))
+    expect(await decisionNotice(w, me, 'Coder (alpha)')).toBeNull()
+    await new Promise((r) => setTimeout(r, 5))
+    await run(() => tasks.editDecision(m, e.id, 'User now chooses spaces.', user))
+    expect(await decisionNotice(w, me, 'Coder (alpha)')).toMatch(new RegExp(`#${m} has 1 new decision`))
+    await run(() => tasks.updateTask(m, { column: 'todo' }, user))
+  })
+
+  it("a reviewer's next round: a decision recorded since its last read is flagged on the card back in Review, also after it starts the review", async () => {
+    const rev = { projectPath: alpha, agentId: 'r1' }
+    const n = (await run(() => tasks.createTask({ title: 'Round two', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    // This card's part of the flag (cards of the tests before may have their own).
+    const notice = async (): Promise<string | null> => ((await decisionNotice(w, rev, 'Reviewer (alpha)')) ?? '').match(new RegExp(`#${n} has \\d+ new decisions?`))?.[0] ?? null
+    await run(() => tasks.updateTask(n, { decision: 'Keep it short.' }, user))
+    await run(() => tasks.updateTask(n, { column: 'review' }, coder))
+    // Round 1: the reviewer reads the card, reviews it and fails it.
+    await run(() => tasks.updateTask(n, { review: 'start' }, reviewer))
+    noteCardRead(rev, n)
+    await run(() => tasks.updateTask(n, { review: 'failed' }, reviewer, { comment: 'Too long.' }))
+    expect(await notice()).toBeNull()
+    // Fixes, and a decision recorded meanwhile; back in Review for round 2, nobody reviewing yet.
+    await run(() => tasks.updateTask(n, { column: 'doing' }, coder))
+    await new Promise((r) => setTimeout(r, 5))
+    await run(() => tasks.updateTask(n, { decision: 'Mobile first.' }, assistant))
+    await run(() => tasks.updateTask(n, { column: 'review' }, coder))
+    expect(await notice()).toMatch(new RegExp(`#${n} has 1 new decision`))
+    // Starting round 2 doesn't make it read.
+    await new Promise((r) => setTimeout(r, 5))
+    await run(() => tasks.updateTask(n, { review: 'start' }, reviewer))
+    expect(await notice()).toMatch(new RegExp(`#${n} has 1 new decision`))
+    noteCardRead(rev, n)
+    expect(await notice()).toBeNull()
+    // Another agent that never reviewed it hears nothing.
+    expect(await decisionNotice(w, { projectPath: alpha, agentId: 'zz' }, 'Other (alpha)')).toBeNull()
+  })
+
+  it('marks a decision recorded after work on the card started as new since start', () => {
+    const card = { history: [{ at: '2026-10-07T10:00:00.000Z', by: 'You', what: 'Created in Todo' }] }
+    expect(newSinceStart(card, { at: '2026-10-07T11:00:00.000Z' })).toBe(false)
+    const started = { history: [...card.history, { at: '2026-10-07T10:30:00.000Z', by: 'B5 (hive)', what: 'Moved to Doing' }] }
+    expect(workStartedAt(started)).toBe(Date.parse('2026-10-07T10:30:00.000Z'))
+    expect(newSinceStart(started, { at: '2026-10-07T10:20:00.000Z' })).toBe(false)
+    expect(newSinceStart(started, { at: '2026-10-07T11:00:00.000Z' })).toBe(true)
+    expect(workStartedAt({ history: [{ at: '2026-10-07T09:00:00.000Z', by: 'You', what: 'Moved to the top of Doing' }] })).toBeGreaterThan(0)
   })
 })
 

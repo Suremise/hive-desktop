@@ -17,6 +17,7 @@
 - **A project's Skills tab shows one provider at a time.** Pick Claude Code or Codex from a dropdown (it starts on the project's default provider); its skills sit folded under the Hive skills, and Hive remembers, for each project, the provider you picked and what you left open. The list is much shorter.
 
 ### Task board
+- **Decisions on cards.** What you decide about a card now has its own place: **Decisions**, pinned above the comments in the card, each saying who wrote it down and marked **new since start** when it came after work began. You, the Assistant or an agent you tell can record one (it is always your decision); only you change or remove one. Agents read a card's decisions when they start and again before Review, and follow them over the description; reviewers fail work that ignores one. A decision recorded mid-card doesn't interrupt the agent: its next reply from a Hive tool flags it, and it checks at its next step.
 - **Archive a whole column, or the whole board, and undo it.** Each column's **⋯** has **Archive All in Done (23)…**, and the board's **⋯** **Archive All Cards…**, counted per column. Cards an agent is working on, reviewing or waiting on are skipped (and listed) unless you tick **Also archive cards agents are working on**, and while a search hides cards only the ones shown are archived. **Undo** in the toast puts them back in their columns and order; later, **Archived** → **Batch** → **Unarchive this batch** does too. An agent waiting on a card you archive is told it was archived.
 
 ### Hive

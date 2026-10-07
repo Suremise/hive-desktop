@@ -539,6 +539,8 @@ export interface TaskCard {
   archivedFor?: 'user' | 'done' | 'project-hidden' | 'project-removed'
   /** The bulk archive it went with (an ArchiveBatch's id, #351): Undo and "Unarchive this batch" bring that batch back. */
   archivedBatch?: string
+  /** What the user decided about it (#357), oldest first: agents follow these over the description. Absent when none. */
+  decisions?: TaskDecision[]
   createdAt: string
   createdBy: string
   updatedAt: string
@@ -586,6 +588,23 @@ export interface UnarchiveResult {
   failed: number[]
 }
 
+/**
+ * A decision the user made about a card (#357): scope, wording, a default, "option B". The card is the record: agents
+ * read these when they start and before Review, and reviewers check the work against them.
+ */
+export interface TaskDecision {
+  /** Unique on its card: the user edits or removes a decision by it. */
+  id: string
+  text: string
+  /** Always the user: an agent or the Assistant only records what the user decided. */
+  decidedBy: 'user'
+  /** Who wrote it down: "You" (the user), "Assistant", or an agent ("B5 (hive)"). */
+  recordedBy: string
+  at: string
+  /** When the user last changed its words. */
+  editedAt?: string
+}
+
 /** An agent reviewing a card (TaskCard.review). */
 export interface TaskReview {
   /** The reviewing agent's id in the card's project, and its name then. */
@@ -615,6 +634,8 @@ export interface TaskPatch {
   blocked?: string | null
   blockedBy?: number[]
   links?: number[]
+  /** Records a decision the user made (#357), attributed to the user whoever records it. Editing or removing one is the user's (tasks:editDecision). */
+  decision?: string
 }
 
 /** Which agent Start gives a card to. */

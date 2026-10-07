@@ -408,6 +408,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'tasks:update': (n, patch) => tasks.updateTask(n, patch, { kind: 'user' }),
     'tasks:comment': (n, text) => tasks.commentTask(n, text, { kind: 'user' }),
     'tasks:archive': (n, archived) => tasks.archiveTask(n, archived),
+    'tasks:editDecision': (n, id, text) => tasks.editDecision(n, id, text, { kind: 'user' }),
     'tasks:archiveBatch': (numbers, req) => {
       // Who is on a card is checked again as each is archived (#351), in this window's workspace.
       const ws = currentWorkspace()
