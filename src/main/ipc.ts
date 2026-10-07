@@ -53,7 +53,7 @@ import * as skills from './skills'
 import * as storage from './storage'
 import { antivirusStatus, antivirusSuggestion, applyAntivirus, dismissAntivirus, prepareAntivirus } from './antivirus'
 import { contextWorkspace, currentWorkspace, inWorkspace, workspace, workspaceFor, workspaceOf, WorkspaceService } from './workspace'
-import { ensureHiveExcluded } from './hiveVcs'
+import { ensureHiveExcluded, trackedHiveFiles, untrackHive, vcsOf } from './hiveVcs'
 import { hiveWindows, windowForPath, windowOf, windowShowing } from './windows'
 import { setTitleBarBackdrops, setTitleBarColors } from './titleBar'
 import { showWindow } from './tray'
@@ -425,6 +425,19 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       const r = await ensureHiveExcluded(p)
       if (!r) throw new Error("No git repository holds this project: exclude .hive in the version control or sync service you use.")
       if (!r.excluded) throw new Error("Git still doesn't ignore .hive here: a rule in a .gitignore (a line starting with !) may bring it back. Hive doesn't edit .gitignore files.")
+      return workspace.refresh()
+    },
+    'project:hiveTracked': async (p) => {
+      p = workspace.assertProject(p)
+      const found = vcsOf(p)
+      if (found?.kind !== 'git') return []
+      const tracked = await trackedHiveFiles(p, found.root, { fresh: true })
+      if (tracked === null) throw new Error("Git couldn't list the files it tracks in .hive.")
+      return tracked
+    },
+    'project:untrackHive': async (p, confirmed) => {
+      p = workspace.assertProject(p)
+      await untrackHive(p, confirmed)
       return workspace.refresh()
     },
     'project:updateProvider': (p, provider, patch) => {

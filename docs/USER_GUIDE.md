@@ -77,6 +77,7 @@ Where Hive can't do that, the project's **Overview** and **Project Settings** sa
 - **No git repository**: nothing is excluded yet. If you use another version control system (Mercurial, Subversion and others are named), add `.hive` to its ignore list.
 - **A sync service** (OneDrive, Dropbox): it copies the whole project folder, `.hive` included. Exclude `.hive` there if the service lets you, or keep the project in a folder it doesn't sync.
 - **A git repository that still doesn't ignore `.hive`**: Hive couldn't write its exclude file, or a rule in a `.gitignore` (a line starting with `!`) brings `.hive` back; Hive asks git itself, so it notices. **Exclude** tries again and says which. Hive never edits your `.gitignore`.
+- **Files in `.hive` already committed to git** (with `git add -A` before Hive excluded it, say): excluding only keeps new files out, so git goes on tracking these and committing their changes. The notice says how many, and the command that fixes it: `git rm -r --cached .hive` in the project folder, then commit; the files stay on disk. **Untrack…** does it for you after listing the files, and only for those: if git tracks other files there by the time you confirm, nothing changes and it says so (it stages their removal; you commit it). Hive checks again whenever the repository's index changes, so the notice goes once they're untracked, whoever did it.
 
 The Overview's notice has ✕ to stop showing it for that project; it comes back if the situation changes, and Project Settings always shows it.
 

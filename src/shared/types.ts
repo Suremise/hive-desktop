@@ -1053,6 +1053,8 @@ export interface HiveVcs {
   state: 'excluded' | 'not-excluded' | 'other-vcs' | 'none'
   vcs?: string
   sync?: string
+  /** Files under .hive git tracks (#364): committed before it was excluded, so git goes on committing their changes. */
+  tracked?: number
 }
 
 export interface WorkspaceInfo {

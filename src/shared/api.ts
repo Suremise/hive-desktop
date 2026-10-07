@@ -207,6 +207,10 @@ export interface HiveRequests {
   'project:updateConfig': (projectPath: string, patch: Partial<ProjectConfig>) => ProjectConfig
   /** Adds the project's .hive to its git repository's info/exclude (#345); refuses where no git repository holds it. */
   'project:excludeHive': (projectPath: string) => WorkspaceInfo
+  /** The files under the project's .hive git tracks (#364), for the confirmation before untracking them. */
+  'project:hiveTracked': (projectPath: string) => string[]
+  /** `git rm --cached` of exactly the files confirmed (#364), refused if git tracks others now: their removal staged, the files left on disk. */
+  'project:untrackHive': (projectPath: string, files: string[]) => WorkspaceInfo
   /** Changes one provider's overrides for a project, merged under the file lock. */
   'project:updateProvider': (projectPath: string, provider: ProviderId, patch: Partial<ProjectProviderConfig>) => ProjectConfig
   'project:openInExplorer': (projectPath: string) => void
