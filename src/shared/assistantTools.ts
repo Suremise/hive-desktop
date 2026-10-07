@@ -37,6 +37,9 @@ export const ASSISTANT_PROJECT_TOOLS = ['hive_create_project']
 /** Changing Hive's settings: only with Settings → Assistant → Control → Change settings on, whatever the level. */
 export const ASSISTANT_SETTINGS_TOOLS = ['hive_update_setting']
 
+/** Tools only project agents have (the Assistant doesn't get them): the merge slot is held by an agent's own launch. */
+export const AGENT_ONLY_TOOLS = ['hive_merge_slot']
+
 /** Tools only the Assistant has (project agents don't get them). */
 export const ASSISTANT_ONLY_TOOLS = ['hive_agent_activity', 'hive_wait_for_agents', 'hive_list_providers', 'hive_list_settings', 'hive_read_setting', ...ASSISTANT_AGENT_TOOLS, ...ASSISTANT_PROJECT_TOOLS, ...ASSISTANT_SETTINGS_TOOLS]
 
@@ -58,5 +61,5 @@ export const HIVE_TOOLS: readonly string[] = [
   'hive_read_latest_handover', 'hive_create_handover', 'hive_notify', 'hive_list_providers', 'hive_agent_activity', 'hive_wait_for_agents',
   'hive_create_project', 'hive_activate_project', 'hive_add_agent', 'hive_update_agent', 'hive_start_agent', 'hive_stop_agent', 'hive_prompt_agent',
   'hive_hand_over', 'hive_list_tasks', 'hive_read_task', 'hive_create_task', 'hive_update_task', 'hive_reorder_tasks', 'hive_start_task', 'hive_list_skills', 'hive_wait_for_tasks',
-  'hive_list_settings', 'hive_read_setting', 'hive_update_setting'
+  'hive_list_settings', 'hive_read_setting', 'hive_update_setting', 'hive_merge_slot'
 ]

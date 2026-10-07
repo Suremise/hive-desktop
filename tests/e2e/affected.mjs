@@ -102,7 +102,8 @@ export const AREAS = [
   // The shared list's other user: the Assistant's "Done by the Assistant" (#312).
   { paths: ['src/renderer/src/components/ShowAllList.tsx'], suites: ['assistantpanel'] },
   { paths: ['src/main/progressReporters/'], suites: ['progressreport', 'packaged-progress'] },
-  { paths: ['src/main/projectAgents.ts'], suites: ['agents', 'agents-ui', 'reorder', 'pages', 'unmerged', 'removeall'] },
+  { paths: ['src/main/projectAgents.ts'], suites: ['agents', 'agents-ui', 'reorder', 'pages', 'unmerged', 'removeall', 'mergeslot'] },
+  { paths: ['src/main/mergeSlots.ts', 'src/main/mergeSlotHost.ts', 'src/shared/mergeSlot.ts', 'src/renderer/src/components/MergeSlots.tsx'], suites: ['mergeslot', 'replysize'] },
   { paths: ['src/main/projectRemoval.ts', 'src/renderer/src/components/ProjectRemoval.tsx'], suites: ['board', 'storage'] },
   { paths: ['src/main/providerService.ts', 'src/main/taskKeys.ts'], suites: ['providers', 'codex-setup', 'startfail', 'models'] },
   { paths: ['src/main/rendererWatch.ts'], suites: ['rendercrash'] },

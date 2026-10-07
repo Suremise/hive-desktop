@@ -206,7 +206,7 @@ These read-only calls are open to every caller:
 
 `GET /v1/projects/{name}/agents/{agent}/activity[?detail=true]` — what one agent is doing: `status`, `statusMessage`, `reviewing` and `backgroundTasks`, `transcriptMB` (its conversation's transcript, or null) and `transcriptWarnMB` (the size past which Hive flags it, or null), `currentTask` (the start of its last prompt, 300 characters), `latestReply` (the start of its latest reply, 500 characters), `toolCalls` (how many tool calls since that prompt) and `recentTools` (the last three, each summary up to 100 characters), `clipped` (only when a text was cut: `currentTask` and/or `latestReply`, its whole length in characters), `lockedFiles` (relative to its folder), its branch and worktree, its session, `watching` (only while it has a card watch: `{ cards, column?, changes, label, limitAt }`), `progress` (only while it has an open progress run: see Progress below), and `userTypedSecondsAgo` (when the user last typed in its terminal). `detail=true` gives the prompt and reply up to 2,000 and 3,000 characters and the last ten tool calls (200 characters each). Neither is the whole conversation: `toolCalls` and `clipped` say what was left out, and the API gives no more of another agent's conversation than this. `{agent}` is the agent's name or id.
 
-`POST /v1/agents/wait` — waits until agents stop working (finished, idle, waiting for the user or stopped), or `timeoutSeconds` (5–600, default 300). An agent waiting on its background tasks (`background`) still counts as working, since it carries on when they end; `"ignoreBackground": true` stops waiting at the end of its turn instead. An agent with a card watch (`watching`: its turn has ended and it waits for cards to change, `POST /v1/tasks/wait`) doesn't count as working, and its `statusMessage` is the watch's label ("Waiting for #12 → Review"). One that needs the user to sign in again (`signin`) is waiting for the user. Without `agents`, it waits for every busy agent in the workspace.
+`POST /v1/agents/wait` — waits until agents stop working (finished, idle, waiting for the user or stopped), or `timeoutSeconds` (5–600, default 300). An agent waiting on its background tasks (`background`) still counts as working, since it carries on when they end; `"ignoreBackground": true` stops waiting at the end of its turn instead. An agent with a card watch (`watching`: its turn has ended and it waits for cards to change, `POST /v1/tasks/wait`) doesn't count as working, and its `statusMessage` is the watch's label ("Waiting for #12 → Review"). One that needs the user to sign in again (`signin`) is waiting for the user. Without `agents`, it waits for every busy agent in the workspace. The reply, headers included, comes only when the wait ends: give your HTTP client a longer timeout than the wait (Node's `fetch` stops waiting for headers after 300 s).
 
 ```json
 { "agents": [{ "project": "web", "agent": "Agent 2" }], "timeoutSeconds": 120 }
@@ -252,15 +252,15 @@ Shared notes live in the workspace's `.hive/shared` folder. Paths are relative t
 
 `GET /v1/shared` — the notes tree.
 
-`GET /v1/shared/file?path=handovers/2026-09-28-api-auth.md` — `{ path, content }`.
+`GET /v1/shared/file?path=handovers/2026-09-28-api-auth.md` — `{ path, content, revision }`. The revision is a short hash of the note's text.
 
 `PUT /v1/shared/file?path=conventions.md` — create or replace a note:
 
 ```json
-{ "content": "# Conventions\n…", "append": false }
+{ "content": "# Conventions\n…", "append": false, "expectedRevision": "3f9a0c1d2e4b" }
 ```
 
-Set `"append": true` to add to the end of an existing note.
+Set `"append": true` to add to the end of an existing note. `expectedRevision` is optional: with it, the note is written only if it is still at that revision (checked and written under one lock, so two writers that read the same text can't both pass); otherwise nothing is written and the reply is `409` with `{ error, revision }`, the note's current revision (`null` if it no longer exists): read it again, merge, and retry. Without it, the note is written as before; given but not a revision (empty, `null`, not a string), it is refused with `400` and nothing is written. The reply is `{ ok, path, revision }`, the note's new revision.
 
 `POST /v1/shared/handovers` — write a dated handover note into `shared/handovers/`:
 
@@ -342,13 +342,25 @@ Placing a card with `position` or `before` adds a line to its history when it mo
 
 `POST /v1/tasks/wait` — wait for cards to change. `cards` (1–20 card numbers the caller can see; others are `404`), `changes` (any of `column`, `comment`, `verdict`, `agent`; default all), `column` (`hold`, `todo`, `doing`, `review`, `passed`, `done`): alone, until a card is in that column (at once if it already is), and nothing else counts; with `changes` naming `column`, until one *moves into* it (a card already there waits until it leaves and comes back, or is returned for review) or another change listed (`"changes": ["verdict", "column"], "column": "passed"`: a verdict, or into Passed). `column` with `changes` that don't name it is `400`. A card that leaves the caller's view (another project, for a project agent), is archived or is deleted is reported as gone (`"column": "gone"`, `"changes": "gone"`), with nothing of its state.
 
-- **Bounded** (default): waits up to `timeoutSeconds` (default 300, at most 840) and returns `{ "changes": [{ "number": 12, "column": "review", "changes": ["column", "comment"], "by": "Claudette (web)", "comment": { "by": "Claudette (web)", "firstLine": "Fixed the redirect." } }], "timedOut": false, "since": "…" }`, or `{ "timedOut": true, "since": "…" }`. `by` is who made the card's latest change; Pass `since` back to the next wait to measure from where this one ended, so nothing between them is missed. At most two at once per caller (`429`); `409` if the workspace closes meanwhile.
+- **Bounded** (default): waits up to `timeoutSeconds` (default 300, at most 840) and returns `{ "changes": [{ "number": 12, "column": "review", "changes": ["column", "comment"], "by": "Claudette (web)", "comment": { "by": "Claudette (web)", "firstLine": "Fixed the redirect." } }], "timedOut": false, "since": "…" }`, or `{ "timedOut": true, "since": "…" }`. `by` is who made the card's latest change; Pass `since` back to the next wait to measure from where this one ended, so nothing between them is missed. At most two at once per caller (`429`); `409` if the workspace closes meanwhile. As with `/v1/agents/wait`, the reply's headers come only when the wait ends, so your client's timeout must be longer than the wait.
 - **`"wake": true`** (an agent or the Assistant, with its own token; `400` for the workspace token): starts a card watch for the caller and answers at once with `{ "watching": "Waiting for #12 → Review", "limitAt": "…" }`, or `{ "already": { …a change… } }` when a `column` condition is already met. The agent ends its turn; Hive types one line into its session when a card changes (`[Hive] #12 is in Review; latest comment by …`), or after `limitMinutes` (1–1440, default 120) with no change (`[Hive] No change on #12 in 2 h: …`), and the watch ends. The line names every watched card that changed (when they don't all fit in full, briefly or by number, saying details were left out): it is typed 1.5 s after the first change and tells the cards as they are then (`[Hive] #217 is in Review: Codex (hive) passed it (…); #119 is in Review: Codex (hive) failed it (…). …`). The caller's next watch counts what others changed after its last wake (not what it did itself), so a change between a wake and the next watch isn't missed. A new watch replaces the agent's previous one (an `already` answer ends it too). The watch keeps the agent's view of the board: a project agent's project, the Assistant's whole board. Watches are kept in `.hive/watches.json`, and a stopped agent's is delivered when it is resumed. A watch that can't be saved is an error, not a watch; a workspace keeps at most 500 (`409` past that; replacing an agent's own is always allowed).
 - **`"cancel": true`**: ends the caller's watch: `{ "done": "Cancelled your card watch." }` or `"You had no card watch."`.
 
 While an agent watches, its status is `watching` (below), `POST …/agents/{agent}/prompt` is `409`, and starting a card on it is refused.
 
 `POST /v1/tasks/{n}/start` — **the Hive Assistant only** (Control agents): gives the card to an agent of its project, with the card as its prompt, and moves it to `doing`. The prompt is the card's own words (title, `note`, description, the cards it depends on) and, when the agent has Hive's tools, a pointer to the work-on-card skill and how many comments to read. A card in `review` or `done` can be started again for more work; the prompt says it is back and carries its latest comment (the feedback it came back with). `note`: what to do now (up to 4000 characters, such as "address the latest review comment"), added to the prompt before the card. If the card is moved to `done` while the start is under way, it stays there and the start fails. `agent` (name or id): an existing agent that is stopped (a new conversation) or idle (its next message); `409` if it is busy. Without `agent`, Hive adds one: `name`, `provider`, and `worktree: true` for its own git worktree. Returns `{ ok, agent, added, card }`.
+
+### Merge slot
+
+One merge at a time into a project's branch, so the branch can't move while an agent checks and merges (the **merge-ready** skill says when to take it). A slot is per project and branch; `branch` defaults to the branch the project folder is on (what Hive's Merge dialog merges into). Only a running agent of the project, with its own token, can claim or release its slot. Scripts and the Assistant can read it. An agent asking about another project gets `403`.
+
+`GET /v1/projects/{name}/merge-slot?branch=main` — the slot: `{ project, branch, holder, waiting }`. `holder` is `null` when the slot is free, else `{ kind: "agent" | "user", name, cards, since, until, taken }` (times in epoch ms; `taken` is `false` while it is an agent's turn that hasn't claimed it again yet). `waiting` lists who waits, in order.
+
+`POST /v1/projects/{name}/merge-slot/claim` — `{ "branch": "main", "cards": [305], "timeoutSeconds": 240 }` (all optional; 240 by default, at most 290, under the 300 seconds after which Node's `fetch` stops waiting for a reply). It waits in the call until the agent holds the slot, then replies `{ held: true, until, extended, slot }`. On timeout the reply is `{ held: false, position, holder, slot }`: the agent keeps its place for 2 minutes, so claiming again carries on in line. Claiming while holding extends the hold. A hold lasts 60 minutes; a Progress run the holder keeps reporting to (`/v1/progress`) keeps it longer. A hold that runs out goes to the next in line and is reported to the user. An agent whose hold ended without its release (it expired, or the user released it) gets `lost: { branch, why, at }` in its next reply.
+
+`POST /v1/projects/{name}/merge-slot/release` — `{ "branch": "main" }`: `{ released: true, next }` (who has it now), `{ left: true }` (it was waiting, and has left the line) or `{ none: true, holder }`.
+
+A slot is released when its agent's session ends. Hive's Merge dialog takes the slot for the length of the user's merge, and waits while an agent holds or waits for it.
 
 ### Skills and MCP
 
@@ -463,6 +475,7 @@ When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP se
 | `hive_update_task` | `PATCH /v1/tasks/{n}` (with `comment`), short reply |
 | `hive_reorder_tasks` | `POST /v1/tasks/reorder`, short reply |
 | `hive_wait_for_tasks` | `POST /v1/tasks/wait` (`wake: true` for a card watch, `cancel: true` to end it), a line per change |
+| `hive_merge_slot` | `GET /v1/projects/{name}/merge-slot`, `POST …/merge-slot/claim` or `…/release` (the session's project), a line (project agents only) |
 
 Tools default to the session's own project, so an agent can simply say *"create a handover"*. The board tools send the agent's id and project, so a card's history and comments name the agent.
 

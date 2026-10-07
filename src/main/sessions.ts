@@ -451,6 +451,27 @@ class SessionManager {
     const l = this.live.get(liveId(projectPath, agentId))
     if (l) this.emitState(l.state)
   }
+
+  /** Called when an agent's launch ends (its exit, or a start given up): the merge slot releases its hold (#350). */
+  readonly onLaunchEnded = new Set<(projectPath: string, agentId: string, runId: string) => void>()
+
+  /** The agent's place at the merge slot, shown with its status (only for this launch: a newer one has its own). */
+  setMergeSlotNote(projectPath: string, agentId: string, runId: string, text: string | null): void {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (!l || l.state.runId !== runId || (l.state.mergeSlot ?? null) === text) return
+    l.state.mergeSlot = text ?? undefined
+    this.emitState(l.state)
+  }
+
+  private launchEnded(projectPath: string, agentId: string, runId: string): void {
+    for (const f of this.onLaunchEnded) {
+      try {
+        f(projectPath, agentId, runId)
+      } catch (e) {
+        log.warn('after an agent stopped', e)
+      }
+    }
+  }
   /** The project's newest handovers in the shared notes, newest first (at most `count`). */
   recentHandovers: (projectPath: string, count: number) => Promise<HandoverRef[]> = async () => []
 
@@ -873,6 +894,7 @@ class SessionManager {
     // An Assistant that didn't start: the token made for this launch stops working too.
     if (l && basename(l.state.projectPath) === ASSISTANT_DIR) this.onAssistantExit(l.state.projectPath)
     else if (l) endAgentToken(l.state.projectPath, l.state.agentId, l.state.runId)
+    if (l) this.launchEnded(l.state.projectPath, l.state.agentId, l.state.runId)
     this.live.delete(id)
     // A start given up before its process spawned has no exit to wait for.
     this.exitWaiters.get(id)?.()
@@ -1716,6 +1738,7 @@ class SessionManager {
     // Even when its workspace has just closed.
     if (basename(projectPath) === ASSISTANT_DIR) this.onAssistantExit(projectPath)
     else endAgentToken(projectPath, agentId, runId)
+    this.launchEnded(projectPath, agentId, runId)
     if (sessionId) {
       if (await this.anyTranscript(projectPath, sessionId)) {
         await workspace.upsertSession(projectPath, { id: sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)

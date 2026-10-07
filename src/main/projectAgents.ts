@@ -320,6 +320,15 @@ export async function branchStatus(projectPath: string, agentId: string): Promis
   return wt.branchStatus(projectPath, (await worktreeOf(projectPath, agentId)).worktree)
 }
 
+/**
+ * Runs the user's merge holding the merge slot of the branch it merges into (#350). mergeSlotHost sets it at startup
+ * (this module stays below the slot service); until then a merge runs as it is.
+ */
+let userMergeSlot: (projectPath: string, branch: string, run: () => Promise<MergeResult>) => Promise<MergeResult> = (_p, _b, run) => run()
+export function setUserMergeSlot(fn: typeof userMergeSlot): void {
+  userMergeSlot = fn
+}
+
 export async function merge(projectPath: string, agentId: string, opts: { squash: boolean; message: string; cleanup: boolean; moveBranch?: boolean }): Promise<MergeResult> {
   projectPath = workspace.assertProject(projectPath)
   const { def, worktree } = await worktreeOf(projectPath, agentId)
@@ -327,9 +336,12 @@ export async function merge(projectPath: string, agentId: string, opts: { squash
   // Its uncommitted work is committed first: not while it is still in the middle of a task.
   const blocked = mergeBlocked(def.name, sessions.liveFor(projectPath, agentId)?.status)
   if (blocked) throw new Error(blocked)
-  // One merge at a time per project folder: two would stage and commit into each other.
-  // A branch that is removed afterwards isn't moved.
-  const result = await withFileLock(join(projectPath, '.git', 'hive-merge'), () => wt.mergeWorktree(projectPath, worktree, { ...opts, moveBranch: opts.moveBranch && !opts.cleanup }))
+  // One merge at a time per project folder: two would stage and commit into each other. It holds the merge slot of the
+  // branch it merges into (#350), so an agent's merge doesn't land in the middle (refused while one holds or waits for
+  // it: the Merge dialog waits until it is free). A branch that is removed afterwards isn't moved.
+  const into = await workspace.branch(projectPath)
+  const run = (): Promise<MergeResult> => withFileLock(join(projectPath, '.git', 'hive-merge'), () => wt.mergeWorktree(projectPath, worktree, { ...opts, moveBranch: opts.moveBranch && !opts.cleanup }))
+  const result = into ? await userMergeSlot(projectPath, into, run) : await run()
   // The project folder's branch moved on: every worktree agent's unmerged work is counted again.
   if (!result.ok || !opts.cleanup) {
     workspaceOf(projectPath).scheduleRefresh()

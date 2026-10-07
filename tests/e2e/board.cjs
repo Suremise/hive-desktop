@@ -269,6 +269,88 @@ const check = (name, ok, extra = '') => {
   await inv('settings:update', { board: { columnColors: true, colors: { doing: '#3b82f6' } } })
   for (const c of extra) await inv('tasks:delete', c.number)
 
+  // Long text (#372): a blocked reason with a 120-character hash and a long Windows path wraps inside the card, at most
+  // three lines, all of it on hover and in the card's dialog (a field that wraps, where Enter adds no line break); a long
+  // label ends in "…"; nothing on the card reaches past its edge, in both themes.
+  const HASH = 'CC70E25605DD72A71E72C689318'.repeat(5).slice(0, 120)
+  const reason = `DOCS ACCEPTED at ${HASH}, record in C:\\Users\\Someone\\AppData\\Local\\hive-test\\e2e\\logs\\run-20261007-123453\\progress\\progress-shots\\light-recent-all.png`
+  const long = await inv('tasks:create', { title: 'Docs accepted', project: '', labels: [`label-${HASH.slice(0, 60)}`, 'ui'] })
+  await inv('tasks:update', long.number, { blocked: reason })
+  await until(async () => (await tile(long.number).locator('.task-blocked').count()) === 1, 5000)
+  const shape = () =>
+    tile(long.number).evaluate((tileEl) => {
+      const box = tileEl.getBoundingClientRect()
+      const note = tileEl.querySelector('.task-blocked .task-note-text')
+      const label = tileEl.querySelector('.task-label')
+      return {
+        cardFits: tileEl.scrollWidth <= tileEl.clientWidth,
+        past: [...tileEl.querySelectorAll('*')].filter((e) => e.getBoundingClientRect().right > box.right + 1).map((e) => e.className),
+        noteFits: note.scrollWidth <= note.clientWidth,
+        lines: Math.round(note.getBoundingClientRect().height / parseFloat(getComputedStyle(note).lineHeight)),
+        clamped: note.scrollHeight > note.clientHeight + 1,
+        labelCut: getComputedStyle(label).textOverflow === 'ellipsis' && label.scrollWidth > label.clientWidth && label.getBoundingClientRect().right <= box.right + 1
+      }
+    })
+  for (const theme of ['dark', 'light']) {
+    await inv('settings:update', { appearance: { theme } })
+    await lib.sleep(400)
+    await tile(long.number).scrollIntoViewIfNeeded()
+    const g = await shape()
+    check(`${theme}: a long blocked reason wraps inside the card, clamped to 3 lines; nothing reaches past the card`, g.cardFits && g.past.length === 0 && g.noteFits && g.lines === 3 && g.clamped, JSON.stringify(g))
+    check(`${theme}: a long label ends in "…" inside the card`, g.labelCut, JSON.stringify(g))
+    await page.screenshot({ path: path.join(lib.WORK, `board-long-${theme}.png`) })
+  }
+  await tile(long.number).locator('.task-blocked').hover()
+  await lib.sleep(900)
+  const longTip = await page.locator('.tip').last().evaluate((el) => ({ text: el.textContent, fits: el.scrollWidth <= el.clientWidth }))
+  check('hovering it shows the whole reason, inside the tooltip', longTip.text === `Blocked: ${reason}` && longTip.fits, JSON.stringify(longTip))
+  await page.mouse.move(5, 5)
+  await tile(long.number).locator('.task-title').click()
+  const blockedField = page.locator('.dialog textarea[aria-label="Blocked"]')
+  await blockedField.waitFor()
+  const field = await blockedField.evaluate((el) => ({ value: el.value, whole: el.scrollHeight <= el.clientHeight + 1, fits: el.scrollWidth <= el.clientWidth }))
+  check("the card's dialog shows the whole reason, wrapped", field.value === reason && field.whole && field.fits, JSON.stringify(field))
+  await blockedField.focus()
+  await page.keyboard.press('End')
+  await page.keyboard.press('Enter')
+  check('Enter in it adds no line break', (await blockedField.inputValue()) === reason)
+  await page.screenshot({ path: path.join(lib.WORK, 'board-long-dialog.png') })
+  await page.keyboard.press('Escape')
+  await until(async () => (await page.locator('.dialog').count()) === 0, 3000)
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  // A reason near the 1000-character limit, in a small window at 125% (review round 1): its tooltip widens to the window
+  // so all of it fits, its last line on screen, in both themes.
+  const nearLimit = `DOCS ACCEPTED at ${'W'.repeat(120)} C:\\` + `${'W'.repeat(100)}\\`.repeat(8)
+  await inv('tasks:update', long.number, { blocked: nearLimit })
+  await lib.fitWindow(app, page, { width: 1000, height: 700 })
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1.25))
+  for (const theme of ['dark', 'light']) {
+    await inv('settings:update', { appearance: { theme } })
+    await lib.sleep(400)
+    await page.mouse.move(5, 5)
+    await tile(long.number).locator('.task-blocked').scrollIntoViewIfNeeded()
+    await tile(long.number).locator('.task-blocked').hover()
+    await lib.sleep(900)
+    const t = await page.locator('.tip').last().evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, vw: window.innerWidth, vh: window.innerHeight, whole: el.scrollHeight <= el.clientHeight + 1, text: el.textContent }
+    })
+    check(`${theme}, 1000×700 at 125%: a ${nearLimit.length}-character reason's tooltip fits the window, all of it shown`, t.text === `Blocked: ${nearLimit}` && t.whole && t.top >= 0 && t.left >= 0 && t.bottom <= t.vh && t.right <= t.vw, JSON.stringify({ ...t, text: t.text.length }))
+    await page.screenshot({ path: path.join(lib.WORK, `board-long-tip-${theme}.png`) })
+  }
+  await page.mouse.move(5, 5)
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
+  await lib.fitWindow(app, page, { width: 1500, height: 900 })
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+
+  // In Doing with nobody on it, it is stalled: the sidebar's Stalled row ends its long title in "…" inside the sidebar.
+  await inv('tasks:update', long.number, { title: `Stalled ${HASH}`, column: 'doing' })
+  const sideRow = page.locator('.sidebar .row', { hasText: `#${long.number}` })
+  await until(async () => (await sideRow.count()) === 1, 5000)
+  const side = await sideRow.evaluate((el) => ({ right: el.getBoundingClientRect().right, edge: el.closest('.sidebar').getBoundingClientRect().right, cut: el.querySelector('.label').scrollWidth > el.querySelector('.label').clientWidth }))
+  check("the sidebar's Stalled row ends a long title in \"…\" inside the sidebar", side.right <= side.edge + 1 && side.cut, JSON.stringify(side))
+  await inv('tasks:delete', long.number)
+
   // The project's Tasks tab shows its cards.
   await page.getByRole('button', { name: 'Projects' }).click()
   await page.locator('.sidebar .row', { hasText: 'alpha' }).first().click()

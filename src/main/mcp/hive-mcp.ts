@@ -11,9 +11,13 @@
 import { appendFileSync, readFileSync } from 'fs'
 import { createInterface } from 'readline'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../../shared/hiveGuidance'
-import { ASSISTANT_ONLY_TOOLS, assistantTools } from '../../shared/assistantTools'
+import { AGENT_ONLY_TOOLS, ASSISTANT_ONLY_TOOLS, assistantTools } from '../../shared/assistantTools'
 import { COLUMN_IDS } from '../../shared/tasks'
-import { MAX_ROWS, changedText, createdText, noteText, notesListText, projectListText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
+import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
+import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
+import { agentApiCall } from './agentApiCall'
+import { MAX_ROWS, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
+import type { MergeSlotInfo } from '../../shared/types'
 
 const VERSION = '1.0.0'
 const API = (process.env.HIVE_API_URL || 'http://127.0.0.1:47821').replace(/\/$/, '')
@@ -40,22 +44,26 @@ function token(): string {
   return ''
 }
 
-async function api(method: string, path: string, body?: unknown): Promise<unknown> {
-  const res = await fetch(API + path, {
-    method,
-    headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json', ...(WORKSPACE ? { 'X-Hive-Workspace': encodeURIComponent(WORKSPACE) } : {}) },
-    body: body === undefined ? undefined : JSON.stringify(body)
-  })
-  const text = await res.text()
+/**
+ * Calls the Agent API. `replyMs` is how long the reply may take: a wait passes its own (waitReplyMs), the rest take the
+ * usual limit. Not fetch, whose 300 s limit on a reply's headers cut longer waits short (#371).
+ */
+async function api(method: string, path: string, body?: unknown, replyMs?: number): Promise<unknown> {
+  const headers = { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json', ...(WORKSPACE ? { 'X-Hive-Workspace': encodeURIComponent(WORKSPACE) } : {}) }
+  const res = await agentApiCall(API + path, method, headers, body === undefined ? undefined : JSON.stringify(body), replyMs)
+  const text = res.text
   let data: unknown = text
   try {
     data = text ? JSON.parse(text) : null
   } catch {
     // keep text
   }
-  if (!res.ok) throw new Error(typeof data === 'object' && data && 'error' in data ? String((data as { error: unknown }).error) : `HTTP ${res.status}`)
+  if (res.status < 200 || res.status >= 300) throw new Error(typeof data === 'object' && data && 'error' in data ? String((data as { error: unknown }).error) : `HTTP ${res.status}`)
   return data
 }
+
+/** How long a wait's reply may take: the wait as Hive will hold it (at most `max`), and a minute to spare. */
+const waitReplyMs = (seconds: unknown, fallback: number, max: number): number => (Math.min(max, Math.max(1, Number(seconds) || fallback)) + 60) * 1000
 
 const projectArg = {
   type: 'string',
@@ -138,22 +146,23 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_read_shared_note',
-    description: 'Read a shared note by its path relative to .hive/shared (e.g. "handovers/2026-01-01-auth.md").',
+    description: 'Read a shared note by its path relative to .hive/shared (e.g. "handovers/2026-01-01-auth.md"), with its revision.',
     inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
-    run: async (a) => noteText((await api('GET', `/v1/shared/file?path=${enc(a.path)}`)) as { path: string; content: string })
+    run: async (a) => noteText((await api('GET', `/v1/shared/file?path=${enc(a.path)}`)) as { path: string; content: string; revision?: string })
   },
   {
     name: 'hive_write_shared_note',
-    description: 'Create or overwrite a shared note (markdown) in .hive/shared. Set append=true to add to the end instead. Replies with the path and how much was written.',
+    description: "Create or overwrite a shared note (markdown) in .hive/shared; append=true adds to the end. expectedRevision (from reading it): written only if the note hasn't changed since, else refused with its current revision. Replies with the path, size and new revision.",
     inputSchema: {
       type: 'object',
-      properties: { path: { type: 'string' }, content: { type: 'string' }, append: { type: 'boolean' } },
+      properties: { path: { type: 'string' }, content: { type: 'string' }, append: { type: 'boolean' }, expectedRevision: { type: 'string' } },
       required: ['path', 'content']
     },
     run: async (a) => {
-      const r = (await api('PUT', `/v1/shared/file?path=${enc(a.path)}`, { content: a.content, append: !!a.append })) as { path: string }
-      const n = String(a.content ?? '').length.toLocaleString('en')
-      return a.append ? `Appended ${n} characters to ${r.path}.` : `Wrote ${r.path} (${n} characters).`
+      // Passed on as given: Hive refuses an empty or non-string revision rather than writing unguarded.
+      const body = { content: a.content, append: !!a.append, ...(a.expectedRevision !== undefined ? { expectedRevision: a.expectedRevision } : {}) }
+      const r = (await api('PUT', `/v1/shared/file?path=${enc(a.path)}`, body)) as { path: string; revision?: string }
+      return noteWrittenText(r.path, String(a.content ?? '').length, !!a.append, r.revision)
     }
   },
   {
@@ -219,7 +228,7 @@ const tools: Tool[] = [
         ignoreBackground: { type: 'boolean' }
       }
     },
-    run: (a) => api('POST', '/v1/agents/wait', { agents: a.agents, timeoutSeconds: a.timeoutSeconds ?? 50, ignoreBackground: a.ignoreBackground === true })
+    run: (a) => api('POST', '/v1/agents/wait', { agents: a.agents, timeoutSeconds: a.timeoutSeconds ?? 50, ignoreBackground: a.ignoreBackground === true }, waitReplyMs(a.timeoutSeconds, 50, AGENT_WAIT_MAX_SECONDS))
   },
   {
     name: 'hive_create_project',
@@ -342,8 +351,31 @@ const tools: Tool[] = [
       taskWaitText(
         (await api('POST', '/v1/tasks/wait', {
           ...(a.cancel ? { cancel: true } : { cards: a.cards, changes: a.changes, column: a.column, wake: a.wake === true, limitMinutes: a.limitMinutes, timeoutSeconds: a.timeoutSeconds, since: a.since })
-        })) as Parameters<typeof taskWaitText>[0]
+        }, a.cancel || a.wake === true ? undefined : waitReplyMs(a.timeoutSeconds, 300, WAIT_MAX_SECONDS))) as Parameters<typeof taskWaitText>[0]
       )
+  },
+  {
+    name: 'hive_merge_slot',
+    description:
+      "Your project's merge slot: one merge at a time into a branch (default: the project folder's). claim waits up to timeoutSeconds (default 240, max 290): you hold it, or your place (claim again to keep it); claiming again extends the 60-min hold; your session ending releases it. release gives it up or leaves the line. cards: what you merge.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['claim', 'release', 'status'] },
+        branch: { type: 'string' },
+        cards: { type: 'array', items: { type: 'number' } },
+        timeoutSeconds: { type: 'number' }
+      },
+      required: ['action']
+    },
+    run: async (a) => {
+      const base = `/v1/projects/${enc(PROJECT)}/merge-slot`
+      const branch = a.branch !== undefined ? { branch: a.branch } : {}
+      if (a.action === 'status') return mergeSlotText((await api('GET', `${base}${a.branch !== undefined ? `?branch=${enc(String(a.branch))}` : ''}`)) as MergeSlotInfo, Date.now())
+      if (a.action === 'release') return releaseText((await api('POST', `${base}/release`, branch)) as Parameters<typeof releaseText>[0])
+      if (a.action !== 'claim') throw new Error('action must be claim, release or status')
+      return claimText((await api('POST', `${base}/claim`, { ...branch, ...(a.cards !== undefined ? { cards: a.cards } : {}), ...(a.timeoutSeconds !== undefined ? { timeoutSeconds: a.timeoutSeconds } : {}) }, waitReplyMs(a.timeoutSeconds, CLAIM_WAIT_SECONDS, CLAIM_WAIT_MAX_SECONDS))) as Parameters<typeof claimText>[0], Date.now())
+    }
   },
   {
     name: 'hive_read_task',
@@ -494,7 +526,7 @@ const tools: Tool[] = [
 
 /** Agents get Hive's common tools; the Assistant also those its control level allows. */
 const allowed = new Set(assistantTools(CONTROL, CHANGE_SETTINGS))
-const offered = tools.filter((t) => (ASSISTANT ? !ASSISTANT_ONLY_TOOLS.includes(t.name) || allowed.has(t.name) : !ASSISTANT_ONLY_TOOLS.includes(t.name)))
+const offered = tools.filter((t) => (ASSISTANT ? (!ASSISTANT_ONLY_TOOLS.includes(t.name) || allowed.has(t.name)) && !AGENT_ONLY_TOOLS.includes(t.name) : !ASSISTANT_ONLY_TOOLS.includes(t.name)))
 
 const INSTRUCTIONS = hiveInstructions(PROJECT, ASSISTANT ? 'assistant' : 'agent', process.env.HIVE_PROGRESS_COMMANDS !== '0')
 

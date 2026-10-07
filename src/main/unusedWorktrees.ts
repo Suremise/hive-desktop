@@ -233,9 +233,21 @@ async function snapshot(projectPath: string, path: string): Promise<Snapshot> {
   return { path: realPath(resolve(path)), branch, head: tip, into, intoTip, ahead: ahead!, dirty: dirty!, files }
 }
 
-/** Previews shown in a Remove anyway confirmation, by token: kept 15 minutes, at most 50, each used once. */
+/** Previews shown in a Remove anyway confirmation, by token: good for 15 minutes, at most 50 kept, each used once. */
 const previews = new Map<string, { project: string; at: number; snap: Snapshot }>()
-const PREVIEW_MS = 15 * 60_000
+export const PREVIEW_MS = 15 * 60_000
+
+/**
+ * A preview's token presented to remove (#373): taken off the list whatever comes of the removal (used once), and
+ * refused once older than PREVIEW_MS, whether or not another preview has pruned it yet.
+ */
+function takePreview(token: string): { ok: true; preview: { project: string; at: number; snap: Snapshot } } | { ok: false; reason: string } {
+  const shown = previews.get(token)
+  previews.delete(token)
+  if (!shown) return { ok: false, reason: 'what it holds was not checked for this removal: look again' }
+  if (Date.now() - shown.at > PREVIEW_MS) return { ok: false, reason: `what it holds was checked more than ${PREVIEW_MS / 60_000} minutes ago: nothing was removed, look again` }
+  return { ok: true, preview: shown }
+}
 
 /**
  * Remove anyway's confirmation (#353): what removing the worktree loses, from a snapshot kept under a token that the
@@ -274,12 +286,15 @@ const SNAPSHOT_FIELD: Record<keyof Snapshot, string> = {
  * if git no longer lists it, an agent works in it, or it is a folder Hive never deletes. Without `force` (Remove), only
  * a merged, clean one, checked now (`worktreeCheck`, then `removeCheckedWorktree`: never --force, its branch deleted only
  * from the commit checked, and only while the main branch the user was shown, `expectInto`, still holds it). With
- * `force` (Remove anyway), the token of the preview the user confirmed: the worktree is snapshotted again and removed only
+ * `force` (Remove anyway), the token of the preview the user confirmed (used once, and only within PREVIEW_MS of it,
+ * #373): the worktree is snapshotted again and removed only
  * if nothing differs (folder, branch, commit, main branch, every file); then the folder (forced) and the branch the
  * preview named, only from the commit it showed.
  */
 export async function removeUnusedWorktree(projectPath: string, path: string, opts: { expectInto?: string | null; force?: string } = {}): Promise<UnusedWorktreeRemoval> {
   projectPath = workspace.assertProject(projectPath)
+  // The token is spent now, whatever happens next: a refused removal asks for a new look.
+  const taken = opts.force !== undefined ? takePreview(opts.force) : null
   let release: () => void
   try {
     release = reserveForRemoval(path)
@@ -300,9 +315,9 @@ export async function removeUnusedWorktree(projectPath: string, path: string, op
     if (owned) return { deleted: false, reason: 'an agent works in it now' }
     let done: UnusedWorktreeRemoval
     if (opts.force !== undefined) {
-      const shown = previews.get(opts.force)
-      previews.delete(opts.force)
-      if (!shown || shown.project !== key(projectPath) || shown.snap.path !== realPath(resolve(listed.path))) return { deleted: false, reason: 'what it holds was not checked for this removal: look again' }
+      if (!taken?.ok) return { deleted: false, reason: taken?.reason ?? 'what it holds was not checked for this removal: look again' }
+      const shown = taken.preview
+      if (shown.project !== key(projectPath) || shown.snap.path !== realPath(resolve(listed.path))) return { deleted: false, reason: 'what it holds was not checked for this removal: look again' }
       let now: Snapshot
       try {
         now = await snapshot(projectPath, listed.path)
