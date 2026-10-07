@@ -155,6 +155,9 @@ function handleEvent(e: HiveEvent): void {
     case 'provider-install':
       set((st) => ({ providers: { ...st.providers, [e.provider]: e.info } }))
       break
+    case 'git-tool':
+      set({ gitTool: e.git })
+      break
     case 'menu-command':
       runCommand(e.command, ...(e.args ?? []))
       break
@@ -281,6 +284,9 @@ export function App() {
       if (ws) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
       for (const l of live) applyLiveState(l)
       void loadTasks()
+      void call('git:tool').then((g) => {
+        if (early.active()) set((st) => ({ gitTool: st.gitTool ?? g }))
+      })
       void call('agents:branchStatuses').then((list) => {
         if (early.active()) set((st) => ({ branchStatus: { ...Object.fromEntries(list.map((b) => [projectKey(b.projectPath, b.agentId), b.status])), ...st.branchStatus } }))
       })

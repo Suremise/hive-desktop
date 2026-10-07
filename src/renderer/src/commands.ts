@@ -9,7 +9,7 @@ import * as actions from './actions'
 import { noteCommandUsed } from './tips'
 import { requestStripMenu, type StripMenu } from './stripMenus'
 import { showAntivirus } from './components/Antivirus'
-import { agentPage, assistantOnLeft, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
+import { agentPage, assistantOnLeft, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, showUnusedWorktrees, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
 
 export interface Command {
   id: string
@@ -323,6 +323,20 @@ export const commands: Command[] = [
       actions.selectProject(p.path)
       showAgent(p, agentId)
       setProjectTab(p.path, 'session')
+    }
+  },
+  {
+    id: 'project.unusedWorktrees',
+    label: 'Show Unused Worktrees',
+    category: 'Project',
+    // From a notification or Storage, which name the project (#353).
+    internal: true,
+    run: (path?: unknown) => {
+      const p = get().workspace?.projects.find((x) => x.path === path)
+      if (!p) return
+      actions.selectProject(p.path)
+      showView('projects')
+      showUnusedWorktrees(p.path)
     }
   },
   { id: 'view.notes', label: 'Show Shared Notes', category: 'View', keybinding: 'Mod+Shift+H', run: () => setActivity('notes') },
