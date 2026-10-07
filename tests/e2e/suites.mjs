@@ -123,6 +123,7 @@ export const SUITES = [
   { name: 'templates' },
   { name: 'templateshare' },
   { name: 'termsize' },
+  { name: 'testedclis' },
   { name: 'tipcorner' },
   { name: 'tips' },
   { name: 'tipwindows' },

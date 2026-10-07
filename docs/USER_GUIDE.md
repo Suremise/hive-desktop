@@ -37,6 +37,17 @@ Worktree agents, merging, the **Changes** tab, the unmerged counts on agent tabs
 
 Hive uses the git on its own PATH. If you install git while Hive is open, or Hive was started from the Start menu with a different PATH from your terminal, restart Hive, then **Check again**. While git is missing, the status bar shows **Git** in red, and the screens that need it say *"Git isn't installed (or isn't on Hive's PATH)"* rather than that the project isn't a git repository. Hive never deletes a worktree or branch it can't check with git: they're kept, and it says why. Claude Code also uses Git for Windows' Bash for its commands when it's installed (else PowerShell).
 
+### Tested CLI versions
+
+Claude Code and Codex update on their own schedule, and a new version can change what Hive relies on. Each Hive release says which version of each it was tested with: **Help → Agent Setup…** shows it under the CLI it found, as **Tested with 2.1.287 · installed 2.1.290**.
+
+- **The same version**: a tick.
+- **Newer than tested**: "This version came out after this Hive release was tested. Most updates work; if something behaves oddly, report it (Copy Diagnostics)." Nothing is blocked.
+- **Older than tested**: "Older than tested; consider updating."
+- **Version unknown**: Hive says it couldn't tell which version is installed.
+
+**Help → Copy Diagnostics** lists the tested and installed versions for each CLI, so a bug report says how they compare, and the Hive Assistant can see them too when you ask it about a CLI behaving oddly.
+
 ### Models, effort levels and prices
 
 Hive asks each CLI which models it has and what each can do, so a new model, or one your plan now includes, shows up without waiting for a Hive update. Claude Code and Codex answer for your installed version and your account (asking uses no tokens, and never starts a session). **Settings → <provider> → Models (fallback)** says where the models come from now, for example *From Claude Code 2.1.289*.

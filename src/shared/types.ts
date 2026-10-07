@@ -1530,6 +1530,17 @@ export interface AgentInstallInfo {
   configuredEffort?: EffortLevel | null
   /** Per model: the effort seen in sessions started without an effort choice (observedDefaultEffort). */
   observedEfforts?: Record<string, EffortLevel>
+  /** The version this Hive release was tested with and how the installed one compares (#365); null when the release names none. */
+  tested?: TestedCli | null
+}
+
+/** A coding agent CLI's version this Hive release was tested with (resources/tested-clis.json, #365). */
+export interface TestedCli {
+  version: string
+  /** When the real tier ran against it (YYYY-MM-DD). */
+  testedAt: string
+  /** The installed version against it; unknown when the installed CLI didn't say its version. */
+  installed: 'same' | 'newer' | 'older' | 'unknown'
 }
 
 export interface ReadinessIssue {

@@ -172,7 +172,11 @@ same code while every required check still runs:
 
 - **The builder** runs the suites the card names and moves the card to Review with a **run record**
   (`--build --record`): the code's fingerprint (HEAD, plus a hash of any uncommitted changes), each suite's result and time,
-  and the logs folder. Paste the printed block into the card comment.
+  and the logs folder. Paste the printed block into the card comment. When real suites ran, the record also names the
+  real CLIs' versions as the suites' test copies of Hive selected them ("Real CLIs (as Hive selected them): Claude Code
+  2.1.292, Codex 0.160.1"; each Hive notes its choice in the suite's `hive-clis.jsonl`, `HIVE_TEST_CLI_LOG`), and
+  `run-record.json` beside it holds them per suite: `npm run tested-clis` makes the release's "Tested with" manifest
+  from it (#365, RELEASING.md). The runner itself never starts a CLI.
 - **The reviewer** checks the record's fingerprint is the code it's reviewing (`npm run e2e -- --fingerprint` in the
   builder's folder) and trusts it for those suites. It reruns the quick checks (`npm run typecheck`, `npm run lint`,
   `npm test`) and the one or two suites closest to the riskiest change, and spends the rest of its time on its own

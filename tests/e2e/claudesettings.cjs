@@ -2,14 +2,16 @@
 // reader (providers/claude/autoCompact.ts, settingSources and readSettings) and its launch read of a user's --settings
 // (launchSettings.ts) assume. Each settings file has a SessionStart hook leaving a marker; `claude -p --init-only` runs
 // the hooks and exits without a conversation, so it needs no sign-in, sends nothing and spends no tokens. In a Claude
-// Code home of the suite's own (claudeHome: 'own'), never the user's. No Hive is started. Run it after a Claude Code
-// update: a failure means the reader no longer matches the CLI.
+// Code home of the suite's own (claudeHome: 'own'), never the user's. The Claude Code it runs is the one a test copy of
+// Hive selects (standalone, never an editor extension's copy; the run record's version comes from that, #365), started
+// briefly with the same home. Run it after a Claude Code update: a failure means the reader no longer matches the CLI.
 const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
 const lib = require('./lib.cjs')
 
 const root = path.join(lib.WORK, 'claudesettings')
+const userData = path.join(lib.WORK, 'claudesettings-profile')
 const home = path.join(root, 'home')
 const proj = path.join(root, 'proj')
 const marks = path.join(root, 'marks')
@@ -21,19 +23,26 @@ const check = (name, ok, extra = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
 }
 
-/** Claude Code as the runner finds it: on the PATH, or where its installer puts it. */
-function claudeExe() {
-  const r = spawnSync('where.exe', ['claude'], { encoding: 'utf8', env: lib.baseEnv() })
-  const found = r.status === 0 && r.stdout.split(/\r?\n/)[0].trim()
-  return found || path.join(process.env.USERPROFILE || '', '.local', 'bin', 'claude.exe')
+/**
+ * The Claude Code a test copy of Hive selects, as an agent of it would run: Hive's own detection (the standalone CLI,
+ * never an editor extension's copy), in the suite's home, with an empty Codex home (Hive looks for Codex too).
+ */
+async function claudeExe() {
+  lib.enableProviders(userData)
+  const { app, inv } = await lib.launch({ userData, env: { CLAUDE_CONFIG_DIR: home, CODEX_HOME: path.join(root, 'codex-home') } })
+  try {
+    return await lib.waitForProvider(inv, 'claude-code')
+  } finally {
+    await app.close()
+  }
 }
 
 /** Settings whose SessionStart hook leaves the marker `who`. */
 const marking = (who, extra = {}) => ({ ...extra, hooks: { SessionStart: [{ hooks: [{ type: 'command', command: `node -e "require('fs').writeFileSync(process.argv[1], '')" "${path.join(marks, who).split(path.sep).join('/')}"` }] }] } })
 
 ;(async () => {
-  fs.rmSync(root, { recursive: true, force: true })
-  for (const d of [home, path.join(proj, '.claude'), marks]) fs.mkdirSync(d, { recursive: true })
+  for (const d of [root, userData]) fs.rmSync(d, { recursive: true, force: true })
+  for (const d of [home, path.join(proj, '.claude'), marks, path.join(root, 'codex-home')]) fs.mkdirSync(d, { recursive: true })
   fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify(marking('user')))
   fs.writeFileSync(path.join(proj, '.claude', 'settings.json'), JSON.stringify(marking('project')))
   fs.writeFileSync(path.join(proj, '.claude', 'settings.local.json'), JSON.stringify(marking('local')))
@@ -49,10 +58,10 @@ const marking = (who, extra = {}) => ({ ...extra, hooks: { SessionStart: [{ hook
   sized(exact, 'exact', LIMIT)
   sized(big, 'big', LIMIT + 1)
 
-  const exe = claudeExe()
+  const found = await claudeExe().catch((e) => lib.skip(`environment: ${e.message}`))
+  const exe = found.path
   const env = lib.childEnv({ CLAUDE_CONFIG_DIR: home })
-  const version = spawnSync(exe, ['--version'], { encoding: 'utf8', env, timeout: 30_000 }).stdout?.trim()
-  console.log(`Claude Code ${version || '(version unknown)'}`)
+  console.log(`Claude Code ${found.version} (${exe}), as Hive selected it`)
   /** Runs Claude Code's SessionStart hooks with these arguments: its exit code, the markers left, its first error line. */
   const run = (args) => {
     for (const f of fs.readdirSync(marks)) fs.unlinkSync(path.join(marks, f))

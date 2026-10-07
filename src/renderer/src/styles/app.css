@@ -2483,6 +2483,22 @@ p.hint {
 .setup-detail {
   margin: -4px 2px 12px;
 }
+/* The CLI version Hive was tested with (#365). */
+.setup-tested {
+  margin-top: 2px;
+  font-size: 12px;
+}
+.setup-tested .codicon {
+  font-size: inherit;
+  margin-left: 4px;
+  vertical-align: -2px;
+}
+.setup-tested-ok {
+  color: var(--success);
+}
+.setup-tested .hint {
+  margin: 2px 0 0;
+}
 .setup-detail .hint {
   margin: 0 0 6px;
   line-height: 1.45;
