@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ALL_PROJECTS, RECENT_RUNS, RUN_STATE_WORDS, SHOW_ALL, activeFilter, agentChoices, filterChoices, filterRuns, fractionDone, inStrip, isListed, isOpenRun, isRecent, runDetails, runDetailsText, shortDuration, stripRuns, timeLeft, unseenTrouble } from '@shared/progress'
 import type { ProgressRun } from '@shared/types'
 import { attempt, selectProject } from '../actions'
@@ -9,6 +9,7 @@ import { useNow } from '../usage'
 import { cx, formatKeybinding } from '../util'
 import { ProviderIcon } from './ProviderIcon'
 import { PaneResizer, usePaneSize } from './Resizer'
+import { ShowAllList } from './ShowAllList'
 import { Icon, IconButton, Tooltip } from './ui'
 
 /**
@@ -97,7 +98,8 @@ export function ProgressPanel() {
   const filterName = filter === SHOW_ALL ? null : `${choices.find((c) => c.value === filter.project)?.label ?? ''}${filter.agent ? ` · ${shown[0]?.agentName ?? ''}` : ''}`
   if (!open) return <ProgressRail runs={shown.filter((r) => inStrip(r, now))} filtered={filterName ? { name: filterName, all: runs.filter((r) => inStrip(r, now)).length } : null} />
   const listed = shown.filter((r) => isListed(r, now))
-  const recent = shown.filter((r) => isRecent(r, now)).slice(0, RECENT_RUNS)
+  // Recent: the newest few, and Show all for the rest Hive keeps (#352).
+  const recent = shown.filter((r) => isRecent(r, now))
   const agents = filter.project !== ALL_PROJECTS ? agentChoices(runs, filter.project) : []
   const kb = commandKeybinding('progress.toggle')
   const toggle = (id: string): void => setDetail((d) => (d === id ? null : id))
@@ -158,9 +160,15 @@ export function ProgressPanel() {
         {recent.length > 0 && (
           <>
             <div className="progress-section">Recent</div>
-            {recent.map((r) => (
-              <RecentRow key={r.id} run={r} now={now} open={detail === r.id} onToggle={() => toggle(r.id)} />
-            ))}
+            <ShowAllList
+              items={recent}
+              few={RECENT_RUNS}
+              keyOf={(r) => r.id}
+              renderItem={(r) => <RecentRow run={r} now={now} open={detail === r.id} onToggle={() => toggle(r.id)} />}
+              label="Recent runs"
+              foldKey={workspace ? `progress-recent-all:${workspace.path.toLowerCase()}` : undefined}
+              className="progress-recent-list"
+            />
           </>
         )}
       </div>
@@ -282,11 +290,16 @@ function RunWho({ run: r, project }: { run: ProgressRun; project: string | null 
  * click on the line, or the chevron (the keyboard's way), opens its details.
  */
 function RecentRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number; open: boolean; onToggle: () => void }) {
+  const item = useRef<HTMLDivElement>(null)
+  // Opened in the scrolling box of all of them, its details scroll into view.
+  useEffect(() => {
+    if (open) item.current?.querySelector('.progress-details')?.scrollIntoView({ block: 'nearest' })
+  }, [open])
   const took = r.finishedAt !== null ? shortDuration(r.finishedAt - r.startedAt) : ''
   const icon = r.state === 'passed' ? 'pass' : r.state === 'failed' ? 'error' : 'warning'
   const what = r.state === 'passed' ? 'passed' : r.state === 'failed' ? 'failed' : 'stopped reporting'
   return (
-    <div className={cx('progress-recent-item', r.state, open && 'open')} data-run={r.id}>
+    <div ref={item} className={cx('progress-recent-item', r.state, open && 'open')} data-run={r.id}>
       <div
         className={cx('progress-recent', r.state)}
         onClick={() => {
