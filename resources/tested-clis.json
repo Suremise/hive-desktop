@@ -2,6 +2,11 @@
   "codex": {
     "version": "0.160.1",
     "testedAt": "2026-10-07",
-    "record": "443bd57b547e+0e576efae8d1"
+    "record": "74957c24bde9"
+  },
+  "claude-code": {
+    "version": "2.1.292",
+    "testedAt": "2026-10-07",
+    "record": "74957c24bde9"
   }
 }
