@@ -32,6 +32,8 @@ export interface WatchCondition {
 export const WATCH_MAX_CARDS = 20
 /** A bounded wait's longest (seconds): under Codex's tool timeout for hive (900 s), with room for the reply. */
 export const WAIT_MAX_SECONDS = 840
+/** The longest an Agent API agents wait (`POST /v1/agents/wait`, hive_wait_for_agents) holds a call. */
+export const AGENT_WAIT_MAX_SECONDS = 600
 /** A watch's default overall limit with no change before Hive wakes the agent to say so (minutes), and the most allowed. */
 export const WATCH_DEFAULT_LIMIT_MINUTES = 120
 export const WATCH_MAX_LIMIT_MINUTES = 24 * 60

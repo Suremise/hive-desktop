@@ -6,6 +6,7 @@ import { emit, toast } from './events'
 import { hashText, withFileLock, writeTextAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { MergeSlots, parseSlotRecords, type SlotRecord } from './mergeSlots'
+import { setUserMergeSlot } from './projectAgents'
 import { progress } from './progressService'
 import { sessions } from './sessions'
 import { workspace, workspaceOf } from './workspace'
@@ -85,11 +86,13 @@ export async function recoverMergeSlots(workspacePath: string): Promise<void> {
 
 let started = false
 
-/** Releases holds with their launches. Once, at startup (a workspace's record is recovered as it opens: ipc.ts). */
+/** Releases holds with their launches, and has the Merge dialog's merges hold the slot. Once, at startup (a workspace's record is recovered as it opens: ipc.ts). */
 export function startMergeSlots(): void {
   if (started) return
   started = true
   sessions.onLaunchEnded.add((projectPath, agentId, runId) => mergeSlots.sessionEnded(projectPath, agentId, runId))
+  // The Merge dialog's merges hold the slot too.
+  setUserMergeSlot((projectPath, branch, run) => mergeSlots.asUser(projectPath, branch, run))
 }
 
 /** The branch a project folder is on: what Hive's Merge dialog merges into, and the slot a claim names by default. */

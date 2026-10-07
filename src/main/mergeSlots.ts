@@ -1,4 +1,4 @@
-import { holderText, holdingNote, waitingNote } from '../shared/mergeSlot'
+import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS, holderText, holdingNote, waitingNote } from '../shared/mergeSlot'
 import type { MergeSlotInfo } from '../shared/types'
 
 /**
@@ -22,9 +22,9 @@ export const PROGRESS_FRESH_MS = 15 * 60_000
  * The longest a claim waits in one call: under 300 s, when Node's fetch (the hive tools') gives up waiting for a reply
  * (undici's headersTimeout).
  */
-export const MAX_WAIT_MS = 290_000
+export const MAX_WAIT_MS = CLAIM_WAIT_MAX_SECONDS * 1000
 /** A claim's wait when it names none. */
-export const DEFAULT_WAIT_MS = 240_000
+export const DEFAULT_WAIT_MS = CLAIM_WAIT_SECONDS * 1000
 /** At most this many cards named as what is being merged. */
 export const MAX_CARDS = 20
 /** Slots kept (held, waited for, or unused); past it, unused ones are dropped as a new one is made. */

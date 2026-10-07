@@ -13,6 +13,9 @@ import { createInterface } from 'readline'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../../shared/hiveGuidance'
 import { AGENT_ONLY_TOOLS, ASSISTANT_ONLY_TOOLS, assistantTools } from '../../shared/assistantTools'
 import { COLUMN_IDS } from '../../shared/tasks'
+import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
+import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
+import { agentApiCall } from './agentApiCall'
 import { MAX_ROWS, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 import type { MergeSlotInfo } from '../../shared/types'
 
@@ -41,22 +44,26 @@ function token(): string {
   return ''
 }
 
-async function api(method: string, path: string, body?: unknown): Promise<unknown> {
-  const res = await fetch(API + path, {
-    method,
-    headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json', ...(WORKSPACE ? { 'X-Hive-Workspace': encodeURIComponent(WORKSPACE) } : {}) },
-    body: body === undefined ? undefined : JSON.stringify(body)
-  })
-  const text = await res.text()
+/**
+ * Calls the Agent API. `replyMs` is how long the reply may take: a wait passes its own (waitReplyMs), the rest take the
+ * usual limit. Not fetch, whose 300 s limit on a reply's headers cut longer waits short (#371).
+ */
+async function api(method: string, path: string, body?: unknown, replyMs?: number): Promise<unknown> {
+  const headers = { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json', ...(WORKSPACE ? { 'X-Hive-Workspace': encodeURIComponent(WORKSPACE) } : {}) }
+  const res = await agentApiCall(API + path, method, headers, body === undefined ? undefined : JSON.stringify(body), replyMs)
+  const text = res.text
   let data: unknown = text
   try {
     data = text ? JSON.parse(text) : null
   } catch {
     // keep text
   }
-  if (!res.ok) throw new Error(typeof data === 'object' && data && 'error' in data ? String((data as { error: unknown }).error) : `HTTP ${res.status}`)
+  if (res.status < 200 || res.status >= 300) throw new Error(typeof data === 'object' && data && 'error' in data ? String((data as { error: unknown }).error) : `HTTP ${res.status}`)
   return data
 }
+
+/** How long a wait's reply may take: the wait as Hive will hold it (at most `max`), and a minute to spare. */
+const waitReplyMs = (seconds: unknown, fallback: number, max: number): number => (Math.min(max, Math.max(1, Number(seconds) || fallback)) + 60) * 1000
 
 const projectArg = {
   type: 'string',
@@ -221,7 +228,7 @@ const tools: Tool[] = [
         ignoreBackground: { type: 'boolean' }
       }
     },
-    run: (a) => api('POST', '/v1/agents/wait', { agents: a.agents, timeoutSeconds: a.timeoutSeconds ?? 50, ignoreBackground: a.ignoreBackground === true })
+    run: (a) => api('POST', '/v1/agents/wait', { agents: a.agents, timeoutSeconds: a.timeoutSeconds ?? 50, ignoreBackground: a.ignoreBackground === true }, waitReplyMs(a.timeoutSeconds, 50, AGENT_WAIT_MAX_SECONDS))
   },
   {
     name: 'hive_create_project',
@@ -344,7 +351,7 @@ const tools: Tool[] = [
       taskWaitText(
         (await api('POST', '/v1/tasks/wait', {
           ...(a.cancel ? { cancel: true } : { cards: a.cards, changes: a.changes, column: a.column, wake: a.wake === true, limitMinutes: a.limitMinutes, timeoutSeconds: a.timeoutSeconds, since: a.since })
-        })) as Parameters<typeof taskWaitText>[0]
+        }, a.cancel || a.wake === true ? undefined : waitReplyMs(a.timeoutSeconds, 300, WAIT_MAX_SECONDS))) as Parameters<typeof taskWaitText>[0]
       )
   },
   {
@@ -367,7 +374,7 @@ const tools: Tool[] = [
       if (a.action === 'status') return mergeSlotText((await api('GET', `${base}${a.branch !== undefined ? `?branch=${enc(String(a.branch))}` : ''}`)) as MergeSlotInfo, Date.now())
       if (a.action === 'release') return releaseText((await api('POST', `${base}/release`, branch)) as Parameters<typeof releaseText>[0])
       if (a.action !== 'claim') throw new Error('action must be claim, release or status')
-      return claimText((await api('POST', `${base}/claim`, { ...branch, ...(a.cards !== undefined ? { cards: a.cards } : {}), ...(a.timeoutSeconds !== undefined ? { timeoutSeconds: a.timeoutSeconds } : {}) })) as Parameters<typeof claimText>[0], Date.now())
+      return claimText((await api('POST', `${base}/claim`, { ...branch, ...(a.cards !== undefined ? { cards: a.cards } : {}), ...(a.timeoutSeconds !== undefined ? { timeoutSeconds: a.timeoutSeconds } : {}) }, waitReplyMs(a.timeoutSeconds, CLAIM_WAIT_SECONDS, CLAIM_WAIT_MAX_SECONDS))) as Parameters<typeof claimText>[0], Date.now())
     }
   },
   {
