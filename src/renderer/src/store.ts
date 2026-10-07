@@ -18,6 +18,7 @@ import type {
   AssistantAction,
   AssistantQuestion,
   ProgressRun,
+  MergeSlotInfo,
   AgentInstallInfo,
   ProviderId,
   AppInfo,
@@ -193,6 +194,8 @@ interface State {
   assistantOpen: boolean
   /** This window's workspace's progress runs (newest first), for the Progress panel. */
   progressRuns: ProgressRun[]
+  /** This window's workspace's merge slots (#350): those held or waited for. */
+  mergeSlots: MergeSlotInfo[]
   /** A pane (an agent's, or the Assistant's panel) briefly highlighted because something asked to show it: its pty key. */
   paneFlash: { key: string; at: number } | null
   /** Assistant Settings is open. */
@@ -365,6 +368,7 @@ export const useStore = create<State>(() => ({
   assistantSection: 'conversations',
   assistantOpen: false,
   progressRuns: [],
+  mergeSlots: [],
   paneFlash: null,
   assistantSettingsOpen: false,
   assistantActions: [],

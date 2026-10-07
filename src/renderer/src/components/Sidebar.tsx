@@ -240,7 +240,7 @@ function ProjectsRail() {
         <strong>{p.name}</strong>
         <div>
           {status}
-          {state?.statusMessage ? ` — ${state.statusMessage}` : ''}
+          {(state?.statusMessage ?? state?.mergeSlot) ? ` — ${state?.statusMessage ?? state?.mergeSlot}` : ''}
         </div>
         {p.branch && (
           <div className="desc">

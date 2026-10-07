@@ -9,6 +9,7 @@ import { useNow } from '../usage'
 import { cx, formatKeybinding } from '../util'
 import { ProviderIcon } from './ProviderIcon'
 import { PaneResizer, usePaneSize } from './Resizer'
+import { MergeSlotList, useMergeSlots } from './MergeSlots'
 import { ShowAllList } from './ShowAllList'
 import { Icon, IconButton, Tooltip } from './ui'
 
@@ -72,6 +73,7 @@ export function ProgressPanel() {
   const on = useStore((s) => s.settings?.general.progressPanel !== false)
   const open = useProgressOpen()
   const runs = useProgressRuns()
+  const slots = useMergeSlots()
   const chosen = useProgressFilter()
   const workspace = useStore((s) => s.workspace)
   const focused = useStore((s) => s.windowFocused)
@@ -149,7 +151,13 @@ export function ProgressPanel() {
         </div>
       )}
       <div className="progress-body">
-        {listed.length === 0 && (
+        {slots.length > 0 && (
+          <>
+            <div className="progress-section">Merge slots</div>
+            <MergeSlotList slots={slots} projectName={nameOf} showProject />
+          </>
+        )}
+        {listed.length === 0 && !slots.length && (
           <div className="pane-empty progress-empty">
             Nothing is running. When an agent runs tests or a build with progress reporting, it shows here with how far along it is and the time left.
           </div>

@@ -1034,6 +1034,8 @@ export interface LiveSessionState {
   /** When the status last changed (ISO): how long an agent has been waiting or finished. */
   statusSince?: string
   statusMessage?: string
+  /** Its place at the merge slot (#350): waiting for it ("Waiting for the merge slot (B4 is merging #305)") or holding it. */
+  mergeSlot?: string
   /** An action under the CLI's automatic review (Codex's Approve for me), as asked ("Codex asks to run …"): shown beside the status, never as it. */
   review?: string
   /**
@@ -1771,9 +1773,24 @@ export type HiveEvent =
   | { type: 'update-state'; state: UpdateState }
   /** A workspace's progress runs changed (all of them, newest first). */
   | { type: 'progress-changed'; workspacePath: string; runs: ProgressRun[] }
+  /** A workspace's merge slots changed (those held or waited for). */
+  | { type: 'merge-slots-changed'; workspacePath: string; slots: MergeSlotInfo[] }
 
 /** Who reported a progress run: a project agent (by its token), the Hive Assistant, or a script with the workspace token. */
 export type ProgressSource = 'agent' | 'assistant' | 'api'
+
+/**
+ * A merge slot (#350): one merge at a time into a project's branch. `holder` is who merges now (an agent, or the user's
+ * merge from the Merge dialog); `taken` false while it is an agent's turn that hasn't claimed it again yet. Times are
+ * epoch ms.
+ */
+export interface MergeSlotInfo {
+  project: string
+  branch: string
+  /** `id` is this hold's own: Release names it, so a hold that came after is never released for it. */
+  holder: { id: string; kind: 'agent' | 'user'; agentId?: string; name: string; cards: number[]; since: number; until: number; taken: boolean } | null
+  waiting: { agentId: string; name: string; cards: number[]; since: number }[]
+}
 
 /**
  * A long run an agent reports (tests, a build), for the Progress panel. `step` counts finished steps (0 to `total`),

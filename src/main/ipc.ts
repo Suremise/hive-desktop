@@ -26,6 +26,8 @@ import { createLogger, logsDir } from './logger'
 import { diagnostics } from './diagnostics'
 import { keepAwakeCount } from './power'
 import { progress } from './progressService'
+import { mergeSlots, recoverMergeSlots, workspaceSlots } from './mergeSlotHost'
+import { slotBranch } from './mergeSlots'
 import { badgeDescription } from '../shared/taskbar'
 import * as files from './files'
 import * as mcp from './mcp'
@@ -161,6 +163,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     void tasks.archiveOldDone(ws).catch((e) => log.warn('archiving old Done cards', e))
     // Moved since it was last opened (#146)? In the background: the window opens meanwhile, and a banner follows.
     void checkMoved(contextWorkspace()!).catch((e) => log.warn('checking whether the workspace moved', e))
+    // A merge slot an agent held when Hive closed: its merge may be half done (#350).
+    if (ws.path) void recoverMergeSlots(ws.path).catch((e) => log.warn('recovering the merge slots', e))
   }
   /** The window the current request came from. */
   const win = (): BrowserWindow => {
@@ -706,6 +710,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'assistant:revertSetting': async (actionId) => {
       if (!workspace.path) throw new Error('No workspace is open.')
       await revertSetting(workspace.path, String(actionId))
+    },
+    'mergeSlots:list': () => (workspace.path ? workspaceSlots(workspace.path) : []),
+    'mergeSlots:release': (p, branch, holdId) => {
+      if (typeof holdId !== 'string' || !holdId) throw new Error('Which hold to release is required')
+      return mergeSlots.releaseByUser(workspace.assertProject(p), slotBranch(branch), holdId)
     },
     'progress:list': async () => {
       const ws = workspace.path
