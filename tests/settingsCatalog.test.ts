@@ -158,6 +158,31 @@ describe('the settings catalog', () => {
     expect(settingChangeTexts(entry('sessions.transcriptWarnMB'), 20, 50)).toEqual({ oldText: '20', newText: '50' })
   })
 
+  it('shows a fallback list by the entries that changed: a label or the older flag too (#317)', () => {
+    const models = [
+      { value: 'gpt-7', label: 'GPT 7' },
+      { value: 'gpt-6', label: 'GPT 6', older: true }
+    ]
+    // A label only.
+    expect(settingChangeTexts(entry('codex.modelFallback'), models, [{ value: 'gpt-7', label: 'GPT-7 Pro' }, models[1]])).toEqual({ oldText: 'gpt-7: GPT 7', newText: 'gpt-7: GPT-7 Pro' })
+    // The older flag only.
+    expect(settingChangeTexts(entry('codex.modelFallback'), models, [{ ...models[0], older: true }, models[1]])).toEqual({ oldText: 'gpt-7: GPT 7', newText: 'gpt-7: GPT 7 (older)' })
+    expect(settingChangeTexts(entry('codex.modelFallback'), models, [models[0], { value: 'gpt-6', label: 'GPT 6' }])).toEqual({ oldText: 'gpt-6: GPT 6 (older)', newText: 'gpt-6: GPT 6' })
+    // Added and removed entries.
+    expect(settingChangeTexts(entry('codex.modelFallback'), models, [models[0], { value: 'gpt-8', label: 'GPT 8' }])).toEqual({ oldText: 'gpt-6: GPT 6 (older), gpt-8: (none)', newText: 'gpt-6: (none), gpt-8: GPT 8' })
+    // An effort level's label.
+    expect(settingChangeTexts(entry('claude-code.effortFallback'), [{ value: 'high', label: 'High' }], [{ value: 'high', label: 'Very high' }])).toEqual({ oldText: 'high: High', newText: 'high: Very high' })
+    // Only the order: the order shows.
+    expect(settingChangeTexts(entry('codex.modelFallback'), models, [models[1], models[0]])).toEqual({ oldText: 'gpt-7, gpt-6', newText: 'gpt-6, gpt-7' })
+    // Back to Hive's list: the whole list.
+    expect(settingChangeTexts(entry('codex.modelFallback'), models, [])).toEqual({ oldText: 'gpt-7, gpt-6', newText: "(Hive's list)" })
+    // Bounded as the other tables are.
+    const long = Array.from({ length: 40 }, (_, i) => ({ value: `model-${i}`, label: `A long label for model ${i}` }))
+    const texts = settingChangeTexts(entry('codex.modelFallback'), long, long.map((m) => ({ ...m, label: `${m.label}!` })))
+    expect(texts.oldText.length).toBeLessThanOrEqual(200)
+    expect(texts.newText.endsWith('…')).toBe(true)
+  })
+
   it('takes only the effort levels the picker offers (or the default)', () => {
     const levels = [
       { value: 'low', label: 'Low' },
