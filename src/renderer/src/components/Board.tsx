@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, ArchiveBatch, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskDecision, TaskPatch, TaskStartTarget } from '@shared/types'
 import { gitProblemText } from '@shared/gitTool'
-import { TASK_COLUMNS, applyBoardFold, cardMatches, newSinceStart, archivedAt, columnColor, columnLabel, reviewStalled, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
+import { TASK_COLUMNS, applyBoardFold, cardMatches, newSinceStart, archivedAt, columnColor, columnLabel, notWatchingReason, reviewStalled, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
 import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useDateStyle, useStore, type ArchiveAllRequest, type DoingRequest } from '../store'
@@ -58,10 +58,13 @@ function cardAgent(projects: ProjectInfo[], c: TaskCard): { project: ProjectInfo
   return { project, agent: c.agent ? (project?.agents.find((a) => a.id === c.agent) ?? null) : null }
 }
 
-/** Why nobody is working on the card (a Doing card only), from its agent as the window knows it. */
+/**
+ * Why nobody is working on the card, from the agents as the window knows them: a Doing card's agent gone or stopped, or
+ * an agent looping on the card (Doing or Review) whose turn ended with no card watch (#376).
+ */
 export function cardStalled(projects: ProjectInfo[], c: TaskCard): string | null {
   const { agent } = cardAgent(projects, c)
-  return stalledReason(c, agent ? { name: agent.name, running: !!agent.live } : null)
+  return stalledReason(c, agent ? { name: agent.name, running: !!agent.live } : null) ?? notWatchingReason(c, projects.flatMap((p) => p.agents.map((a) => ({ name: a.name, project: p.name, notWatching: a.live?.notWatching }))))
 }
 
 
@@ -333,7 +336,7 @@ function CardTile({
           </Tooltip>
         )}
         {stalled && (
-          <Tooltip block content="Nobody is working on it. Start it again (on this agent or another), or move it back to Todo.">
+          <Tooltip block content={/ isn't watching #\d+:/.test(stalled) ? 'Nothing will wake that agent when this card changes. Show it and ask it to carry on its card loop.' : 'Nobody is working on it. Start it again (on this agent or another), or move it back to Todo.'}>
             <div className="task-stalled">
               <Icon name="debug-pause" />
               <span className="task-note-text">Stalled: {stalled}</span>
@@ -1132,7 +1135,7 @@ export function BoardPanel() {
           <>
             <div className="section-header">
               Stalled <span className="count">{stalled.length}</span>
-              <InfoTip text="Cards in Doing that nobody is working on: no agent has them, or their agent was removed or isn't running." />
+              <InfoTip text="Cards in Doing that nobody is working on: no agent has them, or their agent was removed or isn't running. Also cards in Doing or Review that an agent in a card loop left without waiting on them." />
             </div>
             {stalled.map((c) => (
               <Tooltip key={c.number} block content={cardStalled(projects, c) ?? ''}>

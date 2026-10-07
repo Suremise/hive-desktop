@@ -1,4 +1,5 @@
 import { initWatches, onWatchedCardsMoved, watchKeepsQuitWaiting } from './watches'
+import { initLoopCheck } from './loopCheck'
 import { initAssistantModes } from './assistantMode'
 import { app, BrowserWindow, Menu, nativeTheme, Notification, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'child_process'
@@ -687,6 +688,7 @@ app.whenReady().then(async () => {
   }
   // The hive MCP server's instructions, for providers that don't show MCP instructions to the model (Codex).
   initWatches()
+  initLoopCheck()
   initAssistantModes()
   // A watcher stops keeping a pending quit waiting when the card it waits on leaves another agent's work (no wake comes).
   onWatchedCardsMoved(() => checkPendingQuit())

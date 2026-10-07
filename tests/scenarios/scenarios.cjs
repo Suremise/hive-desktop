@@ -7,10 +7,20 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 18
+const FIXTURES_VERSION = 19
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
+/** A hive call's arguments (logged as JSON text), or {} when they can't be read. */
+const argsOf = (x) => {
+  try {
+    return typeof x.args === 'string' ? JSON.parse(x.args) : (x.args ?? {})
+  } catch {
+    return {}
+  }
+}
+/** A fake builder's watch for its card's verdict, as card-loop starts it (a hive tool call through the real server). */
+const verdictWatch = (n) => `hive hive_wait_for_tasks {"cards":[${n}],"changes":["verdict","column"],"column":"passed","wake":true}`
 const ran = (o, tool) => called(o, tool).filter((c) => c.ok)
 const read = (o, skill) => o.skillsRead.includes(skill)
 /** A call's arguments (JSON) have key: value. */
@@ -765,11 +775,12 @@ module.exports.SCENARIOS = [
       })
     },
     prompt: (c) => `Work through card #${c.cards.r} as its builder (rounds: 5). Round 1 (the first build and its review) and round 2 (the fix and its review) have both failed review; round 2's review is its last comment.`,
-    fake: (c) => `skill card-loop boardmove ${c.cards.r} doing then boardmove ${c.cards.r} review then boardcomment ${c.cards.r}`,
+    fake: (c) => `skill card-loop boardmove ${c.cards.r} doing then ${verdictWatch(c.cards.r)} then boardmove ${c.cards.r} review then boardcomment ${c.cards.r}`,
     expect: (o, c) => [
       ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
       ["didn't ask the user (no hive_notify)", called(o, 'hive_notify').length === 0, o.hiveCalls.map((x) => x.tool).join(',')],
       ['through Doing, back to Review for round three', movedInto(o.cards.r, 'Doing') >= 0 && reviewMoves(o.cards.r) === 2 && o.cards.r?.column === 'review', history(o.cards.r).join(' | ')],
+      ['ended its turn with a live watch for the verdict (#376)', o.status === 'watching', o.status],
       ['fixed it: the delay is awaited', /await\s+wait\(/.test(c.read('sync.js') ?? ''), c.read('sync.js')],
       ['not Done', o.cards.r?.column !== 'done']
     ],
@@ -819,7 +830,7 @@ module.exports.SCENARIOS = [
     },
     prompt: (c) => `Work through card #${c.cards.f} as its builder (rounds: 5); Implementer reviews it. Its first review failed: the review is its last comment.`,
     // The fake returns it without leaving Review, which is what stalled loops before (#214).
-    fake: (c) => `skill card-loop boardmove ${c.cards.f} review then boardcomment ${c.cards.f}`,
+    fake: (c) => `skill card-loop ${verdictWatch(c.cards.f)} then boardmove ${c.cards.f} review then boardcomment ${c.cards.f}`,
     expect: (o, c) => {
       const h = history(o.cards.f)
       const after = h.slice(h.lastIndexOf('Review failed') + 1)
@@ -827,12 +838,36 @@ module.exports.SCENARIOS = [
         ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
         // What a reviewer's wait for its return sees (shared/watch.ts movedIntoSince): moved back into Review, or returned.
         ['back into Review for round two (the reviewer is woken)', o.cards.f?.column === 'review' && after.some((w) => /^(Moved to (the (top|bottom) of )?Review\b|Returned for review, round 2)/.test(w)), h.join(' | ')],
+        ['ended its turn with a live watch for the verdict (#376)', o.status === 'watching', o.status],
         ['fixed it: the delay is awaited', /await\s+wait\(/.test(c.read('sync.js') ?? ''), c.read('sync.js')],
         ["didn't ask the user (no hive_notify)", called(o, 'hive_notify').length === 0, o.hiveCalls.map((x) => x.tool).join(',')],
         ['not Done', o.cards.f?.column !== 'done']
       ]
     },
     fakeSkips: ['fixed it: the delay is awaited']
+  },
+  {
+    id: 'card-loop-already-in-review',
+    title: "A card loop reviewer whose next card is already in Review: the watch answers Already, and it reviews the card at once rather than retrying or asking the user (#376)",
+    files: { 'greet.js': "module.exports = (name) => 'Hello, ' + name\n" },
+    async setup(c) {
+      const a = await c.card('a', { title: 'Greeting module', description: 'greet.js exports a greeting function.', column: 'passed', agent: 'implementer', comments: ['Done: greet.js added. Ready for review.', 'Review round 1: PASSED.'] })
+      giveVerdict(c, a, 'passed')
+      await c.card('b', { title: 'Greeting says Hello', description: 'greet.js returns "Hello, <name>".', column: 'review', agent: 'implementer', comments: ['Done: greet.js says "Hello, <name>". Ready for review.'] })
+    },
+    prompt: (c) => `You are the reviewer of a card loop on #${c.cards.a} then #${c.cards.b}, built by Implementer (rounds: 5). You have just passed #${c.cards.a}. Carry on as the reviewer.`,
+    // The fake waits for #b to arrive in Review (it already has: Already), then reviews it.
+    fake: (c) => `skill card-loop hive hive_wait_for_tasks {"cards":[${c.cards.b}],"column":"review","wake":true} then boardreview ${c.cards.b} start then boardreview ${c.cards.b} passed passed`,
+    expect: (o, c) => {
+      // Its waits for #b to arrive in Review (cards [b], no changes): one answered Already, none repeated.
+      const arrivals = ran(o, 'hive_wait_for_tasks').map((x) => argsOf(x)).filter((a) => Array.isArray(a.cards) && a.cards.includes(c.cards.b) && a.column === 'review' && !a.changes && !a.cancel)
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        ['reviewed the card already in Review', history(o.cards.b).includes('Started reviewing') && history(o.cards.b).some((h) => /^Review (passed|failed)$/.test(h)), history(o.cards.b).join(' | ')],
+        ["didn't ask the user (no hive_notify)", called(o, 'hive_notify').length === 0, o.hiveCalls.map((x) => x.tool).join(',')],
+        ["didn't retry a watch that answered Already", arrivals.length <= 1, JSON.stringify(arrivals)]
+      ]
+    }
   },
   {
     id: 'card-loop-two-cards',

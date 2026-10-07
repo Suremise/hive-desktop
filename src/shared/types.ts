@@ -1064,6 +1064,11 @@ export interface LiveSessionState {
   /** Its wake-on-change watch, while it has one (status `watching` while its turn has ended). */
   watch?: TaskWatchInfo
   /**
+   * Cards still in play (Doing or Review) that this agent was looping on when its turn ended with no card watch (#376):
+   * nothing will wake it when they change, so they show as stalled. Cleared once it works or watches again.
+   */
+  notWatching?: number[]
+  /**
    * Its last turn stopped because its CLI's sign-in was refused, and it hasn't carried on since (#309): the CLI's
    * message and when. Status `signin` until the CLI is signed in again, then `ready`; Resume (n) carries it on.
    */

@@ -21,7 +21,8 @@
 //   hive tool through the real hive MCP server of the launch's --mcp-config (fake-bridge.cjs: logged and measured by
 //   Hive's performance metrics as a real call is), written to the transcript as that MCP call and its reply. A line
 //   Hive types to wake it ("[Hive] #12 is in Review…", a card watch) is logged in fake-wakes.jsonl and answered with
-//   the next line of fake-wakes-<agent>.txt (a test's script of what this agent does next). "skill NAME" reads a skill
+//   the next line of fake-wakes-<agent>.txt (a test's script of what this agent does next); with a number N in
+//   fake-drop-enters-<agent>.txt, it drops the next N Enters after such a line, which stays typed (#376). "skill NAME" reads a skill
 //   as Claude Code's Skill tool does: a Skill call in the transcript ("hive:NAME"), answered with the skill's SKILL.md
 //   from the launch's plugin folder (an error when it has none).
 // - "/compact [focus]" compacts as Claude Code does: PreCompact, a compaction boundary in the transcript after 1 s (N
@@ -454,6 +455,24 @@ async function quit() {
   process.exit(0)
 }
 
+/**
+ * Whether to drop this Enter: fake-drop-enters-<agent>.txt in its home holds how many Enters after a line from Hive to
+ * drop (a test writes it); each drop counts it down.
+ */
+function dropEnter() {
+  if (!home) return false
+  const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
+  const file = path.join(home, `fake-drop-enters-${agent}.txt`)
+  try {
+    const n = Number(fs.readFileSync(file, 'utf8').trim())
+    if (!(n > 0)) return false
+    fs.writeFileSync(file, String(n - 1))
+    return true
+  } catch {
+    return false
+  }
+}
+
 // What arrives from the terminal: a line, Enter, Ctrl+U, Ctrl+C.
 let line = ''
 let onEnter = null
@@ -486,6 +505,9 @@ process.stdin.on('data', (data) => {
       // Still drawing the resumed conversation: the Enter is lost, what was typed stays on the line (#334).
       continue
     } else if (ch === '\r' || ch === '\n') {
+      // A CLI that doesn't take the Enter after a line Hive typed (#376: Codex once left a wake in its prompt): the line
+      // stays, as typed, for the next Enter.
+      if (line.startsWith('[Hive]') && dropEnter()) continue
       const text = line.trim()
       if (line) out('\r\n')
       line = ''

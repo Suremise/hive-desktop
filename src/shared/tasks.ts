@@ -97,6 +97,18 @@ export function stalledReason(card: Pick<TaskCard, 'column' | 'archived' | 'agen
 }
 
 /**
+ * Why a card in a card loop is stuck (#376): an agent that was looping on it ended its turn with no card watch
+ * (`notWatching`, set by Hive after a short grace), so nothing wakes it when the card changes. Only for cards in play
+ * (Doing or Review); null otherwise.
+ */
+export function notWatchingReason(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project'>, agents: { name: string; project: string; notWatching?: number[] }[]): string | null {
+  if (card.archived || (card.column !== 'doing' && card.column !== 'review')) return null
+  // Only an agent of the card's project: one whose card has moved to another project isn't on it any more.
+  const a = agents.find((x) => x.project.toLowerCase() === card.project.toLowerCase() && x.notWatching?.includes(card.number))
+  return a ? `${a.name} isn't watching #${card.number}: its turn ended with no card watch.` : null
+}
+
+/**
  * When a card was archived (#249): its latest "Archived…" in its history (by the user, after its days in Done, or with
  * its project), else its last change. ISO.
  */

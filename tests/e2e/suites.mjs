@@ -75,6 +75,7 @@ export const SUITES = [
   { name: 'launchrace' },
   { name: 'loadfail' },
   { name: 'longsession' },
+  { name: 'loopwatch' },
   { name: 'mcp' },
   { name: 'mergeslot' },
   { name: 'mode', needs: ['claude'] },

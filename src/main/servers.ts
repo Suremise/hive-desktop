@@ -12,7 +12,7 @@ import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/ass
 import { timeLeft } from '../shared/progress'
 import { ProgressError, admitReport, type ProgressCaller } from './progress'
 import { progress, progressGate } from './progressService'
-import { COLUMN_CHOICES, columnLabel, isTaskColumn, reviewStalled, stalledReason } from '../shared/tasks'
+import { COLUMN_CHOICES, columnLabel, isTaskColumn, notWatchingReason, reviewStalled, stalledReason } from '../shared/tasks'
 import type { HandoverAuthor } from '../shared/hiveGuidance'
 import { newestComments, progressLabel, taskRow, withoutHistory, type ProjectRow, type SkillRow, type TaskChange, type TaskReorder, type TaskView } from '../shared/toolReplies'
 import * as assistant from './assistantControl'
@@ -1139,6 +1139,15 @@ async function taskActor(): Promise<tasks.TaskActor> {
   return { kind: 'agent', name: 'Agent API' }
 }
 
+/** This workspace's agents that left cards in play with no card watch (#376), for a card's `stalled`. */
+function loopAgents(): { name: string; project: string; notWatching?: number[] }[] {
+  const ws = workspace.path?.toLowerCase()
+  return sessions
+    .liveStates()
+    .filter((s) => s.notWatching?.length && !!ws && workspaceOf(s.projectPath).path?.toLowerCase() === ws)
+    .map((s) => ({ name: s.agentName ?? s.agentId, project: basename(s.projectPath), notWatching: s.notWatching }))
+}
+
 /**
  * A card with what its agent is doing now (and its name now), for callers deciding what to do next. `agents` keeps
  * each project's agents for a whole list, so a long board reads each project.json once.
@@ -1171,7 +1180,8 @@ async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType
     comments: c.comments.map(tasks.withoutId),
     history: c.history.map(tasks.withoutId),
     agent,
-    stalled: stalledReason(c, now)
+    // A Doing card nobody works on, or a card an agent was looping on and left with no watch (#376).
+    stalled: stalledReason(c, now) ?? notWatchingReason(c, loopAgents())
   }
   // A review whose reviewer has gone or isn't running (Hive ends those, but one can show while that happens).
   if (c.review && c.project) {
