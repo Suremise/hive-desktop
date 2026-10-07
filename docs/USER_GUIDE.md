@@ -655,7 +655,7 @@ Each project can override the global defaults in its **Settings** tab, which has
 | | Effort | Reasoning effort, from the levels the chosen model takes (see [Models, effort levels and prices](#models-effort-levels-and-prices)) |
 | | Use 200K context (instead of 1M) | Claude Code only: Inherit, On or Off. On holds this project's agents to a 200K context window |
 | | Permission mode | How much the agent asks before acting (below) |
-| | Extra arguments | Additional command-line arguments for the CLI. For Claude Code, a `--settings` file (relative to the agent's folder) or inline JSON is merged into the settings Hive starts it with: your settings and hooks apply, and Hive keeps its own hooks and status line (an allowlist of hook URLs or variables gets Hive's added). Settings that are missing, aren't JSON, or would turn Hive's hooks off (`disableAllHooks`) stop the agent from starting, with a message saying which |
+| | Extra arguments | Additional command-line arguments for the CLI. For Claude Code, a `--settings` file (relative to the agent's folder) or inline JSON is merged into the settings Hive starts it with: your settings and hooks apply, and Hive keeps its own hooks and status line (an allowlist of hook URLs or variables gets Hive's added). A `--settings` with no value, or settings that are missing, aren't JSON, or would turn Hive's hooks off (`disableAllHooks`), stop the agent from starting, with a message saying which |
 | Sessions | Suggest compacting above | When the Compact button turns orange (see [Sessions](#sessions)) |
 | | Warn when a transcript is over | When a conversation's transcript size turns amber |
 | | Completion chime | On, off or inherit |

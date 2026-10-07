@@ -1,6 +1,6 @@
 import { isAbsolute, join } from 'path'
 import { readFile } from 'original-fs/promises'
-import { lastSettingsArg } from './autoCompact'
+import { settingsArgValue } from './autoCompact'
 
 /**
  * A `--settings` in the user's own arguments (#330). Claude Code reads only the last `--settings` it is given (checked
@@ -20,14 +20,16 @@ export function withoutSettingsArgs(args: readonly string[]): string[] {
 
 /**
  * The settings of the last `--settings` in the user's arguments: inline JSON or a file (relative to the session's folder),
- * as an object; null without one. Throws, saying which argument, when Claude Code would have refused it too (a missing
- * file: "Settings file not found"), when it isn't a settings object, or when it would turn Hive's hooks off in a way a
+ * as an object; null without one. Throws, saying which argument, when Claude Code would have refused it too (no value,
+ * #361; a missing file: "Settings file not found"), when it isn't a settings object, or when it would turn Hive's hooks off in a way a
  * merge can't undo (disableAllHooks, an HTTP hook allowlist that isn't a list), rather than launching without what it
  * asked for or without Hive's hooks.
  */
 export async function userSettings(args: readonly string[], cwd: string): Promise<Record<string, unknown> | null> {
-  const v = lastSettingsArg(args)
-  if (!v) return null
+  const v = settingsArgValue(args)
+  if (v === null) return null
+  // `--settings` at the end, `--settings=` or an empty value: a mistake to fix, not "no settings" (#361).
+  if (!v) throw new Error('The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings <file or JSON>), or remove it in Agent Settings or Settings → Claude Code.')
   // Claude Code takes a value that parses as JSON as inline settings, and anything else as a file's path.
   let json: unknown
   let inline = false

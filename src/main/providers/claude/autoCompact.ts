@@ -156,14 +156,22 @@ function readSettings(file: string): unknown {
   }
 }
 
-/** The value of the last `--settings` (or `--settings=`) in arguments, trimmed; undefined without one. */
+/**
+ * The value of the last `--settings` (or `--settings=`) in arguments, trimmed: '' when it was given none (`--settings` at
+ * the end, `--settings=`, an empty value), null without one (#361).
+ */
+export function settingsArgValue(args: readonly string[]): string | null {
+  let value: string | null = null
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--settings') value = args[i + 1] ?? ''
+    else if (args[i].startsWith('--settings=')) value = args[i].slice('--settings='.length)
+  }
+  return value?.trim() ?? null
+}
+
+/** The value of the last `--settings` (or `--settings=`) in arguments, trimmed; undefined without one or without a value. */
 export function lastSettingsArg(args: readonly string[]): string | undefined {
-  let value: string | undefined
-  args.forEach((a, i) => {
-    if (a === '--settings') value = args[i + 1]
-    else if (a.startsWith('--settings=')) value = a.slice('--settings='.length)
-  })
-  return value?.trim() || undefined
+  return settingsArgValue(args) || undefined
 }
 
 /**
