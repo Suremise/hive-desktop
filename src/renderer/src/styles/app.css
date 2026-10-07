@@ -4899,31 +4899,15 @@ body.pane-resizing .monaco-editor {
 .card-chip-more {
   color: var(--fg-muted);
 }
-/* Short of room, the card's title gives way before the agent's status, down to the chip's icon and number. The title's
-   column may shrink to nothing (minmax(0, …)), so the chip's narrowest is its number and it never spills out of its place. */
+/* In a pane header, the strip and the Assistant's overview the chip is its icon and number (+n), the titles on hover
+   (#311): it keeps its size, and the agent's status gives way first. */
 .pane-header-bar > .tip-wrap:has(> .card-chip) {
   display: inline-flex;
-  flex-shrink: 4;
+  flex-shrink: 0;
 }
-.pane-header-bar .card-chip {
-  display: inline-grid;
-  grid-template-columns: auto auto minmax(0, max-content) auto;
-  column-gap: 0;
-}
-.pane-header-bar .card-chip-number {
-  margin-left: 4px;
-}
-.pane-header-bar .card-chip-title {
-  grid-column: 3;
-  margin-left: 4px;
-}
-.pane-header-bar .card-chip-more {
-  grid-column: 4;
-  margin-left: 4px;
-}
-.pane-header-bar .card-chip {
-  flex-shrink: 1;
-  max-width: 170px;
+.pane-header-bar .card-chip,
+.assistant-agent .card-chip {
+  flex-shrink: 0;
 }
 .agent-tab .card-chip {
   margin-left: 2px;
@@ -5426,10 +5410,16 @@ body.pane-resizing-v .monaco-editor {
 .assistant-agent:hover .assistant-agent-name {
   color: var(--fg-strong);
 }
+/* Short of room, what the agent is doing gives way first, then its name (down to a few letters); the card chip stays. */
 .assistant-agent-name {
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .assistant-agent-status {
+  flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

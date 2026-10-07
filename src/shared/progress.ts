@@ -142,6 +142,18 @@ export function shortDuration(ms: number): string {
   return `${h} h${min % 60 ? ` ${min % 60} min` : ''}`
 }
 
+/** An agent's newest open run (running or stale), for what it is doing elsewhere (the Assistant's overview, #311). */
+export function agentOpenRun(runs: readonly ProgressRun[], projectPath: string, agentId: string): ProgressRun | null {
+  const p = projectPath.toLowerCase()
+  return runs.find((r) => r.source === 'agent' && r.agentId === agentId && r.projectPath?.toLowerCase() === p && isOpenRun(r)) ?? null
+}
+
+/** A run in a few words for a status line: "e2e: 12 suites 4/12", or "build" without steps; a stale one says so. */
+export function runWords(r: Pick<ProgressRun, 'title' | 'total' | 'step' | 'state'>): string {
+  const steps = r.total !== null ? ` ${Math.min(r.step ?? 0, r.total)}/${r.total}` : ''
+  return `${r.title}${steps}${r.state === 'stale' ? ` · ${RUN_STATE_WORDS.stale}` : ''}`
+}
+
 /** One line of a run's details (#251): its label, its text, and whether it is a command or a path (shown as code). */
 export interface RunDetail {
   label: string

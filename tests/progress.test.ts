@@ -2,7 +2,7 @@
 // updates; stale runs; the taskbar's combined bar; time left.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProgressError, ProgressStore, admitReport, keptRuns, type ProgressCaller, type ProgressHistory } from '../src/main/progress'
-import { MAX_OPEN_PER_OWNER, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices, filterRuns, inStrip, isListed, isOverdue, isRecent, runDetailsText, stripRuns, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
+import { MAX_OPEN_PER_OWNER, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, agentOpenRun, runWords, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices, filterRuns, inStrip, isListed, isOverdue, isRecent, runDetailsText, stripRuns, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
 import type { ProgressRun } from '../src/shared/types'
 import { setDateStyle } from '../src/shared/dates'
 
@@ -425,6 +425,21 @@ describe('progress runs', () => {
 })
 
 describe('progress rules', () => {
+  it("an agent's open run and its few words, for the Assistant's overview (#311)", () => {
+    const mine = { source: 'agent' as const, projectPath: 'C:\\ws\\Alpha', agentId: 'a-1' }
+    const runs = [
+      run({ ...mine, id: 'ended', state: 'passed', finishedAt: 5 }),
+      run({ ...mine, id: 'twin', projectPath: 'C:\\ws\\gamma' }),
+      run({ id: 'script', source: 'api', agentId: 'a-1', projectPath: null }),
+      run({ ...mine, id: 'open', title: 'e2e: 12 suites', total: 12, step: 4 })
+    ]
+    expect(agentOpenRun(runs, 'c:\\ws\\alpha', 'a-1')?.id).toBe('open')
+    expect(agentOpenRun(runs, 'c:\\ws\\alpha', 'a-2')).toBeNull()
+    expect(runWords(runs[3])).toBe('e2e: 12 suites 4/12')
+    expect(runWords(run({ title: 'build', total: null, step: null }))).toBe('build')
+    expect(runWords(run({ title: 'unit', total: 3, step: 9, state: 'stale' }))).toBe('unit 3/3 · stopped reporting')
+  })
+
   it(`the folded strip: a bar for the newest ${STRIP_BARS}, the rest counted with the worst state, and every run in words`, () => {
     const runs = (states: ProgressRun['state'][]): ProgressRun[] => states.map((state, i) => ({ ...run({ state }), id: `r${i}` }))
     expect(stripRuns([])).toEqual({ bars: [], more: [], moreState: null, summary: '' })
