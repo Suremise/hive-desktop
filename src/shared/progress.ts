@@ -16,14 +16,16 @@ export const PASSED_SHOWN_MS = 10_000
 
 /** Open runs one agent (or the Assistant, or scripts in a workspace) may have at once. */
 export const MAX_OPEN_PER_OWNER = 5
-/** Runs kept in a workspace, whoever reported them: ended ones make room (oldest first); beyond it, no new run starts. */
-export const MAX_RUNS_PER_WORKSPACE = 30
+/** Open runs a workspace may have at once, whoever reported them: beyond it, no new run starts. */
+export const MAX_OPEN_PER_WORKSPACE = 30
+/** Ended runs a workspace keeps for Recent (#352), across restarts: the oldest go first. */
+export const RECENT_KEPT = 200
 export const MAX_TITLE = 120
 export const MAX_STEP_NAME = 120
 export const MAX_COMMAND = 200
 export const MAX_SUMMARY = 500
 export const MAX_LOG_PATH = 400
-/** Recent keeps this many ended runs. */
+/** Recent shows this many ended runs at first; Show all shows the rest it keeps (RECENT_KEPT). */
 export const RECENT_RUNS = 10
 export const MAX_TOTAL = 100_000
 export const MAX_ESTIMATE_MS = 7 * 24 * 3_600_000
@@ -138,6 +140,18 @@ export function shortDuration(ms: number): string {
   if (min < 60) return `${min} min`
   const h = Math.floor(min / 60)
   return `${h} h${min % 60 ? ` ${min % 60} min` : ''}`
+}
+
+/** An agent's newest open run (running or stale), for what it is doing elsewhere (the Assistant's overview, #311). */
+export function agentOpenRun(runs: readonly ProgressRun[], projectPath: string, agentId: string): ProgressRun | null {
+  const p = projectPath.toLowerCase()
+  return runs.find((r) => r.source === 'agent' && r.agentId === agentId && r.projectPath?.toLowerCase() === p && isOpenRun(r)) ?? null
+}
+
+/** A run in a few words for a status line: "e2e: 12 suites 4/12", or "build" without steps; a stale one says so. */
+export function runWords(r: Pick<ProgressRun, 'title' | 'total' | 'step' | 'state'>): string {
+  const steps = r.total !== null ? ` ${Math.min(r.step ?? 0, r.total)}/${r.total}` : ''
+  return `${r.title}${steps}${r.state === 'stale' ? ` · ${RUN_STATE_WORDS.stale}` : ''}`
 }
 
 /** One line of a run's details (#251): its label, its text, and whether it is a command or a path (shown as code). */
