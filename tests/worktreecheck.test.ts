@@ -9,6 +9,8 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createWorktree, deleteCheckedBranch, mergeWorktree, primaryBranch, removeCheckedWorktree, worktreeCheck } from '../src/main/worktrees'
+import { placeKey, samePlace } from '../src/main/fsutil'
+import { junction, shortPath } from './pathAliases'
 
 const run = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' })
 let root = ''
@@ -203,5 +205,51 @@ describe('removeCheckedWorktree', () => {
     commit(wt.path, 'b.txt')
     expect(await removeCheckedWorktree(p, wt, await worktreeCheck(p, wt), 'main')).toEqual({ deleted: false, reason: '1 commit not merged into main' })
     expect(existsSync(wt.path)).toBe(true)
+  })
+})
+
+// Paths Hive was given by another name than git's (#389): GitHub's runner has its temp folder at C:\Users\RUNNER~1\…, and
+// git lists worktrees by their real, long names. Compared by real paths, they are the same worktree; anything else still
+// isn't one.
+describe('paths by another name: an 8.3 short name or a junction (#389)', () => {
+  const aliases: [string, (p: string) => string | null][] = [
+    ['an 8.3 short name', (p) => shortPath(p)],
+    ['a junction', (p) => junction(p, `${p}-junction`)]
+  ]
+  for (const [kind, alias] of aliases) {
+    it(`a worktree and project given by ${kind} are checked and removed as git lists them`, async (ctx) => {
+      const { project: p, tree } = await makeProject()
+      const wt = await tree('aliased')
+      const wts = alias(join(root, 'wt'))
+      const proj = alias(p)
+      if (!wts || !proj) return ctx.skip('this volume makes no 8.3 names')
+      expect(wts.toLowerCase()).not.toBe(join(root, 'wt').toLowerCase())
+      const named = { ...wt, path: join(wts, 'aliased') }
+      expect(samePlace(named.path, wt.path)).toBe(true)
+      expect(await worktreeCheck(proj, named)).toMatchObject({ removable: true, into: 'main' })
+      // Still only what git lists, on its branch: not the project folder by its other name, a plain folder or a wrong branch.
+      expect((await worktreeCheck(p, { path: proj, branch: 'main', base: 'main' })).removable).toBe(false)
+      mkdirSync(join(root, 'wt', 'plain'))
+      expect(await worktreeCheck(proj, { path: join(wts, 'plain'), branch: 'hive/plain', base: 'main' })).toMatchObject({ removable: false, reason: "git doesn't list it as a worktree on hive/plain" })
+      expect((await worktreeCheck(proj, { ...named, branch: 'hive/elsewhere' })).removable).toBe(false)
+      // Unmerged work still keeps it.
+      commit(wt.path, 'w.txt')
+      expect(await worktreeCheck(proj, named)).toMatchObject({ removable: false, reason: '1 commit not merged into main' })
+      run(p, 'merge', '-q', '--no-edit', wt.branch)
+      expect(await removeCheckedWorktree(proj, named, await worktreeCheck(proj, named), 'main')).toEqual({ deleted: true })
+      expect(existsSync(wt.path)).toBe(false)
+      expect(hasBranch(p, wt.branch)).toBe(false)
+    })
+  }
+
+  it('placeKey: one key for every name of a place, a missing path by its nearest folder, one that resolves nowhere as written', async () => {
+    const { project: p } = await makeProject()
+    const short = shortPath(p)
+    if (short) expect(placeKey(short)).toBe(placeKey(p))
+    const j = junction(p, join(root, 'via'))
+    expect(placeKey(j)).toBe(placeKey(p))
+    expect(placeKey(join(j, 'not-yet', 'x'))).toBe(placeKey(join(p, 'not-yet', 'x')))
+    expect(samePlace(j, join(root, 'other'))).toBe(false)
+    expect(placeKey('Q:\\No\\Such\\Folder')).toBe('q:\\no\\such\\folder')
   })
 })

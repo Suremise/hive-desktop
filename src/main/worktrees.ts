@@ -2,10 +2,9 @@ import { basename, dirname, join, resolve } from 'path'
 import { copyFile, mkdir } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import type { AgentBranchStatus, AgentWorktree, MergeResult, WorktreeCheck } from '../shared/types'
-import { copyDir, isDir } from './fsutil'
+import { copyDir, isDir, placeKey, samePlace } from './fsutil'
 import { git, gitReading } from './git'
 import { gitProblem } from './gitTool'
-import { samePath } from '../shared/movePaths'
 import { createLogger, userText } from './logger'
 
 const log = createLogger('worktrees')
@@ -58,9 +57,9 @@ export async function uniqueBranch(cwd: string, wanted: string, taken: ReadonlyS
   for (let i = 2; ; i++) if (free(`${wanted}-${i}`)) return `${wanted}-${i}`
 }
 
-/** A folder that doesn't exist yet: wanted, else wanted-2… `taken`: folders to avoid too, lower-cased (a plan's earlier ones). */
+/** A folder that doesn't exist yet: wanted, else wanted-2… `taken`: folders to avoid too, as `placeKey`s (a plan's earlier ones). */
 export function uniqueFolder(wanted: string, taken: ReadonlySet<string> = new Set()): string {
-  const free = (f: string): boolean => !existsSync(f) && !taken.has(f.toLowerCase())
+  const free = (f: string): boolean => !existsSync(f) && !taken.has(placeKey(f))
   if (free(wanted)) return wanted
   for (let i = 2; ; i++) if (free(`${wanted}-${i}`)) return `${wanted}-${i}`
 }
@@ -207,7 +206,8 @@ export async function worktreeCheck(projectPath: string, wt: AgentWorktree): Pro
   const unusable = (reason: string): WorktreeCheck => ({ removable: false, into, reason: gitProblem() ?? reason })
   if (!into) return unusable('the repository has no main branch (main or master) to check it against')
   const listed = await listWorktrees(projectPath)
-  if (samePath(wt.path, projectPath) || !listed.some((l) => samePath(l.path, wt.path) && l.branch === wt.branch)) return unusable(`git doesn't list it as a worktree on ${wt.branch}`)
+  // By real paths (#389): git lists the long name, while Hive may have been given a short (8.3) one, a junction or a symlink.
+  if (samePlace(wt.path, projectPath) || !listed.some((l) => samePlace(l.path, wt.path) && l.branch === wt.branch)) return unusable(`git doesn't list it as a worktree on ${wt.branch}`)
   if (!existsSync(wt.path)) return { removable: false, into, reason: 'its folder is missing' }
   // Both commits, so what is checked is fixed: the deletion is guarded against either branch moving afterwards.
   const [tip, intoTip] = await Promise.all([tipOf(projectPath, wt.branch), tipOf(projectPath, into)])

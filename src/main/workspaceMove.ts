@@ -6,6 +6,7 @@ import { HIVE_DIR, projectAgents } from '../shared/defaults'
 import { moveHasWork, rebase, rebaseAny, samePath, worktreeCandidates, type PathMove } from '../shared/movePaths'
 import { recreateWorktree } from './agentWorktree'
 import { config } from './config'
+import { realPath, samePlace } from './fsutil'
 import { git } from './git'
 import { createLogger, userText } from './logger'
 import { allProviders } from './providers'
@@ -50,13 +51,13 @@ async function isWorktreeFolder(p: string): Promise<boolean> {
   return (await stat(join(p, '.git')).catch(() => null))?.isFile() ?? false
 }
 
-/** Whether git's links between a repository and one of its worktrees are right both ways. */
+/** Whether git's links between a repository and one of its worktrees are right both ways (by real paths: git writes the long names, #389). */
 async function linked(repo: string, wt: string): Promise<boolean> {
   try {
     const gitdir = /^gitdir:\s*(.+)$/m.exec(await readFile(join(wt, '.git'), 'utf8'))?.[1]?.trim()
-    if (!gitdir || !under(resolve(wt, gitdir), join(repo, '.git', 'worktrees'))) return false
+    if (!gitdir || !under(realPath(resolve(wt, gitdir)), realPath(join(repo, '.git', 'worktrees')))) return false
     const back = (await readFile(join(resolve(wt, gitdir), 'gitdir'), 'utf8')).trim()
-    return samePath(resolve(back), join(wt, '.git'))
+    return samePlace(resolve(back), join(wt, '.git'))
   } catch {
     return false
   }
@@ -332,7 +333,7 @@ async function repairNow(ws: WorkspaceService, opts: MoveOptions): Promise<MoveR
       const r = await git(h.path, ['worktree', 'repair', ...fix.map((w) => w.to!)])
       const listed = await listWorktrees(h.path)
       for (const w of fix) {
-        const ok = listed.some((l) => samePath(l.path, w.to!)) && (await linked(h.path, w.to!))
+        const ok = listed.some((l) => samePlace(l.path, w.to!)) && (await linked(h.path, w.to!))
         if (!ok) {
           report.failed.push(`${h.name}: ${w.agentName}'s worktree at ${w.to} couldn't be repaired${r.ok ? '' : ` (${(r.err || 'git worktree repair failed').trim()})`}.`)
           continue

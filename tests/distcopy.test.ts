@@ -1,7 +1,7 @@
 // Installers built in a git worktree also go to the main checkout's dist (scripts/distCopy.mjs, #150): the worktree
 // detection, the copy plan, and the copy, with a temporary repository and worktree.
 import { execFileSync, spawn } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { pathToFileURL } from 'url'
@@ -26,7 +26,8 @@ describe('installers built in a worktree (scripts/distCopy.mjs)', () => {
   git(main, 'commit', '-qm', 'one')
   git(main, 'worktree', 'add', '-q', '-b', 'hive/agent', wt)
   const head = git(main, 'rev-parse', 'HEAD')
-  const same = (a: string, b: string) => resolve(a).toLowerCase() === resolve(b).toLowerCase()
+  // As places: git names the main checkout by its long path, the test may know it by a short (8.3) one, as on CI (#389).
+  const same = (a: string, b: string) => realpathSync.native(resolve(a)).toLowerCase() === realpathSync.native(resolve(b)).toLowerCase()
   /** An installer "built" in a checkout's dist, with its build-info.json. */
   const build = (dir: string, info: Info) => {
     mkdirSync(join(dir, 'dist'), { recursive: true })
