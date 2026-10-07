@@ -10,6 +10,7 @@ import type { CleanupItem, CleanupOptions, CleanupResult, ProjectStorage, Worksp
 import { createLogger, userText } from './logger'
 import { sessions, type ListContext } from './sessions'
 import { workspace } from './workspace'
+import { unusedWorktreeFolders } from './unusedWorktrees'
 
 const log = createLogger('storage')
 
@@ -199,6 +200,9 @@ async function measure(projectPath: string, refresh: boolean, signal: AbortSigna
       if (a.worktree) worktrees.push({ agent: a.name, path: a.worktree.path, bytes: await folderSize(a.worktree.path, cache, signal) })
     }
   }
+  // Worktrees no agent works in any more (#353): on disk all the same.
+  const unused: NonNullable<ProjectStorage['unusedWorktrees']> = []
+  if (!assistant) for (const w of await unusedWorktreeFolders(projectPath)) unused.push({ ...w, bytes: await folderSize(w.path, cache, signal) })
   const result: ProjectStorage = {
     path: projectPath,
     name: assistant ? ASSISTANT_NAME : basename(projectPath),
@@ -207,7 +211,8 @@ async function measure(projectPath: string, refresh: boolean, signal: AbortSigna
     archive,
     images,
     worktrees,
-    total: backups + archive + images + worktrees.reduce((n, w) => n + w.bytes, 0),
+    ...(unused.length ? { unusedWorktrees: unused } : {}),
+    total: backups + archive + images + [...worktrees, ...unused].reduce((n, w) => n + w.bytes, 0),
     computedAt: new Date().toISOString()
   }
   results.set(projectPath.toLowerCase(), result)
@@ -323,4 +328,9 @@ export async function cleanup(projectPath: string, opts: CleanupOptions, listed:
   log.info(`Clean Up in ${userText(projectPath)}: ${removed} item(s), ${bytes} bytes${skipped.length ? `, ${skipped.length} skipped` : ''}`)
   results.delete(projectPath.toLowerCase())
   return { removed, bytes, skipped }
+}
+
+/** Forgets a project's last measurement (a worktree was removed, #353): the next look measures again. */
+export function forgetStorage(projectPath: string): void {
+  results.delete(projectPath.toLowerCase())
 }

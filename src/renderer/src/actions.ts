@@ -5,7 +5,7 @@ import { MANY_AGENTS, MAX_AGENTS, chosenLayout, moveAgentTo, sessionInAgentFolde
 import { isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { agentsToResume, resumeAll, stalledOnSignIn } from '@shared/resumeAll'
 import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult } from '@shared/startAll'
-import type { OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem } from '@shared/types'
+import type { OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, ToastAction } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
 import { oldWorktreesNotice, templateLoadDetail } from '@shared/templateLoad'
 import { formatTokens, type SessionAction } from './util'
@@ -842,7 +842,12 @@ export async function removeAgent(path: string, agentId: string): Promise<void> 
   if (!ok) return
   focusAfterRemoving(p, agentId)
   await refreshWorkspace()
+  // Kept, it is an unused worktree now (#353): said once, with where to tidy it.
+  if (a.worktree && !deleteWorktree) notify('info', `${a.name}'s worktree is kept`, `${a.worktree.branch} in ${a.worktree.path}. The Overview lists the project's unused worktrees, merged or not.`, [reviewUnused(path)])
 }
+
+/** A notification's button to the project's unused worktrees (#353). */
+const reviewUnused = (path: string): ToastAction => ({ label: 'Review unused worktrees', command: 'project.unusedWorktrees', args: [path] })
 
 /**
  * Remove All (#291): every agent of the project after one question (danger style) listing them, running ones flagged
@@ -898,6 +903,8 @@ async function removeAllAgents_(path: string): Promise<void> {
   set((s) => ({ running: { ...s.running, ...Object.fromEntries(agents.map((a) => [key(a.id), true])) } }))
   const deleted: string[] = []
   const kept: string[] = []
+  // Worktrees left without an agent (#353's hint).
+  let unused = 0
   let result: BatchResult
   try {
     for (const a of agents) if (agentOf(project(path), a.id)?.live) await call('session:stop', path, a.id).catch(() => undefined)
@@ -906,6 +913,7 @@ async function removeAllAgents_(path: string): Promise<void> {
       try {
         const r = await call('agents:remove', path, a.id, { deleteWorktree: deleteMerged ? 'merged-clean' : false, mergedInto: into ?? null, releaseCards })
         const w = r.worktree
+        if (w && !w.deleted) unused++
         if (w?.deleted && w.branchKept) kept.push(`branch ${w.branch} (${w.reason}; its worktree was deleted)`)
         else if (w?.deleted) deleted.push(w.branch)
         else if (deleteMerged && w) kept.push(`${w.branch} (${w.reason ?? 'not checked'})`)
@@ -925,9 +933,12 @@ async function removeAllAgents_(path: string): Promise<void> {
     notify(
       'error',
       result.failed.length === tried ? (tried === 1 ? 'Could not remove the agent' : 'Could not remove the agents') : `${result.failed.length} of ${tried} agents could not be removed`,
-      [...result.failed.map((f) => `• ${f.name}: ${f.error}`), ...(result.done.length ? [`Removed: ${result.done.join(', ')}`] : []), ...trail].join('\n')
+      [...result.failed.map((f) => `• ${f.name}: ${f.error}`), ...(result.done.length ? [`Removed: ${result.done.join(', ')}`] : []), ...trail].join('\n'),
+      unused ? [reviewUnused(path)] : undefined
     )
-  } else if (deleteMerged) notify('success', one ? `Removed ${agents[0].name}` : `Removed ${agents.length} agents`, trail.join('\n'))
+  } else if (deleteMerged) notify('success', one ? `Removed ${agents[0].name}` : `Removed ${agents.length} agents`, trail.join('\n'), unused ? [reviewUnused(path)] : undefined)
+  // One notice for all of them: the worktrees kept are unused now (#353).
+  else if (unused) notify('info', unused === 1 ? 'Its worktree is kept' : `${unused} worktrees are kept`, "The Overview lists the project's unused worktrees, merged or not.", [reviewUnused(path)])
 }
 
 /** Removes a worktree agent together with its worktree and branch. */
