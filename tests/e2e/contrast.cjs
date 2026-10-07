@@ -1,16 +1,18 @@
-// Menu selection contrast (#362): a hovered or keyboard-chosen menu entry, and the command palette's chosen row, read at
-// WCAG AA (4.5:1) in both themes: its label, icon, shortcut and second line on the fill, a greyed entry's label too, and
-// Recent's ✕. Measured as drawn (computed colours in the window), on a real context menu (a project's, in the sidebar)
-// with entries of each kind added to it, and on the palette. A session action's entry keeps its own wash (#344).
+// Text on Hive's amber reads at WCAG AA (4.5:1) in both themes, measured as drawn (computed colours in the window):
+// - menus (#362): a hovered or keyboard-chosen entry, and the command palette's chosen row: its label, icon, shortcut
+//   and second line on the fill, a greyed entry's label too, and Recent's ✕; on a real context menu (a project's, in
+//   the sidebar) with entries of each kind added to it. A session action's entry keeps its own wash (#344);
+// - the status bar (#384): its items resting and hovered, a secondary part, and the caution, warning, update and
+//   update-ready items (added beside its own); the activity bar's and a project's count badges.
 // Throwaway profile and workspace, quiet; no agent is started. Empty Claude Code and Codex homes of its own: Hive looks
 // for both CLIs when it starts, and their sign-in checks must never read the user's.
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
 
-const userData = path.join(lib.WORK, 'menucontrast-profile')
-const ws = path.join(lib.WORK, 'menucontrast-ws')
-const homes = { CLAUDE_CONFIG_DIR: path.join(lib.WORK, 'menucontrast-claude-home'), CODEX_HOME: path.join(lib.WORK, 'menucontrast-codex-home') }
+const userData = path.join(lib.WORK, 'contrast-profile')
+const ws = path.join(lib.WORK, 'contrast-ws')
+const homes = { CLAUDE_CONFIG_DIR: path.join(lib.WORK, 'contrast-claude-home'), CODEX_HOME: path.join(lib.WORK, 'contrast-codex-home') }
 let failed = 0
 const check = (name, ok, extra = '') => {
   lib.checked(ok)
@@ -20,7 +22,7 @@ const check = (name, ok, extra = '') => {
 
 /**
  * In the window: each listed part of an element against the element's own background, as contrast ratios. Colours as
- * computed (rgb(), or color(srgb …) for a mix), a translucent background laid over the menu's.
+ * computed (rgb(), or color(srgb …) for a mix), a translucent background laid over the nearest one under it.
  */
 function measure([selector, parts]) {
   const parse = (c) => {
@@ -43,12 +45,21 @@ function measure([selector, parts]) {
   }
   const el = document.querySelector(selector)
   if (!el) return null
-  const panel = parse(getComputedStyle(el.closest('.menu, .palette') ?? document.body).backgroundColor)
+  // What shows through a translucent background: the nearest ancestor that paints one.
+  let under = el.parentElement
+  while (under && parse(getComputedStyle(under).backgroundColor)?.[3] === 0) under = under.parentElement
+  const panel = under ? parse(getComputedStyle(under).backgroundColor) : [255, 255, 255, 1]
   const bg = over(parse(getComputedStyle(el).backgroundColor), panel)
   const out = { background: bg.map(Math.round) }
+  // A part's colour as seen: its alpha times the opacity of it and its parents up to the measured element.
+  const seen = (part) => {
+    const c = parse(getComputedStyle(part).color)
+    for (let n = part; n && n !== el.parentElement; n = n.parentElement) c[3] *= Number(getComputedStyle(n).opacity)
+    return over(c, bg)
+  }
   for (const p of parts) {
     const part = p === '' ? el : el.querySelector(p)
-    out[p || 'label'] = part ? ratio(over(parse(getComputedStyle(part).color), bg), bg) : null
+    out[p || 'label'] = part ? ratio(seen(part), bg) : null
   }
   return out
 }
@@ -60,7 +71,9 @@ function measure([selector, parts]) {
   const { app, page, inv } = await lib.launch({ userData, env: homes, viewport: { width: 1000, height: 700 } })
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.openWorkspace(inv, page, ws)
-  const shot = (name) => page.screenshot({ path: path.join(lib.WORK, `menucontrast-${name}.png`) })
+  const shot = (name, clip) => page.screenshot({ path: path.join(lib.WORK, `contrast-${name}.png`), ...(clip ? { clip } : {}) })
+  /** Every listed part reaches 4.5:1 (a part that isn't there doesn't count). */
+  const allAA = (r) => !!r && Object.entries(r).every(([k, v]) => k === 'background' || v === null || v >= 4.5)
 
   for (const theme of ['light', 'dark']) {
     await inv('settings:update', { appearance: { theme } })
@@ -121,6 +134,72 @@ function measure([selector, parts]) {
     await shot(`${theme}-palette`)
     await page.keyboard.press('Escape')
     await lib.sleep(200)
+
+    // The status bar (#384): one of its own items, resting and hovered; then items of each kind added beside them.
+    const bar = page.locator('.statusbar')
+    const item = bar.locator('.status-item:not(.warn):not(.caution):not(.update-item)').first()
+    await item.evaluate((d) => d.setAttribute('data-probe', 'status'))
+    await page.mouse.move(5, 5)
+    await lib.sleep(150)
+    const rest = await page.evaluate(measure, ['.statusbar [data-probe="status"]', ['']])
+    check(`${theme}: a status bar item reaches 4.5:1`, allAA(rest), JSON.stringify(rest))
+    await item.hover()
+    await lib.sleep(150)
+    const hovered = await page.evaluate(measure, ['.statusbar [data-probe="status"]', ['']])
+    check(`${theme}: hovered, a status bar item reaches 4.5:1`, allAA(hovered), JSON.stringify(hovered))
+    await page.mouse.move(5, 5)
+    await bar.evaluate((b) => {
+      const add = (cls, html) => {
+        const d = document.createElement('div')
+        d.className = cls
+        d.innerHTML = html
+        b.appendChild(d)
+      }
+      add('status-item probe-sub', '<i class="codicon codicon-pulse"></i><span>Claude Code</span><span class="status-sub">5h 55%</span>')
+      add('status-item caution probe-caution', '<i class="codicon codicon-bell"></i><span>2 need you</span>')
+      add('status-item warn probe-warn', '<i class="codicon codicon-warning"></i><span>Git</span>')
+      add('status-item update-item probe-update', '<i class="codicon codicon-cloud-download"></i><span>Update 40%</span>')
+      add('status-item update-item ready probe-ready', '<i class="codicon codicon-arrow-circle-up"></i><span>Restart to update</span>')
+    })
+    for (const [probe, what, want] of [
+      ['.probe-sub', 'a secondary part', ['', '.status-sub']],
+      ['.probe-caution', 'a caution item', ['', '.codicon']],
+      ['.probe-warn', 'a warning item', ['', '.codicon']],
+      ['.probe-update', 'an update item', ['', '.codicon']],
+      ['.probe-ready', 'an update-ready item', ['', '.codicon']]
+    ]) {
+      const r = await page.evaluate(measure, [`.statusbar ${probe}`, want])
+      check(`${theme}: ${what} in the status bar reaches 4.5:1`, allAA(r), JSON.stringify(r))
+      // Hovered too: these keep their own background.
+      await page.locator(probe).hover()
+      await lib.sleep(120)
+      const h = await page.evaluate(measure, [`.statusbar ${probe}`, want])
+      check(`${theme}: hovered, ${what} in the status bar reaches 4.5:1`, allAA(h), JSON.stringify(h))
+    }
+    await page.mouse.move(5, 5)
+    await lib.sleep(120)
+    const vp = page.viewportSize()
+    await shot(`${theme}-statusbar`, { x: 0, y: vp.height - 60, width: vp.width, height: 60 })
+
+    // The count badges: the activity bar's and a project's (#384), added where Hive shows them.
+    await page.evaluate(() => {
+      const a = document.querySelector('.activitybar .activity-btn')
+      const s = document.createElement('span')
+      s.className = 'activity-badge probe-activity'
+      s.textContent = '3'
+      a?.appendChild(s)
+      const project = document.querySelector('.project-row')
+      const n = document.createElement('span')
+      n.className = 'project-need-count probe-need'
+      n.textContent = '2'
+      project?.appendChild(n)
+    })
+    for (const [probe, what] of [['.probe-activity', "the activity bar's count"], ['.probe-need', "a project's needs-you count"]]) {
+      const r = await page.evaluate(measure, [probe, ['']])
+      check(`${theme}: ${what} reaches 4.5:1`, allAA(r), JSON.stringify(r))
+    }
+    await shot(`${theme}-badges`, { x: 0, y: 0, width: 340, height: 240 })
+    await page.evaluate(() => document.querySelectorAll('.probe-sub, .probe-caution, .probe-warn, .probe-update, .probe-ready, .probe-activity, .probe-need').forEach((e) => e.remove()))
   }
 
   await app.close()

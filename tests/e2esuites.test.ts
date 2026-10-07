@@ -1268,7 +1268,7 @@ describe('the run context: what a test starts gets only the allowlist and its ow
   // Hive looks for both CLIs when it starts, and their sign-in checks read the home they are given, else the user's.
   // Suites added since (#333, #362, #365) give every Hive they start both homes; #382 brings the older ones in.
   it('newer suites give each test Hive their own Claude Code and Codex homes (#362)', () => {
-    for (const name of ['claudesettings', 'menucontrast', 'testedclis']) {
+    for (const name of ['claudesettings', 'contrast', 'testedclis']) {
       const src = readFileSync(join(root, 'tests', 'e2e', `${name}.cjs`), 'utf8')
       const launches = [...src.matchAll(/lib\.launch\(\{[^\n]*\}\)/g)].map((m) => m[0])
       expect(launches.length, name).toBeGreaterThan(0)
