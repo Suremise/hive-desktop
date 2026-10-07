@@ -539,6 +539,64 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   check('a removed agent: its run says so, with nothing to show', !!(await until(async () => /Cara has been removed from beta/.test(await caraItem.locator('.progress-details').innerText().catch(() => '')))) && (await caraItem.locator('button', { hasText: 'Show the agent' }).count()) === 0)
   await page.keyboard.press('Escape')
 
+  // --- Recent keeps more than it shows (#352): the newest 10, then "Show all n", which unfolds every kept run in a box
+  // of the same height, scrolling inside, so the panel doesn't move; the filter counts and lists the whole history; the
+  // fold is remembered for the workspace.
+  for (let i = 0; i < 12; i++) {
+    const h = await call(workspaceToken, 'POST', '/v1/progress', { title: `history ${i}` })
+    await call(workspaceToken, 'POST', `/v1/progress/${h.body?.id}/finish`, { ok: i !== 5 })
+  }
+  const endedRuns = async (scriptsOnly = false) => (await inv('progress:list')).filter((x) => x.finishedAt !== null && (!scriptsOnly || x.source !== 'agent'))
+  const nAll = (await endedRuns()).length
+  const recentRows = panel.locator('.progress-recent-item')
+  const fold = panel.locator('button.show-all-fold')
+  const historyBox = panel.locator('.progress-recent-list')
+  check(`more than 10 ended runs (${nAll}): Recent shows the newest 10 and "Show all ${nAll}"`, nAll > 12 && !!(await until(async () => (await recentRows.count()) === 10 && (await fold.textContent().catch(() => '')) === `Show all ${nAll}`, 20000)) && (await fold.getAttribute('aria-expanded')) === 'false', `${await recentRows.count()} ${await fold.textContent().catch(() => '')}`)
+  check('…the newest first', (await recentRows.first().locator('.progress-recent-text').textContent()) === 'Script · history 11')
+  const foldedBox = await historyBox.evaluate((el) => el.getBoundingClientRect().height)
+  await fold.scrollIntoViewIfNeeded()
+  const foldTop = await fold.evaluate((el) => el.getBoundingClientRect().top)
+  await fold.click()
+  check('Show all lists every ended run', !!(await until(async () => (await recentRows.count()) === nAll)) && (await fold.textContent()) === 'Show fewer' && (await fold.getAttribute('aria-expanded')) === 'true', `${await recentRows.count()}`)
+  const openBox = await historyBox.evaluate((el) => ({ h: el.getBoundingClientRect().height, scroll: el.scrollHeight, client: el.clientHeight, label: el.getAttribute('aria-label') }))
+  check('…in a box of the same height that scrolls inside: the panel stays put', Math.abs(openBox.h - foldedBox) <= 2 && openBox.scroll > openBox.client + 20 && Math.abs((await fold.evaluate((el) => el.getBoundingClientRect().top)) - foldTop) <= 2, JSON.stringify({ foldedBox, openBox }))
+  check('…named for the screen reader', openBox.label === `Recent runs, all ${nAll}`, openBox.label)
+  await historyBox.evaluate((el) => (el.scrollTop = el.scrollHeight))
+  const last = recentRows.last()
+  check('…scrolled to its end, the oldest run is in view inside the box', await last.evaluate((el) => {
+    const b = el.closest('.progress-recent-list').getBoundingClientRect()
+    const rect = el.getBoundingClientRect()
+    return rect.top >= b.top - 1 && rect.bottom <= b.bottom + 1
+  }))
+  await last.locator('.progress-recent').click()
+  check('an older run opens its details there too', !!(await until(async () => (await last.locator('.progress-details').count()) === 1)))
+  await page.screenshot({ path: path.join(shots, 'dark-recent-all.png') })
+  await last.locator('.progress-details-toggle').click()
+  const allKey = `progress-recent-all:${ws.toLowerCase()}`
+  check('the unfolded Recent is remembered for the workspace', !!(await until(async () => (await inv('ui:get')).panes?.[allKey] === 1, 3000)))
+  // The filter applies to the whole history, and n counts what it shows.
+  await panel.locator('.progress-filter select[aria-label="Show the runs of"]').selectOption({ label: 'Assistant and scripts' })
+  const nScripts = (await endedRuns(true)).length
+  check(`filtered to scripts: every one of their ${nScripts} ended runs, and only theirs`, nScripts < nAll && !!(await until(async () => (await recentRows.count()) === nScripts)) && (await panel.locator('.progress-recent-text').allTextContents()).every((t) => t.startsWith('Script')), `${await recentRows.count()}`)
+  await fold.click()
+  check(`…folded: 10 and "Show all ${nScripts}"`, !!(await until(async () => (await recentRows.count()) === 10 && (await fold.textContent()) === `Show all ${nScripts}`)) && (await historyBox.evaluate((el) => el.scrollTop)) === 0)
+  check('folding is remembered too', !!(await until(async () => (await inv('ui:get')).panes?.[allKey] === undefined, 3000)))
+  await panel.locator('.progress-filter select[aria-label="Show the runs of"]').selectOption({ label: 'All projects' })
+  check('All projects: n counts every ended run again', !!(await until(async () => (await fold.textContent()) === `Show all ${nAll}`)))
+  await fold.focus()
+  await page.keyboard.press('Enter')
+  check('the fold works from the keyboard', !!(await until(async () => (await recentRows.count()) === nAll)))
+  await inv('settings:update', { appearance: { theme: 'light' } })
+  await historyBox.evaluate((el) => {
+    el.scrollIntoView({ block: 'end' })
+    el.scrollTop = 120
+  })
+  await lib.sleep(300)
+  await page.screenshot({ path: path.join(shots, 'light-recent-all.png') })
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await page.keyboard.press('Enter')
+  check('…and Show fewer from the keyboard', !!(await until(async () => (await recentRows.count()) === 10)))
+
   // --- Light theme, and with the Assistant's panel open beside it.
   await inv('settings:update', { appearance: { theme: 'light' } })
   await page.keyboard.press('Control+Alt+I')
@@ -567,6 +625,7 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   check('reports are accepted and ignored', r.status === 200 && r.body?.ignored === true && ri.body?.ignored === true && rf.body?.ignored === true, JSON.stringify([r, ri, rf]))
   await inv('settings:update', { general: { progressPanel: true } })
   check('on again, the strip is back, with nothing from before', !!(await until(async () => (await rail.count()) === 1 || (await panel.count()) === 1)) && (await page.locator('.progress-run').count()) === 0)
+  check('…Recent included, kept runs too (#352)', (await inv('progress:list')).length === 0 && !!(await until(async () => !fs.existsSync(path.join(userData, 'progress-history')), 5000)))
 
   // --- Agents show long commands (#167): on by default, in Settings under the Progress panel and greyed out while the
   // panel is off; a session started afterwards gets the matching rule (its hive MCP server's instructions).
@@ -612,7 +671,11 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   check('a session started afterwards is told: only when the user asks', /hive-progress --title "[^"]+" -- <command>`.*only when the user asks/.test(told) && !/over 30 s/.test(told), told.slice(-400))
   await inv('settings:update', { general: { progressCommands: true } })
 
-  // --- Switching the window to another workspace and back: its runs are gone, old ids unknown, the taskbar clear.
+  // --- Switching the window to another workspace and back: its open runs are gone, old ids unknown, the taskbar clear;
+  // its ended runs are kept under Recent (#352).
+  r = await call(workspaceToken, 'POST', '/v1/progress', { title: 'ended run' })
+  const run5 = r.body?.id
+  await call(workspaceToken, 'POST', `/v1/progress/${run5}/finish`, { ok: false, summary: 'kept' })
   r = await call(workspaceToken, 'POST', '/v1/progress', { title: 'script run', total: 2 })
   const run4 = r.body?.id
   check('a script reports a run', r.status === 200 && !!(await until(async () => taskbar()?.mode === 'normal')))
@@ -622,11 +685,23 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   await inv('workspace:open', ws2)
   check('switching away clears the taskbar', !!(await until(async () => taskbar()?.mode === 'none')), JSON.stringify(taskbar()))
   await lib.openWorkspace(inv, page, ws)
-  check('reopened, the workspace has no runs', (await inv('progress:list')).length === 0)
+  const ids = async () => (await inv('progress:list')).map((x) => x.id)
+  check('reopened, the open run is gone and the ended one is back', JSON.stringify(await ids()) === JSON.stringify([run5]), JSON.stringify(await ids()))
   r = await call(workspaceToken, 'PATCH', `/v1/progress/${run4}`, { step: 1 })
   check("and the old run's id is unknown (404)", r.status === 404, JSON.stringify(r))
 
+  // --- A restart keeps Recent (#352): seen, so under Recent, with its details.
   await app.close()
+  const app2 = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page2 = await app2.firstWindow()
+  page2.on('pageerror', (e) => check('no page errors after the restart', false, e.message))
+  await lib.appReady(page2)
+  const inv2 = (ch, ...a) => page2.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  if ((await inv2('workspace:get'))?.path?.toLowerCase() !== ws.toLowerCase()) await lib.openWorkspace(inv2, page2, ws)
+  const kept = (await inv2('progress:list')).find((x) => x.id === run5)
+  check('after a restart, the ended run is under Recent with its summary', kept?.state === 'failed' && kept?.summary === 'kept' && kept?.seenAt !== null, JSON.stringify(kept))
+  check('…and shows there', !!(await until(async () => (await page2.locator(`.progress-panel .progress-recent-item[data-run="${run5}"]`).count()) === 1 || (await page2.locator('.progress-rail').count()) === 1)))
+  await app2.close()
   console.log(failed ? `\n${failed} check(s) failed` : '\nAll progress checks passed')
   process.exit(failed ? 1 : 0)
 })().catch((e) => {
