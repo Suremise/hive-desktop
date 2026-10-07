@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, assistantPersona } from '@shared/assistant'
 import { compactThreshold, isCompacting } from '@shared/defaults'
 import { formatDateTime } from '@shared/dates'
+import { agentOpenRun, runWords } from '@shared/progress'
 import { agentProvider, providerDescriptor } from '@shared/providers'
-import type { AgentInfo, AgentPatch, AssistantAction, EffortLevel, PermissionMode, PersonaInfo, ProjectInfo, ProviderId } from '@shared/types'
+import type { AgentInfo, AgentPatch, AssistantAction, EffortLevel, PermissionMode, PersonaInfo, ProgressRun, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
@@ -13,6 +14,7 @@ import { useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
 import { Overrides, ProviderChoice, contextChoice, contextValue, type ContextChoice } from './AgentDialogs'
 import { PaneFooter, RESUME_TINT, useWidth } from './AgentPanes'
+import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
 import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { PaneResizer, usePaneSize } from './Resizer'
@@ -529,6 +531,47 @@ function AssistantActions() {
   )
 }
 
+/**
+ * What an agent is doing, in a few words (#311): its status when it needs you, else its open progress run ("e2e: 12
+ * suites 4/12"), else its status (background tasks, a card watch…). Nothing while it isn't running.
+ */
+function activityOf(live: AgentInfo['live'], run: ProgressRun | null): string | null {
+  if (!live) return null
+  const needsYou = live.status === 'waiting' || live.status === 'signin' || live.status === 'error' || !!live.question
+  return run && !needsYou ? runWords(run) : statusText(live)
+}
+
+/**
+ * One agent in the workspace overview: its dot, provider and name, the card it is on (#311: the short chip, its icon and
+ * number, the eye when reviewing; a click opens the card) and what it is doing, cut short with "…" when the panel is
+ * narrow. The tooltip has the rest: its status, every card it has in Doing or is reviewing, its progress and its
+ * worktree's branch.
+ */
+function OverviewAgent({ project: p, a, onGo }: { project: ProjectInfo; a: AgentInfo; onGo: () => void }) {
+  const doing = useAgentCards(p, a.id)
+  const reviewing = useAgentReviews(p, a.id)
+  const run = useStore((s) => agentOpenRun(s.progressRuns, p.path, a.id))
+  const activity = activityOf(a.live, run)
+  const tip = [
+    `${a.name}: ${a.live ? statusText(a.live) : 'not running'}`,
+    ...doing.map((c) => `Working on #${c.number} ${c.title}`),
+    ...reviewing.map((c) => `Reviewing #${c.number} ${c.title}`),
+    ...(run ? [`Progress: ${runWords(run)}${run.stepName ? ` (${run.stepName})` : ''}`] : []),
+    ...(a.worktree ? [`Worktree on ${a.worktree.branch}`] : [])
+  ].join('\n')
+  return (
+    <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
+      <span className="assistant-agent" data-agent={a.id} onClick={onGo}>
+        <span className={cx('dot', a.live?.status ?? 'stopped', a.live?.unseen && 'unseen')} />
+        <ProviderIcon provider={agentProviderOf(p, a)} />
+        <span className="assistant-agent-name">{a.name}</span>
+        <CardChip project={p} a={a} short tip={false} />
+        {activity && <span className="faint assistant-agent-status">{activity}</span>}
+      </span>
+    </Tooltip>
+  )
+}
+
 /** Whether a workspace's overview shows its inactive projects (remembered per workspace). */
 const inactiveKey = (ws: string): string => `assistant-inactive:${ws.toLowerCase()}`
 
@@ -568,14 +611,7 @@ function WorkspaceOverview() {
       <div className="assistant-agents">
         {p.agents.length === 0 && <span className="faint">no agents</span>}
         {p.agents.map((a) => (
-          <Tooltip key={a.id} content={`${a.name}: ${a.live ? statusText(a.live) : 'not running'}${a.worktree ? ` · worktree ${a.worktree.branch}` : ''}`}>
-            <span className="assistant-agent" onClick={() => go(p, a.id)}>
-              <span className={cx('dot', a.live?.status ?? 'stopped', a.live?.unseen && 'unseen')} />
-              <ProviderIcon provider={agentProviderOf(p, a)} />
-              <span className="assistant-agent-name">{a.name}</span>
-              {a.live && <span className="faint assistant-agent-status">{statusText(a.live)}</span>}
-            </span>
-          </Tooltip>
+          <OverviewAgent key={a.id} project={p} a={a} onGo={() => go(p, a.id)} />
         ))}
       </div>
     </div>

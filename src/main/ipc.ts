@@ -681,7 +681,13 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (!workspace.path) throw new Error('No workspace is open.')
       await revertSetting(workspace.path, String(actionId))
     },
-    'progress:list': () => (workspace.path ? progress.list(workspace.path) : []),
+    'progress:list': async () => {
+      const ws = workspace.path
+      if (!ws) return []
+      // Recent from before a restart joins the runs the first time the window asks (#352).
+      await progress.loadHistory(ws)
+      return progress.list(ws)
+    },
     'progress:dismiss': (id) => {
       if (workspace.path) progress.dismiss(workspace.path, String(id))
     },

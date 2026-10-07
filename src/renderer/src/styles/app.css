@@ -4899,31 +4899,15 @@ body.pane-resizing .monaco-editor {
 .card-chip-more {
   color: var(--fg-muted);
 }
-/* Short of room, the card's title gives way before the agent's status, down to the chip's icon and number. The title's
-   column may shrink to nothing (minmax(0, …)), so the chip's narrowest is its number and it never spills out of its place. */
+/* In a pane header, the strip and the Assistant's overview the chip is its icon and number (+n), the titles on hover
+   (#311): it keeps its size, and the agent's status gives way first. */
 .pane-header-bar > .tip-wrap:has(> .card-chip) {
   display: inline-flex;
-  flex-shrink: 4;
+  flex-shrink: 0;
 }
-.pane-header-bar .card-chip {
-  display: inline-grid;
-  grid-template-columns: auto auto minmax(0, max-content) auto;
-  column-gap: 0;
-}
-.pane-header-bar .card-chip-number {
-  margin-left: 4px;
-}
-.pane-header-bar .card-chip-title {
-  grid-column: 3;
-  margin-left: 4px;
-}
-.pane-header-bar .card-chip-more {
-  grid-column: 4;
-  margin-left: 4px;
-}
-.pane-header-bar .card-chip {
-  flex-shrink: 1;
-  max-width: 170px;
+.pane-header-bar .card-chip,
+.assistant-agent .card-chip {
+  flex-shrink: 0;
 }
 .agent-tab .card-chip {
   margin-left: 2px;
@@ -5426,10 +5410,16 @@ body.pane-resizing-v .monaco-editor {
 .assistant-agent:hover .assistant-agent-name {
   color: var(--fg-strong);
 }
+/* Short of room, what the agent is doing gives way first, then its name (down to a few letters); the card chip stays. */
 .assistant-agent-name {
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .assistant-agent-status {
+  flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6870,6 +6860,41 @@ button.progress-run-show:focus-visible {
   color: var(--error);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* A list showing its first few, with Show all n for the rest (ShowAllList, #352): unfolded, they all scroll inside the
+   same height, so nothing around it moves. */
+.show-all-list.all {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+.show-all-fold {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 5px 0;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+.show-all-fold:hover {
+  color: var(--fg);
+}
+.show-all-fold .codicon {
+  font-size: 14px;
+}
+.progress-panel .show-all-fold {
+  padding: 4px 12px;
+}
+.progress-recent-list.all {
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .progress-section {
   margin: 10px 12px 4px;
