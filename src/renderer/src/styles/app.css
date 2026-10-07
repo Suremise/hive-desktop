@@ -7,6 +7,8 @@
   --accent-strong: #d97706;
   --accent-soft: rgba(245, 158, 11, 0.16);
   --accent-fg: #1b1b1b;
+  /* A fill carrying an --accent-fg label (the primary button, #360): the accent itself here, 8.0:1. */
+  --accent-fill: var(--accent);
   --honey-light: #ffc444;
   /* The accent as an icon on the activity bar: at least 3:1 against it (6.5:1 here). */
   --accent-on-activity: var(--accent);
@@ -69,6 +71,9 @@
   --accent-strong: #b45309;
   --accent-soft: rgba(217, 119, 6, 0.14);
   --accent-fg: #ffffff;
+  /* A fill carrying an --accent-fg label (the primary button, #360). White on --accent is 3.2:1; this is the same
+     amber hue darkened only as far as AA needs (4.6:1). Hovered, --accent-strong (5.0:1). */
+  --accent-fill: #b16105;
   --honey-light: #f59e0b;
   /* --accent is 2.6:1 on the light activity bar; the stronger one is 4.1:1. */
   --accent-on-activity: var(--accent-strong);
@@ -874,7 +879,7 @@ kbd {
   cursor: default;
 }
 .btn.primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-fg);
   font-weight: 600;
 }
@@ -3130,10 +3135,11 @@ p.hint {
   line-height: 1.5;
 }
 
-/* A tinted button: a soft wash of the accent (Add Agent where Resume would be). Session actions have their own colours (below). */
+/* A tinted button: a soft wash of the accent (Add Agent where Resume would be), labelled like the tinted Resume beside
+   which it stands (--act-resume-fg: AA on the wash, #360). Session actions have their own colours (below). */
 .btn.tint-amber {
   --tint: var(--accent);
-  color: var(--tint);
+  color: var(--act-resume-fg);
   background: color-mix(in srgb, var(--tint) 12%, transparent);
   border-color: color-mix(in srgb, var(--tint) 45%, transparent);
 }
