@@ -1191,7 +1191,7 @@ describe('the run context: what a test starts gets only the allowlist and its ow
     childEnv: (vars?: Env, parent?: Env) => Env
     hiveEnv: (vars?: Env, parent?: Env) => Env
     isHiveEnv: (env: unknown) => boolean
-    suiteEnv: (o: { name: string; port?: number | null; work?: string | null; runDir: string }, parent?: Env) => Env
+    suiteEnv: (o: { name: string; port?: number | null; work?: string | null; runDir: string; cliLog?: string | null }, parent?: Env) => Env
   }
   const ctx = createRequire(import.meta.url)('./e2e/runContext.cjs') as Ctx
   /** An agent's shell in Hive, inside an outer hive-progress, in a suite of a runner, with a person's settings. */
@@ -1250,6 +1250,35 @@ describe('the run context: what a test starts gets only the allowlist and its ow
     // Without a port (a serial suite of a runner inside a suite): none inherited from the runner that started this one.
     const nested = ctx.suiteEnv({ name: 'about', runDir: 'C:\\lanes\\0\\nested' }, parent)
     for (const k of ['HIVE_E2E_PORT', 'HIVE_API_PORT', 'E2E_RUN_PORT', 'HIVE_E2E_DIR']) expect(has(nested, k), k).toBe(false)
+  })
+
+  it("the CLIs a suite's Hive selects go to a log of the suite's own; the runner starts no CLI of its own (#365)", () => {
+    // The runner gives each suite a log in its folder, and the suite's test copies of Hive inherit it (CARRIED).
+    const suite = ctx.suiteEnv({ name: 'codex', port: 47961, work: 'C:\\lanes\\1\\codex', runDir: 'C:\\lanes\\1\\codex', cliLog: 'C:\\lanes\\1\\codex\\hive-clis.jsonl' }, parent)
+    expect(suite.HIVE_TEST_CLI_LOG).toBe('C:\\lanes\\1\\codex\\hive-clis.jsonl')
+    expect(ctx.hiveEnv({ HIVE_USER_DATA: 'C:\\p' }, suite).HIVE_TEST_CLI_LOG).toBe('C:\\lanes\\1\\codex\\hive-clis.jsonl')
+    expect(has(ctx.childEnv({}, suite), 'HIVE_TEST_CLI_LOG')).toBe(false)
+    expect(has(ctx.suiteEnv({ name: 'x', runDir: 'C:\\w' }, { ...parent, HIVE_TEST_CLI_LOG: 'C:\\elsewhere' }), 'HIVE_TEST_CLI_LOG')).toBe(false)
+    // The record's versions are what the suites' Hive selected, in the CLI homes the suites gave it: the runner never
+    // runs a CLI itself (a --version of its own ran in the user's homes and took the first copy on PATH, #365 round 1).
+    const runner = readFileSync(join(root, 'tests', 'e2e', 'run.mjs'), 'utf8')
+    expect(runner).not.toMatch(/['"]--version['"]/)
+  })
+
+  // Hive looks for both CLIs when it starts, and their sign-in checks read the home they are given, else the user's.
+  // Suites added since (#333, #362, #365) give every Hive they start both homes; #382 brings the older ones in.
+  it('newer suites give each test Hive their own Claude Code and Codex homes (#362)', () => {
+    for (const name of ['claudesettings', 'menucontrast', 'testedclis']) {
+      const src = readFileSync(join(root, 'tests', 'e2e', `${name}.cjs`), 'utf8')
+      const launches = [...src.matchAll(/lib\.launch\(\{[^\n]*\}\)/g)].map((m) => m[0])
+      expect(launches.length, name).toBeGreaterThan(0)
+      for (const l of launches) {
+        // The homes are passed directly, through `homes`, or with the fake Claude Code's (lib.fakeClaude's CLAUDE_CONFIG_DIR).
+        const claude = /CLAUDE_CONFIG_DIR|env: homes|\.\.\.claude\b/.test(l)
+        const codex = /CODEX_HOME|env: homes/.test(l)
+        expect(claude && codex, `${name}: ${l}`).toBe(true)
+      }
+    }
   })
 
   it('every variable Hive sets for its sessions and its hive-progress wrapper is left out (#202)', () => {

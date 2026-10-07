@@ -1,6 +1,6 @@
 // A --settings in a Claude Code agent's own arguments (#330): Claude Code reads only the last --settings, so Hive merges
 // the user's settings into its launch file (their hooks added to Hive's, Hive's status line kept) and passes that alone.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -18,6 +18,7 @@ const NEEDS = { url: 'http://127.0.0.1:9/hook?run=r', envVar: 'HIVE_HOOK_TOKEN' 
 describe("a --settings in a Claude Code agent's arguments (#330)", () => {
   it('drops every --settings from the arguments, in both forms, and nothing else', () => {
     expect(withoutSettingsArgs(['--verbose', '--settings', 'a.json', '--settings={"x":1}', '--add-dir', 'd'])).toEqual(['--verbose', '--add-dir', 'd'])
+    // A --settings without a value never gets this far: userSettings refuses it first (#361).
     expect(withoutSettingsArgs(['--verbose', '--settings'])).toEqual(['--verbose'])
     expect(withoutSettingsArgs([])).toEqual([])
   })
@@ -37,8 +38,30 @@ describe("a --settings in a Claude Code agent's arguments (#330)", () => {
     await expect(userSettings(['--settings', 'missing.json'], base)).rejects.toThrow("The settings file missing.json (--settings in Extra arguments) can't be read: there is no such file.")
     await expect(userSettings(['--settings', 'bad.json'], base)).rejects.toThrow("isn't valid JSON")
     await expect(userSettings(['--settings', 'list.json'], base)).rejects.toThrow("isn't a settings object")
+    // Over Claude Code's 2 MiB limit, or not a regular file: refused, as Claude Code 2.1.292 refuses them (#333).
+    writeFileSync(join(base, 'big.json'), JSON.stringify({ pad: 'x'.repeat(2 * 1024 * 1024) }))
+    await expect(userSettings(['--settings', 'big.json'], base)).rejects.toThrow("The settings file big.json (--settings in Extra arguments) can't be read: it's over Claude Code's 2 MiB limit for settings files.")
+    mkdirSync(join(base, 'folder.json'), { recursive: true })
+    await expect(userSettings(['--settings', 'folder.json'], base)).rejects.toThrow("can't be read: it isn't a file.")
+    await expect(userSettings(['--settings', 'CON'], base)).rejects.toThrow("can't be read")
     // Not JSON: Claude Code reads it as a file's name.
     await expect(userSettings(['--settings', '{bad'], base)).rejects.toThrow("The settings file {bad (--settings in Extra arguments) can't be read")
+  })
+
+  it('refuses a --settings given no value rather than dropping it (#361)', async () => {
+    writeFileSync(join(base, 'ok.json'), JSON.stringify({ env: { A: '1' } }))
+    const message = 'The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings <file or JSON>), or remove it in Agent Settings or Settings → Claude Code.'
+    // Both forms: at the end of the arguments, and with = but nothing after it.
+    await expect(userSettings(['--verbose', '--settings'], base)).rejects.toThrow(message)
+    await expect(userSettings(['--settings='], base)).rejects.toThrow(message)
+    // An empty (or blank) separate value.
+    await expect(userSettings(['--settings', '', '--verbose'], base)).rejects.toThrow(message)
+    await expect(userSettings(['--settings', '  '], base)).rejects.toThrow(message)
+    // The last one counts, as Claude Code reads it: a malformed one after a valid one is still refused.
+    await expect(userSettings(['--settings', 'ok.json', '--settings'], base)).rejects.toThrow(message)
+    await expect(userSettings(['--settings={"model":"opus"}', '--settings='], base)).rejects.toThrow(message)
+    // A malformed one followed by a valid one is what Claude Code reads too: the valid one.
+    expect(await userSettings(['--settings=', '--settings', 'ok.json'], base)).toEqual({ env: { A: '1' } })
   })
 
   it("refuses settings that would turn Hive's hooks off where a merge can't undo it (Claude Code 2.1.292)", async () => {
@@ -110,6 +133,9 @@ describe("a --settings in a Claude Code agent's arguments (#330)", () => {
     // One Hive can't read, or that would turn its hooks off, stops the launch before its folder changes.
     await expect(claudeCode.prepareLaunch({ ...ctx, extraArgs: ['--settings', 'missing.json'] } as never)).rejects.toThrow("can't be read")
     await expect(claudeCode.prepareLaunch({ ...ctx, extraArgs: ['--settings', '{"disableAllHooks":true}'] } as never)).rejects.toThrow('disableAllHooks')
+    // So does a --settings with no value, even after a valid one (#361).
+    await expect(claudeCode.prepareLaunch({ ...ctx, extraArgs: ['--settings', 'mine.json', '--settings'] } as never)).rejects.toThrow('has no value')
+    await expect(claudeCode.prepareLaunch({ ...ctx, extraArgs: ['--settings='] } as never)).rejects.toThrow('has no value')
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual(merged)
   })
 })

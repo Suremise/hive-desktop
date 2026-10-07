@@ -1,6 +1,6 @@
 // One colour per session action (#344): each action's tokens exist in both themes, Stop's and Remove's differ, and
 // every label meets WCAG AA (4.5:1) on its button: on the tinted wash, resting and hovered, over each surface the
-// buttons sit on, and on the solid fill.
+// buttons sit on, and on the solid fill. The amber primary button and the tinted Add Agent too (#360).
 import { readFileSync } from 'fs'
 import { describe, expect, it } from 'vitest'
 
@@ -33,6 +33,24 @@ const hue = ([r, g, b]: number[]): number => {
   const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4
   return (h * 60 + 360) % 360
 }
+
+describe('the rules use those tokens (#360)', () => {
+  const rule = (selector: string): string => {
+    const start = css.indexOf(`${selector} {`)
+    return css.slice(start, css.indexOf('}', start))
+  }
+  it('fills the primary button with --accent-fill and labels the tinted Add Agent like the tinted Resume', () => {
+    expect(rule('.btn.primary')).toMatch(/background: var\(--accent-fill\)/)
+    expect(rule('.btn.primary:hover:not(:disabled)')).toMatch(/background: var\(--accent-strong\)/)
+    expect(rule('.btn.tint-amber')).toMatch(/color: var\(--act-resume-fg\)/)
+  })
+  it("fills a chosen menu entry and the palette's chosen row with --accent-fill, its other parts taking the label's colour (#362)", () => {
+    expect(rule('.menu-item.active:not(.disabled)')).toMatch(/background: var\(--accent-fill\)/)
+    expect(rule('.palette-item.active')).toMatch(/background: var\(--accent-fill\)/)
+    expect(rule('.menu-item.recent-item:is(:hover, .active) .recent-remove:not(:hover)')).toMatch(/color: inherit/)
+    expect(css).toContain('.menu-item:is(:hover, .active):not(.disabled) :is(.menu-detail, .menu-label),')
+  })
+})
 
 describe.each([
   ['dark', "[data-theme='dark']", ['--bg', '--bg-sidebar', '--bg-elevated']],
@@ -77,5 +95,27 @@ describe.each([
       const shade = hex(a === 'resume' ? '--act-resume-shade' : '--act-shade')
       for (const p of [1, 0.88]) expect(contrast(on, mix(hex(`--act-${a}`), shade, p)), `${a} at ${p}`).toBeGreaterThanOrEqual(4.5)
     }
+  })
+
+  // The primary button (#360): Save, a dialog's default, Add Agent in dialogs. Its label on its fill, resting and hovered.
+  it('gives the primary button AA contrast, resting (--accent-fill) and hovered (--accent-strong)', () => {
+    for (const fill of ['--accent-fill', '--accent-strong']) expect(contrast(hex('--accent-fg'), hex(fill)), fill).toBeGreaterThanOrEqual(4.5)
+  })
+
+  // Only as dark as AA needs: the primary fill keeps the accent's amber hue (#360).
+  it("keeps the primary button's amber: the accent's hue", () => {
+    expect(Math.abs(hue(hex('--accent-fill')) - hue(hex('--accent')))).toBeLessThan(2)
+  })
+
+  // A hovered or keyboard-chosen menu entry and the palette's chosen row (#362): the label (and the icon, shortcut,
+  // second line and a greyed entry's label, which take it) on the same fill as the primary button.
+  it("gives a chosen menu entry's label AA contrast on its fill", () => {
+    expect(contrast(hex('--accent-fg'), hex('--accent-fill'))).toBeGreaterThanOrEqual(4.5)
+  })
+
+  // The tinted Add Agent (#360): Resume's tinted label on the accent's wash (12% resting, 22% hovered) on each surface.
+  it('gives the tinted Add Agent AA contrast on its wash, resting and hovered, on each surface', () => {
+    for (const s of surfaces)
+      for (const p of [0.12, 0.22]) expect(contrast(hex('--act-resume-fg'), mix(hex('--accent'), hex(s), p)), `${s} at ${p}`).toBeGreaterThanOrEqual(4.5)
   })
 })

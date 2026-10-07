@@ -164,15 +164,17 @@ export function autoCompactAt(id: ProviderId | null | undefined, window: number 
  */
 export function autoCompactLine(provider: ProviderId, contextWindow: number | null, auto?: AutoCompactSetting | null): string | null {
   const name = providerDescriptor(provider).name
-  if (auto?.window === 'off') return `${name} doesn't compact by itself: auto-compaction is off (${auto.source})`
+  // A settings file Hive couldn't be sure of makes any answer an estimate (#333); a default always is one (#273).
+  const est = auto?.estimate ? ` (${auto.estimate})` : ''
+  if (auto?.window === 'off') return `${name} doesn't compact by itself: auto-compaction is off (${auto.source})${est}`
   const window = typeof auto?.window === 'number' && contextWindow ? Math.min(auto.window, contextWindow) : contextWindow
   let at = autoCompactAt(provider, window)
   if (at === null || !window) return null
   if (auto?.percent) at = Math.min(at, Math.round((window * auto.percent) / 100))
   const n = (x: number): string => x.toLocaleString()
   const why = [auto?.source, auto?.percent ? `at ${auto.percent}% of it` : null].filter(Boolean).join(', ')
-  if (typeof auto?.window === 'number') return `${name} compacts by itself at about ${n(at)}: its auto-compact window is ${n(window)} (${why})`
-  if (auto) return `${name} compacts by itself at about ${n(at)}, its default for this window${why ? ` (${why})` : ''}${auto.estimate ? ` (${auto.estimate})` : ''}`
+  if (typeof auto?.window === 'number') return `${name} compacts by itself at about ${n(at)}: its auto-compact window is ${n(window)} (${why})${est}`
+  if (auto) return `${name} compacts by itself at about ${n(at)}, its default for this window${why ? ` (${why})` : ''}${est}`
   return `${name} compacts by itself at about ${n(at)} by default (its settings can change this)`
 }
 

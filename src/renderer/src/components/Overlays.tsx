@@ -8,10 +8,11 @@ import { actClass, cx, formatKeybinding, formatTokens, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
 import { UpdateStatusRow } from './Updates'
 import { discardDrafts, saveAllDrafts, unsavedFiles } from './FileView'
-import type { ProviderId, ProviderTask, QuitChoice, QuitSession, SessionStatus } from '@shared/types'
+import type { ProviderId, ProviderTask, QuitChoice, QuitSession, SessionStatus, TestedCli } from '@shared/types'
 import { PROVIDERS, enabledProviders, isProviderEnabled, providerDescriptor } from '@shared/providers'
 import { distinguishingParents } from '@shared/folderLabels'
 import { GIT_DOWNLOAD, GIT_MIN, gitFixText, gitOldText, gitProblemText } from '@shared/gitTool'
+import { testedNote, testedSummary } from '@shared/testedClis'
 import { ProviderIcon } from './ProviderIcon'
 import { BusyButton, Icon, IconButton, LoadFailed, Modal, STATUS_TEXT, useBackdrop, useBusy } from './ui'
 
@@ -642,6 +643,21 @@ function GitSetupRow() {
 }
 
 /** Installing, updating, signing in to and setting up each provider's CLI, one tab per provider. */
+/**
+ * The CLI version this Hive release was tested with, against the installed one (#365): a quiet tick when they match,
+ * else a calm note (a newer CLI usually works; nothing is blocked).
+ */
+function TestedLine({ tested, installed }: { tested: TestedCli; installed: string | null }) {
+  const note = testedNote(tested)
+  return (
+    <div className="setup-tested" data-tested={tested.installed} title={tested.testedAt ? `Hive's tests ran against ${tested.version} on ${tested.testedAt}` : undefined}>
+      <span className="muted">{testedSummary(tested, installed)}</span>
+      {tested.installed === 'same' && <Icon name="check" className="setup-tested-ok" />}
+      {note && <div className="hint">{note}</div>}
+    </div>
+  )
+}
+
 export function AgentSetupDialog() {
   const open = useStore((s) => s.setupOpen)
   const providers = useStore((s) => s.providers)
@@ -764,6 +780,7 @@ export function AgentSetupDialog() {
             <div className="muted mono" style={{ fontSize: 11 }}>
               {info.path}
             </div>
+            {info.tested && <TestedLine tested={info.tested} installed={info.version} />}
             <div style={{ marginTop: 4 }}>
               {info.loggedIn === true && (
                 <span className="badge success">
