@@ -25,7 +25,7 @@ vi.mock('../src/main/git', async (importOriginal) => {
   return { ...real, git: ((cwd, args, ...rest) => (failing?.(args) ? failed() : real.git(cwd, args, ...rest))) as typeof real.git }
 })
 
-const { removalPreview, removeUnusedWorktree, unusedWorktreeCounts, unusedWorktrees, unusedWorktreesNamed } = await import('../src/main/unusedWorktrees')
+const { PREVIEW_MS, removalPreview, removeUnusedWorktree, unusedWorktreeCounts, unusedWorktrees, unusedWorktreesNamed } = await import('../src/main/unusedWorktrees')
 const { createWorktree } = await import('../src/main/worktrees')
 const { reserveForRemoval } = await import('../src/main/projectAgents')
 const { gitOnPath, setGitToolForTests } = await import('../src/main/gitTool')
@@ -158,6 +158,36 @@ describe('Remove anyway', () => {
     expect(branches()).not.toContain(t.branch)
     // A token is good for one removal.
     expect((await anyway(t.path, p.token)).deleted).toBe(false)
+  })
+
+  it('refuses a token past its 15 minutes, with no other preview since; one inside them still works (#373)', async () => {
+    const old = await tree(`expired${++n}`)
+    const fresh = await tree(`fresh${n}`)
+    const p = await preview(old.path)
+    const q = await preview(fresh.path)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(Date.now() + PREVIEW_MS - 60_000)
+      expect(await anyway(fresh.path, q.token)).toEqual({ deleted: true })
+      vi.setSystemTime(Date.now() + 2 * 60_000)
+      expect(await anyway(old.path, p.token)).toEqual({ deleted: false, reason: 'what it holds was checked more than 15 minutes ago: nothing was removed, look again' })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(existsSync(old.path)).toBe(true)
+    expect(branches()).toContain(old.branch)
+    // Spent by that refusal: a new look is needed.
+    expect((await anyway(old.path, p.token)).reason).toMatch(/not checked for this removal/)
+  })
+
+  it('a token is spent by a removal refused for another reason too', async () => {
+    const t = await tree(`spent${++n}`)
+    const p = await preview(t.path)
+    agents([t])
+    expect(await anyway(t.path, p.token)).toEqual({ deleted: false, reason: 'an agent works in it now' })
+    agents([])
+    expect((await anyway(t.path, p.token)).reason).toMatch(/not checked for this removal/)
+    expect(existsSync(t.path)).toBe(true)
   })
 
   it('refuses without a preview of this worktree', async () => {
