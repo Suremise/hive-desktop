@@ -109,6 +109,8 @@ interface LiveSession {
   autoCompactFor?: (running?: string) => AutoCompactSetting
   /** Set while a compaction Hive asked for runs. */
   compacting?: Compaction
+  /** Prompts the CLI has taken in this launch (UserPromptSubmit): a typed line is taken once this goes up (#376). */
+  prompts?: number
   /** The user stopped it (e.g. during its worktree setup), so an early exit isn't reported as a failure. */
   stopRequested?: boolean
   /** Terminal output tail, to see the CLI ready or asking something at the start. */
@@ -436,6 +438,43 @@ class SessionManager {
   assistantInstructions: (projectPath: string, agent: AgentDef) => Promise<{ text: string; persona: string; personaText: string }> = async () => ({ text: '', persona: '', personaText: '' })
   /** An agent's wake-on-change watch, if it has one (main/watches.ts sets this). */
   watchFor: (projectPath: string, agentId: string) => TaskWatchInfo | null = () => null
+
+  /** The prompts an agent's CLI has taken in this launch, and the launch (#376: was a typed line taken?). Null when not running. */
+  promptsTaken(projectPath: string, agentId: string): { runId: string; count: number } | null {
+    const l = this.live.get(liveId(projectPath, agentId))
+    return l?.state.runId ? { runId: l.state.runId, count: l.prompts ?? 0 } : null
+  }
+
+  /**
+   * Presses Enter again in an agent whose typed line wasn't taken (#376: a CLI dropped the Enter, and the line stayed in
+   * its prompt). Only in the same launch, while it is idle, and not while the user types there or Hive types into it.
+   */
+  submitAgain(projectPath: string, agentId: string, runId: string): boolean {
+    const l = this.live.get(liveId(projectPath, agentId))
+    const key = this.key(projectPath, agentId)
+    if (!l || l.state.runId !== runId || (l.state.status !== 'ready' && l.state.status !== 'finished') || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key)) return false
+    writePty(key, '\r')
+    return true
+  }
+
+  /** Marks (or clears) the cards an agent in a card loop left with no watch (#376): they show as stalled. */
+  setNotWatching(projectPath: string, agentId: string, cards: number[] | null): void {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (!l) return
+    const next = cards?.length ? cards : undefined
+    if (JSON.stringify(l.state.notWatching) === JSON.stringify(next)) return
+    l.state.notWatching = next
+    this.emitState(l.state)
+  }
+
+  /** Tells the user once that an agent in a card loop is waiting with no watch (#376). */
+  notifyNotWatching(projectPath: string, agentId: string, cards: number[]): void {
+    const st = this.live.get(liveId(projectPath, agentId))?.state
+    if (!st) return
+    const label = this.label(st)
+    const which = cards.map((n) => `#${n}`).join(', ')
+    this.notify(projectPath, `${label} isn't watching ${which}`, `Its turn ended without a card watch, so nothing wakes it when ${cards.length === 1 ? 'the card changes' : 'they change'}. Show it and ask it to carry on.`, 'waiting', st.agentName, agentId)
+  }
 
   /** A watch began or ended: the agent's status follows (watching, or finished again). */
   watchChanged(projectPath: string, agentId: string): void {
@@ -1988,6 +2027,8 @@ class SessionManager {
       state.status = 'watching'
       state.unseen = false
     } else if (!watch && state.status === 'watching') state.status = 'finished'
+    // Working or watching again: no longer waiting with no watch (#376).
+    if (state.status !== 'ready' && state.status !== 'finished') state.notWatching = undefined
     if (this.statusSent.get(state) !== state.status) {
       this.statusSent.set(state, state.status)
       state.statusSince = new Date().toISOString()
@@ -2406,6 +2447,7 @@ class SessionManager {
           this.startupAnswered(l)
           break
         case 'prompted':
+          l.prompts = (l.prompts ?? 0) + 1
           if (workspace.isAssistantHome(st.projectPath)) this.onAssistantPrompt(st.projectPath)
           break
         case 'compactBegan':

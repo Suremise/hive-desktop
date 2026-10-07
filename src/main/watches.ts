@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto'
+import { app } from 'electron'
 import { link, mkdir, readFile, rename, rm, writeFile } from 'original-fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
@@ -7,6 +8,7 @@ import type { LiveSessionState, TaskCard, TaskWatchInfo } from '../shared/types'
 import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
 import { createLogger, userText } from './logger'
+import { noteLoopWatch } from './loopCheck'
 import { sessions } from './sessions'
 import { getTask, inScope, unknownTask } from './tasks'
 import { openWorkspaces, workspaceFor, type WorkspaceService } from './workspace'
@@ -94,6 +96,13 @@ interface Store {
 
 /** How long a fired watch waits before its line is typed, so changes landing together are told together (#224). */
 const SETTLE_MS = 1500
+/** How long a typed wake has to be taken (the CLI starts a turn) before Enter is pressed again, once (#376). */
+const TAKE_MS = 10_000
+/** TAKE_MS, or a unit test's, or an unpackaged test build's (HIVE_TEST_WAKE_TAKE_MS). */
+function takeMs(): number {
+  const v = !app.isPackaged ? Number(process.env.HIVE_TEST_WAKE_TAKE_MS) : NaN
+  return testHooks.takeMs ?? (Number.isFinite(v) && v >= 0 ? v : TAKE_MS)
+}
 /** The most cards whose last wake an agent's next watch can start from: the latest told. */
 const WOKE_CARDS = 100
 
@@ -110,6 +119,8 @@ export const testHooks: {
   backupRename?: (from: string, to: string) => Promise<void>
   /** The settle before a fired line is typed (SETTLE_MS): 0 types it at once. */
   settleMs?: number
+  /** How long a typed wake has to be taken (TAKE_MS). */
+  takeMs?: number
 } = {}
 /** The same seams by their first name (round-one probes use it). */
 export const testPauses = testHooks
@@ -548,6 +559,8 @@ export async function registerWatch(ws: WorkspaceService, projectPath: string, a
     return { watching: infoOf(rec!) }
   })
   sessions.watchChanged(projectPath, agentId)
+  // It waits on cards: an agent in a card loop, checked when its turn ends with no watch (#376).
+  noteLoopWatch(projectPath, agentId, cond.cards)
   if ('watching' in result) void evaluate(ws).catch((e) => log.warn('checking watches', e))
   return result
 }
@@ -639,6 +652,8 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       return true
     })
     if (!marked) return
+    // What the CLI had taken before the line: it is taken once that goes up (#376).
+    const before = sessions.promptsTaken(rec.projectPath, rec.agentId)
     try {
       await sessions.sendPrompt(rec.projectPath, rec.agentId, line, () => {
         if (!current()) throw new Error('The watch was cancelled.')
@@ -655,6 +670,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       throw e
     }
     log.info(`Woke ${userText(rec.agentId)}: ${userText(line.slice(0, 80))}`)
+    if (before) void confirmTaken(rec.projectPath, rec.agentId, before).catch((e) => log.warn('checking a wake was taken', e))
     // What earlier wakes told about cards this one didn't stays: it is still all the agent was told about them.
     const known = new Map(store.woke.get(key))
     for (const [n, b] of Object.entries(told)) {
@@ -679,6 +695,32 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     store.delivering.delete(rec.id)
     waking.delete(key)
   }
+}
+
+/**
+ * Whether a typed wake was taken (#376): the CLI started a turn for it (UserPromptSubmit). On 7 Oct a Codex reviewer's
+ * wake stayed in its prompt, unsent, for hours, while its watch had ended. Not taken in time, Enter is pressed again,
+ * once; still not taken, it is logged, and the agent's cards show as stalled when its loop is checked (loopCheck.ts).
+ */
+async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }): Promise<boolean> {
+  const taken = (): boolean => {
+    const now = sessions.promptsTaken(projectPath, agentId)
+    return !now || now.runId !== before.runId || now.count > before.count
+  }
+  const waitTaken = async (): Promise<boolean> => {
+    const end = Date.now() + takeMs()
+    while (Date.now() < end) {
+      if (taken()) return true
+      await new Promise((r) => setTimeout(r, 250))
+    }
+    return taken()
+  }
+  if (await waitTaken()) return true
+  if (!sessions.submitAgain(projectPath, agentId, before.runId)) return false
+  log.warn(`The wake typed into ${userText(agentId)} wasn't taken: pressed Enter again`)
+  if (await waitTaken()) return true
+  log.warn(`The wake typed into ${userText(agentId)} still wasn't taken: it may be waiting in its prompt`)
+  return false
 }
 
 /** Checks one watch against the board: whether it fires now. Its cards are read as its scope sees them. */

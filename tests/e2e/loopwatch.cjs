@@ -1,0 +1,165 @@
+// A card loop left with no watch (#376), on fake Claude Code agents (fake-claude/). On 7 Oct a Codex reviewer's wake was
+// typed but its Enter never taken, so it sat "finished" for hours with its watch gone while the builder waited on it.
+// Checked: a wake whose first Enter the CLI drops gets Enter again and is taken; one never taken leaves the agent idle
+// with no watch, and after the grace its card shows as stalled ("Reviewer isn't watching #n", on the board and through
+// the Agent API) with one notification, cleared once the agent works again; an agent that ends its turn without starting
+// a watch, with its card in Review, is flagged the same way; one that keeps watching never is. Dev build, throwaway
+// profile, workspace and CLAUDE_CONFIG_DIR; the grace and the wait for a wake to be taken are shortened for the test.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+
+const userData = path.join(lib.WORK, 'loopwatch-profile')
+const ws = path.join(lib.WORK, 'loopwatch-ws')
+const claudeHome = path.join(lib.WORK, 'loopwatch-claude-home')
+const notifyLog = path.join(lib.WORK, 'loopwatch-notify.jsonl')
+const alpha = path.join(ws, 'alpha')
+const beta = path.join(ws, 'beta')
+const PORT = Number(lib.port(47864))
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+
+;(async () => {
+  for (const d of [userData, ws, claudeHome]) fs.rmSync(d, { recursive: true, force: true })
+  fs.rmSync(notifyLog, { force: true })
+  fs.mkdirSync(claudeHome, { recursive: true })
+  lib.gitProject(alpha)
+  lib.gitProject(beta)
+  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase()]))
+  lib.enableProviders(userData)
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  cfg.settings.agentApi = { ...cfg.settings.agentApi, enabled: true }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: String(PORT), CLAUDE_CONFIG_DIR: claudeHome, HIVE_TEST_NOTIFY_LOG: notifyLog, HIVE_TEST_LOOP_GRACE_MS: '3000', HIVE_TEST_WAKE_TAKE_MS: '2000' })
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.fitWindow(app, page, { width: 1500, height: 900 })
+  await lib.appReady(page)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await lib.openWorkspace(inv, page, ws)
+  const apiToken = JSON.parse(fs.readFileSync(path.join(userData, 'agent-api.json'), 'utf8')).token
+  const api = async (method, route, body) => {
+    const r = await fetch(`http://127.0.0.1:${PORT}${route}`, { method, headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
+    return { status: r.status, body: await r.json().catch(() => null) }
+  }
+  const live = async (id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === id)
+  const until = async (fn, ms = 30000) => {
+    const t = Date.now()
+    let v
+    while (!(v = await fn()) && Date.now() - t < ms) await lib.sleep(250)
+    return v
+  }
+  const wakes = (agent) => {
+    const f = path.join(claudeHome, 'fake-wakes.jsonl')
+    return (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((w) => w.agent === agent)
+  }
+  const script = (agent, lines) => fs.writeFileSync(path.join(claudeHome, `fake-wakes-${agent}.txt`), lines.join('\n') + '\n')
+  /** The fake drops the next n Enters that would send a line from Hive ("[Hive]…"), as Codex did once (#376). */
+  const dropEnters = (agent, n) => fs.writeFileSync(path.join(claudeHome, `fake-drop-enters-${agent}.txt`), String(n))
+  const start = async (id) => {
+    await inv('session:start', alpha, { agentId: id })
+    return until(async () => (await live(id))?.status === 'ready')
+  }
+  const say = async (id, text) => {
+    await inv('pty:write', lib.ptyKey(alpha, id), text)
+    await lib.sleep(300)
+    await inv('pty:write', lib.ptyKey(alpha, id), '\r')
+  }
+  const wait = (n, extra) => `hive hive_wait_for_tasks ${JSON.stringify({ cards: [n], ...extra, wake: true })}`
+  const stalledOf = async (n) => (await api('GET', `/v1/tasks/${n}`)).body?.stalled ?? null
+  const notices = () => (fs.existsSync(notifyLog) ? fs.readFileSync(notifyLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [])
+  const hiveLog = () => fs.readFileSync(path.join(userData, 'logs', 'hive.log'), 'utf8')
+
+  await page.getByText('alpha', { exact: true }).first().click()
+  const builder = await lib.addAgent(inv, alpha, { name: 'Builder' })
+  const reviewer = await lib.addAgent(inv, alpha, { name: 'Reviewer' })
+  await start(reviewer.id)
+  await start(builder.id)
+
+  // --- 1. A wake whose first Enter is dropped: Hive presses Enter again and the line is taken; no stall.
+  const c1 = (await inv('tasks:create', { title: 'Dropped Enter', project: 'alpha', agent: builder.id, column: 'doing' })).number
+  script('Reviewer', [`boardreview ${c1} start then ${wait(c1, { column: 'review', changes: ['column'] })}`])
+  await say(reviewer.id, wait(c1, { column: 'review' }))
+  check('the reviewer watches #1', !!(await until(async () => (await live(reviewer.id))?.status === 'watching')))
+  dropEnters('Reviewer', 1)
+  await inv('tasks:update', c1, { column: 'review' })
+  check('its wake is taken after Enter is pressed again', !!(await until(async () => wakes('Reviewer').length === 1, 20000)), JSON.stringify(wakes('Reviewer')))
+  check('…Hive says it pressed Enter again', /wasn't taken: pressed Enter again/.test(hiveLog()))
+  check('…and the reviewer works, then watches again', !!(await until(async () => (await live(reviewer.id))?.status === 'watching', 15000)))
+  await lib.sleep(4500) // on purpose: longer than the grace, to see no flag comes
+  check('a reviewer that keeps watching is never flagged', !(await stalledOf(c1)) && !(await live(reviewer.id))?.notWatching, String(await stalledOf(c1)))
+
+  // --- 2. A wake never taken (both Enters dropped): the reviewer sits idle with no watch; after the grace its card is
+  // stalled, with one notice; the line goes through once Enter is pressed (by the user here), and the flag clears.
+  dropEnters('Reviewer', 2)
+  script('Reviewer', [`work 1 then ${wait(c1, { column: 'passed' })}`])
+  await inv('tasks:update', c1, { column: 'doing' })
+  await inv('tasks:update', c1, { column: 'review' })
+  const reason = `Reviewer isn't watching #${c1}: its turn ended with no card watch.`
+  check('a wake never taken: after the grace, the card is stalled, saying who and why', !!(await until(async () => (await stalledOf(c1)) === reason, 30000)), String(await stalledOf(c1)))
+  check('…the line was never sent, and Hive says so', !!(await until(async () => /still wasn't taken/.test(hiveLog()), 8000)) && wakes('Reviewer').length === 1)
+  check('…the reviewer shows idle, with the card it left', ['ready', 'finished'].includes((await live(reviewer.id))?.status) && JSON.stringify((await live(reviewer.id))?.notWatching) === JSON.stringify([c1]), JSON.stringify(await live(reviewer.id)))
+  await page.getByRole('button', { name: 'Task Board' }).click()
+  const tile = page.locator(`.task-card[data-task="${c1}"]`)
+  check('the board shows the card stalled', !!(await until(async () => /Stalled: Reviewer isn't watching/.test((await tile.innerText().catch(() => '')) ?? ''), 8000)), await tile.innerText().catch(() => ''))
+  await page.screenshot({ path: path.join(lib.WORK, 'loopwatch-stalled.png') })
+  const told = () => notices().filter((n) => /Reviewer isn't watching #/.test(n.title ?? ''))
+  check('one notice tells the user', !!(await until(async () => told().length === 1, 5000)), JSON.stringify(notices()))
+  await lib.sleep(4000) // on purpose: longer than the grace, to see no second notice comes
+  check('…only once', told().length === 1, JSON.stringify(told()))
+  await inv('pty:write', lib.ptyKey(alpha, reviewer.id), '\r')
+  check('Enter sends the waiting line: the reviewer takes it', !!(await until(async () => wakes('Reviewer').length === 2, 10000)))
+  check('…and the flag clears', !!(await until(async () => !(await stalledOf(c1)) && !(await live(reviewer.id))?.notWatching, 10000)), String(await stalledOf(c1)))
+  check('…and stays clear while it watches again', !!(await until(async () => (await live(reviewer.id))?.status === 'watching', 10000)) && !(await stalledOf(c1)))
+
+  // --- 2b. A card moved to another project after it was flagged (review round 1): the flag goes, it isn't the old
+  // project's agent's any more. Cancelling the reviewer's watch leaves it idle with no watch, so #1 is flagged first.
+  await inv('watch:cancel', alpha, reviewer.id)
+  check('a cancelled watch: after the grace the card it left is flagged', !!(await until(async () => ((await stalledOf(c1)) ?? '').startsWith("Reviewer isn't watching #"), 15000)), String(await stalledOf(c1)))
+  await inv('tasks:update', c1, { project: 'beta' })
+  check('moved to another project: no longer stalled, and the mark leaves the agent', !!(await until(async () => !(await stalledOf(c1)) && !(await live(reviewer.id))?.notWatching, 8000)), JSON.stringify({ stalled: await stalledOf(c1), mark: (await live(reviewer.id))?.notWatching }))
+
+  // --- 2c. Moved to another project within the grace: never flagged.
+  const c4 = (await inv('tasks:create', { title: 'Moved in the grace', project: 'alpha', agent: builder.id, column: 'review' })).number
+  await say(reviewer.id, wait(c4, { changes: ['comment'] }))
+  check('the reviewer watches #4', !!(await until(async () => (await live(reviewer.id))?.status === 'watching')))
+  await inv('watch:cancel', alpha, reviewer.id)
+  await inv('tasks:update', c4, { project: 'beta' })
+  await lib.sleep(4500) // on purpose: longer than the grace, to see no flag comes
+  check('moved within the grace: never flagged', !(await stalledOf(c4)) && !(await live(reviewer.id))?.notWatching, JSON.stringify({ stalled: await stalledOf(c4), mark: (await live(reviewer.id))?.notWatching }))
+
+  // --- 3. An agent in a loop that ends its turn without starting a watch (said "watching", never did): its card in
+  // Review is flagged the same way.
+  const c2 = (await inv('tasks:create', { title: 'No watch after', project: 'alpha', agent: builder.id, column: 'review' })).number
+  script('Builder', [`boardcomment ${c2}`])
+  await say(builder.id, wait(c2, { changes: ['comment'] }))
+  check('the builder watches #2', !!(await until(async () => (await live(builder.id))?.status === 'watching')))
+  await inv('tasks:comment', c2, 'Round 1: failed. 1. Fix the greeting.')
+  check('…is woken, comments and ends its turn with no watch', !!(await until(async () => wakes('Builder').length === 1 && ['ready', 'finished'].includes((await live(builder.id))?.status), 15000)))
+  check('after the grace its card is stalled: Builder isn\'t watching it', !!(await until(async () => ((await stalledOf(c2)) ?? '').startsWith("Builder isn't watching #"), 15000)), String(await stalledOf(c2)))
+  // Working clears it at once; idle again with no watch, it comes back after the grace.
+  await say(builder.id, 'work 3')
+  check('working again clears it', !!(await until(async () => (await live(builder.id))?.status === 'working' && !(await live(builder.id))?.notWatching && !(await stalledOf(c2)), 8000)))
+  check('idle again with no watch: flagged again after the grace', !!(await until(async () => ((await stalledOf(c2)) ?? '').startsWith("Builder isn't watching #"), 20000)), String(await stalledOf(c2)))
+  // Moved on (Passed): no longer in play, so no longer stalled.
+  await inv('tasks:update', c2, { column: 'passed' })
+  check('a card that has moved on (Passed) is no longer stalled', !!(await until(async () => !(await stalledOf(c2)), 8000)))
+
+  await inv('session:stop', alpha)
+  await until(async () => (await inv('session:live')).length === 0, 15000)
+  await app.close()
+  console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

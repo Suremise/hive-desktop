@@ -346,6 +346,63 @@ describe('watches (main/watches.ts)', async () => {
     return state
   }
 
+  it("a typed wake the CLI doesn't take (#376) gets Enter again, once; one it takes gets nothing more", async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    // The CLI's prompt count: a stand-in that takes the line only when told to (as Codex dropped an Enter on 7 Oct).
+    const cli = { count: 0, takeOnType: false, takeOnEnter: true, enters: 0 }
+    Object.assign(sessions, {
+      promptsTaken: () => ({ runId: 'run-1', count: cli.count }),
+      sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
+        guard?.()
+        st.typed.push(text)
+        if (cli.takeOnType) cli.count++
+        else st.status = 'finished'
+      },
+      submitAgain: (_p: string, _id: string, runId: string) => {
+        expect(runId).toBe('run-1')
+        cli.enters++
+        if (cli.takeOnEnter) cli.count++
+        return true
+      }
+    })
+    watches.testHooks.takeMs = 150
+    try {
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Dropped Enter', project: 'alpha' }, user))
+      await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+      await inWorkspace(w, () => tasks.commentTask(c.number, 'news', user))
+      await watches.evaluateWatches(w)
+      expect(st.typed).toHaveLength(1)
+      // Not taken: Enter once more after the wait, and it is taken then.
+      await vi.waitFor(() => expect(cli.enters).toBe(1), { timeout: 2000 })
+      await new Promise((r) => setTimeout(r, 400))
+      expect(cli.enters).toBe(1)
+      // Never taken: Enter once more only, never a third time.
+      cli.takeOnEnter = false
+      st.status = 'watching'
+      await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+      await inWorkspace(w, () => tasks.commentTask(c.number, 'more news', user))
+      await watches.evaluateWatches(w)
+      await vi.waitFor(() => expect(cli.enters).toBe(2), { timeout: 2000 })
+      await new Promise((r) => setTimeout(r, 500))
+      expect(cli.enters).toBe(2)
+      // Taken as typed: no Enter again.
+      cli.takeOnType = true
+      st.status = 'watching'
+      await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+      await inWorkspace(w, () => tasks.commentTask(c.number, 'last news', user))
+      await watches.evaluateWatches(w)
+      expect(st.typed).toHaveLength(3)
+      await new Promise((r) => setTimeout(r, 500))
+      expect(cli.enters).toBe(2)
+    } finally {
+      watches.testHooks.takeMs = undefined
+      delete (sessions as unknown as Record<string, unknown>).promptsTaken
+      delete (sessions as unknown as Record<string, unknown>).submitAgain
+    }
+    await disposeWorkspaceService(w)
+  })
+
   it('fires once when a watched card changes, waking an idle agent; a column already reached answers at once', async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)
