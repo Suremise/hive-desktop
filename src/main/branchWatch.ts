@@ -3,6 +3,7 @@ import { emit, onHiveEvent } from './events'
 import { createLogger, userText } from './logger'
 import { openWorkspaces, workspaceFor } from './workspace'
 import * as wt from './worktrees'
+import { gitProblem } from './gitTool'
 
 const log = createLogger('branches')
 
@@ -63,7 +64,8 @@ export function check(projectPath: string, agentId: string): Promise<void> {
     .then(
       (st) => record(found.project.path, agentId, st),
       (e) => {
-        log.warn(`Couldn't check ${userText(found.worktree.branch)}`, e)
+        // Git that can't run fails every check, every minute: Agent Setup and the status bar say so once (#346).
+        if (!gitProblem()) log.warn(`Couldn't check ${userText(found.worktree.branch)}`, e)
         record(found.project.path, agentId, null)
       }
     )

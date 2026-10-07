@@ -32,6 +32,11 @@ export interface TemplateRef extends TemplateDest {
   file: string
 }
 
+/** What deleting a template left to tidy (#353): per project, the unused worktrees named after its worktree agents. */
+export interface TemplateDeleted {
+  unusedWorktrees: { project: string; count: number }[]
+}
+
 /**
  * One agent of a template: its settings and role, and whether it works in a worktree of its own. Its provider may be
  * one this Hive doesn't know (a template from a newer Hive, imported): it is kept and shown, and blocks loading it.

@@ -2444,6 +2444,42 @@ p.hint {
 .setup-status .codicon {
   font-size: 24px;
 }
+/* Unused worktrees (#353): the Overview's section and the Changes tab's notice. */
+.unused-wt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-sidebar);
+  margin-bottom: 8px;
+}
+.unused-wt > .codicon {
+  font-size: 18px;
+  color: var(--fg-muted);
+}
+.unused-work-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.unused-work-notice a {
+  cursor: pointer;
+}
+.setup-git {
+  padding: 8px 14px;
+}
+.setup-git .codicon {
+  font-size: 18px;
+}
+.setup-git .btn .codicon {
+  font-size: inherit;
+}
 .setup-detail {
   margin: -4px 2px 12px;
 }

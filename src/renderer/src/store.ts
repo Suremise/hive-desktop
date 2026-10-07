@@ -10,6 +10,7 @@ import { chooseFocus, deferredFocus } from './deferredFocus'
 import type { ProjectTab } from '@shared/projectTabs'
 import type { ProgressFilter } from '@shared/progress'
 import type { TemplateAgent } from '@shared/templates'
+import type { GitTool } from '@shared/gitTool'
 import type { AgentBranchStatus, AssistantPanelSide, BoardFold, QuitScope, TaskCard, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
 import type {
   AgentApiInfo,
@@ -123,6 +124,8 @@ interface State {
   recent: RecentWorkspace[]
   /** Each provider's installed CLI (install state, version, sign-in, readiness). */
   providers: Record<ProviderId, AgentInstallInfo>
+  /** Whether git itself runs (#346); null until asked. */
+  gitTool: GitTool | null
   /** Subscription limits each provider last reported (account-wide), by provider. */
   planUsage: Record<ProviderId, PlanUsage>
   /** Worktree agents' unmerged work, by projectKey (null: git couldn't check it). */
@@ -237,6 +240,8 @@ interface State {
   compactFor: AgentRef | null
   /** Project whose Add Agent dialog is open. */
   addAgentFor: string | null
+  /** Add Agent opened on an existing worktree, chosen (#353's Give to an agent…). */
+  addAgentPreset: { project: string; worktreePath: string } | null
   /** Agent whose settings dialog (name, model, effort, permission mode) is open. */
   agentSettingsFor: AgentRef | null
   /** The Agent Settings dialog for a template's agent (#271): open while set; it answers the template editor. */
@@ -248,6 +253,8 @@ interface State {
   /** Shows this agent's session in its project's Overview and scrolls to it (the footer's context count); `at` makes each click count. */
   /** Open the Overview on an agent's session, at its compaction history (the footer's context) or its details (its cost). */
   overviewJump: (AgentRef & { at: number; target?: 'history' | 'session' }) | null
+  /** A project's Overview opened at its unused worktrees (#353): scrolled to once. */
+  unusedJump: { project: string; at: number } | null
   /** Opens Project Settings on this section (Settings → Workspace's Storage links); `at` makes each click count. */
   projectSettingsJump: { project: string; section: string; at: number } | null
   /** Per project: the agent that session commands (header buttons, shortcuts, Insert into Session) act on. */
@@ -307,6 +314,7 @@ export const useStore = create<State>(() => ({
   workspace: null,
   recent: [],
   providers: {},
+  gitTool: null,
   planUsage: {},
   branchStatus: {},
   startFailures: {},
@@ -380,11 +388,13 @@ export const useStore = create<State>(() => ({
   keepAwake: 0,
   compactFor: null,
   addAgentFor: null,
+  addAgentPreset: null,
   agentSettingsFor: null,
   templateAgentFor: null,
   mergeFor: null,
   handOverFor: null,
   overviewJump: null,
+  unusedJump: null,
   projectSettingsJump: null,
   focusedAgent: {},
   agentDrag: null,
@@ -715,6 +725,16 @@ export function showAssistantView(section: 'conversations' | 'personas' | 'image
 
 export function setProjectTab(path: string, tab: ProjectTab): void {
   set((s) => ({ projectTabs: { ...s.projectTabs, [path]: tab } }))
+}
+
+/** Opens a project's Overview at its unused worktrees (#353). */
+export function showUnusedWorktrees(path: string): void {
+  set((s) => ({ projectTabs: { ...s.projectTabs, [path]: 'overview' }, unusedJump: { project: path, at: Date.now() } }))
+}
+
+/** Opens Add Agent on one of the project's worktrees (#353). */
+export function giveWorktreeToAgent(path: string, worktreePath: string): void {
+  set({ addAgentPreset: { project: path, worktreePath }, addAgentFor: path })
 }
 
 /** Opens a project's Overview at one agent's session (picked there, and scrolled to). */

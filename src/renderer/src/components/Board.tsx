@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, BoardFold, ProjectInfo, ProviderId, TaskCard, TaskColumn, TaskPatch, TaskStartTarget } from '@shared/types'
+import { gitProblemText } from '@shared/gitTool'
 import { TASK_COLUMNS, applyBoardFold, archivedAt, columnColor, columnLabel, reviewStalled, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { call, errorMessage } from '../api'
@@ -1223,6 +1224,9 @@ const freeAgent = (a: AgentInfo): boolean => !a.live || a.live.status === 'ready
  */
 function useStartPick(project: ProjectInfo | null) {
   const settings = useStore((s) => s.settings)
+  // Git that can't run makes no worktree, whatever the project folder holds (#346).
+  const gitProblem = useStore((s) => gitProblemText(s.gitTool))
+  const worktreeWhy = !project ? null : gitProblem ? `${gitProblem}.` : project.isGitRepo ? null : 'The project is not a git repository.'
   const [choice, setChoice] = useState<StartChoice | null>(null)
   const [name, setName] = useState('')
   const [provider, setProvider] = useState<ProviderId | ''>('')
@@ -1236,16 +1240,16 @@ function useStartPick(project: ProjectInfo | null) {
     setProvider('')
   }
   const chosen = choice?.kind === 'agent' ? (project?.agents.find((a) => a.id === choice.id) ?? null) : null
-  const ready = !!project && !!choice && (choice.kind === 'agent' ? !!chosen && usable(chosen) : choice.kind === 'new' || project.isGitRepo)
+  const ready = !!project && !!choice && (choice.kind === 'agent' ? !!chosen && usable(chosen) : choice.kind === 'new' || !worktreeWhy)
   const target = (): TaskStartTarget =>
     choice?.kind === 'agent' ? { kind: 'agent', agentId: choice.id } : { kind: 'new-agent', worktree: choice?.kind === 'worktree', name: name.trim() || undefined, provider: provider || undefined }
-  return { settings, choice, setChoice, name, setName, provider, setProvider, reset, ready, target }
+  return { settings, choice, setChoice, name, setName, provider, setProvider, reset, ready, target, worktreeWhy }
 }
 
 type StartPick = ReturnType<typeof useStartPick>
 
 function StartChoices({ project, pick }: { project: ProjectInfo; pick: StartPick }) {
-  const { settings, choice, setChoice, name, setName, provider, setProvider } = pick
+  const { settings, choice, setChoice, name, setName, provider, setProvider, worktreeWhy } = pick
   const providers = enabledProviders(settings)
   const def = projectDefaultProvider(project.config, settings)
   return (
@@ -1276,13 +1280,13 @@ function StartChoices({ project, pick }: { project: ProjectInfo; pick: StartPick
             <div className="faint">Works in the project folder, next to the others.</div>
           </div>
         </label>
-        <label className={cx('choice', choice?.kind === 'worktree' && 'selected', !project.isGitRepo && 'disabled')}>
-          <input type="radio" disabled={!project.isGitRepo} checked={choice?.kind === 'worktree'} onChange={() => setChoice({ kind: 'worktree' })} />
+        <label className={cx('choice', choice?.kind === 'worktree' && 'selected', !!worktreeWhy && 'disabled')}>
+          <input type="radio" disabled={!!worktreeWhy} checked={choice?.kind === 'worktree'} onChange={() => setChoice({ kind: 'worktree' })} />
           <div>
             <strong>
               <Icon name="git-branch" /> A new agent in its own worktree
             </strong>
-            <div className="faint">{project.isGitRepo ? 'Its own branch and folder; merge its work back when the card is done.' : 'The project is not a git repository.'}</div>
+            <div className="faint">{worktreeWhy ?? 'Its own branch and folder; merge its work back when the card is done.'}</div>
           </div>
         </label>
       </div>

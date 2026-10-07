@@ -3,7 +3,8 @@ import { copyFile, mkdir } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import type { AgentBranchStatus, AgentWorktree, MergeResult, WorktreeCheck } from '../shared/types'
 import { copyDir, isDir } from './fsutil'
-import { git } from './git'
+import { git, gitReading } from './git'
+import { gitProblem } from './gitTool'
 import { samePath } from '../shared/movePaths'
 import { createLogger, userText } from './logger'
 
@@ -14,10 +15,20 @@ export function worktreesRoot(workspacePath: string): string {
   return join(dirname(workspacePath), `${basename(workspacePath)}.worktrees`)
 }
 
-export async function currentBranch(cwd: string): Promise<string | null> {
+/**
+ * The branch checked out in a folder, or null when it is detached (git answers "HEAD"). Throws when git can't say
+ * (#346): a failed read is not a detached HEAD, which callers deciding what is merged must tell apart.
+ */
+export async function checkedOutBranch(cwd: string): Promise<string | null> {
   const r = await git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  if (!r.ok) throw new Error(`git couldn't read the branch checked out in ${cwd} (${gitProblem() ?? (r.err.split(/\r?\n/)[0] || 'git rev-parse failed')})`)
   const b = r.out.trim()
-  return r.ok && b && b !== 'HEAD' ? b : null
+  return b && b !== 'HEAD' ? b : null
+}
+
+/** The branch checked out in a folder; null when it is detached or git can't say (for choices, never for what is merged). */
+export async function currentBranch(cwd: string): Promise<string | null> {
+  return checkedOutBranch(cwd).catch(() => null)
 }
 
 export async function localBranches(cwd: string): Promise<string[]> {
@@ -56,7 +67,7 @@ export function uniqueFolder(wanted: string, taken: ReadonlySet<string> = new Se
 
 export async function createWorktree(projectPath: string, dest: string, branch: string, base: string): Promise<void> {
   const check = await git(projectPath, ['check-ref-format', '--branch', branch])
-  if (!check.ok) throw new Error(`"${branch}" is not a valid branch name.`)
+  if (!check.ok) throw new Error(check.missing ? `${gitProblem()}.` : `"${branch}" is not a valid branch name.`)
   await mkdir(dirname(dest), { recursive: true })
   const r = await git(projectPath, ['worktree', 'add', '-b', branch, dest, base])
   if (!r.ok) throw new Error(r.err || 'git worktree add failed')
@@ -120,23 +131,26 @@ export async function copyIgnored(projectPath: string, dest: string, patterns: s
 }
 
 /** Uncommitted files in a worktree; null when git can't say (a damaged index, say). */
-async function dirtyCount(cwd: string): Promise<number | null> {
-  const r = await git(cwd, ['status', '--porcelain', '-z'])
+export async function dirtyCount(cwd: string): Promise<number | null> {
+  const r = await gitReading(cwd, ['status', '--porcelain', '-z'])
   return r.ok ? r.out.split('\0').filter((l) => l && !l.slice(3).startsWith('.hive/')).length : null
 }
 
 /**
- * A worktree branch's commits not merged and its uncommitted files. With `strict` (before removing it), a git
- * command that fails throws instead of counting as nothing to lose.
+ * A worktree branch's commits not merged and its uncommitted files. A git command that fails (git missing included)
+ * throws, never counting as nothing to merge or nothing to lose (#346).
  */
-export async function branchStatus(projectPath: string, wt: AgentWorktree, opts: { strict?: boolean } = {}): Promise<AgentBranchStatus> {
-  const into = await currentBranch(projectPath)
+export async function branchStatus(projectPath: string, wt: AgentWorktree): Promise<AgentBranchStatus> {
+  // Detached is a real answer (counted against the base); a failed read isn't, and stops here.
+  const into = await checkedOutBranch(projectPath).catch((e: Error) => {
+    throw new Error(`Git couldn't check ${wt.branch}: ${e.message}.`)
+  })
   const count = await git(projectPath, ['rev-list', '--count', `${into ?? wt.base}..${wt.branch}`])
   const dirty = existsSync(wt.path) ? await dirtyCount(wt.path) : 0
-  if (opts.strict && (!count.ok || dirty === null)) {
-    throw new Error(`Git couldn't check ${wt.branch}: ${(count.ok ? 'git status failed in its folder' : count.err.trim()) || 'unknown error'}.`)
+  if (!count.ok || dirty === null) {
+    throw new Error(`Git couldn't check ${wt.branch}: ${gitProblem() ?? ((count.ok ? 'git status failed in its folder' : count.err.trim()) || 'unknown error')}.`)
   }
-  let ahead = count.ok ? parseInt(count.out.trim(), 10) || 0 : 0
+  let ahead = parseInt(count.out.trim(), 10) || 0
   if (ahead > 0 && (await alreadyMerged(projectPath, into ?? wt.base, wt.branch))) ahead = 0
   const diff = ahead > 0 || dirty ? await diffSummary(wt.path, ahead > 0 ? (into ?? wt.base) : null) : undefined
   return { branch: wt.branch, base: wt.base, into, ahead, dirty: dirty ?? 0, ...(diff ? { diff } : {}) }
@@ -145,23 +159,35 @@ export async function branchStatus(projectPath: string, wt: AgentWorktree, opts:
 /**
  * The repository's main branch, which a worktree must be merged into before Hive deletes it unasked (#291, #289): the
  * local branch origin/HEAD names, else main, else master. Not the project folder's current branch, which can be any
- * feature branch and change at any time. Null: none of them.
+ * feature branch and change at any time. Null: none of them, or git couldn't say (`primaryBranchStrict` tells them apart).
  */
 export async function primaryBranch(projectPath: string): Promise<string | null> {
-  const local = new Set(await localBranches(projectPath))
+  return primaryBranchStrict(projectPath).catch(() => null)
+}
+
+/**
+ * `primaryBranch`, strictly (#353): null only when git says the repository has none of them; throws when git can't list
+ * the branches or read origin/HEAD (anything but its "no such symbolic ref", exit 1 with nothing said), so a removal
+ * never takes an unknown main branch for none.
+ */
+export async function primaryBranchStrict(projectPath: string): Promise<string | null> {
+  const heads = await git(projectPath, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])
+  if (!heads.ok) throw new Error(`git couldn't list the branches (${gitProblem() ?? (heads.err.split(/\r?\n/)[0] || 'for-each-ref failed')})`)
+  const local = new Set(heads.out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean))
   const remote = await git(projectPath, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
+  if (!remote.ok && !(remote.code === 1 && !remote.err)) throw new Error(`git couldn't read origin/HEAD (${gitProblem() ?? (remote.err.split(/\r?\n/)[0] || 'symbolic-ref failed')})`)
   const named = remote.ok ? remote.out.trim().replace(/^origin\//, '') : ''
   return [named, 'main', 'master'].find((b) => b && local.has(b)) ?? null
 }
 
 /** The commit a branch points at, or null. */
-async function tipOf(projectPath: string, branch: string): Promise<string | null> {
+export async function tipOf(projectPath: string, branch: string): Promise<string | null> {
   const r = await git(projectPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}^{commit}`])
   return r.ok ? r.out.trim() || null : null
 }
 
 /** Commits of `tip` not in `into`, or 0 when its changes are there already (a squash merge); null when git can't say. */
-async function unmergedCommits(projectPath: string, into: string, tip: string): Promise<number | null> {
+export async function unmergedCommits(projectPath: string, into: string, tip: string): Promise<number | null> {
   const count = await git(projectPath, ['rev-list', '--count', `${into}..${tip}`])
   if (!count.ok) return null
   const n = parseInt(count.out.trim(), 10) || 0
@@ -177,16 +203,18 @@ async function unmergedCommits(projectPath: string, into: string, tip: string): 
  */
 export async function worktreeCheck(projectPath: string, wt: AgentWorktree): Promise<WorktreeCheck> {
   const into = await primaryBranch(projectPath)
-  if (!into) return { removable: false, into, reason: 'the repository has no main branch (main or master) to check it against' }
+  // Git that can't run says nothing about the repository: that is the reason, not "no main branch" (#346).
+  const unusable = (reason: string): WorktreeCheck => ({ removable: false, into, reason: gitProblem() ?? reason })
+  if (!into) return unusable('the repository has no main branch (main or master) to check it against')
   const listed = await listWorktrees(projectPath)
-  if (samePath(wt.path, projectPath) || !listed.some((l) => samePath(l.path, wt.path) && l.branch === wt.branch)) return { removable: false, into, reason: `git doesn't list it as a worktree on ${wt.branch}` }
+  if (samePath(wt.path, projectPath) || !listed.some((l) => samePath(l.path, wt.path) && l.branch === wt.branch)) return unusable(`git doesn't list it as a worktree on ${wt.branch}`)
   if (!existsSync(wt.path)) return { removable: false, into, reason: 'its folder is missing' }
   // Both commits, so what is checked is fixed: the deletion is guarded against either branch moving afterwards.
   const [tip, intoTip] = await Promise.all([tipOf(projectPath, wt.branch), tipOf(projectPath, into)])
   const [ahead, dirty] = tip && intoTip ? await Promise.all([unmergedCommits(projectPath, intoTip, tip), dirtyCount(wt.path)]) : [null, null]
-  if (!tip || !intoTip || ahead === null || dirty === null) return { removable: false, into, reason: `git couldn't check ${wt.branch}` }
+  if (!tip || !intoTip || ahead === null || dirty === null) return unusable(`git couldn't check ${wt.branch}`)
   const why = [ahead ? `${ahead} commit${ahead === 1 ? '' : 's'} not merged into ${into}` : '', dirty ? `${dirty} uncommitted file${dirty === 1 ? '' : 's'}` : ''].filter(Boolean)
-  return why.length ? { removable: false, into, reason: why.join(' and ') } : { removable: true, into, tip, intoTip }
+  return why.length ? { removable: false, into, reason: why.join(' and '), ahead, dirty, tip, intoTip } : { removable: true, into, tip, intoTip, ahead: 0, dirty: 0 }
 }
 
 /** Why the refs a check rested on no longer hold, or null when both still point at the commits checked. */
@@ -274,7 +302,12 @@ export async function mergeWorktree(projectPath: string, wt: AgentWorktree, opts
     const commit = add.ok ? await git(wt.path, ['commit', '-m', message]) : add
     if (!commit.ok) return { ok: false, error: `Could not commit the agent's changes: ${commit.err || commit.out}` }
   }
-  const into = await currentBranch(projectPath)
+  let into: string | null
+  try {
+    into = await checkedOutBranch(projectPath)
+  } catch (e) {
+    return { ok: false, error: `Nothing was merged: ${(e as Error).message}.` }
+  }
   if (!into) return { ok: false, error: 'The project folder is not on a branch (detached HEAD). Check out the branch to merge into first.' }
   if (into === wt.branch) return { ok: false, error: `The project folder has ${wt.branch} checked out.` }
   // With nothing staged in the project folder, undoing a failed merge (reset --merge) can't touch the user's own work.

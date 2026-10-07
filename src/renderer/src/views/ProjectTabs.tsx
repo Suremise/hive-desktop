@@ -4,6 +4,8 @@ import { KeybindingsEditor } from '../components/Keybindings'
 import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
 import { unpricedModel, unpricedText } from '@shared/prices'
 import { formatDateTime } from '@shared/dates'
+import { gitFixText } from '@shared/gitTool'
+import { UnusedWorkNotice, UnusedWorktreesSection } from '../components/UnusedWorktrees'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
 import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
 import { PROVIDERS, contextLines, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
@@ -230,6 +232,8 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
             />
           </>
         )}
+
+        <UnusedWorktreesSection project={project} />
 
         <SessionDetails project={project} items={items} />
       </div>
@@ -547,6 +551,7 @@ const GIT_LABEL: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Delet
 export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
   const usageVersion = useStore((s) => s.usageVersion[owner.path] ?? 0)
   const rootId = useStore((s) => s.changesRoot[owner.path])
+  const gitTool = useStore((s) => s.gitTool)
   const listWidth = usePaneSize('changes', 280)
   const [status, setStatus] = useState<GitStatus | null>(null)
   const [file, setFile] = useState<string | null>(null)
@@ -620,6 +625,24 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
     )
   }
   if (!status) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+  if (status.gitProblem) {
+    // Not "not a git repository": git can't run, so Hive can't tell (#346).
+    return (
+      <div className="empty-state changes-git-missing" style={{ paddingTop: '15vh' }}>
+        <Icon name="warning" />
+        {status.gitProblem}, so Hive can't show {project.name}'s changes.
+        <p className="hint">{gitFixText(gitTool)}</p>
+        <div className="flex" style={{ justifyContent: 'center' }}>
+          <button className="btn small" onClick={() => set({ setupOpen: true })}>
+            <Icon name="hubot" /> Agent Setup
+          </button>
+          <button className="btn small" onClick={load}>
+            <Icon name="refresh" /> Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
   if (!status.isRepo) {
     return (
       <div className="empty-state" style={{ paddingTop: '15vh' }}>
@@ -641,6 +664,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
           </div>
         </div>
         {selector}
+        <UnusedWorkNotice project={owner} />
         {statusError && (
           <div className="banner warn">
             <Icon name="warning" /> Could not refresh: {statusError}
