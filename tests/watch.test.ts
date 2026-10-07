@@ -217,6 +217,9 @@ describe('what counts as a change', () => {
     expect(line).not.toMatch(/\n/)
     expect(line).toMatch(/^\[Hive\] #7 is in Review; latest comment by Codex \(hive\): "Review round 2: FAILED — two findings" \(and 1 more watched card changed\)/)
     expect(wakeLine(cardChange(7, null, 'gone'))).toMatch(/#7 is gone from your board \(archived, deleted or moved to another project\)/)
+    // Archived (one card, or a batch, #351): said so, and that only the user brings it back.
+    expect(wakeLine(cardChange(7, cardOf({ archived: true }), 'gone'))).toMatch(/^\[Hive\] #7 was archived \(off the board: only the user brings it back\)\. Your card watch has ended/)
+    expect(taskWaitText({ changes: [{ number: 7, column: 'gone', changes: 'gone', by: null, comment: null, archived: true }] })).toBe('#7 was archived')
     expect(limitLine({ cards: [7, 8], changes: [] }, 120)).toMatch(/No change on #7, #8 in 2 h/)
     expect(watchLabel({ cards: [7], column: 'review' })).toBe('Waiting for #7 → Review')
     expect(taskWaitText({ watching: 'Waiting for #7 → Review', limitAt: 'x' })).toMatch(/End your turn now/)
@@ -626,7 +629,7 @@ describe('watches (main/watches.ts)', async () => {
       // The previous wake told #b only; #c was in the watch before it, so it starts from what that wake told of it.
       await watches.registerWatch(w, alpha, 'a1', { cards: [b, c], changes: ['agent', 'verdict'] })
       await vi.waitFor(() => expect(st.typed).toHaveLength(3), { timeout: 3000 })
-      expect(st.typed[2]).toContain(`#${c} is gone from your board`)
+      expect(st.typed[2]).toContain(`#${c} was archived (off the board`)
       await disposeWorkspaceService(w)
     })
   })

@@ -180,7 +180,7 @@ export function Dialogs() {
 }
 
 /** A confirm's list (paths): one per line, a long one wrapping inside itself, and a Copy button for them all (#347). */
-function DialogList({ items }: { items: readonly string[] }) {
+export function DialogList({ items }: { items: readonly string[] }) {
   const [copied, setCopied] = useState(false)
   return (
     <div className="dialog-list">

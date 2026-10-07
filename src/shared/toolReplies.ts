@@ -5,13 +5,15 @@
  * returns a short row per item, and full detail comes on request. No imports beyond shared code without side
  * effects: hive-mcp.js runs outside the app bundle.
  */
-import type { MergeSlotInfo, TaskCard, TaskColumn } from './types'
+import type { MergeSlotInfo, TaskCard, TaskColumn, TaskDecision } from './types'
 import { holderText, minutes, slotLine } from './mergeSlot'
 import { columnLabel } from './tasks'
 import { shortDuration } from './progress'
 
 /** A card as the Agent API shows it: with what its agent is doing now, and why it is stalled. */
-export interface TaskView extends Omit<TaskCard, 'agent'> {
+export interface TaskView extends Omit<TaskCard, 'agent' | 'decisions'> {
+  /** The user's decisions, first (#357); without their ids. Absent when there are none. */
+  decisions?: Omit<TaskDecision, 'id'>[]
   agent: { id: string; name: string; status: string; backgroundTasks: number } | null
   stalled: string | null
   /** With a review going on (TaskCard.review): why it has stalled (its reviewer removed or not running), if it has. */
@@ -263,6 +265,7 @@ export interface WaitChange {
   changes: string[] | 'gone'
   by: string | null
   comment: { by: string; firstLine: string } | null
+  archived?: boolean
 }
 
 /**
@@ -273,7 +276,7 @@ export interface WaitChange {
 export function taskWaitText(r: { done?: string; watching?: string; limitAt?: string; already?: WaitChange; changes?: WaitChange[]; timedOut?: boolean; since?: string }): string {
   if (r.done) return r.done
   const line = (c: WaitChange): string =>
-    `#${c.number} ${c.changes === 'gone' ? 'was archived or deleted' : `is in ${c.column[0].toUpperCase()}${c.column.slice(1)} (${c.changes.join(', ')}${c.by ? `, by ${c.by}` : ''})`}${c.comment ? `; latest comment by ${c.comment.by}: "${c.comment.firstLine}"` : ''}`
+    `#${c.number} ${c.changes === 'gone' ? (c.archived ? 'was archived' : 'was archived or deleted') : `is in ${c.column[0].toUpperCase()}${c.column.slice(1)} (${c.changes.join(', ')}${c.by ? `, by ${c.by}` : ''})`}${c.comment ? `; latest comment by ${c.comment.by}: "${c.comment.firstLine}"` : ''}`
   if (r.watching) return `${r.watching}. End your turn now: Hive types a line into this session when it changes, or at ${r.limitAt ?? 'the limit'} if nothing does. Nothing runs meanwhile.`
   if (r.already) return `Already: ${line(r.already)}.`
   const since = r.since ? `\nsince: ${r.since}` : ''

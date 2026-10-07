@@ -1,5 +1,9 @@
 import type { AntivirusStatus, AvAction, AvChangeResult, AvSuggestionReply } from './antivirus'
 import type {
+  ArchiveBatch,
+  ArchiveRequest,
+  ArchiveResult,
+  UnarchiveResult,
   BoardFold,
   UpdateState,
   WorktreeGone,
@@ -233,7 +237,15 @@ export interface HiveRequests {
   'tasks:create': (input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[] }) => TaskCard
   'tasks:update': (n: number, patch: TaskPatch) => TaskCard
   'tasks:comment': (n: number, text: string) => TaskCard
+  /** Changes the words of one of a card's decisions, or removes it (text null): the user's (#357). */
+  'tasks:editDecision': (n: number, id: string, text: string | null) => TaskCard
   'tasks:archive': (n: number, archived: boolean) => TaskCard
+  /** Archives the cards listed as one batch (#351), the user's: Undo or "Unarchive this batch" brings it back. */
+  'tasks:archiveBatch': (numbers: number[], req: ArchiveRequest) => ArchiveResult
+  /** Brings a batch back, each card where it was in its column; a batch with cards that couldn't come back is kept. */
+  'tasks:unarchiveBatch': (id: string) => UnarchiveResult
+  /** The bulk archives kept (the latest 50), oldest first. */
+  'tasks:archiveBatches': () => ArchiveBatch[]
   /** To the Recycle Bin. */
   'tasks:delete': (n: number) => void
   /** Gives the card to an agent (an existing one, or a new one) with the card as its prompt, and moves it to Doing. */

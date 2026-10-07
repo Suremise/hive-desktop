@@ -73,4 +73,15 @@ describe('agentApiCall (#371)', () => {
     const s = await slowServer(0, 200, reply)
     expect((await agentApiCall(`${s.url}/v1/tasks/1`, 'GET', {}, undefined)).text).toBe(reply)
   })
+
+  it("passes on Hive's X-Hive-Notice header (#357's new-decision flag), still encoded", async () => {
+    const line = encodeURIComponent('[Hive] #4 has 1 new decision since you last read it: read the card (hive_read_task) at your next checkpoint.')
+    server = createServer((_req, res) => {
+      res.setHeader('X-Hive-Notice', line)
+      res.end('{}')
+    })
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', () => r()))
+    const url = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`
+    expect(await agentApiCall(`${url}/v1/projects/alpha`, 'GET', {}, undefined)).toEqual({ status: 200, text: '{}', notice: line })
+  })
 })
