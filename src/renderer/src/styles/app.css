@@ -568,6 +568,12 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* A row with a tooltip fills the tooltip's box and can shrink, so its label ends in "…" (#372: a stalled card's long
+   title ran past the Board's sidebar). */
+.tip-wrap > .row {
+  flex: 1;
+  min-width: 0;
+}
 .row .desc {
   color: var(--fg-muted);
   font-size: 12px;
@@ -1048,6 +1054,18 @@ textarea.input {
   line-height: 1.5;
   pointer-events: none;
   white-space: normal;
+  /* A long word (a hash, a path) breaks rather than run past the tooltip's edge (#372). */
+  overflow-wrap: break-word;
+  /* Never taller than the window (TIP_MARGIN above and below). */
+  max-height: calc(100vh - 16px);
+  overflow: hidden;
+}
+/* Too tall for the window at its usual width (#372): as wide as the window allows; still too tall, its end fades out. */
+.tip.wide {
+  max-width: calc(100vw - 16px);
+}
+.tip.clipped {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
 }
 .info-icon {
   color: var(--fg-muted);
@@ -5698,13 +5716,32 @@ body.pane-resizing-v .monaco-editor {
   gap: 4px;
   align-items: flex-start;
 }
+/* A blocked or stalled note's text (#372): long words (hashes, paths) break anywhere rather than run off the card, and
+   a long reason stops at three lines (all of it on hover and in the card's dialog). The icon stays at the top. */
+.task-note-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.task-blocked .task-note-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+.task-blocked > .codicon,
+.task-stalled > .codicon,
+.task-review > .codicon {
+  flex: none;
+  margin-top: 1px;
+}
 /* Who is reviewing the card now: the accent while it goes on, amber once its reviewer has gone. */
 .task-review {
   font-size: 12px;
   color: var(--accent);
   display: flex;
   gap: 4px;
-  align-items: center;
+  align-items: flex-start;
   cursor: pointer;
 }
 .task-review.stalled {
@@ -5804,6 +5841,22 @@ body.pane-resizing-v .monaco-editor {
   border-radius: 8px;
   padding: 0 7px;
   color: var(--fg);
+  /* A long label ends in an ellipsis inside the card (all of it on hover, #372). */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The card dialog's Blocked: one line of text, wrapped to show a long reason whole, up to six lines then scrolling. */
+textarea.input.task-blocked-input {
+  field-sizing: content;
+  height: auto;
+  min-height: 28px;
+  padding: 5px 8px;
+  line-height: 16px;
+  max-height: calc(6 * 16px + 12px);
+  resize: none;
+  overflow-wrap: anywhere;
 }
 .task-agent {
   display: inline-flex;
@@ -5820,6 +5873,11 @@ body.pane-resizing-v .monaco-editor {
 .task-agent-name {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Its status stays on one line beside the name, which gives way first. */
+.task-agent > .faint {
+  flex: none;
   white-space: nowrap;
 }
 .task-drop {

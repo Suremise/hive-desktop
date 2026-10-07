@@ -176,8 +176,11 @@ function ReviewLine({ c, projects }: { c: TaskCard; projects: ProjectInfo[] }) {
           revealAgent(project, reviewer.id)
         }}
       >
-        <Icon name="eye" /> Reviewing: {name}
-        {stalled ? ` (${reviewer ? 'not running' : 'removed'})` : ` · ${timeAgo(c.review.since)}`}
+        <Icon name="eye" />
+        <span className="task-note-text">
+          Reviewing: {name}
+          {stalled ? ` (${reviewer ? 'not running' : 'removed'})` : ` · ${timeAgo(c.review.since)}`}
+        </span>
       </div>
     </Tooltip>
   )
@@ -286,15 +289,20 @@ function CardTile({
           {!c.project && <span className="task-project faint">workspace</span>}
         </div>
         <div className="task-title">{c.title}</div>
+        {/* Long reasons (hashes, paths) wrap anywhere, at most three lines on the card; the whole on hover (#372). */}
         {c.blocked && (
-          <div className="task-blocked">
-            <Icon name="circle-slash" /> {c.blocked}
-          </div>
+          <Tooltip block content={`Blocked: ${c.blocked}`}>
+            <div className="task-blocked">
+              <Icon name="circle-slash" />
+              <span className="task-note-text">{c.blocked}</span>
+            </div>
+          </Tooltip>
         )}
         {stalled && (
-          <Tooltip content="Nobody is working on it. Start it again (on this agent or another), or move it back to Todo.">
+          <Tooltip block content="Nobody is working on it. Start it again (on this agent or another), or move it back to Todo.">
             <div className="task-stalled">
-              <Icon name="debug-pause" /> Stalled: {stalled}
+              <Icon name="debug-pause" />
+              <span className="task-note-text">Stalled: {stalled}</span>
             </div>
           </Tooltip>
         )}
@@ -302,7 +310,7 @@ function CardTile({
         {(c.labels.length > 0 || c.blockedBy.length > 0 || c.comments.length > 0) && (
           <div className="task-meta">
             {c.labels.map((l) => (
-              <span key={l} className="task-label">
+              <span key={l} className="task-label" title={l}>
                 {l}
               </span>
             ))}
@@ -805,7 +813,7 @@ export function BoardPanel() {
               <InfoTip text="Cards in Doing that nobody is working on: no agent has them, or their agent was removed or isn't running." />
             </div>
             {stalled.map((c) => (
-              <Tooltip key={c.number} content={cardStalled(projects, c) ?? ''}>
+              <Tooltip key={c.number} block content={cardStalled(projects, c) ?? ''}>
                 <div className="row" onClick={() => set({ taskOpen: c.number })}>
                   <span className="task-number">#{c.number}</span> <span className="label">{c.title}</span>
                 </div>
@@ -1125,7 +1133,18 @@ export function TaskDialog() {
         <label>Labels</label>
         <input className="input" placeholder="Comma separated, e.g. bug, ui" value={labels} onChange={(e) => setLabels(e.target.value)} />
         <label>Blocked</label>
-        <input className="input" placeholder="Why it can't go on (empty: not blocked)" value={blocked} onChange={(e) => setBlocked(e.target.value)} />
+        {/* One line of text, wrapped to show all of a long reason (#372): Enter adds no line break. */}
+        <textarea
+          className="input task-blocked-input"
+          rows={1}
+          aria-label="Blocked"
+          placeholder="Why it can't go on (empty: not blocked)"
+          value={blocked}
+          onChange={(e) => setBlocked(e.target.value.replace(/\s*[\r\n]+\s*/g, ' '))}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) e.preventDefault()
+          }}
+        />
         <label>Depends on</label>
         <input className="input" placeholder="Cards to finish first, e.g. #3 #5" value={blockedBy} onChange={(e) => setBlockedBy(e.target.value)} />
         <label>Related</label>
