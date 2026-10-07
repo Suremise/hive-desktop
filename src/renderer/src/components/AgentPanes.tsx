@@ -148,8 +148,8 @@ function resumeTip(project: ProjectInfo, a: AgentInfo): string {
   return `${project.agents.length > 1 ? `${a.name} has` : 'There is'} no session of its own to resume. Choose one with ▾, or start a new one.`
 }
 
-/** The tint every secondary Resume button wears (agent panes, the project header, the Assistant's panel). */
-export const RESUME_TINT = 'tint-amber'
+/** The colour every secondary Resume button wears (agent panes, the project header, the Assistant's panel): Resume's (#344). */
+export const RESUME_TINT = 'act-resume'
 
 /** Resume split button: the main part resumes the agent's last session, ▾ picks another. */
 export function ResumeButton({ project, a, className, label = 'Resume' }: { project: ProjectInfo; a: AgentInfo; className?: string; label?: string }) {
@@ -343,7 +343,7 @@ function moveItems(project: ProjectInfo, a: AgentInfo): MenuEntry[] {
 /** An agent's menu. `inHeader`: the pane's header shows the session and Merge buttons, so the menu leaves them out. */
 function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeader = false): MenuEntry[] {
   const worktree = !!a.worktree
-  const archiveItem = { label: 'Archive and Start New…', icon: 'archive', onClick: () => void actions.archiveCurrent(project.path, a.id) }
+  const archiveItem = { label: 'Archive and Start New…', icon: 'archive', action: 'archive-start' as const, onClick: () => void actions.archiveCurrent(project.path, a.id) }
   return [
     ...(inHeader
       ? // The header's buttons are Compact and Stop; archiving is used less often, so it's here.
@@ -352,14 +352,14 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
         : []
       : a.live
       ? [
-          { label: 'Stop', icon: 'debug-stop', onClick: () => void actions.stopSession(project.path, a.id) },
+          { label: 'Stop', icon: 'debug-stop', action: 'stop' as const, onClick: () => void actions.stopSession(project.path, a.id) },
           { label: 'Compact…', icon: 'fold', disabled: !(a.live.status === 'ready' || a.live.status === 'finished' || a.live.status === 'watching'), onClick: () => set({ compactFor: { project: project.path, agentId: a.id } }) },
           archiveItem
         ]
       : [
-          { label: 'Resume', icon: 'debug-continue', disabled: !a.resume, onClick: () => void actions.resumeLast(project.path, a.id) },
-          { label: 'Resume a Session…', icon: 'history', onClick: pick },
-          { label: 'New Session', icon: 'add', onClick: () => void actions.newSession(project.path, a.id) }
+          { label: 'Resume', icon: 'debug-continue', action: 'resume' as const, disabled: !a.resume, onClick: () => void actions.resumeLast(project.path, a.id) },
+          { label: 'Resume a Session…', icon: 'history', action: 'resume' as const, onClick: pick },
+          { label: 'New Session', icon: 'add', action: 'start' as const, onClick: () => void actions.newSession(project.path, a.id) }
         ]),
     // Also in the header; here too for a pane too narrow to show it.
     ...(a.live?.status === 'watching'
@@ -374,10 +374,10 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
           { label: 'Review Changes', icon: 'git-compare', onClick: () => reviewChanges(project, a) },
           ...(inHeader ? [] : [{ label: 'Merge…', icon: 'git-merge', disabled: !!mergeBlocked(a.name, a.live?.status), detail: mergeBlocked(a.name, a.live?.status) ?? undefined, onClick: () => set({ mergeFor: { project: project.path, agentId: a.id } }) }]),
           { separator: true },
-          { label: 'Remove Agent…', icon: 'close', onClick: () => void actions.removeAgent(project.path, a.id) },
+          { label: 'Remove Agent…', icon: 'close', action: 'remove' as const, onClick: () => void actions.removeAgent(project.path, a.id) },
           { label: 'Discard Worktree and Branch…', icon: 'trash', danger: true, onClick: () => void actions.discardAgent(project.path, a.id) }
         ]
-      : [{ separator: true }, { label: 'Remove Agent…', icon: 'close', onClick: () => void actions.removeAgent(project.path, a.id) }])
+      : [{ separator: true }, { label: 'Remove Agent…', icon: 'close', action: 'remove' as const, onClick: () => void actions.removeAgent(project.path, a.id) }])
   ]
 }
 
@@ -871,13 +871,13 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         (live ? (
           <>
             {btn(compacting ? 'loading' : 'fold', 'Compact', () => set({ compactFor: { project: project.path, agentId: a.id } }), cx('subtle', suggested && idle && 'suggest'), { disabled: !idle || empty, tip: compactTip, iconOnly: true, spin: compacting })}
-            {btn('stop-circle', 'Stop', () => void actions.stopSession(project.path, a.id), 'tint-red', { tip: 'Stop this agent (the conversation is kept; resume it any time)', iconOnly: true })}
+            {btn('stop-circle', 'Stop', () => void actions.stopSession(project.path, a.id), 'act-stop', { tip: 'Stop this agent (the conversation is kept; resume it any time)', iconOnly: true })}
           </>
         ) : (
           <>
-            {btn('debug-continue', 'Resume', () => void actions.resumeLast(project.path, a.id), 'tint-amber', { disabled: !a.resume, tip: resumeTip(project, a) })}
-            {btn('history', 'Resume a Session…', (e) => picker.openBelow(e.currentTarget, project, a), 'subtle')}
-            {btn('add', 'New Session', () => void actions.newSession(project.path, a.id), 'primary')}
+            {btn('debug-continue', 'Resume', () => void actions.resumeLast(project.path, a.id), 'act-resume', { disabled: !a.resume, tip: resumeTip(project, a) })}
+            {btn('history', 'Resume a Session…', (e) => picker.openBelow(e.currentTarget, project, a), 'act-resume')}
+            {btn('add', 'New Session', () => void actions.newSession(project.path, a.id), 'act-start solid')}
           </>
         ))}
       {a.worktree &&
@@ -1113,7 +1113,7 @@ function StartFailedBar({ project, a, failure, single }: { project: ProjectInfo;
         {failure.hint && <div className="start-failed-hint">{failure.hint}</div>}
       </div>
       <div className="start-failed-actions">
-        <button className="btn small primary" onClick={retry}>
+        <button className={cx('btn small solid', failure.resumed ? 'act-resume' : 'act-start')} onClick={retry}>
           <Icon name="refresh" /> Retry
         </button>
         {failure.fix === 'agent-setup' ? (
@@ -1155,17 +1155,17 @@ function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a
         <span className="grow">{setupPending ? 'Setup did not finish.' : single ? 'The session has ended. Resume it, or start a new one.' : 'Session ended.'}</span>
         {setupPending ? (
           <>
-            <button className="btn small primary" onClick={() => void actions.newSession(project.path, a.id)}>
+            <button className="btn small act-start solid" onClick={() => void actions.newSession(project.path, a.id)}>
               <Icon name="refresh" /> Retry Setup
             </button>
-            <button className="btn small subtle" onClick={() => void actions.newSession(project.path, a.id, { skipSetup: true })}>
+            <button className="btn small act-start" onClick={() => void actions.newSession(project.path, a.id, { skipSetup: true })}>
               Start Without Setup
             </button>
           </>
         ) : (
           <>
-            <ResumeButton project={project} a={a} className={cx('primary', !single && 'small')} />
-            <button className={cx('btn subtle', !single && 'small')} onClick={() => void actions.newSession(project.path, a.id)}>
+            <ResumeButton project={project} a={a} className={cx('act-resume solid', !single && 'small')} />
+            <button className={cx('btn act-start', !single && 'small')} onClick={() => void actions.newSession(project.path, a.id)}>
               <Icon name="add" /> New Session
             </button>
           </>
@@ -1186,7 +1186,7 @@ function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a
       )}
       {setupPending && <p className="faint">Its setup command runs first.</p>}
       <div className="btns">
-        <button className="btn primary small" onClick={() => void actions.newSession(project.path, a.id)}>
+        <button className="btn act-start solid small" onClick={() => void actions.newSession(project.path, a.id)}>
           <Icon name="add" /> New Session
         </button>
         <ResumeButton project={project} a={a} className={cx(RESUME_TINT, 'small')} />

@@ -293,7 +293,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
     if (live) {
       const holder = project.agents.find((a) => a.live?.sessionId === s.id)
       if (holder) entries.push({ label: assistant ? 'Show the Assistant' : `Show ${holder.name}`, icon: 'terminal', onClick: () => (assistant ? setAssistantOpen(true) : revealAgent(project, holder.id)) })
-    } else if (!s.archived) entries.push({ label: 'Resume', icon: 'debug-continue', disabled: !!block, detail: block ?? undefined, onClick: () => void actions.resumeSession(project.path, s) })
+    } else if (!s.archived) entries.push({ label: 'Resume', icon: 'debug-continue', action: 'resume', disabled: !!block, detail: block ?? undefined, onClick: () => void actions.resumeSession(project.path, s) })
     if (s.source === 'external' && !s.sub) entries.push({ label: 'Adopt', icon: 'add', onClick: () => void actions.attempt('Could not adopt', () => call('session:adopt', project.path, s.id)).then(reload) })
     if (s.source === 'hive') entries.push({ label: 'Rename…', icon: 'tag', keybinding: 'F2', onClick: () => void rename(s) })
     entries.push({ separator: true })
@@ -555,7 +555,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
                     return (
                       <Tooltip content={block}>
                         <span className="resume-blocked">
-                          <button className="btn small tint-amber" disabled>
+                          <button className="btn small act-resume" disabled>
                             <Icon name="debug-continue" /> Resume
                           </button>
                         </span>
@@ -569,7 +569,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
                   const note = removedAgentNote(selected, project.agents, targetAgent)
                   if (agents.length < 2) {
                     const button = (
-                      <button className="btn small tint-amber" onClick={() => void actions.resumeSession(project.path, selected)}>
+                      <button className="btn small act-resume" onClick={() => void actions.resumeSession(project.path, selected)}>
                         <Icon name="debug-continue" /> Resume
                       </button>
                     )
@@ -578,13 +578,13 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
                   return (
                     <span className="split-btn">
                       <Tooltip content={note ?? (targetName ? `Resume in ${targetName}` : 'Resume (adds an agent if none can run it)')}>
-                        <button className="btn small tint-amber" onClick={() => void actions.resumeSession(project.path, selected)}>
+                        <button className="btn small act-resume" onClick={() => void actions.resumeSession(project.path, selected)}>
                           <Icon name="debug-continue" /> Resume{targetName ? ` in ${targetName}` : ''}
                         </button>
                       </Tooltip>
                       <Tooltip content="Resume in another agent">
                         <button
-                          className="btn small tint-amber split-caret"
+                          className="btn small act-resume split-caret"
                           aria-label="Resume in another agent"
                           onClick={(e) => {
                             const r = e.currentTarget.getBoundingClientRect()

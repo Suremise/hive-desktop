@@ -42,6 +42,12 @@ export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(' ')
 }
 
+/** A session action, with one colour wherever it appears (#344): its buttons (`btn act-*`), menu icons and confirm button. */
+export type SessionAction = 'stop' | 'remove' | 'start' | 'archive-start' | 'resume'
+
+/** The class giving an element an action's colour. */
+export const actClass = (a: SessionAction | undefined): string | false => !!a && `act-${a}`
+
 export function isMac(): boolean {
   return window.hive.platform === 'darwin'
 }

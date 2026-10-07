@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { LiveSessionState, SessionStatus } from '@shared/types'
-import { cx } from '../util'
+import { actClass, cx, type SessionAction } from '../util'
 import { call, errorMessage } from '../api'
 import { formatWhen } from '@shared/dates'
 import { providerDescriptor, providerName } from '@shared/providers'
@@ -533,6 +533,8 @@ export interface MenuEntry {
   keybinding?: string
   disabled?: boolean
   danger?: boolean
+  /** A session action (Stop, Resumeâ€¦): its icon takes that action's colour (#344). */
+  action?: SessionAction
   separator?: boolean
   /** A non-clickable heading. */
   header?: boolean
@@ -625,7 +627,7 @@ export function ContextMenu({ x, y, above, items, keyboard, onClose }: { x: numb
             data-menu-index={i}
             role="menuitem"
             aria-disabled={it.disabled || undefined}
-            className={cx('menu-item', it.disabled && 'disabled', it.muted && 'muted', it.detail && 'two-line', active === i && 'active')}
+            className={cx('menu-item', actClass(it.action), it.disabled && 'disabled', it.muted && 'muted', it.detail && 'two-line', active === i && 'active')}
             onMouseMove={() => active !== i && choosable(it) && setActive(i)}
             onClick={() => choose(it, false)}
           >

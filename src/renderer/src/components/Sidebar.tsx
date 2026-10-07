@@ -135,12 +135,12 @@ function agentTipLine(p: ProjectInfo, a: ProjectInfo['agents'][number], tasks: T
 function projectMenu(p: ProjectInfo): MenuEntry[] {
   const running = p.agents.filter((a) => a.live).length
   return [
-    { label: 'New Session', icon: 'add', onClick: () => void actions.newSession(p.path) },
-    { label: 'Resume Last Session', icon: 'debug-continue', onClick: () => void actions.resumeLast(p.path) },
-    ...(p.agents.length > 1 ? [{ label: 'Resume All Agents', icon: 'blank', disabled: !agentsToResume(p.agents).length, onClick: () => void actions.resumeAllAgents(p.path) }] : []),
+    { label: 'New Session', icon: 'add', action: 'start', onClick: () => void actions.newSession(p.path) },
+    { label: 'Resume Last Session', icon: 'debug-continue', action: 'resume', onClick: () => void actions.resumeLast(p.path) },
+    ...(p.agents.length > 1 ? [{ label: 'Resume All Agents', icon: 'blank', action: 'resume' as const, disabled: !agentsToResume(p.agents).length, onClick: () => void actions.resumeAllAgents(p.path) }] : []),
     running > 1
-      ? { label: 'Stop All Agents', icon: 'debug-stop', onClick: () => void actions.stopAllAgents(p.path) }
-      : { label: 'Stop Session', icon: 'debug-stop', disabled: !running, onClick: () => void actions.stopSession(p.path, p.agents.find((a) => a.live)?.id) },
+      ? { label: 'Stop All Agents', icon: 'debug-stop', action: 'stop', onClick: () => void actions.stopAllAgents(p.path) }
+      : { label: 'Stop Session', icon: 'debug-stop', action: 'stop', disabled: !running, onClick: () => void actions.stopSession(p.path, p.agents.find((a) => a.live)?.id) },
     { label: 'Add Agent', icon: 'person-add', onClick: () => void actions.quickAddAgent(p.path) },
     { label: 'Add Agent…', icon: 'blank', onClick: () => set({ addAgentFor: p.path }) },
     { separator: true },
