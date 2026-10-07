@@ -139,10 +139,10 @@ function SessionEmpty({ project, framed }: { project: ProjectInfo; framed: boole
         <>
           <Icon name="debug-disconnect" />
           <span className="grow">The session has ended. Resume it, or start a new one.</span>
-          <button className="btn primary" onClick={() => void actions.resumeLast(project.path)}>
+          <button className="btn act-resume solid" onClick={() => void actions.resumeLast(project.path)}>
             <Icon name="debug-continue" /> Resume
           </button>
-          <button className="btn subtle" onClick={() => void actions.newSession(project.path)}>
+          <button className="btn act-start" onClick={() => void actions.newSession(project.path)}>
             <Icon name="add" /> New Session
           </button>
         </>
@@ -175,7 +175,7 @@ function SessionEmpty({ project, framed }: { project: ProjectInfo; framed: boole
             )
           )}
           <div className="btns">
-            <button className="btn primary" onClick={() => void actions.newSession(project.path)}>
+            <button className="btn act-start solid" onClick={() => void actions.newSession(project.path)}>
               <Icon name="add" /> New Session {newKey && <kbd style={{ marginLeft: 6 }}>{formatKeybinding(newKey)}</kbd>}
             </button>
             {focused ? <ResumeButton project={project} a={focused} className={RESUME_TINT} label="Resume Last" /> : <AddAgentButton project={project} className="tint-amber" />}
@@ -336,7 +336,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
           </Tooltip>
           {resumable.length > 0 && (
             <Tooltip content={resumeTip}>
-              <button className="btn tint-amber" disabled={resuming} aria-busy={resuming || undefined} aria-label={resumeLabel} onClick={() => void actions.resumeAllAgents(project.path)}>
+              <button className="btn act-resume" disabled={resuming} aria-busy={resuming || undefined} aria-label={resumeLabel} onClick={() => void actions.resumeAllAgents(project.path)}>
                 <Icon name={resuming ? 'loading' : 'debug-continue'} spin={resuming} />
                 {!tight && ` ${resuming ? 'Resuming…' : resumable.length === 1 ? 'Resume Agent' : narrow ? `Resume (${resumable.length})` : resumeLabel}`}
                 {tight && resumable.length > 1 && <span className="btn-count">{resumable.length}</span>}
@@ -345,7 +345,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
           )}
           {running.length > 0 && (
             <Tooltip content={running.length === 1 ? 'Stop the running agent' : `Stop the ${running.length} running agents`}>
-              <button className="btn tint-red" aria-label={stopLabel} onClick={() => void actions.stopAllAgents(project.path)}>
+              <button className="btn act-stop" aria-label={stopLabel} onClick={() => void actions.stopAllAgents(project.path)}>
                 <Icon name="stop-circle" />
                 {!tight && ` ${stopLabel}`}
                 {tight && running.length > 1 && <span className="btn-count">{running.length}</span>}
@@ -355,7 +355,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
           {/* Every agent at once, after one confirmation (#216): icons (and their counts) when narrow, in ⋯ when even those don't fit. */}
           {startNew && !cramped && (
             <Tooltip content={startNew.tip}>
-              <button className="btn subtle" disabled={startingAll} aria-busy={startingAll || undefined} aria-label={startNew.label} onClick={startNew.run}>
+              <button className="btn act-start" disabled={startingAll} aria-busy={startingAll || undefined} aria-label={startNew.label} onClick={startNew.run}>
                 <Icon name={startingAll ? 'loading' : 'add'} spin={startingAll} />
                 {!narrow && ` ${startNew.label}`}
                 {narrow && startNew.count && <span className="btn-count">{startNew.count}</span>}
@@ -364,7 +364,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
           )}
           {archiveNew && !cramped && (
             <Tooltip content={archiveNew.tip}>
-              <button className="btn subtle" disabled={archivingAll} aria-busy={archivingAll || undefined} aria-label={archiveNew.label} onClick={archiveNew.run}>
+              <button className="btn act-archive-start" disabled={archivingAll} aria-busy={archivingAll || undefined} aria-label={archiveNew.label} onClick={archiveNew.run}>
                 <Icon name={archivingAll ? 'loading' : 'archive'} spin={archivingAll} />
                 {!narrow && ` ${archiveNew.label}`}
                 {narrow && archiveNew.count && <span className="btn-count">{archiveNew.count}</span>}
@@ -373,7 +373,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
           )}
           {removeAll && !tight && (
             <Tooltip content={removeAll.tip}>
-              <button className="btn subtle" disabled={removingAll} aria-busy={removingAll || undefined} aria-label={removeAll.label} onClick={removeAll.run}>
+              <button className="btn act-remove" disabled={removingAll} aria-busy={removingAll || undefined} aria-label={removeAll.label} onClick={removeAll.run}>
                 <Icon name={removingAll ? 'loading' : 'trash'} spin={removingAll} />
                 {!narrow && ` ${removeAll.label}`}
                 {narrow && removeAll.count && <span className="btn-count">{removeAll.count}</span>}
@@ -385,9 +385,9 @@ export function ProjectView({ visible }: { visible: boolean }) {
             title="More actions"
             onClick={(e) =>
               menu.open(e, [
-                ...(cramped && startNew ? [{ label: startNew.label, icon: 'add', disabled: startingAll, onClick: startNew.run }] : []),
-                ...(cramped && archiveNew ? [{ label: archiveNew.label, icon: 'archive', disabled: archivingAll, onClick: archiveNew.run }] : []),
-                ...(tight && removeAll ? [{ label: `${removeAll.label}…`, icon: 'trash', disabled: removingAll, onClick: removeAll.run }] : []),
+                ...(cramped && startNew ? [{ label: startNew.label, icon: 'add', action: 'start' as const, disabled: startingAll, onClick: startNew.run }] : []),
+                ...(cramped && archiveNew ? [{ label: archiveNew.label, icon: 'archive', action: 'archive-start' as const, disabled: archivingAll, onClick: archiveNew.run }] : []),
+                ...(tight && removeAll ? [{ label: `${removeAll.label}…`, icon: 'trash', action: 'remove' as const, disabled: removingAll, onClick: removeAll.run }] : []),
                 ...((cramped && startNew) || (tight && removeAll) ? [{ separator: true as const }] : []),
                 { label: 'Explorer', icon: 'folder-opened', onClick: () => void call('project:openInExplorer', project.path) },
                 { label: 'Terminal', icon: 'terminal', onClick: () => void call('project:openTerminal', project.path) },

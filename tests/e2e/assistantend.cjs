@@ -92,7 +92,7 @@ const check = (name, ok, extra = '') => {
 
   // --- Stopped: the ended bar's Resume, with the real pointer.
   check('Stop ends the conversation and shows the ended bar', await stopFromHeader())
-  const amber = async (button) => button.evaluate((b) => b.classList.contains('tint-amber') && !b.classList.contains('subtle'))
+  const amber = async (button) => button.evaluate((b) => b.classList.contains('act-resume') && !b.classList.contains('subtle'))
   check("the ended bar Resume is amber, like the agents' Resume", await amber(ended.getByRole('button', { name: 'Resume' })))
   await page.screenshot({ path: path.join(lib.WORK, 'assistantend-1-ended.png') })
   await inv('settings:update', { appearance: { theme: 'light' } }).catch(() => undefined)

@@ -4,7 +4,7 @@ import { call, errorMessage } from '../api'
 import { commandKeybinding, commandLabel, commands, runCommand } from '../commands'
 import { closeDialog, dismissToast, findProject, NO_PROJECTS, notify, set, setActivity, useStore } from '../store'
 import { cacheState, useLiveUsage } from '../usage'
-import { cx, formatKeybinding, formatTokens, timeAgo } from '../util'
+import { actClass, cx, formatKeybinding, formatTokens, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
 import { UpdateStatusRow } from './Updates'
 import { discardDrafts, saveAllDrafts, unsavedFiles } from './FileView'
@@ -67,7 +67,7 @@ export function Dialogs() {
               Cancel
             </button>
             {dialog.choices.map((c, i) => (
-              <button key={c.value} className={cx('btn', i === dialog.choices.length - 1 ? (dialog.danger ? 'danger' : 'primary') : 'subtle')} autoFocus={i === dialog.choices.length - 1} onClick={() => answer(c.value)}>
+              <button key={c.value} className={cx('btn', i === dialog.choices.length - 1 ? (c.action ? cx(actClass(c.action), 'solid') : dialog.danger ? 'danger' : 'primary') : (actClass(c.action) || 'subtle'))} autoFocus={i === dialog.choices.length - 1} onClick={() => answer(c.value)}>
                 {c.label}
               </button>
             ))}
@@ -106,7 +106,7 @@ export function Dialogs() {
               {dialog.cancelLabel ?? 'Cancel'}
             </button>
             <BusyButton
-              className={dialog.danger ? 'danger' : 'primary'}
+              className={dialog.action ? cx(actClass(dialog.action), 'solid') : dialog.danger ? 'danger' : 'primary'}
               autoFocus
               busy={action.busy === 'confirm'}
               busyLabel={dialog.busyLabel ?? 'Working…'}
