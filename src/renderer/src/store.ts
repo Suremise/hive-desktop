@@ -6,6 +6,7 @@ import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
 import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectLayout, projectPerPage } from '@shared/defaults'
 import { agentProvider } from '@shared/providers'
 import { setDateStyle } from '@shared/dates'
+import { chooseFocus, deferredFocus } from './deferredFocus'
 import type { ProjectTab } from '@shared/projectTabs'
 import type { ProgressFilter } from '@shared/progress'
 import type { TemplateAgent } from '@shared/templates'
@@ -684,11 +685,15 @@ export function flashPane(key: string): void {
     if (get().paneFlash?.at === at) set({ paneFlash: null })
   }, PANE_FLASH_MS)
   // Once its terminal is on screen (it may be on another page, or its project only now shown), for up to a second.
-  // Timers, not animation frames: those wait while the window is behind others.
+  // Timers, not animation frames: those wait while the window is behind others. Only while nothing newer chose where
+  // the keyboard goes (#327): the user pressing a key or clicking meanwhile, or another agent shown.
+  chooseFocus()
+  const host = (): HTMLElement | undefined => [...document.querySelectorAll<HTMLElement>('.terminal-host[data-pty]')].find((h) => h.dataset.pty === key && !h.classList.contains('hidden'))
+  const current = deferredFocus(host)
   let tries = 0
   const focus = (): void => {
-    const host = [...document.querySelectorAll<HTMLElement>('.terminal-host[data-pty]')].find((h) => h.dataset.pty === key && !h.classList.contains('hidden'))
-    const input = host?.querySelector<HTMLTextAreaElement>('textarea')
+    if (!current()) return
+    const input = host()?.querySelector<HTMLTextAreaElement>('textarea')
     if (input) input.focus()
     else if (++tries < 20) setTimeout(focus, 50)
   }
