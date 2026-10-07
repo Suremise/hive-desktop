@@ -1,0 +1,8 @@
+Nsis7z plug-in for NSIS (nsis7z.dll, version 19.00), by Nik Medved (Brainsucker) and others.
+Based on 7-Zip source code.
+Copyright (c) 1999-2016 Igor Pavlov, Nik Medved, Marek Mizanin, Stuart Welch.
+
+Licensed under the GNU Lesser General Public License, version 2.1, as 7-Zip is. The licence's text is at the end of
+this file.
+
+Source: https://nsis.sourceforge.io/Nsis7z_plug-in (the plug-in) and https://www.7-zip.org/ (7-Zip).
