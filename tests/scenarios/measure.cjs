@@ -96,6 +96,8 @@ const tomlString = (v) => (v.startsWith('"') ? JSON.parse(v) : v)
           }
         }
         const live = async (host, id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === host.toLowerCase() && s.agentId === id)
+        /** Each Claude Code launch's MCP config as it was while it ran, by its path. */
+        const mcpConfigs = new Map()
         const runOnce = async (host, id, resumeId) => {
           await inv('session:start', host, { agentId: id, ...(resumeId ? { resumeId } : {}) })
           const t = Date.now()
@@ -106,6 +108,9 @@ const tomlString = (v) => (v.startsWith('"') ? JSON.parse(v) : v)
           await inv('pty:write', lib.ptyKey(host, id), '\r')
           await lib.sleep(2500)
           const sid = (await live(host, id))?.sessionId
+          // Claude Code's MCP config is in the launch's private folder, which goes when it stops (#345): read it first.
+          const launched = fs.existsSync(path.join(claudeHome, 'fake-launches.jsonl')) ? fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1) : null
+          if (launched?.opts?.['--mcp-config'] && fs.existsSync(launched.opts['--mcp-config'])) mcpConfigs.set(launched.opts['--mcp-config'], fs.readFileSync(launched.opts['--mcp-config'], 'utf8'))
           await inv('session:stop', host, id)
           await lib.sleep(1500)
           return sid
@@ -114,7 +119,7 @@ const tomlString = (v) => (v.startsWith('"') ? JSON.parse(v) : v)
         const measureClaude = async (role, resumed) => {
           const launch = fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1)
           const session = !resumed ? 'new' : launch.opts['--resume'] === resumed ? 'resumed' : 'resume NOT confirmed'
-          const server = await hiveServer(JSON.parse(fs.readFileSync(launch.opts['--mcp-config'], 'utf8')).mcpServers.hive.env)
+          const server = await hiveServer(JSON.parse(mcpConfigs.get(launch.opts['--mcp-config']) ?? fs.readFileSync(launch.opts['--mcp-config'], 'utf8')).mcpServers.hive.env)
           const appended = launch.opts['--append-system-prompt-file'] ? fs.readFileSync(launch.opts['--append-system-prompt-file'], 'utf8') : ''
           const skills = skillMetadata(path.join(launch.opts['--plugin-dir'], 'skills'))
           rows.push({ provider: 'claude-code', role, catalog, session, instructions: bytes(server.instructions) + bytes(appended), tools: bytes(server.tools), skills: bytes(skills.text), skillCount: skills.count })

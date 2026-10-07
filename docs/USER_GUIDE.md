@@ -61,6 +61,19 @@ The workspace `.hive` folder is meant to be **committed** so a team can share sk
 
 Each **project** (every subfolder except dot-folders) gets its own `.hive` folder for Hive's metadata: project settings, the session list and transcript backups. Hive adds it to the project's `.git/info/exclude`, so it's never committed and your `.gitignore` is left alone.
 
+### What Hive keeps in a project
+
+A project's `.hive` folder is this computer's, not the project's: its settings, the session list, transcript backups and archive, pasted images, and each agent's launch folder (the skills, MCP servers and hooks it started with). None of it belongs in commits or shared copies. What could hold a secret isn't kept there at all: the key the hooks use to report an agent's status, and each session's settings and MCP server configuration (which may carry your servers' keys or a `--settings` file's `env`), go in Hive's own data folder instead, for as long as that session runs.
+
+Hive keeps `.hive` out of git by adding it to the repository's `.git/info/exclude`, never your `.gitignore`. It checks again whenever it refreshes the project and before every agent starts, so a repository you create later (`git init`), or one in a folder above the project (a workspace kept in git), is covered too.
+
+Where Hive can't do that, the project's **Overview** and **Project Settings** say so:
+- **No git repository**: nothing is excluded yet. If you use another version control system (Mercurial, Subversion and others are named), add `.hive` to its ignore list.
+- **A sync service** (OneDrive, Dropbox): it copies the whole project folder, `.hive` included. Exclude `.hive` there if the service lets you, or keep the project in a folder it doesn't sync.
+- **A git repository that still doesn't ignore `.hive`**: Hive couldn't write its exclude file, or a rule in a `.gitignore` (a line starting with `!`) brings `.hive` back; Hive asks git itself, so it notices. **Exclude** tries again and says which. Hive never edits your `.gitignore`.
+
+The Overview's notice has ✕ to stop showing it for that project; it comes back if the situation changes, and Project Settings always shows it.
+
 ### Recent workspaces
 
 **File → Open Recent** and the welcome page list the 12 workspaces you opened last, the most recent first.
@@ -642,7 +655,7 @@ Each project can override the global defaults in its **Settings** tab, which has
 | | Effort | Reasoning effort, from the levels the chosen model takes (see [Models, effort levels and prices](#models-effort-levels-and-prices)) |
 | | Use 200K context (instead of 1M) | Claude Code only: Inherit, On or Off. On holds this project's agents to a 200K context window |
 | | Permission mode | How much the agent asks before acting (below) |
-| | Extra arguments | Additional command-line arguments for the CLI |
+| | Extra arguments | Additional command-line arguments for the CLI. For Claude Code, a `--settings` file (relative to the agent's folder) or inline JSON is merged into the settings Hive starts it with: your settings and hooks apply, and Hive keeps its own hooks and status line (an allowlist of hook URLs or variables gets Hive's added). Settings that are missing, aren't JSON, or would turn Hive's hooks off (`disableAllHooks`) stop the agent from starting, with a message saying which |
 | Sessions | Suggest compacting above | When the Compact button turns orange (see [Sessions](#sessions)) |
 | | Warn when a transcript is over | When a conversation's transcript size turns amber |
 | | Completion chime | On, off or inherit |

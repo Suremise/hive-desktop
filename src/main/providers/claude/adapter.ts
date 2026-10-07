@@ -14,6 +14,7 @@ import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardComman
 import type { StartHint } from '../../../shared/startFailure'
 import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
 import { autoCompactOf, settingsScopes } from './autoCompact'
+import { mergeLaunchSettings, userSettings, withoutSettingsArgs } from './launchSettings'
 import { claudeBackgroundTasks } from './background'
 import { ConversationParser, claudeImageData } from './conversation'
 import { readClaudeModels } from './models'
@@ -217,6 +218,8 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   }
 
   async prepareLaunch(ctx: LaunchContext): Promise<Record<string, SkillDelivery>> {
+    // A --settings of the user's is read first: one Hive can't read stops the launch before anything changes (#330).
+    const theirs = await userSettings(ctx.extraArgs, ctx.cwd)
     const dir = this.launchDir(ctx.projectPath, ctx.agentId)
     await removePath(dir)
     const pluginDir = join(dir, 'plugin')
@@ -260,7 +263,9 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       }
       delivered[skill.name] = skipped.length ? { revision, problem: linksNotCopied(skipped), lasting: true } : { revision }
     }
-    await writeJsonAtomic(join(dir, 'mcp.json'), { mcpServers: ctx.mcpServers })
+    // The MCP config and settings may hold secrets (servers' own env and headers, a user's --settings): they go in the
+    // launch's private folder, outside the project (#345).
+    await writeJsonAtomic(join(ctx.privateDir, 'mcp.json'), { mcpServers: ctx.mcpServers })
 
     const hook = {
       type: 'http',
@@ -269,12 +274,11 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       headers: { Authorization: 'Bearer $HIVE_HOOK_TOKEN' },
       allowedEnvVars: ['HIVE_HOOK_TOKEN']
     }
-    const token = ctx.env.HIVE_HOOK_TOKEN ?? ''
     const hooks: Record<string, unknown[]> = {}
     for (const ev of HOOK_EVENTS) {
       // SessionStart only supports command hooks (not http), so it forwards its JSON with curl.
       if (ev === 'SessionStart') {
-        hooks[ev] = [{ hooks: [{ type: 'command', command: hookForwardCommand(ctx.hookUrl, token), timeout: 5 }] }]
+        hooks[ev] = [{ hooks: [{ type: 'command', command: hookForwardCommand(ctx.hookUrl, ctx.hookAuthFile), timeout: 5 }] }]
         continue
       }
       // PreToolUse answers with a lock decision, so it gets a longer timeout; if Hive doesn't answer, the edit goes ahead.
@@ -283,8 +287,9 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     }
     // The status line forwards Claude Code's status JSON (model, effort, cost, plan limits) to Hive and
     // prints nothing, so no line is added to the terminal.
-    const statusLine = { type: 'command', command: hookForwardCommand(`${ctx.hookUrl}&statusline`, token), padding: 0 }
-    await writeJsonAtomic(join(dir, 'settings.json'), { hooks, statusLine })
+    const statusLine = { type: 'command', command: hookForwardCommand(`${ctx.hookUrl}&statusline`, ctx.hookAuthFile), padding: 0 }
+    // The user's --settings merged in: Hive passes only this file (#330).
+    await writeJsonAtomic(join(ctx.privateDir, 'settings.json'), mergeLaunchSettings({ hooks, statusLine }, theirs, { url: ctx.hookUrl, envVar: 'HIVE_HOOK_TOKEN' }))
     await writeJsonAtomic(join(dir, 'sync.json'), { launchedAt: new Date().toISOString(), hashes })
     // Instructions for this launch (the Hive Assistant's) are appended to Claude Code's system prompt from a file.
     if (ctx.instructions) await writeFile(join(dir, 'instructions.md'), ctx.instructions)
@@ -302,15 +307,15 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     else args.push('--session-id', ctx.sessionId)
     if (ctx.name) args.push('--name', runsThroughCmd(executable) ? ctx.name.replace(/["%^&|<>!]/g, ' ').replace(/\s+/g, ' ').trim() : ctx.name)
     args.push('--plugin-dir', join(dir, 'plugin'))
-    args.push('--mcp-config', join(dir, 'mcp.json'), '--strict-mcp-config')
-    args.push('--settings', join(dir, 'settings.json'))
+    args.push('--mcp-config', join(ctx.privateDir, 'mcp.json'), '--strict-mcp-config')
+    args.push('--settings', join(ctx.privateDir, 'settings.json'))
     if (ctx.instructions) args.push('--append-system-prompt-file', join(dir, 'instructions.md'))
     if (ctx.trustedHiveTools?.length && ctx.mcpServers.hive) args.push('--allowedTools', ctx.trustedHiveTools.map((t) => `mcp__hive__${t}`).join(','))
     // With 1M turned off, Claude Code rejects a "[1m]" model as unrecognised (2.1.287): run the base model.
     if (ctx.model) args.push('--model', ctx.use200kContext ? baseModel(ctx.model) : ctx.model)
     if (ctx.effort) args.push('--effort', ctx.effort)
     if (ctx.permissionMode) args.push('--permission-mode', ctx.permissionMode)
-    args.push(...ctx.extraArgs)
+    args.push(...withoutSettingsArgs(ctx.extraArgs))
     // Claude Code takes a first message as its last argument and starts on it.
     if (ctx.initialPrompt) args.push(promptArg(executable, ctx.initialPrompt))
     const s = toSpawnable(executable, args)

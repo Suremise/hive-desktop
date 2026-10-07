@@ -152,11 +152,6 @@ export function commandLineLength(file: string, args: string[]): number {
 }
 
 /**
- * A shell command that forwards a hook's JSON (stdin) to Hive's hook server with curl, which ships
- * with Windows 10+. For hooks a CLI can only run as commands. The token is written literally so the
- * command works whichever shell the CLI runs it in; forward slashes keep bash from eating backslashes.
- */
-/**
  * A first task as the CLI's last argument. A .cmd/.bat Hive can't start directly runs through cmd.exe, which can't pass
  * newlines or its special characters safely, so there it becomes one plain line (a Node CLI's launcher is started as
  * node and its script, which take it as it is). A leading dash would read as an option.
@@ -167,9 +162,17 @@ export function promptArg(executable: string, text: string): string {
   return t
 }
 
-export function hookForwardCommand(hookUrl: string, token: string): string {
-  const curl = process.platform === 'win32' ? `"${join(process.env.SystemRoot || 'C:/Windows', 'System32', 'curl.exe').split('\\').join('/')}"` : 'curl'
-  return `${curl} -s -m 5 -X POST -H "Authorization: Bearer ${token}" -H "Content-Type: application/json" --data-binary @- "${hookUrl}"`
+/**
+ * A shell command that forwards a hook's JSON (stdin) to Hive's hook server with curl (on PATH in Windows 10+, and in
+ * Git Bash), for hooks a CLI can only run as commands. The Authorization header comes from the launch's auth file
+ * (`-H @<file>`, in Hive's user data), so neither the command nor any file it is written to holds a token (#345). The
+ * form works in Git Bash, PowerShell and cmd alike: `curl.exe` unquoted (a quoted path is an expression in PowerShell),
+ * `"@-"` quoted (a bare @- is splatting there), forward slashes (bash would eat backslashes). Codex's hook trust hash
+ * covers this text (codex/adapter.ts hookHash).
+ */
+export function hookForwardCommand(hookUrl: string, authFile: string): string {
+  const curl = process.platform === 'win32' ? 'curl.exe' : 'curl'
+  return `${curl} -s -m 5 -X POST -H "@${authFile.split('\\').join('/')}" -H "Content-Type: application/json" --data-binary "@-" "${hookUrl}"`
 }
 
 /** Estimates how many tokens resuming a session will write to the prompt cache (providers with a cache TTL). */

@@ -509,14 +509,42 @@ function gitProject(dir, files = { 'a.ts': 'export const a = 1\n' }) {
 }
 
 /**
- * The hook URL and token of a running Codex launch, read from its command line (Hive no longer writes the
- * token to its log). For tests that call the hook server the way Codex does.
+ * The token in a launch's hook auth file, named in its hook commands (`-H "@<file>"`, in Hive's user data: no generated
+ * file or argument holds the token itself, #345). Null when the text names none or it is gone (the launch ended).
+ */
+function hookAuthToken(text) {
+  const file = /@([A-Za-z]:\/[^"\\]+?\.txt)/.exec(text)?.[1]
+  if (!file) return null
+  try {
+    return /Bearer ([0-9a-f]{16,})/.exec(fs.readFileSync(file, 'utf8'))?.[1] ?? null
+  } catch {
+    return null
+  }
+}
+
+/** A running launch's private folder in the test Hive's user data (its settings, MCP config and hook auth file, #345). */
+const launchDir = (userData, runId) => path.join(userData, 'launches', runId)
+
+/**
+ * A running Claude Code launch's hook URL (with its run id) and token, from its launch settings (in its private
+ * folder): for tests that call the hook server as that launch's hooks do. Each launch has its own token.
+ */
+function launchHook(userData, runId) {
+  const text = fs.readFileSync(path.join(launchDir(userData, runId), 'settings.json'), 'utf8')
+  const url = /"(http:\/\/127\.0\.0\.1:\d+\/hook\?run=[0-9a-f]+)"/.exec(text)?.[1]
+  const token = hookAuthToken(text)
+  return url && token ? { url, token } : null
+}
+
+/**
+ * The hook URL and token of a running Codex launch, from its command line (the token from the auth file it names).
+ * For tests that call the hook server the way Codex does.
  */
 function codexHook(runId) {
   const out = execFileSync('powershell.exe', ['-NoProfile', '-Command', "Get-CimInstance Win32_Process -Filter \"Name='codex.exe'\" | ForEach-Object { $_.CommandLine }"], { encoding: 'utf8', env: baseEnv() })
   const line = out.split(/\r?\n/).find((l) => l.includes(`run=${runId}`))
   if (!line) return null
-  const token = /Bearer ([0-9a-f]{16,})/.exec(line)?.[1]
+  const token = hookAuthToken(line)
   const url = /(http:\/\/127\.0\.0\.1:\d+\/hook)/.exec(line)?.[1]
   return token && url ? { token, url } : null
 }
@@ -600,4 +628,4 @@ async function haikuAutoCaveat(page, autoOffered) {
   return [ok, JSON.stringify(caveat)]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

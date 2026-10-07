@@ -7048,3 +7048,19 @@ button.progress-run-show:focus-visible {
     animation: none;
   }
 }
+/* .hive isn't kept out of version control (#345): the text takes the room and the buttons wrap under it in a narrow
+   pane; one too narrow even for them clips rather than scrolling the page sideways. */
+.hive-vcs-notice {
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+.hive-vcs-notice > span {
+  flex: 1 1 14em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.page-narrow .hive-vcs-notice {
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  margin: 8px 0 12px;
+}

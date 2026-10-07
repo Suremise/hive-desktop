@@ -48,7 +48,9 @@ describe('projectPrefValue', () => {
   })
 
   it('knows which preferences are per project', () => {
-    expect(['skillsProvider', 'skillsFold', 'sessionsTree'].every(isProjectPref)).toBe(true)
+    expect(projectPrefValue('hiveVcsNotice', 'none|OneDrive')).toBe('none|OneDrive')
+    expect(projectPrefValue('hiveVcsNotice', 3)).toBeUndefined()
+    expect(['skillsProvider', 'skillsFold', 'sessionsTree', 'hiveVcsNotice'].every(isProjectPref)).toBe(true)
     expect(isProjectPref('sidebarWidth')).toBe(false)
     expect(isProjectPref('tips')).toBe(false)
   })

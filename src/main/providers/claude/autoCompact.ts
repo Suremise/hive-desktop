@@ -156,17 +156,22 @@ function readSettings(file: string): unknown {
   }
 }
 
-/**
- * The command line's settings: the last `--settings` in the user's arguments (Claude Code reads only the last), a file
- * (relative to the session's folder) or inline JSON; null without one.
- */
-export function cliSettings(args: readonly string[], cwd: string): SettingsScope | null {
+/** The value of the last `--settings` (or `--settings=`) in arguments, trimmed; undefined without one. */
+export function lastSettingsArg(args: readonly string[]): string | undefined {
   let value: string | undefined
   args.forEach((a, i) => {
     if (a === '--settings') value = args[i + 1]
     else if (a.startsWith('--settings=')) value = a.slice('--settings='.length)
   })
-  const v = value?.trim()
+  return value?.trim() || undefined
+}
+
+/**
+ * The command line's settings: the last `--settings` in the user's arguments (Claude Code reads only the last), a file
+ * (relative to the session's folder) or inline JSON; null without one.
+ */
+export function cliSettings(args: readonly string[], cwd: string): SettingsScope | null {
+  const v = lastSettingsArg(args)
   if (!v) return null
   if (v.startsWith('{')) {
     try {

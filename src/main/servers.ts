@@ -41,6 +41,7 @@ import { appMetrics, clock as metricsClock, knownRoute, metricsHandle, recordApi
 import { metricsReport } from './metricsUsage'
 import type { MetricOutcome, MetricsQuery } from '../shared/metrics'
 import { agentForToken, agentToken, agentTokenFile, type AgentIdentity } from './agentTokens'
+import { hookTokenMatches } from './hookTokens'
 
 const log = createLogger('servers')
 const MAX_BODY = 2 * 1024 * 1024
@@ -87,7 +88,7 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 }
 
 // ---------------------------------------------------------------------------
-// Hook server: receives the agents' CLI hooks. Random port, token from env; ?run=<runId> names the launch.
+// Hook server: receives the agents' CLI hooks. Random port; ?run=<runId> names the launch, whose own token it needs.
 // ---------------------------------------------------------------------------
 
 let hookServer: http.Server | null = null
@@ -95,11 +96,12 @@ let hookServer: http.Server | null = null
 export async function startHookServer(): Promise<string> {
   hookServer = http.createServer(async (req, res) => {
     if (req.method !== 'POST' || !req.url?.startsWith('/hook')) return send(res, 404, { error: 'not found' })
-    if (!tokenMatches(req.headers.authorization, sessions.hookToken)) return send(res, 401, { error: 'unauthorized' })
+    const query = new URL(req.url, 'http://127.0.0.1').searchParams
+    const run = query.get('run')
+    // Only the launch's own token, while it runs (#345).
+    if (!hookTokenMatches(run, req.headers.authorization)) return send(res, 401, { error: 'unauthorized' })
     try {
       const body = JSON.parse((await readBody(req)) || '{}')
-      const query = new URL(req.url, 'http://127.0.0.1').searchParams
-      const run = query.get('run')
       if (query.has('statusline')) {
         // The reply becomes Claude Code's status line, so send nothing.
         res.writeHead(204)

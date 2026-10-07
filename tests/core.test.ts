@@ -378,13 +378,12 @@ describe('compactThreshold', () => {
 })
 
 describe('hookForwardCommand', () => {
-  it('forwards the hook JSON from stdin to the hook server with the token', async () => {
+  it("forwards the hook JSON from stdin to the hook server, its header read from the launch's auth file (#345)", async () => {
     const { hookForwardCommand } = await import('../src/main/providers/common')
-    const cmd = hookForwardCommand('http://127.0.0.1:5000/hook?run=abc', 'abc123')
-    expect(cmd).toContain('--data-binary @-')
-    expect(cmd).toContain('"Authorization: Bearer abc123"')
-    expect(cmd).toContain('"http://127.0.0.1:5000/hook?run=abc"')
-    expect(cmd).not.toContain('\\')
+    const cmd = hookForwardCommand('http://127.0.0.1:5000/hook?run=abc', 'C:\\Users\\me\\AppData\\Roaming\\Hive\\hook-auth\\abc.txt')
+    // The form that works in Git Bash, PowerShell and cmd (checked on Windows 11 with curl 8.21 and Git's 8.7.1).
+    expect(cmd).toBe('curl.exe -s -m 5 -X POST -H "@C:/Users/me/AppData/Roaming/Hive/hook-auth/abc.txt" -H "Content-Type: application/json" --data-binary "@-" "http://127.0.0.1:5000/hook?run=abc"')
+    expect(cmd).not.toMatch(/Authorization|Bearer/)
   })
 })
 
@@ -417,7 +416,7 @@ describe('Claude Code hooks', () => {
     const { claudeCode } = await import('../src/main/providers/claude/adapter')
     const ctx = {
       projectPath: 'C:\\ws\\p', agentId: 'a-1', executable: 'C:\\bin\\claude.exe', cwd: 'C:\\ws\\p', workspacePath: 'C:\\ws', runId: 'r', sessionId: '00000000-0000-4000-8000-000000000000',
-      resume: false, name: '', skills: [], mcpServers: {}, model: 'opus[1m]', effort: null, permissionMode: null, extraArgs: [], hookUrl: '', guidance: '', env: { A: '1' }, allowBackgroundSessions: true, use200kContext: false
+      resume: false, name: '', skills: [], mcpServers: {}, model: 'opus[1m]', effort: null, permissionMode: null, extraArgs: [], hookUrl: '', hookAuthFile: '', privateDir: 'C:/hive/launches/r', guidance: '', env: { A: '1' }, allowBackgroundSessions: true, use200kContext: false
     }
     const full = claudeCode.buildCommand(ctx.executable, ctx)
     expect(full.args).toContain('opus[1m]')

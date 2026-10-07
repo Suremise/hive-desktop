@@ -67,7 +67,8 @@ const check = (name, ok, extra = '') => {
   // Its hive tools: its own token file, its role and control level.
   const tokenFile = path.join(userData, 'assistant-api', `${createHash('sha256').update(ws.toLowerCase()).digest('hex').slice(0, 16)}.json`)
   const token = JSON.parse(fs.readFileSync(tokenFile, 'utf8')).token
-  const mcp = JSON.parse(fs.readFileSync(path.join(home, '.hive', 'launch-assistant', 'mcp.json'), 'utf8')).mcpServers.hive
+  // In its launch's private folder in Hive's user data, not the project (#345).
+  const mcp = JSON.parse(fs.readFileSync(path.join(lib.launchDir(userData, (await live(home, 'assistant')).runId), 'mcp.json'), 'utf8')).mcpServers.hive
   check("the Assistant's hive tools use its token and role", mcp?.env.HIVE_API_TOKEN_FILE === tokenFile && mcp.env.HIVE_ROLE === 'assistant' && mcp.env.HIVE_ASSISTANT_CONTROL === 'projects', JSON.stringify(mcp?.env))
   // Its skills: the workspace's skills for the Assistant (coordinate-agents and the shared ones), none for agents only.
   const assistantSkills = fs.readdirSync(path.join(home, '.hive', 'launch-assistant', 'plugin', 'skills')).sort()

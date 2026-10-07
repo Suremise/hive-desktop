@@ -164,7 +164,17 @@ function recordSizes(dir, id) {
 recordSizes(home, sessionId)
 const settings = opts['--settings'] ? JSON.parse(fs.readFileSync(opts['--settings'], 'utf8')) : {}
 const hookUrl = settings.hooks?.Stop?.[0]?.hooks?.[0]?.url
+// HTTP hooks send the launch's token from the environment; command hooks (SessionStart) and the status line run
+// Hive's curl command, which reads the header from the launch's auth file (#345).
 const token = process.env.HIVE_HOOK_TOKEN || ''
+const authFile = /-H "@([^"]+)"/.exec(settings.statusLine?.command ?? '')?.[1]
+const commandAuth = () => {
+  try {
+    return fs.readFileSync(authFile, 'utf8').replace(/^Authorization:\s*/i, '').trim()
+  } catch {
+    return ''
+  }
+}
 const cwd = process.cwd()
 const transcript = path.join(home, 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${sessionId}.jsonl`)
 fs.mkdirSync(path.dirname(transcript), { recursive: true })
@@ -179,7 +189,7 @@ async function hook(event, extra = {}) {
   try {
     const res = await fetch(hookUrl, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: event === 'SessionStart' ? commandAuth() : `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ hook_event_name: event, session_id: sessionId, transcript_path: transcript, cwd, permission_mode: runMode(), ...extra })
     })
     return await res.json().catch(() => null)
@@ -284,7 +294,7 @@ async function runPrompt(text) {
   if (contextWindow && hookUrl) {
     await fetch(`${hookUrl}&statusline`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: commandAuth(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId, context_window: { context_window_size: Number(contextWindow[1]) } })
     }).catch(() => undefined)
   }

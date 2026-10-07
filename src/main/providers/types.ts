@@ -41,6 +41,17 @@ export interface LaunchContext {
   extraArgs: string[]
   /** Hook endpoint for this launch, with its run id (…/hook?run=<runId>). */
   hookUrl: string
+  /**
+   * The file holding this launch's hook Authorization header, for hook commands (`curl -H @<file>`): in Hive's user
+   * data, never the project, so no generated file holds the token (#345). HTTP hooks read `HIVE_HOOK_TOKEN` instead.
+   */
+  hookAuthFile: string
+  /**
+   * The launch's private folder, in Hive's user data and removed when it ends (#345): for generated files that may hold
+   * a secret (Claude Code's settings and MCP config, with the user's and the workspace's servers' own values), which
+   * must never be written to the project.
+   */
+  privateDir: string
   /** Hive's guidance for the agent (the hive MCP server's instructions), for providers that don't show MCP instructions themselves. */
   guidance: string
   /** More instructions for this launch, over the provider's own (the Hive Assistant's role and persona). */

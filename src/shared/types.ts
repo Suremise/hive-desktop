@@ -408,6 +408,8 @@ export interface AppConfig {
     skillsFold?: Record<string, { hive?: boolean; provider?: boolean }>
     /** Each project's Sessions tree branches the user opened (true) or folded (false), by project path in lower case (#239). */
     sessionsTree?: Record<string, Record<string, boolean>>
+    /** The .hive version control notice each project's Overview no longer shows (#345): the situation dismissed (`hiveVcsKey`), by project path in lower case. */
+    hiveVcsNotice?: Record<string, string>
     /** Each workspace's board as the user left it, by workspace path in lower case (#170): collapsed columns, folded cards. */
     boardFold?: Record<string, BoardFold>
     /** Each workspace's Progress panel filter (#251), by workspace path in lower case: one project's runs (and agent's), or all. */
@@ -994,6 +996,21 @@ export interface ProjectInfo {
   unmanagedMcp: string[]
   /** The folder holds what Remove from Hive packed (handovers, board cards), which Hive offers to restore. */
   removedData?: RemovedData | null
+  /** Whether its .hive is kept out of version control (#345); absent for the Assistant's home. */
+  hiveVcs?: HiveVcs
+}
+
+/**
+ * Whether a project's .hive (this machine's sessions, transcript backups and launch settings) is kept out of version
+ * control (#345). `excluded`: in the info/exclude of the git repository holding it (Hive adds it there itself);
+ * `not-excluded`: a git repository Hive couldn't add it to; `other-vcs`: another system (`vcs` names it), which Hive
+ * doesn't configure; `none`: no version control holds the folder. `sync` names a sync service whose folder holds it
+ * (OneDrive, Dropbox), which copies .hive whatever version control does.
+ */
+export interface HiveVcs {
+  state: 'excluded' | 'not-excluded' | 'other-vcs' | 'none'
+  vcs?: string
+  sync?: string
 }
 
 export interface WorkspaceInfo {

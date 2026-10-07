@@ -32,6 +32,7 @@ import { killAll } from './ptyHost'
 import { installShims } from './progressReporters/shims'
 import { insideArchive, onCorruptFile } from './fsutil'
 import { apiEnv, assistantApiUrl, startApiServer, startHookServer } from './servers'
+import { clearHookAuth } from './hookTokens'
 import { assistantHome, assistantTokenFile, endAssistant, newAssistantToken, newTurn } from './assistantControl'
 import { sessions } from './sessions'
 import { notificationIcon } from './paths'
@@ -733,6 +734,8 @@ app.whenReady().then(async () => {
   // Agents stopped by a refused sign-in can carry on once the CLI is signed in again (#309).
   providerService.onSignedIn((p) => sessions.signedInAgain(p, true))
 
+  // Hook auth files of an earlier run of Hive: their tokens died with it (#345).
+  await clearHookAuth()
   await startHookServer()
   await startApiServer()
   wireSettingsEffects()

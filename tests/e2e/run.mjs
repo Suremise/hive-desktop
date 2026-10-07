@@ -277,7 +277,8 @@ function skipReason(s) {
   const needs = s.needs ?? []
   if (needs.includes('packaged') && !existsSync(join(root, 'dist', 'win-unpacked'))) return 'no dist/win-unpacked (npm run dist)'
   if (needs.includes('claude') && !cliInstalled.claude()) return "environment: Claude Code isn't installed (claude)"
-  if (needs.includes('claude') && !claudeLoggedIn()) return "environment: Claude Code isn't signed in (claude auth status)"
+  // A suite with a Claude Code home of its own (claudeHome: 'own', a made-up API key) needs no sign-in: none is asked about.
+  if (needs.includes('claude') && s.claudeHome !== 'own' && !claudeLoggedIn()) return "environment: Claude Code isn't signed in (claude auth status)"
   if (needs.includes('codex') && !cliInstalled.codex()) return "environment: Codex isn't installed (codex)"
   if (needs.includes('codex') && !lib.codexSignedIn()) return `environment: Codex isn't signed in to ${lib.CODEX_HOME}`
   return null

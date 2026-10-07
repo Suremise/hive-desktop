@@ -1,5 +1,5 @@
 import { basename, join, resolve, sep } from 'path'
-import { mkdir, readdir, readFile, writeFile, appendFile } from 'original-fs/promises'
+import { mkdir, readdir, readFile, writeFile } from 'original-fs/promises'
 import { existsSync, statSync, watch, type FSWatcher as RootWatcher } from 'original-fs'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { BrowserWindow } from 'electron'
@@ -13,6 +13,7 @@ import { insideReal, isDir, readJson, readKeptJson, removePath, withFileLock, wr
 import { createLogger, userText } from './logger'
 import { allProviders } from './providers'
 import { worktreesRoot } from './worktrees'
+import { ensureHiveExcluded, gitDirOf, hiveVcs } from './hiveVcs'
 
 const log = createLogger('workspace')
 
@@ -377,37 +378,14 @@ export class WorkspaceService {
     await this.ensureGitExclude(projectPath)
   }
 
-  private async gitDir(projectPath: string): Promise<string | null> {
-    const g = join(projectPath, '.git')
-    if (!existsSync(g)) return null
-    try {
-      if (statSync(g).isDirectory()) return g
-      const m = (await readFile(g, 'utf8')).match(/gitdir:\s*(.+)/)
-      if (!m) return null
-      const gd = resolve(projectPath, m[1].trim())
-      // Worktrees keep info/exclude in the common dir.
-      const common = join(gd, 'commondir')
-      if (existsSync(common)) return resolve(gd, (await readFile(common, 'utf8')).trim())
-      return gd
-    } catch {
-      return null
-    }
+  private gitDir(projectPath: string): Promise<string | null> {
+    return gitDirOf(projectPath)
   }
 
+  /** Adds the project's .hive to the info/exclude of the git repository holding it (its own, or one above), if it isn't (#345). */
   async ensureGitExclude(projectPath: string): Promise<void> {
-    const gd = await this.gitDir(projectPath)
-    if (!gd) return
-    const f = join(gd, 'info', 'exclude')
-    let text = ''
-    try {
-      text = await readFile(f, 'utf8')
-    } catch {
-      await mkdir(join(gd, 'info'), { recursive: true })
-    }
-    if (text.split(/\r?\n/).some((l) => l.trim() === `${HIVE_DIR}/` || l.trim() === `/${HIVE_DIR}/`)) return
-    const prefix = text && !text.endsWith('\n') ? '\n' : ''
-    await appendFile(f, `${prefix}# Hive project metadata (added by Hive)\n/${HIVE_DIR}/\n`)
-    log.info(`Excluded .hive from git in ${userText(projectPath)}`)
+    const r = await ensureHiveExcluded(projectPath)
+    if (r?.added) log.info(`Excluded .hive from git in ${userText(r.root)}`)
   }
 
   async branch(projectPath: string): Promise<string | null> {
@@ -536,7 +514,9 @@ export class WorkspaceService {
       restartNeeded,
       agents,
       unmanagedMcp: await this.unmanagedMcp(projectPath),
-      removedData: await removedData(projectPath)
+      removedData: await removedData(projectPath),
+      // Ensured at each refresh, so a repository made later (git init) gets it too (#345).
+      ...(this.isAssistantHome(projectPath) ? {} : { hiveVcs: await hiveVcs(projectPath).catch(() => undefined) })
     }
   }
 

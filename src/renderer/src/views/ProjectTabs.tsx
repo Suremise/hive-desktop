@@ -28,6 +28,7 @@ import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, Sk
 import { RootSelector } from './FilesTab'
 import { agentProviderOf, confirm, notify, openInSessionsTab, set, setActivity, showView, useDateStyle, useFocusedAgent, useStore } from '../store'
 import { rememberProjectPref } from '../projectPrefs'
+import { HiveVcsNotice } from '../components/HiveVcsNotice'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
 import { useLiveUsage, useNow } from '../usage'
 
@@ -155,6 +156,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
     <div className="scroll-page overview-page">
       <div className="page-narrow">
         <TaskStrip project={project} />
+        <HiveVcsNotice project={project} dismissible />
         <div className="overview-head">
           <h2 className="section">Project summary</h2>
           <Tooltip content={`Updated ${timeAgo(new Date(loadedAt).toISOString())}. How often it updates: Settings → Sessions → Overview updates.`}>
@@ -1472,6 +1474,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
           Global settings
         </a>
       </div>
+      <HiveVcsNotice project={project} />
       <div className="settings-body">
         <div className="settings-nav">
           {PROJECT_SECTIONS.map((s) => (

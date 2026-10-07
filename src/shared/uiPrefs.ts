@@ -5,7 +5,7 @@
 import { isKnownProvider } from './providers'
 import type { AppConfig } from './types'
 
-export const PROJECT_PREFS = ['skillsProvider', 'skillsFold', 'sessionsTree'] as const
+export const PROJECT_PREFS = ['skillsProvider', 'skillsFold', 'sessionsTree', 'hiveVcsNotice'] as const
 export type ProjectPref = (typeof PROJECT_PREFS)[number]
 export type ProjectPrefValue<P extends ProjectPref> = NonNullable<AppConfig['ui'][P]>[string]
 
@@ -21,6 +21,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 /** The value as the preference keeps it (unknown fields and wrong types dropped), or undefined if it can't be one. */
 export function projectPrefValue<P extends ProjectPref>(pref: P, value: unknown): ProjectPrefValue<P> | undefined {
   if (pref === 'skillsProvider') return (typeof value === 'string' && isKnownProvider(value) ? value : undefined) as ProjectPrefValue<P> | undefined
+  if (pref === 'hiveVcsNotice') return (typeof value === 'string' && value.length <= 200 ? value : undefined) as ProjectPrefValue<P> | undefined
   if (!isRecord(value)) return undefined
   if (pref === 'skillsFold') {
     const fold: { hive?: boolean; provider?: boolean } = {}
