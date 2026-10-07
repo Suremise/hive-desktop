@@ -195,6 +195,36 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   check('Escape closes the details', !!(await until(async () => (await details2.count()) === 0)))
   check('back to alpha', await toAlpha())
 
+  // A newer choice of where the keyboard goes wins over Show the agent's focus, which comes a frame and some timers
+  // later (#327): the user moving the keyboard before then keeps it where they put it, and Escape still closes the
+  // details. The window's clock is held meanwhile, so that order is certain however busy the machine.
+  await row2.locator('.progress-bar').click()
+  check('the details open again', !!(await until(async () => (await details2.count()) === 1)))
+  await focusForKeys(page, details2.locator('button', { hasText: 'Show the agent' }))
+  await page.clock.install()
+  await page.clock.pauseAt(new Date(Date.now() + 100))
+  await page.keyboard.press('Enter')
+  check('with the clock held, "Show the agent" shows Betty', !!(await until(async () => (await shownProject()) === 'beta')), await shownProject())
+  await page.keyboard.press('Shift+Tab')
+  const inPanel = () => page.evaluate(() => !!document.activeElement?.closest('.progress-panel'))
+  check('Shift+Tab moves the keyboard on, before the deferred focus is due', await inPanel())
+  await page.clock.runFor(1500)
+  check("…and it stays there once Show the agent's focus was due", await inPanel(), await page.evaluate(() => document.activeElement?.className ?? ''))
+  await page.keyboard.press('Escape')
+  check('…so Escape closes the details', !!(await until(async () => (await details2.count()) === 0)))
+  await page.clock.runFor(100)
+  check('…and gives the keyboard back to their toggle', await row2.locator('button.progress-details-toggle').evaluate((el) => el === document.activeElement))
+  // A newer agent shown supersedes one whose focus is still due: Betty, then Alfie before Betty's came.
+  await show2.focus()
+  await page.keyboard.press('Enter')
+  await until(async () => (await shownProject()) === 'beta')
+  await row.locator('button.progress-run-show').focus()
+  await page.keyboard.press('Enter')
+  check('…then Alfie, in alpha', !!(await until(async () => (await shownProject()) === 'alpha')), await shownProject())
+  await page.clock.runFor(1500)
+  check("Alfie's terminal has the keyboard, not Betty's", await page.evaluate((key) => document.activeElement?.closest('.terminal-host')?.dataset.pty === key, lib.ptyKey(alpha, alfie.id)))
+  await page.clock.resume()
+
   // --- Passed: ✓ and the time, then it fades into Recent.
   r = await call(alfieToken, 'POST', `/v1/progress/${run1}/finish`, { ok: true, summary: '3 passed' })
   check('a finish is accepted', r.status === 200)
