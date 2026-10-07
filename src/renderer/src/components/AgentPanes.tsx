@@ -864,7 +864,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         </SignInTip>
       )}
       <ReviewMark live={live} />
-      <CardChip project={project} a={a} short={size === 'menu'} />
+      <CardChip project={project} a={a} short />
       <Locks a={a} />
       <div className="grow" />
       {size !== 'menu' &&
