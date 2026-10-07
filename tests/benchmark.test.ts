@@ -10,7 +10,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
-import { BENCHMARK_LIMITS, compareArtifacts, compareScopeOf, parseArtifact, readKept, summaryOf, type Artifact, type CompareScope, type ParseResult } from '../src/shared/benchmark'
+import { BENCHMARK_LIMITS, EXPORT_MEASURES, SCENARIO_MEASURES, USAGE_MEASURES, compareArtifacts, compareScopeOf, parseArtifact, readKept, summaryOf, type Artifact, type CompareScope, type ParseResult } from '../src/shared/benchmark'
 
 const require_ = createRequire(import.meta.url)
 const fixture = (name: string): string => readFileSync(join(__dirname, 'fixtures', 'benchmarks', `${name}.json`), 'utf8')
@@ -232,6 +232,13 @@ function exportFile(opts: { scope?: any; sanitized?: boolean; own?: boolean; obs
   }
   return JSON.stringify({ schema: 'hive-metrics/1', app: { name: 'Hive', version: '0.3.1' }, exportedAt: new Date(to).toISOString(), sanitized: !!opts.sanitized, report })
 }
+
+describe('what Compare says about its measures', () => {
+  it("calls the Assistant's working mode a mode, as the Performance page does (#358)", () => {
+    for (const m of [...SCENARIO_MEASURES, ...USAGE_MEASURES, ...EXPORT_MEASURES]) expect(`${m.label} ${m.tip}`, m.key).not.toMatch(/persona/i)
+    expect(SCENARIO_MEASURES.find((m) => m.key === 'contextBytes')?.tip).toContain('the Assistant’s role and mode')
+  })
+})
 
 describe('Performance exports', () => {
   it('compared per hour recorded, with the filters and coverage that make them comparable', () => {

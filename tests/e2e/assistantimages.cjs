@@ -1,8 +1,10 @@
 // The Hive Assistant view (#243): its sections are Modes, Conversations and Images; Images shows the screenshots
 // pasted into its conversations (its home's .hive/images), grouped by conversation, in the project Images tab's grid
 // and viewer; a group's name opens that conversation's transcript in the conversations tree (#239's), and a group can
-// be moved to the Recycle Bin at once. "Show Assistant Images" is a command. Fixtures only (nothing runs): a
-// conversation record, its transcript (Hive's copy) and two images. Dev build, throwaway profile and workspace, quiet.
+// be moved to the Recycle Bin at once. "Show Assistant Images" is a command. Modes' New Mode… (a prompt opened from a
+// button) takes Enter once: the mode is made, or the error shown, and no dialog is left open (#355). Fixtures only
+// (nothing runs): a conversation record, its transcript (Hive's copy) and two images. Dev build, throwaway profile and
+// workspace, quiet.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -51,6 +53,41 @@ const at = (h) => new Date(Date.UTC(2026, 9, 5, h, 0, 0)).toISOString()
   await lib.until(async () => (await page.locator('.assistant-summary').count()) > 0, 10000)
   const sections = (await page.locator('.sidebar .section-header').allTextContents()).map((t) => t.replace(/\d+$/, '').trim())
   check('sections in order: Modes, Conversations, Images', JSON.stringify(sections) === JSON.stringify(['Modes', 'Conversations', 'Images']), JSON.stringify(sections))
+
+  // --- New Mode…: Enter in its prompt (a real key press: keydown, keypress, keyup) never opens it again (#355).
+  const newMode = async (name) => {
+    await page.locator('button[aria-label="New Mode…"]').click()
+    const field = page.locator('.dialog input.input')
+    await lib.until(async () => (await field.count()) === 1 && (await field.evaluate((el) => el === document.activeElement)), 5000)
+    await page.keyboard.type(name)
+    await page.keyboard.press('Enter')
+    await lib.sleep(500) // on purpose: a dialog opened again by the same key press would be on screen by now
+  }
+  await newMode('Enter Test')
+  check('Enter in New Mode… makes the mode', !!(await lib.until(async () => fs.existsSync(path.join(ws, '.hive', 'personas', 'enter-test.md')), 5000)))
+  check('…and leaves no dialog open', (await page.locator('.dialog').count()) === 0, String(await page.locator('.dialog').count()))
+  await newMode('Enter Test')
+  check('Enter with a name already used shows why', !!(await lib.until(async () => (await page.getByText('There is already a mode called').count()) > 0, 5000)))
+  check('…and leaves no dialog open either', (await page.locator('.dialog').count()) === 0, String(await page.locator('.dialog').count()))
+  // The confirming Enter released in another window (Hive loses the focus, its keyup never comes here): the next
+  // Enters here aren't held back. A field of the test's own, typed into with real key presses.
+  await page.locator('button[aria-label="New Mode…"]').click()
+  await lib.until(async () => (await page.locator('.dialog input.input').count()) === 1 && (await page.locator('.dialog input.input').evaluate((el) => el === document.activeElement)), 5000)
+  await page.keyboard.type('Blur Test')
+  await page.keyboard.down('Enter')
+  check('Enter held down makes the mode, with no dialog left open', !!(await lib.until(async () => fs.existsSync(path.join(ws, '.hive', 'personas', 'blur-test.md')) && (await page.locator('.dialog').count()) === 0, 5000)))
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')))
+  await page.evaluate(() => {
+    const t = document.createElement('textarea')
+    t.id = 'enter-probe'
+    document.body.appendChild(t)
+    t.focus()
+  })
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Enter')
+  const typed = await page.evaluate(() => document.getElementById('enter-probe').value)
+  check('after its release was lost to another window, the next Enters type as usual', typed === '\n\n', JSON.stringify(typed))
+  await page.evaluate(() => document.getElementById('enter-probe').remove())
 
   // --- Images: the conversation's group, with its name, in the Images grid.
   await page.locator('.row', { hasText: 'All Images' }).click()

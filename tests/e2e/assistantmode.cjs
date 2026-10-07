@@ -2,8 +2,10 @@
 // conversation: Hive types "[Hive] Mode: <name> (chosen by the user). <summary> Your tools and permissions are
 // unchanged." into it (no restart, the same session), and saves the mode for the workspace. While it is working, the
 // message waits until it has finished. Restart in This Mode… (asking first) resumes the same conversation with the
-// mode's full instructions. The menu screenshotted in both themes. The Assistant runs the fake Claude Code
-// (fake-claude/). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
+// mode's full instructions: its system prompt is the new mode's at once, not the one its conversation recorded (the
+// fake keeps that record as Claude Code does, #334). A conversation resumed in another mode than it was last given (a
+// switch while it was stopped) is told that mode once. The menu screenshotted in both themes. The Assistant runs the
+// fake Claude Code (fake-claude/). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -44,6 +46,29 @@ const check = (name, ok, extra = '') => {
   const agentFile = () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'project.json'), 'utf8')).agents?.[0] ?? {}
   const buffer = async () => (await inv('pty:buffer', key)) ?? ''
   const panel = page.locator('.assistant-panel')
+  // The conversation as the fake wrote it, and how often Hive typed a mode message into it.
+  const transcript = (id) => {
+    const dir = path.join(claudeHome, 'projects')
+    for (const d of fs.existsSync(dir) ? fs.readdirSync(dir) : []) if (fs.existsSync(path.join(dir, d, `${id}.jsonl`))) return fs.readFileSync(path.join(dir, d, `${id}.jsonl`), 'utf8')
+    return ''
+  }
+  const told = (id, mode) => transcript(id).split('\n').filter((l) => l.includes('"type":"user"') && l.includes(`[Hive] Mode: ${mode} (chosen by the user)`)).length
+  const say = async (text) => {
+    await inv('pty:write', key, text)
+    await lib.sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
+    await inv('pty:write', key, '\r')
+  }
+  const idle = async () => !!(await lib.until(async () => ['ready', 'finished'].includes((await live())?.status), 20000))
+  // The mode its system prompt is in, as the fake says it for "whatmode" (its recorded prompt unless it was told not to).
+  const promptMode = async (id) => {
+    const asked = (transcript(id).match(/system prompt mode: /g) ?? []).length
+    await say('whatmode')
+    await lib.until(async () => (transcript(id).match(/system prompt mode: /g) ?? []).length > asked, 15000)
+    const all = [...transcript(id).matchAll(/system prompt mode: ([^)"]+)\)/g)]
+    await idle()
+    return all.length > asked ? all[all.length - 1][1] : '(no answer)'
+  }
+  const record = (id) => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'sessions.json'), 'utf8')).sessions.find((s) => s.id === id) ?? {}
   const modeMenu = async () => {
     await panel.locator('.assistant-persona').click()
     await lib.until(async () => (await page.locator('.menu .menu-item').count()) > 0, 3000)
@@ -61,8 +86,10 @@ const check = (name, ok, extra = '') => {
   await panel.locator('.assistant-header').getByRole('button', { name: 'Start', exact: true }).click()
   check('the Assistant runs', !!(await lib.until(async () => (await live())?.status === 'ready', 20000)))
   const session = (await live()).sessionId
-  const told = fs.readFileSync(path.join(home, '.hive', 'launch-assistant', 'instructions.md'), 'utf8')
-  check('its instructions are the mode, and say it may suggest another', told.includes('# Your mode: Coordinator') && /suggest switching in one short line; never switch or insist/.test(told), told.slice(-400))
+  const given = fs.readFileSync(path.join(home, '.hive', 'launch-assistant', 'instructions.md'), 'utf8')
+  check('its instructions are the mode, and say it may suggest another', given.includes('# Your mode: Coordinator') && /suggest switching in one short line; never switch or insist/.test(given), given.slice(-400))
+  check('…its conversation records the mode it started in', record(session).persona === 'coordinator', JSON.stringify(record(session)))
+  check('…and its first request records Coordinator as its system prompt', (await promptMode(session)) === 'Coordinator')
 
   // --- The menu: the four modes, switching keeps the conversation.
   await modeMenu()
@@ -83,6 +110,7 @@ const check = (name, ok, extra = '') => {
   check('…ending with Hive\'s own sentence', !!(await lib.until(async () => (await buffer()).includes('Your tools and permissions are unchanged.'), 10000)), JSON.stringify((await buffer()).slice(-600)))
   check('…without a restart: the same session', (await live())?.sessionId === session, `${session} → ${(await live())?.sessionId}`)
   check('…saved for the workspace, and the header shows it', agentFile().persona === 'planner' && (await panel.locator('.assistant-persona').innerText()).includes('Planner'), JSON.stringify(agentFile()))
+  check('…and recorded as the mode its conversation was last given', !!(await lib.until(async () => record(session).persona === 'planner', 5000)), JSON.stringify(record(session)))
   await lib.until(async () => (await live())?.status === 'finished', 15000)
 
   // --- Working: told once it has finished.
@@ -95,6 +123,7 @@ const check = (name, ok, extra = '') => {
   check('switching while it works types nothing yet', !(await buffer()).includes('[Hive] Mode: QA triager'))
   check('…and is saved at once', agentFile().persona === 'qa-triager', JSON.stringify(agentFile()))
   check('…then told once it has finished', !!(await lib.until(async () => (await buffer()).includes('[Hive] Mode: QA triager (chosen by the user). Take a report'), 20000)))
+  check('…and sent (in its conversation once)', !!(await lib.until(async () => told(session, 'QA triager') === 1, 20000)), String(told(session, 'QA triager')))
   check('…still the same session', (await live())?.sessionId === session)
   await lib.until(async () => (await live())?.status === 'finished', 15000)
 
@@ -107,12 +136,34 @@ const check = (name, ok, extra = '') => {
   check('…and resumes the same conversation', !!(await lib.until(async () => (await live())?.status === 'ready' && (await live())?.sessionId === session, 30000)), `${session} → ${(await live())?.sessionId}`)
   const retold = fs.readFileSync(path.join(home, '.hive', 'launch-assistant', 'instructions.md'), 'utf8')
   check('…with the QA triager mode in its instructions', retold.includes('# Your mode: QA triager'))
+  await idle()
+  check('…which its resumed conversation uses at once, not the Coordinator prompt it recorded (#334)', (await promptMode(session)) === 'QA triager')
+  check("…and, already told QA triager, it isn't told again", told(session, 'QA triager') === 1, String(told(session, 'QA triager')))
 
   // --- Not running: saved, told nothing (its next launch is in the mode).
   await inv('session:stop', home, 'assistant')
   await lib.until(async () => !(await live()), 15000)
   await pick('Release manager')
   check('switching while it is stopped saves the mode for its next launch', !!(await lib.until(async () => agentFile().persona === 'release-manager', 5000)), JSON.stringify(agentFile()))
+  check('…and tells nothing yet', told(session, 'Release manager') === 0)
+
+  // --- Resumed after a switch while it was stopped: told the mode once it is idle, once (#334). The fake loses Enter
+  // for its first seconds, as Claude Code can while it draws a resumed conversation: Hive presses it again.
+  fs.writeFileSync(path.join(claudeHome, 'fake-resume-draw.json'), JSON.stringify({ ms: 3500 }))
+  await inv('session:start', home, { resumeId: session, agentId: 'assistant' })
+  check('resumed, the conversation is told its new mode (its first Enter lost)', !!(await lib.until(async () => told(session, 'Release manager') === 1, 20000)), transcript(session).slice(-600))
+  fs.rmSync(path.join(claudeHome, 'fake-resume-draw.json'))
+  check('…the same conversation', (await live())?.sessionId === session)
+  check("…and its system prompt is the mode's", (await idle()) && (await promptMode(session)) === 'Release manager')
+  check('…recorded as the mode it was last given', record(session).persona === 'release-manager', JSON.stringify(record(session)))
+  await inv('session:stop', home, 'assistant')
+  await lib.until(async () => !(await live()), 15000)
+  await inv('session:start', home, { resumeId: session, agentId: 'assistant' })
+  await idle()
+  await lib.sleep(2000) // on purpose: a second message would be typed by now
+  check("resumed again in the same mode, it isn't told again", told(session, 'Release manager') === 1, String(told(session, 'Release manager')))
+  await inv('session:stop', home, 'assistant')
+  await lib.until(async () => !(await live()), 15000)
 
   await app.close()
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')
