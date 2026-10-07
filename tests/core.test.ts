@@ -425,6 +425,30 @@ describe('Claude Code hooks', () => {
     expect(small.args[small.args.indexOf('--model') + 1]).toBe('opus')
     expect(small.env).toMatchObject({ A: '1', CLAUDE_CODE_DISABLE_1M_CONTEXT: '1' })
   })
+
+  it('resumes the Assistant with its current instructions, not the prompt its conversation recorded (#334)', async () => {
+    const { claudeCode } = await import('../src/main/providers/claude/adapter')
+    const ctx = {
+      projectPath: 'C:\\ws\\.hive\\assistant', agentId: 'assistant', executable: 'C:\\bin\\claude.exe', cliVersion: '2.1.292', cwd: 'C:\\ws', workspacePath: 'C:\\ws', runId: 'r', sessionId: '00000000-0000-4000-8000-000000000000',
+      resume: true, name: '', skills: [], mcpServers: {}, model: null, effort: null, permissionMode: null, extraArgs: [] as string[], hookUrl: '', hookAuthFile: '', privateDir: 'C:/hive/launches/r', guidance: '', instructions: 'You are in Planner mode.', env: {}, allowBackgroundSessions: true, use200kContext: false
+    }
+    const snapshot = (c: typeof ctx): string | null => {
+      const args = claudeCode.buildCommand(c.executable, c).args
+      const i = args.indexOf('--system-prompt-snapshot')
+      return i < 0 ? null : args[i + 1]
+    }
+    expect(snapshot(ctx)).toBe('off')
+    expect(snapshot({ ...ctx, cliVersion: '2.1.267' })).toBe('off')
+    // A new conversation records the prompt it is given; an agent has no instructions of its own.
+    expect(snapshot({ ...ctx, resume: false })).toBeNull()
+    expect(snapshot({ ...ctx, instructions: undefined as unknown as string })).toBeNull()
+    // Older versions keep no record (and don't know the flag); an unknown version isn't given it either.
+    expect(snapshot({ ...ctx, cliVersion: '2.1.266' })).toBeNull()
+    expect(snapshot({ ...ctx, cliVersion: null as unknown as string })).toBeNull()
+    // The user's own choice in Extra arguments stands.
+    expect(snapshot({ ...ctx, extraArgs: ['--system-prompt-snapshot', 'on'] })).toBe('on')
+    expect(claudeCode.buildCommand(ctx.executable, { ...ctx, extraArgs: ['--system-prompt-snapshot=on'] }).args.filter((a) => a.startsWith('--system-prompt-snapshot'))).toEqual(['--system-prompt-snapshot=on'])
+  })
 })
 
 describe('ConversationParser', () => {

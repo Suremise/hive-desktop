@@ -118,7 +118,7 @@ export interface PerfTotals {
   toolBytes: number
   detailCalls: number
   launches: number
-  /** Per launch, on average: core contract, project additions, the Assistant's role and persona, the skills' catalog and bytes. */
+  /** Per launch, on average: core contract, project additions, the Assistant's role and mode (personaBytes), the skills' catalog and bytes. */
   avgGuidanceBytes: number
   avgCustomBytes: number
   avgRoleBytes: number

@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, RETIRED_PERSONAS, assistantPersona, assistantProjectConfig, modeMessage, modeSummary, newPersonaText, parsePersona, personaId } from '../src/shared/assistant'
+import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, RETIRED_PERSONAS, assistantPersona, assistantProjectConfig, assistantStatusLine, modeMessage, modeSummary, newPersonaText, parsePersona, personaId } from '../src/shared/assistant'
 import { DEFAULT_APP_CONFIG, DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS, compactThreshold, mergeDefaults } from '../src/shared/defaults'
 import { agentLaunchSettings } from '../src/shared/providers'
 import type { AppSettings, ProjectConfig } from '../src/shared/types'
@@ -164,5 +164,46 @@ describe('control', () => {
     expect(promptArg('C:/x/claude.exe', 'Fix the tests\nin web')).toBe('Fix the tests\nin web')
     expect(promptArg('C:/x/claude.cmd', 'Fix "the" tests & 100%\nnow')).toBe('Fix the tests 100 now')
     expect(promptArg('claude.exe', '--help me')).toBe('Task: --help me')
+  })
+})
+
+describe('the Assistant panel’s status line (#312)', () => {
+  const at = (iso: string): string => iso.slice(11, 16)
+  const line = (live: Parameters<typeof assistantStatusLine>[0]) => {
+    const l = assistantStatusLine(live, at)
+    return { says: `${l.text}${l.cards.map((n) => `#${n}`).join(', ')}${l.after}`, cards: l.cards, tone: l.tone }
+  }
+  const line2 = (live: Parameters<typeof assistantStatusLine>[0], approvals: string[]) => {
+    const l = assistantStatusLine(live, at, approvals)
+    return { says: `${l.text}${l.after}`, tone: l.tone }
+  }
+  it('says what the Assistant is doing, in a calm tone unless it needs the user', () => {
+    expect(line(null)).toEqual({ says: 'Not running', cards: [], tone: 'off' })
+    expect(line({ status: 'ready' })).toEqual({ says: 'Idle', cards: [], tone: 'calm' })
+    expect(line({ status: 'finished', backgroundTasks: 2 })).toEqual({ says: 'Idle · 2 background tasks running', cards: [], tone: 'calm' })
+    expect(line({ status: 'working' })).toEqual({ says: 'Working', cards: [], tone: 'busy' })
+    expect(line({ status: 'working', statusMessage: 'Compacting the conversation…' }).says).toBe('Compacting the conversation…')
+    expect(line({ status: 'background', backgroundTasks: 1 })).toEqual({ says: 'Waiting on 1 background task', cards: [], tone: 'calm' })
+    expect(line({ status: 'waiting' })).toEqual({ says: 'Waiting for you', cards: [], tone: 'attention' })
+    expect(line({ status: 'signin' }).tone).toBe('attention')
+    expect(line({ status: 'error', statusMessage: 'It exited' })).toEqual({ says: 'Error: It exited', cards: [], tone: 'attention' })
+  })
+  it('a card watch: its cards apart (chips), the column and until when', () => {
+    const watch = { cards: [271, 273], changes: [], column: 'review' as const, label: 'Waiting for #271, #273 → Review', since: '2026-10-07T20:00:00.000Z', limitAt: '2026-10-07T22:22:00.000Z' }
+    expect(line({ status: 'watching', watch })).toEqual({ says: 'Waiting for #271, #273 → Review (watch until 22:22)', cards: [271, 273], tone: 'calm' })
+    expect(line({ status: 'watching', watch: { ...watch, column: undefined } }).says).toBe('Waiting for #271, #273 (watch until 22:22)')
+  })
+  it("Hive's questions its actions wait on (approval cards) come first, over working, idle and a watch", () => {
+    const one = ['Stop a busy agent?']
+    for (const status of ['working', 'ready', 'finished', 'watching', 'waiting'] as const) expect(line2({ status }, one)).toEqual({ says: 'Waiting for your approval: Stop a busy agent?', tone: 'attention' })
+    expect(line2({ status: 'working' }, ['A?', 'B?'])).toEqual({ says: 'Waiting for your approval (2 questions)', tone: 'attention' })
+    expect(line2({ status: 'signin' }, one)).toEqual({ says: 'Waiting for you to sign in · waiting for your approval', tone: 'attention' })
+    expect(line2({ status: 'error', statusMessage: 'It exited' }, one).says).toBe('Error: It exited · waiting for your approval')
+    // Answered: the normal status again.
+    expect(line2({ status: 'working' }, [])).toEqual({ says: 'Working', tone: 'busy' })
+    expect(line2(null, one)).toEqual({ says: 'Not running', tone: 'off' })
+  })
+  it('a question it works on through: the user is wanted', () => {
+    expect(line({ status: 'working', question: { text: 'Which one?', since: '' } })).toEqual({ says: 'Working · has a question for you', cards: [], tone: 'attention' })
   })
 })

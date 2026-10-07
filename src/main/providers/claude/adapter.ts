@@ -29,6 +29,12 @@ export const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'P
 /** Tools that edit files: PreToolUse checks them against other agents' file locks. */
 export const EDIT_TOOLS = 'Edit|Write|MultiEdit|NotebookEdit'
 
+/**
+ * Since 2.1.267 Claude Code records a conversation's system prompt on its first request and sends that record on every
+ * resume, whatever a later launch appends, until it compacts; `--system-prompt-snapshot off` renders it fresh (#334).
+ */
+const PROMPT_SNAPSHOT_SINCE = '2.1.267'
+
 export function claudeHome(): string {
   return process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')
 }
@@ -310,6 +316,9 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     args.push('--mcp-config', join(ctx.privateDir, 'mcp.json'), '--strict-mcp-config')
     args.push('--settings', join(ctx.privateDir, 'settings.json'))
     if (ctx.instructions) args.push('--append-system-prompt-file', join(dir, 'instructions.md'))
+    // A resumed conversation gets this launch's instructions (the Assistant's current mode), not the ones it started with:
+    // a newer Claude Code would keep sending those. Not where the user's own arguments choose.
+    if (ctx.instructions && ctx.resume && ctx.cliVersion && compareVersions(ctx.cliVersion, PROMPT_SNAPSHOT_SINCE) >= 0 && !ctx.extraArgs.some((a) => /^--system-prompt-snapshot(=|$)/.test(a))) args.push('--system-prompt-snapshot', 'off')
     if (ctx.trustedHiveTools?.length && ctx.mcpServers.hive) args.push('--allowedTools', ctx.trustedHiveTools.map((t) => `mcp__hive__${t}`).join(','))
     // With 1M turned off, Claude Code rejects a "[1m]" model as unrecognised (2.1.287): run the base model.
     if (ctx.model) args.push('--model', ctx.use200kContext ? baseModel(ctx.model) : ctx.model)
