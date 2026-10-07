@@ -170,20 +170,22 @@ describe('Remove anyway', () => {
       vi.setSystemTime(Date.now() + PREVIEW_MS - 60_000)
       expect(await anyway(fresh.path, q.token)).toEqual({ deleted: true })
       vi.setSystemTime(Date.now() + 2 * 60_000)
-      expect(await anyway(old.path, p.token)).toEqual({ deleted: false, reason: 'what it holds was checked more than 15 minutes ago: nothing was removed, look again' })
+      expect(await anyway(old.path, p.token)).toEqual({ deleted: false, lookAgain: true, reason: 'what it holds was checked more than 15 minutes ago: nothing was removed, look again' })
     } finally {
       vi.useRealTimers()
     }
     expect(existsSync(old.path)).toBe(true)
     expect(branches()).toContain(old.branch)
-    // Spent by that refusal: a new look is needed.
-    expect((await anyway(old.path, p.token)).reason).toMatch(/not checked for this removal/)
+    // Spent by that refusal: a new look is needed, and settles it (#377).
+    expect(await anyway(old.path, p.token)).toMatchObject({ deleted: false, lookAgain: true, reason: expect.stringMatching(/not checked for this removal/) })
+    expect(await anyway(old.path, (await preview(old.path)).token)).toEqual({ deleted: true })
   })
 
   it('a token is spent by a removal refused for another reason too', async () => {
     const t = await tree(`spent${++n}`)
     const p = await preview(t.path)
     agents([t])
+    // Not one a new look settles: no lookAgain.
     expect(await anyway(t.path, p.token)).toEqual({ deleted: false, reason: 'an agent works in it now' })
     agents([])
     expect((await anyway(t.path, p.token)).reason).toMatch(/not checked for this removal/)
@@ -205,7 +207,7 @@ describe('Remove anyway', () => {
     const p = await preview(t.path)
     rmSync(join(t.path, 'old.txt'))
     writeFileSync(join(t.path, 'new-important.txt'), 'new work\n')
-    expect(await anyway(t.path, p.token)).toMatchObject({ deleted: false, reason: expect.stringMatching(/changed since you were shown.*its files/) })
+    expect(await anyway(t.path, p.token)).toMatchObject({ deleted: false, lookAgain: true, reason: expect.stringMatching(/changed since you were shown.*its files/) })
     expect(existsSync(join(t.path, 'new-important.txt'))).toBe(true)
   })
 
