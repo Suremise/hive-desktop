@@ -1,6 +1,7 @@
-import type { AppSettings, ProjectConfig, ProjectProviderConfig, ProviderId } from './types'
+import type { AppSettings, LiveSessionState, ProjectConfig, ProjectProviderConfig, ProviderId } from './types'
 import { DEFAULT_SETTINGS, projectAgents } from './defaults'
 import { PROVIDERS } from './providers'
+import { columnLabel } from './tasks'
 
 /**
  * The Hive Assistant: one per workspace, its overseer. It runs like a project's agent (same terminal, hooks,
@@ -121,4 +122,56 @@ export function newPersonaText(name: string): string {
 /** A persona id from a name: lower case, words joined by hyphens. */
 export function personaId(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+}
+
+/**
+ * The Assistant panel's status line (#312), from what Hive knows of its session: "Working", "Idle", "Waiting for you",
+ * "Waiting for #271, #273 → Review (watch until 22:22)". A card watch's cards are kept apart (`cards`, between `text`
+ * and `after`) so each can be a chip that opens its card. `tone`: attention when it needs the user, busy while it works,
+ * calm while it is idle or waits on cards or tasks, off when it isn't running. `approvals`: the titles of Hive's questions
+ * its actions wait on (stopping a busy agent…), shown under the line: waiting for the user's answer comes first, over
+ * working, idle and a card watch; sign-in and an error keep their words, with it added.
+ */
+export interface AssistantStatusLine {
+  text: string
+  cards: number[]
+  after: string
+  tone: 'attention' | 'busy' | 'calm' | 'off'
+}
+
+export function assistantStatusLine(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'backgroundTasks' | 'question' | 'watch'> | null | undefined, time: (iso: string) => string, approvals: readonly string[] = []): AssistantStatusLine {
+  const line = (text: string, tone: AssistantStatusLine['tone'], cards: number[] = [], after = ''): AssistantStatusLine => ({ text, cards, after, tone })
+  if (!live || live.status === 'stopped') return line('Not running', 'off')
+  const approval = approvals.length === 1 ? `Waiting for your approval: ${approvals[0]}` : approvals.length ? `Waiting for your approval (${approvals.length} questions)` : ''
+  if (approval && live.status !== 'signin' && live.status !== 'error') return line(approval, 'attention')
+  const n = live.backgroundTasks ?? 0
+  const tasks = `${n} background task${n === 1 ? '' : 's'}`
+  // A question it doesn't stop for: it works on meanwhile, and the user is wanted.
+  const asks = live.question && live.status !== 'waiting' ? ' · has a question for you' : ''
+  const base = ((): AssistantStatusLine => {
+    switch (live.status) {
+      case 'waiting':
+        return line('Waiting for you', 'attention')
+      case 'signin':
+        return line('Waiting for you to sign in', 'attention')
+      case 'error':
+        return line(live.statusMessage ? `Error: ${live.statusMessage}` : 'Error', 'attention')
+      case 'watching':
+        if (live.watch) {
+          const until = time(live.watch.limitAt)
+          return line('Waiting for ', 'calm', live.watch.cards, `${live.watch.column ? ` → ${columnLabel(live.watch.column)}` : ''}${until ? ` (watch until ${until})` : ''}`)
+        }
+        return line('Waiting on cards', 'calm')
+      case 'background':
+        return line(`Waiting on ${tasks}`, 'calm')
+      case 'starting':
+        return line(live.statusMessage || 'Starting…', 'busy')
+      case 'working':
+        return line(live.statusMessage || 'Working', 'busy')
+      default:
+        return line(n ? `Idle · ${tasks} running` : 'Idle', 'calm')
+    }
+  })()
+  const also = approval ? ' · waiting for your approval' : asks
+  return also ? { ...base, after: `${base.after}${also}`, tone: 'attention' } : base
 }

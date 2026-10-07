@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, assistantPersona } from '@shared/assistant'
+import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, assistantPersona, assistantStatusLine } from '@shared/assistant'
 import { compactThreshold, isCompacting } from '@shared/defaults'
-import { formatDateTime } from '@shared/dates'
+import { formatDateTime, formatTime } from '@shared/dates'
 import { agentOpenRun, runWords } from '@shared/progress'
 import { agentProvider, providerDescriptor } from '@shared/providers'
 import type { AgentInfo, AgentPatch, AssistantAction, EffortLevel, PermissionMode, PersonaInfo, ProgressRun, ProjectInfo, ProviderId } from '@shared/types'
@@ -18,12 +18,13 @@ import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
 import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { PaneResizer, usePaneSize } from './Resizer'
+import { ShowAllList } from './ShowAllList'
 import { TerminalView } from './TerminalView'
 import { Icon, IconButton, Modal, ReviewMark, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
 /**
- * The Hive Assistant's side panel: the workspace's overseer. Its header (status, persona, controls), what is
- * happening in the workspace, its terminal, and its footer (model, mode, context, cost). Everything about the
+ * The Hive Assistant's side panel: the workspace's overseer. Its header (persona, controls) and status line, what is
+ * happening in the workspace, its terminal, its footer (model, mode, context, cost) and what it has done. Everything about the
  * Assistant is here, apart from managing personas (their own view) and its defaults (Settings → Assistant).
  */
 
@@ -166,6 +167,7 @@ export function AssistantPanel() {
     <div className={cx('assistant-panel', left && 'on-left', !!flash && 'flash')} style={{ width }}>
       <PaneResizer paneKey="assistant" edge={left ? 'right' : 'left'} min={300} max={900} keep={380} />
       <AssistantHeader project={a} a={agent} />
+      <AssistantStatus a={agent} />
       <AssistantQuestions />
       <div className="assistant-body" ref={body}>
         <div className={cx('assistant-top', topShare === undefined && 'auto')} style={topShare === undefined ? undefined : { height: `${topShare * 100}%` }}>
@@ -210,6 +212,7 @@ export function AssistantPanel() {
           showSession={false}
         />
       </div>
+      <AssistantActions />
     </div>
   )
 }
@@ -421,8 +424,6 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
           <Icon name="chevron-down" />
         </button>
       </Tooltip>
-      <span className="faint pane-status">{live ? statusText(live) : 'Not running'}</span>
-      <ReviewMark live={live} />
       <div className="grow" />
       {live ? (
         buttons && (
@@ -476,20 +477,66 @@ function AssistantQuestions() {
   )
 }
 
-/** What the Assistant did in this workspace, newest first: the last few, or all of them unfolded. */
+/**
+ * The Assistant's status in one line under the header (#312): "Status: Working", "Status: Waiting for #12, #13 →
+ * Review (watch until 22:22)", with the status dot's colour, the attention colour when it needs you, and each card it
+ * waits for a chip that opens the card. Cut short with "…" in a narrow panel, the whole line in its tooltip.
+ */
+function AssistantStatus({ a }: { a: AgentInfo }) {
+  useDateStyle()
+  const live = a.live
+  // Hive's own questions its actions wait on (the cards under this line): the user is wanted first.
+  const approvals = useStore((s) => s.assistantQuestions)
+  const line = assistantStatusLine(live, (iso) => formatTime(iso), approvals.map((q) => q.title))
+  const whole = `Status: ${line.text}${line.cards.map((n) => `#${n}`).join(', ')}${line.after}`
+  return (
+    <div className={cx('assistant-status', line.tone)} data-tone={line.tone}>
+      <span className={cx('dot', live?.status ?? 'stopped', live?.unseen && 'unseen')} />
+      <Tooltip content={whole}>
+        <span className="assistant-status-text">
+          Status: {line.text}
+          {line.cards.map((n, i) => (
+            <span key={n}>
+              {i > 0 && ', '}
+              <button type="button" className="assistant-status-card" aria-label={`Open card #${n}`} onClick={() => set({ taskOpen: n })}>
+                #{n}
+              </button>
+            </span>
+          ))}
+          {line.after}
+        </span>
+      </Tooltip>
+      <ReviewMark live={live} />
+    </div>
+  )
+}
+
+/** Whether a workspace's "Done by the Assistant" is folded to its header (remembered per workspace). */
+const actionsFoldKey = (ws: string): string => `assistant-actions:${ws.toLowerCase()}`
+
+/**
+ * What the Assistant did in this workspace, newest first, under its footer (#312): the last 3, Show all scrolls every
+ * one inside the same height, and the header folds it all away to give the terminal the room. Not shown until it has
+ * done something.
+ */
 function AssistantActions() {
   const list = useStore((s) => s.assistantActions)
   const reverting = useStore((s) => s.running)
-  const [all, setAll] = useState(false)
+  const ws = useStore((s) => s.workspace?.path ?? '')
+  const folded = useStore((s) => s.panes[actionsFoldKey(ws)] === 1)
   useDateStyle()
   if (!list.length) return null
   const newest = [...list].reverse()
-  const shown = all ? newest : newest.slice(0, 3)
   const reverted = new Set(list.map((a) => a.revertOf).filter(Boolean))
+  const toggle = (): void => {
+    const key = actionsFoldKey(ws)
+    set((s) => ({ panes: { ...s.panes, [key]: folded ? 0 : 1 } }))
+    void call('ui:setPane', key, folded ? null : 1)
+  }
   // A setting it changed (#186): Revert puts the old value back, through the same checks.
   const revert = (x: AssistantAction): void => void runOnce(`revert:${x.id}`, () => actions.attempt('Could not revert the setting', () => call('assistant:revertSetting', x.id)))
   const row = (x: AssistantAction) => (
-    <Tooltip key={x.id} block content={`${formatDateTime(x.at)}${x.error ? `\nNot done: ${x.error}` : ''}${x.setting ? `\n${x.setting.path}: ${x.setting.oldText} → ${x.setting.newText}` : ''}`}>
+    <Tooltip block content={`${formatDateTime(x.at)}${x.error ? `\nNot done: ${x.error}` : ''}${x.setting ? `\n${x.setting.path}: ${x.setting.oldText} → ${x.setting.newText}` : ''}`}>
       <div className={cx('assistant-action', !x.ok && 'failed')}>
         <Icon name={x.ok ? 'check' : 'circle-slash'} />
         <span className="assistant-action-text">{x.text}</span>
@@ -515,19 +562,14 @@ function AssistantActions() {
     </Tooltip>
   )
   return (
-    <>
-      <div className="assistant-section-title">
+    <div className={cx('assistant-actions', folded && 'folded')}>
+      <button type="button" className="assistant-actions-head" aria-expanded={!folded} onClick={toggle}>
+        <Icon name={folded ? 'chevron-right' : 'chevron-down'} />
         Done by the Assistant
-        <span className="faint">{list.length}</span>
-      </div>
-      {shown.map(row)}
-      {list.length > 3 && (
-        <div className="assistant-fold" role="button" aria-expanded={all} onClick={() => setAll(!all)}>
-          <Icon name={all ? 'chevron-down' : 'chevron-right'} />
-          {all ? 'Show fewer' : `Show all ${list.length}`}
-        </div>
-      )}
-    </>
+        <span className="faint">({list.length})</span>
+      </button>
+      {!folded && <ShowAllList items={newest} few={3} keyOf={(x) => x.id} renderItem={row} label="Done by the Assistant" className="assistant-actions-list" />}
+    </div>
   )
 }
 
@@ -643,7 +685,6 @@ function WorkspaceOverview() {
         </div>
       )}
       {showInactive && folded.map(row)}
-      <AssistantActions />
     </div>
   )
 }

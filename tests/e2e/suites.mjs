@@ -21,6 +21,7 @@ export const SUITES = [
   { name: 'assistantimages' },
   { name: 'assistantmode' },
   { name: 'assistantoverview' },
+  { name: 'assistantpanel' },
   { name: 'assistantresume', needs: ['claude'], claudeHome: 'test' },
   { name: 'assistantsettings' },
   { name: 'assistantside' },
