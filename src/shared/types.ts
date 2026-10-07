@@ -1191,7 +1191,7 @@ export interface AutoCompactSetting {
   percent?: number
   /** Where that comes from, in words ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "autoCompactWindow in Claude Code's settings.json"); null for the default. */
   source: string | null
-  /** The default as far as Hive can tell, and why it may not be (sources it can't read), shown with it (#273). */
+  /** Why this is only as far as Hive can tell (sources it can't read: always for the default, #273; for any answer when a settings file couldn't be read or which are read isn't known, #333), shown with it. */
   estimate?: string
 }
 

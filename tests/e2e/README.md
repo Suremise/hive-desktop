@@ -227,6 +227,11 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
   reaching Hive, the launch's settings, MCP config and auth file in its private folder in Hive's user data, and the
   token refused once the session ends. The runner asks about no sign-in for it. The other real Claude suites still use
   the default home (#368).
+- **`claudesettings`** (#333) runs the real Claude Code in a home of its own too, with `-p --init-only` (hooks only,
+  no conversation: no sign-in, no tokens) and starts no Hive. A SessionStart hook in each settings file shows which
+  files it reads under `--setting-sources` and `--restricted`, and which `--settings` files it refuses (over 2 MiB, a
+  folder, missing): what Hive's compaction reader and its launch read of a user's `--settings` assume. Run it after a
+  Claude Code update; a failure means `providers/claude/autoCompact.ts` no longer matches the CLI.
 - **Codex** for the `codex*` suites, signed in to the **test home** `%LOCALAPPDATA%\hive-test\codex` (never your
   own `~/.codex`). Sign in once:
   ```powershell

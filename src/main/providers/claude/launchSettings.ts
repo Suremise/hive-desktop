@@ -1,6 +1,6 @@
 import { isAbsolute, join } from 'path'
-import { readFile } from 'original-fs/promises'
-import { settingsArgValue } from './autoCompact'
+import { open, stat } from 'original-fs/promises'
+import { SETTINGS_FILE_LIMIT, SETTINGS_READ_CHUNK, settingsArgValue } from './autoCompact'
 
 /**
  * A `--settings` in the user's own arguments (#330). Claude Code reads only the last `--settings` it is given (checked
@@ -46,7 +46,7 @@ export async function userSettings(args: readonly string[], cwd: string): Promis
     const file = isAbsolute(v) ? v : join(cwd, v)
     let text: string
     try {
-      text = await readFile(file, 'utf8')
+      text = await readSettingsFile(file)
     } catch (e) {
       throw new Error(`${what} can't be read: ${(e as NodeJS.ErrnoException).code === 'ENOENT' ? 'there is no such file' : (e as Error).message}. Fix it or remove it in Agent Settings or Settings → Claude Code.`, { cause: e })
     }
@@ -64,6 +64,36 @@ export async function userSettings(args: readonly string[], cwd: string): Promis
     if (key in json && !Array.isArray((json as Record<string, unknown>)[key])) throw new Error(`${what} sets ${key} to something other than a list, which stops Hive's hooks reaching it. Make it a list ([ … ]) or remove it in Agent Settings or Settings → Claude Code.`)
   }
   return json as Record<string, unknown>
+}
+
+/**
+ * A `--settings` file's text, as Claude Code would take it (2.1.292): a regular file of at most 2 MiB, which it refuses
+ * otherwise ("Settings file exceeds the 2MiB limit", "Cannot use settings file (EISDIR…)"). Checked before it is opened,
+ * so a device name, a pipe or a huge file never holds up the launch (#333); then the opened file is checked again and
+ * read to its end, a chunk at a time and never past a byte over the limit, since it may have changed since the stat.
+ */
+async function readSettingsFile(file: string): Promise<string> {
+  const st = await stat(file)
+  if (!st.isFile()) throw new Error("it isn't a file")
+  const over = (): Error => new Error("it's over Claude Code's 2 MiB limit for settings files")
+  if (st.size > SETTINGS_FILE_LIMIT) throw over()
+  const fh = await open(file, 'r')
+  try {
+    if (!(await fh.stat()).isFile()) throw new Error("it isn't a file")
+    const chunks: Buffer[] = []
+    let n = 0
+    for (;;) {
+      const chunk = Buffer.allocUnsafe(Math.min(SETTINGS_READ_CHUNK, SETTINGS_FILE_LIMIT + 1 - n))
+      const { bytesRead } = await fh.read(chunk, 0, chunk.length, null)
+      if (!bytesRead) break
+      chunks.push(chunk.subarray(0, bytesRead))
+      n += bytesRead
+      if (n > SETTINGS_FILE_LIMIT) throw over()
+    }
+    return Buffer.concat(chunks, n).toString('utf8')
+  } finally {
+    await fh.close()
+  }
 }
 
 /** Allowlists for HTTP hooks, which Claude Code takes whole from the highest settings file that sets one. */

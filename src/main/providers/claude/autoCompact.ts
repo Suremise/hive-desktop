@@ -1,5 +1,5 @@
 import { isAbsolute, join } from 'path'
-import { readFileSync } from 'original-fs'
+import { closeSync, fstatSync, openSync, readSync, statSync } from 'original-fs'
 import type { AutoCompactSetting } from '../../../shared/types'
 
 /**
@@ -51,6 +51,8 @@ const modelKey = (m: string): string => m.trim().toLowerCase().replace(/\[[^\]]*
 export interface SettingsScope {
   label: string
   json: unknown
+  /** Why Hive can't tell what it gives (it couldn't read it, or can't tell whether Claude Code does), after its label (#333). */
+  unsure?: string
 }
 
 /** What a default is labelled with: what Hive can't read could still change it (#273). */
@@ -113,6 +115,14 @@ function envSwitch(v: string | undefined): boolean | undefined {
  * DISABLE_AUTO_COMPACT turn it off over everything; DISABLE_AUTO_COMPACT set off overrides `autoCompactEnabled` too.
  */
 export function autoCompactOf(args: readonly string[], launchEnv: Record<string, string | undefined>, scopes: readonly SettingsScope[], models: readonly string[]): AutoCompactSetting {
+  // What a scope Hive can't be sure of holds could change any answer (its env block is over the launch's): an estimate (#333).
+  const unsure = scopes.filter((s) => s.unsure).map((s) => `${s.label} ${s.unsure}`).join('; ')
+  const result = autoCompactRead(args, launchEnv, scopes, models)
+  if (!unsure) return result
+  return { ...result, estimate: result.estimate ? `${result.estimate}; and ${unsure}` : `an estimate: ${unsure}` }
+}
+
+function autoCompactRead(args: readonly string[], launchEnv: Record<string, string | undefined>, scopes: readonly SettingsScope[], models: readonly string[]): AutoCompactSetting {
   // The variables as Claude Code reads them: a settings file's env block over the launch environment.
   const { env, from } = effectiveEnv(launchEnv, scopes)
   const named = (k: string): string => (from[k] ? `${k} (env in ${from[k]})` : k)
@@ -147,12 +157,48 @@ export function autoCompactOf(args: readonly string[], launchEnv: Record<string,
   return { window: null, source: pctOnly, ...percent, estimate: UNREAD_SOURCES }
 }
 
-/** A settings file's JSON, or null (missing, unreadable, not JSON). */
-function readSettings(file: string): unknown {
+/** The most of a settings file Claude Code reads: it refuses a larger `--settings` (2.1.292: "exceeds the 2MiB limit"). */
+export const SETTINGS_FILE_LIMIT = 2 * 1024 * 1024
+
+/** How much of a settings file is read at a time. */
+export const SETTINGS_READ_CHUNK = 64 * 1024
+
+/**
+ * A settings file's JSON, null when it's missing or isn't JSON (Claude Code skips such a file too); `unsure` when Hive
+ * couldn't read it: not a regular file, over the limit or unreadable (#333). Opened only after a stat says it's a
+ * regular file within the limit, so a device name, a pipe or a huge file never holds up the main process; then the
+ * opened file is checked again and read to its end, a chunk at a time and never past a byte over the limit, since it
+ * may have been replaced or grown since the stat.
+ */
+function readSettings(file: string): { json: unknown; unsure?: string } {
+  const unread = (why: string): { json: null; unsure: string } => ({ json: null, unsure: `couldn't be read (${why})` })
+  let fd: number | null = null
   try {
-    return JSON.parse(readFileSync(file, 'utf8'))
-  } catch {
-    return null
+    const st = statSync(file, { throwIfNoEntry: false })
+    if (!st) return { json: null }
+    if (!st.isFile()) return unread("it isn't a file")
+    if (st.size > SETTINGS_FILE_LIMIT) return unread("it's over Claude Code's 2 MiB limit")
+    fd = openSync(file, 'r')
+    if (!fstatSync(fd).isFile()) return unread("it isn't a file")
+    const chunks: Buffer[] = []
+    let n = 0
+    for (;;) {
+      const chunk = Buffer.allocUnsafe(Math.min(SETTINGS_READ_CHUNK, SETTINGS_FILE_LIMIT + 1 - n))
+      const got = readSync(fd, chunk, 0, chunk.length, null)
+      if (!got) break
+      chunks.push(chunk.subarray(0, got))
+      n += got
+      if (n > SETTINGS_FILE_LIMIT) return unread("it's over Claude Code's 2 MiB limit")
+    }
+    try {
+      return { json: JSON.parse(Buffer.concat(chunks, n).toString('utf8').replace(/^\uFEFF/, '')) }
+    } catch {
+      return { json: null }
+    }
+  } catch (e) {
+    return unread((e as NodeJS.ErrnoException).code ?? (e as Error).message)
+  } finally {
+    if (fd !== null) closeSync(fd)
   }
 }
 
@@ -188,22 +234,58 @@ export function cliSettings(args: readonly string[], cwd: string): SettingsScope
       return { label: '--settings', json: null }
     }
   }
-  return { label: `--settings ${v}`, json: readSettings(isAbsolute(v) ? v : join(cwd, v)) }
+  return { label: `--settings ${v}`, ...readSettings(isAbsolute(v) ? v : join(cwd, v)) }
 }
+
+/** The settings files `--setting-sources` can name. */
+const SOURCES = ['user', 'project', 'local'] as const
+type SettingSource = (typeof SOURCES)[number]
+
+/**
+ * The settings files Claude Code reads for the user's arguments besides managed settings and `--settings`, which it
+ * always reads (#333; checked with Claude Code 2.1.292 in a test home): `--restricted` reads none of them, whatever
+ * else is given; else the last `--setting-sources` (either form), a comma-separated list of `user`, `project` and
+ * `local`, its names trimmed (an empty value reads none); null without either (all of them). A list Claude Code would
+ * refuse (another name, an empty entry, a missing value: it doesn't start) is `invalid`, all of them kept.
+ */
+export function settingSources(args: readonly string[]): { sources: ReadonlySet<SettingSource> | null; invalid?: string } {
+  if (args.includes('--restricted')) return { sources: new Set() }
+  let value: string | null = null
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--setting-sources') value = args[i + 1] ?? null
+    else if (args[i].startsWith('--setting-sources=')) value = args[i].slice('--setting-sources='.length)
+    // A missing value (the last argument): Claude Code refuses it.
+    if (args[i] === '--setting-sources' && i === args.length - 1) return { sources: null, invalid: '' }
+  }
+  if (value === null) return { sources: null }
+  if (!value.trim()) return { sources: new Set() }
+  const names = value.split(',').map((n) => n.trim())
+  if (names.some((n) => !(SOURCES as readonly string[]).includes(n))) return { sources: null, invalid: value }
+  return { sources: new Set(names as SettingSource[]) }
+}
+
+/** Arguments with which Hive can't tell which settings files Claude Code reads (they leave out customizations). */
+const UNSURE_MODES = ['--safe-mode', '--bare']
 
 /**
  * The settings scopes Claude Code reads for a session, highest first: managed (Windows), the command line's (the last
  * `--settings` in the user's arguments), the folder's .claude/settings.local.json and .claude/settings.json, then the
- * user's settings in its config folder.
+ * user's settings in its config folder; the last three only as far as `--setting-sources` and `--restricted` allow
+ * (settingSources). Arguments that leave Hive unsure what it reads come last, as scopes holding nothing.
  */
 export function settingsScopes(cwd: string, configDir: string, args: readonly string[] = []): SettingsScope[] {
   const programFiles = process.env.ProgramFiles || 'C:\\Program Files'
   const cli = cliSettings(args, cwd)
+  const { sources, invalid } = settingSources(args)
+  const reads = (s: SettingSource): boolean => !sources || sources.has(s)
+  const file = (label: string, path: string): SettingsScope => ({ label, ...readSettings(path) })
   return [
-    { label: 'managed settings', json: readSettings(join(programFiles, 'ClaudeCode', 'managed-settings.json')) },
+    file('managed settings', join(programFiles, 'ClaudeCode', 'managed-settings.json')),
     ...(cli ? [cli] : []),
-    { label: "the project's .claude/settings.local.json", json: readSettings(join(cwd, '.claude', 'settings.local.json')) },
-    { label: "the project's .claude/settings.json", json: readSettings(join(cwd, '.claude', 'settings.json')) },
-    { label: "Claude Code's settings.json", json: readSettings(join(configDir, 'settings.json')) }
+    ...(reads('local') ? [file("the project's .claude/settings.local.json", join(cwd, '.claude', 'settings.local.json'))] : []),
+    ...(reads('project') ? [file("the project's .claude/settings.json", join(cwd, '.claude', 'settings.json'))] : []),
+    ...(reads('user') ? [file("Claude Code's settings.json", join(configDir, 'settings.json'))] : []),
+    ...(invalid !== undefined ? [{ label: `--setting-sources ${invalid}`.trim(), json: null, unsure: "isn't a list Claude Code takes (user, project, local)" }] : []),
+    ...UNSURE_MODES.filter((m) => args.includes(m)).map((m) => ({ label: m, json: null, unsure: 'may stop Claude Code reading some settings files' }))
   ]
 }

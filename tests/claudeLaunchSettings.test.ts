@@ -1,6 +1,6 @@
 // A --settings in a Claude Code agent's own arguments (#330): Claude Code reads only the last --settings, so Hive merges
 // the user's settings into its launch file (their hooks added to Hive's, Hive's status line kept) and passes that alone.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -38,6 +38,12 @@ describe("a --settings in a Claude Code agent's arguments (#330)", () => {
     await expect(userSettings(['--settings', 'missing.json'], base)).rejects.toThrow("The settings file missing.json (--settings in Extra arguments) can't be read: there is no such file.")
     await expect(userSettings(['--settings', 'bad.json'], base)).rejects.toThrow("isn't valid JSON")
     await expect(userSettings(['--settings', 'list.json'], base)).rejects.toThrow("isn't a settings object")
+    // Over Claude Code's 2 MiB limit, or not a regular file: refused, as Claude Code 2.1.292 refuses them (#333).
+    writeFileSync(join(base, 'big.json'), JSON.stringify({ pad: 'x'.repeat(2 * 1024 * 1024) }))
+    await expect(userSettings(['--settings', 'big.json'], base)).rejects.toThrow("The settings file big.json (--settings in Extra arguments) can't be read: it's over Claude Code's 2 MiB limit for settings files.")
+    mkdirSync(join(base, 'folder.json'), { recursive: true })
+    await expect(userSettings(['--settings', 'folder.json'], base)).rejects.toThrow("can't be read: it isn't a file.")
+    await expect(userSettings(['--settings', 'CON'], base)).rejects.toThrow("can't be read")
     // Not JSON: Claude Code reads it as a file's name.
     await expect(userSettings(['--settings', '{bad'], base)).rejects.toThrow("The settings file {bad (--settings in Extra arguments) can't be read")
   })

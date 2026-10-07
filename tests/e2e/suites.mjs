@@ -41,6 +41,7 @@ export const SUITES = [
   { name: 'changes' },
   { name: 'claude-real', needs: ['claude'] },
   { name: 'claudehome', needs: ['claude'], claudeHome: 'own' },
+  { name: 'claudesettings', needs: ['claude'], claudeHome: 'own' },
   { name: 'closewindow' },
   { name: 'codex', needs: ['codex'] },
   { name: 'codex-background', needs: ['codex'] },

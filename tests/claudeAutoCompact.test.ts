@@ -6,7 +6,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { autoCompactLine } from '../src/shared/providers'
-import { UNREAD_SOURCES, autoCompactOf, cliSettings, effectiveEnv, parseWindow, settingsScopes } from '../src/main/providers/claude/autoCompact'
+import { SETTINGS_FILE_LIMIT, UNREAD_SOURCES, autoCompactOf, cliSettings, effectiveEnv, parseWindow, settingSources, settingsScopes } from '../src/main/providers/claude/autoCompact'
 
 const user = (json: unknown) => ({ label: "Claude Code's settings.json", json })
 const project = (json: unknown) => ({ label: "the project's .claude/settings.json", json })
@@ -152,5 +152,87 @@ describe('Claude Code auto-compaction settings (#242)', () => {
     expect(autoCompactOf([], {}, scopes.slice(1), OPUS)).toEqual({ window: 'off', source: "autoCompactEnabled: false in Claude Code's settings.json" })
     writeFileSync(join(home, 'settings.json'), JSON.stringify({ autoCompactWindow: 300_000 }))
     expect(autoCompactOf([], {}, settingsScopes(cwd, home).slice(1), OPUS)).toEqual({ window: 450_000, source: "autoCompactWindow in the project's .claude/settings.json" })
+  })
+
+  // Which files Claude Code reads, as 2.1.292 does in a test home (#333): --setting-sources names user, project and local
+  // (trimmed, case as given, the last flag wins, an empty list none, any other name refused); --restricted reads none of
+  // them, whatever --setting-sources says; managed settings and --settings always.
+  it('reads only the settings files --setting-sources names, in either form; --restricted reads none of them (#333)', () => {
+    expect(settingSources([])).toEqual({ sources: null })
+    expect(settingSources(['--setting-sources', 'user'])).toEqual({ sources: new Set(['user']) })
+    expect(settingSources(['--setting-sources=project,local'])).toEqual({ sources: new Set(['project', 'local']) })
+    expect(settingSources(['--setting-sources', ' user , local'])).toEqual({ sources: new Set(['user', 'local']) })
+    expect(settingSources(['--setting-sources', 'user', '--setting-sources', 'project'])).toEqual({ sources: new Set(['project']) })
+    expect(settingSources(['--setting-sources', ''])).toEqual({ sources: new Set() })
+    expect(settingSources(['--setting-sources='])).toEqual({ sources: new Set() })
+    expect(settingSources(['--restricted'])).toEqual({ sources: new Set() })
+    expect(settingSources(['--restricted', '--setting-sources', 'user'])).toEqual({ sources: new Set() })
+    // Lists Claude Code refuses (it doesn't start): kept as unknown.
+    for (const v of ['bogus', 'user,bogus', 'User', 'user,,']) expect(settingSources(['--setting-sources', v])).toEqual({ sources: null, invalid: v })
+    expect(settingSources(['--verbose', '--setting-sources'])).toEqual({ sources: null, invalid: '' })
+
+    // The card's example: the project's env sets a 150K window, but --setting-sources user leaves the project out.
+    const cwd = join(dir, 'sources')
+    const home = join(dir, 'sources-home')
+    mkdirSync(join(cwd, '.claude'), { recursive: true })
+    mkdirSync(home, { recursive: true })
+    writeFileSync(join(cwd, '.claude', 'settings.json'), JSON.stringify({ env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '150000' } }))
+    writeFileSync(join(cwd, '.claude', 'settings.local.json'), JSON.stringify({ autoCompactWindow: 400_000 }))
+    writeFileSync(join(home, 'settings.json'), JSON.stringify({ autoCompactWindow: 300_000 }))
+    writeFileSync(join(cwd, 'cli.json'), JSON.stringify({ autoCompactWindow: 250_000 }))
+    const labels = (args: string[]) => settingsScopes(cwd, home, args).slice(1).map((s) => s.label)
+    const read = (args: string[]) => autoCompactOf(args, {}, settingsScopes(cwd, home, args).slice(1), OPUS)
+    expect(read([])).toEqual({ window: 150_000, source: "CLAUDE_CODE_AUTO_COMPACT_WINDOW (env in the project's .claude/settings.json)" })
+    expect(labels(['--setting-sources', 'user'])).toEqual(["Claude Code's settings.json"])
+    expect(read(['--setting-sources', 'user'])).toEqual({ window: 300_000, source: "autoCompactWindow in Claude Code's settings.json" })
+    expect(read(['--setting-sources=local,user'])).toEqual({ window: 400_000, source: "autoCompactWindow in the project's .claude/settings.local.json" })
+    expect(read(['--setting-sources', ''])).toEqual({ window: null, source: null, estimate: UNREAD_SOURCES })
+    // --restricted: managed settings and --settings only.
+    expect(labels(['--restricted', '--settings', 'cli.json'])).toEqual(['--settings cli.json'])
+    expect(read(['--restricted', '--settings', 'cli.json'])).toEqual({ window: 250_000, source: 'autoCompactWindow in --settings cli.json' })
+    expect(read(['--restricted'])).toEqual({ window: null, source: null, estimate: UNREAD_SOURCES })
+  })
+
+  it("says what it can't determine: a refused --setting-sources, --safe-mode or --bare make any answer an estimate (#333)", () => {
+    const cwd = join(dir, 'sources')
+    const home = join(dir, 'sources-home')
+    const bogus = settingsScopes(cwd, home, ['--setting-sources', 'bogus']).slice(1)
+    expect(bogus.map((s) => s.label)).toEqual(["the project's .claude/settings.local.json", "the project's .claude/settings.json", "Claude Code's settings.json", '--setting-sources bogus'])
+    expect(autoCompactOf([], {}, bogus, OPUS)).toEqual({ window: 150_000, source: "CLAUDE_CODE_AUTO_COMPACT_WINDOW (env in the project's .claude/settings.json)", estimate: "an estimate: --setting-sources bogus isn't a list Claude Code takes (user, project, local)" })
+    const safe = settingsScopes(cwd, home, ['--safe-mode', '--setting-sources', '']).slice(1)
+    expect(autoCompactOf([], {}, safe, OPUS)).toEqual({ window: null, source: null, estimate: `${UNREAD_SOURCES}; and --safe-mode may stop Claude Code reading some settings files` })
+    expect(settingsScopes(cwd, home, ['--bare']).at(-1)).toEqual({ label: '--bare', json: null, unsure: 'may stop Claude Code reading some settings files' })
+    // Turned off, or a window set: the estimate is said too.
+    expect(autoCompactLine('claude-code', 200_000, autoCompactOf([], { DISABLE_COMPACT: '1' }, safe, OPUS))).toBe("Claude Code doesn't compact by itself: auto-compaction is off (DISABLE_COMPACT) (an estimate: --safe-mode may stop Claude Code reading some settings files)")
+    expect(autoCompactLine('claude-code', 200_000, autoCompactOf([], {}, bogus, OPUS))).toBe("Claude Code compacts by itself at about 117,000: its auto-compact window is 150,000 (CLAUDE_CODE_AUTO_COMPACT_WINDOW (env in the project's .claude/settings.json)) (an estimate: --setting-sources bogus isn't a list Claude Code takes (user, project, local))")
+  })
+
+  it("reads a settings file only when it's a regular file within Claude Code's 2 MiB limit, and says when it couldn't (#333)", () => {
+    const cwd = join(dir, 'limits')
+    const home = join(dir, 'limits-home')
+    mkdirSync(join(cwd, '.claude'), { recursive: true })
+    mkdirSync(home, { recursive: true })
+    // Exactly the limit is read (Claude Code takes it); a byte more isn't.
+    const sized = (bytes: number, json: object) => {
+      const s = JSON.stringify({ ...json, pad: '' })
+      return s.replace('"pad":""', `"pad":"${'x'.repeat(bytes - s.length)}"`)
+    }
+    writeFileSync(join(cwd, 'exact.json'), sized(SETTINGS_FILE_LIMIT, { autoCompactWindow: 250_000 }))
+    writeFileSync(join(cwd, 'big.json'), sized(SETTINGS_FILE_LIMIT + 1, { autoCompactWindow: 250_000 }))
+    expect(cliSettings(['--settings', 'exact.json'], cwd)).toMatchObject({ label: '--settings exact.json', json: { autoCompactWindow: 250_000 } })
+    expect(cliSettings(['--settings', 'exact.json'], cwd)?.unsure).toBeUndefined()
+    expect(cliSettings(['--settings', 'big.json'], cwd)).toEqual({ label: '--settings big.json', json: null, unsure: "couldn't be read (it's over Claude Code's 2 MiB limit)" })
+    // Not a regular file: a folder, or a device name (never opened, so never waited on).
+    mkdirSync(join(cwd, 'folder.json'))
+    expect(cliSettings(['--settings', 'folder.json'], cwd)).toEqual({ label: '--settings folder.json', json: null, unsure: "couldn't be read (it isn't a file)" })
+    expect(cliSettings(['--settings', 'CON'], cwd)?.json).toBeNull()
+    // The user's settings.json as a folder: Hive can't tell what it gives, so the project's window is an estimate.
+    mkdirSync(join(home, 'settings.json'))
+    writeFileSync(join(cwd, '.claude', 'settings.json'), JSON.stringify({ autoCompactWindow: 450_000 }))
+    const scopes = settingsScopes(cwd, home).slice(1)
+    expect(scopes.at(-1)).toEqual({ label: "Claude Code's settings.json", json: null, unsure: "couldn't be read (it isn't a file)" })
+    expect(autoCompactOf([], {}, scopes, OPUS)).toEqual({ window: 450_000, source: "autoCompactWindow in the project's .claude/settings.json", estimate: "an estimate: Claude Code's settings.json couldn't be read (it isn't a file)" })
+    // A missing file is certain: nothing set there.
+    expect(autoCompactOf([], {}, settingsScopes(cwd, join(dir, 'nohome')).slice(1), OPUS)).toEqual({ window: 450_000, source: "autoCompactWindow in the project's .claude/settings.json" })
   })
 })
