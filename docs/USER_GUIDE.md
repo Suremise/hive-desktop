@@ -594,6 +594,8 @@ Every session also gets Hive's own MCP server, which lets agents list projects, 
 
 The **Shared Notes** view edits the markdown files in `.hive/shared`. Use it for team conventions, instructions every agent should follow, and **handovers** — notes a session writes before it ends so the next session (or another project) can continue. Handovers go in `shared/handovers`, named by date and project (`2026-09-29-api-auth-refactor.md`), with the project on a `**Project:**` line at the top. When project names overlap, such as `hive` and `hive-website`, that line decides whose handover it is.
 
+Several agents can update the same note without losing each other's changes. An agent rewriting a note says which version it read, and if someone changed the note meanwhile, its write is refused, so it reads the note again and merges its change in. Notes that many agents add to, such as status logs, get one appended entry each, dated and signed. Saving a note in the Shared Notes view that an agent changed since you opened it asks before overwriting it.
+
 ## Memory
 
 A project's **Memory** tab shows what each provider its agents use reads about it, grouped by provider:

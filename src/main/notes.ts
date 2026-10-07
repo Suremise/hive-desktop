@@ -1,10 +1,10 @@
 import { join, relative, resolve, sep, dirname, basename } from 'path'
-import { mkdir, readdir, rename, stat, writeFile } from 'original-fs/promises'
+import { mkdir, readdir, readFile, rename, stat, writeFile } from 'original-fs/promises'
 import { shell } from 'electron'
 import { existsSync } from 'original-fs'
 import { handoverHeader, type HandoverAuthor } from '../shared/hiveGuidance'
 import type { NoteFile } from '../shared/types'
-import { insideReal } from './fsutil'
+import { hashText, insideReal, withFileLock, writeTextAtomic } from './fsutil'
 import { workspace } from './workspace'
 
 function assertInShared(p: string): string {
@@ -93,6 +93,43 @@ export async function createHandover(project: string, title: string, content: st
       file = file.replace(/(-\d+)?\.md$/, `-${n}.md`)
     }
   }
+}
+
+/** A shared note's revision: a short hash of its text, which a write can name to be sure it changes what its writer read. */
+export const noteRevision = (text: string): string => hashText(text).slice(0, 12)
+
+/** A write naming a revision the note is no longer at: `current` is its revision now, null when it no longer exists. */
+export class NoteConflict extends Error {
+  constructor(
+    rel: string,
+    expected: string,
+    public current: string | null
+  ) {
+    super(current ? `${rel} has changed since revision ${expected}: it is now at revision ${current}. Read it again, merge your change and write it with expectedRevision ${current}.` : `${rel} no longer exists. Write it without expectedRevision to create it again.`)
+  }
+}
+
+export async function readNote(abs: string): Promise<{ content: string; revision: string }> {
+  const content = await readFile(abs, 'utf8')
+  return { content, revision: noteRevision(content) }
+}
+
+/**
+ * Writes or appends to a note. Locked from read to write (the same lock as Hive's editors' saves), so two agents
+ * appending at once both keep their text, and with `expectedRevision` the check and the write can't be split by
+ * another write: the second of two writers that read the same text is refused rather than dropping the first's change.
+ */
+export async function writeNote(abs: string, rel: string, content: string, o: { append?: boolean; expectedRevision?: string } = {}): Promise<{ revision: string }> {
+  return withFileLock(abs, async () => {
+    const existing = await readFile(abs, 'utf8').catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? null : Promise.reject(e)))
+    if (o.expectedRevision !== undefined) {
+      const current = existing === null ? null : noteRevision(existing)
+      if (current !== o.expectedRevision) throw new NoteConflict(rel, o.expectedRevision, current)
+    }
+    const text = o.append && existing ? existing + (existing.endsWith('\n') ? '' : '\n') + content : content
+    await writeTextAtomic(abs, text)
+    return { revision: noteRevision(text) }
+  })
 }
 
 export { assertInShared }

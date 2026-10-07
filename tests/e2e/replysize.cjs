@@ -149,9 +149,30 @@ const prose = (seed, n) => {
   const notes = measure('hive_list_shared_notes', tool('hive_list_shared_notes', {}), 1500)
   check('notes: one path a line', /^notes\/note-1\.md \(\d{4}-\d\d-\d\d\)$/m.test(notes), notes)
   const note = measure('hive_read_shared_note', tool('hive_read_shared_note', { path: 'notes/note-1.md' }))
-  check('a note reads as its text', note.startsWith('notes/note-1.md\n\n## Why\n'), note.slice(0, 80))
-  check('writing a note confirms it', measure('hive_write_shared_note', tool('hive_write_shared_note', { path: 'notes/new.md', content: prose(300, 2500) }), 200) === 'Wrote notes/new.md (2,500 characters).' || /^Wrote notes\/new\.md \([\d,]+ characters\)\.$/.test(texts.hive_write_shared_note), texts.hive_write_shared_note)
+  check('a note reads as its text, with its revision', /^notes\/note-1\.md \(revision [0-9a-f]{12}\)\n\n## Why\n/.test(note), note.slice(0, 80))
+  check('writing a note confirms it', /^Wrote notes\/new\.md \([\d,]+ characters, revision [0-9a-f]{12}\)\.$/.test(measure('hive_write_shared_note', tool('hive_write_shared_note', { path: 'notes/new.md', content: prose(300, 2500) }), 200)), texts.hive_write_shared_note)
+  const written = texts.hive_write_shared_note.match(/revision ([0-9a-f]{12})/)?.[1]
   measure('hive_write_shared_note (append)', tool('hive_write_shared_note', { path: 'notes/new.md', content: prose(301, 500), append: true }), 200)
+  // A rewrite naming the revision before that append is refused, with the current one.
+  const stale = tool('hive_write_shared_note', { path: 'notes/new.md', content: 'lost?', expectedRevision: written })
+  measure('hive_write_shared_note (conflict)', stale)
+  check('a stale revision is refused with the current one, in a few lines', stale.isError && /expectedRevision [0-9a-f]{12}/.test(stale.text) && stale.text.length <= 300, stale.text)
+  // A revision given but empty or not a string is refused, never taken as "unguarded" (only leaving it out is).
+  const noteNow = async () => (await api('GET', '/v1/shared/file?path=notes%2Fnew.md')).body
+  const noteBefore = await noteNow()
+  const bad = []
+  for (const v of ['', false, 0, null]) {
+    const r = tool('hive_write_shared_note', { path: 'notes/new.md', content: 'unguarded?', expectedRevision: v })
+    if (!r.isError || !/expectedRevision must be/.test(r.text)) bad.push(`tool ${JSON.stringify(v)}: ${r.text}`)
+  }
+  for (const v of ['', null, 7]) {
+    const r = await api('PUT', '/v1/shared/file?path=notes%2Fnew.md', { content: 'unguarded?', expectedRevision: v })
+    if (r.status !== 400) bad.push(`API ${JSON.stringify(v)}: ${r.status} ${r.text}`)
+  }
+  const noteAfter = await noteNow()
+  check('an empty or invalid revision is refused and changes nothing (tool and API)', !bad.length && noteAfter.content === noteBefore.content && noteAfter.revision === noteBefore.revision, bad.join('; ') || 'the note changed')
+  const fresh = await api('PUT', '/v1/shared/file?path=notes%2Fnew.md', { content: `${noteBefore.content}\nmore`, expectedRevision: noteBefore.revision })
+  check('the current revision writes, and the API gives the new one', fresh.status === 200 && fresh.body.revision !== noteBefore.revision && (await noteNow()).revision === fresh.body.revision, fresh.text)
   measure('hive_read_latest_handover', tool('hive_read_latest_handover', {}))
   check('a handover is saved and named', /^Handover saved as handovers\/.+\.md\.$/.test(measure('hive_create_handover', tool('hive_create_handover', { title: 'Measured', content: prose(400, 3500) }), 300)), texts.hive_create_handover)
   measure('hive_notify', tool('hive_notify', { title: 'Hello', message: 'Measuring' }), 100)

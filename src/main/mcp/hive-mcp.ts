@@ -13,7 +13,7 @@ import { createInterface } from 'readline'
 import { hiveInstructions, projectHandovers, withLatestHandover } from '../../shared/hiveGuidance'
 import { ASSISTANT_ONLY_TOOLS, assistantTools } from '../../shared/assistantTools'
 import { COLUMN_IDS } from '../../shared/tasks'
-import { MAX_ROWS, changedText, createdText, noteText, notesListText, projectListText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
+import { MAX_ROWS, changedText, createdText, noteText, notesListText, noteWrittenText, projectListText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 
 const VERSION = '1.0.0'
 const API = (process.env.HIVE_API_URL || 'http://127.0.0.1:47821').replace(/\/$/, '')
@@ -138,22 +138,23 @@ const tools: Tool[] = [
   },
   {
     name: 'hive_read_shared_note',
-    description: 'Read a shared note by its path relative to .hive/shared (e.g. "handovers/2026-01-01-auth.md").',
+    description: 'Read a shared note by its path relative to .hive/shared (e.g. "handovers/2026-01-01-auth.md"), with its revision.',
     inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
-    run: async (a) => noteText((await api('GET', `/v1/shared/file?path=${enc(a.path)}`)) as { path: string; content: string })
+    run: async (a) => noteText((await api('GET', `/v1/shared/file?path=${enc(a.path)}`)) as { path: string; content: string; revision?: string })
   },
   {
     name: 'hive_write_shared_note',
-    description: 'Create or overwrite a shared note (markdown) in .hive/shared. Set append=true to add to the end instead. Replies with the path and how much was written.',
+    description: "Create or overwrite a shared note (markdown) in .hive/shared; append=true adds to the end. expectedRevision (from reading it): written only if the note hasn't changed since, else refused with its current revision. Replies with the path, size and new revision.",
     inputSchema: {
       type: 'object',
-      properties: { path: { type: 'string' }, content: { type: 'string' }, append: { type: 'boolean' } },
+      properties: { path: { type: 'string' }, content: { type: 'string' }, append: { type: 'boolean' }, expectedRevision: { type: 'string' } },
       required: ['path', 'content']
     },
     run: async (a) => {
-      const r = (await api('PUT', `/v1/shared/file?path=${enc(a.path)}`, { content: a.content, append: !!a.append })) as { path: string }
-      const n = String(a.content ?? '').length.toLocaleString('en')
-      return a.append ? `Appended ${n} characters to ${r.path}.` : `Wrote ${r.path} (${n} characters).`
+      // Passed on as given: Hive refuses an empty or non-string revision rather than writing unguarded.
+      const body = { content: a.content, append: !!a.append, ...(a.expectedRevision !== undefined ? { expectedRevision: a.expectedRevision } : {}) }
+      const r = (await api('PUT', `/v1/shared/file?path=${enc(a.path)}`, body)) as { path: string; revision?: string }
+      return noteWrittenText(r.path, String(a.content ?? '').length, !!a.append, r.revision)
     }
   },
   {

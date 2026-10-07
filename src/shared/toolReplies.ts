@@ -221,8 +221,14 @@ export function notesListText(tree: NoteEntry[]): string {
   return files.length ? `${files.join('\n')}\n\nhive_read_shared_note reads one.` : 'No shared notes yet.'
 }
 
-/** A note or handover to read: its path, then its text as it is (not inside a JSON string). */
-export const noteText = (n: { path: string; content: string }): string => `${n.path}\n\n${n.content}`
+/** A note or handover to read: its path and revision (for a write's expectedRevision), then its text as it is (not inside a JSON string). */
+export const noteText = (n: { path: string; content: string; revision?: string }): string => `${n.path}${n.revision ? ` (revision ${n.revision})` : ''}\n\n${n.content}`
+
+/** A note written or appended to: how much, and its new revision. */
+export function noteWrittenText(path: string, characters: number, append: boolean, revision?: string): string {
+  const n = characters.toLocaleString('en')
+  return append ? `Appended ${n} characters to ${path}${revision ? ` (revision ${revision})` : ''}.` : `Wrote ${path} (${n} characters${revision ? `, revision ${revision}` : ''}).`
+}
 
 /** A skill in a listing (GET /v1/skills?view=short): where it comes from and what it is for, without its folder. */
 export interface SkillRow {

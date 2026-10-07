@@ -252,15 +252,15 @@ Shared notes live in the workspace's `.hive/shared` folder. Paths are relative t
 
 `GET /v1/shared` — the notes tree.
 
-`GET /v1/shared/file?path=handovers/2026-09-28-api-auth.md` — `{ path, content }`.
+`GET /v1/shared/file?path=handovers/2026-09-28-api-auth.md` — `{ path, content, revision }`. The revision is a short hash of the note's text.
 
 `PUT /v1/shared/file?path=conventions.md` — create or replace a note:
 
 ```json
-{ "content": "# Conventions\n…", "append": false }
+{ "content": "# Conventions\n…", "append": false, "expectedRevision": "3f9a0c1d2e4b" }
 ```
 
-Set `"append": true` to add to the end of an existing note.
+Set `"append": true` to add to the end of an existing note. `expectedRevision` is optional: with it, the note is written only if it is still at that revision (checked and written under one lock, so two writers that read the same text can't both pass); otherwise nothing is written and the reply is `409` with `{ error, revision }`, the note's current revision (`null` if it no longer exists): read it again, merge, and retry. Without it, the note is written as before; given but not a revision (empty, `null`, not a string), it is refused with `400` and nothing is written. The reply is `{ ok, path, revision }`, the note's new revision.
 
 `POST /v1/shared/handovers` — write a dated handover note into `shared/handovers/`:
 

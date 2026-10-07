@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from 'async_hooks'
 import { randomBytes, timingSafeEqual } from 'crypto'
 import { app } from 'electron'
 import { basename, dirname, join, relative, resolve as resolvePath } from 'path'
-import { readFile, stat } from 'original-fs/promises'
+import { stat } from 'original-fs/promises'
 import type { AgentApiInfo, AssistantControl, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerName } from '../shared/providers'
@@ -24,12 +24,12 @@ import { config } from './config'
 import { emit, onHiveEvent, toast } from './events'
 import { cancelWatch, encodeSince, registerWatch, scopedCard } from './watches'
 import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
-import { insideReal, readCapped, readJson, withFileLock, writeJsonAtomic, writeTextAtomic } from './fsutil'
+import { insideReal, readCapped, readJson, writeJsonAtomic } from './fsutil'
 import { GUIDANCE_REVISION, skillRevisions } from './guidance'
 import agentApiDoc from '../../docs/AGENT_API.md?raw'
 import { createLogger } from './logger'
 import { listMcp } from './mcp'
-import { assertInShared, createHandover, notesTree } from './notes'
+import { assertInShared, createHandover, NoteConflict, notesTree, readNote, writeNote } from './notes'
 import { writePty } from './ptyHost'
 import { sessions } from './sessions'
 import * as tasks from './tasks'
@@ -73,7 +73,9 @@ function readBody(req: IncomingMessage, onChunk?: (bytes: number) => void): Prom
 class HttpError extends Error {
   constructor(
     public status: number,
-    message: string
+    message: string,
+    /** More of the reply's body, beside `error` (a conflict's current revision). */
+    public extra?: Record<string, unknown>
   ) {
     super(message)
   }
@@ -990,7 +992,7 @@ route('GET', '/v1/shared/file', async ({ query }) => {
   const rel = query.get('path')
   if (!rel) throw new HttpError(400, 'path is required')
   const abs = inWorkspace(requireWorkspace(), () => assertInShared(rel))
-  return { path: rel, content: await readFile(abs, 'utf8').catch(() => { throw new HttpError(404, 'Not found') }) }
+  return { path: rel, ...(await readNote(abs).catch(() => { throw new HttpError(404, 'Not found') })) }
 })
 
 route('PUT', '/v1/shared/file', async ({ query, body }) => {
@@ -998,15 +1000,14 @@ route('PUT', '/v1/shared/file', async ({ query, body }) => {
   if (!rel) throw new HttpError(400, 'path is required')
   const abs = inWorkspace(requireWorkspace(), () => assertInShared(rel))
   const content = String(body?.content ?? '')
-  // Locked from read to write, so two agents appending at once both keep their text.
-  await withFileLock(abs, async () => {
-    if (body?.append) {
-      const existing = await readFile(abs, 'utf8').catch(() => '')
-      await writeTextAtomic(abs, existing + (existing && !existing.endsWith('\n') ? '\n' : '') + content)
-    } else await writeTextAtomic(abs, content)
+  // Only a write that leaves it out is unguarded: one given (null, empty, not a string) must be a revision.
+  const expected: unknown = body && typeof body === 'object' && 'expectedRevision' in body ? body.expectedRevision : undefined
+  if (expected !== undefined && (typeof expected !== 'string' || !expected)) throw new HttpError(400, 'expectedRevision must be the revision reading the note gave; nothing was written')
+  const { revision } = await writeNote(abs, rel, content, { append: !!body?.append, expectedRevision: expected as string | undefined }).catch((e) => {
+    throw e instanceof NoteConflict ? new HttpError(409, e.message, { revision: e.current }) : e
   })
   emit({ type: 'notes-changed' })
-  return { ok: true, path: rel }
+  return { ok: true, path: rel, revision }
 })
 
 /**
@@ -1685,7 +1686,7 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
   } catch (e) {
     const status = e instanceof HttpError ? e.status : e instanceof tasks.TaskPermissionError ? 403 : e instanceof tasks.TaskConflictError ? 409 : statusFor(e as Error)
     if (status === 500) log.error(`API ${req.method} ${url.pathname}`, e)
-    send(res, status, { error: (e as Error).message })
+    send(res, status, { error: (e as Error).message, ...(e instanceof HttpError ? e.extra : undefined) })
   }
 }
 
