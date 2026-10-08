@@ -42,6 +42,7 @@ import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFail
 import { LANES, claimLane, laneWork } from './lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, waitForSlot } from './slots.mjs'
 import { autoClean, holdLane } from './clean.mjs'
+import { recycleBinCount, recycleBinLine } from './recycleBin.mjs'
 import { readUnpackedInfo } from '../../scripts/distCopy.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -408,6 +409,8 @@ async function runOnce(k) {
 // Passed suites whose folders stayed (a card cites them, or the board couldn't be read): said once at the end, so growth
 // while the board can't be read is seen.
 const keptAfterPass = []
+// The user's Recycle Bin, counted (read only) before and after (#414): test copies use their own trash folders.
+const binBefore = recycleBinCount()
 // --repeat N: run after run, stopping at the first that fails (a later pass doesn't make up for it).
 const runs = []
 for (let k = 1; k <= repeat; k++) {
@@ -422,6 +425,8 @@ const lastRun = runs.at(-1)
 const passedRuns = runs.filter((r) => r.ok).length
 const summary = repeat > 1 ? `${passedRuns} of ${repeat} runs passed${runs.length < repeat ? ` (stopped after run ${runs.length})` : ''}` : lastRun.summary
 if (repeat > 1) console.log(`\n${summary}.`)
+const binLine = recycleBinLine(binBefore, recycleBinCount())
+console.log(binLine)
 let recordInvalid = false
 if (opts.record) {
   // Named for the code as it was when the first run started, and only valid if it is still that code, built fresh (and,
@@ -433,7 +438,7 @@ if (opts.record) {
   const when = new Date().toISOString().slice(0, 16).replace('T', ' ')
   // The real CLIs the real suites ran, as their Hive selected them (#365: the release's tested-with manifest).
   const clis = realCliVersions(lastRun.results, SUITES)
-  const md = recordMarkdown({ code: codeBefore, when, jobs, results: lastRun.results, logDir: lastRun.logDir, summary, problems: status.problems, notRun: notRun.map((s) => s.name), runs: repeat > 1 ? Object.assign(runs, { repeat }) : null, clis })
+  const md = `${recordMarkdown({ code: codeBefore, when, jobs, results: lastRun.results, logDir: lastRun.logDir, summary, problems: status.problems, notRun: notRun.map((s) => s.name), runs: repeat > 1 ? Object.assign(runs, { repeat }) : null, clis }).trimEnd()}\n\n${binLine}\n`
   const json = `${JSON.stringify(recordJson({ code: codeBefore, when, results: lastRun.results, problems: status.problems, notRun: notRun.map((s) => s.name), clis }), null, 2)}
 `
   for (const r of runs) {

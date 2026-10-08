@@ -1,7 +1,6 @@
 import { basename, dirname, extname, join, resolve, sep } from 'path'
 import { copyFile, mkdir, readdir, readFile, rmdir } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
-import { shell } from 'electron'
 import { HIVE_DIR, projectAgents } from '../shared/defaults'
 import { projectHandovers } from '../shared/hiveGuidance'
 import type { AgentDef, ProjectRemoval, ProjectRemovalInfo, TaskCard } from '../shared/types'
@@ -14,6 +13,7 @@ import { sessions } from './sessions'
 import { archiveProjectCards, deleteProjectCards, importCards, projectCards, restoreProjectCards } from './tasks'
 import { REMOVED_DIR, workspace, type WorkspaceService } from './workspace'
 import * as wt from './worktrees'
+import { trash } from './trash'
 
 const log = createLogger('projects')
 
@@ -183,7 +183,7 @@ async function removeFromHive(ws: WorkspaceService, p: string, info: ProjectRemo
   await archiveProjectCards(ws, name, 'project-removed')
   const warnings: string[] = []
   for (const rel of info.handovers) {
-    await shell.trashItem(join(ws.sharedDir, rel)).catch((e) => {
+    await trash(join(ws.sharedDir, rel)).catch((e) => {
       log.warn(`Could not move ${userText(rel)} to the Recycle Bin`, e)
       warnings.push(`${rel} stayed in the shared notes (a copy is packed in the folder): ${(e as Error).message}`)
     })
@@ -201,7 +201,7 @@ async function deleteProject(ws: WorkspaceService, p: string, info: ProjectRemov
   // nothing else is touched, so a refusal leaves the project as it was.
   const resume = suspendWatching([p, ...trees])
   try {
-    await shell.trashItem(p)
+    await trash(p)
   } catch (e) {
     resume()
     throw new Error(`Could not move ${name} to the Recycle Bin: ${(e as Error).message}. Close any program using its folder (a terminal, an editor), then try again. Nothing was deleted.`, { cause: e })
@@ -209,10 +209,10 @@ async function deleteProject(ws: WorkspaceService, p: string, info: ProjectRemov
   // From here the project is gone: what can't follow is reported, not undone.
   const warnings = refused.map((r) => `Left alone: ${r}.`)
   for (const t of trees) {
-    await shell.trashItem(t).catch((e) => warnings.push(`${t} couldn't be moved to the Recycle Bin: ${(e as Error).message}`))
+    await trash(t).catch((e) => warnings.push(`${t} couldn't be moved to the Recycle Bin: ${(e as Error).message}`))
   }
   for (const rel of info.handovers) {
-    await shell.trashItem(join(ws.sharedDir, rel)).catch((e) => warnings.push(`${rel} couldn't be moved to the Recycle Bin: ${(e as Error).message}`))
+    await trash(join(ws.sharedDir, rel)).catch((e) => warnings.push(`${rel} couldn't be moved to the Recycle Bin: ${(e as Error).message}`))
   }
   await deleteProjectCards(ws, name).catch((e) => warnings.push(`Its cards couldn't all be deleted: ${(e as Error).message}`))
   // The project's empty folder of worktrees.

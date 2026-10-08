@@ -11,7 +11,7 @@ const { execFileSync, execSync } = require('child_process')
 const { _electron } = require('playwright-core')
 
 // The run context (runContext.cjs): the environments of everything a suite starts, its folders and the CLI test homes.
-const { TEST_ROOT, WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, isHiveEnv } = require('./runContext.cjs')
+const { TEST_ROOT, WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, isHiveEnv, trashDir } = require('./runContext.cjs')
 
 const ROOT = path.resolve(__dirname, '..', '..')
 /** Electron's executable (the electron package resolves to its path in plain Node). */
@@ -27,6 +27,24 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
  * so nothing needs deleting first (never `rm -rf` a computed path: Claude Code asks, and unattended it denies). The
  * clean-up prunes them after a few days (`npm run test:clean`), unless a card that isn't Done cites one.
  */
+/** The test copies' trash folder (#414): what they delete goes there, never to the user's Recycle Bin. */
+const TRASH = trashDir()
+
+/**
+ * What the test copies of Hive this suite started have deleted, oldest first: `{ at, from, to }` each (the original
+ * path, and where it is now in TRASH). `match` keeps those whose original path contains it (any case, either slash).
+ */
+function trashed(match = '') {
+  let lines = []
+  try {
+    lines = fs.readFileSync(path.join(TRASH, 'trash.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean)
+  } catch {
+    return []
+  }
+  const norm = (p) => String(p).toLowerCase().replaceAll('/', path.sep)
+  return lines.map((l) => JSON.parse(l)).filter((e) => norm(e.from).includes(norm(match)))
+}
+
 function probeDir(name = 'probe', root = TEST_ROOT) {
   const base = path.join(root, 'scratch')
   const label = String(name).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 40) || 'probe'
@@ -628,4 +646,4 @@ async function haikuAutoCaveat(page, autoOffered) {
   return [ok, JSON.stringify(caveat)]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, TRASH, trashed, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

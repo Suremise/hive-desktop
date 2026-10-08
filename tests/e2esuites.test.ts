@@ -1184,6 +1184,7 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
 describe('the run context: what a test starts gets only the allowlist and its own context (runContext.cjs, #203)', () => {
   type Env = Record<string, string | undefined>
   type Ctx = {
+    WORK: string
     ALLOW: string[]
     PASS_ENV: Record<string, string>
     CARRIED: string[]
@@ -1250,6 +1251,20 @@ describe('the run context: what a test starts gets only the allowlist and its ow
     // Without a port (a serial suite of a runner inside a suite): none inherited from the runner that started this one.
     const nested = ctx.suiteEnv({ name: 'about', runDir: 'C:\\lanes\\0\\nested' }, parent)
     for (const k of ['HIVE_E2E_PORT', 'HIVE_API_PORT', 'E2E_RUN_PORT', 'HIVE_E2E_DIR']) expect(has(nested, k), k).toBe(false)
+  })
+
+  it("every test copy of Hive deletes into its suite's trash folder, never the user's Recycle Bin (#414)", () => {
+    const suite = ctx.suiteEnv({ name: 'board', port: 47961, work: 'C:\\lanes\\1\\board', runDir: 'C:\\lanes\\1\\board' }, parent)
+    expect(ctx.hiveEnv({ HIVE_USER_DATA: 'C:\\p' }, suite).HIVE_TEST_TRASH_DIR).toBe('C:\\lanes\\1\\board\\trash')
+    // A suite run on its own: the work folder's.
+    expect(ctx.hiveEnv({ HIVE_USER_DATA: 'C:\\p' }, parent).HIVE_TEST_TRASH_DIR).toBe(join(ctx.WORK, 'trash'))
+    // Not a child that isn't Hive, and not from the shell the run was started from.
+    expect(has(ctx.childEnv({}, suite), 'HIVE_TEST_TRASH_DIR')).toBe(false)
+    expect(ctx.hiveEnv({}, { ...suite, HIVE_TEST_TRASH_DIR: 'C:\\elsewhere' }).HIVE_TEST_TRASH_DIR).toBe('C:\\lanes\\1\\board\\trash')
+    // The runner counts the Recycle Bin, read only, before and after.
+    const runner = readFileSync(join(root, 'tests', 'e2e', 'run.mjs'), 'utf8')
+    expect(runner).toMatch(/recycleBinCount\(\)[\s\S]*recycleBinLine\(binBefore, recycleBinCount\(\)\)/)
+    expect(readFileSync(join(root, 'tests', 'e2e', 'recycleBin.mjs'), 'utf8')).not.toMatch(/Empty|InvokeVerb|Delete|Remove-/)
   })
 
   it("the CLIs a suite's Hive selects go to a log of the suite's own; the runner starts no CLI of its own (#365)", () => {

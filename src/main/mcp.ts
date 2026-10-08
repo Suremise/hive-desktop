@@ -1,12 +1,12 @@
 import { basename, join } from 'path'
 import { readdir, readFile, writeFile } from 'original-fs/promises'
-import { shell } from 'electron'
 import { existsSync } from 'original-fs'
 import type { McpServerDef, McpServerInfo } from '../shared/types'
 import { writeTextUnlessChanged } from './fsutil'
 import { findSecretWarnings } from './mcpSecrets'
 import { allProviders } from './providers'
 import { workspace } from './workspace'
+import { trash } from './trash'
 
 export { findSecretWarnings }
 
@@ -101,7 +101,7 @@ export async function deleteMcp(name: string): Promise<void> {
   if (!validMcpName(name)) throw new Error('Invalid server name')
   // To the Recycle Bin, like files, skills, personas and sessions.
   const file = join(workspace.mcpDir, `${name}.json`)
-  if (existsSync(file)) await shell.trashItem(file)
+  if (existsSync(file)) await trash(file)
   await setMcpGlobal(name, false)
 }
 
