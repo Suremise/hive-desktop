@@ -264,6 +264,9 @@ describe('a skill at the entry limit', () => {
   const launchClaude = (project: string, skills: { name: string; sourcePath: string }[]) =>
     claudeCode.prepareLaunch({ projectPath: project, agentId: 'a1', cwd: project, skills, mcpServers: {}, hookUrl: 'http://127.0.0.1:9/hook?run=x', env: {}, extraArgs: [], hookAuthFile: 'C:/hive/hook-auth/x.txt', privateDir: `${project}-private` } as never) as Promise<Record<string, Delivery>>
 
+  // 2000 entries are real file work, not a wait (#356): about 2.3 s idle (writing them, copying them twice, hashing),
+  // and 5 to 60+ s when the machine is busy with other suites. Nothing here waits on a condition, so the limit is the
+  // honest slowest run, not a race: 180 s.
   it("Codex: exactly 2000 is delivered, marker and all, and stays delivered on the next launch", async () => {
     const root = join(base, 'limit-codex')
     const cwd = join(root, 'project')
@@ -275,7 +278,7 @@ describe('a skill at the entry limit', () => {
     expect(first.full).toEqual({ revision: await contentHash(s) })
     expect(await contentHash(copy)).toBe(await contentHash(s))
     expect(await launchCodex(cwd, [{ name: 'full', sourcePath: s }])).toEqual(first)
-  }, 60_000)
+  }, 180_000)
 
   it('Codex: 2001 is too big, first delivery (none) and update (the old copy kept), with a later skill delivered', async () => {
     const root = join(base, 'over-codex')
@@ -298,6 +301,9 @@ describe('a skill at the entry limit', () => {
     expect(await contentHash(copy)).toBe(old)
   }, 60_000)
 
+  // 2000 entries are real file work, not a wait (#356): about 2.3 s idle (writing them, copying them twice, hashing),
+  // and 5 to 60+ s when the machine is busy with other suites. Nothing here waits on a condition, so the limit is the
+  // honest slowest run, not a race: 180 s.
   it('Claude Code: exactly 2000 is delivered; 2001 is not, and says why', async () => {
     const root = join(base, 'limit-claude')
     const project = join(root, 'project')
@@ -309,5 +315,5 @@ describe('a skill at the entry limit', () => {
     expect(out.full).toEqual({ revision: await contentHash(full) })
     expect(out.big).toEqual({ revision: null, problem: reason.entries, lasting: true })
     expect(existsSync(join(skills, 'big'))).toBe(false)
-  }, 60_000)
+  }, 180_000)
 })

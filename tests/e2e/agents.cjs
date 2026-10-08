@@ -231,5 +231,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n
 
   console.log(`${pass}/${pass + fail} passed`)
   await app.close()
-  for (const folder of [userData, ws, wtRoot]) fs.rmSync(folder, { recursive: true, force: true })
+  // No delete of its folders here (#324): the runner gives the suite a new folder and removes it when it passes; a run
+  // on its own empties them when it starts. Right after app.close() the CLI it stopped can still hold one, and a
+  // failed delete here failed a suite whose checks had all passed.
 })().catch(async (e) => { console.error(e); process.exit(1) })

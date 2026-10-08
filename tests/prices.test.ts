@@ -33,6 +33,10 @@ describe('estimated cost', () => {
     expect(modelPrice('claude-code', 'opus')?.input).toBe(4)
     expect(modelPrice('claude-code', 'claude-sonnet-5-5[1m]')?.cachedInput).toBe(0.2)
     expect(modelPrice('claude-code', 'claude-haiku-4-5-20251001')?.cacheWrite).toBe(1.25)
+    // Haiku 5.5, and the haiku alias now on it: Anthropic's $0.10 in, $0.50 out (prompts up to 100,000 tokens).
+    expect(modelPrice('claude-code', 'haiku')).toEqual({ input: 0.1, output: 0.5, cachedInput: 0.01, cacheWrite: 0.125 })
+    expect(modelPrice('claude-code', 'claude-haiku-5-5')?.output).toBe(0.5)
+    expect(modelPrice('claude-code', 'claude-haiku-4-5')?.input).toBe(1)
     expect(modelPrice('claude-code', 'claude-unknown-9')).toBeNull()
   })
   it("uses the user's prices over Hive's", () => {

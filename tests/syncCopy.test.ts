@@ -7,7 +7,8 @@ import { SYNC_STEP, syncCopy, syncCopyNow } from '../src/main/fsutil'
 
 // Windows ending the session while an ordinary copy is under way: `interrupt` runs the shutdown copy just before the
 // ordinary copy's n-th file operation takes effect (as if that operation were still pending), so a test can try
-// every point in turn. `slow` makes each synchronous write take that long (a slow disk).
+// every point in turn. `slow` makes each synchronous write take that long (a slow disk): on the test's clock, not the
+// wall clock, so how long the machine takes to get to a write can't change how many writes a deadline allows (#379).
 const interrupt = vi.hoisted(() => ({ at: 0, calls: 0, fn: null as null | (() => void) }))
 const slow = vi.hoisted(() => ({ ms: 0 }))
 vi.mock('fs/promises', async (importOriginal) => {
@@ -29,7 +30,7 @@ vi.mock('fs', async (importOriginal) => {
   return {
     ...fs,
     writeSync: (fd: number, buf: Buffer, off: number, len: number, pos: number): number => {
-      for (const end = Date.now() + slow.ms; Date.now() < end; );
+      if (slow.ms) vi.setSystemTime(Date.now() + slow.ms)
       return fs.writeSync(fd, buf, off, len, pos)
     }
   }
@@ -144,7 +145,12 @@ describe('syncCopyNow (Windows ending the session)', () => {
   })
 
   describe('on a slow disk', () => {
-    afterEach(() => void (slow.ms = 0))
+    // Date only: a write advances the clock by `slow.ms`, and the deadline is read against that clock.
+    beforeEach(() => vi.useFakeTimers({ toFake: ['Date'], now: 1_000_000 }))
+    afterEach(() => {
+      vi.useRealTimers()
+      slow.ms = 0
+    })
     const big = Buffer.alloc(8 * SYNC_STEP, 'x')
 
     it('stops an append after the step under way: a shorter backup, still the start of the transcript', async () => {
@@ -155,9 +161,9 @@ describe('syncCopyNow (Windows ending the session)', () => {
       await appendFile(src, big)
       slow.ms = 60
       const t = Date.now()
-      expect(syncCopyNow(src, dest, Date.now() + 20)).toBe(false)
-      // One step of 60 ms, not eight.
-      expect(Date.now() - t).toBeLessThan(250)
+      expect(syncCopyNow(src, dest, t + 20)).toBe(false)
+      // One step of 60 ms, not eight: exactly one write before the deadline passes.
+      expect(Date.now() - t).toBe(60)
       const got = await readFile(dest)
       expect(got.length).toBe(line(1).length + SYNC_STEP)
       expect(got.equals((await readFile(src)).subarray(0, got.length))).toBe(true)
