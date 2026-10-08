@@ -17,7 +17,7 @@ import { COLUMN_IDS } from '../../shared/tasks'
 import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
 import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
 import { agentApiCall } from './agentApiCall'
-import { MAX_ROWS, batchText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
+import { MAX_ROWS, agentWatchText, batchText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 import type { MergeSlotInfo } from '../../shared/types'
 
 const VERSION = '1.0.0'
@@ -230,16 +230,22 @@ const tools: Tool[] = [
   {
     name: 'hive_wait_for_agents',
     description:
-      "Wait until agents stop working (finished, idle, or waiting for the user), up to timeoutSeconds (default 50, at most 600); without agents, every busy agent in the workspace. An agent waiting on background tasks it started (status background) still counts as working; ignoreBackground=true stops at the end of its turn. An agent watching cards (status watching, statusMessage what for) isn't waited for: it carries on when its card changes. Replies with each one's status and background tasks, and whether it timed out: call again to keep waiting.",
+      `Wait until agents stop working (finished, idle, waiting for the user or stopped); without agents, every busy agent in the workspace. Background tasks an agent started (status background) count as working unless ignoreBackground=true; an agent watching cards (status watching) doesn't. wake=true (an agent watch, rather than waiting call after call): replies at once, then Hive types one line into this session when one finishes its turn, waits for the user or stops, with the start of its reply${ASSISTANT ? " (and when the user sends one a prompt from its pane, with its first line)" : ''}, or after limitMinutes (default 120) if none does; agents not working now are the reply instead. End your turn after it: nothing runs, and no other work is given to you, meanwhile. It is your one watch (a card watch replaces it, and it one); cancel=true ends it. Without wake it waits here up to timeoutSeconds (default 50, at most 600) and replies with each one's status and whether it timed out: call again to keep waiting.`,
     inputSchema: {
       type: 'object',
       properties: {
         agents: { type: 'array', items: { type: 'object', properties: { project: { type: 'string' }, agent: { type: 'string' } }, required: ['project'] } },
         timeoutSeconds: { type: 'number' },
-        ignoreBackground: { type: 'boolean' }
+        ignoreBackground: { type: 'boolean' },
+        wake: { type: 'boolean' },
+        limitMinutes: { type: 'number' },
+        cancel: { type: 'boolean' }
       }
     },
-    run: (a) => api('POST', '/v1/agents/wait', { agents: a.agents, timeoutSeconds: a.timeoutSeconds ?? 50, ignoreBackground: a.ignoreBackground === true }, waitReplyMs(a.timeoutSeconds, 50, AGENT_WAIT_MAX_SECONDS))
+    run: async (a) => {
+      if (a.cancel || a.wake === true) return agentWatchText((await api('POST', '/v1/agents/wait', a.cancel ? { cancel: true } : { agents: a.agents, ignoreBackground: a.ignoreBackground === true, wake: true, limitMinutes: a.limitMinutes })) as Parameters<typeof agentWatchText>[0])
+      return api('POST', '/v1/agents/wait', { agents: a.agents, timeoutSeconds: a.timeoutSeconds ?? 50, ignoreBackground: a.ignoreBackground === true }, waitReplyMs(a.timeoutSeconds, 50, AGENT_WAIT_MAX_SECONDS))
+    }
   },
   {
     name: 'hive_create_project',
@@ -344,7 +350,7 @@ const tools: Tool[] = [
   {
     name: 'hive_wait_for_tasks',
     description:
-      "Wait for cards to change: a column move, a new comment, a review verdict or a new agent (changes narrows it). column alone: only until one is in that column (at once if it already is; nothing else counts); column with changes including \"column\": until one moves into it (a card there must leave and come back, or be returned for review), or another change listed. wake=true: Hive types one line into this session when one changes, naming every watched card that changed (or after limitMinutes with none, default 120); a watch started after a wake also counts what others changed since that wake: end your turn after calling it; nothing runs, and no other work is given to you, meanwhile. Without wake, it waits here up to timeoutSeconds (default 300, at most 840) and replies with each change (column, by whom, the latest comment's first line) or no change, with since: pass it back to the next wait so nothing between them is missed. cancel=true ends your watch. Your project's cards only.",
+      `Wait for cards to change: a column move, a new comment, a review verdict or a new agent (changes narrows it). column alone: only until one is in that column (at once if it already is; nothing else counts); column with changes including "column": until one moves into it (a card there must leave and come back, or be returned for review), or another change listed. wake=true: Hive types one line into this session when one changes, naming every watched card that changed${ASSISTANT ? " (and when the user sends a watched card's agent or reviewer a prompt from its pane, with its first line)" : ''}, or after limitMinutes with none (default 120); a watch started after a wake also counts what others changed since that wake: end your turn after calling it; nothing runs, and no other work is given to you, meanwhile. Without wake, it waits here up to timeoutSeconds (default 300, at most 840) and replies with each change (column, by whom, the latest comment's first line) or no change, with since: pass it back to the next wait so nothing between them is missed. cancel=true ends your watch. Your project's cards only.`,
     inputSchema: {
       type: 'object',
       properties: {

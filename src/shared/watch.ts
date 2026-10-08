@@ -386,15 +386,19 @@ function whereNow(change: CardChange): string {
  * named, in a few words (#226: "#217 in Review, passed; #119 in Review, failed"), or by number alone, with the agent told
  * that details were left out. Never cut mid-way, one line, within WAKE_MAX_BYTES.
  */
+const MANY_TAIL = '. Your card watch has ended: carry on (hive_read_task with latestComment on each card for its comment in full).'
+/** A card's part of a line telling several (#224), its latest comment's first line cut to `max` characters (0: left out). */
+function cardPart(c: CardChange, max: number): string {
+  const head = `#${c.number}${whereNow(c)}`
+  if (!c.comment || max <= 0 || c.changes === 'gone') return head
+  const t = [...c.comment.firstLine]
+  return `${head} (latest comment by ${shortName(c.comment.by)}: "${t.length > max ? `${t.slice(0, max - 1).join('')}…` : t.join('')}")`
+}
+
 export function wakeLines(changes: CardChange[]): string {
   if (changes.length <= 1) return changes.length ? wakeLine(changes[0]) : ''
-  const tail = '. Your card watch has ended: carry on (hive_read_task with latestComment on each card for its comment in full).'
-  const part = (c: CardChange, max: number): string => {
-    const head = `#${c.number}${whereNow(c)}`
-    if (!c.comment || max <= 0 || c.changes === 'gone') return head
-    const t = [...c.comment.firstLine]
-    return `${head} (latest comment by ${shortName(c.comment.by)}: "${t.length > max ? `${t.slice(0, max - 1).join('')}…` : t.join('')}")`
-  }
+  const tail = MANY_TAIL
+  const part = cardPart
   const full = (max: number): string => `[Hive] ${changes.map((c) => part(c, max)).join('; ')}${tail}`
   for (const max of [160, 80, 40, 0]) if (jsonBytes(full(max)) <= WAKE_MAX_BYTES) return full(max)
   // Too many to tell in full (#226): every card is still named, with where it is and its verdict, but not whose it is,
@@ -419,6 +423,45 @@ function brief(c: CardChange): string {
   const a = c.about
   if (a?.returned) return `#${c.number} returned for review (round ${a.returned})`
   return `#${c.number} in ${columnWord(c.column)}${a?.verdict ? (a.verdict.passed ? ', passed' : ', failed') : ''}`
+}
+
+/**
+ * A reply of the user's to an agent (#418), for the Assistant's card watch: the agent, the watched cards it has or
+ * reviews (one reply is told once, whatever the number of its cards), and the first line of what was sent.
+ */
+export interface ReplyNote {
+  agentName: string
+  cards: number[]
+  text: string
+}
+
+const replyNote = (r: ReplyNote, max: number): string => {
+  const t = [...r.text]
+  return `The user replied to ${shortName(r.agentName)} on ${cards(r.cards)}${max > 0 ? `: "${t.length > max ? `${t.slice(0, max - 1).join('')}…` : t.join('')}"` : ''}`
+}
+
+/**
+ * The Assistant's card watch line with the user's replies (#418), first, and the cards that changed, together within
+ * WAKE_MAX_BYTES: what was said (the replies', the comments') gives way first, then whose and the verdicts (a few words
+ * each), then everything but numbers and agents' names; the instruction at the end always stays. `repliesTold`: the line
+ * names every reply (else none is taken as told, and the next watch tells them).
+ */
+export function cardWakeLine(changes: CardChange[], replies: ReplyNote[]): { line: string; repliesTold: boolean } {
+  if (!replies.length) return { line: wakeLines(changes), repliesTold: false }
+  const tail = changes.length ? MANY_TAIL : '. Your card watch has ended: carry on (hive_read_task for the card, hive_agent_activity for the agent).'
+  const fits = (line: string): boolean => jsonBytes(line) <= WAKE_MAX_BYTES
+  for (const [max, rmax] of [[160, 120], [80, 80], [40, 40], [0, 40], [0, 0]]) {
+    const line = `[Hive] ${[...replies.map((r) => replyNote(r, rmax)), ...changes.map((c) => cardPart(c, max))].join('; ')}${tail}`
+    if (fits(line)) return { line, repliesTold: true }
+  }
+  const short = '. Your card watch has ended. Details were left out to fit: read each card (hive_read_task) and agent (hive_agent_activity) before you carry on.'
+  const compact = `[Hive] ${[...replies.map((r) => replyNote(r, 0)), ...changes.map(brief)].join('; ')}${short}`
+  if (fits(compact)) return { line: compact, repliesTold: true }
+  const who = [...new Set(replies.map((r) => shortName(r.agentName)))].join(', ')
+  const numbers = `[Hive] The user replied to ${who}${changes.length ? `; ${changes.map((c) => `#${c.number}`).join(', ')} changed` : ''}${short}`
+  if (fits(numbers)) return { line: numbers, repliesTold: true }
+  // Never past the limit: the cards as a card line tells them; the replies are told by a later wake.
+  return { line: wakeLines(changes) || `[Hive] The user replied to agents of your watched cards${short}`, repliesTold: !changes.length }
 }
 
 /** The line Hive types when a watch's overall limit passes with no change. */

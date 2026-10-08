@@ -388,7 +388,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
         out.event = { kind: 'start', source: typeof body.source === 'string' ? body.source : null }
         break
       case 'UserPromptSubmit':
-        out.event = { kind: 'prompt' }
+        out.event = { kind: 'prompt', text: typeof body.prompt === 'string' ? body.prompt : null }
         break
       case 'PreToolUse': {
         out.event = { kind: 'toolStart' }
