@@ -3,21 +3,21 @@
 // installed version for Agent Setup, Copy Diagnostics and the Agent API.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { join, win32 } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 // @ts-expect-error: plain .mjs modules without types
 import { CLI_PROVIDERS, MANIFEST, manifestFromRecord, manifestStale } from '../scripts/testedClis.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { SUITES } from './e2e/suites.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { readCliLog, realCliVersions, recordJson, recordMarkdown } from './e2e/record.mjs'
+import { readCliLog, realCliHomes, realCliVersions, recordJson, recordMarkdown } from './e2e/record.mjs'
 import { compareTested, noteSelectedCli } from '../src/main/testedClis'
 import { compareVersions } from '../src/main/providers/common'
 import { PROVIDERS } from '../src/shared/providers'
 import { testedComparison, testedNote, testedSummary } from '../src/shared/testedClis'
 
 type Suite = { name: string; needs?: string[] }
-type Cli = { provider: string; version: string; path: string | null }
+type Cli = { provider: string; version: string; path: string | null; home?: string }
 const suites = SUITES as Suite[]
 const real = (need: string) => suites.filter((s) => s.needs?.includes(need)).map((s) => s.name)
 const CLAUDE: Cli = { provider: 'claude-code', version: '2.1.292', path: 'C:\\Users\\t\\.local\\bin\\claude.exe' }
@@ -49,6 +49,40 @@ describe('the run record says which real CLIs ran, as Hive selected them (#365)'
     expect(recordMarkdown({ code: 'abc', when: 'now', jobs: 4, results: [pass('about')], logDir: 'x', summary: '1 passed' })).not.toContain('Real CLIs')
     const json = recordJson({ code: 'abc', when: 'now', results: [pass('a', [CLAUDE]), { name: 'b', ok: true, skipped: 'environment: usage limit', environment: true }], problems: ['code changed'], clis: { claude: ['2.1.292'] } })
     expect(json).toEqual({ code: 'abc', when: 'now', valid: false, problems: ['code changed'], clis: { claude: ['2.1.292'] }, results: [{ name: 'a', ok: true, skipped: null, environment: false, clis: [CLAUDE] }, { name: 'b', ok: true, skipped: 'environment: usage limit', environment: true, clis: [] }], notRun: [] })
+  })
+})
+
+describe("the run record names each real suite's CLI home, and none may be the user's own (#368)", () => {
+  const profile = join('C:', 'Users', 't')
+  it("lists the home of each real suite's own CLI, not the other CLI its Hive found", () => {
+    const own = join(profile, 'AppData', 'Local', 'hive-test', 'e2e', 'lanes', '0', 'mode', 'mode-claude-home')
+    const codexHome = join(profile, 'AppData', 'Local', 'hive-test', 'codex')
+    const claudeSuite = real('claude')[0]
+    const codexSuite = real('codex')[0]
+    const results = [pass('about', [{ ...CLAUDE, home: join(profile, '.claude') }] as Cli[]), pass(claudeSuite, [{ ...CLAUDE, home: own }, { ...CODEX, home: join(profile, '.codex') }] as Cli[]), pass(codexSuite, [{ ...CODEX, home: codexHome }] as Cli[])]
+    const { homes, own: inUsers } = realCliHomes(results, suites, profile)
+    expect(homes).toEqual([`${claudeSuite}: Claude Code in ${own}`, `${codexSuite}: Codex in ${codexHome}`])
+    // The fake suite's Hive and the Claude suite's Codex check aren't runs of those CLIs.
+    expect(inUsers).toEqual([])
+    expect(recordMarkdown({ code: 'abc', when: 'now', jobs: 4, results, logDir: 'x', summary: '3 passed', homes })).toContain(`Real CLIs' homes (#368): ${claudeSuite}: Claude Code in ${own}; ${codexSuite}: Codex in ${codexHome}.`)
+  })
+
+  it("flags a real suite that ran its CLI in the user's own home", () => {
+    const results = [pass(real('claude')[0], [{ ...CLAUDE, home: `${join(profile, '.claude')}/` }] as Cli[]), pass(real('codex')[0], [{ ...CODEX, home: join(profile, '.CODEX') }] as Cli[])]
+    expect(realCliHomes(results, suites, profile).own).toEqual([real('claude')[0], real('codex')[0]])
+  })
+
+  it('knows the user\'s homes however the path is spelled: either slash, mixed, dot segments (#368 round 1)', () => {
+    const p = win32.join('C:', 'Users', 'Example')
+    const claudeSuite = real('claude')[0]
+    const codexSuite = real('codex')[0]
+    const flagged = (claudeHome: string, codexHome: string) =>
+      realCliHomes([pass(claudeSuite, [{ ...CLAUDE, home: claudeHome }] as Cli[]), pass(codexSuite, [{ ...CODEX, home: codexHome }] as Cli[])], suites, p).own
+    expect(flagged('C:/Users/Example/.claude', 'C:/Users/Example/.codex/')).toEqual([claudeSuite, codexSuite])
+    expect(flagged('C:/Users\\Example/.Claude', 'c:\\users/example\\.codex')).toEqual([claudeSuite, codexSuite])
+    expect(flagged('C:\\Users\\Example\\test\\..\\.claude', 'C:/Users/Example/./x/../.codex')).toEqual([claudeSuite, codexSuite])
+    // Near misses are other folders: a test home beside it, or a folder inside it.
+    expect(flagged('C:\\Users\\Example\\.claude-test', 'C:\\Users\\Example\\.codex\\homes\\x')).toEqual([])
   })
 })
 
@@ -187,13 +221,17 @@ describe('the run record\'s versions are what Hive selected, not the first copy 
       const env = { user: process.env.HIVE_USER_DATA, log: process.env.HIVE_TEST_CLI_LOG }
       process.env.HIVE_USER_DATA = join(dir, 'profile')
       process.env.HIVE_TEST_CLI_LOG = log
+      // With the home the adapter says its sessions get (#368): CLAUDE_CONFIG_DIR, here a test home.
+      const configDir = process.env.CLAUDE_CONFIG_DIR
+      process.env.CLAUDE_CONFIG_DIR = join(dir, 'claude-home')
       try {
-        await noteSelectedCli(info)
+        await noteSelectedCli(info, claudeCode.configHome?.() ?? null)
       } finally {
         restore('HIVE_USER_DATA', env.user)
         restore('HIVE_TEST_CLI_LOG', env.log)
+        restore('CLAUDE_CONFIG_DIR', configDir)
       }
-      expect(readCliLog(readFileSync(log, 'utf8'))).toEqual([{ provider: 'claude-code', version: '2.1.292', path: standalone }])
+      expect(readCliLog(readFileSync(log, 'utf8'))).toEqual([{ provider: 'claude-code', version: '2.1.292', path: standalone, home: join(dir, 'claude-home') }])
     } finally {
       adapter.candidates = before
     }

@@ -311,6 +311,7 @@ const rolloutFile = (sid, h) => path.join(codexHome, 'sessions', '2026', '10', '
   const after = await names()
   check('the rest are gone; the running and held ones stay', !after.includes('Tray fixes') && !after.includes('Gone session') && after.includes('Old notes') && after.includes('Running now'), JSON.stringify(after))
   check("Hive's copy of a deleted one is in the Recycle Bin, the held one's is kept", !fs.existsSync(backup(C.tray)) && fs.existsSync(backup(C.notes)))
+  check("…the suite's trash folder in a test copy (#414)", lib.trashed(backup(C.tray)).length === 1)
   check("the CLI's own transcripts are untouched", fs.existsSync(terminalFile) && fs.existsSync(rolloutFile(C.codex, 9)))
   holder.kill()
   await page.screenshot({ path: path.join(lib.WORK, 'sessiontree-4-deleted.png') })

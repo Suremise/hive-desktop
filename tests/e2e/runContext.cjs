@@ -15,7 +15,8 @@
 //   reach the build). The unit test fails for a child_process call there without env. Not a child, the runners'
 //   progress reporting (tests/progressReport.mts) keeps reading the shell's Hive variables: it reports to that Hive.
 // - Folders: the work folder (WORK: the lane's, which the runner gives each suite as HIVE_E2E_DIR) and the CLI test
-//   homes (CODEX_HOME, CLAUDE_TEST_HOME).
+//   homes (CODEX_HOME, CLAUDE_TEST_HOME). What a test copy of Hive deletes goes to its trash folder in the suite's
+//   (HIVE_TEST_TRASH_DIR, `<work>	rash`, #414), never the user's Recycle Bin, and goes with the suite's folder.
 // - Ports and lane folders: lanes.mjs (each runner claims a lane); each suite's port is HIVE_E2E_PORT, from its runner.
 // - The build: build.mjs, under a lock per worktree, so runners started together build it once.
 // - Load: slots.mjs, at most a few heavy runs at once on the machine (HEAVY_DIR); the others queue.
@@ -110,16 +111,41 @@ function childEnv(vars = {}, parent = process.env) {
 /** The environments hiveEnv built: lib.cjs's _electron.launch refuses any other (so no suite starts Hive with its own). */
 const built = new WeakSet()
 
+/** Where the test copies of Hive a suite starts put what they delete (#414): its work folder's `trash`. */
+const trashDir = (parent = process.env) => path.join(parent.HIVE_E2E_DIR || WORK, 'trash')
+
+/**
+ * The CLI homes a test copy of Hive gets unless its suite gives it others (#382): empty folders in its work folder's
+ * `cli-homes`, so Hive's look for both CLIs when it starts (`claude auth status`, `codex login status`) reads them, never
+ * the user's ~/.claude or ~/.codex. A suite passes a test home instead (the fake Claude Code's, its own, the Codex test
+ * home) in hiveEnv's vars.
+ */
+function cliHomes(parent = process.env) {
+  const base = path.join(parent.HIVE_E2E_DIR || WORK, 'cli-homes')
+  return { CLAUDE_CONFIG_DIR: path.join(base, 'claude'), CODEX_HOME: path.join(base, 'codex') }
+}
+
+/** Whether a folder is the user's own Claude Code or Codex home (~/.claude, ~/.codex), however its path is spelled. */
+function isUserCliHome(dir, parent = process.env) {
+  const profile = parent.USERPROFILE || os.homedir()
+  const same = (p) => path.win32.resolve(p).replace(/[\\/]+$/, '').toLowerCase()
+  return !!dir && ['.claude', '.codex'].some((d) => same(path.win32.join(profile, d)) === same(dir))
+}
+
 /**
  * A test copy of Hive's environment: the allowlist; quiet (unless HIVE_TEST_QUIET=0 was set for the run) and with tips
- * off (a profile that sets Show a tip turns them on); the suite's Agent API port from its runner (HIVE_E2E_PORT), and
- * the CARRIED variables; then `vars` (its profile, HIVE_USER_DATA, always; a port, CLI homes, test hooks), where
- * undefined removes one.
+ * off (a profile that sets Show a tip turns them on); its trash folder (HIVE_TEST_TRASH_DIR: the suite's, #414, so it
+ * never uses the user's Recycle Bin); both CLI homes (CLAUDE_CONFIG_DIR, CODEX_HOME: empty folders of the suite's,
+ * cliHomes, #382, so it never reads the user's); the suite's Agent API port from its runner (HIVE_E2E_PORT), and the
+ * CARRIED variables; then `vars` (its profile, HIVE_USER_DATA, always; a port, test CLI homes, test hooks), where
+ * undefined removes one (lib.cjs refuses to start a test Hive without both homes).
  */
 function hiveEnv(vars = {}, parent = process.env) {
   const env = baseEnv(parent)
   env.HIVE_TEST_QUIET = parent.HIVE_TEST_QUIET === '0' ? '0' : '1'
   env.HIVE_TEST_TIPS = 'off'
+  env.HIVE_TEST_TRASH_DIR = trashDir(parent)
+  Object.assign(env, cliHomes(parent))
   if (parent.HIVE_E2E_PORT) env.HIVE_API_PORT = parent.HIVE_E2E_PORT
   Object.assign(env, pick(parent, CARRIED))
   apply(env, vars)
@@ -150,4 +176,4 @@ function suiteEnv({ name, port = null, work = null, runDir, cliLog = null }, par
   return env
 }
 
-module.exports = { TEST_ROOT, LANES_DIR, HEAVY_DIR, WORK, CODEX_HOME, CLAUDE_TEST_HOME, ALLOW, PASS_ENV, CARRIED, baseEnv, childEnv, hiveEnv, isHiveEnv, suiteEnv }
+module.exports = { TEST_ROOT, LANES_DIR, HEAVY_DIR, WORK, CODEX_HOME, CLAUDE_TEST_HOME, ALLOW, PASS_ENV, CARRIED, baseEnv, childEnv, hiveEnv, isHiveEnv, suiteEnv, trashDir, cliHomes, isUserCliHome }

@@ -201,6 +201,10 @@ const write = (file, text) => {
 
   // Exactly what was listed went; everything else stayed.
   check('the listed files are gone', listed.every((l) => !fs.existsSync(path.join(hive, l))), listed.filter((l) => fs.existsSync(path.join(hive, l))).join(', '))
+  // …to the Recycle Bin, which for a test copy is the suite's own trash folder (#414): each one arrived there.
+  const binned = lib.trashed(hive)
+  const arrived = (l) => binned.some((e) => e.from.toLowerCase() === path.join(hive, l).toLowerCase() || path.join(hive, l).toLowerCase().startsWith(`${e.from.toLowerCase()}${path.sep}`))
+  check("…into the suite's trash folder, not the user's Recycle Bin", listed.every(arrived), JSON.stringify({ missing: listed.filter((l) => !arrived(l)), binned }))
   const missing = keptBefore.filter((p) => !p.endsWith('sessions.json') && !p.endsWith('.bak') && !fs.existsSync(p))
   check('nothing else went', missing.length === 0, missing.join(', '))
   check("the running launch's images stayed", fs.existsSync(path.join(runDir, 'pending.png')))

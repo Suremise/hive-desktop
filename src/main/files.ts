@@ -1,7 +1,6 @@
 import { watch, existsSync, type FSWatcher } from 'original-fs'
 import { cp, lstat, mkdir, readdir, readFile, rename, rmdir, stat, writeFile } from 'original-fs/promises'
 import { basename, dirname, extname, join, relative, resolve, sep } from 'path'
-import { shell } from 'electron'
 import { HIVE_DIR, assertSessionId } from '../shared/defaults'
 import type { FileContent, FileEntry, SessionImage, SessionImageGroup } from '../shared/types'
 import { emit } from './events'
@@ -10,6 +9,7 @@ import { INDEX_BUSY, git } from './git'
 import { createLogger, userText } from './logger'
 import { sessions } from './sessions'
 import { workspace } from './workspace'
+import { trash as toTrash } from './trash'
 
 const log = createLogger('files')
 
@@ -244,7 +244,7 @@ async function copyInto(projectPath: string, sources: string[], destDir: string)
 /** Moves entries to the Recycle Bin. */
 export async function trash(projectPath: string, rels: string[]): Promise<void> {
   projectPath = workspace.assertRoot(projectPath)
-  for (const rel of rels) await shell.trashItem(inProject(projectPath, rel, false, true))
+  for (const rel of rels) await toTrash(inProject(projectPath, rel, false, true))
 }
 
 /** Absolute path of a project entry, for opening, revealing and pasting into the terminal. */
@@ -494,7 +494,7 @@ export async function trashImage(projectPath: string, path: string): Promise<voi
     await assertOwnImage(root, join(root, sessionId), 'dir')
     await assertOwnImage(root, abs, 'file')
     if (await heldOpen(abs)) throw new Error('Another program has this image open. Close it, then try again.')
-    await shell.trashItem(abs)
+    await toTrash(abs)
   })
 }
 
@@ -515,7 +515,7 @@ export async function trashImageGroup(projectPath: string, sessionId: string): P
     const files = (await readdir(dir, { withFileTypes: true })).filter((f) => f.isFile() && IMAGE_EXT.test(f.name)).map((f) => join(dir, f.name))
     for (const f of files) await assertOwnImage(root, f, 'file')
     try {
-      await trashAllOrNothing(files, (f) => shell.trashItem(f))
+      await trashAllOrNothing(files, (f) => toTrash(f))
     } catch (e) {
       if (isInUse(e)) throw new Error('Another program has one of these images open. Close it, then try again.', { cause: e })
       throw e

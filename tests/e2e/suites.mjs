@@ -2,6 +2,7 @@
 // needs: claude = starts the real Claude Code; codex = the signed-in test Codex home; packaged = dist/win-unpacked.
 // claudeHome: 'own' = its Claude Code runs in a home of its own with a made-up API key (no sign-in: the runner asks about none);
 // 'test' = in the signed-in Claude Code test home (CLAUDE_TEST_HOME, never the user's own), for suites that send prompts.
+// Every suite that starts the real Claude Code has one (#368): none runs in the user's ~/.claude (tests/e2esuites.test.ts).
 // Suites that start a real CLI (claude, codex) share it with each other, so they run one at a time, in a lane beside
 // the others; those marked serial (with why) and the installer's run last, alone; every other suite is safe to run
 // beside others (its own profile, folders and Agent API port). Sorted by name, so suites added on different
@@ -10,7 +11,7 @@ export const SUITES = [
   { name: 'about' },
   { name: 'agents' },
   { name: 'agents-ui' },
-  { name: 'agentview', needs: ['claude'] },
+  { name: 'agentview', needs: ['claude'], claudeHome: 'own' },
   { name: 'antivirus' },
   { name: 'asarfiles' },
   { name: 'assistant' },
@@ -43,7 +44,7 @@ export const SUITES = [
   { name: 'carddialog' },
   { name: 'cardloop' },
   { name: 'changes' },
-  { name: 'claude-real', needs: ['claude'] },
+  { name: 'claude-real', needs: ['claude'], claudeHome: 'own' },
   { name: 'claudehome', needs: ['claude'], claudeHome: 'own' },
   { name: 'claudesettings', needs: ['claude'], claudeHome: 'own' },
   { name: 'closewindow' },
@@ -52,7 +53,7 @@ export const SUITES = [
   { name: 'codex-extra', needs: ['codex'] },
   { name: 'codex-handover', needs: ['codex'] },
   { name: 'codex-setup', needs: ['codex'] },
-  { name: 'compact', needs: ['claude'] },
+  { name: 'compact', needs: ['claude'], claudeHome: 'own' },
   { name: 'context' },
   { name: 'contrast' },
   { name: 'ctxpercent' },
@@ -78,7 +79,7 @@ export const SUITES = [
   { name: 'loopwatch' },
   { name: 'mcp' },
   { name: 'mergeslot' },
-  { name: 'mode', needs: ['claude'] },
+  { name: 'mode', needs: ['claude'], claudeHome: 'own' },
   { name: 'models' },
   { name: 'narrowmain' },
   { name: 'numbers' },
@@ -93,7 +94,7 @@ export const SUITES = [
   { name: 'performance' },
   { name: 'perftable' },
   { name: 'pin' },
-  { name: 'plan', needs: ['claude'] },
+  { name: 'plan', needs: ['claude'], claudeHome: 'own' },
   { name: 'progress', serial: 'window focus' },
   { name: 'progressreport' },
   { name: 'providers' },

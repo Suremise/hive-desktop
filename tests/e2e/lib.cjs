@@ -11,7 +11,7 @@ const { execFileSync, execSync } = require('child_process')
 const { _electron } = require('playwright-core')
 
 // The run context (runContext.cjs): the environments of everything a suite starts, its folders and the CLI test homes.
-const { TEST_ROOT, WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, isHiveEnv } = require('./runContext.cjs')
+const { TEST_ROOT, WORK, CODEX_HOME, CLAUDE_TEST_HOME, hiveEnv, childEnv, baseEnv, isHiveEnv, isUserCliHome, trashDir } = require('./runContext.cjs')
 
 const ROOT = path.resolve(__dirname, '..', '..')
 /** Electron's executable (the electron package resolves to its path in plain Node). */
@@ -27,6 +27,24 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
  * so nothing needs deleting first (never `rm -rf` a computed path: Claude Code asks, and unattended it denies). The
  * clean-up prunes them after a few days (`npm run test:clean`), unless a card that isn't Done cites one.
  */
+/** The test copies' trash folder (#414): what they delete goes there, never to the user's Recycle Bin. */
+const TRASH = trashDir()
+
+/**
+ * What the test copies of Hive this suite started have deleted, oldest first: `{ at, from, to }` each (the original
+ * path, and where it is now in TRASH). `match` keeps those whose original path contains it (any case, either slash).
+ */
+function trashed(match = '') {
+  let lines = []
+  try {
+    lines = fs.readFileSync(path.join(TRASH, 'trash.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean)
+  } catch {
+    return []
+  }
+  const norm = (p) => String(p).toLowerCase().replaceAll('/', path.sep)
+  return lines.map((l) => JSON.parse(l)).filter((e) => norm(e.from).includes(norm(match)))
+}
+
 function probeDir(name = 'probe', root = TEST_ROOT) {
   const base = path.join(root, 'scratch')
   const label = String(name).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 40) || 'probe'
@@ -69,6 +87,25 @@ function enableProviders(userData, providers = ['claude-code']) {
   // No online check for a newer CLI at every launch: slow, needs the network, and no suite is about it.
   for (const p of providers) cfg.settings.providers[p] = { checkUpdatesOnLaunch: false, ...cfg.settings.providers[p], enabled: true }
   fs.writeFileSync(file, JSON.stringify(cfg, null, 2))
+}
+
+/**
+ * A Claude Code home of the suite's own for the real Claude Code (#345, #368): new each run in its folder, with Claude
+ * Code's first-run onboarding done and a made-up API key approved (its own fields in .claude.json), so it starts at its
+ * prompt with no sign-in, and never in the user's ~/.claude. The key is valid for nothing: a suite using it sends no
+ * prompt, and no tokens are spent (one that sends prompts uses the signed-in CLAUDE_TEST_HOME, claudeHome: 'test', as
+ * assistantresume does). Said in the log, so the run shows the home. Returns { home, env }: env ({ CLAUDE_CONFIG_DIR,
+ * ANTHROPIC_API_KEY }) goes into hiveEnv.
+ */
+function ownClaudeHome(name) {
+  const home = path.join(WORK, `${name}-claude-home`)
+  fs.rmSync(home, { recursive: true, force: true })
+  fs.mkdirSync(home, { recursive: true })
+  // Made up: shaped like an API key, valid for nothing.
+  const apiKey = `sk-ant-api03-hivetest-${require('crypto').randomBytes(24).toString('hex')}`
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ hasCompletedOnboarding: true, customApiKeyResponses: { approved: [apiKey.slice(-20)], rejected: [] } }))
+  console.log(`Claude Code home: ${home} (CLAUDE_CONFIG_DIR, the suite's own; a made-up API key, no sign-in)`)
+  return { home, env: { CLAUDE_CONFIG_DIR: home, ANTHROPIC_API_KEY: apiKey } }
 }
 
 /**
@@ -339,7 +376,15 @@ const environmentProblem = (text) => environmentProblems(text)[0]?.why ?? null
 const apps = new Set()
 const launchElectron = _electron.launch.bind(_electron)
 _electron.launch = async (...args) => {
-  if (!isHiveEnv(args[0]?.env)) throw new Error("Start a test Hive with lib.hiveEnv({ HIVE_USER_DATA, … }) as its env (tests/e2e/runContext.cjs), never the suite's own environment")
+  const env = args[0]?.env
+  if (!isHiveEnv(env)) throw new Error("Start a test Hive with lib.hiveEnv({ HIVE_USER_DATA, … }) as its env (tests/e2e/runContext.cjs), never the suite's own environment")
+  // Both CLI homes, test folders (#382): Hive looks for both CLIs when it starts, and their sign-in checks read these.
+  for (const k of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME']) {
+    if (!env[k]) throw new Error(`A test Hive needs ${k} (hiveEnv gives an empty one of the suite's; a suite may give a test home, never none): without it the CLI reads the user's own home (#382)`)
+    if (isUserCliHome(env[k])) throw new Error(`A test Hive's ${k} is the user's own home (${env[k]}): give it a test home (#382)`)
+    // The suite's empty one is made here (Codex refuses a CODEX_HOME that doesn't exist).
+    fs.mkdirSync(env[k], { recursive: true })
+  }
   const app = await launchElectron(...args)
   apps.add(app)
   app.on('close', () => apps.delete(app))
@@ -628,4 +673,4 @@ async function haikuAutoCaveat(page, autoOffered) {
   return [ok, JSON.stringify(caveat)]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

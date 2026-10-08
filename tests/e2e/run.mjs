@@ -35,13 +35,14 @@ import { createRequire } from 'module'
 import { e2eProgress, slotWaitProgress } from '../progressReport.mts'
 import { SUITES } from './suites.mjs'
 import { affectedSuites, changedFiles } from './affected.mjs'
-import { CLI_LOG, fingerprint, readCliLog, realCliVersions, recordJson, recordMarkdown } from './record.mjs'
+import { CLI_LOG, fingerprint, readCliLog, realCliHomes, realCliVersions, recordJson, recordMarkdown } from './record.mjs'
 import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, selectSuites, suiteOutcome } from './runner.mjs'
 import { devBuild, ensureBuild } from './build.mjs'
 import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, omittedLine, pruneRunDirsReleasing } from './logs.mjs'
 import { LANES, claimLane, laneWork } from './lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, waitForSlot } from './slots.mjs'
 import { autoClean, holdLane } from './clean.mjs'
+import { recycleBinCount, recycleBinLine } from './recycleBin.mjs'
 import { readUnpackedInfo } from '../../scripts/distCopy.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -264,22 +265,21 @@ const cliInstalled = {
   codex: () => cliPath('codex', [join(process.env.APPDATA || '', 'npm', 'codex.cmd')])
 }
 /**
- * False only when Claude Code itself says it isn't signed in (`claude auth status --json`); an answer that can't be read
- * counts as signed in, so the suites run and say what is wrong. Asked once a run for each home: the default one, or
- * 'test' (CLAUDE_TEST_HOME).
+ * False only when Claude Code itself says it isn't signed in to its test home (`claude auth status --json`, with
+ * CLAUDE_CONFIG_DIR set to CLAUDE_TEST_HOME); an answer that can't be read counts as signed in, so the suites run and
+ * say what is wrong. Asked once a run. Never about the user's own home (#368): no suite runs there.
  */
-const claudeSignedIn = {}
-const claudeLoggedIn = (home = 'default') => {
-  if (claudeSignedIn[home] !== undefined) return claudeSignedIn[home]
-  // In the environment the suites' Claude Code gets (no CLAUDE_CONFIG_DIR of the runner's), so it asks about the same sign-in.
-  const env = runContext.childEnv(home === 'test' ? { CLAUDE_CONFIG_DIR: runContext.CLAUDE_TEST_HOME } : {})
+let claudeTestSignedIn
+const claudeLoggedIn = () => {
+  if (claudeTestSignedIn !== undefined) return claudeTestSignedIn
+  const env = runContext.childEnv({ CLAUDE_CONFIG_DIR: runContext.CLAUDE_TEST_HOME })
   const r = spawnSync(cliInstalled.claude(), ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 30_000, env })
   try {
-    claudeSignedIn[home] = JSON.parse(r.stdout).loggedIn !== false
+    claudeTestSignedIn = JSON.parse(r.stdout).loggedIn !== false
   } catch {
-    claudeSignedIn[home] = true
+    claudeTestSignedIn = true
   }
-  return claudeSignedIn[home]
+  return claudeTestSignedIn
 }
 
 /** Why a suite can't run here, or null. "environment: …" for the machine's CLIs (the record says so). */
@@ -288,8 +288,9 @@ function skipReason(s) {
   if (needs.includes('packaged') && !existsSync(join(root, 'dist', 'win-unpacked'))) return 'no dist/win-unpacked (npm run dist)'
   if (needs.includes('claude') && !cliInstalled.claude()) return "environment: Claude Code isn't installed (claude)"
   // A suite with a Claude Code home of its own (claudeHome: 'own', a made-up API key) needs no sign-in: none is asked about.
-  if (needs.includes('claude') && s.claudeHome === 'test' && !claudeLoggedIn('test')) return `environment: Claude Code isn't signed in to its test home ${runContext.CLAUDE_TEST_HOME} (tests/e2e/README.md)`
-  if (needs.includes('claude') && !s.claudeHome && !claudeLoggedIn()) return "environment: Claude Code isn't signed in (claude auth status)"
+  // One with none would run in the user's ~/.claude: never (#368; tests/e2esuites.test.ts fails for it first).
+  if (needs.includes('claude') && s.claudeHome !== 'own' && s.claudeHome !== 'test') return "no Claude Code test home (suites.mjs claudeHome: 'own' or 'test', #368): it would run in the user's ~/.claude"
+  if (needs.includes('claude') && s.claudeHome === 'test' && !claudeLoggedIn()) return `environment: Claude Code isn't signed in to its test home ${runContext.CLAUDE_TEST_HOME} (tests/e2e/README.md)`
   if (needs.includes('codex') && !cliInstalled.codex()) return "environment: Codex isn't installed (codex)"
   if (needs.includes('codex') && !lib.codexSignedIn()) return `environment: Codex isn't signed in to ${lib.CODEX_HOME}`
   return null
@@ -408,6 +409,8 @@ async function runOnce(k) {
 // Passed suites whose folders stayed (a card cites them, or the board couldn't be read): said once at the end, so growth
 // while the board can't be read is seen.
 const keptAfterPass = []
+// The user's Recycle Bin, counted (read only) before and after (#414): test copies use their own trash folders.
+const binBefore = recycleBinCount()
 // --repeat N: run after run, stopping at the first that fails (a later pass doesn't make up for it).
 const runs = []
 for (let k = 1; k <= repeat; k++) {
@@ -422,19 +425,24 @@ const lastRun = runs.at(-1)
 const passedRuns = runs.filter((r) => r.ok).length
 const summary = repeat > 1 ? `${passedRuns} of ${repeat} runs passed${runs.length < repeat ? ` (stopped after run ${runs.length})` : ''}` : lastRun.summary
 if (repeat > 1) console.log(`\n${summary}.`)
+const binLine = recycleBinLine(binBefore, recycleBinCount())
+console.log(binLine)
 let recordInvalid = false
 if (opts.record) {
   // Named for the code as it was when the first run started, and only valid if it is still that code, built fresh (and,
   // for a repeat, every run passed).
   const status = repeatStatus({ repeat, runs, before: codeBefore, after: fingerprint(root), buildStale: stale, packagedStale: packagedStale ?? packagedCheck() })
-  recordInvalid = !status.valid
+  // Each real suite's CLI home (#368): named in the record; one in the user's own home makes it not valid.
+  const { homes, own } = realCliHomes(lastRun.results, SUITES)
+  const problems = [...status.problems, ...(own.length ? [`ran a real CLI in the user's own home (never, #368): ${own.join(', ')}`] : [])]
+  recordInvalid = problems.length > 0
   // A record that isn't valid: its run is kept as a failed one's (#223).
-  if (recordInvalid) markRunFailed(lastRun.logDir, `record not valid: ${status.problems.join('; ')}`)
+  if (recordInvalid) markRunFailed(lastRun.logDir, `record not valid: ${problems.join('; ')}`)
   const when = new Date().toISOString().slice(0, 16).replace('T', ' ')
   // The real CLIs the real suites ran, as their Hive selected them (#365: the release's tested-with manifest).
   const clis = realCliVersions(lastRun.results, SUITES)
-  const md = recordMarkdown({ code: codeBefore, when, jobs, results: lastRun.results, logDir: lastRun.logDir, summary, problems: status.problems, notRun: notRun.map((s) => s.name), runs: repeat > 1 ? Object.assign(runs, { repeat }) : null, clis })
-  const json = `${JSON.stringify(recordJson({ code: codeBefore, when, results: lastRun.results, problems: status.problems, notRun: notRun.map((s) => s.name), clis }), null, 2)}
+  const md = `${recordMarkdown({ code: codeBefore, when, jobs, results: lastRun.results, logDir: lastRun.logDir, summary, problems, notRun: notRun.map((s) => s.name), runs: repeat > 1 ? Object.assign(runs, { repeat }) : null, clis, homes }).trimEnd()}\n\n${binLine}\n`
+  const json = `${JSON.stringify(recordJson({ code: codeBefore, when, results: lastRun.results, problems, notRun: notRun.map((s) => s.name), clis }), null, 2)}
 `
   for (const r of runs) {
     writeFileSync(join(r.logDir, 'run-record.md'), md)

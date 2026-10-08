@@ -1,3 +1,5 @@
+// Compact on a new, empty real Claude Code session: Claude Code refuses it without a turn, so nothing is sent and it
+// runs in a home of the suite's own with a made-up API key (lib.ownClaudeHome, #368), never the user's ~/.claude.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path')
@@ -12,7 +14,7 @@ const results = []
 const check = (n, ok) => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}`)
 ;(async () => {
   lib.enableProviders(userData)
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData })
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, ...lib.ownClaudeHome('compact').env })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => results.push(`PAGEERROR ${e.message}`))

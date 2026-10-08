@@ -1184,6 +1184,8 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
 describe('the run context: what a test starts gets only the allowlist and its own context (runContext.cjs, #203)', () => {
   type Env = Record<string, string | undefined>
   type Ctx = {
+    WORK: string
+    isUserCliHome: (dir: string, parent?: Env) => boolean
     ALLOW: string[]
     PASS_ENV: Record<string, string>
     CARRIED: string[]
@@ -1252,6 +1254,39 @@ describe('the run context: what a test starts gets only the allowlist and its ow
     for (const k of ['HIVE_E2E_PORT', 'HIVE_API_PORT', 'E2E_RUN_PORT', 'HIVE_E2E_DIR']) expect(has(nested, k), k).toBe(false)
   })
 
+  it("every test copy of Hive deletes into its suite's trash folder, never the user's Recycle Bin (#414)", () => {
+    const suite = ctx.suiteEnv({ name: 'board', port: 47961, work: 'C:\\lanes\\1\\board', runDir: 'C:\\lanes\\1\\board' }, parent)
+    expect(ctx.hiveEnv({ HIVE_USER_DATA: 'C:\\p' }, suite).HIVE_TEST_TRASH_DIR).toBe('C:\\lanes\\1\\board\\trash')
+    // A suite run on its own: the work folder's.
+    expect(ctx.hiveEnv({ HIVE_USER_DATA: 'C:\\p' }, parent).HIVE_TEST_TRASH_DIR).toBe(join(ctx.WORK, 'trash'))
+    // Not a child that isn't Hive, and not from the shell the run was started from.
+    expect(has(ctx.childEnv({}, suite), 'HIVE_TEST_TRASH_DIR')).toBe(false)
+    expect(ctx.hiveEnv({}, { ...suite, HIVE_TEST_TRASH_DIR: 'C:\\elsewhere' }).HIVE_TEST_TRASH_DIR).toBe('C:\\lanes\\1\\board\\trash')
+    // The runner counts the Recycle Bin, read only, before and after.
+    const runner = readFileSync(join(root, 'tests', 'e2e', 'run.mjs'), 'utf8')
+    expect(runner).toMatch(/recycleBinCount\(\)[\s\S]*recycleBinLine\(binBefore, recycleBinCount\(\)\)/)
+    expect(readFileSync(join(root, 'tests', 'e2e', 'recycleBin.mjs'), 'utf8')).not.toMatch(/Empty|InvokeVerb|Delete|Remove-/)
+  })
+
+  it("every test copy of Hive gets both CLI homes, test folders, never the user's ~/.claude or ~/.codex (#382)", () => {
+    const suite = ctx.suiteEnv({ name: 'board', port: 47961, work: 'C:\\lanes\\1\\board', runDir: 'C:\\lanes\\1\\board' }, parent)
+    // By default, empty folders of the suite's own; whatever the shell the run was started from had.
+    const shell = { ...suite, CLAUDE_CONFIG_DIR: 'C:\\Users\\t\\.claude', CODEX_HOME: 'C:\\Users\\t\\.codex' }
+    expect(ctx.hiveEnv({ HIVE_USER_DATA: 'C:\\p' }, shell)).toMatchObject({ CLAUDE_CONFIG_DIR: 'C:\\lanes\\1\\board\\cli-homes\\claude', CODEX_HOME: 'C:\\lanes\\1\\board\\cli-homes\\codex' })
+    expect(ctx.hiveEnv({ HIVE_USER_DATA: 'C:\\p' }, parent)).toMatchObject({ CLAUDE_CONFIG_DIR: join(ctx.WORK, 'cli-homes', 'claude'), CODEX_HOME: join(ctx.WORK, 'cli-homes', 'codex') })
+    // A suite gives a test home instead (the fake Claude Code's, its own, the Codex test home).
+    expect(ctx.hiveEnv({ HIVE_USER_DATA: 'C:\\p', CLAUDE_CONFIG_DIR: 'C:\\fake-home', CODEX_HOME: 'C:\\codex-test' }, suite)).toMatchObject({ CLAUDE_CONFIG_DIR: 'C:\\fake-home', CODEX_HOME: 'C:\\codex-test' })
+    // Not for a child that isn't Hive.
+    for (const k of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME']) expect(has(ctx.childEnv({}, suite), k), k).toBe(false)
+    // The user's homes, however spelled; not a folder beside or inside them.
+    const user = { ...parent, USERPROFILE: 'C:\\Users\\t' }
+    for (const p of ['C:\\Users\\t\\.claude', 'c:/users/T/.codex/', 'C:\\Users\\t\\x\\..\\.claude']) expect(ctx.isUserCliHome(p, user), p).toBe(true)
+    for (const p of ['C:\\Users\\t\\.claude-test', 'C:\\Users\\t\\.codex\\homes\\x', join(ctx.WORK, 'cli-homes', 'claude')]) expect(ctx.isUserCliHome(p, user), p).toBe(false)
+    // lib.cjs refuses to start a test Hive with either home missing or the user's own.
+    const lib = readFileSync(join(root, 'tests', 'e2e', 'lib.cjs'), 'utf8')
+    expect(lib).toMatch(/for \(const k of \['CLAUDE_CONFIG_DIR', 'CODEX_HOME'\]\) \{\s*if \(!env\[k\]\) throw[\s\S]*?if \(isUserCliHome\(env\[k\]\)\) throw/)
+  })
+
   it("the CLIs a suite's Hive selects go to a log of the suite's own; the runner starts no CLI of its own (#365)", () => {
     // The runner gives each suite a log in its folder, and the suite's test copies of Hive inherit it (CARRIED).
     const suite = ctx.suiteEnv({ name: 'codex', port: 47961, work: 'C:\\lanes\\1\\codex', runDir: 'C:\\lanes\\1\\codex', cliLog: 'C:\\lanes\\1\\codex\\hive-clis.jsonl' }, parent)
@@ -1279,6 +1314,33 @@ describe('the run context: what a test starts gets only the allowlist and its ow
         expect(claude && codex, `${name}: ${l}`).toBe(true)
       }
     }
+  })
+
+  // The real Claude Code never runs in the user's ~/.claude (#368): each suite that starts it has a home of its own (a
+  // made-up API key, no prompt sent) or the signed-in test home, says which in suites.mjs, and starts its Hive with it.
+  it("every suite that starts the real Claude Code runs it in a test home, never the user's own (#368)", () => {
+    const claudeSuites = (SUITES as { name: string; needs?: string[]; claudeHome?: string }[]).filter((s) => s.needs?.includes('claude'))
+    expect(claudeSuites.length).toBeGreaterThan(5)
+    for (const s of claudeSuites) {
+      expect(['own', 'test'], s.name).toContain(s.claudeHome)
+      const src = readFileSync(join(root, 'tests', 'e2e', `${s.name}.cjs`), 'utf8')
+      // Its Hive (every hiveEnv or lib.launch call) gets the home: lib's helper for it, CLAUDE_CONFIG_DIR given directly,
+      // or the suite's `homes`.
+      const launches = [...src.matchAll(/(?:hiveEnv|lib\.launch)\(\{[^\n]*\}\)/g)].map((m) => m[0])
+      expect(launches.length, s.name).toBeGreaterThan(0)
+      for (const l of launches) expect(/CLAUDE_CONFIG_DIR|ownClaudeHome|claudeHome\.env|env: homes/.test(l), `${s.name}: ${l}`).toBe(true)
+      if (s.claudeHome === 'test') expect(src, s.name).toMatch(/CLAUDE_CONFIG_DIR: CLAUDE_TEST_HOME/)
+      // A home of its own: lib's (a made-up key), or a folder of the suite's (claudehome, claudesettings); never the test home.
+      if (s.claudeHome === 'own') {
+        expect(src, s.name).toMatch(/ownClaudeHome\(|CLAUDE_CONFIG_DIR: home\b/)
+        expect(src, s.name).not.toMatch(/CLAUDE_CONFIG_DIR: CLAUDE_TEST_HOME/)
+      }
+    }
+    // The runner asks Claude Code about its test home's sign-in only, and refuses a Claude suite with no home.
+    const runner = readFileSync(join(root, 'tests', 'e2e', 'run.mjs'), 'utf8')
+    expect(runner).toMatch(/childEnv\(\{ CLAUDE_CONFIG_DIR: runContext\.CLAUDE_TEST_HOME \}\)/)
+    expect(runner).not.toMatch(/claudeLoggedIn\(\s*'default'|home === 'test' \?/)
+    expect(runner).toMatch(/s\.claudeHome !== 'own' && s\.claudeHome !== 'test'/)
   })
 
   it('every variable Hive sets for its sessions and its hive-progress wrapper is left out (#202)', () => {
