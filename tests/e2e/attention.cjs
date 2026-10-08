@@ -196,7 +196,13 @@ const check = (name, ok, extra = '') => {
   }
   {
     const before = told('Asking')
-    await turn(asking, 'question then approve')
+    // The question first, told on its own, then the prompt: a new need, told too. The fake holds before the prompt until
+    // Hive shows the question (#329): sent at once, the prompt's hooks could reach Hive before Codex's title (its sign
+    // that a person must act) said the question was asked, and both then came on with the title, rightly told together
+    // in one notice.
+    await turn(asking, 'question then hold then approve')
+    check('question: shown and told on its own first', !!(await until(async () => (await live(asking.id))?.question?.text === 'Which colour?' && told('Asking') === before + 1, 5000)), String(told('Asking') - before))
+    await inv('pty:write', askKey, 'g')
     check('question + approval prompt: waiting, with the question beside it', !!(await until(async () => (await live(asking.id))?.status === 'waiting' && (await live(asking.id))?.question?.text === 'Which colour?', 5000)))
     await lib.sleep(1200) // A fixed wait on purpose: the count must not rise past two, which no condition can show.
     check('told of both: the prompt is a new need', told('Asking') === before + 2, String(told('Asking') - before))
