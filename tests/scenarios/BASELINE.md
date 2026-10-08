@@ -36,6 +36,28 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## A new lane in a new conversation: fakes, Codex (`gpt-5.6-luna`), fixtures v22–v25, 8 October 2026
+
+#437 gives `hive_prompt_agent` a `newConversation` (the agent's conversation ends, kept in the Sessions tab, and a new
+one starts on the task, with no handover), and adds a bullet to coordinate-agents: a new lane's brief goes in one
+`hive_prompt_agent` call with `newConversation`, not `hive_start_task`, and the conversation is kept within a lane. The
+tool's description gets the parameter's meaning only. Fixtures v23 (v25 once merged with main) add **assistant-new-lane** (Coder idle after its last
+lane; "start its next lane on #1"): one call, Coder runs in a new launch and session, and its last conversation stays
+listed. The fake Codex now starts on a first prompt given on its command line, as Codex does (it ignored it before, so a
+start with a prompt never ran under it).
+- **Fakes**: before (`631738f`, v22, baseline `b3-437-before`) and after, neither source changed while it ran: v22 with
+  the first wording (`b3-437-after`), every check the same; v23 with the final wording (`b3-437-after-v23`), all 58 pass,
+  and the 57 scenarios both ran have the same checks. Sizes: the Assistant's skills +602 bytes (19,481 → 20,083), its
+  tool list +167 (22,705 → 22,872); project agents' sessions are unchanged. Merged with main (#430, #401, #426, whose
+  fixtures were v24): v25, all 59 pass (`b3-437-after-v25`); the Assistant's skills are 20,173 bytes with #426's line.
+- **Codex**: with the first wording, assistant-new-lane **failed** (`2026-10-08T16-32-22-codex`): the Assistant started
+  the lane's card with `hive_start_task` (the skill's "A card" bullet), in Coder's current conversation. The bullet now
+  says a lane, even of one card, goes through `hive_prompt_agent` with `newConversation`, not `hive_start_task`. Then
+  **2 of 2 pass** (`16-38-04`, `16-39-51`, $0.015), and assistant-dispatch still starts a plain card with
+  `hive_start_task` (`16-38-04`); assistant-agent-watch passed too (`16-32-22`). After the merge, v25: passes again
+  (`17-22-58`, $0.011).
+- **Claude Code**: not run (its test home isn't signed in).
+
 ## A card that left a loop's watch: fakes, Codex (`gpt-5.6-luna`), fixtures v22, 8 October 2026
 
 #420 releases a card from the watch of an agent whose part in it ended (given to another agent, reviewed by another, or

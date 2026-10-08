@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 24
+const FIXTURES_VERSION = 25
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -30,11 +30,16 @@ const ran = (o, tool) => called(o, tool).filter((c) => c.ok)
 async function busyCoder(c, fakeSecs, secs) {
   const providers = (await c.inv('settings:get')).providers ?? {}
   if (Object.values(providers).some((p) => /fake-(claude|codex)/i.test(String(p?.executablePath ?? '')))) secs = fakeSecs
+  await coderTask(c, `Run this in the shell and wait for it to end, then reply "built": node -e "setTimeout(() => {}, ${secs * 1000})" (work ${secs})`)
+}
+/** Coder's live session (status, runId, sessionId), or undefined. */
+const coderLive = async (c) => (await c.inv('session:live')).find((s) => s.projectPath.toLowerCase() === c.alpha.toLowerCase() && s.agentId === c.agents.coder.id)
+/** Starts Coder (a trust question answered), waits until it's ready and types `task` in, until it is working. */
+async function coderTask(c, task) {
   const key = `session:${c.alpha.toLowerCase()}#${c.agents.coder.id}`
-  const live = async () => (await c.inv('session:live')).find((s) => s.projectPath.toLowerCase() === c.alpha.toLowerCase() && s.agentId === c.agents.coder.id)
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
   await c.inv('session:start', c.alpha, { agentId: c.agents.coder.id })
-  for (let t = Date.now(); Date.now() - t < 90000 && !['ready', 'finished'].includes((await live())?.status); ) {
+  for (let t = Date.now(); Date.now() - t < 90000 && !['ready', 'finished'].includes((await coderLive(c))?.status); ) {
     if (/trust this folder/i.test(String(await c.inv('pty:buffer', key).catch(() => '')))) {
       await c.inv('pty:write', key, '\x1b[B')
       await sleep(300)
@@ -43,10 +48,10 @@ async function busyCoder(c, fakeSecs, secs) {
     await sleep(500)
   }
   await sleep(1500)
-  await c.inv('pty:write', key, `Run this in the shell and wait for it to end, then reply "built": node -e "setTimeout(() => {}, ${secs * 1000})" (work ${secs})`)
+  await c.inv('pty:write', key, task)
   await sleep(400)
   await c.inv('pty:write', key, '\r')
-  for (let t = Date.now(); Date.now() - t < 30000 && (await live())?.status !== 'working'; ) await sleep(500)
+  for (let t = Date.now(); Date.now() - t < 30000 && (await coderLive(c))?.status !== 'working'; ) await sleep(500)
 }
 const read = (o, skill) => o.skillsRead.includes(skill)
 /** A call's arguments (JSON) have key: value. */
@@ -1081,6 +1086,41 @@ module.exports.SCENARIOS = [
         ["recorded the answer as the card's decision", decided && decisions.some((t) => /hive cell|\bC\b/i.test(t)), decisions.join(' | ')],
         ["didn't ask the user again", called(o, 'hive_notify').length === 0],
         ["didn't type it into Coder (it has it)", called(o, 'hive_prompt_agent').length === 0]
+      ]
+    }
+  },
+  {
+    id: 'assistant-new-lane',
+    title: "The Assistant starting an idle agent's next lane (#437): one call gives it the lane in a new conversation, and the old one is kept",
+    role: 'assistant',
+    control: 'agents',
+    async setup(c) {
+      await c.card('n', { title: 'Add a CONTRIBUTING.md', description: 'Add a CONTRIBUTING.md with one line: "Open an issue before a pull request."' })
+      // Coder's last lane: a conversation of its own, finished and idle.
+      await coderTask(c, 'Reply "done" and nothing else. (work 1)')
+      for (let t = Date.now(); Date.now() - t < 60000 && !['ready', 'finished'].includes((await coderLive(c))?.status); ) await new Promise((r) => setTimeout(r, 500))
+      c.before = await coderLive(c)
+    },
+    prompt: (c) => `Coder has finished its last lane and is idle. Start its next lane: Coder builds card #${c.cards.n} with the card-loop skill (rounds: 3, wait: 1h); there is no reviewer yet. Don't wait for it.`,
+    fake: (c) => `skill coordinate-agents then hive hive_prompt_agent {"project":"alpha","agent":"Coder","text":"New lane: build card #${c.cards.n} with the card-loop skill. (work 1)","newConversation":true}`,
+    // Coder's session while the Assistant works, and the project's conversations (the old one must stay listed).
+    during: async (c) => {
+      const s = await coderLive(c)
+      c.seen = [...(c.seen ?? []), `${s?.runId === c.before?.runId ? 'old' : s ? 'new' : 'none'}:${s?.status}:${s?.sessionId ?? ''}`].slice(-12)
+      if (s?.sessionId && s.sessionId !== c.before?.sessionId) {
+        c.after = s
+        c.history = (await c.inv('session:list', c.alpha)).map((x) => x.id)
+      }
+    },
+    expect: (o, c) => {
+      const prompts = called(o, 'hive_prompt_agent')
+      const fresh = prompts.filter((x) => x.ok && argsOf(x).newConversation === true && /coder/i.test(String(argsOf(x).agent)))
+      return [
+        ['read the coordinate-agents skill', read(o, 'coordinate-agents'), o.skillsRead.join(',')],
+        ['gave Coder the lane in a new conversation (hive_prompt_agent with newConversation), which worked', fresh.length === 1, prompts.map((x) => `${x.args}${x.ok ? '' : '!'}`).join(' | ')],
+        ['in one call: no stop, start or hand-over of Coder', called(o, 'hive_stop_agent').length === 0 && called(o, 'hive_start_agent').length === 0 && called(o, 'hive_hand_over').length === 0],
+        ['Coder runs in a new conversation', !!c.before?.sessionId && !!c.after && c.after.runId !== c.before.runId, JSON.stringify({ before: c.before?.sessionId, after: c.after?.sessionId, seen: c.seen })],
+        ['its last conversation stays in the Sessions history', (c.history ?? []).includes(c.before?.sessionId), (c.history ?? []).join(',')]
       ]
     }
   },

@@ -317,9 +317,9 @@ const tools: Tool[] = [
   {
     name: 'hive_prompt_agent',
     description:
-      "Type a task into an idle running agent and send it. Refused while it is working, starting, waiting on background tasks or for the user, or just after the user typed there. Write the task in full: the agent sees nothing else from you. For work on a card, use hive_start_task.",
-    inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, text: { type: 'string' } }, required: ['project', 'agent', 'text'] },
-    run: (a) => api('POST', `${agentPath(a)}/prompt`, { text: a.text })
+      "Type a task into an idle running agent and send it. Refused while it is working, starting, waiting on background tasks or for the user, or just after the user typed there. Write the task in full: the agent sees nothing else from you. newConversation=true ends its conversation (kept in the Sessions tab) and starts it in a new one on the task, without a handover. For work on a card, use hive_start_task.",
+    inputSchema: { type: 'object', properties: { project: projectArg, agent: agentArg, text: { type: 'string' }, newConversation: { type: 'boolean' } }, required: ['project', 'agent', 'text'] },
+    run: (a) => api('POST', `${agentPath(a)}/prompt`, { text: a.text, newConversation: a.newConversation })
   },
   {
     name: 'hive_hand_over',

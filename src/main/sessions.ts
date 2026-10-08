@@ -135,6 +135,8 @@ interface LiveSession {
   switchTail?: string
   /** The first task, for the launch's command line (cleared once launched). */
   initialPrompt?: string
+  /** Throws if whoever asked for this launch may no longer have it (the Assistant's authority), checked just before spawning. */
+  startAllowed?: () => void
   /** The CLI asked something before it started (e.g. whether to trust the folder): shown as waiting for the user. */
   askedAtStart?: boolean
   /** For a CLI whose terminal title says when a person must act (ProviderAdapter.titleAttention): its test, for this launch. */
@@ -780,7 +782,7 @@ class SessionManager {
     return null
   }
 
-  async start(projectPath: string, opts: { resumeId?: string; name?: string; agentId?: string; skipSetup?: boolean; permissionMode?: PermissionMode; prompt?: string }): Promise<LiveSessionState> {
+  async start(projectPath: string, opts: { resumeId?: string; name?: string; agentId?: string; skipSetup?: boolean; permissionMode?: PermissionMode; prompt?: string; allowed?: () => void }): Promise<LiveSessionState> {
     this.assertStartsAllowed(projectPath)
     projectPath = workspace.assertSessionHost(projectPath)
     if (opts.resumeId !== undefined) assertSessionId(opts.resumeId)
@@ -852,7 +854,7 @@ class SessionManager {
     if (this.starting.get(id)?.cancelled) throw new Error('The agent was stopped before it had started.')
   }
 
-  private async startReserved(projectPath: string, agentId: string, id: string, opts: { resumeId?: string; name?: string; skipSetup?: boolean; permissionMode?: PermissionMode; prompt?: string }): Promise<LiveSessionState> {
+  private async startReserved(projectPath: string, agentId: string, id: string, opts: { resumeId?: string; name?: string; skipSetup?: boolean; permissionMode?: PermissionMode; prompt?: string; allowed?: () => void }): Promise<LiveSessionState> {
     const { agent, cfg, count } = await this.agentDef(projectPath, agentId)
     this.assertStarting(id)
     if (this.live.has(id)) throw new Error(count > 1 ? `${agent.name} is already running. Stop it first.` : 'A session is already running for this project. Stop it first.')
@@ -916,7 +918,7 @@ class SessionManager {
       launchSignature: '',
       unseen: false
     }
-    this.live.set(id, { state, adapter, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined, resumed: !!opts.resumeId })
+    this.live.set(id, { state, adapter, transcriptMtime: '', defaultModel: false, modeTail: '', launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined, startAllowed: opts.allowed, resumed: !!opts.resumeId })
     this.runs.set(runId, id)
 
     const setup = cfg.worktreeSetup.trim()
@@ -928,6 +930,7 @@ class SessionManager {
       try {
         // The same last check as before an agent's own launch.
         if (this.starting.get(id)?.cancelled || this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error('The agent was stopped before it had started.')
+        opts.allowed?.()
         spawnPty(key, {
           file: sh.file,
           args: sh.args,
@@ -1093,6 +1096,7 @@ class SessionManager {
     // provider turned off while this launch was being prepared, it must not start a process.
     if (l.stopRequested || this.live.get(id) !== l || this.starting.get(id)?.cancelled || !workspaceFor(projectPath) || this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error('The agent was stopped before it had started.')
     if (!isProviderEnabled(config.settings, adapter.id)) throw new Error(`${adapter.descriptor.name} was turned off while ${agent.name} was starting.`)
+    l.startAllowed?.()
     const cmd = adapter.buildCommand(info.path, ctx)
     // Where it compacts by itself (#242): for the model it runs as, the choice's (an alias resolved) or the CLI's default.
     const chosenModel = eff.model || info.defaultModel || ''
@@ -1151,6 +1155,7 @@ class SessionManager {
     })
     state.pid = proc.pid
     l.initialPrompt = undefined
+    l.startAllowed = undefined
     l.backupTimer = setInterval(() => void this.backup(projectPath, agent.id), 5000)
     // The process runs now: failing to record it (a full disk) must not leave it untracked.
     if (state.sessionId) await this.recordSession(projectPath, agent, l).catch((e) => log.warn(`${userText(this.label(state))}: could not record session ${state.sessionId}`, e))
@@ -1732,10 +1737,7 @@ class SessionManager {
       if (!handover) throw new Error(`There is no handover for ${basename(projectPath)} yet. Hand over with a new handover instead.`)
     }
     // To itself: its conversation ends here (it stays in the Sessions tab), and a new one starts below.
-    if (self && this.live.has(liveId(projectPath, fromAgentId))) {
-      await this.stopWhereAndWait((s) => s.projectPath.toLowerCase() === projectPath.toLowerCase() && (s as { agentId?: string }).agentId === fromAgentId, 15_000)
-      if (this.live.has(liveId(projectPath, fromAgentId))) throw new Error(`${from.name} didn't stop. Stop it, then start it and ask it to read the handover "${handover}".`)
-    }
+    if (self && this.live.has(liveId(projectPath, fromAgentId)) && !(await this.endConversation(projectPath, fromAgentId))) throw new Error(`${from.name} didn't stop. Stop it, then start it and ask it to read the handover "${handover}".`)
     // The target: started fresh when idle, or given the message in its running session.
     let target = this.live.get(liveId(projectPath, toAgentId))?.state ?? null
     if (target && target.status !== 'ready' && target.status !== 'finished') throw new Error(`${to.name} is busy. Hand over once it has finished.`)
@@ -1750,6 +1752,31 @@ class SessionManager {
     // Link the sessions once the target's id is known (Codex reports it with the first prompt).
     const linked = await this.waitStatus(projectPath, toAgentId, (s) => !s || !!s.sessionId, 60_000).catch(() => null)
     if (linked?.sessionId && fromSession) await workspace.upsertSession(projectPath, { id: linked.sessionId, handedOverFrom: fromSession }).catch(() => undefined)
+  }
+
+  /**
+   * Gives an idle running agent a task in a new conversation (hive_prompt_agent with newConversation): its conversation
+   * ends as when it hands over to itself (it stays in the Sessions tab), and a new one starts on the task, with no
+   * handover. The caller has checked it is idle; refused while Hive is typing into it or its CLI hasn't taken a prompt
+   * Hive typed (ending it would lose that prompt). Nothing awaits before the stop, so the caller's checks still hold.
+   * `allowed` throws if the caller may no longer have it (the Assistant's Control or session): checked before the stop,
+   * after it, and just before the new launch spawns.
+   */
+  async newConversation(projectPath: string, agentId: string, prompt: string, allowed?: () => void): Promise<LiveSessionState> {
+    projectPath = workspace.assertProject(projectPath)
+    const now = this.agentNow(projectPath, agentId)
+    if (!now) throw new Error("It isn't running.")
+    if (now.pending || this.delivering.has(this.key(projectPath, agentId))) throw new Error('Hive has just typed a prompt into it that its CLI has not taken yet.')
+    allowed?.()
+    if (!(await this.endConversation(projectPath, agentId))) throw new Error("It didn't stop, so no new conversation was started.")
+    allowed?.()
+    return this.start(projectPath, { agentId, prompt, allowed })
+  }
+
+  /** Stops a running agent to end its conversation (kept in the Sessions tab): whether it has stopped. */
+  private async endConversation(projectPath: string, agentId: string): Promise<boolean> {
+    await this.stopWhereAndWait((s) => s.projectPath.toLowerCase() === projectPath.toLowerCase() && (s as { agentId?: string }).agentId === agentId, 15_000)
+    return !this.live.has(liveId(projectPath, agentId))
   }
 
   /** Turns a running agent's Plan mode on or off (providers where it is a toggle, e.g. Codex's Shift+Tab). */
