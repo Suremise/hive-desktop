@@ -2,8 +2,6 @@
 
 ## Unreleased
 
-### Fixes
-- **A wake that isn't taken no longer sits unnoticed.** Sometimes a CLI (seen with Claude Code, the Assistant's too) isn't reading its input when Hive types a wake into it, and the line sits in its prompt. Hive already pressed Enter once more; now, if it still isn't taken, the agent's pane (or the Assistant's status line) says **A line Hive typed wasn't taken** and you're told once, so you can click its terminal and press Enter. Hive types nothing more into it until then, so a later task isn't lost behind it, and the log says when each wake was taken.
 ### Task board
 - **Your answers reach an agent waiting for you.** When an agent asks you something and its turn ends, and you answer through the Assistant (which records your answer as decisions on the card), the agent used to hear nothing until you pasted the answer into its pane. Now Hive types one line into it once nothing is in the way (*"#392 has 2 new decisions from the user: read them and carry on"*): decisions recorded together come in one line, never while it works or you type in its terminal, and the card's history says whom Hive told.
 
@@ -20,7 +18,12 @@
 - **The Assistant knows you by name.** When Hive tells the Assistant you replied to an agent in its pane, the line now says *"User replied to B1…"*, or uses the name you set in **Settings → General → Your name** (*"Darren replied to B1…"*). The name goes into the Assistant's conversation only if you set one.
 - **The Assistant hears when you answer an agent yourself.** When you reply to an agent in its pane while the Assistant is watching it (or its card), the Assistant is told the first line of what you sent, so it doesn't ask you again and can record your decision on the card. **Settings → Assistant → Tell the Assistant when I reply to an agent** turns it off.
 
+### Terminal
+- **Card numbers are links.** When an agent or the Assistant mentions a card in its terminal, like "#383 is back On Hold", hover the number to see the card's title and column, and Ctrl+click it to open the card, as you would a file path. Only numbers of cards on your board are linked.
+
 ### Fixes
+- **A wake that isn't taken no longer sits unnoticed.** Sometimes a CLI (seen with Claude Code, the Assistant's too) isn't reading its input when Hive types a wake into it, and the line sits in its prompt. Hive already pressed Enter once more; now, if it still isn't taken, the agent's pane (or the Assistant's status line) says **A line Hive typed wasn't taken** and you're told once, so you can click its terminal and press Enter. Hive types nothing more into it until then, so a later task isn't lost behind it, and the log says when each wake was taken.
+- **Sonnet 5.5's cache reads are priced at $0.10 per million tokens**, Anthropic's published price (5% of input), not $0.20. Estimated costs of Sonnet 5.5 sessions that Hive prices itself come out lower where most of the input is cached. A price you set for Sonnet 5.5 in Settings → Claude Code → API prices is kept.
 - **Hive opens when its install folder's permissions don't cover sandboxed apps.** If the folder Hive is installed in had an entry for a Windows app package but none for **ALL APPLICATION PACKAGES**, Windows denied Hive's sandboxed windows access to it and Hive closed at start with nothing on screen. The installer and updates now give ALL APPLICATION PACKAGES read access to the folder, and Hive checks at start: it adds the entry to a folder you can change, and for one you can't, it says so with the command to run and a **Copy Command** button instead of failing silently.
 
 ## 0.4.0 — 7 October 2026

@@ -43,6 +43,7 @@ export const SUITES = [
   { name: 'busy' },
   { name: 'cardchip' },
   { name: 'carddialog' },
+  { name: 'cardlinks' },
   { name: 'cardloop' },
   { name: 'changes' },
   { name: 'claude-real', needs: ['claude'], claudeHome: 'own' },
