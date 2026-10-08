@@ -66,7 +66,18 @@ function tasksDir(ws: WorkspaceService = workspace): string {
   return join(ws.hiveDir, 'tasks')
 }
 
-const cardFile = (n: number, ws?: WorkspaceService): string => join(tasksDir(ws), `${n}.json`)
+/** A card's file, and the lock on it (taken under the board's lock, below). */
+export const cardFile = (n: number, ws?: WorkspaceService): string => join(tasksDir(ws), `${n}.json`)
+
+/**
+ * The board's lock. A card's place is worked out from every card's order, so each change that places one (creating,
+ * updating, reordering, archiving, bringing back or importing a card) reads the board and writes its card under this
+ * lock. It is taken before any card's lock and never inside one; a batch takes it card by card, so other changes
+ * interleave. Keyed by the workspace folder, so every window's service shares it.
+ */
+export function boardLock<T>(ws: WorkspaceService, fn: () => Promise<T>): Promise<T> {
+  return withFileLock(`board-lock:${ws.path ?? ''}`, fn)
+}
 
 function changed(ws: WorkspaceService = workspace): void {
   if (ws.path) emit({ type: 'tasks-changed', workspacePath: ws.path })
@@ -324,7 +335,11 @@ function placement(all: TaskCard[], card: TaskCard, column: TaskColumn, patch: T
  * listed cards have to be in that column already (this never moves cards between columns), and only the user puts
  * Done in order. An agent's or the Assistant's list adds a line to each card it moved.
  */
-export async function reorderTasks(column: TaskColumn, numbers: unknown, actor: TaskActor): Promise<TaskCard[]> {
+export function reorderTasks(column: TaskColumn, numbers: unknown, actor: TaskActor): Promise<TaskCard[]> {
+  return boardLock(workspace, () => reorderTasksLocked(column, numbers, actor))
+}
+
+async function reorderTasksLocked(column: TaskColumn, numbers: unknown, actor: TaskActor): Promise<TaskCard[]> {
   if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": ${COLUMN_CHOICES}.`)
   if (column === 'done' && actor.kind !== 'user') throw new TaskPermissionError(OUT_OF_DONE)
   if (!Array.isArray(numbers) || !numbers.length) throw new Error('cards: list the card numbers in the order wanted.')
@@ -392,7 +407,11 @@ const COLUMN_WORD = Object.fromEntries(TASK_COLUMNS.map((c) => [c.id, c.label]))
 /** Who can return a failed card for review: its own agent (its hive tools, or the Agent API with its token) or the user. */
 const returnsCard = (actor: TaskActor, card: TaskCard): boolean => actor.kind === 'user' || (actor.kind === 'agent' && !!card.agent && actor.self?.agentId === card.agent)
 
-export async function createTask(
+export function createTask(...args: Parameters<typeof createTaskLocked>): Promise<TaskCard> {
+  return boardLock(workspace, () => createTaskLocked(...args))
+}
+
+async function createTaskLocked(
   input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[]; blocked?: string | null; blockedBy?: number[]; links?: number[] },
   actor: TaskActor
 ): Promise<TaskCard> {
@@ -452,7 +471,11 @@ export async function createTask(
  * Changes a card. `comment` is the same call's comment (the hive tools' and PATCH's): saved with the change in one write,
  * so nothing that reads the card meanwhile (a card watch waking its agent, the board) sees the move without it.
  */
-export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, opts: { check?: (card: TaskCard) => void; said?: string[]; comment?: string } = {}): Promise<TaskCard> {
+export function updateTask(...args: Parameters<typeof updateTaskLocked>): Promise<TaskCard> {
+  return boardLock(workspace, () => updateTaskLocked(...args))
+}
+
+async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, opts: { check?: (card: TaskCard) => void; said?: string[]; comment?: string; commit?: () => void } = {}): Promise<TaskCard> {
   const ws = workspace
   const by = actorName(actor)
   const comment = opts.comment === undefined ? null : commentText(opts.comment)
@@ -585,11 +608,64 @@ export async function updateTask(n: number, patch: TaskPatch, actor: TaskActor, 
     if (!said.length && !reordered && !reviewed && !comment) return card
     for (const s of said) note(card, by, s)
     if (comment) addComment(card, by, comment)
+    // The last thing before the write, after every read above: a caller whose authority can change while those awaits run
+    // (the Assistant's control and session) checks it here, so a revoked change saves nothing. Unlike `check`, it doesn't
+    // see the card as it was before this change.
+    opts.commit?.()
     await writeJsonAtomic(cardFile(n, ws), card)
     return card
   })
   changed(ws)
   return result
+}
+
+/** A batch changes at most this many cards (its reply names each one). */
+export const MAX_CHANGE_BATCH = 100
+
+/** The fields a batch sets on every card it names (hive_update_tasks): comments, decisions and titles stay on the single call. */
+export type BatchPatch = Pick<TaskPatch, 'column' | 'position' | 'blocked' | 'labels' | 'agent'>
+
+/** What a batch did with one card: its change's history lines, or why it was refused (the card left as it was). */
+export interface BatchItem {
+  number: number
+  card: TaskCard | null
+  said: string[]
+  error: string | null
+}
+
+/** The card numbers of a batch: at least one, at most MAX_CHANGE_BATCH, each once. Checked before anything changes or is counted. */
+export function batchNumbers(numbers: unknown): number[] {
+  if (!Array.isArray(numbers) || !numbers.length) throw new Error('cards: list the card numbers to change.')
+  if (numbers.length > MAX_CHANGE_BATCH) throw new Error(`cards: at most ${MAX_CHANGE_BATCH} cards at once.`)
+  const nums = numbers.map((x) => Number(String(x).replace(/^#/, '')))
+  const seen = new Set<number>()
+  for (const x of nums) {
+    if (!Number.isInteger(x) || x < 1) throw new Error(`cards: "${x}" is not a card number`)
+    if (seen.has(x)) throw new Error(`cards: #${x} is listed twice`)
+    seen.add(x)
+  }
+  return nums
+}
+
+/**
+ * Changes many cards with the same fields, in the order given. Each card goes through updateTask: under its own lock,
+ * authorised against the card as it is then, with the same refusals and history lines as a single call. A refused card
+ * (unknown, another project's, archived, in Doing with another agent, say) is left as it was and the others still apply:
+ * each card is all or nothing, the batch is not. Its error is the one a missing card gets, so it reveals no more.
+ * Position applies to each card in turn, so the last listed ends at the top (or bottom): hive_reorder_tasks sets an order.
+ */
+export async function updateTasks(numbers: number[], patch: BatchPatch, actor: TaskActor, opts: { commit?: () => void } = {}): Promise<BatchItem[]> {
+  const items: BatchItem[] = []
+  for (const n of numbers) {
+    const said: string[] = []
+    try {
+      const card = await updateTask(n, patch, actor, { said, commit: opts.commit })
+      items.push({ number: n, card, said, error: null })
+    } catch (e) {
+      items.push({ number: n, card: null, said: [], error: (e as Error).message })
+    }
+  }
+  return items
 }
 
 /**
@@ -723,7 +799,11 @@ export async function editDecision(n: number, id: string, newText: string | null
 }
 
 /** Archives a card (hidden from the board, kept) or brings it back. The user's alone. */
-export async function archiveTask(n: number, archived: boolean): Promise<TaskCard> {
+export function archiveTask(n: number, archived: boolean): Promise<TaskCard> {
+  return boardLock(workspace, () => archiveTaskLocked(n, archived))
+}
+
+async function archiveTaskLocked(n: number, archived: boolean): Promise<TaskCard> {
   const ws = workspace
   const card = await withFileLock(cardFile(n, ws), async () => {
     const c = await getTask(n, ws)
@@ -853,7 +933,11 @@ export async function archiveBatch(numbers: unknown, req: ArchiveRequest, actor:
  * again since, or deleted is left as it is. A card that can't be read or saved stays archived with the batch and is in
  * `failed`: the batch is kept, so bringing it back again retries those. Once nothing failed, the batch is forgotten.
  */
-export async function unarchiveBatch(id: string, actor: TaskActor): Promise<UnarchiveResult> {
+export function unarchiveBatch(id: string, actor: TaskActor): Promise<UnarchiveResult> {
+  return boardLock(workspace, () => unarchiveBatchLocked(id, actor))
+}
+
+async function unarchiveBatchLocked(id: string, actor: TaskActor): Promise<UnarchiveResult> {
   if (actor.kind !== 'user') throw new TaskPermissionError('Only the user brings archived cards back.')
   const ws = workspace
   if (!ws.path) throw new Error('No workspace is open')
@@ -1067,7 +1151,11 @@ export async function deleteProjectCards(ws: WorkspaceService, project: string):
  * Adds cards from another board (a removed project's, packed in its folder): each gets a new number, and their
  * references to each other follow; references to cards that didn't come along are dropped.
  */
-export async function importCards(ws: WorkspaceService, cards: TaskCard[], project: string): Promise<number> {
+export function importCards(ws: WorkspaceService, cards: TaskCard[], project: string): Promise<number> {
+  return boardLock(ws, () => importCardsLocked(ws, cards, project))
+}
+
+async function importCardsLocked(ws: WorkspaceService, cards: TaskCard[], project: string): Promise<number> {
   if (!cards.length) return 0
   await mkdir(tasksDir(ws), { recursive: true })
   const map = new Map<number, number>()

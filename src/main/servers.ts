@@ -35,6 +35,7 @@ import { DEFAULT_WAIT_MS, MAX_WAIT_MS, MergeSlotError, slotBranch, slotCards, ty
 import { writePty } from './ptyHost'
 import { sessions } from './sessions'
 import * as tasks from './tasks'
+import * as taskBatch from './taskBatch'
 import { startTask } from './taskStart'
 import { hiveSkills, listSkills, skillFiles, validSkillName } from './skills'
 import { transcripts } from './transcripts'
@@ -384,40 +385,47 @@ async function agentParam(p: string, value: unknown): Promise<string> {
 /** `signal` aborts when the client goes away before its reply (a long wait it no longer waits for). */
 type Handler = (ctx: { params: string[]; query: URLSearchParams; body: any; signal: AbortSignal }) => Promise<unknown>
 
-const LEVEL_NAME: Record<AssistantControl, string> = { look: 'Look and advise', agents: 'Control agents', projects: 'Control agents and create projects' }
+
+/** A refusal of the Assistant's change boundary, or of a batch's request, as the Agent API answers it. */
+const httpOf = (e: unknown): unknown => (e instanceof assistant.ChangeRefused ? new HttpError(e.status, e.message, e.extra) : e)
+
+async function asRefused<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn()
+  } catch (e) {
+    throw httpOf(e)
+  }
+}
 
 /**
- * A change the Hive Assistant asks for: refused beyond its control level or this turn's limit, else run and
- * recorded (its panel's list and hive.log). Other callers can't make these changes through the API.
+ * A change the Hive Assistant asks for: admitted by the Assistant's change boundary (control level, limit), run, and
+ * recorded (its panel's list and hive.log). `fn` gets the boundary's guard, to run again as each write is made. Other
+ * callers can't make these changes through the API.
  */
-async function assistantChange<T>(need: AssistantControl, what: string, fn: () => Promise<{ done: string; result: T }>): Promise<T> {
+async function assistantChange<T>(need: AssistantControl, what: string, fn: (guard: () => void) => Promise<{ done: string; result: T }>): Promise<T> {
   const ws = assistantCaller()
   if (!ws) throw new HttpError(403, `Only the Hive Assistant can ${what} through the Agent API.`)
   const line = what.charAt(0).toUpperCase() + what.slice(1)
-  if (!assistant.allows(need)) {
-    assistant.record(ws, line, 'not allowed by Settings → Assistant → Control')
-    throw new HttpError(403, `The user's settings (Settings → Assistant → Control: ${LEVEL_NAME[assistant.controlLevel()]}) don't let you ${what}. Tell the user what you would do instead.`)
-  }
-  if (!assistant.countAction(ws)) {
-    assistant.record(ws, line, `limit of ${assistant.MAX_ACTIONS_PER_TURN} changes for one message`)
-    throw new HttpError(429, `You have made ${assistant.MAX_ACTIONS_PER_TURN} changes for this message, the most Hive allows for one. Tell the user what is done and ask whether to go on.`)
-  }
+  const guard = await asRefused(async () => assistant.admit(ws, assistantCallerToken() ?? '', need, what))
   try {
-    const { done, result } = await fn()
+    const { done, result } = await fn(guard)
     assistant.record(ws, done)
     return result
   } catch (e) {
     assistant.record(ws, line, (e as Error).message)
-    throw e
+    throw httpOf(e)
   }
 }
 
 /** For routes that change something and that other callers may use too: the Assistant needs the control level. */
 function assistantMay(need: AssistantControl, what: string): void {
   const ws = assistantCaller()
-  if (!ws || assistant.allows(need)) return
-  assistant.record(ws, what.charAt(0).toUpperCase() + what.slice(1), 'not allowed by Settings → Assistant → Control')
-  throw new HttpError(403, `The user's settings (Settings → Assistant → Control: ${LEVEL_NAME[assistant.controlLevel()]}) don't let you ${what}. Tell the user what you would do instead.`)
+  if (!ws) return
+  try {
+    assistant.refuseUnlessAllowed(ws, need, what)
+  } catch (e) {
+    throw httpOf(e)
+  }
 }
 
 const routes: { method: string; pattern: RegExp; template: string; handler: Handler }[] = []
@@ -861,7 +869,7 @@ route('POST', '/v1/projects/:name/agents/:agent/stop', async ({ params, body }) 
       if (!yes) throw new HttpError(409, `The user chose not to stop ${a.name}. Leave it running.`)
       // The answer can come minutes later: only the run the user was asked about, and only if Control still allows it.
       if (sessions.liveFor(p, agentId)?.runId !== st.runId) return { done: `${a.name} in ${basename(p)} had already stopped`, result: { ok: true, wasRunning: false } }
-      if (!assistant.allows('agents')) throw new HttpError(403, `The user's settings (Settings → Assistant → Control: ${LEVEL_NAME[assistant.controlLevel()]}) no longer let you stop agents.`)
+      if (!assistant.allows('agents')) throw new HttpError(403, `The user's settings (Settings → Assistant → Control: ${assistant.LEVEL_NAME[assistant.controlLevel()]}) no longer let you stop agents.`)
     }
     sessions.stop(p, agentId)
     return { done: `Stopped ${a.name} in ${basename(p)}`, result: { ok: true, wasRunning: true } }
@@ -1214,6 +1222,11 @@ const shortReply = (body: any): boolean => body?.reply === 'short'
 /** A change to a card, for a short reply: what changed (in its history's words) and where the card is now. */
 async function taskChange(c: TaskCard, changes: string[]): Promise<TaskChange> {
   const list = c.archived ? [] : await tasks.listTasks({ column: c.column, scope: callerScope() })
+  return changeRow(c, changes, list)
+}
+
+/** A card's change, given its column's list (where it is in that list is its place). */
+function changeRow(c: TaskCard, changes: string[], list: TaskCard[]): TaskChange {
   const i = list.findIndex((x) => x.number === c.number)
   return { number: c.number, title: c.title, column: c.column, position: i >= 0 ? i + 1 : null, of: list.length, project: c.project, agent: c.agent ? (c.agentName ?? c.agent) : null, changes }
 }
@@ -1297,18 +1310,18 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
   const comment = typeof body?.comment === 'string' ? body.comment.trim() : ''
   const actor = await taskActor()
   const changes: string[] = []
-  const apply = async (): Promise<TaskCard> => {
+  const apply = async (commit?: () => void): Promise<TaskCard> => {
     // A change and its comment are saved together: a card watch woken by the change names this comment.
-    const c = Object.keys(patch).length ? await tasks.updateTask(n, patch, actor, { said: changes, comment: comment || undefined }) : comment ? await tasks.commentTask(n, comment, actor) : await tasks.readTask(n, actor)
+    const c = Object.keys(patch).length ? await tasks.updateTask(n, patch, actor, { said: changes, comment: comment || undefined, commit }) : comment ? await tasks.commentTask(n, comment, actor) : await tasks.readTask(n, actor)
     if (comment) changes.push('Commented')
     return c
   }
   const reply = async (c: TaskCard) => (shortReply(body) ? taskChange(c, changes) : taskView(c))
   if (actor.kind !== 'assistant') return reply(await apply())
-  return assistantChange('agents', `change #${n} on the board`, async () => {
+  return assistantChange('agents', `change #${n} on the board`, async (commit) => {
     const before = await tasks.getTask(n)
     const placed = (patch.before !== undefined && patch.before !== null) || patch.position !== undefined
-    const c = await apply()
+    const c = await apply(commit)
     const at = patch.position ? `at the ${patch.position}` : placed ? `before #${patch.before}` : ''
     const what = [
       patch.column && patch.column !== before.column
@@ -1327,6 +1340,39 @@ route('PATCH', '/v1/tasks/:n', async ({ params, body }) => {
     return { done: `#${n} ${clip(c.title, 60)}: ${what || 'no change'}`, result: await reply(c) }
   })
 })
+
+/** A batch change (hive_update_tasks): checked by taskBatch; its refusals are the Agent API's statuses. */
+route('POST', '/v1/tasks/batch', async ({ body }) => {
+  requireWorkspace()
+  const short = shortReply(body)
+  return asRefused(async () => {
+    const { numbers, patch } = taskBatch.batchRequest(body)
+    const actor = await taskActor()
+    if (actor.kind !== 'assistant') return batchReply(await tasks.updateTasks(numbers, patch, actor), short)
+    return batchReply(await taskBatch.assistantBatch(assistantCaller() ?? '', assistantCallerToken() ?? '', numbers, patch, actor), short)
+  })
+})
+
+/**
+ * The reply to a batch: each card changed (its change, short; the whole card otherwise), and each card refused with
+ * why. A short reply reads each column's list once, after every change, so a card's place is where it ends up.
+ */
+async function batchReply(items: tasks.BatchItem[], short: boolean): Promise<unknown> {
+  const refused = items.filter((i) => !i.card).map((i) => ({ number: i.number, error: i.error ?? 'refused' }))
+  const done = items.filter((i): i is tasks.BatchItem & { card: TaskCard } => !!i.card)
+  if (!short) {
+    const agents = new Map<string, Promise<ReturnType<typeof projectAgents>>>()
+    return { changed: await Promise.all(done.map((i) => taskView(i.card, agents))), refused }
+  }
+  const lists = new Map<TaskColumn, TaskCard[]>()
+  const changed: TaskChange[] = []
+  for (const i of done) {
+    const c = i.card
+    if (!lists.has(c.column)) lists.set(c.column, c.archived ? [] : await tasks.listTasks({ column: c.column, scope: callerScope() }))
+    changed.push(changeRow(c, i.said, lists.get(c.column)!))
+  }
+  return { changed, refused }
+}
 
 route('POST', '/v1/tasks/reorder', async ({ body }) => {
   requireWorkspace()

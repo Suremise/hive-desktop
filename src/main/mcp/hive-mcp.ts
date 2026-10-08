@@ -17,7 +17,7 @@ import { COLUMN_IDS } from '../../shared/tasks'
 import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
 import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
 import { agentApiCall } from './agentApiCall'
-import { MAX_ROWS, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
+import { MAX_ROWS, batchText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 import type { MergeSlotInfo } from '../../shared/types'
 
 const VERSION = '1.0.0'
@@ -459,6 +459,29 @@ const tools: Tool[] = [
       const body: Record<string, unknown> = { reply: 'short' }
       for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links', 'decision', 'review']) if (a[k] !== undefined) body[k] = a[k]
       return changedText((await api('PATCH', `/v1/tasks/${enc(String(a.number))}`, body)) as TaskChange)
+    }
+  },
+  {
+    name: 'hive_update_tasks',
+    description: ASSISTANT
+      ? "Change up to 100 cards in one call, each with the same column, position, blocked, labels or agent, with a history line for each card. Each card is changed as hive_update_task would change it: one it can't change (unknown, archived, in Doing with another agent...) is left as it was and the rest still change. Every card counts as one change toward this message's limit, a refused one too; if they don't all fit, none changes and the reply says how many would. position applies to each card in turn, so the last listed ends at the top: put cards in an order with hive_reorder_tasks. Titles, comments, decisions and links stay on hive_update_task. Replies with each card's change and any refused."
+      : "Change up to 100 of your project's cards in one call, each with the same column, position, blocked, labels or agent, with a history line for each card. Each card is changed as hive_update_task would change it: one it can't change (another project's or unknown, archived, in Doing with another agent...) is left as it was and the rest still change. position applies to each card in turn, so the last listed ends at the top: put cards in an order with hive_reorder_tasks. Titles, comments, decisions and links stay on hive_update_task. Replies with each card's change and any refused.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        numbers: cardsArg('The card numbers to change, up to 100.'),
+        column: columnArg,
+        position: { type: 'string', enum: ['top', 'bottom'], description: "The top or bottom of each card's column, in turn." },
+        blocked: { type: 'string', description: 'Why they are blocked, for each card (empty clears it).' },
+        labels: { type: 'array', items: { type: 'string' }, description: "Replaces each card's labels." },
+        agent: { type: 'string', description: 'Agent name or id, given to each card (empty takes it from each).' }
+      },
+      required: ['numbers']
+    },
+    run: async (a) => {
+      const body: Record<string, unknown> = { reply: 'short' }
+      for (const k of ['numbers', 'column', 'position', 'blocked', 'labels', 'agent']) if (a[k] !== undefined) body[k] = a[k]
+      return batchText((await api('POST', '/v1/tasks/batch', body)) as TaskBatch)
     }
   },
   {

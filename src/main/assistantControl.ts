@@ -115,12 +115,72 @@ export function actions(workspacePath: string): AssistantAction[] {
   return stateOf(workspacePath).actions
 }
 
+/** Changes left for this turn's limit. */
+export function actionsLeft(workspacePath: string): number {
+  return Math.max(0, MAX_ACTIONS_PER_TURN - stateOf(workspacePath).turnActions)
+}
+
+/**
+ * Counts `n` changes against this turn's limit, all at once: false, and nothing counted, unless all of them fit (a batch
+ * applies none of its cards when they don't). Synchronous, so nothing else counts between the check and the count.
+ */
+export function countActions(workspacePath: string, n: number): boolean {
+  const s = stateOf(workspacePath)
+  if (s.turnActions + n > MAX_ACTIONS_PER_TURN) return false
+  s.turnActions += n
+  return true
+}
+
 /** Counts a change against this turn's limit; false once the limit is reached. */
 export function countAction(workspacePath: string): boolean {
-  const s = stateOf(workspacePath)
-  if (s.turnActions >= MAX_ACTIONS_PER_TURN) return false
-  s.turnActions++
-  return true
+  return countActions(workspacePath, 1)
+}
+
+/** A change the Assistant may not make: the Agent API's status, and what it reports beside the error. */
+export class ChangeRefused extends Error {
+  constructor(
+    public status: number,
+    message: string,
+    public extra?: Record<string, unknown>
+  ) {
+    super(message)
+  }
+}
+
+export const LEVEL_NAME: Record<AssistantControl, string> = { look: 'Look and advise', agents: 'Control agents', projects: 'Control agents and create projects' }
+
+/** Refuses (and records) a change the control level doesn't allow: the Assistant's change boundary, before anything counts. */
+export function refuseUnlessAllowed(workspacePath: string, need: AssistantControl, what: string): void {
+  if (allows(need)) return
+  record(workspacePath, what.charAt(0).toUpperCase() + what.slice(1), 'not allowed by Settings → Assistant → Control')
+  throw new ChangeRefused(403, `The user's settings (Settings → Assistant → Control: ${LEVEL_NAME[controlLevel()]}) don't let you ${what}. Tell the user what you would do instead.`)
+}
+
+/**
+ * The Assistant's change boundary, shared by its single changes (the Agent API's assistantChange) and its batches
+ * (taskBatch). Admitting a change checks the control level and counts its changes against this message's limit: `n`
+ * changes at once, all of them or none (a refusal records the change and says how many would fit). Returns the guard
+ * to run again as each card is written: the control level and the session must still allow the change then, after the
+ * last read, or nothing is saved.
+ */
+export function admit(workspacePath: string, token: string, need: AssistantControl, what: string, n = 1): () => void {
+  refuseUnlessAllowed(workspacePath, need, what)
+  const line = what.charAt(0).toUpperCase() + what.slice(1)
+  const left = actionsLeft(workspacePath)
+  if (!countActions(workspacePath, n)) {
+    if (n === 1) {
+      record(workspacePath, line, `limit of ${MAX_ACTIONS_PER_TURN} changes for one message`)
+      // `fits` goes on every allowance refusal, a one-card batch's included (its reply contract is the same).
+      throw new ChangeRefused(429, `You have made ${MAX_ACTIONS_PER_TURN} changes for this message, the most Hive allows for one. Tell the user what is done and ask whether to go on.`, { fits: left })
+    }
+    record(workspacePath, line, `only ${left} of its ${n} changes fit this message: none applied`)
+    const next = left ? `Send at most ${left} cards, or tell the user what is done and ask whether to go on.` : 'Tell the user what is done and ask whether to go on.'
+    throw new ChangeRefused(429, `This batch is ${n} changes, and only ${left} fit for this message (${MAX_ACTIONS_PER_TURN} the most): none was applied. ${next}`, { fits: left })
+  }
+  return () => {
+    if (!allows(need)) throw new ChangeRefused(403, 'The user turned Settings → Assistant → Control down before this change was made: nothing changed here.')
+    if (!isCurrentToken(workspacePath, token)) throw new ChangeRefused(409, "The Assistant's session that asked for this ended before the change was made: nothing changed here.")
+  }
 }
 
 /** The user sent the Assistant a message: a new turn, with a fresh limit. */
