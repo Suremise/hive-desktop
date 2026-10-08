@@ -18,6 +18,7 @@
 //   The scenarios' steps, as the fake Claude Code takes them: "skill NAME" (a shell read of its SKILL.md),
 //   "boardmove", "boardreview", "boardcomment" and "hive TOOL {json}" (through the launch's real hive MCP server),
 //   "work N". Anything else: a short turn.
+// - A first prompt as its last plain argument (after "resume <id>" too) is its first turn, as Codex starts on one.
 // - Ctrl+C twice ends it with SessionEnd.
 const fs = require('fs')
 const path = require('path')
@@ -71,6 +72,13 @@ const project = path.basename(process.cwd())
 // "resume <id>" carries on that conversation, as Codex does; otherwise a new one.
 const resuming = args[0] === 'resume' && /^[0-9a-f-]{36}$/i.test(args[1] ?? '')
 const sessionId = resuming ? args[1] : randomUUID()
+// Options that take a value, so a first prompt (the last plain argument, as Hive's adapter gives one) can be told apart.
+const WITH_VALUE = new Set(['-c', '--config', '-m', '--model', '-s', '--sandbox', '-a', '--ask-for-approval', '-C', '--cd', '-p', '--profile', '-i', '--image'])
+let firstPrompt = ''
+for (let i = resuming ? 2 : 0; i < args.length; i++) {
+  if (WITH_VALUE.has(args[i])) i++
+  else if (!args[i].startsWith('-')) firstPrompt = args[i]
+}
 /**
  * The terminal's size, recorded in fake-sizes.jsonl in its home at the start and at each change (#247): what Hive tells
  * the CLI. Polled as well as on 'resize', which a ConPTY child doesn't always get.
@@ -334,3 +342,4 @@ process.stdin.on('data', (data) => {
 out('OpenAI Codex (fake, for Hive tests)\r\n')
 setTitle(project)
 promptLine()
+if (firstPrompt) void runPrompt(firstPrompt)

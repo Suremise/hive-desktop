@@ -883,7 +883,9 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
   const a = await agentDefOf(p, agentId)
   const text = typeof body?.text === 'string' ? body.text.trim() : ''
   if (!text) throw new HttpError(400, 'text is required')
-  return assistantChange('agents', `give ${a.name} in ${basename(p)} a task`, async () => {
+  // A new conversation for the task (a new lane, say): the current one ends, as when it hands over to itself.
+  const fresh = body?.newConversation === true
+  return assistantChange<{ ok: boolean; newConversation?: boolean }>('agents', `give ${a.name} in ${basename(p)} a task${fresh ? ' in a new conversation' : ''}`, async (guard) => {
     const st = sessions.liveFor(p, agentId)
     // Never over the top of the agent's work, a question to the user, or the user's own typing.
     if (!st) throw new HttpError(409, `${a.name} isn't running. Start it with the task instead (hive_start_agent with prompt).`)
@@ -899,6 +901,19 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
     // A line Hive typed that its CLI hasn't taken (#430): more typing would be lost behind it, or clear it.
     if (sessions.lineUntaken(p, agentId)) throw new HttpError(409, `${a.name}'s CLI hasn't taken a line Hive typed into it (it wasn't reading its input). Tell the user: they can click its terminal and press Enter. Nothing is typed into it until then.`)
     if (agentNowFor(p, agentId).pending) throw new HttpError(409, `Hive has just typed a line into ${a.name} that its CLI hasn't taken yet. Wait for it (hive_wait_for_agents), then give it the task.`)
+    if (fresh) {
+      // The Assistant's authority (Control, its session) again after the stop and at the launch: it may end meanwhile.
+      await sessions.newConversation(p, agentId, text, guard).catch((e: Error) => {
+        const stopped = !sessions.liveFor(p, agentId)
+        if (e instanceof assistant.ChangeRefused) {
+          if (!stopped) throw e
+          const why = e.status === 403 ? 'the user turned Settings → Assistant → Control down meanwhile' : "the Assistant's session that asked for it ended meanwhile"
+          throw new HttpError(e.status, `${a.name}'s conversation ended (it is kept in the Sessions tab), but no new one was started: ${why}. It is stopped now.`)
+        }
+        throw new HttpError(409, `${a.name} wasn't given the task in a new conversation: ${e.message}${stopped ? ' It is stopped now (its conversation is kept): start it with the task (hive_start_agent with prompt).' : ''}`)
+      })
+      return { done: `Gave ${a.name} in ${basename(p)} a task in a new conversation: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true, newConversation: true } }
+    }
     await sessions.sendPrompt(p, agentId, text)
     return { done: `Gave ${a.name} in ${basename(p)} a task: ${clip(text.replace(/\s+/g, ' '), 80)}`, result: { ok: true } }
   })

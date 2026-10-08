@@ -366,7 +366,7 @@ The **Overview** tab updates as sessions change (at most every 15 seconds; **Set
 
 A conversation's transcript keeps everything that happened in it, and compacting doesn't make it smaller: it only shortens what the agent has in its context. A very long one (100 MB and more) slows down the CLI and Hive, and can make typing in the terminals stutter. The size shows in each agent's footer, next to the context, and turns amber past **Settings → Sessions → Warn when a transcript is over** (20 MB; projects can set their own). Hive also tells you once when a conversation passes it.
 
-To start afresh without losing the thread, click the size (or choose **Hand Over to…** in the agent's menu) and pick the agent itself, **in a new conversation**: the agent writes a handover, Hive ends its conversation (it stays in the Sessions tab) and starts a new one that reads the handover and carries on. The Assistant sees each agent's transcript size too, and can suggest it.
+To start afresh without losing the thread, click the size (or choose **Hand Over to…** in the agent's menu) and pick the agent itself, **in a new conversation**: the agent writes a handover, Hive ends its conversation (it stays in the Sessions tab) and starts a new one that reads the handover and carries on. The Assistant sees each agent's transcript size too, and can suggest it. For new work that doesn't need the thread, ask the Assistant to give the agent the task **in a new conversation**: the same, without the handover (see **Card loops**).
 
 **Usage cache.** Hive remembers each transcript's token counts, also across restarts, so the Overview and session lists open without reading every transcript again. A transcript is read again only if it changed while Hive was closed, such as a session you continued outside Hive. **Settings → Sessions → Usage cache size** sets how many it keeps (5,000), and **Clear the usage cache** starts afresh.
 
@@ -496,6 +496,7 @@ A card sent back with findings stays in Review. The builder moves it to Doing wh
 - **Cards reviewed together.** When two watched cards change at about the same moment (one passed, the other failed), the line names both. A change that lands just after an agent was woken still reaches it: its next wait counts what others changed since its last wake.
 - **Closing Hive or stopping an agent** keeps its wait: resume the agent and it is woken if its card changed meanwhile. Hive asks first, as it does for a working agent, and says what it waits for. **Quit when agents finish** waits for a waiting agent only while the other agent is working on its card.
 - **While it waits** you can still **Compact** it (it is woken once that's done). **Merge…** waits until it has finished, or until you cancel its wait.
+- **Each lane in a new conversation.** When the Assistant starts an agent on its next set of cards (a new *lane*), it gives the agent a new conversation in the same step: the old one ends and stays in the **Sessions** tab, and the new one starts on the task, with no handover. Within a lane, the agent keeps its conversation. Every request re-reads the whole conversation, so short ones cost much less. The Assistant doesn't do it while the agent is busy, waiting for you or watching a card, or just after you typed in it.
 
 ## Hive Assistant
 

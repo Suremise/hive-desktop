@@ -81,6 +81,10 @@ const check = (name, ok, extra = '') => {
   check('ignoreBackground returns at the end of its turn', ignoring.body?.timedOut === false && ignoring.body.waitedSeconds <= 2, JSON.stringify(ignoring.body))
   const refused = await api('POST', '/v1/projects/alpha/agents/Tester/prompt', { text: 'something else' })
   check('no new task while it waits on its background task', refused.status === 409 && /background task/.test(refused.body?.error ?? ''), JSON.stringify(refused.body))
+  const runId = (await inv('session:live')).find((s) => s.agentName === 'Tester')?.runId
+  const fresh = await api('POST', '/v1/projects/alpha/agents/Tester/prompt', { text: 'something else', newConversation: true })
+  const still = (await inv('session:live')).find((s) => s.agentName === 'Tester')
+  check('nor a new conversation (#437): its run goes on', fresh.status === 409 && /background task/.test(fresh.body?.error ?? '') && !!runId && still?.runId === runId, JSON.stringify(fresh.body))
   const act = (await api('GET', '/v1/projects/alpha/agents/Tester/activity')).body
   check('its activity counts the task', act?.status === 'background' && act.backgroundTasks === 1, JSON.stringify(act && { status: act.status, tasks: act.backgroundTasks }))
   const status = await page.locator('.pane-status').first().innerText().catch(() => '')

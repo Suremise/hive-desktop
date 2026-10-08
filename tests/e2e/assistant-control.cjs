@@ -94,23 +94,44 @@ const check = (name, ok, extra = '') => {
   const builder = added.body?.agent?.id
   const trusting = await until(async () => (await live(alpha, builder))?.status === 'waiting')
   check("a new folder's trust question waits for the user", !!trusting)
+  const askingRun = (await live(alpha, builder))?.runId
+  const askingFresh = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'work 1', newConversation: true })
+  check('no new conversation for an agent waiting for the user', askingFresh.status === 409 && /waiting for the user/.test(askingFresh.body?.error) && !!askingRun && (await live(alpha, builder))?.runId === askingRun, JSON.stringify(askingFresh.body))
   await inv('pty:write', lib.ptyKey(alpha, builder), '\r')
   check('then it works on the task', !!(await until(async () => (await live(alpha, builder))?.status === 'working')))
   check("the user's view didn't move", (await page.locator('.project-header, .project-title').first().innerText().catch(() => '')).includes('gamma'))
   const busy = await api('POST', `/v1/projects/alpha/agents/Builder/prompt`, { text: 'more' })
   check('no task for a working agent', busy.status === 409 && /working/.test(busy.body?.error), JSON.stringify(busy.body))
+  const workingRun = (await live(alpha, builder))?.runId
+  const busyFresh = await api('POST', `/v1/projects/alpha/agents/Builder/prompt`, { text: 'more', newConversation: true })
+  check('nor a new conversation for it (#437): its run goes on', busyFresh.status === 409 && /working/.test(busyFresh.body?.error) && (await live(alpha, builder))?.runId === workingRun, JSON.stringify(busyFresh.body))
   const waited = await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Builder' }], timeoutSeconds: 30 })
   check('waiting returns when it finishes', waited.body?.timedOut === false && waited.body.agents[0].status === 'finished', JSON.stringify(waited.body))
   const act = (await api('GET', '/v1/projects/alpha/agents/Builder/activity')).body
   check('its activity: the task and the reply', act?.currentTask === 'work 3' && act.latestReply === 'Done: work 3', JSON.stringify(act))
   const typed = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'next' })
   check("no task where the user typed in the last minute", typed.status === 409 && /typed/.test(typed.body?.error), JSON.stringify(typed.body))
+  const typedFresh = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'next', newConversation: true })
+  check('nor a new conversation there', typedFresh.status === 409 && /typed/.test(typedFresh.body?.error) && (await live(alpha, builder))?.runId === workingRun, JSON.stringify(typedFresh.body))
   // The user's last key was Enter: with Enter ends the pause, the task goes in.
   await inv('settings:update', { assistant: { enterEndsPause: true } })
   const afterEnter = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'work 1' })
   check('Enter ends the pause', afterEnter.status === 200, JSON.stringify(afterEnter.body))
-  await inv('settings:update', { assistant: { enterEndsPause: false } })
   await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Builder' }], timeoutSeconds: 30 })
+
+  // A new lane (#437): an idle agent's next task in a new conversation, in one call; the old one stays in its history.
+  const old = await live(alpha, builder)
+  const fresh = await api('POST', '/v1/projects/alpha/agents/Builder/prompt', { text: 'work 1', newConversation: true })
+  check('an idle agent takes a task in a new conversation', fresh.status === 200 && fresh.body?.newConversation === true, JSON.stringify(fresh.body))
+  const renewed = await until(async () => { const s = await live(alpha, builder); return s?.sessionId && s.sessionId !== old?.sessionId && s })
+  check('it runs as a new launch with a new session', !!old?.sessionId && !!renewed && renewed.runId !== old.runId, JSON.stringify({ old: old?.sessionId, now: renewed?.sessionId }))
+  await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Builder' }], timeoutSeconds: 30 })
+  const freshAct = (await api('GET', '/v1/projects/alpha/agents/Builder/activity')).body
+  check('on the task, with no handover', freshAct?.currentTask === 'work 1' && freshAct.latestReply === 'Done: work 1', JSON.stringify(freshAct && { task: freshAct.currentTask, reply: freshAct.latestReply }))
+  const history = (await inv('session:list', alpha)).map((s) => s.id)
+  check('the old conversation stays in the Sessions history', history.includes(old?.sessionId) && history.includes(renewed?.sessionId), JSON.stringify(history))
+  check('it is listed in Done by the Assistant', (await inv('assistant:actions')).some((x) => x.ok && x.text.startsWith('Gave Builder in alpha a task in a new conversation')))
+  await inv('settings:update', { assistant: { enterEndsPause: false } })
 
   // A second agent, started idle, takes a task; its edit shows as a locked file and a tool call.
   const second = await api('POST', '/v1/projects/alpha/agents', { name: 'Fixer', start: true })
@@ -140,6 +161,8 @@ const check = (name, ok, extra = '') => {
   const qs = await inv('assistant:questions')
   await inv('assistant:answer', qs[0]?.id, true)
   check('and a yes stops it', (await stopping2).status === 200 && !!(await until(async () => !(await live(alpha, fixer)))))
+  const stoppedFresh = await api('POST', '/v1/projects/alpha/agents/Fixer/prompt', { text: 'work 1', newConversation: true })
+  check('a stopped agent gets no new conversation: start it instead', stoppedFresh.status === 409 && /isn't running/.test(stoppedFresh.body?.error) && !(await live(alpha, fixer)), JSON.stringify(stoppedFresh.body))
 
   // What it did is listed in the panel.
   const done = await inv('assistant:actions')

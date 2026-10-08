@@ -18,6 +18,8 @@
 - **The Assistant knows you by name.** When Hive tells the Assistant you replied to an agent in its pane, the line now says *"User replied to B1…"*, or uses the name you set in **Settings → General → Your name** (*"Darren replied to B1…"*). The name goes into the Assistant's conversation only if you set one.
 - **The Assistant hears when you answer an agent yourself.** When you reply to an agent in its pane while the Assistant is watching it (or its card), the Assistant is told the first line of what you sent, so it doesn't ask you again and can record your decision on the card. **Settings → Assistant → Tell the Assistant when I reply to an agent** turns it off.
 
+- **Each new lane in a new conversation.** The Assistant can give an idle agent its next task in a new conversation in one step: its current conversation ends (it stays in the Sessions tab) and a new one starts on the task, with no handover. It does this when it starts an agent's next set of cards in a card loop, and keeps the same conversation within one. Shorter conversations cost much less, since every request re-reads the whole conversation. It is refused, as other tasks are, while the agent is working, starting, waiting on its tests, waiting for you or watching a card, or just after you typed in it.
+
 ### Terminal
 - **Card numbers are links.** When an agent or the Assistant mentions a card in its terminal, like "#383 is back On Hold", hover the number to see the card's title and column, and Ctrl+click it to open the card, as you would a file path. Only numbers of cards on your board are linked.
 
