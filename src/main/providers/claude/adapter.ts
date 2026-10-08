@@ -147,6 +147,10 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     return info
   }
 
+  configHome(): string {
+    return claudeHome()
+  }
+
   readiness(info: AgentInstallInfo): ReadinessIssue[] {
     if (!info.found) return [{ id: 'not-installed', level: 'error', message: 'Claude Code is not installed.', action: { label: 'Install', task: 'install' } }]
     const out: ReadinessIssue[] = []

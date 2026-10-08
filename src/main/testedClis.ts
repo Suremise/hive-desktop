@@ -32,12 +32,13 @@ export async function testedVersion(id: ProviderId): Promise<{ version: string; 
 /**
  * A test copy of Hive (unpackaged, with a test profile) notes the CLI it selected, a JSON line per check, in
  * HIVE_TEST_CLI_LOG (the e2e runner gives each suite one): the run record's real CLIs are what Hive itself chose, the
- * standalone CLI its detection accepted, never a copy it rejected (#365). Never in an installed Hive.
+ * standalone CLI its detection accepted, never a copy it rejected (#365), and the home it runs in (its sign-in and
+ * config, #368: the record names each real suite's). Never in an installed Hive.
  */
-export async function noteSelectedCli(info: AgentInstallInfo): Promise<void> {
+export async function noteSelectedCli(info: AgentInstallInfo, home: string | null = null): Promise<void> {
   const file = !app.isPackaged && process.env.HIVE_USER_DATA ? process.env.HIVE_TEST_CLI_LOG : undefined
   if (!file || !info.found || !info.version) return
-  await appendFile(file, `${JSON.stringify({ provider: info.provider, version: info.version, path: info.path })}\n`).catch((e) => log.warn("Couldn't note the selected CLI", e))
+  await appendFile(file, `${JSON.stringify({ provider: info.provider, version: info.version, path: info.path, home })}\n`).catch((e) => log.warn("Couldn't note the selected CLI", e))
 }
 
 /** How the installed version compares with the tested one, by the provider's own version order (`isNewer`). */

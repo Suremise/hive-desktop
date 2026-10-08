@@ -226,6 +226,8 @@ export interface ProviderAdapter {
   loginCommand(executable: string): CommandSpec
   /** A one-time setup task (Codex's Windows sandbox), when the provider has one. */
   setupCommand?(executable: string): CommandSpec
+  /** The CLI's own home (its sign-in and config) as Hive's sessions get it: what a test copy notes beside the CLI (#368). */
+  configHome?(): string
   /** What still keeps agents from running, given what locate() found. */
   readiness(info: AgentInstallInfo): ReadinessIssue[]
   /** Extra lines for Help → Copy Diagnostics (Codex: its Windows sandbox), with no paths or names in them. */

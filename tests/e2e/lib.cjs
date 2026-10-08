@@ -11,7 +11,7 @@ const { execFileSync, execSync } = require('child_process')
 const { _electron } = require('playwright-core')
 
 // The run context (runContext.cjs): the environments of everything a suite starts, its folders and the CLI test homes.
-const { TEST_ROOT, WORK, CODEX_HOME, hiveEnv, childEnv, baseEnv, isHiveEnv, trashDir } = require('./runContext.cjs')
+const { TEST_ROOT, WORK, CODEX_HOME, CLAUDE_TEST_HOME, hiveEnv, childEnv, baseEnv, isHiveEnv, trashDir } = require('./runContext.cjs')
 
 const ROOT = path.resolve(__dirname, '..', '..')
 /** Electron's executable (the electron package resolves to its path in plain Node). */
@@ -87,6 +87,25 @@ function enableProviders(userData, providers = ['claude-code']) {
   // No online check for a newer CLI at every launch: slow, needs the network, and no suite is about it.
   for (const p of providers) cfg.settings.providers[p] = { checkUpdatesOnLaunch: false, ...cfg.settings.providers[p], enabled: true }
   fs.writeFileSync(file, JSON.stringify(cfg, null, 2))
+}
+
+/**
+ * A Claude Code home of the suite's own for the real Claude Code (#345, #368): new each run in its folder, with Claude
+ * Code's first-run onboarding done and a made-up API key approved (its own fields in .claude.json), so it starts at its
+ * prompt with no sign-in, and never in the user's ~/.claude. The key is valid for nothing: a suite using it sends no
+ * prompt, and no tokens are spent (one that sends prompts uses the signed-in CLAUDE_TEST_HOME, claudeHome: 'test', as
+ * assistantresume does). Said in the log, so the run shows the home. Returns { home, env }: env ({ CLAUDE_CONFIG_DIR,
+ * ANTHROPIC_API_KEY }) goes into hiveEnv.
+ */
+function ownClaudeHome(name) {
+  const home = path.join(WORK, `${name}-claude-home`)
+  fs.rmSync(home, { recursive: true, force: true })
+  fs.mkdirSync(home, { recursive: true })
+  // Made up: shaped like an API key, valid for nothing.
+  const apiKey = `sk-ant-api03-hivetest-${require('crypto').randomBytes(24).toString('hex')}`
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ hasCompletedOnboarding: true, customApiKeyResponses: { approved: [apiKey.slice(-20)], rejected: [] } }))
+  console.log(`Claude Code home: ${home} (CLAUDE_CONFIG_DIR, the suite's own; a made-up API key, no sign-in)`)
+  return { home, env: { CLAUDE_CONFIG_DIR: home, ANTHROPIC_API_KEY: apiKey } }
 }
 
 /**
@@ -646,4 +665,4 @@ async function haikuAutoCaveat(page, autoOffered) {
   return [ok, JSON.stringify(caveat)]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, TRASH, trashed, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

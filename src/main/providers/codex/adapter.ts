@@ -374,6 +374,10 @@ export class CodexAdapter implements ProviderAdapter {
     return [`Windows sandbox: ${kind === null ? 'not set up' : (named[kind] ?? (/^[\w-]{1,24}$/.test(kind) ? kind : 'unknown'))}`]
   }
 
+  configHome(): string {
+    return codexHome()
+  }
+
   readiness(info: AgentInstallInfo): ReadinessIssue[] {
     if (!info.found) return [{ id: 'not-installed', level: 'error', message: 'Codex is not installed.', action: { label: 'Install', task: 'install' } }]
     const out: ReadinessIssue[] = []

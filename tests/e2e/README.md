@@ -39,8 +39,8 @@ session or was already there before the step (the CLI recovered), or when the su
 `lib.checked`; an `ENVIRONMENT` line in its output
 says it saw the error but couldn't put the failure down to it. Hive's own checks about the turn (what it recorded,
 counted, showed) go after the step, outside it. The runner skips real suites up front, with an `environment:` reason,
-when their CLI isn't installed, Claude Code says it isn't signed in (`claude auth status`), or the Codex test home has no
-sign-in. A suite that can't run on a machine says so with `lib.skip('<why>')`. The runner prints a summary; each suite's output
+when their CLI isn't installed, Claude Code says its test home isn't signed in (`claude auth status`, only for
+`claudeHome: 'test'` suites), or the Codex test home has no sign-in. A suite that can't run on a machine says so with `lib.skip('<why>')`. The runner prints a summary; each suite's output
 is kept in a folder of its own for each run, `logs/run-<date>-<time>` under the work folder, with `-2`, `-3`… when
 another run started in the same second. The last ten finished runs are kept: a run still going (`.active` in its folder,
 with its runner's process id) is never pruned, so runners started side by side don't remove each other's logs. A runner started inside a suite (`progressreport`
@@ -213,9 +213,16 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
 
 ## What they need
 
-- **Claude Code**, installed and signed in. Suites that start sessions (`claude-real`, `mode`, `plan`, `compact`,
-  `agentview`) never send it a prompt. The first run in a test folder answers Claude Code's "trust this folder"
-  question (never a sign-in screen), so later runs don't ask. Suites about Hive's own behaviour that only need some
+- **Claude Code**, installed. **No real suite runs it in your own `~/.claude`** (#368): each one says its home in
+  `suites.mjs` (`claudeHome`), and `tests/e2esuites.test.ts` fails for one that doesn't. Suites that start sessions
+  without sending a prompt (`claude-real`, `mode`, `plan`, `compact`, `agentview`, and `claudehome`, below) run it in a
+  home of their own (`claudeHome: 'own'`, `lib.ownClaudeHome(name)`): a new `<suite folder>\<name>-claude-home` each
+  run, with onboarding done and a made-up API key approved, so it starts at its prompt with no sign-in and no tokens.
+  The one that sends prompts (`assistantresume`) uses the signed-in Claude Code test home (`claudeHome: 'test'`,
+  below). The runner asks Claude Code about the test home's sign-in only, and refuses a Claude suite with no home. Each
+  test copy of Hive notes the home its CLIs run in (`HIVE_TEST_CLI_LOG`), and the run record names each real suite's
+  ("Real CLIs' homes"); a real suite that ran in your own `~/.claude` or `~/.codex` makes the record not valid. The
+  first run in a test folder answers Claude Code's "trust this folder" question (never a sign-in screen). Suites about Hive's own behaviour that only need some
   session running (`quit`, `windows`, `launchrace`, `resume`) use the fake (#194), and so do `agents`, `image`,
   `assistant` and `restart` (#195), whose few checks that only the real Claude Code can answer are in `claude-real`: a
   session starting in a worktree, a relaunch with a new setting (Restart session) bringing the same session back, and
@@ -229,8 +236,8 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
   Claude Code starts at its prompt with no sign-in, and is sent nothing (no tokens, nothing reaches Anthropic). It
   checks Hive's hooks with it: SessionStart and the status line (curl reading the header from the launch's auth file)
   reaching Hive, the launch's settings, MCP config and auth file in its private folder in Hive's user data, and the
-  token refused once the session ends. The runner asks about no sign-in for it. The other real Claude suites still use
-  the default home (#368).
+  token refused once the session ends. The runner asks about no sign-in for it. The other real Claude suites that send
+  no prompt now do the same with `lib.ownClaudeHome()` (#368).
 - **`claudesettings`** (#333) runs the real Claude Code in a home of its own too, with `-p --init-only` (hooks only,
   no conversation: no sign-in, no tokens), the Claude Code a test copy of Hive selects in that home (started briefly). A SessionStart hook in each settings file shows which
   files it reads under `--setting-sources` and `--restricted`, and which `--settings` files it refuses (over 2 MiB, a
@@ -238,8 +245,12 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
   Claude Code update; a failure means `providers/claude/autoCompact.ts` no longer matches the CLI.
 - **`assistantresume`** (#334) sends prompts (five short ones, with Haiku), so it runs in the **Claude Code test home**
   (`claudeHome: 'test'` in `suites.mjs`: `CLAUDE_TEST_HOME`, `%LOCALAPPDATA%\hive-test\claude`), never your own
-  `~/.claude`: sign in to it once by hand as tests/scenarios/README.md says (Model trials); without that sign-in it is
-  skipped for the environment. It checks that a resumed Assistant answers from its current mode's instructions (a
+  `~/.claude`. Sign in to it once by hand (as for the model trials, tests/scenarios/README.md), then `/exit`:
+  ```powershell
+  New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\hive-test\claude" | Out-Null; $env:CLAUDE_CONFIG_DIR="$env:LOCALAPPDATA\hive-test\claude"; claude
+  ```
+  `HIVE_TEST_CLAUDE_HOME` points it at another test home. Without that sign-in the suite is skipped for the
+  environment, and never falls back to your own home. It checks that a resumed Assistant answers from its current mode's instructions (a
   codeword only those give), not the system prompt Claude Code recorded: after Restart in This Mode… and after a switch
   while it was stopped. `node tests/e2e/assistantresume.cjs --snapshot-on` is its negative control (the recorded
   prompt asked for: the old codeword comes back).

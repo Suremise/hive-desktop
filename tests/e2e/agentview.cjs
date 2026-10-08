@@ -1,6 +1,7 @@
 // Claude Code's agent view stays off in Hive's sessions: ← on an empty prompt must not move the session into
 // Claude Code's background service (where Hive can't see or stop it). Throwaway profile and workspace; no prompt
-// is sent. If a background job appears anyway, it is stopped and removed.
+// is sent. If a background job appears anyway, it is stopped and removed. Claude Code runs in a home of the suite's
+// own with a made-up API key (lib.ownClaudeHome, #368), never the user's ~/.claude; the job check asks it about that home.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const { execFileSync } = require('child_process')
@@ -18,7 +19,8 @@ const check = (name, ok, extra = '') => {
   fs.rmSync(userData, { recursive: true, force: true })
   fs.mkdirSync(proj, { recursive: true })
   lib.enableProviders(userData, ['claude-code'])
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47894) })
+  const claudeHome = lib.ownClaudeHome('agentview')
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47894), ...claudeHome.env })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   await lib.fitWindow(app, page, { width: 1200, height: 750 })
@@ -37,7 +39,7 @@ const check = (name, ok, extra = '') => {
   const claude = live?.executable || path.join(process.env.USERPROFILE, '.local', 'bin', 'claude.exe')
   const jobs = () => {
     try {
-      return JSON.parse(execFileSync(claude, ['agents', '--json'], { encoding: 'utf8' })).filter((j) => j.kind === 'background' && j.cwd.toLowerCase() === proj.toLowerCase())
+      return JSON.parse(execFileSync(claude, ['agents', '--json'], { encoding: 'utf8', env: lib.childEnv(claudeHome.env) })).filter((j) => j.kind === 'background' && j.cwd.toLowerCase() === proj.toLowerCase())
     } catch {
       return []
     }
@@ -50,8 +52,8 @@ const check = (name, ok, extra = '') => {
   check('the session is still running in Hive', (await inv('session:live'))[0]?.status === 'ready')
   for (const j of left) {
     try {
-      execFileSync(claude, ['stop', j.id])
-      execFileSync(claude, ['rm', j.id])
+      execFileSync(claude, ['stop', j.id], { env: lib.childEnv(claudeHome.env) })
+      execFileSync(claude, ['rm', j.id], { env: lib.childEnv(claudeHome.env) })
     } catch {
       // best effort
     }

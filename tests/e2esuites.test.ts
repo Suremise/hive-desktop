@@ -1296,6 +1296,33 @@ describe('the run context: what a test starts gets only the allowlist and its ow
     }
   })
 
+  // The real Claude Code never runs in the user's ~/.claude (#368): each suite that starts it has a home of its own (a
+  // made-up API key, no prompt sent) or the signed-in test home, says which in suites.mjs, and starts its Hive with it.
+  it("every suite that starts the real Claude Code runs it in a test home, never the user's own (#368)", () => {
+    const claudeSuites = (SUITES as { name: string; needs?: string[]; claudeHome?: string }[]).filter((s) => s.needs?.includes('claude'))
+    expect(claudeSuites.length).toBeGreaterThan(5)
+    for (const s of claudeSuites) {
+      expect(['own', 'test'], s.name).toContain(s.claudeHome)
+      const src = readFileSync(join(root, 'tests', 'e2e', `${s.name}.cjs`), 'utf8')
+      // Its Hive (every hiveEnv or lib.launch call) gets the home: lib's helper for it, CLAUDE_CONFIG_DIR given directly,
+      // or the suite's `homes`.
+      const launches = [...src.matchAll(/(?:hiveEnv|lib\.launch)\(\{[^\n]*\}\)/g)].map((m) => m[0])
+      expect(launches.length, s.name).toBeGreaterThan(0)
+      for (const l of launches) expect(/CLAUDE_CONFIG_DIR|ownClaudeHome|claudeHome\.env|env: homes/.test(l), `${s.name}: ${l}`).toBe(true)
+      if (s.claudeHome === 'test') expect(src, s.name).toMatch(/CLAUDE_CONFIG_DIR: CLAUDE_TEST_HOME/)
+      // A home of its own: lib's (a made-up key), or a folder of the suite's (claudehome, claudesettings); never the test home.
+      if (s.claudeHome === 'own') {
+        expect(src, s.name).toMatch(/ownClaudeHome\(|CLAUDE_CONFIG_DIR: home\b/)
+        expect(src, s.name).not.toMatch(/CLAUDE_CONFIG_DIR: CLAUDE_TEST_HOME/)
+      }
+    }
+    // The runner asks Claude Code about its test home's sign-in only, and refuses a Claude suite with no home.
+    const runner = readFileSync(join(root, 'tests', 'e2e', 'run.mjs'), 'utf8')
+    expect(runner).toMatch(/childEnv\(\{ CLAUDE_CONFIG_DIR: runContext\.CLAUDE_TEST_HOME \}\)/)
+    expect(runner).not.toMatch(/claudeLoggedIn\(\s*'default'|home === 'test' \?/)
+    expect(runner).toMatch(/s\.claudeHome !== 'own' && s\.claudeHome !== 'test'/)
+  })
+
   it('every variable Hive sets for its sessions and its hive-progress wrapper is left out (#202)', () => {
     const src = ['src/main/progressReporters/wrapper.ts', 'src/main/progressReporters/shims.ts', 'src/main/ptyHost.ts', 'src/main/sessions.ts'].map((f) => readFileSync(join(root, f), 'utf8')).join('\n')
     const sessionVars = [...new Set([...src.matchAll(/\b(HIVE_[A-Z0-9_]+|ELECTRON_RUN_AS_NODE|NO_COLOR|FORCE_COLOR)\b/g)].map((m) => m[1]))]
