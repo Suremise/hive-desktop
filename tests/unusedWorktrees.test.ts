@@ -11,9 +11,15 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import * as electron from 'electron'
 import { holdsWork, lostByRemoving, templateWorktreesHint, unusedState, unusedSummary, unusedWorkNotice } from '../src/shared/unusedWorktrees'
 import type { UnusedWorktree } from '../src/shared/types'
-import { junction } from './pathAliases'
+import { junction, shortPath } from './pathAliases'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-unusedwt-'))
+// As on GitHub's runner (#447): the temp folder by its 8.3 short name where it has one (git lists worktrees by their long
+// names), and no global git config, so no user identity but the repository's own.
+const made = mkdtempSync(join(tmpdir(), 'hive-unusedwt-'))
+const base = shortPath(made) ?? made
+const GLOBAL = process.env.GIT_CONFIG_GLOBAL
+process.env.GIT_CONFIG_GLOBAL = join(made, 'no-global.gitconfig')
+writeFileSync(process.env.GIT_CONFIG_GLOBAL, '')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 ;(electron.shell as unknown as { trashItem: (p: string) => Promise<void> }).trashItem = async (p) => rmSync(p, { recursive: true, force: true })
 
@@ -64,12 +70,17 @@ const agents = (trees: { path: string; branch: string }[]): void =>
 beforeAll(async () => {
   mkdirSync(join(proj, '.hive'), { recursive: true })
   execFileSync('git', ['init', '-q', '-b', 'main', proj])
+  for (const [k, v] of [['user.name', 'Test'], ['user.email', 'test@example.com']]) git(proj, 'config', k, v)
   commit(proj, 'a.txt')
   agents([])
   w = createWorkspaceService()
   await w.open(wsPath)
 })
-afterAll(async () => disposeWorkspaceService(w))
+afterAll(async () => {
+  await disposeWorkspaceService(w)
+  if (GLOBAL === undefined) delete process.env.GIT_CONFIG_GLOBAL
+  else process.env.GIT_CONFIG_GLOBAL = GLOBAL
+})
 afterEach(() => {
   process.env.PATH = PATH
   setGitToolForTests({ state: 'unknown' })
@@ -341,11 +352,12 @@ describe('in the Changes tab (#400)', () => {
     mkdirSync(outside, { recursive: true })
     // Not yet listed: refused (only the project folder and agents' worktrees).
     expect(() => w.assertChangesRoot(t.path)).toThrow(/Not a project or agent worktree/)
-    await listOf()
-    expect(placeKey(w.assertChangesRoot(t.path))).toBe(placeKey(t.path))
+    // The Changes tab reads it by the path the listing gave (git's long name), not by another name for it (#447).
+    const listed = (await find(t.path))!.path
+    expect(placeKey(w.assertChangesRoot(listed))).toBe(placeKey(t.path))
     expect(() => w.assertChangesRoot(outside)).toThrow()
     // The Files tab's file operations never get it.
-    expect(() => w.assertRoot(t.path)).toThrow()
+    expect(() => w.assertRoot(listed)).toThrow()
     // Given to an agent, it isn't unused: listed again, it drops out (it is an agent's worktree, as assertRoot allows).
     agents([t])
     await listOf()
