@@ -702,6 +702,16 @@ async function reviewChange(card: TaskCard, patch: TaskPatch, actor: TaskActor, 
   return true
 }
 
+/** Notes on a card something Hive did about it without changing it (#420: an agent's watch on it ended), as Hive. */
+export async function noteOnCard(n: number, what: string, ws: WorkspaceService = workspace): Promise<void> {
+  await withFileLock(cardFile(n, ws), async () => {
+    const card = await getTask(n, ws)
+    note(card, 'Hive', what)
+    await writeJsonAtomic(cardFile(n, ws), card)
+  })
+  changed(ws)
+}
+
 /**
  * Stops the reviews an agent has going (its session ended, or it was removed), so a card never shows a reviewer that
  * has gone. A review started again meanwhile by another agent is left alone.

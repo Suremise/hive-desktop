@@ -484,6 +484,151 @@ describe('agent watches (main/watches.ts)', async () => {
     await disposeWorkspaceService(w)
   })
 
+  it("a card reassigned or blocked leaves the watch of the agent whose part in it ended: woken once when it was the only card, else told with the next line; never the new agent's, never the Assistant's (#420)", async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    const user = { kind: 'user' } as const
+    const card = async (title: string, agent: string, column: 'doing' | 'review' = 'doing') => (await inWorkspace(w, () => tasks.createTask({ title, project: 'alpha', agent, column }, user))).number
+    // Builder (a1) waits, as a reviewer, for Reviewer's (a2) card to arrive in Review; it is given to Second (a3).
+    const c1 = await card('One', 'a2')
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c1], changes: ['column'], column: 'review' })
+    await inWorkspace(w, () => tasks.updateTask(c1, { agent: 'a3' }, user))
+    await watches.evaluateWatches(w)
+    await vi.waitFor(() => expect(st.typed).toHaveLength(1))
+    expect(st.typed[0]).toBe(`[Hive] #${c1} was reassigned to Second (your watch on it ended). Your card watch has ended: drop it from your list and carry on with your next card.`)
+    expect(watches.watchFor(alpha, 'a1')).toBeNull()
+    await vi.waitFor(async () => expect((await inWorkspace(w, () => tasks.getTask(c1, w))).history.map((h) => h.what)).toContain('Ended Builder (alpha)\'s watch on it: reassigned to Second'))
+    // Two cards: one blocked leaves quietly; the other's change later tells both.
+    st.status = 'watching'
+    const c2 = await card('Two', 'a2')
+    const c3 = await card('Three', 'a2')
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c2, c3], changes: ['column'], column: 'review' })
+    await inWorkspace(w, () => tasks.updateTask(c2, { blocked: 'Waiting for the user to pick an icon' }, user))
+    await watches.evaluateWatches(w)
+    await watches.tick()
+    expect(st.typed).toHaveLength(1)
+    expect(watches.watchFor(alpha, 'a1')?.cards).toEqual([c3])
+    await inWorkspace(w, () => tasks.updateTask(c3, { column: 'review' }, user))
+    await watches.evaluateWatches(w)
+    await vi.waitFor(() => expect(st.typed).toHaveLength(2))
+    expect(st.typed[1]).toMatch(new RegExp(`^\\[Hive\\] #${c2} is blocked: "Waiting for the user to pick an icon" \\(your watch on it ended\\); #${c3} \\(Reviewer's card\\) is in Review`))
+    // Its own card, blocked by itself (it asked the user): released all the same, so its loop moves on (round 1 finding).
+    st.status = 'watching'
+    const mine = await card('Mine', 'a1')
+    await watches.registerWatch(w, alpha, 'a1', { cards: [mine], changes: ['verdict', 'column'], column: 'passed' })
+    await inWorkspace(w, () => tasks.updateTask(mine, { blocked: 'Asked the user' }, { kind: 'agent', name: 'Builder (alpha)', self: { project: 'alpha', agentId: 'a1' }, scope: 'alpha' }))
+    await watches.evaluateWatches(w)
+    await vi.waitFor(() => expect(st.typed).toHaveLength(3))
+    expect(st.typed[2]).toMatch(new RegExp(`^\\[Hive\\] #${mine} is blocked: "Asked the user" \\(your watch on it ended\\)`))
+    // Unblocked and watched again, then given to another agent: told.
+    st.status = 'watching'
+    await inWorkspace(w, () => tasks.updateTask(mine, { blocked: '' }, user))
+    await watches.registerWatch(w, alpha, 'a1', { cards: [mine], changes: ['verdict', 'column'], column: 'passed' })
+    await inWorkspace(w, () => tasks.updateTask(mine, { agent: 'a2' }, user))
+    await watches.evaluateWatches(w)
+    await vi.waitFor(() => expect(st.typed).toHaveLength(4))
+    expect(st.typed[3]).toMatch(new RegExp(`^\\[Hive\\] #${mine} was reassigned to Reviewer`))
+    // The new agent's watch on it (Reviewer now has it) and the Assistant's are left alone by a later change of hands.
+    const home = w.assistantHome
+    mkdirSync(home, { recursive: true })
+    await watches.registerWatch(w, home, 'assistant', { cards: [mine], changes: ['column'], column: 'done' })
+    await inWorkspace(w, () => tasks.updateTask(mine, { agent: 'a3' }, user))
+    await watches.evaluateWatches(w)
+    expect(watches.watchFor(home, 'assistant')?.cards).toEqual([mine])
+    await watches.cancelWatch(w, home, 'assistant')
+    await disposeWorkspaceService(w)
+  })
+
+  it('a card released after its watch fired but before the line is typed is told as released; released cards are told with the limit too (#420 round 1 findings)', async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    const user = { kind: 'user' } as const
+    const card = async (title: string) => (await inWorkspace(w, () => tasks.createTask({ title, project: 'alpha', agent: 'a2', column: 'doing' }, user))).number
+    for (const [i, change] of [['reassigned', { agent: 'a3' }], ['blocked', { blocked: 'Waiting for a decision' }]] as const) {
+      // Builder (a1) awaits Reviewer's card in Review; it works, so the arrival waits to be typed; then the card changes.
+      st.status = 'watching'
+      const c = await card(`Card ${i}`)
+      await watches.registerWatch(w, alpha, 'a1', { cards: [c], changes: ['column'], column: 'review' })
+      st.status = 'working'
+      await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, user))
+      await watches.evaluateWatches(w)
+      await inWorkspace(w, () => tasks.updateTask(c, change, user))
+      st.status = 'watching'
+      const before = st.typed.length
+      await watches.tick()
+      await vi.waitFor(() => expect(st.typed).toHaveLength(before + 1))
+      const line = st.typed.at(-1)!
+      expect(line).toMatch(i === 'reassigned' ? new RegExp(`^\\[Hive\\] #${c} was reassigned to Second \\(your watch on it ended\\)\\. Your card watch has ended: drop it`) : new RegExp(`^\\[Hive\\] #${c} is blocked: "Waiting for a decision" \\(your watch on it ended\\)\\. Your card watch has ended: drop it`))
+      expect(line).not.toMatch(/is in Review/)
+      await vi.waitFor(async () => expect((await inWorkspace(w, () => tasks.getTask(c, w))).history.some((h) => h.by === 'Hive' && h.what.startsWith("Ended Builder (alpha)'s watch on it"))).toBe(true))
+    }
+    // Two cards: one blocked leaves quietly; the other never changes; the limit tells both.
+    st.status = 'watching'
+    const c1 = await card('One')
+    const c2 = await card('Two')
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c1, c2], changes: ['column'], column: 'review' }, 30)
+    await inWorkspace(w, () => tasks.updateTask(c1, { blocked: 'Pick a colour' }, user))
+    await watches.evaluateWatches(w)
+    const before = st.typed.length
+    await watches.tick(Date.now() + 31 * 60_000)
+    await vi.waitFor(() => expect(st.typed).toHaveLength(before + 1))
+    expect(st.typed.at(-1)).toBe(`[Hive] #${c1} is blocked: "Pick a colour" (your watch on it ended). No change on #${c2} in 30 min: your card watch has ended. Drop the first from your list; for the rest, tell the user (hive_notify) and ask what to do.`)
+    await disposeWorkspaceService(w)
+  })
+
+  it('a card released after a two-card watch fired keeps the other card watched, told once with its arrival; clearing the awaited builder or the watcher\'s review releases it (#420 round 2 findings)', async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    const user = { kind: 'user' } as const
+    const card = async (title: string) => (await inWorkspace(w, () => tasks.createTask({ title, project: 'alpha', agent: 'a2', column: 'doing' }, user))).number
+    for (const [i, change] of [['reassigned', { agent: 'a3' }], ['blocked', { blocked: 'Decide first' }]] as const) {
+      st.status = 'watching'
+      const c1 = await card(`One ${i}`)
+      const c2 = await card(`Two ${i}`)
+      await watches.registerWatch(w, alpha, 'a1', { cards: [c1, c2], changes: ['column'], column: 'review' })
+      // #1 arrives while the watcher works (fired, not typed), then is released; #2 hasn't changed.
+      st.status = 'working'
+      await inWorkspace(w, () => tasks.updateTask(c1, { column: 'review' }, user))
+      await watches.evaluateWatches(w)
+      await inWorkspace(w, () => tasks.updateTask(c1, change, user))
+      st.status = 'watching'
+      const before = st.typed.length
+      await watches.tick()
+      expect(st.typed).toHaveLength(before)
+      expect(watches.watchFor(alpha, 'a1')?.cards).toEqual([c2])
+      // #2 arrives: one line, the release first.
+      await inWorkspace(w, () => tasks.updateTask(c2, { column: 'review' }, user))
+      await watches.evaluateWatches(w)
+      await vi.waitFor(() => expect(st.typed).toHaveLength(before + 1))
+      expect(st.typed.at(-1)).toMatch(new RegExp(`^\\[Hive\\] #${c1} ${i === 'reassigned' ? 'was reassigned to Second' : 'is blocked: "Decide first"'} \\(your watch on it ended\\); #${c2} \\(Reviewer's card\\) is in Review`))
+      await watches.tick()
+      expect(st.typed).toHaveLength(before + 1)
+    }
+    // The awaited builder taken off the card (no agent now): the waiting reviewer is released.
+    st.status = 'watching'
+    const c3 = await card('Three')
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c3], changes: ['column'], column: 'review' })
+    await inWorkspace(w, () => tasks.updateTask(c3, { agent: '' }, user))
+    await watches.evaluateWatches(w)
+    await vi.waitFor(() => expect(st.typed.at(-1)).toBe(`[Hive] #${c3} was reassigned (it has no agent now) (your watch on it ended). Your card watch has ended: drop it from your list and carry on with your next card.`))
+    // Watching while it reviews: its review stopped by someone else releases it; its own verdict doesn't.
+    st.status = 'watching'
+    const me = { kind: 'agent', name: 'Builder (alpha)', self: { project: 'alpha', agentId: 'a1' }, scope: 'alpha' } as const
+    const c4 = (await inWorkspace(w, () => tasks.createTask({ title: 'Four', project: 'alpha', agent: 'a2', column: 'review' }, user))).number
+    await inWorkspace(w, () => tasks.updateTask(c4, { review: 'start' }, me))
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c4], changes: ['comment'] })
+    await inWorkspace(w, () => tasks.updateTask(c4, { review: 'failed' }, me, { comment: 'Round 1: FAILED' }))
+    await watches.evaluateWatches(w)
+    expect(st.typed.at(-1)).not.toMatch(/review was taken from you/)
+    st.status = 'watching'
+    await inWorkspace(w, () => tasks.updateTask(c4, { review: 'start' }, me))
+    await watches.registerWatch(w, alpha, 'a1', { cards: [c4], changes: ['verdict'] })
+    await inWorkspace(w, () => tasks.endReviews('alpha', 'a1', 'its session ended', w))
+    await watches.evaluateWatches(w)
+    await vi.waitFor(() => expect(st.typed.at(-1)).toMatch(new RegExp(`^\\[Hive\\] #${c4}'s review was taken from you \\(your watch on it ended\\)`)))
+    await disposeWorkspaceService(w)
+  })
+
   it("a wake's next watch counts what happened in between: an agent that finished and took new work meanwhile fires it at once", async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)
