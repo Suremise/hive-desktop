@@ -116,8 +116,9 @@ const check = (name, ok) => {
   await page.getByRole('button', { name: 'Move to Recycle Bin' }).click()
   await lib.until(async () => !exists('.gitignore copy'), 10000)
   check('delete moves ".gitignore copy" to the Recycle Bin', !exists('.gitignore copy'))
-  // A test copy's Recycle Bin is the suite's own trash folder (#414).
-  check("…the suite's trash folder in a test copy, not the user's", lib.trashed('.gitignore copy').some((e) => fs.existsSync(e.to)), JSON.stringify(lib.trashed()))
+  // A test copy's Recycle Bin is the suite's own trash folder (#414). Hive notes the move in trash.jsonl just after it,
+  // so the file leaving the project doesn't mean the note is there yet (#441): wait for it.
+  check("…the suite's trash folder in a test copy, not the user's", !!(await lib.until(() => lib.trashed('.gitignore copy').some((e) => fs.existsSync(e.to)), 5000)), JSON.stringify(lib.trashed()))
 
   // Internal drag: move src/new.ts onto dist.
   if (!(await row('src/new.ts').count())) await row('src').click()

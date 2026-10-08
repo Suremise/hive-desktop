@@ -9,7 +9,7 @@ import { call } from '../api'
 import { commandKeybinding, runCommand } from '../commands'
 import { get, notify, projectState, prompt, set, setProjectTab, toggleCompactSidebar, useStore } from '../store'
 import { cx, formatKeybinding } from '../util'
-import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, StatusDot, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, InfoTip, LoadFailed, SearchInput, StaleNote, StatusDot, STATUS_TEXT, statusText, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
 import { addSkill, deleteSkill, HiveSkillsWarning, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
 import { TemplatesPanel } from './Templates'
 import { hasEditorDraftsUnder } from '../editorDrafts'
@@ -393,7 +393,7 @@ function ProjectsPanel() {
       </div>
       {workspace.projects.length > 6 && (
         <div style={{ padding: '0 8px 6px 12px' }}>
-          <input className="input" style={{ width: '100%', height: 24 }} placeholder="Filter projects" value={filter} onChange={(e) => setFilter(e.target.value)} />
+          <SearchInput style={{ height: 24 }} placeholder="Filter projects" value={filter} onChange={setFilter} />
         </div>
       )}
       <div className="pane-body">
@@ -575,7 +575,7 @@ function SkillsPanel() {
       </div>
       {workspace && <HiveSkillsWarning />}
       <div style={{ padding: '0 8px 6px 12px' }}>
-        <input className="input" style={{ width: '100%', height: 24 }} placeholder="Filter skills" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <SearchInput style={{ height: 24 }} placeholder="Filter skills" value={filter} onChange={setFilter} />
       </div>
       <div className="pane-body">
         <Section title="Hive" count={skills.length - missing} tip={SKILL_LEVEL_TIP.hive}>

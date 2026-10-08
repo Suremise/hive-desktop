@@ -29,7 +29,7 @@ const STORAGE_COLUMNS: DataColumn<StorageRow>[] = [
           <>
             {' '}
             <a className="small" onClick={() => runCommand('project.unusedWorktrees', r.review)}>
-              Review
+              Review in Changes
             </a>
           </>
         )}

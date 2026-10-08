@@ -199,6 +199,68 @@ function measure([selector, parts]) {
       check(`${theme}: ${what} reaches 4.5:1`, allAA(r), JSON.stringify(r))
     }
     await shot(`${theme}-badges`, { x: 0, y: 0, width: 340, height: 240 })
+
+    // The text greys and the accent as text (#421) on every background text sits on, hovered and selected rows too, and
+    // the accent as text on its own tint over each (a badge, an active button): 4.5:1. The status dots (their fill, the
+    // idle one's ring), resting and at the height of their pulse: 3:1, as icons need; and the pulse never fades (opacity).
+    // As computed, from the theme's tokens.
+    const tokens = await page.evaluate(() => {
+      const parse = (c) => {
+        const v = /rgba?\(([^)]+)\)/.exec(c)?.[1].split(',').map(Number) ?? [0, 0, 0]
+        return [v[0], v[1], v[2], v[3] === undefined ? 1 : v[3]]
+      }
+      const over = (top, under) => top.slice(0, 3).map((v, i) => v * top[3] + under[i] * (1 - top[3]))
+      const lum = (c) => {
+        const [r, g, b] = c.slice(0, 3).map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4))
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+      }
+      const ratio = (a, b) => {
+        const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p)
+        return Math.round(((x + 0.05) / (y + 0.05)) * 100) / 100
+      }
+      const low = []
+      const root = getComputedStyle(document.documentElement)
+      const shade = Number(root.getPropertyValue('--pulse-shade')) || 1
+      // The pulse: a change of shade (brightness), never of opacity.
+      const pulse = [...document.styleSheets].flatMap((sh) => [...sh.cssRules]).find((r) => r instanceof CSSKeyframesRule && r.name === 'pulse')
+      if (!pulse) low.push('no pulse keyframes')
+      else if (/opacity/.test(pulse.cssText)) low.push(`the pulse fades: ${pulse.cssText.replace(/\s+/g, ' ')}`)
+      for (const bg of ['--bg', '--bg-sidebar', '--bg-elevated', '--bg-input', '--bg-hover', '--bg-active']) {
+        const box = document.createElement('div')
+        box.style.background = `var(${bg})`
+        document.body.appendChild(box)
+        const under = parse(getComputedStyle(box).backgroundColor)
+        const tint = document.createElement('div')
+        tint.style.background = 'var(--accent-soft)'
+        box.appendChild(tint)
+        const tinted = over(parse(getComputedStyle(tint).backgroundColor), under)
+        for (const fg of ['--fg-muted', '--fg-faint', '--accent-ink']) {
+          const t = document.createElement('span')
+          t.style.color = `var(${fg})`
+          box.appendChild(t)
+          const c = parse(getComputedStyle(t).color)
+          const r = ratio(c, under)
+          if (r < 4.5) low.push(`${fg} on ${bg}: ${r}`)
+          if (fg === '--accent-ink' && ratio(c, tinted) < 4.5) low.push(`${fg} on --accent-soft over ${bg}: ${ratio(c, tinted)}`)
+        }
+        for (const s of ['stopped', 'idle', 'starting', 'working', 'background', 'watching', 'waiting', 'finished', 'error', 'signin']) {
+          const d = document.createElement('span')
+          d.className = `dot ${s}`
+          box.appendChild(d)
+          const st = getComputedStyle(d)
+          // A ring (idle, watching) is drawn in its border or shadow; the rest in their fill.
+          const fill = parse(s === 'idle' ? st.borderTopColor : s === 'watching' ? (/rgba?\([^)]+\)/.exec(st.boxShadow)?.[0] ?? '') : st.backgroundColor)
+          const pulsing = st.animationName === 'pulse'
+          // At the height of its pulse: brightness(shade) scales each channel (clamped).
+          const shaded = [...fill.slice(0, 3).map((v) => Math.min(255, v * shade)), fill[3]]
+          const r = Math.min(ratio(over(fill, under), under), pulsing ? ratio(over(shaded, under), under) : Infinity)
+          if (r < 3 || Number(st.opacity) < 1) low.push(`dot ${s} on ${bg}: ${r}${pulsing ? ' (with its pulse)' : ''}${Number(st.opacity) < 1 ? ` at opacity ${st.opacity}` : ''}`)
+        }
+        box.remove()
+      }
+      return low
+    })
+    check(`${theme}: muted and faint text and the accent as text reach 4.5:1 (on its tint too), every status dot 3:1 through its pulse, on every background (#421)`, tokens.length === 0, tokens.join('; '))
     await page.evaluate(() => document.querySelectorAll('.probe-sub, .probe-caution, .probe-warn, .probe-update, .probe-ready, .probe-activity, .probe-need').forEach((e) => e.remove()))
   }
 

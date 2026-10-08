@@ -15,7 +15,7 @@ import { ProviderIcon } from '../components/ProviderIcon'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { playChime } from '../chime'
-import { Icon, IconButton, InfoTip, Switch, Tooltip } from '../components/ui'
+import { Icon, IconButton, InfoTip, SearchInput, Switch, Tooltip } from '../components/ui'
 import { UpdateStatusRow } from '../components/Updates'
 import { KeybindingsEditor } from '../components/Keybindings'
 import { HiddenProjectsList } from '../components/ProjectRemoval'
@@ -767,7 +767,7 @@ export function SettingsView() {
     <div className="settings">
       <div className="settings-top">
         <Icon name="search" />
-        <input className="input" autoFocus placeholder="Search settings" value={query} onChange={(e) => set({ settingsQuery: e.target.value })} />
+        <SearchInput autoFocus placeholder="Search settings" value={query} onChange={(v) => set({ settingsQuery: v })} />
         <label className="flex muted">
           <input type="checkbox" className="checkbox" checked={modifiedOnly} onChange={(e) => setModifiedOnly(e.target.checked)} /> Modified only
         </label>

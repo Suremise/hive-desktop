@@ -10,7 +10,7 @@ import { cx, timeAgo } from '../util'
 import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
 import { formatDateTime } from '@shared/dates'
 import { returnRound } from '@shared/watch'
-import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, STATUS_TEXT, statusText, Tooltip, useBusy, useContextMenu, type MenuEntry } from './ui'
+import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, SearchInput, STATUS_TEXT, statusText, Tooltip, useBusy, useContextMenu, type MenuEntry } from './ui'
 import { DataTable, type DataColumn } from './DataTable'
 import { DialogList } from './Overlays'
 import { reportArchived, unarchiveBatch } from '../boardBatches'
@@ -792,7 +792,7 @@ export function BoardToolbar({
     <div className="board-toolbar">
       <div className="board-search">
         <Icon name="search" />
-        <input className="input" placeholder="Search cards (#12, words, labels)" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <SearchInput placeholder="Search cards (#12, words, labels)" value={query} onChange={setQuery} />
       </div>
       <label className="flex muted" style={{ cursor: 'pointer' }}>
         <input type="checkbox" className="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> Archived ({count})
@@ -1052,9 +1052,13 @@ function Decisions({
       {!card.archived && (
         <div className="task-decision-new">
           <textarea className="input" aria-label="New decision" placeholder="Record a decision you made about this card (agents follow it over the description)" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && draft.trim() && add()} />
-          <BusyButton className="small" busy={action.busy === 'add'} busyLabel="Adding…" disabled={!draft.trim()} onClick={add}>
-            Add Decision
-          </BusyButton>
+          {/* Easy to see once there is something to add (#432), and the dialog's Save adds it too. */}
+          <div className="task-new-actions">
+            {draft.trim() && <span className="faint">Save adds it too</span>}
+            <BusyButton className={cx('small', draft.trim() && 'primary')} busy={action.busy === 'add'} busyLabel="Adding…" disabled={!draft.trim()} onClick={add}>
+              <Icon name="law" /> Add Decision
+            </BusyButton>
+          </div>
         </div>
       )}
       {action.error && <div className="field-error">{action.error}</div>}
@@ -1195,6 +1199,10 @@ export function TaskDialog() {
   const [decision, setDecision] = useState('')
   const [decisionEdit, setDecisionEdit] = useState<DecisionEdit | null>(null)
   const [decisionBusy, setDecisionBusy] = useState(false)
+  // The drafts as they are now, for a save run again later: Move to Doing's Try Again calls the same prepare, made when
+  // Save was clicked. Each is cleared here as soon as it is written, so a retry writes only what is still unsaved (#432).
+  const drafts = useRef<{ decision: string; comment: string; edit: DecisionEdit | null }>({ decision: '', comment: '', edit: null })
+  drafts.current = { decision, comment, edit: decisionEdit }
   const action = useBusy()
   const [showHistory, setShowHistory] = useState(false)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -1330,33 +1338,73 @@ export function TaskDialog() {
     await loadTasks()
   }
 
-  /** The comment being written, posted (Save leaves nothing in the dialog behind). */
+  /** A decision being changed to nothing: Save refuses it (removing one is its bin's, never Save's). */
+  const BLANK_DECISION = "A decision can't be empty: write it again, cancel the change, or remove the decision with its bin."
+  const blankEdit = (): boolean => {
+    const e = drafts.current.edit
+    return !!e && !e.text.trim() && e.was !== ''
+  }
+
+  /**
+   * The decision being written, and a change to one, recorded (#432: Save leaves nothing typed in the dialog behind, as
+   * for a comment). Read from `drafts` and cleared there once recorded, so a retry (a failure after it, Try Again in Move
+   * to Doing) doesn't record it twice.
+   */
+  const saveDecisions = async (): Promise<void> => {
+    if (!card) return
+    if (blankEdit()) throw new Error(BLANK_DECISION)
+    let changed = false
+    const e = drafts.current.edit
+    if (e && e.text.trim() !== e.was) {
+      await call('tasks:editDecision', card.number, e.id, e.text)
+      drafts.current.edit = null
+      setDecisionEdit(null)
+      changed = true
+    }
+    const d = drafts.current.decision
+    if (d.trim()) {
+      await call('tasks:update', card.number, { decision: d })
+      drafts.current.decision = ''
+      setDecision('')
+      changed = true
+    }
+    if (changed) await loadTasks()
+  }
+
+  /** The comment being written, posted (Save leaves nothing in the dialog behind); from `drafts`, as above. */
   const postComment = async (): Promise<void> => {
-    if (!card || !comment.trim()) return
-    await call('tasks:comment', card.number, comment)
+    const c = drafts.current.comment
+    if (!card || !c.trim()) return
+    await call('tasks:comment', card.number, c)
+    drafts.current.comment = ''
     setComment('')
     await loadTasks()
   }
 
-  /** Save: the card's fields, and a comment being written (so nothing in the dialog is left behind). */
+  /** Save: the card's fields, and a decision and a comment being written (so nothing in the dialog is left behind). */
   const save = async (): Promise<void> => {
     // Into Doing from another column: the Move to Doing dialog asks who works on it, and saves the rest when it is
     // confirmed (Cancel there leaves this dialog open, nothing saved).
     if (card && column === 'doing' && orig.current.column !== 'doing') {
       if (!title.trim()) return action.setError('A card needs a title.')
+      if (blankEdit()) return action.setError(BLANK_DECISION)
       return moveToDoing({
         n: card.number,
         project,
         agent: agent || null,
         prepare: async () => {
           await persist(true)
+          await saveDecisions()
           await postComment()
         },
         done: close
       })
     }
     const r = await action.run('save', async () => {
+      // Checked before anything is saved: a refused Save changes nothing.
+      if (blankEdit()) throw new Error(BLANK_DECISION)
       await persist()
+      await saveDecisions()
       await postComment()
     })
     if (r) close()
@@ -1521,10 +1569,13 @@ export function TaskDialog() {
           ))}
           {!card.archived && (
             <div className="task-comment-new">
-              <textarea className="input" placeholder="Add a comment" value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && void addComment()} />
-              <BusyButton className="small" busy={action.busy === 'comment'} busyLabel="Posting…" disabled={!comment.trim()} onClick={() => void addComment()}>
-                Comment
-              </BusyButton>
+              <textarea className="input" aria-label="New comment" placeholder="Add a comment" value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && void addComment()} />
+              <div className="task-new-actions">
+                {comment.trim() && <span className="faint">Save posts it too</span>}
+                <BusyButton className={cx('small', comment.trim() && 'primary')} busy={action.busy === 'comment'} busyLabel="Posting…" disabled={!comment.trim()} onClick={() => void addComment()}>
+                  <Icon name="comment" /> Comment
+                </BusyButton>
+              </div>
             </div>
           )}
           <div className="task-section-h clickable" onClick={() => setShowHistory(!showHistory)}>

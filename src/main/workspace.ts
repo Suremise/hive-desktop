@@ -62,6 +62,11 @@ export class WorkspaceService {
   window: BrowserWindow | null = null
   /** Agents' worktree folders (lower-cased) and the project each belongs to. */
   private roots = new Map<string, string>()
+  /**
+   * Each project's unused worktrees as last listed (#400: lower-cased folder → project): the Changes tab may read their
+   * git status and diffs (`assertChangesRoot`), nothing else. Replaced on each listing, so one removed since drops out.
+   */
+  private unusedRoots = new Map<string, string>()
   private cached: WorkspaceInfo | null = null
   /** Goes up each time a workspace opens or closes, so work started for an earlier one doesn't touch this one. */
   private generation = 0
@@ -198,6 +203,7 @@ export class WorkspaceService {
     this.moved = null
     // The closed workspace's agent worktrees and settings must not route to (or be allowed by) the next one.
     this.roots.clear()
+    this.unusedRoots.clear()
     this.wsConfig = structuredClone(DEFAULT_WORKSPACE_CONFIG)
     // A new lifetime only once it is fully closed: work started while it was closing (its path still set) belongs to the
     // aborted one, so nothing can be admitted for a workspace that is going away.
@@ -333,6 +339,23 @@ export class WorkspaceService {
     if (this.isProjectPath(p)) return resolve(p)
     if (this.roots.has(resolve(p).toLowerCase())) return resolve(p)
     throw new Error(`Not a project or agent worktree in the open workspace: ${p}`)
+  }
+
+  /**
+   * What the Changes tab reads git status and diffs in (#400): a project folder, an agent's worktree, or one of a
+   * project's unused worktrees as last listed (`noteUnusedWorktrees`). Only git reads go through it: the Files tab's file
+   * operations keep `assertRoot`.
+   */
+  assertChangesRoot(p: string): string {
+    if (this.unusedRoots.has(resolve(p).toLowerCase())) return resolve(p)
+    return this.assertRoot(p)
+  }
+
+  /** A project's unused worktrees as just listed (#400): the ones the Changes tab may read, replacing the last list. */
+  noteUnusedWorktrees(projectPath: string, paths: string[]): void {
+    if (!this.isProjectPath(projectPath)) return
+    for (const [k, v] of this.unusedRoots) if (v.toLowerCase() === resolve(projectPath).toLowerCase()) this.unusedRoots.delete(k)
+    for (const p of paths) this.unusedRoots.set(resolve(p).toLowerCase(), resolve(projectPath))
   }
 
   /** Whether an absolute, lower-cased path is (inside) one of this workspace's agent worktrees. */
@@ -664,7 +687,7 @@ export function workspaceOf(p: string): WorkspaceService {
 
 /** Methods whose first argument is a project or worktree path: they go to the workspace owning it. */
 const BY_PATH = new Set<string>([
-  'isProjectPath', 'assertProject', 'assertRoot', 'projectForRoot', 'updateAgent', 'ensureProject', 'ensureGitExclude', 'branch',
+  'isProjectPath', 'assertProject', 'assertRoot', 'assertChangesRoot', 'noteUnusedWorktrees', 'projectForRoot', 'updateAgent', 'ensureProject', 'ensureGitExclude', 'branch',
   'projectConfig', 'updateProjectConfig', 'mutateProjectConfig', 'sessionsFile', 'mutateSessions', 'upsertSession', 'setActive',
   'unmanagedMcp', 'projectInfo', 'isAssistantHome', 'assertSessionHost'
 ])

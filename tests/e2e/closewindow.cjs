@@ -113,7 +113,9 @@ const invOn = (page) => (ch, ...a) => page.evaluate(([c, x]) => window.hive.invo
   check('with one window, Exit is plain "Exit"', labels.includes('Exit') && !labels.some((l) => /all windows/.test(l)))
   check("Close Workspace's tooltip says the window stays open", /window stays open/.test(menu.find((m) => m[0] === 'Close Workspace')?.[2] ?? ''), menu.find((m) => m[0] === 'Close Workspace')?.[2])
   check('the palette has File: Close Window', (await palette(p1, 'close window')).some((t) => t.includes('File: Close Window')))
+  // The palette's first Escape clears what was typed (#433), the next closes it.
   await p1.keyboard.press('Escape')
+  if (await p1.locator('.palette').count()) await p1.keyboard.press('Escape')
 
   // Close Window on the last window: as its X, it quits (asking first). Cancelled both ways: the same dialog.
   await clickMenu(p1, 'Close Window')
@@ -149,7 +151,9 @@ const invOn = (page) => (ch, ...a) => page.evaluate(([c, x]) => window.hive.invo
   check('with two windows, Exit reads "Exit Hive (all windows)"', exit?.[0] === 'Exit Hive (all windows)', JSON.stringify(exit))
   check('…and its tooltip says it closes both', /all 2 windows/.test(exit?.[2] ?? ''), exit?.[2])
   check('the palette says so too', (await palette(p1, 'exit')).some((t) => t.includes('File: Exit Hive (all windows)')))
+  // The palette's first Escape clears what was typed (#433), the next closes it.
   await p1.keyboard.press('Escape')
+  if (await p1.locator('.palette').count()) await p1.keyboard.press('Escape')
 
   // Close Window in B from the menu, the palette and the X: the same "Close this window?" for B's agent alone.
   await clickMenu(p2, 'Close Window')

@@ -191,7 +191,9 @@ const check = (name, ok, extra = '') => {
     await page.locator('.palette input').fill('Start New')
     await lib.sleep(300)
     const found = await page.locator('.palette-item').allInnerTexts()
+    // The palette's first Escape clears what was typed (#433), the next closes it.
     await page.keyboard.press('Escape')
+    if (await page.locator('.palette').count()) await page.keyboard.press('Escape')
     return found
   }
   const found = await palette()
