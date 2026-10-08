@@ -29,6 +29,10 @@ export const SHIPPED_PRICES: Record<ProviderId, Record<string, ModelPrice>> = {
     'claude-sonnet-5-5': claude(2, 10, 0.2),
     'claude-sonnet-5': claude(2, 10),
     'claude-sonnet-4-6': claude(3, 15),
+    // Haiku 5.5 (released 7 Oct 2026): Anthropic's pricing page, checked 8 Oct 2026, and the Claude Code 2.1.294 model catalog's
+    // haiku_55 table (both agree). Prompts over 100,000 tokens cost more ($0.50 in, $2.50 out); not modelled, as Codex's
+    // 272K prompts aren't.
+    'claude-haiku-5-5': claude(0.1, 0.5),
     'claude-haiku-4-5': claude(1, 5)
   },
   [CODEX]: {
@@ -48,7 +52,7 @@ export const SHIPPED_PRICES: Record<ProviderId, Record<string, ModelPrice>> = {
 }
 
 /** Claude Code's aliases, and the dated ids its transcripts show, map to the table's ids. */
-const CLAUDE_ALIASES: Record<string, string> = { fable: 'claude-fable-5-1', opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-4-5' }
+const CLAUDE_ALIASES: Record<string, string> = { fable: 'claude-fable-5-1', opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' }
 
 function priceKey(provider: ProviderId, model: string): string {
   const m = model.trim().toLowerCase()

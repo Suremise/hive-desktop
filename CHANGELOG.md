@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Models
+- **Claude Haiku 5.5** (released 7 October 2026) is priced: $0.10 per million input tokens and $0.50 per million output (prompts up to 100,000 tokens; longer prompts cost more and aren't estimated yet). Its cache prices follow Anthropic's pricing page. The **haiku** alias now means Haiku 5.5, as Claude Code's does, and Haiku 5.5 is in the pinned models; **Haiku 4.5** stays in the older versions, and its sessions keep their price.
+
 ### Skills
 - **A card loop moves on when its card is taken away.** If a card an agent is waiting on in a card loop is given to another agent, reviewed by another, or blocked (for your decision, say), the agent is told once and carries on with its next card, instead of waiting until you cancel its wait by hand. A wait on several cards keeps the others, and the card's history says whose wait ended.
 
