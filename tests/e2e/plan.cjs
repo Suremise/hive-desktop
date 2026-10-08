@@ -118,5 +118,7 @@ const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}
   await inv('session:stop', proj); await lib.until(async () => (await inv('session:live')).length === 0, 15000)
   console.log(results.join('\n'))
   await app.close()
-  for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
+  // No delete of its folders here (#324): the runner gives the suite a new folder and removes it when it passes; a run
+  // on its own empties them when it starts. Right after app.close() the CLI it stopped can still hold one, and a
+  // failed delete here failed a suite whose checks had all passed.
 })().catch(async (e) => { console.error(e); console.log(results.join('\n')); process.exit(1) })

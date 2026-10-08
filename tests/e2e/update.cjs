@@ -159,7 +159,9 @@ const log = (profile) => { try { return fs.readFileSync(path.join(scratch, profi
   await app.close()
 
   server.close()
-  fs.rmSync(cache, { recursive: true, force: true })
+  // The download cache is outside hive-test (no housekeeping there), so it goes, but never at the cost of a suite whose
+  // checks passed (#324): lib.tidyUp retries a held file a few times, then leaves it for the next run's clear.
+  lib.tidyUp(cache)
   console.log(`\n${pass} passed, ${fail} failed`)
   process.exit(fail ? 1 : 0)
-})().catch((e) => { console.error(e); fs.rmSync(cache, { recursive: true, force: true }); process.exit(1) })
+})().catch((e) => { console.error(e); lib.tidyUp(cache); process.exit(1) })
