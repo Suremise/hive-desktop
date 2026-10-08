@@ -6,7 +6,7 @@ import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, 
 import { unpricedModel, unpricedText } from '@shared/prices'
 import { formatDateTime } from '@shared/dates'
 import { gitFixText } from '@shared/gitTool'
-import { UnusedWorkNotice, UnusedWorktreesSection } from '../components/UnusedWorktrees'
+import { UnusedWorkNotice, UnusedWorktreesLine, UnusedWorktreesSection, useUnusedWorktrees } from '../components/UnusedWorktrees'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
 import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
 import { PROVIDERS, contextLines, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
@@ -29,7 +29,7 @@ import { languageFor } from '../monacoLang'
 import { useScopedLoad } from '../scopedLoad'
 import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
 import { RootSelector } from './FilesTab'
-import { agentProviderOf, confirm, notify, openInSessionsTab, set, setActivity, showView, useDateStyle, useFocusedAgent, useStore } from '../store'
+import { agentProviderOf, confirm, notify, openInSessionsTab, set, setActivity, showView, UNUSED_ROOT, unusedRoot, useDateStyle, useFocusedAgent, useStore } from '../store'
 import { rememberProjectPref } from '../projectPrefs'
 import { HiveVcsNotice } from '../components/HiveVcsNotice'
 import { MergeSlotList, projectSlots, useMergeSlots } from '../components/MergeSlots'
@@ -242,7 +242,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
           </>
         )}
 
-        <UnusedWorktreesSection project={project} />
+        <UnusedWorktreesLine project={project} />
 
         <SessionDetails project={project} items={items} />
       </div>
@@ -575,11 +575,19 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
   const [diffOf, setDiffOf] = useState<{ for: string; diff: GitDiff } | null>(null)
   const [diffErrorOf, setDiffErrorOf] = useState<{ for: string; error: string } | null>(null)
   const [inline, setInline] = useState(false)
-  // A worktree agent's changes are everything on its branch since it left its base branch.
+  // The project's unused worktrees (#400): listed in the folder picker, shown all at once, or one opened like an agent's.
+  const { data: unusedData, reload: reloadUnused } = useUnusedWorktrees(owner)
+  const unusedList = unusedData?.worktrees ?? []
+  const listingUnused = rootId === UNUSED_ROOT
+  const spare = rootId?.startsWith(`${UNUSED_ROOT}:`) ? (unusedList.find((w) => unusedRoot(w.path) === rootId && w.branch) ?? null) : null
+  // A worktree agent's changes are everything on its branch since it left its base branch; an unused one's, since the
+  // branch it would merge into.
   const agent = owner.agents.find((a) => a.id === rootId && a.worktree)
-  const root = agent?.worktree?.path ?? owner.path
-  const base = agent?.worktree?.base
-  const project = agent ? { ...owner, path: root } : owner
+  const root = agent?.worktree?.path ?? spare?.path ?? owner.path
+  const base = agent?.worktree?.base ?? spare?.check.into ?? undefined
+  const project = agent || spare ? { ...owner, path: root } : owner
+  // Who the worktree is, in its labels: the agent, or the unused worktree's branch.
+  const whose = agent ? `${agent.name}'s worktree` : spare ? spare.branch! : null
 
   const [statusError, setStatusError] = useState<string | null>(null)
   const [diffTry, setDiffTry] = useState(0)
@@ -628,7 +636,30 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
       current = false
     }
   }, [file, root, base, status, key, diffTry])
-  const selector = <RootSelector project={owner} value={rootId} onChange={(id) => set((s) => ({ changesRoot: { ...s.changesRoot, [owner.path]: id } }))} />
+  const choose = (id: string): void => set((s) => ({ changesRoot: { ...s.changesRoot, [owner.path]: id } }))
+  const selector = <RootSelector project={owner} value={rootId} onChange={choose} unused={unusedList} />
+
+  // All the unused worktrees, in the main pane (#400): the list and its actions, as the Overview had them.
+  if (listingUnused && unusedList.length) {
+    return (
+      <div className="split">
+        <div className="split-list" style={{ width: listWidth }}>
+          <PaneResizer paneKey="changes" />
+          <div className="pane-header" style={{ paddingLeft: 14 }}>
+            Changes
+            <div className="actions">
+              <IconButton icon="refresh" title="Refresh" onClick={reloadUnused} />
+            </div>
+          </div>
+          {selector}
+          <div className="pane-empty">Open one to see its changes, and merge them, as an agent's worktree's.</div>
+        </div>
+        <div className="split-main unused-worktrees-pane">
+          <UnusedWorktreesSection project={owner} data={unusedData} reload={reloadUnused} onOpen={(path) => choose(unusedRoot(path))} />
+        </div>
+      </div>
+    )
+  }
 
   if (!status && statusError) {
     return (
@@ -676,11 +707,12 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
           Changes <span className="badge" style={{ marginLeft: 6 }}>{status.files.length}</span>
           <div className="actions">
             {agent && <IconButton icon="git-merge" title={mergeBlocked(agent.name, agent.live?.status) ?? `Merge ${agent.name}'s work…`} disabled={!!mergeBlocked(agent.name, agent.live?.status)} onClick={() => set({ mergeFor: { project: owner.path, agentId: agent.id } })} />}
+            {spare && !spare.check.removable && <IconButton icon="git-merge" title={`Merge ${spare.branch}…`} onClick={() => set({ mergeFor: { project: owner.path, agentId: '', worktree: { path: spare.path, branch: spare.branch! } } })} />}
             <IconButton icon="refresh" title="Refresh" onClick={load} />
           </div>
         </div>
         {selector}
-        <UnusedWorkNotice project={owner} />
+        {!spare && <UnusedWorkNotice project={owner} data={unusedData} />}
         {statusError && (
           <div className="banner warn">
             <Icon name="warning" /> Could not refresh: {statusError}
@@ -690,10 +722,10 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
           </div>
         )}
         <div className="muted" style={{ padding: '0 14px 8px', fontSize: 12 }}>
-          <Icon name="git-branch" /> {status.branch} {agent ? <span className="faint">since it left {base}</span> : <>{status.ahead > 0 && `↑${status.ahead}`} {status.behind > 0 && `↓${status.behind}`}</>}
+          <Icon name="git-branch" /> {status.branch} {whose ? <span className="faint">since it left {base}</span> : <>{status.ahead > 0 && `↑${status.ahead}`} {status.behind > 0 && `↓${status.behind}`}</>}
         </div>
         <div className="pane-body">
-          {status.files.length === 0 && <div className="pane-empty">{agent ? `No changes on ${agent.worktree!.branch} yet.` : 'Working tree clean.'}</div>}
+          {status.files.length === 0 && <div className="pane-empty">{agent ? `No changes on ${agent.worktree!.branch} yet.` : spare ? `Nothing on ${spare.branch} that isn't on ${base}.` : 'Working tree clean.'}</div>}
           {status.files.map((f) => (
             <Tooltip block key={f.path} content={`${GIT_LABEL[f.status] ?? f.status}${f.staged ? ' (staged)' : ''}: ${f.path}`}>
               <div className={cx('row', file === f.path && 'selected')} style={{ width: '100%' }} onClick={() => setFile(f.path)}>
@@ -711,7 +743,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
             <div className="editor-toolbar">
               <Icon name="git-compare" />
               <span className="path">
-                <strong>{diff.path}</strong> <span className="faint">{agent ? `${base} ↔ ${agent.name}'s worktree` : 'HEAD ↔ working tree'}</span>
+                <strong>{diff.path}</strong> <span className="faint">{whose ? `${base} ↔ ${whose}` : 'HEAD ↔ working tree'}</span>
               </span>
               <IconButton icon={inline ? 'split-horizontal' : 'list-flat'} title={inline ? 'Side by side' : 'Inline'} onClick={() => setInline(!inline)} />
               <IconButton icon="go-to-file" title="Open file" onClick={() => void call('app:openPath', `${project.path}\\${diff.path.replace(/\//g, '\\')}`)} />

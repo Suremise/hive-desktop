@@ -6,7 +6,7 @@ import type { TemplateAgent } from '@shared/templates'
 import { gitFixText, gitProblemText } from '@shared/gitTool'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
-import { agentProviderOf, confirm, focusAfterRemoving, notify, projectKey, set, setActivity, showAgent, useStore } from '../store'
+import { agentProviderOf, bumpUnused, confirm, focusAfterRemoving, notify, projectKey, set, setActivity, showAgent, useStore } from '../store'
 import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { cx } from '../util'
@@ -758,7 +758,7 @@ export function MergeDialog() {
   const target = useStore((s) => s.mergeFor)
   const settings = useStore((s) => s.settings)
   const project = useStore((s) => s.workspace?.projects.find((p) => p.path === s.mergeFor?.project) ?? null)
-  const agent = project?.agents.find((a) => a.id === target?.agentId) ?? null
+  const found = project?.agents.find((a) => a.id === target?.agentId) ?? null
   const [status, setStatus] = useState<AgentBranchStatus | null>(null)
   /** Why the branch couldn't be read (git missing, say, #346): shown instead of a merge that can't be checked. */
   const [readError, setReadError] = useState<string | null>(null)
@@ -770,6 +770,9 @@ export function MergeDialog() {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<MergeResult | null>(null)
   const slots = useMergeSlots()
+  // What is merged: an agent's worktree, or an unused worktree (#400), named by its branch, nobody working in it.
+  const unused = target?.worktree ?? null
+  const agent = found?.worktree ? found : unused ? { id: '', name: unused.branch, live: null, worktree: { path: unused.path, branch: unused.branch, base: status?.into ?? '' } } : null
 
   useEffect(() => {
     setStatus(null)
@@ -778,15 +781,15 @@ export function MergeDialog() {
     setBusy(false)
     if (!target || !agent?.worktree) return
     setSquash((settings?.agents.mergeStyle ?? 'merge') === 'squash')
-    setMessage(`${agent.name}: work from ${agent.worktree.branch}`)
+    setMessage(unused ? `Work from ${unused.branch}` : `${agent.name}: work from ${agent.worktree.branch}`)
     setCleanup(false)
     setMoveBranch(true)
-    void call('agents:branchStatus', target.project, target.agentId)
+    void (unused ? call('worktrees:unusedBranchStatus', target.project, unused.path) : call('agents:branchStatus', target.project, target.agentId))
       .then(setStatus)
       .catch((e) => setReadError(errorMessage(e)))
-    // Reset when the dialog opens for another agent.
+    // Reset when the dialog opens for another agent or worktree.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target?.project, target?.agentId])
+  }, [target?.project, target?.agentId, target?.worktree?.path])
 
   if (!target || !project || !agent?.worktree) return null
   const close = (): void => set({ mergeFor: null })
@@ -803,17 +806,22 @@ export function MergeDialog() {
     setBusy(true)
     try {
       const removing = cleanup && !running
-      const r = await call('agents:merge', project.path, agent.id, { squash, message, cleanup: removing, moveBranch: squash && !removing && moveBranch })
+      const r = unused
+        ? await call('worktrees:mergeUnused', project.path, unused.path, { squash, message, cleanup: removing })
+        : await call('agents:merge', project.path, agent.id, { squash, message, cleanup: removing, moveBranch: squash && !removing && moveBranch })
       setResult(r)
       if (r.ok) {
         const into = status?.into ?? 'the project folder'
         notify(
           'success',
           `Merged ${agent.worktree!.branch} into ${into}`,
-          r.cleanedUp ? `${agent.name}'s worktree and branch were removed.` : r.branchMoved ? `${agent.worktree!.branch} was moved to ${into}, ready for ${agent.name}'s next task.` : undefined
+          r.cleanedUp ? (unused ? 'Its worktree and branch were removed.' : `${agent.name}'s worktree and branch were removed.`) : r.branchMoved ? `${agent.worktree!.branch} was moved to ${into}, ready for ${agent.name}'s next task.` : undefined
         )
         if (r.moveError) notify('warning', `${agent.worktree!.branch} was not moved to ${into}`, `${r.moveError} Its old commits are still on it, so its next merge may conflict with them: ask ${agent.name} to run git rebase ${into}.`)
-        if (r.cleanedUp) focusAfterRemoving(project, agent.id)
+        if (r.cleanupKept) notify('warning', `${agent.worktree!.branch} was merged, its worktree kept`, r.cleanupKept)
+        if (r.cleanedUp && !unused) focusAfterRemoving(project, agent.id)
+        // The project's unused worktrees, as they are now.
+        if (unused) bumpUnused(project.path)
         await actions.refreshWorkspace()
         close()
       }
@@ -829,7 +837,7 @@ export function MergeDialog() {
 
   return (
     <Modal
-      title={`Merge ${agent.name}'s work`}
+      title={unused ? `Merge ${unused.branch}` : `Merge ${agent.name}'s work`}
       icon="git-merge"
       onClose={close}
       wide
@@ -921,9 +929,9 @@ export function MergeDialog() {
           )}
           {!status.into && <div className="banner warn">The project folder is not on a branch. Check one out first.</div>}
           <MergeSlotNote slot={slot} />
-          {status.into && status.into !== agent.worktree.base && (
+          {status.into && !unused && status.into !== agent.worktree.base && (
             <div className="banner warn">
-              <Icon name="info" /> {agent.name}'s branch started from {agent.worktree.base}, but the project folder is on {status.into}.
+              <Icon name="info" /> {unused ? 'Its' : `${agent.name}'s`} branch started from {agent.worktree.base}, but the project folder is on {status.into}.
             </div>
           )}
           {status.dirty > 0 && <div className="detail">The uncommitted changes are committed on {agent.worktree.branch} first, with the message below.</div>}
@@ -932,14 +940,14 @@ export function MergeDialog() {
               <input type="radio" checked={!squash} onChange={() => setSquash(false)} />
               <div>
                 <strong>Merge</strong>
-                <div className="faint">Keeps the agent's commits and their messages, plus a merge commit. Its next merge brings only what is new.</div>
+                <div className="faint">{unused ? 'Keeps its commits and their messages, plus a merge commit.' : "Keeps the agent's commits and their messages, plus a merge commit. Its next merge brings only what is new."}</div>
               </div>
             </label>
             <label className={cx('choice', squash && 'selected')}>
               <input type="radio" checked={squash} onChange={() => setSquash(true)} />
               <div>
                 <strong>Squash</strong>
-                <div className="faint">One commit with everything the agent did, with the message below.</div>
+                <div className="faint">{unused ? 'One commit with everything on it, with the message below.' : 'One commit with everything the agent did, with the message below.'}</div>
               </div>
             </label>
           </div>
@@ -949,11 +957,11 @@ export function MergeDialog() {
           </label>
           <label className="flex muted" style={{ marginTop: 10 }}>
             <input type="checkbox" className="checkbox" disabled={running} checked={cleanup && !running} onChange={(e) => setCleanup(e.target.checked)} /> Remove the worktree and branch afterwards
-            (and the agent)
+            {unused ? '' : ' (and the agent)'}
           </label>
           {running && <div className="detail">{agent.name} is running, so its worktree stays. Stop it first to remove the worktree after merging.</div>}
           {/* A squashed branch that stays would bring its old commits to its next merge: move it to the squash. */}
-          {squash && !(cleanup && !running) && (
+          {squash && !unused && !(cleanup && !running) && (
             <>
               <label className="flex muted" style={{ marginTop: 6 }}>
                 <input type="checkbox" className="checkbox" checked={moveBranch} onChange={(e) => setMoveBranch(e.target.checked)} /> Move {agent.worktree.branch} to {status.into ?? 'the merged branch'} afterwards

@@ -1,11 +1,13 @@
-// Unused worktrees (#353): an agent removed with "Keep worktree and branch" leaves its worktree, said once in a notice
-// whose Review opens the project Overview at "Unused worktrees (n)". A merged, clean one is removed there with its branch;
-// one with unmerged work shows its commits, has no plain Remove, offers Give to an agent… (Add Agent on Existing
-// worktree, that one chosen) and Remove anyway… (a danger confirm naming what goes). The Changes tab says so only while
-// one holds work; Storage has a line for them; the Agent API's project status counts them for the Assistant (no way
-// to remove them). Deleting a template whose worktree agents left worktrees says so once. Without git, nothing is
-// removed. A throwaway repository with worktree agents added through Hive (not started), fake Claude Code configured,
-// throwaway profile and workspace, quiet.
+// Unused worktrees (#353, in the Changes tab since #400): an agent removed with "Keep worktree and branch" leaves its
+// worktree, said once in a notice whose Review opens Changes at "Unused worktrees (n)" (the folder picker's "All unused
+// worktrees"). A merged, clean one is removed there with its branch; one with unmerged work shows its commits, has no
+// plain Remove, offers Give to an agent… (Add Agent on Existing worktree, that one chosen) and Remove anyway… (a danger
+// confirm naming what goes), and Open shows its changes like an agent's worktree, with Merge (the Merge dialog). The
+// Overview has one line linking there; Changes' project folder says so only while one holds work; Storage has a line
+// for them; the Agent API's project status counts them for the Assistant (no way to remove them). Deleting a template
+// whose worktree agents left worktrees says so once. Without git, nothing is removed. Then one is merged from Changes and
+// removed after (its commit on the main branch, its folder and branch gone). A throwaway repository with worktree agents
+// added through Hive (not started), fake Claude Code configured, throwaway profile and workspace, quiet.
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -73,10 +75,13 @@ function pathWithoutGit() {
   await lib.sleep(500)
   check('…once only', (await toasts(keptToast)) === 1)
 
-  // --- Review: the Overview's section.
+  // --- Review: the Changes tab's list of them (#400).
   await page.locator('.toast', { hasText: keptToast }).getByRole('button', { name: 'Review unused worktrees' }).click()
-  const section = page.locator('.unused-worktrees')
-  check('Review opens the Overview at Unused worktrees (2)', !!(await lib.until(async () => (await section.count()) === 1 && /Unused worktrees\s*2/.test(await section.locator('h2').innerText()), 10000)), await section.innerText().catch(() => ''))
+  const section = page.locator('.unused-worktrees-pane .unused-worktrees')
+  check('Review opens Changes at Unused worktrees (2)', !!(await lib.until(async () => (await section.count()) === 1 && /Unused worktrees\s*2/.test(await section.locator('h2').innerText()), 10000)) && (await page.locator('.tab.active, .tab[aria-selected="true"]', { hasText: 'Changes' }).count()) >= 1, await section.innerText().catch(() => ''))
+  const picker = page.locator('.split-list .root-select')
+  check('…the folder picker shows "All unused worktrees (2)", in an Unused worktrees group under the agents\' worktrees', (await picker.inputValue()) === 'unused' && (await picker.locator('optgroup[label^="Unused worktrees"] option').allInnerTexts()).join('|').includes('All unused worktrees (2)'), (await picker.locator('option').allInnerTexts()).join('|'))
+  check('…and says what they are', (await section.locator('.info-icon, [aria-label*="info" i]').count()) >= 1)
   const row = (wt) => section.locator(`.unused-wt[data-path="${wt.worktree.path.replace(/\\/g, '\\\\')}"]`)
   const mergedRow = row(merged)
   const aheadRow = row(ahead)
@@ -85,19 +90,49 @@ function pathWithoutGit() {
   check('…Give to an agent… and Remove anyway…', (await aheadRow.getByRole('button', { name: 'Give to an agent…' }).count()) === 1 && (await aheadRow.getByRole('button', { name: 'Remove anyway…' }).count()) === 1)
   check('sizes are measured', !!(await lib.until(async () => /\d+(\.\d+)? (B|KB|MB)/.test(await mergedRow.innerText()), 15000)), await mergedRow.innerText())
   check('Remove all merged (1)…', (await section.getByRole('button', { name: 'Remove all merged (1)…' }).count()) === 1)
-  await section.scrollIntoViewIfNeeded()
-  await shot('overview-dark')
+  await shot('changes-list-dark')
   await theme('light')
-  await shot('overview-light')
+  await shot('changes-list-light')
   await theme('dark')
 
-  // --- The Changes tab: the notice, only while one holds work.
-  await page.locator('.tab', { hasText: 'Changes' }).click()
+  // --- Open the unmerged one: its changes since it left main, and Merge (#400).
+  await aheadRow.getByRole('button', { name: 'Open' }).click()
+  const fileRow = page.locator('.split-list .row', { hasText: 'work.txt' })
+  check('Open shows its changes like an agent worktree\'s (work.txt), since it left main', !!(await lib.until(async () => (await fileRow.count()) === 1, 10000)) && (await page.locator('.split-list').innerText()).includes(`since it left ${main}`), await page.locator('.split-list').innerText().catch(() => ''))
+  check('…the picker names it', (await picker.inputValue()).toLowerCase() === `unused:${ahead.worktree.path}`.toLowerCase())
+  await page.locator('.split-list .pane-header [aria-label^="Merge"]').click()
+  const mergeDialog = page.locator('.dialog', { hasText: `Merge ${ahead.worktree.branch}` })
+  check('…its Merge opens the Merge dialog on it', !!(await lib.until(async () => (await mergeDialog.count()) === 1 && /Merges\s+1 commit\s+from/.test(await mergeDialog.innerText()), 8000)), await page.locator('.dialog').last().innerText().catch(() => ''))
+  check('…offering to remove it afterwards (not "and the agent", nor moving its branch)', (await mergeDialog.innerText()).includes('Remove the worktree and branch afterwards') && !(await mergeDialog.innerText()).includes('and the agent'))
+  await shot('changes-merge-dark')
+  await theme('light')
+  await shot('changes-merge-light')
+  await theme('dark')
+  await mergeDialog.getByRole('button', { name: 'Cancel' }).click()
+  await lib.until(async () => (await mergeDialog.count()) === 0, 3000)
+  await shot('changes-open-dark')
+  await theme('light')
+  await shot('changes-open-light')
+  await theme('dark')
+
+  // --- The Overview: one line, linking to Changes.
+  await page.locator('.tab', { hasText: 'Overview' }).click()
+  const line = page.locator('.unused-worktrees-line')
+  check('the Overview shows one line: "2 unused worktrees (1 merged) — Review in Changes"', !!(await lib.until(async () => (await line.count()) === 1, 8000)) && /2 unused worktrees \(1 merged\)\s*—\s*Review in Changes/.test(await line.innerText()) && (await page.locator('.unused-wt').count()) === 0, await line.innerText().catch(() => ''))
+  await shot('overview-line-dark')
+  await theme('light')
+  await shot('overview-line-light')
+  await theme('dark')
+  await line.getByText('Review in Changes').click()
+  check('…which opens Changes at the list', !!(await lib.until(async () => (await section.count()) === 1, 8000)))
+
+  // --- Changes' project folder: the notice, only while one holds work.
+  await picker.selectOption('')
   const notice = page.locator('.unused-work-notice')
   check('Changes says an unused worktree has work not on main', !!(await lib.until(async () => (await notice.count()) === 1, 8000)) && (await notice.innerText()).includes(`1 unused worktree has work that isn't on ${main}`), await notice.innerText().catch(() => ''))
   await shot('changes')
   await notice.getByText('Review').click()
-  check('…its Review goes to the Overview section', !!(await lib.until(async () => (await section.count()) === 1, 8000)))
+  check('…its Review goes to the list', !!(await lib.until(async () => (await section.count()) === 1, 8000)))
 
   // --- Storage: a line for them.
   const st = await inv('storage:project', repo, true)
@@ -155,8 +190,7 @@ function pathWithoutGit() {
   })
   await expired.getByRole('button', { name: 'Remove Anyway' }).click()
   check('…and removes it, branch too (the branch goes just after the folder)', !!(await lib.until(async () => !fs.existsSync(ahead.worktree.path) && !branches().includes(ahead.worktree.branch), 10000)), JSON.stringify([fs.existsSync(ahead.worktree.path), branches(), (await page.locator('.toast').allInnerTexts()).join(' | ')]))
-  check('the section goes with the last of them', !!(await lib.until(async () => (await section.count()) === 0, 8000)))
-  await page.locator('.tab', { hasText: 'Changes' }).click()
+  check('the list goes with the last of them', !!(await lib.until(async () => (await section.count()) === 0, 8000)))
   // The tab loads its list first; the notice would be there by then.
   await lib.until(async () => (await page.locator('.split-list .pane-header', { hasText: 'Changes' }).count()) === 1, 8000)
   await lib.sleep(500)
@@ -186,6 +220,30 @@ function pathWithoutGit() {
   const preview = await inv('worktrees:removalPreview', repo, claudette.worktree.path).then(() => 'offered', (e) => String(e?.message ?? e))
   const keptAnyway = await inv('worktrees:removeUnused', repo, claudette.worktree.path, { force: 'any-token' })
   check('…and nothing is removed, Remove or Remove anyway (nothing to confirm without git)', !kept.deleted && !keptAnyway.deleted && /isn't installed/.test(preview) && fs.existsSync(claudette.worktree.path), JSON.stringify([kept, keptAnyway, preview]))
+  await app.close()
+
+  // --- Merging an unused worktree from Changes (#400): its work lands on main, and it goes after (asked to).
+  fs.writeFileSync(path.join(claudette.worktree.path, 'claudette.txt'), 'kept work\n')
+  lib.git(claudette.worktree.path, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A'])
+  lib.git(claudette.worktree.path, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'Claudette kept work'])
+  ;({ app, page, inv } = await lib.launch({ userData, viewport: { width: 1400, height: 900 } }))
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.openWorkspace(inv, page, ws)
+  await page.getByText('repo', { exact: true }).first().click()
+  await page.locator('.tab', { hasText: 'Changes' }).click()
+  const picker2 = page.locator('.split-list .root-select')
+  await lib.until(async () => (await picker2.locator(`option[value="unused:${claudette.worktree.path.replace(/\\/g, '\\\\')}"]`).count()) === 1, 10000)
+  await picker2.selectOption(`unused:${claudette.worktree.path}`)
+  await lib.until(async () => (await page.locator('.split-list .row', { hasText: 'claudette.txt' }).count()) === 1, 10000)
+  await page.locator('.split-list .pane-header [aria-label^="Merge"]').click()
+  const merging = page.locator('.dialog', { hasText: `Merge ${claudette.worktree.branch}` })
+  await lib.until(async () => (await merging.count()) === 1 && /Merges/.test(await merging.innerText()), 8000)
+  await merging.locator('label', { hasText: 'Remove the worktree and branch afterwards' }).locator('input').check()
+  await merging.getByRole('button', { name: 'Merge', exact: true }).click()
+  const onMain = () => lib.git(repo, ['log', '--format=%s', main]).includes('Claudette kept work') || fs.existsSync(path.join(repo, 'claudette.txt'))
+  check('Merge brings its work onto main', !!(await lib.until(async () => onMain(), 15000)), lib.git(repo, ['log', '--oneline', '-5']))
+  check('…and removes its folder and branch afterwards', !!(await lib.until(async () => !fs.existsSync(claudette.worktree.path) && !branches().includes(claudette.worktree.branch), 10000)), JSON.stringify([fs.existsSync(claudette.worktree.path), branches()]))
+  check('…and the picker no longer lists it', !!(await lib.until(async () => (await picker2.locator('optgroup[label^="Unused worktrees"]').count()) === 0, 8000)))
   await app.close()
 
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')

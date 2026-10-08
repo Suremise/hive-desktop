@@ -922,6 +922,8 @@ export interface MergeResult {
   error?: string
   /** The worktree and branch were removed afterwards. */
   cleanedUp?: boolean
+  /** An unused worktree's merge asked to remove it afterwards, but it was kept: why (#400). */
+  cleanupKept?: string
   /** After a squash merge, the agent's branch was moved to the merged branch; or why it wasn't. */
   branchMoved?: boolean
   moveError?: string

@@ -2489,7 +2489,22 @@ p.hint {
 .setup-status .codicon {
   font-size: 24px;
 }
-/* Unused worktrees (#353): the Overview's section and the Changes tab's notice. */
+/* Unused worktrees (#353): the Changes tab's list of them (#400; it was the Overview's section), its notice, and the
+   Overview's one line linking there. */
+.unused-worktrees-pane {
+  overflow: auto;
+  padding: 4px 18px 18px;
+}
+.unused-worktrees-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0;
+  color: var(--fg-muted);
+}
+.unused-worktrees-line a {
+  cursor: pointer;
+}
 .unused-wt {
   display: flex;
   align-items: center;

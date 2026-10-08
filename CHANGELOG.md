@@ -14,6 +14,9 @@
 ### Hive
 - **Easier-to-read secondary text.** Timestamps, counts, card numbers, hints and other grey text, and amber text and icons, now meet the WCAG AA contrast level (4.5:1) on every background in both themes, hovered and selected rows included. Status dots meet 3:1, and a pulsing dot now changes shade instead of fading. Most of the change is in the light theme, where faint text was hard to read.
 
+### Worktrees
+- **Unused worktrees live in the Changes tab.** Worktrees no agent uses now (kept when you removed their agent, or from another template) are listed in the Changes tab's folder picker, under **Unused worktrees**, next to the agents' worktrees. **All unused worktrees** has the same Remove, Remove all merged, Remove anyway… and Give to an agent… as before, and **Open** shows one's changes like an agent's worktree, with **Merge** to bring its work onto main (and remove it afterwards, if you like). The project Overview keeps a one-line count with a link.
+
 ## 0.4.0 — 7 October 2026
 
 ### Hive Assistant
