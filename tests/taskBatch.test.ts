@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import type { TaskCard } from '../src/shared/types'
 
@@ -172,19 +172,25 @@ describe('batch card changes (hive_update_tasks)', () => {
 
 describe("the Hive Assistant's batch (through its change boundary)", () => {
   let w: WS
-  const wsPath = join(base, 'assistant-ws')
+  let wsPath = ''
   let token = ''
   let savedControl: typeof config.settings.assistant | undefined
-  beforeAll(async () => {
+  let opened = 0
+  beforeAll(() => {
+    savedControl = config.settings.assistant
+  })
+  afterAll(() => {
+    config.settings.assistant = savedControl as typeof config.settings.assistant
+  })
+  // Each test has a board of its own (#422): every card created or placed reads every card on the board, so on one
+  // shared board the later tests' few dozen cards cost several times what they do alone, and more under load.
+  beforeEach(async () => {
+    wsPath = join(base, `assistant-ws-${++opened}`)
     project(wsPath, 'batch')
     project(wsPath, 'alpha', [{ id: 'a1', name: 'Agent 1' }])
     w = await open(wsPath)
-    savedControl = config.settings.assistant
   })
-  afterAll(async () => {
-    config.settings.assistant = savedControl as typeof config.settings.assistant
-    await disposeWorkspaceService(w)
-  })
+  afterEach(async () => disposeWorkspaceService(w))
   const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
   const make = (title: string, column: TaskCard['column'] = 'todo') => run(() => tasks.createTask({ title, project: 'batch', column }, user))
   const cardOf = (n: number) => run(() => tasks.getTask(n))
