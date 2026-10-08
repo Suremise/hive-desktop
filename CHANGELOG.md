@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## 0.4.1 — 8 October 2026
 
 ### Task board
 - **Your answers reach an agent waiting for you.** When an agent asks you something and its turn ends, and you answer through the Assistant (which records your answer as decisions on the card), the agent used to hear nothing until you pasted the answer into its pane. Now Hive types one line into it once nothing is in the way (*"#392 has 2 new decisions from the user: read them and carry on"*): decisions recorded together come in one line, never while it works or you type in its terminal, and the card's history says whom Hive told.
