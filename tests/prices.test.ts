@@ -31,13 +31,32 @@ describe('estimated cost', () => {
   })
   it('knows Claude aliases, 1M suffixes and dated ids', () => {
     expect(modelPrice('claude-code', 'opus')?.input).toBe(4)
-    expect(modelPrice('claude-code', 'claude-sonnet-5-5[1m]')?.cachedInput).toBe(0.2)
+    expect(modelPrice('claude-code', 'claude-sonnet-5-5[1m]')?.cachedInput).toBe(0.1)
     expect(modelPrice('claude-code', 'claude-haiku-4-5-20251001')?.cacheWrite).toBe(1.25)
     // Haiku 5.5, and the haiku alias now on it: Anthropic's $0.10 in, $0.50 out (prompts up to 100,000 tokens).
     expect(modelPrice('claude-code', 'haiku')).toEqual({ input: 0.1, output: 0.5, cachedInput: 0.01, cacheWrite: 0.125 })
     expect(modelPrice('claude-code', 'claude-haiku-5-5')?.output).toBe(0.5)
     expect(modelPrice('claude-code', 'claude-haiku-4-5')?.input).toBe(1)
     expect(modelPrice('claude-code', 'claude-unknown-9')).toBeNull()
+  })
+  it("prices Sonnet 5.5's cache reads at Anthropic's $0.10, 0.05× input (#435)", () => {
+    // Anthropic's pricing page (platform.claude.com/docs/en/about-claude/pricing, 8 Oct 2026): $2 input, $2.50 five-minute
+    // cache writes, $0.10 cache hits, $10 output per million.
+    const sonnet55 = { input: 2, output: 10, cachedInput: 0.1, cacheWrite: 2.5 }
+    expect(modelPrice('claude-code', 'claude-sonnet-5-5')).toEqual(sonnet55)
+    expect(modelPrice('claude-code', 'sonnet')).toEqual(sonnet55)
+    expect(modelPrice('claude-code', 'claude-sonnet-5-5-20260901')).toEqual(sonnet55)
+    // 1M input, 2M cache reads, 100K cache writes, 100K output: 2 + 0.2 + 0.25 + 1.
+    expect(estimateCost(usage('claude-code', 'sonnet'))).toBeCloseTo(3.45, 6)
+    expect(estimateCost({ ...usage('claude-code', 'claude-sonnet-5-5'), inputTokens: 0, cacheWriteTokens: 0, outputTokens: 0, cacheReadTokens: 1_000_000 })).toBeCloseTo(0.1, 6)
+    // The older models keep 0.1× input.
+    expect(modelPrice('claude-code', 'claude-sonnet-5')?.cachedInput).toBe(0.2)
+    expect(modelPrice('claude-code', 'claude-sonnet-4-6')?.cachedInput).toBeCloseTo(0.3, 9)
+    // A price the user set for Sonnet 5.5 still wins, by its id or the alias.
+    const own = { input: 2, output: 10, cachedInput: 0.2 }
+    const settings = { providers: { 'claude-code': { prices: { 'claude-sonnet-5-5': own } } } } as never
+    expect(modelPrice('claude-code', 'sonnet', settings)).toEqual(own)
+    expect(estimateCost({ ...usage('claude-code', 'claude-sonnet-5-5'), inputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 }, settings)).toBeCloseTo(0.4, 6)
   })
   it("uses the user's prices over Hive's", () => {
     const settings = { providers: { codex: { prices: { 'gpt-6-luna': { input: 1, cachedInput: 0, output: 0 } } } } } as never
