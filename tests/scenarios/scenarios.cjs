@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 19
+const FIXTURES_VERSION = 20
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -22,6 +22,32 @@ const argsOf = (x) => {
 /** A fake builder's watch for its card's verdict, as card-loop starts it (a hive tool call through the real server). */
 const verdictWatch = (n) => `hive hive_wait_for_tasks {"cards":[${n}],"changes":["verdict","column"],"column":"passed","wake":true}`
 const ran = (o, tool) => called(o, tool).filter((c) => c.ok)
+/**
+ * Starts Coder on a long task without a card before the subject's prompt (#416): ready (a trust question answered), then
+ * the task typed in, until it is working. The fakes do "work N" (`fakeSecs`: the wake quotes Coder's reply, which the
+ * fake Assistant then does too, within the fakes' minute); a model runs the command (`secs`, long enough to watch).
+ */
+async function busyCoder(c, fakeSecs, secs) {
+  const providers = (await c.inv('settings:get')).providers ?? {}
+  if (Object.values(providers).some((p) => /fake-(claude|codex)/i.test(String(p?.executablePath ?? '')))) secs = fakeSecs
+  const key = `session:${c.alpha.toLowerCase()}#${c.agents.coder.id}`
+  const live = async () => (await c.inv('session:live')).find((s) => s.projectPath.toLowerCase() === c.alpha.toLowerCase() && s.agentId === c.agents.coder.id)
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+  await c.inv('session:start', c.alpha, { agentId: c.agents.coder.id })
+  for (let t = Date.now(); Date.now() - t < 90000 && !['ready', 'finished'].includes((await live())?.status); ) {
+    if (/trust this folder/i.test(String(await c.inv('pty:buffer', key).catch(() => '')))) {
+      await c.inv('pty:write', key, '\x1b[B')
+      await sleep(300)
+      await c.inv('pty:write', key, '\r')
+    }
+    await sleep(500)
+  }
+  await sleep(1500)
+  await c.inv('pty:write', key, `Run this in the shell and wait for it to end, then reply "built": node -e "setTimeout(() => {}, ${secs * 1000})" (work ${secs})`)
+  await sleep(400)
+  await c.inv('pty:write', key, '\r')
+  for (let t = Date.now(); Date.now() - t < 30000 && (await live())?.status !== 'working'; ) await sleep(500)
+}
 const read = (o, skill) => o.skillsRead.includes(skill)
 /** A call's arguments (JSON) have key: value. */
 const field = (args, key, value) => new RegExp(`"?${key}"?\\s*:\\s*"?${value}\\b`).test(String(args))
@@ -961,12 +987,40 @@ module.exports.SCENARIOS = [
       return [
         ['read the coordinate-agents skill', read(o, 'coordinate-agents'), o.skillsRead.join(',')],
         ['started the card with hive_start_task, which worked', start >= 0, calls.map((x) => `${x.tool}${x.ok ? '' : '!'}`).join(',')],
-        ['then waited with hive_wait_for_agents, which worked', start >= 0 && calls.slice(start + 1).some((x) => x.tool === 'hive_wait_for_agents' && x.ok)],
+        // An agent watch or wait, or a card watch on the card it started (#416: coordinate-agents points card work there).
+        ['then followed it with a wait or a watch (hive_wait_for_agents, or hive_wait_for_tasks on its card), which worked', start >= 0 && calls.slice(start + 1).some((x) => x.ok && (x.tool === 'hive_wait_for_agents' || (x.tool === 'hive_wait_for_tasks' && new RegExp(`"cards"\\s*:\\s*\\[[^\\]]*\\b${c.cards.i}\\b`).test(String(x.args)))))],
         ["didn't type the card into the agent instead", called(o, 'hive_prompt_agent').length === 0],
         ['the agent did it: the card is in Review and the file is there', o.cards.i?.column === 'review' && /text=auto/.test(c.read('.gitattributes') ?? ''), `${o.cards.i?.column}`]
       ]
     },
-    fakeSkips: ['started the card with hive_start_task, which worked', 'then waited with hive_wait_for_agents, which worked', 'the agent did it: the card is in Review and the file is there']
+    fakeSkips: ['started the card with hive_start_task, which worked', 'then followed it with a wait or a watch (hive_wait_for_agents, or hive_wait_for_tasks on its card), which worked', 'the agent did it: the card is in Review and the file is there']
+  },
+  {
+    id: 'assistant-agent-watch',
+    title: "The Assistant asked to say when an agent is done with work that has no card: an agent watch, not a polling loop (#416)",
+    role: 'assistant',
+    control: 'agents',
+    waitForAgents: true,
+    async setup(c) {
+      await busyCoder(c, 10, 120)
+    },
+    prompt: "Coder is building something for me (there's no card for it). Tell me when it's done.",
+    fake: 'skill coordinate-agents then hive hive_wait_for_agents {"agents":[{"project":"alpha","agent":"Coder"}],"wake":true}',
+    // Its turn ended with the watch running: watching, which a wait held in the call never shows.
+    during: (c, status) => {
+      if (status === 'watching') c.sawWatching = true
+    },
+    expect: (o, c) => {
+      const waits = called(o, 'hive_wait_for_agents')
+      const watched = waits.some((x) => x.ok && argsOf(x).wake === true)
+      return [
+        ['read the coordinate-agents skill', read(o, 'coordinate-agents'), o.skillsRead.join(',')],
+        ['watched Coder with an agent watch (hive_wait_for_agents with wake), which worked', watched, waits.map((x) => `${x.args}${x.ok ? '' : '!'}`).join(' | ')],
+        ['ended its turn watching (status watching), not waiting in the call', !!c.sawWatching],
+        ['no polling: no wait held in the call', !waits.some((x) => argsOf(x).wake !== true && !argsOf(x).cancel), waits.map((x) => x.args).join(' | ')],
+        ['woken when Coder finished: its watch has ended', watched && o.status !== 'watching', o.status]
+      ]
+    }
   },
   {
     id: 'assistant-plan',

@@ -35,7 +35,7 @@ The task board is the shared list of work. For work that needs more than one ste
 
 ## Leave agents alone when
 
-- An agent is working, starting, waiting on its background tasks, or watching cards (`watching`: it waits on a card and Hive wakes it when the card changes): don't send it anything. Only the user can cancel a watch.
+- An agent is working, starting, waiting on its background tasks, or watching (`watching`: it waits on a card or another agent, and Hive wakes it when that changes): don't send it anything. Only the user can cancel a watch.
 - An agent is asking the user a question: tell the user. Never answer for them.
 - The user has just typed in an agent's terminal: wait for them.
 - An agent asks to trust its folder: that's for the user, so tell them.
@@ -44,9 +44,10 @@ To stop a busy agent, `hive_stop_agent` asks the user. Give your reason.
 
 ## Follow the work
 
-- `hive_wait_for_agents` waits until agents stop working (at most 10 minutes a call). Call it again while they are still working.
+- To be told when agents are done, start an **agent watch** and end your turn: `hive_wait_for_agents` with `wake: true`. Hive types a line when one finishes, waits for the user or stops. Don't poll with calls one after another: each wakes you and costs context. For work on a card, a card watch (`hive_wait_for_tasks` with `wake`) follows the card instead. You have one watch at a time: a new one replaces the other.
+- Without `wake`, `hive_wait_for_agents` waits in the call (at most 10 minutes): for a short wait whose answer you need before you go on.
 - An agent waiting on background tasks it started (a test run, say) shows as `background`: it isn't finished, and it carries on by itself. One watching cards shows as `watching` ("Waiting for #12 → Review"): `hive_wait_for_agents` doesn't wait for it, since nothing happens until its card changes.
-- Nothing wakes you except the user, your own tool calls returning, and a card watch you started (`hive_wait_for_tasks` with `wake`: Hive types a line when the card changes). Only say you'll keep watching while a wait or a watch is running. If you stop, say so, and that the user will need to ask you to look again.
+- Nothing wakes you except the user, your own tool calls returning, and a watch you started. Only say you'll keep watching while a wait or a watch is running. If you stop, say so, and that the user will need to ask you to look again.
 - When it returns, tell the user who finished, who is waiting for them, and who is still working.
 
 ## Hand work over

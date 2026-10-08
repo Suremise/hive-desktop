@@ -297,6 +297,17 @@ export function taskWaitText(r: { done?: string; watching?: string; limitAt?: st
   return `${r.changes.map(line).join('\n')}${since}`
 }
 
+/**
+ * hive_wait_for_agents with wake or cancel (#416), as the model gets it: an agent watch begun (end the turn, and the card
+ * watch it replaced), agents not working already (each and its state), or the cancel. The bounded wait replies as JSON.
+ */
+export function agentWatchText(r: { done?: string; watching?: string; limitAt?: string; replaced?: string; already?: string[] }): string {
+  if (r.done) return r.done
+  if (r.already) return `Already: ${r.already.join('; ')}.`
+  const replaced = r.replaced ? ` It replaces your card watch (${r.replaced.replace(/^Waiting/, 'waiting')}).` : ''
+  return `${r.watching}. End your turn now: Hive types a line into this session when one finishes, waits for the user or stops, or at ${r.limitAt ?? 'the limit'} if none does. Nothing runs meanwhile.${replaced}`
+}
+
 /** A setting in a listing (GET /v1/settings): where it is, its value (and default when it differs), what it does. */
 export interface SettingRow {
   id: string

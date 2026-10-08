@@ -208,6 +208,8 @@ These read-only calls are open to every caller:
 
 `POST /v1/agents/wait` — waits until agents stop working (finished, idle, waiting for the user or stopped), or `timeoutSeconds` (5–600, default 300). An agent waiting on its background tasks (`background`) still counts as working, since it carries on when they end; `"ignoreBackground": true` stops waiting at the end of its turn instead. An agent with a card watch (`watching`: its turn has ended and it waits for cards to change, `POST /v1/tasks/wait`) doesn't count as working, and its `statusMessage` is the watch's label ("Waiting for #12 → Review"). One that needs the user to sign in again (`signin`) is waiting for the user. Without `agents`, it waits for every busy agent in the workspace. The reply, headers included, comes only when the wait ends: give your HTTP client a longer timeout than the wait (Node's `fetch` stops waiting for headers after 300 s).
 
+With `"wake": true` it is an **agent watch** (#416), for an agent's or the Assistant's own token: it replies at once, `{ "watching": "Waiting for B6 to finish", "limitAt": "…" }` (with `replaced`, the label of a card watch it replaced), or `{ "already": ["B6 (hive) is idle: \"…\""] }` and no watch when an agent named isn't working now. Hive then types one line into the caller when a watched agent finishes its turn (with `ignoreBackground`, also while its background tasks still run), waits for the user, or stops, naming every agent that did and the start of its latest reply (`[Hive] B6 (hive) finished: "The installer is built…". Your agent watch has ended: carry on …`), or when `limitMinutes` (1–1440, default 120) pass with none. The line is delivered as a card watch's is (only while the caller is idle and the user isn't typing there; Enter again once if its CLI didn't take it), and the caller shows `watching` meanwhile. It is the caller's one watch: a card watch replaces it, and it replaces one. `"cancel": true` ends it. Without `agents` it watches every agent working now (`already` is `["No agent is working"]` when none is), at most 20, never the caller itself (`400`). In both forms, a prompt Hive has just typed into an agent that its CLI hasn't taken yet counts as working, so a wait right after `hive_prompt_agent` waits for that task. A project agent may watch any project's agents (their status is open to it), but its line leaves out the reply of another project's agent.
+
 ```json
 { "agents": [{ "project": "web", "agent": "Agent 2" }], "timeoutSeconds": 120 }
 ```
@@ -281,7 +283,7 @@ The workspace's board: cards in six columns, `hold` (On Hold), `todo`, `doing`, 
 - A new card is its project's (also when `project` is left out); another project, or `""`, is `403`, and so is changing a card's `project`.
 - A card of its own that waits for or links to another project's card shows that card as a number, listed in `elsewhere`; changing `blockedBy` or `links` keeps those.
 - `position` and a reorder place its cards among its project's cards in the column (the top or bottom of those); other projects' cards keep their places. The place a short reply gives (`3rd of 5`) counts its project's cards.
-- Another project's agents' conversations hold that project's cards (a card started on an agent is its prompt), so for another project, `GET /v1/projects/{name}/agents/{agent}/activity`, `GET /v1/projects/{name}/sessions` and `POST /v1/projects/{name}/input` are `403`, and the event stream (`/v1/events`) leaves out their session events. Their status (`/v1/projects`, `/v1/projects/{name}`, `/v1/agents/wait`) stays open.
+- Another project's agents' conversations hold that project's cards (a card started on an agent is its prompt), so for another project, `GET /v1/projects/{name}/agents/{agent}/activity`, `GET /v1/projects/{name}/sessions`, and `POST /v1/projects/{name}/input` are `403`, and the event stream (`/v1/events`) leaves out their session events. Their status (`/v1/projects`, `/v1/projects/{name}`, `/v1/agents/wait`) stays open; an agent watch's line leaves out what another project's agent said.
 
 An agent runs as the user, so it could read the workspace token from disk: this keeps agents to their own project's work rather than containing a hostile one.
 
@@ -489,6 +491,7 @@ When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP se
 | `hive_reorder_tasks` | `POST /v1/tasks/reorder`, short reply |
 | `hive_update_tasks` | `POST /v1/tasks/batch`, short reply |
 | `hive_wait_for_tasks` | `POST /v1/tasks/wait` (`wake: true` for a card watch, `cancel: true` to end it), a line per change |
+| `hive_wait_for_agents` | `POST /v1/agents/wait` (50 seconds by default, it calls again to keep waiting; `wake: true` for an agent watch, a line; `cancel: true` to end it) |
 | `hive_merge_slot` | `GET /v1/projects/{name}/merge-slot`, `POST …/merge-slot/claim` or `…/release` (the session's project), a line (project agents only) |
 
 Tools default to the session's own project, so an agent can simply say *"create a handover"*. The board tools send the agent's id and project, so a card's history and comments name the agent.
@@ -499,7 +502,6 @@ The Hive Assistant's `hive` server always runs (even with this setting or the Ag
 |---|---|---|
 | `hive_list_providers` | `GET /v1/providers` | any |
 | `hive_agent_activity` | `GET /v1/projects/{name}/agents/{agent}/activity` (`detail: true`: `?detail=true`) | any |
-| `hive_wait_for_agents` | `POST /v1/agents/wait` (50 seconds by default; it calls again to keep waiting) | any |
 | `hive_activate_project` | `POST /v1/projects/{name}/activate` | Control agents |
 | `hive_add_agent` | `POST /v1/projects/{name}/agents` | Control agents |
 | `hive_update_agent` | `PATCH /v1/projects/{name}/agents/{agent}` | Control agents |

@@ -36,6 +36,27 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Agent watches: fakes, Codex (`gpt-5.6-luna`), fixtures v19–v20, 8 October 2026
+
+#416 gives `hive_wait_for_agents` a `wake` (an **agent watch**: the Assistant, or an agent, ends its turn and is woken
+when an agent finishes, waits for the user or stops), gives the tool to project agents too, and changes coordinate-agents
+(an agent watch rather than waiting call after call; a card watch for work on a card) and the Assistant's always-present
+line (a watch wakes it too). Fixtures v19 added **assistant-agent-watch** (Coder busy with work that has no card; "tell me
+when it's done"): it passes only when the Assistant ends its turn watching (status `watching`), not waiting in the call.
+v20 lets assistant-dispatch follow its card with a card watch on that card as well as with `hive_wait_for_agents`.
+- **Fakes**, v19, before (main `21c2ff5` with the final fixtures, in a worktree of its own) and after, neither source
+  changed while it ran (baselines `b2-416-before-r2b` and `b2-416-after-r2b`): Performance → Compare finds them
+  comparable. assistant-agent-watch fails before (main ignores `wake` and holds the call until Coder is done) and passes
+  after; every other check is the same. Project agents' tool list grows **+10.3%** (+1,321 bytes a session: the tool is
+  new to them); the Assistant's grows +463 bytes (the longer description), its instructions +66 and its skills +352.
+  The runs' times went up 2–4 s across the board; three repeats of two scenarios on each side all took 15 s, so that was
+  the machine's load.
+- **Codex: 2 of 2 pass** under v20 (`2026-10-08T04-23-27-codex`, $0.018): the Assistant read coordinate-agents, watched
+  Coder with `wake`, ended its turn watching without polling, and was woken when Coder finished; dispatching a card, it
+  followed the card with a card watch. Under v19 (`04-03-07`) assistant-dispatch failed only because its check wanted
+  `hive_wait_for_agents` for card work, which the skill now sends to a card watch: v20.
+- **Claude Code**: not run (its test home isn't signed in).
+
 ## Card decisions: fakes, Codex (`gpt-5.6-luna`, CLI 0.160.1), Claude Code (sonnet), fixtures v18, 7 October 2026
 
 #357 adds a card's **Decisions** and the "new decision" flag on an agent's replies, and changes work-on-card (read decisions

@@ -4,6 +4,7 @@ import { link, mkdir, readFile, rename, rm, writeFile } from 'original-fs/promis
 import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
 import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, wakeLines, watchLabel, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
+import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, readSavedAgentMark, type AgentEvent, type AgentMark, type AgentNow, type AgentWatchCondition, type WatchedAgent } from '../shared/agentWatch'
 import type { LiveSessionState, TaskCard, TaskWatchInfo } from '../shared/types'
 import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
@@ -27,6 +28,9 @@ import { openWorkspaces, workspaceFor, type WorkspaceService } from './workspace
  *   checked after every wait and before every write, and the watches are dropped when it closes or the window switches.
  * - Changes to a workspace's watches happen one at a time (`locked`), so a board change checked while a watch is being
  *   registered is checked again once it is in place, and a cancel can't be undone by a delivery that was under way.
+ * - An agent watch (#416, hive_wait_for_agents with wake) is a watch that follows agents instead of cards: it fires when
+ *   a watched agent's turn ends, it waits for the user, or it stops, checked on every status change. It is the agent's
+ *   one watch like any other (a card watch replaces it, and it replaces one), kept, typed and ended the same way.
  */
 
 const log = createLogger('watches')
@@ -40,7 +44,11 @@ interface WatchRecord {
    * out from the agent, never taken from the file.
    */
   scope: string | null
+  /** The cards and what counts (an agent watch has no cards: `agents` says what it waits for). */
   cond: WatchCondition
+  /** An agent watch (#416): the agents it follows, and each as it was when the watch began (by agentKey). */
+  agents?: AgentWatchCondition
+  agentMarks?: Record<string, AgentMark>
   /** Each watched card as it was when the watch began: what a change is measured from. */
   marks: Record<string, CardMark>
   /**
@@ -64,9 +72,10 @@ interface WatchRecord {
   /**
    * It fired: the line to type when the agent is idle (kept until it is typed), and the cards whose state it tells.
    * `sending`: Hive began typing it (saved before the first key): a watch read back with it was delivered, or was being
-   * delivered when Hive stopped, and is never typed again (at most once).
+   * delivered when Hive stopped, and is never typed again (at most once). `agents`: an agent watch's agents it tells about
+   * (by agentKey; none for its limit).
    */
-  fired?: { line: string; at: string; cards: number[]; sending?: string }
+  fired?: { line: string; at: string; cards: number[]; agents?: string[]; sending?: string }
 }
 
 interface Store {
@@ -92,6 +101,12 @@ interface Store {
    * now), at most MAX_WATCHES agents and WOKE_CARDS cards each.
    */
   woke: Map<string, Map<string, Baseline>>
+  /**
+   * What each agent's wakes told it about the agents it watched (#416): each one's latest event told (`seq`, see
+   * happenings), by agentKey. Its next agent watch starts from there, so an event between the two is news. In memory,
+   * bounded as `woke`.
+   */
+  wokeAgents: Map<string, Map<string, number>>
 }
 
 /** How long a fired watch waits before its line is typed, so changes landing together are told together (#224). */
@@ -158,6 +173,18 @@ const scopeFor = (ws: WorkspaceService, projectPath: string): string | null => (
 const hostedIn = (ws: WorkspaceService, path: string, projectPath: string): boolean =>
   ws.isAssistantHome(projectPath) || same(dirname(resolve(projectPath)), resolve(path))
 
+/**
+ * Whether an agent may watch an agent of `target` (#416): a project of this workspace (never the Assistant). Agents'
+ * status is open to every caller; what another project's agent said isn't (shownTo).
+ */
+const mayWatch = (ws: WorkspaceService, path: string, _projectPath: string, target: string): boolean => !ws.isAssistantHome(target) && same(dirname(resolve(target)), resolve(path))
+
+/**
+ * A watched agent as its watcher may be told it: a project agent (`scope`, its project) isn't told the reply of another
+ * project's agent, whose conversation holds that project's cards (as its activity is closed to it).
+ */
+const shownTo = (scope: string | null, agent: WatchedAgent, now: AgentNow): AgentNow => (scope === null || same(scope, basename(resolve(agent.projectPath))) ? now : { ...now, reply: null })
+
 /** Whether a store's workspace is still the one open in its window. */
 const alive = (store: Store): boolean => !store.life.aborted && !!store.ws.path && same(store.ws.path, store.path)
 const checkAlive = (store: Store): void => {
@@ -196,14 +223,14 @@ function load(ws: WorkspaceService): Promise<Store> {
     const invalid = read.invalid
     let delivered = false
     for (const { rec, raw } of read.list) {
-      if (!hostedIn(ws, path, rec.projectPath)) invalid.push(raw)
+      if (!hostedIn(ws, path, rec.projectPath) || (rec.agents && !rec.agents.agents.every((a) => mayWatch(ws, path, rec.projectPath, a.projectPath)))) invalid.push(raw)
       else if (rec.fired?.sending) {
         delivered = true
         log.info(`The wake for ${userText(rec.agentId)} was being typed when Hive stopped: it counts as delivered`)
       } else list.push({ ...rec, scope: scopeFor(ws, rec.projectPath) })
     }
     // Delivered ones leave the file at the next tick.
-    const store: Store = { ws, path, life, list, invalid, saved: read.text, dirty: delivered, queue: Promise.resolve(), delivering: new Map(), woke: new Map() }
+    const store: Store = { ws, path, life, list, invalid, saved: read.text, dirty: delivered, queue: Promise.resolve(), delivering: new Map(), woke: new Map(), wokeAgents: new Map() }
     // Read back too big for every watch to end (a hand edit, an older build): room is made, nothing is lost.
     if (budget(store, list) > MAX_FILE_BYTES) {
       const over: WatchRecord[] = []
@@ -293,7 +320,22 @@ function readRecord(v: unknown): WatchRecord | null {
   const text = (x: unknown, max: number): x is string => typeof x === 'string' && x.length > 0 && x.length <= max
   const time = (x: unknown): x is string => text(x, 40) && Number.isFinite(Date.parse(x))
   if (!text(r.id, 64) || !text(r.projectPath, 1024) || !text(r.agentId, 128)) return null
-  const cond = readSavedCondition(r.cond)
+  // An agent watch (#416): its agents and their marks, and no cards.
+  let agents: AgentWatchCondition | undefined
+  let agentMarks: Record<string, AgentMark> | undefined
+  if (r.agents !== undefined) {
+    const a = readSavedAgentCondition(r.agents)
+    if (!a || !r.agentMarks || typeof r.agentMarks !== 'object') return null
+    agentMarks = {}
+    for (const t of a.agents) {
+      const k = agentKey(t.projectPath, t.agentId)
+      const m = readSavedAgentMark((r.agentMarks as Record<string, unknown>)[k])
+      if (!m) return null
+      agentMarks[k] = m
+    }
+    agents = a
+  }
+  const cond = agents ? NO_CARDS : readSavedCondition(r.cond)
   if (!cond || !r.marks || typeof r.marks !== 'object') return null
   const marks: Record<string, CardMark> = {}
   for (const n of cond.cards) {
@@ -308,7 +350,8 @@ function readRecord(v: unknown): WatchRecord | null {
     const f = r.fired as Record<string, unknown> | null
     const cards = Array.isArray(f?.cards) ? f.cards.filter((n): n is number => cond.cards.includes(n as number)) : null
     if (!f || typeof f.line !== 'string' || jsonBytes(f.line) > MAX_LINE_BYTES || !f.line.startsWith('[Hive] ') || !time(f.at) || !cards || (f.sending !== undefined && !time(f.sending))) return null
-    fired = { line: f.line, at: f.at, cards, ...(f.sending ? { sending: f.sending as string } : {}) }
+    const told = Array.isArray(f.agents) && agentMarks ? f.agents.filter((k): k is string => typeof k === 'string' && k in agentMarks!) : undefined
+    fired = { line: f.line, at: f.at, cards, ...(told?.length ? { agents: told } : {}), ...(f.sending ? { sending: f.sending as string } : {}) }
   }
   // Where its view of each card ended (every card, or none from before #224), and whose own changes aren't news.
   let seen: Record<string, Seen> | undefined
@@ -325,8 +368,11 @@ function readRecord(v: unknown): WatchRecord | null {
   if (r.self !== undefined && (!text(r.self, 300) || !seen)) return null
   const from = { ...(seen ? { seen } : {}), ...(r.self ? { self: r.self as string } : {}) }
   // The scope is set by the workspace that loads it (from the agent's folder), whatever the file says.
-  return { id: r.id, projectPath: r.projectPath, agentId: r.agentId, scope: '', cond, marks, current: { ...marks }, since: r.since, ...from, limitMinutes: minutes, limitAt: r.limitAt, ...(fired ? { fired } : {}) }
+  return { id: r.id, projectPath: r.projectPath, agentId: r.agentId, scope: '', cond, ...(agents ? { agents, agentMarks } : {}), marks, current: { ...marks }, since: r.since, ...from, limitMinutes: minutes, limitAt: r.limitAt, ...(fired ? { fired } : {}) }
 }
+
+/** An agent watch's condition on cards: none. */
+const NO_CARDS: WatchCondition = { cards: [], changes: [] }
 
 /** The file's text for a list of watches (the scope and the cards as last seen aren't saved: both are worked out on load). */
 const fileText = (store: Store, list: WatchRecord[], invalid = store.invalid): string =>
@@ -334,7 +380,7 @@ const fileText = (store: Store, list: WatchRecord[], invalid = store.invalid): s
 
 /** The longest a watch's saved form can grow to: fired with the longest line, being typed. */
 const AT = new Date(0).toISOString()
-const atMost = (r: WatchRecord): WatchRecord => ({ ...r, fired: { line: 'x'.repeat(MAX_LINE_BYTES - 2), at: AT, cards: r.cond.cards, sending: AT } })
+const atMost = (r: WatchRecord): WatchRecord => ({ ...r, fired: { line: 'x'.repeat(MAX_LINE_BYTES - 2), at: AT, cards: r.cond.cards, ...(r.agentMarks ? { agents: Object.keys(r.agentMarks) } : {}), sending: AT } })
 /** The file's size with every watch at its longest: it must fit, so a watch Hive took can always fire, be typed and end. */
 const budget = (store: Store, list: WatchRecord[], invalid = store.invalid): number => Buffer.byteLength(fileText(store, list.map(atMost), invalid))
 
@@ -444,7 +490,10 @@ const saveQuietly = (store: Store): Promise<void> =>
     log.warn('saving watches', e)
   })
 
-const infoOf = (r: WatchRecord): TaskWatchInfo => ({ cards: r.cond.cards, changes: r.cond.changes, ...(r.cond.column ? { column: r.cond.column } : {}), label: watchLabel(r.cond), since: r.since, limitAt: r.limitAt })
+const infoOf = (r: WatchRecord): TaskWatchInfo =>
+  r.agents
+    ? { cards: [], changes: [], agents: r.agents.agents.map((a) => a.name), label: agentWatchLabel(r.agents), since: r.since, limitAt: r.limitAt }
+    : { cards: r.cond.cards, changes: r.cond.changes, ...(r.cond.column ? { column: r.cond.column } : {}), label: watchLabel(r.cond), since: r.since, limitAt: r.limitAt }
 const recordOf = (store: Store, projectPath: string, agentId: string): WatchRecord | undefined => store.list.find((x) => same(x.projectPath, projectPath) && x.agentId === agentId)
 const agentKey = (projectPath: string, agentId: string): string => `${projectPath.toLowerCase()}#${agentId}`
 
@@ -586,6 +635,195 @@ export async function cancelWatch(ws: WorkspaceService, projectPath: string, age
   return had
 }
 
+/**
+ * What agents did lately (#416), by agentKey: each change to a status that isn't working (its turn ended, it waits for
+ * the user, it stopped), with the agent as it was then, numbered in order (`seq`: from the clock, so a number saved in a
+ * watch still compares after a restart). The last few for each agent, whether or not anyone watches it yet: a wake's
+ * next watch counts what happened in between. In memory: what happened while Hive was closed is read from the agents
+ * as they are (agentHits).
+ */
+interface Happening {
+  seq: number
+  now: AgentNow
+}
+const happenings = new Map<string, Happening[]>()
+const lastStatus = new Map<string, string>()
+let lastSeq = 0
+const HAPPENINGS_KEPT = 8
+const AGENTS_KEPT = 2000
+const latestSeq = (key: string): number => happenings.get(key)?.at(-1)?.seq ?? 0
+/** The latest of an agent's events after `from` that a watch counts (one into background only with ignoreBackground). */
+const happenedSince = (key: string, from: number, ignoreBackground: boolean): Happening | undefined =>
+  happenings.get(key)?.findLast((h) => h.seq > from && !agentBusy(h.now, ignoreBackground))
+
+/** Statuses during a turn: idle after one of these is the turn's end. */
+/**
+ * Each agent's turn (#416): its launch, and whether a turn is under way in it, one that has been seen working (or on
+ * its background tasks) since its last turn ended. Only such a turn's end is a finished turn: a launch becoming ready,
+ * also after a startup question (folder trust) or a refused sign-in, ran none.
+ */
+const turns = new Map<string, { runId: string; inTurn: boolean }>()
+
+/**
+ * Records an agent's status change (every session-status). An event is waiting for the user, a stop or an error, or
+ * idle at the end of a turn under way (finished, interrupted, or into background tasks).
+ */
+export function noteAgentStatus(st: LiveSessionState): void {
+  const key = agentKey(st.projectPath, st.agentId)
+  const was = turns.get(key)
+  const turn = { runId: st.runId || '', inTurn: !!was && was.runId === (st.runId || '') && was.inTurn }
+  if (st.status === 'working' || st.status === 'background') turn.inTurn = true
+  // Starting, stopped or refused a sign-in: no turn under way (one carried on after signing in works again first).
+  if (st.status === 'starting' || st.status === 'stopped' || st.status === 'signin') turn.inTurn = false
+  const ended = (st.status === 'ready' || st.status === 'finished' || st.status === 'watching') && turn.inTurn
+  if (ended) turn.inTurn = false
+  turns.delete(key)
+  turns.set(key, turn)
+  if (turns.size > AGENTS_KEPT) turns.delete(turns.keys().next().value!)
+  const prev = lastStatus.get(key)
+  if (prev === st.status) return
+  lastStatus.delete(key)
+  lastStatus.set(key, st.status)
+  if (lastStatus.size > AGENTS_KEPT) lastStatus.delete(lastStatus.keys().next().value!)
+  if (st.status === 'working' || st.status === 'starting') return
+  const needsUser = st.status === 'waiting' || st.status === 'signin' || st.status === 'stopped' || st.status === 'error'
+  if (!needsUser && !ended && !(st.status === 'background' && turn.inTurn)) return
+  const reply = st.status === 'stopped' ? null : (sessions.agentNow(st.projectPath, st.agentId)?.reply ?? null)
+  const now: AgentNow = { status: st.status, runId: st.runId || null, prompts: 0, pending: false, statusMessage: st.statusMessage ?? null, backgroundTasks: st.backgroundTasks ?? 0, reply, watch: st.status === 'watching' ? (st.watch?.label ?? null) : null }
+  lastSeq = Math.max(lastSeq + 1, Date.now())
+  const list = happenings.get(key) ?? []
+  happenings.delete(key)
+  happenings.set(key, [...list, { seq: lastSeq, now }].slice(-HAPPENINGS_KEPT))
+  if (happenings.size > AGENTS_KEPT) happenings.delete(happenings.keys().next().value!)
+}
+
+/** A watched agent as it is now (#416): not running reads as stopped. A watching agent's own watch is said too. */
+function agentNowOf(a: Pick<WatchedAgent, 'projectPath' | 'agentId'>): AgentNow {
+  const now = sessions.agentNow(a.projectPath, a.agentId)
+  if (!now) return { status: 'stopped', runId: null, prompts: 0, pending: false }
+  return { ...now, watch: now.status === 'watching' ? (sessions.watchFor(a.projectPath, a.agentId)?.label ?? null) : null }
+}
+
+type AgentHit = { agent: WatchedAgent; event: AgentEvent; now: AgentNow; again: boolean; seq: number }
+
+/**
+ * What the agents of an agent watch did since it began: each one's latest event after what the watcher knew (its mark's
+ * seq), as the agent was then, and whether it is working again since; failing that (nothing recorded: Hive restarted,
+ * or a typed prompt never taken), the agent as it is now, if it isn't working.
+ */
+function agentHits(rec: WatchRecord): AgentHit[] {
+  const out: AgentHit[] = []
+  const ib = rec.agents?.ignoreBackground ?? false
+  for (const agent of rec.agents?.agents ?? []) {
+    const key = agentKey(agent.projectPath, agent.agentId)
+    const mark = rec.agentMarks?.[key]
+    const cur = agentNowOf(agent)
+    const h = happenedSince(key, mark?.seq ?? 0, ib)
+    if (h) {
+      out.push({ agent, event: agentEvent(h.now, undefined, ib)!, now: shownTo(rec.scope, agent, h.now), again: agentBusy(cur, ib), seq: h.seq })
+      continue
+    }
+    const event = agentEvent(cur, mark, ib)
+    if (event) out.push({ agent, event, now: shownTo(rec.scope, agent, cur), again: false, seq: Math.max(mark?.seq ?? 0, latestSeq(key)) })
+  }
+  return out
+}
+
+/** Records what a wake (or an answer at once) told an agent about the agents it watched: its next watch starts there. */
+function noteToldAgents(store: Store, watcher: string, told: Map<string, number>): void {
+  const known = new Map(store.wokeAgents.get(watcher))
+  for (const [k, seq] of told) {
+    known.delete(k)
+    known.set(k, seq)
+  }
+  while (known.size > WOKE_CARDS) known.delete(known.keys().next().value!)
+  store.wokeAgents.delete(watcher)
+  store.wokeAgents.set(watcher, known)
+  if (store.wokeAgents.size > MAX_WATCHES) store.wokeAgents.delete(store.wokeAgents.keys().next().value!)
+}
+
+export type AgentWatchResult = { watching: TaskWatchInfo; replaced?: string } | { already: string[] }
+
+/**
+ * Starts (or replaces) an agent's agent watch (#416): Hive types one line into it when one of `cond`'s agents finishes
+ * its turn, waits for the user or stops. Agents not working now are the answer at once (as for a card already in the
+ * column): the agent's earlier watch ends and each one's state is told. Only agents it may watch (mayWatch); not itself.
+ */
+export async function registerAgentWatch(ws: WorkspaceService, projectPath: string, agentId: string, cond: AgentWatchCondition, limitMinutes = WATCH_DEFAULT_LIMIT_MINUTES): Promise<AgentWatchResult> {
+  const store = await load(ws)
+  if (!hostedIn(ws, store.path, projectPath)) throw new Error(`Not a project of this workspace: ${projectPath}`)
+  for (const a of cond.agents) {
+    if (!mayWatch(ws, store.path, projectPath, a.projectPath)) throw new Error(`Not a project of this workspace: ${a.project}`)
+    if (same(a.projectPath, projectPath) && a.agentId === agentId) throw new Error("You can't watch yourself: nothing would wake you")
+  }
+  const result = await locked(store, async (): Promise<AgentWatchResult> => {
+    const since = new Date().toISOString()
+    const agentMarks: Record<string, AgentMark> = {}
+    const already: string[] = []
+    const scope = scopeFor(ws, projectPath)
+    // After a wake, each agent starts from what that wake told (an event since is news, and fires the watch at once,
+    // below); otherwise from its latest event now.
+    const watcher = agentKey(projectPath, agentId)
+    const told = store.wokeAgents.get(watcher)
+    const toldNow = new Map<string, number>()
+    for (const a of cond.agents) {
+      const key = agentKey(a.projectPath, a.agentId)
+      const now = shownTo(scope, a, agentNowOf(a))
+      if (!agentBusy(now, cond.ignoreBackground)) {
+        already.push(agentPart(a, agentEvent(now, undefined, cond.ignoreBackground)!, now, 200, true))
+        toldNow.set(key, latestSeq(key))
+      }
+      agentMarks[key] = agentMarkOf(now, told?.get(key) ?? latestSeq(key))
+    }
+    const old = recordOf(store, projectPath, agentId)
+    const before = store.list
+    if (!already.length && !old && store.list.length >= MAX_WATCHES) throw new Error(`This workspace already has ${MAX_WATCHES} watches, the most Hive keeps: wait for some to end`)
+    const minutes = Math.min(WATCH_MAX_LIMIT_MINUTES, Math.max(1, Math.round(limitMinutes)))
+    const rec: WatchRecord | null = already.length ? null : { id: randomBytes(6).toString('hex'), projectPath, agentId, scope, cond: NO_CARDS, agents: cond, agentMarks, marks: {}, current: {}, since, limitMinutes: minutes, limitAt: new Date(Date.now() + minutes * 60_000).toISOString() }
+    const next = [...store.list.filter((x) => x !== old), ...(rec ? [rec] : [])]
+    if (rec && budget(store, next) > MAX_FILE_BYTES && !((await setAside(store)) && budget(store, next) <= MAX_FILE_BYTES))
+      throw new Error('Too many watches to keep in this workspace: wait for some to end')
+    store.list = next
+    if (old || rec) {
+      try {
+        await save(store)
+      } catch (e) {
+        store.list = before
+        throw new Error(`Could not save the watch: ${(e as Error).message}`, { cause: e })
+      }
+    }
+    stopDelivery(store, old)
+    if (!rec) {
+      noteToldAgents(store, watcher, toldNow)
+      return { already }
+    }
+    log.info(`${userText(agentId)} watches ${cond.agents.map((a) => userText(a.name)).join(', ')}`)
+    // A card watch it had ends: said, so it isn't thought to be still running.
+    return { watching: infoOf(rec), ...(old && !old.agents ? { replaced: infoOf(old).label } : {}) }
+  })
+  sessions.watchChanged(projectPath, agentId)
+  // Checked again once in place: an agent that finished while it was being set up isn't missed.
+  if ('watching' in result) void evaluateAgents(store).catch((e) => log.warn('checking agent watches', e))
+  return result
+}
+
+/** Checks a workspace's agent watches against its agents now: those with an agent no longer working fire, then are delivered. */
+async function evaluateAgents(store: Store): Promise<void> {
+  if (!store.list.some((r) => r.agents && !r.fired)) return
+  await locked(store, async () => {
+    let changed = false
+    for (const rec of store.list) {
+      if (!rec.agents || rec.fired) continue
+      const hits = agentHits(rec)
+      if (!hits.length) continue
+      rec.fired = { line: fitLine(agentWakeLine(hits)), at: new Date().toISOString(), cards: [], agents: hits.map((h) => agentKey(h.agent.projectPath, h.agent.agentId)) }
+      changed = true
+    }
+    if (changed) await saveQuietly(store)
+  })
+  for (const rec of store.list.filter((r) => r.agents && r.fired)) await deliver(store, rec)
+}
+
 /** Agents Hive is waking now (one at a time each), and fired watches waiting out the settle before theirs is typed. */
 const waking = new Set<string>()
 const settling = new Set<string>()
@@ -603,7 +841,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
   const key = agentKey(rec.projectPath, rec.agentId)
   // Changes landing together are told together: a watch fired by a change waits a moment before its line is typed (#224).
   const due = Date.parse(rec.fired.at) + (testHooks.settleMs ?? SETTLE_MS)
-  if (rec.fired.cards.length && Date.now() < due) {
+  if ((rec.fired.cards.length || rec.fired.agents?.length) && Date.now() < due) {
     if (!settling.has(rec.id)) {
       settling.add(rec.id)
       setTimeout(() => {
@@ -624,6 +862,8 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     // line; otherwise (a line about the limit, or one not made again) the watch's own starting point, so nothing that
     // the line doesn't tell is taken as known.
     let told: Record<string, Baseline> = {}
+    // An agent watch's: each agent's latest event the line tells (else where the watch began: nothing new was told).
+    const toldAgents = new Map(Object.entries(rec.agentMarks ?? {}).map(([k, m]) => [k, m.seq]))
     for (const n of rec.cond.cards) {
       const s = rec.seen?.[n]
       if (s) told[n] = { mark: rec.marks[n], seen: s }
@@ -635,6 +875,14 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       if (r.hits.length) {
         line = fitLine(wakeLines(r.hits))
         told = r.told
+      }
+    } else if (rec.fired.agents?.length) {
+      // Every agent's latest event since the watch began (#416): one that finished meanwhile is in it too, and one
+      // given work again since is still told what it did (and that it is working again).
+      const hits = agentHits(rec)
+      if (hits.length) {
+        line = fitLine(agentWakeLine(hits))
+        for (const h of hits) toldAgents.set(agentKey(h.agent.projectPath, h.agent.agentId), h.seq)
       }
     }
     // Saved as being typed before the first key: if Hive stops before the watch's end is saved, it is never typed again.
@@ -681,6 +929,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     store.woke.delete(key)
     store.woke.set(key, known)
     if (store.woke.size > MAX_WATCHES) store.woke.delete(store.woke.keys().next().value!)
+    if (rec.agents) noteToldAgents(store, key, toldAgents)
     // Typed: the watch has ended (unless it was replaced meanwhile, which stays). If that can't be saved, the file still
     // says it was being typed, which reads back as delivered; the tick saves again.
     await locked(store, async () => {
@@ -763,7 +1012,7 @@ async function evaluate(ws: WorkspaceService): Promise<void> {
   await locked(store, async () => {
     let changed = false
     for (const rec of [...store.list]) {
-      if (rec.fired) continue
+      if (rec.fired || rec.agents) continue
       // One watch that can't be checked doesn't stop the others.
       try {
         const r = await check(store, rec)
@@ -797,12 +1046,15 @@ export async function tick(now = Date.now()): Promise<void> {
       let changed = store.dirty
       for (const rec of store.list) {
         if (!rec.fired && Date.parse(rec.limitAt) <= now) {
-          rec.fired = { line: fitLine(limitLine(rec.cond, rec.limitMinutes)), at: new Date(now).toISOString(), cards: [] }
+          rec.fired = { line: fitLine(rec.agents ? agentLimitLine(rec.agents, rec.limitMinutes) : limitLine(rec.cond, rec.limitMinutes)), at: new Date(now).toISOString(), cards: [] }
           changed = true
         }
       }
       if (changed) await saveQuietly(store)
     }).catch((e) => log.warn('watch limits', e))
+    // Agent watches are checked on every status change; also here, for what no status change tells (a typed prompt
+    // its CLI never took).
+    await evaluateAgents(store).catch((e) => log.warn('checking agent watches', e))
     for (const rec of store.list.filter((r) => r.fired)) await deliver(store, rec)
   }
 }
@@ -816,6 +1068,8 @@ export function watchKeepsQuitWaiting(st: LiveSessionState): string | null {
   const store = storeFor(st.projectPath)
   const rec = store && recordOf(store, st.projectPath, st.agentId)
   if (!rec) return null
+  // An agent watch: while an agent it waits for works.
+  if (rec.agents) return rec.agents.agents.some((a) => agentBusy(agentNowOf(a), rec.agents!.ignoreBackground)) ? st.watch.label : null
   const busyCard = rec.cond.cards.some((n) => {
     const m = rec.current?.[n] ?? rec.marks[n]
     return m && (m.column === 'doing' || m.column === 'review') && m.agent && m.agent !== st.agentId
@@ -833,10 +1087,17 @@ export function initWatches(): void {
     if (e.type === 'tasks-changed') {
       const ws = openWorkspaces().find((w) => w.path && same(w.path, e.workspacePath))
       if (ws) void evaluate(ws).catch((err) => log.warn('checking watches', err))
-    } else if (e.type === 'session-status' && idle(e.state)) {
+    } else if (e.type === 'session-status') {
+      noteAgentStatus(e.state)
       const store = storeFor(e.state.projectPath)
-      const rec = store?.list.find((x) => x.fired && same(x.projectPath, e.state.projectPath) && x.agentId === e.state.agentId)
-      if (store && rec) setTimeout(() => void deliver(store, rec).catch((err) => log.warn('waking an agent', err)), 500)
+      if (!store) return
+      // An agent someone watches changed status (#416).
+      const { projectPath, agentId } = e.state
+      if (store.list.some((x) => x.agents && !x.fired && x.agents.agents.some((a) => same(a.projectPath, projectPath) && a.agentId === agentId)))
+        void evaluateAgents(store).catch((err) => log.warn('checking agent watches', err))
+      if (!idle(e.state)) return
+      const rec = store.list.find((x) => x.fired && same(x.projectPath, projectPath) && x.agentId === agentId)
+      if (rec) setTimeout(() => void deliver(store, rec).catch((err) => log.warn('waking an agent', err)), 500)
     }
   })
   const timer = setInterval(() => void tick().catch((e) => log.warn('watch tick', e)), 5000)
@@ -866,3 +1127,5 @@ export { encodeSince }
 
 /** Checks a workspace's watches against its board now (what a board change does): for tests. */
 export const evaluateWatches = (ws: WorkspaceService): Promise<void> => evaluate(ws)
+/** Checks a workspace's agent watches now (what a status change does): for tests. */
+export const evaluateAgentWatches = async (ws: WorkspaceService): Promise<void> => evaluateAgents(await load(ws))

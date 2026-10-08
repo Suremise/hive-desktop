@@ -163,6 +163,10 @@ interface LiveSession {
   mode?: string
   /** Prompts the CLI has reported submitted in this launch (UserPromptSubmit), for sendPrompt's confirm and a wake's (#376). */
   prompts?: number
+  /** Hive's latest typed prompt (sendPrompt): when, and the prompts taken then. Until the CLI takes it, it is pending (#416). */
+  typed?: { at: number; prompts: number }
+  /** The start of its latest reply, as its last turn's end reported it (an agent watch's line, #416). */
+  lastReply?: string
 }
 
 export interface EffectiveSettings {
@@ -393,6 +397,9 @@ export async function deliveredSkillSizes(adapter: ProviderAdapter, ctx: LaunchC
   return { catalog, bytes, unmeasured }
 }
 
+/** How long a prompt Hive typed counts as pending (the agent just given a task) while its CLI hasn't taken it (#416). */
+const PENDING_MS = 30_000
+
 /** Agents whose sign-in is refused at about the same time are told in one notice, this long after the first. */
 const SIGNED_OUT_GATHER_MS = 3000
 /** How often a CLI's sign-in is checked again while its agents wait for it (its own check, e.g. claude auth status). */
@@ -453,6 +460,18 @@ class SessionManager {
   promptsTaken(projectPath: string, agentId: string): { runId: string; count: number } | null {
     const l = this.live.get(liveId(projectPath, agentId))
     return l?.state.runId ? { runId: l.state.runId, count: l.prompts ?? 0 } : null
+  }
+
+  /**
+   * A running agent as an agent watch reads it (#416), or null when it isn't running. A prompt Hive typed within the last
+   * PENDING_MS that its CLI hasn't taken yet is pending: the agent was just given a task, and counts as working.
+   */
+  agentNow(projectPath: string, agentId: string): { status: SessionStatus; runId: string; prompts: number; pending: boolean; statusMessage: string | null; backgroundTasks: number; reply: string | null } | null {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (!l) return null
+    const prompts = l.prompts ?? 0
+    const pending = !!l.typed && prompts <= l.typed.prompts && Date.now() - l.typed.at < PENDING_MS
+    return { status: l.state.status, runId: l.state.runId, prompts, pending, statusMessage: l.state.statusMessage ?? null, backgroundTasks: l.state.backgroundTasks ?? 0, reply: l.lastReply ?? null }
   }
 
   /**
@@ -1535,6 +1554,7 @@ class SessionManager {
       check()
       const before = l?.prompts ?? 0
       writePty(key, '\r')
+      if (l) l.typed = { at: Date.now(), prompts: before }
       // confirm: until the CLI reports the prompt submitted. One just resumed and still drawing its conversation can
       // drop the Enter, or take it as a new line (#334): Enter again, which an empty prompt ignores. Still not
       // reported (a CLI that doesn't report prompts), it counts as sent: typing it again could send it twice.
@@ -2461,6 +2481,7 @@ class SessionManager {
     if (ev.kind === 'stop') {
       await this.refreshBackground(l)
       this.sweepTasks(l)
+      if (ev.lastMessage) l.lastReply = ev.lastMessage.slice(0, 2000)
     }
     this.carryOut(id, l, hookStep(ev, this.statusInput(l)), String(body.hook_event_name ?? ''), ev, arrived)
   }

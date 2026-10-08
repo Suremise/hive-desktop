@@ -1009,7 +1009,9 @@ export interface TaskWatchInfo {
   cards: number[]
   changes: ('column' | 'comment' | 'verdict' | 'agent')[]
   column?: TaskColumn
-  /** "Waiting for #12 → Review". */
+  /** An agent watch's agents, by name (#416: its cards are none). */
+  agents?: string[]
+  /** "Waiting for #12 → Review", "Waiting for B6 to finish". */
   label: string
   since: string
   /** When Hive wakes it to say nothing changed (ISO). */

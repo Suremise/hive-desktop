@@ -849,12 +849,12 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
       ) : live?.status === 'watching' && live.watch ? (
         // Waiting on cards (a watch): what for, until when, and Cancel (it takes no other work while it waits).
         <span className="pane-status watching">
-          <Tooltip content={`${live.watch.label}: Hive types a line into it when ${live.watch.cards.length === 1 ? 'the card changes' : 'one of them changes'}, or at ${formatWhen(live.watch.limitAt)} if nothing does. Nothing runs meanwhile, and it takes no other work.`}>
+          <Tooltip content={`${live.watch.label}: Hive types a line into it when ${live.watch.agents ? `${live.watch.agents.length === 1 ? 'it finishes' : 'one of them finishes'}, waits for you or stops` : live.watch.cards.length === 1 ? 'the card changes' : 'one of them changes'}, or at ${formatWhen(live.watch.limitAt)} if nothing does. Nothing runs meanwhile, and it takes no other work.`}>
             <span className="watch-label">
               <Icon name="eye" /> {live.watch.label}
             </span>
           </Tooltip>
-          <button className="btn small subtle watch-cancel" aria-label="Cancel the card watch" onClick={() => void call('watch:cancel', project.path, a.id).catch((e) => notify('error', 'Could not cancel the watch', String((e as Error).message ?? e)))}>
+          <button className="btn small subtle watch-cancel" aria-label={live.watch.agents ? 'Cancel the agent watch' : 'Cancel the card watch'} onClick={() => void call('watch:cancel', project.path, a.id).catch((e) => notify('error', 'Could not cancel the watch', String((e as Error).message ?? e)))}>
             Cancel
           </button>
         </span>
