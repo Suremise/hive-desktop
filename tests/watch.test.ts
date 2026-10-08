@@ -29,10 +29,11 @@ describe('what counts as a change', () => {
     expect(changesBetween(before, markOf(cardOf({ column: 'review' })), { changes: ['column'], column: 'review' })).toEqual(['column'])
   })
 
-  it('in a column (at once if already there) against a move into it (it must leave and come back)', () => {
+  it('in a column, or a move into it: at once if already there (#434); a fresh move into it must leave and come back', () => {
     const inReview = markOf(cardOf({ column: 'review' }))
     expect(alreadyThere(inReview, { column: 'review' })).toBe(true)
-    expect(alreadyThere(inReview, { column: 'review', moveInto: true })).toBe(false)
+    expect(alreadyThere(inReview, { column: 'review', moveInto: true })).toBe(true)
+    expect(alreadyThere(inReview, { column: 'review', moveInto: true, fresh: true })).toBe(false)
     // Left and came back between two looks: the marks are the same; the history says it moved.
     const back = cardOf({ column: 'review', history: [{ at: at(10), by: 'B', what: 'Moved to Doing' }, { at: at(11), by: 'B', what: 'Moved to Review' }] })
     expect(movedIntoSince(back, 'review', at(9))).toBe(true)
@@ -200,6 +201,11 @@ describe('what counts as a change', () => {
     // A column alone: only arriving there counts (a comment while it is still in Doing doesn't).
     expect(readCondition({ cards: [3], column: 'review' })).toEqual({ cards: [3], changes: ['column'], column: 'review' })
     expect(readCondition({ cards: [3], column: 'review', changes: ['column'] })).toEqual({ cards: [3], changes: ['column'], column: 'review', moveInto: true })
+    // Fresh (#434): only the next move into the column; it needs one.
+    expect(readCondition({ cards: [3], column: 'review', fresh: true })).toEqual({ cards: [3], changes: ['column'], column: 'review', moveInto: true, fresh: true })
+    expect(readCondition({ cards: [3], column: 'review', changes: ['column'], fresh: false })).toEqual({ cards: [3], changes: ['column'], column: 'review', moveInto: true })
+    expect(readCondition({ cards: [3], fresh: true })).toMatch(/fresh needs a column/)
+    expect(readCondition({ cards: [3], column: 'review', fresh: 'yes' })).toMatch(/fresh must be true or false/)
     // The builder's: a verdict, or a move into Done.
     expect(readCondition({ cards: [3], column: 'done', changes: ['verdict', 'column'] })).toEqual({ cards: [3], changes: ['verdict', 'column'], column: 'done', moveInto: true })
     expect(readCondition({ cards: [3], column: 'review', changes: ['comment'] })).toMatch(/must include "column"/)
@@ -536,7 +542,8 @@ describe('watches (main/watches.ts)', async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha', column: 'review' }, user))
-    const r = await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['column'], column: 'review', moveInto: true })
+    // Already in Review: only a fresh move into it waits (#434).
+    const r = await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['column'], column: 'review', moveInto: true, fresh: true })
     expect('watching' in r).toBe(true)
     await new Promise((res) => setTimeout(res, 5))
     await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'doing' }, user))
@@ -546,6 +553,44 @@ describe('watches (main/watches.ts)', async () => {
     expect(st.typed[0]).toMatch(/is in Review/)
     await disposeWorkspaceService(w)
   })
+  it('a watch for a move into a column the card is already in answers at once, for anyone and after a failed review; one for a card elsewhere waits (#434)', async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    const passed = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha', agent: 'a1', column: 'passed' }, user))
+    const inReview = await inWorkspace(w, () => tasks.createTask({ title: 'B', project: 'alpha', agent: 'a1', column: 'review' }, user))
+    const verdictOrPassed = { changes: ['verdict' as const, 'column' as const], column: 'passed' as const, moveInto: true as const }
+    const r = await watches.registerWatch(w, alpha, 'a1', { cards: [passed.number], ...verdictOrPassed })
+    expect(r).toEqual({ already: expect.objectContaining({ number: passed.number, column: 'passed', changes: ['column'] }) })
+    expect(watches.watchFor(alpha, 'a1')).toBeNull()
+    // A card in Review after a failed review: "→ Review" holds, whoever asks (its reviewer, the card's own agent, the
+    // Assistant) and whatever its history.
+    const failed = await inWorkspace(w, () => tasks.createTask({ title: 'C', project: 'alpha', agent: 'a2', column: 'review' }, user))
+    const rev = { kind: 'agent', name: 'R (alpha)', self: { project: 'alpha', agentId: 'a1' }, scope: 'alpha' } as const
+    await inWorkspace(w, () => tasks.updateTask(failed.number, { review: 'start' }, rev))
+    const intoReview = { cards: [failed.number], changes: ['column' as const], column: 'review' as const, moveInto: true as const }
+    // Its reviewer, mid-review.
+    expect(await watches.registerWatch(w, alpha, 'a1', intoReview)).toEqual({ already: expect.objectContaining({ number: failed.number, column: 'review' }) })
+    await inWorkspace(w, () => tasks.updateTask(failed.number, { review: 'failed' }, rev, { comment: 'Round 1: FAILED' }))
+    for (const [host, id] of [[alpha, 'a1'], [alpha, 'a2'], [w.assistantHome, 'assistant']] as const) {
+      expect(await watches.registerWatch(w, host, id, intoReview)).toEqual({ already: expect.objectContaining({ number: failed.number, column: 'review' }) })
+      expect(watches.watchFor(host, id)).toBeNull()
+    }
+    // Fresh: the reviewer's wait for its next round waits.
+    expect('watching' in (await watches.registerWatch(w, alpha, 'a1', { ...intoReview, fresh: true }))).toBe(true)
+    // With a card still in Review among them: the one in Passed answers.
+    expect('already' in (await watches.registerWatch(w, alpha, 'a1', { cards: [inReview.number, passed.number], ...verdictOrPassed }))).toBe(true)
+    // A card in Review alone waits for its verdict or move.
+    const waiting = await watches.registerWatch(w, alpha, 'a1', { cards: [inReview.number], ...verdictOrPassed })
+    expect('watching' in waiting).toBe(true)
+    await watches.evaluateWatches(w)
+    expect(st.typed).toEqual([])
+    await inWorkspace(w, () => tasks.updateTask(inReview.number, { column: 'passed' }, user))
+    await watches.evaluateWatches(w)
+    expect(st.typed).toHaveLength(1)
+    expect(st.typed[0]).toMatch(/is in Passed/)
+    await disposeWorkspaceService(w)
+  })
+
   it('a failed card its agent returns for review without leaving Review wakes the reviewer waiting for it to come back (#214)', async () => {
     const { w, alpha } = await open()
     const st = fake(alpha)
@@ -555,8 +600,14 @@ describe('watches (main/watches.ts)', async () => {
     const builder = agent('a2', 'Reviewer')
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha', agent: 'a2', column: 'review' }, user))
     await inWorkspace(w, () => tasks.updateTask(c.number, { review: 'start' }, rev))
+    // The reviewer watches for the card's next round (fresh, #434) just before its failed verdict (card-loop), and again
+    // after it: both wait, and its own verdict doesn't wake it.
+    const back = { cards: [c.number], changes: ['column' as const], column: 'review' as const, moveInto: true as const, fresh: true as const }
+    expect('watching' in (await watches.registerWatch(w, alpha, 'a1', back))).toBe(true)
     await inWorkspace(w, () => tasks.updateTask(c.number, { review: 'failed' }, rev, { comment: 'Round 1: FAILED' }))
-    await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['column'], column: 'review', moveInto: true })
+    await watches.evaluateWatches(w)
+    expect(st.typed).toEqual([])
+    expect('watching' in (await watches.registerWatch(w, alpha, 'a1', back))).toBe(true)
     await new Promise((res) => setTimeout(res, 5))
     // A move in place by anyone else, or a comment: no wake.
     await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'review' }, { kind: 'assistant' }))

@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 25
+const FIXTURES_VERSION = 26
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -871,7 +871,7 @@ module.exports.SCENARIOS = [
       })
     },
     prompt: (c) => `Review card #${c.cards.q} as the reviewer of a card loop (rounds: 5). It is back for its second review; the earlier review and the fix are in its comments.`,
-    fake: (c) => `skill card-loop boardreview ${c.cards.q} start then boardreview ${c.cards.q} failed`,
+    fake: (c) => `skill card-loop boardreview ${c.cards.q} start then hive hive_wait_for_tasks {"cards":[${c.cards.q}],"column":"review","fresh":true,"wake":true} then boardreview ${c.cards.q} failed`,
     expect: (o, c) => {
       const verdict = [...(o.cards.q?.comments ?? [])].reverse().find((x) => !/implementer/i.test(x.by ?? ''))?.text ?? ''
       return [
@@ -880,6 +880,8 @@ module.exports.SCENARIOS = [
         ['the verdict says the finding came back', /recurr|again|round 1|still/i.test(verdict), verdict.slice(0, 300)],
         ["didn't ask the user (no hive_notify)", called(o, 'hive_notify').length === 0, o.hiveCalls.map((x) => x.tool).join(',')],
         ['the card stays in Review with the implementer', o.cards.q?.column === 'review' && o.cards.q?.agent?.id === c.agents.implementer.id, `${o.cards.q?.column} / ${o.cards.q?.agent?.name}`],
+        // Its watch for the card's next round (fresh, #434) is still live: one without fresh answers at once.
+        ['ended its turn watching for the card to come back (fresh)', o.status === 'watching', `${o.status}; ${JSON.stringify(ran(o, 'hive_wait_for_tasks').map((x) => argsOf(x)))}`],
         ['changed no files', o.gitStatus.trim() === '', o.gitStatus]
       ]
     },

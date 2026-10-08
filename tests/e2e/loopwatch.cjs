@@ -87,7 +87,7 @@ const check = (name, ok, extra = '') => {
 
   // --- 1. A wake whose first Enter is dropped: Hive presses Enter again and the line is taken; no stall.
   const c1 = (await inv('tasks:create', { title: 'Dropped Enter', project: 'alpha', agent: builder.id, column: 'doing' })).number
-  script('Reviewer', [`boardreview ${c1} start then ${wait(c1, { column: 'review', changes: ['column'] })}`])
+  script('Reviewer', [`boardreview ${c1} start then ${wait(c1, { column: 'review', fresh: true })}`])
   await say(reviewer.id, wait(c1, { column: 'review' }))
   check('the reviewer watches #1', !!(await until(async () => (await live(reviewer.id))?.status === 'watching')))
   dropEnters('Reviewer', 1)

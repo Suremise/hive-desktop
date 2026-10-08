@@ -84,7 +84,7 @@ const check = (name, ok, extra = '') => {
   script('Builder', [built(c2), built(c2), 'work 1'])
   script('Reviewer', [
     `boardreview ${c1} start then boardreview ${c1} passed passed then ${wait(c2, { column: 'review' })}`,
-    `boardreview ${c2} start then ${wait(c2, { column: 'review', changes: ['column'] })} then boardreview ${c2} failed`,
+    `boardreview ${c2} start then ${wait(c2, { column: 'review', fresh: true })} then boardreview ${c2} failed`,
     `boardreview ${c2} start then boardreview ${c2} passed passed`
   ])
   await start(reviewer.id)

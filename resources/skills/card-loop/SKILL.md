@@ -24,7 +24,7 @@ Ask if the role or the cards aren't clear.
 Wait with `hive_wait_for_tasks`, `wake: true`:
 - builder: the card, `changes: ["verdict", "column"]`, `column: "passed"` (a review's verdict, or the card moved into Passed);
 - reviewer, a new card: the card, `column: "review"` (only its arrival in Review counts, not the builder's comments; at once if it's already there);
-- reviewer, after failing a card: the card, `column: "review"`, `changes: ["column"]` (it comes back to Review: it's still there now, so this waits for the builder to move it out and back, or to return it for review);
+- reviewer, after failing a card: the card, `column: "review"`, `fresh: true` (its next round: it's still in Review now, so this waits for the builder to move it out and back, or to return it for review; without `fresh`, a card already in the column answers at once);
 - `limitMinutes`: the run's wait.
 
 **Start the watch before the step that lets the other side act**, so a quick answer isn't missed: the builder just before moving the card to Review, the reviewer just before posting a failed verdict. Your own move doesn't wake you. **Check the watch's reply** before you end your turn:

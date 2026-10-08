@@ -36,6 +36,21 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## A watch already met answers at once; a reviewer asks for the next round: fakes, Codex, Claude Code (Haiku), fixtures v25–v26, 8 October 2026
+
+#434 makes a card watch whose column condition already holds answer at once, also one for a move into the column (a
+builder's "verdict, or into Passed" on a card already in Passed had waited six hours). The reviewer's wait for a failed
+card's next round now asks for it with `fresh: true` (`hive_wait_for_tasks`, `POST /v1/tasks/wait`), and card-loop's
+reviewer step says so. Fixtures v25 (v26 once merged with main) give **card-loop-recurring-review** a check that the reviewer ends its turn watching
+for the card to come back (its fake watches with `fresh` before failing it).
+- **Fakes**, v25, before (`2867cd2` with the final fixtures) and after, neither source changed while it ran (baselines
+  `b2-434-before` and `b2-434-after`): 57 of 58 before, the new check failing (the old code ignores `fresh`, so the
+  watch answers Already and the reviewer ends its turn not watching); 58 of 58 after. card-loop +50 bytes; the tool list
+  +6.4 KB over the whole run (the `fresh` argument and its sentence).
+- **Codex: 6 of 6 pass** (its default model, CLI 0.161.0; `2026-10-08T18-46-06-codex`, $0.398): card-loop-recurring-review,
+  card-loop-return and card-loop-already-in-review, twice each; the reviewer ended its turn watching with `fresh`.
+- **Claude Code (Haiku): 6 of 6 pass** (CLI 2.1.294; `2026-10-08T18-52-08-claude-code`, $0.055): the same scenarios.
+
 ## A new lane in a new conversation: fakes, Codex (`gpt-5.6-luna`), fixtures v22–v25, 8 October 2026
 
 #437 gives `hive_prompt_agent` a `newConversation` (the agent's conversation ends, kept in the Sessions tab, and a new
