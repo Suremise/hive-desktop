@@ -8,7 +8,7 @@ import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { agentBusy, agentEvent, agentLimitLine, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, type AgentNow } from '../src/shared/agentWatch'
-import { WAKE_MAX_BYTES, cardChange, cardWakeLine, wakeAbout } from '../src/shared/watch'
+import { WAKE_MAX_BYTES, cardChange, cardWakeLine, userNameOf, wakeAbout } from '../src/shared/watch'
 import { agentWatchText } from '../src/shared/toolReplies'
 
 const nowOf = (over: Partial<AgentNow> = {}): AgentNow => ({ status: 'working', runId: 'r1', prompts: 1, pending: false, ...over })
@@ -73,7 +73,55 @@ describe('what an agent watch counts', () => {
     }
     // Short enough, everything in full: the reply's text and each card's state.
     const small = cardWakeLine([{ number: 7, column: 'review', changes: ['column'], by: 'You', comment: null }], [{ agentName: 'B1', cards: [7, 9], text: 'C, the hive cell' }])
-    expect(small).toEqual({ line: '[Hive] The user replied to B1 on #7, #9: "C, the hive cell"; #7 is in Review. Your card watch has ended: carry on (hive_read_task with latestComment on each card for its comment in full).', repliesTold: true })
+    expect(small).toEqual({ line: '[Hive] User replied to B1 on #7, #9: "C, the hive cell"; #7 is in Review. Your card watch has ended: carry on (hive_read_task with latestComment on each card for its comment in full).', repliesTold: true })
+  })
+
+  it("names the user in the Assistant's reply lines (#426): Settings → General → Your name, else User", () => {
+    const reply = [{ agentName: 'B1', cards: [7], text: 'C, the hive cell' }]
+    expect(cardWakeLine([], reply, [], 'Darren').line).toBe('[Hive] Darren replied to B1 on #7: "C, the hive cell". Your card watch has ended: carry on (hive_read_task for the card, hive_agent_activity for the agent).')
+    expect(cardWakeLine([], reply).line).toMatch(/^\[Hive\] User replied to B1 on #7/)
+    const now = nowOf()
+    expect(agentWakeLine([{ agent: { projectPath: 'C:/ws/hive', agentId: 'b1', name: 'B1', project: 'hive' }, event: null, now, reply: 'Ship it' }], 'Darren')).toBe('[Hive] Darren replied to B1 (hive): "Ship it". Your agent watch has ended: carry on (hive_agent_activity for more).')
+    expect(agentWakeLine([{ agent: { projectPath: 'C:/ws/hive', agentId: 'b1', name: 'B1', project: 'hive' }, event: null, now, reply: 'Ship it' }])).toMatch(/^\[Hive\] User replied to B1 \(hive\)/)
+    // Whatever was typed in the setting: one line, a few words; empty or blank is User.
+    expect(userNameOf('  Darren  ')).toBe('Darren')
+    expect(userNameOf('Dar\nren\t M')).toBe('Dar ren M')
+    expect(userNameOf('')).toBe('User')
+    expect(userNameOf('   ')).toBe('User')
+    expect(userNameOf(undefined)).toBe('User')
+    expect([...userNameOf('🐝'.repeat(60))]).toHaveLength(40)
+  })
+
+  it('a long name and many agents: the short forms still say the user replied, by name, within the size (#426)', () => {
+    const user = userNameOf('Ünïcødé 🐝 '.repeat(10))
+    const agents = Array.from({ length: 20 }, (_, i) => ({ projectPath: 'C:/ws/hive', agentId: `a${i}`, name: `Agent ${i} ${'建造者'.repeat(i % 3 ? 1 : 30)}`, project: 'hive' }))
+    const long = 'reply '.repeat(200)
+    const fits = (line: string): void => {
+      expect(Buffer.byteLength(JSON.stringify(line))).toBeLessThanOrEqual(WAKE_MAX_BYTES)
+      expect(line).not.toMatch(/\n/)
+      expect(line).toMatch(/Your agent watch has ended/)
+    }
+    // Replies only: told as replies, never as agents that changed.
+    const replies = agentWakeLine(agents.map((agent) => ({ agent, event: null, now: nowOf(), reply: long })), user)
+    fits(replies)
+    expect(replies).toContain(`${user} replied to `)
+    expect(replies).not.toMatch(/ changed\./)
+    // Replies and changes: both, each for what it is.
+    const mixed = agentWakeLine(agents.map((agent, i) => ({ agent, event: i % 2 ? ('finished' as const) : null, now: nowOf({ status: 'finished', reply: long }), reply: i % 2 ? undefined : long })), user)
+    fits(mixed)
+    expect(mixed).toContain(`${user} replied to `)
+    expect(mixed).toMatch(/ changed\./)
+    // So many that even the names don't fit: counted, the user's replies still theirs.
+    const many = Array.from({ length: 200 }, (_, i) => ({ agent: { ...agents[0], agentId: `m${i}`, name: `Agent ${i} ${'建造者'.repeat(30)}` }, event: i % 2 ? ('finished' as const) : null, now: nowOf({ status: 'finished' }), reply: i % 2 ? undefined : 'x' }))
+    const counted = agentWakeLine(many, user)
+    fits(counted)
+    expect(counted).toBe(`[Hive] ${user} replied to 100 watched agents; 100 watched agents changed. Your agent watch has ended: carry on (hive_agent_activity for more).`)
+    // The card line's short forms keep the name too.
+    const cardReplies = agents.map((a) => ({ agentName: a.name, cards: [7, 8, 9], text: long }))
+    const { line, repliesTold } = cardWakeLine([], cardReplies, [], user)
+    expect(Buffer.byteLength(JSON.stringify(line))).toBeLessThanOrEqual(WAKE_MAX_BYTES)
+    expect(line).toContain(`${user} replied to`)
+    expect(repliesTold).toBe(true)
   })
 
   it('a saved condition is checked in full', () => {
@@ -268,7 +316,7 @@ describe('agent watches (main/watches.ts)', async () => {
     await watches.registerAgentWatch(w, alpha, 'a1', { agents: [reviewer(alpha)], ignoreBackground: false })
     watches.noteUserReply(alpha, 'a2', 'Reviewer', 'C, the hive cell\nand more')
     await vi.waitFor(() => expect(assistant.typed).toHaveLength(1))
-    expect(assistant.typed[0]).toBe(`[Hive] The user replied to Reviewer on #${c.number}: "C, the hive cell". Your card watch has ended: carry on (hive_read_task for the card, hive_agent_activity for the agent).`)
+    expect(assistant.typed[0]).toBe(`[Hive] User replied to Reviewer on #${c.number}: "C, the hive cell". Your card watch has ended: carry on (hive_read_task for the card, hive_agent_activity for the agent).`)
     await watches.evaluateAgentWatches(w)
     expect(st.typed).toEqual([])
     // Watched again: that reply isn't news; a new one is.
@@ -279,13 +327,18 @@ describe('agent watches (main/watches.ts)', async () => {
     expect(assistant.typed).toHaveLength(1)
     watches.noteUserReply(alpha, 'a2', 'Reviewer', 'Use the second one')
     await vi.waitFor(() => expect(assistant.typed).toHaveLength(2))
-    expect(assistant.typed[1]).toMatch(/^\[Hive\] The user replied to Reviewer on #\d+: "Use the second one"/)
-    // The Assistant's agent watch on Reviewer (working) hears it too.
+    expect(assistant.typed[1]).toMatch(/^\[Hive\] User replied to Reviewer on #\d+: "Use the second one"/)
+    // The Assistant's agent watch on Reviewer (working) hears it too, naming the user as Settings → General → Your name says.
     assistant.status = 'watching'
     await watches.registerAgentWatch(w, home, 'assistant', { agents: [reviewer(alpha)], ignoreBackground: false })
-    watches.noteUserReply(alpha, 'a2', 'Reviewer', 'Ship it')
-    await vi.waitFor(() => expect(assistant.typed).toHaveLength(3))
-    expect(assistant.typed[2]).toBe('[Hive] The user replied to Reviewer (alpha): "Ship it". Your agent watch has ended: carry on (hive_agent_activity for more).')
+    config.settings.general.userName = 'Darren'
+    try {
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'Ship it')
+      await vi.waitFor(() => expect(assistant.typed).toHaveLength(3))
+    } finally {
+      config.settings.general.userName = 'User'
+    }
+    expect(assistant.typed[2]).toBe('[Hive] Darren replied to Reviewer (alpha): "Ship it". Your agent watch has ended: carry on (hive_agent_activity for more).')
     // With the setting off, nothing is kept or told.
     assistant.status = 'watching'
     config.settings.assistant.tellReplies = false
@@ -475,7 +528,7 @@ describe('agent watches (main/watches.ts)', async () => {
       await vi.waitFor(() => expect(a.typed).toHaveLength(1))
       const line = a.typed[0]
       expect(Buffer.byteLength(JSON.stringify(line))).toBeLessThanOrEqual(WAKE_MAX_BYTES)
-      expect(line.match(/The user replied to Reviewer/g)).toHaveLength(1)
+      expect(line.match(/User replied to Reviewer/g)).toHaveLength(1)
       for (const num of ns) expect(line).toContain(`#${num} (Reviewer's card) is in Review`)
       expect(line).toMatch(/Your card watch has ended: carry on/)
     } finally {

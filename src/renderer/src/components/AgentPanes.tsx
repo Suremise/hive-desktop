@@ -842,7 +842,12 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         {a.name}
       </span>
       <WorktreeMark project={project} a={a} />
-      {live?.question ? (
+      {live?.untakenLine ? (
+        // A line Hive typed that its CLI didn't take (#430): the user sees to it, nothing more is typed meanwhile.
+        <Tooltip content={`Hive typed this, but its CLI hasn't taken it (it wasn't reading its input): "${live.untakenLine.text}". Click its terminal and press Enter. Hive types nothing more into it until its CLI takes it.`}>
+          <span className="faint pane-status asks">A line Hive typed wasn't taken</span>
+        </Tooltip>
+      ) : live?.question ? (
         <Tooltip content={live.question.text ? `Asks: ${live.question.text}` : 'Asks you something'}>
           <span className="faint pane-status asks">{statusText(live)}</span>
         </Tooltip>

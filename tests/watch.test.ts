@@ -351,7 +351,15 @@ describe('watches (main/watches.ts)', async () => {
     const st = fake(alpha)
     // The CLI's prompt count: a stand-in that takes the line only when told to (as Codex dropped an Enter on 7 Oct).
     const cli = { count: 0, takeOnType: false, takeOnEnter: true, enters: 0 }
+    // A line still not taken is marked (#430), and nothing more is typed into it while it is.
+    const marks: string[] = []
+    let untaken = false
     Object.assign(sessions, {
+      lineNotTaken: (_p: string, _id: string, runId: string, text: string) => {
+        expect(runId).toBe('run-1')
+        marks.push(text)
+      },
+      lineWaiting: () => untaken,
       promptsTaken: () => ({ runId: 'run-1', count: cli.count }),
       sendPrompt: async (_p: string, _id: string, text: string, guard?: () => void) => {
         guard?.()
@@ -386,19 +394,35 @@ describe('watches (main/watches.ts)', async () => {
       await vi.waitFor(() => expect(cli.enters).toBe(2), { timeout: 2000 })
       await new Promise((r) => setTimeout(r, 500))
       expect(cli.enters).toBe(2)
-      // Taken as typed: no Enter again.
+      // Still not taken: marked once, with the line (#430); the next wake waits while it is, then goes in.
+      expect(marks).toHaveLength(1)
+      expect(marks[0]).toMatch(/^\[Hive\] #\d+ is in Todo; latest comment by You: "more news"/)
+      untaken = true
+      st.status = 'watching'
+      await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+      await inWorkspace(w, () => tasks.commentTask(c.number, 'while marked', user))
+      await watches.evaluateWatches(w)
+      await watches.tick()
+      expect(st.typed).toHaveLength(2)
       cli.takeOnType = true
+      untaken = false
+      await watches.tick()
+      await vi.waitFor(() => expect(st.typed).toHaveLength(3))
+      // Taken as typed: no Enter again.
       st.status = 'watching'
       await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
       await inWorkspace(w, () => tasks.commentTask(c.number, 'last news', user))
       await watches.evaluateWatches(w)
-      expect(st.typed).toHaveLength(3)
+      expect(st.typed).toHaveLength(4)
+      expect(marks).toHaveLength(1)
       await new Promise((r) => setTimeout(r, 500))
       expect(cli.enters).toBe(2)
     } finally {
       watches.testHooks.takeMs = undefined
       delete (sessions as unknown as Record<string, unknown>).promptsTaken
       delete (sessions as unknown as Record<string, unknown>).submitAgain
+      delete (sessions as unknown as Record<string, unknown>).lineNotTaken
+      delete (sessions as unknown as Record<string, unknown>).lineWaiting
     }
     await disposeWorkspaceService(w)
   })

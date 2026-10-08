@@ -105,6 +105,8 @@ export interface AppSettings {
     dateFormat: DateFormat
     /** How times show with them: 24-hour (14:05) by default. */
     timeFormat: TimeFormat
+    /** How Hive names the user to the Hive Assistant (#426): "User replied to B1 on #399". "User" by default. */
+    userName: string
   }
   appearance: {
     theme: ThemeSetting
@@ -1077,6 +1079,11 @@ export interface LiveSessionState {
    * nothing will wake it when they change, so they show as stalled. Cleared once it works or watches again.
    */
   notWatching?: number[]
+  /**
+   * A line Hive typed (a wake) that its CLI hasn't taken, even after Enter again (#430): the CLI wasn't reading its input.
+   * Shown in its pane until the CLI takes it or the user types there; nothing more is typed into it meanwhile.
+   */
+  untakenLine?: { since: string; text: string }
   /**
    * Its last turn stopped because its CLI's sign-in was refused, and it hasn't carried on since (#309): the CLI's
    * message and when. Status `signin` until the CLI is signed in again, then `ready`; Resume (n) carries it on.

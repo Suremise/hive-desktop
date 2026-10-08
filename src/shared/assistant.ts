@@ -139,11 +139,13 @@ export interface AssistantStatusLine {
   tone: 'attention' | 'busy' | 'calm' | 'off'
 }
 
-export function assistantStatusLine(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'backgroundTasks' | 'question' | 'watch'> | null | undefined, time: (iso: string) => string, approvals: readonly string[] = []): AssistantStatusLine {
+export function assistantStatusLine(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'backgroundTasks' | 'question' | 'watch' | 'untakenLine'> | null | undefined, time: (iso: string) => string, approvals: readonly string[] = []): AssistantStatusLine {
   const line = (text: string, tone: AssistantStatusLine['tone'], cards: number[] = [], after = ''): AssistantStatusLine => ({ text, cards, after, tone })
   if (!live || live.status === 'stopped') return line('Not running', 'off')
   const approval = approvals.length === 1 ? `Waiting for your approval: ${approvals[0]}` : approvals.length ? `Waiting for your approval (${approvals.length} questions)` : ''
   if (approval && live.status !== 'signin' && live.status !== 'error') return line(approval, 'attention')
+  // A wake it didn't take (#430): the user presses Enter in its terminal.
+  if (live.untakenLine) return line("A line Hive typed wasn't taken: press Enter in its terminal", 'attention')
   const n = live.backgroundTasks ?? 0
   const tasks = `${n} background task${n === 1 ? '' : 's'}`
   // A question it doesn't stop for: it works on meanwhile, and the user is wanted.

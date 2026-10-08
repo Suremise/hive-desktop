@@ -24,7 +24,12 @@ export function noteCardRead(agent: { projectPath: string; agentId: string }, n:
   reads.set(key, m)
   // Bounded: an agent that reads thousands of cards keeps its latest ones.
   if (m.size > 500) m.delete(m.keys().next().value!)
+  readSeq.set(key, (readSeq.get(key) ?? 0) + 1)
 }
+
+/** How many full reads an agent has made (this run): a line about its decisions, worked out before one, is out of date (#401). */
+const readSeq = new Map<string, number>()
+export const cardReadsBy = (agent: { projectPath: string; agentId: string }): number => readSeq.get(keyOf(agent)) ?? 0
 
 // The board as last read, per workspace, until it changes: an agent's every board call shouldn't read every card file.
 const boards = new Map<string, Promise<TaskCard[]>>()
@@ -77,17 +82,26 @@ function baseline(c: TaskCard, agentId: string, self: string, read: number | und
  * news to it, but the user's change to one (the user alone edits them) always is.
  */
 export async function newDecisions(ws: WorkspaceService, agent: { projectPath: string; agentId: string }, self: string): Promise<Map<number, number>> {
-  const out = new Map<number, number>()
+  return new Map([...(await newDecisionsOn(ws, agent, self)).entries()].map(([n, d]) => [n, d.count]))
+}
+
+/**
+ * newDecisions, each card with when its newest such decision was made (ms): for a line that tells them (#401). `told`:
+ * per card, what an earlier line already told (the latest decision time it covered): only later ones count.
+ */
+export async function newDecisionsOn(ws: WorkspaceService, agent: { projectPath: string; agentId: string }, self: string, told?: Map<number, number>): Promise<Map<number, { count: number; latest: number }>> {
+  const out = new Map<number, { count: number; latest: number }>()
   if (!ws.path) return out
   const project = basename(agent.projectPath).toLowerCase()
   const seen = reads.get(keyOf(agent))
   const t = (iso: string | undefined): number => Date.parse(iso ?? '') || 0
   for (const c of await board(ws)) {
     if (c.archived || !c.decisions?.length || c.project.toLowerCase() !== project) continue
-    const since = baseline(c, agent.agentId, self, seen?.get(c.number))
-    if (since === null) continue
-    const n = c.decisions.filter((d) => t(d.editedAt) > since || (d.recordedBy !== self && t(d.at) > since)).length
-    if (n) out.set(c.number, n)
+    const base = baseline(c, agent.agentId, self, seen?.get(c.number))
+    if (base === null) continue
+    const since = Math.max(base, told?.get(c.number) ?? 0)
+    const fresh = c.decisions.filter((d) => t(d.editedAt) > since || (d.recordedBy !== self && t(d.at) > since))
+    if (fresh.length) out.set(c.number, { count: fresh.length, latest: Math.max(...fresh.map((d) => Math.max(t(d.at), t(d.editedAt)))) })
   }
   return out
 }

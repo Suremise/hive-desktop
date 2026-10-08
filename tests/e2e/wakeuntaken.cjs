@@ -1,0 +1,111 @@
+// A wake its CLI doesn't take (#430), on a fake Claude Code agent (fake-claude/): a normal wake is taken and the log says
+// how soon; then the CLI drops the Enter of the wake and of Hive's Enter again (fake-drop-enters, as a CLI not reading
+// its input): Hive presses Enter at most twice, then marks the agent ("A line Hive typed wasn't taken" in its pane, its
+// live state) and tells the user once; the user pressing Enter there submits the line and clears the mark. Dev build,
+// throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+
+const userData = path.join(lib.WORK, 'wakeuntaken-profile')
+const ws = path.join(lib.WORK, 'wakeuntaken-ws')
+const claudeHome = path.join(lib.WORK, 'wakeuntaken-claude-home')
+const notifyLog = path.join(lib.WORK, 'wakeuntaken-notify.jsonl')
+const alpha = path.join(ws, 'alpha')
+const PORT = Number(lib.port(47859))
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+
+;(async () => {
+  for (const d of [userData, ws, claudeHome]) fs.rmSync(d, { recursive: true, force: true })
+  fs.rmSync(notifyLog, { force: true })
+  fs.mkdirSync(claudeHome, { recursive: true })
+  lib.gitProject(alpha)
+  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase()]))
+  lib.enableProviders(userData)
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  cfg.settings.agentApi = { ...cfg.settings.agentApi, enabled: true }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+
+  // A short wait for a wake to be taken (10 s in Hive), so the two Enters don't take long.
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: String(PORT), CLAUDE_CONFIG_DIR: claudeHome, HIVE_TEST_TIPS: 'off', HIVE_TEST_WAKE_TAKE_MS: '1500', HIVE_TEST_NOTIFY_LOG: notifyLog })
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  const page = await app.firstWindow()
+  page.on('pageerror', (e) => check('no page errors', false, e.message))
+  await lib.fitWindow(app, page, { width: 1400, height: 900 })
+  await lib.appReady(page)
+  const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+  await lib.openWorkspace(inv, page, ws)
+  const live = async (id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === id)
+  const until = async (fn, ms = 30000) => {
+    const t = Date.now()
+    let v
+    while (!(v = await fn()) && Date.now() - t < ms) await lib.sleep(250)
+    return v
+  }
+  const wakes = () => {
+    const f = path.join(claudeHome, 'fake-wakes.jsonl')
+    return (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).map((w) => w.text)
+  }
+  const hiveLog = () => {
+    const f = path.join(userData, 'logs', 'hive.log')
+    return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : ''
+  }
+  const notices = () => (fs.existsSync(notifyLog) ? fs.readFileSync(notifyLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [])
+  const say = async (id, text) => {
+    await inv('pty:write', lib.ptyKey(alpha, id), text)
+    await lib.sleep(300)
+    await inv('pty:write', lib.ptyKey(alpha, id), '\r')
+  }
+  const idle = async (id) => ['ready', 'finished'].includes((await live(id))?.status)
+
+  await page.getByText('alpha', { exact: true }).first().click()
+  const agent = await lib.addAgent(inv, alpha, { name: 'Watcher' })
+  const card = (await inv('tasks:create', { title: 'Watched', project: 'alpha' })).number
+  await inv('session:start', alpha, { agentId: agent.id })
+  check('the agent starts', !!(await until(() => idle(agent.id))))
+  const watch = async () => {
+    await say(agent.id, `hive hive_wait_for_tasks {"cards":[${card}],"changes":["comment"],"wake":true}`)
+    return until(async () => (await live(agent.id))?.status === 'watching', 15000)
+  }
+
+  // A wake its CLI takes: the log says it was taken, and how soon.
+  check('it watches the card', !!(await watch()))
+  await inv('tasks:comment', card, 'First change')
+  check('the wake is taken', !!(await until(async () => wakes().length === 1, 20000)))
+  check('…and the log says so, with how soon', !!(await until(async () => /The wake typed into ⁨?[\w-]+⁩? was taken after \d+ ms/.test(hiveLog()), 10000)), hiveLog().split('\n').filter((l) => /wake typed/.test(l)).join(' | '))
+  await until(() => idle(agent.id), 20000)
+
+  // Its CLI drops the wake's Enter and Hive's Enter again (not reading its input).
+  fs.writeFileSync(path.join(claudeHome, 'fake-drop-enters-Watcher.txt'), '2')
+  check('it watches again', !!(await watch()))
+  await inv('tasks:comment', card, 'Second change')
+  const marked = await until(async () => (await live(agent.id))?.untakenLine, 20000)
+  check('not taken after Enter again: the agent is marked', !!marked && /^\[Hive\] #\d+ is in/.test(marked.text), JSON.stringify(marked))
+  check('Hive pressed Enter twice, never a third time (the CLI dropped both)', fs.readFileSync(path.join(claudeHome, 'fake-drop-enters-Watcher.txt'), 'utf8').trim() === '0' && wakes().length === 1, JSON.stringify({ left: fs.readFileSync(path.join(claudeHome, 'fake-drop-enters-Watcher.txt'), 'utf8'), wakes: wakes().length }))
+  check('the log says: Enter again, still not taken', /wasn't taken: pressed Enter again/.test(hiveLog()) && /still wasn't taken/.test(hiveLog()))
+  check('its pane says so', !!(await until(async () => (await page.locator('.pane-status', { hasText: "A line Hive typed wasn't taken" }).count()) >= 1, 5000)))
+  await page.screenshot({ path: path.join(lib.WORK, 'wakeuntaken-marked.png') })
+  const told = notices().filter((n) => /hasn't taken a line Hive typed/.test(JSON.stringify(n)))
+  check('the user is told once', told.length === 1, JSON.stringify(notices()))
+
+  // The user presses Enter in its terminal: the line goes in, and the mark goes.
+  await inv('pty:write', lib.ptyKey(alpha, agent.id), '\r')
+  check("the user's Enter submits the line Hive typed", !!(await until(async () => wakes().length === 2 && /Second change/.test(wakes()[1]), 15000)), JSON.stringify(wakes()))
+  check('…and the mark is gone', !!(await until(async () => !(await live(agent.id))?.untakenLine, 10000)))
+  check('still told only once', notices().filter((n) => /hasn't taken a line Hive typed/.test(JSON.stringify(n))).length === 1)
+
+  await app.close()
+  console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED')
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

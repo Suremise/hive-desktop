@@ -3,7 +3,7 @@ import { app } from 'electron'
 import { link, mkdir, readFile, rename, rm, writeFile } from 'original-fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
-import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, releasedLine, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
+import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
 import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, readSavedAgentMark, replyFirstLine, type AgentEvent, type AgentMark, type AgentNow, type AgentWatchCondition, type WatchedAgent } from '../shared/agentWatch'
 import type { LiveSessionState, TaskCard, TaskWatchInfo } from '../shared/types'
 import { config } from './config'
@@ -35,6 +35,8 @@ import { openWorkspaces, workspaceFor, type WorkspaceService } from './workspace
  */
 
 const log = createLogger('watches')
+/** The user, as the Assistant's wake lines name them (#426): Settings → General → Your name. */
+const userName = (): string => userNameOf(config.settings.general?.userName)
 
 interface WatchRecord {
   id: string
@@ -986,7 +988,7 @@ async function evaluateAgents(store: Store): Promise<void> {
       if (!rec.agents || rec.fired) continue
       const hits = agentHits(rec)
       if (!hits.length) continue
-      rec.fired = { line: fitLine(agentWakeLine(hits)), at: new Date().toISOString(), cards: [], agents: hits.map((h) => agentKey(h.agent.projectPath, h.agent.agentId)), ...(hits.some((h) => h.reply !== undefined) ? { replies: true as const } : {}) }
+      rec.fired = { line: fitLine(agentWakeLine(hits, userName())), at: new Date().toISOString(), cards: [], agents: hits.map((h) => agentKey(h.agent.projectPath, h.agent.agentId)), ...(hits.some((h) => h.reply !== undefined) ? { replies: true as const } : {}) }
       changed = true
     }
     if (changed) await saveQuietly(store)
@@ -1037,7 +1039,8 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     }
     return
   }
-  if (waking.has(key) || !idle(sessions.liveFor(rec.projectPath, rec.agentId)) || sessions.userMayBeTyping(rec.projectPath, rec.agentId)) return
+  // Not over a line it hasn't taken (#430): its next wake waits until it takes that one, or the user presses Enter there.
+  if (waking.has(key) || !idle(sessions.liveFor(rec.projectPath, rec.agentId)) || sessions.userMayBeTyping(rec.projectPath, rec.agentId) || sessions.lineWaiting(rec.projectPath, rec.agentId)) return
   const token = { cancelled: false }
   store.delivering.set(rec.id, token)
   waking.add(key)
@@ -1090,7 +1093,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         sessions.watchChanged(rec.projectPath, rec.agentId)
         return
       } else if (r.hits.length || r.replies.length) {
-        const made = cardWakeLine(r.hits, r.replies.map((x) => x.note), rec.released ?? [])
+        const made = cardWakeLine(r.hits, r.replies.map((x) => x.note), rec.released ?? [], userName())
         line = fitLine(made.line)
         telling = r.replies.length > 0
         if (r.hits.length) told = r.told
@@ -1106,7 +1109,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       // given work again since is still told what it did (and that it is working again).
       const hits = agentHits(rec)
       if (hits.length) {
-        line = fitLine(agentWakeLine(hits))
+        line = fitLine(agentWakeLine(hits, userName()))
         telling = hits.some((h) => h.reply !== undefined)
         for (const h of hits) toldAgents.set(agentKey(h.agent.projectPath, h.agent.agentId), h.seq)
       } else if (rec.fired.replies) {
@@ -1157,7 +1160,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     }
     log.info(`Woke ${userText(rec.agentId)}: ${userText(line.slice(0, 80))}`)
     for (const x of endedAt) void noteOnCard(x.n, x.what, store.ws).catch((e) => log.warn(`noting on #${x.n} that a watch ended`, e))
-    if (before) void confirmTaken(rec.projectPath, rec.agentId, before).catch((e) => log.warn('checking a wake was taken', e))
+    if (before) void confirmTaken(rec.projectPath, rec.agentId, before, line).catch((e) => log.warn('checking a wake was taken', e))
     // What earlier wakes told about cards this one didn't stays: it is still all the agent was told about them.
     const known = new Map(store.woke.get(key))
     for (const [n, b] of Object.entries(told)) {
@@ -1195,10 +1198,24 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
  * wake stayed in its prompt, unsent, for hours, while its watch had ended. Not taken in time, Enter is pressed again,
  * once; still not taken, it is logged, and the agent's cards show as stalled when its loop is checked (loopCheck.ts).
  */
-async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }): Promise<boolean> {
+export async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string): Promise<boolean> {
+  // Nothing more is typed into it while this runs, however long (#430): released when it ends (taken, or marked).
+  const release = sessions.holdForConfirm(projectPath, agentId, before.runId)
+  try {
+    return await confirming(projectPath, agentId, before, line)
+  } finally {
+    release?.()
+  }
+}
+
+async function confirming(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string): Promise<boolean> {
+  const t0 = Date.now()
   const taken = (): boolean => {
     const now = sessions.promptsTaken(projectPath, agentId)
-    return !now || now.runId !== before.runId || now.count > before.count
+    const yes = !now || now.runId !== before.runId || now.count > before.count
+    // Each wake's outcome in the log (#430): typed (Woke …), taken and how soon, Enter again, not taken.
+    if (yes && now && now.runId === before.runId) log.info(`The wake typed into ${userText(agentId)} was taken after ${Date.now() - t0} ms`)
+    return yes
   }
   const waitTaken = async (): Promise<boolean> => {
     const end = Date.now() + takeMs()
@@ -1209,10 +1226,27 @@ async function confirmTaken(projectPath: string, agentId: string, before: { runI
     return taken()
   }
   if (await waitTaken()) return true
-  if (!sessions.submitAgain(projectPath, agentId, before.runId)) return false
-  log.warn(`The wake typed into ${userText(agentId)} wasn't taken: pressed Enter again`)
-  if (await waitTaken()) return true
-  log.warn(`The wake typed into ${userText(agentId)} still wasn't taken: it may be waiting in its prompt`)
+  // Enter again, once, when that is safe (the same launch, idle, nobody typing there, Hive not typing): waited for a
+  // while rather than given up at once (#430). Never a third Enter.
+  let retried = false
+  for (const end = Date.now() + 6 * takeMs(); ; ) {
+    if (taken()) return true
+    if (sessions.submitAgain(projectPath, agentId, before.runId)) {
+      retried = true
+      break
+    }
+    // Another launch: what was typed has gone with the old one.
+    if (sessions.promptsTaken(projectPath, agentId)?.runId !== before.runId) return true
+    if (Date.now() >= end) break
+    await new Promise((r) => setTimeout(r, 250))
+  }
+  if (retried) {
+    log.warn(`The wake typed into ${userText(agentId)} wasn't taken: pressed Enter again`)
+    if (await waitTaken()) return true
+    log.warn(`The wake typed into ${userText(agentId)} still wasn't taken: it may be waiting in its prompt`)
+  } else log.warn(`The wake typed into ${userText(agentId)} wasn't taken, and Enter couldn't be pressed again (busy, or the user typing there)`)
+  // Shown in its pane, the user told once, and nothing more typed into it until it is taken (#430).
+  sessions.lineNotTaken(projectPath, agentId, before.runId, line, retried)
   return false
 }
 
@@ -1352,7 +1386,7 @@ async function evaluate(ws: WorkspaceService): Promise<void> {
         const hits = r.hits
         if (!hits.length && !r.replies.length) continue
         const cards = [...new Set([...hits.filter((h) => h.changes !== 'gone').map((h) => h.number), ...r.replies.flatMap((x) => x.note.cards)])]
-        rec.fired = { line: fitLine(cardWakeLine(hits, r.replies.map((x) => x.note), rec.released ?? []).line), at: new Date().toISOString(), cards, ...(r.replies.length ? { replies: true as const } : {}) }
+        rec.fired = { line: fitLine(cardWakeLine(hits, r.replies.map((x) => x.note), rec.released ?? [], userName()).line), at: new Date().toISOString(), cards, ...(r.replies.length ? { replies: true as const } : {}) }
         changed = true
       } catch (e) {
         if (!alive(store)) throw e

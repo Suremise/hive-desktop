@@ -435,34 +435,42 @@ export interface ReplyNote {
   text: string
 }
 
-const replyNote = (r: ReplyNote, max: number): string => {
+/** How the user is named in the Assistant's wake lines (#426): Settings → General → Your name, "User" when empty. */
+export const DEFAULT_USER_NAME = 'User'
+export function userNameOf(name: string | undefined): string {
+  // One line, a few words: a name can't break the line or take its room.
+  const t = [...(name ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()]
+  return t.length ? (t.length > 40 ? `${t.slice(0, 39).join('')}…` : t.join('')) : DEFAULT_USER_NAME
+}
+
+const replyNote = (r: ReplyNote, max: number, user: string): string => {
   const t = [...r.text]
-  return `The user replied to ${shortName(r.agentName)} on ${cards(r.cards)}${max > 0 ? `: "${t.length > max ? `${t.slice(0, max - 1).join('')}…` : t.join('')}"` : ''}`
+  return `${user} replied to ${shortName(r.agentName)} on ${cards(r.cards)}${max > 0 ? `: "${t.length > max ? `${t.slice(0, max - 1).join('')}…` : t.join('')}"` : ''}`
 }
 
 /**
  * The Assistant's card watch line with the user's replies (#418), first, and the cards that changed, together within
  * WAKE_MAX_BYTES: what was said (the replies', the comments') gives way first, then whose and the verdicts (a few words
  * each), then everything but numbers and agents' names; the instruction at the end always stays. `repliesTold`: the line
- * names every reply (else none is taken as told, and the next watch tells them).
+ * names every reply (else none is taken as told, and the next watch tells them). `user`: the user's name (userNameOf).
  */
-export function cardWakeLine(changes: CardChange[], replies: ReplyNote[], released: Released[] = []): { line: string; repliesTold: boolean } {
+export function cardWakeLine(changes: CardChange[], replies: ReplyNote[], released: Released[] = [], user = DEFAULT_USER_NAME): { line: string; repliesTold: boolean } {
   if (!replies.length && !released.length) return { line: wakeLines(changes), repliesTold: false }
   if (!replies.length && !changes.length) return { line: releasedLine(released), repliesTold: false }
   const tail = changes.length ? MANY_TAIL : '. Your card watch has ended: carry on (hive_read_task for the card, hive_agent_activity for the agent).'
   const fits = (line: string): boolean => jsonBytes(line) <= WAKE_MAX_BYTES
   for (const [max, rmax] of [[160, 120], [80, 80], [40, 40], [0, 40], [0, 0]]) {
-    const line = `[Hive] ${[...released.map((r) => releasedPart(r, true)), ...replies.map((r) => replyNote(r, rmax)), ...changes.map((c) => cardPart(c, max))].join('; ')}${tail}`
+    const line = `[Hive] ${[...released.map((r) => releasedPart(r, true)), ...replies.map((r) => replyNote(r, rmax, user)), ...changes.map((c) => cardPart(c, max))].join('; ')}${tail}`
     if (fits(line)) return { line, repliesTold: true }
   }
   const short = '. Your card watch has ended. Details were left out to fit: read each card (hive_read_task) and agent (hive_agent_activity) before you carry on.'
-  const compact = `[Hive] ${[...released.map((r) => releasedPart(r, false)), ...replies.map((r) => replyNote(r, 0)), ...changes.map(brief)].join('; ')}${short}`
+  const compact = `[Hive] ${[...released.map((r) => releasedPart(r, false)), ...replies.map((r) => replyNote(r, 0, user)), ...changes.map(brief)].join('; ')}${short}`
   if (fits(compact)) return { line: compact, repliesTold: true }
   const who = [...new Set(replies.map((r) => shortName(r.agentName)))].join(', ')
-  const numbers = `[Hive] ${[released.length ? `${cards(released.map((r) => r.number))} left your watch` : '', replies.length ? `The user replied to ${who}` : '', changes.length ? `${changes.map((c) => `#${c.number}`).join(', ')} changed` : ''].filter(Boolean).join('; ')}${short}`
+  const numbers = `[Hive] ${[released.length ? `${cards(released.map((r) => r.number))} left your watch` : '', replies.length ? `${user} replied to ${who}` : '', changes.length ? `${changes.map((c) => `#${c.number}`).join(', ')} changed` : ''].filter(Boolean).join('; ')}${short}`
   if (fits(numbers)) return { line: numbers, repliesTold: true }
   // Never past the limit: the cards as a card line tells them; the replies are told by a later wake.
-  return { line: wakeLines(changes) || `[Hive] The user replied to agents of your watched cards${short}`, repliesTold: !changes.length }
+  return { line: wakeLines(changes) || `[Hive] ${user} replied to agents of your watched cards${short}`, repliesTold: !changes.length }
 }
 
 /**
