@@ -27,6 +27,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
  * so nothing needs deleting first (never `rm -rf` a computed path: Claude Code asks, and unattended it denies). The
  * clean-up prunes them after a few days (`npm run test:clean`), unless a card that isn't Done cites one.
  */
+/**
+ * Removes a folder a suite made outside the runner's (one the runner doesn't remove for it, e.g. update's download
+ * cache) at its end, best effort (#324): a file a CLI or a scanner still holds for a moment after the test Hive closed
+ * is retried a few times, and one that still can't go is said in the log and left for the next run's clear, never
+ * failing a suite whose checks passed. A suite's own folders in its lane need no removal at all: the runner removes them.
+ */
+function tidyUp(dir) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  } catch (e) {
+    console.log(`(left ${dir} for the next run: ${e.code || e.message})`)
+  }
+}
+
 /** The test copies' trash folder (#414): what they delete goes there, never to the user's Recycle Bin. */
 const TRASH = trashDir()
 
@@ -673,4 +687,4 @@ async function haikuAutoCaveat(page, autoOffered) {
   return [ok, JSON.stringify(caveat)]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
