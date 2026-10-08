@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 22
+const FIXTURES_VERSION = 23
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -294,6 +294,46 @@ module.exports.SCENARIOS = [
       ]
     },
     fakeSkips: ['the errors are under their fields']
+  },
+  {
+    id: 'decision-while-waiting',
+    title: "An agent that asked the user and ended its turn is told of the decision recorded for it (#401): it reads it and carries on",
+    files: { 'greeting.txt': 'Hello\n' },
+    // Its card, already in Doing (as on hive-website #392: it asked part-way through the work).
+    async setup(c) {
+      await c.card('a', { title: 'Friendlier greeting', column: 'doing', agent: 'coder', description: 'Change greeting.txt to a friendlier greeting. The user picks it: before changing anything, ask them in your reply whether they want "Hi there!" or "Welcome back!", then end your turn and wait for their answer. Don\'t choose yourself.' })
+    },
+    // Once its turn has ended (it asked) with the card still in Doing, the user answers through the Assistant: a decision.
+    async during(c, status) {
+      if (status === 'working') c.worked = true
+      if (c.decidedAt || !c.worked || !['finished', 'ready'].includes(status)) return
+      const card = (await c.api('GET', `/v1/tasks/${c.cards.a}`)).body
+      if (card?.column !== 'doing') return
+      await c.inv('tasks:update', c.cards.a, { decision: 'Use "Welcome back!" as the greeting.' })
+      c.decidedAt = Date.now()
+    },
+    // Hive tells it after a settle (15 s): the run waits for that line (at most 40 s, within a fake's minute), then for the turn it starts.
+    async keepWaiting(c) {
+      if (!c.decidedAt || Date.now() - c.decidedAt > 40000) return false
+      const card = (await c.api('GET', `/v1/tasks/${c.cards.a}`)).body
+      return !(card?.history ?? []).some((h) => h.what.startsWith('Told Coder (alpha) of'))
+    },
+    prompt: (c) => `Work on card #${c.cards.a}.`,
+    fake: (c) => `skill work-on-card then hive hive_read_task {"number":${c.cards.a}}`,
+    expect: (o, c) => {
+      const decided = historyAt(o.cards.a, /^Recorded a decision: "Use "Welcome back!"/)
+      const told = (o.cards.a?.history ?? []).filter((h) => h.by === 'Hive' && /^Told Coder \(alpha\) of 1 new decision$/.test(h.what))
+      const review = historyAt(o.cards.a, /^Moved to (the (top|bottom) of )?Review\b/)
+      return [
+        ['read the work-on-card skill', read(o, 'work-on-card'), o.skillsRead.join(',')],
+        ['asked the user and ended its turn with the card in Doing (the decision came then)', decided > 0, history(o.cards.a).join(' | ')],
+        ['Hive told it once', told.length === 1, history(o.cards.a).join(' | ')],
+        ['read the card after the decision', decided > 0 && cardReads(o, c.cards.a).some((t) => t > decided), `decided ${decided}, reads ${cardReads(o, c.cards.a).join(',')}`],
+        ['carried on with the decided greeting', /Welcome back!/.test(c.read('greeting.txt') ?? ''), c.read('greeting.txt')],
+        ['it ends in Review', review > decided && o.cards.a?.column === 'review', o.cards.a?.column]
+      ]
+    },
+    fakeSkips: ['read the card after the decision', 'carried on with the decided greeting', 'it ends in Review']
   },
   {
     id: 'review-against-decision',

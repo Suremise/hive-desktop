@@ -59,6 +59,7 @@ export const SUITES = [
   { name: 'contrast' },
   { name: 'ctxpercent' },
   { name: 'decisions' },
+  { name: 'decisionwake' },
   { name: 'dialogs' },
   { name: 'doingmove' },
   { name: 'donemove' },

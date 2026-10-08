@@ -20,6 +20,7 @@ The card is the brief, and the board is how the user, the Hive Assistant and oth
 
 - Comment when something is worth knowing later: a choice you made and why, a finding that changes the plan, a partial result. Not a running log. A decision the user tells you about the card goes on it as a decision (`hive_update_task` with `decision`), not only as a comment.
 - A reply that says your card has a new decision: finish the step you're on, then read the card (`hive_read_task`) and bring the work in line with it.
+- A line from Hive while you wait for the user, saying your card has new decisions: that is their answer. Read the card's decisions, then carry on from where you asked.
 - Work you find but weren't asked to do goes on a new card (`hive_create_task`, described well enough to start from cold), not into this one.
 - If you can't go on, set `blocked` with the reason; an empty `blocked` clears it.
 

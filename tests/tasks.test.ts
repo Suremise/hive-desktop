@@ -5,7 +5,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 
 const base = mkdtempSync(join(tmpdir(), 'hive-tasks-'))
@@ -16,7 +16,8 @@ const base = mkdtempSync(join(tmpdir(), 'hive-tasks-'))
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
 const tasks = await import('../src/main/tasks')
 const { newSinceStart, restoreOrders, workStartedAt } = await import('../src/shared/tasks')
-const { decisionNotice, noteCardRead } = await import('../src/main/decisionNotices')
+const { decisionNotice, newDecisionsOn, noteCardRead } = await import('../src/main/decisionNotices')
+const decisionWakes = await import('../src/main/decisionWakes')
 const removal = await import('../src/main/projectRemoval')
 const { sessions } = await import('../src/main/sessions')
 type WS = ReturnType<typeof createWorkspaceService>
@@ -690,6 +691,154 @@ describe('card decisions', () => {
     await run(() => tasks.editDecision(m, e.id, 'User now chooses spaces.', user))
     expect(await decisionNotice(w, me, 'Coder (alpha)')).toMatch(new RegExp(`#${m} has 1 new decision`))
     await run(() => tasks.updateTask(m, { column: 'todo' }, user))
+  })
+
+  it('the line for an agent waiting for the user names each card and how many (#401)', () => {
+    expect(decisionWakes.decisionLine(new Map([[7, { count: 1 }]]))).toBe('[Hive] #7 has 1 new decision from the user: read it (hive_read_task) and carry on from where you asked.')
+    expect(decisionWakes.decisionLine(new Map([[7, { count: 2 }]]))).toBe('[Hive] #7 has 2 new decisions from the user: read them (hive_read_task) and carry on from where you asked.')
+    expect(decisionWakes.decisionLine(new Map([[7, { count: 1 }], [9, { count: 3 }]]))).toBe('[Hive] #7 has 1 new decision, #9 has 3 new decisions from the user: read them (hive_read_task) and carry on from where you asked.')
+  })
+
+  it('tells an agent waiting for the user of new decisions once each: not while it works, the user types there or a line of Hive waits (#401)', async () => {
+    const me = { projectPath: alpha, agentId: 'a1' }
+    const n = (await run(() => tasks.createTask({ title: 'Waiting for the user', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    await new Promise((r) => setTimeout(r, 5))
+    await run(() => tasks.updateTask(n, { decision: 'Ship it on Friday.' }, assistant))
+    await run(() => tasks.updateTask(n, { decision: 'Tell the client first.' }, assistant))
+    // What an earlier line told isn't new: only later decisions count.
+    const fresh = await newDecisionsOn(w, me, 'Coder (alpha)')
+    expect(fresh.get(n)?.count).toBe(2)
+    expect((await newDecisionsOn(w, me, 'Coder (alpha)', new Map([[n, fresh.get(n)!.latest]]))).has(n)).toBe(false)
+
+    let status: 'working' | 'ready' | 'finished' = 'working'
+    let typing = false
+    let waiting = false
+    decisionWakes.testHooks.settleMs = 600_000
+    const sent: string[] = []
+    const send = vi.spyOn(sessions, 'sendPrompt').mockImplementation(async (_p, _id, text, guard) => {
+      guard?.()
+      sent.push(text)
+    })
+    const spies = [
+      send,
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status } as never) : null)),
+      vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => typing),
+      vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => waiting),
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation(() => null)
+    ]
+    try {
+      const tell = (): Promise<void> => decisionWakes.tellNow(w, alpha, 'a1')
+      // Working, the user typing there, a line of Hive's not taken: nothing typed.
+      await tell()
+      status = 'finished'
+      typing = true
+      await tell()
+      typing = false
+      waiting = true
+      await tell()
+      expect(sent).toEqual([])
+      // Its turn ended and nothing in the way: one line for both (cards of the tests before have their own parts).
+      waiting = false
+      await tell()
+      expect(sent).toHaveLength(1)
+      expect(sent[0]).toMatch(new RegExp(`#${n} has 2 new decisions`))
+      await expect.poll(async () => (await run(() => tasks.getTask(n))).history.some((h) => h.by === 'Hive' && h.what === 'Told Coder (alpha) of 2 new decisions')).toBe(true)
+      // Told once: not again, until another decision, which is told alone.
+      await tell()
+      expect(sent).toHaveLength(1)
+      await new Promise((r) => setTimeout(r, 5))
+      await run(() => tasks.updateTask(n, { decision: 'Friday morning.' }, assistant))
+      status = 'ready'
+      await tell()
+      expect(sent).toHaveLength(2)
+      expect(sent[1]).toMatch(new RegExp(`#${n} has 1 new decision(?!s)`))
+    } finally {
+      for (const s of spies) s.mockRestore()
+      delete decisionWakes.testHooks.settleMs
+      await run(() => tasks.updateTask(n, { column: 'todo' }, user))
+    }
+  })
+
+  it('a decision line stopped as it is typed is tried again by itself, and only while it is still true (#401)', async () => {
+    const n = (await run(() => tasks.createTask({ title: 'Stopped lines', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    await new Promise((r) => setTimeout(r, 5))
+    await run(() => tasks.updateTask(n, { decision: 'Blue.' }, assistant))
+    let typing = false
+    let refusedTyping = 0
+    // What happens as Hive types the line (before its guard's check), once.
+    let meanwhile: (() => Promise<void> | void) | null = null
+    const sent: { to: string; text: string }[] = []
+    decisionWakes.testHooks.settleMs = 30
+    const spies = [
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha ? ({ projectPath: alpha, agentId: id, status: 'finished' } as never) : null)),
+      vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => (typing && refusedTyping++, typing)),
+      vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => false),
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation(() => null),
+      vi.spyOn(sessions, 'sendPrompt').mockImplementation(async (_p, id, text, guard) => {
+        const m = meanwhile
+        meanwhile = null
+        await m?.()
+        guard?.()
+        sent.push({ to: id, text })
+      })
+    ]
+    const mine = (to: string): string[] => sent.filter((s) => s.to === to && new RegExp(`#${n} has`).test(s.text)).map((s) => s.text)
+    try {
+      // The user starts typing there as the line is typed, and stops a moment later without Enter: told by itself, no
+      // other change or call needed.
+      meanwhile = () => {
+        typing = true
+        setTimeout(() => (typing = false), 150)
+      }
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      expect(mine('a1')).toEqual([])
+      await expect.poll(() => mine('a1').length, { timeout: 3000 }).toBe(1)
+
+      // Given to another agent as the line is typed: the old one isn't told (now or on a retry), nor counted as told; the
+      // new one is. Given back, the first hears of it after all.
+      await new Promise((r) => setTimeout(r, 5))
+      await run(() => tasks.updateTask(n, { decision: 'Green, not blue.' }, assistant))
+      meanwhile = async () => {
+        await run(() => tasks.updateTask(n, { agent: 'r1' }, user))
+      }
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      await new Promise((r) => setTimeout(r, 300))
+      expect(mine('a1')).toHaveLength(1)
+      await decisionWakes.tellNow(w, alpha, 'r1')
+      expect(mine('r1')).toHaveLength(1)
+      await run(() => tasks.updateTask(n, { agent: 'a1' }, user))
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      expect(mine('a1')).toHaveLength(2)
+      expect(mine('a1')[1]).toMatch(new RegExp(`#${n} has 1 new decision(?!s)`))
+
+      // The user types there for a long while (many settles) and stops without Enter: told once, by itself, however
+      // long it took.
+      await new Promise((r) => setTimeout(r, 5))
+      await run(() => tasks.updateTask(n, { decision: 'Teal after all.' }, assistant))
+      decisionWakes.testHooks.settleMs = 5
+      typing = true
+      refusedTyping = 0
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      await expect.poll(() => refusedTyping, { timeout: 10000 }).toBeGreaterThan(60)
+      expect(mine('a1')).toHaveLength(2)
+      typing = false
+      await expect.poll(() => mine('a1').length, { timeout: 3000 }).toBe(3)
+      await new Promise((r) => setTimeout(r, 200))
+      expect(mine('a1')).toHaveLength(3)
+      decisionWakes.testHooks.settleMs = 30
+
+      // It reads the card as the line is typed: stopped, and not typed again (it has seen the decision).
+      await new Promise((r) => setTimeout(r, 5))
+      await run(() => tasks.updateTask(n, { decision: 'Teal.' }, assistant))
+      meanwhile = () => noteCardRead({ projectPath: alpha, agentId: 'a1' }, n)
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      await new Promise((r) => setTimeout(r, 300))
+      expect(mine('a1')).toHaveLength(3)
+    } finally {
+      for (const s of spies) s.mockRestore()
+      delete decisionWakes.testHooks.settleMs
+      await run(() => tasks.updateTask(n, { column: 'todo' }, user))
+    }
   })
 
   it("a reviewer's next round: a decision recorded since its last read is flagged on the card back in Review, also after it starts the review", async () => {

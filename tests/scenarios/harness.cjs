@@ -336,6 +336,8 @@ async function runScenario(sc, providerKey, opts = {}) {
       }
       // A dispatched agent's work is part of the outcome: wait while one is still working (within the limit).
       if (sc.waitForAgents && quietSince && (await inv('session:live')).some((x) => x.projectPath.toLowerCase() === alpha.toLowerCase() && ['working', 'starting', 'background'].includes(x.status))) quietSince = Date.now()
+      // Something Hive does after the turn has ended (a line it types later, #401) is part of the outcome: wait for it.
+      if (sc.keepWaiting && quietSince && (await sc.keepWaiting(ctx, status))) quietSince = Date.now()
       await sleep(1000)
     }
     const s = await live()
