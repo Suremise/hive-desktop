@@ -8,6 +8,7 @@ import { attempt } from '../actions'
 import { call } from '../api'
 import { deferredFocus } from '../deferredFocus'
 import { isAppShortcut } from '../commands'
+import { cardLinkProvider } from '../cardLinks'
 import { fileLinkProvider } from '../fileLinks'
 import { useStore } from '../store'
 import { offerTip } from '../tips'
@@ -261,6 +262,8 @@ export function TerminalView({
     term.loadAddon(new WebLinksAddon((_e, uri) => void call('app:openExternal', uri)))
     // A session's file paths: Ctrl+click opens them in the Files tab.
     term.registerLinkProvider(fileLinkProvider(term, () => ({ projectPath: pathRef.current, agentId: agentRef.current }), () => host.current))
+    // Card numbers (#12) of this workspace's board: Ctrl+click opens the card.
+    term.registerLinkProvider(cardLinkProvider(term, () => host.current))
     // xterm's fit addon measures the terminal's parent. With border-box sizing a padded parent reports
     // its padding as usable space, so the padding lives on the host and the terminal mounts in an
     // unpadded child — otherwise the last row/column can spill over the status bar or off the edge.
