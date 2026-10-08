@@ -1,11 +1,16 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { branchSummary, inboxStateText, type InboxItem } from '@shared/inbox'
+import type { SessionStatus } from '@shared/types'
 import { openInboxChanges, openInboxItem, openInboxMerge, useInbox } from '../inbox'
 import { set, useStore } from '../store'
 import { useNow } from '../usage'
 import { cx, timeAgo } from '../util'
+import { AssistantMark } from './AssistantMark'
 import { Icon, Tooltip } from './ui'
+
+/** The status dot an inbox item shows: its agent's for what it needs. */
+const dotOf = (i: InboxItem): SessionStatus => (i.kind === 'review' || i.kind === 'finished' ? 'finished' : i.kind === 'failed' ? 'error' : 'waiting')
 
 /** The status bar's "n need you": hidden when nothing needs you and nothing is left to review. */
 export function InboxStatusItem() {
@@ -56,7 +61,7 @@ export function InboxPopover() {
   if (!open) return null
   const row = (i: InboxItem) => (
     <div key={`${i.projectPath}#${i.agentId}`} className="inbox-row" role="button" onClick={() => openInboxItem(i)}>
-      <span className={cx('dot', i.kind === 'review' ? 'finished' : i.kind === 'failed' ? 'error' : i.kind === 'question' ? 'waiting' : i.kind, i.kind === 'finished' && 'unseen')} />
+      {i.assistant ? <AssistantMark status={dotOf(i)} unseen={i.kind === 'finished'} /> : <span className={cx('dot', dotOf(i), i.kind === 'finished' && 'unseen')} />}
       <div className="inbox-text">
         <div className="inbox-name">
           <strong>{i.projectName}</strong>

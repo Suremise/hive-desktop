@@ -411,6 +411,8 @@ export interface AppConfig {
     sessionsTree?: Record<string, Record<string, boolean>>
     /** The .hive version control notice each project's Overview no longer shows (#345): the situation dismissed (`hiveVcsKey`), by project path in lower case. */
     hiveVcsNotice?: Record<string, string>
+    /** The active projects folded in the Assistant panel's Workspace list (#399), by `assistantFoldKey` (workspace and project path); unfolded ones aren't kept. */
+    assistantFold?: Record<string, boolean>
     /** Each workspace's board as the user left it, by workspace path in lower case (#170): collapsed columns, folded cards. */
     boardFold?: Record<string, BoardFold>
     /** Each workspace's Progress panel filter (#251), by workspace path in lower case: one project's runs (and agent's), or all. */

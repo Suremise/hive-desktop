@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, assistantPersona, assistantStatusLine } from '@shared/assistant'
-import { compactThreshold, isCompacting } from '@shared/defaults'
+import { compactThreshold, isCompacting, mostUrgent } from '@shared/defaults'
 import { formatDateTime, formatTime } from '@shared/dates'
 import { agentOpenRun, runWords } from '@shared/progress'
+import { columnLabel } from '@shared/tasks'
 import { agentProvider, providerDescriptor } from '@shared/providers'
 import type { AgentInfo, AgentPatch, AssistantAction, EffortLevel, PermissionMode, PersonaInfo, ProgressRun, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
@@ -10,17 +11,19 @@ import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { agentProviderOf, confirm, get, notify, NO_PROJECTS, projectKey, revealAgent, runOnce, set, setActivity, setAssistantOpen, showAssistantView, showView, useDateStyle, useStore, assistantOnLeft, setAssistantSide } from '../store'
 import { useInbox } from '../inbox'
+import { rememberProjectPref } from '../projectPrefs'
 import { useLiveUsage } from '../usage'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
 import { Overrides, ProviderChoice, contextChoice, contextValue, type ContextChoice } from './AgentDialogs'
 import { PaneFooter, RESUME_TINT, useWidth } from './AgentPanes'
-import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
+import { AssistantMark } from './AssistantMark'
+import { CardChip, TaskChip, useAgentCards, useAgentReviews } from './CardChip'
 import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { PaneResizer, usePaneSize } from './Resizer'
 import { ShowAllList } from './ShowAllList'
 import { TerminalView } from './TerminalView'
-import { Icon, IconButton, Modal, ReviewMark, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, Modal, ReviewMark, statusText, Tooltip, useContextMenu, type MenuEntry } from './ui'
 
 /**
  * The Hive Assistant's side panel: the workspace's overseer. Its header (persona, controls) and status line, what is
@@ -169,6 +172,7 @@ export function AssistantPanel() {
       <AssistantHeader project={a} a={agent} />
       <AssistantStatus a={agent} />
       <AssistantQuestions />
+      <AssistantActions />
       <div className="assistant-body" ref={body}>
         <div className={cx('assistant-top', topShare === undefined && 'auto')} style={topShare === undefined ? undefined : { height: `${topShare * 100}%` }}>
           <WorkspaceOverview />
@@ -212,12 +216,11 @@ export function AssistantPanel() {
           showSession={false}
         />
       </div>
-      <AssistantActions />
     </div>
   )
 }
 
-/** The hidden panel: a strip down the right edge; click it to show the panel. Its dot shows what the Assistant is doing. */
+/** The hidden panel: a strip down the right edge; click it to show the panel. Its mark (#399) shows what the Assistant is doing. */
 function AssistantRail({ a }: { a: AgentInfo | null }) {
   const kb = commandKeybinding('assistant.toggle')
   const live = a?.live
@@ -245,7 +248,7 @@ function AssistantRail({ a }: { a: AgentInfo | null }) {
       {asking > 0 ? (
         <Icon name="bell-dot" className="assistant-rail-asking" title="The Assistant is asking you something" />
       ) : (
-        live && <span className={cx('dot', live.status, live.unseen && 'unseen')} title={statusText(live)} />
+        <AssistantMark status={live?.status ?? 'stopped'} unseen={live?.unseen} title={live ? `The Assistant: ${statusText(live)}` : 'The Assistant is not running'} />
       )}
       <span className="assistant-rail-label">Hive Assistant</span>
     </div>
@@ -410,7 +413,6 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
   const kb = commandKeybinding('assistant.toggle')
   return (
     <div className="assistant-header" ref={ref}>
-      <StatusDot live={live} active />
       <Tooltip content={providerDescriptor(agentProviderOf(project, a)).name}>
         <span>
           <ProviderIcon provider={agentProviderOf(project, a)} />
@@ -478,31 +480,30 @@ function AssistantQuestions() {
 }
 
 /**
- * The Assistant's status in one line under the header (#312): "Status: Working", "Status: Waiting for #12, #13 →
- * Review (watch until 22:22)", with the status dot's colour, the attention colour when it needs you, and each card it
- * waits for a chip that opens the card. Cut short with "…" in a narrow panel, the whole line in its tooltip.
+ * The Assistant's status in one line under the header (#312): its own status icon (#399: its mark in the status's
+ * colour, with an agent's status dot on it), then "Status: Working", "Status: Waiting for #12 #13 → Review (watch until
+ * 22:22)", the attention colour when it needs you, and each card it waits for the card chip used everywhere (its column's
+ * colour; a click opens it). Cut short with "…" in a narrow panel, the whole line in its tooltip.
  */
 function AssistantStatus({ a }: { a: AgentInfo }) {
   useDateStyle()
   const live = a.live
   // Hive's own questions its actions wait on (the cards under this line): the user is wanted first.
   const approvals = useStore((s) => s.assistantQuestions)
+  const tasks = useStore((s) => s.tasks)
   const line = assistantStatusLine(live, (iso) => formatTime(iso), approvals.map((q) => q.title))
   const whole = `Status: ${line.text}${line.cards.map((n) => `#${n}`).join(', ')}${line.after}`
+  const status = live?.status ?? 'stopped'
   return (
     <div className={cx('assistant-status', line.tone)} data-tone={line.tone}>
-      <span className={cx('dot', live?.status ?? 'stopped', live?.unseen && 'unseen')} />
+      <AssistantMark status={status} unseen={live?.unseen} title={`The Assistant: ${live ? statusText(live) : 'not running'}`} />
       <Tooltip content={whole}>
         <span className="assistant-status-text">
           Status: {line.text}
-          {line.cards.map((n, i) => (
-            <span key={n}>
-              {i > 0 && ', '}
-              <button type="button" className="assistant-status-card" aria-label={`Open card #${n}`} onClick={() => set({ taskOpen: n })}>
-                #{n}
-              </button>
-            </span>
-          ))}
+          {line.cards.map((n) => {
+            const card = tasks.find((c) => c.number === n && !c.archived) ?? null
+            return <TaskChip key={n} number={n} column={card?.column ?? null} short label={`Open card #${n}${card ? `, in ${columnLabel(card.column)}` : ''}`} />
+          })}
           {line.after}
         </span>
       </Tooltip>
@@ -515,9 +516,9 @@ function AssistantStatus({ a }: { a: AgentInfo }) {
 const actionsFoldKey = (ws: string): string => `assistant-actions:${ws.toLowerCase()}`
 
 /**
- * What the Assistant did in this workspace, newest first, under its footer (#312): the last 3, Show all scrolls every
- * one inside the same height, and the header folds it all away to give the terminal the room. Not shown until it has
- * done something.
+ * What the Assistant did in this workspace, newest first, under its status line (#312, moved there by #399): the last 3,
+ * Show all scrolls every one inside the same height, and the header folds it all away to give the terminal the room.
+ * Not shown until it has done something.
  */
 function AssistantActions() {
   const list = useStore((s) => s.assistantActions)
@@ -565,6 +566,7 @@ function AssistantActions() {
     <div className={cx('assistant-actions', folded && 'folded')}>
       <button type="button" className="assistant-actions-head" aria-expanded={!folded} onClick={toggle}>
         <Icon name={folded ? 'chevron-right' : 'chevron-down'} />
+        <AssistantMark />
         Done by the Assistant
         <span className="faint">({list.length})</span>
       </button>
@@ -584,6 +586,19 @@ function activityOf(live: AgentInfo['live'], run: ProgressRun | null): string | 
 }
 
 /**
+ * How an agent's row in the workspace overview is backed (#399, after the Performance chart): a soft wash of its status's
+ * colour while it runs something, the chart's faint hatch while it waits (on cards, or for you), plain otherwise.
+ */
+function rowBacking(live: AgentInfo['live']): { status: string; backing: 'wash' | 'hatch' | null } {
+  if (!live) return { status: 'stopped', backing: null }
+  // A question it works on beside is waiting for you too.
+  const status = live.question && live.status !== 'waiting' ? 'waiting' : live.status
+  if (status === 'working' || status === 'background' || status === 'starting') return { status, backing: 'wash' }
+  if (status === 'watching' || status === 'waiting' || status === 'signin' || status === 'error') return { status, backing: 'hatch' }
+  return { status, backing: null }
+}
+
+/**
  * One agent in the workspace overview: its dot, provider and name, the card it is on (#311: the short chip, its icon and
  * number, the eye when reviewing; a click opens the card) and what it is doing, cut short with "…" when the panel is
  * narrow. The tooltip has the rest: its status, every card it has in Doing or is reviewing, its progress and its
@@ -594,6 +609,7 @@ function OverviewAgent({ project: p, a, onGo }: { project: ProjectInfo; a: Agent
   const reviewing = useAgentReviews(p, a.id)
   const run = useStore((s) => agentOpenRun(s.progressRuns, p.path, a.id))
   const activity = activityOf(a.live, run)
+  const row = rowBacking(a.live)
   const tip = [
     `${a.name}: ${a.live ? statusText(a.live) : 'not running'}`,
     ...doing.map((c) => `Working on #${c.number} ${c.title}`),
@@ -603,12 +619,12 @@ function OverviewAgent({ project: p, a, onGo }: { project: ProjectInfo; a: Agent
   ].join('\n')
   return (
     <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
-      <span className="assistant-agent" data-agent={a.id} onClick={onGo}>
+      <span className={cx('assistant-agent', row.backing && `row-${row.backing}`)} data-agent={a.id} data-status={row.status} onClick={onGo}>
         <span className={cx('dot', a.live?.status ?? 'stopped', a.live?.unseen && 'unseen')} />
         <ProviderIcon provider={agentProviderOf(p, a)} />
         <span className="assistant-agent-name">{a.name}</span>
         <CardChip project={p} a={a} short tip={false} />
-        {activity && <span className="faint assistant-agent-status">{activity}</span>}
+        {activity && <span className="assistant-agent-status">{activity}</span>}
       </span>
     </Tooltip>
   )
@@ -616,6 +632,48 @@ function OverviewAgent({ project: p, a, onGo }: { project: ProjectInfo; a: Agent
 
 /** Whether a workspace's overview shows its inactive projects (remembered per workspace). */
 const inactiveKey = (ws: string): string => `assistant-inactive:${ws.toLowerCase()}`
+
+/** Where a project's fold in the overview is remembered (#399): per workspace and project. */
+const assistantFoldKey = (ws: string, project: string): string => `${ws}|${project}`.toLowerCase()
+
+/**
+ * A project in the workspace overview: its name, and its agents under it with a fixed indent (#240). Its chevron folds it
+ * to one line (#399, remembered per workspace and project): the name, its most urgent agent's dot and how many run.
+ */
+function OverviewProject({ ws, project: p, go }: { ws: string; project: ProjectInfo; go: (p: ProjectInfo, id?: string) => void }) {
+  const key = assistantFoldKey(ws, p.path)
+  const folded = useStore((s) => s.assistantFold[key] === true)
+  const running = p.agents.filter((a) => a.live).length
+  const urgent = mostUrgent(p.agents.map((a) => a.live))
+  const summary = p.agents.length === 0 ? 'no agents' : running ? `${running} running` : 'not running'
+  const toggle = (): void => rememberProjectPref('assistantFold', key, folded ? null : true)
+  return (
+    <div className={cx('assistant-project', !p.active && 'inactive', folded && 'folded')} data-project={p.name}>
+      <div className="assistant-project-head">
+        <button type="button" className="assistant-project-fold" aria-expanded={!folded} aria-label={`${folded ? 'Show' : 'Fold'} ${p.name}'s agents`} onClick={toggle}>
+          <Icon name={folded ? 'chevron-right' : 'chevron-down'} />
+        </button>
+        <span className="assistant-project-name" onClick={() => go(p)}>
+          {p.name}
+        </span>
+        {folded && (
+          <span className="assistant-project-summary" onClick={toggle}>
+            {p.agents.length > 0 && <span className={cx('dot', urgent?.status ?? 'stopped', urgent?.unseen && 'unseen')} />}
+            <span className="faint">{summary}</span>
+          </span>
+        )}
+      </div>
+      {!folded && (
+        <div className="assistant-agents">
+          {p.agents.length === 0 && <span className="faint">no agents</span>}
+          {p.agents.map((a) => (
+            <OverviewAgent key={a.id} project={p} a={a} onGo={() => go(p, a.id)} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /**
  * What is happening in the workspace: agents needing you first, then each project and its agents. Click one to go
@@ -645,19 +703,7 @@ function WorkspaceOverview() {
   const running = projects.reduce((n, p) => n + p.agents.filter((a) => a.live).length, 0)
   const shown = projects.filter((p) => p.active || p.agents.some((a) => a.live))
   const folded = projects.filter((p) => !shown.includes(p))
-  const row = (p: ProjectInfo) => (
-    <div key={p.path} className={cx('assistant-project', !p.active && 'inactive')}>
-      <span className="assistant-project-name" onClick={() => go(p)}>
-        {p.name}
-      </span>
-      <div className="assistant-agents">
-        {p.agents.length === 0 && <span className="faint">no agents</span>}
-        {p.agents.map((a) => (
-          <OverviewAgent key={a.id} project={p} a={a} onGo={() => go(p, a.id)} />
-        ))}
-      </div>
-    </div>
-  )
+  const row = (p: ProjectInfo) => <OverviewProject key={p.path} ws={ws} project={p} go={go} />
   return (
     <div className="assistant-overview">
       <div className="assistant-section-title">
@@ -679,10 +725,10 @@ function WorkspaceOverview() {
       {projects.length === 0 && <div className="faint assistant-empty">No projects in this workspace yet.</div>}
       {shown.map(row)}
       {folded.length > 0 && (
-        <div className="assistant-fold" role="button" aria-expanded={showInactive} onClick={toggleInactive}>
+        <button type="button" className="assistant-fold" aria-expanded={showInactive} onClick={toggleInactive}>
           <Icon name={showInactive ? 'chevron-down' : 'chevron-right'} />
           {folded.length} inactive project{folded.length === 1 ? '' : 's'}
-        </div>
+        </button>
       )}
       {showInactive && folded.map(row)}
     </div>

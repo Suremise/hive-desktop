@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import type { AgentInfo, ProjectInfo, TaskCard } from '@shared/types'
+import type { AgentInfo, ProjectInfo, TaskCard, TaskColumn } from '@shared/types'
 import { agentDoingCards, agentReviewCards, columnColor } from '@shared/tasks'
 import { isAssistantPath, set, useStore } from '../store'
 import { cx } from '../util'
@@ -24,6 +24,46 @@ export function cardText(cards: TaskCard[]): string {
 }
 
 /**
+ * One card as a chip (#311, #399): its icon and `#n` (and title unless `short`), tinted with its column's colour
+ * (Settings → Board), the eye for one in Review; a click opens the card. `more` adds "+n". The one chip for a card
+ * everywhere: an agent's (CardChip), the Assistant's status line.
+ */
+export function TaskChip({ number, column, title, short, more = 0, label, onOpen }: { number: number; column: TaskColumn | null; title?: string; short?: boolean; more?: number; label?: string; onOpen?: () => void }) {
+  const colored = useStore((s) => s.settings?.board.columnColors ?? true)
+  const colors = useStore((s) => s.settings?.board.colors)
+  const review = column === 'review'
+  const open = (): void => (onOpen ? onOpen() : set({ taskOpen: number }))
+  return (
+    <span
+      className={cx('card-chip', colored && column && 'colored', short && 'short', review && 'review')}
+      style={colored && column ? ({ '--col': columnColor(colors, column) } as React.CSSProperties) : undefined}
+      data-task={number}
+      data-column={column ?? undefined}
+      data-review={review || undefined}
+      role="button"
+      tabIndex={0}
+      aria-label={label ?? `Open card #${number}`}
+      onClick={(e) => {
+        e.stopPropagation()
+        open()
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return
+        e.preventDefault()
+        e.stopPropagation()
+        open()
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <Icon name={review ? 'eye' : 'project'} />
+      <span className="card-chip-number">#{number}</span>
+      {!short && title && <span className="card-chip-title">{title}</span>}
+      {more > 0 && <span className="card-chip-more">+{more}</span>}
+    </span>
+  )
+}
+
+/**
  * The card an agent is working on (its first in Doing): `#4 title`, or only `#4` when `short`. Tinted with the Doing
  * column's colour (Settings → Board); clicking opens the card. With none in Doing, the card it is reviewing, with an
  * eye, in the Review column's colour.
@@ -31,30 +71,11 @@ export function cardText(cards: TaskCard[]): string {
 export function CardChip({ project, a, short, tip = true }: { project: ProjectInfo; a: AgentInfo; short?: boolean; tip?: boolean }) {
   const doing = useAgentCards(project, a.id)
   const reviewing = useAgentReviews(project, a.id)
-  const colored = useStore((s) => s.settings?.board.columnColors ?? true)
-  const colors = useStore((s) => s.settings?.board.colors)
   const cards = [...doing, ...reviewing]
   if (!cards.length) return null
   const [first, ...more] = cards
   const review = !doing.length
-  const chip = (
-    <span
-      className={cx('card-chip', colored && 'colored', short && 'short', review && 'review')}
-      style={colored ? ({ '--col': columnColor(colors, review ? 'review' : 'doing') } as React.CSSProperties) : undefined}
-      data-task={first.number}
-      data-review={review || undefined}
-      onClick={(e) => {
-        e.stopPropagation()
-        set({ taskOpen: first.number })
-      }}
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      <Icon name={review ? 'eye' : 'project'} />
-      <span className="card-chip-number">#{first.number}</span>
-      {!short && <span className="card-chip-title">{first.title}</span>}
-      {more.length > 0 && <span className="card-chip-more">+{more.length}</span>}
-    </span>
-  )
+  const chip = <TaskChip number={first.number} column={review ? 'review' : 'doing'} title={first.title} short={short} more={more.length} />
   if (!tip) return chip
   // Each card's decisions counted (#357): what the user decided about it, read in the card.
   const decided = (c: TaskCard): string => (c.decisions?.length ? ` (decisions: ${c.decisions.length})` : '')

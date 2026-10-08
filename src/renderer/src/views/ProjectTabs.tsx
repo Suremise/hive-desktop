@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AssistantMark } from '../components/AssistantMark'
 import { CardChip } from '../components/CardChip'
 import { KeybindingsEditor } from '../components/Keybindings'
 import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
@@ -276,7 +277,7 @@ const AGENT_COLUMNS: DataColumn<AgentRow>[] = [
 ]
 
 /** One running agent: provider, model, mode, status, context used and cost so far. `onOpen` makes it a link. */
-export function RunningAgent({ project, a, label, onOpen }: { project: ProjectInfo; a: ProjectInfo['agents'][number]; label?: string; onOpen?: () => void }) {
+export function RunningAgent({ project, a, label, onOpen, assistant }: { project: ProjectInfo; a: ProjectInfo['agents'][number]; label?: string; onOpen?: () => void; assistant?: boolean }) {
   const live = a.live!
   const usage = useLiveUsage(project, a.id)
   const settings = useStore((s) => s.settings)
@@ -287,7 +288,14 @@ export function RunningAgent({ project, a, label, onOpen }: { project: ProjectIn
   const estimated = live.costUsd !== undefined ? !!live.costEstimated : !!usage?.costEstimated
   return (
     <div className={cx('running-row', onOpen && 'clickable')} onClick={onOpen} role={onOpen ? 'button' : undefined}>
-      <StatusDot live={live} active={project.active} />
+      {/* The Assistant's own status icon (#399), its status in the tooltip as a dot's is. */}
+      {assistant ? (
+        <Tooltip content={statusText(live)}>
+          <AssistantMark status={live.status} unseen={live.unseen} />
+        </Tooltip>
+      ) : (
+        <StatusDot live={live} active={project.active} />
+      )}
       <ProviderIcon provider={live.provider} />
       <div className="grow">
         <div>
