@@ -9,7 +9,7 @@ const path = require('path')
 
 const userData = path.join(lib.WORK, 'assistantoverview-profile')
 const ws = path.join(lib.WORK, 'assistantoverview-ws')
-const INDENT = 14
+const INDENT = 0 // #399: the agents line up under the name, which follows its fold chevron
 let failed = 0
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
@@ -50,7 +50,8 @@ const check = (name, ok, extra = '') => {
       const panel = document.querySelector('.assistant-panel').getBoundingClientRect()
       const block = [...document.querySelectorAll('.assistant-project')].find((b) => b.querySelector('.assistant-project-name')?.textContent.trim() === 'alpha')
       const name = block.querySelector('.assistant-project-name').getBoundingClientRect()
-      const agents = [...block.querySelectorAll('.assistant-agent')].map((a) => a.getBoundingClientRect())
+      // Each agent where its dot starts (#399: the row's backing reaches out over the indent).
+      const agents = [...block.querySelectorAll('.assistant-agent')].map((a) => ({ ...a.getBoundingClientRect().toJSON(), left: a.querySelector('.dot').getBoundingClientRect().left }))
       const empty = [...document.querySelectorAll('.assistant-project')].find((b) => b.textContent.includes('beta'))?.querySelector('.assistant-agents')
       return {
         panel: { left: panel.left, right: panel.right, width: panel.width },
@@ -86,6 +87,26 @@ const check = (name, ok, extra = '') => {
   check('125%: the same layout', layoutOk(await geometry()), JSON.stringify(await geometry()))
   await page.locator('.assistant-panel').screenshot({ path: path.join(lib.WORK, 'assistantoverview-125.png') })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
+
+  // Folded at the narrowest, a project whose name takes the whole row still shows its summary (#399): the name gives
+  // way first, with an ellipsis; the dot and "not running" stay whole.
+  const long = path.join(ws, 'a-long-project-name-that-takes-most-of-the-panel')
+  lib.gitProject(long)
+  await inv('workspace:refresh')
+  await inv('project:setActive', long, true).catch(() => undefined)
+  await lib.addAgent(inv, long, { name: 'Coder' })
+  await panelAt(300, 'right')
+  const longBlock = page.locator('.assistant-project[data-project="a-long-project-name-that-takes-most-of-the-panel"]')
+  await longBlock.locator('.assistant-project-fold').click()
+  await lib.until(async () => (await longBlock.locator('.assistant-project-summary').count()) === 1, 3000)
+  const fold = await longBlock.evaluate((b) => {
+    const box = (sel) => b.querySelector(sel)?.getBoundingClientRect()
+    const name = b.querySelector('.assistant-project-name')
+    const summary = b.querySelector('.assistant-project-summary')
+    return { name: name.getBoundingClientRect().width, cut: name.scrollWidth > name.clientWidth, summary: summary.getBoundingClientRect().width, whole: summary.scrollWidth <= summary.clientWidth + 0.5, dot: box('.assistant-project-summary .dot')?.width ?? 0, right: summary.getBoundingClientRect().right, panel: document.querySelector('.assistant-panel').getBoundingClientRect().right, text: summary.textContent.trim() }
+  })
+  check('narrow, folded with a long name: the name is cut with “…”, the dot and “not running” stay whole, inside the panel', fold.cut && fold.whole && fold.dot > 0 && fold.text === 'not running' && fold.right <= fold.panel + 0.5, JSON.stringify(fold))
+  await page.locator('.assistant-panel').screenshot({ path: path.join(lib.WORK, 'assistantoverview-long-folded.png') })
 
   await app.close()
   if (failed) console.log(`${failed} failed`)

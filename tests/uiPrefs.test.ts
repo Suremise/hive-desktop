@@ -47,10 +47,16 @@ describe('projectPrefValue', () => {
     expect(kept.k0).toBeUndefined()
   })
 
+  it('keeps a folded project in the Assistant panel as true, nothing else', () => {
+    expect(projectPrefValue('assistantFold', true)).toBe(true)
+    expect(projectPrefValue('assistantFold', false)).toBeUndefined()
+    expect(projectPrefValue('assistantFold', 'yes')).toBeUndefined()
+  })
+
   it('knows which preferences are per project', () => {
     expect(projectPrefValue('hiveVcsNotice', 'none|OneDrive')).toBe('none|OneDrive')
     expect(projectPrefValue('hiveVcsNotice', 3)).toBeUndefined()
-    expect(['skillsProvider', 'skillsFold', 'sessionsTree', 'hiveVcsNotice'].every(isProjectPref)).toBe(true)
+    expect(['skillsProvider', 'skillsFold', 'sessionsTree', 'hiveVcsNotice', 'assistantFold'].every(isProjectPref)).toBe(true)
     expect(isProjectPref('sidebarWidth')).toBe(false)
     expect(isProjectPref('tips')).toBe(false)
   })

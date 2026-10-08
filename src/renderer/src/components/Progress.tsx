@@ -7,6 +7,7 @@ import { commandKeybinding } from '../commands'
 import { findProject, flashPane, get, notify, projectKey, revealAgent, set, setAssistantOpen, setProgressFilter, setProgressOpen, useDateStyle, useProgressFilter, useProgressOpen, useStore } from '../store'
 import { useNow } from '../usage'
 import { cx, formatKeybinding } from '../util'
+import { AssistantMark } from './AssistantMark'
 import { ProviderIcon } from './ProviderIcon'
 import { PaneResizer, usePaneSize } from './Resizer'
 import { MergeSlotList, useMergeSlots } from './MergeSlots'
@@ -282,11 +283,11 @@ function DetailsToggle({ run: r, open, onToggle }: { run: ProgressRun; open: boo
   )
 }
 
-/** Who ran it: the provider's icon, the agent and its project. */
+/** Who ran it: the provider's icon (the Assistant's mark for its runs, #399), the agent and its project. */
 function RunWho({ run: r, project }: { run: ProgressRun; project: string | null }) {
   return (
     <>
-      {r.provider ? <ProviderIcon provider={r.provider} /> : <Icon name="terminal" />}
+      {r.source === 'assistant' ? <AssistantMark /> : r.provider ? <ProviderIcon provider={r.provider} /> : <Icon name="terminal" />}
       <span className="progress-agent">{r.agentName}</span>
       {project && <span className="faint progress-project">{project}</span>}
     </>
