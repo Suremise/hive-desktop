@@ -446,27 +446,72 @@ const replyNote = (r: ReplyNote, max: number): string => {
  * each), then everything but numbers and agents' names; the instruction at the end always stays. `repliesTold`: the line
  * names every reply (else none is taken as told, and the next watch tells them).
  */
-export function cardWakeLine(changes: CardChange[], replies: ReplyNote[]): { line: string; repliesTold: boolean } {
-  if (!replies.length) return { line: wakeLines(changes), repliesTold: false }
+export function cardWakeLine(changes: CardChange[], replies: ReplyNote[], released: Released[] = []): { line: string; repliesTold: boolean } {
+  if (!replies.length && !released.length) return { line: wakeLines(changes), repliesTold: false }
+  if (!replies.length && !changes.length) return { line: releasedLine(released), repliesTold: false }
   const tail = changes.length ? MANY_TAIL : '. Your card watch has ended: carry on (hive_read_task for the card, hive_agent_activity for the agent).'
   const fits = (line: string): boolean => jsonBytes(line) <= WAKE_MAX_BYTES
   for (const [max, rmax] of [[160, 120], [80, 80], [40, 40], [0, 40], [0, 0]]) {
-    const line = `[Hive] ${[...replies.map((r) => replyNote(r, rmax)), ...changes.map((c) => cardPart(c, max))].join('; ')}${tail}`
+    const line = `[Hive] ${[...released.map((r) => releasedPart(r, true)), ...replies.map((r) => replyNote(r, rmax)), ...changes.map((c) => cardPart(c, max))].join('; ')}${tail}`
     if (fits(line)) return { line, repliesTold: true }
   }
   const short = '. Your card watch has ended. Details were left out to fit: read each card (hive_read_task) and agent (hive_agent_activity) before you carry on.'
-  const compact = `[Hive] ${[...replies.map((r) => replyNote(r, 0)), ...changes.map(brief)].join('; ')}${short}`
+  const compact = `[Hive] ${[...released.map((r) => releasedPart(r, false)), ...replies.map((r) => replyNote(r, 0)), ...changes.map(brief)].join('; ')}${short}`
   if (fits(compact)) return { line: compact, repliesTold: true }
   const who = [...new Set(replies.map((r) => shortName(r.agentName)))].join(', ')
-  const numbers = `[Hive] The user replied to ${who}${changes.length ? `; ${changes.map((c) => `#${c.number}`).join(', ')} changed` : ''}${short}`
+  const numbers = `[Hive] ${[released.length ? `${cards(released.map((r) => r.number))} left your watch` : '', replies.length ? `The user replied to ${who}` : '', changes.length ? `${changes.map((c) => `#${c.number}`).join(', ')} changed` : ''].filter(Boolean).join('; ')}${short}`
   if (fits(numbers)) return { line: numbers, repliesTold: true }
   // Never past the limit: the cards as a card line tells them; the replies are told by a later wake.
   return { line: wakeLines(changes) || `[Hive] The user replied to agents of your watched cards${short}`, repliesTold: !changes.length }
 }
 
+/**
+ * A card that left a watch because the watcher's part in it ended (#420): reassigned to another agent, reviewed by
+ * another, or blocked. Its agent's or reviewer's name now, or the reason it is blocked.
+ */
+export interface Released {
+  number: number
+  why: 'reassigned' | 'reviewer' | 'blocked'
+  /** The agent it was given to or the reviewer reviewing it (null: nobody), or why it is blocked. */
+  detail: string | null
+}
+
+/** What happened to a released card, for a wake line: "#354 was reassigned to B4", "#356 is blocked: "…"". */
+function releasedPart(r: Released, full: boolean): string {
+  const head =
+    r.why === 'blocked'
+      ? `#${r.number} is blocked${full && r.detail ? `: "${[...r.detail].length > 120 ? `${[...r.detail].slice(0, 119).join('')}…` : r.detail}"` : ''}`
+      : r.why === 'reviewer'
+        ? r.detail
+          ? `#${r.number} is reviewed by ${shortName(r.detail)}`
+          : `#${r.number}'s review was taken from you`
+        : `#${r.number} was reassigned${r.detail ? ` to ${shortName(r.detail)}` : ' (it has no agent now)'}`
+  return `${head} (your watch on it ended)`
+}
+
+/** The line for a watch whose every card left it (#420): what happened to each, then to drop them and carry on. */
+export function releasedLine(released: Released[]): string {
+  const one = released.length === 1
+  const tail = `. Your card watch has ended: drop ${one ? 'it' : 'them'} from your list and carry on with your next card.`
+  for (const full of [true, false]) {
+    const line = `[Hive] ${released.map((r) => releasedPart(r, full)).join('; ')}${tail}`
+    if (jsonBytes(line) <= WAKE_MAX_BYTES) return line
+  }
+  return `[Hive] ${cards(released.map((r) => r.number))} left your watch (reassigned or blocked)${tail}`
+}
+
 /** The line Hive types when a watch's overall limit passes with no change. */
-export function limitLine(cond: WatchCondition, minutes: number): string {
-  return `[Hive] No change on ${cards(cond.cards)} in ${minutes >= 60 ? `${Math.round((minutes / 60) * 10) / 10} h` : `${minutes} min`}: your card watch has ended. Tell the user (hive_notify) and ask what to do.`
+export function limitLine(cond: WatchCondition, minutes: number, released: Released[] = []): string {
+  const dur = minutes >= 60 ? `${Math.round((minutes / 60) * 10) / 10} h` : `${minutes} min`
+  if (!released.length) return `[Hive] No change on ${cards(cond.cards)} in ${dur}: your card watch has ended. Tell the user (hive_notify) and ask what to do.`
+  // Cards that left the watch meanwhile (#420) are told too: drop them; the rest timed out.
+  const one = released.length === 1
+  const tail = `. No change on ${cards(cond.cards)} in ${dur}: your card watch has ended. Drop ${one ? 'the first' : 'those'} from your list; for the rest, tell the user (hive_notify) and ask what to do.`
+  for (const full of [true, false]) {
+    const line = `[Hive] ${released.map((r) => releasedPart(r, full)).join('; ')}${tail}`
+    if (jsonBytes(line) <= WAKE_MAX_BYTES) return line
+  }
+  return `[Hive] ${cards(released.map((r) => r.number))} left your watch (reassigned or blocked)${tail}`
 }
 
 const cards = (ns: number[]): string => ns.map((n) => `#${n}`).join(', ')

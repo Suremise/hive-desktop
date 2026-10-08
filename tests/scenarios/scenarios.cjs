@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 21
+const FIXTURES_VERSION = 22
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -1040,6 +1040,28 @@ module.exports.SCENARIOS = [
         ["recorded the answer as the card's decision", decided && decisions.some((t) => /hive cell|\bC\b/i.test(t)), decisions.join(' | ')],
         ["didn't ask the user again", called(o, 'hive_notify').length === 0],
         ["didn't type it into Coder (it has it)", called(o, 'hive_prompt_agent').length === 0]
+      ]
+    }
+  },
+  {
+    id: 'card-loop-released',
+    title: 'A reviewer in a card loop told its card was reassigned (#420): drops it and carries on with the next, without asking',
+    role: 'agent',
+    async setup(c) {
+      await c.card('a', { title: 'Retry the upload', description: 'Retry a failed upload once.', agent: 'implementer', column: 'doing' })
+      await c.card('b', { title: 'Show upload progress', description: 'Show a progress bar while uploading.', agent: 'implementer', column: 'review' })
+    },
+    prompt: (c) =>
+      `You are the reviewer in a card loop (the card-loop skill): cards #${c.cards.a}, then #${c.cards.b}; rounds 3; wait 1h. You were waiting for #${c.cards.a} to arrive in Review when Hive typed this line: [Hive] #${c.cards.a} was reassigned to Other (your watch on it ended). Your card watch has ended: drop it from your list and carry on with your next card.`,
+    fake: (c) => `skill card-loop then boardreview ${c.cards.b} start`,
+    expect: (o, c) => {
+      const watchedA = ran(o, 'hive_wait_for_tasks').some((x) => new RegExp(`"cards"\\s*:\\s*\\[[^\\]]*\\b${c.cards.a}\\b`).test(String(x.args)))
+      const onB = ran(o, 'hive_update_task').some((x) => field(x.args, 'number', c.cards.b) && field(x.args, 'review', 'start')) || ran(o, 'hive_wait_for_tasks').some((x) => new RegExp(`"cards"\\s*:\\s*\\[[^\\]]*\\b${c.cards.b}\\b`).test(String(x.args)))
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        [`went on to #${c.cards.b} (began its review, or watched it)`, onB, o.hiveCalls.map((x) => x.tool).join(',')],
+        [`didn't wait on #${c.cards.a} again`, !watchedA],
+        ["didn't stop to ask the user", called(o, 'hive_notify').length === 0]
       ]
     }
   },

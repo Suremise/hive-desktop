@@ -36,6 +36,19 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## A card that left a loop's watch: fakes, Codex (`gpt-5.6-luna`), fixtures v22, 8 October 2026
+
+#420 releases a card from the watch of an agent whose part in it ended (given to another agent, reviewed by another, or
+blocked) with a line ("[Hive] #1 was reassigned to Other (your watch on it ended). Your card watch has ended: drop it from
+your list and carry on with your next card."), and adds a line to card-loop: such a wake means drop the card and carry
+on, without asking. Fixtures v22 add **card-loop-released** (a reviewer with #1 then #2 gets that line for #1).
+- **Fakes**, v22, before (`4d9337a`, with the final fixtures, in a worktree of its own) and after, neither source changed
+  while it ran (baselines `b2-420-before` and `b2-420-after`): Performance → Compare finds them comparable, every scenario
+  the same, all checks passing both times. card-loop's text read grows +259 bytes; the tool list is unchanged.
+- **Codex: 2 of 2 pass** (`2026-10-08T07-55-04-codex`, $0.030): told #1 was reassigned, the reviewer read card-loop, went on
+  to #2 (began its review), didn't wait on #1 again and didn't stop to ask; card-loop-rounds still asks at the limit.
+- **Claude Code**: not run (its test home isn't signed in).
+
 ## The user's replies told to the Assistant: fakes, Codex (`gpt-5.6-luna`), fixtures v21, 8 October 2026
 
 #418 tells the Assistant's watches when the user answers an agent in its pane ("[Hive] The user replied to Coder on #1:

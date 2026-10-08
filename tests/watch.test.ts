@@ -1201,7 +1201,34 @@ describe('watches (main/watches.ts)', async () => {
     const many = Array.from({ length: count }, (_, i) => ({ ...one, id: `w${i}`, agentId: `b${String(i).padStart(3, '0')}` }))
     writeFileSync(file, JSON.stringify({ version: 1, watches: many }))
     watches.forgetWatches(w)
-    await expect(watches.registerWatch(w, alpha, 'zzzz', { cards, changes: ['comment'] })).rejects.toThrow(/Too many card watches/)
+    // The refusal is cheap (#321): every watch measured once (not the whole file's text again for each one set aside),
+    // and each card read once for all the watches on it (not 20 cards for each of the 400). Counted (what JSON.stringify
+    // writes, which cards are read while it reads the file back and refuses) and timed.
+    const stringify = JSON.stringify
+    let written = 0
+    JSON.stringify = ((...a: Parameters<typeof JSON.stringify>) => {
+      const s = stringify(...a)
+      written += s?.length ?? 0
+      return s
+    }) as typeof JSON.stringify
+    const reads: number[] = []
+    watches.testHooks.cardRead = (c) => reads.push(c)
+    let refusedMs = 0
+    try {
+      const t0 = performance.now()
+      await expect(watches.registerWatch(w, alpha, 'zzzz', { cards, changes: ['comment'] })).rejects.toThrow(/Too many card watches/)
+      refusedMs = performance.now() - t0
+      await watches.evaluateWatches(w)
+    } finally {
+      JSON.stringify = stringify
+      delete watches.testHooks.cardRead
+    }
+    expect(written).toBeLessThan(8 * 1024 * 1024)
+    // Under 2 s: before #321 this refusal took 2.3–2.5 s on an idle machine (B3H's measure), so the old code fails it
+    // even idle; it now takes a few hundred ms at most idle, leaving room for a loaded machine.
+    expect(refusedMs, `refused in ${Math.round(refusedMs)} ms`).toBeLessThan(2000)
+    // A few reads a card (the registration, each check of the watches), not one for each of the 400 watches on it.
+    for (const c of cards) expect(reads.filter((x) => x === c).length, `#${c} read`).toBeLessThanOrEqual(6)
     // The file itself is rewritten without them by the tick.
     await watches.tick()
     const kept = JSON.parse(readFileSync(file, 'utf8')).watches
@@ -1215,8 +1242,15 @@ describe('watches (main/watches.ts)', async () => {
     // Replacing one of them is still fine.
     await watches.registerWatch(w, alpha, kept[0].agentId, { cards, changes: ['verdict'] })
     await disposeWorkspaceService(w)
-    // About 2.5 s of real work (400 large watches written, read and split): more than the default 5 s on a loaded machine.
-  }, 20_000)
+  })
+
+  it("the watches file's size, measured watch by watch as its limit is checked (#321), is its text's exactly", () => {
+    const one = { id: 'a1b2c3', projectPath: 'C:\\ws\\alpha', agentId: 'a1', cond: { cards: [1, 2], changes: ['comment'] }, marks: { 1: { column: 'doing', comment: 0, verdict: 0, agent: '', archived: false } }, since: '2026-10-08T00:00:00.000Z', limitMinutes: 120, limitAt: '2026-10-08T02:00:00.000Z' }
+    const odd = { ...one, id: 'ffff00', agentId: 'b🐝', fired: { line: '[Hive] "quoted" ünïcødé\nline', at: '2026-10-08T01:00:00.000Z', cards: [], sending: '2026-10-08T01:00:01.000Z' }, released: [{ number: 3, why: 'blocked', detail: null }] }
+    const text = (ws: object[], invalid: unknown[]) => Buffer.byteLength(JSON.stringify({ version: 1, watches: ws, ...(invalid.length ? { invalid } : {}) }, null, 2) + '\n')
+    for (const ws of [[], [one], [one, odd], Array.from({ length: 30 }, (_, i) => ({ ...odd, id: `w${i}` }))])
+      for (const invalid of [[], [{ junk: true }, 'text', 42]]) expect(watches.savedFileBytes(ws, invalid), `${ws.length} watches, ${invalid.length} invalid`).toBe(text(ws, invalid))
+  })
 
   it('a save that landed after the workspace closed is undone only while the file is still that save: a newer edit is kept', async () => {
     const { w, path, alpha } = await open()

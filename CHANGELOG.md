@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Skills
+- **A card loop moves on when its card is taken away.** If a card an agent is waiting on in a card loop is given to another agent, reviewed by another, or blocked (for your decision, say), the agent is told once and carries on with its next card, instead of waiting until you cancel its wait by hand. A wait on several cards keeps the others, and the card's history says whose wait ended.
+
 ### Hive Assistant
 - **A tidier Assistant panel.** The header no longer repeats the status with a dot: the **Status** line under it says it, after the Assistant's own icon (a hive cell with a crown), in the status's colour with an agent's status dot on it. The same icon marks the Assistant on the panel's folded strip, its runs in the Progress panel, the inbox and the Workspace Overview. The cards it waits for are the same coloured card chips as everywhere else (click one to open the card). **Done by the Assistant** now sits between the status and the workspace, with the same last 3, Show all and fold. Each project in the workspace list folds to one line (its name, the dot of the agent that most needs you, and how many agents run), and stays folded for that workspace. Each agent in the list has a faint backing in its status's colour, a soft wash while it works and a light hatch while it waits on cards or for you, so you can see at a glance which ones are busy.
 - **Several cards in one change.** The Assistant can move or update up to 100 cards in one step: the same column, position, blocked, labels or agent on each. Each card is checked and changed on its own, with its own history line, and one it can't change (in Doing with another agent, say) is left as it was while the rest change. Its 30 changes per message count each card; a batch that doesn't fit changes none of them, and says how many would fit. Agents can batch the cards of their own project too.

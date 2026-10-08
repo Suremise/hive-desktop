@@ -3,7 +3,7 @@ import { app } from 'electron'
 import { link, mkdir, readFile, rename, rm, writeFile } from 'original-fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
-import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
+import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, releasedLine, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
 import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, readSavedAgentMark, replyFirstLine, type AgentEvent, type AgentMark, type AgentNow, type AgentWatchCondition, type WatchedAgent } from '../shared/agentWatch'
 import type { LiveSessionState, TaskCard, TaskWatchInfo } from '../shared/types'
 import { config } from './config'
@@ -12,7 +12,7 @@ import { readCapped, renameRetrying } from './fsutil'
 import { createLogger, userText } from './logger'
 import { noteLoopWatch } from './loopCheck'
 import { sessions } from './sessions'
-import { getTask, inScope, unknownTask } from './tasks'
+import { getTask, inScope, noteOnCard, unknownTask } from './tasks'
 import { openWorkspaces, workspaceFor, type WorkspaceService } from './workspace'
 
 /**
@@ -73,6 +73,15 @@ interface WatchRecord {
    * after it to a watched card's agent or reviewer is news. Absent: from before #418 (then from when it was read).
    */
   replySeq?: number
+  /**
+   * A project agent's part in each watched card as the watch began (#420): its agent, its reviewer, or a reviewer
+   * waiting for it to arrive in Review ("awaiting"), and whether it was blocked (as last seen). A card it has no part in
+   * (another agent's card it depends on) isn't here, and is never released. The watcher's board name, for the history.
+   */
+  on?: Record<string, OnCard>
+  watcherName?: string
+  /** Cards that left the watch since it began, released (#420): told with its next line. */
+  released?: Released[]
   limitMinutes: number
   limitAt: string
   /**
@@ -144,6 +153,8 @@ export const testHooks: {
   settleMs?: number
   /** How long a typed wake has to be taken (TAKE_MS). */
   takeMs?: number
+  /** Told each time a check reads a card from disk (#321: each card once a check). */
+  cardRead?: (n: number) => void
 } = {}
 /** The same seams by their first name (round-one probes use it). */
 export const testPauses = testHooks
@@ -165,6 +176,12 @@ function fitLine(line: string): string {
   let s = line
   while (s && jsonBytes(`${s}…`) > MAX_LINE_BYTES) s = s.slice(0, -1)
   return `${s}…`
+}
+
+/** A watcher's part in a card (#420). */
+interface OnCard {
+  role: 'agent' | 'reviewer' | 'awaiting'
+  blocked: boolean
 }
 
 /** The watches of each open workspace, loaded on first need (by its path, case-folded). */
@@ -243,7 +260,14 @@ function load(ws: WorkspaceService): Promise<Store> {
     if (budget(store, list) > MAX_FILE_BYTES) {
       const over: WatchRecord[] = []
       if (!(await setAside(store)) || budget(store, list) > MAX_FILE_BYTES) {
-        while (list.length && budget(store, list, []) > MAX_FILE_BYTES) over.unshift(list.pop()!)
+        // Each watch measured once, the last ones taken off until the rest fit (#321: not the whole file again a pop).
+        const empty = Buffer.byteLength(fileText(store, [], []))
+        const sizes = list.map((r) => entryBytes(atMost(r)))
+        let sum = sizes.reduce((a, b) => a + b, 0)
+        while (list.length && sizeOf(empty, sizes, sum) > MAX_FILE_BYTES) {
+          over.unshift(list.pop()!)
+          sum -= sizes.pop()!
+        }
         if (over.length && !(await setAside(store, over))) throw new Error('The card watches file is too big, and its extra watches could not be set aside')
       }
       store.dirty = true
@@ -375,9 +399,29 @@ function readRecord(v: unknown): WatchRecord | null {
   }
   if (r.self !== undefined && (!text(r.self, 300) || !seen)) return null
   if (r.replySeq !== undefined && (typeof r.replySeq !== 'number' || !Number.isInteger(r.replySeq) || r.replySeq < 0)) return null
+  // A watcher's part in its cards, and the cards released since (#420).
+  let on: Record<string, OnCard> | undefined
+  if (r.on !== undefined) {
+    if (!r.on || typeof r.on !== 'object' || Array.isArray(r.on)) return null
+    on = {}
+    for (const [k, part] of Object.entries(r.on as Record<string, { role?: unknown; blocked?: unknown }>)) {
+      if (!cond.cards.includes(Number(k)) || !part || !['agent', 'reviewer', 'awaiting'].includes(part.role as string) || typeof part.blocked !== 'boolean') return null
+      on[k] = { role: part.role as OnCard['role'], blocked: part.blocked }
+    }
+  }
+  if (r.watcherName !== undefined && !text(r.watcherName, 300)) return null
+  let released: Released[] | undefined
+  if (r.released !== undefined) {
+    if (!Array.isArray(r.released) || r.released.length > WATCH_MAX_CARDS) return null
+    released = []
+    for (const x of r.released as { number?: unknown; why?: unknown; detail?: unknown }[]) {
+      if (!x || !Number.isInteger(x.number) || (x.number as number) <= 0 || !['reassigned', 'reviewer', 'blocked'].includes(x.why as string) || !(x.detail === null || text(x.detail, 300))) return null
+      released.push({ number: x.number as number, why: x.why as Released['why'], detail: x.detail as string | null })
+    }
+  }
   const from = { ...(seen ? { seen } : {}), ...(r.self ? { self: r.self as string } : {}) }
   // The scope is set by the workspace that loads it (from the agent's folder), whatever the file says.
-  return { id: r.id, projectPath: r.projectPath, agentId: r.agentId, scope: '', cond, ...(agents ? { agents, agentMarks } : {}), marks, current: { ...marks }, since: r.since, ...from, limitMinutes: minutes, limitAt: r.limitAt, ...(typeof r.replySeq === 'number' ? { replySeq: r.replySeq } : {}), ...(fired ? { fired } : {}) }
+  return { id: r.id, projectPath: r.projectPath, agentId: r.agentId, scope: '', cond, ...(agents ? { agents, agentMarks } : {}), marks, current: { ...marks }, since: r.since, ...from, limitMinutes: minutes, limitAt: r.limitAt, ...(typeof r.replySeq === 'number' ? { replySeq: r.replySeq } : {}), ...(on ? { on } : {}), ...(r.watcherName ? { watcherName: r.watcherName as string } : {}), ...(released ? { released } : {}), ...(fired ? { fired } : {}) }
 }
 
 /** An agent watch's condition on cards: none. */
@@ -390,8 +434,35 @@ const fileText = (store: Store, list: WatchRecord[], invalid = store.invalid): s
 /** The longest a watch's saved form can grow to: fired with the longest line, being typed. */
 const AT = new Date(0).toISOString()
 const atMost = (r: WatchRecord): WatchRecord => ({ ...r, fired: { line: 'x'.repeat(MAX_LINE_BYTES - 2), at: AT, cards: r.cond.cards, ...(r.agentMarks ? { agents: Object.keys(r.agentMarks) } : {}), sending: AT } })
-/** The file's size with every watch at its longest: it must fit, so a watch Hive took can always fire, be typed and end. */
-const budget = (store: Store, list: WatchRecord[], invalid = store.invalid): number => Buffer.byteLength(fileText(store, list.map(atMost), invalid))
+/**
+ * The bytes one watch takes in the file (#321): its own JSON as fileText writes it, an entry of the "watches" array, so
+ * each of its lines indented by four more spaces.
+ */
+function entryBytes(r: WatchRecord): number {
+  const { scope: _scope, current: _current, ...saved } = r
+  return savedEntryBytes(saved)
+}
+const savedEntryBytes = (saved: object): number => {
+  const s = JSON.stringify(saved, null, 2)
+  let lines = 1
+  for (let i = s.indexOf('\n'); i >= 0; i = s.indexOf('\n', i + 1)) lines++
+  return Buffer.byteLength(s) + 4 * lines
+}
+/** The watches file's size for these saved entries, measured as budget() does (#321): for tests, against its text. */
+export const savedFileBytes = (watches: object[], invalid: unknown[] = []): number =>
+  sizeOf(Buffer.byteLength(JSON.stringify({ version: 1, watches: [], ...(invalid.length ? { invalid } : {}) }, null, 2) + '\n'), watches.map(savedEntryBytes))
+
+/**
+ * The file's size with these entries (#321), without making its text: the file with no watches, then the entries, each
+ * after a ",\n" but the first, the "[]" made "[\n" … "\n  ]". Exactly what fileText's length would be.
+ */
+const sizeOf = (empty: number, entries: number[], sum = entries.reduce((a, b) => a + b, 0)): number => (entries.length ? empty + sum + 2 * (entries.length - 1) + 4 : empty)
+
+/**
+ * The file's size with every watch at its longest: it must fit, so a watch Hive took can always fire, be typed and end.
+ * Measured watch by watch (#321): making the whole file's text for it took seconds at 400 watches, once a pop.
+ */
+const budget = (store: Store, list: WatchRecord[], invalid = store.invalid): number => sizeOf(Buffer.byteLength(fileText(store, [], invalid)), list.map((r) => entryBytes(atMost(r))))
 
 /**
  * Makes room in the file: the saved entries that aren't valid watches (and, read back over the limit, the watches that
@@ -541,12 +612,24 @@ export function watchFor(projectPath: string, agentId: string): TaskWatchInfo | 
  * A card as the scope may see it (null: gone, archived cards included as they are, or outside the scope), read from the
  * store's own workspace: a read that a close or switch overlapped is refused.
  */
-async function cardIn(store: Store, n: number, scope: string | null): Promise<TaskCard | null> {
+async function cardIn(store: Store, n: number, scope: string | null, cards?: CardReads): Promise<TaskCard | null> {
   checkAlive(store)
-  const card = await getTask(n, store.ws).catch(() => null)
+  let read = cards?.get(n)
+  if (!read) {
+    testHooks.cardRead?.(n)
+    read = getTask(n, store.ws).catch(() => null)
+    cards?.set(n, read)
+  }
+  const card = await read
   checkAlive(store)
   return card && inScope(card, scope) ? card : null
 }
+
+/**
+ * The cards one check of the watches has read (#321): each card once, whatever the number of watches on it (a builder,
+ * its reviewer and the Assistant on the same card; 400 watches of 20 cards each read 8,000 files a check before).
+ */
+type CardReads = Map<number, Promise<TaskCard | null>>
 
 /** Ends a watch being typed: the typing stops before Enter. */
 const stopDelivery = (store: Store, rec: WatchRecord | undefined): void => {
@@ -576,11 +659,15 @@ export async function registerWatch(ws: WorkspaceService, projectPath: string, a
     const marks: Record<string, CardMark> = {}
     const seen: Record<string, Seen> = {}
     const now: Record<string, CardMark> = {}
+    // A project agent's part in each card (#420): what ends its watch on one when the card is reassigned or blocked.
+    const on: Record<string, OnCard> = {}
     let already: CardChange | null = null
     for (const n of cond.cards) {
       const card = await cardIn(store, n, scope)
       await testHooks.afterRead?.()
       if (!card) throw unknownTask(n)
+      const role = scope === null ? null : card.agent === agentId ? 'agent' : card.review?.agent === agentId ? 'reviewer' : cond.column === 'review' ? 'awaiting' : null
+      if (role) on[n] = { role, blocked: !!card.blocked }
       const mark = markOf(card)
       if (alreadyThere(mark, cond)) {
         already = cardChange(n, card, ['column'])
@@ -599,7 +686,7 @@ export async function registerWatch(ws: WorkspaceService, projectPath: string, a
     const minutes = Math.min(WATCH_MAX_LIMIT_MINUTES, Math.max(1, Math.round(limitMinutes)))
     // The Assistant's: the user's replies to its cards' agents from what its last wake told (#418).
     const replySeq = scope === null ? (store.wokeReplies.get(agentKey(projectPath, agentId)) ?? latestReplySeq()) : undefined
-    const rec: WatchRecord | null = already ? null : { id: randomBytes(6).toString('hex'), projectPath, agentId, scope, cond, marks, current: now, since, ...from, ...(replySeq !== undefined ? { replySeq } : {}), limitMinutes: minutes, limitAt: new Date(Date.now() + minutes * 60_000).toISOString() }
+    const rec: WatchRecord | null = already ? null : { id: randomBytes(6).toString('hex'), projectPath, agentId, scope, cond, marks, current: now, since, ...from, ...(replySeq !== undefined ? { replySeq } : {}), ...(Object.keys(on).length ? { on, ...(self ? { watcherName: self } : {}) } : {}), limitMinutes: minutes, limitAt: new Date(Date.now() + minutes * 60_000).toISOString() }
     const next = [...store.list.filter((x) => x !== old), ...(rec ? [rec] : [])]
     // Every watch must be able to fire, be typed and end within the file's limit: make room, else refuse.
     if (rec && budget(store, next) > MAX_FILE_BYTES && !((await setAside(store)) && budget(store, next) <= MAX_FILE_BYTES))
@@ -969,6 +1056,8 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     const toldAgents = new Map(Object.entries(rec.agentMarks ?? {}).map(([k, m]) => [k, m.seq]))
     // A card watch's: the latest reply of the user's the line tells (#418), else where it began.
     let toldReply = rec.replySeq
+    // Cards released as it is delivered (#420), noted in their history once it is typed.
+    const endedAt: { n: number; what: string }[] = []
     for (const n of rec.cond.cards) {
       const s = rec.seen?.[n]
       if (s) told[n] = { mark: rec.marks[n], seen: s }
@@ -977,8 +1066,31 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       // Told as the cards are now, every change since the watch began (#224): one that landed after the line was made
       // is in it too, and a card that has left the agent's view is told as gone.
       const r = await check(store, rec)
-      if (r.hits.length || r.replies.length) {
-        const made = cardWakeLine(r.hits, r.replies.map((x) => x.note))
+      // A card released since the line was made (#420: reassigned or blocked before it was typed) is told as released,
+      // not as the change that fired it.
+      let left = rec.cond.cards.length
+      if (r.released.length) {
+        const ok = await locked(store, async () => {
+          if (!current() || !rec.fired || rec.fired.sending) return false
+          left = applyRelease(rec, r.released, endedAt)
+          await saveQuietly(store)
+          return true
+        }).catch(() => false)
+        if (!ok) return
+        sessions.watchChanged(rec.projectPath, rec.agentId)
+      }
+      if (r.released.length && !left) {
+        line = fitLine(releasedLine(rec.released!))
+        telling = false
+      } else if (r.released.length && !r.hits.length && !r.replies.length) {
+        // What fired it was a card since released, and the rest haven't changed: not typed; the watch waits on for the
+        // rest, and tells the release with its next line (#420).
+        for (const x of endedAt) void noteOnCard(x.n, x.what, store.ws).catch((e) => log.warn(`noting on #${x.n} that a watch ended`, e))
+        await withdraw(store, rec, current)
+        sessions.watchChanged(rec.projectPath, rec.agentId)
+        return
+      } else if (r.hits.length || r.replies.length) {
+        const made = cardWakeLine(r.hits, r.replies.map((x) => x.note), rec.released ?? [])
         line = fitLine(made.line)
         telling = r.replies.length > 0
         if (r.hits.length) told = r.told
@@ -1044,6 +1156,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       throw e
     }
     log.info(`Woke ${userText(rec.agentId)}: ${userText(line.slice(0, 80))}`)
+    for (const x of endedAt) void noteOnCard(x.n, x.what, store.ws).catch((e) => log.warn(`noting on #${x.n} that a watch ended`, e))
     if (before) void confirmTaken(rec.projectPath, rec.agentId, before).catch((e) => log.warn('checking a wake was taken', e))
     // What earlier wakes told about cards this one didn't stays: it is still all the agent was told about them.
     const known = new Map(store.woke.get(key))
@@ -1104,8 +1217,10 @@ async function confirmTaken(projectPath: string, agentId: string, before: { runI
 }
 
 /** Checks one watch against the board: whether it fires now. Its cards are read as its scope sees them. */
-async function check(store: Store, rec: WatchRecord): Promise<{ moved: boolean; hits: CardChange[]; told: Record<string, Baseline>; replies: { seq: number; note: ReplyNote }[] }> {
+async function check(store: Store, rec: WatchRecord, cards?: CardReads): Promise<{ moved: boolean; hits: CardChange[]; told: Record<string, Baseline>; replies: { seq: number; note: ReplyNote }[]; released: Released[] }> {
   const hits: CardChange[] = []
+  // Cards the watcher's part in has ended (#420).
+  const released: Released[] = []
   // The user's replies to a watched card's agent or reviewer since the watch began (#418), for the Assistant: each once,
   // with the watched cards its agent has or reviews.
   const said = new Map<number, { seq: number; note: ReplyNote }>()
@@ -1113,7 +1228,12 @@ async function check(store: Store, rec: WatchRecord): Promise<{ moved: boolean; 
   const told: Record<string, Baseline> = {}
   let moved = false
   for (const n of rec.cond.cards) {
-    const card = await cardIn(store, n, rec.scope)
+    const card = await cardIn(store, n, rec.scope, cards)
+    const gone = releaseOf(rec, n, card)
+    if (gone) {
+      released.push(gone)
+      continue
+    }
     const after = markOf(card)
     if (card) told[n] = { mark: after, seen: seenOf(card) }
     const prev = rec.current?.[n]
@@ -1144,7 +1264,60 @@ async function check(store: Store, rec: WatchRecord): Promise<{ moved: boolean; 
       }
     }
   }
-  return { moved, hits, told, replies: [...said.values()] }
+  return { moved, hits, told, replies: [...said.values()], released }
+}
+
+/**
+ * Whether a watched card leaves the watch because the watcher's part in it ended (#420): the card was given to another
+ * agent (or none) when the watcher had it; another agent reviews it when the watcher reviewed it, or waited for it to
+ * arrive in Review; or it became blocked (also by the watcher itself). Null: it stays. A card that is gone is told as
+ * gone, as before. What it was last seen as is kept (an unblocked card blocked again releases it).
+ */
+function releaseOf(rec: WatchRecord, n: number, card: TaskCard | null): Released | null {
+  const on = rec.on?.[n]
+  if (!on || !card || card.archived) return null
+  const me = rec.agentId
+  if (card.blocked && !on.blocked) {
+    // Also when the watcher blocked it itself (it asked the user): its loop moves on meanwhile.
+    on.blocked = true
+    return { number: n, why: 'blocked', detail: card.blocked }
+  }
+  if (!card.blocked) on.blocked = false
+  const reviewer = card.review && card.review.agent !== me ? card.review.agentName || card.review.agent : null
+  if (on.role === 'agent' && card.agent !== me) return { number: n, why: 'reassigned', detail: card.agentName ?? card.agent ?? null }
+  if ((on.role === 'reviewer' || on.role === 'awaiting') && reviewer) return { number: n, why: 'reviewer', detail: reviewer }
+  // Its review taken from it (not ended by its own verdict): stopped, or cleared by someone else.
+  if (on.role === 'reviewer' && !card.review) {
+    const last = card.history.findLast((h) => /^(Started reviewing|Review (passed|failed)|Review by .* stopped)/.test(h.what))
+    if (!last || !(/^Review (passed|failed)/.test(last.what) && last.by === rec.watcherName)) return { number: n, why: 'reviewer', detail: null }
+  }
+  // Waiting for it in Review: its agent was replaced by another, or by none (its work goes to another lane, or nowhere).
+  const was = rec.marks[n]?.agent
+  if (on.role === 'awaiting' && was && card.agent !== was && card.agent !== me) return { number: n, why: 'reassigned', detail: card.agentName ?? card.agent ?? null }
+  return null
+}
+
+/** What ended a watch on a card (#420), for its history. */
+const releasedWhy = (r: Released): string => (r.why === 'blocked' ? 'the card is blocked' : r.why === 'reviewer' ? (r.detail ? `${r.detail} reviews it` : 'its review was taken from it') : `reassigned to ${r.detail ?? 'no agent'}`)
+
+/**
+ * Takes released cards out of a watch (#420), under the store's lock: they join what its next line tells (`released`),
+ * each noted for its card's history (`ended`), and the watch keeps the rest, with their marks. How many cards are left
+ * (0: every card was released; the watch keeps its condition then, and its line tells only the releases).
+ */
+function applyRelease(rec: WatchRecord, released: Released[], ended: { n: number; what: string }[]): number {
+  rec.released = [...(rec.released ?? []), ...released].slice(-WATCH_MAX_CARDS)
+  for (const x of released) ended.push({ n: x.number, what: `Ended ${rec.watcherName ?? rec.agentId}'s watch on it: ${releasedWhy(x)}` })
+  const left = rec.cond.cards.filter((n) => !released.some((x) => x.number === n))
+  if (!left.length) return 0
+  rec.cond = { ...rec.cond, cards: left }
+  for (const x of released) {
+    delete rec.marks[x.number]
+    delete rec.seen?.[x.number]
+    delete rec.current?.[x.number]
+    delete rec.on?.[x.number]
+  }
+  return left.length
 }
 
 /** Checks a workspace's watches against its board: those whose cards changed (as they count) fire, then are delivered. */
@@ -1153,18 +1326,33 @@ async function evaluate(ws: WorkspaceService): Promise<void> {
   // Whether a watched card's column or agent changed (also gone, or out of the agent's view): what a pending quit's
   // "is the work it waits for going on?" reads (watchKeepsQuitWaiting), told once the cards as last seen are updated.
   let moved = false
+  // Watches that ended on a card (#420), for its history once the watches are saved, and those left with fewer cards
+  // (what their agents show changes).
+  const ended: { n: number; what: string }[] = []
+  const narrowed: WatchRecord[] = []
   await locked(store, async () => {
     let changed = false
+    // Each card read once for all the watches on it (#321).
+    const reads: CardReads = new Map()
     for (const rec of [...store.list]) {
       if (rec.fired || rec.agents) continue
       // One watch that can't be checked doesn't stop the others.
       try {
-        const r = await check(store, rec)
+        const r = await check(store, rec, reads)
         if (r.moved) moved = true
+        if (r.released.length) {
+          // Released cards leave the watch (#420), told with its next line; when none is left, it is woken now.
+          changed = true
+          if (!applyRelease(rec, r.released, ended)) {
+            rec.fired = { line: fitLine(releasedLine(rec.released!)), at: new Date().toISOString(), cards: [] }
+            continue
+          }
+          narrowed.push(rec)
+        }
         const hits = r.hits
         if (!hits.length && !r.replies.length) continue
         const cards = [...new Set([...hits.filter((h) => h.changes !== 'gone').map((h) => h.number), ...r.replies.flatMap((x) => x.note.cards)])]
-        rec.fired = { line: fitLine(cardWakeLine(hits, r.replies.map((x) => x.note)).line), at: new Date().toISOString(), cards, ...(r.replies.length ? { replies: true as const } : {}) }
+        rec.fired = { line: fitLine(cardWakeLine(hits, r.replies.map((x) => x.note), rec.released ?? []).line), at: new Date().toISOString(), cards, ...(r.replies.length ? { replies: true as const } : {}) }
         changed = true
       } catch (e) {
         if (!alive(store)) throw e
@@ -1173,6 +1361,8 @@ async function evaluate(ws: WorkspaceService): Promise<void> {
     }
     if (changed) await saveQuietly(store)
   })
+  for (const x of ended) void noteOnCard(x.n, x.what, store.ws).catch((e) => log.warn(`noting on #${x.n} that a watch ended`, e))
+  for (const rec of narrowed) sessions.watchChanged(rec.projectPath, rec.agentId)
   if (moved && alive(store)) watchedCardsMoved?.()
   for (const rec of store.list.filter((r) => r.fired)) await deliver(store, rec)
 }
@@ -1191,7 +1381,7 @@ export async function tick(now = Date.now()): Promise<void> {
       let changed = store.dirty
       for (const rec of store.list) {
         if (!rec.fired && Date.parse(rec.limitAt) <= now) {
-          rec.fired = { line: fitLine(rec.agents ? agentLimitLine(rec.agents, rec.limitMinutes) : limitLine(rec.cond, rec.limitMinutes)), at: new Date(now).toISOString(), cards: [] }
+          rec.fired = { line: fitLine(rec.agents ? agentLimitLine(rec.agents, rec.limitMinutes) : limitLine(rec.cond, rec.limitMinutes, rec.released ?? [])), at: new Date(now).toISOString(), cards: [] }
           changed = true
         }
       }
