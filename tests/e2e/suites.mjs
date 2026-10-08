@@ -72,6 +72,7 @@ export const SUITES = [
   { name: 'icons' },
   { name: 'image' },
   { name: 'inbox', serial: 'window focus' },
+  { name: 'installdir' },
   { name: 'isolation' },
   { name: 'keys' },
   { name: 'launchrace' },
