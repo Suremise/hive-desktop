@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixes
+- **A wake that isn't taken no longer sits unnoticed.** Sometimes a CLI (seen with Claude Code, the Assistant's too) isn't reading its input when Hive types a wake into it, and the line sits in its prompt. Hive already pressed Enter once more; now, if it still isn't taken, the agent's pane (or the Assistant's status line) says **A line Hive typed wasn't taken** and you're told once, so you can click its terminal and press Enter. Hive types nothing more into it until then, so a later task isn't lost behind it, and the log says when each wake was taken.
+
 ### Skills
 - **A card loop moves on when its card is taken away.** If a card an agent is waiting on in a card loop is given to another agent, reviewed by another, or blocked (for your decision, say), the agent is told once and carries on with its next card, instead of waiting until you cancel its wait by hand. A wait on several cards keeps the others, and the card's history says whose wait ended.
 

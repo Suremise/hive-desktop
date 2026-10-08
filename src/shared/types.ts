@@ -1078,6 +1078,11 @@ export interface LiveSessionState {
    */
   notWatching?: number[]
   /**
+   * A line Hive typed (a wake) that its CLI hasn't taken, even after Enter again (#430): the CLI wasn't reading its input.
+   * Shown in its pane until the CLI takes it or the user types there; nothing more is typed into it meanwhile.
+   */
+  untakenLine?: { since: string; text: string }
+  /**
    * Its last turn stopped because its CLI's sign-in was refused, and it hasn't carried on since (#309): the CLI's
    * message and when. Status `signin` until the CLI is signed in again, then `ready`; Resume (n) carries it on.
    */

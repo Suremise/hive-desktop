@@ -1037,7 +1037,8 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     }
     return
   }
-  if (waking.has(key) || !idle(sessions.liveFor(rec.projectPath, rec.agentId)) || sessions.userMayBeTyping(rec.projectPath, rec.agentId)) return
+  // Not over a line it hasn't taken (#430): its next wake waits until it takes that one, or the user presses Enter there.
+  if (waking.has(key) || !idle(sessions.liveFor(rec.projectPath, rec.agentId)) || sessions.userMayBeTyping(rec.projectPath, rec.agentId) || sessions.lineWaiting(rec.projectPath, rec.agentId)) return
   const token = { cancelled: false }
   store.delivering.set(rec.id, token)
   waking.add(key)
@@ -1157,7 +1158,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     }
     log.info(`Woke ${userText(rec.agentId)}: ${userText(line.slice(0, 80))}`)
     for (const x of endedAt) void noteOnCard(x.n, x.what, store.ws).catch((e) => log.warn(`noting on #${x.n} that a watch ended`, e))
-    if (before) void confirmTaken(rec.projectPath, rec.agentId, before).catch((e) => log.warn('checking a wake was taken', e))
+    if (before) void confirmTaken(rec.projectPath, rec.agentId, before, line).catch((e) => log.warn('checking a wake was taken', e))
     // What earlier wakes told about cards this one didn't stays: it is still all the agent was told about them.
     const known = new Map(store.woke.get(key))
     for (const [n, b] of Object.entries(told)) {
@@ -1195,10 +1196,24 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
  * wake stayed in its prompt, unsent, for hours, while its watch had ended. Not taken in time, Enter is pressed again,
  * once; still not taken, it is logged, and the agent's cards show as stalled when its loop is checked (loopCheck.ts).
  */
-async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }): Promise<boolean> {
+export async function confirmTaken(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string): Promise<boolean> {
+  // Nothing more is typed into it while this runs, however long (#430): released when it ends (taken, or marked).
+  const release = sessions.holdForConfirm(projectPath, agentId, before.runId)
+  try {
+    return await confirming(projectPath, agentId, before, line)
+  } finally {
+    release?.()
+  }
+}
+
+async function confirming(projectPath: string, agentId: string, before: { runId: string; count: number }, line: string): Promise<boolean> {
+  const t0 = Date.now()
   const taken = (): boolean => {
     const now = sessions.promptsTaken(projectPath, agentId)
-    return !now || now.runId !== before.runId || now.count > before.count
+    const yes = !now || now.runId !== before.runId || now.count > before.count
+    // Each wake's outcome in the log (#430): typed (Woke …), taken and how soon, Enter again, not taken.
+    if (yes && now && now.runId === before.runId) log.info(`The wake typed into ${userText(agentId)} was taken after ${Date.now() - t0} ms`)
+    return yes
   }
   const waitTaken = async (): Promise<boolean> => {
     const end = Date.now() + takeMs()
@@ -1209,10 +1224,27 @@ async function confirmTaken(projectPath: string, agentId: string, before: { runI
     return taken()
   }
   if (await waitTaken()) return true
-  if (!sessions.submitAgain(projectPath, agentId, before.runId)) return false
-  log.warn(`The wake typed into ${userText(agentId)} wasn't taken: pressed Enter again`)
-  if (await waitTaken()) return true
-  log.warn(`The wake typed into ${userText(agentId)} still wasn't taken: it may be waiting in its prompt`)
+  // Enter again, once, when that is safe (the same launch, idle, nobody typing there, Hive not typing): waited for a
+  // while rather than given up at once (#430). Never a third Enter.
+  let retried = false
+  for (const end = Date.now() + 6 * takeMs(); ; ) {
+    if (taken()) return true
+    if (sessions.submitAgain(projectPath, agentId, before.runId)) {
+      retried = true
+      break
+    }
+    // Another launch: what was typed has gone with the old one.
+    if (sessions.promptsTaken(projectPath, agentId)?.runId !== before.runId) return true
+    if (Date.now() >= end) break
+    await new Promise((r) => setTimeout(r, 250))
+  }
+  if (retried) {
+    log.warn(`The wake typed into ${userText(agentId)} wasn't taken: pressed Enter again`)
+    if (await waitTaken()) return true
+    log.warn(`The wake typed into ${userText(agentId)} still wasn't taken: it may be waiting in its prompt`)
+  } else log.warn(`The wake typed into ${userText(agentId)} wasn't taken, and Enter couldn't be pressed again (busy, or the user typing there)`)
+  // Shown in its pane, the user told once, and nothing more typed into it until it is taken (#430).
+  sessions.lineNotTaken(projectPath, agentId, before.runId, line, retried)
   return false
 }
 

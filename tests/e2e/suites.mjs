@@ -144,6 +144,7 @@ export const SUITES = [
   { name: 'unsaved' },
   { name: 'unusedwt' },
   { name: 'update' },
+  { name: 'wakeuntaken' },
   { name: 'watchrelease' },
   { name: 'welcomefit' },
   { name: 'windows' },
