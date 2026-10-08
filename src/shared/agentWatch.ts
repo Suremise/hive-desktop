@@ -4,7 +4,7 @@
  * stops; its line names every agent that did. Pure, so the watches, the Agent API and tests share it.
  */
 import type { SessionStatus } from './types'
-import { WAKE_MAX_BYTES } from './watch'
+import { DEFAULT_USER_NAME, WAKE_MAX_BYTES } from './watch'
 
 /** An agent a watch follows: where it is, and its name and project's for the line (as they were when the watch began). */
 export interface WatchedAgent {
@@ -145,24 +145,29 @@ function partOf(a: Pick<WatchedAgent, 'name' | 'project'>, ev: AgentEvent, now: 
 export const REPLY_CHARS = 120
 export const replyFirstLine = (text: string): string => clipChars(text.split('\n').map((l) => l.trim()).find(Boolean) ?? '', REPLY_CHARS)
 
-/** The user's reply to an agent, for a wake line (#418): "The user replied to B1 on #399: "C, the hive cell"". */
-export function replyPart(agentName: string, where: string, text: string, max = REPLY_CHARS): string {
-  return `The user replied to ${agentName}${where ? ` ${where}` : ''}${max > 0 ? `: "${clipChars(text, max)}"` : ''}`
+/** The user's reply to an agent, for a wake line (#418): "User replied to B1 on #399: "C, the hive cell"", by its name (#426). */
+export function replyPart(agentName: string, where: string, text: string, max = REPLY_CHARS, user = DEFAULT_USER_NAME): string {
+  return `${user} replied to ${agentName}${where ? ` ${where}` : ''}${max > 0 ? `: "${clipChars(text, max)}"` : ''}`
 }
 
 /**
  * The one line Hive types to wake a watcher (#416): each agent that changed and what it did, with the start of its
  * latest reply, then what to do; and what the user sent it from its pane since, for the Assistant (#418). One line within
- * WAKE_MAX_BYTES: replies give way first, then they are left out.
+ * WAKE_MAX_BYTES: replies give way first, then they are left out. `user`: the user's name (userNameOf, #426).
  */
-export function agentWakeLine(changes: { agent: WatchedAgent; event: AgentEvent | null; now: AgentNow; again?: boolean; reply?: string }[]): string {
+export function agentWakeLine(changes: { agent: WatchedAgent; event: AgentEvent | null; now: AgentNow; again?: boolean; reply?: string }[], user = DEFAULT_USER_NAME): string {
   const tail = '. Your agent watch has ended: carry on (hive_agent_activity for more).'
   const one = (c: (typeof changes)[number], max: number): string =>
-    [c.reply !== undefined ? replyPart(c.agent.name, `(${c.agent.project})`, c.reply, Math.min(max, REPLY_CHARS)) : '', c.event ? agentPart(c.agent, c.event, c.now, max, false, c.again) : ''].filter(Boolean).join('; ')
+    [c.reply !== undefined ? replyPart(c.agent.name, `(${c.agent.project})`, c.reply, Math.min(max, REPLY_CHARS), user) : '', c.event ? agentPart(c.agent, c.event, c.now, max, false, c.again) : ''].filter(Boolean).join('; ')
   const full = (max: number): string => `[Hive] ${changes.map((c) => one(c, max)).join('; ')}${tail}`
   for (const max of [300, 160, 80, 40, 0]) if (jsonBytes(full(max)) <= WAKE_MAX_BYTES) return full(max)
-  const short = `[Hive] ${names(changes.map((c) => c.agent))} changed${tail}`
-  return jsonBytes(short) <= WAKE_MAX_BYTES ? short : `[Hive] ${changes.length} watched agents changed${tail}`
+  // Too many for that: who replied to whom and who changed, by name, else by count; the user's replies stay replies.
+  const replied = changes.filter((c) => c.reply !== undefined).map((c) => c.agent)
+  const changed = changes.filter((c) => c.event).map((c) => c.agent)
+  const counted = (agents: WatchedAgent[]): string => `${agents.length} watched agent${agents.length === 1 ? '' : 's'}`
+  const brief = (who: (agents: WatchedAgent[]) => string): string => `[Hive] ${[replied.length ? `${user} replied to ${who(replied)}` : '', changed.length ? `${who(changed)} changed` : ''].filter(Boolean).join('; ')}${tail}`
+  const short = brief(names)
+  return jsonBytes(short) <= WAKE_MAX_BYTES ? short : brief(counted)
 }
 
 /** The line Hive types when an agent watch's limit passes with every agent still working. */

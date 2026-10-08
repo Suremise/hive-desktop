@@ -168,6 +168,12 @@ interface LiveSession {
   typed?: { at: number; prompts: number }
   /** The start of its latest reply, as its last turn's end reported it (an agent watch's line, #416). */
   lastReply?: string
+  /**
+   * A typed wake being confirmed (#430: watches' confirmTaken, from its typing until it is taken, marked not taken, or the
+   * launch ends): nothing more is typed into it meanwhile, however long that takes. A token, so only its own release
+   * clears it.
+   */
+  confirming?: symbol
 }
 
 export interface EffectiveSettings {
@@ -1493,6 +1499,62 @@ class SessionManager {
     if (typed?.includes('\r')) this.userEnter.set(key, Date.now())
   }
 
+  /**
+   * A line Hive typed into an agent wasn't taken, even after Enter again (#430: its CLI wasn't reading its input). It is
+   * marked in its pane, and the user told once; nothing more is typed into it until the CLI takes it or the user types
+   * there. Only for this launch.
+   */
+  lineNotTaken(projectPath: string, agentId: string, runId: string, text: string, retried = true): void {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (!l || l.state.runId !== runId || l.state.untakenLine) return
+    l.state.untakenLine = { since: new Date().toISOString(), text: text.replace(/\s+/g, ' ').trim().slice(0, 160) }
+    this.emitState(l.state)
+    const label = this.label(l.state)
+    const what = retried ? 'Hive typed it and pressed Enter twice, but its CLI wasn\'t reading its input.' : 'Hive typed it, but couldn\'t press Enter again (the agent was busy, or you were typing there).'
+    this.notify(projectPath, `${label} hasn't taken a line Hive typed`, `${what} Show it, click its terminal and press Enter.`, 'waiting', l.state.agentName, agentId)
+  }
+
+  /**
+   * Holds an agent's input for a typed wake being confirmed (#430), for that launch: nothing more is typed into it until
+   * the returned release (taken, or marked not taken: the mark holds it then), or the launch ends (a new launch has its
+   * own state). Null when it isn't running in that launch.
+   */
+  holdForConfirm(projectPath: string, agentId: string, runId: string): (() => void) | null {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (!l || l.state.runId !== runId) return null
+    const token = Symbol('confirming')
+    l.confirming = token
+    return () => {
+      if (l.confirming === token) l.confirming = undefined
+    }
+  }
+
+  /** Whether an agent has a line Hive typed that its CLI hasn't taken (#430): nothing more is typed into it meanwhile. */
+  lineUntaken(projectPath: string, agentId: string): boolean {
+    return !!this.live.get(liveId(projectPath, agentId))?.state.untakenLine
+  }
+
+  /**
+   * Whether a line Hive typed into an agent is still waiting to be taken (#430): typed in the last PENDING_MS and not
+   * taken yet, or marked as not taken. Nothing more is typed into it meanwhile (it would clear that line, or be lost).
+   */
+  lineWaiting(projectPath: string, agentId: string): boolean {
+    return this.lineBlocked(this.live.get(liveId(projectPath, agentId)))
+  }
+  private lineBlocked(l: LiveSession | undefined): boolean {
+    if (!l) return false
+    if (l.state.untakenLine || l.confirming) return true
+    return !!l.typed && (l.prompts ?? 0) <= l.typed.prompts && Date.now() - l.typed.at < PENDING_MS
+  }
+
+  private clearUntaken(l: LiveSession, why: string): void {
+    const u = l.state.untakenLine
+    if (!u) return
+    log.info(`${userText(this.label(l.state))}: the line Hive typed is no longer waiting (${why}, ${Math.round((Date.now() - Date.parse(u.since)) / 1000)} s after it was marked)`)
+    l.state.untakenLine = undefined
+    this.emitState(l.state)
+  }
+
   /** When the user last pressed Enter in each terminal (by pty key): a prompt its CLI takes soon after is theirs (#418). */
   private userEnter = new Map<string, number>()
 
@@ -1557,14 +1619,21 @@ class SessionManager {
     const l = this.live.get(liveId(projectPath, agentId))
     const runId = l?.state.runId
     if (this.delivering.has(key)) throw new Error('Hive is already typing a prompt into this agent; it is busy.')
+    // A line typed before isn't taken yet (#430): typing more would clear it, or be lost behind it.
+    const waiting = (): void => {
+      if (this.lineBlocked(this.live.get(liveId(projectPath, agentId)))) throw new Error("Its CLI hasn't taken the line Hive typed before; nothing more is typed until it does.")
+    }
+    waiting()
     this.delivering.add(key)
     const same = (): boolean => !!runId && this.live.get(liveId(projectPath, agentId))?.state.runId === runId
     const check = (): void => {
       if (!same()) throw new Error('The agent stopped before the prompt was sent.')
+      waiting()
       guard?.()
     }
     const since = Date.now()
     let typed = false
+    let sent: { at: number; prompts: number } | null = null
     try {
       check()
       writePty(key, '\x15')
@@ -1576,7 +1645,9 @@ class SessionManager {
       check()
       const before = l?.prompts ?? 0
       writePty(key, '\r')
-      if (l) l.typed = { at: Date.now(), prompts: before }
+      // Waiting to be taken from here (#430), for whatever Hive types next: recorded once this call is done with it (its
+      // own Enter again below is no line over it; nothing else types meanwhile, it holds `delivering`).
+      sent = { at: Date.now(), prompts: before }
       // confirm: until the CLI reports the prompt submitted. One just resumed and still drawing its conversation can
       // drop the Enter, or take it as a new line (#334): Enter again, which an empty prompt ignores. Still not
       // reported (a CLI that doesn't report prompts), it counts as sent: typing it again could send it twice.
@@ -1602,6 +1673,7 @@ class SessionManager {
       if (typed && same() && this.userTypedAt(projectPath, agentId) < since) writePty(key, '\x15')
       throw e
     } finally {
+      if (sent && l) l.typed = sent
       this.delivering.delete(key)
     }
   }
@@ -2553,6 +2625,7 @@ class SessionManager {
           l.prompts = (l.prompts ?? 0) + 1
           if (workspace.isAssistantHome(st.projectPath)) this.onAssistantPrompt(st.projectPath)
           if (ev?.kind === 'prompt') this.noteUserReply(l, ev.text)
+          if (l.state.untakenLine) this.clearUntaken(l, 'its CLI took a prompt')
           break
         case 'compactBegan':
           l.compacting?.begin()
