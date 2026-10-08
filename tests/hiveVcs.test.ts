@@ -5,6 +5,17 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
+import { createRequire } from 'module'
+
+// Git as these tests run it (#369): the run context's allowlisted environment, so a shell's GIT_DIR, GIT_WORK_TREE or
+// NODE_OPTIONS never points their own git at another repository. Main's git helper runs git with this process's
+// environment, so the shell's GIT_* variables and Node's injection settings (NODE_OPTIONS, NODE_PATH: a git child can
+// start Node, in a hook) are kept out of it while they run, and put back after (round 1 of #369 missed NODE_OPTIONS).
+const { baseEnv } = createRequire(import.meta.url)('./e2e/runContext.cjs') as { baseEnv: () => NodeJS.ProcessEnv }
+const gitEnv = baseEnv()
+const shellGit = Object.fromEntries(Object.entries(process.env).filter(([k]) => /^GIT_/i.test(k) || /^NODE_(OPTIONS|PATH)$/i.test(k)))
+for (const k of Object.keys(shellGit)) delete process.env[k]
+afterAll(() => Object.assign(process.env, shellGit))
 
 /** Makes a git command fail as git would (exit 128) while set (#364: a failed read is never "nothing tracked"). */
 let failing: ((args: string[]) => boolean) | null = null
@@ -31,6 +42,18 @@ const folder = (...parts: string[]): string => {
   mkdirSync(d, { recursive: true })
   return d
 }
+
+describe("these tests' git children (#369)", () => {
+  // What main's git helper's child sees: a git alias writes the variables it was given to a file. Run from a shell with
+  // them set (the #369 decoy probe), this shows none reached it; in a plain run it is empty too.
+  it("main's git helper starts git with none of the shell's GIT_* variables or NODE_OPTIONS / NODE_PATH", async () => {
+    const { git } = await import('../src/main/git')
+    const out = join(folder(), 'env.txt').replace(/\\/g, '/')
+    const r = await git(base, ['-c', `alias.envdump=!printenv NODE_OPTIONS NODE_PATH GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE > "${out}"; true`, 'envdump'])
+    expect(r.ok, r.err).toBe(true)
+    expect(readFileSync(out, 'utf8').trim()).toBe('')
+  })
+})
 
 describe('.hive kept out of version control (#345)', () => {
   it("adds /.hive/ to a project's own repository once, keeping what the file had", async () => {
@@ -82,7 +105,7 @@ describe('.hive kept out of version control (#345)', () => {
 
   it("a project whose name has git's pattern characters (project[1]) is excluded as git itself says, in a real repository", async () => {
     const ws = folder('ws')
-    execFileSync('git', ['init', '-q'], { cwd: ws })
+    execFileSync('git', ['init', '-q'], { env: gitEnv, cwd: ws })
     const p = join(ws, 'project[1]')
     mkdirSync(join(p, '.hive'), { recursive: true })
     writeFileSync(join(p, '.hive', 'secret.txt'), 'x')
@@ -90,7 +113,7 @@ describe('.hive kept out of version control (#345)', () => {
     expect(excludeLine(ws, p)).toBe('/project\\[1\\]/.hive/')
     expect(await ensureHiveExcluded(p)).toEqual({ excluded: true, root: ws, added: true })
     // Git agrees: nothing under .hive is listed, the project's own file is.
-    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: ws, encoding: 'utf8' })
+    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { env: gitEnv, cwd: ws, encoding: 'utf8' })
     expect(status).toContain('project[1]/code.txt')
     expect(status).not.toContain('.hive')
     expect(literalPattern('a*b?[c]')).toBe('a\\*b\\?\\[c\\]')
@@ -98,7 +121,7 @@ describe('.hive kept out of version control (#345)', () => {
 
   it("isn't reported excluded when a .gitignore rule brings .hive back (git's answer, not the line Hive wrote)", async () => {
     const p = folder('project')
-    execFileSync('git', ['init', '-q'], { cwd: p })
+    execFileSync('git', ['init', '-q'], { env: gitEnv, cwd: p })
     writeFileSync(join(p, '.gitignore'), '!/.hive/\n')
     const r = await ensureHiveExcluded(p)
     expect(r).toEqual({ excluded: false, root: p, added: true })
@@ -145,11 +168,11 @@ describe('.hive kept out of version control (#345)', () => {
 })
 
 describe('.hive committed before it was excluded (#364)', () => {
-  const git = (cwd: string, ...a: string[]): string => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd, encoding: 'utf8' })
+  const git = (cwd: string, ...a: string[]): string => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { env: gitEnv, cwd, encoding: 'utf8' })
 
   it('says how many files git still tracks, and stops once they are untracked', async () => {
     const p = folder('project')
-    execFileSync('git', ['init', '-q', '-b', 'main', p])
+    execFileSync('git', ['init', '-q', '-b', 'main', p], { env: gitEnv })
     mkdirSync(join(p, '.hive', 'sessions'), { recursive: true })
     writeFileSync(join(p, '.hive', 'project.json'), '{}')
     writeFileSync(join(p, '.hive', 'sessions', 's.jsonl'), 'x')
@@ -172,7 +195,7 @@ describe('.hive committed before it was excluded (#364)', () => {
 
   it("asks git again once the index changes: the user's own git rm --cached clears it", async () => {
     const p = folder('project')
-    execFileSync('git', ['init', '-q', '-b', 'main', p])
+    execFileSync('git', ['init', '-q', '-b', 'main', p], { env: gitEnv })
     mkdirSync(join(p, '.hive'), { recursive: true })
     writeFileSync(join(p, '.hive', 'project.json'), '{}')
     git(p, 'add', '-A')
@@ -185,7 +208,7 @@ describe('.hive committed before it was excluded (#364)', () => {
   it("counts only the project's own .hive in a repository above it, not the workspace's", async () => {
     const ws = folder('ws')
     const p = join(ws, 'project')
-    execFileSync('git', ['init', '-q', '-b', 'main', ws])
+    execFileSync('git', ['init', '-q', '-b', 'main', ws], { env: gitEnv })
     mkdirSync(join(ws, '.hive'), { recursive: true })
     mkdirSync(join(p, '.hive'), { recursive: true })
     writeFileSync(join(ws, '.hive', 'workspace.json'), '{}')
@@ -198,7 +221,7 @@ describe('.hive committed before it was excluded (#364)', () => {
 
   it('a failed read says nothing, and is asked again: the warning comes back once git answers, the index unchanged', async () => {
     const p = folder('project')
-    execFileSync('git', ['init', '-q', '-b', 'main', p])
+    execFileSync('git', ['init', '-q', '-b', 'main', p], { env: gitEnv })
     mkdirSync(join(p, '.hive'), { recursive: true })
     writeFileSync(join(p, '.hive', 'old.txt'), 'old')
     git(p, 'add', '-A')
@@ -213,7 +236,7 @@ describe('.hive committed before it was excluded (#364)', () => {
 
   it('untracks only the files confirmed: one staged meanwhile refuses it, and nothing changes', async () => {
     const p = folder('project')
-    execFileSync('git', ['init', '-q', '-b', 'main', p])
+    execFileSync('git', ['init', '-q', '-b', 'main', p], { env: gitEnv })
     mkdirSync(join(p, '.hive'), { recursive: true })
     writeFileSync(join(p, '.hive', 'old.txt'), 'old')
     writeFileSync(join(p, '.hive', '[x].txt'), 'a pattern for a name')

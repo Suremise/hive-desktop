@@ -93,6 +93,14 @@ const providers = async (): Promise<[string, ProviderAdapter, Record<string, Rec
   ]
 }
 
+describe("a prompt's text, for telling the user's replies from Hive's lines (#418)", () => {
+  it('each provider reports what its CLI took; a Codex answer to its question loses its tag', async () => {
+    for (const [name, adapter, h] of await providers()) expect(adapter.normalizeHook(h.prompt).event, name).toEqual({ kind: 'prompt', text: 'hi' })
+    const { codex } = await import('../src/main/providers/codex/adapter')
+    expect(codex.normalizeHook({ hook_event_name: 'UserPromptSubmit', prompt: '<send_user_message_question_reply>Red' }).event).toEqual({ kind: 'prompt', text: 'Red' })
+  })
+})
+
 describe('hook → status, for each provider', () => {
   it('a turn: starting → ready → working → waiting → working → finished', async () => {
     for (const [name, adapter, h] of await providers()) {

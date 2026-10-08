@@ -22,7 +22,8 @@ import { addAgent, updateAgent } from './projectAgents'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, onHiveEvent, toast } from './events'
-import { cancelWatch, encodeSince, registerWatch, scopedCard } from './watches'
+import { cancelWatch, encodeSince, registerAgentWatch, registerWatch, scopedCard } from './watches'
+import { agentBusy, AGENT_WATCH_MAX_AGENTS, type AgentNow, type WatchedAgent } from '../shared/agentWatch'
 import { alreadyThere, cardChange, changesBetween, decodeSince, markOf, movedIntoSince, readCondition, AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_LIMIT_MINUTES, type CardChange, type CardMark } from '../shared/watch'
 import { insideReal, readCapped, readJson, writeJsonAtomic } from './fsutil'
 import { GUIDANCE_REVISION, skillRevisions } from './guidance'
@@ -320,7 +321,7 @@ function projectByName(name: string): string {
 
 /** A watching agent's watch, as every status reply gives it (small: what for and until when); undefined otherwise. */
 const watchingOf = (live: LiveSessionState | null | undefined) =>
-  live?.status === 'watching' && live.watch ? { cards: live.watch.cards, ...(live.watch.column ? { column: live.watch.column } : {}), changes: live.watch.changes, label: live.watch.label, limitAt: live.watch.limitAt } : undefined
+  live?.status === 'watching' && live.watch ? { cards: live.watch.cards, ...(live.watch.agents ? { agents: live.watch.agents } : {}), ...(live.watch.column ? { column: live.watch.column } : {}), changes: live.watch.changes, label: live.watch.label, limitAt: live.watch.limitAt } : undefined
 /** An agent's open progress run, as status replies give it (small: what, how far, time left); undefined without one. */
 function progressOf(projectPath: string, agentId: string) {
   const r = progress.openRunOf(projectPath, agentId)
@@ -862,7 +863,7 @@ route('POST', '/v1/projects/:name/agents/:agent/stop', async ({ params, body }) 
       const reason = said ? ` Its reason: ${said}${/[.!?]$/.test(said) ? '' : '.'}` : ''
       const yes = await assistant.ask(ws, {
         title: `Stop ${a.name} in ${basename(p)}?`,
-        message: `The Assistant wants to stop ${a.name}, which is ${st.status === 'watching' && st.watch ? `${st.watch.label.replace(/^Waiting/, 'waiting')} (a card watch: its card loop pauses until it is resumed)` : (STATUS_WORDS[st.status] ?? st.status)}.${reason} Its conversation is kept and can be resumed.`,
+        message: `The Assistant wants to stop ${a.name}, which is ${st.status === 'watching' && st.watch ? `${st.watch.label.replace(/^Waiting/, 'waiting')} (${st.watch.agents ? 'an agent watch' : 'a card watch: its card loop pauses until it is resumed'})` : (STATUS_WORDS[st.status] ?? st.status)}.${reason} Its conversation is kept and can be resumed.`,
         yes: 'Stop',
         no: "Don't stop"
       })
@@ -890,7 +891,7 @@ route('POST', '/v1/projects/:name/agents/:agent/prompt', async ({ params, body }
     if (st.status === 'waiting') throw new HttpError(409, `${a.name} is waiting for the user${st.statusMessage ? ` (${st.statusMessage})` : ''}. Tell the user; don't answer for them.`)
     if (st.status === 'working') throw new HttpError(409, `${a.name} is working. Wait until it's idle (hive_wait_for_agents), then give it the task.`)
     if (st.status === 'signin') throw new HttpError(409, `${a.name}'s CLI needs the user to sign in again (its sign-in expired). Tell the user; nothing it is given runs until then.`)
-    if (st.status === 'watching') throw new HttpError(409, `${a.name} is ${st.watch?.label.replace(/^Waiting/, 'waiting') ?? 'waiting on cards'} (a card watch): it takes no other work until it is woken or the user cancels the watch.`)
+    if (st.status === 'watching') throw new HttpError(409, `${a.name} is ${st.watch?.label.replace(/^Waiting/, 'waiting') ?? 'waiting on cards'} (${st.watch?.agents ? 'an agent watch' : 'a card watch'}): it takes no other work until it is woken or the user cancels the watch.`)
     if (st.status === 'background') {
       throw new HttpError(409, `${a.name} is waiting on ${tasksWord(st.backgroundTasks ?? 0)} it started (such as a test run) and carries on by itself when they end. Wait for it (hive_wait_for_agents), then give it the task. If it seems stuck, tell the user.`)
     }
@@ -974,29 +975,62 @@ route('GET', '/v1/projects/:name/agents/:agent/activity', async ({ params, query
   return agentActivity(p, await agentParam(p, decodeURIComponent(params[1])), query.get('detail') === 'true')
 })
 
+/** An agent as a wait reads it: a prompt Hive just typed that its CLI hasn't taken yet counts as working (#416). */
+const agentNowFor = (p: string, id: string): AgentNow => sessions.agentNow(p, id) ?? { status: 'stopped', runId: null, prompts: 0, pending: false }
+
 /**
  * Waits until agents stop working (or `timeoutSeconds`, at most 10 minutes): the ones named, else every agent
  * working in the workspace. Answers with each one's status, so the caller sees who finished and who needs the user.
+ * `wake: true` (#416): the calling agent or Assistant registers an agent watch instead and ends its turn; Hive types one
+ * line into it when one finishes, waits for the user or stops (main/watches.ts). `cancel: true` ends its watch. Agents'
+ * status is open to every caller, as before; another project's agent's reply isn't in a project agent's line.
  */
 route('POST', '/v1/agents/wait', async ({ body }) => {
+  const me = agentCaller()
+  const home = assistantCaller() ? requireWorkspace().assistantHome : null
+  const who = me ? { projectPath: me.projectPath, agentId: me.agentId } : home ? { projectPath: home, agentId: 'assistant' } : null
+  if (body?.cancel === true) {
+    if (!who) throw new HttpError(400, 'Only an agent or the Assistant has a watch to cancel.')
+    const kind = sessions.watchFor(who.projectPath, who.agentId)?.agents ? 'agent' : 'card'
+    const had = await cancelWatch(requireWorkspace(), who.projectPath, who.agentId)
+    return { done: had ? `Cancelled your ${kind} watch.` : 'You had no watch.' }
+  }
   const list: { project: string; agent?: string }[] = Array.isArray(body?.agents) ? body.agents : []
   let targets: { p: string; id: string }[] = []
   for (const x of list) {
     const p = projectByName(String(x.project))
     targets.push({ p, id: await agentParam(p, x.agent) })
   }
-  if (!list.length) {
-    const ws = requireWorkspace()
-    targets = sessions.liveStates().filter((s) => busy(s) && workspaceOf(s.projectPath) === ws && !workspace.isAssistantHome(s.projectPath)).map((s) => ({ p: s.projectPath, id: s.agentId }))
-  }
-  const limit = Math.min(AGENT_WAIT_MAX_SECONDS, Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
+  // An agent waits on itself never; without names, every agent working.
+  const self = (p: string, id: string): boolean => !!who && resolvePath(p).toLowerCase() === resolvePath(who.projectPath).toLowerCase() && id === who.agentId
   // An agent waiting on its background tasks carries on when they end: not done yet, unless the caller says so.
   const throughBackground = body?.ignoreBackground !== true
+  if (!list.length) {
+    const ws = requireWorkspace()
+    // A watch follows only those working now (one waiting for the user would answer it at once).
+    const wanted = (s: LiveSessionState): boolean => (body?.wake === true ? agentBusy(agentNowFor(s.projectPath, s.agentId), !throughBackground) : busy(s))
+    targets = sessions
+      .liveStates()
+      .filter((s) => wanted(s) && workspaceOf(s.projectPath) === ws && !workspace.isAssistantHome(s.projectPath) && !self(s.projectPath, s.agentId))
+      .map((s) => ({ p: s.projectPath, id: s.agentId }))
+  }
+  if (body?.wake === true) {
+    if (!who) throw new HttpError(400, 'Only an agent or the Assistant can be woken: a script waits without wake (timeoutSeconds).')
+    if (targets.some((t) => self(t.p, t.id))) throw new HttpError(400, "You can't watch yourself: nothing would wake you.")
+    const limit = body?.limitMinutes === undefined ? WATCH_DEFAULT_LIMIT_MINUTES : Number(body.limitMinutes)
+    if (!Number.isFinite(limit) || limit < 1 || limit > WATCH_MAX_LIMIT_MINUTES) throw new HttpError(400, `limitMinutes must be from 1 to ${WATCH_MAX_LIMIT_MINUTES}`)
+    const unique = targets.filter((t, i) => targets.findIndex((u) => resolvePath(u.p).toLowerCase() === resolvePath(t.p).toLowerCase() && u.id === t.id) === i)
+    if (!unique.length) return { already: ['No agent is working'] }
+    if (unique.length > AGENT_WATCH_MAX_AGENTS) throw new HttpError(400, `at most ${AGENT_WATCH_MAX_AGENTS} agents in one watch`)
+    const agents: WatchedAgent[] = []
+    for (const t of unique) agents.push({ projectPath: t.p, agentId: t.id, name: (await agentDefOf(t.p, t.id)).name, project: basename(t.p) })
+    const r = await registerAgentWatch(requireWorkspace(), who.projectPath, who.agentId, { agents, ignoreBackground: !throughBackground }, limit)
+    if ('already' in r) return { already: r.already }
+    return { watching: r.watching.label, limitAt: r.watching.limitAt, ...(r.replaced ? { replaced: r.replaced } : {}) }
+  }
+  const limit = Math.min(AGENT_WAIT_MAX_SECONDS, Math.max(5, Number(body?.timeoutSeconds) || 300)) * 1000
   const t0 = Date.now()
-  const working = (): boolean => targets.some((t) => {
-    const s = sessions.liveFor(t.p, t.id)
-    return !!s && (s.status === 'working' || s.status === 'starting' || (throughBackground && s.status === 'background'))
-  })
+  const working = (): boolean => targets.some((t) => agentBusy(agentNowFor(t.p, t.id), !throughBackground))
   while (working() && Date.now() - t0 < limit) await new Promise((r) => setTimeout(r, 1000))
   const agents = []
   for (const t of targets) {
@@ -1437,8 +1471,9 @@ route('POST', '/v1/tasks/wait', async ({ body }) => {
   const who = me ? { projectPath: me.projectPath, agentId: me.agentId } : home ? { projectPath: home, agentId: 'assistant' } : null
   if (body?.cancel === true) {
     if (!who) throw new HttpError(400, 'Only an agent or the Assistant has a card watch to cancel.')
+    const agentWatch = !!sessions.watchFor(who.projectPath, who.agentId)?.agents
     const had = await cancelWatch(ws, who.projectPath, who.agentId)
-    return { done: had ? 'Cancelled your card watch.' : 'You had no card watch.' }
+    return { done: had ? `Cancelled your ${agentWatch ? 'agent' : 'card'} watch.` : 'You had no card watch.' }
   }
   const cond = readCondition(body ?? {})
   if (typeof cond === 'string') throw new HttpError(400, cond)

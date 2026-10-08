@@ -159,6 +159,8 @@ export function assistantStatusLine(live: Pick<LiveSessionState, 'status' | 'sta
       case 'watching':
         if (live.watch) {
           const until = time(live.watch.limitAt)
+          // An agent watch (#416): its label names the agents.
+          if (live.watch.agents) return line(`${live.watch.label}${until ? ` (watch until ${until})` : ''}`, 'calm')
           return line('Waiting for ', 'calm', live.watch.cards, `${live.watch.column ? ` → ${columnLabel(live.watch.column)}` : ''}${until ? ` (watch until ${until})` : ''}`)
         }
         return line('Waiting on cards', 'calm')

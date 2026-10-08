@@ -1,12 +1,12 @@
 import { existsSync } from 'original-fs'
 import { mkdir, readdir, readFile, writeFile } from 'original-fs/promises'
 import { basename, join } from 'path'
-import { shell } from 'electron'
 import { DEFAULT_PERSONA, newPersonaText, parsePersona, personaId } from '../shared/assistant'
 import type { AssistantControl, PersonaInfo } from '../shared/types'
 import { controlRules } from '../shared/hiveGuidance'
 import { bundledDir, bundledStatus, restoreBundled } from './bundled'
 import { workspace } from './workspace'
+import { trash } from './trash'
 
 /**
  * The Hive Assistant's personas: Markdown files in the workspace's .hive/personas (a header with name,
@@ -62,7 +62,7 @@ export async function createPersona(name: string): Promise<PersonaInfo> {
 export async function deletePersona(id: string): Promise<void> {
   if (!validId(id)) throw new Error('Invalid mode')
   const path = join(workspace.personasDir, `${id}.md`)
-  if (existsSync(path)) await shell.trashItem(path)
+  if (existsSync(path)) await trash(path)
 }
 
 /** Puts back a bundled persona as this version of Hive ships it; the workspace's copy goes to the Recycle Bin. */
@@ -70,7 +70,7 @@ export async function restorePersona(id: string): Promise<PersonaInfo> {
   const src = join(bundledPersonasDir(), `${id}.md`)
   if (!validId(id) || !existsSync(src)) throw new Error(`"${id}" isn't one of Hive's modes.`)
   const dest = join(workspace.personasDir, `${id}.md`)
-  if (existsSync(dest)) await shell.trashItem(dest)
+  if (existsSync(dest)) await trash(dest)
   await restoreBundled('personas', id)
   return { ...(await info(dest, id)), bundled: 'same' }
 }
@@ -99,7 +99,7 @@ export async function assistantInstructions(personaIdValue: string, control: Ass
   const text = [
     `You are the Hive Assistant: the overseer of the workspace "${basename(ws)}" (${ws}), in Hive's side panel. The user talks to you here while coding agents work in its projects (at launch: ${projects.length ? projects.join(', ') : 'none yet'}). You work in the workspace folder, so you can read any project's files; agents, cards, notes and usage come from the hive tools.`,
     controlRules(control, changeSettings),
-    "Nothing wakes you except the user and your own tool calls returning: never say you'll check again later unless a wait (hive_wait_for_agents) is running, and if you stop waiting, say so.",
+    "Nothing wakes you except the user, your own tool calls returning, and a watch you started (hive_wait_for_agents or hive_wait_for_tasks with wake): never say you'll check again later unless a wait or a watch is running, and if you stop waiting, say so.",
     'Be brief. Your mode (below) says what to put first and how to hand things back; it never changes what you may do: only these rules do.',
     'The user picks your mode (and can switch it while you run: Hive then tells you). When a request clearly fits another mode better, suggest switching in one short line; never switch or insist.',
     '',

@@ -4,7 +4,7 @@ import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'ori
 import { existsSync, realpathSync } from 'original-fs'
 import { typedText } from '../shared/terminalInput'
 import { failedStart, type StartFailure } from '../shared/startFailure'
-import { BrowserWindow, Notification, app, clipboard, shell } from 'electron'
+import { BrowserWindow, Notification, app, clipboard } from 'electron'
 import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { formatDateTime } from '../shared/dates'
 import { assistantTools } from '../shared/assistantTools'
@@ -67,6 +67,7 @@ import { inWorkspace, workspace, workspaceFor, workspaceOf } from './workspace'
 import { endAgentToken, newAgentToken } from './agentTokens'
 import { endHookToken, newHookToken } from './hookTokens'
 import { beingRead, viewingWindows } from './transcriptReads'
+import { trash } from './trash'
 
 const log = createLogger('sessions')
 
@@ -163,6 +164,10 @@ interface LiveSession {
   mode?: string
   /** Prompts the CLI has reported submitted in this launch (UserPromptSubmit), for sendPrompt's confirm and a wake's (#376). */
   prompts?: number
+  /** Hive's latest typed prompt (sendPrompt): when, and the prompts taken then. Until the CLI takes it, it is pending (#416). */
+  typed?: { at: number; prompts: number }
+  /** The start of its latest reply, as its last turn's end reported it (an agent watch's line, #416). */
+  lastReply?: string
 }
 
 export interface EffectiveSettings {
@@ -393,6 +398,12 @@ export async function deliveredSkillSizes(adapter: ProviderAdapter, ctx: LaunchC
   return { catalog, bytes, unmeasured }
 }
 
+/** How soon after the user's Enter in an agent's pane its CLI must take a prompt for it to count as theirs (#418). */
+const USER_REPLY_MS = 15_000
+
+/** How long a prompt Hive typed counts as pending (the agent just given a task) while its CLI hasn't taken it (#416). */
+const PENDING_MS = 30_000
+
 /** Agents whose sign-in is refused at about the same time are told in one notice, this long after the first. */
 const SIGNED_OUT_GATHER_MS = 3000
 /** How often a CLI's sign-in is checked again while its agents wait for it (its own check, e.g. claude auth status). */
@@ -453,6 +464,18 @@ class SessionManager {
   promptsTaken(projectPath: string, agentId: string): { runId: string; count: number } | null {
     const l = this.live.get(liveId(projectPath, agentId))
     return l?.state.runId ? { runId: l.state.runId, count: l.prompts ?? 0 } : null
+  }
+
+  /**
+   * A running agent as an agent watch reads it (#416), or null when it isn't running. A prompt Hive typed within the last
+   * PENDING_MS that its CLI hasn't taken yet is pending: the agent was just given a task, and counts as working.
+   */
+  agentNow(projectPath: string, agentId: string): { status: SessionStatus; runId: string; prompts: number; pending: boolean; statusMessage: string | null; backgroundTasks: number; reply: string | null } | null {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (!l) return null
+    const prompts = l.prompts ?? 0
+    const pending = !!l.typed && prompts <= l.typed.prompts && Date.now() - l.typed.at < PENDING_MS
+    return { status: l.state.status, runId: l.state.runId, prompts, pending, statusMessage: l.state.statusMessage ?? null, backgroundTasks: l.state.backgroundTasks ?? 0, reply: l.lastReply ?? null }
   }
 
   /**
@@ -1467,6 +1490,24 @@ class SessionManager {
     // xterm's own replies (focus in/out, cursor reports, colour queries) aren't typing.
     const typed = typedText(data)
     if (typed) this.userInput.set(key, { at: Date.now(), enter: typed.endsWith('\r') })
+    if (typed?.includes('\r')) this.userEnter.set(key, Date.now())
+  }
+
+  /** When the user last pressed Enter in each terminal (by pty key): a prompt its CLI takes soon after is theirs (#418). */
+  private userEnter = new Map<string, number>()
+
+  /**
+   * The user sent an agent a prompt from its pane (#418): what its CLI took (UserPromptSubmit) soon after the user's own
+   * Enter there, later than any line Hive typed. main/watches.ts tells the Assistant's watches.
+   */
+  userReplied: (projectPath: string, agentId: string, agentName: string, text: string) => void = () => undefined
+
+  private noteUserReply(l: LiveSession, text: string | null | undefined): void {
+    const st = l.state
+    if (!text?.trim() || text.trim().startsWith('/') || workspace.isAssistantHome(st.projectPath)) return
+    const enterAt = this.userEnter.get(this.key(st.projectPath, st.agentId)) ?? 0
+    if (enterAt <= (l.typed?.at ?? 0) || Date.now() - enterAt > USER_REPLY_MS) return
+    this.userReplied(st.projectPath, st.agentId, st.agentName ?? st.agentId, text)
   }
 
   /** Whether the user may still be writing in an agent's terminal (Settings → Assistant → Pause after you type). */
@@ -1535,6 +1576,7 @@ class SessionManager {
       check()
       const before = l?.prompts ?? 0
       writePty(key, '\r')
+      if (l) l.typed = { at: Date.now(), prompts: before }
       // confirm: until the CLI reports the prompt submitted. One just resumed and still drawing its conversation can
       // drop the Enter, or take it as a new line (#334): Enter again, which an empty prompt ignores. Still not
       // reported (a CLI that doesn't report prompts), it counts as sent: typing it again could send it twice.
@@ -2461,6 +2503,7 @@ class SessionManager {
     if (ev.kind === 'stop') {
       await this.refreshBackground(l)
       this.sweepTasks(l)
+      if (ev.lastMessage) l.lastReply = ev.lastMessage.slice(0, 2000)
     }
     this.carryOut(id, l, hookStep(ev, this.statusInput(l)), String(body.hook_event_name ?? ''), ev, arrived)
   }
@@ -2509,6 +2552,7 @@ class SessionManager {
         case 'prompted':
           l.prompts = (l.prompts ?? 0) + 1
           if (workspace.isAssistantHome(st.projectPath)) this.onAssistantPrompt(st.projectPath)
+          if (ev?.kind === 'prompt') this.noteUserReply(l, ev.text)
           break
         case 'compactBegan':
           l.compacting?.begin()
@@ -3184,7 +3228,7 @@ class SessionManager {
         if (!used) throw new Error("Hive couldn't read what the session used, so its backups are kept.")
         await workspace.upsertSession(projectPath, { id: sessionId, keptUsage: { ...used, lastPrompt: null, costUnreported: undefined } })
         await this.assertCleanable(projectPath, sessionId, expected)
-        for (const b of this.backupFiles(projectPath, sessionId)) await shell.trashItem(b)
+        for (const b of this.backupFiles(projectPath, sessionId)) await trash(b)
       })
     )
     log.info(`Clean Up: removed the backups of session ${sessionId} in ${userText(projectPath)}`)
@@ -3231,7 +3275,7 @@ class SessionManager {
         await inUseOnFail(() =>
           trashAllOrNothing(
             files,
-            (b) => shell.trashItem(b),
+            (b) => trash(b),
             () =>
               workspace.mutateSessions(projectPath, (f) => {
                 f.sessions = f.sessions.filter((s) => s.id !== sessionId)

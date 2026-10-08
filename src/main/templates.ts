@@ -1,4 +1,3 @@
-import { shell } from 'electron'
 import { existsSync } from 'original-fs'
 import { mkdir, readFile, readdir, stat } from 'original-fs/promises'
 import { basename, dirname, join, resolve } from 'path'
@@ -36,6 +35,7 @@ import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
 import { gitProblem } from './gitTool'
 import { unusedWorktreesNamed } from './unusedWorktrees'
+import { trash } from './trash'
 
 /**
  * Agent templates (#126): a project's agents and layout saved under a name, in the workspace (`<workspace>/.hive/
@@ -228,8 +228,8 @@ export async function deleteTemplate(ref: TemplateRef): Promise<TemplateDeleted>
   const names = await readOne(ref, ref.file).then((t) => t.agents.filter((a) => a.worktree).map((a) => a.name)).catch(() => [] as string[])
   await changing(ref, async () => {
     const f = fileOf(ref)
-    await shell.trashItem(f)
-    if (existsSync(`${f}.bak`)) await shell.trashItem(`${f}.bak`).catch((e) => log.warn('Could not remove the copy of a deleted template', e))
+    await trash(f)
+    if (existsSync(`${f}.bak`)) await trash(`${f}.bak`).catch((e) => log.warn('Could not remove the copy of a deleted template', e))
     log.info(`Deleted template ${userText(ref.file)} (${ref.scope})`)
   })
   if (!names.length) return { unusedWorktrees: [] }

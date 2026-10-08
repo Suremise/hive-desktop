@@ -174,7 +174,7 @@ class ProviderService {
     next.readiness = adapter.readiness(next)
     if (this.refreshes.get(id) !== run) return this.info(id)
     this.set(id, next)
-    await noteSelectedCli(next)
+    await noteSelectedCli(next, adapter.configHome?.() ?? null)
     return next
   }
 

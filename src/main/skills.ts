@@ -1,7 +1,6 @@
 import { join, basename, dirname, extname, relative, resolve, sep } from 'path'
 import { mkdir, readFile, rm, writeFile } from 'original-fs/promises'
 import { existsSync, type Dirent } from 'original-fs'
-import { shell } from 'electron'
 import { unzipSync } from 'fflate'
 import yaml from 'js-yaml'
 import type { ProviderId, SkillAudience, SkillInfo, SkillTarget } from '../shared/types'
@@ -11,6 +10,7 @@ import { copyDir, COPY_MARKER, isDir, isFile, readDirBounded } from './fsutil'
 import { createLogger } from './logger'
 import { headerOf, SKILL_HEAD_MAX } from './revisions'
 import { workspace } from './workspace'
+import { trash } from './trash'
 
 const log = createLogger('skills')
 
@@ -433,14 +433,14 @@ async function deletableSkill(dir: string): Promise<boolean> {
 export async function deleteSkill(dir: string): Promise<void> {
   if (!(await deletableSkill(dir)) || !existsSync(join(dir, 'SKILL.md'))) throw new Error('Only Hive skills and a project\'s local skills can be deleted in Hive.')
   if (existsSync(join(dir, HIVE_COPY_MARKER))) throw new Error("That's Hive's own copy of a workspace skill; delete the skill in the workspace instead.")
-  await shell.trashItem(dir)
+  await trash(dir)
 }
 
 /** Puts back a bundled skill as this version of Hive ships it: the workspace copy (edited) goes to the Recycle Bin. */
 export async function restoreBundledSkill(name: string): Promise<SkillInfo> {
   if (!(await bundledIds('skills')).includes(name)) throw new Error(`"${name}" isn't one of Hive's bundled skills.`)
   const dest = join(workspace.skillsDir, name)
-  if (existsSync(dest)) await shell.trashItem(dest)
+  if (existsSync(dest)) await trash(dest)
   await restoreBundled('skills', name)
   const s = (await readSkill(dest, 'hive'))!
   return { ...s, name, bundled: 'same' }

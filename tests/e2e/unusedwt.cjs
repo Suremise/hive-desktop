@@ -44,10 +44,6 @@ function pathWithoutGit() {
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.openWorkspace(inv, page, ws)
   await lib.waitForProvider(inv)
-  await app.evaluate(({ shell }) => {
-    const fsm = process.getBuiltinModule('fs')
-    shell.trashItem = async (p) => fsm.rmSync(p, { force: true })
-  })
   const shot = (name) => page.screenshot({ path: path.join(lib.WORK, `unusedwt-${name}.png`) })
   const theme = async (t) => {
     await inv('settings:update', { appearance: { theme: t } })

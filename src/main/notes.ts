@@ -1,11 +1,11 @@
 import { join, relative, resolve, sep, dirname, basename } from 'path'
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'original-fs/promises'
-import { shell } from 'electron'
 import { existsSync } from 'original-fs'
 import { handoverHeader, type HandoverAuthor } from '../shared/hiveGuidance'
 import type { NoteFile } from '../shared/types'
 import { hashText, insideReal, withFileLock, writeTextAtomic } from './fsutil'
 import { workspace } from './workspace'
+import { trash } from './trash'
 
 function assertInShared(p: string): string {
   const root = resolve(workspace.sharedDir)
@@ -61,7 +61,7 @@ export async function deleteNote(p: string): Promise<void> {
   const abs = assertInShared(p)
   if (abs === resolve(workspace.sharedDir)) throw new Error('Cannot delete the shared folder itself')
   // To the Recycle Bin, like files, skills, personas and sessions.
-  if (existsSync(abs)) await shell.trashItem(abs)
+  if (existsSync(abs)) await trash(abs)
 }
 
 export async function renameNote(p: string, newName: string): Promise<string> {

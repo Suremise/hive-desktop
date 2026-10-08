@@ -60,13 +60,9 @@ const check = (name, ok, extra = '') => {
   const templatesOf = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.json')) : [])
   const wsTemplates = path.join(ws, '.hive', 'templates')
   const own = (p) => path.join(p, '.hive', 'templates')
-  // The file dialogs and the Recycle Bin, answered in main.
+  // The file dialogs, answered in main (a deleted template goes to the suite's trash folder, #414).
   const saveTo = (file) => app.evaluate(({ dialog: d }, f) => { d.showSaveDialog = async () => ({ canceled: false, filePath: f }) }, file)
   const openFile = (file) => app.evaluate(({ dialog: d }, f) => { d.showOpenDialog = async () => ({ canceled: false, filePaths: [f] }) }, file)
-  await app.evaluate(({ shell }) => {
-    const fsm = process.getBuiltinModule('fs')
-    shell.trashItem = async (p) => fsm.rmSync(p, { force: true })
-  })
   const toast = async (re) => lib.until(async () => (await page.locator('.toast').allInnerTexts()).some((t) => re.test(t)), 5000)
 
   // --- alpha: Builder (builder) and Reviewer, two columns: "Pair" for the workspace, "Solo" for alpha only.

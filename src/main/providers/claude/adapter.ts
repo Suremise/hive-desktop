@@ -147,6 +147,10 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     return info
   }
 
+  configHome(): string {
+    return claudeHome()
+  }
+
   readiness(info: AgentInstallInfo): ReadinessIssue[] {
     if (!info.found) return [{ id: 'not-installed', level: 'error', message: 'Claude Code is not installed.', action: { label: 'Install', task: 'install' } }]
     const out: ReadinessIssue[] = []
@@ -384,7 +388,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
         out.event = { kind: 'start', source: typeof body.source === 'string' ? body.source : null }
         break
       case 'UserPromptSubmit':
-        out.event = { kind: 'prompt' }
+        out.event = { kind: 'prompt', text: typeof body.prompt === 'string' ? body.prompt : null }
         break
       case 'PreToolUse': {
         out.event = { kind: 'toolStart' }
