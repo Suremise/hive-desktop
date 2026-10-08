@@ -20,6 +20,28 @@ const codex = parseCodexModels(fixture('codex-debug-models.json'))!
 const catalog = (models: ModelCatalog['models'], extra: Partial<ModelCatalog> = {}): Pick<AgentInstallInfo, 'catalog' | 'configuredEffort' | 'observedEfforts' | 'defaultModel'> => ({ catalog: { source: 'cli', version: '1', models, at: '', ...extra } })
 const settingsWith = (provider: string, ps: Partial<ProviderSettings>): Pick<AppSettings, 'providers'> => ({ providers: { [provider]: ps as ProviderSettings } })
 
+// Claude Code 2.1.294's entry for Haiku 5.5, as the CLI reports it (the reviewer's model-only capture, #397): unlike Haiku
+// 4.5, it takes effort and runs in Auto. The alias now resolves to 5.5 on the first-party API.
+describe("Claude Code 2.1.294's Haiku 5.5 reply (#397)", () => {
+  const haiku55 = {
+    value: 'haiku',
+    resolvedModel: 'claude-haiku-5-5',
+    displayName: 'Haiku',
+    description: 'Haiku 5.5 · Fastest for quick answers · $0.10/$0.50 per Mtok ($0.50/$2.50 for prompts over 100k)',
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+    supportsAdaptiveThinking: true,
+    supportsAutoMode: true
+  }
+  it("the alias is Haiku 5.5, with the levels it takes and Auto", () => {
+    const parsed = parseClaudeInitialize({ models: [haiku55] })!
+    expect(parsed.models.find((m) => m.value === 'haiku')).toMatchObject({ resolved: 'claude-haiku-5-5', efforts: ['low', 'medium', 'high', 'xhigh', 'max'], supportsAuto: true })
+  })
+  it('the price of the alias is Haiku 5.5 (the rates up to 100,000 prompt tokens)', () => {
+    expect(modelPrice('claude-code', 'haiku')).toMatchObject({ input: 0.1, output: 0.5 })
+  })
+})
+
 describe("Claude Code's initialize reply (2.1.289)", () => {
   it('lists exactly the models it reports, Fable included, without "default" (which is the CLI default model)', () => {
     expect(claude.models.map((m) => m.value)).toEqual(['opus', 'fable', 'sonnet', 'haiku', 'claude-sonnet-5', 'claude-opus-5', 'claude-fable-5', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6'])
