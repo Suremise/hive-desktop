@@ -153,6 +153,8 @@ export const testHooks: {
   settleMs?: number
   /** How long a typed wake has to be taken (TAKE_MS). */
   takeMs?: number
+  /** Told each time a check reads a card from disk (#321: each card once a check). */
+  cardRead?: (n: number) => void
 } = {}
 /** The same seams by their first name (round-one probes use it). */
 export const testPauses = testHooks
@@ -258,7 +260,14 @@ function load(ws: WorkspaceService): Promise<Store> {
     if (budget(store, list) > MAX_FILE_BYTES) {
       const over: WatchRecord[] = []
       if (!(await setAside(store)) || budget(store, list) > MAX_FILE_BYTES) {
-        while (list.length && budget(store, list, []) > MAX_FILE_BYTES) over.unshift(list.pop()!)
+        // Each watch measured once, the last ones taken off until the rest fit (#321: not the whole file again a pop).
+        const empty = Buffer.byteLength(fileText(store, [], []))
+        const sizes = list.map((r) => entryBytes(atMost(r)))
+        let sum = sizes.reduce((a, b) => a + b, 0)
+        while (list.length && sizeOf(empty, sizes, sum) > MAX_FILE_BYTES) {
+          over.unshift(list.pop()!)
+          sum -= sizes.pop()!
+        }
         if (over.length && !(await setAside(store, over))) throw new Error('The card watches file is too big, and its extra watches could not be set aside')
       }
       store.dirty = true
@@ -425,8 +434,35 @@ const fileText = (store: Store, list: WatchRecord[], invalid = store.invalid): s
 /** The longest a watch's saved form can grow to: fired with the longest line, being typed. */
 const AT = new Date(0).toISOString()
 const atMost = (r: WatchRecord): WatchRecord => ({ ...r, fired: { line: 'x'.repeat(MAX_LINE_BYTES - 2), at: AT, cards: r.cond.cards, ...(r.agentMarks ? { agents: Object.keys(r.agentMarks) } : {}), sending: AT } })
-/** The file's size with every watch at its longest: it must fit, so a watch Hive took can always fire, be typed and end. */
-const budget = (store: Store, list: WatchRecord[], invalid = store.invalid): number => Buffer.byteLength(fileText(store, list.map(atMost), invalid))
+/**
+ * The bytes one watch takes in the file (#321): its own JSON as fileText writes it, an entry of the "watches" array, so
+ * each of its lines indented by four more spaces.
+ */
+function entryBytes(r: WatchRecord): number {
+  const { scope: _scope, current: _current, ...saved } = r
+  return savedEntryBytes(saved)
+}
+const savedEntryBytes = (saved: object): number => {
+  const s = JSON.stringify(saved, null, 2)
+  let lines = 1
+  for (let i = s.indexOf('\n'); i >= 0; i = s.indexOf('\n', i + 1)) lines++
+  return Buffer.byteLength(s) + 4 * lines
+}
+/** The watches file's size for these saved entries, measured as budget() does (#321): for tests, against its text. */
+export const savedFileBytes = (watches: object[], invalid: unknown[] = []): number =>
+  sizeOf(Buffer.byteLength(JSON.stringify({ version: 1, watches: [], ...(invalid.length ? { invalid } : {}) }, null, 2) + '\n'), watches.map(savedEntryBytes))
+
+/**
+ * The file's size with these entries (#321), without making its text: the file with no watches, then the entries, each
+ * after a ",\n" but the first, the "[]" made "[\n" … "\n  ]". Exactly what fileText's length would be.
+ */
+const sizeOf = (empty: number, entries: number[], sum = entries.reduce((a, b) => a + b, 0)): number => (entries.length ? empty + sum + 2 * (entries.length - 1) + 4 : empty)
+
+/**
+ * The file's size with every watch at its longest: it must fit, so a watch Hive took can always fire, be typed and end.
+ * Measured watch by watch (#321): making the whole file's text for it took seconds at 400 watches, once a pop.
+ */
+const budget = (store: Store, list: WatchRecord[], invalid = store.invalid): number => sizeOf(Buffer.byteLength(fileText(store, [], invalid)), list.map((r) => entryBytes(atMost(r))))
 
 /**
  * Makes room in the file: the saved entries that aren't valid watches (and, read back over the limit, the watches that
@@ -576,12 +612,24 @@ export function watchFor(projectPath: string, agentId: string): TaskWatchInfo | 
  * A card as the scope may see it (null: gone, archived cards included as they are, or outside the scope), read from the
  * store's own workspace: a read that a close or switch overlapped is refused.
  */
-async function cardIn(store: Store, n: number, scope: string | null): Promise<TaskCard | null> {
+async function cardIn(store: Store, n: number, scope: string | null, cards?: CardReads): Promise<TaskCard | null> {
   checkAlive(store)
-  const card = await getTask(n, store.ws).catch(() => null)
+  let read = cards?.get(n)
+  if (!read) {
+    testHooks.cardRead?.(n)
+    read = getTask(n, store.ws).catch(() => null)
+    cards?.set(n, read)
+  }
+  const card = await read
   checkAlive(store)
   return card && inScope(card, scope) ? card : null
 }
+
+/**
+ * The cards one check of the watches has read (#321): each card once, whatever the number of watches on it (a builder,
+ * its reviewer and the Assistant on the same card; 400 watches of 20 cards each read 8,000 files a check before).
+ */
+type CardReads = Map<number, Promise<TaskCard | null>>
 
 /** Ends a watch being typed: the typing stops before Enter. */
 const stopDelivery = (store: Store, rec: WatchRecord | undefined): void => {
@@ -1169,7 +1217,7 @@ async function confirmTaken(projectPath: string, agentId: string, before: { runI
 }
 
 /** Checks one watch against the board: whether it fires now. Its cards are read as its scope sees them. */
-async function check(store: Store, rec: WatchRecord): Promise<{ moved: boolean; hits: CardChange[]; told: Record<string, Baseline>; replies: { seq: number; note: ReplyNote }[]; released: Released[] }> {
+async function check(store: Store, rec: WatchRecord, cards?: CardReads): Promise<{ moved: boolean; hits: CardChange[]; told: Record<string, Baseline>; replies: { seq: number; note: ReplyNote }[]; released: Released[] }> {
   const hits: CardChange[] = []
   // Cards the watcher's part in has ended (#420).
   const released: Released[] = []
@@ -1180,7 +1228,7 @@ async function check(store: Store, rec: WatchRecord): Promise<{ moved: boolean; 
   const told: Record<string, Baseline> = {}
   let moved = false
   for (const n of rec.cond.cards) {
-    const card = await cardIn(store, n, rec.scope)
+    const card = await cardIn(store, n, rec.scope, cards)
     const gone = releaseOf(rec, n, card)
     if (gone) {
       released.push(gone)
@@ -1284,11 +1332,13 @@ async function evaluate(ws: WorkspaceService): Promise<void> {
   const narrowed: WatchRecord[] = []
   await locked(store, async () => {
     let changed = false
+    // Each card read once for all the watches on it (#321).
+    const reads: CardReads = new Map()
     for (const rec of [...store.list]) {
       if (rec.fired || rec.agents) continue
       // One watch that can't be checked doesn't stop the others.
       try {
-        const r = await check(store, rec)
+        const r = await check(store, rec, reads)
         if (r.moved) moved = true
         if (r.released.length) {
           // Released cards leave the watch (#420), told with its next line; when none is left, it is woken now.

@@ -756,8 +756,8 @@ describe('agent watches (main/watches.ts)', async () => {
     // Read back from the file.
     watches.forgetWatches(w)
     expect(watches.watchFor(alpha, 'a1')).toBeNull()
-    await new Promise((res) => setTimeout(res, 50))
-    expect(watches.watchFor(alpha, 'a1')?.label).toBe('Waiting for Reviewer to finish')
+    // It loads in the background: wait for it, not for a fixed time (a loaded machine takes longer).
+    await vi.waitFor(() => expect(watches.watchFor(alpha, 'a1')?.label).toBe('Waiting for Reviewer to finish'))
     st.agents.set('a2', nowOf({ status: 'finished' }))
     await watches.evaluateAgentWatches(w)
     expect(st.typed).toHaveLength(1)
