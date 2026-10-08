@@ -149,11 +149,13 @@ Status dots:
 | Blue | Session starting / ready for a prompt |
 | Pulsing orange | Agent is working |
 | Pulsing yellow | Agent needs your input (e.g. a permission prompt) |
-| Slow, faint orange | Agent is waiting on background tasks it started (e.g. a test run) and carries on when they end |
+| Slow-pulsing, dimmer orange | Agent is waiting on background tasks it started (e.g. a test run) and carries on when they end |
 | Blue ring | Agent is waiting for cards on the board to change, and carries on when one does (see [Card loops](#card-loops)) |
 | Green | Agent finished its task |
 | Violet | **Needs sign-in**: its CLI's sign-in has expired, so it stopped (see [When a sign-in expires](#when-a-sign-in-expires)) |
 | Glow | Something happened you haven't looked at yet (it goes once the agent's pane has been on screen) |
+
+A pulsing dot changes shade rather than fading, so it stays easy to see. Hive's grey text (timestamps, counts, hints) and its orange text and icons are drawn to be readable in both the light and dark themes, on hovered and selected rows too (they meet the WCAG AA contrast level).
 
 The sidebar and the lists in the Sessions, Files, Changes and Memory tabs can be made wider or narrower by dragging their right-hand edge, as can the two halves of a split view in the Files tab. Double-click the edge to reset it. Hive remembers the sizes.
 
