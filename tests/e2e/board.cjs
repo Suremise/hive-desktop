@@ -421,9 +421,10 @@ const check = (name, ok, extra = '') => {
   await d.locator('input.input').fill('gamma')
   await del.click()
   check('Delete moves the folder to the Recycle Bin', !!(await until(async () => !fs.existsSync(path.join(ws, 'gamma')), 10000)))
-  // A test copy's Recycle Bin is the suite's own trash folder (#414): the folder arrived there, whole.
-  const gone = lib.trashed(path.join(ws, 'gamma')).find((e) => e.from.toLowerCase() === path.join(ws, 'gamma').toLowerCase())
-  check("…which in a test copy is the suite's own trash folder, not the user's Recycle Bin", !!gone && fs.existsSync(gone.to), JSON.stringify(lib.trashed()))
+  // A test copy's Recycle Bin is the suite's own trash folder (#414): the folder arrived there, whole. Hive notes the
+  // move in trash.jsonl just after it, so wait for the note (#441).
+  const arrived = () => lib.trashed(path.join(ws, 'gamma')).find((e) => e.from.toLowerCase() === path.join(ws, 'gamma').toLowerCase() && fs.existsSync(e.to))
+  check("…which in a test copy is the suite's own trash folder, not the user's Recycle Bin", !!(await until(async () => arrived(), 5000)), JSON.stringify(lib.trashed()))
   check('and Hive forgets it', !!(await until(async () => !(await names()).includes('gamma'), 8000)))
 
   await app.close()
