@@ -114,6 +114,19 @@ export interface TaskReorder {
   count: number
 }
 
+/** What a batch change did (reply: "short"): each card changed, and each card refused with why (left as it was). */
+export interface TaskBatch {
+  changed: TaskChange[]
+  refused: { number: number; error: string }[]
+}
+
+export function batchText(b: TaskBatch): string {
+  const lines = [b.changed.length ? `${b.changed.length} card${b.changed.length === 1 ? '' : 's'} changed:` : 'No card changed.']
+  for (const c of b.changed) lines.push(changedText(c))
+  if (b.refused.length) lines.push(`Refused, left as they were: ${b.refused.map((r) => `#${r.number} (${r.error})`).join('; ')}.`)
+  return lines.join('\n')
+}
+
 export function reorderText(r: TaskReorder): string {
   const rest = r.count - r.top.length
   return `${columnLabel(r.column)} now starts ${r.top.map((n) => `#${n}`).join(', ')}${rest > 0 ? `; its other ${rest} card${rest === 1 ? '' : 's'} keep their order below` : ''}.`

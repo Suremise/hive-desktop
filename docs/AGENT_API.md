@@ -234,7 +234,7 @@ The changes below are the Assistant's only: other callers get `403`.
 
 Changing the task board (`POST /v1/tasks`, `PATCH /v1/tasks/{n}`, comments) is open to other callers too; for the Assistant it needs Control agents and counts as a change.
 
-With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees, archive or delete cards, or remove projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/deactivate` needs Control agents.
+With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. A batch of cards counts each of its cards. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees, archive or delete cards, or remove projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/deactivate` needs Control agents.
 
 ### Settings
 
@@ -333,11 +333,22 @@ Placing a card with `position` or `before` adds a line to its history when it mo
 { "column": "todo", "cards": [14, 9, 12] }
 ```
 
+`POST /v1/tasks/batch` — change up to 100 cards with one call: `numbers` (their card numbers) and the fields every one of them gets, with the meaning each has on `PATCH`: `column`, `position` (`top` or `bottom`), `blocked`, `labels` or `agent`. A title, comment, decision or link goes on `PATCH` for its own card; any other field here is `400`. An empty list, more than 100 cards, or a card listed twice is `400`, and nothing changes.
+
+Each card is changed as `PATCH` would change it: under its own lock, authorised against the card as it is then, with its own history line. A card that can't be changed is refused and left as it was, and the other cards still change: an unknown card, or another project's (both answered as missing), an archived one, one in Doing with another agent, one an agent may not put On Hold. So a batch is not all or nothing: each card is. `position` applies to each card in turn, so the last listed ends at the top; to set an order, use `POST /v1/tasks/reorder`.
+
+For the Assistant, every card counts against its 30 changes for the message, refused ones too. If the cards don't all fit, none is changed and the answer is `429` with `fits`: how many would fit. Each card is listed in the Assistant's panel on its own. Each card is checked again just before it is saved, after its last read and under its lock: if the control level was turned down, or the Assistant's session replaced, while the batch was working on it, that card and the rest after it are refused and nothing of theirs is saved.
+
+```json
+{ "numbers": [14, 9, 12], "column": "todo", "reply": "short" }
+```
+
 **Short replies.** Every caller gets the replies above unless it asks for short ones, which is what Hive's own tools do (an agent pays for each character of a reply on every later turn):
 
 - `GET /v1/tasks?view=short` — a row per card: `{ number, title, column, project, agent: { name, status, backgroundTasks } | null, labels, blocked, blockedBy, stalled, reviewing?, comments (how many), archived }`, without descriptions, comments or history. (`hive_list_tasks` shows at most 200 of these a reply, with the `offset` to carry on.)
 - `"reply": "short"` in the body of `POST /v1/tasks`, `PATCH /v1/tasks/{n}` and `POST /v1/tasks/{n}/comments` — what changed and where the card is now, instead of the card: `{ number, title, column, position (1 at the top; null when archived), of (cards in the column), project, agent (its name or null), changes }`. `changes` is in the words of the card's history (`"Moved to Review"`, `"Commented"`; empty when nothing changed).
 - `"reply": "short"` in `POST /v1/tasks/reorder` — `{ column, top (the cards put at the top, in order), count (cards in the column) }` instead of the column.
+- `"reply": "short"` in `POST /v1/tasks/batch` — `{ changed (each card's change, as `PATCH`'s short reply gives it), refused (`{ number, error }` for each card left as it was) }`.
 - `"reply": "short"` in `POST /v1/tasks/{n}/start` — its `card` as a short row.
 
 `POST /v1/tasks/{n}/comments` `{ "text" }` — add a comment.
@@ -476,6 +487,7 @@ When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP se
 | `hive_create_task` | `POST /v1/tasks` (the session's project by default), short reply |
 | `hive_update_task` | `PATCH /v1/tasks/{n}` (with `comment`), short reply |
 | `hive_reorder_tasks` | `POST /v1/tasks/reorder`, short reply |
+| `hive_update_tasks` | `POST /v1/tasks/batch`, short reply |
 | `hive_wait_for_tasks` | `POST /v1/tasks/wait` (`wake: true` for a card watch, `cancel: true` to end it), a line per change |
 | `hive_merge_slot` | `GET /v1/projects/{name}/merge-slot`, `POST …/merge-slot/claim` or `…/release` (the session's project), a line (project agents only) |
 
@@ -501,7 +513,7 @@ The Hive Assistant's `hive` server always runs (even with this setting or the Ag
 | `hive_read_setting` | `GET /v1/settings/{id}`, as text | any |
 | `hive_update_setting` | `PATCH /v1/settings/{id}`, old → new | Change settings on (any level) |
 
-It also has the board tools above; Claude Code runs `hive_create_task`, `hive_update_task` and `hive_reorder_tasks` without asking from Control agents up. Claude Code runs these without asking (they are Hive's own, and limited by the control level); Codex gets a 15-minute tool timeout for them, since waiting and asking the user can take minutes.
+It also has the board tools above; Claude Code runs `hive_create_task`, `hive_update_task`, `hive_update_tasks` and `hive_reorder_tasks` without asking from Control agents up. Claude Code runs these without asking (they are Hive's own, and limited by the control level); Codex gets a 15-minute tool timeout for them, since waiting and asking the user can take minutes.
 
 A handover belongs to a project when its file name is `handovers/<date>-<project>-<title>.md`, as `hive_create_handover` writes it. When another project's name begins the same way (`hive` and `hive-website`), the `**Project:**` line at the top of the handover decides.
 

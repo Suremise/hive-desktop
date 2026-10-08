@@ -198,6 +198,9 @@ const prose = (seed, n) => {
   check('a move to Review and a comment, both said', /: Moved to Review; Commented\. Now in Review \(11th of 11\)/.test(review), review)
   const reordered = measure('hive_reorder_tasks (3 cards)', tool('hive_reorder_tasks', { column: 'todo', cards: [todo[10], todo[5], todo[7]] }), 300)
   check('a reorder confirms the new top', reordered === `Todo now starts #${todo[10]}, #${todo[5]}, #${todo[7]}; its other 47 cards keep their order below.`, reordered)
+  const batched = measure('hive_update_tasks (3 cards)', tool('hive_update_tasks', { numbers: [todo[20], todo[21], todo[22]], labels: ['perf'] }), 400)
+  const batchLines = batched.split('\n')
+  check('a batch confirms each card and its change', batchLines[0] === '3 cards changed:' && batchLines.length === 4 && batchLines.slice(1).every((l) => /^#\d+ .+: Labels: perf\. Now in Todo \(\d+\w+ of \d+\)(, [^,]+)?\.$/.test(l)), batched)
   const skillList = measure('hive_list_skills', tool('hive_list_skills', {}), 4000)
   check('skills: a line each, who they are for, no folders', /^work-on-card \(Hive, for agents\): /m.test(skillList) && !skillList.includes(ws), skillList.slice(0, 300))
   // Who each listing is about: an agent's lists what its project's agents get (not the Assistant's skills); the

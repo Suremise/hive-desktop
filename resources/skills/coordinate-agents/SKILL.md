@@ -21,6 +21,7 @@ The task board is the shared list of work. For work that needs more than one ste
 
 - Create cards (`hive_create_task`) with a project and a description complete enough to start from cold: what to do, where, and what done looks like.
 - Set `blockedBy` for what must land first, and put the column in priority order (`hive_reorder_tasks`).
+- Bulk moves (a whole column moved, a set of cards given a label or an agent): one `hive_update_tasks` call for up to 100 cards, not a call per card. Each card is changed as `hive_update_task` would change it, and one it can't change is left as it was. Each card counts toward your 30 changes for the message: if they don't all fit, nothing changes and the refusal says how many would, so split the batch or ask the user.
 - When the user decides something about a card (scope, wording, a default, an option), record it on the card as a decision (`hive_update_task` with `decision`), not as a comment: agents check their work against a card's decisions. Older cards may have decisions in comments; move those of open cards into decisions only when the user asks.
 - A card without a project is about the workspace: somewhere to plan before the work has a project. Only a card with a project can be started on an agent. Use the planning tools Hive gives you; don't assume ones it doesn't list.
 - Agents sharing a folder must not edit the same files: split the work by files, or give one agent its own worktree. Add a worktree only if the user asked for one, or agreed when you asked. The split-work skill helps plan the split.

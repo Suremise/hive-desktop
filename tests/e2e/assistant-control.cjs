@@ -221,6 +221,11 @@ const check = (name, ok, extra = '') => {
     n++
   }
   check('at most 30 changes for one message', status === 429, `${status} after ${n}`)
+  // A batch needs its whole allowance: none is left, so it changes none of its cards and says how many fit (none).
+  const batch = await api('POST', '/v1/tasks/batch', { numbers: [o1, o2], column: 'doing' })
+  const columns = [(await api('GET', `/v1/tasks/${o1}`)).body.column, (await api('GET', `/v1/tasks/${o2}`)).body.column]
+  check('a batch over the limit changes none of its cards and says how many fit', batch.status === 429 && batch.body?.fits === 0 && columns.every((c) => c === 'todo'), JSON.stringify({ status: batch.status, body: batch.body, columns }))
+  check('and lists the batch as refused, not as changes', (await inv('assistant:actions')).some((x) => !x.ok && x.text === 'Change 2 cards on the board'))
 
   // The tools its hive MCP server offers follow the control level; project agents never get them.
   const tools = (envExtra) => {
