@@ -126,6 +126,12 @@ for the build), and the e2e runner, `lib.cjs` and the scenario harness all take 
   started from, to report to the Hive that started it.
 - **Folders, ports and CLI homes**: the lane (above), the Codex test home under its `config.toml` lock, the Claude Code
   test home for the model trials (`CLAUDE_TEST_HOME`); each suite keeps its own `CLAUDE_CONFIG_DIR` folders in its lane.
+  **Every test copy of Hive gets both CLI homes** (#382): Hive looks for both CLIs when it starts, and their sign-in
+  checks (`claude auth status`, `codex login status`) read the home they are given, else yours. `lib.hiveEnv` gives
+  `CLAUDE_CONFIG_DIR` and `CODEX_HOME` as empty folders of the suite's (`<suite folder>\cli-homes\claude` and
+  `\codex`, `runContext.cliHomes`) unless the suite gives a test home (the fake Claude Code's, `lib.ownClaudeHome`, the
+  Codex test home). `lib.cjs` refuses to start a test Hive with either one missing or pointing at your own `~/.claude`
+  or `~/.codex` (however the path is spelled), and makes the empty ones.
 - **The build, once per worktree** (`build.mjs`): runners started at the same time in one worktree share its `out/`,
   so the first that finds it stale takes the worktree's build lock (`%LOCALAPPDATA%\hive-test\build-locks`, a folder
   per worktree with its holder's process id), looks again, builds once and stamps it; the others wait (`Waited for
@@ -285,7 +291,8 @@ Everything goes in `%LOCALAPPDATA%\hive-test\e2e` (override with `HIVE_E2E_DIR`)
   empties its own subfolders, and its screenshots replace the last run's). To keep a run's screenshots, run it through
   the runner with `--keep-files` instead: they land in that run's new log folder.
 
-Nothing touches your Hive profile, your clipboard, your real Codex home or your **Recycle Bin**. What Hive moves to the
+Nothing touches your Hive profile, your clipboard, your real Claude Code and Codex homes (#368, #382: above) or your
+**Recycle Bin**. What Hive moves to the
 Recycle Bin (Delete in Files, notes, skills, templates, cards, session copies, Clean Up, Delete Project) a test copy
 moves into its suite's trash folder instead, `<suite folder>\trash` (`HIVE_TEST_TRASH_DIR`, set by `lib.hiveEnv`;
 without it, a test profile's `test-trash`), which goes with the suite's folder (#414). A move is one rename, whole or not at all (an item on another drive than

@@ -1185,6 +1185,7 @@ describe('the run context: what a test starts gets only the allowlist and its ow
   type Env = Record<string, string | undefined>
   type Ctx = {
     WORK: string
+    isUserCliHome: (dir: string, parent?: Env) => boolean
     ALLOW: string[]
     PASS_ENV: Record<string, string>
     CARRIED: string[]
@@ -1265,6 +1266,25 @@ describe('the run context: what a test starts gets only the allowlist and its ow
     const runner = readFileSync(join(root, 'tests', 'e2e', 'run.mjs'), 'utf8')
     expect(runner).toMatch(/recycleBinCount\(\)[\s\S]*recycleBinLine\(binBefore, recycleBinCount\(\)\)/)
     expect(readFileSync(join(root, 'tests', 'e2e', 'recycleBin.mjs'), 'utf8')).not.toMatch(/Empty|InvokeVerb|Delete|Remove-/)
+  })
+
+  it("every test copy of Hive gets both CLI homes, test folders, never the user's ~/.claude or ~/.codex (#382)", () => {
+    const suite = ctx.suiteEnv({ name: 'board', port: 47961, work: 'C:\\lanes\\1\\board', runDir: 'C:\\lanes\\1\\board' }, parent)
+    // By default, empty folders of the suite's own; whatever the shell the run was started from had.
+    const shell = { ...suite, CLAUDE_CONFIG_DIR: 'C:\\Users\\t\\.claude', CODEX_HOME: 'C:\\Users\\t\\.codex' }
+    expect(ctx.hiveEnv({ HIVE_USER_DATA: 'C:\\p' }, shell)).toMatchObject({ CLAUDE_CONFIG_DIR: 'C:\\lanes\\1\\board\\cli-homes\\claude', CODEX_HOME: 'C:\\lanes\\1\\board\\cli-homes\\codex' })
+    expect(ctx.hiveEnv({ HIVE_USER_DATA: 'C:\\p' }, parent)).toMatchObject({ CLAUDE_CONFIG_DIR: join(ctx.WORK, 'cli-homes', 'claude'), CODEX_HOME: join(ctx.WORK, 'cli-homes', 'codex') })
+    // A suite gives a test home instead (the fake Claude Code's, its own, the Codex test home).
+    expect(ctx.hiveEnv({ HIVE_USER_DATA: 'C:\\p', CLAUDE_CONFIG_DIR: 'C:\\fake-home', CODEX_HOME: 'C:\\codex-test' }, suite)).toMatchObject({ CLAUDE_CONFIG_DIR: 'C:\\fake-home', CODEX_HOME: 'C:\\codex-test' })
+    // Not for a child that isn't Hive.
+    for (const k of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME']) expect(has(ctx.childEnv({}, suite), k), k).toBe(false)
+    // The user's homes, however spelled; not a folder beside or inside them.
+    const user = { ...parent, USERPROFILE: 'C:\\Users\\t' }
+    for (const p of ['C:\\Users\\t\\.claude', 'c:/users/T/.codex/', 'C:\\Users\\t\\x\\..\\.claude']) expect(ctx.isUserCliHome(p, user), p).toBe(true)
+    for (const p of ['C:\\Users\\t\\.claude-test', 'C:\\Users\\t\\.codex\\homes\\x', join(ctx.WORK, 'cli-homes', 'claude')]) expect(ctx.isUserCliHome(p, user), p).toBe(false)
+    // lib.cjs refuses to start a test Hive with either home missing or the user's own.
+    const lib = readFileSync(join(root, 'tests', 'e2e', 'lib.cjs'), 'utf8')
+    expect(lib).toMatch(/for \(const k of \['CLAUDE_CONFIG_DIR', 'CODEX_HOME'\]\) \{\s*if \(!env\[k\]\) throw[\s\S]*?if \(isUserCliHome\(env\[k\]\)\) throw/)
   })
 
   it("the CLIs a suite's Hive selects go to a log of the suite's own; the runner starts no CLI of its own (#365)", () => {

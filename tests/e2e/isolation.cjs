@@ -59,12 +59,14 @@ const leaked = (env) => Object.entries(env).filter(([k, v]) => LEAKS[k.toUpperCa
   try {
     const env = await app.evaluate(() => Object.fromEntries(Object.entries(process.env)))
     check("a test Hive gets none of the suite's environment", !leaked(env).length, leaked(env).join(', '))
-    const allowed = new Set(upper([...ctx.ALLOW, 'HIVE_USER_DATA', 'HIVE_TEST_QUIET', 'HIVE_TEST_TIPS', 'HIVE_TEST_TRASH_DIR', 'HIVE_API_PORT', ...ctx.CARRIED]))
+    const allowed = new Set(upper([...ctx.ALLOW, 'HIVE_USER_DATA', 'HIVE_TEST_QUIET', 'HIVE_TEST_TIPS', 'HIVE_TEST_TRASH_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'HIVE_API_PORT', ...ctx.CARRIED]))
     // PROMPT: cmd.exe's default ($P$G), which Playwright's start of Electron on Windows sets; not the suite's.
     const extra = upper(Object.keys(env)).filter((k) => !allowed.has(k) && !(k === 'PROMPT' && env[Object.keys(env).find((x) => x.toUpperCase() === 'PROMPT')] === '$P$G'))
     check('…only the allowlist and its run context', !extra.length, extra.join(', '))
     check('…with its profile, quiet, tips off and its port', env.HIVE_USER_DATA === userData && env.HIVE_TEST_QUIET === '1' && env.HIVE_TEST_TIPS === 'off' && env.HIVE_API_PORT === lib.port(47929), JSON.stringify({ HIVE_USER_DATA: env.HIVE_USER_DATA, HIVE_TEST_QUIET: env.HIVE_TEST_QUIET, HIVE_TEST_TIPS: env.HIVE_TEST_TIPS, HIVE_API_PORT: env.HIVE_API_PORT }))
     check("…and its suite's trash folder, not the user's Recycle Bin (#414)", env.HIVE_TEST_TRASH_DIR === lib.TRASH, String(env.HIVE_TEST_TRASH_DIR))
+    const homes = ctx.cliHomes()
+    check("…and both CLI homes, empty folders of the suite's, not the user's (#382)", env.CLAUDE_CONFIG_DIR === homes.CLAUDE_CONFIG_DIR && env.CODEX_HOME === homes.CODEX_HOME && !ctx.isUserCliHome(env.CLAUDE_CONFIG_DIR) && !ctx.isUserCliHome(env.CODEX_HOME), JSON.stringify({ CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR, CODEX_HOME: env.CODEX_HOME }))
   } finally {
     await app.close().catch(() => undefined)
   }

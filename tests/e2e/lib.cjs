@@ -11,7 +11,7 @@ const { execFileSync, execSync } = require('child_process')
 const { _electron } = require('playwright-core')
 
 // The run context (runContext.cjs): the environments of everything a suite starts, its folders and the CLI test homes.
-const { TEST_ROOT, WORK, CODEX_HOME, CLAUDE_TEST_HOME, hiveEnv, childEnv, baseEnv, isHiveEnv, trashDir } = require('./runContext.cjs')
+const { TEST_ROOT, WORK, CODEX_HOME, CLAUDE_TEST_HOME, hiveEnv, childEnv, baseEnv, isHiveEnv, isUserCliHome, trashDir } = require('./runContext.cjs')
 
 const ROOT = path.resolve(__dirname, '..', '..')
 /** Electron's executable (the electron package resolves to its path in plain Node). */
@@ -376,7 +376,15 @@ const environmentProblem = (text) => environmentProblems(text)[0]?.why ?? null
 const apps = new Set()
 const launchElectron = _electron.launch.bind(_electron)
 _electron.launch = async (...args) => {
-  if (!isHiveEnv(args[0]?.env)) throw new Error("Start a test Hive with lib.hiveEnv({ HIVE_USER_DATA, … }) as its env (tests/e2e/runContext.cjs), never the suite's own environment")
+  const env = args[0]?.env
+  if (!isHiveEnv(env)) throw new Error("Start a test Hive with lib.hiveEnv({ HIVE_USER_DATA, … }) as its env (tests/e2e/runContext.cjs), never the suite's own environment")
+  // Both CLI homes, test folders (#382): Hive looks for both CLIs when it starts, and their sign-in checks read these.
+  for (const k of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME']) {
+    if (!env[k]) throw new Error(`A test Hive needs ${k} (hiveEnv gives an empty one of the suite's; a suite may give a test home, never none): without it the CLI reads the user's own home (#382)`)
+    if (isUserCliHome(env[k])) throw new Error(`A test Hive's ${k} is the user's own home (${env[k]}): give it a test home (#382)`)
+    // The suite's empty one is made here (Codex refuses a CODEX_HOME that doesn't exist).
+    fs.mkdirSync(env[k], { recursive: true })
+  }
   const app = await launchElectron(...args)
   apps.add(app)
   app.on('close', () => apps.delete(app))
