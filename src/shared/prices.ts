@@ -26,7 +26,9 @@ export const SHIPPED_PRICES: Record<ProviderId, Record<string, ModelPrice>> = {
     'claude-opus-4-8': claude(5, 25),
     'claude-opus-4-7': claude(5, 25),
     'claude-opus-4-6': claude(5, 25),
-    'claude-sonnet-5-5': claude(2, 10, 0.2),
+    // Sonnet 5.5's cache reads are 0.05× input, $0.10 (#435): Anthropic's pricing page, checked 8 Oct 2026. Claude Code
+    // 2.1.294 still prices them at $0.20 (its tier_2_10 table), so the cost it reports for its own sessions is higher.
+    'claude-sonnet-5-5': claude(2, 10, 0.1),
     'claude-sonnet-5': claude(2, 10),
     'claude-sonnet-4-6': claude(3, 15),
     // Haiku 5.5 (released 7 Oct 2026): Anthropic's pricing page, checked 8 Oct 2026, and the Claude Code 2.1.294 model catalog's

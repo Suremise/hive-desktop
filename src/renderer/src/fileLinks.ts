@@ -60,7 +60,7 @@ export function openFileLink(t: LinkTarget, line?: number, col?: number): void {
 }
 
 /** A line's text, and the terminal column each character starts in (wide characters take two). */
-function lineText(line: IBufferLine, cols: number): { text: string; colOf: number[] } {
+export function lineText(line: IBufferLine, cols: number): { text: string; colOf: number[] } {
   let text = ''
   const colOf: number[] = []
   for (let x = 0; x < cols; x++) {

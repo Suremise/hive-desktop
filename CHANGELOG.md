@@ -22,6 +22,12 @@
 
 ### Worktrees
 - **Unused worktrees live in the Changes tab.** Worktrees no agent uses now (kept when you removed their agent, or from another template) are listed in the Changes tab's folder picker, under **Unused worktrees**, next to the agents' worktrees. **All unused worktrees** has the same Remove, Remove all merged, Remove anyway… and Give to an agent… as before, and **Open** shows one's changes like an agent's worktree, with **Merge** to bring its work onto main (and remove it afterwards, if you like). The project Overview keeps a one-line count with a link.
+### Terminal
+- **Card numbers are links.** When an agent or the Assistant mentions a card in its terminal, like "#383 is back On Hold", hover the number to see the card's title and column, and Ctrl+click it to open the card, as you would a file path. Only numbers of cards on your board are linked.
+
+### Fixes
+- **Sonnet 5.5's cache reads are priced at $0.10 per million tokens**, Anthropic's published price (5% of input), not $0.20. Estimated costs of Sonnet 5.5 sessions that Hive prices itself come out lower where most of the input is cached. A price you set for Sonnet 5.5 in Settings → Claude Code → API prices is kept.
+- **Hive opens when its install folder's permissions don't cover sandboxed apps.** If the folder Hive is installed in had an entry for a Windows app package but none for **ALL APPLICATION PACKAGES**, Windows denied Hive's sandboxed windows access to it and Hive closed at start with nothing on screen. The installer and updates now give ALL APPLICATION PACKAGES read access to the folder, and Hive checks at start: it adds the entry to a folder you can change, and for one you can't, it says so with the command to run and a **Copy Command** button instead of failing silently.
 
 ## 0.4.0 — 7 October 2026
 
