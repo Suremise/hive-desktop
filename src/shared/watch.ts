@@ -7,7 +7,8 @@
  * time, its latest review verdict's time, its agent, and whether it is archived (or gone). A wait for a column alone
  * ("until it is in Review") counts only that: it is met as soon as the card is in that column, also if it already was,
  * and nothing else wakes it (a comment while the card is still in Doing doesn't). A column with `changes` naming
- * `column` is a move into it (only when it moves there), or any other change listed ("verdict or into Done").
+ * `column` is a move into it, or any other change listed ("verdict or into Done"); a card already there is met at once
+ * too (#434). Only `fresh` waits for the next move into it: a card there must leave and come back.
  */
 import type { TaskCard, TaskColumn } from './types'
 import { COLUMN_CHOICES, COLUMN_IDS, TASK_COLUMNS, columnLabel } from './tasks'
@@ -22,10 +23,15 @@ export interface WatchCondition {
   changes: WatchChange[]
   column?: TaskColumn
   /**
-   * With a column: a move into it, not just being in it (`changes` named `column` explicitly). A card already there
-   * then waits until it leaves and comes back: a reviewer waiting for a failed card's next round.
+   * With a column: a move into it, or any other change listed (`changes` named `column` explicitly). A card already
+   * there is met at once, as for a column alone (#434).
    */
   moveInto?: true
+  /**
+   * With a column (and so a move into it): only the next move into it counts. A card already there waits until it
+   * leaves and comes back, or is returned for review: a reviewer waiting for a failed card's next round.
+   */
+  fresh?: true
 }
 
 /** At most this many cards in one wait. */
@@ -71,9 +77,10 @@ export function readSavedCondition(v: unknown): WatchCondition | null {
   if (!changes.length || changes.some((c) => !WATCH_CHANGES.includes(c as WatchChange)) || new Set(changes).size !== changes.length) return null
   if (v.column !== undefined && !COLUMNS.includes(v.column as string)) return null
   if (v.moveInto !== undefined && (v.moveInto !== true || v.column === undefined)) return null
+  if (v.fresh !== undefined && (v.fresh !== true || v.moveInto !== true)) return null
   // A column goes with `column` among the changes (as readCondition makes it).
   if (v.column !== undefined && !changes.includes('column')) return null
-  return { cards: cards as number[], changes: changes as WatchChange[], ...(v.column ? { column: v.column as TaskColumn } : {}), ...(v.moveInto ? { moveInto: true as const } : {}) }
+  return { cards: cards as number[], changes: changes as WatchChange[], ...(v.column ? { column: v.column as TaskColumn } : {}), ...(v.moveInto ? { moveInto: true as const } : {}), ...(v.fresh ? { fresh: true as const } : {}) }
 }
 
 /** A card's mark now (null card: gone). */
@@ -234,8 +241,12 @@ export function changesBetween(before: CardMark, after: CardMark, cond: Pick<Wat
   return out
 }
 
-/** Whether a card already meets a column condition (a wait for "in Review" on a card in Review is met at once). */
-export const alreadyThere = (mark: CardMark, cond: Pick<WatchCondition, 'column' | 'moveInto'>): boolean => !!cond.column && !cond.moveInto && mark.column === cond.column
+/**
+ * Whether a card already meets a column condition (a wait for "in Review" on a card in Review is met at once), also
+ * one for a move into it (#434: a builder's "→ Passed" on a card already passed doesn't wait for a move that has
+ * happened), unless it asks for a fresh one.
+ */
+export const alreadyThere = (mark: CardMark, cond: Pick<WatchCondition, 'column' | 'moveInto' | 'fresh'>): boolean => !!cond.column && !cond.fresh && mark.column === cond.column
 
 /**
  * A wait's `since`: the marks of its cards, as a short opaque text an agent passes back so a change between two calls
@@ -530,7 +541,7 @@ export function watchLabel(cond: Pick<WatchCondition, 'cards' | 'column'>): stri
 }
 
 /** A condition from untrusted arguments, or an error saying what is wrong. */
-export function readCondition(args: { cards?: unknown; changes?: unknown; until?: unknown; column?: unknown }): WatchCondition | string {
+export function readCondition(args: { cards?: unknown; changes?: unknown; until?: unknown; column?: unknown; fresh?: unknown }): WatchCondition | string {
   const raw = Array.isArray(args.cards) ? args.cards : []
   const ns = [...new Set(raw.map(Number))].filter((n) => Number.isInteger(n) && n > 0)
   if (!ns.length || ns.length !== raw.length) return 'cards must be card numbers (at least one, no repeats)'
@@ -543,7 +554,11 @@ export function readCondition(args: { cards?: unknown; changes?: unknown; until?
   const changes = !given ? (column ? ['column'] : [...WATCH_CHANGES]) : Array.isArray(list) ? [...new Set(list)] : [list]
   if (!changes.length || changes.some((c) => !WATCH_CHANGES.includes(c as WatchChange))) return `changes must be any of ${WATCH_CHANGES.join(', ')}`
   if (column && !changes.includes('column')) return 'with column, changes must include "column" (or leave changes out to wait only for the card to be in that column)'
-  // A column with `column` named among the changes: a move into it (a card already there waits for it to come back).
-  const moveInto = !!column && given
-  return { cards: ns, changes: changes as WatchChange[], ...(column ? { column: column as TaskColumn } : {}), ...(moveInto ? { moveInto: true as const } : {}) }
+  if (args.fresh !== undefined && typeof args.fresh !== 'boolean') return 'fresh must be true or false'
+  const fresh = args.fresh === true
+  if (fresh && !column) return 'fresh needs a column: it waits for the next move into it'
+  // A column with `column` named among the changes: a move into it, met at once by a card already there (#434). Fresh:
+  // only the next move into it (a card already there waits for it to come back).
+  const moveInto = !!column && (given || fresh)
+  return { cards: ns, changes: changes as WatchChange[], ...(column ? { column: column as TaskColumn } : {}), ...(moveInto ? { moveInto: true as const } : {}), ...(fresh ? { fresh: true as const } : {}) }
 }

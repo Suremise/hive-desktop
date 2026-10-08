@@ -350,13 +350,14 @@ const tools: Tool[] = [
   {
     name: 'hive_wait_for_tasks',
     description:
-      `Wait for cards to change: a column move, a new comment, a review verdict or a new agent (changes narrows it). column alone: only until one is in that column (at once if it already is; nothing else counts); column with changes including "column": until one moves into it (a card there must leave and come back, or be returned for review), or another change listed. wake=true: Hive types one line into this session when one changes, naming every watched card that changed${ASSISTANT ? " (and when the user sends a watched card's agent or reviewer a prompt from its pane, with its first line)" : ''}, or after limitMinutes with none (default 120); a watch started after a wake also counts what others changed since that wake: end your turn after calling it; nothing runs, and no other work is given to you, meanwhile. Without wake, it waits here up to timeoutSeconds (default 300, at most 840) and replies with each change (column, by whom, the latest comment's first line) or no change, with since: pass it back to the next wait so nothing between them is missed. cancel=true ends your watch. Your project's cards only.`,
+      `Wait for cards to change: a column move, a new comment, a review verdict or a new agent (changes narrows it). column alone: only until one is in that column (at once if it already is; nothing else counts); column with changes including "column": until one moves into it, or another change listed. Either way a card already in that column answers at once; fresh=true (with column) waits only for the next move into it: a card there must leave and come back, or be returned for review. wake=true: Hive types one line into this session when one changes, naming every watched card that changed${ASSISTANT ? " (and when the user sends a watched card's agent or reviewer a prompt from its pane, with its first line)" : ''}, or after limitMinutes with none (default 120); a watch started after a wake also counts what others changed since that wake: end your turn after calling it; nothing runs, and no other work is given to you, meanwhile. Without wake, it waits here up to timeoutSeconds (default 300, at most 840) and replies with each change (column, by whom, the latest comment's first line) or no change, with since: pass it back to the next wait so nothing between them is missed. cancel=true ends your watch. Your project's cards only.`,
     inputSchema: {
       type: 'object',
       properties: {
         cards: { type: 'array', items: { type: 'number' }, description: 'Card numbers (#12 is 12).' },
         changes: { type: 'array', items: { type: 'string', enum: ['column', 'comment', 'verdict', 'agent'] }, description: 'What counts (default: any).' },
         column: columnArg,
+        fresh: { type: 'boolean', description: "Only the next move into column (a reviewer waiting for a failed card's next round)." },
         wake: { type: 'boolean' },
         limitMinutes: { type: 'number' },
         timeoutSeconds: { type: 'number' },
@@ -367,7 +368,7 @@ const tools: Tool[] = [
     run: async (a) =>
       taskWaitText(
         (await api('POST', '/v1/tasks/wait', {
-          ...(a.cancel ? { cancel: true } : { cards: a.cards, changes: a.changes, column: a.column, wake: a.wake === true, limitMinutes: a.limitMinutes, timeoutSeconds: a.timeoutSeconds, since: a.since })
+          ...(a.cancel ? { cancel: true } : { cards: a.cards, changes: a.changes, column: a.column, fresh: a.fresh, wake: a.wake === true, limitMinutes: a.limitMinutes, timeoutSeconds: a.timeoutSeconds, since: a.since })
         }, a.cancel || a.wake === true ? undefined : waitReplyMs(a.timeoutSeconds, 300, WAIT_MAX_SECONDS))) as Parameters<typeof taskWaitText>[0]
       )
   },

@@ -642,8 +642,8 @@ const stopDelivery = (store: Store, rec: WatchRecord | undefined): void => {
 export type WatchResult = { watching: TaskWatchInfo } | { already: CardChange }
 
 /**
- * Starts (or replaces) an agent's watch. A column condition a card already meets is met at once: the agent's earlier
- * watch ends and the card's state is the answer. The agent sees the board as its token does (a project agent: its
+ * Starts (or replaces) an agent's watch. A column condition a card already meets is met at once (a move into it too,
+ * #434, unless it asks for a `fresh` one): the agent's earlier watch ends and the card's state is the answer. The agent sees the board as its token does (a project agent: its
  * project's cards; the Assistant: all), and a card outside that is unknown.
  * The board is checked again once the watch is in place, so a change while it was being set up isn't missed.
  */
