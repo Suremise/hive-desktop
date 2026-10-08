@@ -20,7 +20,7 @@ vi.mock('fs/promises', async (original) => {
 
 const { contentHash, copySkillTree } = await import('../src/main/fsutil')
 const { claudeCode } = await import('../src/main/providers/claude/adapter')
-const { codex } = await import('../src/main/providers/codex/adapter')
+const { syncAgentsSkills } = await import('../src/main/providers/common')
 
 const base = mkdtempSync(join(tmpdir(), 'hive-link-failure-'))
 afterAll(() => rmSync(base, { recursive: true, force: true }))
@@ -71,7 +71,7 @@ describe('a link Hive is refused', () => {
     const src = join(base, 'sources', 'codex-skill')
     mkdirSync(src, { recursive: true })
     writeFileSync(join(src, 'SKILL.md'), 'v1')
-    const sync = (codex as unknown as { syncSkills: (ctx: unknown) => Promise<Record<string, { revision: string | null; problem?: string; lasting?: true }>> }).syncSkills.bind(codex)
+    const sync = (ctx: unknown) => syncAgentsSkills(ctx as never, 'Codex')
     await sync({ cwd, skills: [{ name: 'codex-skill', sourcePath: src }] })
     const copy = join(cwd, '.agents', 'skills', 'hive-codex-skill')
     const v1 = await contentHash(copy)

@@ -116,29 +116,35 @@ const trashDir = (parent = process.env) => path.join(parent.HIVE_E2E_DIR || WORK
 
 /**
  * The CLI homes a test copy of Hive gets unless its suite gives it others (#382): empty folders in its work folder's
- * `cli-homes`, so Hive's look for both CLIs when it starts (`claude auth status`, `codex login status`) reads them, never
- * the user's ~/.claude or ~/.codex. A suite passes a test home instead (the fake Claude Code's, its own, the Codex test
- * home) in hiveEnv's vars.
+ * `cli-homes`, so Hive's look for the CLIs when it starts (`claude auth status`, `codex login status`, Copilot's
+ * config.json and `gh auth status`, #452) reads them, never the user's ~/.claude, ~/.codex, ~/.copilot or GitHub CLI
+ * login (an empty GH_CONFIG_DIR hides it: Copilot falls back to it). A suite passes a test home instead (the fake
+ * Claude Code's, its own, the Codex test home) in hiveEnv's vars.
  */
 function cliHomes(parent = process.env) {
   const base = path.join(parent.HIVE_E2E_DIR || WORK, 'cli-homes')
-  return { CLAUDE_CONFIG_DIR: path.join(base, 'claude'), CODEX_HOME: path.join(base, 'codex') }
+  return { CLAUDE_CONFIG_DIR: path.join(base, 'claude'), CODEX_HOME: path.join(base, 'codex'), COPILOT_HOME: path.join(base, 'copilot'), GH_CONFIG_DIR: path.join(base, 'gh') }
 }
 
-/** Whether a folder is the user's own Claude Code or Codex home (~/.claude, ~/.codex), however its path is spelled. */
+/**
+ * Whether a folder is the user's own Claude Code, Codex or Copilot home (~/.claude, ~/.codex, ~/.copilot) or GitHub CLI
+ * config (%APPDATA%\GitHub CLI), however its path is spelled.
+ */
 function isUserCliHome(dir, parent = process.env) {
   const profile = parent.USERPROFILE || os.homedir()
   const same = (p) => path.win32.resolve(p).replace(/[\\/]+$/, '').toLowerCase()
-  return !!dir && ['.claude', '.codex'].some((d) => same(path.win32.join(profile, d)) === same(dir))
+  const own = ['.claude', '.codex', '.copilot'].map((d) => path.win32.join(profile, d))
+  if (parent.APPDATA) own.push(path.win32.join(parent.APPDATA, 'GitHub CLI'))
+  return !!dir && own.some((d) => same(d) === same(dir))
 }
 
 /**
  * A test copy of Hive's environment: the allowlist; quiet (unless HIVE_TEST_QUIET=0 was set for the run) and with tips
  * off (a profile that sets Show a tip turns them on); its trash folder (HIVE_TEST_TRASH_DIR: the suite's, #414, so it
- * never uses the user's Recycle Bin); both CLI homes (CLAUDE_CONFIG_DIR, CODEX_HOME: empty folders of the suite's,
- * cliHomes, #382, so it never reads the user's); the suite's Agent API port from its runner (HIVE_E2E_PORT), and the
- * CARRIED variables; then `vars` (its profile, HIVE_USER_DATA, always; a port, test CLI homes, test hooks), where
- * undefined removes one (lib.cjs refuses to start a test Hive without both homes).
+ * never uses the user's Recycle Bin); the CLI homes (CLAUDE_CONFIG_DIR, CODEX_HOME, COPILOT_HOME, GH_CONFIG_DIR: empty
+ * folders of the suite's, cliHomes, #382, #452, so it never reads the user's); the suite's Agent API port from its runner
+ * (HIVE_E2E_PORT), and the CARRIED variables; then `vars` (its profile, HIVE_USER_DATA, always; a port, test CLI homes,
+ * test hooks), where undefined removes one (lib.cjs refuses to start a test Hive without each home).
  */
 function hiveEnv(vars = {}, parent = process.env) {
   const env = baseEnv(parent)

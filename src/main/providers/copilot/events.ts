@@ -3,6 +3,7 @@ import { join, resolve } from 'path'
 import type { DayUsage, SessionUsage, TranscriptItem, TranscriptTool, UsageTokens } from '../../../shared/types'
 import { emptyDay, localDay } from '../../../shared/usageDays'
 import { isSessionId } from '../../../shared/defaults'
+import { COPILOT } from '../../../shared/copilot'
 import { formatToolInput } from '../claude/conversation'
 import { firstLine, shortPath, type NewItem } from '../conversation'
 import type { ConversationParserLike, ExternalSession, ImageLocation, LiveDetails } from '../types'
@@ -18,8 +19,7 @@ import type { ConversationParserLike, ExternalSession, ImageLocation, LiveDetail
  * unrecognised is ignored.
  */
 
-/** The provider id (COPILOT in shared/copilot.ts). */
-const PROVIDER = 'copilot'
+const PROVIDER = COPILOT
 
 type Ev = { type?: string; data?: Record<string, any>; timestamp?: string }
 
@@ -58,8 +58,8 @@ export function signInRefused(data: unknown): string | null {
  * hook fires for it).
  */
 export function eventsDetails(text: string): LiveDetails {
-  // interruptedAt is in LiveDetails once the adapter (#450) is in; premiumRequests is Copilot's own (CopilotSessionUsage).
-  const out: LiveDetails & { interruptedAt?: string; premiumRequests?: number } = {}
+  // premiumRequests is Copilot's own (CopilotSessionUsage).
+  const out: LiveDetails & { premiumRequests?: number } = {}
   for (const line of text.split('\n')) {
     const r = parseLine(line)
     const d = r?.data
