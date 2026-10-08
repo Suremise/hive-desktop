@@ -1,5 +1,6 @@
 // Model picker, effort and plan usage. Throwaway profile (seeded with a plan usage report) and a
-// trusted throwaway workspace; starts one real session but never sends it a prompt or touches the clipboard.
+// trusted throwaway workspace; starts one real session but never sends it a prompt or touches the clipboard. Claude
+// Code runs in a home of the suite's own with a made-up API key (lib.ownClaudeHome, #368), never the user's ~/.claude.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path')
@@ -15,7 +16,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const results = []
 const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}${extra ? ` (${extra})` : ''}`)
 ;(async () => {
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData })
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, ...lib.ownClaudeHome('plan').env })
   const app = await _electron.launch({ executablePath: process.env.HIVE_EXE || lib.ELECTRON, args: process.env.HIVE_EXE ? [] : [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => results.push(`PAGEERROR ${e.message}`))

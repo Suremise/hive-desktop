@@ -2,7 +2,6 @@ import { randomBytes } from 'crypto'
 import { basename, join } from 'path'
 import { mkdir, readdir } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
-import { shell } from 'electron'
 import { projectAgents } from '../shared/defaults'
 import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders, sortCards } from '../shared/tasks'
 import { ordinal } from '../shared/toolReplies'
@@ -13,6 +12,7 @@ import { emit } from './events'
 import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { workspace, type WorkspaceService } from './workspace'
+import { trash } from './trash'
 
 const log = createLogger('tasks')
 
@@ -1028,7 +1028,7 @@ export async function deleteTask(n: number): Promise<void> {
   // it gone rather than writing it back.
   const gone = await withFileLock(file, async () => {
     if (!existsSync(file)) return false
-    await shell.trashItem(file)
+    await trash(file)
     return true
   })
   if (!gone) return
@@ -1136,7 +1136,7 @@ export async function deleteProjectCards(ws: WorkspaceService, project: string):
   for (const c of await projectCards(ws, project)) {
     const f = cardFile(c.number, ws)
     await withFileLock(f, async () => {
-      if (existsSync(f)) await shell.trashItem(f)
+      if (existsSync(f)) await trash(f)
     })
     gone.add(c.number)
   }

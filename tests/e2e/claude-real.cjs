@@ -8,7 +8,8 @@
 //   Auto when it says Haiku takes Auto, else Manual (2.1.286 and 2.1.289 run it in Manual); either when it doesn't say
 //   (assistant checks the rest with the fake).
 // Each wait on the CLI is a lib.cliStep: a usage limit, sign-in or network failure there makes the suite a SKIP.
-// Dev build, throwaway profile and workspace, the user's own signed-in Claude Code.
+// Dev build, throwaway profile and workspace; the real Claude Code in a home of the suite's own with a made-up API key
+// (lib.ownClaudeHome, #368: never the user's ~/.claude). No prompt is sent, so it needs no sign-in.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -31,7 +32,7 @@ const check = (name, ok, extra = '') => {
   for (const d of [userData, ws, wtRoot]) fs.rmSync(d, { recursive: true, force: true })
   lib.gitProject(proj, { 'README.md': '# Demo\n' })
   lib.enableProviders(userData)
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47925) })
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47925), ...lib.ownClaudeHome('claude-real').env })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))

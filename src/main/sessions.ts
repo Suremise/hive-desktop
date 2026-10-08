@@ -4,7 +4,7 @@ import { copyFile, mkdir, open, readdir, rename, rm, stat, writeFile } from 'ori
 import { existsSync, realpathSync } from 'original-fs'
 import { typedText } from '../shared/terminalInput'
 import { failedStart, type StartFailure } from '../shared/startFailure'
-import { BrowserWindow, Notification, app, clipboard, shell } from 'electron'
+import { BrowserWindow, Notification, app, clipboard } from 'electron'
 import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { formatDateTime } from '../shared/dates'
 import { assistantTools } from '../shared/assistantTools'
@@ -67,6 +67,7 @@ import { inWorkspace, workspace, workspaceFor, workspaceOf } from './workspace'
 import { endAgentToken, newAgentToken } from './agentTokens'
 import { endHookToken, newHookToken } from './hookTokens'
 import { beingRead, viewingWindows } from './transcriptReads'
+import { trash } from './trash'
 
 const log = createLogger('sessions')
 
@@ -3205,7 +3206,7 @@ class SessionManager {
         if (!used) throw new Error("Hive couldn't read what the session used, so its backups are kept.")
         await workspace.upsertSession(projectPath, { id: sessionId, keptUsage: { ...used, lastPrompt: null, costUnreported: undefined } })
         await this.assertCleanable(projectPath, sessionId, expected)
-        for (const b of this.backupFiles(projectPath, sessionId)) await shell.trashItem(b)
+        for (const b of this.backupFiles(projectPath, sessionId)) await trash(b)
       })
     )
     log.info(`Clean Up: removed the backups of session ${sessionId} in ${userText(projectPath)}`)
@@ -3252,7 +3253,7 @@ class SessionManager {
         await inUseOnFail(() =>
           trashAllOrNothing(
             files,
-            (b) => shell.trashItem(b),
+            (b) => trash(b),
             () =>
               workspace.mutateSessions(projectPath, (f) => {
                 f.sessions = f.sessions.filter((s) => s.id !== sessionId)

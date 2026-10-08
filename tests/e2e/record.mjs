@@ -6,7 +6,7 @@ import { createHash } from 'crypto'
 import { execFileSync } from 'child_process'
 import { readFileSync, existsSync } from 'fs'
 import { createRequire } from 'module'
-import { join } from 'path'
+import { join, win32 } from 'path'
 
 const runContext = createRequire(import.meta.url)('./runContext.cjs')
 
@@ -52,12 +52,40 @@ export function readCliLog(text) {
   for (const line of String(text ?? '').split(/\r?\n/)) {
     try {
       const o = JSON.parse(line)
-      if (typeof o?.provider === 'string' && typeof o?.version === 'string') seen.set(`${o.provider}\0${o.version}\0${o.path ?? ''}`, { provider: o.provider, version: o.version, path: typeof o.path === 'string' ? o.path : null })
+      // The home it ran in (its sign-in and config, #368), when the line says.
+      const home = typeof o?.home === 'string' && o.home ? { home: o.home } : {}
+      if (typeof o?.provider === 'string' && typeof o?.version === 'string') seen.set(`${o.provider}\0${o.version}\0${o.path ?? ''}\0${home.home ?? ''}`, { provider: o.provider, version: o.version, path: typeof o.path === 'string' ? o.path : null, ...home })
     } catch {
       // Not a line Hive wrote (a partial one): ignored.
     }
   }
   return [...seen.values()]
+}
+
+/**
+ * The homes each real suite's own CLI ran in (#368), from what its Hive noted: `homes` a line per suite ("claude-real:
+ * Claude Code in C:\…\claude-real-claude-home"), and `own` the suites that ran one in the user's own home
+ * (%USERPROFILE%\.claude or .codex), which no suite may: the record isn't valid then.
+ */
+export function realCliHomes(results, suites, userProfile = process.env.USERPROFILE ?? '') {
+  const homes = []
+  const own = []
+  // One spelling for one folder, as Windows reads it: either slash, dot segments resolved, no trailing slash, any case.
+  const same = (p) => win32.resolve(p).replace(/[\\/]+$/, '').toLowerCase()
+  const userHomes = userProfile ? ['.claude', '.codex'].map((d) => same(win32.join(userProfile, d))) : []
+  for (const s of suites) {
+    const r = results.find((x) => x.name === s.name)
+    if (!r || r.skipped) continue
+    for (const need of s.needs ?? []) {
+      const cli = REAL_CLIS[need]
+      if (!cli) continue
+      const used = [...new Set((r.clis ?? []).filter((c) => c.provider === cli.id && c.home).map((c) => c.home))]
+      if (!used.length) continue
+      homes.push(`${s.name}: ${cli.name} in ${used.join(' and ')}`)
+      if (used.some((h) => userHomes.includes(same(h)))) own.push(s.name)
+    }
+  }
+  return { homes, own }
 }
 
 /**
@@ -101,7 +129,7 @@ export function recordJson({ code, when, results, problems = [], notRun = [], cl
  * first, if it can't be trusted (recordStatus), why. After the table: the real CLIs' versions (clis, when real suites
  * ran), the real tier not run (notRun), and the suites skipped for the environment (a real CLI's usage limit, sign-in,
  * network), which are no result for the code. */
-export function recordMarkdown({ code, when, jobs, results, logDir, summary, problems = [], runs = null, notRun = [], clis = {} }) {
+export function recordMarkdown({ code, when, jobs, results, logDir, summary, problems = [], runs = null, notRun = [], clis = {}, homes = [] }) {
   // A skip's reason can quote the CLI: no | to break the table.
   const skippedCell = (r) => `skipped: ${r.skipped.replace(/\|/g, '/')}`
   const cell = (r) => (!r ? '–' : r.skipped ? skippedCell(r) : `${r.ok ? 'pass' : `**FAIL**${r.failed?.length ? ` (${r.failed.length} check${r.failed.length === 1 ? '' : 's'})` : ''}`} ${r.seconds ?? '–'}s`)
@@ -111,6 +139,7 @@ export function recordMarkdown({ code, when, jobs, results, logDir, summary, pro
   const envSkipped = [...new Set((runs ?? [{ results }]).flatMap((r) => r.results.filter((x) => x.environment).map((x) => x.name)))]
   const notes = [
     ...(Object.keys(clis).length ? [`Real CLIs (as Hive selected them): ${cliLine(clis)}.`] : []),
+    ...(homes.length ? [`Real CLIs' homes (#368): ${homes.join('; ')}.`] : []),
     ...(notRun.length ? [`Not run: the real tier (\`--real\`): ${notRun.join(', ')}.`] : []),
     ...(envSkipped.length ? [`**Skipped for the environment** (no result for the code; the reviewer decides whether a merge needs them run again): ${envSkipped.join(', ')}.`] : [])
   ]

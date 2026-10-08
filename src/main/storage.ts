@@ -2,7 +2,6 @@
 // background, and Clean Up…, which moves what its preview listed to the Recycle Bin.
 import { basename, join, resolve, sep } from 'path'
 import { lstat, opendir, readdir } from 'original-fs/promises'
-import { shell } from 'electron'
 import { ASSISTANT_NAME } from '../shared/assistant'
 import { HIVE_DIR, projectAgents } from '../shared/defaults'
 import { planCleanup, type CleanupFacts, type CleanupSession } from '../shared/storage'
@@ -11,6 +10,7 @@ import { createLogger, userText } from './logger'
 import { sessions, type ListContext } from './sessions'
 import { workspace } from './workspace'
 import { unusedWorktreeFolders } from './unusedWorktrees'
+import { trash } from './trash'
 
 const log = createLogger('storage')
 
@@ -279,7 +279,7 @@ async function trashImages(projectPath: string, i: CleanupItem): Promise<void> {
     if (i.kind === 'orphan-images' && rec) throw new Error('The folder belongs to a session again.')
     // After the read above: nothing is awaited between this check and the removal.
     if (sessions.projectStates(projectPath).some((s) => s.sessionId.toLowerCase() === name || `run-${s.runId}`.toLowerCase() === name)) throw new Error('The session is running.')
-    await shell.trashItem(i.path)
+    await trash(i.path)
   })
 }
 

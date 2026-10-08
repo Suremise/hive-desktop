@@ -1,7 +1,8 @@
 // Live permission mode: reported mode, switching with Shift+Tab (API and badge menu), Shift+Tab typed
 // in the terminal, restart into Don't ask, the "Switch Now" offer after a settings change.
 // Throwaway profile; trusted scratch workspace ws/demo. A real Claude Code session starts, but no
-// prompt is ever sent (only Shift+Tab keys). Clipboard untouched.
+// prompt is ever sent (only Shift+Tab keys), so it runs in a Claude Code home of its own with a made-up API key
+// (lib.ownClaudeHome, #368), never the user's ~/.claude. Clipboard untouched.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path')
@@ -14,7 +15,7 @@ let pass = 0, fail = 0
 const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.log(ok ? 'PASS' : 'FAIL', name, extra) }
 ;(async () => {
   lib.enableProviders(userData)
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData })
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, ...lib.ownClaudeHome('mode').env })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => console.log('PAGE ERROR', e.message))

@@ -1,12 +1,12 @@
 import { existsSync } from 'original-fs'
 import { mkdir, readdir, readFile, writeFile } from 'original-fs/promises'
 import { basename, join } from 'path'
-import { shell } from 'electron'
 import { DEFAULT_PERSONA, newPersonaText, parsePersona, personaId } from '../shared/assistant'
 import type { AssistantControl, PersonaInfo } from '../shared/types'
 import { controlRules } from '../shared/hiveGuidance'
 import { bundledDir, bundledStatus, restoreBundled } from './bundled'
 import { workspace } from './workspace'
+import { trash } from './trash'
 
 /**
  * The Hive Assistant's personas: Markdown files in the workspace's .hive/personas (a header with name,
@@ -62,7 +62,7 @@ export async function createPersona(name: string): Promise<PersonaInfo> {
 export async function deletePersona(id: string): Promise<void> {
   if (!validId(id)) throw new Error('Invalid mode')
   const path = join(workspace.personasDir, `${id}.md`)
-  if (existsSync(path)) await shell.trashItem(path)
+  if (existsSync(path)) await trash(path)
 }
 
 /** Puts back a bundled persona as this version of Hive ships it; the workspace's copy goes to the Recycle Bin. */
@@ -70,7 +70,7 @@ export async function restorePersona(id: string): Promise<PersonaInfo> {
   const src = join(bundledPersonasDir(), `${id}.md`)
   if (!validId(id) || !existsSync(src)) throw new Error(`"${id}" isn't one of Hive's modes.`)
   const dest = join(workspace.personasDir, `${id}.md`)
-  if (existsSync(dest)) await shell.trashItem(dest)
+  if (existsSync(dest)) await trash(dest)
   await restoreBundled('personas', id)
   return { ...(await info(dest, id)), bundled: 'same' }
 }

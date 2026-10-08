@@ -39,8 +39,8 @@ session or was already there before the step (the CLI recovered), or when the su
 `lib.checked`; an `ENVIRONMENT` line in its output
 says it saw the error but couldn't put the failure down to it. Hive's own checks about the turn (what it recorded,
 counted, showed) go after the step, outside it. The runner skips real suites up front, with an `environment:` reason,
-when their CLI isn't installed, Claude Code says it isn't signed in (`claude auth status`), or the Codex test home has no
-sign-in. A suite that can't run on a machine says so with `lib.skip('<why>')`. The runner prints a summary; each suite's output
+when their CLI isn't installed, Claude Code says its test home isn't signed in (`claude auth status`, only for
+`claudeHome: 'test'` suites), or the Codex test home has no sign-in. A suite that can't run on a machine says so with `lib.skip('<why>')`. The runner prints a summary; each suite's output
 is kept in a folder of its own for each run, `logs/run-<date>-<time>` under the work folder, with `-2`, `-3`… when
 another run started in the same second. The last ten finished runs are kept: a run still going (`.active` in its folder,
 with its runner's process id) is never pruned, so runners started side by side don't remove each other's logs. A runner started inside a suite (`progressreport`
@@ -126,6 +126,12 @@ for the build), and the e2e runner, `lib.cjs` and the scenario harness all take 
   started from, to report to the Hive that started it.
 - **Folders, ports and CLI homes**: the lane (above), the Codex test home under its `config.toml` lock, the Claude Code
   test home for the model trials (`CLAUDE_TEST_HOME`); each suite keeps its own `CLAUDE_CONFIG_DIR` folders in its lane.
+  **Every test copy of Hive gets both CLI homes** (#382): Hive looks for both CLIs when it starts, and their sign-in
+  checks (`claude auth status`, `codex login status`) read the home they are given, else yours. `lib.hiveEnv` gives
+  `CLAUDE_CONFIG_DIR` and `CODEX_HOME` as empty folders of the suite's (`<suite folder>\cli-homes\claude` and
+  `\codex`, `runContext.cliHomes`) unless the suite gives a test home (the fake Claude Code's, `lib.ownClaudeHome`, the
+  Codex test home). `lib.cjs` refuses to start a test Hive with either one missing or pointing at your own `~/.claude`
+  or `~/.codex` (however the path is spelled), and makes the empty ones.
 - **The build, once per worktree** (`build.mjs`): runners started at the same time in one worktree share its `out/`,
   so the first that finds it stale takes the worktree's build lock (`%LOCALAPPDATA%\hive-test\build-locks`, a folder
   per worktree with its holder's process id), looks again, builds once and stamps it; the others wait (`Waited for
@@ -213,9 +219,16 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
 
 ## What they need
 
-- **Claude Code**, installed and signed in. Suites that start sessions (`claude-real`, `mode`, `plan`, `compact`,
-  `agentview`) never send it a prompt. The first run in a test folder answers Claude Code's "trust this folder"
-  question (never a sign-in screen), so later runs don't ask. Suites about Hive's own behaviour that only need some
+- **Claude Code**, installed. **No real suite runs it in your own `~/.claude`** (#368): each one says its home in
+  `suites.mjs` (`claudeHome`), and `tests/e2esuites.test.ts` fails for one that doesn't. Suites that start sessions
+  without sending a prompt (`claude-real`, `mode`, `plan`, `compact`, `agentview`, and `claudehome`, below) run it in a
+  home of their own (`claudeHome: 'own'`, `lib.ownClaudeHome(name)`): a new `<suite folder>\<name>-claude-home` each
+  run, with onboarding done and a made-up API key approved, so it starts at its prompt with no sign-in and no tokens.
+  The one that sends prompts (`assistantresume`) uses the signed-in Claude Code test home (`claudeHome: 'test'`,
+  below). The runner asks Claude Code about the test home's sign-in only, and refuses a Claude suite with no home. Each
+  test copy of Hive notes the home its CLIs run in (`HIVE_TEST_CLI_LOG`), and the run record names each real suite's
+  ("Real CLIs' homes"); a real suite that ran in your own `~/.claude` or `~/.codex` makes the record not valid. The
+  first run in a test folder answers Claude Code's "trust this folder" question (never a sign-in screen). Suites about Hive's own behaviour that only need some
   session running (`quit`, `windows`, `launchrace`, `resume`) use the fake (#194), and so do `agents`, `image`,
   `assistant` and `restart` (#195), whose few checks that only the real Claude Code can answer are in `claude-real`: a
   session starting in a worktree, a relaunch with a new setting (Restart session) bringing the same session back, and
@@ -229,8 +242,8 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
   Claude Code starts at its prompt with no sign-in, and is sent nothing (no tokens, nothing reaches Anthropic). It
   checks Hive's hooks with it: SessionStart and the status line (curl reading the header from the launch's auth file)
   reaching Hive, the launch's settings, MCP config and auth file in its private folder in Hive's user data, and the
-  token refused once the session ends. The runner asks about no sign-in for it. The other real Claude suites still use
-  the default home (#368).
+  token refused once the session ends. The runner asks about no sign-in for it. The other real Claude suites that send
+  no prompt now do the same with `lib.ownClaudeHome()` (#368).
 - **`claudesettings`** (#333) runs the real Claude Code in a home of its own too, with `-p --init-only` (hooks only,
   no conversation: no sign-in, no tokens), the Claude Code a test copy of Hive selects in that home (started briefly). A SessionStart hook in each settings file shows which
   files it reads under `--setting-sources` and `--restricted`, and which `--settings` files it refuses (over 2 MiB, a
@@ -238,8 +251,12 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
   Claude Code update; a failure means `providers/claude/autoCompact.ts` no longer matches the CLI.
 - **`assistantresume`** (#334) sends prompts (five short ones, with Haiku), so it runs in the **Claude Code test home**
   (`claudeHome: 'test'` in `suites.mjs`: `CLAUDE_TEST_HOME`, `%LOCALAPPDATA%\hive-test\claude`), never your own
-  `~/.claude`: sign in to it once by hand as tests/scenarios/README.md says (Model trials); without that sign-in it is
-  skipped for the environment. It checks that a resumed Assistant answers from its current mode's instructions (a
+  `~/.claude`. Sign in to it once by hand (as for the model trials, tests/scenarios/README.md), then `/exit`:
+  ```powershell
+  New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\hive-test\claude" | Out-Null; $env:CLAUDE_CONFIG_DIR="$env:LOCALAPPDATA\hive-test\claude"; claude
+  ```
+  `HIVE_TEST_CLAUDE_HOME` points it at another test home. Without that sign-in the suite is skipped for the
+  environment, and never falls back to your own home. It checks that a resumed Assistant answers from its current mode's instructions (a
   codeword only those give), not the system prompt Claude Code recorded: after Restart in This Mode… and after a switch
   while it was stopped. `node tests/e2e/assistantresume.cjs --snapshot-on` is its negative control (the recorded
   prompt asked for: the old codeword comes back).
@@ -274,7 +291,17 @@ Everything goes in `%LOCALAPPDATA%\hive-test\e2e` (override with `HIVE_E2E_DIR`)
   empties its own subfolders, and its screenshots replace the last run's). To keep a run's screenshots, run it through
   the runner with `--keep-files` instead: they land in that run's new log folder.
 
-Nothing touches your Hive profile, your clipboard or your real Codex home.
+Nothing touches your Hive profile, your clipboard, your real Claude Code and Codex homes (#368, #382: above) or your
+**Recycle Bin**. What Hive moves to the
+Recycle Bin (Delete in Files, notes, skills, templates, cards, session copies, Clean Up, Delete Project) a test copy
+moves into its suite's trash folder instead, `<suite folder>\trash` (`HIVE_TEST_TRASH_DIR`, set by `lib.hiveEnv`;
+without it, a test profile's `test-trash`), which goes with the suite's folder (#414). A move is one rename, whole or not at all (an item on another drive than
+that folder is refused, changing nothing), and then a line in its `trash.jsonl` (`{ at, from, to }`; best effort: a
+line that can't be written is a warning in the test copy's log, and the deletion still counts): a suite checks what it deleted arrived with `lib.trashed(path)` (`board`, `files`,
+`storage`, `sessiontree`). Hive's one way there is `trash()` in `src/main/trash.ts` (`tests/trash.test.ts` fails for a
+direct `shell.trashItem` anywhere else); the installed app and `npm run dev` use the real Recycle Bin. The runner counts
+the Recycle Bin, read only, before and after a run, and says so under the summary and in the run record ("Recycle Bin:
+266 items before and after the run").
 `HIVE_TEST_CODEX_HOME` points the Codex suites at another test home.
 
 ## Housekeeping
@@ -352,7 +379,7 @@ new folder (Enter trusts it), sends Claude Code's hooks, writes its transcripts,
 command line, and answers each prompt after a second (`work N` takes N seconds; `edit <file>` makes an Edit, with
 its file lock; `pad N` adds N KB to its transcript; `ask` sends a permission prompt; `window N` makes its status line report an N-token context window; `boardmove N COLUMN` moves card N as its hive tools would, and `boardreview N ACTION [COLUMN]` reviews it (both recording the answer in `fake-calls.jsonl`); `background N` starts a background command that ends after N seconds, whose task notification then
 starts a turn by itself; `/compact [focus]` compacts (PreCompact, a compaction in the transcript after 1 s or `hold N` seconds, PostCompact; `compactfail` in the focus fails it, and with no messages yet it says "Not enough messages to compact."); it records a conversation's system prompt (the `--append-system-prompt-file`) on its first request and uses that record on resume, as Claude Code does, unless launched with `--system-prompt-snapshot off`, and `whatmode` in a prompt ends its reply with the mode that prompt is in (#334); `--model fail-start` makes it refuse to start, printing an error and exiting with 1). Each launch is recorded in `fake-launches.jsonl` in `CLAUDE_CONFIG_DIR` (its options and
-`CLAUDE_CODE_*` variables). `assistant-control`, `context`, `background`, `longsession`, `resumeall`, `cardchip`, `sessionorigin`, `assistantend`, `tipcorner`, `review`, `reorder`, `busy`, `startfail`, `filelinks`, `quitwait`, `rendercrash`, `bursts`, `taskbar`, `ctxpercent`, `donemove`, `doingmove`, `paneheader`, `tabstrip`, `closewindow`, `storage`, `skilldelivery`, `quit`, `windows`, `launchrace`, `resume`, `agents`, `image`, `assistant`, `restart` and `board` use it (`board` also sends a small test folder to the Recycle Bin, as Delete Project does, and `storage` sends its fixture images and backups there, as Clean Up does). `codex-background` checks Codex's background
+`CLAUDE_CODE_*` variables). `assistant-control`, `context`, `background`, `longsession`, `resumeall`, `cardchip`, `sessionorigin`, `assistantend`, `tipcorner`, `review`, `reorder`, `busy`, `startfail`, `filelinks`, `quitwait`, `rendercrash`, `bursts`, `taskbar`, `ctxpercent`, `donemove`, `doingmove`, `paneheader`, `tabstrip`, `closewindow`, `storage`, `skilldelivery`, `quit`, `windows`, `launchrace`, `resume`, `agents`, `image`, `assistant`, `restart` and `board` use it (`board` also deletes a small test folder, as Delete Project does, and `storage` its fixture images and backups, as Clean Up does: into the suite's own trash folder, below). `codex-background` checks Codex's background
 terminals with the real Codex (one short prompt).
 
 **A fake Codex** (`fake-codex/fake-codex.cmd`) does the same for Codex: set it as `settings.providers.codex.executablePath` and start Hive with `CODEX_HOME` pointing at a test folder (with `[windows] sandbox = "unelevated"` in its `config.toml`, so nothing is left to set up). It reports itself as Codex 0.160.0 (`FAKE_CODEX_VERSION` changes it) and sends Codex's hooks and terminal titles for a few prompts: `review allow` / `review deny` (its auto-reviewer answers a permission request), `approve` (an approval prompt: `y` approves, Esc rejects) and `question` (an async question it works on beside: `a` answers it). `attention` uses it, and so does `skilldelivery` (with the fake Claude Code); each launch is recorded in `fake-launches.jsonl` in `CODEX_HOME` (its folder and arguments).
