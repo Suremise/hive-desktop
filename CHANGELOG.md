@@ -4,6 +4,7 @@
 
 ### Task board
 - **Your answers reach an agent waiting for you.** When an agent asks you something and its turn ends, and you answer through the Assistant (which records your answer as decisions on the card), the agent used to hear nothing until you pasted the answer into its pane. Now Hive types one line into it once nothing is in the way (*"#392 has 2 new decisions from the user: read them and carry on"*): decisions recorded together come in one line, never while it works or you type in its terminal, and the card's history says whom Hive told.
+- **Save keeps a decision you're writing.** In a card, **Save** used to post a comment you were writing but drop a decision you were writing. It now records both (and a change you were making to a decision). **Add Decision** and **Comment** are highlighted while their box has text, and say that Save adds them too.
 
 ### Models
 - **Claude Haiku 5.5** (released 7 October 2026) is priced: $0.10 per million input tokens and $0.50 per million output (prompts up to 100,000 tokens; longer prompts cost more and aren't estimated yet). Its cache prices follow Anthropic's pricing page. The **haiku** alias now means Haiku 5.5, as Claude Code's does, and Haiku 5.5 is in the pinned models; **Haiku 4.5** stays in the older versions, and its sessions keep their price.
@@ -17,9 +18,6 @@
 - **The Assistant waits on agents without checking in.** Asked to tell you when an agent is done with work that has no card (a build, a test run, a push and its CI), the Assistant used to check on it every few minutes, each check costing context and tokens. Now it starts an **agent watch** and stops: Hive wakes it with one line when the agent finishes, needs you, or stops (*"B6 (hive) finished: "The installer is built…""*), and its status line says **Waiting for B6 to finish** meanwhile. Agents can watch another agent the same way (`hive_wait_for_agents` with `wake`).
 - **The Assistant knows you by name.** When Hive tells the Assistant you replied to an agent in its pane, the line now says *"User replied to B1…"*, or uses the name you set in **Settings → General → Your name** (*"Darren replied to B1…"*). The name goes into the Assistant's conversation only if you set one.
 - **The Assistant hears when you answer an agent yourself.** When you reply to an agent in its pane while the Assistant is watching it (or its card), the Assistant is told the first line of what you sent, so it doesn't ask you again and can record your decision on the card. **Settings → Assistant → Tell the Assistant when I reply to an agent** turns it off.
-
-### Board
-- **Save keeps a decision you're writing.** In a card, **Save** used to post a comment you were writing but drop a decision you were writing. It now records both (and a change you were making to a decision). **Add Decision** and **Comment** are highlighted while their box has text, and say that Save adds them too.
 
 ### Hive
 - **A clear (×) button in every search and filter box.** The board's search, Settings, the Files and Sessions tabs, the sidebar's filters, tables' filters, Tips, Keyboard Shortcuts and the command palette show an × while they have text: click it, or press Escape, to clear the box. In a dialog or the palette, the first Escape clears the box and the next closes it.
