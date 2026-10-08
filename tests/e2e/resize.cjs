@@ -86,5 +86,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   check('Docs list resizes', Math.abs((await width('.split-list:visible')) - (d0 + 80)) <= 3, `(${d0} → ${await width('.split-list:visible')})`); await page.screenshot({ path: path.join(scratch, 'resize-docs.png') })
   console.log(`${pass}/${pass + fail} passed`)
   await app.close()
-  for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
+  // No delete of its folders here (#324): the runner gives the suite a new folder and removes it when it passes; a run
+  // on its own empties them when it starts. Right after app.close() the CLI it stopped can still hold one, and a
+  // failed delete here failed a suite whose checks had all passed.
 })().catch((e) => { console.error(e); process.exit(1) })

@@ -85,8 +85,27 @@ const check = (name, ok, extra = '') => {
     // A relaunch soon after the first start can be asked to trust the folder again (its "Yes" not saved yet, #283):
     // answered once the relaunch's own process runs (until then the terminal holds the first session's screen).
     await lib.until(async () => launched() > before, 20000)
-    if (await lib.acceptClaudeTrust(inv, proj, agent.id, 30000)) console.log('(the relaunch asked to trust the folder again: answered yes)')
-    check('Claude Code takes the relaunch', !!(await lib.until(async () => (await restart.count()) === 0 && (await live(proj, agent.id))?.status === 'ready', 60000, 400)), (await live(proj, agent.id))?.status)
+    // One wait for the relaunch to be ready, answering the trust question whenever its process asks (#323): it could
+    // ask after a fixed window for it had passed (a slow start right after a full run), and nobody answered it then.
+    // Since the spawn the terminal holds only the new process's output, so the question there is its own. The budget is
+    // the two waits' it replaces (30 s + 60 s).
+    const key = lib.ptyKey(proj, agent.id)
+    let trusted = false
+    const relaunched = !!(await lib.until(
+      async () => {
+        if ((await restart.count()) === 0 && (await live(proj, agent.id))?.status === 'ready') return true
+        if (!trusted && /trust this folder/i.test(lib.plainText(await inv('pty:buffer', key).catch(() => '')))) {
+          trusted = await lib.acceptClaudeTrust(inv, proj, agent.id, 30000)
+          if (trusted) console.log('(the relaunch asked to trust the folder again: answered yes)')
+        }
+        return false
+      },
+      90000,
+      400
+    ))
+    check('Claude Code takes the relaunch', relaunched, (await live(proj, agent.id))?.status)
+    // What Claude Code said when it didn't come back ready: its terminal's last words.
+    if (!relaunched) console.log(`(its terminal: …${lib.plainText(await inv('pty:buffer', key).catch(() => '')).slice(-1500)})`)
   })
   const relaunch = launchLine(`#${agent.id.toLowerCase()}`)
   // Nothing typed yet, Claude Code has no transcript to resume: Hive starts the same session id again (--session-id);

@@ -13,6 +13,7 @@
 //   it (the turn is interrupted).
 //   "question": an async question (request_user_input_async): it works on meanwhile; "a" answers it, which it
 //   waits for at the end of the turn. "late question": its hooks reach Hive after its title.
+//   "hold": waits for "g" before its next step, so a test can wait until Hive has taken the steps before (#329).
 //   Steps combine with " then " ("question then review deny").
 //   The scenarios' steps, as the fake Claude Code takes them: "skill NAME" (a shell read of its SKILL.md),
 //   "boardmove", "boardreview", "boardcomment" and "hive TOOL {json}" (through the launch's real hive MCP server),
@@ -275,6 +276,8 @@ async function runPrompt(text) {
     else if (step === 'question' || step === 'late question') {
       await question(step === 'late question')
       questions++
+    } else if (step === 'hold') {
+      await key(['g'])
     } else if (step === 'approve') {
       if (!(await approve())) {
         // Rejected: the turn is interrupted (a question stays).
