@@ -107,6 +107,7 @@ export const SUITES = [
   { name: 'rendercrash' },
   { name: 'reorder' },
   { name: 'replysize' },
+  { name: 'replytell' },
   { name: 'resize' },
   { name: 'restart' },
   { name: 'resume' },

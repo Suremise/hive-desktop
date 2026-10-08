@@ -691,7 +691,8 @@ export class CodexAdapter implements ProviderAdapter {
         out.event = { kind: 'start', source: typeof body.source === 'string' ? body.source : null }
         break
       case 'UserPromptSubmit':
-        out.event = { kind: 'prompt' }
+        // An answer to its question (request_user_input) comes as a prompt with a tag before it: the answer is the text.
+        out.event = { kind: 'prompt', text: typeof body.prompt === 'string' ? body.prompt.replace(/^<send_user_message_question_reply>/, '') : null }
         break
       case 'PreToolUse':
         if (tool === 'request_user_input' || tool === 'request_user_input_async') {

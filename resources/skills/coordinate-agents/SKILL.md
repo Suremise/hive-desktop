@@ -49,6 +49,7 @@ To stop a busy agent, `hive_stop_agent` asks the user. Give your reason.
 - An agent waiting on background tasks it started (a test run, say) shows as `background`: it isn't finished, and it carries on by itself. One watching cards shows as `watching` ("Waiting for #12 → Review"): `hive_wait_for_agents` doesn't wait for it, since nothing happens until its card changes.
 - Nothing wakes you except the user, your own tool calls returning, and a watch you started. Only say you'll keep watching while a wait or a watch is running. If you stop, say so, and that the user will need to ask you to look again.
 - When it returns, tell the user who finished, who is waiting for them, and who is still working.
+- A wake can say the user answered an agent in its pane ("The user replied to B1 on #399: …"). That is what they told it: don't ask them again. If it decides something about the card (an option, a scope, a wording), record it on the card as a decision (`hive_update_task` with `decision`).
 
 ## Hand work over
 

@@ -508,6 +508,8 @@ Ask it anything about the workspace: what the agents are doing, what a project i
 
 **Waiting on agents.** Ask the Assistant to tell you when an agent is done (a build, a test run, a release step, a push and its CI) and it doesn't keep checking on it: it starts an **agent watch** and stops, and Hive wakes it with one line when the agent finishes, needs you, or stops (*"[Hive] B6 (hive) finished: "The installer is built…""*), and it tells you. Meanwhile its status line says **Waiting for B6 to finish**. As with a card watch, Hive doesn't wake it while you're typing to it, and after two hours with nothing done it is woken to say so (it checks on the agent, and tells you if it seems stuck). Agents can watch another agent the same way.
 
+**When you answer an agent yourself.** If you reply to an agent by typing in its pane (picking an option it asked about, say), the Assistant doesn't otherwise know. When it is watching that agent, or a card the agent has or reviews, Hive tells it with the first line of what you sent (*"The user replied to B1 on #399: "C, the hive cell""*), so it doesn't ask you again and can record a decision on the card. Only the Assistant of the same workspace is told, and only the first line. Lines Hive types into the agent itself don't count. Turn it off with **Settings → Assistant → Tell the Assistant when I reply to an agent**.
+
 It doesn't use one of a project's agent slots, and it runs in the workspace folder. Closing the workspace or the window, or quitting, stops it like any agent (the dialogs call it "Assistant"), and its conversations can be resumed.
 
 ### What the Assistant may do
@@ -561,6 +563,7 @@ The **Modes** section of the Assistant view lists them. Click one to read or edi
 
 - The provider (Claude Code or Codex, whatever your agents use).
 - The default mode (Coordinator unless you choose another).
+- **Tell the Assistant when I reply to an agent** (on): whether its watches hear the first line of what you send an agent from its pane (above).
 - **Highlight Compact over**: the context size at which the Assistant's **Compact** button and the context in its footer turn orange, as an agent's do past **Settings → Sessions → Suggest compacting above**. It's 500,000 tokens by default, higher than your agents' 200,000, since the Assistant usually works with a bigger context; **Never** turns it off.
 - For each provider: its model, effort, permission mode, extra arguments and, for Claude Code, **Use 200K context (instead of 1M)**.
 

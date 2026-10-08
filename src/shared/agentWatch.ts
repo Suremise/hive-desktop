@@ -141,13 +141,25 @@ function partOf(a: Pick<WatchedAgent, 'name' | 'project'>, ev: AgentEvent, now: 
   }
 }
 
+/** The first line of what the user sent an agent from its pane (#418), as watches keep it. */
+export const REPLY_CHARS = 120
+export const replyFirstLine = (text: string): string => clipChars(text.split('\n').map((l) => l.trim()).find(Boolean) ?? '', REPLY_CHARS)
+
+/** The user's reply to an agent, for a wake line (#418): "The user replied to B1 on #399: "C, the hive cell"". */
+export function replyPart(agentName: string, where: string, text: string, max = REPLY_CHARS): string {
+  return `The user replied to ${agentName}${where ? ` ${where}` : ''}${max > 0 ? `: "${clipChars(text, max)}"` : ''}`
+}
+
 /**
  * The one line Hive types to wake a watcher (#416): each agent that changed and what it did, with the start of its
- * latest reply, then what to do. One line within WAKE_MAX_BYTES: replies give way first, then they are left out.
+ * latest reply, then what to do; and what the user sent it from its pane since, for the Assistant (#418). One line within
+ * WAKE_MAX_BYTES: replies give way first, then they are left out.
  */
-export function agentWakeLine(changes: { agent: WatchedAgent; event: AgentEvent; now: AgentNow; again?: boolean }[]): string {
+export function agentWakeLine(changes: { agent: WatchedAgent; event: AgentEvent | null; now: AgentNow; again?: boolean; reply?: string }[]): string {
   const tail = '. Your agent watch has ended: carry on (hive_agent_activity for more).'
-  const full = (max: number): string => `[Hive] ${changes.map((c) => agentPart(c.agent, c.event, c.now, max, false, c.again)).join('; ')}${tail}`
+  const one = (c: (typeof changes)[number], max: number): string =>
+    [c.reply !== undefined ? replyPart(c.agent.name, `(${c.agent.project})`, c.reply, Math.min(max, REPLY_CHARS)) : '', c.event ? agentPart(c.agent, c.event, c.now, max, false, c.again) : ''].filter(Boolean).join('; ')
+  const full = (max: number): string => `[Hive] ${changes.map((c) => one(c, max)).join('; ')}${tail}`
   for (const max of [300, 160, 80, 40, 0]) if (jsonBytes(full(max)) <= WAKE_MAX_BYTES) return full(max)
   const short = `[Hive] ${names(changes.map((c) => c.agent))} changed${tail}`
   return jsonBytes(short) <= WAKE_MAX_BYTES ? short : `[Hive] ${changes.length} watched agents changed${tail}`

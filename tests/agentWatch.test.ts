@@ -8,7 +8,7 @@ import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { agentBusy, agentEvent, agentLimitLine, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, type AgentNow } from '../src/shared/agentWatch'
-import { WAKE_MAX_BYTES } from '../src/shared/watch'
+import { WAKE_MAX_BYTES, cardChange, cardWakeLine, wakeAbout } from '../src/shared/watch'
 import { agentWatchText } from '../src/shared/toolReplies'
 
 const nowOf = (over: Partial<AgentNow> = {}): AgentNow => ({ status: 'working', runId: 'r1', prompts: 1, pending: false, ...over })
@@ -56,6 +56,24 @@ describe('what an agent watch counts', () => {
     expect(agentPart(b6, 'untaken', nowOf({ status: 'ready' }))).toBe("B6 (hive) is idle: its CLI hasn't taken the prompt it was typed")
     expect(agentLimitLine({ agents: [b6], ignoreBackground: false }, 120)).toMatch(/^\[Hive\] B6 is still working after 2 h: your agent watch has ended\. Check on it \(hive_agent_activity\)/)
     expect(agentWatchLabel({ agents: [b6, { ...b6, agentId: 'b7', name: 'B7' }], ignoreBackground: false })).toBe('Waiting for B6, B7 to finish')
+  })
+
+  it("the Assistant's card line with replies (#418): one line within the size, the end always there, detail giving way first", () => {
+    const long = (s: string) => s.repeat(300)
+    const card = (n: number) => ({ number: n, title: 'T', description: '', project: 'alpha', agent: 'a2', agentName: long('建造者'), column: 'review' as const, order: 1, labels: [], blocked: null, blockedBy: [], links: [], comments: [{ at: '2026-10-08T00:00:00.000Z', by: long('評'), text: long('Ünïcødé ') }], history: [{ at: '2026-10-08T00:00:00.000Z', by: long('🐝'), what: 'Review failed' }], archived: false, createdAt: '2026-10-08T00:00:00.000Z', createdBy: 'You', updatedAt: '2026-10-08T00:00:00.000Z' })
+    const change = (n: number) => ({ ...cardChange(n, card(n), ['verdict', 'column']), about: wakeAbout(card(n), ['verdict', 'column'], 'assistant') })
+    const replies = [1, 2, 3].map((i) => ({ agentName: long(`Agent${i}`), cards: Array.from({ length: 20 }, (_, k) => 100 + k), text: long('reply ') }))
+    for (const changes of [[], [change(100)], Array.from({ length: 20 }, (_, k) => change(100 + k))]) {
+      const { line, repliesTold } = cardWakeLine(changes, replies)
+      expect(Buffer.byteLength(JSON.stringify(line))).toBeLessThanOrEqual(WAKE_MAX_BYTES)
+      expect(line).not.toMatch(/\n/)
+      expect(line).toMatch(/Your card watch has ended/)
+      expect(repliesTold).toBe(true)
+      for (const c of changes) expect(line).toContain(`#${c.number}`)
+    }
+    // Short enough, everything in full: the reply's text and each card's state.
+    const small = cardWakeLine([{ number: 7, column: 'review', changes: ['column'], by: 'You', comment: null }], [{ agentName: 'B1', cards: [7, 9], text: 'C, the hive cell' }])
+    expect(small).toEqual({ line: '[Hive] The user replied to B1 on #7, #9: "C, the hive cell"; #7 is in Review. Your card watch has ended: carry on (hive_read_task with latestComment on each card for its comment in full).', repliesTold: true })
   })
 
   it('a saved condition is checked in full', () => {
@@ -221,6 +239,248 @@ describe('agent watches (main/watches.ts)', async () => {
     await watches.tick()
     await vi.waitFor(() => expect(st.typed).toHaveLength(3))
     expect(st.typed[2]).toMatch(/^\[Hive\] Reviewer \(alpha\) finished: "Interrupted\."/)
+    await disposeWorkspaceService(w)
+  })
+
+  it("the user's reply to an agent from its pane wakes the Assistant's card watch on its card, and its agent watch on it, once; never a project agent's; not with the setting off (#418)", async () => {
+    const { w, alpha } = await open()
+    const { config } = await import('../src/main/config')
+    const st = fake(alpha)
+    const home = w.assistantHome
+    mkdirSync(home, { recursive: true })
+    // The Assistant watches here (the stand-in's liveFor answers for it too).
+    const assistant = { status: 'watching' as string, typed: [] as string[] }
+    const liveFor = sessions.liveFor
+    const sendPrompt = sessions.sendPrompt
+    Object.assign(sessions, {
+      liveFor: (p: string, id: string) => (id === 'assistant' ? ({ projectPath: home, agentId: 'assistant', status: assistant.status } as never) : liveFor(p, id)),
+      sendPrompt: async (p: string, id: string, text: string, guard?: () => void) => {
+        if (id !== 'assistant') return sendPrompt(p, id, text, guard)
+        guard?.()
+        assistant.typed.push(text)
+        assistant.status = 'working'
+      }
+    })
+    const c = await inWorkspace(w, () => tasks.createTask({ title: 'Icon', project: 'alpha', agent: 'a2', column: 'doing' }, { kind: 'user' }))
+    move(st, alpha, 'a2', nowOf())
+    // A card watch on #c (the Assistant's) and an agent watch on Reviewer (a project agent's): the reply.
+    await watches.registerWatch(w, home, 'assistant', { cards: [c.number], changes: ['column'], column: 'review' })
+    await watches.registerAgentWatch(w, alpha, 'a1', { agents: [reviewer(alpha)], ignoreBackground: false })
+    watches.noteUserReply(alpha, 'a2', 'Reviewer', 'C, the hive cell\nand more')
+    await vi.waitFor(() => expect(assistant.typed).toHaveLength(1))
+    expect(assistant.typed[0]).toBe(`[Hive] The user replied to Reviewer on #${c.number}: "C, the hive cell". Your card watch has ended: carry on (hive_read_task for the card, hive_agent_activity for the agent).`)
+    await watches.evaluateAgentWatches(w)
+    expect(st.typed).toEqual([])
+    // Watched again: that reply isn't news; a new one is.
+    assistant.status = 'watching'
+    await watches.registerWatch(w, home, 'assistant', { cards: [c.number], changes: ['column'], column: 'review' })
+    await watches.evaluateWatches(w)
+    await watches.tick()
+    expect(assistant.typed).toHaveLength(1)
+    watches.noteUserReply(alpha, 'a2', 'Reviewer', 'Use the second one')
+    await vi.waitFor(() => expect(assistant.typed).toHaveLength(2))
+    expect(assistant.typed[1]).toMatch(/^\[Hive\] The user replied to Reviewer on #\d+: "Use the second one"/)
+    // The Assistant's agent watch on Reviewer (working) hears it too.
+    assistant.status = 'watching'
+    await watches.registerAgentWatch(w, home, 'assistant', { agents: [reviewer(alpha)], ignoreBackground: false })
+    watches.noteUserReply(alpha, 'a2', 'Reviewer', 'Ship it')
+    await vi.waitFor(() => expect(assistant.typed).toHaveLength(3))
+    expect(assistant.typed[2]).toBe('[Hive] The user replied to Reviewer (alpha): "Ship it". Your agent watch has ended: carry on (hive_agent_activity for more).')
+    // With the setting off, nothing is kept or told.
+    assistant.status = 'watching'
+    config.settings.assistant.tellReplies = false
+    try {
+      await watches.registerAgentWatch(w, home, 'assistant', { agents: [reviewer(alpha)], ignoreBackground: false })
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'Not told')
+      await watches.evaluateAgentWatches(w)
+      await watches.tick()
+      expect(assistant.typed).toHaveLength(3)
+    } finally {
+      config.settings.assistant.tellReplies = true
+      Object.assign(sessions, { liveFor, sendPrompt })
+    }
+    await disposeWorkspaceService(w)
+  })
+
+  /** The Assistant as a watcher here: its status and what Hive typed into it (the agents' stand-ins stay as they are). */
+  const assistantOf = (home: string) => {
+    const a = { status: 'watching' as string, typed: [] as string[] }
+    const liveFor = sessions.liveFor
+    const sendPrompt = sessions.sendPrompt
+    Object.assign(sessions, {
+      liveFor: (p: string, id: string) => (id === 'assistant' ? ({ projectPath: home, agentId: 'assistant', status: a.status } as never) : liveFor(p, id)),
+      sendPrompt: async (p: string, id: string, text: string, guard?: () => void) => {
+        if (id !== 'assistant') return sendPrompt(p, id, text, guard)
+        guard?.()
+        a.typed.push(text)
+        a.status = 'working'
+      }
+    })
+    return { a, restore: () => Object.assign(sessions, { liveFor, sendPrompt }) }
+  }
+
+  it('turning Tell the Assistant when I reply off withholds a reply already waiting to be told, for card and agent watches; turning it on again replays none (round 1 finding)', async () => {
+    const { w, alpha } = await open()
+    const { config } = await import('../src/main/config')
+    const st = fake(alpha)
+    const home = w.assistantHome
+    mkdirSync(home, { recursive: true })
+    const { a, restore } = assistantOf(home)
+    try {
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Icon', project: 'alpha', agent: 'a2', column: 'doing' }, { kind: 'user' }))
+      move(st, alpha, 'a2', nowOf())
+      // A card watch: the reply fires it while the Assistant works; the setting goes off before it is idle.
+      await watches.registerWatch(w, home, 'assistant', { cards: [c.number], changes: ['column'], column: 'review' })
+      a.status = 'working'
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'PRIVATE FIRST LINE')
+      await watches.evaluateWatches(w)
+      config.settings.assistant.tellReplies = false
+      a.status = 'watching'
+      await watches.tick()
+      expect(a.typed).toEqual([])
+      expect(watches.watchFor(home, 'assistant')?.cards).toEqual([c.number])
+      // The same, with a card change too: the change is told, the reply isn't.
+      config.settings.assistant.tellReplies = true
+      a.status = 'working'
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'PRIVATE AGAIN')
+      await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'review' }, { kind: 'user' }))
+      await watches.evaluateWatches(w)
+      config.settings.assistant.tellReplies = false
+      a.status = 'watching'
+      await watches.tick()
+      await vi.waitFor(() => expect(a.typed).toHaveLength(1))
+      expect(a.typed[0]).toMatch(new RegExp(`^\\[Hive\\] #${c.number} \\(Reviewer's card\\) is in Review`))
+      expect(a.typed[0]).not.toMatch(/PRIVATE/)
+      // An agent watch: the same.
+      config.settings.assistant.tellReplies = true
+      a.status = 'watching'
+      await watches.registerAgentWatch(w, home, 'assistant', { agents: [reviewer(alpha)], ignoreBackground: false })
+      a.status = 'working'
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'PRIVATE THIRD')
+      await watches.evaluateAgentWatches(w)
+      await watches.revokeReplies()
+      config.settings.assistant.tellReplies = false
+      a.status = 'watching'
+      await watches.tick()
+      expect(a.typed).toHaveLength(1)
+      expect(watches.watchFor(home, 'assistant')?.agents).toEqual(['Reviewer'])
+      // On again: nothing kept comes back.
+      config.settings.assistant.tellReplies = true
+      await watches.evaluateAgentWatches(w)
+      await watches.tick()
+      expect(a.typed).toHaveLength(1)
+    } finally {
+      config.settings.assistant.tellReplies = true
+      restore()
+    }
+    await disposeWorkspaceService(w)
+  })
+
+  it('turned off (and on again) while a wake telling a reply is being typed, nothing more is typed; what else changed comes again without it (rounds 2 and 3 findings)', async () => {
+    const { w, alpha } = await open()
+    const { config } = await import('../src/main/config')
+    const st = fake(alpha)
+    const home = w.assistantHome
+    mkdirSync(home, { recursive: true })
+    const { a, restore } = assistantOf(home)
+    // The Assistant's terminal as sendPrompt types into it: the guard before each piece and before Enter; `during` runs
+    // between two pieces (when the setting is turned off, in one case before the first).
+    let during: ((when: 'before' | 'between') => Promise<void>) | null = null
+    const typing = sessions.sendPrompt
+    sessions.sendPrompt = async (p: string, id: string, text: string, guard?: () => void) => {
+      if (id !== 'assistant') return typing(p, id, text, guard)
+      await during?.('before')
+      guard?.()
+      await during?.('between')
+      guard?.()
+      a.typed.push(text)
+      a.status = 'working'
+    }
+    const off = async () => {
+      config.settings.assistant.tellReplies = false
+      await watches.revokeReplies()
+    }
+    // Off, then on again before the next guard: the reply was revoked all the same.
+    const offOn = async () => {
+      await off()
+      config.settings.assistant.tellReplies = true
+    }
+    try {
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Icon', project: 'alpha', agent: 'a2', column: 'doing' }, { kind: 'user' }))
+      move(st, alpha, 'a2', nowOf())
+      for (const [when, revoke] of [['before', off], ['between', off], ['before', offOn], ['between', offOn]] as const) {
+        // A card watch: only the reply.
+        config.settings.assistant.tellReplies = true
+        a.status = 'watching'
+        during = async (now) => (now === when ? revoke() : undefined)
+        await watches.registerWatch(w, home, 'assistant', { cards: [c.number], changes: ['comment'] })
+        watches.noteUserReply(alpha, 'a2', 'Reviewer', `PRIVATE CARD ${when}`)
+        await watches.evaluateWatches(w)
+        await watches.tick()
+        expect(a.typed).toEqual([])
+        expect(watches.watchFor(home, 'assistant')?.cards).toEqual([c.number])
+        // An agent watch: the same.
+        config.settings.assistant.tellReplies = true
+        await watches.registerAgentWatch(w, home, 'assistant', { agents: [reviewer(alpha)], ignoreBackground: false })
+        watches.noteUserReply(alpha, 'a2', 'Reviewer', `PRIVATE AGENT ${when}`)
+        await watches.evaluateAgentWatches(w)
+        await watches.tick()
+        expect(a.typed).toEqual([])
+        expect(watches.watchFor(home, 'assistant')?.agents).toEqual(['Reviewer'])
+      }
+      // A reply and a comment, the setting turned off between pieces: the comment comes again, without the reply.
+      config.settings.assistant.tellReplies = true
+      during = async (now) => (now === 'between' && config.settings.assistant.tellReplies ? off() : undefined)
+      await watches.registerWatch(w, home, 'assistant', { cards: [c.number], changes: ['comment'] })
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'PRIVATE MIXED')
+      await inWorkspace(w, () => tasks.commentTask(c.number, 'Picked C', { kind: 'user' }))
+      await watches.evaluateWatches(w)
+      await vi.waitFor(() => expect(a.typed).toHaveLength(1))
+      expect(a.typed[0]).toMatch(new RegExp(`^\\[Hive\\] #${c.number} \\(Reviewer's card\\) is in Doing; latest comment by You: "Picked C"`))
+      expect(a.typed.join('\n')).not.toMatch(/PRIVATE/)
+      // On again: nothing comes back.
+      config.settings.assistant.tellReplies = true
+      a.status = 'watching'
+      during = null
+      await watches.registerWatch(w, home, 'assistant', { cards: [c.number], changes: ['column'], column: 'review' })
+      await watches.evaluateWatches(w)
+      await watches.tick()
+      expect(a.typed).toHaveLength(1)
+    } finally {
+      config.settings.assistant.tellReplies = true
+      sessions.sendPrompt = typing
+      restore()
+    }
+    await disposeWorkspaceService(w)
+  })
+
+  it("a reply to the agent of many watched cards is told once with every card's change and the line's end, within the size (round 1 finding)", async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    const home = w.assistantHome
+    mkdirSync(home, { recursive: true })
+    const { a, restore } = assistantOf(home)
+    try {
+      const ns: number[] = []
+      for (let i = 0; i < 8; i++) ns.push((await inWorkspace(w, () => tasks.createTask({ title: `Card ${i}`, project: 'alpha', agent: 'a2', column: 'doing' }, { kind: 'user' }))).number)
+      move(st, alpha, 'a2', nowOf())
+      await watches.registerWatch(w, home, 'assistant', { cards: ns, changes: ['column'], column: 'review' })
+      a.status = 'working'
+      const long = `${'Use the hive cell, '.repeat(6)}and nothing else`.slice(0, 120)
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', long)
+      for (const num of ns) await inWorkspace(w, () => tasks.updateTask(num, { column: 'review' }, { kind: 'user' }))
+      await watches.evaluateWatches(w)
+      a.status = 'watching'
+      await watches.tick()
+      await vi.waitFor(() => expect(a.typed).toHaveLength(1))
+      const line = a.typed[0]
+      expect(Buffer.byteLength(JSON.stringify(line))).toBeLessThanOrEqual(WAKE_MAX_BYTES)
+      expect(line.match(/The user replied to Reviewer/g)).toHaveLength(1)
+      for (const num of ns) expect(line).toContain(`#${num} (Reviewer's card) is in Review`)
+      expect(line).toMatch(/Your card watch has ended: carry on/)
+    } finally {
+      restore()
+    }
     await disposeWorkspaceService(w)
   })
 

@@ -36,6 +36,20 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## The user's replies told to the Assistant: fakes, Codex (`gpt-5.6-luna`), fixtures v21, 8 October 2026
+
+#418 tells the Assistant's watches when the user answers an agent in its pane ("[Hive] The user replied to Coder on #1:
+"C, the hive cell"…"), adds a line to coordinate-agents (such a reply is what the user told the agent: don't ask again; a
+decision goes on the card), and a clause for the Assistant only in the two watch tools' descriptions. Fixtures v21 add
+**assistant-reply-decision** (the Assistant gets that line for a card whose agent asked the user to pick an icon).
+- **Fakes**, v21, before (`7456ea1`, #416 without #418, with the final fixtures, in a worktree of its own) and after,
+  neither source changed while it ran (baselines `b2-418-before` and `b2-418-after2`): Performance → Compare finds them
+  comparable, every scenario the same, all checks passing both times. Sizes: the Assistant's skills +293 bytes, its tool
+  list +178 (the clause is the Assistant's only: project agents' tool list is unchanged).
+- **Codex: 2 of 2 pass** (`2026-10-08T06-03-45-codex`, $0.021): told the user's reply, the Assistant recorded "C, the hive
+  cell" as the card's decision, didn't ask the user again and didn't type it into Coder; assistant-dispatch still passes.
+- **Claude Code**: not run (its test home isn't signed in).
+
 ## Agent watches: fakes, Codex (`gpt-5.6-luna`), fixtures v19–v20, 8 October 2026
 
 #416 gives `hive_wait_for_agents` a `wake` (an **agent watch**: the Assistant, or an agent, ends its turn and is woken

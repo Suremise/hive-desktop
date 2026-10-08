@@ -398,6 +398,9 @@ export async function deliveredSkillSizes(adapter: ProviderAdapter, ctx: LaunchC
   return { catalog, bytes, unmeasured }
 }
 
+/** How soon after the user's Enter in an agent's pane its CLI must take a prompt for it to count as theirs (#418). */
+const USER_REPLY_MS = 15_000
+
 /** How long a prompt Hive typed counts as pending (the agent just given a task) while its CLI hasn't taken it (#416). */
 const PENDING_MS = 30_000
 
@@ -1487,6 +1490,24 @@ class SessionManager {
     // xterm's own replies (focus in/out, cursor reports, colour queries) aren't typing.
     const typed = typedText(data)
     if (typed) this.userInput.set(key, { at: Date.now(), enter: typed.endsWith('\r') })
+    if (typed?.includes('\r')) this.userEnter.set(key, Date.now())
+  }
+
+  /** When the user last pressed Enter in each terminal (by pty key): a prompt its CLI takes soon after is theirs (#418). */
+  private userEnter = new Map<string, number>()
+
+  /**
+   * The user sent an agent a prompt from its pane (#418): what its CLI took (UserPromptSubmit) soon after the user's own
+   * Enter there, later than any line Hive typed. main/watches.ts tells the Assistant's watches.
+   */
+  userReplied: (projectPath: string, agentId: string, agentName: string, text: string) => void = () => undefined
+
+  private noteUserReply(l: LiveSession, text: string | null | undefined): void {
+    const st = l.state
+    if (!text?.trim() || text.trim().startsWith('/') || workspace.isAssistantHome(st.projectPath)) return
+    const enterAt = this.userEnter.get(this.key(st.projectPath, st.agentId)) ?? 0
+    if (enterAt <= (l.typed?.at ?? 0) || Date.now() - enterAt > USER_REPLY_MS) return
+    this.userReplied(st.projectPath, st.agentId, st.agentName ?? st.agentId, text)
   }
 
   /** Whether the user may still be writing in an agent's terminal (Settings → Assistant → Pause after you type). */
@@ -2531,6 +2552,7 @@ class SessionManager {
         case 'prompted':
           l.prompts = (l.prompts ?? 0) + 1
           if (workspace.isAssistantHome(st.projectPath)) this.onAssistantPrompt(st.projectPath)
+          if (ev?.kind === 'prompt') this.noteUserReply(l, ev.text)
           break
         case 'compactBegan':
           l.compacting?.begin()

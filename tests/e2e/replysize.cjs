@@ -236,7 +236,8 @@ const prose = (seed, n) => {
   console.log('\n--- hive tools (as the Assistant)')
   measure('hive_list_providers', tool('hive_list_providers', {}, 'assistant'))
   // Hive's settings (#186): a listing (all, narrowed, a project's), one in full, and a change with Change settings on.
-  const settingsList = measure('hive_list_settings', tool('hive_list_settings', {}, 'assistant'), 6000)
+  // A line a setting (about 85 characters with its title): 6,200 since #418 added Tell the Assistant when I reply to an agent.
+  const settingsList = measure('hive_list_settings', tool('hive_list_settings', {}, 'assistant'), 6200)
   check('settings: a line each, id = value, read-only ones marked', /^sessions\.compactSuggestTokens = 200000 · Suggest compacting above$/m.test(settingsList) && /^agentApi\.port = \d+ \[read-only\] · /m.test(settingsList) && !/^advanced\./m.test(settingsList), settingsList.slice(0, 300))
   const compactList = measure('hive_list_settings (query)', tool('hive_list_settings', { query: 'compact' }, 'assistant'), 1500)
   check('query narrows it, saying what each does', compactList.split('\n').length < 10 && /^assistant\.compactSuggestTokens = 500000 · Highlight Compact over: Context size/m.test(compactList), compactList)

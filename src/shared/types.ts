@@ -203,6 +203,11 @@ export interface AssistantSettings {
   typingPause: number
   /** The user pressing Enter (sending what they typed) ends that pause. */
   enterEndsPause: boolean
+  /**
+   * Its watches are told when the user sends a watched agent (or a watched card's agent or reviewer) a prompt from that
+   * agent's pane, with its first line (#418).
+   */
+  tellReplies: boolean
   /** Which side of the window its panel is on (the same in every workspace and window). */
   panelSide: AssistantPanelSide
   /**

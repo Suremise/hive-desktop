@@ -118,7 +118,8 @@ export interface Ask {
 /** A provider's hook call, turned into what Hive tracks. */
 export type HookEvent =
   | { kind: 'start'; source: string | null }
-  | { kind: 'prompt' }
+  /** A prompt the CLI took: `text`, what it says (when the CLI reports it), for telling who sent what (#418). */
+  | { kind: 'prompt'; text?: string | null }
   | { kind: 'toolStart' }
   /** `call`: which tool call ended, when the CLI says (see Ask.call). */
   | { kind: 'toolEnd'; call?: string }
