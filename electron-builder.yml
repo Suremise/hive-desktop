@@ -43,3 +43,5 @@ nsis:
   uninstallerIcon: build/icon.ico
   artifactName: Hive-Setup-${version}.${ext}
   deleteAppDataOnUninstall: false
+  # Gives ALL APPLICATION PACKAGES read access to the install folder (installer.nsh).
+  include: build/installer.nsh

@@ -18,4 +18,5 @@ export class Notification {
 export const clipboard = {}
 export const shell = {}
 export const nativeImage = {}
-export default { app, BrowserWindow, Notification, clipboard, shell, nativeImage }
+export const dialog = {}
+export default { app, BrowserWindow, Notification, clipboard, shell, nativeImage, dialog }

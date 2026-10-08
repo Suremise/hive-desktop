@@ -47,7 +47,7 @@ export function keepOffScreen(win: BrowserWindow): void {
 }
 
 /** One line to HIVE_TEST_NOTIFY_LOG, if set (unpackaged builds only). */
-export function testNotifyLog(entry: { kind: 'notification' | 'flash' | 'chime'; title?: string; body?: string; projectPath?: string; on?: boolean }): void {
+export function testNotifyLog(entry: { kind: 'notification' | 'flash' | 'chime' | 'dialog'; title?: string; body?: string; projectPath?: string; on?: boolean }): void {
   const file = !app.isPackaged ? process.env.HIVE_TEST_NOTIFY_LOG : undefined
   if (!file) return
   try {

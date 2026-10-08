@@ -51,6 +51,7 @@ import { abandonWindowStorage } from './storage'
 import { agentTokenFile } from './agentTokens'
 import { progress, setTaskbarTestHook, startProgress } from './progressService'
 import { startMergeSlots } from './mergeSlotHost'
+import { checkInstallDir } from './installDir'
 
 const log = createLogger('main')
 let quitting = false
@@ -79,6 +80,9 @@ function watchMainStalls(): void {
 // HIVE_USER_DATA overrides the profile folder for tests.
 if (process.env.HIVE_USER_DATA) app.setPath('userData', process.env.HIVE_USER_DATA)
 else if (!app.isPackaged) app.setPath('userData', join(app.getPath('appData'), 'Hive-Dev'))
+
+// Before Electron's own check of the install folder, which crashes Hive with nothing on screen (installDir.ts).
+if (process.platform === 'win32') checkInstallDir()
 
 // One Hive process, with a window per workspace (like VS Code): starting Hive again brings it forward.
 // A quiet test copy's windows are off screen (testQuiet): Chromium mustn't take them for covered and stop drawing them.
