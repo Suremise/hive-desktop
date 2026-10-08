@@ -55,6 +55,11 @@
   --act-shade: #ffffff;
   --act-resume-on: #1b1b1b;
   --act-resume-shade: #ffffff;
+  /* The Assistant's mark (#399): its amber and its "off" grey, 3:1 or more on the sidebar as icons need. */
+  --mark-accent: var(--accent);
+  --mark-off: var(--fg-faint);
+  /* The Assistant's status line when it needs you (#399): AA on its warning tint (4.5:1 or more). */
+  --attention-fg: var(--warning);
 
   --status-bg: #d97706;
   --status-fg: #1b1208;
@@ -116,6 +121,10 @@
   --act-shade: #000000;
   --act-resume-on: #1b1b1b;
   --act-resume-shade: #ffffff;
+  /* The Assistant's mark (#399): its amber and its "off" grey, 3:1 or more on the sidebar as icons need. */
+  --mark-accent: #b86206;
+  --mark-off: #858585;
+  --attention-fg: #805600;
 
   /* The amber darkened only as far as AA needs for the white label (#384, as the primary button's, #360): 4.6:1. Hovered
      and the items that stand out go darker, never lighter. */
@@ -5384,7 +5393,7 @@ body.pane-resizing-v .monaco-editor {
   color: var(--fg);
 }
 .assistant-status.attention {
-  color: var(--warning);
+  color: var(--attention-fg);
   background: color-mix(in srgb, var(--warning) 8%, transparent);
 }
 .assistant-status > .tip-wrap {
@@ -5399,24 +5408,74 @@ body.pane-resizing-v .monaco-editor {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.assistant-status-card {
-  padding: 0 5px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--bg-active);
-  color: var(--fg);
-  font: inherit;
-  font-size: 11px;
-  line-height: 15px;
-  cursor: pointer;
+.assistant-status .card-chip {
+  height: 16px;
+  margin-top: -2px;
 }
-.assistant-status-card:hover {
-  border-color: var(--accent);
+/* The Assistant's mark (#399, AssistantMark): its own glyph, one colour like a codicon. As its status icon it takes the
+   status's colour (as the agents' dots do), filled while it runs something, with the agent's status dot as a badge. */
+.assistant-mark {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--mark-accent);
+  vertical-align: middle;
 }
-/* What the Assistant did, under the footer (#312): the last 3, Show all scrolling inside the same height. */
+.assistant-mark svg {
+  width: 16px;
+  height: 16px;
+  overflow: visible;
+}
+.assistant-mark .line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.assistant-mark .fill {
+  fill: currentColor;
+  opacity: 0;
+}
+.assistant-mark .solid {
+  fill: currentColor;
+}
+.assistant-mark > .dot {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  /* A ring of what is behind it, so the badge stands apart from the mark. */
+  outline: 1.5px solid var(--mark-ring, var(--bg-sidebar));
+}
+.running-row .assistant-mark { --mark-ring: var(--bg); }
+.inbox-row .assistant-mark { --mark-ring: var(--bg-elevated); }
+.overview-assistant {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.assistant-mark.status-stopped { color: var(--mark-off); }
+.assistant-mark.status-idle,
+.assistant-mark.status-ready,
+.assistant-mark.status-finished { color: var(--fg-muted); }
+.assistant-mark.status-starting,
+.assistant-mark.status-watching { color: var(--info); }
+.assistant-mark.status-working,
+.assistant-mark.status-background { color: var(--mark-accent); }
+.assistant-mark.status-waiting { color: var(--warning); }
+.assistant-mark.status-error { color: var(--error); }
+.assistant-mark.status-signin { color: var(--signin); }
+.assistant-mark:is(.status-starting, .status-working, .status-background, .status-waiting, .status-error, .status-signin) .fill {
+  opacity: 0.3;
+}
+/* What the Assistant did, under its status line (#312, #399): the last 3, Show all scrolling inside the same height. */
 .assistant-actions {
   flex-shrink: 0;
-  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 2px;
 }
 .assistant-actions-head {
@@ -5444,6 +5503,9 @@ body.pane-resizing-v .monaco-editor {
 }
 .assistant-actions-head .codicon {
   font-size: 14px;
+}
+.assistant-actions-head .assistant-mark {
+  margin: 0 2px;
 }
 /* Every row the same height, a setting's with its Revert button too, so the list's 3 rows are its height unfolded. */
 .assistant-actions .assistant-action {
@@ -5508,7 +5570,13 @@ body.pane-resizing-v .monaco-editor {
   display: flex;
   align-items: center;
   gap: 4px;
+  width: 100%;
+  margin-top: 4px;
   padding: 5px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
   color: var(--fg-muted);
   cursor: pointer;
   user-select: none;
@@ -5554,8 +5622,48 @@ body.pane-resizing-v .monaco-editor {
 .assistant-project.inactive {
   opacity: 0.6;
 }
+/* Its name, after the chevron that folds it (#399); folded, its most urgent dot and how many agents run. */
+.assistant-project-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.assistant-project-fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.assistant-project-fold:hover {
+  color: var(--fg-strong);
+  background: var(--bg-hover);
+}
+.assistant-project-fold .codicon {
+  font-size: 14px;
+}
+.assistant-project-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  /* It keeps its room: a long name gives way first, with an ellipsis. */
+  flex: 0 0 auto;
+  min-width: 0;
+  margin-left: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
 .assistant-project-name {
-  align-self: flex-start;
+  flex: 0 1 auto;
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
@@ -5572,14 +5680,55 @@ body.pane-resizing-v .monaco-editor {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-left: 14px;
+  padding-left: 18px;
 }
+/* An agent's row (#399): its padding reaches out over the indent, so its dot still lines up under the project's name. */
 .assistant-agent {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
   gap: 5px;
   min-width: 0;
+  margin: 0 -6px;
+  padding: 2px 6px;
+  border-radius: 4px;
   cursor: pointer;
+  --row: var(--fg-faint);
+}
+.assistant-agent:hover {
+  background-color: var(--bg-hover);
+}
+/* Its backing, after the Performance chart: a wash of its status's colour while it runs something, the chart's faint
+   hatch while it waits (on cards, or for you); either fades out to the right, so the row stays calm and its text keeps
+   AA contrast. Stopped and idle rows stay plain. */
+.assistant-agent::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, transparent 85%);
+  mask-image: linear-gradient(90deg, #000 0%, transparent 85%);
+}
+.assistant-agent.row-wash::before {
+  background: color-mix(in srgb, var(--row) 16%, transparent);
+}
+.assistant-agent.row-hatch::before {
+  background: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, var(--row) 24%, transparent) 3px 5px);
+}
+.assistant-agent[data-status='starting'],
+.assistant-agent[data-status='watching'] { --row: var(--info); }
+.assistant-agent[data-status='working'],
+.assistant-agent[data-status='background'] { --row: var(--accent); }
+.assistant-agent[data-status='waiting'] { --row: var(--warning); }
+.assistant-agent[data-status='signin'] { --row: var(--signin); }
+.assistant-agent[data-status='error'] { --row: var(--error); }
+/* On a backing, or hovered, what it is doing takes the text colour: 4.9:1 or more on any of them, in both themes (the
+   muted grey keeps AA only on the plain sidebar). */
+.assistant-agent:is(.row-wash, .row-hatch, :hover) .assistant-agent-status {
+  color: var(--fg);
 }
 .assistant-agent:hover .assistant-agent-name {
   color: var(--fg-strong);
@@ -5593,6 +5742,7 @@ body.pane-resizing-v .monaco-editor {
   white-space: nowrap;
 }
 .assistant-agent-status {
+  color: var(--fg-muted);
   flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;

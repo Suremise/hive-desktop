@@ -1,11 +1,11 @@
 // Per-project view preferences kept in config.json's ui: the provider and groups a project's Skills tab shows (#118),
-// and the Sessions tree branches opened or folded (#239). Each window has its own copy of these maps, so a change goes
+// the Sessions tree branches opened or folded (#239), and the Assistant panel's projects folded (#399). Each window has its own copy of these maps, so a change goes
 // to main as one project's value and is merged into what is saved there (#245): a window's stale copy can't overwrite
 // another window's projects.
 import { isKnownProvider } from './providers'
 import type { AppConfig } from './types'
 
-export const PROJECT_PREFS = ['skillsProvider', 'skillsFold', 'sessionsTree', 'hiveVcsNotice'] as const
+export const PROJECT_PREFS = ['skillsProvider', 'skillsFold', 'sessionsTree', 'hiveVcsNotice', 'assistantFold'] as const
 export type ProjectPref = (typeof PROJECT_PREFS)[number]
 export type ProjectPrefValue<P extends ProjectPref> = NonNullable<AppConfig['ui'][P]>[string]
 
@@ -21,6 +21,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 /** The value as the preference keeps it (unknown fields and wrong types dropped), or undefined if it can't be one. */
 export function projectPrefValue<P extends ProjectPref>(pref: P, value: unknown): ProjectPrefValue<P> | undefined {
   if (pref === 'skillsProvider') return (typeof value === 'string' && isKnownProvider(value) ? value : undefined) as ProjectPrefValue<P> | undefined
+  if (pref === 'assistantFold') return (value === true ? true : undefined) as ProjectPrefValue<P> | undefined
   if (pref === 'hiveVcsNotice') return (typeof value === 'string' && value.length <= 200 ? value : undefined) as ProjectPrefValue<P> | undefined
   if (!isRecord(value)) return undefined
   if (pref === 'skillsFold') {

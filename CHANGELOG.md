@@ -1,5 +1,10 @@
 # Release Notes
 
+## Unreleased
+
+### Hive Assistant
+- **A tidier Assistant panel.** The header no longer repeats the status with a dot: the **Status** line under it says it, after the Assistant's own icon (a hive cell with a crown), in the status's colour with an agent's status dot on it. The same icon marks the Assistant on the panel's folded strip, its runs in the Progress panel, the inbox and the Workspace Overview. The cards it waits for are the same coloured card chips as everywhere else (click one to open the card). **Done by the Assistant** now sits between the status and the workspace, with the same last 3, Show all and fold. Each project in the workspace list folds to one line (its name, the dot of the agent that most needs you, and how many agents run), and stays folded for that workspace. Each agent in the list has a faint backing in its status's colour, a soft wash while it works and a light hatch while it waits on cards or for you, so you can see at a glance which ones are busy.
+
 ## 0.4.0 — 7 October 2026
 
 ### Hive Assistant

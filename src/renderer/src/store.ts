@@ -172,6 +172,7 @@ interface State {
   skillsFold: Record<string, { hive?: boolean; provider?: boolean }>
   sessionsTree: Record<string, Record<string, boolean>>
   hiveVcsNotice: Record<string, string>
+  assistantFold: Record<string, boolean>
   /** Each workspace's board: collapsed columns and folded cards (#170; saved in ui), by workspace path in lower case. */
   boardFold: Record<string, BoardFold>
   /** Each workspace's Progress panel filter (#251; saved in ui), by workspace path in lower case. */
@@ -354,6 +355,7 @@ export const useStore = create<State>(() => ({
   skillsFold: {},
   sessionsTree: {},
   hiveVcsNotice: {},
+  assistantFold: {},
   boardFold: {},
   progressFilter: {},
   selectedProject: null,

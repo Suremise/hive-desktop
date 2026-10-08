@@ -8,6 +8,7 @@ import { get, revealAgent, set, setAssistantOpen, setProjectTab, showView, useSt
 import { cx, formatNumber, formatTokens, timeAgo } from '../util'
 import { useNow } from '../usage'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip } from '../components/ui'
+import { AssistantMark } from '../components/AssistantMark'
 import { ProviderIcon } from '../components/ProviderIcon'
 import { TaskStrip } from '../components/Board'
 import { DataTable, type DataColumn } from '../components/DataTable'
@@ -162,7 +163,7 @@ const BIGGEST_FIRST = { key: 'tokens', desc: true }
 /** The table by project's columns; `all` is every project's tokens, for each one's share. */
 function projectColumns(all: number): DataColumn<ProjectRow>[] {
   return [
-    { key: 'name', header: 'Project', cell: (r) => (r.g.key === 'assistant' ? <span className="muted">Assistant</span> : r.g.label), sortValue: (r) => r.g.label.toLowerCase(), filter: { kind: 'text', value: (r) => r.g.label } },
+    { key: 'name', header: 'Project', cell: (r) => (r.g.key === 'assistant' ? <span className="muted overview-assistant"><AssistantMark /> Assistant</span> : r.g.label), sortValue: (r) => r.g.label.toLowerCase(), filter: { kind: 'text', value: (r) => r.g.label } },
     { key: 'sessions', header: 'Sessions', num: true, descFirst: true, cell: (r) => r.t.sessions, sortValue: (r) => r.t.sessions },
     { key: 'tokens', header: 'Tokens', num: true, descFirst: true, cell: (r) => formatTokens(r.tokens), sortValue: (r) => r.tokens },
     { key: 'cost', header: 'Cost', num: true, descFirst: true, cell: (r) => (r.t.sessions ? costText(r.t) : '—'), sortValue: (r) => (r.t.sessions ? r.t.cost : null) },
@@ -273,6 +274,7 @@ export function WorkspaceOverviewView() {
                     project={p}
                     a={a}
                     label={isAssistant ? 'Assistant' : `${p.name} · ${a.name}`}
+                    assistant={isAssistant}
                     onOpen={() => {
                       if (isAssistant) return setAssistantOpen(true)
                       selectProject(p.path)
@@ -351,7 +353,7 @@ export function WorkspaceOverviewPanel() {
           return (
             <Tooltip key={g.key} block content={`${formatTokens(totalTokens(t))} tokens · ${t.sessions} session${t.sessions === 1 ? '' : 's'}${n ? ` · ${n} running` : ''}`}>
               <div className="row" style={{ flex: 1 }} onClick={() => openProjectOverview(g.key)}>
-                <Icon name={g.key === 'assistant' ? 'hubot' : 'folder'} /> <span className="label">{g.label}</span>
+                {g.key === 'assistant' ? <AssistantMark /> : <Icon name="folder" />} <span className="label">{g.label}</span>
                 {n > 0 && <span className="dot working" />}
                 <span className="count">{t.sessions ? costText(t) : ''}</span>
               </div>
