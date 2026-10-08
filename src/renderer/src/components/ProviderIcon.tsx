@@ -1,6 +1,7 @@
 import { providerDescriptor } from '@shared/providers'
 import type { ProviderId } from '@shared/types'
 import claudeMark from '../assets/providers/claude.svg'
+import copilotMark from '../assets/providers/copilot.svg'
 import openaiMark from '../assets/providers/openai.svg'
 import { cx } from '../util'
 import { Icon } from './ui'
@@ -15,7 +16,8 @@ const MARKS: Record<string, string> = {
 
 /** Single-colour marks, drawn in the text colour so they work on dark, light and the status bar. */
 const MONO_MARKS: Record<string, string> = {
-  codex: openaiMark
+  codex: openaiMark,
+  copilot: copilotMark
 }
 
 /**

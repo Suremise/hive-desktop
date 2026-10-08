@@ -1,6 +1,7 @@
 import type { AppSettings, ModelPrice, ProviderId, SessionUsage } from './types'
 import { CLAUDE_CODE, baseModel } from './claude'
 import { CODEX } from './codex'
+import { COPILOT } from './copilot'
 
 /**
  * API prices Hive ships, in USD per million tokens, for estimating what a session would have cost at
@@ -50,7 +51,10 @@ export const SHIPPED_PRICES: Record<ProviderId, Record<string, ModelPrice>> = {
     'gpt-5.6-luna': openai(0.2, 0.02, 1.2),
     'gpt-5.5': openai(5, 0.5, 30),
     'gpt-5.3-codex': openai(1.75, 0.175, 14)
-  }
+  },
+  // GitHub Copilot reports each session's cost itself, in AI credits ($0.01 each, charged at each model's API rate):
+  // no table ships. Prices a user adds are used for sessions without a reported cost.
+  [COPILOT]: {}
 }
 
 /** Claude Code's aliases, and the dated ids its transcripts show, map to the table's ids. */

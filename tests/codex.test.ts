@@ -203,7 +203,6 @@ describe('Codex skill copies', () => {
     const { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } = await import('fs')
     const { tmpdir } = await import('os')
     const { join } = await import('path')
-    const { codex } = await import('../src/main/providers/codex/adapter')
     const root = mkdtempSync(join(tmpdir(), 'hive-skills-'))
     const src = join(root, 'src', 'deploy')
     mkdirSync(src, { recursive: true })
@@ -213,7 +212,8 @@ describe('Codex skill copies', () => {
     // The user's own folder that happens to use the prefix.
     mkdirSync(join(skills, 'hive-mine'), { recursive: true })
     writeFileSync(join(skills, 'hive-mine', 'SKILL.md'), '# mine')
-    const sync = (list: { name: string; sourcePath: string }[]) => (codex as any).syncSkills({ cwd, skills: list })
+    const { syncAgentsSkills } = await import('../src/main/providers/common')
+    const sync = (list: { name: string; sourcePath: string }[]) => syncAgentsSkills({ cwd, skills: list } as never, 'Codex')
     await sync([{ name: 'deploy', sourcePath: src }])
     expect(readFileSync(join(skills, 'hive-deploy', 'SKILL.md'), 'utf8')).toBe('# deploy v1')
     expect(existsSync(join(skills, 'hive-deploy', '.hive-copy'))).toBe(true)

@@ -168,6 +168,8 @@ export const AREAS = [
   // The providers' adapters are under src/main/providers/ (every suite, above); these say which suites each mainly drives.
   { paths: ['src/main/providers/claude/'], suites: ['agents', 'agentview', 'launchrace', 'restart', 'resume', 'mode', 'compact', 'image', 'plan', 'claude-real', 'claudehome', 'claudesettings', 'assistantmode', 'assistantresume'] },
   { paths: ['src/main/providers/codex/'], suites: ['codex', 'codex-background', 'codex-extra', 'codex-handover', 'codex-setup', 'attention', 'skilldelivery', 'sessiontree'] },
+  // Copilot's suites come with the offline test tier (#453); until then its adapter drives the provider pages and the skill copies it shares with Codex.
+  { paths: ['src/main/providers/copilot/', 'src/shared/copilot.ts'], suites: ['providers', 'skilldelivery', 'models'] },
   // The run context: every suite (above); isolation checks what it gives a test Hive and the children a suite starts.
   { paths: ['tests/e2e/runContext.cjs', 'src/main/testQuiet.ts'], suites: ['isolation'] },
   // The fake Codex CLI: every suite that runs it.
@@ -220,7 +222,7 @@ export const REAL_TIER = [
   // The environment the real CLIs are started in.
   'tests/e2e/runContext.cjs'
 ]
-const PROVIDER_OWN = ['src/main/providers/claude/', 'src/main/providers/codex/']
+const PROVIDER_OWN = ['src/main/providers/claude/', 'src/main/providers/codex/', 'src/main/providers/copilot/']
 
 /**
  * The suites a set of changed files needs, from the known suite names (realNames: those that start a real CLI):

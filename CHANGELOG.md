@@ -1,5 +1,10 @@
 # Release Notes
 
+## Unreleased
+
+### Providers
+- **GitHub Copilot agents.** Agents can now run on the GitHub Copilot CLI (`copilot`), beside Claude Code and Codex: turn it on in **Settings → GitHub Copilot**, then choose it when you add an agent. They get what the others get: statuses from Copilot's hooks (working, asking for permission, asking a question, finished), file locks (an edit of a file another agent is changing is refused, or handed to Copilot's own approval dialog in **Ask me**), the hive tools and Hive's guidance, the workspace's skills, sessions Hive names and resumes, and the mode in its footer (**Ask**, **Plan**, and **Autopilot** and **Allow all** when turned on; Shift+Tab switches between Ask, Plan and Autopilot while it runs). Tokens other tools leave in your environment (`GH_TOKEN`, `GITHUB_TOKEN`) are kept from it, so it uses its own login, or `COPILOT_GITHUB_TOKEN` if you set one for it; the first start in a folder asks whether you trust it, in its terminal. Copilot Free runs the **Auto** model only; the account's models are read from the CLI.
+
 ## 0.4.1 — 8 October 2026
 
 ### Task board

@@ -258,24 +258,30 @@ export async function skillFiles(dir: string, lim = SKILL_FILES_LIMITS): Promise
   return { files, truncated }
 }
 
-/** The folder a provider loads local skills from in a project (e.g. <project>/.claude/skills). */
+/** The folder a provider's project skills are created in (e.g. <project>/.claude/skills): the first it loads them from. */
 function localDir(projectPath: string, id: ProviderId): string {
-  const rel = provider(id).skillRoots().local
+  const rel = provider(id).skillRoots().local[0]
   if (!rel) throw new Error(`${provider(id).descriptor.name} has no project skills folder.`)
   return join(projectPath, rel)
 }
 
-/** Skills in the project's own folders for each provider (e.g. .claude/skills), without Hive's copies there. */
+/**
+ * Skills in the project's own folders for each provider (e.g. .claude/skills), without Hive's copies there. A folder
+ * several CLIs read (Copilot also reads .claude/skills and .agents/skills) is listed once, for the first provider.
+ */
 export async function localSkills(projectPath: string): Promise<SkillInfo[]> {
   const out: SkillInfo[] = []
+  const seen = new Set<string>()
   for (const p of allProviders()) {
-    const roots = p.skillRoots()
-    if (!roots.local) continue
-    const dir = join(projectPath, roots.local)
-    if (!(await isDir(dir))) continue
-    for (const s of await findSkills(dir, 'local', 2)) {
-      if (existsSync(join(s.path, HIVE_COPY_MARKER))) continue
-      out.push({ ...s, provider: p.id })
+    for (const rel of p.skillRoots().local) {
+      const dir = join(projectPath, rel)
+      if (seen.has(dir.toLowerCase())) continue
+      seen.add(dir.toLowerCase())
+      if (!(await isDir(dir))) continue
+      for (const s of await findSkills(dir, 'local', 2)) {
+        if (existsSync(join(s.path, HIVE_COPY_MARKER))) continue
+        out.push({ ...s, provider: p.id })
+      }
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name))
@@ -422,8 +428,7 @@ async function deletableSkill(dir: string): Promise<boolean> {
   if (parent === resolve(workspace.skillsDir).toLowerCase()) return true
   for (const project of await workspace.listProjectPaths()) {
     for (const p of allProviders()) {
-      const rel = p.skillRoots().local
-      if (rel && parent === resolve(project, rel).toLowerCase()) return true
+      if (p.skillRoots().local.some((rel) => parent === resolve(project, rel).toLowerCase())) return true
     }
   }
   return false

@@ -1,0 +1,233 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { afterAll, describe, expect, it } from 'vitest'
+import { copilot, copilotHooks, copilotMcpServer } from '../src/main/providers/copilot/adapter'
+import { COPILOT_ENV_STRIP, copilotEnv } from '../src/main/providers/copilot/home'
+import { parseCopilotModels } from '../src/main/providers/copilot/models'
+import type { LaunchContext } from '../src/main/providers/types'
+import { COPILOT_DESCRIPTOR, copilotCanSwitchLive, copilotFooterMode, copilotModelLabel } from '../src/shared/copilot'
+import { isKnownProvider, providerDescriptor } from '../src/shared/providers'
+
+// Payloads and screens as Copilot CLI 1.0.93 sent and drew them (the #403 spike), with paths shortened.
+
+const base = mkdtempSync(join(tmpdir(), 'hive-copilot-'))
+afterAll(() => rmSync(base, { recursive: true, force: true }))
+// Never the user's ~/.copilot: the adapter reads its mcp-config.json and settings.json.
+process.env.COPILOT_HOME = join(base, 'copilot-home')
+
+function context(over: Partial<LaunchContext> = {}): LaunchContext {
+  const cwd = join(base, 'proj')
+  mkdirSync(cwd, { recursive: true })
+  return {
+    projectPath: cwd, agentId: 'a-1', executable: 'C:\\bin\\copilot.exe', cwd, workspacePath: base, runId: 'r1', sessionId: '0cb916db-26aa-40f2-86b5-1ba81b225fd2',
+    resume: false, name: 'Agent 1', skills: [], mcpServers: { hive: { command: 'node', args: ['hive-mcp.js'], env: { HIVE_PROJECT: 'proj' } } }, model: null, effort: null, permissionMode: 'ask', extraArgs: [],
+    hookUrl: 'http://127.0.0.1:5000/hook?run=r1', hookAuthFile: join(base, 'auth.txt'), privateDir: join(base, 'private'), guidance: 'Hive guidance', allowBackgroundSessions: false, use200kContext: false,
+    env: { PATH: 'C:\\Windows', GH_TOKEN: 'gho_stray', GITHUB_TOKEN: 'ghp_other', COPILOT_GITHUB_TOKEN: 'github_pat_x', HIVE_HOOK_TOKEN: 'tok123' },
+    ...over
+  }
+}
+
+describe('Copilot descriptor', () => {
+  it('is registered with its modes, efforts and capabilities', () => {
+    expect(isKnownProvider('copilot')).toBe(true)
+    const d = providerDescriptor('copilot')
+    expect(d.name).toBe('GitHub Copilot')
+    expect(d.permissionModes.map((m) => m.value)).toEqual(['ask', 'plan', 'autopilot', 'allow-all'])
+    expect(d.permissionModes.filter((m) => m.danger).map((m) => m.value)).toEqual(['autopilot', 'allow-all'])
+    expect(d.effortLevels.map((e) => e.value)).toEqual(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+    expect(d.capabilities).toMatchObject({ fixedSessionId: true, liveModeSwitch: 'cycle', reportsCost: true, lockAsk: true, compactFocus: true })
+    expect(d.modelGroups[0].models.map((m) => m.value)).toEqual(['auto'])
+  })
+
+  it('names models as Copilot lists them', () => {
+    expect(copilotModelLabel('claude-sonnet-5.5')).toBe('Claude Sonnet 5.5')
+    expect(copilotModelLabel('gpt-6-luna')).toBe('GPT-6 Luna')
+    expect(copilotModelLabel('mai-code-1.1-flash')).toBe('MAI Code 1.1 Flash')
+    expect(copilotModelLabel('kimi-k3')).toBe('Kimi K3')
+    expect(copilotModelLabel('auto')).toBe('Auto')
+    expect(copilotModelLabel('my model/x')).toBe('my model/x')
+  })
+})
+
+describe('Copilot footer and modes', () => {
+  it('reads the mode from the footer, wide or wrapped item by item in a narrow terminal', () => {
+    expect(copilotFooterMode(' ← open sidebar · Interactive · Manual Approval · / commands · ? help · tab next tab        gpt-4.1')).toBe('ask')
+    expect(copilotFooterMode(' ← open sidebar · Plan · Manual Approval · / commands · ? help · tab next tab')).toBe('plan')
+    expect(copilotFooterMode(' ← open sidebar · Autopilot · Manual Approval · / commands · tab next tab')).toBe('autopilot')
+    expect(copilotFooterMode(' ← open sidebar · Interactive · Allow All · / commands · ? help · tab next tab')).toBe('allow-all')
+    // A pane too narrow for one line (seen in Hive's agent terminal with two panes).
+    expect(copilotFooterMode('← open ·Interactive · Manual · / commands · ? help · tab\nsidebar Approval next tab gpt-4.1')).toBe('ask')
+    expect(copilotFooterMode('← open ·Plan · Manual · / commands\nsidebar Approval')).toBe('plan')
+    // While typing, the footer lists other items; the last footer drawn wins.
+    expect(copilotFooterMode('… Plan · Manual Approval · / commands\n Interactive · Manual Approval · @ files · # issues')).toBe('ask')
+    expect(copilotFooterMode(' Interactive · Assisted Approval · / commands')).toBeNull()
+    expect(copilotFooterMode(' ctrl+c again to exit')).toBeNull()
+  })
+
+  it('switches live within the approval it was launched with', () => {
+    expect(copilotCanSwitchLive('plan', 'ask', 'ask')).toBe(true)
+    expect(copilotCanSwitchLive('autopilot', 'ask', 'ask')).toBe(true)
+    expect(copilotCanSwitchLive('ask', 'plan', 'ask')).toBe(true)
+    expect(copilotCanSwitchLive('allow-all', 'ask', 'ask')).toBe(false)
+    expect(copilotCanSwitchLive('allow-all', 'plan', 'allow-all')).toBe(true)
+    expect(copilotCanSwitchLive('ask', 'allow-all', 'allow-all')).toBe(false)
+    expect(copilot.footerMode(' · Plan · Manual Approval · / commands')).toBe('plan')
+  })
+})
+
+describe('Copilot launch', () => {
+  it('starts a new session under the id Hive chose, with its hooks, MCP servers and modes', () => {
+    const ctx = context({ model: 'claude-sonnet-5.5', effort: 'high', trustedHiveTools: ['hive_list_tasks', 'hive_read_task'], initialPrompt: 'Fix the bug' })
+    const { file, args, env } = copilot.buildCommand(ctx.executable, ctx)
+    expect(file).toBe('C:\\bin\\copilot.exe')
+    expect(args.slice(0, 4)).toEqual(['--session-id', ctx.sessionId, '--name', 'Agent 1'])
+    expect(args).toContain('--no-auto-update')
+    expect(args[args.indexOf('--plugin-dir') + 1]).toBe(join(ctx.privateDir, 'plugin'))
+    expect(args[args.indexOf('--additional-mcp-config') + 1]).toBe(`@${join(ctx.privateDir, 'mcp.json')}`)
+    expect(args).toContain('--allow-all-mcp-server-instructions')
+    expect(args).toContain('--disable-builtin-mcps')
+    expect(args.filter((a) => a.startsWith('--allow-tool='))).toEqual(['--allow-tool=hive(hive_list_tasks)', '--allow-tool=hive(hive_read_task)'])
+    expect(args[args.indexOf('--model') + 1]).toBe('claude-sonnet-5.5')
+    expect(args[args.indexOf('--reasoning-effort') + 1]).toBe('high')
+    expect(args.slice(-2)).toEqual(['-i', 'Fix the bug'])
+    // Ask is Copilot's default: no mode flag.
+    expect(args.some((a) => ['--plan', '--autopilot', '--allow-all', '--yolo'].includes(a))).toBe(false)
+    // Other tools' tokens are left out of Copilot's environment alone; COPILOT_GITHUB_TOKEN, set for Copilot, stays (#450).
+    for (const k of COPILOT_ENV_STRIP) expect(env?.[k]).toBeUndefined()
+    expect(COPILOT_ENV_STRIP).toEqual(['GH_TOKEN', 'GITHUB_TOKEN'])
+    expect(env?.COPILOT_GITHUB_TOKEN).toBe('github_pat_x')
+    expect(env).toMatchObject({ PATH: 'C:\\Windows', HIVE_HOOK_TOKEN: 'tok123', COPILOT_HOOK_ALLOW_LOCALHOST: '1', COPILOT_AUTO_UPDATE: 'false' })
+    expect(env?.COPILOT_CUSTOM_INSTRUCTIONS_DIRS).toBeUndefined()
+    // The token never goes on the command line.
+    expect(args.join(' ')).not.toContain('tok123')
+  })
+
+  it('resumes by id, passes each mode, and adds its instructions folder to the user’s', () => {
+    const r = copilot.buildCommand('C:\\bin\\copilot.exe', context({ resume: true, permissionMode: 'plan' }))
+    expect(r.args.slice(0, 2)).toEqual(['--resume', '0cb916db-26aa-40f2-86b5-1ba81b225fd2'])
+    expect(r.args).not.toContain('--session-id')
+    expect(r.args).not.toContain('--name')
+    expect(r.args).toContain('--plan')
+    expect(copilot.buildCommand('x.exe', context({ permissionMode: 'allow-all' })).args).toContain('--allow-all')
+    expect(copilot.buildCommand('x.exe', context({ permissionMode: 'autopilot' })).args).toContain('--autopilot')
+    const ctx = context({ instructions: 'You are the Hive Assistant.', env: { COPILOT_CUSTOM_INSTRUCTIONS_DIRS: 'D:\\mine' } })
+    expect(copilot.buildCommand('x.exe', ctx).env?.COPILOT_CUSTOM_INSTRUCTIONS_DIRS).toBe(`D:\\mine,${join(ctx.privateDir, 'instructions')}`)
+  })
+
+  it("turns off the user's and the project's own MCP servers, never the workspace's", () => {
+    const ctx = context()
+    mkdirSync(join(ctx.cwd, '.github'), { recursive: true })
+    writeFileSync(join(ctx.cwd, '.mcp.json'), JSON.stringify({ mcpServers: { theirs: { command: 'x' }, hive: { command: 'y' } } }))
+    writeFileSync(join(ctx.cwd, '.github', 'mcp.json'), '// VS Code format, with a comment\n{ "servers": { "gh-only": { "url": "https://x" } } }')
+    const { args } = copilot.buildCommand('x.exe', ctx)
+    const off = args.flatMap((a, i) => (a === '--disable-mcp-server' ? [args[i + 1]] : []))
+    expect(off.sort()).toEqual(['gh-only', 'theirs'])
+  })
+
+  it('writes the plugin (hooks with the token), the MCP config and the instructions in the launch’s private folder', async () => {
+    const ctx = context({ instructions: 'Role: assistant.', privateDir: join(base, 'private-2') })
+    await copilot.prepareLaunch(ctx)
+    const { readFileSync } = await import('fs')
+    const hooks = JSON.parse(readFileSync(join(ctx.privateDir, 'plugin', 'hooks.json'), 'utf8'))
+    expect(hooks).toEqual(copilotHooks(ctx.hookUrl, 'tok123'))
+    expect(JSON.parse(readFileSync(join(ctx.privateDir, 'plugin', 'plugin.json'), 'utf8')).name).toBe('hive-launch')
+    expect(JSON.parse(readFileSync(join(ctx.privateDir, 'mcp.json'), 'utf8'))).toEqual({ mcpServers: { hive: { type: 'local', command: 'node', args: ['hive-mcp.js'], env: { HIVE_PROJECT: 'proj' }, tools: ['*'] } } })
+    expect(readFileSync(join(ctx.privateDir, 'instructions', '.github', 'instructions', 'hive.instructions.md'), 'utf8')).toBe("---\napplyTo: '**'\n---\nRole: assistant.\n")
+  })
+
+  it('gives every event to Hive’s hook server over HTTP, by the PascalCase names', () => {
+    const h = copilotHooks('http://127.0.0.1:5000/hook?run=r1', 'tok') as { version: number; hooks: Record<string, { type: string; url: string; headers: Record<string, string>; timeoutSec: number }[]> }
+    expect(h.version).toBe(1)
+    expect(Object.keys(h.hooks)).toEqual(['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Notification', 'Stop', 'ErrorOccurred', 'PreCompact', 'SessionEnd'])
+    expect(h.hooks.PreToolUse).toEqual([{ type: 'http', url: 'http://127.0.0.1:5000/hook?run=r1', headers: { Authorization: 'Bearer tok' }, timeoutSec: 10 }])
+    expect(h.hooks.Stop[0].timeoutSec).toBe(5)
+  })
+
+  it('converts workspace MCP servers to Copilot’s format', () => {
+    expect(copilotMcpServer({ url: 'https://x/mcp', headers: { Authorization: 'Bearer ${TOKEN}' } })).toEqual({ type: 'http', url: 'https://x/mcp', headers: { Authorization: 'Bearer ${TOKEN}' }, tools: ['*'] })
+    expect(copilotMcpServer({ type: 'sse', url: 'https://x/sse' })).toMatchObject({ type: 'sse' })
+    expect(copilotMcpServer({ command: 'npx', args: ['-y', 'srv'] })).toEqual({ type: 'local', command: 'npx', args: ['-y', 'srv'], tools: ['*'] })
+    expect(copilotMcpServer({ description: 'nothing to run' })).toBeNull()
+  })
+
+  it("takes other tools' tokens out of its environment, whatever their case, and keeps Copilot's own", () => {
+    expect(copilotEnv({ Gh_Token: 'a', github_token: 'b', COPILOT_GITHUB_TOKEN: 'c', KEEP: 'd' })).toEqual({ COPILOT_GITHUB_TOKEN: 'c', KEEP: 'd', COPILOT_AUTO_UPDATE: 'false' })
+  })
+})
+
+describe('Copilot hooks', () => {
+  const h = (body: Record<string, unknown>) => copilot.normalizeHook(body)
+
+  it('turns its hook calls into Hive events', () => {
+    expect(h({ hook_event_name: 'SessionStart', session_id: 's1', source: 'new', initial_prompt: 'do it' })).toMatchObject({ event: { kind: 'start', source: 'new' }, sessionId: 's1', mode: null })
+    expect(h({ hook_event_name: 'UserPromptSubmit', session_id: 's1', prompt: 'hello there' }).event).toEqual({ kind: 'prompt', text: 'hello there' })
+    expect(h({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { path: 'C:\\w\\a.ts', old_str: 'x', new_str: 'y' } })).toMatchObject({ event: { kind: 'toolStart' }, editedPaths: ['C:\\w\\a.ts'] })
+    expect(h({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { path: 'C:\\w\\hello.txt', file_text: 'hi' } }).editedPaths).toEqual(['C:\\w\\hello.txt'])
+    expect(h({ hook_event_name: 'PreToolUse', tool_name: 'hive-hive_ping', tool_input: {} })).toMatchObject({ event: { kind: 'toolStart' }, editedPaths: [] })
+    expect(h({ hook_event_name: 'PreToolUse', tool_name: 'powershell', tool_input: { command: 'New-Item x', path: 'C:\\w' } }).editedPaths).toEqual([])
+    expect(h({ hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: {}, tool_result: { result_type: 'success' } }).event).toEqual({ kind: 'toolEnd' })
+    expect(h({ hook_event_name: 'PostToolUseFailure', tool_name: 'Edit' }).event).toEqual({ kind: 'toolEnd' })
+    expect(h({ hook_event_name: 'Stop', session_id: 's1', transcript_path: 'C:\\h\\session-state\\s1\\events.jsonl', stop_reason: 'end_turn', stop_hook_active: false })).toMatchObject({ event: { kind: 'stop', lastMessage: null }, transcriptPath: 'C:\\h\\session-state\\s1\\events.jsonl' })
+    expect(h({ hook_event_name: 'PreCompact', trigger: 'manual' }).event).toEqual({ kind: 'compactStart', trigger: 'manual' })
+    expect(h({ hook_event_name: 'SessionEnd', reason: 'user_exit' }).event).toEqual({ kind: 'end' })
+  })
+
+  it('asks when Copilot shows a person a dialog, and only then', () => {
+    expect(h({ hook_event_name: 'Notification', notification_type: 'permission_prompt', title: 'Permission needed', message: 'Run command: New-Item x' }).event).toEqual({ kind: 'ask', ask: { kind: 'permission', blocking: true, message: 'Run command: New-Item x' } })
+    expect(h({ hook_event_name: 'Notification', notification_type: 'elicitation_dialog', title: 'Information requested', message: 'Stub asks: pick one' }).event).toEqual({ kind: 'ask', ask: { kind: 'question', blocking: true, message: 'Stub asks: pick one' } })
+    expect(h({ hook_event_name: 'Notification', notification_type: 'agent_idle', message: 'Done' }).event).toEqual({ kind: 'ignore' })
+    // Sent also when Allow all approves the call itself: not a person being asked.
+    expect(h({ hookName: 'permissionRequest', toolName: 'powershell' }).event).toEqual({ kind: 'ignore' })
+  })
+
+  it('tells a refused sign-in from another error that ends the turn', () => {
+    expect(h({ hook_event_name: 'ErrorOccurred', error: { message: 'Request failed (401): Bad credentials', name: 'AuthError' }, error_context: 'model_call', recoverable: false }).event).toEqual({ kind: 'signIn', message: 'Request failed (401): Bad credentials' })
+    expect(h({ hook_event_name: 'ErrorOccurred', error: { message: 'rate limited' }, recoverable: false }).event).toEqual({ kind: 'stop', lastMessage: 'rate limited', failed: true })
+    expect(h({ hook_event_name: 'ErrorOccurred', error: { message: 'retrying' }, recoverable: true }).event).toEqual({ kind: 'ignore' })
+  })
+
+  it('answers a file lock in the format Copilot honours (deny, ask: its own dialog)', () => {
+    expect(copilot.lockReply({ kind: 'deny', reason: 'Agent 2 is editing a.ts' })).toEqual({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Agent 2 is editing a.ts' } })
+    expect(copilot.lockReply({ kind: 'ask', reason: 'held' })).toMatchObject({ hookSpecificOutput: { permissionDecision: 'ask' } })
+    expect(copilot.lockReply({ kind: 'warn', context: 'careful' })).toEqual({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'careful' } })
+  })
+
+  it('recognises its start errors', () => {
+    expect(copilot.startHint('Failed to read MCP config file "C:\\x\\mcp.json": The system cannot find the path specified.')?.fix).toBe('terminal')
+    expect(copilot.startHint("error: unexpected argument '--frobnicate' found")?.fix).toBe('agent-settings')
+    expect(copilot.startHint('Please use /login to sign in to use Copilot')?.fix).toBe('agent-setup')
+    expect(copilot.startHint('Model "gpt-9" is not available')?.fix).toBe('agent-settings')
+    expect(copilot.startHint('all good')).toBeNull()
+  })
+})
+
+describe('Copilot models', () => {
+  it("reads the account's models from an ACP session/new reply (Copilot Free: Auto only)", () => {
+    const reply = { sessionId: 'x', models: { availableModels: [{ modelId: 'auto', name: 'Auto', description: 'Let Copilot pick the best model' }, { modelId: 'auto', name: 'Auto', description: 'Auto', _meta: { copilotUsage: '1x', copilotEnablement: 'enabled' } }], currentModelId: 'auto' } }
+    expect(parseCopilotModels(reply)).toEqual({ models: [{ value: 'auto', label: 'Auto', description: 'Let Copilot pick the best model' }], defaultModel: 'auto' })
+    const paid = { models: { availableModels: [{ modelId: 'claude-opus-5.5', _meta: { copilotUsage: '3x', copilotEnablement: 'disabled' } }] } }
+    expect(parseCopilotModels(paid)).toEqual({ models: [{ value: 'claude-opus-5.5', label: 'Claude Opus 5.5', description: 'uses 3x', unavailable: true }] })
+    expect(parseCopilotModels({ models: { availableModels: [] } })).toBeNull()
+    expect(parseCopilotModels({})).toBeNull()
+    expect(parseCopilotModels(null)).toBeNull()
+  })
+})
+
+describe('Copilot files', () => {
+  it('reads skills from its own folders and three project folders, sharing Hive’s copies with Codex', () => {
+    const roots = copilot.skillRoots()
+    expect(roots.local).toEqual([join('.github', 'skills'), join('.agents', 'skills'), join('.claude', 'skills')])
+    expect(copilot.skillCopyPath(context(), 'deploy')).toBe(join(context().cwd, '.agents', 'skills', 'hive-deploy'))
+    expect(COPILOT_DESCRIPTOR.instructionsFile).toBe('AGENTS.md')
+  })
+
+  it("only shows its user instructions and skills from Copilot's folder, never its config or sign-in", () => {
+    const home = copilot.configHome()
+    expect(copilot.fileAllowed(join(home, 'copilot-instructions.md'), true)).toBe(true)
+    expect(copilot.fileAllowed(join(home, 'skills', 'x', 'SKILL.md'), false)).toBe(true)
+    expect(copilot.fileAllowed(join(home, 'skills', 'x', 'SKILL.md'), true)).toBe(false)
+    expect(copilot.fileAllowed(join(home, 'config.json'), false)).toBe(false)
+    expect(copilot.fileAllowed(join(home, 'session-state', 'x', 'events.jsonl'), false)).toBe(false)
+  })
+})
