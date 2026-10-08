@@ -957,6 +957,38 @@ kbd {
   cursor: pointer;
   flex-shrink: 0;
 }
+/* A search or filter box with a × that clears it (#433): the wrapper takes the box's place (its parent's rules size it),
+   the box fills it, and the × sits inside the box on the right while there is text. */
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.search-box > .input.input {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+}
+.search-box.has-text > .input.input {
+  padding-right: 26px;
+}
+.search-clear {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+}
+.search-clear .icon-btn {
+  width: 20px;
+  height: 20px;
+  color: var(--fg-muted);
+}
+.search-clear .icon-btn:hover:not(:disabled) {
+  color: var(--fg);
+}
 .icon-btn:hover:not(:disabled) {
   background: var(--bg-hover);
 }
@@ -1927,8 +1959,10 @@ p.hint {
   flex-direction: column;
   max-height: 60vh;
 }
-.palette .input {
+.palette .search-box {
   margin: 8px;
+}
+.palette .input {
   height: 30px;
 }
 .palette-list {
@@ -2327,9 +2361,11 @@ p.hint {
   gap: 12px;
   align-items: center;
 }
-.settings-top .input {
+.settings-top .search-box {
   flex: 1;
   max-width: 560px;
+}
+.settings-top .input {
   height: 30px;
 }
 .settings-body {
@@ -2649,9 +2685,10 @@ p.hint {
   padding: 0 10px 8px 14px;
   color: var(--fg-muted);
 }
-.files-filter .input {
+.files-filter .search-box {
   flex: 1;
-  min-width: 0;
+}
+.files-filter .input {
   height: 26px;
 }
 .file-tree {
@@ -5186,7 +5223,7 @@ button.mode-badge.badge:hover {
   gap: 8px;
   margin-bottom: 8px;
 }
-.kb-toolbar .input {
+.kb-toolbar .search-box {
   flex: 1;
   max-width: 420px;
 }
@@ -5858,7 +5895,7 @@ body.pane-resizing-v .monaco-editor {
   width: 300px;
   max-width: 40%;
 }
-.board-search .input {
+.board-search .search-box {
   flex: 1;
 }
 /* The expanded columns share the board's width; a collapsed one is a narrow strip (#170), and the others grow into
@@ -6757,7 +6794,7 @@ textarea.input.task-blocked-input {
   gap: 16px;
   margin-bottom: 12px;
 }
-.tips-top .input {
+.tips-top .search-box {
   flex: 1;
 }
 .tips-switch {

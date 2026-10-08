@@ -6,7 +6,7 @@ import { call } from '../api'
 import { commands, eventToKey, isProjectScoped, terminalReserved, type Command } from '../commands'
 import { confirm, notify, set, useStore } from '../store'
 import { formatKeybinding } from '../util'
-import { Icon, IconButton, Tooltip } from './ui'
+import { Icon, IconButton, SearchInput, Tooltip } from './ui'
 import { DataTable, type DataColumn } from './DataTable'
 
 /** Waits this long after the first combination for a second one, which makes a chord ("Ctrl+K Ctrl+S"). */
@@ -153,7 +153,7 @@ export function KeybindingsEditor({ project }: { project?: ProjectInfo }) {
     <div className="kb-editor">
       <div className="kb-toolbar">
         <Icon name="search" />
-        <input className="input" placeholder="Search commands or keys" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <SearchInput placeholder="Search commands or keys" value={query} onChange={setQuery} />
         <button className="btn subtle small" disabled={!rows.some((r) => r.overridden)} onClick={() => void resetAll()}>
           <Icon name="discard" /> Reset all
         </button>

@@ -18,10 +18,12 @@
 - **Save keeps a decision you're writing.** In a card, **Save** used to post a comment you were writing but drop a decision you were writing. It now records both (and a change you were making to a decision). **Add Decision** and **Comment** are highlighted while their box has text, and say that Save adds them too.
 
 ### Hive
+- **A clear (×) button in every search and filter box.** The board's search, Settings, the Files and Sessions tabs, the sidebar's filters, tables' filters, Tips, Keyboard Shortcuts and the command palette show an × while they have text: click it, or press Escape, to clear the box. In a dialog or the palette, the first Escape clears the box and the next closes it.
 - **Easier-to-read secondary text.** Timestamps, counts, card numbers, hints and other grey text, and amber text and icons, now meet the WCAG AA contrast level (4.5:1) on every background in both themes, hovered and selected rows included. Status dots meet 3:1, and a pulsing dot now changes shade instead of fading. Most of the change is in the light theme, where faint text was hard to read.
 
 ### Worktrees
 - **Unused worktrees live in the Changes tab.** Worktrees no agent uses now (kept when you removed their agent, or from another template) are listed in the Changes tab's folder picker, under **Unused worktrees**, next to the agents' worktrees. **All unused worktrees** has the same Remove, Remove all merged, Remove anyway… and Give to an agent… as before, and **Open** shows one's changes like an agent's worktree, with **Merge** to bring its work onto main (and remove it afterwards, if you like). The project Overview keeps a one-line count with a link.
+
 ### Terminal
 - **Card numbers are links.** When an agent or the Assistant mentions a card in its terminal, like "#383 is back On Hold", hover the number to see the card's title and column, and Ctrl+click it to open the card, as you would a file path. Only numbers of cards on your board are linked.
 

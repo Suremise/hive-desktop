@@ -115,6 +115,7 @@ export const SUITES = [
   { name: 'resume' },
   { name: 'resumeall' },
   { name: 'review' },
+  { name: 'searchclear' },
   { name: 'sessionname' },
   { name: 'sessionorigin' },
   { name: 'sessiontree' },

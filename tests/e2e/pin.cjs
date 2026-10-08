@@ -118,7 +118,9 @@ const both = async (page, on) => (await onTop(page)) === on && (await pinLit(pag
   await inv1('window:setAlwaysOnTop', true)
   check('…and sets it again', !!(await lib.until(async () => (await both(p1, true)) && (await row.locator('.codicon-check').count()) === 1, 5000)))
   check('…with the palette still open on the same search', (await p1.locator('.palette input').inputValue()) === 'Always on Top')
+  // The palette's first Escape clears what was typed (#433), the next closes it.
   await p1.keyboard.press('Escape')
+  if (await p1.locator('.palette').count()) await p1.keyboard.press('Escape')
 
   // --- A second window: its own pin.
   const next = app.waitForEvent('window')

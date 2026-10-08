@@ -10,7 +10,7 @@ import { cx, timeAgo } from '../util'
 import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
 import { formatDateTime } from '@shared/dates'
 import { returnRound } from '@shared/watch'
-import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, STATUS_TEXT, statusText, Tooltip, useBusy, useContextMenu, type MenuEntry } from './ui'
+import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, SearchInput, STATUS_TEXT, statusText, Tooltip, useBusy, useContextMenu, type MenuEntry } from './ui'
 import { DataTable, type DataColumn } from './DataTable'
 import { DialogList } from './Overlays'
 import { reportArchived, unarchiveBatch } from '../boardBatches'
@@ -792,7 +792,7 @@ export function BoardToolbar({
     <div className="board-toolbar">
       <div className="board-search">
         <Icon name="search" />
-        <input className="input" placeholder="Search cards (#12, words, labels)" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <SearchInput placeholder="Search cards (#12, words, labels)" value={query} onChange={setQuery} />
       </div>
       <label className="flex muted" style={{ cursor: 'pointer' }}>
         <input type="checkbox" className="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> Archived ({count})

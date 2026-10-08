@@ -20,6 +20,10 @@ With several Hive windows open, they share what the tips remember: a tip seen, t
 
 Any dialog (Add Agent, Agent Settings, a card, a question…) can be moved out of the way: drag it by its header. It stays inside the window, and **Escape** while dragging puts it back. A dialog opens in the middle again next time. A question over a dialog moves on its own, and Escape closes just the question. The image viewers stay where they are. When a dialog closes, the keyboard goes back to what had it before, such as the button that opened it. Pressing **Enter** to confirm a name (New Mode…, a rename) never presses that button again, so the dialog doesn't reopen.
 
+### Search and filter boxes
+
+Every search and filter box (the board's search, Settings, the Files and Sessions tabs, the sidebar's filters, tables' filters, Tips, Keyboard Shortcuts and the command palette) shows an **×** at its right while it has text: click it, or press **Escape**, to clear it and see everything again; the cursor stays in the box. In a dialog or the command palette, the first Escape clears the box and the next one closes it.
+
 ## Coding agents: Claude Code and Codex
 
 Hive calls the coding agents it can run **providers**. Each agent in a project chooses its own, so a project can have a Claude Code agent and a Codex agent working side by side. Hive shows each CLI's own terminal, exactly as it looks when you run it yourself.

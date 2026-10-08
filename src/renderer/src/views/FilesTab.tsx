@@ -7,7 +7,7 @@ import { call } from '../api'
 import { discardDrafts, draftsUnder, FileView, hasDraft, moveDrafts, useDraftVersion } from '../components/FileView'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { pasteIntoTerminal } from '../components/TerminalView'
-import { Icon, IconButton, InfoTip, LoadFailed, Modal, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
+import { Icon, IconButton, InfoTip, LoadFailed, Modal, SearchInput, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
 import { confirm, filesListeners, focusedAgentId, get, notify, openInSessionsTab, projectKey, set, setProjectTab, showAgent, UNUSED_ROOT, unusedRoot, useDateStyle, useStore } from '../store'
 import { useScopedLoad } from '../scopedLoad'
 import { cx, formatBytes, HIVE_FILES_MIME, IMAGE_EXT, imageUrl, quotePath, timeAgo } from '../util'
@@ -589,13 +589,11 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
         {selector}
         <div className="files-filter">
           <Icon name="search" />
-          <input
-            className="input"
+          <SearchInput
             placeholder="Find files by name or path"
             value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            onChange={setFilter}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') setFilter('')
               if (e.key === 'ArrowDown') {
                 e.preventDefault()
                 treeRef.current?.focus()

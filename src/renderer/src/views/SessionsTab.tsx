@@ -9,7 +9,7 @@ import { ProviderIcon } from '../components/ProviderIcon'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
-import { Icon, IconButton, InfoTip, LoadFailed, Markdown, Modal, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
+import { Icon, IconButton, InfoTip, LoadFailed, Markdown, Modal, SearchInput, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
 import { agentProviderOf, confirm, focusedAgentId, notify, openInSessionsTab, prompt, revealAgent, set, setAssistantOpen, useDateStyle, useStore } from '../store'
 import { cx, formatDuration, formatTokens, sessionLabel, timeAgo } from '../util'
 import { useSessions } from './ProjectTabs'
@@ -411,14 +411,12 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
         </div>
         <div className="files-filter">
           <Icon name="search" />
-          <input
+          <SearchInput
             ref={searchRef}
-            className="input"
             placeholder={`Search ${noun}s: names, dates, transcripts`}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={setQuery}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') setQuery('')
               if (e.key === 'Enter') {
                 const first = rows.find((r) => r.kind === 'hit') ?? rows.find((r) => r.kind === 'node' && r.node.kind === 'session')
                 if (first) activate(first)

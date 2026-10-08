@@ -24,7 +24,7 @@ import { DocEditor } from '../components/DocEditor'
 import { DiffView } from '../components/Editors'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { DataTable, useDateColumns, type DataColumn } from '../components/DataTable'
-import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, statusText, StatusDot, Switch, Tooltip } from '../components/ui'
+import { Icon, IconButton, InfoTip, LoadFailed, SearchInput, StaleNote, statusText, StatusDot, Switch, Tooltip } from '../components/ui'
 import { languageFor } from '../monacoLang'
 import { useScopedLoad } from '../scopedLoad'
 import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
@@ -1535,7 +1535,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     <div className="settings">
       <div className="settings-top">
         <Icon name="search" />
-        <input className="input" placeholder={`Search ${project.name} settings`} value={query} onChange={(e) => setQuery(e.target.value)} />
+        <SearchInput placeholder={`Search ${project.name} settings`} value={query} onChange={setQuery} />
         <a
           className="muted"
           onClick={() => {
