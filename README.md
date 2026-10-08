@@ -28,23 +28,38 @@ Hive looks and feels like a streamlined VS Code, but it is built around **agent 
 - **Files** — a file browser with an editor and previews for Markdown, CSV, HTML, SVG, images and PDFs; an Images tab for everything sent to the agents.
 - **Review** — git changes with side-by-side diffs; edit `CLAUDE.md`, `AGENTS.md` and Claude Code's auto memory, or share one `AGENTS.md` between providers.
 
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/board-light.png">
-  <img src="docs/images/board.png" alt="The task board with On Hold, Todo, Doing, Review, Passed and Done columns: cards with their agents, three under review by Codex reviewers, a stalled card and a blocked one" width="49%">
-</picture>
-<img src="docs/images/card.png" alt="A card's dialog: its description, two decisions pinned above the comments, and a reviewer's failed review with two numbered findings" width="49%">
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/progress-light.png">
-  <img src="docs/images/progress.png" alt="The Progress panel beside six working agents: one agent merging with the merge slot while two wait, a failed test run, a check run part of the way through its steps, and recent runs" width="49%">
-</picture>
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/merge-light.png">
-  <img src="docs/images/merge.png" alt="The Changes tab on a builder's worktree, with the Merge dialog open: one commit to merge into main" width="49%">
-</picture>
-<picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/modes-light.png">
-  <img src="docs/images/modes.png" alt="The Hive Assistant's mode menu: Coordinator, Planner, QA triager and Release manager, each with what it puts first" width="49%">
-</picture>
+<table>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/board-light.png">
+        <img src="docs/images/board.png" alt="The task board with On Hold, Todo, Doing, Review, Passed and Done columns: cards with their agents, three under review by Codex reviewers, a stalled card and a blocked one" width="100%">
+      </picture>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/card-light.png">
+        <img src="docs/images/card.png" alt="A card's dialog: its description, two decisions pinned above the comments, and a reviewer's failed review with two numbered findings" width="100%">
+      </picture>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/progress-light.png">
+        <img src="docs/images/progress.png" alt="The Progress panel beside six working agents: one agent merging with the merge slot while two wait, a failed test run, a check run part of the way through its steps, and recent runs" width="100%">
+      </picture>
+    </td>
+    <td width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="docs/images/modes-light.png">
+        <img src="docs/images/modes.png" alt="The Hive Assistant's mode menu: Coordinator, Planner, QA triager and Release manager, each with what it puts first" width="100%">
+      </picture>
+    </td>
+  </tr>
+</table>
+
+More on the website: [surmise.it](https://surmise.it)
 
 - **Token and plan insight** — a project summary across providers, context size, cache state, re-cache estimate, compaction history, API-equivalent cost (estimated from editable price tables where a provider doesn't report it), and each plan's usage limits with warnings.
 - **Workspace and project metadata** — a committed `Workspace/.hive` for shared notes, skills and MCP servers; a git-excluded `Project/.hive` for settings, session history, images and transcript backups.
