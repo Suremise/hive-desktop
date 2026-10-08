@@ -1039,6 +1039,28 @@ const launchedIn = (c, name) => {
   const file = require('path').join(c.ws, '.hive', 'assistant', '.hive', 'launch-assistant', 'instructions.md')
   return require('fs').existsSync(file) && require('fs').readFileSync(file, 'utf8').includes(`# Your mode: ${name}`)
 }
+// A bulk move (#417): a whole column in one call, not a call per card (hive_update_tasks).
+module.exports.SCENARIOS.push({
+  id: 'assistant-bulk-move',
+  title: 'The Assistant at Control agents moves several cards at once: one hive_update_tasks call, not a call per card',
+  role: 'assistant',
+  control: 'agents',
+  async setup(c) {
+    for (const k of ['q1', 'q2', 'q3', 'q4', 'q5']) await c.card(k, { title: `Parked ${k}`, column: 'hold' })
+  },
+  prompt: 'Move every card On Hold to Todo.',
+  fake: (c) => `hive hive_update_tasks {"numbers":[${['q1', 'q2', 'q3', 'q4', 'q5'].map((k) => c.cards[k]).join(',')}],"column":"todo"}`,
+  expect: (o, c) => {
+    const keys = ['q1', 'q2', 'q3', 'q4', 'q5'].map((k) => c.cards[k])
+    const batches = ran(o, 'hive_update_tasks')
+    return [
+      ['moved all five with one hive_update_tasks call', batches.length === 1 && keys.every((n) => String(batches[0].args).includes(String(n))), o.hiveCalls.map((x) => `${x.tool}${x.ok ? '' : '!'}`).join(',')],
+      ["didn't move them one at a time", !ran(o, 'hive_update_task').some((x) => keys.some((n) => field(x.args, 'number', n)))],
+      ['the five cards are in Todo', keys.every((n) => o.allCards.some((x) => x.number === n && x.column === 'todo'))]
+    ]
+  }
+});
+
 for (const [id, name] of MODES) {
   module.exports.SCENARIOS.push({
     id: `mode-${id}-plans`,

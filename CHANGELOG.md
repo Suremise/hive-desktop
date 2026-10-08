@@ -1,5 +1,10 @@
 # Release Notes
 
+## Unreleased
+
+### Hive Assistant
+- **Several cards in one change.** The Assistant can move or update up to 100 cards in one step: the same column, position, blocked, labels or agent on each. Each card is checked and changed on its own, with its own history line, and one it can't change (in Doing with another agent, say) is left as it was while the rest change. Its 30 changes per message count each card; a batch that doesn't fit changes none of them, and says how many would fit. Agents can batch the cards of their own project too.
+
 ## 0.4.0 — 7 October 2026
 
 ### Hive Assistant
