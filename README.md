@@ -8,36 +8,47 @@
 
 ---
 
-Hive looks and feels like a streamlined VS Code, but it is built around **agent sessions** rather than a text editor. Open a workspace, mark the projects you're working on, and add coding agents to them — **Claude Code** and **Codex**, even side by side in one project. Hive tracks what every agent is doing, how many tokens it uses, and which skills and MCP servers it has, and it tells you when an agent finishes or needs you.
+Hive looks and feels like a streamlined VS Code, but it is built around **agent sessions** rather than a text editor. Open a workspace, mark the projects you're working on, and give each one or more coding agents, or a whole team — **Claude Code** and **Codex**, even side by side in one project. Hive tracks what every agent is doing, how many tokens it uses, and which skills and MCP servers it has, and it tells you when an agent finishes or needs you. A **Hive Assistant** in each workspace can run the work for you: it plans cards, starts agents, follows each lane to the end and asks you only for real decisions.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hero-light.png">
-  <img src="docs/images/hero.png" alt="Hive running four agents side by side on one project">
+  <img src="docs/images/hero.png" alt="Hive with six of twelve agents working in a grid of six on one project, three Claude Code builders above three Codex reviewers, and the Hive Assistant beside them in Coordinator mode">
 </picture>
 
 ## Features
 
-- **Claude Code and Codex** — each agent chooses its provider, so a project can mix them; each CLI's own terminal is shown. Turn providers on in Settings → Providers; Help → Agent Setup installs and signs them in. **Hand Over to…** passes work from one agent to another, across providers, through a handover.
+- **Claude Code and Codex** — each agent chooses its provider, so a project can mix them, with Claude Code builders and Codex reviewers; each CLI's own terminal is shown. Turn providers on in Settings → Providers; Help → Agent Setup installs and signs them in, and says which versions this Hive was tested with. **Hand Over to…** passes work from one agent to another, across providers, through a handover.
 - **Parallel sessions** — sessions across your projects, as many as your machine can run, with live status (ready / working / needs input / waiting on background tasks / finished), Compact, and screenshots pasted straight into the session.
-- **Several agents per project** — up to twelve, all equal, six to a page, side by side in columns or a grid (the layout follows as you add them), each in the project folder (with file locks so they don't edit the same file) or in its own git worktree, then review and merge their work. Each agent shows which conversation it's on; Resume picks from recent sessions, and a conversation is only ever open in one agent.
-- **Hive Assistant** — one per workspace, in a side panel: ask it what your agents are doing, or let it add agents, give them tasks, wait for them and hand work between them. Personas set its role; Settings → Assistant sets what it may do.
+- **A team per project** — up to twelve agents, all equal, six to a page, each with its own name, role, provider, model, effort and permission mode. Each agent works in the project folder (with file locks so agents don't edit the same file) or in its own git worktree; roles such as builder and reviewer are optional. Save a team as a **template** and load it into any project, reusing clean worktrees instead of piling up new ones.
+- **Hive Assistant** — one per workspace, in a side panel beside your agents: ask it what they are doing, or let it run the work: it plans cards, briefs and starts agents, follows each lane to the end and asks you only for real decisions. Four working modes — Coordinator, Planner, QA triager and Release manager, or write your own; Settings → Assistant sets what it may do.
+- **Card loops on the task board** — one board for the workspace, from On Hold and Todo through Doing, Review and Passed to Done. Builders and reviewers take cards in turn: a reviewer passes a card or sends it back with numbered findings, and each waits for the other without running. What you decide about a card is pinned above its comments, and agents follow it over the description.
+- **Worktrees and one merge at a time** — give an agent its own worktree and branch, review what it changed, then merge it back, keeping its commits or squashing them. Agents take turns at the merge slot, and the Progress panel shows who is merging, who is waiting and how far each long run has got.
 - **Several windows** — open another workspace in its own window, each with its own projects and agents.
 - **Transcript viewer** — read every session in full, including what came before each compaction, search across sessions, export as Markdown and resume.
 - **Files** — a file browser with an editor and previews for Markdown, CSV, HTML, SVG, images and PDFs; an Images tab for everything sent to the agents.
 - **Review** — git changes with side-by-side diffs; edit `CLAUDE.md`, `AGENTS.md` and Claude Code's auto memory, or share one `AGENTS.md` between providers.
 
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/merge-light.png">
-  <img src="docs/images/merge.png" alt="Merging a worktree agent's work from the Changes tab" width="49%">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/board-light.png">
+  <img src="docs/images/board.png" alt="The task board with On Hold, Todo, Doing, Review, Passed and Done columns: cards with their agents, three under review by Codex reviewers, a stalled card and a blocked one" width="49%">
+</picture>
+<img src="docs/images/card.png" alt="A card's dialog: its description, two decisions pinned above the comments, and a reviewer's failed review with two numbered findings" width="49%">
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/progress-light.png">
+  <img src="docs/images/progress.png" alt="The Progress panel beside six working agents: one agent merging with the merge slot while two wait, a failed test run, a check run part of the way through its steps, and recent runs" width="49%">
 </picture>
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/files-light.png">
-  <img src="docs/images/files.png" alt="A Markdown file in the Files tab, with its source and preview side by side" width="49%">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/merge-light.png">
+  <img src="docs/images/merge.png" alt="The Changes tab on a builder's worktree, with the Merge dialog open: one commit to merge into main" width="49%">
+</picture>
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/modes-light.png">
+  <img src="docs/images/modes.png" alt="The Hive Assistant's mode menu: Coordinator, Planner, QA triager and Release manager, each with what it puts first" width="49%">
 </picture>
 
 - **Token and plan insight** — a project summary across providers, context size, cache state, re-cache estimate, compaction history, API-equivalent cost (estimated from editable price tables where a provider doesn't report it), and each plan's usage limits with warnings.
 - **Workspace and project metadata** — a committed `Workspace/.hive` for shared notes, skills and MCP servers; a git-excluded `Project/.hive` for settings, session history, images and transcript backups.
-- **Skills and MCP management** — every Hive skill reaches every agent, with six bundled; enable MCP servers for the whole workspace and turn them off per project. Changes apply to new sessions.
+- **Skills and MCP management** — every Hive skill reaches every agent, the bundled ones for card loops, merging and handovers among them; enable MCP servers for the whole workspace and turn them off per project. Changes apply to new sessions.
 - **Session lifecycle** — new, resume (the agent's last session, or pick one), stop, archive, delete (Hive's copies go to the Recycle Bin), adopt sessions started elsewhere.
 - **Per-provider and per-project settings** — model, effort, permission mode, extra CLI arguments, globally per provider and overridden per project or agent.
 - **Agent API** — a local REST API and a built-in `hive` MCP server so agents can read shared notes, write handovers, check other projects and notify you.
@@ -47,8 +58,8 @@ Hive looks and feels like a streamlined VS Code, but it is built around **agent 
 ## Requirements
 
 - Windows 10 or 11 (x64)
-- At least one coding agent CLI: [Claude Code](https://code.claude.com/docs/en/setup) and/or [Codex](https://developers.openai.com/codex). Hive's Agent Setup offers to install them. Copies built into editor extensions are not used.
-- Git (optional, for the Changes tab)
+- At least one coding agent CLI: [Claude Code](https://code.claude.com/docs/en/setup) and/or [Codex](https://developers.openai.com/codex). Hive's Agent Setup offers to install them. Copies built into editor extensions are not used. Hive 0.4.0 was tested with Claude Code 2.1.293 and Codex 0.161.0.
+- Git (for the Changes tab, worktrees and merging)
 
 ## Install
 
