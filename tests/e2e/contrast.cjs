@@ -51,15 +51,20 @@ function measure([selector, parts]) {
   const panel = under ? parse(getComputedStyle(under).backgroundColor) : [255, 255, 255, 1]
   const bg = over(parse(getComputedStyle(el).backgroundColor), panel)
   const out = { background: bg.map(Math.round) }
-  // A part's colour as seen: its alpha times the opacity of it and its parents up to the measured element.
-  const seen = (part) => {
+  // A part's colour as seen: its alpha times the opacity of it and its parents up to the measured element. A part
+  // with a fill of its own (a key's) is read on that fill, over the element's (#446).
+  const seen = (part, fill) => {
     const c = parse(getComputedStyle(part).color)
     for (let n = part; n && n !== el.parentElement; n = n.parentElement) c[3] *= Number(getComputedStyle(n).opacity)
-    return over(c, bg)
+    return over(c, fill)
+  }
+  const fillOf = (part) => {
+    const f = part === el ? null : parse(getComputedStyle(part).backgroundColor)
+    return f && f[3] > 0 ? over(f, bg) : bg
   }
   for (const p of parts) {
     const part = p === '' ? el : el.querySelector(p)
-    out[p || 'label'] = part ? ratio(seen(part), bg) : null
+    out[p || 'label'] = part ? ratio(seen(part, fillOf(part)), fillOf(part)) : null
   }
   return out
 }
@@ -125,14 +130,19 @@ function measure([selector, parts]) {
     await page.keyboard.press('Escape')
     await lib.until(async () => (await menu.count()) === 0, 3000)
 
-    // The command palette's chosen row: its label, category and shortcut.
+    // The command palette's chosen row: its label, category and shortcut, a command with one chosen (#446: the key on
+    // its own fill).
     await page.keyboard.press('Control+Shift+P')
     const row = page.locator('.palette-item.active')
     check(`${theme}: the palette opens with a chosen row`, !!(await lib.until(async () => (await row.count()) === 1, 5000)))
+    await page.locator('.palette input').fill('Show Task Board')
+    await lib.until(async () => (await row.locator('kbd').count()) === 1, 3000)
     const pal = await page.evaluate(measure, ['.palette-item.active', ['', '.cat', 'kbd']])
-    check(`${theme}: the palette's chosen row reaches 4.5:1 (label, category, shortcut)`, !!pal && Object.entries(pal).every(([k, v]) => k === 'background' || v === null || v >= 4.5), JSON.stringify(pal))
+    check(`${theme}: the palette's chosen row reaches 4.5:1 (label, category, shortcut)`, !!pal && pal.kbd !== null && Object.entries(pal).every(([k, v]) => k === 'background' || v === null || v >= 4.5), JSON.stringify(pal))
     await shot(`${theme}-palette`)
+    // The first Escape clears the box (#433), the next closes the palette.
     await page.keyboard.press('Escape')
+    if (await page.locator('.palette').count()) await page.keyboard.press('Escape')
     await lib.sleep(200)
 
     // The status bar (#384): one of its own items, resting and hovered; then items of each kind added beside them.

@@ -1984,9 +1984,15 @@ p.hint {
   background: var(--accent-fill);
   color: var(--accent-fg);
 }
-.palette-item.active .cat,
+.palette-item.active .cat {
+  color: var(--accent-fg);
+}
+/* Its shortcut on the amber row (#446): a translucent key with the row's text colour, as on a primary button, not the
+   key's own light fill (white text on it was invisible in the light theme). */
 .palette-item.active kbd {
   color: var(--accent-fg);
+  background: rgba(0, 0, 0, 0.15);
+  border-color: rgba(0, 0, 0, 0.2);
 }
 .palette-item kbd {
   margin-left: auto;
