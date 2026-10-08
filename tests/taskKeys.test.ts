@@ -3,7 +3,7 @@
 // the folder over "loading" in place; output can end anywhere, inside a word or an escape sequence.
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 
 // Hive's terminals, recorded instead (no process runs).
 const pty = vi.hoisted(() => ({ onData: null as ((d: string) => void) | null, open: new Set<string>(), typed: [] as { at: number; keys: string }[] }))
@@ -21,6 +21,7 @@ vi.mock('../src/main/ptyHost', async (original) => ({
 const { CODEX_LOADED } = await import('../src/main/providers/codex/adapter')
 const { KeyGate } = await import('../src/main/taskKeys')
 const { providerService } = await import('../src/main/providerService')
+const { TerminalScreen } = await import('../src/main/terminalScreen')
 
 const { stream } = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'codex-startup-0.160.0.json'), 'utf8')) as { stream: string }
 const BUSY = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/
@@ -31,8 +32,40 @@ const version = stream.indexOf('(v0.160.0)')
 /** The first spinner frame in its title, and its end (the plain title the fixture ends with). */
 const spinner = stream.indexOf('\x1b]0;⠹')
 const spinnerEnd = stream.lastIndexOf('\x1b]0;hive-codex-setup\x07')
-/** The terminal parses what it is given a moment later. */
-const parsed = () => new Promise((r) => setTimeout(r, 20))
+// The terminal parses what it is given asynchronously, and the gate sets `ready` when it has parsed the screen. The wait is
+// for that: every write the terminals have been given has been parsed (its callback ran), or its screen was disposed (no
+// callback comes). A fixed delay raced the parser: about 15 ms a write on an idle machine, and not much less than 20 ms
+// on a loaded one (#335).
+type Pending = { screen: InstanceType<typeof TerminalScreen>; done: Promise<void>; settle: () => void }
+const pending = new Set<Pending>()
+const write = TerminalScreen.prototype.write
+const dispose = TerminalScreen.prototype.dispose
+vi.spyOn(TerminalScreen.prototype, 'write').mockImplementation(function (this: InstanceType<typeof TerminalScreen>, data: string, parsedCallback?: () => void) {
+  let resolve: () => void = () => undefined
+  const done = new Promise<void>((r) => (resolve = r))
+  const entry: Pending = {
+    screen: this,
+    done,
+    settle: () => {
+      pending.delete(entry)
+      resolve()
+    }
+  }
+  pending.add(entry)
+  write.call(this, data, () => {
+    parsedCallback?.()
+    entry.settle()
+  })
+  // A screen that is already gone takes nothing, and no callback is coming.
+  if (!(this as unknown as { term: unknown }).term) entry.settle()
+})
+vi.spyOn(TerminalScreen.prototype, 'dispose').mockImplementation(function (this: InstanceType<typeof TerminalScreen>) {
+  dispose.call(this)
+  for (const e of [...pending]) if (e.screen === this) e.settle()
+})
+afterAll(() => vi.restoreAllMocks())
+/** Resolves once everything the terminals were given so far has been parsed (or its screen disposed). */
+const parsed = (): Promise<void> => Promise.all([...pending].map((e) => e.done)).then(() => undefined)
 
 describe('KeyGate', () => {
   it('the fixture is what it says: the prompt drawn while loading, then the folder over "loading"', () => {

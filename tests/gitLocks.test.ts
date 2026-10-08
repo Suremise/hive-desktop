@@ -12,6 +12,21 @@ const base = mkdtempSync(join(tmpdir(), 'hive-gitlocks-'))
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 let n = 0
 
+// A read by git in the instant the user's commit writes the branch, or their add replaces the index, can see the branch
+// with no commits yet or the index not open (#381). Such a read is repeated once the write has landed (each try waits
+// for the next), and is not a failure: the user's own add and commit are what must never fail, and they are still counted.
+const RACING = /does not have any commits yet|index file open failed/
+async function landed(call: () => Promise<unknown>): Promise<unknown> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await call()
+    } catch (e) {
+      if (!RACING.test(String(e)) || attempt >= 1000) throw e
+      await new Promise((r) => setTimeout(r, 5))
+    }
+  }
+}
+
 /** A repository with a.txt…g.txt committed on main; `run` is git there as the user's own commands would be. */
 function repo(): { dir: string; run: (...a: string[]) => string; index: string } {
   const dir = join(base, `r${++n}`)
@@ -84,7 +99,7 @@ describe("Hive's git calls and the index (#212)", () => {
     const loop = async (call: () => Promise<unknown>) => {
       let k = 0
       while (running.on) {
-        await call()
+        await landed(call)
         k++
       }
       return k
