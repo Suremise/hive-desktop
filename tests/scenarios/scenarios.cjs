@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 23
+const FIXTURES_VERSION = 24
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -1064,14 +1064,15 @@ module.exports.SCENARIOS = [
   },
   {
     id: 'assistant-reply-decision',
-    title: "The Assistant told the user answered an agent in its pane (#418): it records the answer as the card's decision, without asking again",
+    title: "The Assistant told the user answered an agent in its pane (#418), by the name in Settings (#426): it records the answer as the card's decision, without asking again",
     role: 'assistant',
     control: 'agents',
     async setup(c) {
       await c.card('r', { title: 'Pick the app icon', description: 'Coder asked the user which icon to use: A (a bee), B (a honeycomb) or C (a hive cell).', agent: 'coder', column: 'doing' })
+      await c.inv('settings:update', { general: { userName: 'Darren' } })
     },
-    // What Hive types into the Assistant's card watch when the user answers Coder in its pane.
-    prompt: (c) => `[Hive] The user replied to Coder on #${c.cards.r}: "C, the hive cell". Your card watch has ended: carry on (hive_read_task for the card, hive_agent_activity for the agent).`,
+    // What Hive types into the Assistant's card watch when the user (Settings → General → Your name: Darren) answers Coder in its pane.
+    prompt: (c) => `[Hive] Darren replied to Coder on #${c.cards.r}: "C, the hive cell". Your card watch has ended: carry on (hive_read_task for the card, hive_agent_activity for the agent).`,
     fake: (c) => `skill coordinate-agents then hive hive_update_task {"number":${c.cards.r},"decision":"The app icon is C, the hive cell."}`,
     expect: (o, c) => {
       const decided = ran(o, 'hive_update_task').some((x) => field(x.args, 'number', c.cards.r) && /hive cell|\bC\b/i.test(String(argsOf(x).decision ?? '')))

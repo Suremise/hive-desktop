@@ -3,7 +3,7 @@ import { app } from 'electron'
 import { link, mkdir, readFile, rename, rm, writeFile } from 'original-fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
-import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, releasedLine, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
+import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
 import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, readSavedAgentMark, replyFirstLine, type AgentEvent, type AgentMark, type AgentNow, type AgentWatchCondition, type WatchedAgent } from '../shared/agentWatch'
 import type { LiveSessionState, TaskCard, TaskWatchInfo } from '../shared/types'
 import { config } from './config'
@@ -35,6 +35,8 @@ import { openWorkspaces, workspaceFor, type WorkspaceService } from './workspace
  */
 
 const log = createLogger('watches')
+/** The user, as the Assistant's wake lines name them (#426): Settings → General → Your name. */
+const userName = (): string => userNameOf(config.settings.general?.userName)
 
 interface WatchRecord {
   id: string
@@ -986,7 +988,7 @@ async function evaluateAgents(store: Store): Promise<void> {
       if (!rec.agents || rec.fired) continue
       const hits = agentHits(rec)
       if (!hits.length) continue
-      rec.fired = { line: fitLine(agentWakeLine(hits)), at: new Date().toISOString(), cards: [], agents: hits.map((h) => agentKey(h.agent.projectPath, h.agent.agentId)), ...(hits.some((h) => h.reply !== undefined) ? { replies: true as const } : {}) }
+      rec.fired = { line: fitLine(agentWakeLine(hits, userName())), at: new Date().toISOString(), cards: [], agents: hits.map((h) => agentKey(h.agent.projectPath, h.agent.agentId)), ...(hits.some((h) => h.reply !== undefined) ? { replies: true as const } : {}) }
       changed = true
     }
     if (changed) await saveQuietly(store)
@@ -1091,7 +1093,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
         sessions.watchChanged(rec.projectPath, rec.agentId)
         return
       } else if (r.hits.length || r.replies.length) {
-        const made = cardWakeLine(r.hits, r.replies.map((x) => x.note), rec.released ?? [])
+        const made = cardWakeLine(r.hits, r.replies.map((x) => x.note), rec.released ?? [], userName())
         line = fitLine(made.line)
         telling = r.replies.length > 0
         if (r.hits.length) told = r.told
@@ -1107,7 +1109,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
       // given work again since is still told what it did (and that it is working again).
       const hits = agentHits(rec)
       if (hits.length) {
-        line = fitLine(agentWakeLine(hits))
+        line = fitLine(agentWakeLine(hits, userName()))
         telling = hits.some((h) => h.reply !== undefined)
         for (const h of hits) toldAgents.set(agentKey(h.agent.projectPath, h.agent.agentId), h.seq)
       } else if (rec.fired.replies) {
@@ -1384,7 +1386,7 @@ async function evaluate(ws: WorkspaceService): Promise<void> {
         const hits = r.hits
         if (!hits.length && !r.replies.length) continue
         const cards = [...new Set([...hits.filter((h) => h.changes !== 'gone').map((h) => h.number), ...r.replies.flatMap((x) => x.note.cards)])]
-        rec.fired = { line: fitLine(cardWakeLine(hits, r.replies.map((x) => x.note), rec.released ?? []).line), at: new Date().toISOString(), cards, ...(r.replies.length ? { replies: true as const } : {}) }
+        rec.fired = { line: fitLine(cardWakeLine(hits, r.replies.map((x) => x.note), rec.released ?? [], userName()).line), at: new Date().toISOString(), cards, ...(r.replies.length ? { replies: true as const } : {}) }
         changed = true
       } catch (e) {
         if (!alive(store)) throw e

@@ -84,7 +84,7 @@ const check = (name, ok, extra = '') => {
   check('the reply wakes the Assistant', !!(await until(async () => wakes().length >= 1, 20000)))
   await lib.sleep(2000) // A fixed wait on purpose: this checks that a second line does NOT come.
   const w1 = wakes()
-  check('…once, with the reply, the agent and the card', w1.length === 1 && w1[0].startsWith(`[Hive] The user replied to Builder on #${card}: "C, the hive cell"`), JSON.stringify(w1))
+  check('…once, with the reply, the agent and the card', w1.length === 1 && w1[0].startsWith(`[Hive] User replied to Builder on #${card}: "C, the hive cell"`), JSON.stringify(w1))
   await until(async () => (await idle(home, 'assistant')) && (await idle(alpha, builder.id)), 20000)
 
   // A line Hive types into Builder (a task the Assistant gives it, then watches its card) isn't the user's.
@@ -102,10 +102,10 @@ const check = (name, ok, extra = '') => {
   await lib.sleep(2000) // A fixed wait on purpose: this checks that nothing is told with the setting off.
   check('with the setting off: no wake', wakes().length === 1, JSON.stringify(wakes().slice(1)))
   check('…and the Assistant still watches', (await live(home, 'assistant'))?.status === 'watching')
-  // On again: told.
-  await inv('settings:update', { assistant: { tellReplies: true } })
+  // On again: told, naming the user as Settings → General → Your name says (#426).
+  await inv('settings:update', { assistant: { tellReplies: true }, general: { userName: 'Darren' } })
   await type(alpha, builder.id, 'Ship it')
-  check('on again: the next reply is told', !!(await until(async () => wakes().length === 2 && wakes()[1].startsWith(`[Hive] The user replied to Builder on #${card}: "Ship it"`), 20000)), JSON.stringify(wakes().slice(1)))
+  check('on again: the next reply is told, by the name in Settings', !!(await until(async () => wakes().length === 2 && wakes()[1].startsWith(`[Hive] Darren replied to Builder on #${card}: "Ship it"`), 20000)), JSON.stringify(wakes().slice(1)))
 
   await app.close()
   console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED')

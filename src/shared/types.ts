@@ -105,6 +105,8 @@ export interface AppSettings {
     dateFormat: DateFormat
     /** How times show with them: 24-hour (14:05) by default. */
     timeFormat: TimeFormat
+    /** How Hive names the user to the Hive Assistant (#426): "User replied to B1 on #399". "User" by default. */
+    userName: string
   }
   appearance: {
     theme: ThemeSetting

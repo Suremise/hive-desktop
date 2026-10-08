@@ -44,7 +44,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     progressPanel: true,
     progressCommands: true,
     dateFormat: 'ymd',
-    timeFormat: '24h'
+    timeFormat: '24h',
+    userName: 'User'
   },
   appearance: {
     theme: 'dark',
