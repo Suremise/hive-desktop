@@ -4,8 +4,12 @@
 // by the caller, and the API can't change or remove one. The card's tile counts them, with a tooltip. GET /v1/tasks/{n}
 // lists them first. Closing the card while a decision is being changed asks first, and waits for one being saved. An agent
 // working on the card hears of a decision recorded meanwhile in its next reply, also from a tool that isn't the board's
-// (its own token; the real hive MCP server adds the line). The agent runs the fake Claude Code. Both themes. Dev build,
-// throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// (its own token; the real hive MCP server adds the line). The dialog's Save keeps everything typed in it (#432): a
+// decision being written is recorded as the user's, a comment posted, both once each, a change to a decision saved,
+// and a failed save leaves the dialog open with the words, also through Move to Doing, whose Try Again writes nothing
+// twice; a decision changed to nothing is refused; Add Decision and Comment stand out while their box has text,
+// saying Save adds them too. The agent runs the fake Claude Code. Both themes. Dev build, throwaway profile, workspace
+// and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const { execFileSync } = require('child_process')
@@ -158,6 +162,119 @@ const check = (name, ok, extra = '') => {
   await until(async () => (await changing.getByLabel('Decision').count()) === 0, 5000)
   await page.keyboard.press('Escape')
   check('with nothing unsaved, the card closes', !!(await until(async () => (await dialog.count()) === 0, 5000)))
+
+  // --- Save keeps everything typed in the dialog (#432), on a card of its own.
+  const m = (await inv('tasks:create', { title: 'Password reset', project: 'alpha' })).number
+  const mTile = page.locator(`.task-card[data-task="${m}"]`)
+  const mDialog = page.locator('.dialog', { hasText: `#${m}` })
+  const open = async () => {
+    await until(async () => (await mTile.count()) === 1, 5000)
+    await mTile.click()
+    await until(async () => (await mDialog.count()) === 1, 5000)
+  }
+  const saveAndClose = async () => {
+    await mDialog.locator('.dialog-footer').getByRole('button', { name: 'Save', exact: true }).click()
+    return !!(await until(async () => (await mDialog.count()) === 0, 8000))
+  }
+  const addDecision = mDialog.getByRole('button', { name: 'Add Decision' })
+  const postComment = mDialog.getByRole('button', { name: 'Comment', exact: true })
+  await open()
+  check('Add Decision and Comment are plain, with no hint, while their boxes are empty', !(await addDecision.getAttribute('class')).includes('primary') && !(await postComment.getAttribute('class')).includes('primary') && (await mDialog.getByText(/Save (adds|posts) it too/).count()) === 0)
+  await mDialog.getByLabel('New decision').fill('Reset links last one hour.')
+  await mDialog.getByLabel('New comment').fill('Checked the mail template.')
+  check('…and stand out once there is text, each saying Save adds it too', (await addDecision.getAttribute('class')).includes('primary') && (await postComment.getAttribute('class')).includes('primary') && (await mDialog.getByText('Save adds it too').count()) === 1 && (await mDialog.getByText('Save posts it too').count()) === 1)
+  await mDialog.getByLabel('New decision').scrollIntoViewIfNeeded()
+  await shot('save-drafts')
+  check('Save with a decision and a comment being written closes the card', await saveAndClose())
+  const after = await card(m)
+  check('…recording the decision as the user\'s, once', after.decisions?.length === 1 && after.decisions[0].text === 'Reset links last one hour.' && after.decisions[0].decidedBy === 'user' && after.decisions[0].recordedBy === 'You', JSON.stringify(after.decisions))
+  check('…and posting the comment, once', after.comments.filter((c) => c.text === 'Checked the mail template.').length === 1 && after.comments.length === 1, JSON.stringify(after.comments))
+
+  // A decision alone, then a comment alone.
+  await open()
+  await mDialog.getByLabel('New decision').fill('Links work once.')
+  check('Save with only a decision being written records it', (await saveAndClose()) && (await card(m)).decisions.map((d) => d.text).join('|') === 'Reset links last one hour.|Links work once.' && (await card(m)).comments.length === 1)
+  await open()
+  await mDialog.getByLabel('New comment').fill('Template updated.')
+  check('Save with only a comment being written posts it', (await saveAndClose()) && (await card(m)).comments.length === 2 && (await card(m)).decisions.length === 2)
+
+  // A change to a decision, saved by the dialog's Save too.
+  await open()
+  const mItems = mDialog.locator('.task-decision')
+  await mItems.nth(1).getByRole('button', { name: 'Change this decision' }).click()
+  await mItems.nth(1).getByLabel('Decision').fill('Links work once, for one hour.')
+  check('Save with a decision being changed saves the change', (await saveAndClose()) && (await card(m)).decisions[1].text === 'Links work once, for one hour.' && (await card(m)).decisions.length === 2)
+
+  // A failed save: the dialog stays open with the words, nothing recorded; Save again records it once.
+  await open()
+  await mDialog.getByLabel('New decision').fill('Expired links say so.')
+  await app.evaluate(() => {
+    process.env.HIVE_TEST_FAIL_IPC = 'tasks:update*1'
+  })
+  await mDialog.locator('.dialog-footer').getByRole('button', { name: 'Save', exact: true }).click()
+  await until(async () => (await mDialog.locator('.dialog-error, .field-error, .error').count()) > 0, 5000)
+  check('a failed save leaves the dialog open, the decision still typed, nothing recorded', (await mDialog.count()) === 1 && (await mDialog.getByLabel('New decision').inputValue()) === 'Expired links say so.' && (await card(m)).decisions.length === 2)
+  await app.evaluate(() => {
+    delete process.env.HIVE_TEST_FAIL_IPC
+  })
+  check('…and Save again records it, once', (await saveAndClose()) && (await card(m)).decisions.filter((d) => d.text === 'Expired links say so.').length === 1)
+
+  // Ctrl+Enter in the decision box adds just the decision: a comment being written stays in its box.
+  await open()
+  await mDialog.getByLabel('New comment').fill('Not yet.')
+  await mDialog.getByLabel('New decision').fill('Log each reset.')
+  await mDialog.getByLabel('New decision').press('Control+Enter')
+  check('Ctrl+Enter in the decision box adds only the decision', !!(await until(async () => (await card(m)).decisions.length === 4, 5000)) && (await card(m)).comments.length === 2 && (await mDialog.getByLabel('New comment').inputValue()) === 'Not yet.')
+  await mDialog.getByLabel('New comment').fill('')
+
+  // A decision changed to nothing: Save refuses it, saying why, and keeps the editor; nothing changes.
+  const before = JSON.stringify((await card(m)).decisions)
+  await mItems.nth(0).getByRole('button', { name: 'Change this decision' }).click()
+  await mItems.nth(0).getByLabel('Decision').fill('   ')
+  await mDialog.locator('.dialog-footer').getByRole('button', { name: 'Save', exact: true }).click()
+  check('Save with a decision changed to nothing refuses it, says why and keeps the editor', !!(await until(async () => /A decision can't be empty/.test(await mDialog.innerText().catch(() => '')), 5000)) && (await mDialog.count()) === 1 && (await mItems.nth(0).getByLabel('Decision').count()) === 1 && JSON.stringify((await card(m)).decisions) === before)
+  await mItems.nth(0).getByRole('button', { name: 'Cancel' }).click()
+  await page.keyboard.press('Escape')
+  await until(async () => (await mDialog.count()) === 0, 5000)
+
+  // Save into Doing goes through Move to Doing, which saves the drafts first; its Try Again writes nothing twice.
+  const moveDialog = page.locator('.dialog', { hasText: `Move #${m} to Doing` })
+  const viaMoveToDoing = async (fail) => {
+    await mDialog.locator('select').nth(2).selectOption('doing')
+    await mDialog.locator('.dialog-footer').getByRole('button', { name: 'Save', exact: true }).click()
+    if (!(await until(async () => (await moveDialog.count()) === 1, 5000))) {
+      await page.screenshot({ path: path.join(lib.WORK, 'decisions-move-missing.png') })
+      return false
+    }
+    // The function gets Electron's module first, then the argument.
+    await app.evaluate((_e, f) => {
+      process.env.HIVE_TEST_FAIL_IPC = f
+    }, fail)
+    await moveDialog.locator('.dialog-footer .btn.primary').click()
+    const refused = !!(await until(async () => (await moveDialog.locator('.dialog-footer .btn.primary').innerText({ timeout: 1000 }).catch(() => '')).includes('Try Again'), 8000))
+    if (!refused) await page.screenshot({ path: path.join(lib.WORK, 'decisions-move-nofail.png') })
+    await app.evaluate(() => {
+      delete process.env.HIVE_TEST_FAIL_IPC
+    })
+    await moveDialog.locator('.dialog-footer .btn.primary').click()
+    return refused && !!(await until(async () => (await moveDialog.count()) === 0 && (await mDialog.count()) === 0 && (await card(m)).column === 'doing', 8000))
+  }
+  const decisionsBefore = (await card(m)).decisions.length
+  const commentsBefore = (await card(m)).comments.length
+  await open()
+  await mDialog.getByLabel('New decision').fill('Reset mails name the app.')
+  await mDialog.getByLabel('New comment').fill('Moving it on.')
+  check('Move to Doing with both drafts, the comment failing once: Try Again moves it', await viaMoveToDoing('tasks:comment*1'))
+  const doing = await card(m)
+  check('…with the decision recorded once and the comment posted once', doing.decisions.length === decisionsBefore + 1 && doing.decisions.filter((d) => d.text === 'Reset mails name the app.').length === 1 && doing.comments.filter((c) => c.text === 'Moving it on.').length === 1 && doing.comments.length === commentsBefore + 1, JSON.stringify({ decisions: doing.decisions.map((d) => d.text), comments: doing.comments.map((c) => c.text) }))
+  await inv('tasks:update', m, { column: 'todo' })
+  // The board has it in Todo before the card opens (the dialog takes its fields from the board as it opens).
+  await until(async () => (await page.locator(`[data-column="todo"] .task-card[data-task="${m}"]`).count()) === 1, 5000)
+  await open()
+  await mDialog.getByLabel('New comment').fill('Second try.')
+  // The move itself fails once (after the comment was posted): Try Again posts nothing again.
+  check('Move to Doing with a comment, the move failing once: Try Again moves it', await viaMoveToDoing('tasks:update*1'))
+  check('…with the comment posted once', (await card(m)).comments.filter((c) => c.text === 'Second try.').length === 1 && (await card(m)).decisions.length === decisionsBefore + 1)
 
   // An agent on the card: its next reply flags a decision recorded since it read the card, whatever tool it called.
   const coder = await lib.addAgent(inv, alpha, { name: 'Coder' })

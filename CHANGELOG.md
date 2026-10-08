@@ -14,6 +14,9 @@
 - **The Assistant waits on agents without checking in.** Asked to tell you when an agent is done with work that has no card (a build, a test run, a push and its CI), the Assistant used to check on it every few minutes, each check costing context and tokens. Now it starts an **agent watch** and stops: Hive wakes it with one line when the agent finishes, needs you, or stops (*"B6 (hive) finished: "The installer is built…""*), and its status line says **Waiting for B6 to finish** meanwhile. Agents can watch another agent the same way (`hive_wait_for_agents` with `wake`).
 - **The Assistant hears when you answer an agent yourself.** When you reply to an agent in its pane while the Assistant is watching it (or its card), the Assistant is told the first line of what you sent, so it doesn't ask you again and can record your decision on the card. **Settings → Assistant → Tell the Assistant when I reply to an agent** turns it off.
 
+### Board
+- **Save keeps a decision you're writing.** In a card, **Save** used to post a comment you were writing but drop a decision you were writing. It now records both (and a change you were making to a decision). **Add Decision** and **Comment** are highlighted while their box has text, and say that Save adds them too.
+
 ### Hive
 - **Easier-to-read secondary text.** Timestamps, counts, card numbers, hints and other grey text, and amber text and icons, now meet the WCAG AA contrast level (4.5:1) on every background in both themes, hovered and selected rows included. Status dots meet 3:1, and a pulsing dot now changes shade instead of fading. Most of the change is in the light theme, where faint text was hard to read.
 

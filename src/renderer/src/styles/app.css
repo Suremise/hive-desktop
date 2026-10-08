@@ -6402,6 +6402,13 @@ textarea.input.task-blocked-input {
   align-items: flex-end;
   gap: 6px;
 }
+/* Add Decision and Comment, with "Save adds it too" beside them while their box has text (#432). */
+.task-new-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
 .task-decision-edit textarea,
 .task-decision-new textarea {
   width: 100%;
