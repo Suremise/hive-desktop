@@ -96,6 +96,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     changeSettings: false,
     typingPause: 15,
     enterEndsPause: true,
+    tellReplies: true,
     panelSide: 'right',
     compactSuggestTokens: 500000,
     providers: Object.fromEntries(PROVIDERS.map((p) => [p.id, { model: '', effort: '', permissionMode: '', extraArgs: '', use200kContext: '' }]))

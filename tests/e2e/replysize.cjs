@@ -236,7 +236,8 @@ const prose = (seed, n) => {
   console.log('\n--- hive tools (as the Assistant)')
   measure('hive_list_providers', tool('hive_list_providers', {}, 'assistant'))
   // Hive's settings (#186): a listing (all, narrowed, a project's), one in full, and a change with Change settings on.
-  const settingsList = measure('hive_list_settings', tool('hive_list_settings', {}, 'assistant'), 6000)
+  // A line a setting (about 85 characters with its title): 6,200 since #418 added Tell the Assistant when I reply to an agent.
+  const settingsList = measure('hive_list_settings', tool('hive_list_settings', {}, 'assistant'), 6200)
   check('settings: a line each, id = value, read-only ones marked', /^sessions\.compactSuggestTokens = 200000 · Suggest compacting above$/m.test(settingsList) && /^agentApi\.port = \d+ \[read-only\] · /m.test(settingsList) && !/^advanced\./m.test(settingsList), settingsList.slice(0, 300))
   const compactList = measure('hive_list_settings (query)', tool('hive_list_settings', { query: 'compact' }, 'assistant'), 1500)
   check('query narrows it, saying what each does', compactList.split('\n').length < 10 && /^assistant\.compactSuggestTokens = 500000 · Highlight Compact over: Context size/m.test(compactList), compactList)
@@ -295,6 +296,10 @@ const prose = (seed, n) => {
   check('activity: says what was cut, by its whole length', activity.clipped?.currentTask === longTask.length && activity.clipped?.latestReply === longReply.length && detail.clipped?.currentTask === longTask.length && detail.clipped?.latestReply === longReply.length, JSON.stringify([activity.clipped, detail.clipped]))
   check('activity: the tool says the same bounds', /2000, 3000 and the last 10 calls/.test(toolDescription('hive_agent_activity', 'assistant')) && !/in full/.test(toolDescription('hive_agent_activity', 'assistant')))
   measure('hive_wait_for_agents', tool('hive_wait_for_agents', { agents: [{ project: 'alpha', agent: 'Coder' }], timeoutSeconds: 5 }, 'assistant'), 1000)
+  // An agent watch (#416): an agent not working is the answer at once, in a line; cancel says what it ended.
+  const agentAlready = measure('hive_wait_for_agents (wake, not working)', tool('hive_wait_for_agents', { agents: [{ project: 'alpha', agent: 'Coder' }], wake: true }, 'assistant'), 300)
+  check('an agent watch on an agent not working: already, with its state', agentAlready.startsWith('Already: Coder (alpha) is '), agentAlready)
+  check('cancel with no watch says so', measure('hive_wait_for_agents (cancel)', tool('hive_wait_for_agents', { cancel: true }, 'assistant'), 100) === 'You had no watch.', texts['hive_wait_for_agents (cancel)'])
   check('activating a project confirms it', measure('hive_activate_project', tool('hive_activate_project', { project: 'gamma' }, 'assistant'), 300) === 'gamma is on.')
   measure('hive_create_project', tool('hive_create_project', { name: 'epsilon' }, 'assistant'), 300)
   const added = measure('hive_add_agent', tool('hive_add_agent', { project: 'beta', name: 'Helper' }, 'assistant'), 400)

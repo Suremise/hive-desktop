@@ -193,6 +193,10 @@ describe('the Assistant panel’s status line (#312)', () => {
     expect(line({ status: 'watching', watch })).toEqual({ says: 'Waiting for #271, #273 → Review (watch until 22:22)', cards: [271, 273], tone: 'calm' })
     expect(line({ status: 'watching', watch: { ...watch, column: undefined } }).says).toBe('Waiting for #271, #273 (watch until 22:22)')
   })
+  it('an agent watch (#416): the agents it waits for and until when, no card chips', () => {
+    const watch = { cards: [], changes: [], agents: ['B6'], label: 'Waiting for B6 to finish', since: '2026-10-07T20:00:00.000Z', limitAt: '2026-10-07T22:22:00.000Z' }
+    expect(line({ status: 'watching', watch })).toEqual({ says: 'Waiting for B6 to finish (watch until 22:22)', cards: [], tone: 'calm' })
+  })
   it("Hive's questions its actions wait on (approval cards) come first, over working, idle and a watch", () => {
     const one = ['Stop a busy agent?']
     for (const status of ['working', 'ready', 'finished', 'watching', 'waiting'] as const) expect(line2({ status }, one)).toEqual({ says: 'Waiting for your approval: Stop a busy agent?', tone: 'attention' })

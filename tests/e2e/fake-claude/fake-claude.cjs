@@ -291,6 +291,9 @@ async function runPrompt(text) {
     await hook('PostToolUse', { tool_name: 'Edit', tool_input: { file_path: file }, tool_use_id: id })
   }
   if (/\bask\b/i.test(text)) await hook('Notification', { notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' })
+  // "askafter N": the permission prompt N seconds into the turn (it starts working first).
+  const askAfter = /\baskafter\s+(\d+)/i.exec(text)
+  if (askAfter) setTimeout(() => void hook('Notification', { notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' }), Number(askAfter[1]) * 1000)
   // "pad N": N KB more transcript, as a long conversation has.
   const pad = /\bpad\s+(\d+)/i.exec(text)
   if (pad) write({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_pad', content: 'x'.repeat(Number(pad[1]) * 1024) }] } })

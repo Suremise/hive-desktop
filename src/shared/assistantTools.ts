@@ -40,8 +40,8 @@ export const ASSISTANT_SETTINGS_TOOLS = ['hive_update_setting']
 /** Tools only project agents have (the Assistant doesn't get them): the merge slot is held by an agent's own launch. */
 export const AGENT_ONLY_TOOLS = ['hive_merge_slot']
 
-/** Tools only the Assistant has (project agents don't get them). */
-export const ASSISTANT_ONLY_TOOLS = ['hive_agent_activity', 'hive_wait_for_agents', 'hive_list_providers', 'hive_list_settings', 'hive_read_setting', ...ASSISTANT_AGENT_TOOLS, ...ASSISTANT_PROJECT_TOOLS, ...ASSISTANT_SETTINGS_TOOLS]
+/** Tools only the Assistant has (project agents don't get them). hive_wait_for_agents isn't one: an agent waits on its project's agents too (#416). */
+export const ASSISTANT_ONLY_TOOLS = ['hive_agent_activity', 'hive_list_providers', 'hive_list_settings', 'hive_read_setting', ...ASSISTANT_AGENT_TOOLS, ...ASSISTANT_PROJECT_TOOLS, ...ASSISTANT_SETTINGS_TOOLS]
 
 const RANK: Record<AssistantControlLevel, number> = { look: 0, agents: 1, projects: 2 }
 
