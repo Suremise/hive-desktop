@@ -270,8 +270,6 @@ interface State {
   /** Shows this agent's session in its project's Overview and scrolls to it (the footer's context count); `at` makes each click count. */
   /** Open the Overview on an agent's session, at its compaction history (the footer's context) or its details (its cost). */
   overviewJump: (AgentRef & { at: number; target?: 'history' | 'session' }) | null
-  /** A project's Overview opened at its unused worktrees (#353): scrolled to once. */
-  unusedJump: { project: string; at: number } | null
   /** Opens Project Settings on this section (Settings → Workspace's Storage links); `at` makes each click count. */
   projectSettingsJump: { project: string; section: string; at: number } | null
   /** Per project: the agent that session commands (header buttons, shortcuts, Insert into Session) act on. */
@@ -282,8 +280,13 @@ interface State {
   running: Record<string, true>
   /** Per project and agent page ("<path>#<page>"): the agent last focused there, focused again on going back. */
   pageFocus: Record<string, string>
-  /** Per project: whose folder the Changes and Files tabs show (a worktree agent's id; anything else = the project folder). */
+  /**
+   * Per project: whose folder the Changes and Files tabs show (a worktree agent's id; anything else = the project
+   * folder). Changes also takes an unused worktree (#400): `unused:<its folder>`, or `unused` for the list of them all.
+   */
   changesRoot: Record<string, string>
+  /** Per project: bumped when its unused worktrees change outside the list (a merge of one, #400): the list reloads. */
+  unusedVersion: Record<string, number>
   filesRoot: Record<string, string>
 
   /** The workspace's task board (archived cards too), and the board view's filters. */
@@ -415,13 +418,13 @@ export const useStore = create<State>(() => ({
   mergeFor: null,
   handOverFor: null,
   overviewJump: null,
-  unusedJump: null,
   projectSettingsJump: null,
   focusedAgent: {},
   agentDrag: null,
   running: {},
   pageFocus: {},
   changesRoot: {},
+  unusedVersion: {},
   filesRoot: {},
 
   tasks: [],
@@ -467,6 +470,8 @@ export function useDateStyle(): string {
 export interface AgentRef {
   project: string
   agentId: string
+  /** The Merge dialog on an unused worktree (#400): its folder and branch; agentId is then empty. */
+  worktree?: { path: string; branch: string }
 }
 
 /** Terminal key of an agent's session. */
@@ -749,9 +754,18 @@ export function setProjectTab(path: string, tab: ProjectTab): void {
   set((s) => ({ projectTabs: { ...s.projectTabs, [path]: tab } }))
 }
 
-/** Opens a project's Overview at its unused worktrees (#353). */
+/** The Changes tab's folder for the list of a project's unused worktrees, and for one of them (#400). */
+export const UNUSED_ROOT = 'unused'
+export const unusedRoot = (worktreePath: string): string => `${UNUSED_ROOT}:${worktreePath}`
+
+/** Opens a project's Changes tab at its unused worktrees (#353, #400: they live in Changes). */
 export function showUnusedWorktrees(path: string): void {
-  set((s) => ({ projectTabs: { ...s.projectTabs, [path]: 'overview' }, unusedJump: { project: path, at: Date.now() } }))
+  set((s) => ({ projectTabs: { ...s.projectTabs, [path]: 'changes' }, changesRoot: { ...s.changesRoot, [path]: UNUSED_ROOT } }))
+}
+
+/** The project's unused worktrees changed outside their list (#400): it reloads. */
+export function bumpUnused(path: string): void {
+  set((s) => ({ unusedVersion: { ...s.unusedVersion, [path]: (s.unusedVersion[path] ?? 0) + 1 } }))
 }
 
 /** Opens Add Agent on one of the project's worktrees (#353). */

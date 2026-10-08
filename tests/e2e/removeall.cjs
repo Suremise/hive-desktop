@@ -115,7 +115,9 @@ const check = (name, ok, extra = '') => {
   await page.locator('.palette input').fill('Remove All')
   await lib.sleep(300)
   const found = await page.locator('.palette-item').allInnerTexts()
+  // The palette's first Escape clears what was typed (#433), the next closes it.
   await page.keyboard.press('Escape')
+  if (await page.locator('.palette').count()) await page.keyboard.press('Escape')
   check('so does the palette', found.some((t) => t.includes('Remove All Agents (4)…')), JSON.stringify(found))
 
   const dialog = page.locator('.dialog', { hasText: 'Remove all 4 agents?' })

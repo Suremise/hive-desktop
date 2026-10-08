@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { FileEntry, ProjectInfo, SessionImage, SessionImageGroup } from '@shared/types'
+import type { FileEntry, ProjectInfo, SessionImage, SessionImageGroup, UnusedWorktree } from '@shared/types'
+import { holdsWork } from '@shared/unusedWorktrees'
 import { formatDateTime, formatTime } from '@shared/dates'
 import * as actions from '../actions'
 import { call } from '../api'
 import { discardDrafts, draftsUnder, FileView, hasDraft, moveDrafts, useDraftVersion } from '../components/FileView'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { pasteIntoTerminal } from '../components/TerminalView'
-import { Icon, IconButton, InfoTip, LoadFailed, Modal, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
-import { confirm, filesListeners, focusedAgentId, get, notify, openInSessionsTab, projectKey, set, setProjectTab, showAgent, useDateStyle, useStore } from '../store'
+import { Icon, IconButton, InfoTip, LoadFailed, Modal, SearchInput, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
+import { confirm, filesListeners, focusedAgentId, get, notify, openInSessionsTab, projectKey, set, setProjectTab, showAgent, UNUSED_ROOT, unusedRoot, useDateStyle, useStore } from '../store'
 import { useScopedLoad } from '../scopedLoad'
 import { cx, formatBytes, HIVE_FILES_MIME, IMAGE_EXT, imageUrl, quotePath, timeAgo } from '../util'
 
@@ -75,20 +76,37 @@ export function projectView(project: ProjectInfo, rootAgent?: string): ViewProje
   return { ...project, live: agent?.live ?? null, target: { path: project.path, agentId: agent?.id ?? null } }
 }
 
-/** Picks whose folder a tab shows when agents work in worktrees. Renders nothing otherwise. */
-export function RootSelector({ project, value, onChange }: { project: ProjectInfo; value: string | undefined; onChange: (agentId: string) => void }) {
+/**
+ * Picks whose folder a tab shows when agents work in worktrees. Renders nothing otherwise. Changes also lists the
+ * project's unused worktrees (#400, `unused`): all of them (`unused`), or one to show (`unused:<folder>`).
+ */
+export function RootSelector({ project, value, onChange, unused }: { project: ProjectInfo; value: string | undefined; onChange: (agentId: string) => void; unused?: UnusedWorktree[] }) {
   const worktrees = project.agents.filter((a) => a.worktree)
-  if (!worktrees.length) return null
+  const spare = unused ?? []
+  if (!worktrees.length && !spare.length) return null
+  const known = worktrees.some((a) => a.id === value) || (!!spare.length && (value === UNUSED_ROOT || spare.some((w) => unusedRoot(w.path) === value)))
   return (
     <div className="root-row">
-      <Tooltip content="Show the project folder, or the worktree a worktree agent works in">
-        <select className="select root-select" value={worktrees.some((a) => a.id === value) ? value : ''} onChange={(e) => onChange(e.target.value)}>
+      <Tooltip content={spare.length ? 'Show the project folder, the worktree a worktree agent works in, or an unused worktree' : 'Show the project folder, or the worktree a worktree agent works in'}>
+        <select className="select root-select" value={known ? value : ''} onChange={(e) => onChange(e.target.value)}>
           <option value="">Project folder</option>
           {worktrees.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}'s worktree · {a.worktree!.branch}
             </option>
           ))}
+          {spare.length > 0 && (
+            <optgroup label="Unused worktrees (no agent uses them now)">
+              <option value={UNUSED_ROOT}>All unused worktrees ({spare.length})</option>
+              {spare
+                .filter((w) => w.branch)
+                .map((w) => (
+                  <option key={w.path} value={unusedRoot(w.path)}>
+                    {w.branch} · {w.check.removable ? 'merged, clean' : holdsWork(w) ? 'holds work' : 'not checked'}
+                  </option>
+                ))}
+            </optgroup>
+          )}
         </select>
       </Tooltip>
     </div>
@@ -571,13 +589,11 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
         {selector}
         <div className="files-filter">
           <Icon name="search" />
-          <input
-            className="input"
+          <SearchInput
             placeholder="Find files by name or path"
             value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            onChange={setFilter}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') setFilter('')
               if (e.key === 'ArrowDown') {
                 e.preventDefault()
                 treeRef.current?.focus()

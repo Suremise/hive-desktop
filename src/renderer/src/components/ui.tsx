@@ -170,6 +170,68 @@ export function IconButton({
   )
 }
 
+/**
+ * A search or filter box with a × that clears it (#433): shown only while there is text, inside the box on the right,
+ * named "Clear". Clicking it, or Escape with text in the box, clears the text as typing would and keeps the focus in
+ * the box; with the box empty, Escape does what it did before (a dialog or the palette closes). It takes the box's
+ * place in the layout (`.search-box`, which the parent's rules size); `className` and `style` are the input's.
+ */
+export function SearchInput({
+  value,
+  onChange,
+  onKeyDown,
+  className,
+  ref,
+  ...rest
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> & { value: string; onChange: (value: string) => void; ref?: React.Ref<HTMLInputElement> }) {
+  const input = useRef<HTMLInputElement | null>(null)
+  const setRef = (el: HTMLInputElement | null): void => {
+    input.current = el
+    if (typeof ref === 'function') ref(el)
+    else if (ref) (ref as React.MutableRefObject<HTMLInputElement | null>).current = el
+  }
+  return (
+    <span className={cx('search-box', value && 'has-text')}>
+      <input
+        {...rest}
+        ref={setRef}
+        className={cx('input', className)}
+        data-clearable=""
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          // The first Escape clears the text; the next one is the box's own (or its dialog's).
+          if (e.key === 'Escape' && value) {
+            e.preventDefault()
+            e.stopPropagation()
+            onChange('')
+            return
+          }
+          onKeyDown?.(e)
+        }}
+      />
+      {value && (
+        <span className="search-clear">
+          <IconButton
+            icon="close"
+            title="Clear"
+            onClick={() => {
+              onChange('')
+              input.current?.focus()
+            }}
+          />
+        </span>
+      )}
+    </span>
+  )
+}
+
+/** Whether an Escape is for clearing a search box (`SearchInput`) that has text: dialogs leave it to the box. */
+export function escapeClearsSearch(e: KeyboardEvent): boolean {
+  const t = e.target
+  return t instanceof HTMLInputElement && t.hasAttribute('data-clearable') && t.value !== ''
+}
+
 export function Switch({ checked, onChange, disabled, small, label }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; small?: boolean; label?: string }) {
   return (
     <button
@@ -476,7 +538,8 @@ export function Modal({
   // Listening from the moment it is on screen (a layout effect), so an Escape straight after it opens closes it.
   useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape' || !isTop()) return
+      // A search box with text in the dialog takes this Escape to clear itself (#433): the next one closes the dialog.
+      if (e.key !== 'Escape' || !isTop() || escapeClearsSearch(e)) return
       // Every dialog listens on the window: only this one may act on this Escape. Once it closes, the one under it is on
       // top, and would close too (or ask again) if its listener came later in the window's list (#133).
       e.stopImmediatePropagation()

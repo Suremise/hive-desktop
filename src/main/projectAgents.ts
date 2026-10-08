@@ -3,7 +3,7 @@ import { existsSync } from 'original-fs'
 import { basename, join } from 'path'
 import { MAX_AGENTS, ROLE_MAX, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
 import { agentProvider, isKnownProvider } from '../shared/providers'
-import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, MergeResult, ProjectConfig, ProjectGitInfo, RemovedAgent, WorktreeCheck } from '../shared/types'
+import type { AddAgentOptions, AgentBranchStatus, AgentDef, AgentPatch, AgentWorktree, MergeResult, ProjectConfig, ProjectGitInfo, RemovedAgent, WorktreeCheck } from '../shared/types'
 import { config } from './config'
 import { toast } from './events'
 import { placeKey, samePlace, withFileLock } from './fsutil'
@@ -49,11 +49,11 @@ let removalClock = 0
 const REMOVALS_KEPT = 200
 const worktreeKey = placeKey
 
-/** Reserves a worktree while it is checked and removed; the function returned ends the removal. */
+/** Reserves a worktree while it is checked and removed, or an unused one merged (#400); the function returned ends it. */
 export function reserveForRemoval(path: string): () => void {
   const key = worktreeKey(path)
   const was = removals.get(key)
-  if (was && was.end === undefined) throw new Error('That worktree is already being removed.')
+  if (was && was.end === undefined) throw new Error('That worktree is already being removed or merged.')
   const entry: { start: number; end?: number } = { start: ++removalClock }
   removals.delete(key)
   removals.set(key, entry)
@@ -329,6 +329,17 @@ export function setUserMergeSlot(fn: typeof userMergeSlot): void {
   userMergeSlot = fn
 }
 
+/**
+ * Merges a worktree's branch into the project folder's, the user's way: one merge at a time per project folder (two
+ * would stage and commit into each other), holding the merge slot of the branch it merges into (#350), so an agent's
+ * merge doesn't land in the middle. An agent's merge and an unused worktree's (#400) both go through it.
+ */
+export async function mergeInProject(projectPath: string, worktree: AgentWorktree, opts: { squash: boolean; message: string; moveBranch?: boolean }): Promise<MergeResult> {
+  const into = await workspace.branch(projectPath)
+  const run = (): Promise<MergeResult> => withFileLock(join(projectPath, '.git', 'hive-merge'), () => wt.mergeWorktree(projectPath, worktree, opts))
+  return into ? await userMergeSlot(projectPath, into, run) : await run()
+}
+
 export async function merge(projectPath: string, agentId: string, opts: { squash: boolean; message: string; cleanup: boolean; moveBranch?: boolean }): Promise<MergeResult> {
   projectPath = workspace.assertProject(projectPath)
   const { def, worktree } = await worktreeOf(projectPath, agentId)
@@ -336,12 +347,8 @@ export async function merge(projectPath: string, agentId: string, opts: { squash
   // Its uncommitted work is committed first: not while it is still in the middle of a task.
   const blocked = mergeBlocked(def.name, sessions.liveFor(projectPath, agentId)?.status)
   if (blocked) throw new Error(blocked)
-  // One merge at a time per project folder: two would stage and commit into each other. It holds the merge slot of the
-  // branch it merges into (#350), so an agent's merge doesn't land in the middle (refused while one holds or waits for
-  // it: the Merge dialog waits until it is free). A branch that is removed afterwards isn't moved.
-  const into = await workspace.branch(projectPath)
-  const run = (): Promise<MergeResult> => withFileLock(join(projectPath, '.git', 'hive-merge'), () => wt.mergeWorktree(projectPath, worktree, { ...opts, moveBranch: opts.moveBranch && !opts.cleanup }))
-  const result = into ? await userMergeSlot(projectPath, into, run) : await run()
+  // One merge at a time, holding the slot (the Merge dialog waits until it is free). A branch removed afterwards isn't moved.
+  const result = await mergeInProject(projectPath, worktree, { ...opts, moveBranch: opts.moveBranch && !opts.cleanup })
   // The project folder's branch moved on: every worktree agent's unmerged work is counted again.
   if (!result.ok || !opts.cleanup) {
     workspaceOf(projectPath).scheduleRefresh()

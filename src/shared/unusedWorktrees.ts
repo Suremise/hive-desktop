@@ -37,6 +37,13 @@ export function lostByRemoving(w: UnusedWorktree): string[] | null {
   return lostLines({ path: w.path, branch: w.branch, into: c.into, ahead: c.ahead, dirty: c.dirty })
 }
 
+/** The Overview's line (#400): "7 unused worktrees (7 merged)", or null with none. */
+export function unusedSummary(list: UnusedWorktree[]): string | null {
+  if (!list.length) return null
+  const merged = list.filter((w) => w.check.removable).length
+  return `${plural(list.length, 'unused worktree')} (${merged} merged)`
+}
+
 /** The Changes tab's notice (#353), or null: only for unused worktrees holding work. */
 export function unusedWorkNotice(list: UnusedWorktree[]): string | null {
   const n = list.filter(holdsWork).length
@@ -56,7 +63,7 @@ export function templateWorktreesHint(left: TemplateDeleted, nameOf: (path: stri
   const where = list.length === 1 ? nameOf(list[0].project) : `${list.length} projects`
   return {
     title: `${plural(n, 'unused worktree')} in ${where}`,
-    detail: "The template's worktree agents worked in them. Deleting the template left them as they are: review them in the Overview.",
+    detail: "The template's worktree agents worked in them. Deleting the template left them as they are: review them in Changes.",
     project: list[0].project
   }
 }

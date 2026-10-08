@@ -21,7 +21,7 @@ import { presentWindow } from './testQuiet'
 import { insideArchive, insideReal, isFile, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { checkGit, gitTool } from './gitTool'
-import { removalPreview, removeUnusedWorktree, unusedWorktrees } from './unusedWorktrees'
+import { mergeUnused, removalPreview, removeUnusedWorktree, unusedBranchStatus, unusedWorktrees } from './unusedWorktrees'
 import { createLogger, logsDir } from './logger'
 import { diagnostics } from './diagnostics'
 import { keepAwakeCount } from './power'
@@ -555,6 +555,12 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'agents:branchStatuses': () => branchWatch.statuses(),
     'agents:merge': (p, id, opts) => projectAgents.merge(p, id, opts),
     'worktrees:unused': (p) => unusedWorktrees(p),
+    'worktrees:unusedBranchStatus': (p, path) => unusedBranchStatus(p, path),
+    'worktrees:mergeUnused': async (p, path, opts) => {
+      const r = await mergeUnused(p, path, opts)
+      if (r.cleanedUp) storage.forgetStorage(p)
+      return r
+    },
     'worktrees:removalPreview': (p, path) => removalPreview(p, path),
     'worktrees:removeUnused': async (p, path, opts) => {
       const r = await removeUnusedWorktree(p, path, opts ?? {})
@@ -772,8 +778,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       return Object.keys(writes)
     },
 
-    'git:status': (root, base) => gitStatus(workspace.assertRoot(root), base),
-    'git:diff': (root, f, base) => gitDiff(workspace.assertRoot(root), f, base),
+    // An unused worktree too (#400): read only, as the Changes tab opens it.
+    'git:status': (root, base) => gitStatus(workspace.assertChangesRoot(root), base),
+    'git:diff': (root, f, base) => gitDiff(workspace.assertChangesRoot(root), f, base),
     'git:tool': (recheck) => (recheck ? checkGit() : gitTool()),
 
     'provider:info': () => providerService.all(),

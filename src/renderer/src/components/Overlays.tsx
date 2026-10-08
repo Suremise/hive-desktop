@@ -14,7 +14,7 @@ import { distinguishingParents } from '@shared/folderLabels'
 import { GIT_DOWNLOAD, GIT_MIN, gitFixText, gitOldText, gitProblemText } from '@shared/gitTool'
 import { testedNote, testedSummary } from '@shared/testedClis'
 import { ProviderIcon } from './ProviderIcon'
-import { BusyButton, Icon, IconButton, LoadFailed, Modal, STATUS_TEXT, useBackdrop, useBusy } from './ui'
+import { BusyButton, Icon, IconButton, LoadFailed, Modal, SearchInput, STATUS_TEXT, useBackdrop, useBusy } from './ui'
 
 const LEVEL_ICON = { info: 'info', success: 'pass', warning: 'warning', error: 'error' } as const
 
@@ -272,13 +272,13 @@ export function CommandPalette() {
     <div className="overlay" style={{ paddingTop: 60 }} onMouseDown={(e) => e.target === e.currentTarget && close()}>
       <Backdrop />
       <div className="palette">
-        <input
+        {/* Escape clears what is typed first (#433), then closes the palette. */}
+        <SearchInput
           autoFocus
-          className="input"
           placeholder={mode === 'projects' ? 'Go to project' : 'Type a command or project name'}
           value={q}
-          onChange={(e) => {
-            setQ(e.target.value)
+          onChange={(v) => {
+            setQ(v)
             setActive(0)
           }}
           onKeyDown={(e) => {

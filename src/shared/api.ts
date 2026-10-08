@@ -369,6 +369,9 @@ export interface HiveRequests {
   /** Commits the worktree's changes and merges its branch into the project folder's current branch. */
   /** The project's worktrees no agent works in, each checked: merged into the main branch and clean, or why not (#353). */
   'worktrees:unused': (projectPath: string) => UnusedWorktrees
+  /** An unused worktree's branch as the Merge dialog shows it, and its merge (#400): as an agent's, by its folder. */
+  'worktrees:unusedBranchStatus': (projectPath: string, path: string) => AgentBranchStatus
+  'worktrees:mergeUnused': (projectPath: string, path: string, opts: { squash: boolean; message: string; cleanup: boolean }) => MergeResult
   /** What removing one anyway loses, checked now, under a token the removal presents; throws when git can't say. */
   'worktrees:removalPreview': (projectPath: string, path: string) => UnusedWorktreePreview
   /** Removes one (the user's choice): a merged, clean one; or with `force`, a preview's token, only while nothing in it changed since. */

@@ -6,7 +6,7 @@ import { call } from '../api'
 import { set, useStore } from '../store'
 import { closeTip, openGuideAt, showNextTip, turnOffTips } from '../tips'
 import { cx, formatKeybinding } from '../util'
-import { Icon, IconButton, Modal, Switch } from './ui'
+import { Icon, IconButton, Modal, SearchInput, Switch } from './ui'
 
 /**
  * The tip card (bottom right, above the status bar; toasts stack above it) and Help → Tips…. Which tip shows, and
@@ -200,7 +200,7 @@ export function TipsDialog() {
       }
     >
       <div className="tips-top">
-        <input className="input" autoFocus placeholder="Search tips" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <SearchInput autoFocus placeholder="Search tips" value={query} onChange={setQuery} />
         <label className="flex muted tips-switch">
           <Switch checked={on} label="Show a tip when Hive starts" onChange={(v) => void call('settings:update', { general: { showTips: v } }).then((s) => set({ settings: s }))} /> Show a tip when Hive starts
         </label>

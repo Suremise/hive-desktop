@@ -843,7 +843,7 @@ export async function removeAgent(path: string, agentId: string): Promise<void> 
   focusAfterRemoving(p, agentId)
   await refreshWorkspace()
   // Kept, it is an unused worktree now (#353): said once, with where to tidy it.
-  if (a.worktree && !deleteWorktree) notify('info', `${a.name}'s worktree is kept`, `${a.worktree.branch} in ${a.worktree.path}. The Overview lists the project's unused worktrees, merged or not.`, [reviewUnused(path)])
+  if (a.worktree && !deleteWorktree) notify('info', `${a.name}'s worktree is kept`, `${a.worktree.branch} in ${a.worktree.path}. The Changes tab lists the project's unused worktrees, merged or not.`, [reviewUnused(path)])
 }
 
 /** A notification's button to the project's unused worktrees (#353). */

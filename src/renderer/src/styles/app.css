@@ -28,8 +28,11 @@
   --border-subtle: #3a3a3d;
   --fg: #cccccc;
   --fg-strong: #e8e8e8;
-  --fg-muted: #9d9d9d;
-  --fg-faint: #6f6f6f;
+  /* Text in the muted and faint greys keeps AA (4.5:1) on every background text sits on, hovered and selected rows
+     too (#421); --fg-decor is the old faint, for decoration and disabled items only (no contrast is asked of them). */
+  --fg-muted: #b0b0b0;
+  --fg-faint: #a0a0a0;
+  --fg-decor: #6f6f6f;
 
   --info: #3b9eff;
   --success: #4ec96b;
@@ -57,7 +60,14 @@
   --act-resume-shade: #ffffff;
   /* The Assistant's mark (#399): its amber and its "off" grey, 3:1 or more on the sidebar as icons need. */
   --mark-accent: var(--accent);
-  --mark-off: var(--fg-faint);
+  --mark-off: var(--fg-decor);
+  /* The accent as text and icons on the page's backgrounds (#421; --accent-fg is text on the amber fill), and the
+     working and background-tasks dots (3:1 or more, as icons need). */
+  --accent-ink: #f8ad30;
+  --dot-accent: var(--accent);
+  --dot-background: #b07a1c;
+  /* How the busy dots pulse: brighter here, deeper in light, never towards the background (a fade dropped them below 3:1). */
+  --pulse-shade: 1.4;
   /* The Assistant's status line when it needs you (#399): AA on its warning tint (4.5:1 or more). */
   --attention-fg: var(--warning);
 
@@ -99,8 +109,10 @@
   --border-subtle: #e5e5e5;
   --fg: #3b3b3b;
   --fg-strong: #1f1f1f;
-  --fg-muted: #6c6c6c;
-  --fg-faint: #9a9a9a;
+  /* AA text on every light background (#421: they were 4.2:1 and 2.3:1 at worst); --fg-decor as above. */
+  --fg-muted: #555555;
+  --fg-faint: #676767;
+  --fg-decor: #9a9a9a;
 
   --info: #0969da;
   --success: #1a7f37;
@@ -124,6 +136,12 @@
   /* The Assistant's mark (#399): its amber and its "off" grey, 3:1 or more on the sidebar as icons need. */
   --mark-accent: #b86206;
   --mark-off: #858585;
+  /* The accent as text and icons: 4.8:1 at worst, its own tint under it too (it is 2.6:1); the dots in the stronger
+     amber and a solid dimmer one. */
+  --accent-ink: #8f4605;
+  --dot-accent: var(--accent-strong);
+  --dot-background: #bd6d2a;
+  --pulse-shade: 0.65;
   --attention-fg: #805600;
 
   /* The amber darkened only as far as AA needs for the white label (#384, as the primary button's, #360): 4.6:1. Hovered
@@ -329,7 +347,7 @@ kbd {
   color: var(--fg);
 }
 .titlebar-pin.on {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .menu {
@@ -376,7 +394,7 @@ kbd {
   color: inherit;
 }
 .menu-item.disabled {
-  color: var(--fg-faint);
+  color: var(--fg-decor);
 }
 .menu-key {
   margin-left: auto;
@@ -812,9 +830,9 @@ kbd {
 }
 .dot.idle { background: transparent; border: 1px solid var(--fg-faint); }
 .dot.starting, .dot.ready { background: var(--info); }
-.dot.working { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.dot.working { background: var(--dot-accent); animation: pulse 1.2s ease-in-out infinite; }
 .dot.waiting { background: var(--warning); animation: pulse 0.8s ease-in-out infinite; }
-.dot.background { background: var(--accent); opacity: 0.6; animation: pulse 2.4s ease-in-out infinite; }
+.dot.background { background: var(--dot-background); animation: pulse 2.4s ease-in-out infinite; }
 .dot.finished { background: var(--success); }
 /* Waiting on cards (a watch): a ring, not a fill: it runs nothing, but it isn't idle either. */
 .dot.watching { background: transparent; box-shadow: inset 0 0 0 2px var(--info); }
@@ -824,9 +842,11 @@ kbd {
 .pane-status.signin { color: var(--signin); }
 .dot.unseen { box-shadow: 0 0 0 3px var(--accent-soft); }
 
+/* The busy dots' pulse (#421): a change of shade away from the background (--pulse-shade), so a dot keeps 3:1 at every
+   moment; fading it (opacity) took it below. */
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%, 100% { filter: none; }
+  50% { filter: brightness(var(--pulse-shade)); }
 }
 
 /* ---------- Status bar ---------- */
@@ -937,6 +957,38 @@ kbd {
   cursor: pointer;
   flex-shrink: 0;
 }
+/* A search or filter box with a × that clears it (#433): the wrapper takes the box's place (its parent's rules size it),
+   the box fills it, and the × sits inside the box on the right while there is text. */
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.search-box > .input.input {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+}
+.search-box.has-text > .input.input {
+  padding-right: 26px;
+}
+.search-clear {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+}
+.search-clear .icon-btn {
+  width: 20px;
+  height: 20px;
+  color: var(--fg-muted);
+}
+.search-clear .icon-btn:hover:not(:disabled) {
+  color: var(--fg);
+}
 .icon-btn:hover:not(:disabled) {
   background: var(--bg-hover);
 }
@@ -944,7 +996,7 @@ kbd {
   opacity: 0.4;
 }
 .icon-btn.active {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .input,
@@ -1047,7 +1099,7 @@ textarea.input {
   color: var(--fg);
   white-space: nowrap;
 }
-.badge.accent { background: var(--accent-soft); color: var(--accent); }
+.badge.accent { background: var(--accent-soft); color: var(--accent-ink); }
 .badge.warn { background: rgba(245, 196, 81, 0.16); color: var(--warning); }
 .badge.error { background: rgba(242, 85, 90, 0.16); color: var(--error); }
 .badge.success { background: rgba(78, 201, 107, 0.16); color: var(--success); }
@@ -1098,7 +1150,7 @@ textarea.input {
   font-size: 14px !important;
 }
 .info-icon:hover {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* ---------- Tabs ---------- */
@@ -1907,8 +1959,10 @@ p.hint {
   flex-direction: column;
   max-height: 60vh;
 }
-.palette .input {
+.palette .search-box {
   margin: 8px;
+}
+.palette .input {
   height: 30px;
 }
 .palette-list {
@@ -2281,7 +2335,7 @@ p.hint {
 }
 .walkthrough .codicon {
   font-size: 20px;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .walkthrough strong {
   color: var(--fg-strong);
@@ -2307,9 +2361,11 @@ p.hint {
   gap: 12px;
   align-items: center;
 }
-.settings-top .input {
+.settings-top .search-box {
   flex: 1;
   max-width: 560px;
+}
+.settings-top .input {
   height: 30px;
 }
 .settings-body {
@@ -2469,7 +2525,22 @@ p.hint {
 .setup-status .codicon {
   font-size: 24px;
 }
-/* Unused worktrees (#353): the Overview's section and the Changes tab's notice. */
+/* Unused worktrees (#353): the Changes tab's list of them (#400; it was the Overview's section), its notice, and the
+   Overview's one line linking there. */
+.unused-worktrees-pane {
+  overflow: auto;
+  padding: 4px 18px 18px;
+}
+.unused-worktrees-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0;
+  color: var(--fg-muted);
+}
+.unused-worktrees-line a {
+  cursor: pointer;
+}
 .unused-wt {
   display: flex;
   align-items: center;
@@ -2567,7 +2638,7 @@ p.hint {
   font-size: 32px;
   display: block;
   margin: 0 auto 10px;
-  color: var(--fg-faint);
+  color: var(--fg-decor);
 }
 .quit-unsaved-choice {
   margin: 8px 0 14px;
@@ -2614,9 +2685,10 @@ p.hint {
   padding: 0 10px 8px 14px;
   color: var(--fg-muted);
 }
-.files-filter .input {
+.files-filter .search-box {
   flex: 1;
-  min-width: 0;
+}
+.files-filter .input {
   height: 26px;
 }
 .file-tree {
@@ -2842,7 +2914,7 @@ p.hint {
   white-space: nowrap;
 }
 .dirty-dot {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-size: 11px;
 }
 .segmented {
@@ -2874,7 +2946,7 @@ p.hint {
 }
 .segmented button.active {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .preview-pane {
   position: absolute;
@@ -3109,7 +3181,7 @@ p.hint {
 /* ---------- Compact ---------- */
 .btn.suggest {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .btn-count {
   margin-left: 2px;
@@ -3121,7 +3193,7 @@ p.hint {
 }
 .btn.suggest .btn-count {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .compact-facts {
   display: flex;
@@ -3419,7 +3491,7 @@ p.hint {
 .search-hit mark,
 .transcript mark {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
   border-radius: 2px;
 }
 ::highlight(hive-search) {
@@ -3451,7 +3523,7 @@ p.hint {
   justify-content: center;
   padding: 6px 0 12px;
 }
-.btn.small.subtle.active { color: var(--accent); }
+.btn.small.subtle.active { color: var(--accent-ink); }
 .transcript-live {
   display: flex;
   align-items: center;
@@ -3479,7 +3551,7 @@ p.hint {
   color: var(--info);
 }
 .tx-reply .tx-head .codicon {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .tx-actions {
   margin-left: auto;
@@ -3631,7 +3703,7 @@ p.hint {
   gap: 6px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-ink);
   white-space: nowrap;
 }
 .tx-compaction-label .faint {
@@ -3843,7 +3915,7 @@ body.pane-resizing .monaco-editor {
   align-items: center;
   gap: 2px;
   font-size: 11px;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 /* A worktree agent's unmerged commits on its tab. */
 .agent-unmerged {
@@ -3851,7 +3923,7 @@ body.pane-resizing .monaco-editor {
   align-items: center;
   font-size: 11px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .agent-add {
   margin-left: 6px;
@@ -4244,7 +4316,7 @@ body.pane-resizing .monaco-editor {
   padding: 0 4px;
   border-radius: 8px;
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5015,7 +5087,7 @@ body.pane-resizing .monaco-editor {
   border-bottom: 1px solid var(--border-subtle);
 }
 .worked-on .link {
-  color: var(--accent);
+  color: var(--accent-ink);
   cursor: pointer;
 }
 .worked-on .link:hover {
@@ -5028,7 +5100,7 @@ body.pane-resizing .monaco-editor {
   margin-top: 14px;
 }
 .about-licence a {
-  color: var(--accent);
+  color: var(--accent-ink);
   cursor: pointer;
 }
 .about-licence a:hover {
@@ -5068,7 +5140,7 @@ body.pane-resizing .monaco-editor {
 }
 .update-head > .codicon {
   font-size: 28px;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .update-progress {
   display: flex;
@@ -5151,7 +5223,7 @@ button.mode-badge.badge:hover {
   gap: 8px;
   margin-bottom: 8px;
 }
-.kb-toolbar .input {
+.kb-toolbar .search-box {
   flex: 1;
   max-width: 420px;
 }
@@ -5204,7 +5276,7 @@ button.mode-badge.badge:hover {
   margin-left: 4px;
 }
 .kbd-recorder {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-size: 12px;
 }
 
@@ -5823,7 +5895,7 @@ body.pane-resizing-v .monaco-editor {
   width: 300px;
   max-width: 40%;
 }
-.board-search .input {
+.board-search .search-box {
   flex: 1;
 }
 /* The expanded columns share the board's width; a collapsed one is a narrow strip (#170), and the others grow into
@@ -6044,7 +6116,7 @@ body.pane-resizing-v .monaco-editor {
 /* Who is reviewing the card now: the accent while it goes on, amber once its reviewer has gone. */
 .task-review {
   font-size: 12px;
-  color: var(--accent);
+  color: var(--accent-ink);
   display: flex;
   gap: 4px;
   align-items: flex-start;
@@ -6117,7 +6189,7 @@ body.pane-resizing-v .monaco-editor {
   color: var(--fg);
 }
 .task-project {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6367,6 +6439,13 @@ textarea.input.task-blocked-input {
   align-items: flex-end;
   gap: 6px;
 }
+/* Add Decision and Comment, with "Save adds it too" beside them while their box has text (#432). */
+.task-new-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
 .task-decision-edit textarea,
 .task-decision-new textarea {
   width: 100%;
@@ -6485,7 +6564,7 @@ textarea.input.task-blocked-input {
   font-variant-numeric: tabular-nums;
 }
 .board-strip-item.accent .n {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .board-strip-item.warning .n {
   color: var(--warning);
@@ -6676,7 +6755,7 @@ textarea.input.task-blocked-input {
   font-size: 11px;
 }
 .tip-head .codicon-lightbulb {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .tip-title {
   font-weight: 600;
@@ -6715,7 +6794,7 @@ textarea.input.task-blocked-input {
   gap: 16px;
   margin-bottom: 12px;
 }
-.tips-top .input {
+.tips-top .search-box {
   flex: 1;
 }
 .tips-switch {
@@ -7100,7 +7179,7 @@ textarea.input.task-blocked-input {
 .progress-rail-filter {
   display: flex;
   justify-content: center;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 .progress-body {
   flex: 1;

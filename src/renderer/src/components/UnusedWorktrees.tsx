@@ -1,21 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ProjectInfo, UnusedWorktree, UnusedWorktreePreview, UnusedWorktreeRemoval, UnusedWorktrees } from '@shared/types'
 import { formatSize } from '@shared/storage'
-import { UNUSED_WORKTREES_GUIDE, holdsWork, lostByRemoving, unusedState, unusedWorkNotice } from '@shared/unusedWorktrees'
+import { UNUSED_WORKTREES_GUIDE, holdsWork, lostByRemoving, unusedState, unusedSummary, unusedWorkNotice } from '@shared/unusedWorktrees'
 import { call, errorMessage } from '../api'
-import { confirm, giveWorktreeToAgent, notify, set, useStore } from '../store'
-import { runCommand } from '../commands'
+import { confirm, giveWorktreeToAgent, notify, showUnusedWorktrees, useStore } from '../store'
 import { openGuideAt } from '../tips'
 import { cx, timeAgo } from '../util'
-import { BusyButton, Icon } from './ui'
+import { BusyButton, Icon, InfoTip } from './ui'
 import { useStorageRequests } from './Storage'
 
-/** The project's unused worktrees, as git says now: loaded again when its agents' worktrees change, or on `reload`. */
-function useUnusedWorktrees(project: ProjectInfo): { data: UnusedWorktrees | null; reload: () => void } {
+/**
+ * The project's unused worktrees, as git says now: loaded again when its agents' worktrees change, when one changed
+ * outside the list (a merge of one, `bumpUnused`), or on `reload`.
+ */
+export function useUnusedWorktrees(project: ProjectInfo): { data: UnusedWorktrees | null; reload: () => void } {
   const [data, setData] = useState<UnusedWorktrees | null>(null)
   const loads = useRef(0)
   // The agents' worktrees: one removed (its worktree kept) or given to an agent changes the list.
   const trees = project.agents.map((a) => a.worktree?.path ?? '').join('|')
+  const version = useStore((s) => s.unusedVersion[project.path] ?? 0)
   const reload = useCallback(() => {
     const n = ++loads.current
     void call('worktrees:unused', project.path).then(
@@ -27,20 +30,22 @@ function useUnusedWorktrees(project: ProjectInfo): { data: UnusedWorktrees | nul
     setData(null)
     reload()
   }, [reload, trees])
+  // Changed elsewhere: the list stays shown while it loads again.
+  useEffect(() => {
+    if (version) reload()
+  }, [version, reload])
   return { data, reload }
 }
 
 /**
- * The project Overview's "Unused worktrees (n)" (#353): worktrees no agent works in, each merged and clean (Remove, with
- * its branch) or holding work (what is at stake, Give to an agent…, Remove anyway…), with their last commit and size.
- * Hidden when there are none. Removing is the user's: the Assistant can only see them.
+ * The Changes tab's "Unused worktrees (n)" (#353, moved there from the Overview by #400): worktrees no agent works in,
+ * each merged and clean (Remove, with its branch) or holding work (what is at stake, Give to an agent…, Remove
+ * anyway…), with their last commit and size, and Open to see its changes (and merge them) like an agent's worktree.
+ * Removing is the user's: the Assistant can only see them.
  */
-export function UnusedWorktreesSection({ project }: { project: ProjectInfo }) {
-  const { data, reload } = useUnusedWorktrees(project)
+export function UnusedWorktreesSection({ project, data, reload, onOpen }: { project: ProjectInfo; data: UnusedWorktrees | null; reload: () => void; onOpen: (path: string) => void }) {
   const [sizes, setSizes] = useState<Record<string, number> | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const head = useRef<HTMLHeadingElement>(null)
-  const jump = useStore((s) => s.unusedJump)
   const request = useStorageRequests()
   const list = data?.worktrees ?? []
   const paths = list.map((w) => w.path).join('|')
@@ -56,13 +61,8 @@ export function UnusedWorktreesSection({ project }: { project: ProjectInfo }) {
     )
   }, [paths, project.path, request])
 
-  useEffect(() => {
-    if (!jump || jump.project !== project.path || !data) return
-    set({ unusedJump: null })
-    setTimeout(() => head.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60)
-  }, [jump, project.path, data])
-
-  if (!list.length) return null
+  if (!data) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
+  if (!list.length) return <div className="empty-state">{data.gitProblem ? `${data.gitProblem}, so Hive can't list the unused worktrees.` : `${project.name} has no unused worktrees: every worktree belongs to an agent.`}</div>
   const merged = list.filter((w) => w.check.removable)
   const into = list.find((w) => w.check.into)?.check.into ?? 'the main branch'
 
@@ -156,8 +156,9 @@ export function UnusedWorktreesSection({ project }: { project: ProjectInfo }) {
 
   return (
     <div className="unused-worktrees">
-      <h2 className="section" id="unused-worktrees" ref={head}>
+      <h2 className="section" id="unused-worktrees">
         Unused worktrees <span className="badge">{list.length}</span>
+        <InfoTip text="Worktrees no agent of this project uses right now, e.g. from another template (loading that template gives them back to its agents)." />
         <div className="grow" />
         {merged.length > 0 && (
           <button className="btn small" onClick={() => void removeMerged()}>
@@ -187,6 +188,11 @@ export function UnusedWorktreesSection({ project }: { project: ProjectInfo }) {
               </div>
             </div>
             <div className="flex">
+              {w.branch && (
+                <button className="btn small subtle" title={`Show ${w.branch}'s changes${holdsWork(w) ? ', and merge them' : ''}`} onClick={() => onOpen(w.path)}>
+                  Open
+                </button>
+              )}
               {w.check.removable ? (
                 <BusyButton className="btn small" busy={busy === w.path} busyLabel="Removing…" disabled={!!busy} onClick={() => void removeOne(w)}>
                   Remove
@@ -212,15 +218,29 @@ export function UnusedWorktreesSection({ project }: { project: ProjectInfo }) {
 }
 
 /** The Changes tab's notice (#353): only when an unused worktree holds work that isn't on the main branch. */
-export function UnusedWorkNotice({ project }: { project: ProjectInfo }) {
-  const { data } = useUnusedWorktrees(project)
+export function UnusedWorkNotice({ project, data }: { project: ProjectInfo; data: UnusedWorktrees | null }) {
   const text = data ? unusedWorkNotice(data.worktrees) : null
   if (!text) return null
   return (
     <div className="unused-work-notice">
       <Icon name="git-branch" />
       <span>{text}</span>
-      <a onClick={() => runCommand('project.unusedWorktrees', project.path)}>Review</a>
+      <a onClick={() => showUnusedWorktrees(project.path)}>Review</a>
+    </div>
+  )
+}
+
+/** The Overview's one line (#400): "7 unused worktrees (7 merged) — Review in Changes". Nothing with none. */
+export function UnusedWorktreesLine({ project }: { project: ProjectInfo }) {
+  const { data } = useUnusedWorktrees(project)
+  const text = data ? unusedSummary(data.worktrees) : null
+  if (!text) return null
+  return (
+    <div className="unused-worktrees-line">
+      <Icon name="git-branch" />
+      <span>{text}</span>
+      <span className="faint">—</span>
+      <a onClick={() => showUnusedWorktrees(project.path)}>Review in Changes</a>
     </div>
   )
 }

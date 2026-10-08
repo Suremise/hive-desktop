@@ -3,7 +3,7 @@ import { PAGE_SIZES, choices, nextSort, rememberedSort, sortPanes, tableView, ty
 import { call } from '../api'
 import { set, useDateStyle, useStore } from '../store'
 import { cx } from '../util'
-import { Icon, IconButton, InfoTip, Tooltip } from './ui'
+import { Icon, IconButton, InfoTip, SearchInput, Tooltip } from './ui'
 
 /**
  * A table that can grow: sorting by a header, quick filters under the headers, and pages under it (with rows per page,
@@ -197,7 +197,7 @@ export function DataTable<T>({
                         ))}
                       </select>
                     ) : c.filter ? (
-                      <input className="input" aria-label={`Filter ${c.header}`} placeholder="Filter" value={filters[c.key] ?? ''} onChange={(e) => setFilter(c.key, e.target.value)} />
+                      <SearchInput aria-label={`Filter ${c.header}`} placeholder="Filter" value={filters[c.key] ?? ''} onChange={(v) => setFilter(c.key, v)} />
                     ) : null}
                   </th>
                 ))}

@@ -4,12 +4,12 @@
 // shown it would lose, refused once it changed; neither for a worktree an agent works in, one being removed, or one git
 // doesn't list; nothing at all without git (#346). A deleted template's worktree agents' worktrees are found by name.
 import { execFileSync } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { delimiter, join } from 'path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
-import { holdsWork, lostByRemoving, templateWorktreesHint, unusedState, unusedWorkNotice } from '../src/shared/unusedWorktrees'
+import { holdsWork, lostByRemoving, templateWorktreesHint, unusedState, unusedSummary, unusedWorkNotice } from '../src/shared/unusedWorktrees'
 import type { UnusedWorktree } from '../src/shared/types'
 import { junction } from './pathAliases'
 
@@ -26,13 +26,13 @@ vi.mock('../src/main/git', async (importOriginal) => {
   return { ...real, git: ((cwd, args, ...rest) => (failing?.(args) ? failed() : real.git(cwd, args, ...rest))) as typeof real.git }
 })
 
-const { PREVIEW_MS, removalPreview, removeUnusedWorktree, unusedWorktreeCounts, unusedWorktrees, unusedWorktreesNamed } = await import('../src/main/unusedWorktrees')
+const { PREVIEW_MS, mergeUnused, removalPreview, removeUnusedWorktree, unusedBranchStatus, unusedWorktreeCounts, unusedWorktrees, unusedWorktreesNamed } = await import('../src/main/unusedWorktrees')
 const { createWorktree } = await import('../src/main/worktrees')
-const { reserveForRemoval } = await import('../src/main/projectAgents')
+const { addAgent, reserveForRemoval } = await import('../src/main/projectAgents')
 const { gitOnPath, setGitToolForTests } = await import('../src/main/gitTool')
 const templates = await import('../src/main/templates')
 // Paths compared as places: git lists the long names of folders Hive may know by short (8.3) ones, as on CI (#389).
-const { placeKey } = await import('../src/main/fsutil')
+const { placeKey, withFileLock } = await import('../src/main/fsutil')
 
 const git = (cwd: string, ...a: string[]): string => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd, encoding: 'utf8' })
 const wsPath = join(base, 'ws')
@@ -147,7 +147,7 @@ describe('Remove', () => {
     expect(await run(() => removeUnusedWorktree(proj, t.path))).toEqual({ deleted: false, reason: 'an agent works in it now' })
     agents([])
     const release = reserveForRemoval(t.path)
-    expect(await run(() => removeUnusedWorktree(proj, t.path))).toEqual({ deleted: false, reason: 'That worktree is already being removed.' })
+    expect(await run(() => removeUnusedWorktree(proj, t.path))).toEqual({ deleted: false, reason: 'That worktree is already being removed or merged.' })
     release()
     const plain = join(root, `plain${n}`)
     mkdirSync(plain, { recursive: true })
@@ -332,6 +332,104 @@ describe('Remove anyway', () => {
   })
 })
 
+describe('in the Changes tab (#400)', () => {
+  it('reads only a listed unused worktree: its git status through assertChangesRoot, and only once listed', async () => {
+    agents([])
+    const t = await tree(`changes${++n}`)
+    commit(t.path, 'c.txt')
+    const outside = join(base, 'elsewhere')
+    mkdirSync(outside, { recursive: true })
+    // Not yet listed: refused (only the project folder and agents' worktrees).
+    expect(() => w.assertChangesRoot(t.path)).toThrow(/Not a project or agent worktree/)
+    await listOf()
+    expect(placeKey(w.assertChangesRoot(t.path))).toBe(placeKey(t.path))
+    expect(() => w.assertChangesRoot(outside)).toThrow()
+    // The Files tab's file operations never get it.
+    expect(() => w.assertRoot(t.path)).toThrow()
+    // Given to an agent, it isn't unused: listed again, it drops out (it is an agent's worktree, as assertRoot allows).
+    agents([t])
+    await listOf()
+    await w.refresh()
+    expect(placeKey(w.assertChangesRoot(t.path))).toBe(placeKey(t.path))
+    agents([])
+    await w.refresh()
+  })
+
+  it('a branch status and a merge only for one the listing would list, never an agent\'s worktree or the project', async () => {
+    const t = await tree(`notmine${++n}`)
+    agents([t])
+    await expect(run(() => unusedBranchStatus(proj, t.path))).rejects.toThrow(/isn't one of the project's unused worktrees/)
+    // An agent's: refused before anything is looked at, nothing staged or committed.
+    writeFileSync(join(t.path, 'agents-work.txt'), 'theirs\n')
+    const head = git(proj, 'rev-parse', 'main')
+    await expect(run(() => mergeUnused(proj, t.path, { squash: false, message: 'x', cleanup: false }))).rejects.toThrow(/An agent works in it now/)
+    expect(git(proj, 'rev-parse', 'main')).toBe(head)
+    expect(git(t.path, 'status', '--porcelain')).toContain('agents-work.txt')
+    await expect(run(() => unusedBranchStatus(proj, proj))).rejects.toThrow(/isn't one of the project's unused worktrees/)
+    agents([])
+  })
+
+  it("merges one's work onto main as an agent's merge does, and removes it after when asked (checked)", async () => {
+    agents([])
+    const t = await tree(`merging${++n}`)
+    commit(t.path, `m${n}.txt`)
+    const st = await run(() => unusedBranchStatus(proj, t.path))
+    expect(st.ahead).toBe(1)
+    expect(st.into).toBe('main')
+    const r = await run(() => mergeUnused(proj, t.path, { squash: false, message: `Work from ${t.branch}`, cleanup: true }))
+    expect(r).toMatchObject({ ok: true, cleanedUp: true })
+    expect(existsSync(join(proj, `m${n}.txt`))).toBe(true)
+    expect(existsSync(t.path)).toBe(false)
+    expect(branches()).not.toContain(t.branch)
+  })
+
+  it('fenced while it waits its turn: an agent given it meanwhile is refused, and the merge goes on unchanged', async () => {
+    agents([])
+    const t = await tree(`fenced${++n}`)
+    commit(t.path, `f${n}.txt`)
+    const head = git(proj, 'rev-parse', 'main')
+    // Another merge into this project folder holds its turn, so this one waits after it was checked.
+    let done!: () => void
+    const other = withFileLock(join(w.assertProject(proj), '.git', 'hive-merge'), () => new Promise<void>((r) => (done = r)))
+    const merging = run(() => mergeUnused(proj, t.path, { squash: false, message: `Work from ${t.branch}`, cleanup: false }))
+    // Meanwhile Add Agent picks it as an existing worktree: refused, the project's agents unchanged.
+    await expect(run(() => addAgent(proj, { name: 'Late', location: 'existing-worktree', worktreePath: t.path }))).rejects.toThrow(/being removed, or was just removed/)
+    expect(JSON.parse(readFileSync(join(proj, '.hive', 'project.json'), 'utf8')).agents).toEqual([])
+    // A second merge or a removal of it waits for neither: refused while this one has it.
+    await expect(run(() => mergeUnused(proj, t.path, { squash: false, message: 'twice', cleanup: false }))).rejects.toThrow(/already being removed or merged/)
+    expect(await run(() => removeUnusedWorktree(proj, t.path))).toMatchObject({ deleted: false, reason: 'That worktree is already being removed or merged.' })
+    expect(git(proj, 'rev-parse', 'main')).toBe(head)
+    done()
+    await other
+    expect(await merging).toMatchObject({ ok: true })
+    expect(existsSync(join(proj, `f${n}.txt`))).toBe(true)
+    expect(existsSync(t.path)).toBe(true)
+    expect(branches()).toContain(t.branch)
+    // Once over, it can be given to an agent again.
+    const late = await run(() => addAgent(proj, { name: 'Later', location: 'existing-worktree', worktreePath: t.path }))
+    expect(placeKey(late.worktree!.path)).toBe(placeKey(t.path))
+    agents([])
+  })
+
+  it('merged, but kept when the checked removal after it refuses: said why, never forced', async () => {
+    agents([])
+    const t = await tree(`keepme${++n}`)
+    commit(t.path, `k${n}.txt`)
+    // git refuses to remove it (a program holding its folder, say): the merge stands, the worktree stays.
+    failing = (args) => args.includes('worktree') && args.includes('remove')
+    try {
+      const r = await run(() => mergeUnused(proj, t.path, { squash: false, message: 'm', cleanup: true }))
+      expect(r.ok).toBe(true)
+      expect(r.cleanedUp).toBeUndefined()
+      expect(r.cleanupKept).toMatch(/git kept it/)
+    } finally {
+      failing = null
+    }
+    expect(existsSync(join(proj, `k${n}.txt`))).toBe(true)
+    expect(existsSync(t.path)).toBe(true)
+  })
+})
+
 describe('without git (#346)', () => {
   it('lists nothing, says why, and removes nothing', async () => {
     const t = await tree(`nogit${++n}`)
@@ -365,6 +463,14 @@ describe("a deleted template's worktree agents", () => {
 
 describe('what the window says', () => {
   const wt = (check: UnusedWorktree['check'], extra: Partial<UnusedWorktree> = {}): UnusedWorktree => ({ path: 'C:\\w\\x', branch: 'hive/x', check, ...extra })
+  it("the Overview's line counts them and the merged ones (#400)", () => {
+    const merged = { path: 'C:\\t\\a', branch: 'hive/a', check: { removable: true, into: 'main' } } as UnusedWorktree
+    const work = { path: 'C:\\t\\b', branch: 'hive/b', check: { removable: false, into: 'main', ahead: 1, dirty: 0 } } as UnusedWorktree
+    expect(unusedSummary([])).toBeNull()
+    expect(unusedSummary([merged, work])).toBe('2 unused worktrees (1 merged)')
+    expect(unusedSummary([merged])).toBe('1 unused worktree (1 merged)')
+  })
+
   it('the Changes notice only for worktrees holding work', () => {
     expect(unusedWorkNotice([wt({ removable: true, into: 'main', ahead: 0, dirty: 0 })])).toBeNull()
     expect(unusedWorkNotice([wt({ removable: false, into: 'main', ahead: 2, dirty: 0 }), wt({ removable: false, into: 'main', ahead: 0, dirty: 3 })])).toBe("2 unused worktrees have work that isn't on main")

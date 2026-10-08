@@ -3,13 +3,14 @@ import { basename, join, resolve, sep } from 'path'
 import { createReadStream, existsSync } from 'original-fs'
 import { lstat, readdir, readlink } from 'original-fs/promises'
 import { projectAgents, slugify } from '../shared/defaults'
-import type { AgentWorktree, UnusedWorktree, UnusedWorktreePreview, UnusedWorktreeRemoval, UnusedWorktrees } from '../shared/types'
+import type { AgentBranchStatus, AgentWorktree, MergeResult, UnusedWorktree, UnusedWorktreePreview, UnusedWorktreeRemoval, UnusedWorktrees } from '../shared/types'
 import { lostLines } from '../shared/unusedWorktrees'
 import { placeKey, realPath } from './fsutil'
 import { git, gitReading } from './git'
 import { gitProblem } from './gitTool'
 import { createLogger, userText } from './logger'
-import { reserveForRemoval } from './projectAgents'
+import { checkProject } from './branchWatch'
+import { mergeInProject, reserveForRemoval } from './projectAgents'
 import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
 
@@ -103,7 +104,63 @@ export async function unusedWorktrees(projectPath: string): Promise<UnusedWorktr
   if (problem) return { worktrees: [], gitProblem: problem }
   const worktrees: UnusedWorktree[] = []
   for (const w of listed) worktrees.push(await describe(projectPath, w))
+  // The Changes tab may read these (and only these) now (#400).
+  workspaceOf(projectPath).noteUnusedWorktrees(projectPath, worktrees.map((w) => w.path))
   return { worktrees }
+}
+
+/**
+ * One of the project's unused worktrees, by its folder, as a worktree to show and merge in Changes (#400): only one git
+ * lists as the project's that no agent uses and Hive may touch, on a branch (a detached one has nothing to merge), with
+ * the branch it would merge into as its base. Throws otherwise.
+ */
+async function unusedWorktree(projectPath: string, path: string): Promise<AgentWorktree> {
+  const { listed, problem } = await candidates(projectPath)
+  const w = listed.find((x) => key(x.path) === key(path))
+  if (!w) throw new Error(problem ?? "It isn't one of the project's unused worktrees any more.")
+  if (!w.branch) throw new Error('It is not on a branch (detached HEAD): there is nothing to merge.')
+  const into = await wt.primaryBranch(projectPath)
+  if (!into) throw new Error(gitProblem() ?? "Git couldn't say which branch it would merge into.")
+  return { path: w.path, branch: w.branch, base: into }
+}
+
+/** What an unused worktree's branch holds that its project's branch doesn't, as the Merge dialog shows it (#400). */
+export async function unusedBranchStatus(projectPath: string, path: string): Promise<AgentBranchStatus> {
+  projectPath = workspace.assertProject(projectPath)
+  return wt.branchStatus(projectPath, await unusedWorktree(projectPath, path))
+}
+
+/**
+ * Merges an unused worktree's branch into the project folder's (#400), as an agent's merge does (one at a time, holding
+ * the merge slot). It is fenced first, as a removal is (`reserveForRemoval`): nothing gives it to an agent until the merge
+ * is over (an Add Agent or template load refuses it under the project file's lock, #289), and under that lock no agent
+ * may have it already. So the merge never stages or commits files of an agent's worktree, whenever one was given it.
+ * `cleanup`: then removes it with its branch through the same checked removal as Remove (its own fence and checks;
+ * merged and clean now, else kept and said why).
+ */
+export async function mergeUnused(projectPath: string, path: string, opts: { squash: boolean; message: string; cleanup: boolean }): Promise<MergeResult> {
+  projectPath = workspace.assertProject(projectPath)
+  let worktree: AgentWorktree
+  let result: MergeResult
+  const release = reserveForRemoval(path)
+  try {
+    // Under the project file's lock, after the fence: an agent given it before keeps it, and none can be from now on.
+    let owned = false
+    await workspace.mutateProjectConfig(projectPath, (now) => {
+      owned = projectAgents(now).some((a) => a.worktree && key(a.worktree.path) === key(path))
+      return {}
+    })
+    if (owned) throw new Error('An agent works in it now: merge it from that agent.')
+    worktree = await unusedWorktree(projectPath, path)
+    result = await mergeInProject(projectPath, worktree, { squash: opts.squash, message: opts.message })
+  } finally {
+    release()
+  }
+  workspaceOf(projectPath).scheduleRefresh()
+  void checkProject(projectPath)
+  if (!result.ok || !opts.cleanup) return result
+  const removed = await removeUnusedWorktree(projectPath, worktree.path, { expectInto: worktree.base })
+  return removed.deleted ? { ...result, cleanedUp: true } : { ...result, cleanupKept: removed.reason ?? 'it was kept' }
 }
 
 /** Counts for the Assistant's project status (#353): how many, and how many are merged and clean. Null with none. */
