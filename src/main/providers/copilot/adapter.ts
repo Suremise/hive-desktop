@@ -6,15 +6,16 @@ import type { AgentInstallInfo, McpServerDef, MemorySource, ReadinessIssue, Sess
 import { assertSessionId } from '../../../shared/defaults'
 import type { StartHint } from '../../../shared/startFailure'
 import { COPILOT, COPILOT_DESCRIPTOR, COPILOT_MODE_FLAGS, copilotCanSwitchLive, copilotFooterMode } from '../../../shared/copilot'
-import { isProviderEnabled, providerSettings } from '../../../shared/providers'
+import { isProviderEnabled } from '../../../shared/providers'
 import { config } from '../../config'
 import { writeJsonAtomic } from '../../fsutil'
 import { createLogger, userText } from '../../logger'
-import { AGENTS_SKILLS, EDITOR_EXTENSION_PATH, agentsSkillCopyPath, compareVersions, promptArg, run, runsThroughCmd, syncAgentsSkills, toSpawnable } from '../common'
+import { AGENTS_SKILLS, agentsSkillCopyPath, compareVersions, promptArg, runsThroughCmd, syncAgentsSkills, toSpawnable } from '../common'
 import type { CatalogRead, CommandSpec, ConversationParserLike, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
 import { copilotEnv, copilotHome } from './home'
 import { CopilotConversationParser, CopilotUsageParser, copilotEventsPath, copilotImageData, eventsDetails, listCopilotSessions, parseEvents, workspaceInfo } from './events'
 import { readCopilotModels } from './models'
+import { copilotInstallCommand, copilotLatestVersion, copilotLoginCommand, copilotReadiness, copilotUpdateCommand, locateCopilot } from './install'
 
 const log = createLogger('copilot')
 
@@ -109,77 +110,31 @@ export class CopilotAdapter implements ProviderAdapter {
   // In a folder it doesn't trust yet: "Confirm folder trust … Do you trust the files in this folder?".
   readonly startupQuestion = /Do you trust the files in this folder\?/
 
-  // -------------------------------------------------------------------------
-  // REPLACED BY install.ts (#452): locate, readiness, versions and the install, update and login commands.
-  // -------------------------------------------------------------------------
-
-  private async candidates(): Promise<{ path: string; source: string }[]> {
-    const out: { path: string; source: string }[] = []
-    const custom = providerSettings(config.settings, this.id).executablePath.trim()
-    if (custom) out.push({ path: custom, source: 'settings' })
-    const where = await run(process.platform === 'win32' ? 'where.exe' : 'which', ['copilot'], 5000)
-    for (const line of where.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
-      if (process.platform !== 'win32' || /\.(exe|cmd|bat)$/i.test(line)) out.push({ path: line, source: 'PATH' })
-    }
-    if (process.platform === 'win32') {
-      if (process.env.LOCALAPPDATA) out.push({ path: join(process.env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links', 'copilot.exe'), source: 'WinGet' })
-      if (process.env.APPDATA) out.push({ path: join(process.env.APPDATA, 'npm', 'copilot.cmd'), source: 'npm' })
-    }
-    return out
-  }
-
-  async locate(): Promise<AgentInstallInfo> {
-    const info: AgentInstallInfo = { provider: this.id, found: false, path: null, version: null, source: null, latestVersion: null, updateAvailable: false, loggedIn: null, authMethod: null, rejected: [] }
-    for (const c of await this.candidates()) {
-      if (!existsSync(c.path)) continue
-      if (EDITOR_EXTENSION_PATH.test(c.path)) {
-        info.rejected!.push(c.path)
-        continue
-      }
-      const r = await run(c.path, ['--version'], 15000, copilotEnv(process.env as Record<string, string>))
-      // "GitHub Copilot CLI 1.0.93.": the sentence's own dot isn't part of the version.
-      const m = r.stdout.match(/(\d+\.\d+\.\d+(?:[-+][\w.-]*[\w])?)/)
-      if (!m) continue
-      Object.assign(info, { found: true, path: c.path, version: m[1], source: c.source })
-      break
-    }
-    return info
+  // Installation, readiness and the install, update and sign-in tasks (#452).
+  locate(): Promise<AgentInstallInfo> {
+    return locateCopilot()
   }
 
   readiness(info: AgentInstallInfo): ReadinessIssue[] {
-    if (!info.found) return [{ id: 'not-installed', level: 'error', message: 'GitHub Copilot CLI is not installed.', action: { label: 'Install', task: 'install' } }]
-    return info.updateAvailable ? [{ id: 'update', level: 'info', message: `GitHub Copilot CLI ${info.latestVersion} is available.`, action: { label: 'Update', task: 'update' } }] : []
+    return copilotReadiness(info)
   }
 
-  async latestVersion(): Promise<string | null> {
-    try {
-      const ctrl = new AbortController()
-      const t = setTimeout(() => ctrl.abort(), 6000)
-      const res = await fetch('https://api.github.com/repos/github/copilot-cli/releases/latest', { signal: ctrl.signal, headers: { Accept: 'application/vnd.github+json' } })
-      clearTimeout(t)
-      if (!res.ok) return null
-      const tag = ((await res.json()) as { tag_name?: string }).tag_name ?? ''
-      return /(\d+\.\d+\.\d+)/.exec(tag)?.[1] ?? null
-    } catch {
-      return null
-    }
+  latestVersion(): Promise<string | null> {
+    return copilotLatestVersion()
   }
 
   installCommand(): CommandSpec {
-    if (process.platform === 'win32') return { file: 'winget.exe', args: ['install', '--id', 'GitHub.Copilot', '-e', '--source', 'winget'] }
-    return { file: '/bin/bash', args: ['-lc', 'npm install -g @github/copilot'] }
+    return copilotInstallCommand()
   }
 
   updateCommand(executable: string): CommandSpec {
-    return { ...toSpawnable(executable, ['update']) }
+    return copilotUpdateCommand(executable)
   }
 
   /** Copilot's own sign-in, run in a terminal for the user to complete (never typed into by Hive). */
   loginCommand(executable: string): CommandSpec {
-    return { ...toSpawnable(executable, ['login']) }
+    return copilotLoginCommand(executable)
   }
-
-  // -------------------------------------------------------------------------
 
   isNewer(latest: string, current: string): boolean {
     return compareVersions(latest, current) > 0

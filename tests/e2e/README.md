@@ -127,12 +127,14 @@ for the build), and the e2e runner, `lib.cjs` and the scenario harness all take 
   started from, to report to the Hive that started it.
 - **Folders, ports and CLI homes**: the lane (above), the Codex test home under its `config.toml` lock, the Claude Code
   test home for the model trials (`CLAUDE_TEST_HOME`); each suite keeps its own `CLAUDE_CONFIG_DIR` folders in its lane.
-  **Every test copy of Hive gets both CLI homes** (#382): Hive looks for both CLIs when it starts, and their sign-in
-  checks (`claude auth status`, `codex login status`) read the home they are given, else yours. `lib.hiveEnv` gives
-  `CLAUDE_CONFIG_DIR` and `CODEX_HOME` as empty folders of the suite's (`<suite folder>\cli-homes\claude` and
-  `\codex`, `runContext.cliHomes`) unless the suite gives a test home (the fake Claude Code's, `lib.ownClaudeHome`, the
-  Codex test home). `lib.cjs` refuses to start a test Hive with either one missing or pointing at your own `~/.claude`
-  or `~/.codex` (however the path is spelled), and makes the empty ones.
+  **Every test copy of Hive gets the CLI homes** (#382, #452): Hive looks for the CLIs when it starts, and their sign-in
+  checks (`claude auth status`, `codex login status`, Copilot's `config.json` and `gh auth status`) read the home they
+  are given, else yours. `lib.hiveEnv` gives `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME` and `GH_CONFIG_DIR` as
+  empty folders of the suite's (`<suite folder>\cli-homes\claude`, `\codex`, `\copilot` and `\gh`, `runContext.cliHomes`;
+  the empty gh config hides your GitHub CLI login, which Copilot falls back to) unless the suite gives a test home (the
+  fake Claude Code's, `lib.ownClaudeHome`, the Codex test home). `lib.cjs` refuses to start a test Hive with one missing
+  or pointing at your own `~/.claude`, `~/.codex`, `~/.copilot` or `%APPDATA%\GitHub CLI` (however the path is spelled),
+  and makes the empty ones.
 - **The build, once per worktree** (`build.mjs`): runners started at the same time in one worktree share its `out/`,
   so the first that finds it stale takes the worktree's build lock (`%LOCALAPPDATA%\hive-test\build-locks`, a folder
   per worktree with its holder's process id), looks again, builds once and stamps it; the others wait (`Waited for

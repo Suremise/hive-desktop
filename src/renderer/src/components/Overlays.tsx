@@ -781,19 +781,29 @@ export function AgentSetupDialog() {
               {info.path}
             </div>
             {info.tested && <TestedLine tested={info.tested} installed={info.version} />}
-            <div style={{ marginTop: 4 }}>
+            <div className="setup-badges">
               {info.loggedIn === true && (
-                <span className="badge success">
-                  <Icon name="account" /> Signed in{info.authMethod ? ` (${info.authMethod})` : ''}
+                <span className="badge success" data-signin={info.authMethod ?? ''}>
+                  <Icon name="account" /> Signed in{info.account ? ` as ${info.account}` : ''}
+                  {info.authMethod ? ` (${info.authMethod})` : ''}
                 </span>
-              )}{' '}
+              )}
               {issues.map((r) => (
                 <span key={r.id} className={cx('badge', r.level === 'error' ? 'warn' : r.level === 'warning' ? 'warn' : 'accent')}>
                   {r.message}
                 </span>
-              ))}{' '}
+              ))}
               {!info.updateAvailable && info.latestVersion && <span className="badge">Up to date</span>}
             </div>
+            {!!info.notes?.length && (
+              <div className="setup-notes">
+                {info.notes.map((n) => (
+                  <p key={n} className="hint">
+                    {n}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex">
             {issues

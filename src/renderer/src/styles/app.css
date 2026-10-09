@@ -2528,8 +2528,20 @@ p.hint {
   border: 1px solid var(--border-subtle);
   margin-bottom: 12px;
 }
-.setup-status .codicon {
+/* The row's own icon only: icons in its badges and buttons keep their size (#449). */
+.setup-status > .codicon {
   font-size: 24px;
+}
+/* A provider's sign-in and readiness badges: one height, one centre line, wrapping (#449). */
+.setup-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.setup-notes .hint {
+  margin: 4px 0 0;
 }
 /* Unused worktrees (#353): the Changes tab's list of them (#400; it was the Overview's section), its notice, and the
    Overview's one line linking there. */
