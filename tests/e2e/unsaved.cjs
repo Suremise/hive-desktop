@@ -40,15 +40,15 @@ async function launch() {
   return { app, page }
 }
 
-const exited = (app, ms = 8000) =>
-  new Promise((resolve) => {
-    const t = setTimeout(() => resolve(false), ms)
-    app.process().once('exit', () => {
-      clearTimeout(t)
-      // Let the single-instance lock go before the next launch.
-      setTimeout(() => resolve(true), 2500)
-    })
-  })
+/**
+ * Hive quits (#424): it decides to within ms of the watch's quit (its own quit work: saving, stopping), then its process
+ * ends. The process's part is Electron's, which a loaded machine stretches to seconds, so it is only waited for.
+ */
+const quits = async (q, ms = 8000) => {
+  if (!(await q.untilDecided(ms)) || !(await q.gone(30000))) return false
+  await sleep(2500) // on purpose: the single-instance lock goes a moment after the process, before the next launch
+  return true
+}
 
 ;(async () => {
   // ---- Run 1: rename, folder rename, delete, then quit and save.
@@ -119,9 +119,9 @@ const exited = (app, ms = 8000) =>
   check('quit: asks with no sessions running', /unsaved changes/.test(quitText))
   check('quit: lists b.ts and c.ts, not gone.ts', /b\.ts/.test(quitText) && /c\.ts/.test(quitText) && !/gone\.ts/.test(quitText), quitText.replace(/\s+/g, ' ').slice(0, 300))
   await page.screenshot({ path: path.join(scratch, 'us-1-quit.png') })
-  const gone1 = exited(app)
+  const q1 = await lib.quitWatch(app)
   await page.getByRole('button', { name: 'Save and quit' }).click()
-  check('quit/save: Hive quit', await gone1)
+  check('quit/save: Hive quit', await quits(q1))
   check('quit/save: b.ts saved', read('b.ts').includes('edited'))
   check('quit/save: notes/c.ts saved', read('notes/c.ts').includes('inFolder'))
 
@@ -131,9 +131,9 @@ const exited = (app, ms = 8000) =>
   await page.evaluate(() => window.hive.invoke('app:quit'))
   await sleep(800)
   await page.getByRole('button', { name: 'Discard the changes' }).click()
-  const gone2 = exited(app)
+  const q2 = await lib.quitWatch(app)
   await page.locator('.dialog-footer button.danger').last().click()
-  check('quit/discard: Hive quit', await gone2)
+  check('quit/discard: Hive quit', await quits(q2))
   check('quit/discard: keep.ts unchanged', !read('keep.ts').includes('discardMe'))
 
   // ---- Run 3: a file changed on disk can't be saved over; Hive stays open.
@@ -157,12 +157,12 @@ const exited = (app, ms = 8000) =>
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'P', code: 'KeyP', ctrlKey: true, shiftKey: true }))
   })
   await page.keyboard.press('Escape')
-  const gone3 = exited(app)
   await page.evaluate(() => window.hive.invoke('app:quit'))
   await sleep(600)
   await page.getByRole('button', { name: 'Discard the changes' }).click()
+  const q3 = await lib.quitWatch(app)
   await page.locator('.dialog-footer button.danger').last().click()
-  check('conflict: discard then quits', await gone3)
+  check('conflict: discard then quits', await quits(q3))
 
   console.log(results.join('\n'))
 })().catch((e) => {

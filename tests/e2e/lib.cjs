@@ -83,6 +83,60 @@ async function until(fn, ms = 10000, interval = 100) {
   return v
 }
 
+let quitWatches = 0
+/**
+ * Watches a test copy of Hive quit, telling Hive's part from the process's (#424). Start it before the quit.
+ * `untilDecided(ms)`: the time Hive called app.quit (or app.exit), recorded in main as it calls it: its own quit work is
+ * done (sessions stopped, state saved), or null if it hasn't within ms. `gone(ms)`: the process has ended since. What
+ * comes between (Electron closing windows and processes) is the machine's, and a loaded one stretches it to seconds, so
+ * a suite times Hive's part and only waits for the rest. `timings()` says both, for the suite's log.
+ */
+async function quitWatch(app) {
+  const file = path.join(WORK, `quit-watch-${process.pid}-${++quitWatches}.txt`)
+  fs.rmSync(file, { force: true })
+  await app.evaluate(({ app: a }, f) => {
+    const out = process.mainModule.require('fs')
+    for (const name of ['quit', 'exit']) {
+      const original = a[name].bind(a)
+      a[name] = (...args) => {
+        try {
+          if (!out.existsSync(f)) out.writeFileSync(f, String(Date.now()))
+        } catch {
+          // The watch is the test's: a quit goes on without it.
+        }
+        return original(...args)
+      }
+    }
+  }, file)
+  const proc = app.process()
+  let exitedAt = proc.exitCode !== null ? Date.now() : null
+  const exited = exitedAt ? Promise.resolve() : new Promise((r) => proc.once('exit', () => r((exitedAt = Date.now()))))
+  const decided = () => {
+    try {
+      return Number(fs.readFileSync(file, 'utf8')) || null
+    } catch {
+      return null
+    }
+  }
+  return {
+    untilDecided: (ms) => until(decided, ms),
+    // Its timer goes once the process has ended, so a suite that has finished isn't kept alive for the rest of ms.
+    gone: (ms) =>
+      new Promise((resolve) => {
+        if (exitedAt) return resolve(true)
+        const timer = setTimeout(() => resolve(false), ms)
+        void exited.then(() => {
+          clearTimeout(timer)
+          resolve(true)
+        })
+      }),
+    timings: (from) => {
+      const d = decided()
+      return `Hive's quit work ${d ? `${d - from} ms` : 'not done'}, the process gone ${d && exitedAt ? `${exitedAt - d} ms after` : exitedAt ? 'without it' : 'not yet'}`
+    }
+  }
+}
+
 /** Turns providers on in a test profile's config before Hive starts (fresh profiles start with none). */
 function enableProviders(userData, providers = ['claude-code']) {
   fs.mkdirSync(userData, { recursive: true })
@@ -687,4 +741,4 @@ async function haikuAutoCaveat(page, autoOffered) {
   return [ok, JSON.stringify(caveat)]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }
+module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, launchDir, launchHook, codexHook, samplePng, environmentProblem, environmentProblems, stepVerdict, checked, cliStep, sendPrompt, skip }

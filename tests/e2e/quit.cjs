@@ -39,7 +39,12 @@ async function launch(name, config) {
   await lib.waitForProvider(inv)
   return { app, page, inv, ws }
 }
-const exited = (app, ms = 10000) => app.waitForEvent('close', { timeout: ms }).then(() => true, () => false)
+/**
+ * Hive quits: it decides to (its own quit work done, timed from the watch's start) within ms, and its process ends after.
+ * The process's part is Electron's on a loaded machine, so it is only waited for, up to GONE_MS (#424).
+ */
+const GONE_MS = 30000
+const quits = async (q, ms = 10000) => !!(await q.untilDecided(ms)) && (await q.gone(GONE_MS))
 /**
  * Until n sessions are ready (idle), not just past starting: in a folder Claude Code hasn't seen, its trust question
  * shows the session as waiting (Needs your input) until acceptClaudeTrust's answer gets it to its prompt (#177).
@@ -84,9 +89,9 @@ const forceClose = async (app) => {
     await page.evaluate(() => window.hive.invoke('app:quit'))
     await sleep(600)
     await page.locator('.quit-dontask input').check()
-    const closing = exited(app)
+    const q = await lib.quitWatch(app)
     await page.locator('.dialog button', { hasText: 'Quit now' }).click()
-    check('quit now: app exits', await closing)
+    check('quit now: app exits', await quits(q))
     const saved = JSON.parse(fs.readFileSync(path.join(scratch, 'q-always-profile', 'config.json'), 'utf8'))
     check("don't ask again: saved as never", saved.settings.general.confirmOnQuit === 'never')
     const s = JSON.parse(fs.readFileSync(path.join(ws, 'alpha', '.hive', 'sessions.json'), 'utf8'))
@@ -99,12 +104,15 @@ const forceClose = async (app) => {
     await startIn(inv, path.join(ws, 'alpha'))
     // Its session up and idle, so quitting finds it running.
     check('idle + default: the session is idle first', await untilReady(inv, 1))
-    const closing = exited(app)
+    const q = await lib.quitWatch(app)
     const t0 = Date.now()
     await inv('app:quit').catch(() => undefined)
-    const closed = await closing
+    const closed = await quits(q)
     check('idle + default: quits without asking', closed)
-    check('idle + default: shutdown under 5 s', Date.now() - t0 < 5000)
+    // Hive's own shutdown (stopping the session, up to 3 s, and saving), not the process's teardown after it.
+    const decided = await q.untilDecided(0)
+    check('idle + default: shutdown under 5 s', !!decided && decided - t0 < 5000)
+    results.push(`INFO  idle + default: ${q.timings(t0)}`)
     // It asked instead: close it, or it stays open (at the dialog) after the suite, holding the runner's port.
     if (!closed) await forceClose(app)
   }
@@ -117,9 +125,9 @@ const forceClose = async (app) => {
     await untilReady(inv, 1)
     await page.evaluate(() => window.hive.invoke('app:quit'))
     await sleep(600)
-    const closing = exited(app)
+    const q = await lib.quitWatch(app)
     await inv('app:quitDecision', 'wait', false).catch(() => undefined)
-    const quit = await closing
+    const quit = await quits(q)
     check('wait with no working agent: quits', quit)
     if (!quit) await forceClose(app)
   }
