@@ -54,12 +54,24 @@ export function signInRefused(data: unknown): string | null {
 
 /**
  * Session details from appended events: model, effort, the credits used so far and the premium requests (running
- * totals), a refused sign-in, and when the user last interrupted a turn (`interruptedAt`, the last abort's timestamp: no
- * hook fires for it).
+ * totals), a refused sign-in, and when the user last interrupted a turn (`interruptedAt`), for which no hook fires: an
+ * abort (Esc on a command's dialog, or while it works), or a turn that ends on the user's refusal of a path prompt
+ * (Esc on "Path permission needed": permission.completed denied interactively, then assistant.turn_end, and neither
+ * an abort nor agentStop; #475). An interrupt the user's next prompt follows in the same events is history: that
+ * prompt's hook has already said the agent works again.
  */
 export function eventsDetails(text: string): LiveDetails {
   // premiumRequests is Copilot's own (CopilotSessionUsage).
   const out: LiveDetails & { premiumRequests?: number } = {}
+  // denied: this model call had the user's refusal. refusedEnd: when a call that had one ended (its turn_end), until
+  // Copilot carries on with another call or its agentStop, or the user prompts again.
+  let denied = false
+  let refusedEnd: string | null = null
+  const prompted = (): void => {
+    denied = false
+    refusedEnd = null
+    delete out.interruptedAt
+  }
   for (const line of text.split('\n')) {
     const r = parseLine(line)
     const d = r?.data
@@ -96,7 +108,26 @@ export function eventsDetails(text: string): LiveDetails {
         if (typeof d.totalPremiumRequests === 'number') out.premiumRequests = d.totalPremiumRequests
         break
       case 'abort':
+        refusedEnd = null
         if (typeof r.timestamp === 'string') out.interruptedAt = r.timestamp
+        break
+      case 'permission.completed':
+        if (d.result?.kind === 'denied-interactively-by-user') denied = true
+        break
+      case 'assistant.turn_end':
+        if (denied && typeof r.timestamp === 'string') refusedEnd = r.timestamp
+        denied = false
+        break
+      case 'assistant.turn_start':
+        denied = false
+        refusedEnd = null
+        break
+      case 'hook.start':
+        if (d.hookType === 'agentStop') refusedEnd = null
+        else if (d.hookType === 'userPromptSubmitted') prompted()
+        break
+      case 'user.message':
+        prompted()
         break
       case 'session.error': {
         const refused = signInRefused(d)
@@ -109,6 +140,9 @@ export function eventsDetails(text: string): LiveDetails {
       }
     }
   }
+  // Nothing after the refused turn's end: the turn is over. (Copilot's next model call, when it carries on, follows
+  // within a millisecond, so a look between the two is unlikely; Stop puts it right.)
+  if (refusedEnd) out.interruptedAt = refusedEnd
   return out
 }
 

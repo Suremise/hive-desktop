@@ -186,6 +186,41 @@ describe('Copilot live details', () => {
     expect((eventsDetails(two) as { interruptedAt?: string }).interruptedAt).toBe('2026-10-08T11:00:00.000Z')
   })
 
+  // Esc on Copilot's "Path permission needed" prompt (Copilot CLI 1.0.93, #475): the denial, the tool's failure and the
+  // turn's end, with no abort and no agentStop.
+  const refusal = (at: string): string =>
+    line('permission.requested', `${at}:01.000Z`, { toolCallId: 'call_1', permissionRequest: { kind: 'path' } }) +
+    line('permission.completed', `${at}:02.000Z`, { toolCallId: 'call_1', result: { kind: 'denied-interactively-by-user' } }) +
+    line('tool.execution_complete', `${at}:02.001Z`, { toolCallId: 'call_1', success: false, error: { message: 'Permission denied' } }) +
+    line('assistant.turn_end', `${at}:02.002Z`, { turnId: '0' })
+  const prompt = (at: string): string => line('hook.start', `${at}:00.000Z`, { hookType: 'userPromptSubmitted' }) + line('user.message', `${at}:00.001Z`, { content: 'write ../outside.txt' }) + line('assistant.turn_start', `${at}:00.002Z`, { turnId: '0' })
+  const interrupted = (text: string): string | undefined => (eventsDetails(text) as { interruptedAt?: string }).interruptedAt
+
+  it('reports a turn that ends on the user refusing a path prompt as interrupted', () => {
+    expect(interrupted(prompt('2026-10-09T10:00') + refusal('2026-10-09T10:00'))).toBe('2026-10-09T10:00:02.002Z')
+    // Read in pieces, as the session's events grow: the refusal's end on its own.
+    expect(interrupted(refusal('2026-10-09T10:00'))).toBe('2026-10-09T10:00:02.002Z')
+    // An approved prompt isn't a refusal.
+    const approved = refusal('2026-10-09T10:00').replace('denied-interactively-by-user', 'approved')
+    expect(interrupted(approved)).toBeUndefined()
+  })
+
+  it('doesn’t count a refusal Copilot carries on from', () => {
+    // Its next model call and the turn's Stop (agentStop): finished by the Stop hook, not interrupted.
+    const carriedOn = refusal('2026-10-09T10:00') + line('assistant.turn_start', '2026-10-09T10:00:02.003Z', { turnId: '1' }) + line('assistant.message', '2026-10-09T10:00:03.000Z', { content: 'I can’t write there.' }) + line('assistant.turn_end', '2026-10-09T10:00:03.001Z', { turnId: '1' }) + line('hook.start', '2026-10-09T10:00:03.002Z', { hookType: 'agentStop' })
+    expect(interrupted(carriedOn)).toBeUndefined()
+    // A refusal in an earlier model call of a turn that went on to its Stop isn't this turn's end.
+    expect(interrupted(carriedOn + prompt('2026-10-09T10:05') + line('assistant.turn_end', '2026-10-09T10:05:01.000Z', { turnId: '0' }))).toBeUndefined()
+  })
+
+  it('leaves an interrupt the user’s next prompt follows as history', () => {
+    // The prompt's own hook has already said the agent works again.
+    expect(interrupted(refusal('2026-10-09T10:00') + prompt('2026-10-09T10:01'))).toBeUndefined()
+    const abort = line('abort', '2026-10-09T10:00:00.000Z', { reason: 'user_initiated' })
+    expect(interrupted(abort + prompt('2026-10-09T10:01'))).toBeUndefined()
+    expect(interrupted(abort + prompt('2026-10-09T10:01') + refusal('2026-10-09T10:01'))).toBe('2026-10-09T10:01:02.002Z')
+  })
+
   it('reports a refused sign-in until the agent carries on', () => {
     const err = '{"type":"session.error","data":{"errorType":"query","message":"Please use /login to sign in to use Copilot"},"timestamp":"2026-10-08T21:00:00.000Z"}\n'
     expect(eventsDetails(err)).toMatchObject({ signIn: 'Please use /login to sign in to use Copilot', signInAt: '2026-10-08T21:00:00.000Z' })
