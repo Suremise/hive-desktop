@@ -2,11 +2,11 @@
 // is still the one switched, isn't asking the user anything and isn't busy. One that stops (the session stopped or
 // replaced while the keys wait, a question, busy for 30 seconds) types nothing more and reports the switch as not made,
 // the mode as it was. Codex's screens are 0.161's, captured from its rendered terminal.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
+import { tempDir } from './tempDir'
 
 // What Hive types into agents' terminals, recorded instead (no process runs); onWrite acts as each piece goes in.
 const pty = vi.hoisted(() => ({ typed: [] as { key: string; data: string }[], onWrite: (_data: string): void => undefined }))
@@ -18,7 +18,7 @@ vi.mock('../src/main/ptyHost', async (original) => ({
   }
 }))
 
-const base = mkdtempSync(join(tmpdir(), 'hive-modeswitch-'))
+const base = tempDir('hive-modeswitch-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
