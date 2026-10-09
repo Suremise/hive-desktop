@@ -13,6 +13,7 @@ import { PROVIDERS, enabledProviders, isProviderEnabled, providerDescriptor } fr
 import { distinguishingParents } from '@shared/folderLabels'
 import { GIT_DOWNLOAD, GIT_MIN, gitFixText, gitOldText, gitProblemText } from '@shared/gitTool'
 import { testedNote, testedSummary } from '@shared/testedClis'
+import { APP_NAME } from '@shared/appName'
 import { ProviderIcon } from './ProviderIcon'
 import { BusyButton, Icon, IconButton, LoadFailed, Modal, SearchInput, STATUS_TEXT, useBackdrop, useBusy } from './ui'
 
@@ -408,7 +409,7 @@ export function AboutDialog() {
   }
   return (
     <Modal
-      title="About Hive"
+      title={`About ${APP_NAME}`}
       onClose={() => set({ aboutOpen: false })}
       footer={
         <>
@@ -428,8 +429,8 @@ export function AboutDialog() {
       }
     >
       <div className="about">
-        <img src={iconUrl} alt="Hive" />
-        <h1>Hive</h1>
+        <img src={iconUrl} alt={APP_NAME} />
+        <h1>{APP_NAME}</h1>
         <div className="version">Version {info.version}</div>
         <p className="muted" style={{ maxWidth: 360, margin: '10px auto 0' }}>
           An agent-first workspace for AI-assisted coding. Run coding agents such as {PROVIDERS.map((p) => p.name).join(' and ')} across your projects, side by side.

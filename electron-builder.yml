@@ -1,5 +1,7 @@
 appId: com.hive.desktop
-productName: Hive
+# The displayed name (#443). The install folder (%LOCALAPPDATA%\Programs\Hive) comes from executableName and the
+# profile folder (%APPDATA%\Hive) is set in main (shared/appName.ts), so neither moves; appId keeps the uninstall entry.
+productName: Hive Desktop
 copyright: Copyright © 2026 Darren Marshall
 directories:
   buildResources: build
@@ -38,7 +40,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: Hive
+  shortcutName: Hive Desktop
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
   artifactName: Hive-Setup-${version}.${ext}

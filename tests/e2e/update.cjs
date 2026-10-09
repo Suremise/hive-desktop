@@ -61,7 +61,7 @@ const log = (profile) => { try { return fs.readFileSync(path.join(scratch, profi
 
   // 1. Defaults: automatic check finds 9.1.1 and downloads it.
   let { app, page, inv } = await launch('upd-a', { HIVE_UPDATE_FEED: feed, HIVE_UPDATE_DELAY: '1500' })
-  const sawDownloading = await waitFor(async () => /Downloading Hive 9.1.1/.test(await statusText(page)), 15000)
+  const sawDownloading = await waitFor(async () => /Downloading Hive Desktop 9.1.1/.test(await statusText(page)), 15000)
   check('status bar shows the download', sawDownloading)
   await page.screenshot({ path: path.join(scratch, 'upd-1-downloading.png') })
   let maxPct = 0
@@ -73,11 +73,11 @@ const log = (profile) => { try { return fs.readFileSync(path.join(scratch, profi
   check('progress reported while downloading', maxPct > 10 && maxPct <= 100, `max ${Math.round(maxPct)}%`)
   check('update downloaded and verified', ready && downloads === 1, `downloads ${downloads}`)
   check('status bar: restart to update', /Restart to update to 9.1.1/.test(await statusText(page)), await statusText(page))
-  check('toast offers Restart and Update', await page.locator('.toast', { hasText: 'Hive 9.1.1 is ready' }).count() === 1)
+  check('toast offers Restart and Update', await page.locator('.toast', { hasText: 'Hive Desktop 9.1.1 is ready' }).count() === 1)
   check('install mode auto logged', /install auto/.test(log('upd-a')))
   await page.locator('.statusbar .update-item').click(); await sleep(500)
   const dlg = page.locator('.dialog', { hasText: 'Update Ready' })
-  check('dialog shows version and notes', (await dlg.innerText()).includes('Hive 9.1.1 is ready to install') && (await dlg.locator('.update-notes strong').innerText()) === 'everything')
+  check('dialog shows version and notes', (await dlg.innerText()).includes('Hive Desktop 9.1.1 is ready to install') && (await dlg.locator('.update-notes strong').innerText()) === 'everything')
   check('dialog has Restart and Update', await dlg.locator('button', { hasText: 'Restart and Update' }).count() === 1)
   await page.screenshot({ path: path.join(scratch, 'upd-2-ready.png') })
   await dlg.locator('button', { hasText: 'Later' }).click(); await sleep(300)
@@ -98,7 +98,7 @@ const log = (profile) => { try { return fs.readFileSync(path.join(scratch, profi
   await waitFor(async () => (await inv('update:state')).status === 'available')
   await lib.sleep(1500) // A fixed wait on purpose: this checks that nothing downloads by itself (the feed answers after 1.5 s), which no condition can show.
   check('not downloaded automatically', (await inv('update:state')).status === 'available' && downloads === 0)
-  check('status bar: available', /Hive 9.1.1 available/.test(await statusText(page)), await statusText(page))
+  check('status bar: available', /Hive Desktop 9.1.1 available/.test(await statusText(page)), await statusText(page))
   check('install mode manual logged', /download manual, install manual/.test(log('upd-b')))
   await page.locator('.statusbar .update-item').click(); await sleep(400)
   await page.screenshot({ path: path.join(scratch, 'upd-3-available.png') })
@@ -121,7 +121,7 @@ const log = (profile) => { try { return fs.readFileSync(path.join(scratch, profi
   await waitFor(async () => ['up-to-date', 'available'].includes((await inv('update:state')).status))
   st = await inv('update:state')
   check('automatic check ignores the skipped version', st.status === 'up-to-date' && st.skipped === true, st.status)
-  check('status bar plain', /^\s*Hive Dev \d+\.\d+\.\d+/.test(await statusText(page)), await statusText(page))
+  check('status bar plain', /^\s*Hive Desktop Dev \d+\.\d+\.\d+/.test(await statusText(page)), await statusText(page))
   // Manual check still offers it (marked skipped)
   st = await inv('update:check')
   check('manual check still shows a skipped version', st.status === 'available' && st.skipped === true)

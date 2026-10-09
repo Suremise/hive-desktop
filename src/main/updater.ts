@@ -3,6 +3,7 @@ import { writeFileSync } from 'original-fs'
 import { join } from 'path'
 import { autoUpdater, type ProgressInfo, type UpdateInfo } from 'electron-updater'
 import type { UpdateState } from '../shared/types'
+import { APP_NAME } from '../shared/appName'
 import { config } from './config'
 import { emit, toast } from './events'
 import { createLogger } from './logger'
@@ -175,7 +176,7 @@ export function initUpdater(opts: { restart: () => void }): void {
   autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
     set({ status: 'ready', version: info.version, progress: undefined })
     const auto = config.settings.updates.install === 'auto'
-    toast('info', `Hive ${info.version} is ready`, auto ? 'It installs when you quit Hive, or restart now.' : 'Restart Hive to install it.', [{ label: 'Restart and Update', command: 'update.install' }])
+    toast('info', `${APP_NAME} ${info.version} is ready`, auto ? 'It installs when you quit Hive, or restart now.' : 'Restart Hive to install it.', [{ label: 'Restart and Update', command: 'update.install' }])
   })
 
   applySettings()
@@ -203,5 +204,5 @@ function noticeUpdated(): void {
     })
   }
   if (!last || last === current || !app.isPackaged) return
-  setTimeout(() => toast('success', `Hive updated to ${current}`, 'See what changed in this version.', [{ label: "What's New", command: 'update.releaseNotes', args: [current] }]), 4000)
+  setTimeout(() => toast('success', `${APP_NAME} updated to ${current}`, 'See what changed in this version.', [{ label: "What's New", command: 'update.releaseNotes', args: [current] }]), 4000)
 }

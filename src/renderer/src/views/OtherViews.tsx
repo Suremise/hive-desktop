@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { McpServerInfo, SkillInfo } from '@shared/types'
 import { enabledProviders } from '@shared/providers'
+import { APP_NAME } from '@shared/appName'
 import iconUrl from '../assets/icon.svg'
 import guideMd from '@docs/USER_GUIDE.md?raw'
 import apiMd from '@docs/AGENT_API.md?raw'
@@ -44,7 +45,7 @@ export function WelcomeView() {
         <div className="welcome-hero">
           <img src={iconUrl} alt="" />
           <div>
-            <h1>Hive</h1>
+            <h1>{APP_NAME}</h1>
             <p>Run AI coding agents across your projects, side by side.</p>
           </div>
         </div>
@@ -481,7 +482,7 @@ export function DocsView() {
             <Icon name="keyboard" /> <span className="label">Keyboard Shortcuts</span>
           </div>
           <div className="row" onClick={() => set({ aboutOpen: true })}>
-            <Icon name="info" /> <span className="label">About Hive</span>
+            <Icon name="info" /> <span className="label">About {APP_NAME}</span>
           </div>
         </div>
       </div>

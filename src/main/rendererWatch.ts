@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import { emitTo } from './events'
 import { createLogger } from './logger'
 import type { HiveWindow } from './windows'
+import { APP_NAME } from '../shared/appName'
 
 const log = createLogger('window')
 
@@ -72,7 +73,7 @@ export function watchRenderer(entry: HiveWindow, opts: { quitting: () => boolean
     if (response === 'reload') return reload(true)
     void (async () => {
       for (;;) {
-        const choice = await ask({ type: 'error', title: 'Hive', message: "Hive's window stopped working.", detail: STILL_RUNNING, buttons: ['Reload', 'Open Logs', 'Quit Hive'], defaultId: 0, cancelId: 0 })
+        const choice = await ask({ type: 'error', title: APP_NAME, message: "Hive's window stopped working.", detail: STILL_RUNNING, buttons: ['Reload', 'Open Logs', 'Quit Hive'], defaultId: 0, cancelId: 0 })
         if (choice === 1) {
           opts.openLogs()
           continue
@@ -98,7 +99,7 @@ export function watchRenderer(entry: HiveWindow, opts: { quitting: () => boolean
       log.warn("The window's page isn't responding")
       const prompt = new AbortController()
       hangPrompt = prompt
-      void ask({ type: 'warning', title: 'Hive', message: "Hive's window isn't responding.", detail: `${STILL_RUNNING} Wait for it, or reload it.`, buttons: ['Wait', 'Reload'], defaultId: 0, cancelId: 0 }, prompt.signal)
+      void ask({ type: 'warning', title: APP_NAME, message: "Hive's window isn't responding.", detail: `${STILL_RUNNING} Wait for it, or reload it.`, buttons: ['Wait', 'Reload'], defaultId: 0, cancelId: 0 }, prompt.signal)
         .then((choice) => {
           if (prompt.signal.aborted || hangPrompt !== prompt) return
           hangPrompt = null

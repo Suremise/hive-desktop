@@ -1,6 +1,7 @@
 import { RELEASES_URL } from '@shared/defaults'
 import type { UpdateState } from '@shared/types'
 import { formatDate } from '@shared/dates'
+import { APP_NAME, appName } from '@shared/appName'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { set, useStore } from '../store'
@@ -58,12 +59,12 @@ export function UpdateStatusItem() {
   const info = useStore((s) => s.appInfo)
   const u = useStore((s) => s.update)
   if (!info) return null
-  const label = info.isPackaged ? `Hive ${info.version}` : `Hive Dev ${info.version}`
+  const label = `${appName(info.isPackaged)} ${info.version}`
   const open = (): void => set({ updateOpen: true })
   if (u && !u.skipped && (u.status === 'available' || u.status === 'downloading' || u.status === 'ready')) {
     const text =
-      u.status === 'available' ? `Hive ${u.version} available` : u.status === 'downloading' ? `Downloading Hive ${u.version}… ${Math.round(u.progress?.percent ?? 0)}%` : `Restart to update to ${u.version}`
-    const tip = u.status === 'ready' ? `Hive ${u.version} has been downloaded. Click to see what's new and restart.` : `You have Hive ${info.version}. Click for details.`
+      u.status === 'available' ? `${APP_NAME} ${u.version} available` : u.status === 'downloading' ? `Downloading ${APP_NAME} ${u.version}… ${Math.round(u.progress?.percent ?? 0)}%` : `Restart to update to ${u.version}`
+    const tip = u.status === 'ready' ? `${APP_NAME} ${u.version} has been downloaded. Click to see what's new and restart.` : `You have ${APP_NAME} ${info.version}. Click for details.`
     return (
       <Tooltip content={tip}>
         <div className={cx('status-item update-item', u.status === 'ready' && 'ready')} onClick={open}>
@@ -73,7 +74,7 @@ export function UpdateStatusItem() {
     )
   }
   return (
-    <Tooltip content={`Hive ${info.version}${info.isPackaged ? '' : ' (development build)'} · Electron ${info.electron}${u && u.status !== 'disabled' ? ` · ${updateSummary(u)}` : ''}`}>
+    <Tooltip content={`${APP_NAME} ${info.version}${info.isPackaged ? '' : ' (development build)'} · Electron ${info.electron}${u && u.status !== 'disabled' ? ` · ${updateSummary(u)}` : ''}`}>
       <div className="status-item" onClick={() => set({ aboutOpen: true })}>
         {u?.status === 'checking' ? <Icon name="loading" spin /> : <HiveMark />} {label}
       </div>
@@ -109,7 +110,7 @@ export function UpdateDialog() {
     case 'up-to-date':
       body = (
         <p className="update-line">
-          <Icon name="pass-filled" className="ok" /> Hive {u.current} is the latest version.
+          <Icon name="pass-filled" className="ok" /> {APP_NAME} {u.current} is the latest version.
         </p>
       )
       break
@@ -148,7 +149,7 @@ export function UpdateDialog() {
             <Icon name={u.status === 'ready' ? 'debug-restart' : 'cloud-download'} />
             <div>
               <strong>
-                {u.status === 'ready' ? `Hive ${u.version} is ready to install` : `Hive ${u.version} is available`}
+                {u.status === 'ready' ? `${APP_NAME} ${u.version} is ready to install` : `${APP_NAME} ${u.version} is available`}
                 {u.releaseName && u.releaseName !== u.version && u.releaseName !== `v${u.version}` ? ` — ${u.releaseName}` : ''}
               </strong>
               <div className="faint">

@@ -1,6 +1,6 @@
-<p align="center"><img src="build/icon.png" width="96" alt="Hive"></p>
+<p align="center"><img src="build/icon.png" width="96" alt="Hive Desktop"></p>
 
-<h1 align="center">Hive</h1>
+<h1 align="center">Hive Desktop</h1>
 
 <p align="center">An agent-first desktop workspace for AI-assisted coding.<br>Run Claude Code and Codex across your projects, side by side.</p>
 
@@ -8,7 +8,7 @@
 
 ---
 
-Hive looks and feels like a streamlined VS Code, but it is built around **agent sessions** rather than a text editor. Open a workspace, mark the projects you're working on, and give each one or more coding agents, or a whole team — **Claude Code** and **Codex**, even side by side in one project. Hive tracks what every agent is doing, how many tokens it uses, and which skills and MCP servers it has, and it tells you when an agent finishes or needs you. A **Hive Assistant** in each workspace can run the work for you: it plans cards, starts agents, follows each lane to the end and asks you only for real decisions.
+Hive Desktop (Hive for short) looks and feels like a streamlined VS Code, but it is built around **agent sessions** rather than a text editor. Open a workspace, mark the projects you're working on, and give each one or more coding agents, or a whole team — **Claude Code** and **Codex**, even side by side in one project. Hive tracks what every agent is doing, how many tokens it uses, and which skills and MCP servers it has, and it tells you when an agent finishes or needs you. A **Hive Assistant** in each workspace can run the work for you: it plans cards, starts agents, follows each lane to the end and asks you only for real decisions.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/hero-light.png">
