@@ -1,14 +1,14 @@
 // Recent workspaces (#144): forgetting one ignores the case of its path (Windows paths), each entry says whether its
 // folder is there, and Clear Recent keeps only the workspaces open in a window (none here).
-import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
+import { rmSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { config } from '../src/main/config'
 import { onHiveEvent } from '../src/main/events'
 import { clearRecent, recentFor, removeRecent } from '../src/main/recentWorkspaces'
+import { tempDir } from './tempDir'
 
-const here = mkdtempSync(join(tmpdir(), 'hive-recent-'))
+const here = tempDir('hive-recent-')
 afterAll(() => rmSync(here, { recursive: true, force: true }))
 
 describe('recent workspaces (#144)', () => {

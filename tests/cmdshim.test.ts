@@ -1,13 +1,13 @@
 // Starting a CLI from a .cmd launcher: a Node CLI's (npm's, or a one-line one) is started as node and its script,
 // without cmd.exe and its 8,191-character command line; anything else still goes through cmd.exe, and a command line
 // too long for it is refused with a message saying what to do, rather than cmd.exe exiting at once.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { CMD_MAX_CHARS, commandLineLength, promptArg, runsThroughCmd, shimTarget, toSpawnable } from '../src/main/providers/common'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-cmdshim-'))
+const base = tempDir('hive-cmdshim-')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 const windows = process.platform === 'win32'
 

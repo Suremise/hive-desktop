@@ -1,8 +1,7 @@
 // Installers built in a git worktree also go to the main checkout's dist (scripts/distCopy.mjs, #150): the worktree
 // detection, the copy plan, and the copy, with a temporary repository and worktree.
 import { execFileSync, spawn } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { pathToFileURL } from 'url'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -10,11 +9,12 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { checkoutOf, clearDistInfo, copySet, copyToMain, finishDist, installerFiles, planCopy, provenanceProblem, readUnpackedInfo } from '../scripts/distCopy.mjs'
 // @ts-expect-error: a plain .mjs module without types
 import { packagedStatus } from './e2e/runner.mjs'
+import { tempDir } from './tempDir'
 
 type Info = { version: string; code: string; head: string; branch: string | null; builtAt: string }
 
 describe('installers built in a worktree (scripts/distCopy.mjs)', () => {
-  const base = mkdtempSync(join(tmpdir(), 'hive-distcopy-'))
+  const base = tempDir('hive-distcopy-')
   afterAll(() => rmSync(base, { recursive: true, force: true }))
   const main = join(base, 'main')
   const wt = join(base, 'wt')

@@ -1,10 +1,10 @@
 // Hive's one way to the Recycle Bin (#414): every deletion goes through trash() in src/main/trash.ts, and a test copy of
 // Hive moves what it deletes into its own trash folder instead of the user's Recycle Bin.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join, relative } from 'path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
+import { tempDir } from './tempDir'
 
 // A rename across drives (EXDEV) where a test asks for one: the test trash folder can't be on another drive here.
 const hooks: { exdev: ((from: string, to: string) => boolean) | null } = { exdev: null }
@@ -22,7 +22,7 @@ vi.mock('fs/promises', async (original) => {
 const { testTrashDir, trash } = await import('../src/main/trash')
 const { trashAllOrNothing } = await import('../src/main/fsutil')
 
-const base = mkdtempSync(join(tmpdir(), 'hive-trash-'))
+const base = tempDir('hive-trash-')
 const shell = electron.shell as unknown as { trashItem?: (p: string) => Promise<void> }
 const saved = { dir: process.env.HIVE_TEST_TRASH_DIR, profile: process.env.HIVE_USER_DATA }
 afterEach(() => {

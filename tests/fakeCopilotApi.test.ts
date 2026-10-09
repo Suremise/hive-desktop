@@ -1,15 +1,15 @@
 // The offline Copilot test tier's helpers (tests/e2e/fake-copilot-api.cjs, #453): gh kept off a test Copilot's PATH
 // whatever its folder is called, and the scripted stand-in model's steps.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { createRequire } from 'module'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { tempDir } from './tempDir'
 
 const require = createRequire(import.meta.url)
 const { pathWithoutGh, actionsOf, decide } = require('./e2e/fake-copilot-api.cjs')
 
-const base = mkdtempSync(join(tmpdir(), 'hive-fake-copilot-'))
+const base = tempDir('hive-fake-copilot-')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 const PATHEXT = '.COM;.EXE;.BAT;.CMD'
 /** A folder with these files in it (empty files: only their names count). */

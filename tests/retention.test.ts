@@ -2,13 +2,13 @@
 // skills folder's 1000 entries, plus personas), unchanged scans, one at a time or ten at once, read no file contents and
 // no headers; past the retention limits the least recently used entries go one at a time, never the whole inventory.
 // MEASURE=1 prints files, bytes, header bytes and time per scan (docs/ARCHITECTURE.md records them).
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-retention-'))
+const base = tempDir('hive-retention-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 

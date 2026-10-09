@@ -1,13 +1,13 @@
 // Moving a project's agents: where a move, a drop or a page drop puts an agent, and the saved order in project.json
 // (under its lock, keeping each agent's settings and anything changed meanwhile).
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
 import { dropIndex, moveAgentTo, pageAgents, pageEndIndex, swapAgentsIn } from '../src/shared/defaults'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-order-'))
+const base = tempDir('hive-order-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
 const ids = (list: { id: string }[]): string => list.map((a) => a.id).join('')

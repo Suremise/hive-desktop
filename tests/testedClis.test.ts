@@ -1,8 +1,7 @@
 // The CLI versions a Hive release was tested with (#365): read from the real tier's run record (never typed by hand),
 // written into resources/tested-clis.json by `npm run tested-clis`, checked by `npm run release`, and compared with the
 // installed version for Agent Setup, Copy Diagnostics and the Agent API.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join, win32 } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 // @ts-expect-error: plain .mjs modules without types
@@ -15,6 +14,7 @@ import { compareTested, noteSelectedCli } from '../src/main/testedClis'
 import { compareVersions } from '../src/main/providers/common'
 import { PROVIDERS } from '../src/shared/providers'
 import { testedComparison, testedNote, testedSummary } from '../src/shared/testedClis'
+import { tempDir } from './tempDir'
 
 type Suite = { name: string; needs?: string[] }
 type Cli = { provider: string; version: string; path: string | null; home?: string }
@@ -193,7 +193,7 @@ describe('the installed version against the tested one (#365)', () => {
 })
 
 describe('the run record\'s versions are what Hive selected, not the first copy on PATH (#365)', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hive-tested-clis-'))
+  const dir = tempDir('hive-tested-clis-')
   afterAll(() => rmSync(dir, { recursive: true, force: true }))
   /** Puts an environment variable back as it was. */
   const restore = (k: string, v: string | undefined): void => {

@@ -1,10 +1,10 @@
 // A settings file replaced or grown between Hive's stat and its read (#333): both readers (the compaction reader's and
 // the launch's read of a user's --settings) read the opened file to its end, never trusting the stat's size, and
 // never past a byte over Claude Code's 2 MiB limit. `afterStat` runs once, right after the next stat of that file.
-import { mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { tempDir } from './tempDir'
 
 const race = vi.hoisted(() => ({ file: '', afterStat: null as null | (() => void) }))
 const fire = (p: unknown): void => {
@@ -40,7 +40,7 @@ vi.mock('fs/promises', async (importOriginal) => {
 const { SETTINGS_FILE_LIMIT, cliSettings } = await import('../src/main/providers/claude/autoCompact')
 const { userSettings } = await import('../src/main/providers/claude/launchSettings')
 
-const dir = mkdtempSync(join(tmpdir(), 'hive-settings-race-'))
+const dir = tempDir('hive-settings-race-')
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 const file = join(dir, 'mine.json')
 /** JSON of exactly `bytes` bytes. */

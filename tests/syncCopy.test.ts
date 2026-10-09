@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendFileSync, readFileSync } from 'fs'
-import { appendFile, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'fs/promises'
-import { tmpdir } from 'os'
+import { appendFile, readFile, readdir, rm, stat, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { SYNC_STEP, syncCopy, syncCopyNow } from '../src/main/fsutil'
+import { tempDir } from './tempDir'
 
 // Windows ending the session while an ordinary copy is under way: `interrupt` runs the shutdown copy just before the
 // ordinary copy's n-th file operation takes effect (as if that operation were still pending), so a test can try
@@ -38,7 +38,7 @@ vi.mock('fs', async (importOriginal) => {
 
 let dir = ''
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'hive-synccopy-'))
+  dir = tempDir('hive-synccopy-')
 })
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true })

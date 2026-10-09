@@ -2,13 +2,13 @@
 // against the working tree refresh it as a side effect, taking index.lock, so a user's or agent's own `git add` or
 // `commit` at that moment failed with "index.lock: File exists". Real git, in throwaway repositories.
 import { execFileSync } from 'child_process'
-import { mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { rmSync, statSync, utimesSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { GIT_PREFIX, git, gitStatus } from '../src/main/git'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-gitlocks-'))
+const base = tempDir('hive-gitlocks-')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 let n = 0
 

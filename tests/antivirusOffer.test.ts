@@ -1,14 +1,14 @@
 // The antivirus suggestion's reminders (#348): folders not offered before at once, the same ones again at most once a
 // day and with no limit, until Don't Ask Again or they stop being slowed. On a fixture only (HIVE_TEST_ANTIVIRUS) and
 // a fake clock: nothing here reads or changes the machine's Defender settings.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { nextOffer, offerOf, REMIND_MS, remindAtOf } from '../src/shared/antivirus'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-av-offer-'))
+const base = tempDir('hive-av-offer-')
 // config.json goes to the test's own profile.
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 const { suggestionFor, dismissFor, workspaceFolders } = await import('../src/main/antivirus')

@@ -2,14 +2,14 @@
 // and agent watches in main/watches.ts: one fires once when a watched agent finishes its turn, waits for the user or
 // stops, wakes its watcher only when it is idle and the user isn't typing (else later), and ends on wake or cancel. The
 // sessions are stand-ins here (the e2e agentwatch suite runs real ones).
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { agentBusy, agentEvent, agentLimitLine, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, type AgentNow } from '../src/shared/agentWatch'
 import { WAKE_MAX_BYTES, cardChange, cardWakeLine, userNameOf, wakeAbout } from '../src/shared/watch'
 import { agentWatchText } from '../src/shared/toolReplies'
+import { tempDir } from './tempDir'
 
 const nowOf = (over: Partial<AgentNow> = {}): AgentNow => ({ status: 'working', runId: 'r1', prompts: 1, pending: false, ...over })
 const b6 = { projectPath: 'C:\\ws\\hive', agentId: 'b6', name: 'B6', project: 'hive' }
@@ -143,7 +143,7 @@ describe('what an agent watch counts', () => {
 })
 
 describe('agent watches (main/watches.ts)', async () => {
-  const base = mkdtempSync(join(tmpdir(), 'hive-agentwatch-'))
+  const base = tempDir('hive-agentwatch-')
   ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
   afterAll(() => rmSync(base, { recursive: true, force: true }))
   const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')

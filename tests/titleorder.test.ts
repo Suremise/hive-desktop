@@ -2,13 +2,13 @@
 // hooks. Hooks are answered at once and handled one at a time; a slow one (the first, recording the session) holds
 // the rest back. A title that came after them must not be applied before them, or the late prompt hook takes the
 // agent back to working and the ask hook tells the user a second time (#254).
-import { mkdirSync, mkdtempSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-titleorder-'))
+const base = tempDir('hive-titleorder-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')

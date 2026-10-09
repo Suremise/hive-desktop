@@ -2,10 +2,10 @@
 // the callback returns, bytes only (no reading of usage or cost), within its time; and power.ts saves once per notice
 // however many windows get it, with session-end catching up on what was written since query-session-end.
 import { EventEmitter } from 'events'
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { tempDir, tempRoot } from './tempDir'
 
 // A slow disk: each synchronous write takes this long.
 const slow = vi.hoisted(() => ({ ms: 0 }))
@@ -26,7 +26,7 @@ const SID2 = '0f5c2a8e-1111-4222-8333-944455557777'
 describe('sessions.backupAllNow', () => {
   async function hive() {
     vi.resetModules()
-    const profile = mkdtempSync(join(tmpdir(), 'hive-shutdown-'))
+    const profile = tempDir('hive-shutdown-')
     const electron = await import('electron')
     ;(electron.app as unknown as { getPath: () => string }).getPath = () => profile
     const { sessions } = await import('../src/main/sessions')
@@ -101,7 +101,7 @@ describe('power: Windows ending the session', () => {
     vi.resetModules()
     const windows = [new EventEmitter(), new EventEmitter()]
     const powerMonitor = Object.assign(new EventEmitter(), { isOnBatteryPower: () => false })
-    const app = Object.assign(new EventEmitter(), { getPath: () => tmpdir() })
+    const app = Object.assign(new EventEmitter(), { getPath: () => tempRoot() })
     vi.doMock('electron', () => ({ app, powerMonitor, powerSaveBlocker: { start: () => 1, stop: () => undefined }, BrowserWindow: { getAllWindows: () => windows } }))
     // Each save's budget, noted as it runs: one already here when emit returns ran inside the callback.
     const saves: number[] = []

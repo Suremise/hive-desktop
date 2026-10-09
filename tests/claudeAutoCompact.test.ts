@@ -1,12 +1,12 @@
 // Where Claude Code compacts by itself, as its settings say (#242; code.claude.com/docs/en/model-config): the variable
 // over the flag over the settings scopes (highest first, a model's own window first), "auto" for the tuned default,
 // auto-compaction turned off, a percentage that only brings it earlier, and what it can't read left as the default.
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { autoCompactLine } from '../src/shared/providers'
 import { SETTINGS_FILE_LIMIT, UNREAD_SOURCES, autoCompactOf, cliSettings, effectiveEnv, parseWindow, settingSources, settingsScopes } from '../src/main/providers/claude/autoCompact'
+import { tempDir } from './tempDir'
 
 const user = (json: unknown) => ({ label: "Claude Code's settings.json", json })
 const project = (json: unknown) => ({ label: "the project's .claude/settings.json", json })
@@ -121,7 +121,7 @@ describe('Claude Code auto-compaction settings (#242)', () => {
     expect(autoCompactOf(['--autocompact', '300000'], {}, [], OPUS).estimate).toBeUndefined()
   })
 
-  const dir = mkdtempSync(join(tmpdir(), 'hive-autocompact-'))
+  const dir = tempDir('hive-autocompact-')
   it("reads the command line's settings: the last --settings, a file or inline JSON, above the folder's (#273)", () => {
     const cwd = join(dir, 'cli')
     mkdirSync(cwd, { recursive: true })

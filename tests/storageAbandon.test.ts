@@ -2,10 +2,10 @@
 // call fails, and the walk stops once no other call waits for it (another window's, or one that can't be abandoned).
 // A window's page going (closed or reloaded) runs none of its clean-up, so its requests are abandoned with it (#260).
 // opendir is held at a gate so a walk can be caught half way; what it reads afterwards shows whether it carried on.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { tempDir } from './tempDir'
 
 const gate = vi.hoisted(() => ({ hold: null as Promise<void> | null, opened: [] as string[] }))
 vi.mock('fs/promises', async (original) => {
@@ -20,7 +20,7 @@ vi.mock('fs/promises', async (original) => {
   }
 })
 
-const base = mkdtempSync(join(tmpdir(), 'hive-storage-abandon-'))
+const base = tempDir('hive-storage-abandon-')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 const DIRS = 40
 /** A project whose agent's worktree has DIRS folders of one 100-byte file each. */

@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { CopilotConversationParser, CopilotUsageParser, copilotEventsPath, eventsDetails, listCopilotSessions, parseEvents, readWorkspace, signInRefused, WorkspaceCache, workspaceInfo } from '../src/main/providers/copilot/events'
 import { withDayCosts } from '../src/shared/usageDays'
 import type { TranscriptItem } from '../src/shared/types'
+import { tempDir } from './tempDir'
 
 // Two real sessions from the #403 spike (Copilot CLI 1.0.93), scrubbed: paths under C:\work, the system prompt, hook
 // inputs and the CLI's utility-model calls trimmed. REAL ran on Copilot Free (Auto picked mai-code-1.1-flash): three
@@ -291,7 +291,7 @@ describe('Copilot sessions', () => {
   })
 
   it('leaves out launches that ended before a prompt, and folders that aren’t sessions', async () => {
-    const home = mkdtempSync(join(tmpdir(), 'hive-copilot-'))
+    const home = tempDir('hive-copilot-')
     const session = (id: string, text: string | null): void => {
       mkdirSync(join(home, 'session-state', id), { recursive: true })
       writeFileSync(join(home, 'session-state', id, 'workspace.yaml'), `id: ${id}\ncwd: C:\\work\\p\n`)
@@ -306,7 +306,7 @@ describe('Copilot sessions', () => {
   })
 
   it('keeps a bounded cache of workspace.yaml that sees edits and deletions', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'hive-copilot-ws-'))
+    const dir = tempDir('hive-copilot-ws-')
     const file = (n: number, name: string): string => {
       const p = join(dir, `${n}.yaml`)
       writeFileSync(p, `id: s${n}\ncwd: C:\\work\\p\nname: ${name}\n`)

@@ -4,11 +4,11 @@
 // isn't told it happened. Other items still update. What a crash in a swap left is removed only when it is a version
 // Hive shipped; anything else is kept as a visible "-conflict-" copy. The races are made deterministic by hooks in
 // fs/promises: `onCopy` runs before the first file of a swap's copy is written (opened for writing), `afterRename` after a rename.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, cpSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, cpSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
+import { tempDir } from './tempDir'
 
 const hooks: { onCopy: null | (() => void | Promise<void>); afterRename: null | ((from: string, to: string) => boolean | Promise<boolean>); failRename: null | ((from: string, to: string) => boolean) } = { onCopy: null, afterRename: null, failRename: null }
 vi.mock('fs/promises', async (original) => {
@@ -35,7 +35,7 @@ vi.mock('fs/promises', async (original) => {
 })
 
 const RES = join(__dirname, '..', 'resources')
-const base = mkdtempSync(join(tmpdir(), 'hive-bundled-race-'))
+const base = tempDir('hive-bundled-race-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 

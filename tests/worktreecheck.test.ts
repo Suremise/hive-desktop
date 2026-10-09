@@ -4,13 +4,13 @@
 // reason. The deletion is guarded against anything since the check: a file written or a commit made afterwards, or the
 // main branch changing, keeps the work.
 import { execFileSync } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createWorktree, deleteCheckedBranch, mergeWorktree, primaryBranch, removeCheckedWorktree, worktreeCheck } from '../src/main/worktrees'
 import { placeKey, samePlace } from '../src/main/fsutil'
 import { junction, shortPath } from './pathAliases'
+import { tempDir } from './tempDir'
 
 const run = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' })
 let root = ''
@@ -23,7 +23,7 @@ afterEach(() => {
 type Tree = { path: string; branch: string; base: string }
 
 async function makeProject(main = 'main'): Promise<{ project: string; tree: (name: string) => Promise<Tree> }> {
-  root = mkdtempSync(join(tmpdir(), 'hive-wtcheck-'))
+  root = tempDir('hive-wtcheck-')
   const project = join(root, 'project')
   run(root, 'init', '-q', '-b', main, project)
   for (const [k, v] of [['user.name', 'Test'], ['user.email', 'test@example.com'], ['core.autocrlf', 'false']]) run(project, 'config', k, v)

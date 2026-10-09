@@ -4,13 +4,13 @@
 // a bulk action skips those in use and says why. The CLI's own transcripts are never touched. Sub-sessions are found
 // for old adopted records too, and in the folders of worktree agents.
 import { spawn, type ChildProcess } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-inuse-'))
+const base = tempDir('hive-inuse-')
 // The CLIs' homes are the test's (never ~/.claude or ~/.codex).
 process.env.CLAUDE_CONFIG_DIR = join(base, 'claude-home')
 process.env.CODEX_HOME = join(base, 'codex-home')

@@ -5,9 +5,9 @@ import { recacheEstimate } from '../src/main/providers/common'
 import { parseSkillFrontmatter } from '../src/main/skills'
 import { findSecretWarnings, toLaunchDef } from '../src/main/mcp'
 import { claudeFileAllowed, splitArgs, withFileLock, writeJsonAtomic } from '../src/main/fsutil'
-import { mkdtemp, readFile, readdir } from 'fs/promises'
-import { tmpdir } from 'os'
+import { readFile, readdir } from 'fs/promises'
 import { assertSessionId, isSessionId, compactThreshold, DEFAULT_APP_CONFIG, DEFAULT_SETTINGS, effectiveModelLabel, mergeDefaults, migrateConfig, modelLabel } from '../src/shared/defaults'
+import { tempDir, tempRoot } from './tempDir'
 
 const line = (o: unknown): string => JSON.stringify(o)
 
@@ -817,7 +817,7 @@ describe('keyboard shortcuts', () => {
 
 describe('writeJsonAtomic and withFileLock', () => {
   it('never leaves a corrupt file when writes overlap', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'hive-test-'))
+    const dir = tempDir('hive-test-')
     const file = join(dir, 'sessions.json')
     const big = { sessions: Array.from({ length: 400 }, (_, k) => ({ id: `a${k}` })) }
     for (let i = 0; i < 50; i++) {
@@ -829,7 +829,7 @@ describe('writeJsonAtomic and withFileLock', () => {
   })
 
   it('keeps every change when read-modify-writes overlap', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'hive-test-'))
+    const dir = tempDir('hive-test-')
     const file = join(dir, 'list.json')
     await writeJsonAtomic(file, { ids: [] })
     const add = (id: number) =>
@@ -844,7 +844,7 @@ describe('writeJsonAtomic and withFileLock', () => {
   })
 
   it('carries on after a failed change', async () => {
-    const file = join(tmpdir(), 'hive-lock-fail.json')
+    const file = join(tempRoot(), 'hive-lock-fail.json')
     await expect(withFileLock(file, async () => Promise.reject(new Error('boom')))).rejects.toThrow('boom')
     await expect(withFileLock(file, async () => 'next')).resolves.toBe('next')
   })

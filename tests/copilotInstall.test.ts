@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentInstallInfo } from '../src/shared/types'
 import { redactLog } from '../src/shared/redact'
 import { copilotCheckEnv, copilotReadiness, copilotSignIn, copilotUpdateCommand, ignoredTokens, installKind, parseCopilotConfig, parseCopilotVersion, parseGhStatus, storedLogin } from '../src/main/providers/copilot/install'
+import { tempDir } from './tempDir'
 
 // Agent Setup's Copilot readiness (#452): which sign-in its agents get, from the CLI's config.json (login names only),
 // the environment (set or not, never read) and `gh auth status` (account and state, never the token). CLI 1.0.93.
@@ -129,7 +129,7 @@ describe('Copilot readiness', () => {
 describe('Copilot discovery log', () => {
   it('leaves a candidate’s path and what it printed out of Copy Diagnostics (userText)', async () => {
     // A custom path in a private folder whose CLI prints a private name instead of its version.
-    const dir = mkdtempSync(join(tmpdir(), 'hive-copilot-'))
+    const dir = tempDir('hive-copilot-')
     const exe = join(dir, 'Private Client', 'copilot.exe')
     mkdirSync(dirname(exe), { recursive: true })
     writeFileSync(exe, '')

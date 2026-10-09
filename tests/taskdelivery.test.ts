@@ -1,10 +1,10 @@
 // Start on a card given to a running, idle agent: the prompt is typed in by sessions.sendPrompt, and the agent may
 // start other work, or the user type in its terminal, while it is. Nothing more goes in then, and the card goes back.
-import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
+import { tempDir } from './tempDir'
 
 // What Hive types into agents' terminals, recorded instead (no process runs); onWrite acts as each piece goes in.
 const pty = vi.hoisted(() => ({ typed: [] as string[], onWrite: (_data: string): void => undefined }))
@@ -16,7 +16,7 @@ vi.mock('../src/main/ptyHost', async (original) => ({
   }
 }))
 
-const base = mkdtempSync(join(tmpdir(), 'hive-delivery-'))
+const base = tempDir('hive-delivery-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')

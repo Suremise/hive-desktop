@@ -1,13 +1,13 @@
 // Reviewing a card on the task board: the card stays in Review with the agent that did the work, while the reviewing
 // agent's mark shows who is reviewing it; one reviewer at a time; the verdict, a move out of Review, the reviewer's
 // session ending or its removal end the review; sessions record the cards they reviewed apart from those worked on.
-import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-review-'))
+const base = tempDir('hive-review-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')

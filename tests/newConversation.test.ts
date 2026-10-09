@@ -1,13 +1,13 @@
 // hive_prompt_agent with newConversation (#437): an idle agent's conversation ends and a new one starts on the task. The
 // Assistant's authority (Settings → Assistant → Control, its own session) is checked again after the stop's await, so a
 // request whose permission ended meanwhile starts nothing; and nothing is stopped for a prompt Hive just typed.
-import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-newconv-'))
+const base = tempDir('hive-newconv-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')

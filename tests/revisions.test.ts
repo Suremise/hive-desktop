@@ -3,13 +3,13 @@
 // changes, shared between callers asking at once, gone when the workspace closes. Hashing and the API's skill reads
 // are bounded by what they actually read. MEASURE=1 prints files and bytes read and time per poll for a small and a
 // large catalog (docs/ARCHITECTURE.md has the numbers).
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-revisions-'))
+const base = tempDir('hive-revisions-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')

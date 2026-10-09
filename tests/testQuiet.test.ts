@@ -1,11 +1,11 @@
 // Quiet test copies (src/main/testQuiet.ts): an unpackaged Hive with a test profile (HIVE_USER_DATA) or HIVE_TEST_QUIET=1
 // shows windows without taking the focus and records Windows notifications instead of showing them; otherwise, or with
 // HIVE_TEST_QUIET=0, everything is as normal. Every e2e suite and scenario starts its copy with a test profile.
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
+import { readdirSync, readFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { keepOffScreen, offScreenOrigin, presentWindow, showOsNotification, testNotifyLog, testQuiet } from '../src/main/testQuiet'
+import { tempDir, tempRoot } from './tempDir'
 
 // Two screens side by side: one at the origin, one to its left.
 vi.mock('electron', async (original) => ({
@@ -35,7 +35,7 @@ describe('quiet test copies', () => {
     process.env.HIVE_TEST_QUIET = '1'
     expect(testQuiet()).toBe(true)
     // A test profile: quiet however the copy was started (a suite run on its own, a script), unless turned off.
-    process.env.HIVE_USER_DATA = join(tmpdir(), 'hive-quiet-profile')
+    process.env.HIVE_USER_DATA = join(tempRoot(), 'hive-quiet-profile')
     delete process.env.HIVE_TEST_QUIET
     expect(testQuiet()).toBe(true)
     process.env.HIVE_TEST_QUIET = '0'
@@ -73,7 +73,7 @@ describe('quiet test copies', () => {
   })
 
   it('a notification is recorded, and shown only when not quiet', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'hive-quiet-'))
+    const dir = tempDir('hive-quiet-')
     try {
       const log = join(dir, 'notify.log')
       process.env.HIVE_TEST_NOTIFY_LOG = log

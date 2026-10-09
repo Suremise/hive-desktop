@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { copilot, copilotHooks, copilotMcpServer } from '../src/main/providers/copilot/adapter'
@@ -8,10 +7,11 @@ import { parseCopilotModels } from '../src/main/providers/copilot/models'
 import type { LaunchContext } from '../src/main/providers/types'
 import { COPILOT_DESCRIPTOR, copilotCanSwitchLive, copilotFooterMode, copilotModelLabel } from '../src/shared/copilot'
 import { isKnownProvider, providerDescriptor } from '../src/shared/providers'
+import { tempDir } from './tempDir'
 
 // Payloads and screens as Copilot CLI 1.0.93 sent and drew them (the #403 spike), with paths shortened.
 
-const base = mkdtempSync(join(tmpdir(), 'hive-copilot-'))
+const base = tempDir('hive-copilot-')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 // Never the user's ~/.copilot: the adapter reads its mcp-config.json and settings.json.
 process.env.COPILOT_HOME = join(base, 'copilot-home')

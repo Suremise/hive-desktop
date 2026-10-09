@@ -4,22 +4,20 @@
 // shown it would lose, refused once it changed; neither for a worktree an agent works in, one being removed, or one git
 // doesn't list; nothing at all without git (#346). A deleted template's worktree agents' worktrees are found by name.
 import { execFileSync } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'fs'
 import { delimiter, join } from 'path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { holdsWork, lostByRemoving, templateWorktreesHint, unusedState, unusedSummary, unusedWorkNotice } from '../src/shared/unusedWorktrees'
 import type { UnusedWorktree } from '../src/shared/types'
 import { junction, shortPath } from './pathAliases'
+import { tempDir } from './tempDir'
 
 // As on GitHub's runner (#447): the temp folder by its 8.3 short name where it has one (git lists worktrees by their long
-// names), and no global git config, so no user identity but the repository's own.
-const made = mkdtempSync(join(tmpdir(), 'hive-unusedwt-'))
+// names; a junction makes another name on any machine, #448), and no global git config (tests/noGlobalGit.ts), so no
+// user identity but the repository's own.
+const made = tempDir('hive-unusedwt-')
 const base = shortPath(made) ?? made
-const GLOBAL = process.env.GIT_CONFIG_GLOBAL
-process.env.GIT_CONFIG_GLOBAL = join(made, 'no-global.gitconfig')
-writeFileSync(process.env.GIT_CONFIG_GLOBAL, '')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 ;(electron.shell as unknown as { trashItem: (p: string) => Promise<void> }).trashItem = async (p) => rmSync(p, { recursive: true, force: true })
 
@@ -78,8 +76,6 @@ beforeAll(async () => {
 })
 afterAll(async () => {
   await disposeWorkspaceService(w)
-  if (GLOBAL === undefined) delete process.env.GIT_CONFIG_GLOBAL
-  else process.env.GIT_CONFIG_GLOBAL = GLOBAL
 })
 afterEach(() => {
   process.env.PATH = PATH
@@ -346,14 +342,20 @@ describe('Remove anyway', () => {
 describe('in the Changes tab (#400)', () => {
   it('reads only a listed unused worktree: its git status through assertChangesRoot, and only once listed', async () => {
     agents([])
-    const t = await tree(`changes${++n}`)
+    // Made by another name for its folder, as on the runner (#447): through a junction to the worktrees folder, so on any
+    // machine (the 8.3 temp folder only where the volume makes short names, #448). Git lists it by its real name.
+    mkdirSync(root, { recursive: true })
+    const via = junction(root, join(base, `via-root${++n}`))
+    const t = { path: join(via, `changes${n}`), branch: `hive/changes${n}` }
+    await createWorktree(proj, t.path, t.branch, 'main')
     commit(t.path, 'c.txt')
     const outside = join(base, 'elsewhere')
     mkdirSync(outside, { recursive: true })
     // Not yet listed: refused (only the project folder and agents' worktrees).
     expect(() => w.assertChangesRoot(t.path)).toThrow(/Not a project or agent worktree/)
-    // The Changes tab reads it by the path the listing gave (git's long name), not by another name for it (#447).
+    // The Changes tab reads it by the path the listing gave (git's real name), not by another name for it (#447).
     const listed = (await find(t.path))!.path
+    expect(listed.toLowerCase()).not.toBe(t.path.toLowerCase())
     expect(placeKey(w.assertChangesRoot(listed))).toBe(placeKey(t.path))
     expect(() => w.assertChangesRoot(outside)).toThrow()
     // The Files tab's file operations never get it.

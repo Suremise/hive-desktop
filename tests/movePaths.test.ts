@@ -1,13 +1,13 @@
 // A moved workspace (#146): stored paths rewritten only under the old folder, as Windows compares them; where a worktree
 // may be now; Claude Code's folder name for a path; and the copy of a CLI's per-path data that never overwrites.
 import { describe, expect, it } from 'vitest'
-import { mkdtemp, mkdir, readFile, stat, utimes, writeFile } from 'fs/promises'
-import { tmpdir } from 'os'
+import { mkdir, readFile, stat, utimes, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { moveHasWork, rebase, rebaseAny, samePath, worktreeCandidates } from '../src/shared/movePaths'
 import type { MovePlan, PathDataCopy } from '../src/shared/types'
 import { encodeProjectPath } from '../src/main/providers/claude/usage'
 import { copyMissing } from '../src/main/fsutil'
+import { tempDir } from './tempDir'
 
 describe('rebase', () => {
   it('moves a path under the old folder, keeping the case of the rest', () => {
@@ -92,7 +92,7 @@ describe("Claude Code's folder for a path", () => {
 
 describe('copyMissing', () => {
   const setup = async (): Promise<{ src: string; dest: string }> => {
-    const root = await mkdtemp(join(tmpdir(), 'hive-copymissing-'))
+    const root = tempDir('hive-copymissing-')
     const src = join(root, 'old')
     const dest = join(root, 'new')
     await mkdir(join(src, 'memory'), { recursive: true })
