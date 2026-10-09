@@ -1,22 +1,17 @@
 // Hook tokens (#345): one per launch, checked against the launch a hook names and ended with it; hook commands read the
 // header from a file in Hive's user data, so nothing Hive generates for a launch (either provider) holds a token.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { tempDir } from './tempDir'
 
 // Its own user data folder, so the auth files never meet another test's.
-const userData = vi.hoisted(() => {
-  const fs = require('fs') as typeof import('fs')
-  const os = require('os') as typeof import('os')
-  const p = require('path') as typeof import('path')
-  return fs.mkdtempSync(p.join(os.tmpdir(), 'hive-hook-tokens-'))
-})
+const userData = await vi.hoisted(async () => (await import('./tempDir')).tempDir('hive-hook-tokens-'))
 vi.mock('electron', () => ({ app: { getPath: () => userData, getVersion: () => '0.0.0-test', isPackaged: false } }))
 
 const { clearHookAuth, endHookToken, hookAuthFile, hookTokenMatches, newHookToken } = await import('../src/main/hookTokens')
 
-const base = mkdtempSync(join(tmpdir(), 'hive-hook-launch-'))
+const base = tempDir('hive-hook-launch-')
 afterAll(() => {
   rmSync(base, { recursive: true, force: true })
   rmSync(userData, { recursive: true, force: true })

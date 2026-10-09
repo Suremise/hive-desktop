@@ -1,14 +1,14 @@
 // Workspace and file boundaries: link escapes, nested and same-named workspaces, closed workspaces' worktrees,
 // and writes that must not lose someone else's change.
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'fs'
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'fs'
 import { readFile } from 'fs/promises'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { withFileLock, writeTextAtomic, writeTextUnlessChanged } from '../src/main/fsutil'
 import { createWorkspaceService, disposeWorkspaceService, type WorkspaceService } from '../src/main/workspace'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-bounds-'))
+const base = tempDir('hive-bounds-')
 const dir = (...p: string[]): string => {
   const d = join(base, ...p)
   mkdirSync(d, { recursive: true })

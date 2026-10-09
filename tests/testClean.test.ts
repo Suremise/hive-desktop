@@ -1,8 +1,7 @@
 // Test housekeeping (#253, tests/e2e/clean.mjs and evidence.cjs): what goes from %LOCALAPPDATA%\hive-test and what
 // always stays, whichever deletes it: the clean-up, the e2e runner (suite folders, log pruning) or the scenario runner.
 import { createRequire } from 'module'
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 // @ts-expect-error: plain .mjs modules without types
@@ -11,6 +10,7 @@ import { clean, holdLane, plan } from './e2e/clean.mjs'
 import { claimLane } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { finishRunDirs, keepSuiteFiles, newRunDir, omittedLine, pruneRunDirs, pruneRunDirsReleasing } from './e2e/logs.mjs'
+import { tempDir } from './tempDir'
 
 const require = createRequire(import.meta.url)
 const { citedBy, readCards, evidence, freshFolder, clearDir, finishSuiteDir, recordKept, releaseKept, claimedByRuns, MAX_COPIES } = require('./e2e/evidence.cjs')
@@ -22,7 +22,7 @@ type Ev = { ok: boolean; why: string | null; protects: (p: string) => string | n
 
 const temps: string[] = []
 const temp = (prefix: string): string => {
-  const d = mkdtempSync(join(tmpdir(), prefix))
+  const d = tempDir(prefix)
   temps.push(d)
   return d
 }

@@ -3,11 +3,11 @@
 // "nothing ignored" and showed dist/ undimmed. A busy index is tried again; if git still can't say, the folder keeps
 // what was last known and is listed again shortly. Real git for everything but the failures, which a stub injects.
 import { execFile, execFileSync } from 'child_process'
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitResult } from '../src/main/git'
+import { tempDir } from './tempDir'
 
 /** check-ignore results to give instead of running it, in order; empty: run it. */
 const failNext: Partial<GitResult>[] = []
@@ -35,7 +35,7 @@ const files = await import('../src/main/files')
 const { onHiveEvent } = await import('../src/main/events')
 
 const BUSY = { err: 'fatal: .git/index: index file open failed: Permission denied' }
-const base = mkdtempSync(join(tmpdir(), 'hive-ignore-'))
+const base = tempDir('hive-ignore-')
 const ws = join(base, 'ws')
 const proj = join(ws, 'proj')
 mkdirSync(join(proj, 'dist'), { recursive: true })

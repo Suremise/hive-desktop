@@ -2,8 +2,7 @@
 // nothing to lose. Git is hidden from this test process's own PATH (never the machine's), which every git call Hive
 // makes inherits.
 import { execFileSync } from 'child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, rmSync, writeFileSync } from 'fs'
 import { delimiter, join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GIT_MIN, compareGitVersions, gitFixText, gitOldText, gitProblemText, gitStateOf, gitUnusable, parseGitVersion } from '../src/shared/gitTool'
@@ -11,6 +10,7 @@ import { checkGit, gitOnPath, gitProblem, gitTool, setGitToolForTests } from '..
 import { git, gitStatus } from '../src/main/git'
 import { branchStatus, createWorktree, removeCheckedWorktree, worktreeCheck } from '../src/main/worktrees'
 import { ensureHiveExcluded } from '../src/main/hiveVcs'
+import { tempDir, tempRoot } from './tempDir'
 
 const run = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' })
 const PATH = process.env.PATH
@@ -33,7 +33,7 @@ function hideGit(): void {
 
 /** A repository on main with one worktree, `hive/wt`, merged and clean (removable while git runs). */
 async function project(): Promise<{ p: string; wt: { path: string; branch: string; base: string } }> {
-  root = mkdtempSync(join(tmpdir(), 'hive-gittool-'))
+  root = tempDir('hive-gittool-')
   const p = join(root, 'project')
   run(root, 'init', '-q', '-b', 'main', p)
   for (const [k, v] of [['user.name', 'Test'], ['user.email', 'test@example.com'], ['core.autocrlf', 'false']]) run(p, 'config', k, v)
@@ -91,7 +91,7 @@ describe('git missing', () => {
   })
 
   it('a missing working folder is not a missing git', async () => {
-    const r = await git(join(tmpdir(), 'hive-gittool-no-such-folder'), ['status'])
+    const r = await git(join(tempRoot(), 'hive-gittool-no-such-folder'), ['status'])
     expect(r.missing).toBeUndefined()
     expect(gitTool().state).not.toBe('missing')
   })

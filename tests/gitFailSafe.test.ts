@@ -2,10 +2,10 @@
 // "nothing to merge"; not "not a git repository", so not an empty Changes tab; not an empty list of a branch's changes.
 // Real repositories; `failing` makes the one matching command fail as git would (exit 128, its message).
 import { execFileSync } from 'child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { tempDir } from './tempDir'
 
 let failing: ((cwd: string, args: string[]) => boolean) | null = null
 vi.mock('../src/main/git', async (importOriginal) => {
@@ -36,7 +36,7 @@ const commit = (cwd: string, file: string): void => {
 
 /** A repository on main, a worktree hive/wt merged into main, and the project folder on `dest` (which lacks hive/wt's commit). */
 async function project(): Promise<{ p: string; wt: { path: string; branch: string; base: string } }> {
-  root = mkdtempSync(join(tmpdir(), 'hive-failsafe-'))
+  root = tempDir('hive-failsafe-')
   const p = join(root, 'project')
   run(root, 'init', '-q', '-b', 'main', p)
   for (const [k, v] of [['user.name', 'Test'], ['user.email', 'test@example.com'], ['core.autocrlf', 'false']]) run(p, 'config', k, v)
@@ -82,7 +82,7 @@ describe('the checked-out branch', () => {
 
 describe('the Changes tab', () => {
   it('a folder git says is no repository is one', async () => {
-    root = mkdtempSync(join(tmpdir(), 'hive-failsafe-'))
+    root = tempDir('hive-failsafe-')
     const plain = join(root, 'plain')
     mkdirSync(plain)
     // Above it, no repository either (a temp folder); git says so in its own words.

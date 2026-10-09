@@ -4,13 +4,13 @@
 // (src/main/benchmarks.ts: bounded, committed before anything is evicted, bound to the workspace each operation started
 // in). Fixtures in tests/fixtures/benchmarks come from a real fake-provider run: a baseline, an intentional reduction,
 // and the same reduction that broke a check.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { createRequire } from 'module'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
 import { BENCHMARK_LIMITS, EXPORT_MEASURES, SCENARIO_MEASURES, USAGE_MEASURES, compareArtifacts, compareScopeOf, parseArtifact, readKept, summaryOf, type Artifact, type CompareScope, type ParseResult } from '../src/shared/benchmark'
+import { tempDir } from './tempDir'
 
 const require_ = createRequire(import.meta.url)
 const fixture = (name: string): string => readFileSync(join(__dirname, 'fixtures', 'benchmarks', `${name}.json`), 'utf8')
@@ -347,7 +347,7 @@ describe('the scenario harness writes what the app reads (tests/scenarios/benchm
   })
 
   it('keeps the newest runs in folders of their own; never overwrites a baseline, even saved three times in a second', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'hive-results-'))
+    const dir = tempDir('hive-results-')
     try {
       for (let i = 0; i < 35; i++) mkdirSync(join(dir, `2026-10-${String((i % 28) + 1).padStart(2, '0')}T${String(i).padStart(2, '0')}-00-00-fake`), { recursive: true })
       pruneResults(dir, 30)
@@ -378,7 +378,7 @@ describe('the scenario harness writes what the app reads (tests/scenarios/benchm
 })
 
 describe('kept comparisons (main/benchmarks.ts)', async () => {
-  const base = mkdtempSync(join(tmpdir(), 'hive-bench-'))
+  const base = tempDir('hive-bench-')
   ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
   afterAll(() => rmSync(base, { recursive: true, force: true }))
   const { createWorkspaceService, disposeWorkspaceService } = await import('../src/main/workspace')
@@ -591,7 +591,7 @@ describe('#117 round 2: checks are authoritative; the budget stops on unknown co
 })
 
 describe('kept comparisons: damage and closing mid-change (#117 round 2)', async () => {
-  const base = mkdtempSync(join(tmpdir(), 'hive-bench2-'))
+  const base = tempDir('hive-bench2-')
   ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
   afterAll(() => rmSync(base, { recursive: true, force: true }))
   const { createWorkspaceService, disposeWorkspaceService } = await import('../src/main/workspace')
@@ -770,7 +770,7 @@ describe('kept comparisons: damage and closing mid-change (#117 round 2)', async
 })
 
 describe('kept comparisons: bounds that hold under failing removals; quarantine by age (#117 round 4)', async () => {
-  const base = mkdtempSync(join(tmpdir(), 'hive-bench4-'))
+  const base = tempDir('hive-bench4-')
   ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
   afterAll(() => rmSync(base, { recursive: true, force: true }))
   const { createWorkspaceService, disposeWorkspaceService } = await import('../src/main/workspace')
@@ -878,7 +878,7 @@ describe('kept comparisons: bounds that hold under failing removals; quarantine 
 })
 
 describe('kept comparisons: Windows rename retries stop when the workspace goes (#117 round 5)', async () => {
-  const base = mkdtempSync(join(tmpdir(), 'hive-bench5-'))
+  const base = tempDir('hive-bench5-')
   ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
   afterAll(() => rmSync(base, { recursive: true, force: true }))
   const { createWorkspaceService, disposeWorkspaceService } = await import('../src/main/workspace')

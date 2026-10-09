@@ -4,14 +4,14 @@
 // recording off, the saved file (git-ignored, size-capped, reset; read as untrusted input), work started in a workspace
 // that has since closed or switched (dropped, never moved), retention applied however long Hive was idle and whichever
 // way the clock moved, the launch's skill sizes measured on the copies delivered, and what recording costs. MEASURE=1 prints the overhead numbers (docs/ARCHITECTURE.md records them).
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
 import { LATENCY_BOUNDS_MS, percentile, utf8Bytes, type MetricsPart } from '../src/shared/metrics'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-metrics-'))
+const base = tempDir('hive-metrics-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 

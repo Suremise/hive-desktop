@@ -1,14 +1,14 @@
 // Clean Up… while the sessions change: a session unarchived or resumed between the preview and the removal keeps
 // its files, and nothing goes without what it used read and kept first (so totals survive the CLI's copy going).
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { DEFAULT_CLEANUP } from '../src/shared/storage'
 import type { CleanupOptions } from '../src/shared/types'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-cleanup-'))
+const base = tempDir('hive-cleanup-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 // The Recycle Bin, as deleting the file.
 ;(electron.shell as unknown as { trashItem: (p: string) => Promise<void> }).trashItem = async (p) => rmSync(p, { recursive: true, force: true })

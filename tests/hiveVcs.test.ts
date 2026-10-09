@@ -1,8 +1,7 @@
 // Keeping a project's .hive out of version control (#345): git's info/exclude of the repository holding the project
 // (its own, a worktree's common one, or one above it), other systems and sync services named, and the notice's text.
 import { execFileSync } from 'child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { createRequire } from 'module'
@@ -33,8 +32,9 @@ afterEach(() => {
   failing = null
 })
 import { hiveVcsKey, hiveVcsText } from '../src/shared/hiveVcsText'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-vcs-'))
+const base = tempDir('hive-vcs-')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 let n = 0
 const folder = (...parts: string[]): string => {

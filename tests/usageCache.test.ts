@@ -1,10 +1,10 @@
 // The usage cache on disk (usage-cache.json): a restarted Hive takes an unchanged transcript's usage from it without
 // reading the transcript, reads a changed one again, ignores a damaged or older cache, and prices from the settings.
-import { mkdtempSync, readFileSync, utimesSync, writeFileSync, existsSync } from 'fs'
-import { tmpdir } from 'os'
+import { readFileSync, utimesSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUsage } from '../src/shared/types'
+import { tempDir } from './tempDir'
 
 const line = (o: unknown): string => JSON.stringify(o)
 const usage = (input: number, output: number) => ({ input_tokens: input, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: output })
@@ -30,7 +30,7 @@ async function hive(profile: string) {
 }
 
 function setup(): { profile: string; file: string } {
-  const profile = mkdtempSync(join(tmpdir(), 'hive-usage-cache-'))
+  const profile = tempDir('hive-usage-cache-')
   const file = join(profile, 'abc.jsonl')
   writeFileSync(file, transcript('100'))
   utimesSync(file, WHEN, WHEN)

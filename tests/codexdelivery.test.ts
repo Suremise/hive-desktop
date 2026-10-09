@@ -4,11 +4,11 @@
 // nothing. A folder of the user's with the name is never Hive's delivery and is never touched. When the skills folder
 // itself can't be set up, the records still say what's there. Faults are injected in fs/promises: reading files under
 // a folder named "unreadable" is denied, and so is creating .agents/skills while `folderFails` is set.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join, sep } from 'path'
 import { execFileSync } from 'child_process'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { tempDir } from './tempDir'
 
 const faults = { folderFails: false }
 vi.mock('fs/promises', async (original) => {
@@ -33,7 +33,7 @@ type Delivery = { revision: string | null; problem?: string; lasting?: true }
 // Hook trust is checked against the Codex executable; not what these tests are about.
 ;(codex as unknown as { checkHookHashes: () => Promise<void> }).checkHookHashes = async () => undefined
 
-const base = mkdtempSync(join(tmpdir(), 'hive-codex-delivery-'))
+const base = tempDir('hive-codex-delivery-')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 beforeEach(() => {
   faults.folderFails = false

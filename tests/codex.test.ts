@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { codexMcpServer, hookHash, toToml } from '../src/main/providers/codex/adapter'
 import { CodexConversationParser, parseRollout, patchPaths, presetFromSettings, rolloutDetails, rolloutPlanUsage } from '../src/main/providers/codex/rollout'
 import { codexModelLabel } from '../src/shared/codex'
+import { tempDir } from './tempDir'
 
 const line = (o: unknown): string => JSON.stringify(o)
 
@@ -74,10 +75,8 @@ describe('Codex: when a person must act', () => {
   })
 
   it("pins the title's items for Hive's sessions, so a user's [tui].terminal_title can't hide it", async () => {
-    const { mkdtempSync, rmSync } = await import('fs')
-    const { join } = await import('path')
-    const { tmpdir } = await import('os')
-    const home = mkdtempSync(join(tmpdir(), 'hive-codex-home-'))
+    const { rmSync } = await import('fs')
+    const home = tempDir('hive-codex-home-')
     const before = process.env.CODEX_HOME
     process.env.CODEX_HOME = home
     try {
@@ -200,11 +199,10 @@ describe('Codex models', () => {
 
 describe('Codex skill copies', () => {
   it("replaces and removes only Hive's marked copies, and leaves the user's own folders alone", async () => {
-    const { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } = await import('fs')
-    const { tmpdir } = await import('os')
+    const { mkdirSync, writeFileSync, existsSync, readFileSync } = await import('fs')
     const { join } = await import('path')
     const { codex } = await import('../src/main/providers/codex/adapter')
-    const root = mkdtempSync(join(tmpdir(), 'hive-skills-'))
+    const root = tempDir('hive-skills-')
     const src = join(root, 'src', 'deploy')
     mkdirSync(src, { recursive: true })
     writeFileSync(join(src, 'SKILL.md'), '# deploy v1')

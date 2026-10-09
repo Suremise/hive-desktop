@@ -2,15 +2,15 @@
 // the single call's path under the board's lock and its own card lock, so what is refused, recorded and counted is the
 // same as for one card. The Hive Assistant's turn for a batch (its limit, its activity list, what it may still do while
 // a card waits) is tested through taskBatch.assistantBatch, the same code the Agent API's route runs.
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { rm } from 'fs/promises'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import type { TaskCard } from '../src/shared/types'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-task-batch-'))
+const base = tempDir('hive-task-batch-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 // The Recycle Bin, for tests: gone.
 ;(electron.shell as unknown as { trashItem: (p: string) => Promise<void> }).trashItem = (p) => rm(p, { recursive: true, force: true })

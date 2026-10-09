@@ -1,12 +1,12 @@
 // A --settings in a Claude Code agent's own arguments (#330): Claude Code reads only the last --settings, so Hive merges
 // the user's settings into its launch file (their hooks added to Hive's, Hive's status line kept) and passes that alone.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { mergeLaunchSettings, userSettings, withoutSettingsArgs } from '../src/main/providers/claude/launchSettings'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-launch-settings-'))
+const base = tempDir('hive-launch-settings-')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 
 const hive = () => ({

@@ -2,13 +2,13 @@
 // whose turn fails on something else (a rate limit), a prompt merely sent, or an interrupt says nothing of the sign-in:
 // the agents it stopped stay "needs sign-in", the expiry is still the one already told, and a later refusal in it isn't
 // told again. Claude Code's hooks as it sends them (handleHook), no process, the provider's check stubbed.
-import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-signin-'))
+const base = tempDir('hive-signin-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')

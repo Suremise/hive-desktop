@@ -1,11 +1,11 @@
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { readdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { onCorruptFile, readKeptJson, readKeptJsonSync, writeKeptJson } from '../src/main/fsutil'
+import { tempDir } from './tempDir'
 
 describe('kept files', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hive-kept-'))
+  const dir = tempDir('hive-kept-')
   const reports: [string, boolean][] = []
   onCorruptFile((file, _aside, restored) => reports.push([file, restored]))
 
@@ -55,7 +55,7 @@ describe('path guards', () => {
   it("don't let a link inside a folder lead outside it", async () => {
     const { mkdirSync, symlinkSync, writeFileSync: write } = await import('fs')
     const { insideReal } = await import('../src/main/fsutil')
-    const base = mkdtempSync(join(tmpdir(), 'hive-guard-'))
+    const base = tempDir('hive-guard-')
     const ws = join(base, 'ws')
     const outside = join(base, 'outside')
     mkdirSync(join(ws, 'proj'), { recursive: true })

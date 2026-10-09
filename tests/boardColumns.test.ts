@@ -1,16 +1,16 @@
 // On Hold and Passed (#170): six fixed columns. On Hold is the user's and the Assistant's (a project agent can't park a
 // card), a reviewer moves a passed card to Passed with its verdict, Done means merged, and neither On Hold nor Passed
 // is ever stalled. Wake lines say Passed isn't merged.
-import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
 import { BOARD_FOLD_WORKSPACES, COLUMN_CHOICES, TASK_COLUMNS, applyBoardFold, archivedAt, columnColor, sortCards, stalledReason, taskOverview, taskPrompt } from '../src/shared/tasks'
 import { cardChange, readCondition, wakeAbout, wakeLine, watchLabel } from '../src/shared/watch'
 import type { TaskCard } from '../src/shared/types'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-columns-'))
+const base = tempDir('hive-columns-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')

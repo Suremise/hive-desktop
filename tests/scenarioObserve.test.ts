@@ -6,6 +6,7 @@
 // The fixtures' checks fail when nothing was done, a call failed, or the steps came in the wrong order.
 import { describe, expect, it } from 'vitest'
 import { createRequire } from 'module'
+import { tempDir } from './tempDir'
 
 const require = createRequire(import.meta.url)
 const { observeTranscript } = require('./scenarios/harness.cjs') as { observeTranscript: (items: unknown[], skills: string[]) => { skillsRead: string[]; hiveMentions: string[]; finalReply: string } }
@@ -89,7 +90,7 @@ describe("a run's source fingerprint", () => {
   const { execFileSync } = require('child_process') as typeof import('child_process')
 
   it("changes with an untracked file's contents, a tracked change and a new file, not with an ignored one", () => {
-    const repo = fs.mkdtempSync(join(require('os').tmpdir(), 'hive-fingerprint-'))
+    const repo = tempDir('hive-fingerprint-')
     const git = (...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.autocrlf=false', ...a], { cwd: repo })
     fs.writeFileSync(join(repo, 'a.txt'), 'one\n')
     fs.writeFileSync(join(repo, '.gitignore'), 'ignored.txt\n')
@@ -117,7 +118,7 @@ describe('the fixtures fail when nothing was done', () => {
     const fs = require('fs') as typeof import('fs')
     const path = require('path') as typeof import('path')
     const { execFileSync } = require('child_process') as typeof import('child_process')
-    const repo = fs.mkdtempSync(path.join(require('os').tmpdir(), 'hive-merge-moved-'))
+    const repo = tempDir('hive-merge-moved-')
     const git = (...a: string[]) => execFileSync('git', a, { cwd: repo, encoding: 'utf8' })
     const ctx: Record<string, unknown> & { merge?: { base: string; moved: string } } = {
       git,

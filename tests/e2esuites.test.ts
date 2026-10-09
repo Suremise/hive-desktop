@@ -2,8 +2,8 @@
 // names a suite that exists, and the runner's helpers: which suites a change needs (affected.mjs) and the code's
 // fingerprint in a run record (record.mjs).
 import { execFileSync, spawn } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
-import { tmpdir, userInfo } from 'os'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
+import { userInfo } from 'os'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -31,6 +31,7 @@ import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale, rem
 import { FAILED_KEEP_MS, FAILED_MAX, KEEP_RUNS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, pruneRunDirs, runDirActive, runDirsInOrder, runFailedAt } from './e2e/logs.mjs'
 import { createRequire } from 'module'
 import { ProgressStore } from '../src/main/progress'
+import { tempDir } from './tempDir'
 
 type Suite = { name: string; needs?: string[]; serial?: string }
 type Area = { paths: string[]; suites: string[] }
@@ -271,7 +272,7 @@ describe('the real tier and environment failures (card #191)', () => {
 })
 
 describe('the code fingerprint in a run record (record.mjs)', () => {
-  const repo = mkdtempSync(join(tmpdir(), 'hive-fp-'))
+  const repo = tempDir('hive-fp-')
   afterAll(() => rmSync(repo, { recursive: true, force: true }))
   const git = (...a: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'core.autocrlf=false', ...a], { cwd: repo, encoding: 'utf8' })
 
@@ -345,7 +346,7 @@ describe('the runner command line and run records (runner.mjs)', () => {
 })
 
 describe('whether the dev build is from this source (build.mjs)', () => {
-  const buildDir = mkdtempSync(join(tmpdir(), 'hive-build-'))
+  const buildDir = tempDir('hive-build-')
   afterAll(() => rmSync(buildDir, { recursive: true, force: true }))
   mkdirSync(join(buildDir, 'src'), { recursive: true })
   writeFileSync(join(buildDir, 'src', 'a.ts'), 'a\n')
@@ -551,7 +552,7 @@ describe("progressreport's estimate check (lib.hadEstimate)", () => {
 })
 
 describe("each run's own log folder (logs.mjs)", () => {
-  const logsDir = mkdtempSync(join(tmpdir(), 'hive-logs-'))
+  const logsDir = tempDir('hive-logs-')
   afterAll(() => rmSync(logsDir, { recursive: true, force: true }))
   const second = new Date(2026, 9, 4, 15, 0, 2)
 
@@ -585,7 +586,7 @@ describe("each run's own log folder (logs.mjs)", () => {
   })
 
   it('a repeat of more than ten runs in one second keeps every one of its folders until its record is saved, then the next run trims to ten', () => {
-    const runsDir = mkdtempSync(join(tmpdir(), 'hive-repeat-'))
+    const runsDir = tempDir('hive-repeat-')
     try {
       // Older runs from before.
       finishRunDirs(Array.from({ length: 4 }, (_, i) => newRunDir(runsDir, new Date(2026, 9, 4, 14, 0, i))))
@@ -625,7 +626,7 @@ describe("each run's own log folder (logs.mjs)", () => {
   })
 
   it("a runner never prunes another runner's run still going: a slow run overlapping a fast repeat of more than ten", () => {
-    const shared = mkdtempSync(join(tmpdir(), 'hive-overlap-'))
+    const shared = tempDir('hive-overlap-')
     try {
       const A = 111
       const B = 222
@@ -661,7 +662,7 @@ describe("each run's own log folder (logs.mjs)", () => {
   })
 
   it('a failed run survives ten newer passing runs for a day, with its failed suites’ screenshots, then goes (#223)', () => {
-    const runsDir = mkdtempSync(join(tmpdir(), 'hive-failed-'))
+    const runsDir = tempDir('hive-failed-')
     try {
       // A failed suite's folder in its lane: screenshots and a report at the top, a profile below.
       const suite = join(runsDir, 'lane', 'board')
@@ -694,7 +695,7 @@ describe("each run's own log folder (logs.mjs)", () => {
   })
 
   it('…at most the newest FAILED_MAX failed runs are kept beyond KEEP_RUNS', () => {
-    const runsDir = mkdtempSync(join(tmpdir(), 'hive-failed-'))
+    const runsDir = tempDir('hive-failed-')
     try {
       const dirs = Array.from({ length: FAILED_MAX + 2 }, (_, i) => newRunDir(runsDir, new Date(2026, 9, 4, 15, 1, i)))
       for (const d of dirs) markRunFailed(d, 'x')
@@ -707,7 +708,7 @@ describe("each run's own log folder (logs.mjs)", () => {
   })
 
   it("a run folder counts as still going only while its runner's process is alive (a crashed runner's is pruned)", () => {
-    const crashed = mkdtempSync(join(tmpdir(), 'hive-crash-'))
+    const crashed = tempDir('hive-crash-')
     try {
       const runDir = newRunDir(crashed, new Date(2026, 9, 4, 15, 0, 2), 333)
       expect(runDirActive(runDir, () => true)).toBe(true)
@@ -722,7 +723,7 @@ describe("each run's own log folder (logs.mjs)", () => {
   })
 
   it('a name pruned away is never given to a newer run in the same second (it would sort as the oldest)', () => {
-    const runsDir = mkdtempSync(join(tmpdir(), 'hive-reuse-'))
+    const runsDir = tempDir('hive-reuse-')
     try {
       const when = new Date(2026, 9, 4, 15, 0, 2)
       const first = newRunDir(runsDir, when)
@@ -867,7 +868,7 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
   })
 
   it('runners claiming at the same time each get a lane of their own; a released lane is taken again', async () => {
-    const lanesDir = mkdtempSync(join(tmpdir(), 'hive-lanes-'))
+    const lanesDir = tempDir('hive-lanes-')
     try {
       const free = async () => true
       type Claim = { lane: number; base: number; release: () => void }
@@ -888,7 +889,7 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
   })
 
   it("skips a lane whose ports are busy, takes over a crashed runner's, and breaks a lock left by a crash", async () => {
-    const lanesDir = mkdtempSync(join(tmpdir(), 'hive-lanes-'))
+    const lanesDir = tempDir('hive-lanes-')
     try {
       // Lane 0 claimed by a process that is gone: taken over.
       writeFileSync(join(lanesDir, 'lane-0.json'), JSON.stringify({ pid: 999, at: Date.now() }))
@@ -1064,7 +1065,7 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
   const entries = (home: string) => [...readFileSync(join(home, 'config.toml'), 'utf8').matchAll(/^\[projects\.'([^']+)'\]$/gm)].map((m) => m[1]).sort()
 
   it("waits while another runner changes it, and keeps that runner's change", async () => {
-    const home = mkdtempSync(join(tmpdir(), 'hive-codex-home-'))
+    const home = tempDir('hive-codex-home-')
     try {
       writeFileSync(join(home, 'config.toml'), '[windows]\nsandbox = "unelevated"\n')
       // This runner holds the lock (mid-change: it has read the file and not yet written it back).
@@ -1086,7 +1087,7 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
   }, 30_000)
 
   it('several runners at once: every folder trusted once', async () => {
-    const home = mkdtempSync(join(tmpdir(), 'hive-codex-home-'))
+    const home = tempDir('hive-codex-home-')
     try {
       const folders = Array.from({ length: 6 }, (_, k) => `C:/lanes/${k}/codex-ws/demo`)
       expect(await Promise.all(folders.map((f) => trustIn(home, f))), failures.join('\n\n')).toEqual(folders.map(() => 0))
@@ -1101,7 +1102,7 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
   }, 30_000)
 
   it('breaks a lock left by a runner that crashed while holding it', () => {
-    const home = mkdtempSync(join(tmpdir(), 'hive-codex-home-'))
+    const home = tempDir('hive-codex-home-')
     try {
       const lock = join(home, 'config.toml.lock')
       mkdirSync(lock)
@@ -1120,7 +1121,7 @@ describe('the shared Codex test home: changes to its config.toml under a lock (l
     const req = createRequire(import.meta.url)
     const { withFileLock } = req('./e2e/lib.cjs') as { withFileLock: Lock }
     const nodeFs = req('fs') as typeof import('fs')
-    const home = mkdtempSync(join(tmpdir(), 'hive-codex-home-'))
+    const home = tempDir('hive-codex-home-')
     const file = join(home, 'config.toml')
     const lock = `${file}.lock`
     const fail = (code: string) => Object.assign(new Error(`${code}: operation not permitted`), { code })
@@ -1412,7 +1413,7 @@ describe('the run context: what a test starts gets only the allowlist and its ow
   })
 
   it("a shell's GIT_DIR, GIT_WORK_TREE and NODE_OPTIONS reach neither the runners' git nor the build (#208)", () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'hive-shellenv-'))
+    const tmp = tempDir('hive-shellenv-')
     const repo = (name: string, file: string) => {
       const d = join(tmp, name)
       mkdirSync(d)
@@ -1460,7 +1461,7 @@ describe('the run context: what a test starts gets only the allowlist and its ow
 })
 
 describe("the concurrency checker's temporary worktrees: each invocation's own (tempWorktrees.mjs, #207)", () => {
-  const tmp = mkdtempSync(join(tmpdir(), 'hive-tempwt-'))
+  const tmp = tempDir('hive-tempwt-')
   afterAll(() => {
     // Junctions first (rmdir removes only the link), as the module does.
     for (const base of readdirSync(tmp).filter((n) => n.startsWith('concurrency')))
@@ -1589,7 +1590,7 @@ describe('e2e:concurrency checks a worktree was built once, whoever built it (bu
     expect(builtOnce({ builds: 0, stamp: 'old', inputs: 'h', at: '2026-10-06T10:00:05Z', since }).ok).toBe(false)
   })
   it('the stamp says when it was made', () => {
-    const w = mkdtempSync(join(tmpdir(), 'hive-stampat-'))
+    const w = tempDir('hive-stampat-')
     try {
       expect(buildStampedAt(w)).toBeNull()
       mkdirSync(join(w, 'out'), { recursive: true })
@@ -1602,7 +1603,7 @@ describe('e2e:concurrency checks a worktree was built once, whoever built it (bu
 })
 
 describe('the build lock: runners started together in one worktree build it once (build.mjs, #200)', () => {
-  const tmp = mkdtempSync(join(tmpdir(), 'hive-buildlock-'))
+  const tmp = tempDir('hive-buildlock-')
   afterAll(() => rmSync(tmp, { recursive: true, force: true }))
   const locks = join(tmp, 'locks')
   const buildMjs = pathToFileURL(join(dir, 'build.mjs')).href
@@ -1693,7 +1694,7 @@ describe('the build lock: runners started together in one worktree build it once
 })
 
 describe('heavy runs: at most a few at once on the machine, the rest queue in order (slots.mjs, #204)', () => {
-  const tmp = mkdtempSync(join(tmpdir(), 'hive-slots-'))
+  const tmp = tempDir('hive-slots-')
   afterAll(() => rmSync(tmp, { recursive: true, force: true }))
   let n = 0
   const newPool = () => join(tmp, `pool-${++n}`)
@@ -1793,7 +1794,7 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
 describe("a suite's git waits out the Hive under test's own (lib.git, #199)", () => {
   type Git = (cwd: string, cmd: string | string[], opts?: { timeoutMs?: number }) => string
   const { git, GIT_LOCKED, baseEnv } = createRequire(import.meta.url)('./e2e/lib.cjs') as { git: Git; GIT_LOCKED: RegExp; baseEnv: () => NodeJS.ProcessEnv }
-  const repo = mkdtempSync(join(tmpdir(), 'hive-gitlock-'))
+  const repo = tempDir('hive-gitlock-')
   afterAll(() => rmSync(repo, { recursive: true, force: true }))
   git(repo, 'init -q -b main')
   git(repo, ['config', 'user.email', 't@t'])

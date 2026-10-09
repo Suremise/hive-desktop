@@ -1,13 +1,12 @@
 // A compaction Hive asked for: how it ends when the CLI doesn't say so (the transcript, the CLI refusing it, the
 // time limits), and that it ends once, with the status rules deciding what the agent shows.
-import { mkdtempSync } from 'fs'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BEGIN_MS, Compaction, LIMIT_MS } from '../src/main/compaction'
 import { applyStep, compactionOver, hookStep, type HookStatusInput } from '../src/main/hookStatus'
 import { COMPACTING_MESSAGE } from '../src/shared/defaults'
 import type { SessionStatus } from '../src/shared/types'
+import { tempDir } from './tempDir'
 
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
@@ -125,7 +124,7 @@ describe('a compaction Hive asked for', () => {
 })
 
 describe('SessionManager.compact: typing the /compact', () => {
-  const ws = mkdtempSync(join(tmpdir(), 'hive-compact-'))
+  const ws = tempDir('hive-compact-')
   const project = join(ws, 'proj')
   const FOCUS = 'x'.repeat(24_000) // 3,000 pieces of 8 every 10 ms: about 30 s, longer than BEGIN_MS
 
