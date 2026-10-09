@@ -1,6 +1,7 @@
 import type { BrowserWindow, WebContents } from 'electron'
 import type { HiveEvent, QuitChoice, QuitScope, QuitSession } from '../shared/types'
 import { setEventRouter } from './events'
+import { samePlace } from './fsutil'
 import { forgetWindowViews } from './transcriptReads'
 import { contextWorkspace, setWorkspaceFallback, workspaceFor, type WorkspaceService } from './workspace'
 
@@ -62,8 +63,8 @@ export function lastFocused(): HiveWindow | null {
 
 /** The window showing a workspace folder, if one is. */
 export function windowShowing(path: string): HiveWindow | null {
-  const p = path.toLowerCase()
-  return hiveWindows().find((e) => e.ws.path?.toLowerCase() === p) ?? null
+  // By real paths: the folder by another name (an 8.3 short name, a junction) is the same workspace (#455).
+  return hiveWindows().find((e) => !!e.ws.path && samePlace(e.ws.path, path)) ?? null
 }
 
 /** The window showing the workspace a project (or worktree) path belongs to. */

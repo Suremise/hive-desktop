@@ -42,7 +42,7 @@ import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, toast } from './events'
 import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
-import { hashText, heldOpen, isInUse, readJson, removePath, treeSignature, splitArgs, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
+import { hashText, heldOpen, isInUse, readJson, removePath, samePlace, treeSignature, splitArgs, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
 import { Compaction } from './compaction'
@@ -897,7 +897,8 @@ class SessionManager {
     if (opts.resumeId && existing && recordProvider(existing) !== providerId) {
       throw new Error(`This conversation ran in ${providerDescriptor(recordProvider(existing)).name}, and ${agent.name} runs ${name}. Conversations can't move between providers: continue it with a handover instead.`)
     }
-    if (opts.resumeId && existing && (existing.cwd ?? projectPath).toLowerCase() !== cwd.toLowerCase()) {
+    // By real paths (#455): the worktree's stored path may have changed form (an 8.3 short name, a junction) since.
+    if (opts.resumeId && existing && !samePlace(existing.cwd ?? projectPath, cwd)) {
       throw new Error(`This session ran in ${existing.cwd ?? projectPath}. Resume it with the agent that works in that folder.`)
     }
     // Providers that choose their own session id report it once started (see the start hook).

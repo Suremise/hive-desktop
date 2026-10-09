@@ -9,7 +9,7 @@ import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaul
 import type { AgentDef, AgentInfo, HiddenProject, HiveEvent, KeptUsage, LiveSessionState, ProjectConfig, ProjectInfo, RemovedData, SessionRecord, WorkspaceConfig, WorkspaceInfo, WorkspaceMoved } from '../shared/types'
 import { config } from './config'
 import { emit, emitTo } from './events'
-import { insideReal, isDir, readJson, readKeptJson, removePath, withFileLock, writeKeptJson } from './fsutil'
+import { containsPlace, insideReal, isDir, readJson, readKeptJson, removePath, samePlace, withFileLock, writeKeptJson } from './fsutil'
 import { createLogger, userText } from './logger'
 import { allProviders } from './providers'
 import { worktreesRoot } from './worktrees'
@@ -141,12 +141,12 @@ export class WorkspaceService {
     // One workspace inside another would make its projects belong to both. Windows claim their folders one
     // at a time, so two opening at once can't both pass the check before either has claimed its own.
     const admit = admission.then(async () => {
-      const inside = (a: string, b: string): boolean => a.toLowerCase().startsWith(b.toLowerCase() + sep)
+      // By real paths: the same folder by another name (an 8.3 short name, a junction) is the same workspace (#455).
       for (const w of services) {
         if (w === this || !w.path) continue
-        if (abs.toLowerCase() === w.path.toLowerCase()) throw new Error(`${abs} is already open in another window.`)
-        if (inside(abs, w.path)) throw new Error(`${abs} is inside the workspace ${w.path}, which is open in another window. Close that workspace first, or open this folder's projects from there.`)
-        if (inside(w.path, abs)) throw new Error(`The workspace ${w.path}, open in another window, is inside ${abs}. Close it first to open ${basename(abs)} as a workspace.`)
+        if (samePlace(abs, w.path)) throw new Error(`${abs} is already open in another window.`)
+        if (containsPlace(w.path, abs)) throw new Error(`${abs} is inside the workspace ${w.path}, which is open in another window. Close that workspace first, or open this folder's projects from there.`)
+        if (containsPlace(abs, w.path)) throw new Error(`The workspace ${w.path}, open in another window, is inside ${abs}. Close it first to open ${basename(abs)} as a workspace.`)
       }
       await this.close()
       this.generation++
