@@ -4672,18 +4672,9 @@ body.pane-resizing .monaco-editor {
   flex: none;
   vertical-align: -3px;
 }
-.provider-icon svg,
-.provider-icon img {
+.provider-icon svg {
   width: 14px;
   height: 14px;
-}
-.provider-icon .provider-mono {
-  width: 14px;
-  height: 14px;
-  background: currentColor;
-  mask-size: contain;
-  mask-repeat: no-repeat;
-  mask-position: center;
 }
 .provider-list {
   display: flex;

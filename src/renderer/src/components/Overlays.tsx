@@ -381,6 +381,9 @@ export function NotificationCenter() {
   )
 }
 
+/** "A", "A or B", "A, B or C". */
+const orList = (items: string[]): string => (items.length > 1 ? `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}` : (items[0] ?? ''))
+
 export function AboutDialog() {
   const open = useStore((s) => s.aboutOpen)
   const info = useStore((s) => s.appInfo)
@@ -453,7 +456,7 @@ export function AboutDialog() {
           {' '}and <a onClick={() => void call('app:openChromiumLicenses').then((ok) => ok || notify('info', 'Licences not found', 'The Chromium licence file is in the folder Hive is installed in.'))}>Chromium</a>.
         </p>
         <p className="faint" style={{ fontSize: 11, marginTop: 8 }}>
-          © 2026 Darren Marshall. {PROVIDERS.map((p) => `${p.name} is a product of ${p.company}`).join('; ')}. Hive is not affiliated with {[...new Set(PROVIDERS.map((p) => p.company))].join(' or ')}.
+          © 2026 Darren Marshall. {APP_NAME} is independently developed and isn't affiliated with, endorsed or sponsored by {orList([...new Set(PROVIDERS.map((p) => p.company))])}. {PROVIDERS.map((p) => `${p.name} is a product of ${p.company}`).join('; ')}; each is installed separately under its maker's terms.
         </p>
       </div>
     </Modal>
