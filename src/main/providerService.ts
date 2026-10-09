@@ -6,6 +6,7 @@ import { toSpawnable } from './providers/common'
 import { allProviders, provider } from './providers'
 import type { KeySteps } from './providers/types'
 import { config } from './config'
+import { refreshPath } from './freshPath'
 import { emit, toast } from './events'
 import { createLogger } from './logger'
 import { childEnv, hasPty, killPty, PTY_COLS, PTY_ROWS, spawnPty, writePty } from './ptyHost'
@@ -116,9 +117,13 @@ class ProviderService {
     if (was === false && info.loggedIn === true) this.signedIn(id)
   }
 
-  /** Refreshes one provider, or all of them. Latest versions are only looked up for enabled providers. */
+  /**
+   * Refreshes one provider, or all of them. Latest versions are only looked up for enabled providers. First Hive's
+   * PATH gets the folders installers have added since it started (#472), so a CLI just installed is found.
+   */
   async refresh(id?: ProviderId, checkLatest?: boolean): Promise<AgentInstallInfo[]> {
     const ids = id ? [id] : allProviders().map((p) => p.id)
+    await refreshPath()
     return Promise.all(ids.map((p) => this.refreshOne(p, checkLatest)))
   }
 

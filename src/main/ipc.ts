@@ -21,6 +21,7 @@ import { presentWindow } from './testQuiet'
 import { insideArchive, insideReal, isFile, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { checkGit, gitTool } from './gitTool'
+import { refreshPath } from './freshPath'
 import { mergeUnused, removalPreview, removeUnusedWorktree, unusedBranchStatus, unusedWorktrees } from './unusedWorktrees'
 import { createLogger, logsDir } from './logger'
 import { diagnostics } from './diagnostics'
@@ -785,7 +786,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
 
     'provider:info': () => providerService.all(),
     'provider:refresh': async (id) => {
-      // Agent Setup's Check again looks at git too (#346).
+      // Agent Setup's Check again looks at git too (#346), on the PATH a new process would get (#472).
+      await refreshPath()
       await Promise.all([providerService.refresh(id, true), checkGit()])
       return providerService.all()
     },
