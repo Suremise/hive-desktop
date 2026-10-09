@@ -308,7 +308,7 @@ If git can't read the changes, the **Changes** tab says why, with **Retry**. The
 
 ### Unused worktrees
 
-A worktree you keep when you remove its agent (**Keep worktree and branch**, or **Remove All** without its tick box) stays on disk with its branch: Hive says so in a notice with **Review unused worktrees**. They live in the **Changes** tab, with every other worktree: its folder picker (Project folder, each agent's worktree) has an **Unused worktrees** group, for worktrees no agent of the project uses right now (for example ones from another template). **All unused worktrees (n)** lists them, each with its branch, its last commit and its size, and whether it is **merged into main and clean** or what it holds that is nowhere else ("3 commits not on main · 2 changed files"):
+A worktree you keep when you remove its agent (**Keep worktree and branch**, or **Remove All** without its tick box) stays on disk with its branch: Hive says so in a notice with **Review unused worktrees**. They live in the **Changes** tab, with every other worktree. Its picker starts with **Unused worktrees (n)**, for worktrees no agent of the project uses right now (for example ones from another template, or ones an agent made itself with `git worktree add`), then lists the worktrees agents work in, then the project folder. **Unused worktrees** lists them, each with its branch, who made it (**was B4**, the Hive agent that last worked there; **made by Hive**; or **not made by Hive**), its last commit and its size, and whether it is **merged into main and clean** or what it holds that is nowhere else ("3 commits not on main · 2 changed files"):
 
 - **Remove** deletes a merged, clean worktree and its branch. **Remove all merged (n)…** does them all after one question. Hive checks each again first: one that changed since (a new commit, a file written) is kept, and the notice says why.
 - **Open** (or picking it by name in the folder picker) shows its changes since main, file by file, as an agent's worktree does. If it holds work, **Merge** opens the usual Merge dialog, which waits its turn like an agent's merge; tick **Remove the worktree and branch afterwards** to tidy it once its work is on main.
@@ -711,6 +711,8 @@ The **Images** tab shows every screenshot and image pasted or dropped into the p
 ## Changes
 
 The **Changes** tab lists files changed in the project's git working tree and shows each one as a side-by-side diff against the last commit — a quick way to review what the agent did.
+
+Its picker chooses whose changes you see, in this order: **Unused worktrees** (worktrees no agent works in now, and each of them), the **worktrees in use** by agents, and the **project folder** last (where agents without a worktree, and you, make changes). A project with worktrees opens on Unused worktrees; one without opens on its folder. A sentence at the top of each page says what it shows. Listing unused worktrees asks git about each of them, which can take a few seconds: the first time, the page shows a spinner while Hive looks; after that, the last list shows at once while Hive checks it again. **Refresh** (↻) looks again.
 
 Without git, the tab says so, with the fix (see [Git](#git)).
 

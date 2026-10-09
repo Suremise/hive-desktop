@@ -141,7 +141,8 @@ export function IconButton({
   disabled,
   active,
   className,
-  expanded
+  expanded,
+  spin
 }: {
   icon: string
   title: string
@@ -151,6 +152,8 @@ export function IconButton({
   className?: string
   /** For a button that opens and closes something: whether it is open (aria-expanded). */
   expanded?: boolean
+  /** Its icon turns (a loading icon, while what it does runs). */
+  spin?: boolean
 }) {
   return (
     <Tooltip content={title}>
@@ -164,7 +167,7 @@ export function IconButton({
         aria-label={title}
         aria-expanded={expanded}
       >
-        <Icon name={icon} />
+        <Icon name={icon} spin={spin} />
       </button>
     </Tooltip>
   )

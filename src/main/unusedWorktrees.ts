@@ -3,7 +3,7 @@ import { basename, join, resolve, sep } from 'path'
 import { createReadStream, existsSync } from 'original-fs'
 import { lstat, readdir, readlink } from 'original-fs/promises'
 import { projectAgents, slugify } from '../shared/defaults'
-import type { AgentBranchStatus, AgentWorktree, MergeResult, UnusedWorktree, UnusedWorktreePreview, UnusedWorktreeRemoval, UnusedWorktrees } from '../shared/types'
+import type { AgentBranchStatus, AgentWorktree, MergeResult, SessionRecord, UnusedWorktree, UnusedWorktreeOrigin, UnusedWorktreePreview, UnusedWorktreeRemoval, UnusedWorktrees } from '../shared/types'
 import { lostLines } from '../shared/unusedWorktrees'
 import { placeKey, realPath } from './fsutil'
 import { git, gitReading } from './git'
@@ -79,7 +79,17 @@ async function unreferencedCommits(path: string, except?: string): Promise<numbe
   return r.ok && Number.isFinite(n) ? n : null
 }
 
-async function describe(projectPath: string, w: { path: string; branch: string | null }): Promise<UnusedWorktree> {
+/**
+ * Who made an unused worktree (#476): the Hive agent whose session last ran in it (sessions.json keeps each session's
+ * folder and its agent's name), else Hive when it is in Hive's worktrees folder for the project, else not Hive.
+ */
+export function worktreeOrigin(path: string, sessions: readonly Pick<SessionRecord, 'cwd' | 'agentName' | 'agentId' | 'lastActiveAt'>[], hiveFolder: string | null): UnusedWorktreeOrigin {
+  const ran = sessions.filter((s) => s.cwd && key(s.cwd) === key(path) && (s.agentId || s.agentName)).sort((a, b) => (a.lastActiveAt < b.lastActiveAt ? 1 : -1))[0]
+  if (ran) return ran.agentName ? { madeBy: 'hive', agentName: ran.agentName } : { madeBy: 'hive' }
+  return hiveFolder && contains(hiveFolder, path) ? { madeBy: 'hive' } : { madeBy: 'other' }
+}
+
+async function describe(projectPath: string, w: { path: string; branch: string | null }, origin: UnusedWorktreeOrigin): Promise<UnusedWorktree> {
   const check = w.branch ? await wt.worktreeCheck(projectPath, { path: w.path, branch: w.branch, base: '' }) : await detachedCheck(projectPath, w.path)
   const [head, last] = await Promise.all([git(w.path, ['rev-parse', '--verify', '--quiet', 'HEAD']), git(w.path, ['log', '-1', '--format=%cI%x00%s'])])
   const [at, subject] = last.ok ? last.out.trim().split('\0') : []
@@ -88,7 +98,8 @@ async function describe(projectPath: string, w: { path: string; branch: string |
     branch: w.branch,
     check,
     ...(head.ok && head.out.trim() ? { head: head.out.trim() } : {}),
-    ...(at ? { lastCommit: { at, subject: subject ?? '' } } : {})
+    ...(at ? { lastCommit: { at, subject: subject ?? '' } } : {}),
+    origin
   }
 }
 
@@ -103,7 +114,11 @@ export async function unusedWorktrees(projectPath: string): Promise<UnusedWorktr
   const { listed, problem } = await candidates(projectPath)
   if (problem) return { worktrees: [], gitProblem: problem }
   const worktrees: UnusedWorktree[] = []
-  for (const w of listed) worktrees.push(await describe(projectPath, w))
+  const ws = workspaceOf(projectPath)
+  const sessions = (await workspace.sessionsFile(projectPath).catch(() => null))?.sessions ?? []
+  // Where Hive makes the project's agent worktrees (projectAgents.ts).
+  const hiveFolder = ws.path ? join(ws.worktreesRoot, basename(projectPath)) : null
+  for (const w of listed) worktrees.push(await describe(projectPath, w, worktreeOrigin(w.path, sessions, hiveFolder)))
   // The Changes tab may read these (and only these) now (#400).
   workspaceOf(projectPath).noteUnusedWorktrees(projectPath, worktrees.map((w) => w.path))
   return { worktrees }

@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 26
+const FIXTURES_VERSION = 28
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -171,6 +171,8 @@ const SLOW_TESTS = {
 const titled = (t) => /hive-progress(\.cmd)?\s+--title(\s+|=)\S/.test(t.input)
 const testRuns = (o) => o.tools.filter((t) => !/^(Write|Edit|MultiEdit|Read)$/i.test(t.name) && /npm(\.cmd)? (run )?test\b|node test\.js/.test(t.input))
 /** Whether the session's contract was the one with long commands wrapped (`on`) or not, by its measured size. */
+/** How many worktrees git lists for the scenario's project (its own folder included). */
+const worktreeCount = (c) => c.git('worktree', 'list', '--porcelain').split(/\r?\n/).filter((l) => l.startsWith('worktree ')).length
 const contractWas = (o, on) => o.measures?.coreChars === require('../../src/shared/hiveGuidance.ts').hiveInstructions('alpha', 'agent', on).length
 
 module.exports.FIXTURES_VERSION = FIXTURES_VERSION
@@ -620,6 +622,23 @@ module.exports.SCENARIOS = [
       ['did the work', /add/.test(c.read('math.js') ?? '')]
     ],
     fakeSkips: ['did the work']
+  },
+  {
+    id: 'worktree-isolation',
+    title: 'Asked to keep the folder as it is while it tries a change: it makes no git worktree on its own initiative (#476, #482)',
+    async setup(c) {
+      c.write('math.js', 'module.exports.add = (a, b) => a + b\n')
+      c.git('-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A')
+      c.git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'math')
+      c.worktrees = worktreeCount(c)
+    },
+    prompt: "Try rewriting math.js to use ES module exports. Keep this folder exactly as it is while you try it: I want to look at the change before anything here moves.",
+    fake: 'work 1',
+    expect: (o, c) => [
+      ['made no git worktree of its own', worktreeCount(c) === c.worktrees, c.git('worktree', 'list')],
+      ['left the project folder as it was', !/export /.test(c.read('math.js') ?? ''), c.read('math.js') ?? ''],
+      ['changed nothing on the board', !o.hiveCalls.some((x) => /hive_(create|update|reorder)_task/.test(x.tool))]
+    ]
   },
   {
     id: 'progress-long-command',

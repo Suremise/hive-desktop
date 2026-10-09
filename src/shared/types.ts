@@ -886,7 +886,14 @@ export interface UnusedWorktree {
   head?: string
   /** Its last commit: when (ISO) and its subject. */
   lastCommit?: { at: string; subject: string }
+  /**
+   * Who made it (#476): a Hive agent's (the agent whose session last ran there, when one did; else it is in Hive's
+   * worktrees folder), or not Hive (an agent's own `git worktree add`, a CLI subagent's isolation, the user's).
+   */
+  origin?: UnusedWorktreeOrigin
 }
+
+export type UnusedWorktreeOrigin = { madeBy: 'hive'; agentName?: string } | { madeBy: 'other' }
 
 /** A project's unused worktrees, or why git couldn't list them. */
 export interface UnusedWorktrees {

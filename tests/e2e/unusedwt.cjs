@@ -80,7 +80,8 @@ function pathWithoutGit() {
   const section = page.locator('.unused-worktrees-pane .unused-worktrees')
   check('Review opens Changes at Unused worktrees (2)', !!(await lib.until(async () => (await section.count()) === 1 && /Unused worktrees\s*2/.test(await section.locator('h2').innerText()), 10000)) && (await page.locator('.tab.active, .tab[aria-selected="true"]', { hasText: 'Changes' }).count()) >= 1, await section.innerText().catch(() => ''))
   const picker = page.locator('.split-list .root-select')
-  check('…the folder picker shows "All unused worktrees (2)", in an Unused worktrees group under the agents\' worktrees', (await picker.inputValue()) === 'unused' && (await picker.locator('optgroup[label^="Unused worktrees"] option').allInnerTexts()).join('|').includes('All unused worktrees (2)'), (await picker.locator('option').allInnerTexts()).join('|'))
+  check('…the folder picker shows "Unused worktrees (2)", first, in its group (#476)', (await picker.inputValue()) === 'unused' && (await picker.locator('optgroup[label^="Unused worktrees"] option').allInnerTexts()).join('|').includes('Unused worktrees (2)') && (await picker.locator('option').first().getAttribute('value')) === 'unused', (await picker.locator('option').allInnerTexts()).join('|'))
+  check('…each made by Hive (its agent never ran a session there)', (await section.locator('[data-origin="hive"]').count()) === 2, await section.innerText().catch(() => ''))
   check('…and says what they are', (await section.locator('.info-icon, [aria-label*="info" i]').count()) >= 1)
   const row = (wt) => section.locator(`.unused-wt[data-path="${wt.worktree.path.replace(/\\/g, '\\\\')}"]`)
   const mergedRow = row(merged)
@@ -190,7 +191,7 @@ function pathWithoutGit() {
   })
   await expired.getByRole('button', { name: 'Remove Anyway' }).click()
   check('…and removes it, branch too (the branch goes just after the folder)', !!(await lib.until(async () => !fs.existsSync(ahead.worktree.path) && !branches().includes(ahead.worktree.branch), 10000)), JSON.stringify([fs.existsSync(ahead.worktree.path), branches(), (await page.locator('.toast').allInnerTexts()).join(' | ')]))
-  check('the list goes with the last of them', !!(await lib.until(async () => (await section.count()) === 0, 8000)))
+  check('the list goes with the last of them (the page says there are none, #476)', !!(await lib.until(async () => (await section.locator('.unused-wt').count()) === 0 && /no unused worktrees/.test(await section.innerText().catch(() => '')), 8000)), await section.innerText().catch(() => ''))
   // The tab loads its list first; the notice would be there by then.
   await lib.until(async () => (await page.locator('.split-list .pane-header', { hasText: 'Changes' }).count()) === 1, 8000)
   await lib.sleep(500)
@@ -243,7 +244,7 @@ function pathWithoutGit() {
   const onMain = () => lib.git(repo, ['log', '--format=%s', main]).includes('Claudette kept work') || fs.existsSync(path.join(repo, 'claudette.txt'))
   check('Merge brings its work onto main', !!(await lib.until(async () => onMain(), 15000)), lib.git(repo, ['log', '--oneline', '-5']))
   check('…and removes its folder and branch afterwards', !!(await lib.until(async () => !fs.existsSync(claudette.worktree.path) && !branches().includes(claudette.worktree.branch), 10000)), JSON.stringify([fs.existsSync(claudette.worktree.path), branches()]))
-  check('…and the picker no longer lists it', !!(await lib.until(async () => (await picker2.locator('optgroup[label^="Unused worktrees"]').count()) === 0, 8000)))
+  check('…and the picker no longer lists it', !!(await lib.until(async () => (await picker2.locator(`option[value="unused:${claudette.worktree.path.replace(/\\/g, '\\\\')}"]`).count()) === 0, 8000)))
   await app.close()
 
   console.log(failed ? `${failed} check(s) failed` : 'all checks passed')

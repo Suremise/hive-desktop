@@ -41,6 +41,9 @@ export function hiveInstructions(project: string, role: HiveRole = 'agent', prog
     `Hive is the desktop app hosting this session${project ? ` (project "${project}")` : ''}. Its workspace holds projects that share notes, skills and a task board. Handovers, shared notes, other projects and the board are Hive's: use the hive tools for them, not the file system.`,
     "The board shows your project's cards. Given a card (#n) to work on, fix or continue, use the work-on-card skill; asked to review or check one, use review-agent-work; asked to work through or review several cards in turn (a builder/reviewer loop), use card-loop. Hive's other skills cover handovers, picking work up, shared notes, merging, splitting work and its HTTP API.",
     progressRule(progress),
+    // #476: Hive tracks the folder it gave the session (locks, Changes, merging, card tools); a worktree made here isn't.
+    // One the user asks for is theirs (#482).
+    "Hive sets your folder: make no git worktree to work in unless the user asks (else ask for an agent with its own). Merge or remove a subagent's worktree before you finish.",
     'Board rules, whatever a skill says, or if it is missing:',
     '- Working on a card: move it to doing first (also when it is back from review), then to review with a comment saying what you did.',
     '- Reviewing a card is not working on it: it stays in review with its agent (hive_update_task review start, then failed, or passed with column passed). If it leaves review meanwhile, your review is over: leave the card where it is (not back to review or on to passed).',

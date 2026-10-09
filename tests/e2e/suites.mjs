@@ -48,6 +48,7 @@ export const SUITES = [
   { name: 'cardlinks' },
   { name: 'cardloop' },
   { name: 'changes' },
+  { name: 'changespicker' },
   { name: 'claude-real', needs: ['claude'], claudeHome: 'own' },
   { name: 'claudehome', needs: ['claude'], claudeHome: 'own' },
   { name: 'claudesettings', needs: ['claude'], claudeHome: 'own' },
