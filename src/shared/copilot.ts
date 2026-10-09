@@ -5,8 +5,11 @@ import { codexModelLabel } from './codex'
 /**
  * GitHub Copilot's side of the shared provider data (the Copilot CLI, `copilot`): its modes, reasoning levels and models.
  * Its footer shows two things, the agent mode (Interactive, Plan, Autopilot: Shift+Tab cycles them) and the approval
- * (Manual Approval, or Allow All when launched with --allow-all), and Hive's modes are the combinations it can tell
- * apart there. Checked with Copilot CLI 1.0.93 (the #403 spike). Used by both processes.
+ * (Manual Approval, or Allow All), and Hive's modes are the combinations it can tell apart there. The approval is Allow
+ * All when launched with --allow-all, and also once a turn has run in Autopilot: entering it sets Allow All for the rest
+ * of the session ("Permission policy: Allow All for this session"), which stays when Shift+Tab leaves Autopilot
+ * ("Interactive · Allow All", read as Allow all; #490). Checked with Copilot CLI 1.0.93 (the #403 spike, #490's probes).
+ * Used by both processes.
  */
 
 export const COPILOT = 'copilot'
@@ -16,8 +19,10 @@ export const COPILOT_PERMISSION_MODES: ModeOption[] = [
   { value: 'ask', label: 'Ask', description: 'Reads files and runs harmless commands without asking; asks before edits, other commands, other MCP tools and web access.' },
   { value: 'accept-edits', label: 'Accept edits', description: 'Edits files in its folder without asking (not where the folder’s path has parentheses: Copilot can’t approve them there); still asks before other commands, other MCP tools, web access and changes outside its folder.', cliNote: 'Copilot’s own footer still says Manual Approval: Hive starts it with edits in its folder approved (an allow rule), which Copilot’s label doesn’t show.' },
   { value: 'plan', label: 'Plan', description: 'Plans the work and asks before changing anything.' },
-  { value: 'autopilot', label: 'Autopilot', description: 'Carries on by itself until the task is done (up to 5 continuations), without asking. Use only where unattended changes are acceptable.', danger: true },
-  { value: 'allow-all', label: 'Allow all', description: 'Approves every tool, path and web request without asking. Use only in disposable environments.', danger: true }
+  // Behind the opt-in: entering it approves everything for the rest of the session, and it doesn't hand back (#490).
+  { value: 'autopilot', label: 'Autopilot', description: 'Allow all, and it carries on by itself until the task is done (up to 5 continuations) without handing back to you. Once it has run, the session approves every tool, path and web request, also after you switch out of it. Use only where unattended changes are acceptable.', danger: true },
+  // Not behind the opt-in (Darren, #490): Copilot's one low-interaction mode; its description says plainly what it does.
+  { value: 'allow-all', label: 'Allow all', description: 'Approves every tool, path and web request without asking, in its folder and outside it.' }
 ]
 
 /**
@@ -77,10 +82,12 @@ export function copilotFooterMode(screen: string, launched?: PermissionMode | nu
 }
 
 /**
- * Shift+Tab cycles the agent mode (Interactive → Plan → Autopilot) and keeps what was approved at launch, so Plan and
- * Autopilot can be reached from any mode, and the Interactive modes (Ask, Accept edits, Allow all) only in a session
- * launched with that approval: Ask in one launched without any (Ask, Plan or Autopilot). Not knowing the launch (the
- * window asks first), any but Allow all might be.
+ * Shift+Tab cycles the agent mode (Interactive → Plan → Autopilot), so Plan and Autopilot can be reached from any mode,
+ * and the Interactive modes (Ask, Accept edits, Allow all) only in a session launched with that approval: Ask in one
+ * launched without any (Ask, Plan or Autopilot). Not knowing the launch (the window asks first), any but Allow all might
+ * be. A turn in Autopilot changes the session's approval to Allow All for good (#490), so after one, Interactive is
+ * Allow all whatever the launch: a switch to Ask or Accept edits is tried, finds Copilot doesn't offer it, and says to
+ * restart (`session:setMode`).
  */
 export function copilotCanSwitchLive(target: PermissionMode, _current: PermissionMode | undefined, launched: PermissionMode | null | undefined): boolean {
   if (target === 'plan' || target === 'autopilot') return true

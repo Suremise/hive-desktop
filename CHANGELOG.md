@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Providers
+- **GitHub Copilot's Allow all needs no opt-in; Autopilot still does.** **Allow all** (approves every tool, path and web request without asking, in the agent's folder and outside it) is now offered like any other mode, with no red warning, so Copilot has a mode for working with few interruptions. **Autopilot** stays behind the opt-in, now **Settings → GitHub Copilot → Enable the Autopilot option**; if you had ticked it, Autopilot stays available. Checked with Copilot 1.0.93: once a turn has run in Autopilot, Copilot approves everything for the rest of the session, even after you switch out of it, and Hive's mode badge then shows Allow all. Autopilot's description and the user guide now say so.
+
 ### Fixes
 - **The Assistant moves a whole set of cards in one go.** Moving or labelling many cards in one step (up to 100) counted each card toward the Assistant's 30 changes for a message, so moving 37 cards to the next column stopped part-way and asked to go on, which was easy to miss. The step now counts as one change, however many cards it has; each card is still listed on its own in **Done by the Assistant**.
 - **The same folder by another name is the same folder.** A workspace reached through a junction or a short (8.3) name, such as `C:\Users\RUNNER~1\…`, could be opened in a second window while it was open in the first, and a workspace reopened by another name looked moved, offering **Repair…**. Removing a project could pass a worktree that is another project of the workspace when its path was written another way, and resuming a session was refused ("This session ran in …") when its worktree's path had changed form. Hive now compares these by where the folders really are.
