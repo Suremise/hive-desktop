@@ -230,7 +230,8 @@ describe('Codex skill copies', () => {
 describe('Codex permission menu (#396)', () => {
   // Codex's /permissions menu as rendered: 0.161.0's own (captured in a test home, with Read Only and with Ask for
   // approval current), and 0.160's order (Read Only first) in the same layout, as Hive's earlier number picks assumed.
-  const screen = (name: string) => readText(joinPath(__dirname, 'fixtures', `codex-${name}.txt`), 'utf8')
+  // A line per row, however git checked the fixture out (CRLF on Windows).
+  const screen = (name: string) => readText(joinPath(__dirname, 'fixtures', `codex-${name}.txt`), 'utf8').replace(/\r\n/g, '\n')
   const MODES = ['read-only', 'ask', 'approve-for-me', 'full-access'] as const
 
   it('finds each preset by the label Codex draws, in either order', async () => {

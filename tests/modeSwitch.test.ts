@@ -30,11 +30,13 @@ const p = join(wsPath, 'switching')
 const s = sessions as unknown as { live: Map<string, unknown>; runs: Map<string, string> }
 let w: ReturnType<typeof createWorkspaceService>
 const run = <T>(fn: () => Promise<T> | T): Promise<T> => inWorkspace(w, async () => fn())
-const screen = (name: string): string => readFileSync(join(__dirname, 'fixtures', `codex-${name}.txt`), 'utf8')
+/** A screen, a line per row, however git checked the fixture out (CRLF on Windows). */
+const screen = (name: string): string => readFileSync(join(__dirname, 'fixtures', `codex-${name}.txt`), 'utf8').replace(/\r\n/g, '\n')
 const HELD_WORKING = screen('0.161-held-working')
 const MENU = screen('0.161-permissions-readonly')
 /** Codex free, its input empty (the held screen with the input cleared). */
 const IDLE = screen('0.161-held-idle').replace('› /permissions\n', '› Ask Codex to do anything\n')
+if (IDLE === screen('0.161-held-idle')) throw new Error("the held-idle fixture's input line has changed")
 
 let n = 0
 /** A running Codex agent in Read Only (no process) whose screen is `shown`, new enough to have no transcript yet. */
