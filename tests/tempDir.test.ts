@@ -114,6 +114,13 @@ describe('other names for a folder (tests/pathAliases.ts)', () => {
     expect(shortPath(join(tempRoot(), 'hive-no-such-folder-448', 'x'))).toBeNull()
   })
 
+  it('shortPath gives null for a missing path under a folder that has a short name (#485: RUNNER~1 on the runner; skipped where the volume makes no short names)', (ctx) => {
+    const long = dir('hive-short-path-parent-with-a-long-name-')
+    if (shortPath(long) === null) return ctx.skip()
+    expect(shortPath(join(long, 'hive-no-such-folder-485'))).toBeNull()
+    expect(shortPath(join(long, 'no-such', 'x'))).toBeNull()
+  })
+
   it('junction gives another name for a folder on any machine: a different path, the same folder', () => {
     const d = dir('hive-junction-')
     const target = dir('hive-junction-target-')
