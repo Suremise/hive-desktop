@@ -262,7 +262,8 @@ const cliPath = (cmd, places) => {
 }
 const cliInstalled = {
   claude: () => cliPath('claude', [join(process.env.USERPROFILE || '', '.local', 'bin', 'claude.exe')]),
-  codex: () => cliPath('codex', [join(process.env.APPDATA || '', 'npm', 'codex.cmd')])
+  codex: () => cliPath('codex', [join(process.env.APPDATA || '', 'npm', 'codex.cmd')]),
+  copilot: () => cliPath('copilot', [join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WinGet', 'Links', 'copilot.exe'), join(process.env.APPDATA || '', 'npm', 'copilot.cmd')])
 }
 /**
  * False only when Claude Code itself says it isn't signed in to its test home (`claude auth status --json`, with
@@ -293,6 +294,8 @@ function skipReason(s) {
   if (needs.includes('claude') && s.claudeHome === 'test' && !claudeLoggedIn()) return `environment: Claude Code isn't signed in to its test home ${runContext.CLAUDE_TEST_HOME} (tests/e2e/README.md)`
   if (needs.includes('codex') && !cliInstalled.codex()) return "environment: Codex isn't installed (codex)"
   if (needs.includes('codex') && !lib.codexSignedIn()) return `environment: Codex isn't signed in to ${lib.CODEX_HOME}`
+  // Offline against the stand-in model: no sign-in to ask about.
+  if (needs.includes('copilot') && !cliInstalled.copilot()) return "environment: the GitHub Copilot CLI isn't installed (copilot)"
   return null
 }
 
