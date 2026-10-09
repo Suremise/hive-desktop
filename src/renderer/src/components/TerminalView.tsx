@@ -74,6 +74,14 @@ function disposeWebgl(webgl: WebglAddon, canvases: HTMLCanvasElement[]): void {
   return { cols: term.cols, rows: term.rows, viewportY: term.buffer.active.viewportY, baseY: term.buffer.active.baseY }
 }
 
+/** The lines a terminal shows now, as drawn (trailing spaces kept), for tests that check what is on screen. */
+;(window as unknown as { __hiveTerminalLines?: (key: string) => string[] | null }).__hiveTerminalLines = (key) => {
+  const term = terminals.get(key)
+  if (!term) return null
+  const buf = term.buffer.active
+  return Array.from({ length: term.rows }, (_, row) => buf.getLine(buf.viewportY + row)?.translateToString(false) ?? '')
+}
+
 /** Scrolls a terminal by some lines without any input, as xterm's own late scroll syncs do, for tests. */
 ;(window as unknown as { __hiveTerminalScrollLines?: (key: string, lines: number) => void }).__hiveTerminalScrollLines = (key, lines) => terminals.get(key)?.scrollLines(lines)
 
@@ -361,6 +369,13 @@ export function TerminalView({
       term.write(`\r\n\x1b[90m[process exited with code ${code}]\x1b[0m\r\n`)
       onExitRef.current?.(code)
     })
+    // Until the window fits it, the terminal is its process's size, not xterm's 80 × 24: the process draws at its own
+    // size, and output drawn into a smaller terminal (a CLI's first screens, or all of it while hidden) lands in the
+    // wrong places, which its redraw at the fit doesn't always clear (#486).
+    let fitted = false
+    void call('pty:size', ptyKey).then((size) => {
+      if (size && !fitted && !signal.aborted && (size.cols !== term.cols || size.rows !== term.rows)) term.resize(size.cols, size.rows)
+    }).catch(() => undefined)
     // Replay what the process printed before this view existed (e.g. after a window reload).
     void call('pty:buffer', ptyKey).then((buf) => {
       if (buf) term.write(buf)
@@ -410,7 +425,9 @@ export function TerminalView({
     let fitTimer: ReturnType<typeof setTimeout> | null = null
     const doFit = (): void => {
       fitTimer = null
-      if (fitTerminal(term, fit, host.current, visibleRef.current, ptyKey)) hold()
+      if (!fitTerminal(term, fit, host.current, visibleRef.current, ptyKey)) return
+      fitted = true
+      hold()
     }
     const scheduleFit = (): void => {
       if (fitTimer) clearTimeout(fitTimer)

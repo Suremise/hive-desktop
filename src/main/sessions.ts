@@ -51,7 +51,7 @@ import { asksYou } from '../shared/inbox'
 import { FinishBatcher, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
-import { PTY_COLS, PTY_ROWS, childEnv, killPty, spawnPty, writePty } from './ptyHost'
+import { childEnv, killPty, refreshPty, spawnPty, startSize, writePty } from './ptyHost'
 import { TerminalScreen } from './terminalScreen'
 import { KeysStopped, PickNotFound, typeKeySteps } from './keySteps'
 import { withBinOnPath } from './progressReporters/shims'
@@ -87,12 +87,16 @@ export interface HiveMcpProvider {
 const BACKUP_INTERVAL_MS = 60_000
 /** Minimum time between cost estimates while a turn is running (each parses the whole transcript). */
 const COST_INTERVAL_MS = 30_000
+/** How long after a CLI starts or is ready its size refresh comes (refreshSize). */
+const SIZE_REFRESH_DELAY_MS = 500
 
 interface LiveSession {
   state: LiveSessionState
   adapter: ProviderAdapter
   /** The terminal as rendered, for an adapter that reads it (its footer's mode, or a menu to pick from: #396). */
   screen?: TerminalScreen | null
+  /** The size refreshes given so far, for a CLI that needs them (capabilities.startupSizeRefresh, #486). */
+  sizeRefreshed?: 'started' | 'ready'
   /** The transcript's modified time and size at the last look ("mtime:size"). */
   transcriptMtime: string
   /** Where the provider writes this session's transcript, once known (from a hook, or found by id). */
@@ -1148,9 +1152,12 @@ class SessionManager {
 
     // The footer is read from the rendered screen: a CLI may redraw only the characters that changed. So is a mode
     // menu, whose entries Hive picks by what they say (#396).
-    const screen = l.adapter.footerMode || l.adapter.modeMenuKeys ? new TerminalScreen(PTY_COLS, PTY_ROWS) : null
+    const key = this.key(projectPath, agent.id)
+    const size = startSize(key)
+    const screen = l.adapter.footerMode || l.adapter.modeMenuKeys ? new TerminalScreen(size.cols, size.rows) : null
     l.screen = screen
-    const proc = spawnPty(this.key(projectPath, agent.id), {
+    const proc = spawnPty(key, {
+      ...size,
       file: cmd.file,
       args: cmd.args,
       cwd,
@@ -2313,7 +2320,25 @@ class SessionManager {
       this.statusSent.set(state, state.status)
       state.statusSince = new Date().toISOString()
     }
+    this.refreshSize(state)
     emit({ type: 'session-status', state: { ...state } })
+  }
+
+  /**
+   * A CLI whose full-screen interface a resize while it starts can leave drawn at the wrong width (Copilot): a size
+   * refresh, as resizing the window by hand gives, once it has started (its first status: ready, or a question at
+   * start) and once it is ready (#486). A moment later, so it has drawn what it shows by then.
+   */
+  private refreshSize(state: LiveSessionState): void {
+    const id = liveId(state.projectPath, state.agentId)
+    const l = this.live.get(id)
+    if (!l || l.state !== state || !l.adapter.descriptor.capabilities.startupSizeRefresh || state.settingUp || state.status === 'starting' || l.sizeRefreshed === 'ready') return
+    const ready = state.status !== 'waiting'
+    if (l.sizeRefreshed === 'started' && !ready) return
+    l.sizeRefreshed = ready ? 'ready' : 'started'
+    setTimeout(() => {
+      if (this.live.get(id) === l) refreshPty(this.key(state.projectPath, state.agentId))
+    }, SIZE_REFRESH_DELAY_MS)
   }
 
   /** A CLI refused an agent's sign-in: told once for this expiry, with every agent it has stopped by then. */

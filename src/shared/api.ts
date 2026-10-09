@@ -397,6 +397,8 @@ export interface HiveRequests {
   'pty:write': (key: string, data: string) => void
   'pty:resize': (key: string, cols: number, rows: number) => void
   'pty:buffer': (key: string) => string
+  /** Its process's size now (null without one): a terminal shown before the window has fitted it draws at that size. */
+  'pty:size': (key: string) => { cols: number; rows: number } | null
   'pty:kill': (key: string) => void
 
   'skills:list': (projectPath?: string) => SkillInfo[]

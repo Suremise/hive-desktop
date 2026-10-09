@@ -62,6 +62,7 @@ export const SUITES = [
   { name: 'context' },
   { name: 'contrast' },
   { name: 'copilot', needs: ['copilot'] },
+  { name: 'copilotsize', needs: ['copilot'] },
   { name: 'ctxpercent' },
   { name: 'decisions' },
   { name: 'decisionwake' },

@@ -146,7 +146,8 @@ export function ModeBadge({ project, a, variant }: { project: ProjectInfo; a: Ag
   const label = a.live?.modeSwitching ? `Switching to ${permissionLabel(provider, a.live.modeSwitching)}…` : `${permissionLabel(provider, mode)}${a.live?.planMode ? ' · Plan' : ''}`
   const kb = commandKeybinding('session.permissionMode')
   const cycles = providerDescriptor(provider).capabilities.liveModeSwitch === 'cycle'
-  const tip = `${a.live ? 'Permission mode of the running session' : 'Permission mode new sessions start in'}: ${label}. Click to change${kb ? ` (${formatKeybinding(kb)})` : ''}.${a.live && cycles ? ' You can also press Shift+Tab in the terminal.' : ''}${a.live && providerDescriptor(provider).capabilities.planModeToggle ? ' Shift+Tab in the terminal turns Plan mode on and off.' : ''}`
+  const note = a.live && !a.live.modeSwitching ? modeOption(provider, mode)?.cliNote : undefined
+  const tip = `${a.live ? 'Permission mode of the running session' : 'Permission mode new sessions start in'}: ${label}.${note ? ` ${note}` : ''} Click to change${kb ? ` (${formatKeybinding(kb)})` : ''}.${a.live && cycles ? ' You can also press Shift+Tab in the terminal.' : ''}${a.live && providerDescriptor(provider).capabilities.planModeToggle ? ' Shift+Tab in the terminal turns Plan mode on and off.' : ''}`
   const open = (e: React.MouseEvent): void => {
     e.stopPropagation()
     openModeMenu(project.path, a.id, e.currentTarget)
