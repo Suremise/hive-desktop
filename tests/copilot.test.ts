@@ -5,7 +5,7 @@ import { copilot, copilotHooks, copilotMcpServer } from '../src/main/providers/c
 import { COPILOT_ENV_STRIP, copilotEnv } from '../src/main/providers/copilot/home'
 import { parseCopilotModels } from '../src/main/providers/copilot/models'
 import type { LaunchContext } from '../src/main/providers/types'
-import { COPILOT_DESCRIPTOR, copilotCanSwitchLive, copilotFooterMode, copilotModelLabel } from '../src/shared/copilot'
+import { COPILOT_DESCRIPTOR, copilotCanApproveEdits, copilotCanSwitchLive, copilotFooterMode, copilotModeFlags, copilotModelLabel, copilotPathGlob } from '../src/shared/copilot'
 import { isKnownProvider, providerDescriptor } from '../src/shared/providers'
 import { tempDir } from './tempDir'
 
@@ -33,7 +33,8 @@ describe('Copilot descriptor', () => {
     expect(isKnownProvider('copilot')).toBe(true)
     const d = providerDescriptor('copilot')
     expect(d.name).toBe('GitHub Copilot')
-    expect(d.permissionModes.map((m) => m.value)).toEqual(['ask', 'plan', 'autopilot', 'allow-all'])
+    expect(d.permissionModes.map((m) => m.value)).toEqual(['ask', 'accept-edits', 'plan', 'autopilot', 'allow-all'])
+    expect(d.defaultPermissionMode).toBe('accept-edits')
     expect(d.permissionModes.filter((m) => m.danger).map((m) => m.value)).toEqual(['autopilot', 'allow-all'])
     expect(d.effortLevels.map((e) => e.value)).toEqual(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
     expect(d.capabilities).toMatchObject({ fixedSessionId: true, liveModeSwitch: 'cycle', reportsCost: true, lockAsk: true, compactFocus: true })
@@ -62,6 +63,10 @@ describe('Copilot footer and modes', () => {
     // While typing, the footer lists other items; the last footer drawn wins.
     expect(copilotFooterMode('… Plan · Manual Approval · / commands\n Interactive · Manual Approval · @ files · # issues')).toBe('ask')
     expect(copilotFooterMode(' Interactive · Assisted Approval · / commands')).toBeNull()
+    // Accept edits looks like Ask in the footer: the launch tells them apart.
+    expect(copilotFooterMode(' ← open sidebar · Interactive · Manual Approval · / commands', 'accept-edits')).toBe('accept-edits')
+    expect(copilotFooterMode(' ← open sidebar · Interactive · Manual Approval · / commands', 'plan')).toBe('ask')
+    expect(copilotFooterMode(' ← open sidebar · Plan · Manual Approval · / commands', 'accept-edits')).toBe('plan')
     expect(copilotFooterMode(' ctrl+c again to exit')).toBeNull()
   })
 
@@ -72,7 +77,17 @@ describe('Copilot footer and modes', () => {
     expect(copilotCanSwitchLive('allow-all', 'ask', 'ask')).toBe(false)
     expect(copilotCanSwitchLive('allow-all', 'plan', 'allow-all')).toBe(true)
     expect(copilotCanSwitchLive('ask', 'allow-all', 'allow-all')).toBe(false)
+    // Accept edits and Ask differ in what was approved at launch: each only in a session launched in it.
+    expect(copilotCanSwitchLive('accept-edits', 'plan', 'accept-edits')).toBe(true)
+    expect(copilotCanSwitchLive('accept-edits', 'ask', 'ask')).toBe(false)
+    expect(copilotCanSwitchLive('ask', 'accept-edits', 'accept-edits')).toBe(false)
+    expect(copilotCanSwitchLive('ask', 'plan', 'plan')).toBe(true)
+    expect(copilotCanSwitchLive('accept-edits', 'plan', 'plan')).toBe(false)
+    // The window doesn't know the launch: it asks the session, which says when a restart is needed.
+    expect(copilotCanSwitchLive('accept-edits', 'ask', null)).toBe(true)
+    expect(copilotCanSwitchLive('allow-all', 'ask', null)).toBe(false)
     expect(copilot.footerMode(' · Plan · Manual Approval · / commands')).toBe('plan')
+    expect(copilot.footerMode(' · Interactive · Manual Approval · / commands', 'accept-edits')).toBe('accept-edits')
   })
 })
 
@@ -91,7 +106,7 @@ describe('Copilot launch', () => {
     expect(args[args.indexOf('--model') + 1]).toBe('claude-sonnet-5.5')
     expect(args[args.indexOf('--reasoning-effort') + 1]).toBe('high')
     expect(args.slice(-2)).toEqual(['-i', 'Fix the bug'])
-    // Ask is Copilot's default: no mode flag.
+    // Ask: no mode flag.
     expect(args.some((a) => ['--plan', '--autopilot', '--allow-all', '--yolo'].includes(a))).toBe(false)
     // Other tools' tokens are left out of Copilot's environment alone; COPILOT_GITHUB_TOKEN, set for Copilot, stays (#450).
     for (const k of COPILOT_ENV_STRIP) expect(env?.[k]).toBeUndefined()
@@ -101,6 +116,51 @@ describe('Copilot launch', () => {
     expect(env?.COPILOT_CUSTOM_INSTRUCTIONS_DIRS).toBeUndefined()
     // The token never goes on the command line.
     expect(args.join(' ')).not.toContain('tok123')
+  })
+
+  it("pre-approves Hive's tools: a project agent's all of them, the Assistant's only its trusted ones (#468)", () => {
+    const allow = (over: Partial<LaunchContext>) => copilot.buildCommand('x.exe', context(over)).args.filter((a) => a.startsWith('--allow-tool='))
+    expect(allow({})).toEqual(['--allow-tool=hive'])
+    expect(allow({ permissionMode: 'plan' })).toEqual(['--allow-tool=hive'])
+    expect(allow({ trustedHiveTools: [] })).toEqual([])
+    expect(allow({ trustedHiveTools: ['hive_read_task'] })).toEqual(['--allow-tool=hive(hive_read_task)'])
+    // No hive server, nothing to approve.
+    expect(allow({ mcpServers: {} })).toEqual([])
+  })
+
+  it("Accept edits approves writes under the agent's folder only, and is the default (#468)", () => {
+    const ctx = context({ permissionMode: 'accept-edits', cwd: 'D:\\proj\\wt\\' })
+    const { args } = copilot.buildCommand('x.exe', ctx)
+    expect(args).toContain('--allow-tool=write(D:\\proj\\wt/**)')
+    expect(args.some((a) => ['--plan', '--autopilot', '--allow-all', '--allow-all-tools', '--allow-all-paths', '--yolo'].includes(a))).toBe(false)
+    expect(copilot.buildCommand('x.exe', context({ permissionMode: '' as never, cwd: 'D:\\proj' })).args).toContain('--allow-tool=write(D:\\proj/**)')
+    expect(copilotModeFlags('ask', 'D:\\proj')).toEqual([])
+    expect(copilotModeFlags('accept-edits', 'D:/proj/')).toEqual(['--allow-tool=write(D:/proj/**)'])
+  })
+
+  it("writes a folder with glob characters as a literal Copilot accepts (#468)", () => {
+    // [ ] { } as one-character classes; the rest as it is.
+    expect(copilotPathGlob('D:\\w\\demo[1]')).toBe('D:\\w\\demo[[]1[]]')
+    expect(copilotPathGlob('D:\\w\\x{a,b}\\')).toBe('D:\\w\\x[{]a,b[}]')
+    expect(copilotPathGlob("D:\\w\\a!b+c@d,e#f$g^h~i'j;k=l&m%n")).toBe("D:\\w\\a!b+c@d,e#f$g^h~i'j;k=l&m%n")
+    expect(copilotModeFlags('accept-edits', 'D:\\w\\v1.2 [x] {y}')).toEqual(['--allow-tool=write(D:\\w\\v1.2 [[]x[]] [{]y[}]/**)'])
+  })
+
+  it('approves no edits where the path has parentheses, and says so (#468)', () => {
+    // Copilot refuses a rule with ( or ) (and doesn't start), and any stand-in also matches a look-alike folder.
+    for (const folder of ['D:\\w\\New folder (2)', 'C:\\Program Files (x86)\\proj', 'D:\\a)b']) {
+      expect(copilotCanApproveEdits(folder)).toBe(false)
+      expect(copilotModeFlags('accept-edits', folder)).toEqual([])
+      const { args } = copilot.buildCommand('x.exe', context({ permissionMode: 'accept-edits', cwd: folder }))
+      expect(args.filter((a) => a.startsWith('--allow-tool=write'))).toEqual([])
+      expect(args.some((a) => /^--allow-tool=[^h]/.test(a))).toBe(false)
+    }
+    expect(copilotCanApproveEdits('D:\\w\\demo[1]{x}')).toBe(true)
+    // The notice: only for Accept edits (or the default) in such a folder.
+    expect(copilot.launchNotice(context({ permissionMode: 'accept-edits', cwd: 'D:\\w\\New folder (2)' }))?.title).toBe('Copilot will ask before each edit')
+    expect(copilot.launchNotice(context({ permissionMode: '' as never, cwd: 'D:\\w\\New folder (2)' }))).not.toBeNull()
+    expect(copilot.launchNotice(context({ permissionMode: 'ask', cwd: 'D:\\w\\New folder (2)' }))).toBeNull()
+    expect(copilot.launchNotice(context({ permissionMode: 'accept-edits', cwd: 'D:\\w\\demo[1]' }))).toBeNull()
   })
 
   it('resumes by id, passes each mode, and adds its instructions folder to the user’s', () => {
@@ -134,6 +194,15 @@ describe('Copilot launch', () => {
     expect(JSON.parse(readFileSync(join(ctx.privateDir, 'plugin', 'plugin.json'), 'utf8')).name).toBe('hive-launch')
     expect(JSON.parse(readFileSync(join(ctx.privateDir, 'mcp.json'), 'utf8'))).toEqual({ mcpServers: { hive: { type: 'local', command: 'node', args: ['hive-mcp.js'], env: { HIVE_PROJECT: 'proj' }, tools: ['*'] } } })
     expect(readFileSync(join(ctx.privateDir, 'instructions', '.github', 'instructions', 'hive.instructions.md'), 'utf8')).toBe("---\napplyTo: '**'\n---\nRole: assistant.\n")
+  })
+
+  it('is ended with Ctrl+C before it is killed, so it writes its token totals (#465)', () => {
+    const exit = copilot.exitKeys
+    expect(exit.keys.length).toBeGreaterThanOrEqual(2)
+    expect(exit.keys.every((k) => k === '\x03')).toBe(true)
+    // Within the time quitting Hive or closing a workspace waits for sessions to end (stopWhereAndWait, 3 s).
+    expect(exit.graceMs).toBeLessThan(3000)
+    expect((exit.keys.length - 1) * exit.gapMs).toBeLessThan(exit.graceMs)
   })
 
   it('gives every event to Hive’s hook server over HTTP, by the PascalCase names', () => {

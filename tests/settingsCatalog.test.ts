@@ -5,7 +5,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS, mergeDefaults } from '../src/shared/defaults'
-import { PROVIDERS, defaultProviderSettings } from '../src/shared/providers'
+import { PROVIDERS, dangerModes, defaultProviderSettings, labelList } from '../src/shared/providers'
 import { APP_SETTINGS_CATALOG, PROJECT_SETTINGS_CATALOG, PROJECT_SETTINGS_SECTIONS, SETTINGS_CATALOG, SETTINGS_SECTIONS, checkSettingValue, settingDefault, settingEntry, settingKind, settingChangeTexts, settingPatch, settingPath, settingValue, settingValueText } from '../src/shared/settingsCatalog'
 import type { AppSettings } from '../src/shared/types'
 
@@ -244,5 +244,32 @@ describe('the settings catalog', () => {
       else for (const p of PROVIDERS) if (m[2] !== 'use200kContext' || p.capabilities.contextLimit) expect(ids.has(`project.${p.id}.${m[2]}`), `project.${p.id}.${m[2]}`).toBe(true)
     }
     expect(PROJECT_SETTINGS_CATALOG.length).toBeGreaterThan(10)
+  })
+})
+
+describe("a provider's danger opt-in (#461)", () => {
+  it('names every mode it unlocks: Copilot has two, Autopilot and Allow all', () => {
+    const e = entry('copilot.enableDangerousMode')
+    expect(e.title).toBe('Enable the Autopilot and Allow all options')
+    expect(e.desc).toBe('Allow projects and agents to choose "Autopilot" or "Allow all", where the agent runs every action without asking.')
+    expect(e.tip).toBe('Autopilot and Allow all are never a global default. When turned off, projects and agents using them return to Inherit.')
+    expect(e.confirmOn?.title).toBe('Enable the Autopilot and Allow all options?')
+  })
+
+  it('reads as before for a provider with one (Claude Code, Codex)', () => {
+    const c = entry('claude-code.enableDangerousMode')
+    expect(c.title).toBe('Enable the Bypass permissions option')
+    expect(c.desc).toBe('Allow projects and agents to choose "Bypass permissions", where the agent runs every action without asking.')
+    expect(c.tip).toBe('Bypass permissions is never a global default. When turned off, projects and agents using it return to Inherit.')
+    expect(c.confirmOn?.title).toBe('Enable the Bypass permissions option?')
+    expect(entry('codex.enableDangerousMode').title).toBe('Enable the Full access option')
+  })
+
+  it('lists labels as a phrase', () => {
+    expect(dangerModes('copilot').map((m) => m.value)).toEqual(['autopilot', 'allow-all'])
+    expect(labelList([])).toBe('')
+    expect(labelList(['A'])).toBe('A')
+    expect(labelList(['A', 'B'])).toBe('A and B')
+    expect(labelList(['A', 'B', 'C'], 'or')).toBe('A, B or C')
   })
 })

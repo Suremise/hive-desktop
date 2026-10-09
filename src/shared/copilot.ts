@@ -11,44 +11,82 @@ import { codexModelLabel } from './codex'
 
 export const COPILOT = 'copilot'
 
+// Hive's own tools (the hive MCP server) never ask, in any mode: the adapter pre-approves them.
 export const COPILOT_PERMISSION_MODES: ModeOption[] = [
-  { value: 'ask', label: 'Ask', description: 'Reads files and runs harmless commands without asking; asks before edits, other commands, MCP tools and web access.' },
+  { value: 'ask', label: 'Ask', description: 'Reads files and runs harmless commands without asking; asks before edits, other commands, other MCP tools and web access.' },
+  { value: 'accept-edits', label: 'Accept edits', description: 'Edits files in its folder without asking (not where the folder’s path has parentheses: Copilot can’t approve them there); still asks before other commands, other MCP tools, web access and changes outside its folder.' },
   { value: 'plan', label: 'Plan', description: 'Plans the work and asks before changing anything.' },
   { value: 'autopilot', label: 'Autopilot', description: 'Carries on by itself until the task is done (up to 5 continuations), without asking. Use only where unattended changes are acceptable.', danger: true },
   { value: 'allow-all', label: 'Allow all', description: 'Approves every tool, path and web request without asking. Use only in disposable environments.', danger: true }
 ]
 
-/** Command-line flags for each mode. */
-export const COPILOT_MODE_FLAGS: Record<string, string[]> = {
-  ask: [],
-  plan: ['--plan'],
-  autopilot: ['--autopilot'],
-  'allow-all': ['--allow-all']
+/**
+ * Whether Copilot can approve edits in exactly this folder: not when its path has a parenthesis. Copilot refuses a
+ * write(<glob>) rule with ( or ) in it, even escaped or in a class, and doesn't start ("Invalid rule format"), and a
+ * stand-in (? or a class) also matches a look-alike folder beside it (Copilot 1.0.93). Accept edits there approves no
+ * edits: Copilot asks before each, as in Ask (#468, Darren's decision).
+ */
+export function copilotCanApproveEdits(folder: string): boolean {
+  return !/[()]/.test(folder)
+}
+
+/**
+ * A folder (with no parentheses: copilotCanApproveEdits) as a literal in Copilot's write(<glob>) rule: [ ] { } as
+ * one-character classes. With no parentheses, ! + @ can't start an extglob, and Windows names have no * or ?, so the
+ * rest stays as it is (1.0.93).
+ */
+export function copilotPathGlob(folder: string): string {
+  return folder.replace(/[\\/]+$/, '').replace(/[[\]{}]/g, (c) => (c === ']' ? '[]]' : `[${c}]`))
+}
+
+/**
+ * Command-line flags for a mode, in an agent's folder (`folder`, its working folder). Accept edits is Ask with writes
+ * under the folder approved: Copilot's write(<glob>) rule, which matches by path (either slash, any case; `write(<folder>)`
+ * alone matches nothing under it), and still asks before any path outside the folder (1.0.93). In a folder whose path
+ * has a parenthesis, nothing is approved (copilotCanApproveEdits).
+ */
+export function copilotModeFlags(mode: PermissionMode, folder: string): string[] {
+  switch (mode) {
+    case 'accept-edits':
+      return copilotCanApproveEdits(folder) ? [`--allow-tool=write(${copilotPathGlob(folder)}/**)`] : []
+    case 'plan':
+      return ['--plan']
+    case 'autopilot':
+      return ['--autopilot']
+    case 'allow-all':
+      return ['--allow-all']
+    default:
+      return []
+  }
 }
 
 /**
  * The mode a footer's two parts mean ("Plan · Manual Approval"); null for one Hive has no mode for (Assisted approval).
  * Read by each part's first word: in a narrow terminal Copilot wraps its footer item by item ("← open ·Interactive ·
- * Manual · / commands" over "sidebar Approval next tab", 1.0.93).
+ * Manual · / commands" over "sidebar Approval next tab", 1.0.93). Interactive · Manual is Ask, or Accept edits in a
+ * session `launched` in it (the footer can't tell them apart).
  */
-export function copilotFooterMode(screen: string): PermissionMode | null {
+export function copilotFooterMode(screen: string, launched?: PermissionMode | null): PermissionMode | null {
   const m = [...screen.matchAll(/\b(Interactive|Plan|Autopilot) ?· ?(Manual|Allow|Assisted)\b/g)].pop()
   if (!m) return null
   if (m[1] === 'Plan') return 'plan'
   if (m[1] === 'Autopilot') return 'autopilot'
   if (m[2] === 'Allow') return 'allow-all'
-  return m[2] === 'Manual' ? 'ask' : null
+  if (m[2] !== 'Manual') return null
+  return launched === 'accept-edits' ? 'accept-edits' : 'ask'
 }
 
 /**
- * Shift+Tab cycles the agent mode (Interactive → Plan → Autopilot) and keeps the approval it was launched with, so Plan
- * and Autopilot can be reached from any mode, Ask only in a session launched without --allow-all, and Allow all only in
- * one launched with it.
+ * Shift+Tab cycles the agent mode (Interactive → Plan → Autopilot) and keeps what was approved at launch, so Plan and
+ * Autopilot can be reached from any mode, and the Interactive modes (Ask, Accept edits, Allow all) only in a session
+ * launched with that approval: Ask in one launched without any (Ask, Plan or Autopilot). Not knowing the launch (the
+ * window asks first), any but Allow all might be.
  */
 export function copilotCanSwitchLive(target: PermissionMode, _current: PermissionMode | undefined, launched: PermissionMode | null | undefined): boolean {
   if (target === 'plan' || target === 'autopilot') return true
-  const allowAll = launched === 'allow-all'
-  return target === 'allow-all' ? allowAll : target === 'ask' && !allowAll
+  if (!launched) return target !== 'allow-all'
+  if (target === 'ask') return ['ask', 'plan', 'autopilot'].includes(launched)
+  return target === launched
 }
 
 const WORDS: Record<string, string> = { gpt: 'GPT', mai: 'MAI', k3: 'K3' }
@@ -92,8 +130,9 @@ export const COPILOT_DESCRIPTOR: ProviderDescriptor = {
   icon: 'copilot',
   setupUrl: 'https://docs.github.com/copilot/how-tos/copilot-cli',
   permissionModes: COPILOT_PERMISSION_MODES,
-  defaultPermissionMode: 'ask',
-  // Reads are approved by Copilot itself, and Hive's own tools are pre-approved (trustedHiveTools).
+  // Ask, with edits in the agent's folder approved (#468).
+  defaultPermissionMode: 'accept-edits',
+  // Reads are approved by Copilot itself, and Hive's own tools are pre-approved (the Assistant's: trustedHiveTools).
   assistantMode: 'ask',
   effortLevels: [
     { value: 'none', label: 'None' },

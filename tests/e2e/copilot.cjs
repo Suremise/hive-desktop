@@ -1,9 +1,10 @@
 // Hive running GitHub Copilot agents end to end with the real Copilot CLI, offline, against the scripted stand-in model
-// (fake-copilot-api.cjs: BYOK with COPILOT_OFFLINE, no sign-in, no credits). Two agents in a quiet test copy: the folder
-// trust question, statuses from Copilot's hooks (working, a permission dialog, a question, finished), a file lock that
-// refuses the other agent's edit, the hive MCP tools, a workspace skill through Copilot's skill tool, Shift+Tab to Plan
-// and back, Esc on a dialog ending the turn (the transcript's abort), the Sessions tab's transcript and usage, and
-// resume. Copilot runs in a home of the suite's own, with a fake profile folder and the GitHub CLI's login hidden
+// (fake-copilot-api.cjs: BYOK with COPILOT_OFFLINE, no sign-in, no credits). Two agents in a quiet test copy, A in Ask
+// and B in Copilot's default, Accept edits: the folder trust question, statuses from Copilot's hooks (working, a
+// permission dialog, a question, finished), a file lock that refuses the other agent's edit, the hive MCP tools and edits
+// in B's folder with no prompt (an edit outside it still asks), a prompt queued while B works, a workspace skill through
+// Copilot's skill tool, Shift+Tab to Plan and back, Esc on a dialog ending the turn (the transcript's abort), the
+// Sessions tab's transcript and usage, and resume. Copilot runs in a home of the suite's own, with a fake profile folder and the GitHub CLI's login hidden
 // (GH_CONFIG_DIR empty, gh off PATH): never the user's ~/.copilot or gh sign-in. Skipped where Copilot isn't installed.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -13,7 +14,14 @@ const { startFakeCopilotApi, copilotTestEnv, copilotInstalled } = require('./fak
 
 const userData = path.join(lib.WORK, 'copilot-profile')
 const ws = path.join(lib.WORK, 'copilot-ws')
-const proj = path.join(ws, 'demo')
+// Glob characters in the project's name: Accept edits' write(<folder>/**) rule must take them as they are (#468). A
+// sibling Copilot may reach (path-only access, as a saved allowed_directories entry gives) is still outside it.
+const proj = path.join(ws, 'demo[1]{x}')
+const sibling = path.join(ws, 'demo[1]{x}-y-')
+// Parentheses in a path: Copilot can't approve edits in exactly that folder, so Accept edits approves none there and
+// Hive says so (#468); its look-alike sibling (what a stand-in for each parenthesis would match) stays unwritten.
+const proj2 = path.join(ws, 'paren(1)')
+const sibling2 = path.join(ws, 'paren-1-')
 const copilotDir = path.join(lib.WORK, 'copilot-cli')
 const copilotHome = path.join(copilotDir, 'copilot-home')
 const apiLog = path.join(lib.WORK, 'copilot-api.jsonl')
@@ -30,6 +38,8 @@ const check = (name, ok, extra = '') => {
   for (const d of [userData, ws, copilotDir]) fs.rmSync(d, { recursive: true, force: true })
   fs.rmSync(apiLog, { force: true })
   lib.gitProject(proj, { 'a.ts': 'probe\n', 'README.md': '# demo\n' })
+  lib.gitProject(proj2, { 'p.txt': 'probe\n' })
+  for (const d of [sibling, sibling2]) fs.mkdirSync(d, { recursive: true })
   lib.enableProviders(userData, ['claude-code', 'copilot'])
   const cfgFile = path.join(userData, 'config.json')
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
@@ -39,6 +49,9 @@ const check = (name, ok, extra = '') => {
 
   const api = await startFakeCopilotApi({ log: apiLog })
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47823), ...copilotTestEnv(api, copilotDir) })
+  // Path-only access to each sibling, as Copilot saves it in its (test) home when a path is allowed: never write access.
+  const locations = Object.fromEntries([[proj, sibling], [proj2, sibling2]].map(([p, s]) => [p, { allowed_directories: [s], tool_approvals: [] }]))
+  fs.writeFileSync(path.join(copilotHome, 'permissions-config.json'), JSON.stringify({ locations }, null, 2))
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   const page = await app.firstWindow()
   page.on('pageerror', (e) => check('no page errors', false, e.message))
@@ -50,7 +63,7 @@ const check = (name, ok, extra = '') => {
     check('Copilot found', !!info?.found, JSON.stringify(info && { found: info.found, path: info.path }))
     console.log(`Copilot CLI ${info?.version ?? '?'} (${info?.source ?? '?'}), offline against the stand-in at ${api.url}`)
     await lib.openWorkspace(inv, page, ws)
-    const a = await inv('agents:add', proj, { name: 'Cop A', provider: 'copilot', location: 'project' })
+    const a = await inv('agents:add', proj, { name: 'Cop A', provider: 'copilot', location: 'project', permissionMode: 'ask' })
     const b = await inv('agents:add', proj, { name: 'Cop B', provider: 'copilot', location: 'project' })
     check('agents added with provider copilot', a.provider === 'copilot' && b.provider === 'copilot')
     const live = async (id) => (await inv('session:live')).find((l) => l.agentId === id)
@@ -59,6 +72,16 @@ const check = (name, ok, extra = '') => {
     const status = async (id) => (await live(id))?.status
     const reach = (id, wanted, ms = 30000) => lib.until(async () => wanted.includes(await status(id)), ms, 300)
     const send = (id, text, accept = ['working', 'waiting', 'finished']) => lib.sendPrompt(inv, key(id), text, { submitted: async () => accept.includes(await status(id)) })
+    // The statuses an agent shows until its turn finishes or it waits for the user (or `ms` passes), polled.
+    const timeline = async (id, ms = 30000) => {
+      const seen = []
+      const done = await lib.until(async () => {
+        const st = await status(id)
+        if (seen[seen.length - 1] !== st) seen.push(st)
+        return st === 'finished' || st === 'waiting'
+      }, ms, 150)
+      return { seen, finished: !!done && seen[seen.length - 1] === 'finished', asked: seen.includes('waiting') }
+    }
 
     // Starting: under the session id Hive chose; Copilot's folder-trust question shows as waiting until it's answered.
     const startAndTrust = async (agent) => {
@@ -90,7 +113,7 @@ const check = (name, ok, extra = '') => {
     await page.screenshot({ path: path.join(lib.WORK, 'copilot-1-permission.png') })
 
     // B edits the same file while A holds it: Hive's lock (block) refuses it, in Copilot's own words.
-    await startAndTrust(b)
+    const sb = await startAndTrust(b)
     await send(b.id, 'edit a.ts probe other', ['working', 'finished'])
     const denied = await lib.until(async () => /Denied by preToolUse hook: Cop A is editing a\.ts/.test(await screen(b.id)), 30000, 300)
     check("B: its edit of the file A holds is refused by the lock", !!denied, (await screen(b.id)).slice(-300))
@@ -104,16 +127,103 @@ const check = (name, ok, extra = '') => {
     check('a.ts edited by A', fs.readFileSync(path.join(proj, 'a.ts'), 'utf8').includes('probed'))
     check('A: lets a.ts go at the end of its turn', !((await live(a.id))?.lockedFiles ?? []).length, JSON.stringify((await live(a.id))?.lockedFiles))
 
-    // B: a hive tool (asked first, as Copilot asks before any MCP tool in Ask): it reaches Hive's Agent API.
-    await send(b.id, 'hive hive_list_projects then say Listed.')
-    const dialog = await lib.until(async () => /Do you want to use this tool\?/.test(await screen(b.id)), 30000, 300)
-    check('B: Copilot asks before a hive tool, and Hive shows it waiting', !!dialog && (await status(b.id)) === 'waiting', await status(b.id))
-    await sleep(300)
-    await inv('pty:write', key(b.id), '\r')
-    check('B: the hive tool turn finishes', !!(await reach(b.id, ['finished'])), await status(b.id))
+    // B: a hive tool, with no prompt in any mode (--allow-tool=hive, #468): it reaches Hive's Agent API.
+    check('B: starts in Accept edits, Copilot’s default', (await live(b.id))?.permissionMode === 'accept-edits', (await live(b.id))?.permissionMode)
+    await send(b.id, 'hive hive_list_projects then say Listed.', ['working', 'waiting'])
+    const hiveTurn = await timeline(b.id)
+    check('B: a hive tool runs without asking, and the turn finishes', hiveTurn.finished && !hiveTurn.asked, hiveTurn.seen.join(' → '))
+    check('B: …no tool dialog on its screen', !/Do you want to use this tool\?/.test(await screen(b.id)))
     const listed = fs.readFileSync(apiLog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
     check('Copilot offered the hive tools, named hive-<tool>', listed.some((r) => (r.tools ?? []).includes('hive-hive_list_projects')), JSON.stringify(listed[0]?.tools ?? []))
     check("Hive's guidance reached Copilot's system prompt (the hive server's instructions)", listed.some((r) => /use the hive tools/i.test(r.system ?? '')))
+    const bScreen = await screen(b.id)
+    check('B: the hive tool ran, and not refused', /hive_list_projects/.test(bScreen) && !/✗\s*hive_list_projects/.test(bScreen), bScreen.split('\n').filter((l) => /hive_list_projects/.test(l)).join(' | '))
+
+    // B: Accept edits approves an edit in its folder (--allow-tool=write(<folder>/**)), and a new file in it.
+    await send(b.id, 'edit README.md demo edited-by-b then write notes.txt from B then say Edited.', ['working', 'waiting'])
+    const editTurn = await timeline(b.id)
+    check('B: edits files in its folder without asking', editTurn.finished && !editTurn.asked, editTurn.seen.join(' → '))
+    check('README.md edited and notes.txt written by B', fs.readFileSync(path.join(proj, 'README.md'), 'utf8').includes('edited-by-b') && fs.existsSync(path.join(proj, 'notes.txt')))
+    // …but not outside it, even in a sibling it has path access to: Copilot still asks before the edit, and Esc on it
+    // aborts the turn (the transcript's abort).
+    await send(b.id, `write ../${path.basename(sibling)}/outside-b.txt from B`, ['working', 'waiting'])
+    check('B: a file outside its folder still asks', !!(await reach(b.id, ['waiting'])), await status(b.id))
+    await inv('pty:write', key(b.id), '\x1b')
+    const bEvents = path.join(copilotHome, 'session-state', sb.sessionId, 'events.jsonl')
+    const bLog = () => (fs.existsSync(bEvents) ? fs.readFileSync(bEvents, 'utf8') : '')
+    check('B: refused with Esc, its turn ends', !!(await reach(b.id, ['ready', 'finished'], 20000)), await status(b.id))
+    check('nothing written outside its folder', !fs.existsSync(path.join(sibling, 'outside-b.txt')))
+
+    // B: a prompt typed while it works (Copilot queues it, and sends its UserPromptSubmit after the first turn's Stop):
+    // Hive shows the queued turn working while it runs, not finished (#468: "finished" just as the next prompt started).
+    // The turns' times come from Copilot's own events.jsonl; the statuses are sampled meanwhile.
+    await send(b.id, 'work 4 then say First turn.', ['working'])
+    await lib.sendPrompt(inv, key(b.id), 'work 4 then say Second turn.', { submitted: async () => /Second turn/.test(await screen(b.id)) })
+    const samples = []
+    /** The second turn's start and end in events.jsonl (ms), once both are there. */
+    const secondTurn = () => {
+      const evs = bLog().split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+      const at = evs.findIndex((e) => e.type === 'user.message' && /Second turn/.test(e.data?.content ?? ''))
+      const end = at < 0 ? -1 : evs.findIndex((e, i) => i > at && e.type === 'assistant.turn_end')
+      return end < 0 ? null : { start: Date.parse(evs[at].timestamp), end: Date.parse(evs[end].timestamp) }
+    }
+    const turn = await lib.until(async () => {
+      samples.push({ at: Date.now(), st: await status(b.id) })
+      const t = secondTurn()
+      return t && samples[samples.length - 1].st === 'finished' ? t : null
+    }, 40000, 150)
+    check('B: both turns run, and it ends finished', !!turn, samples.map((s) => s.st).filter((s, i, all) => s !== all[i - 1]).join(' → '))
+    const during = turn ? samples.filter((s) => s.at > turn.start + 500 && s.at < turn.end - 300) : []
+    check('B: shown working while the queued turn runs', during.length > 3 && during.every((s) => s.st === 'working'), `${during.length} samples: ${[...new Set(during.map((s) => s.st))].join(', ')}`)
+
+    // C, in paren(1): Copilot can't approve edits in exactly a folder whose path has parentheses, so Accept edits approves
+    // none there (#468): Hive says so as it starts, an edit asks and goes through once approved, and the look-alike
+    // sibling it has path access to stays unwritten.
+    const c = await inv('agents:add', proj2, { name: 'Cop C', provider: 'copilot', location: 'project' })
+    const keyC = lib.ptyKey(proj2, c.id)
+    const liveC = async () => (await inv('session:live')).find((l) => l.agentId === c.id)
+    const statusC = async () => (await liveC())?.status
+    const reachC = (wanted, ms = 30000) => lib.until(async () => wanted.includes(await statusC()), ms, 300)
+    const sendC = (text) => lib.sendPrompt(inv, keyC, text, { submitted: async () => ['working', 'waiting'].includes(await statusC()) })
+    const sc = await inv('session:start', proj2, { agentId: c.id })
+    if (await lib.until(async () => /Do you trust the files in this folder/.test(lib.plainText(await inv('pty:buffer', keyC).catch(() => ''))), 30000, 300)) await inv('pty:write', keyC, '\r')
+    check('C: ready in paren(1)', !!(await reachC(['ready'])), await statusC())
+    check('C: in Accept edits, Copilot’s default', (await liveC())?.permissionMode === 'accept-edits', (await liveC())?.permissionMode)
+    const told = await lib.until(async () => (await page.getByText('Copilot will ask before each edit').count()) > 0, 15000, 300)
+    check('C: Hive says Copilot will ask before each edit there', !!told)
+    await page.screenshot({ path: path.join(lib.WORK, 'copilot-4-parentheses.png') })
+    await sendC('edit p.txt probe probed-by-c')
+    check('C: an edit in its folder asks', !!(await reachC(['waiting'])), await statusC())
+    check('p.txt unchanged until approved', fs.readFileSync(path.join(proj2, 'p.txt'), 'utf8') === 'probe\n')
+    await inv('pty:write', keyC, '\r')
+    check('C: approved, the edit goes through and the turn finishes', !!(await reachC(['finished'])), await statusC())
+    check('p.txt edited by C once approved', fs.readFileSync(path.join(proj2, 'p.txt'), 'utf8').includes('probed-by-c'))
+    await sendC(`write ../${path.basename(sibling2)}/outside-c.txt from C`)
+    check('C: a write into the look-alike sibling asks', !!(await reachC(['waiting'])), await statusC())
+    await inv('pty:write', keyC, '\x1b')
+    check('C: refused with Esc, its turn ends', !!(await reachC(['ready', 'finished'], 20000)), await statusC())
+    check('nothing written in the look-alike sibling', !fs.existsSync(path.join(sibling2, 'outside-c.txt')))
+    // Stopped from Hive while Copilot shows a permission dialog: Ctrl+C closes it, then exits, with the totals (#465).
+    await sendC('edit p.txt probed-by-c again')
+    check('C: asks before the edit', !!(await reachC(['waiting'])), await statusC())
+    await inv('session:stop', proj2, c.id)
+    check('C: ends on Hive’s Stop over its dialog', !!(await lib.until(async () => !(await liveC()), 20000, 300)), await statusC())
+    const cEvents = path.join(copilotHome, 'session-state', sc.sessionId, 'events.jsonl')
+    check('C: Copilot recorded its totals (session.shutdown)', !!(await lib.until(() => fs.existsSync(cEvents) && fs.readFileSync(cEvents, 'utf8').includes('"type":"session.shutdown"'), 15000, 300)))
+    check('p.txt not edited again', !fs.readFileSync(path.join(proj2, 'p.txt'), 'utf8').includes('again'))
+
+    // Copilot's one danger opt-in unlocks both its danger modes, and turning it off moves projects and agents using either
+    // back to Inherit (#461).
+    const cfg2 = () => JSON.parse(fs.readFileSync(path.join(proj2, '.hive', 'project.json'), 'utf8'))
+    const modes2 = () => { const c2 = cfg2(); return { project: c2.providers?.copilot?.permissionMode ?? 'inherit', agent: (c2.agents ?? []).find((x) => x.id === c.id)?.permissionMode ?? 'inherit' } }
+    await inv('settings:update', { providers: { copilot: { enableDangerousMode: true } } })
+    await inv('project:updateProvider', proj2, 'copilot', { permissionMode: 'autopilot' })
+    await inv('agents:update', proj2, c.id, { permissionMode: 'allow-all' })
+    check('paren(1) in Autopilot and C in Allow all, once allowed', JSON.stringify(modes2()) === JSON.stringify({ project: 'autopilot', agent: 'allow-all' }), JSON.stringify(modes2()))
+    await inv('settings:update', { providers: { copilot: { enableDangerousMode: false } } })
+    const reverted = await lib.until(() => { const m = modes2(); return m.project === 'inherit' && m.agent === 'inherit' }, 15000, 300)
+    check('turning the opt-in off moves both back to Inherit', !!reverted, JSON.stringify(modes2()))
+    check('…and says so', !!(await lib.until(async () => (await page.getByText('Autopilot and Allow all turned off').count()) > 0, 10000, 300)))
 
     // A: a question (ask_user: Notification elicitation_dialog): waiting with its question, then answered.
     await send(a.id, 'question then say Thanks.')
@@ -165,17 +275,20 @@ const check = (name, ok, extra = '') => {
     await refuse('write ../outside-a.txt from A', 'a write outside its folder', /outside-a\.txt/)
     check('nothing written outside its folder', !fs.existsSync(outside))
 
-    // A ends as a person ends it, with /exit: Copilot writes the session's token totals (session.shutdown) only as it exits
-    // by itself, and Hive's Stop ends the process, which can be before it has (#465). The Sessions tab then reads the
-    // conversation and its usage from the test COPILOT_HOME.
+    // A ends with Hive's Stop. Copilot writes the session's token totals (session.shutdown) only as it exits by itself, so
+    // Hive types its exit keys (Ctrl+C) first and kills it only if it is still running after a moment (#465). The
+    // Sessions tab then reads the conversation and its usage from the test COPILOT_HOME.
     const events = path.join(copilotHome, 'session-state', sa.sessionId, 'events.jsonl')
+    const lastTypes = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').slice(-3).map((l) => /"type":"([^"]+)"/.exec(l)?.[1]).join(' | ') : 'no events.jsonl')
     // Ended: Hive has let the session go (it can show stopped for a moment first).
     const ended = async () => !(await live(a.id))
-    await lib.sendPrompt(inv, key(a.id), '/exit', { submitted: ended })
-    check('A: ends on /exit', !!(await lib.until(ended, 20000, 300)), await status(a.id))
+    const stopAt = Date.now()
+    await inv('session:stop', proj, a.id)
+    check('A: ends on Hive’s Stop', !!(await lib.until(ended, 20000, 300)), await status(a.id))
+    console.log(`  A ended ${Date.now() - stopAt} ms after Stop`)
     check("the session's events.jsonl is in the suite's COPILOT_HOME", fs.existsSync(events))
     const shutdown = await lib.until(() => fs.existsSync(events) && fs.readFileSync(events, 'utf8').includes('"type":"session.shutdown"'), 15000, 300)
-    check('Copilot recorded the end of the session with its totals (session.shutdown)', !!shutdown, fs.existsSync(events) ? fs.readFileSync(events, 'utf8').trim().split('\n').slice(-3).map((l) => /"type":"([^"]+)"/.exec(l)?.[1]).join(' | ') : 'no events.jsonl')
+    check('Copilot recorded the end of the session with its totals (session.shutdown), stopped from Hive', !!shutdown, lastTypes(events))
     const t = await inv('transcript:read', proj, sa.sessionId)
     const items = t?.items ?? []
     check('the Sessions tab shows the conversation: its prompts', items.some((x) => x.kind === 'user' && /Hello from the stand-in/.test(x.text)), JSON.stringify(items.filter((x) => x.kind === 'user').map((x) => x.text).slice(0, 4)))
@@ -203,6 +316,15 @@ const check = (name, ok, extra = '') => {
     const projFiles = fs.readdirSync(proj, { recursive: true }).map(String).filter((f) => !f.startsWith('.git' + path.sep) && f !== '.git')
     check('no hooks.json or MCP config in the project', !projFiles.some((f) => /hooks\.json|mcp\.json/i.test(f)), projFiles.filter((f) => /json/i.test(f)).join(', '))
     check('no requests went anywhere but the stand-in (offline), and some did', api.requests > 0)
+
+    // B stopped from Hive in the middle of a turn: the turn is cancelled and Copilot still exits by itself, with its totals.
+    await send(b.id, 'work 20 then say Never said.', ['working'])
+    await inv('session:stop', proj, b.id)
+    check('B: ends on Hive’s Stop while working', !!(await lib.until(async () => !(await live(b.id)), 20000, 300)), await status(b.id))
+    const bShutdown = await lib.until(() => fs.existsSync(bEvents) && bLog().includes('"type":"session.shutdown"'), 15000, 300)
+    check('B: Copilot recorded its totals (session.shutdown), stopped mid-turn', !!bShutdown, lastTypes(bEvents))
+    const bUsage = await lib.until(async () => { const u = await inv('session:usage', proj, sb.sessionId); return u && u.inputTokens > 0 ? u : null }, 15000, 500)
+    check('B: the Sessions tab has its tokens', !!bUsage && bUsage.outputTokens > 0, JSON.stringify(bUsage && { in: bUsage.inputTokens, out: bUsage.outputTokens }))
     for (const id of [a.id, b.id]) await inv('session:stop', proj, id).catch(() => {})
     await lib.until(async () => !(await live(a.id)) && !(await live(b.id)), 20000, 300)
   } finally {

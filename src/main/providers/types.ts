@@ -260,6 +260,8 @@ export interface ProviderAdapter {
   /** Where this launch's CLI reads a delivered Hive skill (its copy), for measuring what the session got. */
   skillCopyPath(ctx: LaunchContext, skill: string): string
   buildCommand(executable: string, ctx: LaunchContext): CommandSpec
+  /** Something the user should know about this launch (a mode the CLI can't fully give there), shown once per agent while Hive runs. */
+  launchNotice?(ctx: LaunchContext): { title: string; message: string } | null
 
   // Hooks and live details
   normalizeHook(body: Record<string, any>): NormalizedHook
@@ -301,8 +303,11 @@ export interface ProviderAdapter {
   busyScreen?(screen: string): boolean
   /** For providers with a Plan toggle: the key that turns it on or off. */
   readonly planToggleKey?: string
-  /** The permission mode shown in the terminal footer, from the terminal's rendered screen (its lines as text). */
-  footerMode?(screen: string): PermissionMode | null
+  /**
+   * The permission mode shown in the terminal footer, from the terminal's rendered screen (its lines as text), and the
+   * mode the session was launched in (for modes whose footers look the same).
+   */
+  footerMode?(screen: string, launched?: PermissionMode | null): PermissionMode | null
   /** Whether a running session can switch to a mode without restarting. */
   canSwitchLive(target: PermissionMode, current: PermissionMode | undefined, launched: PermissionMode | null | undefined): boolean
   /** Terminal output meaning a compaction Hive started was refused or failed (no hook comes). */
@@ -329,6 +334,12 @@ export interface ProviderAdapter {
   copyPathData?(from: string, to: string, apply: boolean): Promise<PathDataCopy | null>
   /** Output that means the CLI is asking the user something before it starts (e.g. whether to trust the folder). */
   readonly startupQuestion?: RegExp
+  /**
+   * How Hive ends the CLI as a person would, for CLIs that write what Hive reads only as they exit (Copilot's token
+   * totals, #465): the keys it types, one every gapMs, before killing the CLI if it is still running after graceMs.
+   * Without it, Stop kills the process.
+   */
+  readonly exitKeys?: { keys: string[]; gapMs: number; graceMs: number }
   parseUsage(text: string, sessionId: string): SessionUsage
   /** Reads a transcript's usage a piece at a time (whole lines), for transcripts that keep growing. */
   usageParser(sessionId: string): UsageParser

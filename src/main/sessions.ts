@@ -115,6 +115,8 @@ interface LiveSession {
   compacting?: Compaction
   /** The user stopped it (e.g. during its worktree setup), so an early exit isn't reported as a failure. */
   stopRequested?: boolean
+  /** Its CLI is being ended with its exit keys (endProcess): a second stop kills it at once. */
+  ending?: boolean
   /** Terminal output tail, to see the CLI ready or asking something at the start. */
   modeTail: string
   /** The mode it was launched in. */
@@ -1107,6 +1109,13 @@ class SessionManager {
     if (!isProviderEnabled(config.settings, adapter.id)) throw new Error(`${adapter.descriptor.name} was turned off while ${agent.name} was starting.`)
     l.startAllowed?.()
     const cmd = adapter.buildCommand(info.path, ctx)
+    // What the user should know about this launch: once per agent, folder and notice while Hive runs.
+    const notice = adapter.launchNotice?.(ctx)
+    const noticeKey = notice ? `${id}\n${ctx.cwd}\n${notice.title}` : ''
+    if (notice && !this.launchNotices.has(noticeKey)) {
+      this.launchNotices.add(noticeKey)
+      toast('warning', `${this.label(state)}: ${notice.title}`, notice.message, undefined, projectPath)
+    }
     // Where it compacts by itself (#242): for the model it runs as, the choice's (an alias resolved) or the CLI's default.
     const chosenModel = eff.model || info.defaultModel || ''
     // Once the session reports the model it runs, that model alone: another model's window isn't its own.
@@ -1218,11 +1227,30 @@ class SessionManager {
     const agents = agentId ? [agentId] : this.projectStates(projectPath).map((s) => s.agentId)
     for (const a of agents) {
       const l = this.live.get(liveId(projectPath, a))
-      if (l) l.stopRequested = true
-      killPty(this.key(projectPath, a))
+      if (l) {
+        l.stopRequested = true
+        this.endProcess(l)
+      } else killPty(this.key(projectPath, a))
     }
     // Starts still being prepared (no process yet) give up at their next check.
     for (const [k, p] of this.starting) if (p.projectPath.toLowerCase() === projectPath.toLowerCase() && (!agentId || k === liveId(projectPath, agentId))) p.cancelled = true
+  }
+
+  /**
+   * Ends a session's CLI: as a person ends it first, where the provider says how (exitKeys), so it writes what it
+   * owes as it exits (Copilot's token totals, #465), and killed if it is still running after a moment. Killed at once
+   * while its worktree setup runs, or when it is stopped again while ending. Keys and the kill reach only this
+   * session's terminal: a restart's new one is left alone.
+   */
+  private endProcess(l: LiveSession): void {
+    const key = this.key(l.state.projectPath, l.state.agentId)
+    const exit = l.adapter.exitKeys
+    if (!exit || l.state.settingUp || l.ending) return killPty(key)
+    l.ending = true
+    const id = liveId(l.state.projectPath, l.state.agentId)
+    const same = (): boolean => this.live.get(id) === l
+    exit.keys.forEach((k, i) => setTimeout(() => same() && writePty(key, k), i * exit.gapMs))
+    setTimeout(() => same() && killPty(key), exit.graceMs)
   }
 
   /** Stops every running agent of one provider (e.g. when the provider is turned off). */
@@ -1263,7 +1291,7 @@ class SessionManager {
     )
     for (const [, l] of chosen) {
       l.stopRequested = true
-      killPty(this.key(l.state.projectPath, l.state.agentId))
+      this.endProcess(l)
     }
     await Promise.race([Promise.all([...waits, ...pending.map((p) => p.done)]), new Promise((r) => setTimeout(r, timeoutMs))])
   }
@@ -1393,7 +1421,7 @@ class SessionManager {
   /** Reads the mode from the CLI's footer on its screen as it redraws, so a mode change in the terminal shows in Hive at once. */
   private readFooterMode(l: LiveSession, screen: TerminalScreen): void {
     if (this.live.get(liveId(l.state.projectPath, l.state.agentId)) !== l || !l.adapter.footerMode) return
-    const mode = l.adapter.footerMode(screen.text())
+    const mode = l.adapter.footerMode(screen.text(), l.launchMode)
     if (mode && (mode !== l.state.permissionMode || mode !== l.state.modeObserved)) {
       l.state.permissionMode = l.state.modeObserved = mode
       this.emitState(l.state)
@@ -2957,6 +2985,8 @@ class SessionManager {
 
   /** Providers and versions already warned about (see checkUnderstood). */
   private warnedFormats = new Set<string>()
+  /** Launch notices already shown (launchNotice), by agent, folder and notice: once each while Hive runs. */
+  private launchNotices = new Set<string>()
 
   /**
    * A large transcript in which Hive found no requests at all most likely means the CLI changed its
