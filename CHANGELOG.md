@@ -1,5 +1,13 @@
 # Release Notes
 
+## Unreleased
+
+### Fixes
+- **The Assistant moves a whole set of cards in one go.** Moving or labelling many cards in one step (up to 100) counted each card toward the Assistant's 30 changes for a message, so moving 37 cards to the next column stopped part-way and asked to go on, which was easy to miss. The step now counts as one change, however many cards it has; each card is still listed on its own in **Done by the Assistant**.
+- **The same folder by another name is the same folder.** A workspace reached through a junction or a short (8.3) name, such as `C:\Users\RUNNER~1\…`, could be opened in a second window while it was open in the first, and a workspace reopened by another name looked moved, offering **Repair…**. Removing a project could pass a worktree that is another project of the workspace when its path was written another way, and resuming a session was refused ("This session ran in …") when its worktree's path had changed form. Hive now compares these by where the folders really are.
+- **Your answer reaches an agent that asked before starting its card.** An agent with a question about a card still in Todo could ask you and leave the card there with nobody on it, so the decision you recorded for it was nobody's and Hive didn't tell the agent. Agents now take the card (to Doing, themselves on it) before they ask, so Hive tells them of your decision as it does for a card they're working on.
+- **Copy Diagnostics leaves out where Claude Code and Codex were looked for.** When a Claude Code or Codex Hive tried didn't report its version, the log line kept the folder it was in and what it printed instead, so a folder with a space in its name, or a private name in the message, could reach a bug report. Both are now left out, as GitHub Copilot's already were; the line still says a copy didn't report its version.
+
 ## 0.5.1 — 9 October 2026
 
 ### Fixes

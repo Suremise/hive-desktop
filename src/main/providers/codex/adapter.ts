@@ -344,7 +344,7 @@ export class CodexAdapter implements ProviderAdapter {
       const r = await run(c.path, ['--version'])
       const m = r.stdout.match(/(\d+\.\d+\.\d+[\w.-]*)/)
       if (!m) {
-        log.warn(`Candidate ${c.path} did not report a version`, r.stderr.slice(0, 200))
+        log.warn(`Candidate ${userText(c.path)} did not report a version: ${userText(r.stderr.slice(0, 200))}`)
         continue
       }
       Object.assign(info, { found: true, path: c.path, version: m[1], source: c.source })

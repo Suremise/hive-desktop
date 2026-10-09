@@ -121,19 +121,14 @@ export function actionsLeft(workspacePath: string): number {
 }
 
 /**
- * Counts `n` changes against this turn's limit, all at once: false, and nothing counted, unless all of them fit (a batch
- * applies none of its cards when they don't). Synchronous, so nothing else counts between the check and the count.
+ * Counts a change against this turn's limit; false, and nothing counted, once the limit is reached. A batch of cards is
+ * one change (#488). Synchronous, so nothing else counts between the check and the count.
  */
-export function countActions(workspacePath: string, n: number): boolean {
-  const s = stateOf(workspacePath)
-  if (s.turnActions + n > MAX_ACTIONS_PER_TURN) return false
-  s.turnActions += n
-  return true
-}
-
-/** Counts a change against this turn's limit; false once the limit is reached. */
 export function countAction(workspacePath: string): boolean {
-  return countActions(workspacePath, 1)
+  const s = stateOf(workspacePath)
+  if (s.turnActions >= MAX_ACTIONS_PER_TURN) return false
+  s.turnActions++
+  return true
 }
 
 /** A change the Assistant may not make: the Agent API's status, and what it reports beside the error. */
@@ -158,24 +153,17 @@ export function refuseUnlessAllowed(workspacePath: string, need: AssistantContro
 
 /**
  * The Assistant's change boundary, shared by its single changes (the Agent API's assistantChange) and its batches
- * (taskBatch). Admitting a change checks the control level and counts its changes against this message's limit: `n`
- * changes at once, all of them or none (a refusal records the change and says how many would fit). Returns the guard
+ * (taskBatch). Admitting a change checks the control level and counts it against this message's limit: a batch is one
+ * change, however many cards it has (#488; a refusal records the change). Returns the guard
  * to run again as each card is written: the control level and the session must still allow the change then, after the
  * last read, or nothing is saved.
  */
-export function admit(workspacePath: string, token: string, need: AssistantControl, what: string, n = 1): () => void {
+export function admit(workspacePath: string, token: string, need: AssistantControl, what: string): () => void {
   refuseUnlessAllowed(workspacePath, need, what)
-  const line = what.charAt(0).toUpperCase() + what.slice(1)
-  const left = actionsLeft(workspacePath)
-  if (!countActions(workspacePath, n)) {
-    if (n === 1) {
-      record(workspacePath, line, `limit of ${MAX_ACTIONS_PER_TURN} changes for one message`)
-      // `fits` goes on every allowance refusal, a one-card batch's included (its reply contract is the same).
-      throw new ChangeRefused(429, `You have made ${MAX_ACTIONS_PER_TURN} changes for this message, the most Hive allows for one. Tell the user what is done and ask whether to go on.`, { fits: left })
-    }
-    record(workspacePath, line, `only ${left} of its ${n} changes fit this message: none applied`)
-    const next = left ? `Send at most ${left} cards, or tell the user what is done and ask whether to go on.` : 'Tell the user what is done and ask whether to go on.'
-    throw new ChangeRefused(429, `This batch is ${n} changes, and only ${left} fit for this message (${MAX_ACTIONS_PER_TURN} the most): none was applied. ${next}`, { fits: left })
+  if (!countAction(workspacePath)) {
+    record(workspacePath, what.charAt(0).toUpperCase() + what.slice(1), `limit of ${MAX_ACTIONS_PER_TURN} changes for one message`)
+    // `fits` (none, now) stays on the refusal: the batch route's reply contract (#417).
+    throw new ChangeRefused(429, `You have made ${MAX_ACTIONS_PER_TURN} changes for this message, the most Hive allows for one. Tell the user what is done and ask whether to go on.`, { fits: 0 })
   }
   return () => {
     if (!allows(need)) throw new ChangeRefused(403, 'The user turned Settings → Assistant → Control down before this change was made: nothing changed here.')

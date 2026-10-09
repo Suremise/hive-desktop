@@ -18,7 +18,7 @@ import { clearRecent, recentChanged, recentFor, removeRecent } from './recentWor
 import { emit, emitTo } from './events'
 import { setPinned } from './pin'
 import { presentWindow } from './testQuiet'
-import { insideArchive, insideReal, isFile, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
+import { insideArchive, insideReal, isFile, samePlace, writeTextAtomic, writeTextUnlessChanged } from './fsutil'
 import { gitDiff, gitStatus } from './git'
 import { checkGit, gitTool } from './gitTool'
 import { refreshPath } from './freshPath'
@@ -301,7 +301,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (shownElsewhere(target)) return workspace.info()
       // A recent workspace whose folder was deleted or moved (#144): said plainly, so the window can offer to forget it.
       if (!existsSync(target)) throw new Error(`The workspace folder ${target} can't be found. It may have been moved or deleted, or be on a drive that isn't connected.`)
-      if (workspace.path && target.toLowerCase() !== workspace.path.toLowerCase() && workspaceLive(contextWorkspace()!)) {
+      // This window's workspace by another name (an 8.3 short name, a junction) is the same one: no switch, and it keeps
+      // the name it has, which its agents' sessions use (#455).
+      if (workspace.path && samePlace(target, workspace.path)) target = workspace.path
+      else if (workspace.path && workspaceLive(contextWorkspace()!)) {
         if (!(await quitControl.stopWorkspaceAgents(win(), 'switch'))) return workspace.info()
       }
       return openHere(target)

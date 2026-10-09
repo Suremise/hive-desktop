@@ -9,7 +9,7 @@ import { providerSettings } from '../../../shared/providers'
 import { samePath } from '../../../shared/movePaths'
 import { config } from '../../config'
 import { claudeFileAllowed, contentHash, ContentTooLarge, copyMissing, copySkillTree, sourceProblem, tooBigToDeliver, isDir, linksNotCopied, readJson, removePath, writeJsonAtomic } from '../../fsutil'
-import { createLogger } from '../../logger'
+import { createLogger, userText } from '../../logger'
 import { EDITOR_EXTENSION_PATH, EDITOR_ROOTS, compareVersions, hookForwardCommand, promptArg, readFirstLine, run, runsThroughCmd, toSpawnable } from '../common'
 import type { StartHint } from '../../../shared/startFailure'
 import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots } from '../types'
@@ -124,7 +124,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
       const r = await run(c.path, ['--version'])
       const m = r.stdout.match(/(\d+\.\d+\.\d+[\w.-]*)/)
       if (!m) {
-        log.warn(`Candidate ${c.path} did not report a version`, r.stderr.slice(0, 200))
+        log.warn(`Candidate ${userText(c.path)} did not report a version: ${userText(r.stderr.slice(0, 200))}`)
         continue
       }
       info.found = true
