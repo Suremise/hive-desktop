@@ -156,6 +156,8 @@ export const AREAS = [
   { paths: ['src/renderer/src/views/SettingsView.tsx'], suites: ['numbers', 'keys', 'providers', 'context', 'models', 'assistantsettings'] },
   { paths: ['src/shared/settingsCatalog.ts', 'src/main/settingsTools.ts'], suites: ['assistantsettings', 'numbers', 'replysize', 'providers', 'context'] },
   { paths: ['src/renderer/src/views/WorkspaceOverview.tsx'], suites: ['wsoverview', 'taskoverview', 'cardchip', 'unpricedcost'] },
+  // The displayed name (#443): window title, About, status bar, Welcome; the profile folder for packaged builds.
+  { paths: ['src/shared/appName.ts'], suites: ['about', 'update', 'welcomefit', 'taskbar', 'packaged'] },
   { paths: ['src/shared/instructions.ts'], suites: ['skilldelivery'] },
   { paths: ['src/shared/resumeAll.ts'], suites: ['resumeall', 'signin'] },
   { paths: ['src/shared/projectTabs.ts'], suites: ['tabstrip', 'startall'] },
