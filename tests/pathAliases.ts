@@ -2,10 +2,12 @@
 // C:\Users\RUNNER~1\…) and a junction. Git lists worktrees by their real, long names, so code comparing a path it was given
 // with git's must compare real paths; tests use these to check it does, on any machine.
 import { spawnSync } from 'child_process'
-import { symlinkSync } from 'fs'
+import { existsSync, symlinkSync } from 'fs'
 
-/** The 8.3 short form of an existing path, or null when it has none (the volume makes none, or every part is short). */
+/** The 8.3 short form of an existing path, or null when it has none (the volume makes none, or every part is short), or
+ *  there is no such path: cmd's %~s still shortens the parts of a missing path that exist (#485). */
 export function shortPath(p: string): string | null {
+  if (!existsSync(p)) return null
   try {
     const r = spawnSync('cmd.exe', ['/d', '/s', '/c', `"for %I in ("${p}") do @echo %~sI"`], { encoding: 'utf8', env: { SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' }, windowsVerbatimArguments: true, windowsHide: true })
     const s = r.status === 0 ? r.stdout.trim() : ''
