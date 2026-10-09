@@ -40,6 +40,9 @@
   --error: #f2555a;
   /* Needs sign-in (#309): its own colour, not a warning's or an error's. */
   --signin: #b48cff;
+  /* A merge going on (the Progress panel's merge card, #484): its own teal, no status's; -ink for its text and icon. */
+  --merge: #2aa9bb;
+  --merge-ink: #62d2e0;
   /* One colour per session action, wherever it appears (#344): each a hue for the button's wash and edge and
      its -fg for the label and icon, at least 4.5:1 on that wash (resting and hovered) on every surface. */
   --act-stop: var(--error);
@@ -119,6 +122,8 @@
   --warning: #9a6700;
   --error: #cf222e;
   --signin: #8250df;
+  --merge: #0e7f8e;
+  --merge-ink: #0a6470;
   --act-stop: var(--error);
   --act-stop-fg: #b01b25;
   --act-remove: #7c3aed;
@@ -7205,7 +7210,9 @@ textarea.input.task-blocked-input {
   color: var(--accent-ink);
 }
 .progress-body {
-  flex: 1;
+  flex: 1 1 0;
+  /* Room for a run, however short the panel: the merge card and the lanes give way first (#484). */
+  min-height: 72px;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 6px 0;
@@ -7613,6 +7620,275 @@ button.progress-run-show:focus-visible {
     animation: none;
   }
 }
+/* The Progress panel's top (#484): a card per merge going on, in the merge teal (no status's colour); it folds to its
+   first line. A divider under it parts it from the runs. On a short panel it takes at most a third, scrolling inside. */
+.progress-merge {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 33%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 8px 0;
+}
+.progress-merge-card {
+  padding: 6px 6px 8px 10px;
+  border: 1px solid var(--merge);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--merge) 9%, var(--bg));
+  min-width: 0;
+}
+.progress-merge-card + .progress-merge-card {
+  margin-top: 6px;
+}
+.progress-merge-card.folded {
+  padding-bottom: 6px;
+}
+.progress-merge-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.progress-merge-top > .codicon {
+  flex-shrink: 0;
+  color: var(--merge-ink);
+}
+.progress-merge-who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.progress-merge-short {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.progress-merge-branch,
+.progress-merge-step,
+.progress-merge-time,
+.progress-merge-waiting {
+  margin-top: 3px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progress-merge-card > .tip-wrap {
+  min-width: 0;
+}
+.progress-merge-branch code {
+  font-size: 11px;
+  color: var(--merge-ink);
+}
+.progress-merge-time.late {
+  color: var(--warning);
+}
+.progress-divider {
+  flex-shrink: 0;
+  height: 1px;
+  margin: 10px 12px 4px;
+  background: var(--border);
+}
+
+/* The Progress panel's bottom (#484): the lanes, pinned there and growing upward; past four, the list scrolls, and
+   sooner on a short panel (at most 40% of it, the bar always shown). Folded, only its bar stays. */
+.progress-lanes {
+  flex: 0 1 auto;
+  min-height: 28px;
+  max-height: 40%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-subtle);
+}
+.progress-lanes-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 12px 0 8px;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: left;
+  cursor: pointer;
+}
+.progress-lanes-bar:hover {
+  color: var(--fg);
+}
+.progress-lanes-bar:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.progress-lanes-count {
+  margin-left: 2px;
+  padding: 0 5px;
+  border-radius: 7px;
+  background: var(--bg-hover);
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0;
+}
+.progress-lanes-list {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 244px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding-bottom: 6px;
+}
+.progress-lane {
+  margin: 0 8px 6px;
+  padding: 6px 10px 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  min-width: 0;
+}
+.progress-lane.ended,
+.progress-lane.abandoned {
+  opacity: 0.65;
+}
+.progress-lane-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+.progress-lane-pair {
+  flex-shrink: 0;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.progress-lane-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progress-lane-current,
+.progress-lane-count,
+.progress-lane-state {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.progress-lane-state.paused {
+  color: var(--warning);
+}
+.progress-lane-state.abandoned {
+  color: var(--error);
+}
+
+/* The lane's bar: one segment per card, equal widths; each state has its own colour AND pattern (colour-blind safe):
+   todo an empty track, doing striped and moving, review an amber outline, passed filled with a light edge, done
+   filled and dimmed, blocked (or On Hold, waiting for you) red cross-hatched; a failed round underlines it in red. Finished cards of a long lane fold into one "✓ n" segment. */
+.lane-bar {
+  display: flex;
+  gap: 2px;
+  margin-top: 6px;
+  height: 12px;
+  min-width: 0;
+}
+.lane-bar > .tip-wrap {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.lane-bar > .tip-wrap:has(.lane-seg.finished),
+.lane-bar > .tip-wrap:has(.lane-seg.more) {
+  flex: 0 0 auto;
+}
+.lane-seg {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--bg-hover);
+  box-shadow: inset 0 0 0 1px var(--border);
+  cursor: pointer;
+}
+.lane-seg:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.lane-seg.doing {
+  box-shadow: none;
+  background: repeating-linear-gradient(-45deg, var(--info) 0 4px, color-mix(in srgb, var(--info) 55%, var(--bg)) 4px 8px);
+  background-size: 11.3px 12px;
+  animation: lane-stripes 1s linear infinite;
+}
+@keyframes lane-stripes {
+  to {
+    background-position: 11.3px 0;
+  }
+}
+.lane-seg.review {
+  background: color-mix(in srgb, var(--warning) 22%, var(--bg));
+  box-shadow: inset 0 0 0 2px var(--warning);
+}
+.lane-seg.passed {
+  background: var(--success);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--success) 45%, #ffffff);
+}
+.lane-seg.done {
+  background: color-mix(in srgb, var(--success) 55%, var(--bg));
+  box-shadow: none;
+}
+.lane-seg.blocked {
+  background:
+    repeating-linear-gradient(45deg, var(--error) 0 2px, transparent 2px 5px),
+    repeating-linear-gradient(-45deg, var(--error) 0 2px, transparent 2px 5px),
+    color-mix(in srgb, var(--error) 18%, var(--bg));
+  box-shadow: inset 0 0 0 1px var(--error);
+}
+.lane-seg.failed::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  border-radius: 0 0 2px 2px;
+  background: var(--error);
+}
+.lane-seg.finished,
+.lane-seg.more {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+.lane-seg.finished {
+  background: color-mix(in srgb, var(--success) 55%, var(--bg));
+  box-shadow: none;
+  color: var(--fg-strong);
+}
+.lane-seg.more {
+  color: var(--fg-muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .lane-seg.doing {
+    animation: none;
+  }
+}
+
 /* .hive isn't kept out of version control (#345): the text takes the room and the buttons wrap under it in a narrow
    pane; one too narrow even for them clips rather than scrolling the page sideways. */
 .hive-vcs-notice {

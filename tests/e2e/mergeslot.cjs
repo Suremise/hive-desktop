@@ -104,8 +104,11 @@ const check = (name, ok, extra = '') => {
   check('the Overview shows the holder and the line', !!inOverview, (await page.locator('.overview-page .merge-slot').allInnerTexts()).join(' | '))
   await page.screenshot({ path: path.join(lib.WORK, 'mergeslot-overview.png') })
   await page.locator('.progress-rail').click()
-  const inPanel = await until(async () => (await page.locator('.progress-panel .merge-slot', { hasText: 'alpha · main' }).count()) === 1, 5000)
-  check('the Progress panel lists the slot under Merge slots', !!inPanel && (await page.locator('.progress-panel .progress-section', { hasText: 'Merge slots' }).count()) === 1)
+  const inPanel = await until(async () => {
+    const t = await page.locator('.progress-panel .progress-merge-card').allInnerTexts()
+    return t.length === 1 && /Ann is merging #1/.test(t[0]) && /alpha · into main/.test(t[0]) && /Waiting: Bob/.test(t[0])
+  }, 5000)
+  check('the Progress panel shows the merge on top, with who waits (#484)', !!inPanel, (await page.locator('.progress-panel .progress-merge-card').allInnerTexts()).join(' | '))
   await page.screenshot({ path: path.join(lib.WORK, 'mergeslot-progress.png') })
   await idle(alpha, ann.id)
   await idle(alpha, bob.id)
@@ -113,7 +116,7 @@ const check = (name, ok, extra = '') => {
   check('one after the other, and the second ran its checks once', order.join() === 'Ann,Bob', JSON.stringify(order))
   check('both released it: free, nobody waiting', !!(await until(async () => { const s = await slotNow(); return !s?.holder && !s?.waiting.length }, 5000)), JSON.stringify(await slotNow()))
   check('their status notes are gone', !(await live(alpha, ann.id))?.mergeSlot && !(await live(alpha, bob.id))?.mergeSlot)
-  check('the Overview and the Progress panel show no slot when free', !!(await until(async () => (await page.locator('.merge-slot').count()) === 0, 5000)))
+  check('the Overview and the Progress panel show no slot when free', !!(await until(async () => (await page.locator('.merge-slot, .progress-merge-card').count()) === 0, 5000)))
 
   // --- A holder whose session ends frees the slot: the one waiting gets it.
   await say(alpha, ann.id, slot({ action: 'claim', cards: [3] }))
@@ -134,7 +137,7 @@ const check = (name, ok, extra = '') => {
   await say(alpha, bob.id, slot({ action: 'claim', cards: [4] }))
   await until(async () => (await slotNow())?.holder?.name === 'Bob')
   const askRelease = async () => {
-    await page.locator('.progress-panel .merge-slot button', { hasText: 'Release' }).click()
+    await page.locator('.progress-panel .progress-merge-card button', { hasText: 'Release' }).click()
     return until(async () => (await page.locator('.dialog', { hasText: 'Release the merge slot?' }).count()) === 1, 5000)
   }
   const asked = await askRelease()

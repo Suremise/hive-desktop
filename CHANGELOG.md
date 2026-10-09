@@ -1,5 +1,10 @@
 # Release Notes
 
+## Unreleased
+
+### Progress panel
+- **Merges and lanes at a glance.** While an agent merges, a teal card at the top of the Progress panel says who is merging which cards, the branch going in (`hive/b1 → main`), the step its checks are on, how long so far and left, and who is waiting; it folds to one line. When builders and reviewers work through cards in lanes, the bottom of the panel shows each lane as a row: the pair, the card it is on, how many are finished, and a bar with a segment per card, coloured and patterned by where the card is (to do, doing, in review, passed, done, blocked or waiting for you, a failed review). Hover a segment for the card and its round; click it to open the card. Long lanes fold their finished cards into one "✓ n" segment, and the lanes fold down to their header. With no merge and no lanes, the panel is as before.
+
 ## 0.5.1 — 9 October 2026
 
 ### Fixes
