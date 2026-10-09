@@ -129,8 +129,15 @@ interface LiveSession {
   name: string
   /** Bytes of the transcript already read for live details (providers with transcriptDetails). */
   detailsOffset?: number
+  /** What the adapter keeps between those reads (a refusal whose turn's end comes later). */
+  detailsMemo?: Record<string, unknown>
   /** The last interrupt read from the transcript and acted on (LiveDetails.interruptedAt), so each counts once. */
   interruptedAt?: string
+  /**
+   * The launch's hooks that have arrived, counted as each comes (before its turn in the queue): an interrupt read from
+   * the transcript is dropped if one came after the read began, as that hook says something newer (#475).
+   */
+  hooksSeen?: number
   /** When the cost estimate was last worked out (providers that don't report cost). */
   costAt?: number
   /** Terminal output while a mode switch waits for the CLI's confirmation. */
@@ -1480,8 +1487,9 @@ class SessionManager {
         return { ok: true }
       }
       for (let t = Date.now(); Date.now() - t < 12_000 && same(); ) {
+        const hooks = l.hooksSeen ?? 0
         const s = await stat(src).catch(() => null)
-        if (s) await this.readDetails(l, src, s.size)
+        if (s) await this.readDetails(l, src, s.size, hooks)
         if (st.permissionMode === mode) break
         // The CLI's own confirmation in the terminal comes first (the transcript record a few seconds later).
         const said = l.adapter.modeFromOutput?.(l.switchTail ?? '')
@@ -2051,6 +2059,8 @@ class SessionManager {
     const sessionId = l.state.sessionId
     const src = await this.liveTranscript(l)
     if (!src) return
+    // The hooks so far, for the transcript as it is now (readDetails).
+    const hooks = l.hooksSeen ?? 0
     const s = await stat(src).catch(() => null)
     if (!s) return
     this.noteTranscriptSize(l, s.size)
@@ -2059,7 +2069,7 @@ class SessionManager {
     const backups = config.settings.sessions.backupTranscripts
     // Nothing new, and the backup (if any) has everything: nothing to do.
     if (!force && l.transcriptMtime === mtime && (!backups || l.backupMtime === mtime)) return
-    if (force || l.transcriptMtime !== mtime) await this.transcriptChanged(l, projectPath, agentId, src, s.size, force)
+    if (force || l.transcriptMtime !== mtime) await this.transcriptChanged(l, projectPath, agentId, src, s.size, force, hooks)
     l.transcriptMtime = mtime
     if (!backups) return
     // While the agent works, at most once a minute (a change held back is copied at a later look); the end of each
@@ -2076,7 +2086,7 @@ class SessionManager {
   }
 
   /** What follows from the live transcript growing: status, usage, details, compaction, cost. */
-  private async transcriptChanged(l: LiveSession, projectPath: string, agentId: string, src: string, size: number, force: boolean): Promise<void> {
+  private async transcriptChanged(l: LiveSession, projectPath: string, agentId: string, src: string, size: number, force: boolean, hooks: number): Promise<void> {
     const sessionId = l.state.sessionId
     // Fallback if hooks never arrive: a transcript means the session is up.
     if (l.state.status === 'starting') {
@@ -2084,7 +2094,7 @@ class SessionManager {
       this.emitState(l.state)
     }
     emit({ type: 'usage-changed', projectPath, sessionId })
-    await this.readDetails(l, src, size)
+    await this.readDetails(l, src, size, hooks)
     this.settleBackground(l, await this.readBackground(l, src, size))
     if (l.compacting) {
       // Fallback if the compaction hooks never arrive: a new compaction in the transcript.
@@ -2109,12 +2119,18 @@ class SessionManager {
     }
   }
 
-  /** Live details from what the provider appended to its transcript since the last look (Codex). */
-  private async readDetails(l: LiveSession, path: string, size: number): Promise<void> {
+  /**
+   * Live details from what the provider appended to its transcript since the last look (Codex, Copilot), up to `size`
+   * bytes: the transcript when the launch had had `hooks` hooks (hooksSeen).
+   */
+  private async readDetails(l: LiveSession, path: string, size: number, hooks = l.hooksSeen ?? 0): Promise<void> {
     if (!l.adapter.transcriptDetails) return
     const from = l.detailsOffset ?? 0
     if (size <= from) {
-      if (size < from) l.detailsOffset = 0
+      if (size < from) {
+        l.detailsOffset = 0
+        l.detailsMemo = undefined
+      }
       return
     }
     // The tail is enough: details only ever need the latest records.
@@ -2127,7 +2143,7 @@ class SessionManager {
       const end = text.lastIndexOf('\n')
       if (end < 0) return
       l.detailsOffset = start + Buffer.byteLength(text.slice(0, end + 1))
-      this.applyDetails(l, l.adapter.transcriptDetails(text.slice(0, end + 1)))
+      this.applyDetails(l, l.adapter.transcriptDetails(text.slice(0, end + 1), (l.detailsMemo ??= {})), hooks)
     } finally {
       await fh.close()
     }
@@ -2376,7 +2392,8 @@ class SessionManager {
     this.applyDetails(l, l.adapter.statusLine!(body))
   }
 
-  private applyDetails(l: LiveSession, d: ReturnType<NonNullable<ProviderAdapter['statusLine']>>): void {
+  /** `hooks`: details read from the transcript, as it was when the launch had had that many hooks (readDetails). */
+  private applyDetails(l: LiveSession, d: ReturnType<NonNullable<ProviderAdapter['statusLine']>>, hooks?: number): void {
     // The session's log says a turn ended on a refused sign-in (Codex, which sends no hook then): as a hook would, in
     // order with the launch's hooks.
     // A conversation's log read from its start (a resumed one) may end on an older refusal: only this launch's count.
@@ -2388,12 +2405,13 @@ class SessionManager {
       })
     }
     // A turn interrupted without a hook (Copilot): as the interrupt hook would, once per recorded interrupt of this launch.
+    // Not after a hook that came once the read began (the CLI carried on, its Stop, a new prompt): that one is newer.
     const interrupted = d.interruptedAt && Date.parse(d.interruptedAt) >= Date.parse(l.state.startedAt) && d.interruptedAt !== l.interruptedAt ? d.interruptedAt : null
     if (interrupted) {
       l.interruptedAt = interrupted
       const id = liveId(l.state.projectPath, l.state.agentId)
       void this.inHookOrder(l.state.runId, () => {
-        if (this.live.get(id) === l) this.carryOut(id, l, hookStep({ kind: 'interrupt' }, this.statusInput(l)), 'transcript', { kind: 'interrupt' })
+        if (this.live.get(id) === l && (hooks === undefined || (l.hooksSeen ?? 0) === hooks)) this.carryOut(id, l, hookStep({ kind: 'interrupt' }, this.statusInput(l)), 'transcript', { kind: 'interrupt' })
       })
     }
     if (d.planUsage) reportPlanUsage(l.state.provider, d.planUsage)
@@ -2606,6 +2624,8 @@ class SessionManager {
   handleHook(runId: string | null, body: Record<string, any>): Promise<void> {
     // A turn's end releases only the locks claimed before it arrived: PreToolUse claims them at once, outside this queue.
     const arrived = this.lockSeq
+    const launch = this.findLaunch(runId, body.session_id)?.[1]
+    if (launch) launch.hooksSeen = (launch.hooksSeen ?? 0) + 1
     return this.inHookOrder(runId ?? `session:${String(body.session_id ?? '')}`, () => this.handleHookNow(runId, body, arrived))
   }
 
@@ -2781,6 +2801,7 @@ class SessionManager {
       l.transcriptPath = transcriptPath ?? existing?.transcriptPath
       l.transcriptMtime = ''
       l.detailsOffset = 0
+      l.detailsMemo = undefined
       st.transcriptBytes = undefined
       this.clearTasks(l)
       l.lastBackupAt = undefined

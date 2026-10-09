@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { CopilotConversationParser, CopilotUsageParser, copilotEventsPath, eventsDetails, listCopilotSessions, parseEvents, readWorkspace, signInRefused, WorkspaceCache, workspaceInfo } from '../src/main/providers/copilot/events'
+import { CopilotConversationParser, CopilotUsageParser, copilotDetailsMemo, copilotEventsPath, eventsDetails, listCopilotSessions, parseEvents, readWorkspace, signInRefused, WorkspaceCache, workspaceInfo, type CopilotDetailsMemo } from '../src/main/providers/copilot/events'
 import { withDayCosts } from '../src/shared/usageDays'
 import type { TranscriptItem } from '../src/shared/types'
 import { tempDir } from './tempDir'
@@ -184,6 +184,80 @@ describe('Copilot live details', () => {
     expect((eventsDetails(events(STUB)) as { interruptedAt?: string }).interruptedAt).toBe('2026-10-08T21:14:50.350Z')
     const two = '{"type":"abort","data":{"reason":"user_initiated"},"timestamp":"2026-10-08T10:00:00.000Z"}\n{"type":"abort","data":{"reason":"user_initiated"},"timestamp":"2026-10-08T11:00:00.000Z"}\n'
     expect((eventsDetails(two) as { interruptedAt?: string }).interruptedAt).toBe('2026-10-08T11:00:00.000Z')
+  })
+
+  // Esc on Copilot's "Path permission needed" prompt (Copilot CLI 1.0.93, #475): the denial, the tool's failure and the
+  // turn's end, with no abort and no agentStop.
+  const refusal = (at: string): string =>
+    line('permission.requested', `${at}:01.000Z`, { toolCallId: 'call_1', permissionRequest: { kind: 'path' } }) +
+    line('permission.completed', `${at}:02.000Z`, { toolCallId: 'call_1', result: { kind: 'denied-interactively-by-user' } }) +
+    line('tool.execution_complete', `${at}:02.001Z`, { toolCallId: 'call_1', success: false, error: { message: 'Permission denied' } }) +
+    line('assistant.turn_end', `${at}:02.002Z`, { turnId: '0' })
+  const prompt = (at: string): string => line('hook.start', `${at}:00.000Z`, { hookType: 'userPromptSubmitted' }) + line('user.message', `${at}:00.001Z`, { content: 'write ../outside.txt' }) + line('assistant.turn_start', `${at}:00.002Z`, { turnId: '0' })
+  const carriedOn = (at: string): string =>
+    refusal(at) + line('assistant.turn_start', `${at}:02.003Z`, { turnId: '1' }) + line('assistant.message', `${at}:03.000Z`, { content: 'I can’t write there.' }) + line('assistant.turn_end', `${at}:03.001Z`, { turnId: '1' }) + line('hook.start', `${at}:03.002Z`, { hookType: 'agentStop' })
+  const interrupted = (text: string, memo?: CopilotDetailsMemo): string | undefined => (eventsDetails(text, memo) as { interruptedAt?: string }).interruptedAt
+  /**
+   * The events read in two, as a launch's reads may split them, split after each of its lines in turn: what each read
+   * reported, with the launch's memo.
+   */
+  const splits = (text: string): { at: number; first?: string; second?: string }[] => {
+    const lines = text.split('\n').filter(Boolean)
+    return lines.map((_, k) => {
+      const memo = copilotDetailsMemo()
+      const part = (from: number, to: number): string => lines.slice(from, to).map((l) => l + '\n').join('')
+      return { at: k + 1, first: interrupted(part(0, k + 1), memo), second: interrupted(part(k + 1, lines.length), memo) }
+    })
+  }
+  const REFUSED_END = '2026-10-09T10:00:02.002Z'
+
+  it('reports a turn that ends on the user refusing a path prompt as interrupted', () => {
+    expect(interrupted(prompt('2026-10-09T10:00') + refusal('2026-10-09T10:00'))).toBe(REFUSED_END)
+    // However the reads split it: once, by the read its turn's end is in.
+    for (const s of splits(prompt('2026-10-09T10:00') + refusal('2026-10-09T10:00'))) {
+      expect([s.first, s.second].filter(Boolean), `split after line ${s.at}`).toEqual([REFUSED_END])
+      expect(s.at < 7 ? s.second : s.first, `split after line ${s.at}`).toBe(REFUSED_END)
+    }
+    // An approved prompt isn't a refusal.
+    expect(interrupted(refusal('2026-10-09T10:00').replace('denied-interactively-by-user', 'approved'))).toBeUndefined()
+  })
+
+  it('doesn’t count a refusal Copilot carries on from', () => {
+    // Its next model call and the turn's Stop (agentStop): finished by the Stop hook, not interrupted.
+    expect(interrupted(carriedOn('2026-10-09T10:00'))).toBeUndefined()
+    // Split anywhere but between the refusal's end and the next call (a millisecond apart, so a read there is unlikely:
+    // the agent shows ready until the Stop hook finishes it).
+    for (const s of splits(carriedOn('2026-10-09T10:00'))) {
+      expect(s.second, `split after line ${s.at}`).toBeUndefined()
+      expect(s.first, `split after line ${s.at}`).toBe(s.at === 4 ? REFUSED_END : undefined)
+    }
+    // A refusal in an earlier model call of a turn that went on to its Stop isn't this turn's end.
+    expect(interrupted(carriedOn('2026-10-09T10:00') + prompt('2026-10-09T10:05') + line('assistant.turn_end', '2026-10-09T10:05:01.000Z', { turnId: '0' }))).toBeUndefined()
+  })
+
+  it('leaves an interrupt the user’s next prompt follows as history', () => {
+    // The prompt's own hook has already said the agent works again.
+    expect(interrupted(refusal('2026-10-09T10:00') + prompt('2026-10-09T10:01'))).toBeUndefined()
+    // Read in two: only a read that ends with the turn over, before the prompt, reports it (the agent was idle then).
+    for (const s of splits(refusal('2026-10-09T10:00') + prompt('2026-10-09T10:01'))) {
+      expect(s.second, `split after line ${s.at}`).toBeUndefined()
+      expect(s.first, `split after line ${s.at}`).toBe(s.at === 4 ? REFUSED_END : undefined)
+    }
+    const abort = line('abort', '2026-10-09T10:00:00.000Z', { reason: 'user_initiated' })
+    expect(interrupted(abort + prompt('2026-10-09T10:01'))).toBeUndefined()
+    expect(interrupted(abort + prompt('2026-10-09T10:01') + refusal('2026-10-09T10:01'))).toBe('2026-10-09T10:01:02.002Z')
+  })
+
+  it('keeps each launch’s refusal to its own memo', () => {
+    const lines = refusal('2026-10-09T10:00').split('\n').filter(Boolean)
+    const a = copilotDetailsMemo()
+    expect(interrupted(lines.slice(0, 2).map((l) => l + '\n').join(''), a)).toBeUndefined()
+    // Another launch's turn end isn't the refused one's; the refused launch's is.
+    expect(interrupted(lines.slice(2).map((l) => l + '\n').join(''), copilotDetailsMemo())).toBeUndefined()
+    expect(interrupted(lines.slice(2).map((l) => l + '\n').join(''), a)).toBe(REFUSED_END)
+    // Without a memo (a whole log read at once), nothing is kept.
+    expect(interrupted(lines.slice(0, 2).map((l) => l + '\n').join(''))).toBeUndefined()
+    expect(interrupted(lines.slice(2).map((l) => l + '\n').join(''))).toBeUndefined()
   })
 
   it('reports a refused sign-in until the agent carries on', () => {

@@ -13,7 +13,7 @@ import { createLogger, userText } from '../../logger'
 import { AGENTS_SKILLS, agentsSkillCopyPath, compareVersions, promptArg, runsThroughCmd, syncAgentsSkills, toSpawnable } from '../common'
 import type { CatalogRead, CommandSpec, ConversationParserLike, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
 import { copilotEnv, copilotHome } from './home'
-import { CopilotConversationParser, CopilotUsageParser, copilotEventsPath, copilotImageData, eventsDetails, listCopilotSessions, parseEvents, workspaceInfo } from './events'
+import { CopilotConversationParser, CopilotUsageParser, copilotDetailsMemo, copilotEventsPath, copilotImageData, eventsDetails, listCopilotSessions, parseEvents, workspaceInfo, type CopilotDetailsMemo } from './events'
 import { readCopilotModels } from './models'
 import { copilotInstallCommand, copilotLatestVersion, copilotLoginCommand, copilotReadiness, copilotUpdateCommand, locateCopilot } from './install'
 
@@ -349,8 +349,8 @@ export class CopilotAdapter implements ProviderAdapter {
   }
 
   /** Model, cost (AI credits) and interrupts from what Copilot appended to the session's events (events.ts). */
-  transcriptDetails(appended: string): LiveDetails {
-    return eventsDetails(appended)
+  transcriptDetails(appended: string, memo: Record<string, unknown>): LiveDetails {
+    return eventsDetails(appended, (memo.copilot ??= copilotDetailsMemo()) as CopilotDetailsMemo)
   }
 
   // -------------------------------------------------------------------------

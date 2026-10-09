@@ -8,6 +8,7 @@
 //   work N                     waits N seconds before its next step (a turn that takes a while)
 //   edit PATH OLD NEW          Copilot's edit tool (PATH relative to the session's folder)
 //   write PATH TEXT…           its create tool
+//   view PATH                  its view tool (reads a file)
 //   shell COMMAND…             its powershell tool
 //   question                   its ask_user tool (a question for the person)
 //   say TEXT…                  the turn's last reply (default: "Done.")
@@ -59,6 +60,7 @@ function actionsOf(prompt) {
     if ((m = /\bwork\s+(\d+)/i.exec(step))) out.push({ wait: Number(m[1]) * 1000 })
     if ((m = /^edit\s+(\S+)\s+(\S+)\s+(\S+)$/i.exec(step))) out.push({ tool: 'edit', args: { path: m[1], old_str: m[2], new_str: m[3] } })
     if ((m = /^write\s+(\S+)\s+([\s\S]+)$/i.exec(step))) out.push({ tool: 'create', args: { path: m[1], file_text: `${m[2]}\n` } })
+    if ((m = /^view\s+(\S+)$/i.exec(step))) out.push({ tool: 'view', args: { path: m[1] } })
     if ((m = /^shell:?\s+([\s\S]+)$/i.exec(step))) out.push({ tool: 'powershell', args: { command: m[1], description: 'Run a command', mode: 'sync', initial_wait: 30 } })
     if (/^question$/i.test(step)) out.push({ tool: 'ask_user', args: { message: 'Which one should I use?', requestedSchema: { type: 'object', properties: { choice: { type: 'string', enum: ['first', 'second'] } }, required: ['choice'] } } })
     if ((m = /^say\s+([\s\S]+)$/i.exec(step))) out.push({ say: m[1] })

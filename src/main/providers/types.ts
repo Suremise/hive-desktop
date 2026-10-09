@@ -278,8 +278,11 @@ export interface ProviderAdapter {
    * changed), for the model it runs as (`models`: the id it resolves to, then the choice). Absent: Hive doesn't know.
    */
   autoCompact?(ctx: LaunchContext, cmd: CommandSpec, models: string[]): AutoCompactSetting
-  /** Details from lines appended to the session's transcript (Codex: model, preset, Plan mode, plan limits). */
-  transcriptDetails?(appended: string): LiveDetails
+  /**
+   * Details from lines appended to the session's transcript (Codex: model, preset, Plan mode, plan limits). `memo` is
+   * the launch's own, kept between reads (and emptied when the reading starts again), for what a later line completes.
+   */
+  transcriptDetails?(appended: string, memo: Record<string, unknown>): LiveDetails
   /**
    * Background tasks started or ended in lines appended to the session's transcript (whole lines). `memo` is the
    * launch's own, kept between reads (and emptied when the reading starts again), for what a later line completes.
