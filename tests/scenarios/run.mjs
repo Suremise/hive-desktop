@@ -32,6 +32,7 @@ import { join } from 'path'
 import { devBuild, ensureBuild } from '../e2e/build.mjs'
 import { LANES, claimLane, laneWork } from '../e2e/lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, waitForSlot } from '../e2e/slots.mjs'
+import { waitForCodexHome } from '../e2e/codexHomeLock.mjs'
 import { autoClean } from '../e2e/clean.mjs'
 import { slotWaitProgress } from '../progressReport.mts'
 
@@ -160,6 +161,9 @@ process.on('SIGINT', () => process.exit(130))
 const workRoot = laneWork(join(lib.WORK, '..', 'scenarios'), lane.lane)
 console.log(`Lane ${lane.lane}: Agent API port ${lane.first}, folders in ${workRoot}`)
 
+// Real Codex trials use lib.CODEX_HOME, as the e2e suites do. Fake Codex has its own per-trial home (harness.cjs).
+const codexLease = !fake && PROVIDERS[provider].provider === 'codex' ? await waitForCodexHome(lib.CODEX_HOME, { kind: 'scenarios', root: lib.ROOT, what: `scenarios: ${chosen.length} (${provider})`, argv }) : null
+
 // The source this run tests, taken before it starts (and checked again at the end).
 const sourceAtStart = sourceFingerprint()
 const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
@@ -248,6 +252,7 @@ writeFileSync(
 )
 console.log(`\nResults: ${out}`)
 const hardFailures = fake ? results.filter((r) => r.error || r.checks?.some((c) => c.ok === false)).length : 0
+codexLease?.release()
 // What tests left in hive-test that is no longer needed (tests/e2e/clean.mjs), this lane's included: let go first.
 lane.release()
 await autoClean({ root: lib.ROOT, ev: evidence })

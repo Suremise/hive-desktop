@@ -58,6 +58,7 @@ export const EVERYTHING = [
   'tests/e2e/lanes.mjs',
   'tests/e2e/runContext.cjs',
   'tests/e2e/slots.mjs',
+  'tests/e2e/codexHomeLock.mjs',
   'tests/e2e/clean.mjs',
   'tests/e2e/evidence.cjs',
   'tests/progressReport.mts',
@@ -72,6 +73,7 @@ export const EVERYTHING = [
  * A suite's own file (tests/e2e/<suite>.cjs) always selects it.
  */
 export const AREAS = [
+  { paths: ['tests/e2e/codexDiagnostics.cjs'], suites: ['codex-background'] },
   { paths: ['src/main/ptyHost.ts', 'src/main/sessions.ts'], suites: ['stopswitch', 'replysize', 'quit', 'copilotsize', 'termsize'] },
   { paths: ['src/main/agentTokens.ts'], suites: ['boardscope', 'review', 'progress', 'progressreport', 'cardloop', 'replysize'] },
   { paths: ['src/main/assistantControl.ts', 'src/main/taskBatch.ts', 'src/shared/assistant.ts', 'src/shared/assistantTools.ts', 'src/main/personas.ts', 'src/renderer/src/components/Assistant.tsx', 'src/renderer/src/components/AssistantMark.tsx', 'src/renderer/src/components/AssistantView.tsx', 'src/renderer/src/components/Personas.tsx'], suites: ['assistantside', 'assistant', 'assistant-control', 'assistantend', 'assistantimages', 'tipcorner', 'replysize', 'claude-real', 'assistantoverview', 'assistantbatch', 'assistantcompact', 'assistantsettings', 'assistantmode', 'cardchip', 'assistantpanel'] },
@@ -224,7 +226,8 @@ export const REAL_TIER = [
   'src/shared/providers.ts',
   'tests/e2e/lib.cjs',
   // The environment the real CLIs are started in.
-  'tests/e2e/runContext.cjs'
+  'tests/e2e/runContext.cjs',
+  'tests/e2e/codexHomeLock.mjs'
 ]
 const PROVIDER_OWN = ['src/main/providers/claude/', 'src/main/providers/codex/', 'src/main/providers/copilot/']
 

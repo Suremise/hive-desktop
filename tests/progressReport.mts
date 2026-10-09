@@ -65,13 +65,13 @@ export function e2eProgress(names: string[], argv: string[] = process.argv): { s
  * waiting, not hung. Under hive-progress, the wrapper's row names the wait instead. Nothing until waiting(), and nothing
  * with --no-progress.
  */
-export function slotWaitProgress(kind: string, command: string, argv: string[] = process.argv): { waiting(holders: string): void; finish(summary: string): Promise<void> } {
+export function slotWaitProgress(kind: string, command: string, argv: string[] = process.argv, resource = 'a test slot'): { waiting(holders: string): void; finish(summary: string): Promise<void> } {
   if (!progressWanted(argv)) return { waiting() {}, finish: async () => {} }
   let run: ProgressRun | null = null
   return {
     waiting(holders: string) {
-      run ??= new ProgressRun(progressTarget(), { title: `${kind}: waiting for a test slot`, command }, { lines: wrappedLines() })
-      run.update({ stepName: `waiting for a test slot: ${holders}` })
+      run ??= new ProgressRun(progressTarget(), { title: `${kind}: waiting for ${resource}`, command }, { lines: wrappedLines() })
+      run.update({ stepName: `waiting for ${resource}: ${holders}` })
     },
     finish: async (summary: string) => {
       await run?.finish(true, summary)
