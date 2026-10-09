@@ -1100,6 +1100,13 @@ class SessionManager {
     if (!isProviderEnabled(config.settings, adapter.id)) throw new Error(`${adapter.descriptor.name} was turned off while ${agent.name} was starting.`)
     l.startAllowed?.()
     const cmd = adapter.buildCommand(info.path, ctx)
+    // What the user should know about this launch: once per agent, folder and notice while Hive runs.
+    const notice = adapter.launchNotice?.(ctx)
+    const noticeKey = notice ? `${id}\n${ctx.cwd}\n${notice.title}` : ''
+    if (notice && !this.launchNotices.has(noticeKey)) {
+      this.launchNotices.add(noticeKey)
+      toast('warning', `${this.label(state)}: ${notice.title}`, notice.message, undefined, projectPath)
+    }
     // Where it compacts by itself (#242): for the model it runs as, the choice's (an alias resolved) or the CLI's default.
     const chosenModel = eff.model || info.defaultModel || ''
     // Once the session reports the model it runs, that model alone: another model's window isn't its own.
@@ -1386,7 +1393,7 @@ class SessionManager {
   /** Reads the mode from the CLI's footer on its screen as it redraws, so a mode change in the terminal shows in Hive at once. */
   private readFooterMode(l: LiveSession, screen: TerminalScreen): void {
     if (this.live.get(liveId(l.state.projectPath, l.state.agentId)) !== l || !l.adapter.footerMode) return
-    const mode = l.adapter.footerMode(screen.text())
+    const mode = l.adapter.footerMode(screen.text(), l.launchMode)
     if (mode && (mode !== l.state.permissionMode || mode !== l.state.modeObserved)) {
       l.state.permissionMode = l.state.modeObserved = mode
       this.emitState(l.state)
@@ -2936,6 +2943,8 @@ class SessionManager {
 
   /** Providers and versions already warned about (see checkUnderstood). */
   private warnedFormats = new Set<string>()
+  /** Launch notices already shown (launchNotice), by agent, folder and notice: once each while Hive runs. */
+  private launchNotices = new Set<string>()
 
   /**
    * A large transcript in which Hive found no requests at all most likely means the CLI changed its

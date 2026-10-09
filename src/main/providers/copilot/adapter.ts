@@ -5,7 +5,7 @@ import { existsSync, readFileSync, statSync } from 'original-fs'
 import type { AgentInstallInfo, McpServerDef, MemorySource, ReadinessIssue, SessionUsage, SubSession } from '../../../shared/types'
 import { assertSessionId } from '../../../shared/defaults'
 import type { StartHint } from '../../../shared/startFailure'
-import { COPILOT, COPILOT_DESCRIPTOR, COPILOT_MODE_FLAGS, copilotCanSwitchLive, copilotFooterMode } from '../../../shared/copilot'
+import { COPILOT, COPILOT_DESCRIPTOR, copilotCanApproveEdits, copilotCanSwitchLive, copilotFooterMode, copilotModeFlags } from '../../../shared/copilot'
 import { isProviderEnabled } from '../../../shared/providers'
 import { config } from '../../config'
 import { writeJsonAtomic } from '../../fsutil'
@@ -229,11 +229,16 @@ export class CopilotAdapter implements ProviderAdapter {
     // project's own are turned off for Hive's sessions (never by editing their config).
     args.push('--disable-builtin-mcps')
     for (const name of this.otherMcpServers(ctx.cwd)) if (!ctx.mcpServers[name]) args.push('--disable-mcp-server', name)
-    // Hive's own tools the launch may use without asking: Copilot's pattern is <server>(<tool>).
-    if (ctx.trustedHiveTools?.length && ctx.mcpServers.hive) for (const t of ctx.trustedHiveTools) args.push(`--allow-tool=hive(${t})`)
+    // Hive's own tools run without asking in every mode, as for the other CLIs: the Agent API decides what an agent may
+    // do with them. The Assistant only the ones its Control settings let it use without asking (trustedHiveTools).
+    // Copilot's patterns: <server> for all its tools, <server>(<tool>) for one (#468).
+    if (ctx.mcpServers.hive) {
+      if (ctx.trustedHiveTools) for (const t of ctx.trustedHiveTools) args.push(`--allow-tool=hive(${t})`)
+      else args.push('--allow-tool=hive')
+    }
     if (ctx.model) args.push('--model', ctx.model)
     if (ctx.effort) args.push('--reasoning-effort', ctx.effort)
-    args.push(...(COPILOT_MODE_FLAGS[ctx.permissionMode ?? ''] ?? COPILOT_MODE_FLAGS[COPILOT_DESCRIPTOR.defaultPermissionMode]))
+    args.push(...copilotModeFlags(ctx.permissionMode || COPILOT_DESCRIPTOR.defaultPermissionMode, ctx.cwd))
     args.push('--no-auto-update')
     args.push(...ctx.extraArgs)
     // A first task: Copilot starts interactive and runs it (after the folder-trust question, if it asks one).
@@ -249,6 +254,12 @@ export class CopilotAdapter implements ProviderAdapter {
       env.COPILOT_CUSTOM_INSTRUCTIONS_DIRS = theirs?.[1] ? `${theirs[1]},${own}` : own
     }
     return { file: s.file, args: s.args, env }
+  }
+
+  /** Accept edits in a folder whose path has parentheses approves no edits (copilotCanApproveEdits): the user is told. */
+  launchNotice(ctx: LaunchContext): { title: string; message: string } | null {
+    if ((ctx.permissionMode || COPILOT_DESCRIPTOR.defaultPermissionMode) !== 'accept-edits' || copilotCanApproveEdits(ctx.cwd)) return null
+    return { title: 'Copilot will ask before each edit', message: "Copilot can't approve edits in a folder whose path has parentheses, so this agent asks before each edit, as in Ask. Rename the folder to give it Accept edits." }
   }
 
   startHint(text: string): StartHint | null {
@@ -329,8 +340,8 @@ export class CopilotAdapter implements ProviderAdapter {
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.kind, permissionDecisionReason: d.reason } }
   }
 
-  footerMode(screen: string): string | null {
-    return copilotFooterMode(screen)
+  footerMode(screen: string, launched?: string | null): string | null {
+    return copilotFooterMode(screen, launched)
   }
 
   canSwitchLive(target: string, current: string | undefined, launched: string | null | undefined): boolean {

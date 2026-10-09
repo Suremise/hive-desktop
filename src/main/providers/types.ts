@@ -260,6 +260,8 @@ export interface ProviderAdapter {
   /** Where this launch's CLI reads a delivered Hive skill (its copy), for measuring what the session got. */
   skillCopyPath(ctx: LaunchContext, skill: string): string
   buildCommand(executable: string, ctx: LaunchContext): CommandSpec
+  /** Something the user should know about this launch (a mode the CLI can't fully give there), shown once per agent while Hive runs. */
+  launchNotice?(ctx: LaunchContext): { title: string; message: string } | null
 
   // Hooks and live details
   normalizeHook(body: Record<string, any>): NormalizedHook
@@ -298,8 +300,11 @@ export interface ProviderAdapter {
   busyScreen?(screen: string): boolean
   /** For providers with a Plan toggle: the key that turns it on or off. */
   readonly planToggleKey?: string
-  /** The permission mode shown in the terminal footer, from the terminal's rendered screen (its lines as text). */
-  footerMode?(screen: string): PermissionMode | null
+  /**
+   * The permission mode shown in the terminal footer, from the terminal's rendered screen (its lines as text), and the
+   * mode the session was launched in (for modes whose footers look the same).
+   */
+  footerMode?(screen: string, launched?: PermissionMode | null): PermissionMode | null
   /** Whether a running session can switch to a mode without restarting. */
   canSwitchLive(target: PermissionMode, current: PermissionMode | undefined, launched: PermissionMode | null | undefined): boolean
   /** Terminal output meaning a compaction Hive started was refused or failed (no hook comes). */
