@@ -19,8 +19,9 @@ npm run e2e -- --clear-dir <folder>          # empty a probe's or a suite's own 
 npm run dist && npm run e2e -- --packaged   # also the installed-app suites (dist/win-unpacked)
 ```
 
-**Two tiers.** The **fake tier** is every suite that starts no real CLI: those with no `needs`, and those that run the
-fake Claude Code or fake Codex. The **real tier** is the suites that start the real Claude Code (`needs: ['claude']` in
+**Two tiers.** The **fake tier** is every suite that starts no real CLI: those with no `needs`, those that run the
+fake Claude Code or fake Codex, and `copilot` (`needs: ['copilot']`), which runs the real Copilot CLI offline against a
+scripted stand-in model: no sign-in and no cost, so it is in the full set, and skipped where Copilot isn't installed. The **real tier** is the suites that start the real Claude Code (`needs: ['claude']` in
 `suites.mjs`) or the real Codex in its test home (`needs: ['codex']`): they test what fakes can't (hooks reaching Hive,
 the CLIs' transcript formats, session binding, usage, their trust and mode screens, Codex's sandbox), but they are slow,
 cost tokens and fail for reasons that aren't the code. The full set (`--all`, or nothing named) is the fake tier, and
@@ -126,12 +127,14 @@ for the build), and the e2e runner, `lib.cjs` and the scenario harness all take 
   started from, to report to the Hive that started it.
 - **Folders, ports and CLI homes**: the lane (above), the Codex test home under its `config.toml` lock, the Claude Code
   test home for the model trials (`CLAUDE_TEST_HOME`); each suite keeps its own `CLAUDE_CONFIG_DIR` folders in its lane.
-  **Every test copy of Hive gets both CLI homes** (#382): Hive looks for both CLIs when it starts, and their sign-in
-  checks (`claude auth status`, `codex login status`) read the home they are given, else yours. `lib.hiveEnv` gives
-  `CLAUDE_CONFIG_DIR` and `CODEX_HOME` as empty folders of the suite's (`<suite folder>\cli-homes\claude` and
-  `\codex`, `runContext.cliHomes`) unless the suite gives a test home (the fake Claude Code's, `lib.ownClaudeHome`, the
-  Codex test home). `lib.cjs` refuses to start a test Hive with either one missing or pointing at your own `~/.claude`
-  or `~/.codex` (however the path is spelled), and makes the empty ones.
+  **Every test copy of Hive gets the CLI homes** (#382, #452): Hive looks for the CLIs when it starts, and their sign-in
+  checks (`claude auth status`, `codex login status`, Copilot's `config.json` and `gh auth status`) read the home they
+  are given, else yours. `lib.hiveEnv` gives `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME` and `GH_CONFIG_DIR` as
+  empty folders of the suite's (`<suite folder>\cli-homes\claude`, `\codex`, `\copilot` and `\gh`, `runContext.cliHomes`;
+  the empty gh config hides your GitHub CLI login, which Copilot falls back to) unless the suite gives a test home (the
+  fake Claude Code's, `lib.ownClaudeHome`, the Codex test home). `lib.cjs` refuses to start a test Hive with one missing
+  or pointing at your own `~/.claude`, `~/.codex`, `~/.copilot` or `%APPDATA%\GitHub CLI` (however the path is spelled),
+  and makes the empty ones.
 - **The build, once per worktree** (`build.mjs`): runners started at the same time in one worktree share its `out/`,
   so the first that finds it stale takes the worktree's build lock (`%LOCALAPPDATA%\hive-test\build-locks`, a folder
   per worktree with its holder's process id), looks again, builds once and stamps it; the others wait (`Waited for
@@ -381,6 +384,8 @@ its file lock; `pad N` adds N KB to its transcript; `ask` sends a permission pro
 starts a turn by itself; `/compact [focus]` compacts (PreCompact, a compaction in the transcript after 1 s or `hold N` seconds, PostCompact; `compactfail` in the focus fails it, and with no messages yet it says "Not enough messages to compact."); it records a conversation's system prompt (the `--append-system-prompt-file`) on its first request and uses that record on resume, as Claude Code does, unless launched with `--system-prompt-snapshot off`, and `whatmode` in a prompt ends its reply with the mode that prompt is in (#334); `--model fail-start` makes it refuse to start, printing an error and exiting with 1). Each launch is recorded in `fake-launches.jsonl` in `CLAUDE_CONFIG_DIR` (its options and
 `CLAUDE_CODE_*` variables). `assistant-control`, `context`, `background`, `longsession`, `resumeall`, `cardchip`, `sessionorigin`, `assistantend`, `tipcorner`, `review`, `reorder`, `busy`, `startfail`, `filelinks`, `quitwait`, `rendercrash`, `bursts`, `taskbar`, `ctxpercent`, `donemove`, `doingmove`, `paneheader`, `tabstrip`, `closewindow`, `storage`, `skilldelivery`, `quit`, `windows`, `launchrace`, `resume`, `agents`, `image`, `assistant`, `restart` and `board` use it (`board` also deletes a small test folder, as Delete Project does, and `storage` its fixture images and backups, as Clean Up does: into the suite's own trash folder, below). `codex-background` checks Codex's background
 terminals with the real Codex (one short prompt).
+
+**Copilot offline** (`fake-copilot-api.cjs`, #453): no fake CLI, the real one. `startFakeCopilotApi()` starts a scripted stand-in for Copilot's model, an OpenAI-compatible chat completions API on a port of its own; `copilotTestEnv(api, dir)` gives a test Hive the environment for it: Copilot offline in its BYOK mode (`COPILOT_OFFLINE`, `COPILOT_PROVIDER_BASE_URL`, `COPILOT_MODEL=gpt-4.1`), its own `COPILOT_HOME`, a fake profile folder, and the GitHub CLI's login hidden (`GH_CONFIG_DIR` empty, `gh` off PATH: with no stored login Copilot signs in with `gh auth token`). The "model" does a prompt's steps, separated by ` then `, one per request: `skill NAME`, `hive TOOL {json}`, `boardmove`/`boardreview`/`boardcomment`, `work N`, `edit PATH OLD NEW`, `write PATH TEXT`, `shell COMMAND`, `question` (Copilot's ask_user) and `say TEXT` (the last reply). Copilot then runs its own tools, hooks, MCP servers and transcript as it would for a real model; each request is logged with the tools it offered. Never run `copilot login` or `logout` for a test: its sign-in is in Windows Credential Manager, per account, not in `COPILOT_HOME`. `copilot` uses it; so does `npm run scenarios -- --provider fake-copilot`.
 
 **A fake Codex** (`fake-codex/fake-codex.cmd`) does the same for Codex: set it as `settings.providers.codex.executablePath` and start Hive with `CODEX_HOME` pointing at a test folder (with `[windows] sandbox = "unelevated"` in its `config.toml`, so nothing is left to set up). It reports itself as Codex 0.160.0 (`FAKE_CODEX_VERSION` changes it) and sends Codex's hooks and terminal titles for a few prompts: `review allow` / `review deny` (its auto-reviewer answers a permission request), `approve` (an approval prompt: `y` approves, Esc rejects) and `question` (an async question it works on beside: `a` answers it). `attention` uses it, and so does `skilldelivery` (with the fake Claude Code); each launch is recorded in `fake-launches.jsonl` in `CODEX_HOME` (its folder and arguments).
 

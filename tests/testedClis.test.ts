@@ -24,7 +24,8 @@ const CLAUDE: Cli = { provider: 'claude-code', version: '2.1.292', path: 'C:\\Us
 const CODEX: Cli = { provider: 'codex', version: '0.160.1', path: 'C:\\Users\\t\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe' }
 /** A passed suite whose test copies of Hive selected these CLIs (both, as Hive looks for both). */
 const pass = (name: string, clis: Cli[] = []) => ({ name, ok: true, seconds: 3, clis })
-const realResults = () => [pass('about'), ...real('claude').map((n) => pass(n, [CLAUDE, CODEX])), ...real('codex').map((n) => pass(n, [CLAUDE, CODEX]))]
+const COPILOT: Cli = { provider: 'copilot', version: '1.0.93', path: 'C:\\Users\\t\\AppData\\Local\\Microsoft\\WinGet\\Links\\copilot.exe' }
+const realResults = () => [pass('about'), ...real('claude').map((n) => pass(n, [CLAUDE, CODEX])), ...real('codex').map((n) => pass(n, [CLAUDE, CODEX])), ...real('copilot').map((n) => pass(n, [CLAUDE, CODEX, COPILOT]))]
 /** A run record of the whole real tier (and one fake suite), every suite passed, as run.mjs writes it. */
 const fullRecord = (over: Record<string, unknown> = {}) => {
   const results = realResults()
@@ -70,6 +71,8 @@ describe("the run record names each real suite's CLI home, and none may be the u
   it("flags a real suite that ran its CLI in the user's own home", () => {
     const results = [pass(real('claude')[0], [{ ...CLAUDE, home: `${join(profile, '.claude')}/` }] as Cli[]), pass(real('codex')[0], [{ ...CODEX, home: join(profile, '.CODEX') }] as Cli[])]
     expect(realCliHomes(results, suites, profile).own).toEqual([real('claude')[0], real('codex')[0]])
+    // Copilot's offline suite too: its home must be the suite's own, never ~/.copilot.
+    expect(realCliHomes([pass(real('copilot')[0], [{ ...COPILOT, home: join(profile, '.copilot') }] as Cli[])], suites, profile).own).toEqual([real('copilot')[0]])
   })
 
   it('knows the user\'s homes however the path is spelled: either slash, mixed, dot segments (#368 round 1)', () => {
@@ -90,8 +93,8 @@ describe('npm run tested-clis: the manifest from a run record (#365)', () => {
   it('takes each CLI whose real suites all ran and passed, with the version their Hive selected', () => {
     const { manifest, updated, problems } = manifestFromRecord(fullRecord(), suites)
     expect(problems).toEqual([])
-    expect(updated).toEqual(['claude-code', 'codex'])
-    expect(manifest).toEqual({ 'claude-code': { version: '2.1.292', testedAt: '2026-10-07', record: '0123456789ab' }, codex: { version: '0.160.1', testedAt: '2026-10-07', record: '0123456789ab' } })
+    expect(updated).toEqual(['claude-code', 'codex', 'copilot'])
+    expect(manifest).toEqual({ 'claude-code': { version: '2.1.292', testedAt: '2026-10-07', record: '0123456789ab' }, codex: { version: '0.160.1', testedAt: '2026-10-07', record: '0123456789ab' }, copilot: { version: '1.0.93', testedAt: '2026-10-07', record: '0123456789ab' } })
   })
 
   it("never vouches for a CLI the record doesn't show working, and keeps its earlier entry", () => {
@@ -99,7 +102,7 @@ describe('npm run tested-clis: the manifest from a run record (#365)', () => {
     const changed = (name: string, change: (r: Result) => object) => fullRecord({ results: fullRecord().results.map((r: Result) => (r.name === name ? change(r) : r)) })
     // A real suite skipped for the environment, or failed: no result for that CLI.
     let out = manifestFromRecord(changed(real('codex')[0], (r) => ({ ...r, skipped: 'environment: usage limit', environment: true })), suites, current)
-    expect(out.updated).toEqual(['claude-code'])
+    expect(out.updated).toEqual(['claude-code', 'copilot'])
     expect(out.manifest.codex).toEqual(current.codex)
     expect(out.problems).toEqual([`Codex: not all of its real suites passed (${real('codex')[0]})`])
     expect(manifestFromRecord(changed(real('claude')[0], (r) => ({ ...r, ok: false })), suites).problems).toEqual([`Claude Code: not all of its real suites passed (${real('claude')[0]})`])
@@ -109,7 +112,7 @@ describe('npm run tested-clis: the manifest from a run record (#365)', () => {
     out = manifestFromRecord(fullRecord({ results: [pass('about')] }), suites, current)
     expect(out.updated).toEqual([])
     expect(out.manifest).toEqual(current)
-    expect(out.problems).toEqual(['Claude Code: none of its real suites ran', 'Codex: none of its real suites ran'])
+    expect(out.problems).toEqual(['Claude Code: none of its real suites ran', 'Codex: none of its real suites ran', 'GitHub Copilot: none of its real suites ran'])
   })
 
   it('takes the version only from what every suite of the CLI ran: none unsaid, all the same', () => {
@@ -142,8 +145,8 @@ describe('npm run release: the manifest must be of the code released (#365)', ()
     expect(manifestStale(manifest, () => [MANIFEST])).toBeNull()
   })
   it('refuses one that is missing a CLI, comes from uncommitted changes, an unknown commit, or older code', () => {
-    expect(manifestStale(null, () => [])).toBe('it has no tested version for Claude Code and Codex')
-    expect(manifestStale({ 'claude-code': manifest['claude-code'] }, () => [])).toBe('it has no tested version for Codex')
+    expect(manifestStale(null, () => [])).toBe('it has no tested version for Claude Code and Codex and GitHub Copilot')
+    expect(manifestStale({ 'claude-code': manifest['claude-code'], copilot: manifest.copilot }, () => [])).toBe('it has no tested version for Codex')
     expect(manifestStale({ ...manifest, codex: { ...manifest.codex, record: '0123456789ab+fedcba987654' } }, () => [])).toBe("Codex's entry comes from a run on uncommitted changes (0123456789ab+fedcba987654)")
     expect(manifestStale(manifest, () => null)).toBe("Claude Code's entry comes from a commit git doesn't know (0123456789ab)")
     expect(manifestStale(manifest, () => [MANIFEST, 'src/main/sessions.ts', 'package.json'])).toBe("Claude Code's entry was tested on 0123456789ab, and 2 files have changed since (src/main/sessions.ts, package.json)")

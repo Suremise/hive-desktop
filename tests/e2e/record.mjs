@@ -37,7 +37,7 @@ export function fingerprint(root = process.cwd()) {
 }
 
 /** The real CLIs a run can use (suites.mjs `needs`): the provider each one is, by its id and name. */
-export const REAL_CLIS = { claude: { id: 'claude-code', name: 'Claude Code' }, codex: { id: 'codex', name: 'Codex' } }
+export const REAL_CLIS = { claude: { id: 'claude-code', name: 'Claude Code' }, codex: { id: 'codex', name: 'Codex' }, copilot: { id: 'copilot', name: 'GitHub Copilot' } }
 
 /** The file in a suite's folder where its test copies of Hive note the CLIs they selected (HIVE_TEST_CLI_LOG). */
 export const CLI_LOG = 'hive-clis.jsonl'
@@ -65,14 +65,14 @@ export function readCliLog(text) {
 /**
  * The homes each real suite's own CLI ran in (#368), from what its Hive noted: `homes` a line per suite ("claude-real:
  * Claude Code in C:\…\claude-real-claude-home"), and `own` the suites that ran one in the user's own home
- * (%USERPROFILE%\.claude or .codex), which no suite may: the record isn't valid then.
+ * (%USERPROFILE%\.claude, .codex or .copilot), which no suite may: the record isn't valid then.
  */
 export function realCliHomes(results, suites, userProfile = process.env.USERPROFILE ?? '') {
   const homes = []
   const own = []
   // One spelling for one folder, as Windows reads it: either slash, dot segments resolved, no trailing slash, any case.
   const same = (p) => win32.resolve(p).replace(/[\\/]+$/, '').toLowerCase()
-  const userHomes = userProfile ? ['.claude', '.codex'].map((d) => same(win32.join(userProfile, d))) : []
+  const userHomes = userProfile ? ['.claude', '.codex', '.copilot'].map((d) => same(win32.join(userProfile, d))) : []
   for (const s of suites) {
     const r = results.find((x) => x.name === s.name)
     if (!r || r.skipped) continue

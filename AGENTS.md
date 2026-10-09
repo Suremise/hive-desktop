@@ -30,7 +30,7 @@ npm test               # vitest unit tests (tests/); also run by CI (.github/wor
 npm run lint           # oxlint (.oxlintrc.json), fails on warnings; part of build and CI
 npm run e2e            # end-to-end suites (tests/e2e) against the dev build — needs npx electron-vite build first
 npm run test:clean     # remove what tests left in %LOCALAPPDATA%\hive-test and print its sizes (--dry-run lists only)
-npm run scenarios      # do agents use Hive's skills and keep its rules, and what does Hive cost in them? (tests/scenarios: fake Claude Code by default, --provider fake-codex; claude-code|codex for model trials, which cost tokens; each run writes benchmark.json for Performance → Compare)
+npm run scenarios      # do agents use Hive's skills and keep its rules, and what does Hive cost in them? (tests/scenarios: fake Claude Code by default, --provider fake-codex or fake-copilot (the real Copilot CLI offline); claude-code|codex for model trials, which cost tokens; each run writes benchmark.json for Performance → Compare)
 npm run build          # typecheck + lint + production bundles into out/
 npm run dist           # build + NSIS installer → dist/Hive-Setup-<version>.exe
 npm run icons          # regenerate PNG/ICO from build/*.svg
@@ -70,12 +70,13 @@ npm 11 blocks install scripts by default; esbuild and electron-winstaller are ap
 - **Renderer errors**: a throw while rendering is caught by the nearest `ErrorBoundary`; don't rely on it — guard parsing of file content (e.g. `decodeURIComponent` on paths from Markdown) where it happens.
 - **hive-mcp.js** and **hive-progress.js** run outside the asar (the CLIs start the first, the `hive-progress` shims on sessions' PATH the second), so they may only require Node built-ins and `out/main/chunks/*` (unpacked in `electron-builder.yml`); code they share with main is split into those chunks. After `npm run dist`, check them with `npm run e2e -- packaged-mcp packaged-progress` (against `dist/win-unpacked/resources/app.asar.unpacked/out/main/`).
 - **Monaco 0.57** deep imports drop the `esm/vs/` prefix: `monaco-editor/editor/editor.worker?worker`.
-- **CLI logins**: never automate key presses on Claude Code's or Codex's login screens in test sessions; warn the user before any test that may open a browser sign-in.
-- Hive must only use the **standalone CLIs** (Claude Code, Codex). Copies bundled in editor extensions are deliberately rejected (SPEC §11).
+- **CLI logins**: never automate key presses on Claude Code's, Codex's or Copilot's login screens in test sessions; warn the user before any test that may open a browser sign-in.
+- Hive must only use the **standalone CLIs** (Claude Code, Codex, the Copilot CLI). Copies bundled in editor extensions are deliberately rejected (SPEC §11).
 - **Never type `/effort` into a Claude Code session** (nor `/model`, whose pick also sets effort): besides switching the running session, it saves the level as the user's default for that model in `~/.claude/settings.json` (tested with 2.1.287). Effort and model changes go through Agent Settings and a restart (`--effort`, `--model`).
-- **Providers**: never switch on a provider id in shared code or the UI; put the difference in the descriptor (`capabilities`) or the adapter. Hive never edits a CLI's own config files (`~/.claude/settings.json`, `~/.codex/config.toml`); Codex gets everything through `-c` overrides.
+- **Providers**: never switch on a provider id in shared code or the UI; put the difference in the descriptor (`capabilities`) or the adapter. Hive never edits a CLI's own config files (`~/.claude/settings.json`, `~/.codex/config.toml`, `~/.copilot/`); Codex gets everything through `-c` overrides, Copilot through its command line, environment and a launch plugin.
 - **Codex hooks** run through PowerShell on Windows: only the exact `curl.exe … --data-binary "@-" "<url>"` form in `hookCommand()` works, and changing a hook's command, timeout or matcher changes its trust hash (`hookHash()`, tested against hashes from Codex in `tests/codex.test.ts`).
 - **Testing Codex**: point `CODEX_HOME` at a test home (never the user's `~/.codex`); the maintainer signs in there once (tests/e2e/README.md). Codex's SessionStart only fires with the first prompt.
+- **Testing Copilot**: point `COPILOT_HOME` at a test home (never the user's `~/.copilot`) and hide the GitHub CLI (`GH_CONFIG_DIR` an empty folder, `gh` off PATH): with no stored login Copilot signs in with `gh auth token`. Its login is in Windows Credential Manager per account, not in `COPILOT_HOME`: never run `copilot login` or `copilot logout` in a test. `COPILOT_OFFLINE=true` with `COPILOT_PROVIDER_BASE_URL` (a local stand-in model API) runs the real CLI with no sign-in.
 
 ## Driving the app for verification
 
@@ -95,9 +96,9 @@ Test copies run quiet: an unpackaged build with a test profile (`HIVE_USER_DATA`
 | `src/main/sessions.ts` | Launch/stop/resume per agent (any provider), normalised hooks → status, file locks (PreToolUse), transcript backups, usage and cost, Continue with… |
 | `src/shared/assistant.ts`, `assistantTools.ts`, `src/main/personas.ts`, `assistantControl.ts`, `src/renderer/src/components/Assistant.tsx`, `AssistantView.tsx`, `Personas.tsx` | The Hive Assistant (one per workspace, a session host at `.hive/assistant` whose settings are overlaid from Settings → Assistant) and its personas (`.hive/personas`, shipped in `resources/personas`) |
 | `src/main/projectAgents.ts`, `src/main/worktrees.ts` | A project's agents (up to 12; a page holds as many as the layout has panes): add/update/remove/merge; git worktree operations |
-| `src/shared/providers.ts`, `claude.ts`, `codex.ts` | Provider descriptors (names, modes, models, capabilities) and settings resolution helpers |
-| `src/shared/models.ts`, `src/main/providers/*/models.ts` | Models and capabilities from the CLIs (Claude Code's initialize, codex debug models), with the editable fallbacks: what the pickers, the footer and the Agent API offer |
-| `src/main/providers/` | `ProviderAdapter` interface, registry, `claude/` and `codex/` adapters (launch, hooks, transcripts, usage, conversation parsers) |
+| `src/shared/providers.ts`, `claude.ts`, `codex.ts`, `copilot.ts` | Provider descriptors (names, modes, models, capabilities) and settings resolution helpers |
+| `src/shared/models.ts`, `src/main/providers/*/models.ts` | Models and capabilities from the CLIs (Claude Code's initialize, codex debug models, Copilot's ACP session), with the editable fallbacks: what the pickers, the footer and the Agent API offer |
+| `src/main/providers/` | `ProviderAdapter` interface, registry, `claude/`, `codex/` and `copilot/` adapters (launch, hooks, transcripts, usage, conversation parsers) |
 | `src/main/providerService.ts` | Each provider's install info, readiness and setup tasks (Agent Setup) |
 | `src/shared/prices.ts`, `instructions.ts` | Price tables and cost estimates; shared AGENTS.md logic |
 | `src/main/servers.ts` | Hook server (random port) and Agent API |

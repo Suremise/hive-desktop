@@ -1606,7 +1606,12 @@ export interface AgentInstallInfo {
   latestVersion: string | null
   updateAvailable: boolean
   loggedIn: boolean | null
+  /** How it is signed in (Claude Code's "claude.ai", Copilot's "GitHub CLI"…), when the CLI says. */
   authMethod: string | null
+  /** The account it is signed in as, when the CLI says without Hive reading a secret (Copilot, #452). */
+  account?: string | null
+  /** Short notes Agent Setup shows under the sign-in (Copilot's Free plan runs Auto only). */
+  notes?: string[]
   checking?: boolean
   /** Candidates skipped because they belong to an editor extension rather than the standalone CLI. */
   rejected?: string[]

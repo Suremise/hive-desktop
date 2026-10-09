@@ -364,8 +364,8 @@ describe("Codex's copies of a session's skills", () => {
     return d
   }
   const sync = async (cwd: string, skills: { name: string; sourcePath: string }[]) => {
-    const { codex } = await import('../src/main/providers/codex/adapter')
-    return (codex as unknown as { syncSkills: (ctx: unknown) => Promise<Record<string, import('../src/main/providers/types').SkillDelivery>> }).syncSkills({ cwd, skills })
+    const { syncAgentsSkills } = await import('../src/main/providers/common')
+    return syncAgentsSkills({ cwd, skills } as unknown as import('../src/main/providers/types').LaunchContext, 'Codex')
   }
 
   it('tidies what a crash in a swap left before syncing, and the next launch has the new copy', async () => {
@@ -423,8 +423,8 @@ describe('links in skills Hive copies', () => {
   mkdirSync(target, { recursive: true })
   writeFileSync(join(target, 'custom.md'), 'My own reference.')
   const sync = async (cwd: string, skills: { name: string; sourcePath: string }[]) => {
-    const { codex } = await import('../src/main/providers/codex/adapter')
-    return (codex as unknown as { syncSkills: (ctx: unknown) => Promise<Record<string, import('../src/main/providers/types').SkillDelivery>> }).syncSkills({ cwd, skills })
+    const { syncAgentsSkills } = await import('../src/main/providers/common')
+    return syncAgentsSkills({ cwd, skills } as unknown as import('../src/main/providers/types').LaunchContext, 'Codex')
   }
 
   it("copies a link as a link to the same place, so the copy is the same content as its source", async () => {

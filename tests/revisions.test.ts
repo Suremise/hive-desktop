@@ -363,16 +363,15 @@ describe('limits', () => {
     writeFileSync(join(big, 'SKILL.md'), '---\nname: big\n---\n')
     writeFileSync(join(big, 'data.bin'), Buffer.alloc(65 * 1024 * 1024, 1))
     writeFileSync(join(ok, 'SKILL.md'), '---\nname: ok\n---\n')
-    const { codex } = await import('../src/main/providers/codex/adapter')
-    const sync = (codex as unknown as { syncSkills: (ctx: unknown) => Promise<Record<string, unknown>> }).syncSkills
-    const out = await sync.call(codex, { cwd: join(dir, 'launch-cwd'), skills: [{ name: 'big', sourcePath: big }, { name: 'ok', sourcePath: ok }] })
+    const { syncAgentsSkills } = await import('../src/main/providers/common')
+    const out: Record<string, unknown> = await syncAgentsSkills({ cwd: join(dir, 'launch-cwd'), skills: [{ name: 'big', sourcePath: big }, { name: 'ok', sourcePath: ok }] } as never, 'Codex')
     expect(out.big).toEqual({ revision: null, problem: 'it is too big for Hive to check (it is over 64 MB)', lasting: true })
     expect(out.ok).toEqual({ revision: await contentHash(ok) })
 
     // A skill Codex had a copy of, grown too big: the old copy stays, and is what's reported as delivered.
     writeFileSync(join(ok, 'data.bin'), Buffer.alloc(65 * 1024 * 1024, 1))
     const kept = join(dir, 'launch-cwd', '.agents', 'skills', 'hive-ok')
-    const again = await sync.call(codex, { cwd: join(dir, 'launch-cwd'), skills: [{ name: 'ok', sourcePath: ok }] })
+    const again: Record<string, unknown> = await syncAgentsSkills({ cwd: join(dir, 'launch-cwd'), skills: [{ name: 'ok', sourcePath: ok }] } as never, 'Codex')
     expect(again.ok).toEqual({ revision: await contentHash(kept), problem: 'it is too big for Hive to check (it is over 64 MB), so it kept its old copy', lasting: true })
     rmSync(join(ok, 'data.bin'))
   })

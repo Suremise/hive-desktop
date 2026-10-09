@@ -561,7 +561,7 @@ const DOCS: Record<string, string> = {
   general: 'Getting started',
   updates: 'Updating Hive',
   appearance: 'Getting started',
-  providers: 'Coding agents: Claude Code and Codex',
+  providers: 'Coding agents: Claude Code, Codex and GitHub Copilot',
   notifications: 'Notifications',
   sessions: 'Sessions',
   assistant: 'Assistant settings',
@@ -617,7 +617,7 @@ export const settingPath = (e: SettingEntry): string => settingPathOf(e, e.scope
 
 /** Settings' entries (Hive's and the providers' pages), in their order. */
 export const APP_SETTINGS_CATALOG: readonly SettingEntry[] = APP_ROWS.map((r) =>
-  r.provider ? entry(r, `${r.provider}.${r.key}`, 'provider', 'Coding agents: Claude Code and Codex') : entry(r, `${r.section}.${r.key}`, r.section === 'workspace' ? 'workspace' : 'app', DOCS[r.section] ?? 'Getting started')
+  r.provider ? entry(r, `${r.provider}.${r.key}`, 'provider', 'Coding agents: Claude Code, Codex and GitHub Copilot') : entry(r, `${r.section}.${r.key}`, r.section === 'workspace' ? 'workspace' : 'app', DOCS[r.section] ?? 'Getting started')
 )
 
 /** Project Settings' entries, in their order. */
