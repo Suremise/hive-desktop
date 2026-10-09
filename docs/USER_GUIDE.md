@@ -51,7 +51,7 @@ Hive runs the **GitHub Copilot CLI** (the `copilot` command), not Copilot in VS 
 - **Trusting a folder.** The first time Copilot starts in a folder, it asks in its terminal whether you trust the files there. The agent shows as waiting for you until you answer.
 - **Instructions.** Copilot reads a project's `AGENTS.md`, `CLAUDE.md` and `.github/copilot-instructions.md`. It also runs the hooks in a project's `.claude/settings.json`, as Claude Code does.
 - **Models.** Copilot Free uses **Auto** only (Copilot picks the model). Choosing a model needs a paid plan; Agent Setup reminds you, since Copilot can't tell Hive which plan you have.
-- **Cost.** Copilot counts usage in **AI credits** (one credit is $0.01), not tokens. Your plan's monthly allowance is in Copilot's `/usage`.
+- **Cost.** Copilot counts usage in **AI credits** (one credit is $0.01), not tokens. It writes a session's token totals only as it exits, so **Stop** ends a Copilot agent as you would, with Ctrl+C (it takes a second or two), and the Sessions tab keeps its tokens. If Copilot doesn't exit, Hive ends it after a few seconds. Your plan's monthly allowance is in Copilot's `/usage`.
 - **"Third-party agents" on Copilot Pro.** Pro's Claude Code and Codex agents are GitHub's cloud agents, which work on issues and pull requests on github.com. They aren't the local CLIs: a Copilot plan doesn't sign in Hive's Claude Code or Codex agents. With Copilot, Hive's Claude and GPT models come through Copilot agents (on a paid plan).
 
 ### Git

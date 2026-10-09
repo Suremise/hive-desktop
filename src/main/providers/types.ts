@@ -334,6 +334,12 @@ export interface ProviderAdapter {
   copyPathData?(from: string, to: string, apply: boolean): Promise<PathDataCopy | null>
   /** Output that means the CLI is asking the user something before it starts (e.g. whether to trust the folder). */
   readonly startupQuestion?: RegExp
+  /**
+   * How Hive ends the CLI as a person would, for CLIs that write what Hive reads only as they exit (Copilot's token
+   * totals, #465): the keys it types, one every gapMs, before killing the CLI if it is still running after graceMs.
+   * Without it, Stop kills the process.
+   */
+  readonly exitKeys?: { keys: string[]; gapMs: number; graceMs: number }
   parseUsage(text: string, sessionId: string): SessionUsage
   /** Reads a transcript's usage a piece at a time (whole lines), for transcripts that keep growing. */
   usageParser(sessionId: string): UsageParser

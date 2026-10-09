@@ -109,6 +109,9 @@ export class CopilotAdapter implements ProviderAdapter {
   readonly readyOutput = /· \/ commands ·/
   // In a folder it doesn't trust yet: "Confirm folder trust … Do you trust the files in this folder?".
   readonly startupQuestion = /Do you trust the files in this folder\?/
+  // Copilot writes a session's token totals (session.shutdown) only as it exits by itself (#465). Ctrl+C cancels what
+  // runs (a turn, a dialog), and twice in a row exits ("ctrl+c again to exit"); three cover a turn or dialog first.
+  readonly exitKeys = { keys: ['\x03', '\x03', '\x03'], gapMs: 400, graceMs: 2500 }
 
   // Installation, readiness and the install, update and sign-in tasks (#452).
   locate(): Promise<AgentInstallInfo> {

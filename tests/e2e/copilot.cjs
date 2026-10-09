@@ -185,7 +185,7 @@ const check = (name, ok, extra = '') => {
     const statusC = async () => (await liveC())?.status
     const reachC = (wanted, ms = 30000) => lib.until(async () => wanted.includes(await statusC()), ms, 300)
     const sendC = (text) => lib.sendPrompt(inv, keyC, text, { submitted: async () => ['working', 'waiting'].includes(await statusC()) })
-    await inv('session:start', proj2, { agentId: c.id })
+    const sc = await inv('session:start', proj2, { agentId: c.id })
     if (await lib.until(async () => /Do you trust the files in this folder/.test(lib.plainText(await inv('pty:buffer', keyC).catch(() => ''))), 30000, 300)) await inv('pty:write', keyC, '\r')
     check('C: ready in paren(1)', !!(await reachC(['ready'])), await statusC())
     check('C: in Accept edits, Copilot’s default', (await liveC())?.permissionMode === 'accept-edits', (await liveC())?.permissionMode)
@@ -203,7 +203,14 @@ const check = (name, ok, extra = '') => {
     await inv('pty:write', keyC, '\x1b')
     check('C: refused with Esc, its turn ends', !!(await reachC(['ready', 'finished'], 20000)), await statusC())
     check('nothing written in the look-alike sibling', !fs.existsSync(path.join(sibling2, 'outside-c.txt')))
-    await inv('session:stop', proj2, c.id).catch(() => {})
+    // Stopped from Hive while Copilot shows a permission dialog: Ctrl+C closes it, then exits, with the totals (#465).
+    await sendC('edit p.txt probed-by-c again')
+    check('C: asks before the edit', !!(await reachC(['waiting'])), await statusC())
+    await inv('session:stop', proj2, c.id)
+    check('C: ends on Hive’s Stop over its dialog', !!(await lib.until(async () => !(await liveC()), 20000, 300)), await statusC())
+    const cEvents = path.join(copilotHome, 'session-state', sc.sessionId, 'events.jsonl')
+    check('C: Copilot recorded its totals (session.shutdown)', !!(await lib.until(() => fs.existsSync(cEvents) && fs.readFileSync(cEvents, 'utf8').includes('"type":"session.shutdown"'), 15000, 300)))
+    check('p.txt not edited again', !fs.readFileSync(path.join(proj2, 'p.txt'), 'utf8').includes('again'))
 
     // A: a question (ask_user: Notification elicitation_dialog): waiting with its question, then answered.
     await send(a.id, 'question then say Thanks.')
@@ -255,17 +262,20 @@ const check = (name, ok, extra = '') => {
     await refuse('write ../outside-a.txt from A', 'a write outside its folder', /outside-a\.txt/)
     check('nothing written outside its folder', !fs.existsSync(outside))
 
-    // A ends as a person ends it, with /exit: Copilot writes the session's token totals (session.shutdown) only as it exits
-    // by itself, and Hive's Stop ends the process, which can be before it has (#465). The Sessions tab then reads the
-    // conversation and its usage from the test COPILOT_HOME.
+    // A ends with Hive's Stop. Copilot writes the session's token totals (session.shutdown) only as it exits by itself, so
+    // Hive types its exit keys (Ctrl+C) first and kills it only if it is still running after a moment (#465). The
+    // Sessions tab then reads the conversation and its usage from the test COPILOT_HOME.
     const events = path.join(copilotHome, 'session-state', sa.sessionId, 'events.jsonl')
+    const lastTypes = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').slice(-3).map((l) => /"type":"([^"]+)"/.exec(l)?.[1]).join(' | ') : 'no events.jsonl')
     // Ended: Hive has let the session go (it can show stopped for a moment first).
     const ended = async () => !(await live(a.id))
-    await lib.sendPrompt(inv, key(a.id), '/exit', { submitted: ended })
-    check('A: ends on /exit', !!(await lib.until(ended, 20000, 300)), await status(a.id))
+    const stopAt = Date.now()
+    await inv('session:stop', proj, a.id)
+    check('A: ends on Hive’s Stop', !!(await lib.until(ended, 20000, 300)), await status(a.id))
+    console.log(`  A ended ${Date.now() - stopAt} ms after Stop`)
     check("the session's events.jsonl is in the suite's COPILOT_HOME", fs.existsSync(events))
     const shutdown = await lib.until(() => fs.existsSync(events) && fs.readFileSync(events, 'utf8').includes('"type":"session.shutdown"'), 15000, 300)
-    check('Copilot recorded the end of the session with its totals (session.shutdown)', !!shutdown, fs.existsSync(events) ? fs.readFileSync(events, 'utf8').trim().split('\n').slice(-3).map((l) => /"type":"([^"]+)"/.exec(l)?.[1]).join(' | ') : 'no events.jsonl')
+    check('Copilot recorded the end of the session with its totals (session.shutdown), stopped from Hive', !!shutdown, lastTypes(events))
     const t = await inv('transcript:read', proj, sa.sessionId)
     const items = t?.items ?? []
     check('the Sessions tab shows the conversation: its prompts', items.some((x) => x.kind === 'user' && /Hello from the stand-in/.test(x.text)), JSON.stringify(items.filter((x) => x.kind === 'user').map((x) => x.text).slice(0, 4)))
@@ -293,6 +303,15 @@ const check = (name, ok, extra = '') => {
     const projFiles = fs.readdirSync(proj, { recursive: true }).map(String).filter((f) => !f.startsWith('.git' + path.sep) && f !== '.git')
     check('no hooks.json or MCP config in the project', !projFiles.some((f) => /hooks\.json|mcp\.json/i.test(f)), projFiles.filter((f) => /json/i.test(f)).join(', '))
     check('no requests went anywhere but the stand-in (offline), and some did', api.requests > 0)
+
+    // B stopped from Hive in the middle of a turn: the turn is cancelled and Copilot still exits by itself, with its totals.
+    await send(b.id, 'work 20 then say Never said.', ['working'])
+    await inv('session:stop', proj, b.id)
+    check('B: ends on Hive’s Stop while working', !!(await lib.until(async () => !(await live(b.id)), 20000, 300)), await status(b.id))
+    const bShutdown = await lib.until(() => fs.existsSync(bEvents) && bLog().includes('"type":"session.shutdown"'), 15000, 300)
+    check('B: Copilot recorded its totals (session.shutdown), stopped mid-turn', !!bShutdown, lastTypes(bEvents))
+    const bUsage = await lib.until(async () => { const u = await inv('session:usage', proj, sb.sessionId); return u && u.inputTokens > 0 ? u : null }, 15000, 500)
+    check('B: the Sessions tab has its tokens', !!bUsage && bUsage.outputTokens > 0, JSON.stringify(bUsage && { in: bUsage.inputTokens, out: bUsage.outputTokens }))
     for (const id of [a.id, b.id]) await inv('session:stop', proj, id).catch(() => {})
     await lib.until(async () => !(await live(a.id)) && !(await live(b.id)), 20000, 300)
   } finally {
