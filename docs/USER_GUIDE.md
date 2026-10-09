@@ -834,7 +834,7 @@ To sign in again:
 - **Claude Code**: type `/login` in one of its agents' terminals, or use **Help → Agent Setup → Claude Code → Sign in**. The agent you signed in from carries on by itself.
 - **Codex**: **Help → Agent Setup → Codex → Sign in**, or `codex login` in a terminal.
 
-Hive notices the sign-in when an agent of that CLI works again, when Agent Setup's **Sign in** finishes, or at its next check (every minute while agents wait). The agents that are still stopped then read **Stopped while signed out**, and **Resume All Agents** in the project header counts them: it types a short "carry on" into each, so a card loop picks up where it stopped. Agents that already carried on aren't prompted again.
+Hive notices the sign-in when an agent of that CLI works again, when Agent Setup's **Sign in** finishes, or at its next check (every minute while agents wait). The agents that are still stopped then read **Stopped while signed out**, and **Resume All Agents** in the project header counts them: it types a short "carry on" into each, so a card loop picks up where it stopped. Agents that already carried on aren't prompted again. A Codex agent you prompt again right after signing in shows **working**: Hive reads Codex's refusal from its session after the fact, and that late read can't turn it back to **Needs sign-in**.
 
 ### Agents that need you
 
