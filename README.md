@@ -130,4 +130,4 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it fits together and [d
 
 Hive is released under the [MIT License](LICENSE). It includes open-source libraries under their own licences; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Electron's and Chromium's licences are installed alongside the app.
 
-Hive is an independent project and is not affiliated with Anthropic or OpenAI. Claude and Claude Code are products of Anthropic, and Codex and ChatGPT products of OpenAI; each CLI is installed separately under its maker's terms. Provider logos are their owners' trademarks, used to identify their products.
+Hive Desktop is independently developed and isn't affiliated with, endorsed or sponsored by Anthropic, OpenAI or GitHub. Claude and Claude Code are products of Anthropic; Codex and ChatGPT of OpenAI; GitHub Copilot and the Copilot CLI of GitHub. Each CLI is installed separately under its maker's terms.
