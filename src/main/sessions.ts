@@ -115,6 +115,8 @@ interface LiveSession {
   compacting?: Compaction
   /** The user stopped it (e.g. during its worktree setup), so an early exit isn't reported as a failure. */
   stopRequested?: boolean
+  /** Its CLI is being ended with its exit keys (endProcess): a second stop kills it at once. */
+  ending?: boolean
   /** Terminal output tail, to see the CLI ready or asking something at the start. */
   modeTail: string
   /** The mode it was launched in. */
@@ -129,8 +131,15 @@ interface LiveSession {
   name: string
   /** Bytes of the transcript already read for live details (providers with transcriptDetails). */
   detailsOffset?: number
+  /** What the adapter keeps between those reads (a refusal whose turn's end comes later). */
+  detailsMemo?: Record<string, unknown>
   /** The last interrupt read from the transcript and acted on (LiveDetails.interruptedAt), so each counts once. */
   interruptedAt?: string
+  /**
+   * The launch's hooks that have arrived, counted as each comes (before its turn in the queue): an interrupt read from
+   * the transcript is dropped if one came after the read began, as that hook says something newer (#475).
+   */
+  hooksSeen?: number
   /** When the cost estimate was last worked out (providers that don't report cost). */
   costAt?: number
   /** Terminal output while a mode switch waits for the CLI's confirmation. */
@@ -1100,6 +1109,13 @@ class SessionManager {
     if (!isProviderEnabled(config.settings, adapter.id)) throw new Error(`${adapter.descriptor.name} was turned off while ${agent.name} was starting.`)
     l.startAllowed?.()
     const cmd = adapter.buildCommand(info.path, ctx)
+    // What the user should know about this launch: once per agent, folder and notice while Hive runs.
+    const notice = adapter.launchNotice?.(ctx)
+    const noticeKey = notice ? `${id}\n${ctx.cwd}\n${notice.title}` : ''
+    if (notice && !this.launchNotices.has(noticeKey)) {
+      this.launchNotices.add(noticeKey)
+      toast('warning', `${this.label(state)}: ${notice.title}`, notice.message, undefined, projectPath)
+    }
     // Where it compacts by itself (#242): for the model it runs as, the choice's (an alias resolved) or the CLI's default.
     const chosenModel = eff.model || info.defaultModel || ''
     // Once the session reports the model it runs, that model alone: another model's window isn't its own.
@@ -1211,11 +1227,30 @@ class SessionManager {
     const agents = agentId ? [agentId] : this.projectStates(projectPath).map((s) => s.agentId)
     for (const a of agents) {
       const l = this.live.get(liveId(projectPath, a))
-      if (l) l.stopRequested = true
-      killPty(this.key(projectPath, a))
+      if (l) {
+        l.stopRequested = true
+        this.endProcess(l)
+      } else killPty(this.key(projectPath, a))
     }
     // Starts still being prepared (no process yet) give up at their next check.
     for (const [k, p] of this.starting) if (p.projectPath.toLowerCase() === projectPath.toLowerCase() && (!agentId || k === liveId(projectPath, agentId))) p.cancelled = true
+  }
+
+  /**
+   * Ends a session's CLI: as a person ends it first, where the provider says how (exitKeys), so it writes what it
+   * owes as it exits (Copilot's token totals, #465), and killed if it is still running after a moment. Killed at once
+   * while its worktree setup runs, or when it is stopped again while ending. Keys and the kill reach only this
+   * session's terminal: a restart's new one is left alone.
+   */
+  private endProcess(l: LiveSession): void {
+    const key = this.key(l.state.projectPath, l.state.agentId)
+    const exit = l.adapter.exitKeys
+    if (!exit || l.state.settingUp || l.ending) return killPty(key)
+    l.ending = true
+    const id = liveId(l.state.projectPath, l.state.agentId)
+    const same = (): boolean => this.live.get(id) === l
+    exit.keys.forEach((k, i) => setTimeout(() => same() && writePty(key, k), i * exit.gapMs))
+    setTimeout(() => same() && killPty(key), exit.graceMs)
   }
 
   /** Stops every running agent of one provider (e.g. when the provider is turned off). */
@@ -1256,7 +1291,7 @@ class SessionManager {
     )
     for (const [, l] of chosen) {
       l.stopRequested = true
-      killPty(this.key(l.state.projectPath, l.state.agentId))
+      this.endProcess(l)
     }
     await Promise.race([Promise.all([...waits, ...pending.map((p) => p.done)]), new Promise((r) => setTimeout(r, timeoutMs))])
   }
@@ -1386,7 +1421,7 @@ class SessionManager {
   /** Reads the mode from the CLI's footer on its screen as it redraws, so a mode change in the terminal shows in Hive at once. */
   private readFooterMode(l: LiveSession, screen: TerminalScreen): void {
     if (this.live.get(liveId(l.state.projectPath, l.state.agentId)) !== l || !l.adapter.footerMode) return
-    const mode = l.adapter.footerMode(screen.text())
+    const mode = l.adapter.footerMode(screen.text(), l.launchMode)
     if (mode && (mode !== l.state.permissionMode || mode !== l.state.modeObserved)) {
       l.state.permissionMode = l.state.modeObserved = mode
       this.emitState(l.state)
@@ -1473,8 +1508,9 @@ class SessionManager {
         return { ok: true }
       }
       for (let t = Date.now(); Date.now() - t < 12_000 && same(); ) {
+        const hooks = l.hooksSeen ?? 0
         const s = await stat(src).catch(() => null)
-        if (s) await this.readDetails(l, src, s.size)
+        if (s) await this.readDetails(l, src, s.size, hooks)
         if (st.permissionMode === mode) break
         // The CLI's own confirmation in the terminal comes first (the transcript record a few seconds later).
         const said = l.adapter.modeFromOutput?.(l.switchTail ?? '')
@@ -2044,6 +2080,8 @@ class SessionManager {
     const sessionId = l.state.sessionId
     const src = await this.liveTranscript(l)
     if (!src) return
+    // The hooks so far, for the transcript as it is now (readDetails).
+    const hooks = l.hooksSeen ?? 0
     const s = await stat(src).catch(() => null)
     if (!s) return
     this.noteTranscriptSize(l, s.size)
@@ -2052,7 +2090,7 @@ class SessionManager {
     const backups = config.settings.sessions.backupTranscripts
     // Nothing new, and the backup (if any) has everything: nothing to do.
     if (!force && l.transcriptMtime === mtime && (!backups || l.backupMtime === mtime)) return
-    if (force || l.transcriptMtime !== mtime) await this.transcriptChanged(l, projectPath, agentId, src, s.size, force)
+    if (force || l.transcriptMtime !== mtime) await this.transcriptChanged(l, projectPath, agentId, src, s.size, force, hooks)
     l.transcriptMtime = mtime
     if (!backups) return
     // While the agent works, at most once a minute (a change held back is copied at a later look); the end of each
@@ -2069,7 +2107,7 @@ class SessionManager {
   }
 
   /** What follows from the live transcript growing: status, usage, details, compaction, cost. */
-  private async transcriptChanged(l: LiveSession, projectPath: string, agentId: string, src: string, size: number, force: boolean): Promise<void> {
+  private async transcriptChanged(l: LiveSession, projectPath: string, agentId: string, src: string, size: number, force: boolean, hooks: number): Promise<void> {
     const sessionId = l.state.sessionId
     // Fallback if hooks never arrive: a transcript means the session is up.
     if (l.state.status === 'starting') {
@@ -2077,7 +2115,7 @@ class SessionManager {
       this.emitState(l.state)
     }
     emit({ type: 'usage-changed', projectPath, sessionId })
-    await this.readDetails(l, src, size)
+    await this.readDetails(l, src, size, hooks)
     this.settleBackground(l, await this.readBackground(l, src, size))
     if (l.compacting) {
       // Fallback if the compaction hooks never arrive: a new compaction in the transcript.
@@ -2102,12 +2140,18 @@ class SessionManager {
     }
   }
 
-  /** Live details from what the provider appended to its transcript since the last look (Codex). */
-  private async readDetails(l: LiveSession, path: string, size: number): Promise<void> {
+  /**
+   * Live details from what the provider appended to its transcript since the last look (Codex, Copilot), up to `size`
+   * bytes: the transcript when the launch had had `hooks` hooks (hooksSeen).
+   */
+  private async readDetails(l: LiveSession, path: string, size: number, hooks = l.hooksSeen ?? 0): Promise<void> {
     if (!l.adapter.transcriptDetails) return
     const from = l.detailsOffset ?? 0
     if (size <= from) {
-      if (size < from) l.detailsOffset = 0
+      if (size < from) {
+        l.detailsOffset = 0
+        l.detailsMemo = undefined
+      }
       return
     }
     // The tail is enough: details only ever need the latest records.
@@ -2120,7 +2164,7 @@ class SessionManager {
       const end = text.lastIndexOf('\n')
       if (end < 0) return
       l.detailsOffset = start + Buffer.byteLength(text.slice(0, end + 1))
-      this.applyDetails(l, l.adapter.transcriptDetails(text.slice(0, end + 1)))
+      this.applyDetails(l, l.adapter.transcriptDetails(text.slice(0, end + 1), (l.detailsMemo ??= {})), hooks)
     } finally {
       await fh.close()
     }
@@ -2369,24 +2413,27 @@ class SessionManager {
     this.applyDetails(l, l.adapter.statusLine!(body))
   }
 
-  private applyDetails(l: LiveSession, d: ReturnType<NonNullable<ProviderAdapter['statusLine']>>): void {
+  /** `hooks`: details read from the transcript, as it was when the launch had had that many hooks (readDetails). */
+  private applyDetails(l: LiveSession, d: ReturnType<NonNullable<ProviderAdapter['statusLine']>>, hooks?: number): void {
     // The session's log says a turn ended on a refused sign-in (Codex, which sends no hook then): as a hook would, in
     // order with the launch's hooks.
     // A conversation's log read from its start (a resumed one) may end on an older refusal: only this launch's count.
+    // Not after a hook that came once the read began (the next prompt, after signing in again): that one is newer.
     const refused = d.signIn && !(d.signInAt && Date.parse(d.signInAt) < Date.parse(l.state.startedAt)) ? d.signIn : null
     if (refused) {
       const id = liveId(l.state.projectPath, l.state.agentId)
       void this.inHookOrder(l.state.runId, () => {
-        if (this.live.get(id) === l) this.carryOut(id, l, hookStep({ kind: 'signIn', message: refused }, this.statusInput(l)), 'transcript', { kind: 'signIn', message: refused })
+        if (this.live.get(id) === l && (hooks === undefined || (l.hooksSeen ?? 0) === hooks)) this.carryOut(id, l, hookStep({ kind: 'signIn', message: refused }, this.statusInput(l)), 'transcript', { kind: 'signIn', message: refused })
       })
     }
     // A turn interrupted without a hook (Copilot): as the interrupt hook would, once per recorded interrupt of this launch.
+    // Not after a hook that came once the read began (the CLI carried on, its Stop, a new prompt): that one is newer.
     const interrupted = d.interruptedAt && Date.parse(d.interruptedAt) >= Date.parse(l.state.startedAt) && d.interruptedAt !== l.interruptedAt ? d.interruptedAt : null
     if (interrupted) {
       l.interruptedAt = interrupted
       const id = liveId(l.state.projectPath, l.state.agentId)
       void this.inHookOrder(l.state.runId, () => {
-        if (this.live.get(id) === l) this.carryOut(id, l, hookStep({ kind: 'interrupt' }, this.statusInput(l)), 'transcript', { kind: 'interrupt' })
+        if (this.live.get(id) === l && (hooks === undefined || (l.hooksSeen ?? 0) === hooks)) this.carryOut(id, l, hookStep({ kind: 'interrupt' }, this.statusInput(l)), 'transcript', { kind: 'interrupt' })
       })
     }
     if (d.planUsage) reportPlanUsage(l.state.provider, d.planUsage)
@@ -2599,6 +2646,8 @@ class SessionManager {
   handleHook(runId: string | null, body: Record<string, any>): Promise<void> {
     // A turn's end releases only the locks claimed before it arrived: PreToolUse claims them at once, outside this queue.
     const arrived = this.lockSeq
+    const launch = this.findLaunch(runId, body.session_id)?.[1]
+    if (launch) launch.hooksSeen = (launch.hooksSeen ?? 0) + 1
     return this.inHookOrder(runId ?? `session:${String(body.session_id ?? '')}`, () => this.handleHookNow(runId, body, arrived))
   }
 
@@ -2774,6 +2823,7 @@ class SessionManager {
       l.transcriptPath = transcriptPath ?? existing?.transcriptPath
       l.transcriptMtime = ''
       l.detailsOffset = 0
+      l.detailsMemo = undefined
       st.transcriptBytes = undefined
       this.clearTasks(l)
       l.lastBackupAt = undefined
@@ -2936,6 +2986,8 @@ class SessionManager {
 
   /** Providers and versions already warned about (see checkUnderstood). */
   private warnedFormats = new Set<string>()
+  /** Launch notices already shown (launchNotice), by agent, folder and notice: once each while Hive runs. */
+  private launchNotices = new Set<string>()
 
   /**
    * A large transcript in which Hive found no requests at all most likely means the CLI changed its

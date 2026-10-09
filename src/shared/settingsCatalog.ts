@@ -10,7 +10,7 @@
 import type { AppSettings, ProjectConfig, ProviderId } from './types'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS, FILE_LOCK_MODES } from './defaults'
 import { PRICES_CHECKED } from './prices'
-import { AUTO_PROVIDER, PROVIDERS, defaultProviderSettings, permissionLabel, projectProviderConfig, providerDescriptor, providerSettings, type ProviderDescriptor } from './providers'
+import { AUTO_PROVIDER, PROVIDERS, dangerModes, defaultProviderSettings, labelList, permissionLabel, projectProviderConfig, providerDescriptor, providerSettings, type ProviderDescriptor } from './providers'
 
 /** Where a setting lives: Hive's own (Settings), a provider's page in Settings, the open workspace, or one project (Project Settings). */
 export type SettingScope = 'app' | 'provider' | 'workspace' | 'project'
@@ -292,7 +292,8 @@ const APP_ROWS: Row[] = [
 function providerRows(p: ProviderDescriptor): Row[] {
   const section = providerSection(p.id)
   const safe = p.permissionModes.filter((m) => !m.danger)
-  const danger = p.permissionModes.find((m) => m.danger)
+  // Every danger mode the one opt-in unlocks, named in it (Copilot has two: Autopilot and Allow all, #461).
+  const danger = dangerModes(p)
   const defs: Row[] = [
     { section, provider: p.id, key: 'enabled', title: `Use ${p.name}`, desc: `Let project agents run ${p.name}.`, tip: `When off, ${p.name} agents stay listed but can't start, and Hive doesn't check for its CLI.`, type: 'custom' },
     { section, provider: p.id, key: 'status', title: 'Installation', desc: '', tip: `Where Hive found ${p.name}, whether it is signed in and whether an update is available.`, type: 'custom' },
@@ -311,18 +312,21 @@ function providerRows(p: ProviderDescriptor): Row[] {
       options: safe.map((m) => ({ value: m.value, label: m.label }))
     }
   ]
-  if (danger) {
+  if (danger.length) {
+    const many = danger.length > 1
+    const names = labelList(danger.map((m) => m.label))
+    const option = `the ${names} option${many ? 's' : ''}`
     defs.push({
       section,
       provider: p.id,
       key: 'enableDangerousMode',
-      title: `Enable the ${danger.label} option`,
-      desc: `Allow projects and agents to choose "${danger.label}", where the agent runs every action without asking.`,
-      tip: `${danger.label} is never a global default. When turned off, projects and agents using it return to Inherit.`,
+      title: `Enable ${option}`,
+      desc: `Allow projects and agents to choose ${labelList(danger.map((m) => `"${m.label}"`), 'or')}, where the agent runs every action without asking.`,
+      tip: `${names} ${many ? 'are' : 'is'} never a global default. When turned off, projects and agents using ${many ? 'them' : 'it'} return to Inherit.`,
       type: 'boolean',
       danger: true,
       confirmOn: {
-        title: `Enable the ${danger.label} option?`,
+        title: `Enable ${option}?`,
         message: `Projects will be able to run sessions where ${p.name} executes every command, file edit and network request without asking.`,
         detail: 'Recommended only for disposable environments. Each project still has to choose it, and doing so asks for confirmation.'
       }

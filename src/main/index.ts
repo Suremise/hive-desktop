@@ -17,7 +17,7 @@ import { assistantInstructions } from './personas'
 import { ASSISTANT_NAME, assistantPersona } from '../shared/assistant'
 import { MARKED_LOG } from '../shared/redact'
 import { APP_NAME, DEV_APP_NAME, appName, profileFolder } from '../shared/appName'
-import { PROVIDERS, projectProviderConfig, providerSettings } from '../shared/providers'
+import { PROVIDERS, dangerModes, labelList, projectProviderConfig, providerSettings } from '../shared/providers'
 import { projectAgents } from '../shared/defaults'
 import { setDateStyle } from '../shared/dates'
 import { SERVABLE_EXT, servableType, unwatchAll } from './files'
@@ -573,21 +573,23 @@ function wireSettingsEffects(): void {
   })
 }
 
-/** A provider's no-guardrails mode was turned off: projects and agents set to it (in every window) go back to Inherit. */
+/** A provider's no-guardrails modes were turned off: projects and agents set to any of them (in every window) go back to Inherit. */
 async function revertDangerousModes(provider: string): Promise<void> {
-  const danger = PROVIDERS.find((p) => p.id === provider)?.permissionModes.find((m) => m.danger)
-  if (!danger) return
+  const desc = PROVIDERS.find((d) => d.id === provider)
+  const danger = desc ? dangerModes(desc) : []
+  if (!danger.length) return
+  const isDanger = (mode: string | undefined): boolean => danger.some((m) => m.value === mode)
   const changed: string[] = []
   for (const w of openWorkspaces()) {
     for (const p of await w.listProjectPaths()) {
       const cfg = await workspace.projectConfig(p)
       let touched = false
-      if (projectProviderConfig(cfg, provider).permissionMode === danger.value) {
+      if (isDanger(projectProviderConfig(cfg, provider).permissionMode)) {
         await workspace.mutateProjectConfig(p, (now) => ({ providers: { ...now.providers, [provider]: { ...projectProviderConfig(now, provider), permissionMode: 'inherit' } } }))
         touched = true
       }
       for (const a of projectAgents(cfg)) {
-        if (a.permissionMode === danger.value) {
+        if (isDanger(a.permissionMode)) {
           await workspace.updateAgent(p, a.id, { permissionMode: undefined })
           touched = true
         }
@@ -596,7 +598,7 @@ async function revertDangerousModes(provider: string): Promise<void> {
     }
   }
   if (changed.length) {
-    toast('warning', `${danger.label} turned off`, `These projects were switched back to Inherit: ${changed.join(', ')}. Running sessions keep their mode until restarted.`)
+    toast('warning', `${labelList(danger.map((m) => m.label))} turned off`, `These projects were switched back to Inherit: ${changed.join(', ')}. Running sessions keep their mode until restarted.`)
   }
 }
 
