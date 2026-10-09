@@ -2,6 +2,7 @@
 //
 //   npm run scenarios                                     # the fake Claude Code: free, deterministic, every check
 //   npm run scenarios -- --provider fake-codex            # the fake Codex, the same
+//   npm run scenarios -- --provider fake-copilot          # the real Copilot CLI offline against a scripted model: the same
 //   npm run scenarios -- --provider claude-code --model haiku --budget 2      # model trials (opt-in, cost tokens)
 //   npm run scenarios -- --provider codex --model gpt-5.6-luna --only work-on-card,review-card
 //   npm run scenarios -- --only work-on-card --signed-out   # the fake signed out: the trial is skipped for the environment
@@ -46,7 +47,8 @@ if (!evidence.ok) {
   console.error(`Can't tell what the tests may delete: ${evidence.why}. Fix the board, or set HIVE_TEST_NO_BOARD=1 if no Hive board cites test output on this machine.`)
   process.exit(2)
 }
-const { runScenario, sourceFingerprint, claudeSignedIn, environmentAdvice, CLAUDE_TEST_HOME, PROVIDERS } = require('./harness.cjs')
+const { runScenario, sourceFingerprint, claudeSignedIn, environmentAdvice, CLAUDE_TEST_HOME, PROVIDERS } = require('./harness.cjs')
+const { copilotInstalled } = require('../e2e/fake-copilot-api.cjs')
 const { SCENARIOS, FIXTURES_VERSION } = require('./scenarios.cjs')
 const { benchmarkOf, pruneResults, saveBaseline, resultsFolder, parseBudget, budgetGate, spendText } = require('./benchmark.cjs')
 
@@ -72,7 +74,7 @@ const repeats = Math.max(1, Math.min(20, Number(arg('repeat', '1')) || 1))
 const baselineName = arg('save-baseline', '')
 const fake = !!PROVIDERS[provider]?.fake
 if (!PROVIDERS[provider]) {
-  console.error(`Unknown provider "${provider}": fake, fake-codex, claude-code or codex.`)
+  console.error(`Unknown provider "${provider}": fake, fake-codex, fake-copilot, claude-code or codex.`)
   process.exit(2)
 }
 // The fake Claude Code acting out an expired sign-in: to check that a trial the environment stops is skipped (#302).
@@ -87,7 +89,9 @@ const notSignedIn =
     ? `Codex isn't signed in to its test home (${lib.CODEX_HOME}): see tests/e2e/README.md.`
     : provider === 'claude-code' && !claudeSignedIn()
       ? `Claude Code isn't signed in to its test home (${CLAUDE_TEST_HOME}): see tests/scenarios/README.md.`
-      : null
+      : provider === 'fake-copilot' && !copilotInstalled()
+        ? "the GitHub Copilot CLI isn't installed (fake-copilot runs the real CLI offline)."
+        : null
 if (notSignedIn) {
   console.log(`SKIP all scenarios: ${notSignedIn}`)
   process.exit(0)

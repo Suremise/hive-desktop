@@ -30,7 +30,7 @@ npm test               # vitest unit tests (tests/); also run by CI (.github/wor
 npm run lint           # oxlint (.oxlintrc.json), fails on warnings; part of build and CI
 npm run e2e            # end-to-end suites (tests/e2e) against the dev build — needs npx electron-vite build first
 npm run test:clean     # remove what tests left in %LOCALAPPDATA%\hive-test and print its sizes (--dry-run lists only)
-npm run scenarios      # do agents use Hive's skills and keep its rules, and what does Hive cost in them? (tests/scenarios: fake Claude Code by default, --provider fake-codex; claude-code|codex for model trials, which cost tokens; each run writes benchmark.json for Performance → Compare)
+npm run scenarios      # do agents use Hive's skills and keep its rules, and what does Hive cost in them? (tests/scenarios: fake Claude Code by default, --provider fake-codex or fake-copilot (the real Copilot CLI offline); claude-code|codex for model trials, which cost tokens; each run writes benchmark.json for Performance → Compare)
 npm run build          # typecheck + lint + production bundles into out/
 npm run dist           # build + NSIS installer → dist/Hive-Setup-<version>.exe
 npm run icons          # regenerate PNG/ICO from build/*.svg
