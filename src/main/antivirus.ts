@@ -174,7 +174,7 @@ async function holdsHive(w: WorkspaceService): Promise<boolean> {
   for (const p of await w.listProjectPaths().catch(() => [] as string[])) {
     try {
       const pkg = JSON.parse(await readFile(join(p, 'package.json'), 'utf8')) as { name?: unknown; productName?: unknown }
-      if (pkg.name === 'hive' && pkg.productName === 'Hive') return true
+      if (pkg.name === 'hive' && (pkg.productName === 'Hive Desktop' || pkg.productName === 'Hive')) return true
     } catch {
       // Not a Node project.
     }

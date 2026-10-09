@@ -1,8 +1,9 @@
-import { Menu, nativeImage, Tray, type BrowserWindow } from 'electron'
+import { app, Menu, nativeImage, Tray, type BrowserWindow } from 'electron'
 import { basename, join } from 'path'
 import { mostUrgent } from '../shared/defaults'
 import { branchSummary, firstAcross, inbox, inboxStateText, type Inbox, type InboxItem } from '../shared/inbox'
 import type { LiveSessionState, ProjectInfo, SessionStatus } from '../shared/types'
+import { appName } from '../shared/appName'
 import { knownStatus } from './branchWatch'
 import { emitTo, onHiveEvent } from './events'
 import { resourcesDir } from './paths'
@@ -74,7 +75,7 @@ export function showWindow(win: BrowserWindow): void {
 
 export function createTray(getWindow: () => BrowserWindow | null, actions: TrayActions): Tray {
   tray = new Tray(icon('tray'))
-  tray.setToolTip('Hive')
+  tray.setToolTip(appName(app.isPackaged))
   const rebuild = (): void => {
     if (!tray) return
     const live = sessions.liveStates()
@@ -85,7 +86,7 @@ export function createTray(getWindow: () => BrowserWindow | null, actions: TrayA
     tray.setImage(icon(attention ? 'tray-attention' : 'tray'))
     const working = live.filter((s) => s.status === 'working' || s.status === 'background').length
     tray.setToolTip(
-      `Hive${open.length ? ` — ${open.map((w) => basename(w.path!)).join(', ')}` : ''}${live.length ? `\n${working} working, ${needYou} need${needYou === 1 ? 's' : ''} you` : ''}${pendingQuit ? '\nWill quit when agents finish' : ''}`
+      `${appName(app.isPackaged)}${open.length ? ` — ${open.map((w) => basename(w.path!)).join(', ')}` : ''}${live.length ? `\n${working} working, ${needYou} need${needYou === 1 ? 's' : ''} you` : ''}${pendingQuit ? '\nWill quit when agents finish' : ''}`
     )
     // The inbox, oldest first across every window: each item shows its agent in the window showing its workspace.
     const inboxSection = (title: string, pick: (b: Inbox) => InboxItem[]): Electron.MenuItemConstructorOptions[] => {

@@ -16,6 +16,7 @@ import { notesTree } from './notes'
 import { assistantInstructions } from './personas'
 import { ASSISTANT_NAME, assistantPersona } from '../shared/assistant'
 import { MARKED_LOG } from '../shared/redact'
+import { APP_NAME, DEV_APP_NAME, appName, profileFolder } from '../shared/appName'
 import { PROVIDERS, projectProviderConfig, providerSettings } from '../shared/providers'
 import { projectAgents } from '../shared/defaults'
 import { setDateStyle } from '../shared/dates'
@@ -77,9 +78,10 @@ function watchMainStalls(): void {
 
 // Development builds use their own profile (and Agent API port, see servers.ts) so they can run
 // alongside the installed Hive — e.g. while developing Hive from a session inside Hive.
-// HIVE_USER_DATA overrides the profile folder for tests.
+// HIVE_USER_DATA overrides the profile folder for tests. The installed app's is set too: Electron would name it after
+// productName, "Hive Desktop", but users' settings and conversations are in %APPDATA%\Hive (#443).
 if (process.env.HIVE_USER_DATA) app.setPath('userData', process.env.HIVE_USER_DATA)
-else if (!app.isPackaged) app.setPath('userData', join(app.getPath('appData'), 'Hive-Dev'))
+else app.setPath('userData', join(app.getPath('appData'), profileFolder(app.isPackaged)))
 
 // Before Electron's own check of the install folder, which crashes Hive with nothing on screen (installDir.ts).
 if (process.platform === 'win32') checkInstallDir()
@@ -99,11 +101,11 @@ const APP_ID = app.isPackaged ? 'com.hive.desktop' : 'com.hive.desktop.dev'
 app.setAppUserModelId(APP_ID)
 if (!app.isPackaged && process.platform === 'win32') registerDevAppId()
 
-/** Names the dev app ID "Hive Dev" with the Hive icon, so its notifications don't say "Electron". */
+/** Names the dev app ID "Hive Desktop Dev" with the Hive icon, so its notifications don't say "Electron". */
 function registerDevAppId(): void {
   const key = ['HKCU', 'Software', 'Classes', 'AppUserModelId', APP_ID].join('\\')
   const icon = notificationIcon()
-  execFile('reg', ['add', key, '/v', 'DisplayName', '/d', 'Hive Dev', '/f'], { windowsHide: true }, () => undefined)
+  execFile('reg', ['add', key, '/v', 'DisplayName', '/d', DEV_APP_NAME, '/f'], { windowsHide: true }, () => undefined)
   execFile('reg', ['add', key, '/v', 'IconUri', '/d', icon, '/f'], { windowsHide: true }, () => undefined)
 }
 
@@ -122,7 +124,7 @@ function hiveMcpScript(): string {
 
 function appInfo(): AppInfo {
   return {
-    name: 'Hive',
+    name: APP_NAME,
     version: app.getVersion(),
     electron: process.versions.electron,
     chrome: process.versions.chrome,
@@ -178,7 +180,7 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
     // Off screen and never handed the focus either: when the user's active window closes, Windows passes the focus to
     // the next window, and it mustn't be an invisible test window (testQuiet).
     focusable: !offScreen,
-    title: 'Hive',
+    title: appName(app.isPackaged),
     icon: join(resourcesDir(), 'icon.png'),
     backgroundColor: titleBarColors().color,
     titleBarStyle: 'hidden',
@@ -204,7 +206,7 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
       appId: APP_ID,
       appIconPath: app.isPackaged ? process.execPath : join(__dirname, '../../build/icon.ico'),
       appIconIndex: 0,
-      relaunchDisplayName: app.isPackaged ? 'Hive' : 'Hive Dev'
+      relaunchDisplayName: appName(app.isPackaged)
     })
   }
   const entry = registerWindow(win, createWorkspaceService())
