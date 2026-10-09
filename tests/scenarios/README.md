@@ -32,7 +32,7 @@ The checks are positive and negative:
   card that went back to Doing under it. **A review that passes** moves the card to Passed with its verdict, not to
   Done.
 - **Done means merged**: the builder moves its Passed card to Done once its branch is merged.
-- **Card decisions** (#357): a decision the user records while the agent works on the card is flagged in its next board reply, and the agent reads the card again before moving it to Review; a reviewer fails work that ignores one of the card's decisions, also when woken for round 2 with a decision recorded since round 1 (its first reply flags it, and it reads the card in full before its verdict).
+- **Card decisions** (#357): a decision the user records while the agent works on the card is flagged in its next board reply, and the agent reads the card again before moving it to Review; a reviewer fails work that ignores one of the card's decisions, also when woken for round 2 with a decision recorded since round 1 (its first reply flags it, and it reads the card in full before its verdict). An agent that asks the user and ends its turn is told of the decision recorded for it (#401), also when it asked about a card in Todo, which it takes first (#438).
 - **Merging when the base moved** after the checks (another branch merged meanwhile): the agent merges the base into
   its branch again and reruns the checks on that combination before merging (the fakes do it with real git commands).
 - **Handovers**: the latest handover's next step, or the named one's, is done, and the other isn't. A wrap-up writes a

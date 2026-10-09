@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Fixes
+- **Your answer reaches an agent that asked before starting its card.** An agent with a question about a card still in Todo could ask you and leave the card there with nobody on it, so the decision you recorded for it was nobody's and Hive didn't tell the agent. Agents now take the card (to Doing, themselves on it) before they ask, so Hive tells them of your decision as it does for a card they're working on.
 - **Copy Diagnostics leaves out where Claude Code and Codex were looked for.** When a Claude Code or Codex Hive tried didn't report its version, the log line kept the folder it was in and what it printed instead, so a folder with a space in its name, or a private name in the message, could reach a bug report. Both are now left out, as GitHub Copilot's already were; the line still says a copy didn't report its version.
 
 ## 0.5.1 — 9 October 2026

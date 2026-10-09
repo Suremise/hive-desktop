@@ -36,6 +36,26 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Asking before taking the card: fakes, Codex (`gpt-5.6-luna`), Claude Code (sonnet), fixtures v29, 9 October 2026
+
+#438 (Darren's option 3): work-on-card has an agent take the card (move it to Doing, which gives it to itself) before it
+asks the user a question about it, and clear `blocked` once a decision answers it. A card counts as an agent's for the
+decision line (#401) only in Doing with it, so a question asked with the card in Todo left the decision nobody's.
+Fixtures v29 add **decision-before-taking**: decision-while-waiting with the card in Todo and no agent, the decision
+recorded once the turn ends wherever the card is.
+- **Before, a model** (old skill, results `2026-10-09T19-55-23-codex` and `-claude-code`): **Codex failed** exactly as the
+  card says: it read the skill and the card, asked, and left the card in Todo with no agent, so Hive told no one and it
+  never carried on. **Claude Code (sonnet) passed**: it moved the card to Doing before asking.
+- **After** (`2026-10-09T19-58-54-codex` and `-claude-code`; decision-before-taking, decision-while-waiting,
+  work-on-card and card-decision): **Codex 4 of 4** ($0.071) and **Claude Code 4 of 4** ($0.397). In
+  decision-before-taking both took the card before the decision, were told once, read the card, wrote "Welcome back!"
+  and moved the card to Review.
+- **Fakes** on one source (`7ce2a15` plus the change), the before run with only work-on-card put back (baselines
+  `b3-438-before-v29` and `b3-438-after`, results `2026-10-09T20-49-26-fake` and `2026-10-09T20-31-25-fake`): every
+  check passes both times, and Performance → Compare finds all 61 scenarios **No change** (the guidance revision, tool
+  list and replies are unchanged; the skill grows by one step). A v28 baseline before the scenario was added
+  (`b3-438-before`) isn't comparable with v29 runs.
+
 ## Hive sets the agent's folder: no git worktree of its own; fakes, Codex (`gpt-5.6-luna`), Claude Code (Haiku, Sonnet), fixtures v27–v28, 9 October 2026
 
 #476 adds one line to agents' session contract; #482 (Darren) made a worktree the user asks for theirs: "Hive sets your
