@@ -81,11 +81,12 @@ async function projectFolders(ws: WorkspaceService): Promise<string[]> {
 /** The projects (and the Assistant's home) whose recorded folder isn't where they are now. */
 async function movedHosts(ws: WorkspaceService): Promise<{ from: string | null; hosts: Host[] }> {
   const here = ws.path!
-  const wsFrom = ws.config.lastPath && !samePath(ws.config.lastPath, here) ? ws.config.lastPath : null
+  // By real paths (#455): the same folder opened by another name (an 8.3 short name, a junction) hasn't moved.
+  const wsFrom = ws.config.lastPath && !samePlace(ws.config.lastPath, here) ? ws.config.lastPath : null
   const hosts: Host[] = []
   for (const p of await projectFolders(ws)) {
     const cfg = await ws.projectConfig(p)
-    const moved = !!cfg.lastPath && !samePath(cfg.lastPath, p)
+    const moved = !!cfg.lastPath && !samePlace(cfg.lastPath, p)
     // A project whose move was repaired but some of whose data copies didn't work is still to finish.
     if (moved || cfg.pendingCopies?.length) hosts.push({ path: p, name: basename(p), from: moved ? cfg.lastPath! : p, folder: p, assistant: false, ...(moved ? {} : { pendingOnly: true }) })
   }
@@ -109,7 +110,7 @@ async function worktreesOf(ws: WorkspaceService, host: Host, wsMove: PathMove, o
     }
     const picked = opts.locate?.[key]
     if (picked && (await isWorktreeFolder(picked))) {
-      if (!(await linked(host.path, picked)) || !samePath(picked, a.worktree.path)) out.push({ ...base, to: resolve(picked), how: 'located' })
+      if (!(await linked(host.path, picked)) || !samePlace(picked, a.worktree.path)) out.push({ ...base, to: resolve(picked), how: 'located' })
       continue
     }
     // Already right (repaired before, or a worktree the move didn't touch).

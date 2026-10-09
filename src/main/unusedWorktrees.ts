@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from 'crypto'
-import { basename, join, resolve, sep } from 'path'
+import { basename, join, resolve } from 'path'
 import { createReadStream, existsSync } from 'original-fs'
 import { lstat, readdir, readlink } from 'original-fs/promises'
 import { projectAgents, slugify } from '../shared/defaults'
 import type { AgentBranchStatus, AgentWorktree, MergeResult, SessionRecord, UnusedWorktree, UnusedWorktreeOrigin, UnusedWorktreePreview, UnusedWorktreeRemoval, UnusedWorktrees } from '../shared/types'
 import { lostLines } from '../shared/unusedWorktrees'
-import { placeKey, realPath } from './fsutil'
+import { containsPlace, placeKey, realPath } from './fsutil'
 import { git, gitReading } from './git'
 import { gitProblem } from './gitTool'
 import { createLogger, userText } from './logger'
@@ -27,11 +27,7 @@ const log = createLogger('worktrees')
 
 const key = placeKey
 /** Whether `a` is `b` or a folder containing it, by real paths (#389). */
-const contains = (a: string, b: string): boolean => {
-  const x = key(a).replace(/[\\/]$/, '')
-  const y = key(b)
-  return x === y || y.startsWith(x + sep)
-}
+const contains = containsPlace
 
 /** Why Hive won't touch a listed worktree folder (null: it may), whoever uses it. */
 async function unsafe(projectPath: string, path: string): Promise<string | null> {

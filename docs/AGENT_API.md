@@ -238,7 +238,7 @@ The changes below are the Assistant's only: other callers get `403`.
 
 Changing the task board (`POST /v1/tasks`, `PATCH /v1/tasks/{n}`, comments) is open to other callers too; for the Assistant it needs Control agents and counts as a change.
 
-With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. A batch of cards counts each of its cards. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees, archive or delete cards, or remove projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/deactivate` needs Control agents.
+With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. A batch of cards is one change, however many cards it has. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees, archive or delete cards, or remove projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/deactivate` needs Control agents.
 
 ### Settings
 
@@ -341,7 +341,7 @@ Placing a card with `position` or `before` adds a line to its history when it mo
 
 Each card is changed as `PATCH` would change it: under its own lock, authorised against the card as it is then, with its own history line. A card that can't be changed is refused and left as it was, and the other cards still change: an unknown card, or another project's (both answered as missing), an archived one, one in Doing with another agent, one an agent may not put On Hold. So a batch is not all or nothing: each card is. `position` applies to each card in turn, so the last listed ends at the top; to set an order, use `POST /v1/tasks/reorder`.
 
-For the Assistant, every card counts against its 30 changes for the message, refused ones too. If the cards don't all fit, none is changed and the answer is `429` with `fits`: how many would fit. Each card is listed in the Assistant's panel on its own. Each card is checked again just before it is saved, after its last read and under its lock: if the control level was turned down, or the Assistant's session replaced, while the batch was working on it, that card and the rest after it are refused and nothing of theirs is saved.
+For the Assistant, the batch counts as one of its 30 changes for the message, however many cards it has. Once those are used, the batch changes none of its cards and the answer is `429` with `fits`: 0. Each card is listed in the Assistant's panel on its own. Each card is checked again just before it is saved, after its last read and under its lock: if the control level was turned down, or the Assistant's session replaced, while the batch was working on it, that card and the rest after it are refused and nothing of theirs is saved.
 
 ```json
 { "numbers": [14, 9, 12], "column": "todo", "reply": "short" }

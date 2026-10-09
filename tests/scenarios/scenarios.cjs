@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 29
+const FIXTURES_VERSION = 30
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -337,6 +337,46 @@ module.exports.SCENARIOS = [
       return [
         ['read the work-on-card skill', read(o, 'work-on-card'), o.skillsRead.join(',')],
         ['asked the user and ended its turn with the card in Doing (the decision came then)', decided > 0, history(o.cards.a).join(' | ')],
+        ['Hive told it once', told.length === 1, history(o.cards.a).join(' | ')],
+        ['read the card after the decision', decided > 0 && cardReads(o, c.cards.a).some((t) => t > decided), `decided ${decided}, reads ${cardReads(o, c.cards.a).join(',')}`],
+        ['carried on with the decided greeting', /Welcome back!/.test(c.read('greeting.txt') ?? ''), c.read('greeting.txt')],
+        ['it ends in Review', review > decided && o.cards.a?.column === 'review', o.cards.a?.column]
+      ]
+    },
+    fakeSkips: ['read the card after the decision', 'carried on with the decided greeting', 'it ends in Review']
+  },
+  {
+    id: 'decision-before-taking',
+    title: 'An agent with a question about a card in Todo takes it before asking (#438), so the decision recorded for it is told to it',
+    files: { 'greeting.txt': 'Hello\n' },
+    // Its card in Todo with no agent: Hive counts a card as an agent's only once it is in Doing with it.
+    async setup(c) {
+      await c.card('a', { title: 'Friendlier greeting', description: 'Change greeting.txt to a friendlier greeting. The user picks it: before changing anything, ask them in your reply whether they want "Hi there!" or "Welcome back!", then end your turn and wait for their answer. Don\'t choose yourself.' })
+    },
+    // Once its turn has ended (it asked), wherever the card is, the user answers through the Assistant: a decision.
+    async during(c, status) {
+      if (status === 'working') c.worked = true
+      if (c.decidedAt || !c.worked || !['finished', 'ready'].includes(status)) return
+      const card = (await c.api('GET', `/v1/tasks/${c.cards.a}`)).body
+      if (!card || card.column === 'review') return
+      await c.inv('tasks:update', c.cards.a, { decision: 'Use "Welcome back!" as the greeting.' })
+      c.decidedAt = Date.now()
+    },
+    async keepWaiting(c) {
+      if (!c.decidedAt || Date.now() - c.decidedAt > 40000) return false
+      const card = (await c.api('GET', `/v1/tasks/${c.cards.a}`)).body
+      return !(card?.history ?? []).some((h) => h.what.startsWith('Told Coder (alpha) of'))
+    },
+    prompt: (c) => `Work on card #${c.cards.a}.`,
+    fake: (c) => `skill work-on-card then hive hive_read_task {"number":${c.cards.a}} then boardmove ${c.cards.a} doing`,
+    expect: (o, c) => {
+      const decided = historyAt(o.cards.a, /^Recorded a decision: "Use "Welcome back!"/)
+      const taken = historyAt(o.cards.a, /^Moved to (the (top|bottom) of )?Doing\b/)
+      const told = (o.cards.a?.history ?? []).filter((h) => h.by === 'Hive' && /^Told Coder \(alpha\) of 1 new decision$/.test(h.what))
+      const review = historyAt(o.cards.a, /^Moved to (the (top|bottom) of )?Review\b/)
+      return [
+        ['read the work-on-card skill', read(o, 'work-on-card'), o.skillsRead.join(',')],
+        ['took the card (Doing, itself on it) before the decision came', decided > 0 && taken > 0 && taken < decided && history(o.cards.a).some((w) => /^Given to Coder\b/.test(w)), history(o.cards.a).join(' | ')],
         ['Hive told it once', told.length === 1, history(o.cards.a).join(' | ')],
         ['read the card after the decision', decided > 0 && cardReads(o, c.cards.a).some((t) => t > decided), `decided ${decided}, reads ${cardReads(o, c.cards.a).join(',')}`],
         ['carried on with the decided greeting', /Welcome back!/.test(c.read('greeting.txt') ?? ''), c.read('greeting.txt')],

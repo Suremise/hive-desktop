@@ -13,14 +13,15 @@ The card is the brief, and the board is how the user, the Hive Assistant and oth
 
 1. **Read the card** with `hive_read_task`: its decisions, description, comments, links and the cards it depends on. Its **decisions** (listed first) are what the user decided: where they differ from the description or a comment, follow the decisions. On a long card back for more work, the description and the newest comments (`comments: 5`) usually say what is wanted now; read further back when they refer to earlier ones.
 2. **Work or review?** If you are asked to check work rather than do it, this is a review: use the review-agent-work skill and leave the card where it is.
-3. **Can it start?** Cards it depends on (`blockedBy`) that aren't done, or a question only the user can answer, block it: set `blocked` with the reason, tell the user, and don't guess.
-4. **Move it to `doing`** with `hive_update_task` before you change anything, which gives it to you. Do this also when it comes back from Review, Passed or Done. A card On Hold is parked: work on it only when the user asks.
+3. **Can it start?** Cards it depends on (`blockedBy`) that aren't done block it: set `blocked` with the reason, tell the user, and don't guess.
+4. **Move it to `doing`** with `hive_update_task` before you change anything or ask the user about it, which gives it to you. Do this also when it comes back from Review, Passed or Done. A card On Hold is parked: work on it only when the user asks.
+5. **A question only the user can answer** blocks it too, now or later: with the card yours in Doing, set `blocked` with the question, ask the user, and don't guess. Hive tells you of the decision they record on your card (below).
 
 ## While working
 
 - Comment when something is worth knowing later: a choice you made and why, a finding that changes the plan, a partial result. Not a running log. A decision the user tells you about the card goes on it as a decision (`hive_update_task` with `decision`), not only as a comment.
 - A reply that says your card has a new decision: finish the step you're on, then read the card (`hive_read_task`) and bring the work in line with it.
-- A line from Hive while you wait for the user, saying your card has new decisions: that is their answer. Read the card's decisions, then carry on from where you asked.
+- A line from Hive while you wait for the user, saying your card has new decisions: that is their answer. Read the card's decisions, clear `blocked` if it was your question, then carry on from where you asked.
 - Work you find but weren't asked to do goes on a new card (`hive_create_task`, described well enough to start from cold), not into this one.
 - If you can't go on, set `blocked` with the reason; an empty `blocked` clears it.
 

@@ -126,6 +126,13 @@ export const placeKey = (p: string): string => realPath(p).toLowerCase()
 /** Whether two paths are the same place (`placeKey`). */
 export const samePlace = (a: string, b: string): boolean => placeKey(a) === placeKey(b)
 
+/** Whether `outer` is `inner` or a folder containing it, by real paths (`placeKey`). */
+export function containsPlace(outer: string, inner: string): boolean {
+  const x = placeKey(outer).replace(/[\\/]$/, '')
+  const y = placeKey(inner)
+  return x === y || y.startsWith(x + sep)
+}
+
 /**
  * Whether a path is inside an .asar archive (`…\app.asar\icon.png`). Such a path isn't a file on disk, and Electron's
  * readers that take a path (nativeImage, its file: loader) open the archive for it and keep it open until Hive quits,
