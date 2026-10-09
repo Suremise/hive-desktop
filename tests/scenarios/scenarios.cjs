@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 28
+const FIXTURES_VERSION = 29
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -940,6 +940,55 @@ module.exports.SCENARIOS = [
       ]
     },
     fakeSkips: ['fixed it: the delay is awaited']
+  },
+  {
+    id: 'card-loop-lane',
+    title: "A card loop builder registers its lane (#483): the cards in order, its reviewer, the rounds and the wait, before its first card's review",
+    files: { 'greet.js': "module.exports = (name) => 'Hello, ' + name\n" },
+    async setup(c) {
+      await c.card('a', { title: 'Greeting says Hi', description: 'greet.js returns "Hi, <name>" instead of "Hello, <name>".', agent: 'coder' })
+      await c.card('b', { title: 'Greeting trims the name', description: 'greet.js trims spaces around the name.', agent: 'coder' })
+    },
+    prompt: (c) => `Work through cards #${c.cards.a} then #${c.cards.b} as their builder; Implementer reviews them. Rounds: 10. Wait: 6h.`,
+    fake: (c) => `skill card-loop then hive hive_lane {"action":"start","cards":[${c.cards.a},${c.cards.b}],"reviewer":"Implementer","rounds":10,"waitMinutes":360} then boardmove ${c.cards.a} doing then ${verdictWatch(c.cards.a)} then boardmove ${c.cards.a} review then boardcomment ${c.cards.a}`,
+    expect: (o, c) => {
+      const starts = ran(o, 'hive_lane').map((x) => argsOf(x)).filter((a) => a.action === 'start')
+      const first = starts[0] ?? {}
+      const review = (o.cards.a?.history ?? []).find((h) => /^Moved to (the (top|bottom) of )?Review\b/.test(h.what))
+      const startedAt = ran(o, 'hive_lane').find((x) => argsOf(x).action === 'start')?.at
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        ['registered the lane (hive_lane start)', starts.length >= 1, o.hiveCalls.map((x) => x.tool).join(',')],
+        ['the cards in order, its reviewer, the rounds and the wait', JSON.stringify(first.cards) === JSON.stringify([c.cards.a, c.cards.b]) && /implementer/i.test(String(first.reviewer ?? '')) && first.rounds === 10 && first.waitMinutes === 360, JSON.stringify(first)],
+        ["before its first card's review", !!startedAt && (!review || startedAt <= review.at), `${startedAt} / ${review?.at}`],
+        ['one lane, not one a card', starts.length === 1, String(starts.length)],
+        ['its first card to Review, the second not begun', o.cards.a?.column === 'review' && o.cards.b?.column === 'todo', `${o.cards.a?.column} / ${o.cards.b?.column}`],
+        ['ended its turn with a live watch for the verdict', o.status === 'watching', o.status]
+      ]
+    }
+  },
+  {
+    id: 'card-loop-lane-join',
+    title: "A card loop reviewer joins its builder's lane (#483) by the builder's name, then waits for the first card",
+    async setup(c) {
+      await c.card('a', { title: 'Greeting says Hi', description: 'greet.js returns "Hi, <name>".', column: 'doing', agent: 'implementer' })
+      await c.card('b', { title: 'Greeting trims the name', description: 'greet.js trims spaces around the name.', agent: 'implementer' })
+    },
+    prompt: (c) => `You are the reviewer of a card loop on #${c.cards.a} then #${c.cards.b}, built by Implementer. Rounds: 10. Wait: 6h. Start now.`,
+    fake: (c) => `skill card-loop then hive hive_lane {"action":"join","builder":"Implementer","cards":[${c.cards.a},${c.cards.b}]} then hive hive_wait_for_tasks {"cards":[${c.cards.a}],"column":"review","wake":true,"limitMinutes":360}`,
+    expect: (o, c) => {
+      const lanes = ran(o, 'hive_lane').map((x) => argsOf(x))
+      const joins = lanes.filter((a) => a.action === 'join')
+      const arrivals = ran(o, 'hive_wait_for_tasks').map((x) => argsOf(x)).filter((a) => Array.isArray(a.cards) && a.cards.includes(c.cards.a) && a.column === 'review')
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        ["joined the builder's lane by its name", joins.length >= 1 && /implementer/i.test(String(joins[0].builder ?? '')), JSON.stringify(lanes)],
+        ["didn't start a lane of its own", !lanes.some((a) => a.action === 'start'), JSON.stringify(lanes)],
+        ['ended its turn watching for the first card to arrive in Review', o.status === 'watching' && arrivals.length >= 1, `${o.status}; ${JSON.stringify(arrivals)}`],
+        ['left the cards as they were', o.cards.a?.column === 'doing' && o.cards.b?.column === 'todo', `${o.cards.a?.column} / ${o.cards.b?.column}`],
+        ['changed no files', o.gitStatus.trim() === '', o.gitStatus]
+      ]
+    }
   },
   {
     id: 'card-loop-already-in-review',

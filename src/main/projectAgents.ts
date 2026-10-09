@@ -11,6 +11,7 @@ import { createLogger, userText } from './logger'
 import { checkProject } from './branchWatch'
 import { sessions } from './sessions'
 import { endReviews, releaseAgentCards } from './tasks'
+import { laneAgentRemoved } from './lanes'
 import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
 import { gitProblem } from './gitTool'
@@ -268,6 +269,8 @@ export async function removeAgent(projectPath: string, agentId: string, opts: { 
   if (opts.releaseCards) await releaseAgentCards(basename(projectPath), agentId, { kind: 'user' })
   // A review it left going (from before Hive last started) ends with it.
   await endReviews(basename(projectPath), agentId, 'the agent was removed', workspaceOf(projectPath))
+  // Its lanes, as builder or reviewer, are abandoned (#483).
+  await laneAgentRemoved(workspaceOf(projectPath), basename(projectPath), agentId).catch((e) => log.warn('abandoning the lanes of a removed agent', e))
   await workspaceOf(projectPath).refresh()
   return result
 }

@@ -3,7 +3,8 @@
 // hive_wait_for_tasks wake (no polling): Hive types one line into the waiting agent when its card changes, and the
 // fake answers it with the next line of its wake script. Checked: the order, the rounds, the final columns, one wake per
 // change; the watching status (header, Agent API), dispatch refused while watching, hive_wait_for_agents not waiting on
-// a watcher; no wake typed while the agent works or the user types; a watch surviving a stop and resume; Cancel.
+// a watcher; no wake typed while the agent works or the user types; a watch surviving a stop and resume; Cancel. The
+// loop's lane (#483): made by the reviewer's join, updated by the builder's start, ended once its cards are Done.
 // Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -90,8 +91,10 @@ const check = (name, ok, extra = '') => {
   await start(reviewer.id)
   await start(builder.id)
 
-  // The reviewer waits for c1 to arrive in Review: watching, never idle.
-  await say(reviewer.id, wait(c1, { column: 'review' }))
+  // The reviewer joins the builder's lane first (#483): Hive makes the lane, which the builder's own start then updates.
+  // Then it waits for c1 to arrive in Review: watching, never idle.
+  const lane = (body) => `hive hive_lane ${JSON.stringify(body)}`
+  await say(reviewer.id, `${lane({ action: 'join', builder: 'Builder', cards: [c1, c2] })} then ${wait(c1, { column: 'review' })}`)
   const watching = await until(async () => (await live(reviewer.id))?.status === 'watching')
   const st = await live(reviewer.id)
   check('the reviewer is watching: status watching, with what for', !!watching && st?.watch?.label === `Waiting for #${c1} → Review`, JSON.stringify({ status: st?.status, watch: st?.watch }))
@@ -155,8 +158,13 @@ const check = (name, ok, extra = '') => {
   const waited = await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Reviewer' }], timeoutSeconds: 20 })
   check('hive_wait_for_agents doesn’t wait on a watcher: it reports watching at once, with what for', waited.body?.agents?.[0]?.status === 'watching' && waited.body?.agents?.[0]?.statusMessage === label && waited.body?.agents?.[0]?.watching?.cards?.[0] === c1 && Date.now() - t0 < 5000 && waited.body?.timedOut === false, JSON.stringify(waited.body))
 
-  // The builder works c1, watching for its verdict before moving it to Review; then the loop runs by itself.
-  await say(builder.id, built(c1))
+  const joined = (await api('GET', '/v1/lanes')).body?.[0]
+  check('the reviewer joining made the lane (#483): the builder, the reviewer, the cards in order', joined?.builder?.name === 'Builder' && joined?.reviewer?.name === 'Reviewer' && joined?.cards?.map((c) => c.number).join() === `${c1},${c2}` && joined?.state === 'active' && joined?.current === c1, JSON.stringify(joined))
+  // The builder registers its lane (the same one, now with its rounds and wait), works c1, watching for its verdict
+  // before moving it to Review; then the loop runs by itself.
+  await say(builder.id, `${lane({ action: 'start', cards: [c1, c2], reviewer: 'Reviewer', rounds: 3, waitMinutes: 240, name: 'two cards' })} then ${built(c1)}`)
+  const registered = await until(async () => (await api('GET', '/v1/lanes')).body?.find((l) => l.rounds === 3))
+  check("the builder's start updated that lane: one lane, its rounds, wait and name", (await api('GET', '/v1/lanes')).body?.length === 1 && registered?.id === joined?.id && registered?.waitMinutes === 240 && registered?.name === 'two cards' && registered?.startedBy === 'Reviewer (alpha)', JSON.stringify(registered))
   const done = await until(async () => (await card(c1))?.column === 'passed' && (await card(c2))?.column === 'passed', 90000)
   check('both cards end in Passed (#170)', !!done, JSON.stringify({ c1: (await card(c1))?.column, c2: (await card(c2))?.column }))
   await until(async () => wakes('Builder').length >= 3 && (await live(builder.id))?.status === 'finished', 20000)
@@ -178,6 +186,14 @@ const check = (name, ok, extra = '') => {
   check('in order: c1 passed before c2 was begun', !!passedAt && !!c2Doing && passedAt < c2Doing, JSON.stringify({ passedAt, c2Doing }))
   const end = await until(async () => (await live(builder.id))?.status === 'finished' && (await live(reviewer.id))?.status === 'finished', 15000)
   check('at the end neither is watching', !!end, JSON.stringify({ b: (await live(builder.id))?.status, r: (await live(reviewer.id))?.status }))
+  // The lane as the window has it: every card passed (c2 in two rounds), still running until they're merged.
+  const passedLane = (await inv('lanes:list')).find((l) => l.id === joined?.id)
+  check('the lane: both cards Passed, c2 took two rounds, nothing current, still active', passedLane?.state === 'active' && passedLane?.current === null && passedLane?.cards.map((c) => `${c.column}:${c.round}`).join() === 'passed:1,passed:2', JSON.stringify(passedLane))
+  // Merged (Done): the lane ends by itself and stays listed for now, with when it ended.
+  await inv('tasks:update', c1, { column: 'done' })
+  await inv('tasks:update', c2, { column: 'done' })
+  const endedLane = await until(async () => (await inv('lanes:list')).find((l) => l.id === joined?.id && l.state === 'ended'))
+  check('all its cards Done: the lane has ended, still listed, with its end time', !!endedLane?.endedAt, JSON.stringify(endedLane))
 
   // --- Not over the user's typing or the agent's own work; survives a stop and resume; Cancel.
   const third = await lib.addAgent(inv, alpha, { name: 'Third' })
