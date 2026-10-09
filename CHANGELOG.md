@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## 0.5.0 — 9 October 2026
 
 ### Hive Desktop
 - **Hive is now called Hive Desktop.** The window title, About, the status bar, notifications, the tray, the installer, the Start menu and desktop shortcuts and the entry in **Installed apps** say **Hive Desktop** (in sentences, Hive is still Hive). Nothing you have moves: the update renames the shortcuts, and Hive stays installed where it was, as `Hive.exe`, with your settings and conversations in `%APPDATA%\Hive`; taskbar pins and notification settings carry over.
