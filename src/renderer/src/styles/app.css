@@ -2573,6 +2573,20 @@ p.hint {
   font-size: 18px;
   color: var(--fg-muted);
 }
+/* What a page of changes shows, at the top of its right side (#476); the list being checked again over it. */
+.changes-page-head {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+.unused-refreshing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
 .unused-work-notice {
   display: flex;
   align-items: center;

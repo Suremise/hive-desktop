@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AssistantMark } from '../components/AssistantMark'
 import { CardChip } from '../components/CardChip'
 import { KeybindingsEditor } from '../components/Keybindings'
-import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo } from '@shared/types'
+import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo, UnusedWorktree } from '@shared/types'
 import { unpricedModel, unpricedText } from '@shared/prices'
 import { formatDateTime } from '@shared/dates'
 import { gitFixText } from '@shared/gitTool'
-import { UnusedWorkNotice, UnusedWorktreesLine, UnusedWorktreesSection, useUnusedWorktrees } from '../components/UnusedWorktrees'
+import { UnusedHeading, UnusedWorkNotice, UnusedWorktreesLine, UnusedWorktreesSection, useUnusedWorktrees } from '../components/UnusedWorktrees'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
 import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
-import { PROVIDERS, contextLines, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
+import { PROVIDERS, contextLines, defaultProviderLabel, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { effortText, runsAsName } from '@shared/models'
 import { PROJECT_SETTINGS_SECTIONS, settingEntry } from '@shared/settingsCatalog'
@@ -28,7 +28,7 @@ import { Icon, IconButton, InfoTip, LoadFailed, SearchInput, StaleNote, statusTe
 import { languageFor } from '../monacoLang'
 import { useScopedLoad } from '../scopedLoad'
 import { addSkill, deleteSkill, editInWorkspace, otherLocal, SKILL_LEVEL_TIP, SkillDetail, SkillRow } from '../components/Skills'
-import { RootSelector } from './FilesTab'
+import { CHANGES_ABOUT, unusedPickerLabel } from '@shared/unusedWorktrees'
 import { agentProviderOf, confirm, notify, openInSessionsTab, set, setActivity, showView, UNUSED_ROOT, unusedRoot, useDateStyle, useFocusedAgent, useStore } from '../store'
 import { rememberProjectPref } from '../projectPrefs'
 import { HiveVcsNotice } from '../components/HiveVcsNotice'
@@ -564,6 +564,44 @@ export function PlanLimits({ provider }: { provider: ProviderId }) {
 
 const GIT_LABEL: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', C: 'Copied', U: 'Conflict', '?': 'Untracked' }
 
+/**
+ * Whose changes the Changes tab shows (#476): the unused worktrees first (all, or one, each with who made it), then the
+ * worktrees agents work in, then the project folder, last (agents working in the folder itself, and you).
+ */
+function ChangesPicker({ project, value, onChange, unused, looking, listed }: { project: ProjectInfo; value: string; onChange: (id: string) => void; unused: UnusedWorktree[]; looking: boolean; listed: boolean }) {
+  const inUse = project.agents.filter((a) => a.worktree)
+  return (
+    <div className="root-row">
+      <Tooltip content="Unused worktrees, a worktree an agent works in, or the project folder">
+        <select className="select root-select changes-picker" value={value} onChange={(e) => onChange(e.target.value)}>
+          <optgroup label="Unused worktrees (no agent works in them)">
+            <option value={UNUSED_ROOT}>{looking ? 'Unused worktrees (looking…)' : listed ? `Unused worktrees (${unused.length})` : "Unused worktrees (couldn't list)"}</option>
+            {unused
+              .filter((w) => w.branch)
+              .map((w) => (
+                <option key={w.path} value={unusedRoot(w.path)}>
+                  {unusedPickerLabel(w)}
+                </option>
+              ))}
+          </optgroup>
+          {inUse.length > 0 && (
+            <optgroup label="Worktrees in use">
+              {inUse.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}'s worktree · {a.worktree!.branch}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          <optgroup label="Project folder">
+            <option value="">Project folder · {project.branch ?? project.name}</option>
+          </optgroup>
+        </select>
+      </Tooltip>
+    </div>
+  )
+}
+
 export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
   const usageVersion = useStore((s) => s.usageVersion[owner.path] ?? 0)
   const rootId = useStore((s) => s.changesRoot[owner.path])
@@ -576,13 +614,21 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
   const [diffErrorOf, setDiffErrorOf] = useState<{ for: string; error: string } | null>(null)
   const [inline, setInline] = useState(false)
   // The project's unused worktrees (#400): listed in the folder picker, shown all at once, or one opened like an agent's.
-  const { data: unusedData, reload: reloadUnused } = useUnusedWorktrees(owner)
+  // The last list shows at once while git is asked again (#476).
+  const { data: unusedData, reload: reloadUnused, loading: unusedLoading, error: unusedError, at: unusedAt } = useUnusedWorktrees(owner)
   const unusedList = unusedData?.worktrees ?? []
-  const listingUnused = rootId === UNUSED_ROOT
-  const spare = rootId?.startsWith(`${UNUSED_ROOT}:`) ? (unusedList.find((w) => unusedRoot(w.path) === rootId && w.branch) ?? null) : null
+  // The page shown (#476): the one chosen, else Unused worktrees when the project has worktrees (its agents' or unused
+  // ones), else the project folder. Not known yet (no agent's worktree, no list yet): Unused worktrees, looking, until
+  // a list says whether there are any. A listing that failed says nothing: the page stays, with the error and Retry,
+  // until one succeeds (only a list that came back empty means the project folder).
+  const hasWorktrees = owner.agents.some((a) => a.worktree) || unusedList.length > 0
+  const resolving = !hasWorktrees && !unusedData
+  const shownId = rootId ?? (hasWorktrees || resolving ? UNUSED_ROOT : '')
+  const listingUnused = shownId === UNUSED_ROOT
+  const spare = shownId.startsWith(`${UNUSED_ROOT}:`) ? (unusedList.find((w) => unusedRoot(w.path) === shownId && w.branch) ?? null) : null
   // A worktree agent's changes are everything on its branch since it left its base branch; an unused one's, since the
   // branch it would merge into.
-  const agent = owner.agents.find((a) => a.id === rootId && a.worktree)
+  const agent = owner.agents.find((a) => a.id === shownId && a.worktree)
   const root = agent?.worktree?.path ?? spare?.path ?? owner.path
   const base = agent?.worktree?.base ?? spare?.check.into ?? undefined
   const project = agent || spare ? { ...owner, path: root } : owner
@@ -637,10 +683,35 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
     }
   }, [file, root, base, status, key, diffTry])
   const choose = (id: string): void => set((s) => ({ changesRoot: { ...s.changesRoot, [owner.path]: id } }))
-  const selector = <RootSelector project={owner} value={rootId} onChange={choose} unused={unusedList} />
+  const selector = hasWorktrees || shownId ? <ChangesPicker project={owner} value={shownId} onChange={choose} unused={unusedList} looking={unusedLoading && !unusedData} listed={!!unusedData} /> : null
+  // Not "not a git repository": git can't run, so Hive can't tell (#346). Whichever page is shown.
+  const gitMissing = (problem: string, retry: () => void): React.ReactNode => (
+    <div className="empty-state changes-git-missing" style={{ paddingTop: '15vh' }}>
+      <Icon name="warning" />
+      {problem}, so Hive can't show {project.name}'s changes.
+      <p className="hint">{gitFixText(gitTool)}</p>
+      <div className="flex" style={{ justifyContent: 'center' }}>
+        <button className="btn small" onClick={() => set({ setupOpen: true })}>
+          <Icon name="hubot" /> Agent Setup
+        </button>
+        <button className="btn small" onClick={retry}>
+          <Icon name="refresh" /> Retry
+        </button>
+      </div>
+    </div>
+  )
+  // What a page of changes shows, in a sentence at the top of its right side (#476: one description, in one place; the
+  // unused worktrees page has its own header, UnusedHeading).
+  const about = (
+    <div className="changes-about changes-page-head" data-about={spare ? 'unused-one' : agent ? 'agent' : 'project'}>
+      {spare ? CHANGES_ABOUT.unusedOne(spare.branch!, spare.check.into ?? 'the main branch') : agent ? CHANGES_ABOUT.agent(agent.name, agent.worktree!.branch, agent.worktree!.base) : CHANGES_ABOUT.project}
+    </div>
+  )
 
-  // All the unused worktrees, in the main pane (#400): the list and its actions, as the Overview had them.
-  if (listingUnused && unusedList.length) {
+  // All the unused worktrees, in the main pane (#400): the list and its actions, as the Overview had them. Listing them
+  // reads git for each, which takes a while: the last list shows meanwhile, else a spinner says what Hive is doing.
+  if (listingUnused && unusedData?.gitProblem) return gitMissing(unusedData.gitProblem, reloadUnused)
+  if (listingUnused) {
     return (
       <div className="split">
         <div className="split-list" style={{ width: listWidth }}>
@@ -648,14 +719,43 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
           <div className="pane-header" style={{ paddingLeft: 14 }}>
             Changes
             <div className="actions">
-              <IconButton icon="refresh" title="Refresh" onClick={reloadUnused} />
+              <IconButton icon={unusedLoading ? 'loading' : 'refresh'} spin={unusedLoading} title={unusedLoading ? 'Looking for unused worktrees…' : 'Refresh: look for unused worktrees again'} disabled={unusedLoading} onClick={reloadUnused} />
             </div>
           </div>
           {selector}
-          <div className="pane-empty">Open one to see its changes, and merge them, as an agent's worktree's.</div>
         </div>
         <div className="split-main unused-worktrees-pane">
-          <UnusedWorktreesSection project={owner} data={unusedData} reload={reloadUnused} onOpen={(path) => choose(unusedRoot(path))} />
+          {unusedData && unusedError && !unusedLoading && <StaleNote what="the unused worktrees" error={unusedError} at={unusedAt} onRetry={reloadUnused} />}
+          {!unusedData ? (
+            unusedError && !unusedLoading ? (
+              <div className="unused-worktrees">
+                <UnusedHeading project={owner} />
+                <div className="empty-state" data-unused-error="">
+                  <Icon name="error" /> Couldn't list the unused worktrees: {unusedError}
+                  <button className="btn small" style={{ marginTop: 10 }} onClick={reloadUnused}>
+                    <Icon name="refresh" /> Retry
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="unused-worktrees">
+                <UnusedHeading project={owner} />
+                <div className="empty-state" data-unused-loading="">
+                  <Icon name="loading" spin /> Looking for unused worktrees…
+                  <p className="hint">Hive asks git about each of {owner.name}'s worktrees, which can take a few seconds.</p>
+                </div>
+              </div>
+            )
+          ) : (
+            <>
+              {unusedLoading && (
+                <div className="hint unused-refreshing" data-unused-refreshing="">
+                  <Icon name="loading" spin /> Checking them again…
+                </div>
+              )}
+              <UnusedWorktreesSection project={owner} data={unusedData} reload={reloadUnused} onOpen={(path) => choose(unusedRoot(path))} />
+            </>
+          )}
         </div>
       </div>
     )
@@ -672,24 +772,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
     )
   }
   if (!status) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
-  if (status.gitProblem) {
-    // Not "not a git repository": git can't run, so Hive can't tell (#346).
-    return (
-      <div className="empty-state changes-git-missing" style={{ paddingTop: '15vh' }}>
-        <Icon name="warning" />
-        {status.gitProblem}, so Hive can't show {project.name}'s changes.
-        <p className="hint">{gitFixText(gitTool)}</p>
-        <div className="flex" style={{ justifyContent: 'center' }}>
-          <button className="btn small" onClick={() => set({ setupOpen: true })}>
-            <Icon name="hubot" /> Agent Setup
-          </button>
-          <button className="btn small" onClick={load}>
-            <Icon name="refresh" /> Retry
-          </button>
-        </div>
-      </div>
-    )
-  }
+  if (status.gitProblem) return gitMissing(status.gitProblem, load)
   if (!status.isRepo) {
     return (
       <div className="empty-state" style={{ paddingTop: '15vh' }}>
@@ -738,6 +821,7 @@ export function ChangesTab({ project: owner }: { project: ProjectInfo }) {
         </div>
       </div>
       <div className="split-main">
+        {about}
         {diff ? (
           <>
             <div className="editor-toolbar">
@@ -1292,7 +1376,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
   }
   const globalLock = FILE_LOCK_MODES.find((m) => m.value === settings.agents.fileLocks)
   const lockMode = cfg.fileLocks === 'inherit' ? settings.agents.fileLocks : cfg.fileLocks
-  const globalDefault = providerName(settings.defaultProvider)
+  const globalDefault = defaultProviderLabel(settings)
   const globalCompact = settings.sessions.compactSuggestTokens ? settings.sessions.compactSuggestTokens.toLocaleString() : 'never'
   const globalWarn = settings.sessions.transcriptWarnMB ? `${settings.sessions.transcriptWarnMB} MB` : 'never'
 

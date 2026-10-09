@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ProjectInfo } from '@shared/types'
-import { agentLaunchSettings, isProviderEnabled, modeOption, providerName } from '@shared/providers'
+import { agentLaunchSettings, defaultProviderWarning, isProviderEnabled, modeOption, providerName } from '@shared/providers'
 import { agentsToResume, stalledOnSignIn } from '@shared/resumeAll'
 import { archiveTarget, batchCounts } from '@shared/startAll'
 import { PROJECT_TABS, tabCommand } from '@shared/projectTabs'
@@ -125,9 +125,20 @@ function SessionEmpty({ project, framed }: { project: ProjectInfo; framed: boole
   const focused = useFocusedAgent(project)
   // Unbound in Keyboard Shortcuts: no key to show.
   const newKey = commandKeybinding('session.new')
+  // With no agent, the provider new agents get: Automatic's follows what's installed, so this re-renders with it.
+  const providers = useStore((s) => s.providers)
+  const settings = useStore((s) => s.settings)
   const provider = agentProviderOf(project, focused)
-  const info = useStore((s) => s.providers[provider])
-  const on = useStore((s) => isProviderEnabled(s.settings, provider))
+  const info = providers[provider]
+  const on = isProviderEnabled(settings, provider)
+  // An agent's own provider by name; with none, only what the project's default needs (#474).
+  const warning = focused
+    ? !on
+      ? `${providerName(provider)} is turned off — Settings → Providers`
+      : info && !info.checking && !info.found
+        ? `${providerName(provider)} is required — Help → Agent Setup`
+        : null
+    : defaultProviderWarning(project.config, settings, (id) => providers[id])?.text ?? null
   const epoch = useStore((s) => (focused ? s.sessionEpoch[projectKey(project.path, focused.id)] : undefined))
   const ended = epoch !== undefined
   // An ended session keeps its terminal; the pane shows the Resume bar over it.
@@ -157,22 +168,12 @@ function SessionEmpty({ project, framed }: { project: ProjectInfo; framed: boole
                 ? `Start a new ${providerName(provider)} session, or resume a previous one. Sessions keep running when you switch to other projects.`
                 : 'Mark this project as one you are working on to run sessions and see its status. You can also start a session directly.'}
           </p>
-          {!on ? (
+          {warning && (
             <p>
-              <span className="badge warn">
-                <Icon name="warning" /> {providerName(provider)} is turned off — Settings → Providers
+              <span className="badge warn" data-provider-warning="">
+                <Icon name="warning" /> {warning}
               </span>
             </p>
-          ) : (
-            !info?.found &&
-            info &&
-            !info.checking && (
-              <p>
-                <span className="badge warn">
-                  <Icon name="warning" /> {providerName(provider)} is required — Help → Agent Setup
-                </span>
-              </p>
-            )
           )}
           <div className="btns">
             <button className="btn act-start solid" onClick={() => void actions.newSession(project.path)}>

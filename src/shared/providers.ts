@@ -244,14 +244,119 @@ export function enabledProviders(settings: Pick<AppSettings, 'providers'> | null
   return PROVIDERS.filter((p) => isProviderEnabled(settings, p.id))
 }
 
-/** The provider a project's new agents use: its own choice, else the global default. */
-export function projectDefaultProvider(cfg: Pick<ProjectConfig, 'defaultProvider'> | null | undefined, settings: Pick<AppSettings, 'defaultProvider'> | null | undefined): ProviderId {
-  const own = cfg?.defaultProvider
-  return own && own !== 'inherit' ? own : settings?.defaultProvider || DEFAULT_PROVIDER
+/**
+ * Settings → Providers → Default provider left to Hive (#474), the default: new agents use the first provider (in
+ * PROVIDERS' order) that is turned on and installed, so a Codex-only or Copilot-only user is never pointed at Claude Code.
+ */
+export const AUTO_PROVIDER = 'auto'
+
+/** A default provider setting's value: a provider, or Automatic. */
+export function isDefaultProviderValue(v: unknown): v is ProviderId {
+  return v === AUTO_PROVIDER || isKnownProvider(v)
 }
 
-/** The provider an agent runs: its own, else the project's default (agents from before providers are Claude Code; see workspace.projectConfig). */
-export function agentProvider(agent: Pick<AgentDef, 'provider'> | null | undefined, cfg: Pick<ProjectConfig, 'defaultProvider'> | null | undefined, settings: Pick<AppSettings, 'defaultProvider'> | null | undefined): ProviderId {
+/**
+ * Whether a provider's CLI was found, as this process last heard: main's providerService and the window's store each
+ * set it when they start (setInstalledCheck), so every caller resolves Automatic the same way. None found until then.
+ */
+let installedCheck: (id: ProviderId) => boolean = () => false
+
+export function setInstalledCheck(fn: (id: ProviderId) => boolean): void {
+  installedCheck = fn
+}
+
+/** Automatic's provider: the first turned on and installed, else the first turned on, else Claude Code. */
+export function autoProvider(settings: Pick<AppSettings, 'providers'> | null | undefined): ProviderId {
+  const on = enabledProviders(settings)
+  return (on.find((p) => installedCheck(p.id)) ?? on[0])?.id ?? DEFAULT_PROVIDER
+}
+
+/** Settings' default provider in words: a provider's name, or "Automatic (Codex)" (what it picks now, when any is on). */
+export function defaultProviderLabel(settings: Pick<AppSettings, 'defaultProvider' | 'providers'> | null | undefined): string {
+  const v = settings?.defaultProvider
+  if (v && v !== AUTO_PROVIDER) return providerName(v)
+  return enabledProviders(settings).length ? `Automatic (${providerName(autoProvider(settings))})` : 'Automatic'
+}
+
+/** The default the user chose for a project's new agents (its own, else Settings'), or null when it is Automatic. */
+export function chosenDefaultProvider(cfg: Pick<ProjectConfig, 'defaultProvider'> | null | undefined, settings: Pick<AppSettings, 'defaultProvider'> | null | undefined): ProviderId | null {
+  const own = cfg?.defaultProvider
+  if (own && own !== 'inherit' && own !== AUTO_PROVIDER) return own
+  const global = settings?.defaultProvider
+  return global && global !== AUTO_PROVIDER ? global : null
+}
+
+/** The provider a project's new agents use: its own choice, else the global default; Automatic follows what is installed. */
+export function projectDefaultProvider(cfg: Pick<ProjectConfig, 'defaultProvider'> | null | undefined, settings: Pick<AppSettings, 'defaultProvider' | 'providers'> | null | undefined): ProviderId {
+  return chosenDefaultProvider(cfg, settings) ?? autoProvider(settings)
+}
+
+/**
+ * What a project with no agents warns about its new agents' provider (#474), or null. A default the user chose (the
+ * project's or Settings') that is turned off or isn't installed, by name. With Automatic, only when no provider is
+ * turned on, or none of those turned on is installed: a CLI nobody chose is never named. `info` is what Hive found
+ * (while it is still looking, nothing is said).
+ */
+export function defaultProviderWarning(
+  cfg: Pick<ProjectConfig, 'defaultProvider'> | null | undefined,
+  settings: Pick<AppSettings, 'defaultProvider' | 'providers'> | null | undefined,
+  info: (id: ProviderId) => { found: boolean; checking?: boolean } | undefined
+): { text: string; fix: 'providers' | 'setup' } | null {
+  const chosen = chosenDefaultProvider(cfg, settings)
+  if (chosen) {
+    if (!isProviderEnabled(settings, chosen)) return { text: `${providerName(chosen)} is turned off — Settings → Providers`, fix: 'providers' }
+    const i = info(chosen)
+    return i && !i.checking && !i.found ? { text: `${providerName(chosen)} isn't installed — Help → Agent Setup`, fix: 'setup' } : null
+  }
+  const on = enabledProviders(settings)
+  if (!on.length) return { text: 'No coding agents are turned on — Settings → Providers', fix: 'providers' }
+  if (on.some((p) => !info(p.id) || info(p.id)!.checking || info(p.id)!.found)) return null
+  return { text: 'No coding agent CLI is installed — Help → Agent Setup', fix: 'setup' }
+}
+
+/**
+ * The providers Hive's install and setup warnings are about (#474): what new agents use (Settings' default, each
+ * project's own, Automatic's pick) and every agent's own. A provider that is only turned on isn't in use: its CLI being
+ * missing is no one's problem until something uses it.
+ */
+export function providersInUse(
+  settings: Pick<AppSettings, 'defaultProvider' | 'providers'> | null | undefined,
+  projects: readonly { config: Pick<ProjectConfig, 'defaultProvider'> | null | undefined; agents: readonly Pick<AgentDef, 'provider'>[] }[]
+): Set<ProviderId> {
+  const out = new Set<ProviderId>([projectDefaultProvider(null, settings)])
+  for (const p of projects) {
+    out.add(projectDefaultProvider(p.config, settings))
+    for (const a of p.agents) out.add(agentProvider(a, p.config, settings))
+  }
+  return out
+}
+
+/**
+ * Which providers' problems Hive shows (the banner, the status bar, Agent Setup opening by itself): when none of the
+ * providers turned on is installed, that alone (`noneInstalled`: one warning, not one per CLI); else those turned on and
+ * in use (providersInUse). `info` is what Hive found. While it is still looking for one not found yet (at start),
+ * nothing: Automatic's pick isn't known until then.
+ */
+export function providerWarnings(
+  settings: Pick<AppSettings, 'providers'> | null | undefined,
+  info: (id: ProviderId) => { found: boolean; checking?: boolean } | undefined,
+  inUse: ReadonlySet<ProviderId>
+): { noneInstalled: boolean; providers: ProviderDescriptor[] } {
+  const on = enabledProviders(settings)
+  const looking = on.some((p) => {
+    const i = info(p.id)
+    return !i || (!!i.checking && !i.found)
+  })
+  if (looking) return { noneInstalled: false, providers: [] }
+  const noneInstalled = on.length > 0 && on.every((p) => !info(p.id)!.found)
+  return { noneInstalled, providers: noneInstalled ? [] : on.filter((p) => inUse.has(p.id)) }
+}
+
+/**
+ * The provider an agent runs: its own (every agent made since 0.2 has one), else the project's default (the
+ * Assistant's agent, whose provider is Settings → Assistant's).
+ */
+export function agentProvider(agent: Pick<AgentDef, 'provider'> | null | undefined, cfg: Pick<ProjectConfig, 'defaultProvider'> | null | undefined, settings: Pick<AppSettings, 'defaultProvider' | 'providers'> | null | undefined): ProviderId {
   return agent?.provider || projectDefaultProvider(cfg, settings)
 }
 

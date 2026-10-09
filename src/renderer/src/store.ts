@@ -1,10 +1,11 @@
 import { DEFAULT_PERF_FILTERS, type PerfFilters } from '@shared/metricsView'
 import { create } from 'zustand'
+import { useMemo } from 'react'
 import type { Period } from '@shared/usageTotals'
 import type { StartFailure } from '@shared/startFailure'
 import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
 import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectLayout, projectPerPage } from '@shared/defaults'
-import { agentProvider } from '@shared/providers'
+import { agentProvider, providersInUse, providerWarnings, setInstalledCheck } from '@shared/providers'
 import { setDateStyle } from '@shared/dates'
 import { chooseFocus, deferredFocus } from './deferredFocus'
 import type { ProjectTab } from '@shared/projectTabs'
@@ -453,6 +454,9 @@ export const useStore = create<State>(() => ({
   sessionEpoch: {}
 }))
 
+// Automatic's default provider (#474) follows what Hive found, as this window last heard.
+setInstalledCheck((id) => !!useStore.getState().providers[id]?.found)
+
 export const set = useStore.setState
 export const get = useStore.getState
 
@@ -510,6 +514,21 @@ export function useFocusedAgent(p: ProjectInfo | null | undefined): AgentInfo | 
   const id = useStore((s) => (p ? s.focusedAgent[p.path] : undefined))
   if (!p) return null
   return p.agents.find((a) => a.id === id) ?? p.agents[0] ?? null
+}
+
+/**
+ * Which providers' problems this window shows (#474): none of those turned on installed, or else those turned on that
+ * new agents or this workspace's agents (the Assistant's too) use. Recomputed when settings, what's installed or the
+ * workspace change.
+ */
+export function useProviderWarnings(): ReturnType<typeof providerWarnings> {
+  const settings = useStore((s) => s.settings)
+  const providers = useStore((s) => s.providers)
+  const workspace = useStore((s) => s.workspace)
+  return useMemo(() => {
+    const hosts = [...(workspace?.projects ?? []), ...(workspace?.assistant ? [workspace.assistant] : [])]
+    return providerWarnings(settings, (id) => providers[id], providersInUse(settings, hosts))
+  }, [settings, providers, workspace])
 }
 
 /** The provider an agent runs (its own, else the project's default, else the global default). */

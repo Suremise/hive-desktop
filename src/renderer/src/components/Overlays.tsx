@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import iconUrl from '../assets/icon.svg'
 import { call, errorMessage } from '../api'
 import { commandKeybinding, commandLabel, commands, runCommand } from '../commands'
-import { closeDialog, dismissToast, findProject, NO_PROJECTS, notify, set, setActivity, useStore } from '../store'
+import { closeDialog, dismissToast, findProject, NO_PROJECTS, notify, set, setActivity, useProviderWarnings, useStore } from '../store'
 import { cacheState, useLiveUsage } from '../usage'
 import { actClass, cx, formatKeybinding, formatTokens, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
@@ -588,6 +588,19 @@ export function ShortcutsDialog() {
   )
 }
 
+/**
+ * After Agent Setup's install found the CLI (#472). Installers say to restart the terminal; Hive looked again on the
+ * PATH a new process gets, so neither it nor new agents need a restart. Running agents keep the PATH they started with.
+ */
+function installedText(name: string): string {
+  return `${name} is installed and Hive has found it: agents you start now can use it, without restarting Hive (the installer's advice to restart your terminal is for terminals already open). Agents already running get the new PATH when they restart.`
+}
+
+/** An install that ended without Hive finding the CLI. */
+function installNotFoundText(name: string): string {
+  return `The install ended, but Hive can't find ${name}. If the installer reported an error, it's shown below; if it says it worked, Check again, or set ${name}'s path in Settings → ${name}.`
+}
+
 /** Text with `code` and **bold** spans, as provider notes are written. */
 function CodeText({ text }: { text: string }) {
   const code = (s: string, k: number) => s.split('`').map((part, i) => (i % 2 ? <code key={`${k}.${i}`}>{part}</code> : <span key={`${k}.${i}`}>{part}</span>))
@@ -630,7 +643,7 @@ function GitSetupRow() {
   const title = git.state === 'missing' ? 'Git not found' : git.state === 'old' ? `Git ${git.version} is older than ${GIT_MIN}` : "Couldn't check Git"
   const detail =
     git.state === 'old' && !problem
-      ? `${gitOldText(git.version!)} Update Git for Windows to ${GIT_MIN} or later, then restart Hive.`
+      ? `${gitOldText(git.version!)} Update Git for Windows to ${GIT_MIN} or later, then Check again.`
       : git.state === 'unknown'
         ? `${git.error}. Hive needs Git ${GIT_MIN} or later for worktrees, merging and the Changes tab.`
         : `${problem}: worktree agents, merging, the Changes tab and the unmerged counts don't work. ${gitFixText(git)}`
@@ -670,7 +683,7 @@ export function AgentSetupDialog() {
   const [task, setTask] = useState<{ key: string; kind: ProviderTask; issues: string[] } | null>(null)
   const [running, setRunning] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [finished, setFinished] = useState<string | null>(null)
+  const [finished, setFinished] = useState<{ text: string; ok: boolean } | null>(null)
   useEffect(() => {
     if (typeof open === 'string') setTab(open)
     else if (open) setTab(enabledProviders(settings)[0]?.id ?? PROVIDERS[0].id)
@@ -697,6 +710,8 @@ export function AgentSetupDialog() {
     try {
       const next = await call('provider:refresh', tab)
       set({ providers: next })
+      // A "can't find it" note from an install is out of date once looked again.
+      setFinished((f) => (f?.ok === false ? null : f))
       return next
     } catch {
       return null
@@ -712,9 +727,12 @@ export function AgentSetupDialog() {
     const after = next?.[tab]
     if (!kind || !after || after.checking) return
     const left = kind === 'update' ? after.updateAvailable : (after.readiness ?? []).some((r) => task.issues.includes(r.id))
+    // An install that ended without Hive finding the CLI: its terminal stays, with what to do next.
+    if (left && kind === 'install' && !after.found) setFinished({ ok: false, text: installNotFoundText(p.name) })
     if (left) return
-    const what: Record<ProviderTask, string> = { install: `${p.name} is installed.`, update: `${p.name} is up to date.`, login: `${p.name} is signed in.`, setup: `${p.name} is set up.` }
-    setFinished(`${what[kind]} You can close this window.`)
+    // Installers say to restart the terminal (#472): Hive looked again on the PATH a new process gets, so it needn't.
+    const what: Record<ProviderTask, string> = { install: installedText(p.name), update: `${p.name} is up to date.`, login: `${p.name} is signed in.`, setup: `${p.name} is set up.` }
+    setFinished({ ok: true, text: `${what[kind]} You can close this window.` })
     setTask(null)
   }
   const close = (): void => {
@@ -865,9 +883,9 @@ export function AgentSetupDialog() {
       )}
       <GitSetupRow />
       {finished && (
-        <div className="banner success" style={{ borderRadius: 6, marginTop: 10 }}>
-          <Icon name="pass-filled" />
-          <span>{finished}</span>
+        <div className={cx('banner', finished.ok ? 'success' : 'warn')} data-finished={finished.ok ? 'ok' : 'not-found'} style={{ borderRadius: 6, marginTop: 10 }}>
+          <Icon name={finished.ok ? 'pass-filled' : 'warning'} />
+          <span>{finished.text}</span>
         </div>
       )}
       {task && (
@@ -1062,12 +1080,14 @@ export function QuitPendingBanner() {
 }
 
 /**
- * What stands between you and running agents, until it is fixed: no provider turned on, or an enabled
- * provider that isn't installed, isn't signed in or needs its one-time setup. Not dismissable.
+ * What stands between you and running agents, until it is fixed: no provider turned on, none of those turned on
+ * installed, or a provider in use (the default for new agents, or an agent's, #474) that isn't installed, isn't signed
+ * in or needs its one-time setup. A provider only turned on isn't warned about. Not dismissable.
  */
 export function ProvidersBanner() {
   const settings = useStore((s) => s.settings)
   const providers = useStore((s) => s.providers)
+  const warn = useProviderWarnings()
   if (!settings) return null
   const on = enabledProviders(settings)
   if (!on.length) {
@@ -1080,7 +1100,17 @@ export function ProvidersBanner() {
       </div>
     )
   }
-  const issues = on.flatMap((p) => {
+  if (warn.noneInstalled) {
+    return (
+      <div className="banner warn providers-banner" data-none-installed="">
+        <Icon name="hubot" /> No coding agent CLI is installed. Install {on.length > 1 ? 'one of those you turned on' : on[0].name} to run agents.
+        <button className="btn small primary" onClick={() => set({ setupOpen: on[0].id })}>
+          Agent Setup
+        </button>
+      </div>
+    )
+  }
+  const issues = warn.providers.flatMap((p) => {
     const info = providers[p.id]
     if (!info || info.checking) return []
     return (info.readiness ?? []).filter((r) => r.level !== 'info').map((r) => ({ p, r }))

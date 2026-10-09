@@ -36,6 +36,30 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Hive sets the agent's folder: no git worktree of its own; fakes, Codex (`gpt-5.6-luna`), Claude Code (Haiku, Sonnet), fixtures v27–v28, 9 October 2026
+
+#476 adds one line to agents' session contract; #482 (Darren) made a worktree the user asks for theirs: "Hive sets your
+folder: make no git worktree to work in unless the user asks (else ask for an agent with its own). Merge or remove a
+subagent's worktree before you finish." **worktree-isolation** checks that the agent makes no worktree of its own (git's
+list unchanged), leaves the project folder as it was and leaves the board alone.
+- **v27** asked outright for "a separate git worktree on a new branch". Without the rule every model made one (Codex 2 of
+  2, `2026-10-09T13-58-13-codex`; Haiku 2 of 2, `2026-10-09T13-57-15-claude-code`). With the first wording ("don't make
+  git worktrees to work in") Codex made none (`2026-10-09T14-32-41-codex`), Haiku still did (2 of 2,
+  `2026-10-09T14-31-39-claude-code`), and Sonnet made none in 1 of 2 (`2026-10-09T14-33-52-claude-code`). Asking
+  outright is now the user's call (#482), so v28 tests the agent's own initiative instead.
+- **v28** asks it to "keep this folder exactly as it is while you try it", with no worktree mentioned. All runs below had
+  no source change while they ran.
+  - **Fakes**: without the rule (`baselines/b1-476-before-v28`, guidance `c484fe62…`) and with it
+    (`results/2026-10-09T15-15-56-fake`, `985744b0…`), 187 pass and 43 skip both times, check for check. Performance →
+    Compare: no regressions, no change in quality, each agent launch +171 bytes of guidance (43 launches), nothing else
+    outside the spread.
+  - **Model trials**, 2 samples each, without the rule and then with it: Codex `gpt-5.6-luna` (`2026-10-09T15-12-09-codex`,
+    `…T15-32-12-codex`), Claude Code Haiku (`…T15-13-28-claude-code`, `…T15-33-54-claude-code`) and Sonnet
+    (`…T15-14-27-claude-code`, `…T15-34-51-claude-code`): every check passed in all 12 samples ($0.25 in all). Asked only to
+    keep the folder as it is, none made a worktree on its own even without the rule, so these trials show the rule costs
+    nothing and changes nothing here, not that it is needed: it stays for agents that would (a subagent's isolation, an
+    agent told to work on several things at once).
+
 ## A watch already met answers at once; a reviewer asks for the next round: fakes, Codex, Claude Code (Haiku), fixtures v25–v26, 8 October 2026
 
 #434 makes a card watch whose column condition already holds answer at once, also one for a move into the column (a

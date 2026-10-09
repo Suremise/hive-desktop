@@ -42,6 +42,9 @@ The checks are positive and negative:
 - **A script against the API** runs with the agent's own token, lists its project's card, is refused for another
   project's, and never prints a token.
 - **Ordinary coding** reads no Hive skill.
+- **No git worktree of its own** (#476, #482): asked to keep the folder as it is while it tries a change (not asked
+  for a worktree), the agent makes none on its own initiative and leaves the folder as it was (Hive sets its folder; an
+  agent with its own worktree is the user's to add, and a worktree the user asks for is theirs).
 - **Card loops**: at the round limit the builder asks the user. A finding that comes back is another round: the builder
   fixes it without asking, and the reviewer fails it marked as recurring. A finding the builder disputes stops the reviewer
   to ask. A builder fixing a failed card brings it back into Review for round two (also without it leaving Review), so the

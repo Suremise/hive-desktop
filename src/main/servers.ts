@@ -636,7 +636,8 @@ route('GET', '/v1/providers', async () => {
       // The version this Hive release was tested with, and how the installed one compares (#365).
       tested: info.tested ? { version: info.tested.version, installed: info.found ? info.tested.installed : 'not installed' } : null,
       problem: info.readiness?.find((r) => r.level === 'error')?.message ?? null,
-      isDefault: s.defaultProvider === p.id,
+      // What new agents use now: Automatic's pick when no provider was chosen (#474).
+      isDefault: projectDefaultProvider(null, s) === p.id,
       defaultModel: info.defaultModel ?? null,
       // What the pickers offer: the CLI's own models, else the fallback list in Settings (#125).
       models: modelGroups(p.id, info, s).filter((g) => !g.unavailable).flatMap((g) => g.models.map((m) => ({ value: m.value, label: m.label }))),

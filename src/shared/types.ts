@@ -384,7 +384,7 @@ export interface WindowState {
 
 export interface AppConfig {
   /** 7 since working modes replaced the shipped personas (#259); 6 since notices show in Hive while it is focused; 3 since the Assistant uses the agents' model and effort (0.3.0); 2 since providers (0.2.0); 1 was Claude Code only. */
-  version: 7
+  version: 8
   settings: AppSettings
   recentWorkspaces: string[]
   /** The workspace of the window focused last (what 0.1 reopened); `windows` has every window. */
@@ -886,7 +886,14 @@ export interface UnusedWorktree {
   head?: string
   /** Its last commit: when (ISO) and its subject. */
   lastCommit?: { at: string; subject: string }
+  /**
+   * Who made it (#476): a Hive agent's (the agent whose session last ran there, when one did; else it is in Hive's
+   * worktrees folder), or not Hive (an agent's own `git worktree add`, a CLI subagent's isolation, the user's).
+   */
+  origin?: UnusedWorktreeOrigin
 }
+
+export type UnusedWorktreeOrigin = { madeBy: 'hive'; agentName?: string } | { madeBy: 'other' }
 
 /** A project's unused worktrees, or why git couldn't list them. */
 export interface UnusedWorktrees {

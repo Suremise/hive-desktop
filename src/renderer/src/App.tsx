@@ -15,7 +15,7 @@ import { ModeMenuHost } from './components/PermissionMode'
 import { ActivityBar, StatusBar } from './components/Shell'
 import { Sidebar } from './components/Sidebar'
 import { TitleBar } from './components/TitleBar'
-import { isProviderEnabled } from '@shared/providers'
+import { enabledProviders } from '@shared/providers'
 import { tipsState } from '@shared/tips'
 import { CornerPlacement, TipCard, TipsDialog } from './components/Tips'
 import { applyTipsState, showTodaysTip } from './tips'
@@ -23,7 +23,7 @@ import { startupReplay } from './startupReplay'
 import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
 import { ProgressPanel } from './components/Progress'
 import { AssistantMain } from './components/AssistantView'
-import { agentOnScreen, applyLiveState, assistantOnLeft, assistantWasOpen, clearStartFailure, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, pushToast, set, useStore } from './store'
+import { agentOnScreen, applyLiveState, assistantOnLeft, assistantWasOpen, clearStartFailure, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, pushToast, set, useProviderWarnings, useStore } from './store'
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
 import { TemplatesView } from './components/Templates'
 import { ProjectView } from './views/ProjectView'
@@ -311,15 +311,16 @@ export function App() {
     }
   }, [])
 
-  // An enabled provider that isn't installed: offer its setup once detection has finished.
+  // A provider in use that isn't installed, or none installed at all (#474): offer its setup once detection has finished.
+  const warn = useProviderWarnings()
   useEffect(() => {
     if (setupShown.current || !settings) return
-    const missing = Object.values(providers).find((p) => isProviderEnabled(settings, p.provider) && !p.checking && !p.found)
+    const missing = warn.noneInstalled ? enabledProviders(settings)[0]?.id : warn.providers.find((p) => providers[p.id] && !providers[p.id].checking && !providers[p.id].found)?.id
     if (missing) {
       setupShown.current = true
-      set({ setupOpen: missing.provider })
+      set({ setupOpen: missing })
     }
-  }, [providers, settings])
+  }, [providers, settings, warn])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

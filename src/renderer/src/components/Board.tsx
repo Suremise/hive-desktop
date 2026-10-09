@@ -1642,6 +1642,8 @@ type StartPick = ReturnType<typeof useStartPick>
 function StartChoices({ project, pick }: { project: ProjectInfo; pick: StartPick }) {
   const { settings, choice, setChoice, name, setName, provider, setProvider, worktreeWhy } = pick
   const providers = enabledProviders(settings)
+  // Automatic's default follows what's installed (#474): shown again when that changes.
+  useStore((s) => s.providers)
   const def = projectDefaultProvider(project.config, settings)
   return (
     <>

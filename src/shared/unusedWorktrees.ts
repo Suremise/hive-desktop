@@ -18,6 +18,28 @@ export function unusedState(w: UnusedWorktree): string {
   return parts.length ? parts.join(' · ') : (c.reason ?? "Hive couldn't check it")
 }
 
+/** Who made it, in a few words (#476): "was B4" (the Hive agent that worked there), "made by Hive", "not made by Hive". */
+export function originLabel(w: Pick<UnusedWorktree, 'origin'>): string {
+  const o = w.origin
+  if (!o) return ''
+  if (o.madeBy === 'other') return 'not made by Hive'
+  return o.agentName ? `was ${o.agentName}` : 'made by Hive'
+}
+
+/** One unused worktree in the Changes tab's picker (#476): "hive/b4 · was B4 · holds work". */
+export function unusedPickerLabel(w: UnusedWorktree): string {
+  return [w.branch ?? '(detached)', originLabel(w), w.check.removable ? 'merged, clean' : holdsWork(w) ? 'holds work' : 'not checked'].filter(Boolean).join(' · ')
+}
+
+/** What each page of the Changes tab shows, in one sentence at the top of the page's right side (#476). */
+export const CHANGES_ABOUT = {
+  unused: (project: string, into: string | null) =>
+    `Worktrees no agent of ${project} works in: kept when their agent was removed, or made outside Hive (by an agent's own git worktree add, say). Open one to see its changes and merge them, or give it to an agent.${into ? ` Those merged into ${into} and clean can go with their branches; the others hold work that is nowhere else.` : ''}`,
+  unusedOne: (branch: string, into: string) => `An unused worktree: everything on ${branch} that isn't on ${into}. Merge it, or go back to Unused worktrees to give it to an agent or remove it.`,
+  agent: (name: string, branch: string, base: string) => `${name}'s worktree: everything on ${branch} since it left ${base}. Merge… brings it into ${base}.`,
+  project: "The project folder: what isn't committed yet, from you or the agents working in the folder itself (those without a worktree)."
+}
+
 /** What removing a worktree anyway loses, one line each, as its danger confirm lists them (#353). */
 export function lostLines(w: { path: string; branch: string | null; into: string | null; ahead: number; dirty: number }): string[] {
   return [

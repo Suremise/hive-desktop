@@ -62,8 +62,8 @@ export function gitProblemText(t: GitTool | null | undefined): string | null {
 /** How to fix git missing or too old, after the problem. */
 export function gitFixText(t: GitTool | null | undefined): string {
   return t?.state === 'old'
-    ? `Update Git for Windows to ${GIT_MIN} or later, then restart Hive.`
-    : `Install Git for Windows (${GIT_MIN} or later), or add the folder holding git.exe to your PATH, then restart Hive.`
+    ? `Update Git for Windows to ${GIT_MIN} or later, then Check again in Agent Setup.`
+    : `Install Git for Windows (${GIT_MIN} or later), or add the folder holding git.exe to your PATH, then Check again in Agent Setup (no need to restart Hive).`
 }
 
 /** What doesn't work with an old git that still runs, for Agent Setup. */

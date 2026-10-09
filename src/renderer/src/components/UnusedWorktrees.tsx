@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ProjectInfo, UnusedWorktree, UnusedWorktreePreview, UnusedWorktreeRemoval, UnusedWorktrees } from '@shared/types'
 import { formatSize } from '@shared/storage'
-import { UNUSED_WORKTREES_GUIDE, holdsWork, lostByRemoving, unusedState, unusedSummary, unusedWorkNotice } from '@shared/unusedWorktrees'
+import { RecentCache } from '@shared/recentCache'
+import { CHANGES_ABOUT, UNUSED_WORKTREES_GUIDE, holdsWork, lostByRemoving, originLabel, unusedState, unusedSummary, unusedWorkNotice } from '@shared/unusedWorktrees'
 import { call, errorMessage } from '../api'
 import { confirm, giveWorktreeToAgent, notify, showUnusedWorktrees, useStore } from '../store'
 import { openGuideAt } from '../tips'
@@ -10,31 +11,61 @@ import { BusyButton, Icon, InfoTip } from './ui'
 import { useStorageRequests } from './Storage'
 
 /**
- * The project's unused worktrees, as git says now: loaded again when its agents' worktrees change, when one changed
- * outside the list (a merge of one, `bumpUnused`), or on `reload`.
+ * Each project's unused worktrees as last listed (#476), with when: shown at once, while git is asked again, by every
+ * list of them. The window's workspace's only (switching workspace empties it), and the 20 projects shown last.
  */
-export function useUnusedWorktrees(project: ProjectInfo): { data: UnusedWorktrees | null; reload: () => void } {
-  const [data, setData] = useState<UnusedWorktrees | null>(null)
+const lastListed = new RecentCache<{ data: UnusedWorktrees; at: number }>(20)
+
+/**
+ * The project's unused worktrees, as git says now: loaded again when its agents' worktrees change, when one changed
+ * outside the list (a merge of one, `bumpUnused`), or on `reload`. Listing reads git for each worktree, which takes a
+ * while: the last list shows meanwhile (`loading`; `at`, when it was read), and `error` says why the latest listing
+ * failed (with or without a list from before).
+ */
+export function useUnusedWorktrees(project: ProjectInfo): { data: UnusedWorktrees | null; reload: () => void; loading: boolean; error: string | null; at: number } {
+  const cacheKey = project.path.toLowerCase()
+  const wsPath = useStore((s) => s.workspace?.path ?? null)
+  const fromCache = useCallback(() => lastListed.scope(wsPath).get(cacheKey) ?? null, [wsPath, cacheKey])
+  const [data, setData] = useState<UnusedWorktrees | null>(() => fromCache()?.data ?? null)
+  const [at, setAt] = useState(() => fromCache()?.at ?? 0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const loads = useRef(0)
   // The agents' worktrees: one removed (its worktree kept) or given to an agent changes the list.
   const trees = project.agents.map((a) => a.worktree?.path ?? '').join('|')
   const version = useStore((s) => s.unusedVersion[project.path] ?? 0)
   const reload = useCallback(() => {
     const n = ++loads.current
+    setLoading(true)
     void call('worktrees:unused', project.path).then(
-      (d) => n === loads.current && setData(d),
-      () => n === loads.current && setData(null)
+      (d) => {
+        if (n !== loads.current) return
+        const now = Date.now()
+        lastListed.scope(wsPath).set(cacheKey, { data: d, at: now })
+        setData(d)
+        setAt(now)
+        setError(null)
+        setLoading(false)
+      },
+      (e) => {
+        if (n !== loads.current) return
+        setError(errorMessage(e))
+        setLoading(false)
+      }
     )
-  }, [project.path])
+  }, [project.path, cacheKey, wsPath])
   useEffect(() => {
-    setData(null)
+    const c = fromCache()
+    setData(c?.data ?? null)
+    setAt(c?.at ?? 0)
+    setError(null)
     reload()
-  }, [reload, trees])
+  }, [reload, trees, fromCache])
   // Changed elsewhere: the list stays shown while it loads again.
   useEffect(() => {
     if (version) reload()
   }, [version, reload])
-  return { data, reload }
+  return { data, reload, loading, error, at }
 }
 
 /**
@@ -62,7 +93,13 @@ export function UnusedWorktreesSection({ project, data, reload, onOpen }: { proj
   }, [paths, project.path, request])
 
   if (!data) return <div className="empty-state"><Icon name="loading" spin />Loading…</div>
-  if (!list.length) return <div className="empty-state">{data.gitProblem ? `${data.gitProblem}, so Hive can't list the unused worktrees.` : `${project.name} has no unused worktrees: every worktree belongs to an agent.`}</div>
+  if (!list.length)
+    return (
+      <div className="unused-worktrees">
+        <UnusedHeading project={project} count={0} />
+        <div className="empty-state">{data.gitProblem ? `${data.gitProblem}, so Hive can't list the unused worktrees.` : `${project.name} has no unused worktrees: every worktree belongs to an agent.`}</div>
+      </div>
+    )
   const merged = list.filter((w) => w.check.removable)
   const into = list.find((w) => w.check.into)?.check.into ?? 'the main branch'
 
@@ -156,20 +193,13 @@ export function UnusedWorktreesSection({ project, data, reload, onOpen }: { proj
 
   return (
     <div className="unused-worktrees">
-      <h2 className="section" id="unused-worktrees">
-        Unused worktrees <span className="badge">{list.length}</span>
-        <InfoTip text="Worktrees no agent of this project uses right now, e.g. from another template (loading that template gives them back to its agents)." />
-        <div className="grow" />
+      <UnusedHeading project={project} count={list.length} into={into}>
         {merged.length > 0 && (
           <button className="btn small" onClick={() => void removeMerged()}>
             Remove all merged ({merged.length})…
           </button>
         )}
-        <button className="btn small subtle" onClick={() => openGuideAt(UNUSED_WORKTREES_GUIDE)}>
-          Learn more
-        </button>
-      </h2>
-      <p className="hint">Worktrees no agent of {project.name} works in, kept when their agent was removed. Those merged into {into} and clean can go with their branches; the others hold work that is nowhere else.</p>
+      </UnusedHeading>
       {list.map((w) => {
         const size = sizes?.[w.path.toLowerCase()]
         return (
@@ -178,7 +208,12 @@ export function UnusedWorktreesSection({ project, data, reload, onOpen }: { proj
             <div className="grow">
               <div>
                 <strong>{w.branch ?? '(detached)'}</strong>{' '}
-                <span className={cx('badge', w.check.removable ? 'success' : holdsWork(w) ? 'warn' : '')}>{unusedState(w)}</span>
+                <span className={cx('badge', w.check.removable ? 'success' : holdsWork(w) ? 'warn' : '')}>{unusedState(w)}</span>{' '}
+                {w.origin && (
+                  <span className={cx('badge', w.origin.madeBy === 'other' && 'accent')} data-origin={w.origin.madeBy}>
+                    {originLabel(w)}
+                  </span>
+                )}
               </div>
               <div className="muted mono" style={{ fontSize: 11 }}>
                 {w.path}
@@ -214,6 +249,29 @@ export function UnusedWorktreesSection({ project, data, reload, onOpen }: { proj
         )
       })}
     </div>
+  )
+}
+
+/**
+ * The unused worktrees page's header (#476): its title, count and actions, and the one sentence saying what the page
+ * shows (the Changes tab's description of it, on the right, whether the list is loading, empty or listed).
+ */
+export function UnusedHeading({ project, count, into, children }: { project: ProjectInfo; count?: number; into?: string; children?: React.ReactNode }) {
+  return (
+    <>
+      <h2 className="section" id="unused-worktrees">
+        Unused worktrees {count !== undefined && <span className="badge">{count}</span>}
+        <InfoTip text="Worktrees no agent of this project uses right now, e.g. from another template (loading that template gives them back to its agents)." />
+        <div className="grow" />
+        {children}
+        <button className="btn small subtle" onClick={() => openGuideAt(UNUSED_WORKTREES_GUIDE)}>
+          Learn more
+        </button>
+      </h2>
+      <p className="hint changes-about" data-about="unused">
+        {CHANGES_ABOUT.unused(project.name, into ?? null)}
+      </p>
+    </>
   )
 }
 

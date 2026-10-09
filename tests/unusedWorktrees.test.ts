@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync, writ
 import { delimiter, join } from 'path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
-import { holdsWork, lostByRemoving, templateWorktreesHint, unusedState, unusedSummary, unusedWorkNotice } from '../src/shared/unusedWorktrees'
+import { holdsWork, lostByRemoving, originLabel, templateWorktreesHint, unusedPickerLabel, unusedState, unusedSummary, unusedWorkNotice } from '../src/shared/unusedWorktrees'
 import type { UnusedWorktree } from '../src/shared/types'
 import { junction, shortPath } from './pathAliases'
 import { tempDir } from './tempDir'
@@ -121,6 +121,31 @@ describe('listing', () => {
     expect(await run(() => removeUnusedWorktree(proj, t.path))).toMatchObject({ deleted: false })
     expect(existsSync(t.path)).toBe(true)
     agents([])
+  })
+
+  it("says who made each (#476): the Hive agent whose session last ran there, else Hive's folder, else not Hive", async () => {
+    const ran = await tree(`ran${++n}`)
+    const hive = await tree(`hive${n}`)
+    const other = { path: join(base, 'elsewhere', `other${n}`), branch: `feature/other${n}` }
+    await createWorktree(proj, other.path, other.branch, 'main')
+    const at = (m: number): string => new Date(Date.UTC(2026, 9, 9, 10, m)).toISOString()
+    const session = (id: string, cwd: string, agentName: string, m: number) => ({ id, agent: 'claude-code', name: id, createdAt: at(m), lastActiveAt: at(m), archived: false, agentId: `a-${agentName}`, agentName, cwd })
+    // Two agents ran there: the later one names it. A session in the project folder says nothing about worktrees.
+    writeFileSync(join(proj, '.hive', 'sessions.json'), JSON.stringify({ version: 1, sessions: [session('s1', ran.path, 'Old', 1), session('s2', ran.path, 'B4', 2), session('s3', proj, 'Main', 3)] }))
+    try {
+      // One listing (it reads git for every worktree): each is looked up in it.
+      const list = await listOf()
+      const of = (path: string): UnusedWorktree => list.find((x) => placeKey(x.path) === placeKey(path))!
+      expect(of(ran.path).origin).toEqual({ madeBy: 'hive', agentName: 'B4' })
+      expect(of(hive.path).origin).toEqual({ madeBy: 'hive' })
+      expect(of(other.path).origin).toEqual({ madeBy: 'other' })
+      expect(originLabel(of(ran.path))).toBe('was B4')
+      expect(originLabel(of(hive.path))).toBe('made by Hive')
+      expect(originLabel(of(other.path))).toBe('not made by Hive')
+      expect(unusedPickerLabel(of(other.path))).toBe(`feature/other${n} · not made by Hive · merged, clean`)
+    } finally {
+      writeFileSync(join(proj, '.hive', 'sessions.json'), JSON.stringify({ version: 1, sessions: [] }))
+    }
   })
 
   it('a detached worktree is listed, never removable by Remove', async () => {
