@@ -36,6 +36,20 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## A bulk board change is one change: fakes, Codex (`gpt-5.6-luna`), Claude Code (sonnet), fixtures v29, 9 October 2026
+
+#488 (Darren's decision): the Assistant's `hive_update_tasks` counts as one of its 30 changes for a message, however
+many cards it has, so a bulk move never stops part-way. Hive enforces it (`assistantControl.admit`); the coordinate-agents
+skill's "Bulk moves" line and the tool's description now say so instead of "each card counts".
+- **Fakes** (baselines `b3-488-before` on `540fbd2`, clean, and `b3-488-after`, the change uncommitted; results
+  `2026-10-09T22-01-58-fake` and `2026-10-09T22-39-09-fake`): every check passes both times, and Performance → Compare finds all
+  61 scenarios **No change** (the description is shorter by a sentence, within 1%).
+- **Codex: 2 of 2 pass** (`2026-10-09T22-23-11-codex`, $0.013): assistant-bulk-move moved the five cards with one
+  `hive_update_tasks` call; assistant-dispatch started and followed its card.
+- **Claude Code (sonnet)**: assistant-bulk-move **passes** (one call, $0.114). assistant-dispatch fails "the agent did it"
+  (the card still in Doing when the run ends, after the Assistant started it and watched it), three times, **also without
+  this change** (`22-57-43`, on `540fbd2`): not from #488, now #498.
+
 ## Asking before taking the card: fakes, Codex (`gpt-5.6-luna`), Claude Code (sonnet), fixtures v29, 9 October 2026
 
 #438 (Darren's option 3): work-on-card has an agent take the card (move it to Doing, which gives it to itself) before it
