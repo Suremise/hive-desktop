@@ -1541,6 +1541,7 @@ class SessionManager {
       }
       this.emitState(st)
       log.info(`${userText(this.label(st))}: switched to ${mode} with the mode menu (confirmed)`)
+      this.refreshSizeSoon(l)
       return { ok: true }
     }
     const seen = new Set<PermissionMode>()
@@ -1553,6 +1554,7 @@ class SessionManager {
       while (Date.now() - t < 4000 && st.permissionMode === before) await new Promise((r) => setTimeout(r, 50))
       if (st.permissionMode === mode) {
         log.info(`${userText(this.label(st))}: switched to ${mode}`)
+        this.refreshSizeSoon(l)
         return { ok: true }
       }
       if (st.permissionMode === before) break
@@ -2327,17 +2329,23 @@ class SessionManager {
   /**
    * A CLI whose full-screen interface a resize while it starts can leave drawn at the wrong width (Copilot): a size
    * refresh, as resizing the window by hand gives, once it has started (its first status: ready, or a question at
-   * start) and once it is ready (#486). A moment later, so it has drawn what it shows by then.
+   * start) and once it is ready (#486); also after Hive switches its mode live (setPermissionMode).
    */
   private refreshSize(state: LiveSessionState): void {
-    const id = liveId(state.projectPath, state.agentId)
-    const l = this.live.get(id)
+    const l = this.live.get(liveId(state.projectPath, state.agentId))
     if (!l || l.state !== state || !l.adapter.descriptor.capabilities.startupSizeRefresh || state.settingUp || state.status === 'starting' || l.sizeRefreshed === 'ready') return
     const ready = state.status !== 'waiting'
     if (l.sizeRefreshed === 'started' && !ready) return
     l.sizeRefreshed = ready ? 'ready' : 'started'
+    this.refreshSizeSoon(l)
+  }
+
+  /** A size refresh a moment from now, so the CLI has drawn what it shows by then, for a CLI that needs it (refreshSize). */
+  private refreshSizeSoon(l: LiveSession): void {
+    if (!l.adapter.descriptor.capabilities.startupSizeRefresh) return
+    const { projectPath, agentId } = l.state
     setTimeout(() => {
-      if (this.live.get(id) === l) refreshPty(this.key(state.projectPath, state.agentId))
+      if (this.live.get(liveId(projectPath, agentId)) === l) refreshPty(this.key(projectPath, agentId))
     }, SIZE_REFRESH_DELAY_MS)
   }
 

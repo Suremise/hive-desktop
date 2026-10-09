@@ -75,7 +75,7 @@ export interface ProviderCapabilities {
   /**
    * The CLI draws a full-screen interface that a resize while it starts can leave drawn at the wrong width, until the
    * next resize (Copilot, #486): Hive gives it a size refresh, as resizing the window by hand would, once it has
-   * started (its first status) and again once it is ready.
+   * started (its first status), again once it is ready, and after Hive switches its mode live.
    */
   startupSizeRefresh: boolean
 }

@@ -3,10 +3,11 @@
 // resized. The real Copilot CLI, offline against the scripted stand-in model (fake-copilot-api.cjs), in a folder it
 // already trusts. Started while Settings hides its pane and the window changes size: its terminal is the process's size
 // meanwhile (not xterm's 80 × 24); shown, it is fitted, and Hive gives Copilot a size refresh once it is ready. Started
-// while the window changes size several times: the same. Restarted in another mode (Ask): the new process starts at the
-// pane's size. Each time the screen is checked: one prompt, one header, full-width rules, no loading frames left. Accept
-// edits' badge explains Copilot's own "Manual Approval" label. Copilot runs in a home of the suite's own with the GitHub
-// CLI's login hidden: never the user's ~/.copilot or gh sign-in. Skipped where Copilot isn't installed.
+// while the window changes size several times: the same. Switched live to Plan and back: a refresh after each.
+// Restarted in another mode (Ask): the new process starts at the pane's size. Each time the screen is checked: one
+// prompt, one header, full-width rules, no loading frames left. Accept edits' badge explains Copilot's own "Manual
+// Approval" label. Copilot runs in a home of the suite's own with the GitHub CLI's login hidden: never the user's
+// ~/.copilot or gh sign-in. Skipped where Copilot isn't installed.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -143,7 +144,16 @@ const check = (name, ok, extra = '') => {
     await page.mouse.move(5, 5)
     check('Accept edits: the mode badge explains Copilot’s “Manual Approval” label', /Manual Approval/.test(tipText ?? ''), tipText ?? 'no tooltip')
 
-    // 3. A mode switch that restarts it (Accept edits → Ask): the new process starts at the pane's size.
+    // 3. A live mode switch (Shift+Tab to Plan, and back): Copilot gets a size refresh after each.
+    for (const mode of ['plan', 'accept-edits']) {
+      const n = refreshes().length
+      const r = await inv('session:setMode', proj, a.id, mode)
+      check(`switched live to ${mode}`, r?.ok === true && (await live())?.permissionMode === mode, JSON.stringify({ r, mode: (await live())?.permissionMode }))
+      await cleanScreen(`switched live to ${mode}`, n + 1)
+    }
+    await page.screenshot({ path: path.join(lib.WORK, 'copilotsize-3-switched.png') })
+
+    // 4. A mode switch that restarts it (Accept edits → Ask): the new process starts at the pane's size.
     const paneSize = await term()
     const beforeMode = refreshes().length
     await inv('session:restartInMode', proj, a.id, 'ask')
@@ -151,7 +161,7 @@ const check = (name, ok, extra = '') => {
     check('restarted in Ask: Copilot starts at the pane’s size', !!started && started.cols === paneSize?.cols && started.rows === paneSize?.rows, JSON.stringify({ started, paneSize }))
     check('restarted in Ask: ready', !!(await ready()), await status())
     await cleanScreen('restarted in Ask', beforeMode + 1)
-    await page.screenshot({ path: path.join(lib.WORK, 'copilotsize-3-mode.png') })
+    await page.screenshot({ path: path.join(lib.WORK, 'copilotsize-4-mode.png') })
 
     await inv('session:stop', proj, a.id).catch(() => {})
     await stopped()
