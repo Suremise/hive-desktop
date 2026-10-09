@@ -277,6 +277,16 @@ export function modeAllowed(provider: ProviderId, mode: PermissionMode | null | 
   return !!m && (!m.danger || providerSettings(settings, provider).enableDangerousMode)
 }
 
+/** A provider's no-guardrails modes (danger), which its one opt-in (enableDangerousMode) unlocks together. */
+export function dangerModes(provider: ProviderId | ProviderDescriptor): ModeOption[] {
+  return (typeof provider === 'string' ? providerDescriptor(provider) : provider).permissionModes.filter((m) => m.danger)
+}
+
+/** Labels as one phrase: "Bypass permissions", "Autopilot and Allow all", "A, B and C" (`and`: the joining word). */
+export function labelList(labels: string[], and = 'and'): string {
+  return labels.length < 2 ? (labels[0] ?? '') : `${labels.slice(0, -1).join(', ')} ${and} ${labels[labels.length - 1]}`
+}
+
 /** The modes a picker offers: the provider's, without the dangerous one unless it is enabled. */
 export function offeredModes(provider: ProviderId, settings: Pick<AppSettings, 'providers'> | null | undefined): ModeOption[] {
   return providerDescriptor(provider).permissionModes.filter((m) => !m.danger || providerSettings(settings, provider).enableDangerousMode)

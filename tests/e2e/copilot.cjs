@@ -212,6 +212,19 @@ const check = (name, ok, extra = '') => {
     check('C: Copilot recorded its totals (session.shutdown)', !!(await lib.until(() => fs.existsSync(cEvents) && fs.readFileSync(cEvents, 'utf8').includes('"type":"session.shutdown"'), 15000, 300)))
     check('p.txt not edited again', !fs.readFileSync(path.join(proj2, 'p.txt'), 'utf8').includes('again'))
 
+    // Copilot's one danger opt-in unlocks both its danger modes, and turning it off moves projects and agents using either
+    // back to Inherit (#461).
+    const cfg2 = () => JSON.parse(fs.readFileSync(path.join(proj2, '.hive', 'project.json'), 'utf8'))
+    const modes2 = () => { const c2 = cfg2(); return { project: c2.providers?.copilot?.permissionMode ?? 'inherit', agent: (c2.agents ?? []).find((x) => x.id === c.id)?.permissionMode ?? 'inherit' } }
+    await inv('settings:update', { providers: { copilot: { enableDangerousMode: true } } })
+    await inv('project:updateProvider', proj2, 'copilot', { permissionMode: 'autopilot' })
+    await inv('agents:update', proj2, c.id, { permissionMode: 'allow-all' })
+    check('paren(1) in Autopilot and C in Allow all, once allowed', JSON.stringify(modes2()) === JSON.stringify({ project: 'autopilot', agent: 'allow-all' }), JSON.stringify(modes2()))
+    await inv('settings:update', { providers: { copilot: { enableDangerousMode: false } } })
+    const reverted = await lib.until(() => { const m = modes2(); return m.project === 'inherit' && m.agent === 'inherit' }, 15000, 300)
+    check('turning the opt-in off moves both back to Inherit', !!reverted, JSON.stringify(modes2()))
+    check('…and says so', !!(await lib.until(async () => (await page.getByText('Autopilot and Allow all turned off').count()) > 0, 10000, 300)))
+
     // A: a question (ask_user: Notification elicitation_dialog): waiting with its question, then answered.
     await send(a.id, 'question then say Thanks.')
     const q = await lib.until(async () => { const l = await live(a.id); return l?.status === 'waiting' ? l : null }, 30000, 300)
