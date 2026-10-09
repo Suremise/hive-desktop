@@ -10,7 +10,7 @@
 import type { AppSettings, ProjectConfig, ProviderId } from './types'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS, FILE_LOCK_MODES } from './defaults'
 import { PRICES_CHECKED } from './prices'
-import { PROVIDERS, defaultProviderSettings, permissionLabel, projectProviderConfig, providerDescriptor, providerSettings, type ProviderDescriptor } from './providers'
+import { AUTO_PROVIDER, PROVIDERS, defaultProviderSettings, permissionLabel, projectProviderConfig, providerDescriptor, providerSettings, type ProviderDescriptor } from './providers'
 
 /** Where a setting lives: Hive's own (Settings), a provider's page in Settings, the open workspace, or one project (Project Settings). */
 export type SettingScope = 'app' | 'provider' | 'workspace' | 'project'
@@ -145,7 +145,7 @@ const APP_ROWS: Row[] = [
   { section: 'appearance', key: 'terminalCursorBlink', title: 'Blinking cursor', desc: 'Blink the terminal cursor.', tip: 'Purely cosmetic.', type: 'boolean' },
   // Providers
   { section: 'providers', key: 'list', title: 'Providers', desc: 'Turn on the coding agents you want to use. Agents of a provider that is off stay listed but can\'t start.', tip: 'Each project agent runs one provider, chosen when you add it (Add Agent) or in its settings. A provider needs its CLI installed and signed in.', type: 'custom', wide: true },
-  { section: 'providers', key: 'defaultProvider', title: 'Default provider', desc: 'The provider Add Agent uses for new agents (one click, with its default settings) unless the project chooses another.', tip: 'Projects can choose their own default in Project Settings. Agents keep the provider they were given; Add Agent… (▾) can choose another.', type: 'custom' },
+  { section: 'providers', key: 'defaultProvider', title: 'Default provider', desc: 'The provider Add Agent uses for new agents (one click, with its default settings) unless the project chooses another. Automatic uses the first provider that is turned on and installed (Claude Code, then Codex, then GitHub Copilot).', tip: 'Projects can choose their own default in Project Settings. Agents keep the provider they were given; Add Agent… (▾) can choose another.', type: 'custom' },
   ...PROVIDERS.flatMap(providerRows),
   // Notifications
   { section: 'notifications', key: 'chimeEnabled', title: 'Completion chime', desc: 'Play a sound when an agent finishes or needs your input.', tip: 'Projects can override this in their settings.', type: 'boolean' },
@@ -674,7 +674,7 @@ export function settingOptions(e: SettingEntry): { value: string; label: string 
   if (e.options) return e.options
   const providers = PROVIDERS.map((p) => ({ value: p.id, label: p.name }))
   if (e.id === 'notifications.chimeSound') return ['chime', 'bell', 'soft', 'pop'].map((v) => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1) }))
-  if (e.id === 'providers.defaultProvider') return providers
+  if (e.id === 'providers.defaultProvider') return [{ value: AUTO_PROVIDER, label: 'Automatic' }, ...providers]
   if (e.id === 'assistant.provider') return [{ value: '', label: 'Default provider' }, ...providers]
   if (e.id === 'project.defaultProvider') return [INHERIT, ...providers]
   const modes = (p: ProviderId) => providerDescriptor(p).permissionModes.map((m) => ({ value: m.value, label: m.label }))

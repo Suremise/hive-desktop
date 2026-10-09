@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import iconUrl from '../assets/icon.svg'
 import { call, errorMessage } from '../api'
 import { commandKeybinding, commandLabel, commands, runCommand } from '../commands'
-import { closeDialog, dismissToast, findProject, NO_PROJECTS, notify, set, setActivity, useStore } from '../store'
+import { closeDialog, dismissToast, findProject, NO_PROJECTS, notify, set, setActivity, useProviderWarnings, useStore } from '../store'
 import { cacheState, useLiveUsage } from '../usage'
 import { actClass, cx, formatKeybinding, formatTokens, timeAgo } from '../util'
 import { TerminalView } from './TerminalView'
@@ -1077,12 +1077,14 @@ export function QuitPendingBanner() {
 }
 
 /**
- * What stands between you and running agents, until it is fixed: no provider turned on, or an enabled
- * provider that isn't installed, isn't signed in or needs its one-time setup. Not dismissable.
+ * What stands between you and running agents, until it is fixed: no provider turned on, none of those turned on
+ * installed, or a provider in use (the default for new agents, or an agent's, #474) that isn't installed, isn't signed
+ * in or needs its one-time setup. A provider only turned on isn't warned about. Not dismissable.
  */
 export function ProvidersBanner() {
   const settings = useStore((s) => s.settings)
   const providers = useStore((s) => s.providers)
+  const warn = useProviderWarnings()
   if (!settings) return null
   const on = enabledProviders(settings)
   if (!on.length) {
@@ -1095,7 +1097,17 @@ export function ProvidersBanner() {
       </div>
     )
   }
-  const issues = on.flatMap((p) => {
+  if (warn.noneInstalled) {
+    return (
+      <div className="banner warn providers-banner" data-none-installed="">
+        <Icon name="hubot" /> No coding agent CLI is installed. Install {on.length > 1 ? 'one of those you turned on' : on[0].name} to run agents.
+        <button className="btn small primary" onClick={() => set({ setupOpen: on[0].id })}>
+          Agent Setup
+        </button>
+      </div>
+    )
+  }
+  const issues = warn.providers.flatMap((p) => {
     const info = providers[p.id]
     if (!info || info.checking) return []
     return (info.readiness ?? []).filter((r) => r.level !== 'info').map((r) => ({ p, r }))

@@ -64,6 +64,7 @@ export const SUITES = [
   { name: 'ctxpercent' },
   { name: 'decisions' },
   { name: 'decisionwake' },
+  { name: 'defaultprovider' },
   { name: 'dialogs' },
   { name: 'doingmove' },
   { name: 'donemove' },

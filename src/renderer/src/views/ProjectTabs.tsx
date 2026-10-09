@@ -9,7 +9,7 @@ import { gitFixText } from '@shared/gitTool'
 import { UnusedWorkNotice, UnusedWorktreesLine, UnusedWorktreesSection, useUnusedWorktrees } from '../components/UnusedWorktrees'
 import { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, type DayTotal, type Period, type Totals } from '@shared/usageTotals'
 import { FILE_LOCK_MODES, MAX_AGENTS, contextPercent, turnPushedCompaction, effectiveModelLabel, mergeBlocked, modelLabel } from '@shared/defaults'
-import { PROVIDERS, contextLines, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
+import { PROVIDERS, contextLines, defaultProviderLabel, isProviderEnabled, modeOption, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { effortText, runsAsName } from '@shared/models'
 import { PROJECT_SETTINGS_SECTIONS, settingEntry } from '@shared/settingsCatalog'
@@ -1292,7 +1292,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
   }
   const globalLock = FILE_LOCK_MODES.find((m) => m.value === settings.agents.fileLocks)
   const lockMode = cfg.fileLocks === 'inherit' ? settings.agents.fileLocks : cfg.fileLocks
-  const globalDefault = providerName(settings.defaultProvider)
+  const globalDefault = defaultProviderLabel(settings)
   const globalCompact = settings.sessions.compactSuggestTokens ? settings.sessions.compactSuggestTokens.toLocaleString() : 'never'
   const globalWarn = settings.sessions.transcriptWarnMB ? `${settings.sessions.transcriptWarnMB} MB` : 'never'
 

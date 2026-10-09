@@ -6,7 +6,7 @@ import { PRICES_CHECKED, SHIPPED_PRICES, priceRows } from '@shared/prices'
 import { APP_SETTINGS_CATALOG, SETTINGS_SECTIONS, providerSection, settingDefault, settingPatch, settingValue, type SettingEntry, type SettingsSection } from '@shared/settingsCatalog'
 import { effortText, fallbackEfforts, fallbackModels, modelSource, modelSourceText, runsAsName } from '@shared/models'
 import type { SettingsPatch } from '@shared/api'
-import { PROVIDERS, enabledProviders, isProviderEnabled, offeredModes, permissionLabel, providerDescriptor, providerSettings } from '@shared/providers'
+import { AUTO_PROVIDER, PROVIDERS, defaultProviderLabel, enabledProviders, isProviderEnabled, offeredModes, permissionLabel, providerDescriptor, providerSettings } from '@shared/providers'
 import { usePersonas } from '../components/Assistant'
 import { ModeCaveat } from '../components/AgentDialogs'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
@@ -470,10 +470,11 @@ function AssistantProviderPicker() {
   const settings = useStore((s) => s.settings)
   const on = enabledProviders(settings)
   const current = settings?.assistant.provider ?? ''
-  const def = providerDescriptor(settings?.defaultProvider)
+  // The window re-renders when what's installed changes: Automatic follows it.
+  useStore((s) => s.providers)
   return (
     <select className="select" value={current} onChange={(e) => void saveSettings({ assistant: { provider: e.target.value } })}>
-      <option value="">Default provider ({def.name})</option>
+      <option value="">Default provider ({defaultProviderLabel(settings)})</option>
       {PROVIDERS.filter((p) => on.includes(p) || p.id === current).map((p) => (
         <option key={p.id} value={p.id}>
           {p.name}
@@ -562,8 +563,11 @@ function DefaultProviderPicker() {
   const on = enabledProviders(settings)
   const def = SETTINGS.find((d) => d.key === 'defaultProvider')!
   const current = settings?.defaultProvider ?? ''
+  // Automatic names what it picks now, which follows what's installed.
+  useStore((s) => s.providers)
   return (
     <select className="select" value={current} onChange={(e) => void update(def, e.target.value)}>
+      <option value={AUTO_PROVIDER}>{defaultProviderLabel(settings && { ...settings, defaultProvider: AUTO_PROVIDER })}</option>
       {PROVIDERS.filter((p) => on.includes(p) || p.id === current).map((p) => (
         <option key={p.id} value={p.id}>
           {p.name}

@@ -223,7 +223,7 @@ describe('providers migration', () => {
 
   it('a fresh install starts with every provider off', () => {
     expect(Object.values(DEFAULT_SETTINGS.providers).every((p) => !p.enabled)).toBe(true)
-    expect(DEFAULT_APP_CONFIG.version).toBe(7)
+    expect(DEFAULT_APP_CONFIG.version).toBe(8)
   })
   it('moves a default persona that went to its working mode, once (#259)', () => {
     expect(load({ version: 6, settings: { assistant: { persona: 'overseer' } } }).settings.assistant.persona).toBe('coordinator')
@@ -235,8 +235,9 @@ describe('providers migration', () => {
   })
   it('moves 0.1 Claude Code settings over and keeps Claude Code on', () => {
     const c = load(v1)
-    expect(c.version).toBe(7)
-    expect(c.settings.defaultProvider).toBe('claude-code')
+    expect(c.version).toBe(8)
+    // Automatic (#474), which picks Claude Code: it stays on.
+    expect(c.settings.defaultProvider).toBe('auto')
     expect(c.settings.providers['claude-code']).toMatchObject({ enabled: true, executablePath: 'C:\\x\\claude.exe', defaultModel: 'opus', defaultEffort: 'high', defaultPermissionMode: 'acceptEdits', enableDangerousMode: true, extraArgs: '--verbose', checkUpdatesOnLaunch: false })
     expect(c.observedDefaultModel).toEqual({ 'claude-code': 'claude-opus-5-5' })
     expect(c.planUsage['claude-code'].limits).toEqual([{ id: 'five_hour', label: '5-hour', windowMinutes: 300, usedPercent: 40, resetsAt: '2026-09-29T15:00:00.000Z' }])

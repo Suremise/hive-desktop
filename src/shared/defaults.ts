@@ -2,7 +2,7 @@ import type { AgentBranchStatus, AgentDef, AppConfig, AppSettings, CompactionEve
 import { CLAUDE_CODE } from './claude'
 import { DEFAULT_COLUMN_COLORS } from './tasks'
 import { formatDateTime } from './dates'
-import { DEFAULT_PROVIDER, PROVIDERS, defaultProviderSettings, isKnownProvider, providerDescriptor } from './providers'
+import { AUTO_PROVIDER, DEFAULT_PROVIDER, PROVIDERS, defaultProviderSettings, isDefaultProviderValue, providerDescriptor } from './providers'
 import { chosenName, effortName, modelIdName, resolvedModel, runsAsName, type ModelInfo } from './models'
 
 export const HIVE_DIR = '.hive'
@@ -55,7 +55,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     terminalCursorBlink: true
   },
   providers: Object.fromEntries(PROVIDERS.map((p) => [p.id, defaultProviderSettings(p)])),
-  defaultProvider: DEFAULT_PROVIDER,
+  // Automatic (#474): the first provider turned on and installed.
+  defaultProvider: AUTO_PROVIDER,
   notifications: {
     chimeEnabled: true,
     chimeSound: 'chime',
@@ -115,7 +116,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
-  version: 7,
+  version: 8,
   settings: DEFAULT_SETTINGS,
   recentWorkspaces: [],
   lastWorkspace: null,
@@ -470,10 +471,16 @@ export function migrateConfig(cfg: AppConfig, raw?: Record<string, any>): AppCon
     const was = cfg.settings.assistant.persona
     if (RETIRED_PERSONAS[was]) cfg.settings.assistant.persona = RETIRED_PERSONAS[was]
   }
+  if (raw && (raw.version ?? 1) < 8 && cfg.settings.defaultProvider === CLAUDE_CODE) {
+    // Claude Code was the default up to 0.4.x (saved into every config), so nobody could tell it from a choice: it
+    // becomes Automatic (#474), which still picks Claude Code wherever it is turned on and installed. A Codex or
+    // Copilot default was chosen, and stays.
+    cfg.settings.defaultProvider = AUTO_PROVIDER
+  }
   delete (cfg.settings.notifications as unknown as Record<string, unknown>).onlyWhenUnfocused
-  cfg.version = 7
+  cfg.version = 8
   // Settings for providers this version doesn't know are kept (a newer Hive wrote them), but never used.
-  if (!isKnownProvider(cfg.settings.defaultProvider)) cfg.settings.defaultProvider = DEFAULT_PROVIDER
+  if (!isDefaultProviderValue(cfg.settings.defaultProvider)) cfg.settings.defaultProvider = AUTO_PROVIDER
   return cfg
 }
 

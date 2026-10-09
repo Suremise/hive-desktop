@@ -1,7 +1,7 @@
 import { homedir } from 'os'
 import type { AgentInstallInfo, ModelCatalog, ProviderId, ProviderTask } from '../shared/types'
 import { observedEffortKey } from '../shared/models'
-import { isProviderEnabled, providerSettings } from '../shared/providers'
+import { isProviderEnabled, providerSettings, setInstalledCheck } from '../shared/providers'
 import { toSpawnable } from './providers/common'
 import { allProviders, provider } from './providers'
 import type { KeySteps } from './providers/types'
@@ -297,3 +297,6 @@ class ProviderService {
 }
 
 export const providerService = new ProviderService()
+
+// Automatic's default provider (#474) follows what this process found.
+setInstalledCheck((id) => providerService.info(id).found)

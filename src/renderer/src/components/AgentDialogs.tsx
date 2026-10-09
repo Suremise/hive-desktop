@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { DEFAULT_PROJECT_CONFIG, MAX_AGENTS, ROLE_MAX, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
-import { PROVIDERS, agentProvider, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerSettings } from '@shared/providers'
+import { PROVIDERS, agentProvider, chosenDefaultProvider, isProviderEnabled, modeCaveat, offeredModes, permissionLabel, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectGitInfo, ProjectInfo, ProviderId } from '@shared/types'
 import type { TemplateAgent } from '@shared/templates'
 import { gitFixText, gitProblemText } from '@shared/gitTool'
@@ -187,10 +187,10 @@ export function AddAgentDialog() {
     setEffort('')
     setPermission('')
     setContext('')
-    // The project's default provider when it is on, else the first one that is.
+    // The project's default provider (#474): Automatic's pick is turned on; a provider the user chose stays chosen even
+    // when it is off, and the dialog says so (Add waits until it is on, or another is chosen), as quick add does.
     const s = useStore.getState().settings
-    const preferred = projectDefaultProvider(project.config, s)
-    setProvider(isProviderEnabled(s, preferred) ? preferred : PROVIDERS.find((p) => isProviderEnabled(s, p.id))?.id ?? preferred)
+    setProvider(projectDefaultProvider(project.config, s))
     setStartNow(true)
     setBusy(false)
     setGit(null)
@@ -293,6 +293,14 @@ export function AddAgentDialog() {
       </div>
       <h3 className="agent-dialog-h">Coding agent</h3>
       <ProviderChoice value={provider} onChange={chooseProvider} />
+      {!isProviderEnabled(settings, provider) && (
+        <div className="banner warn" data-provider-off={provider}>
+          <Icon name="warning" />
+          <span>
+            {providerName(provider)} is turned off{chosenDefaultProvider(project.config, settings) === provider ? `, and it is ${project.config.defaultProvider === provider ? "this project's" : 'your'} default provider` : ''}. Turn it on in Settings → Providers, or choose another provider.
+          </span>
+        </div>
+      )}
       <h3 className="agent-dialog-h">Where it works</h3>
       <div className="choice-list">
         <label className={cx('choice', location === 'project' && 'selected')}>

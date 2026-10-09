@@ -1,7 +1,7 @@
 import type { PlanLimit } from '@shared/types'
 import { useNow } from '../usage'
 import { runCommand } from '../commands'
-import { setActivity, set, useStore, type Activity } from '../store'
+import { setActivity, set, useProviderWarnings, useStore, type Activity } from '../store'
 import { enabledProviders } from '@shared/providers'
 import { ProviderIcon } from './ProviderIcon'
 import { cx, formatKeybinding, resetsIn, timeAgo } from '../util'
@@ -183,10 +183,14 @@ function PlanUsageStatus() {
   )
 }
 
-/** One item per enabled provider: its CLI version, or what it still needs (install, sign-in, setup). */
+/**
+ * One item per enabled provider: its CLI version, or what it still needs (install, sign-in, setup), as a warning when
+ * something uses it or nothing is installed (#474); a provider only turned on that isn't installed is shown plainly.
+ */
 function ProviderStatusItems() {
   const settings = useStore((s) => s.settings)
   const providers = useStore((s) => s.providers)
+  const warn = useProviderWarnings()
   return (
     <>
       {enabledProviders(settings).map((p) => {
@@ -199,7 +203,17 @@ function ProviderStatusItems() {
           )
         }
         const blocking = info.readiness?.find((r) => r.level === 'error')
-        if (!info.found || blocking) {
+        const warned = warn.noneInstalled || warn.providers.includes(p)
+        if (!info.found && !warned) {
+          return (
+            <Tooltip key={p.id} content={`${p.name} isn't installed. Nothing uses it: new agents use another provider.`}>
+              <div className="status-item faint" data-unused-provider={p.id} onClick={() => set({ setupOpen: p.id })}>
+                <ProviderIcon provider={p.id} mono /> not installed
+              </div>
+            </Tooltip>
+          )
+        }
+        if (!info.found || (blocking && warned)) {
           return (
             <Tooltip key={p.id} content={blocking?.message ?? `${p.name} is not installed.`}>
               <div className="status-item warn" onClick={() => set({ setupOpen: p.id })}>
