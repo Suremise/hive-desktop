@@ -172,6 +172,11 @@ export interface LiveDetails {
   signIn?: string
   /** When the CLI recorded that turn's end (ISO), when it says: one from before this launch (a resumed log) is history. */
   signInAt?: string
+  /**
+   * When a turn last ended on an interrupt the CLI sends no hook for (Copilot's `abort`, also when a person cancels its
+   * permission dialog), as recorded (ISO): handled as an interrupt hook. One from before this launch is history.
+   */
+  interruptedAt?: string
 }
 
 /**
@@ -210,8 +215,11 @@ export interface SkillRoots {
   machine: string[]
   /** Installed plugins, whose skills the CLI loads. */
   plugins: string | null
-  /** Folder inside a project the CLI loads skills from (e.g. .claude/skills). */
-  local: string | null
+  /**
+   * Folders inside a project the CLI loads skills from (e.g. .claude/skills), the one Hive creates a project's skills in
+   * first; [] for none. Copilot reads several (.github/skills, .agents/skills and .claude/skills).
+   */
+  local: string[]
   /** Hive's own copies inside `local`, which aren't the project's skills (folder name prefix). */
   hiveCopyPrefix: string | null
 }

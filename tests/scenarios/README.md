@@ -58,6 +58,7 @@ The checks are positive and negative:
 ```bash
 npm run scenarios                             # the fake Claude Code: free, deterministic (a failure fails the run)
 npm run scenarios -- --provider fake-codex    # the fake Codex: the same, through Hive's Codex adapter
+npm run scenarios -- --provider fake-copilot  # the real Copilot CLI offline against a scripted model: the same, at no cost
 npm run scenarios -- --save-baseline fake-main                                  # keep this run's benchmark as a baseline
 npm run scenarios -- --provider codex --repeat 3 --budget 2                     # a model trial, 3 samples a scenario
 npm run scenarios -- --provider claude-code --model haiku --budget 2            # model trials: opt-in
@@ -70,9 +71,12 @@ The scenarios run the dev build in `out/`. A run first checks it is built from t
 runner's build stamp, `tests/e2e/build.mjs`) and rebuilds it if not, so a run or a baseline never measures other code.
 Hive's test copies run quiet (`src/main/testQuiet.ts`): no window on screen, no focus taken, no notifications.
 
-- **The fakes** (`fake`, the default, and `fake-codex`) act each scenario out with their scripted commands (`skill NAME`, `boardmove`,
+- **The fakes** (`fake`, the default, `fake-codex` and `fake-copilot`) act each scenario out with their scripted commands (`skill NAME`, `boardmove`,
   `boardreview`, `boardcomment`). It checks the harness itself and the board rules Hive enforces, at no cost. Checks
-  only a model's own work can meet are skipped there (listed as SKIP).
+  only a model's own work can meet are skipped there (listed as SKIP). `fake-copilot` is the real Copilot CLI, offline,
+  in a home of the run's own: a scripted stand-in model (`tests/e2e/fake-copilot-api.cjs`) turns the same commands into
+  Copilot's own tool calls (its skill tool, the hive MCP server's tools), so its hooks, skills and transcript are
+  Copilot's. It needs the Copilot CLI installed (the run is skipped without it) and no sign-in.
 - **Model trials** cost tokens, and run only in the providers' **test homes**: never the user's own `~/.claude` or
   `~/.codex`, and never a copy of their credentials (refreshing a copy could sign the user out).
   - **Claude Code** uses `%LOCALAPPDATA%\hive-test\claude` (`HIVE_TEST_CLAUDE_HOME` overrides it). Sign in to it once, by

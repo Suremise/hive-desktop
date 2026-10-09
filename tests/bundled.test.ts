@@ -1,15 +1,15 @@
 // Hive's bundled skills and personas in a workspace (src/main/bundled.ts): new ones are added, untouched copies of
 // older versions updated, edited copies and same-name folders of the user's kept, deleted ones left deleted; a swap
 // never leaves a half-copied folder; the recorded versions cover what ships (scripts/bundled-history.mjs).
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { open } from 'fs/promises'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { bundledAction, type BundledInput } from '../src/main/bundled'
 import { cleanSwaps, contentHash, copySkillTree, swapIn } from '../src/main/fsutil'
 import HISTORY from '../src/main/bundledHistory.json'
+import { tempDir } from './tempDir'
 
 const RES = join(__dirname, '..', 'resources')
 
@@ -61,7 +61,7 @@ describe('recorded versions', () => {
   })
 
   it('counts a link by where it points, without following it', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'hive-hash-link-'))
+    const dir = tempDir('hive-hash-link-')
     const plain = join(dir, 'plain')
     const linked = join(dir, 'linked')
     const target = join(dir, 'target')
@@ -81,7 +81,7 @@ describe('recorded versions', () => {
   })
 
   it("ignores line endings, so a checkout's CRLF is the same version", async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'hive-hash-'))
+    const dir = tempDir('hive-hash-')
     mkdirSync(join(dir, 'a', 'ref'), { recursive: true })
     mkdirSync(join(dir, 'b', 'ref'), { recursive: true })
     writeFileSync(join(dir, 'a', 'SKILL.md'), 'one\ntwo\n')
@@ -98,7 +98,7 @@ describe('recorded versions', () => {
 })
 
 describe('swapping a folder in', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'hive-swap-'))
+  const dir = tempDir('hive-swap-')
   const src = join(dir, 'src')
   mkdirSync(join(src, 'references'), { recursive: true })
   writeFileSync(join(src, 'SKILL.md'), 'new')
@@ -145,7 +145,7 @@ describe('swapping a folder in', () => {
 })
 
 describe('a workspace', () => {
-  const base = mkdtempSync(join(tmpdir(), 'hive-bundled-'))
+  const base = tempDir('hive-bundled-')
   ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
   // Trash is the Recycle Bin in Hive; here it deletes.
   ;(electron.shell as unknown as { trashItem: (p: string) => Promise<void> }).trashItem = async (p) => rmSync(p, { recursive: true, force: true })
@@ -354,7 +354,7 @@ describe('a workspace', () => {
 })
 
 describe("Codex's copies of a session's skills", () => {
-  const base = mkdtempSync(join(tmpdir(), 'hive-codex-skills-'))
+  const base = tempDir('hive-codex-skills-')
   afterAll(() => rmSync(base, { recursive: true, force: true }))
   const source = (name: string, text: string) => {
     const d = join(base, 'workspace-skills', name)
@@ -364,8 +364,8 @@ describe("Codex's copies of a session's skills", () => {
     return d
   }
   const sync = async (cwd: string, skills: { name: string; sourcePath: string }[]) => {
-    const { codex } = await import('../src/main/providers/codex/adapter')
-    return (codex as unknown as { syncSkills: (ctx: unknown) => Promise<Record<string, import('../src/main/providers/types').SkillDelivery>> }).syncSkills({ cwd, skills })
+    const { syncAgentsSkills } = await import('../src/main/providers/common')
+    return syncAgentsSkills({ cwd, skills } as unknown as import('../src/main/providers/types').LaunchContext, 'Codex')
   }
 
   it('tidies what a crash in a swap left before syncing, and the next launch has the new copy', async () => {
@@ -417,14 +417,14 @@ describe("Codex's copies of a session's skills", () => {
 })
 
 describe('links in skills Hive copies', () => {
-  const base = mkdtempSync(join(tmpdir(), 'hive-skill-links-'))
+  const base = tempDir('hive-skill-links-')
   afterAll(() => rmSync(base, { recursive: true, force: true }))
   const target = join(base, 'my-references')
   mkdirSync(target, { recursive: true })
   writeFileSync(join(target, 'custom.md'), 'My own reference.')
   const sync = async (cwd: string, skills: { name: string; sourcePath: string }[]) => {
-    const { codex } = await import('../src/main/providers/codex/adapter')
-    return (codex as unknown as { syncSkills: (ctx: unknown) => Promise<Record<string, import('../src/main/providers/types').SkillDelivery>> }).syncSkills({ cwd, skills })
+    const { syncAgentsSkills } = await import('../src/main/providers/common')
+    return syncAgentsSkills({ cwd, skills } as unknown as import('../src/main/providers/types').LaunchContext, 'Codex')
   }
 
   it("copies a link as a link to the same place, so the copy is the same content as its source", async () => {

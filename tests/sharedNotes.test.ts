@@ -1,15 +1,15 @@
 // Shared notes written by several agents at once (#349): a write naming the revision it read is refused once the note
 // has changed, so a rewrite never drops another agent's update; appends keep every entry.
-import { mkdtempSync, writeFileSync } from 'fs'
+import { writeFileSync } from 'fs'
 import { readFile } from 'fs/promises'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { writeTextUnlessChanged } from '../src/main/fsutil'
 import { NoteConflict, noteRevision, readNote, writeNote } from '../src/main/notes'
 import { noteText, noteWrittenText } from '../src/shared/toolReplies'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-notes-'))
+const base = tempDir('hive-notes-')
 let n = 0
 const note = (text: string | null): string => {
   const p = join(base, `note-${++n}.md`)

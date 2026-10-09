@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync } from 'fs'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import type { BrowserWindow } from 'electron'
 import { chimeAllowed, FINISH_GROUP_MAX_MS, FINISH_GROUP_MS, FinishBatcher, finishedNotice, keepNotices, MAX_BANNERS, noticeRoute, type Finish } from '../src/shared/bursts'
 import { DEFAULT_SETTINGS } from '../src/shared/defaults'
+import { tempDir } from './tempDir'
 
 const finish = (project: string, agent: string): Finish => ({ projectPath: `C:\\ws\\${project}`, project, agent, title: `${project} · ${agent} finished`, body: `${agent} is done.` })
 
@@ -135,7 +134,7 @@ describe('where a notice goes (noticeRoute)', () => {
 // SessionManager's own path (notify → the finish group → the Windows notification), with Electron's Notification
 // recording what it would show and each project's window a stand-in whose focus the test sets.
 describe('a group of finishes, when it is shown', () => {
-  const ws = mkdtempSync(join(tmpdir(), 'hive-bursts-'))
+  const ws = tempDir('hive-bursts-')
   const alpha = join(ws, 'alpha')
   const beta = join(ws, 'beta')
   let focused: Set<string>

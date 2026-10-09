@@ -1,5 +1,7 @@
 // Hive's end-to-end suites (tests/e2e/<name>.cjs), for run.mjs, the affected-suite map and their tests.
-// needs: claude = starts the real Claude Code; codex = the signed-in test Codex home; packaged = dist/win-unpacked.
+// needs: claude = starts the real Claude Code; codex = the signed-in test Codex home; packaged = dist/win-unpacked;
+// copilot = the installed Copilot CLI, offline against the scripted stand-in model (fake-copilot-api.cjs: no sign-in, no
+// cost), so it stays in the fake tier (the full set) and is skipped where Copilot isn't installed.
 // claudeHome: 'own' = its Claude Code runs in a home of its own with a made-up API key (no sign-in: the runner asks about none);
 // 'test' = in the signed-in Claude Code test home (CLAUDE_TEST_HOME, never the user's own), for suites that send prompts.
 // Every suite that starts the real Claude Code has one (#368): none runs in the user's ~/.claude (tests/e2esuites.test.ts).
@@ -58,6 +60,7 @@ export const SUITES = [
   { name: 'compact', needs: ['claude'], claudeHome: 'own' },
   { name: 'context' },
   { name: 'contrast' },
+  { name: 'copilot', needs: ['copilot'] },
   { name: 'ctxpercent' },
   { name: 'decisions' },
   { name: 'decisionwake' },

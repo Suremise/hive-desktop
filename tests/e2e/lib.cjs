@@ -446,8 +446,8 @@ const launchElectron = _electron.launch.bind(_electron)
 _electron.launch = async (...args) => {
   const env = args[0]?.env
   if (!isHiveEnv(env)) throw new Error("Start a test Hive with lib.hiveEnv({ HIVE_USER_DATA, … }) as its env (tests/e2e/runContext.cjs), never the suite's own environment")
-  // Both CLI homes, test folders (#382): Hive looks for both CLIs when it starts, and their sign-in checks read these.
-  for (const k of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME']) {
+  // The CLI homes, test folders (#382, #452): Hive looks for the CLIs when it starts, and their sign-in checks read these.
+  for (const k of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'COPILOT_HOME', 'GH_CONFIG_DIR']) {
     if (!env[k]) throw new Error(`A test Hive needs ${k} (hiveEnv gives an empty one of the suite's; a suite may give a test home, never none): without it the CLI reads the user's own home (#382)`)
     if (isUserCliHome(env[k])) throw new Error(`A test Hive's ${k} is the user's own home (${env[k]}): give it a test home (#382)`)
     // The suite's empty one is made here (Codex refuses a CODEX_HOME that doesn't exist).

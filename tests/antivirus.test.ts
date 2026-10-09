@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { changeOutcome, covered, devDriveOf, emptyStatus, folderPlan, normPath, parseProbe, pathList, productOn, readableList, statusOf, testsEligible, unsafeFolder, type AvPathKind } from '../src/shared/antivirus'
+import { tempDir } from './tempDir'
 
 // Fixtures in the shape main/antivirus.ts's probe prints (Get-MpComputerStatus, Get-MpPreference, Security Center, Get-Volume).
 const DEFENDER_ON = 397568 // 0x061100: Windows Defender, on
@@ -208,7 +208,7 @@ describe('antivirus scripts (#316)', () => {
 
 describe('antivirus status cache (#322)', () => {
   // On a fixture only (HIVE_TEST_ANTIVIRUS): every probe is logged, so a request that probes again shows the status wasn't kept.
-  const base = mkdtempSync(join(tmpdir(), 'hive-av-cache-'))
+  const base = tempDir('hive-av-cache-')
   const fixture = join(base, 'fixture.json')
   const callLog = join(base, 'calls.log')
   const env = { fixture: process.env.HIVE_TEST_ANTIVIRUS, log: process.env.HIVE_TEST_ANTIVIRUS_LOG }

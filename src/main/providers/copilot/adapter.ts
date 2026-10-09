@@ -1,0 +1,442 @@
+import { homedir } from 'os'
+import { basename, join, resolve } from 'path'
+import { mkdir, writeFile } from 'original-fs/promises'
+import { existsSync, readFileSync, statSync } from 'original-fs'
+import type { AgentInstallInfo, McpServerDef, MemorySource, ReadinessIssue, SessionUsage, SubSession } from '../../../shared/types'
+import { assertSessionId } from '../../../shared/defaults'
+import type { StartHint } from '../../../shared/startFailure'
+import { COPILOT, COPILOT_DESCRIPTOR, COPILOT_MODE_FLAGS, copilotCanSwitchLive, copilotFooterMode } from '../../../shared/copilot'
+import { isProviderEnabled } from '../../../shared/providers'
+import { config } from '../../config'
+import { writeJsonAtomic } from '../../fsutil'
+import { createLogger, userText } from '../../logger'
+import { AGENTS_SKILLS, agentsSkillCopyPath, compareVersions, promptArg, runsThroughCmd, syncAgentsSkills, toSpawnable } from '../common'
+import type { CatalogRead, CommandSpec, ConversationParserLike, ExternalSession, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
+import { copilotEnv, copilotHome } from './home'
+import { CopilotConversationParser, CopilotUsageParser, copilotEventsPath, copilotImageData, eventsDetails, listCopilotSessions, parseEvents, workspaceInfo } from './events'
+import { readCopilotModels } from './models'
+import { copilotInstallCommand, copilotLatestVersion, copilotLoginCommand, copilotReadiness, copilotUpdateCommand, locateCopilot } from './install'
+
+const log = createLogger('copilot')
+
+/**
+ * The hooks Hive gives Copilot, by their PascalCase names: with those, Copilot sends Claude Code-style payloads
+ * (hook_event_name, session_id, tool_name, tool_input), which Hive's hook server reads as they are. Each is an HTTP hook
+ * to Hive's hook server (Copilot allows plain http to localhost with COPILOT_HOOK_ALLOW_LOCALHOST=1), so no shell or
+ * curl is involved. Not PermissionRequest: Copilot sends it also when it approves a call itself (Allow all), so it says
+ * nothing about a person being asked; Notification (permission_prompt, elicitation_dialog) does. Checked with 1.0.93.
+ */
+const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Notification', 'Stop', 'ErrorOccurred', 'PreCompact', 'SessionEnd'] as const
+
+/** Copilot's file tools, as its hooks name them (Edit: path, old_str, new_str; Write: path, file_text; 1.0.93). */
+const EDIT_TOOL = /^(edit|write|create|str_replace\w*|multi_?edit)$/i
+
+/** The hooks.json of the launch's plugin: Hive's hook server for every event, with the launch's token. */
+export function copilotHooks(hookUrl: string, token: string): Record<string, unknown> {
+  const hooks: Record<string, unknown[]> = {}
+  for (const ev of HOOK_EVENTS) {
+    // PreToolUse answers with a file-lock decision, so it gets longer; if Hive doesn't answer in time, the call goes ahead.
+    hooks[ev] = [{ type: 'http', url: hookUrl, headers: { Authorization: `Bearer ${token}` }, timeoutSec: ev === 'PreToolUse' ? 10 : 5 }]
+  }
+  return { version: 1, hooks }
+}
+
+/** A workspace MCP server (Claude Code's JSON format, as Hive keeps them) in Copilot's mcp-config format. */
+export function copilotMcpServer(def: McpServerDef): Record<string, unknown> | null {
+  if (typeof def.url === 'string' && def.url) {
+    return { type: def.type === 'sse' ? 'sse' : 'http', url: def.url, ...(def.headers ? { headers: def.headers } : {}), tools: ['*'] }
+  }
+  if (typeof def.command !== 'string' || !def.command) return null
+  return { type: 'local', command: def.command, args: (def.args ?? []).map(String), ...(def.env ? { env: def.env } : {}), ...(typeof def.cwd === 'string' ? { cwd: def.cwd } : {}), tools: ['*'] }
+}
+
+/** JSON with comments (Copilot's settings.json): `//` and block comments outside strings removed; {} when unreadable. */
+function readJsonc(path: string): Record<string, any> {
+  try {
+    const text = readFileSync(path, 'utf8').replace(/^﻿/, '')
+    let out = ''
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i]
+      if (c === '"') {
+        const end = /"(?:[^"\\]|\\.)*"/y
+        end.lastIndex = i
+        const m = end.exec(text)
+        if (m) {
+          out += m[0]
+          i += m[0].length - 1
+          continue
+        }
+      }
+      if (c === '/' && text[i + 1] === '/') {
+        while (i < text.length && text[i] !== '\n') i++
+        out += '\n'
+        continue
+      }
+      if (c === '/' && text[i + 1] === '*') {
+        const close = text.indexOf('*/', i + 2)
+        i = close < 0 ? text.length : close + 1
+        continue
+      }
+      out += c
+    }
+    const v = JSON.parse(out)
+    return v && typeof v === 'object' ? v : {}
+  } catch {
+    return {}
+  }
+}
+
+/** MCP servers in one of Copilot's config files ({ mcpServers } or VS Code's { servers }), as Hive's definitions. */
+function mcpServersIn(file: string): Record<string, McpServerDef> {
+  const j = readJsonc(file)
+  const servers = j.mcpServers ?? j.servers
+  if (!servers || typeof servers !== 'object') return {}
+  const out: Record<string, McpServerDef> = {}
+  for (const [name, s] of Object.entries(servers as Record<string, any>)) if (s && typeof s === 'object') out[name] = s as McpServerDef
+  return out
+}
+
+export class CopilotAdapter implements ProviderAdapter {
+  readonly id = COPILOT
+  readonly descriptor = COPILOT_DESCRIPTOR
+  /**
+   * A parent Copilot session's identity, when Hive runs inside one: none known. The sign-in tokens Copilot would use are
+   * taken out of Copilot's own environment instead (home.ts COPILOT_ENV_STRIP): this list applies to every child.
+   */
+  readonly envToStrip: string[] = []
+  readonly compactFailure = null
+  // SessionStart only comes with the first prompt: its footer ("… · / commands · …") means it is up.
+  readonly readyOutput = /· \/ commands ·/
+  // In a folder it doesn't trust yet: "Confirm folder trust … Do you trust the files in this folder?".
+  readonly startupQuestion = /Do you trust the files in this folder\?/
+
+  // Installation, readiness and the install, update and sign-in tasks (#452).
+  locate(): Promise<AgentInstallInfo> {
+    return locateCopilot()
+  }
+
+  readiness(info: AgentInstallInfo): ReadinessIssue[] {
+    return copilotReadiness(info)
+  }
+
+  latestVersion(): Promise<string | null> {
+    return copilotLatestVersion()
+  }
+
+  installCommand(): CommandSpec {
+    return copilotInstallCommand()
+  }
+
+  updateCommand(executable: string): CommandSpec {
+    return copilotUpdateCommand(executable)
+  }
+
+  /** Copilot's own sign-in, run in a terminal for the user to complete (never typed into by Hive). */
+  loginCommand(executable: string): CommandSpec {
+    return copilotLoginCommand(executable)
+  }
+
+  isNewer(latest: string, current: string): boolean {
+    return compareVersions(latest, current) > 0
+  }
+
+  configHome(): string {
+    return copilotHome()
+  }
+
+  /**
+   * The account's models, from an ACP session of the installed CLI (models.ts): no prompt, no cost. Only while Copilot
+   * is turned on in Settings: the ACP session it opens leaves a folder in Copilot's session store for a moment.
+   */
+  listModels(executable: string, env: Record<string, string>): Promise<CatalogRead | null> {
+    return isProviderEnabled(config.settings, this.id) ? readCopilotModels(executable, env) : Promise.resolve(null)
+  }
+
+  /** The model in Copilot's own settings.json (or COPILOT_MODEL), which it runs unless Hive passes one. */
+  configuredDefaultModel(): string | null {
+    const m = process.env.COPILOT_MODEL || readJsonc(join(copilotHome(), 'settings.json')).model
+    return typeof m === 'string' && m.trim() ? m.trim() : null
+  }
+
+  /** Copilot runs several vendors' models, under its own ids (dots in versions: claude-sonnet-5.5). */
+  ownsModel(model: string): boolean {
+    return /^(auto|claude-|gpt-|gemini-|grok-|kimi-|mai-|o\d)/i.test(model)
+  }
+
+  // -------------------------------------------------------------------------
+  // Launch
+  // -------------------------------------------------------------------------
+
+  /** Copilot reads Hive's copies in the project's .agents/skills, shared with Codex (syncAgentsSkills). */
+  skillCopyPath(ctx: LaunchContext, skill: string): string {
+    return agentsSkillCopyPath(ctx.cwd, skill)
+  }
+
+  /** The launch's plugin (its hooks), in the launch's private folder: the hook token is in it (#345). */
+  private pluginDir(ctx: LaunchContext): string {
+    return join(ctx.privateDir, 'plugin')
+  }
+
+  /** Where Copilot finds this launch's instructions (COPILOT_CUSTOM_INSTRUCTIONS_DIRS reads .github/instructions there). */
+  private instructionsDir(ctx: LaunchContext): string {
+    return join(ctx.privateDir, 'instructions')
+  }
+
+  async prepareLaunch(ctx: LaunchContext): Promise<Record<string, SkillDelivery>> {
+    const delivered = await syncAgentsSkills(ctx, this.descriptor.name)
+    const plugin = this.pluginDir(ctx)
+    await mkdir(plugin, { recursive: true })
+    await writeJsonAtomic(join(plugin, 'plugin.json'), { name: 'hive-launch', version: '1.0.0', description: "Hive's hooks for this session. Regenerated by Hive on every launch — do not edit." })
+    await writeJsonAtomic(join(plugin, 'hooks.json'), copilotHooks(ctx.hookUrl, ctx.env.HIVE_HOOK_TOKEN ?? ''))
+    const servers: Record<string, unknown> = {}
+    for (const [name, def] of Object.entries(ctx.mcpServers)) {
+      const s = copilotMcpServer(def)
+      if (s) servers[name] = s
+      else log.warn(`MCP server ${userText(name)} has neither a command nor a URL; Copilot agents don't get it`)
+    }
+    // The servers' own env and headers may hold secrets: the launch's private folder, never the project (#345).
+    await writeJsonAtomic(join(ctx.privateDir, 'mcp.json'), { mcpServers: servers })
+    // The Hive Assistant's role and persona. Hive's guidance itself comes with the hive MCP server's instructions, which
+    // Copilot shows with --allow-all-mcp-server-instructions.
+    if (ctx.instructions?.trim()) {
+      const dir = join(this.instructionsDir(ctx), '.github', 'instructions')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'hive.instructions.md'), `---\napplyTo: '**'\n---\n${ctx.instructions.trim()}\n`)
+    }
+    return delivered
+  }
+
+  /** MCP servers Copilot would load besides Hive's: the user's own, the project's, and its built-in GitHub ones. */
+  private otherMcpServers(cwd: string): string[] {
+    const names = new Set<string>()
+    for (const f of [join(copilotHome(), 'mcp-config.json'), join(cwd, '.mcp.json'), join(cwd, '.github', 'mcp.json')]) for (const n of Object.keys(mcpServersIn(f))) names.add(n)
+    return [...names]
+  }
+
+  buildCommand(executable: string, ctx: LaunchContext): CommandSpec {
+    const args: string[] = []
+    if (ctx.resume) args.push('--resume', assertSessionId(ctx.sessionId))
+    else {
+      args.push('--session-id', assertSessionId(ctx.sessionId))
+      // Through cmd.exe (a launcher Hive can't start directly), its special characters can't be passed safely.
+      if (ctx.name) args.push('--name', runsThroughCmd(executable) ? ctx.name.replace(/["%^&|<>!]/g, ' ').replace(/\s+/g, ' ').trim() : ctx.name)
+    }
+    args.push('--plugin-dir', this.pluginDir(ctx))
+    args.push('--additional-mcp-config', `@${join(ctx.privateDir, 'mcp.json')}`)
+    // Hive's guidance is the hive MCP server's instructions: Copilot includes only allowlisted servers' without this.
+    args.push('--allow-all-mcp-server-instructions')
+    // Only the workspace's MCP servers, as for the other CLIs: Copilot's built-in GitHub servers and the user's and the
+    // project's own are turned off for Hive's sessions (never by editing their config).
+    args.push('--disable-builtin-mcps')
+    for (const name of this.otherMcpServers(ctx.cwd)) if (!ctx.mcpServers[name]) args.push('--disable-mcp-server', name)
+    // Hive's own tools the launch may use without asking: Copilot's pattern is <server>(<tool>).
+    if (ctx.trustedHiveTools?.length && ctx.mcpServers.hive) for (const t of ctx.trustedHiveTools) args.push(`--allow-tool=hive(${t})`)
+    if (ctx.model) args.push('--model', ctx.model)
+    if (ctx.effort) args.push('--reasoning-effort', ctx.effort)
+    args.push(...(COPILOT_MODE_FLAGS[ctx.permissionMode ?? ''] ?? COPILOT_MODE_FLAGS[COPILOT_DESCRIPTOR.defaultPermissionMode]))
+    args.push('--no-auto-update')
+    args.push(...ctx.extraArgs)
+    // A first task: Copilot starts interactive and runs it (after the folder-trust question, if it asks one).
+    if (ctx.initialPrompt) args.push('-i', promptArg(executable, ctx.initialPrompt))
+    const s = toSpawnable(executable, args)
+    const env = copilotEnv(ctx.env)
+    // Hive's hook server is plain http on 127.0.0.1, which Copilot allows for hooks only with this.
+    env.COPILOT_HOOK_ALLOW_LOCALHOST = '1'
+    if (ctx.instructions?.trim()) {
+      const own = this.instructionsDir(ctx)
+      const theirs = Object.entries(env).find(([k]) => k.toUpperCase() === 'COPILOT_CUSTOM_INSTRUCTIONS_DIRS')
+      if (theirs) delete env[theirs[0]]
+      env.COPILOT_CUSTOM_INSTRUCTIONS_DIRS = theirs?.[1] ? `${theirs[1]},${own}` : own
+    }
+    return { file: s.file, args: s.args, env }
+  }
+
+  startHint(text: string): StartHint | null {
+    if (/Failed to read MCP config file/i.test(text)) return { hint: "Copilot couldn't read the MCP configuration Hive gave it: start it again.", fix: 'terminal' }
+    if (/\bmodel\b/i.test(text) && /not found|invalid|unknown|not available|not supported|does not exist/i.test(text)) return { hint: "Copilot doesn't offer this model to this account (Copilot Free runs Auto only): choose another in Agent Settings.", fix: 'agent-settings' }
+    if (/unexpected argument|unrecognized|invalid value|for more information, try '--help'|error: the argument/i.test(text)) return { hint: 'Copilot refused an argument: check Extra arguments in Agent Settings and Settings → GitHub Copilot.', fix: 'agent-settings' }
+    if (/\/login|copilot login|not (logged|signed) in|unauthorized|bad credentials|401/i.test(text)) return { hint: "Copilot isn't signed in: sign in as Agent Setup shows, then start it again.", fix: 'agent-setup' }
+    if (/is not recognized|ENOENT|cannot find/i.test(text)) return { hint: 'Copilot looks broken or missing: check it in Agent Setup.', fix: 'agent-setup' }
+    return null
+  }
+
+  // -------------------------------------------------------------------------
+  // Hooks and live details
+  // -------------------------------------------------------------------------
+
+  normalizeHook(body: Record<string, any>): NormalizedHook {
+    const event = String(body.hook_event_name ?? '')
+    const out: NormalizedHook = {
+      event: { kind: 'ignore' },
+      sessionId: typeof body.session_id === 'string' ? body.session_id : typeof body.sessionId === 'string' ? body.sessionId : null,
+      transcriptPath: typeof body.transcript_path === 'string' ? body.transcript_path : null,
+      // The footer says the mode (footerMode); the hooks don't.
+      mode: null,
+      editedPaths: []
+    }
+    const tool = String(body.tool_name ?? '')
+    const input = body.tool_input && typeof body.tool_input === 'object' ? body.tool_input : {}
+    switch (event) {
+      case 'SessionStart':
+        out.event = { kind: 'start', source: typeof body.source === 'string' ? body.source : null }
+        break
+      case 'UserPromptSubmit':
+        out.event = { kind: 'prompt', text: typeof body.prompt === 'string' ? body.prompt : null }
+        break
+      case 'PreToolUse': {
+        out.event = { kind: 'toolStart' }
+        const file: unknown = input.path ?? input.file_path
+        if (EDIT_TOOL.test(tool) && typeof file === 'string' && file) out.editedPaths = [file]
+        break
+      }
+      case 'PostToolUse':
+      case 'PostToolUseFailure':
+        out.event = { kind: 'toolEnd' }
+        break
+      case 'Notification': {
+        // A person is asked: a permission dialog, or ask_user's question. Others (agent_idle, shell_completed…) say nothing new.
+        const kind = String(body.notification_type ?? '')
+        const message = typeof body.message === 'string' ? body.message : ''
+        if (kind === 'permission_prompt') out.event = { kind: 'ask', ask: { kind: 'permission', blocking: true, message: message || 'Copilot asks for permission' } }
+        else if (kind === 'elicitation_dialog') out.event = { kind: 'ask', ask: { kind: 'question', blocking: true, message: message || 'Copilot asks a question' } }
+        break
+      }
+      case 'Stop':
+        out.event = { kind: 'stop', lastMessage: typeof body.last_assistant_message === 'string' ? body.last_assistant_message : null }
+        break
+      case 'ErrorOccurred': {
+        // A model call refused for the sign-in ends the turn as signed out; another error that ends it, as a failed turn.
+        const err = body.error && typeof body.error === 'object' ? body.error : {}
+        const message = typeof err.message === 'string' ? err.message : typeof body.error === 'string' ? body.error : null
+        const recoverable = body.recoverable ?? body.is_recoverable
+        if (message && /\b401\b|unauthori[sz]ed|bad credentials|not (logged|signed) in|\/login|token (has )?expired/i.test(message)) out.event = { kind: 'signIn', message }
+        else if (recoverable === false) out.event = { kind: 'stop', lastMessage: message, failed: true }
+        break
+      }
+      case 'PreCompact':
+        out.event = { kind: 'compactStart', trigger: String(body.trigger ?? 'auto') }
+        break
+      case 'SessionEnd':
+        out.event = { kind: 'end' }
+        break
+    }
+    return out
+  }
+
+  /** Claude Code's reply format, which Copilot honours for PascalCase PreToolUse (deny, and ask: its own dialog). */
+  lockReply(d: LockDecision): Record<string, unknown> {
+    if (d.kind === 'warn') return { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: d.context } }
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: d.kind, permissionDecisionReason: d.reason } }
+  }
+
+  footerMode(screen: string): string | null {
+    return copilotFooterMode(screen)
+  }
+
+  canSwitchLive(target: string, current: string | undefined, launched: string | null | undefined): boolean {
+    return copilotCanSwitchLive(target, current, launched)
+  }
+
+  /** Model, cost (AI credits) and interrupts from what Copilot appended to the session's events (events.ts). */
+  transcriptDetails(appended: string): LiveDetails {
+    return eventsDetails(appended)
+  }
+
+  // -------------------------------------------------------------------------
+  // Transcripts: COPILOT_HOME/session-state/<id>/events.jsonl, with workspace.yaml beside it
+  // -------------------------------------------------------------------------
+
+  private sessionDir(sessionId: string): string {
+    return join(copilotHome(), 'session-state', assertSessionId(sessionId))
+  }
+
+  async transcriptPath(_folder: string, sessionId: string, recorded?: string): Promise<string | null> {
+    if (recorded && existsSync(recorded)) return recorded
+    const p = copilotEventsPath(copilotHome(), assertSessionId(sessionId))
+    return existsSync(p) ? p : null
+  }
+
+  /** Copilot finds a session by its id, in its own folder. */
+  restorePath(_folder: string, sessionId: string): string | null {
+    return copilotEventsPath(copilotHome(), assertSessionId(sessionId))
+  }
+
+  /** The sessions Copilot keeps for this folder (their workspace.yaml's cwd), with a conversation in them (events.ts). */
+  listSessions(folder: string): Promise<ExternalSession[]> {
+    return listCopilotSessions(copilotHome(), folder)
+  }
+
+  async subSessionOf(): Promise<SubSession | null> {
+    return null
+  }
+
+  /** The session's name from its workspace.yaml (the user's /rename, or Copilot's own). */
+  private title(sessionId: string): string | null {
+    try {
+      const yaml = join(this.sessionDir(sessionId), 'workspace.yaml')
+      if (!statSync(yaml).isFile()) return null
+      return workspaceInfo(readFileSync(yaml, 'utf8'))?.name ?? null
+    } catch {
+      return null
+    }
+  }
+
+  parseUsage(text: string, sessionId: string): SessionUsage {
+    return parseEvents(text, sessionId, this.title(sessionId))
+  }
+
+  usageParser(sessionId: string): UsageParser {
+    const p = new CopilotUsageParser(sessionId)
+    return { feed: (text) => p.feed(text), result: () => p.result(this.title(sessionId)) }
+  }
+
+  conversationParser(projectPath: string): ConversationParserLike {
+    return new CopilotConversationParser(projectPath)
+  }
+
+  imageData = copilotImageData
+
+  exportSubtitle(sessionId: string, project: string): string {
+    return `GitHub Copilot session \`${sessionId}\` · project ${project}`
+  }
+
+  // -------------------------------------------------------------------------
+  // Project files
+  // -------------------------------------------------------------------------
+
+  async memorySources(projectPath: string): Promise<MemorySource[]> {
+    const p = this.id
+    const sources: MemorySource[] = [
+      { provider: p, id: 'project', label: 'AGENTS.md', path: join(projectPath, 'AGENTS.md'), kind: 'claude-md', exists: false },
+      { provider: p, id: 'project-github', label: '.github/copilot-instructions.md', path: join(projectPath, '.github', 'copilot-instructions.md'), kind: 'claude-md', exists: false },
+      { provider: p, id: 'user', label: 'User copilot-instructions.md (all projects)', path: join(copilotHome(), 'copilot-instructions.md'), kind: 'claude-md', exists: false }
+    ]
+    for (const s of sources) s.exists = existsSync(s.path)
+    return sources
+  }
+
+  /** In Copilot's folder, only the user's copilot-instructions.md (editable) and skills (read-only). Never its sign-in or config. */
+  fileAllowed(path: string, write: boolean): boolean {
+    const home = resolve(copilotHome()).toLowerCase()
+    const abs = resolve(path).toLowerCase()
+    if (!abs.startsWith(home + '\\') && !abs.startsWith(home + '/')) return false
+    const rel = abs.slice(home.length + 1).replace(/\\/g, '/')
+    if (rel === 'copilot-instructions.md') return true
+    return !write && rel.startsWith('skills/') && basename(rel) === 'skill.md'
+  }
+
+  /**
+   * Copilot reads skills from its own folder and ~/.agents/skills, and in a project from .github/skills, .agents/skills
+   * (where Hive's copies are, shared with Codex) and .claude/skills: first found by name wins.
+   */
+  skillRoots(): SkillRoots {
+    return { machine: [join(copilotHome(), 'skills'), join(homedir(), '.agents', 'skills')], plugins: join(copilotHome(), 'installed-plugins'), local: [join('.github', 'skills'), AGENTS_SKILLS, join('.claude', 'skills')], hiveCopyPrefix: 'hive-' }
+  }
+
+  /** Servers in the project's .github/mcp.json, which Hive leaves off until copied to the workspace. */
+  async projectMcpServers(projectPath: string): Promise<Record<string, McpServerDef>> {
+    return mcpServersIn(join(projectPath, '.github', 'mcp.json'))
+  }
+}
+
+export const copilot = new CopilotAdapter()

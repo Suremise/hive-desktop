@@ -1,11 +1,11 @@
 // Merge… with the repo's own .gitattributes: two worktree branches that each add a CHANGELOG entry at the top of
 // Unreleased merge one after the other with no conflict (merge-tree's check and both kinds of merge), both entries kept.
 import { execFileSync } from 'child_process'
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { copyFileSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createWorktree, mergeWorktree } from '../src/main/worktrees'
+import { tempDir } from './tempDir'
 
 const CHANGELOG = '# Changelog\n\n## Unreleased\n\n- Earlier entry.\n\n## 0.3.1\n\n- Released.\n'
 const run = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8' })
@@ -17,7 +17,7 @@ afterEach(() => {
 })
 
 async function twoBranches(): Promise<{ project: string; a: { path: string; branch: string; base: string }; b: { path: string; branch: string; base: string } }> {
-  root = mkdtempSync(join(tmpdir(), 'hive-merge-'))
+  root = tempDir('hive-merge-')
   const project = join(root, 'project')
   run(root, 'init', '-q', '-b', 'main', project)
   for (const [k, v] of [['user.name', 'Test'], ['user.email', 'test@example.com'], ['core.autocrlf', 'false']]) run(project, 'config', k, v)

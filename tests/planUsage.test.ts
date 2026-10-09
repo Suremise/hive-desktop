@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { tmpdir } from 'os'
+import { tempRoot } from './tempDir'
 
 vi.mock('electron', () => ({
-  app: { getPath: () => tmpdir(), isPackaged: false, getVersion: () => '0.0.0' },
+  app: { getPath: () => tempRoot(), isPackaged: false, getVersion: () => '0.0.0' },
   // eslint-disable-next-line typescript/no-extraneous-class
   // Windows notifications, recorded (supported only where a test says so).
   Notification: class {

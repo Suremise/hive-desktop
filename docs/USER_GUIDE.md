@@ -5,7 +5,7 @@ Hive is a desktop workspace for coding with AI agents. It runs coding agents (**
 ## Getting started
 
 1. **Install Hive.** Download `Hive-Setup-<version>.exe` from the [latest release](https://github.com/Suremise/hive-desktop/releases/latest) and run it. The installer isn't code-signed yet, so Windows SmartScreen may warn you; choose **More info → Run anyway**. From then on Hive keeps itself up to date (see [Updating Hive](#updating-hive)).
-2. **Choose your coding agents.** Hive runs the standalone command-line tools of **Claude Code** (Anthropic) and **Codex** (OpenAI); they aren't included with Hive. A new install starts with both turned off: turn on the ones you use in **Settings → Providers** (the banner at the top links there). **Help → Agent Setup…** finds each CLI and offers a one-click install with the official installer if it's missing, and walks you through signing in (and, for Codex, its one-time Windows sandbox setup). The copies inside VS Code (or Cursor) extensions are not used. See [Coding agents](#coding-agents-claude-code-and-codex).
+2. **Choose your coding agents.** Hive runs the standalone command-line tools of **Claude Code** (Anthropic), **Codex** (OpenAI) and **GitHub Copilot** (GitHub); they aren't included with Hive. A new install starts with all of them turned off: turn on the ones you use in **Settings → Providers** (the banner at the top links there). **Help → Agent Setup…** finds each CLI and offers a one-click install with the official installer if it's missing, and walks you through signing in (and, for Codex, its one-time Windows sandbox setup). The copies inside VS Code (or Cursor) extensions are not used. See [Coding agents](#coding-agents-claude-code-codex-and-github-copilot).
 3. **Open or create a workspace** (**File → Open Workspace…** or **New Workspace…**). A workspace is any folder whose subfolders are your projects.
 4. **Mark the projects you're working on** with the toggle next to each project.
 5. **Add an agent and start it.** A new project has no agents: **New Session** (Ctrl+Shift+N) adds one with your default provider and starts it, or use **Add Agent** above the terminal. The agent opens in the Session tab. Switch to another project and start another — sessions keep running in the background.
@@ -24,16 +24,35 @@ Any dialog (Add Agent, Agent Settings, a card, a question…) can be moved out o
 
 Every search and filter box (the board's search, Settings, the Files and Sessions tabs, the sidebar's filters, tables' filters, Tips, Keyboard Shortcuts and the command palette) shows an **×** at its right while it has text: click it, or press **Escape**, to clear it and see everything again; the cursor stays in the box. In a dialog or the command palette, the first Escape clears the box and the next one closes it.
 
-## Coding agents: Claude Code and Codex
+## Coding agents: Claude Code, Codex and GitHub Copilot
 
 Hive calls the coding agents it can run **providers**. Each agent in a project chooses its own, so a project can have a Claude Code agent and a Codex agent working side by side. Hive shows each CLI's own terminal, exactly as it looks when you run it yourself.
 
 - **Turning providers on and off.** **Settings → Providers** lists them with their install state. A provider that is off can't start agents; its agents stay listed, greyed out. Turning one off while its agents run asks whether to stop them now or let them finish. **Default provider** is what new agents use (a project can choose its own in Project Settings).
-- **Setup.** **Help → Agent Setup…** has a tab per provider: install, sign in, and updates. Claude Code signs in with a Claude plan or an Anthropic Console account; Codex with a ChatGPT plan or an OpenAI API key. On Windows, Codex also needs its sandbox set up once (without it, Codex asks before every command); see [Codex's Windows sandbox](#codexs-windows-sandbox).
+- **Setup.** **Help → Agent Setup…** has a tab per provider: install, sign in, and updates. Claude Code signs in with a Claude plan or an Anthropic Console account; Codex with a ChatGPT plan or an OpenAI API key; Copilot with a GitHub account that has a Copilot plan (see [GitHub Copilot](#github-copilot)). On Windows, Codex also needs its sandbox set up once (without it, Codex asks before every command); see [Codex's Windows sandbox](#codexs-windows-sandbox).
 - **Settings per provider.** Each provider has its own page (**Settings → Claude Code**, **Settings → Codex**): the CLI's path, default model, effort and permission mode, extra arguments, update checks, the fallback lists of models and effort levels, and its price table (see [Models, effort levels and prices](#models-effort-levels-and-prices)). **Settings → Claude Code → Use 200K context (instead of 1M)** is off by default: current Claude models have a 1M-token context window, and turning this on holds sessions to 200K, so Claude Code compacts a long conversation sooner and each message sends less. Projects and agents can choose for themselves, and it applies to sessions started afterwards. **Settings → Claude Code → Allow background sessions** is off by default: in Claude Code, pressing ← on an empty prompt (easy to do while moving through text) opens its agent view and moves the session into Claude Code's background service, where Hive can no longer see or stop it. Hive turns that off for the sessions it starts; `claude` in your own terminals is unaffected. If a session is in the background anyway (you turned the setting on, or moved it there outside Hive), resuming it shows a notification with **Stop It and Resume**, which stops Claude Code's background job and resumes the conversation here. Projects override them per provider in Project Settings.
 - **The icons** on agent tabs, pane headers and the Sessions list show which provider each agent and session uses.
 - **Conversations stay with their provider.** A Claude Code session can only be resumed by a Claude Code agent, and a Codex session by a Codex agent. To move work to another provider, use **Hand Over to…** (see [Sessions](#sessions)).
 - **What both share.** The workspace's Hive skills (those for project agents), its MCP servers and Hive's own `hive` tools reach every agent, whichever provider it uses. Neither CLI loads MCP servers from your user settings in Hive sessions. Hive never changes either CLI's own configuration files.
+
+### GitHub Copilot
+
+Hive runs the **GitHub Copilot CLI** (the `copilot` command), not Copilot in VS Code. Any Copilot plan includes it, Copilot Free too. Turn it on in **Settings → Providers**, then choose **GitHub Copilot** when you add an agent. Its agents get what the others get: statuses, file locks, the `hive` tools, the workspace's skills, sessions you can resume, usage and cost.
+
+- **Installing.** **Help → Agent Setup… → GitHub Copilot → Install** runs `winget install GitHub.Copilot` in a terminal. Installed with npm (`npm install -g @github/copilot`) works too. Agent Setup shows the version it found and how (WinGet, npm, PATH, or the path in **Settings → GitHub Copilot**). **Update** goes through the same installer. Hive's Copilot agents run the installed version, so a version `copilot update` downloads on its own isn't used.
+- **Signing in.** Signed out, **Sign in** opens `copilot login` in a terminal: it opens GitHub in your browser to authorise Copilot. With `copilot login --device-code`, you enter a code on GitHub instead. Hive never signs in for you.
+- **Which sign-in Hive uses.** Agent Setup says who Copilot is signed in as, and how, in the order Copilot itself checks:
+  - **`COPILOT_GITHUB_TOKEN`**: a token you set in your environment for Copilot (a fine-grained token with the "Copilot Requests" permission) comes first. Agent Setup can't tell whose it is.
+  - **Copilot login**: your own `copilot login` (the account comes from Copilot's settings; the token stays in Windows Credential Manager).
+  - **GitHub CLI**: with no login of its own, Copilot uses the GitHub CLI's (`gh auth login`).
+
+  Copilot would also take `GH_TOKEN` or `GITHUB_TOKEN`, but Hive doesn't pass these to Copilot agents: other tools set them, and they shouldn't sign Copilot in by accident. When Copilot is signed out and one is set, Agent Setup says so. Hive only checks whether a token variable is set, never what it holds. It reads only the account names in Copilot's settings, and never asks the GitHub CLI for its token.
+- **Modes.** **Ask** (the default) reads files and runs harmless commands without asking, and asks before edits, other commands, MCP tools and web access. **Plan** plans the work and asks before changing anything. **Autopilot** carries on by itself until the task is done, and **Allow all** approves everything without asking: both appear only after you tick **Settings → GitHub Copilot → Enable the Autopilot option**, which unlocks them both. See [Permission modes](#permission-modes). **Shift+Tab** in its terminal switches between Ask, Plan and Autopilot while it runs; Allow all needs a restart.
+- **Trusting a folder.** The first time Copilot starts in a folder, it asks in its terminal whether you trust the files there. The agent shows as waiting for you until you answer.
+- **Instructions.** Copilot reads a project's `AGENTS.md`, `CLAUDE.md` and `.github/copilot-instructions.md`. It also runs the hooks in a project's `.claude/settings.json`, as Claude Code does.
+- **Models.** Copilot Free uses **Auto** only (Copilot picks the model). Choosing a model needs a paid plan; Agent Setup reminds you, since Copilot can't tell Hive which plan you have.
+- **Cost.** Copilot counts usage in **AI credits** (one credit is $0.01), not tokens. Your plan's monthly allowance is in Copilot's `/usage`.
+- **"Third-party agents" on Copilot Pro.** Pro's Claude Code and Codex agents are GitHub's cloud agents, which work on issues and pull requests on github.com. They aren't the local CLIs: a Copilot plan doesn't sign in Hive's Claude Code or Codex agents. With Copilot, Hive's Claude and GPT models come through Copilot agents (on a paid plan).
 
 ### Git
 
@@ -43,7 +62,7 @@ Hive uses the git on its own PATH. If you install git while Hive is open, or Hiv
 
 ### Tested CLI versions
 
-Claude Code and Codex update on their own schedule, and a new version can change what Hive relies on. Each Hive release says which version of each it was tested with: **Help → Agent Setup…** shows it under the CLI it found, as **Tested with 2.1.287 · installed 2.1.290**.
+Claude Code, Codex and Copilot update on their own schedule, and a new version can change what Hive relies on. Each Hive release says which version of each it was tested with: **Help → Agent Setup…** shows it under the CLI it found, as **Tested with 2.1.287 · installed 2.1.290**.
 
 - **The same version**: a tick.
 - **Newer than tested**: "This version came out after this Hive release was tested. Most updates work; if something behaves oddly, report it (Copy Diagnostics)." Nothing is blocked.
@@ -758,6 +777,17 @@ If **Set up** can't find what it needs in Codex (a Codex version that names its 
 Once Codex has set the sandbox up, Hive closes it and Agent Setup says so. With the non-admin sandbox, Agent Setup shows **Upgrade** to switch to the default one later. Codex agents that are running keep their sandbox until they restart. **Full access** doesn't use the sandbox at all.
 
 **Full access** is like Bypass: it only appears after you tick **Settings → Codex → Enable the Full access option**, and projects using it show a red warning. Codex's **Plan** mode is separate from the preset: choose **Plan** in the mode menu (or press Shift+Tab in the terminal), and the badge shows "· Plan". In Codex's sandbox the `.git` folder is read-only, so Codex asks before committing.
+
+GitHub Copilot's modes:
+
+| Mode | Behaviour |
+|---|---|
+| Ask | Reads files and runs harmless commands without asking; asks before edits, other commands, MCP tools and web access (default) |
+| Plan | Plans the work and asks before changing anything |
+| Autopilot | Carries on by itself until the task is done, without asking |
+| Allow all | Approves every tool, path and web request without asking |
+
+**Autopilot** and **Allow all** only appear after you tick **Settings → GitHub Copilot → Enable the Autopilot option**, and projects using them show a red warning.
 
 **Switching mode while an agent runs.** The mode badge in each agent's footer shows the mode its session is really in. Click it, or press **Ctrl+Alt+M**, and choose another: Hive switches it straight away, without a restart, the same way pressing **Shift+Tab** in the terminal does (which Hive also notices). Don't ask and Bypass permissions can't be reached that way, so choosing them restarts the session in that mode and carries on the same conversation. For Codex, Hive picks the preset from Codex's `/permissions` menu. The switch applies to that session only; the settings decide what new sessions start in. When you change the setting while agents are running, Hive offers to **Switch Now**. This works with `NO_COLOR` set too (Claude Code then shows its footer without colours): Hive reads the mode as it appears on the terminal's screen and leaves your `NO_COLOR` preference as it is.
 

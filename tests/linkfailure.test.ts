@@ -2,10 +2,10 @@
 // still copied for Claude Code, whatever order the files come in, and the launch says which links are missing; Codex's
 // swap is all or nothing, so an old copy stays whole. The refusal is injected: fs/promises' symlink fails for any link
 // with "denied" in its name, as Windows would.
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { tempDir } from './tempDir'
 
 vi.mock('fs/promises', async (original) => {
   const real = await original<typeof import('fs/promises')>()
@@ -20,9 +20,9 @@ vi.mock('fs/promises', async (original) => {
 
 const { contentHash, copySkillTree } = await import('../src/main/fsutil')
 const { claudeCode } = await import('../src/main/providers/claude/adapter')
-const { codex } = await import('../src/main/providers/codex/adapter')
+const { syncAgentsSkills } = await import('../src/main/providers/common')
 
-const base = mkdtempSync(join(tmpdir(), 'hive-link-failure-'))
+const base = tempDir('hive-link-failure-')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 const target = join(base, 'target')
 mkdirSync(target, { recursive: true })
@@ -71,7 +71,7 @@ describe('a link Hive is refused', () => {
     const src = join(base, 'sources', 'codex-skill')
     mkdirSync(src, { recursive: true })
     writeFileSync(join(src, 'SKILL.md'), 'v1')
-    const sync = (codex as unknown as { syncSkills: (ctx: unknown) => Promise<Record<string, { revision: string | null; problem?: string; lasting?: true }>> }).syncSkills.bind(codex)
+    const sync = (ctx: unknown) => syncAgentsSkills(ctx as never, 'Codex')
     await sync({ cwd, skills: [{ name: 'codex-skill', sourcePath: src }] })
     const copy = join(cwd, '.agents', 'skills', 'hive-codex-skill')
     const v1 = await contentHash(copy)

@@ -1,9 +1,10 @@
 import type { AgentDef, AppSettings, AutoCompactSetting, EffortLevel, PermissionMode, ProjectConfig, ProjectProviderConfig, ProviderId, ProviderSettings } from './types'
 import { CLAUDE_CODE, CLAUDE_DESCRIPTOR } from './claude'
 import { CODEX_DESCRIPTOR } from './codex'
+import { COPILOT_DESCRIPTOR } from './copilot'
 
 /**
- * Providers: the coding-agent CLIs Hive can run (Claude Code, Codex). Everything the UI and the shared
+ * Providers: the coding-agent CLIs Hive can run (Claude Code, Codex, GitHub Copilot). Everything the UI and the shared
  * settings logic need to know about one lives in its descriptor, so a new provider needs a descriptor
  * here and an adapter in src/main/providers — nothing else checks which provider an agent uses.
  */
@@ -132,7 +133,7 @@ export interface ProviderDescriptor {
 export const DEFAULT_PROVIDER: ProviderId = CLAUDE_CODE
 
 /** Every provider Hive knows, in display order. */
-export const PROVIDERS: ProviderDescriptor[] = [CLAUDE_DESCRIPTOR, CODEX_DESCRIPTOR]
+export const PROVIDERS: ProviderDescriptor[] = [CLAUDE_DESCRIPTOR, CODEX_DESCRIPTOR, COPILOT_DESCRIPTOR]
 
 const UNKNOWN: ProviderDescriptor = {
   ...CLAUDE_DESCRIPTOR,

@@ -2,9 +2,8 @@
 // test runners (main/progressReporters/report.mts), against a stand-in for #136's Agent API: output and exit codes pass
 // through; Hive reachable, unreachable or absent; step lines; estimates after one run; updates coalesced.
 import { spawnSync } from 'child_process'
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'fs'
+import { existsSync, rmSync, statSync, writeFileSync } from 'fs'
 import { createServer, type Server } from 'http'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -13,8 +12,9 @@ import { cmdEscapeArgument, commandEnv, commandLabel, parseArgs, runWrapped, spa
 import { installShims, shimFiles, withBinOnPath } from '../src/main/progressReporters/shims'
 import { hiveInstructions, progressRule, wrapsLongCommands } from '../src/shared/hiveGuidance'
 import { launchParts } from '../src/main/guidance'
+import { tempDir } from './tempDir'
 
-const dir = mkdtempSync(join(tmpdir(), 'hive-progress-'))
+const dir = tempDir('hive-progress-')
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
 /**

@@ -2,14 +2,14 @@
 // written in (comments, flow mappings, quotes, block scalars, CRLF, a BOM). No audience means the project agents. A
 // header that can't be read, or an audience Hive doesn't know, is a problem: nobody gets that skill, and the Skills view,
 // the API, tool listings and each launch say why, instead of Hive guessing a recipient.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
 import { skillListText } from '../src/shared/toolReplies'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-frontmatter-'))
+const base = tempDir('hive-frontmatter-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 

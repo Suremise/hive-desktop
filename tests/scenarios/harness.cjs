@@ -21,6 +21,7 @@ const { measuresOf, metricsTotals } = require('./benchmark.cjs')
  */
 const { CLAUDE_TEST_HOME } = require('../e2e/runContext.cjs')
 const { freshFolder } = require('../e2e/evidence.cjs')
+const { startFakeCopilotApi, copilotTestEnv } = require('../e2e/fake-copilot-api.cjs')
 const claudeSignedIn = () => fs.existsSync(path.join(CLAUDE_TEST_HOME, '.credentials.json'))
 
 /** The CLI each provider runs here: the fakes, or the real standalone CLIs, each in its test home. */
@@ -31,7 +32,10 @@ const PROVIDERS = {
   // Accept edits, with the hive tools, commands and skills allowed on the command line (the project's extra arguments):
   // it never asks, and needs no bypass mode (which Claude Code asks to accept once).
   'claude-code': { provider: 'claude-code', executable: '', mode: 'acceptEdits', extraArgs: '--allowedTools mcp__hive Bash PowerShell Skill' },
-  codex: { provider: 'codex', executable: '', mode: 'full-access' }
+  codex: { provider: 'codex', executable: '', mode: 'full-access' },
+  // The real Copilot CLI, offline against the scripted stand-in model (tests/e2e/fake-copilot-api.cjs), in a home of the
+  // run's own: a fake as far as cost and sign-in go (no credits, none), Copilot's own tools and hooks for the rest.
+  'fake-copilot': { provider: 'copilot', fake: true, executable: '', mode: 'allow-all', standIn: true }
 }
 
 const sleep = lib.sleep
@@ -133,6 +137,9 @@ async function runScenario(sc, providerKey, opts = {}) {
   const fakeHome = path.join(root, 'claude-home')
   const fakeCodexHome = path.join(root, 'codex-home')
   const mcpLog = path.join(root, 'mcp-calls.jsonl')
+  // The stand-in model for fake-copilot, on a port of its own; closed when the run ends.
+  const modelLog = path.join(root, 'copilot-api.jsonl')
+  const standIn = p.standIn ? await startFakeCopilotApi({ log: modelLog }) : null
   if (!opts.evidence) fs.rmSync(root, { recursive: true, force: true })
   fs.mkdirSync(fakeHome, { recursive: true })
   if (providerKey === 'fake-codex') {
@@ -150,11 +157,11 @@ async function runScenario(sc, providerKey, opts = {}) {
     lib.trustForCodex(ws)
   }
 
-  lib.enableProviders(userData, ['claude-code', 'codex'])
+  lib.enableProviders(userData, ['claude-code', 'codex', ...(p.provider === 'copilot' ? ['copilot'] : [])])
   const cfgFile = path.join(userData, 'config.json')
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
   if (p.executable) cfg.settings.providers[p.provider].executablePath = p.executable
-  for (const pid of ['claude-code', 'codex']) cfg.settings.providers[pid] = { ...cfg.settings.providers[pid], enableDangerousMode: true }
+  for (const pid of ['claude-code', 'codex', 'copilot']) cfg.settings.providers[pid] = { ...cfg.settings.providers[pid], enableDangerousMode: true }
   // A scenario's own General settings (sc.general) on top.
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never', ...sc.general }
   cfg.settings.notifications = { ...cfg.settings.notifications, desktopNotifications: false }
@@ -181,7 +188,9 @@ async function runScenario(sc, providerKey, opts = {}) {
     HIVE_TEST_TIPS: 'off',
     HIVE_TEST_MCP_LOG: mcpLog,
     CLAUDE_CONFIG_DIR: providerKey === 'claude-code' ? CLAUDE_TEST_HOME : fakeHome,
-    CODEX_HOME: providerKey === 'fake-codex' ? fakeCodexHome : lib.CODEX_HOME
+    CODEX_HOME: providerKey === 'fake-codex' ? fakeCodexHome : lib.CODEX_HOME,
+    // Copilot in the run's own home, its profile folder faked and the GitHub CLI's login hidden (fake-copilot-api.cjs).
+    ...(standIn ? copilotTestEnv(standIn, root) : {})
   }
   const { app, inv } = await lib.launch({ userData, env })
   const result = { scenario: sc.id, title: sc.title, provider: providerKey, model: opts.model ?? '(default)', role: sc.role ?? 'agent', control: sc.role === 'assistant' ? (sc.control ?? 'projects') : undefined, cliVersion: null, guidance: null, checks: [], observed: null, usage: null, measures: null, metricsOverheadMs: 0, seconds: 0, error: null }
@@ -212,6 +221,10 @@ async function runScenario(sc, providerKey, opts = {}) {
     const ctx = {
       api,
       inv,
+      /** A fake provider acts the scenario out (the fake CLIs, or Copilot against the scripted stand-in model). */
+      fake: !!p.fake,
+      /** What Copilot sent the stand-in model (its system prompt first), for fake-copilot; null for the others. */
+      modelLog: standIn ? modelLog : null,
       ws,
       alpha,
       skillsDir: path.join(ws, '.hive', 'skills'),
@@ -266,7 +279,11 @@ async function runScenario(sc, providerKey, opts = {}) {
       // Nothing typed yet: what the terminal shows is the CLI's own (a sign-in screen, a limit).
       const before = trialEnvironment({ status: s?.status, screen: plain(await inv('pty:buffer', key).catch(() => '')) })
       if (before) return skipFor(before)
-      if (/trust this folder/i.test(plain(await inv('pty:buffer', key).catch(() => '')))) {
+      // Copilot asks "Do you trust the files in this folder?", Yes first.
+      if (/Do you trust the files in this folder/i.test(plain(await inv('pty:buffer', key).catch(() => '')))) {
+        await inv('pty:write', key, '\r')
+        await sleep(1500)
+      } else if (/trust this folder/i.test(plain(await inv('pty:buffer', key).catch(() => '')))) {
         await inv('pty:write', key, p.provider === 'codex' ? '\r' : '\x1b[B')
         await sleep(300)
         if (p.provider !== 'codex') await inv('pty:write', key, '\r')
@@ -328,7 +345,8 @@ async function runScenario(sc, providerKey, opts = {}) {
       for (const a of Object.values(ctx.agents)) {
         if (sc.role !== 'assistant' && a.id === coder.id) continue
         const k = lib.ptyKey(alpha, a.id)
-        if (/trust this folder/i.test(plain(await inv('pty:buffer', k).catch(() => '')).slice(-2000))) {
+        if (/Do you trust the files in this folder/i.test(plain(await inv('pty:buffer', k).catch(() => '')).slice(-2000))) await inv('pty:write', k, '\r')
+        else if (/trust this folder/i.test(plain(await inv('pty:buffer', k).catch(() => '')).slice(-2000))) {
           await inv('pty:write', k, p.provider === 'codex' ? '\r' : '\x1b[B')
           await sleep(300)
           if (p.provider !== 'codex') await inv('pty:write', k, '\r')
@@ -402,6 +420,7 @@ async function runScenario(sc, providerKey, opts = {}) {
     for (const x of await inv('session:live').catch(() => [])) await inv('session:stop', x.projectPath, x.agentId).catch(() => undefined)
     await sleep(1500)
     await app.close().catch(() => undefined)
+    await standIn?.close()
     result.seconds = Math.round((Date.now() - started) / 1000)
     // Unless a card cites it now, or the board can't be read (evidence.cjs reads it afresh): then it stays, said in the result.
     const kept = opts.keep ? null : opts.evidence?.protects(root)

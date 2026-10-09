@@ -29,7 +29,7 @@ const ran = (o, tool) => called(o, tool).filter((c) => c.ok)
  */
 async function busyCoder(c, fakeSecs, secs) {
   const providers = (await c.inv('settings:get')).providers ?? {}
-  if (Object.values(providers).some((p) => /fake-(claude|codex)/i.test(String(p?.executablePath ?? '')))) secs = fakeSecs
+  if (c.fake || Object.values(providers).some((p) => /fake-(claude|codex)/i.test(String(p?.executablePath ?? '')))) secs = fakeSecs
   await coderTask(c, `Run this in the shell and wait for it to end, then reply "built": node -e "setTimeout(() => {}, ${secs * 1000})" (work ${secs})`)
 }
 /** Coder's live session (status, runId, sessionId), or undefined. */
@@ -40,7 +40,10 @@ async function coderTask(c, task) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
   await c.inv('session:start', c.alpha, { agentId: c.agents.coder.id })
   for (let t = Date.now(); Date.now() - t < 90000 && !['ready', 'finished'].includes((await coderLive(c))?.status); ) {
-    if (/trust this folder/i.test(String(await c.inv('pty:buffer', key).catch(() => '')))) {
+    const screen = String(await c.inv('pty:buffer', key).catch(() => ''))
+    // Copilot's: "Do you trust the files in this folder?", Yes first.
+    if (/Do you trust the files in this folder/i.test(screen)) await c.inv('pty:write', key, '\r')
+    else if (/trust this folder/i.test(screen)) {
       await c.inv('pty:write', key, '\x1b[B')
       await sleep(300)
       await c.inv('pty:write', key, '\r')
@@ -1216,8 +1219,11 @@ const MODES = [
   ['release-manager', 'Release manager']
 ]
 const launchedIn = (c, name) => {
+  const fs = require('fs')
   const file = require('path').join(c.ws, '.hive', 'assistant', '.hive', 'launch-assistant', 'instructions.md')
-  return require('fs').existsSync(file) && require('fs').readFileSync(file, 'utf8').includes(`# Your mode: ${name}`)
+  if (fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes(`# Your mode: ${name}`)) return true
+  // fake-copilot: what Copilot sent its model (the stand-in's log), whose system prompt carries the launch's instructions.
+  return !!c.modelLog && fs.existsSync(c.modelLog) && fs.readFileSync(c.modelLog, 'utf8').includes(`# Your mode: ${name}`)
 }
 // A bulk move (#417): a whole column in one call, not a call per card (hive_update_tasks).
 module.exports.SCENARIOS.push({

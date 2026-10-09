@@ -7,15 +7,15 @@
 // unknown coding agent kept but blocking a load, a project's template loaded into another project, and changes at once
 // to one place (imports, duplicates, saves) serialised.
 import { execFileSync } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { basename, join } from 'path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { TEMPLATE_VERSION, exportFileName, readTemplate, templateFile, templateFrom, uniqueName, uniqueTemplateName, unknownProviders } from '../src/shared/templates'
 import type { AgentDef } from '../src/shared/types'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-templates-'))
+const base = tempDir('hive-templates-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
 /** Makes the worktree check throw (rather than report a git failure). */

@@ -2,8 +2,7 @@
 // hook steps, and the watches themselves (main/watches.ts): a watch is kept in the workspace, fires once when a watched
 // card changes or its limit passes, wakes its agent only when it is idle and the user isn't typing (else later), and
 // ends on wake or cancel. The sessions are stand-ins here (the e2e cardloop suite runs real ones).
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
@@ -11,6 +10,7 @@ import { alreadyThere, changesBetween, decodeSince, encodeSince, limitLine, mark
 import { taskWaitText } from '../src/shared/toolReplies'
 import { hookStep } from '../src/main/hookStatus'
 import type { TaskCard } from '../src/shared/types'
+import { tempDir } from './tempDir'
 
 const at = (m: number): string => new Date(Date.UTC(2026, 9, 3, 12, m)).toISOString()
 const cardOf = (over: Partial<TaskCard> = {}): TaskCard => ({ number: 7, title: 'T', description: '', project: 'alpha', agent: 'a1', column: 'doing', order: 1, labels: [], blocked: null, blockedBy: [], links: [], comments: [], history: [], archived: false, createdAt: at(0), createdBy: 'You', updatedAt: at(0), ...over })
@@ -316,7 +316,7 @@ describe('what counts as a change', () => {
 })
 
 describe('watches (main/watches.ts)', async () => {
-  const base = mkdtempSync(join(tmpdir(), 'hive-watch-'))
+  const base = tempDir('hive-watch-')
   ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
   afterAll(() => rmSync(base, { recursive: true, force: true }))
   const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')

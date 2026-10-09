@@ -4,10 +4,10 @@
 // its old one and says why) and is never left half-copied for a session (Claude Code: no copy, and why). A source that
 // changed but is still valid is delivered as it was copied. Changes are made deterministically by a hook in
 // fs/promises' open: `beforeWrite` runs before the copy writes a file whose path it matches; `deny` refuses reads.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, appendFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, appendFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { tempDir } from './tempDir'
 
 const hooks: { beforeWrite: null | { match: RegExp; run: () => void }; deny: RegExp | null; writes: 'short' | 'none' | null; writeCalls: number } = { beforeWrite: null, deny: null, writes: null, writeCalls: 0 }
 vi.mock('fs/promises', async (original) => {
@@ -48,7 +48,7 @@ const { claudeCode } = await import('../src/main/providers/claude/adapter')
 ;(codex as unknown as { checkHookHashes: () => Promise<void> }).checkHookHashes = async () => undefined
 type Delivery = { revision: string | null; problem?: string; lasting?: true }
 
-const base = mkdtempSync(join(tmpdir(), 'hive-copy-limits-'))
+const base = tempDir('hive-copy-limits-')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 beforeEach(() => {
   hooks.beforeWrite = null

@@ -3,11 +3,11 @@
 // go-ahead is typed when that turn ends and the edit is allowed in the next one (#201). Like every prompt Hive types on
 // its own, it waits while the user may be writing in the agent's terminal, and never adds to or sends their input. An
 // edit that went ahead meanwhile needs none, and an interrupt drops it.
-import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
+import { tempDir } from './tempDir'
 
 // What Hive types into agents' terminals, recorded instead (no process runs); onWrite acts as each piece goes in.
 const pty = vi.hoisted(() => ({ typed: [] as { key: string; data: string }[], onWrite: (_data: string): void => undefined }))
@@ -19,7 +19,7 @@ vi.mock('../src/main/ptyHost', async (original) => ({
   }
 }))
 
-const base = mkdtempSync(join(tmpdir(), 'hive-goahead-'))
+const base = tempDir('hive-goahead-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')

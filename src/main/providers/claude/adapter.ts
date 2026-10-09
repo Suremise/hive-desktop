@@ -577,7 +577,7 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
   }
 
   skillRoots(): SkillRoots {
-    return { machine: [join(claudeHome(), 'skills')], plugins: join(claudeHome(), 'plugins'), local: join('.claude', 'skills'), hiveCopyPrefix: null }
+    return { machine: [join(claudeHome(), 'skills')], plugins: join(claudeHome(), 'plugins'), local: [join('.claude', 'skills')], hiveCopyPrefix: null }
   }
 
   async projectMcpServers(projectPath: string): Promise<Record<string, McpServerDef>> {

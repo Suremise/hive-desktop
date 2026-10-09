@@ -1,12 +1,12 @@
 // A path is inside an .asar archive only when a folder of it named *.asar is a file on disk (#246, #261): Hive's file
 // routes and image previews refuse those, and leave alone a real folder that happens to end in .asar.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { insideArchive } from '../src/main/fsutil'
+import { tempDir } from './tempDir'
 
-const base = mkdtempSync(join(tmpdir(), 'hive-inside-archive-'))
+const base = tempDir('hive-inside-archive-')
 afterAll(() => rmSync(base, { recursive: true, force: true }))
 const archive = join(base, 'dist', 'app.asar')
 const folder = join(base, 'art.asar')

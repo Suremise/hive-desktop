@@ -129,6 +129,8 @@ interface LiveSession {
   name: string
   /** Bytes of the transcript already read for live details (providers with transcriptDetails). */
   detailsOffset?: number
+  /** The last interrupt read from the transcript and acted on (LiveDetails.interruptedAt), so each counts once. */
+  interruptedAt?: string
   /** When the cost estimate was last worked out (providers that don't report cost). */
   costAt?: number
   /** Terminal output while a mode switch waits for the CLI's confirmation. */
@@ -2376,6 +2378,15 @@ class SessionManager {
       const id = liveId(l.state.projectPath, l.state.agentId)
       void this.inHookOrder(l.state.runId, () => {
         if (this.live.get(id) === l) this.carryOut(id, l, hookStep({ kind: 'signIn', message: refused }, this.statusInput(l)), 'transcript', { kind: 'signIn', message: refused })
+      })
+    }
+    // A turn interrupted without a hook (Copilot): as the interrupt hook would, once per recorded interrupt of this launch.
+    const interrupted = d.interruptedAt && Date.parse(d.interruptedAt) >= Date.parse(l.state.startedAt) && d.interruptedAt !== l.interruptedAt ? d.interruptedAt : null
+    if (interrupted) {
+      l.interruptedAt = interrupted
+      const id = liveId(l.state.projectPath, l.state.agentId)
+      void this.inHookOrder(l.state.runId, () => {
+        if (this.live.get(id) === l) this.carryOut(id, l, hookStep({ kind: 'interrupt' }, this.statusInput(l)), 'transcript', { kind: 'interrupt' })
       })
     }
     if (d.planUsage) reportPlanUsage(l.state.provider, d.planUsage)
