@@ -228,7 +228,8 @@ describe('Codex skill copies', () => {
 describe('Codex permission menu (#396)', () => {
   // Codex's /permissions menu as rendered: 0.161.0's own (captured in a test home, with Read Only and with Ask for
   // approval current), and 0.160's order (Read Only first) in the same layout, as Hive's earlier number picks assumed.
-  const screen = (name: string) => readText(joinPath(__dirname, 'fixtures', `codex-${name}.txt`), 'utf8')
+  // A line per row, however git checked the fixture out (CRLF on Windows).
+  const screen = (name: string) => readText(joinPath(__dirname, 'fixtures', `codex-${name}.txt`), 'utf8').replace(/\r\n/g, '\n')
   const MODES = ['read-only', 'ask', 'approve-for-me', 'full-access'] as const
 
   it('finds each preset by the label Codex draws, in either order', async () => {
@@ -284,6 +285,89 @@ describe('Codex permission menu (#396)', () => {
     expect(err).toBeInstanceOf(PickNotFound)
     expect(err.message).toBe('Couldn\'t find "Ask for approval" in Codex\'s /permissions menu.')
     expect(before).toEqual(['\x15', '/permissions', '\r'])
+  })
+
+  // #363: Codex's screens as 0.161 drew them: its input holding /permissions while a turn runs ("tab to queue
+  // message"), still holding it once free, and the menu open.
+  it("tells from Codex's screen whether its input still holds the command, and whether it is busy holding it", async () => {
+    const { codexHoldsInput, inputHolds } = await import('../src/main/providers/codex/adapter')
+    expect(inputHolds(screen('0.161-held-working'), '/permissions')).toBe(true)
+    expect(inputHolds(screen('0.161-held-idle'), '/permissions')).toBe(true)
+    // The menu open: its selected row is the last "›" line, not the input.
+    expect(inputHolds(screen('0.161-permissions-readonly'), '/permissions')).toBe(false)
+    // Taken (the input empty), or holding something else.
+    expect(inputHolds(screen('0.161-held-idle').replace('› /permissions\n', '› Ask Codex to do anything\n'), '/permissions')).toBe(false)
+    expect(inputHolds(screen('0.161-held-idle'), '/setup-default-sandbox')).toBe(false)
+    expect(codexHoldsInput(screen('0.161-held-working'))).toBe(true)
+    expect(codexHoldsInput(screen('0.161-held-idle'))).toBe(false)
+    // Free, with the hint's words in the conversation above its input (someone writing about it): not busy.
+    const talk = screen('0.161-held-idle').replace('› /permissions  choose', '• Codex shows "tab to queue message" while it works\n› /permissions  choose')
+    expect(talk).toContain('tab to queue message')
+    expect(codexHoldsInput(talk)).toBe(false)
+    expect(codexHoldsInput(talk.replace('› /permissions\n', '› Ask Codex to do anything\n'))).toBe(false)
+  })
+
+  it('sends a held Enter again only while the screen holds the command once the CLI is ready, at most twice more', async () => {
+    const { RESENDS, typeKeySteps } = await import('../src/main/keySteps')
+    const { codex } = await import('../src/main/providers/codex/adapter')
+    const held = screen('0.161-held-idle')
+    const menu = screen('0.161-permissions-readonly')
+    /** Types the menu keys with `react` deciding the screen after each key (the screen before any: `start`). */
+    const run = async (start: string, react: (keys: string, enters: number) => string | undefined, ready?: () => Promise<true | string>) => {
+      let shown = start
+      const typed: string[] = []
+      const err = await typeKeySteps(codex.modeMenuKeys('full-access'), {
+        write: (k) => {
+          typed.push(k)
+          shown = react(k, typed.filter((x) => x === '\r').length) ?? shown
+        },
+        screen: () => shown,
+        ready,
+        heldSettleMs: 20,
+        pickTimeoutMs: 300
+      }).catch((e) => e)
+      return { typed, err }
+    }
+    // Taken at once: the menu replaces the input. One Enter.
+    expect((await run(held, (k) => (k === '\r' ? menu : undefined))).typed).toEqual(['\x15', '/permissions', '\r', '3'])
+    // Held after the first Enter, taken after the second.
+    expect((await run(held, (k, n) => (k === '\r' && n === 2 ? menu : undefined))).typed).toEqual(['\x15', '/permissions', '\r', '\r', '3'])
+    // Never taken: Enter 1 + RESENDS times, then the pick finds no menu and nothing is chosen.
+    const never = await run(held, () => undefined)
+    expect(never.typed).toEqual(['\x15', '/permissions', ...Array(1 + RESENDS).fill('\r')])
+    expect(never.err?.constructor?.name).toBe('PickNotFound')
+    // Ready says stop (the session ended) while it waits to send again: nothing more is typed, and it says why.
+    let calls = 0
+    const stopped = await run(held, () => undefined, async () => (++calls < 4 ? true : 'its session ended'))
+    expect(stopped.typed).toEqual(['\x15', '/permissions', '\r'])
+    expect(stopped.err?.constructor?.name).toBe('KeysStopped')
+    expect(stopped.err?.why).toBe('its session ended')
+    // Busy again during the settle before a resend: ready is asked after it, just before the write, so nothing goes
+    // into a busy CLI (here it stays busy, and typing stops).
+    let busy = false
+    const settling = await run(
+      held,
+      (k, n) => {
+        if (k === '\r' && n === 1) setTimeout(() => (busy = true), 5)
+        return undefined
+      },
+      async () => (busy ? 'it stayed busy for 30 seconds' : true)
+    )
+    expect(settling.typed).toEqual(['\x15', '/permissions', '\r'])
+    expect(settling.err?.why).toBe('it stayed busy for 30 seconds')
+    // The pick, once the menu shows: ready is asked before its number goes in. Stopped meanwhile, no number is typed.
+    let opened = false
+    const picking = await run(
+      held,
+      (k) => {
+        if (k !== '\r') return undefined
+        opened = true
+        return menu
+      },
+      async () => (opened ? 'its session ended' : true)
+    )
+    expect(picking.typed).toEqual(['\x15', '/permissions', '\r'])
+    expect(picking.err?.constructor?.name).toBe('KeysStopped')
   })
 })
 

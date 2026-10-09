@@ -433,28 +433,37 @@ const prose = (seed, n) => {
   const reported = (after.providers ?? []).find((x) => x.provider === 'claude-code' && x.role === 'agent')
   check("metrics: the providers' own reported usage for sessions in the range", reported?.sessions >= 1 && reported.inputTokens > 0, JSON.stringify(after.providers))
   check("metrics: the skill service is the workspace's own", after.skills?.scans?.count >= 1 && after.skills.hits + after.skills.misses > 0, JSON.stringify(after.skills))
-  // What recording costs a request: 300 sequential calls with it on, then off (and back on).
+  // What recording costs a request: 300 sequential calls with it on, then off (and back on). Recording is work in Hive's
+  // main process, so it is measured as that process's CPU time a request (#428): a request's wall-clock time (about 14 ms
+  // here, mostly waiting) drifts by more than recording costs on a loaded machine, CPU time far less.
+  const cpuMs = () => app.evaluate(() => {
+    const u = process.cpuUsage()
+    return (u.user + u.system) / 1000
+  })
   const burst = async () => {
+    const c = await cpuMs()
     const t = performance.now()
     for (let i = 0; i < 300; i++) await api('GET', '/v1/workspace')
-    return (performance.now() - t) / 300
+    return { cpu: ((await cpuMs()) - c) / 300, wall: (performance.now() - t) / 300 }
   }
   const workspaceCalls = (rep) => rep.workspace.api.filter((sr) => sr.route === '/v1/workspace').reduce((n, sr) => n + sr.count, 0)
   const callsBefore = workspaceCalls((await api('GET', `/v1/metrics?scope=workspace&from=${encodeURIComponent(since)}`)).body)
   await burst()
-  // Alternated three times, the best of each compared: a request's own latency varies far more than recording costs.
-  let onMs = Infinity
-  let offMs = Infinity
+  // Alternated three times. CPU time over all three, as Windows counts it in ticks of about 15.6 ms (0.05 ms a request
+  // in one burst, 0.017 ms over three); wall-clock the best of each, for the log.
+  const on = { cpu: 0, wall: Infinity }
+  const off = { cpu: 0, wall: Infinity }
+  const add = (into, b) => Object.assign(into, { cpu: into.cpu + b.cpu / 3, wall: Math.min(into.wall, b.wall) })
   for (let round = 0; round < 3; round++) {
-    onMs = Math.min(onMs, await burst())
+    add(on, await burst())
     await inv('settings:update', { sessions: { recordPerformance: false } })
-    offMs = Math.min(offMs, await burst())
+    add(off, await burst())
     await inv('settings:update', { sessions: { recordPerformance: true } })
   }
-  console.log(`metrics overhead: ${onMs.toFixed(2)} ms a request recording, ${offMs.toFixed(2)} ms not (best of 3 x 300)`)
-  check('metrics: recording adds well under a millisecond to a request', onMs - offMs < 1, `${onMs.toFixed(2)} vs ${offMs.toFixed(2)}`)
-  const off = (await api('GET', `/v1/metrics?scope=workspace&from=${encodeURIComponent(since)}`)).body
-  check('metrics: turned off, nothing was recorded', workspaceCalls(off) - callsBefore === 1200, String(workspaceCalls(off) - callsBefore))
+  console.log(`metrics overhead: Hive's CPU ${on.cpu.toFixed(3)} ms a request recording, ${off.cpu.toFixed(3)} ms not (3 x 300 each); wall-clock ${on.wall.toFixed(2)} vs ${off.wall.toFixed(2)} ms (best of 3)`)
+  check('metrics: recording adds well under a millisecond to a request', on.cpu - off.cpu < 1, `Hive's CPU ${on.cpu.toFixed(3)} vs ${off.cpu.toFixed(3)} ms`)
+  const recorded = (await api('GET', `/v1/metrics?scope=workspace&from=${encodeURIComponent(since)}`)).body
+  check('metrics: turned off, nothing was recorded', workspaceCalls(recorded) - callsBefore === 1200, String(workspaceCalls(recorded) - callsBefore))
 
   // The merge slot (#350): an agent's own launch holds it; replies are a line each.
   console.log('\n--- merge slot')

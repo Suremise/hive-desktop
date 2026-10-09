@@ -84,6 +84,32 @@ const ACTION_REQUIRED_SINCE = '0.160.0'
  */
 export const CODEX_LOADED = /OpenAI Codex\s+\(v[^)]*\)[\s│]+(?:~|[A-Za-z]:|[\\/])/
 /**
+ * Whether Codex is busy and holding what was typed (#363): its hint "tab to queue message" on the last line it draws,
+ * under its input, while it works. It can show before the title's spinner does, so keys typed then wait for it to go
+ * too. Only there: the same words in the conversation above (someone writing about the hint) aren't Codex busy.
+ */
+export function codexHoldsInput(screen: string): boolean {
+  const last = screen
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .at(-1)
+  return last !== undefined && /^tab to queue message\b/i.test(last)
+}
+/**
+ * Whether Codex's input still holds `command`, unrun (#363): the input is the last line Codex marks with "›", and holds
+ * just the command (a menu's selected row, or an input that is empty or holds anything else, isn't it). Run, or queued
+ * by Codex to run when it is free, the command leaves the input.
+ */
+export function inputHolds(screen: string, command: string): boolean {
+  const input = screen
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .filter((l) => /^\s*›/.test(l))
+    .at(-1)
+  return input !== undefined && input.replace(/^\s*›\s*/, '') === command
+}
+/**
  * Codex's own terminal title items, set for Hive's sessions and its sandbox setup so a user's [tui].terminal_title
  * can't hide "Action Required" or the busy spinner.
  */
@@ -259,6 +285,9 @@ export class CodexAdapter implements ProviderAdapter {
   // Before a folder's first session: "Trust this folder? Codex can read, edit, and run files here…".
   readonly startupQuestion = /trust this folder/i
   readonly planToggleKey = '\x1b[Z'
+  busyScreen(screen: string): boolean {
+    return codexHoldsInput(screen)
+  }
 
   startHint(text: string): StartHint | null {
     if (/\bmodel\b/i.test(text) && /not found|invalid|unknown|not supported|does not exist/i.test(text)) return { hint: 'Codex doesn\'t know this model: choose another in Agent Settings.', fix: 'agent-settings' }
@@ -421,7 +450,7 @@ export class CodexAdapter implements ProviderAdapter {
     const s = toSpawnable(executable, ['--no-daemon', '-C', dir, '-c', `projects=${toToml({ [dir]: { trust_level: 'trusted' } })}`, '-c', `tui.terminal_title=${toToml(TITLE_ITEMS)}`, ...CODEX_MODE_FLAGS['read-only']])
     const before = this.sandboxKind()
     const keys = before === 'unelevated'
-      ? [{ keys: '/setup-default-sandbox', waitMs: 300 }, { keys: '\r' }]
+      ? [{ keys: '/setup-default-sandbox', waitMs: 300 }, { keys: '\r', heldOn: (screen: string) => inputHolds(screen, '/setup-default-sandbox') }]
       : this.modeMenuKeys('ask')
     // Codex stays open once the sandbox is set up: the task is done when its config names a new sandbox.
     const done = (): boolean => {
@@ -429,7 +458,7 @@ export class CodexAdapter implements ProviderAdapter {
       return !!now && now !== before
     }
     // Codex puts a spinner in its window title while it works (also as it starts up, once it has loaded).
-    return { ...s, keys, readyPattern: CODEX_LOADED, busyTitle: /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/, done }
+    return { ...s, keys, readyPattern: CODEX_LOADED, busyTitle: /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/, busyScreen: codexHoldsInput, done }
   }
 
   /** Codex's model catalog (codex debug models, models.ts): the listed models in Codex's order, with their efforts. */
@@ -625,7 +654,8 @@ export class CodexAdapter implements ProviderAdapter {
     return [
       { keys: '\x15', waitMs: 150 },
       { keys: '/permissions', waitMs: 200 },
-      { keys: '\r', waitMs: 200 },
+      // Enter again while Codex's input still holds the command, once it is free (#363); never a second /permissions.
+      { keys: '\r', waitMs: 200, heldOn: (screen) => inputHolds(screen, '/permissions') },
       { pick: (screen) => permissionsMenuNumber(screen, target), what: `"${PERMISSIONS_MENU_LABELS[target] ?? target}" in Codex's /permissions menu`, waitMs: 300 }
     ]
   }

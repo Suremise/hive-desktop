@@ -327,13 +327,15 @@ const check = (name, ok, extra = '') => {
   await quitWhen.click()
   const pendingNow = await until(async () => (await inv('app:quitState'))?.pending === true, 5000)
   check('a quit is pending, waiting on the watcher', !!pendingNow && (await inv('app:quitState')).working === 1, JSON.stringify(await inv('app:quitState')))
-  const exited = app.waitForEvent('close', { timeout: 20000 }).then(() => true, () => false)
+  const quitting = await lib.quitWatch(app)
   await inv('tasks:update', q1, { column: 'done' })
   await lib.sleep(2500) // A fixed wait on purpose: this checks that Hive does NOT quit yet, which no condition can show.
   const still = await inv('app:quitState')
   check('…still waiting while the other card it watches is in Doing with the builder', still?.pending === true && still?.working === 1, JSON.stringify(still))
+  const moved = Date.now()
   await inv('tasks:update', q2, { column: 'todo' })
-  check('…and Hive quits once no watched card is being worked on', await exited)
+  // Hive decides to quit (#424): timed from the move; its process ending after that is Electron's, only waited for.
+  check('…and Hive quits once no watched card is being worked on', !!(await quitting.untilDecided(20000)) && (await quitting.gone(30000)), quitting.timings(moved))
   check('…without waking the watcher', wakes('Reviewer').length === reviewerWakes, JSON.stringify(wakes('Reviewer').slice(reviewerWakes)))
   console.log(failed ? `${failed} failed` : 'all passed')
   process.exit(failed ? 1 : 0)

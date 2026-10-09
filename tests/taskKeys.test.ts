@@ -18,9 +18,10 @@ vi.mock('../src/main/ptyHost', async (original) => ({
   writePty: (_key: string, keys: string) => void pty.typed.push({ at: Date.now(), keys })
 }))
 
-const { CODEX_LOADED } = await import('../src/main/providers/codex/adapter')
+const { CODEX_LOADED, codexHoldsInput } = await import('../src/main/providers/codex/adapter')
 const { KeyGate } = await import('../src/main/taskKeys')
 const { providerService } = await import('../src/main/providerService')
+const events = await import('../src/main/events')
 const { TerminalScreen } = await import('../src/main/terminalScreen')
 
 const { stream } = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'codex-startup-0.160.0.json'), 'utf8')) as { stream: string }
@@ -66,6 +67,13 @@ vi.spyOn(TerminalScreen.prototype, 'dispose').mockImplementation(function (this:
 afterAll(() => vi.restoreAllMocks())
 /** Resolves once everything the terminals were given so far has been parsed (or its screen disposed). */
 const parsed = (): Promise<void> => Promise.all([...pending].map((e) => e.done)).then(() => undefined)
+/**
+ * A screen Codex 0.161 drew, captured from its rendered terminal (tests/fixtures/codex-0.161-*.txt, #363), as output
+ * that clears the screen and draws it again: held-working (its input holding /permissions while a turn runs, "tab to
+ * queue message"), held-idle (still holding it, free), permissions-readonly (the /permissions menu open).
+ */
+const draw = (name: string): string =>
+  '\x1b[2J\x1b[H' + readFileSync(join(__dirname, 'fixtures', `${name}.txt`), 'utf8').replace(/\r?\n$/, '').split(/\r?\n/).join('\r\n')
 
 describe('KeyGate', () => {
   it('the fixture is what it says: the prompt drawn while loading, then the folder over "loading"', () => {
@@ -120,6 +128,30 @@ describe('KeyGate', () => {
     now = 3200
     expect(gate.busy).toBe(false)
     expect(gate.idleFor()).toBe(500)
+  })
+
+  it("busy while its screen shows it holds what was typed, before its title says so (#363), and idle from when that goes", async () => {
+    let now = 0
+    const gate = new KeyGate({ ready: CODEX_LOADED, busyTitle: BUSY, busyScreen: codexHoldsInput, cols: 120, rows: 32, clock: () => now })
+    gate.feed(stream)
+    await parsed()
+    now = 2000
+    expect(gate.ready && !gate.busy).toBe(true)
+    // Codex's input holding /permissions while it works ("tab to queue message"), its title still plain.
+    now = 2100
+    gate.feed(draw('codex-0.161-held-working'))
+    await parsed()
+    expect(gate.busy).toBe(true)
+    now = 4000
+    expect(gate.idleFor()).toBe(0)
+    expect(gate.settled(500)).toBe(false)
+    // Free again: the hint goes (the command still in its input).
+    now = 4100
+    gate.feed(draw('codex-0.161-held-idle'))
+    await parsed()
+    now = 4700
+    expect(gate.busy).toBe(false)
+    expect(gate.idleFor()).toBe(600)
   })
 })
 
@@ -179,5 +211,100 @@ describe('runTask: the setup keys go in once Codex has loaded and is idle', () =
     pty.onData!('\r\n  1. Approve for me   Only ask for actions detected as potentially unsafe')
     await vi.advanceTimersByTimeAsync(10_000)
     expect(pty.typed.map((t) => t.keys)).toEqual(['\x15', '/permissions', '\r'])
+  })
+
+  // #363: under load Codex was busy as the setup's keys came, its title's spinner later than the hint on its screen, and
+  // /permissions stayed in its input, never run. Codex's screens here are captured from 0.161.
+  const setup = async (): Promise<void> => {
+    vi.useFakeTimers({ now: 0 })
+    const { codex } = await import('../src/main/providers/codex/adapter')
+    const run = (providerService as unknown as { runTask: (...a: unknown[]) => string }).runTask.bind(providerService)
+    run('codex', 'setup', 'codex.exe', [], 'Codex setup', { keys: codex.modeMenuKeys('ask'), ready: CODEX_LOADED, busyTitle: BUSY, busyScreen: codexHoldsInput })
+    pty.onData!(stream)
+    // Until /permissions has gone in, and no further: its Enter comes 200 ms later.
+    for (let ms = 0; ms < 5000 && pty.typed.length < 2; ms += 10) await vi.advanceTimersByTimeAsync(10)
+    expect(pty.typed.map((t) => t.keys)).toEqual(['\x15', '/permissions'])
+  }
+  const typed = (): string[] => pty.typed.map((t) => t.keys)
+  /** Until Enter has gone in (n of them), in 10 ms steps, so what Codex draws next comes right after it. */
+  const untilEnters = async (n: number): Promise<void> => {
+    for (let ms = 0; ms < 60_000 && typed().filter((k) => k === '\r').length < n; ms += 10) await vi.advanceTimersByTimeAsync(10)
+  }
+
+  it('holds Enter while Codex shows it holds the command, and sends it once Codex is free', async () => {
+    await setup()
+    // Codex busy and holding /permissions, its title still plain: Enter waits.
+    pty.onData!(draw('codex-0.161-held-working'))
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(typed()).toEqual(['\x15', '/permissions'])
+    // Free, the command in its input: Enter, which Codex runs (its menu), then the menu's number.
+    pty.onData!(draw('codex-0.161-held-idle'))
+    await untilEnters(1)
+    pty.onData!(draw('codex-0.161-permissions-readonly'))
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(typed()).toEqual(['\x15', '/permissions', '\r', '1'])
+  })
+
+  it('sends Enter again when Codex was busy as it came and still holds the command once free; never retypes it', async () => {
+    await setup()
+    // The command in its input, Codex free: Enter goes in. Then Codex shows it was busy and kept the command.
+    pty.onData!(draw('codex-0.161-held-idle'))
+    await untilEnters(1)
+    pty.onData!(draw('codex-0.161-held-working'))
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(typed()).toEqual(['\x15', '/permissions', '\r'])
+    // Free, still holding it: Enter again, after a moment for Codex to draw what it did.
+    const freeAt = Date.now()
+    pty.onData!(draw('codex-0.161-held-idle'))
+    await untilEnters(2)
+    expect(pty.typed[3].at - freeAt).toBeGreaterThanOrEqual(1500)
+    pty.onData!(draw('codex-0.161-permissions-readonly'))
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(typed()).toEqual(['\x15', '/permissions', '\r', '\r', '1'])
+  })
+
+  it('sends Enter only once when Codex took the command: its input cleared, the menu drawn later', async () => {
+    await setup()
+    pty.onData!(draw('codex-0.161-held-idle'))
+    await untilEnters(1)
+    // Taken (run, or queued to run when Codex is free): its input no longer holds it, though Codex is still busy.
+    pty.onData!(draw('codex-0.161-held-working').replace('› /permissions\r\n', '› Ask Codex to do anything\r\n'))
+    await vi.advanceTimersByTimeAsync(5000)
+    pty.onData!(draw('codex-0.161-permissions-readonly'))
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(typed()).toEqual(['\x15', '/permissions', '\r', '1'])
+  })
+
+  it('types nothing more into Codex while it stays busy, and stops after 30 seconds saying so', async () => {
+    const toasts = vi.spyOn(events, 'toast').mockImplementation(() => undefined as never)
+    await setup()
+    pty.onData!(draw('codex-0.161-held-working'))
+    await vi.advanceTimersByTimeAsync(29_000)
+    expect(typed()).toEqual(['\x15', '/permissions'])
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(typed()).toEqual(['\x15', '/permissions'])
+    expect(toasts).toHaveBeenCalledWith('warning', 'Codex setup: Hive stopped typing into it, as it stayed busy for 30 seconds. Finish it in the terminal.')
+    // Free later: still nothing (it stopped).
+    pty.onData!(draw('codex-0.161-held-idle'))
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(typed()).toEqual(['\x15', '/permissions'])
+    toasts.mockRestore()
+  })
+
+  it('the 30-second start (Codex never shown loaded) types nothing while Codex shows it is busy', async () => {
+    vi.useFakeTimers({ now: 0 })
+    const { codex } = await import('../src/main/providers/codex/adapter')
+    const run = (providerService as unknown as { runTask: (...a: unknown[]) => string }).runTask.bind(providerService)
+    run('codex', 'setup', 'codex.exe', [], 'Codex setup', { keys: codex.modeMenuKeys('ask'), ready: /never shown/, busyTitle: BUSY, busyScreen: codexHoldsInput })
+    pty.onData!(draw('codex-0.161-held-working'))
+    await vi.advanceTimersByTimeAsync(45_000)
+    expect(typed()).toEqual([])
+  })
+
+  it('sends Enter at most three times in all while Codex holds the command, then stops, choosing nothing', async () => {
+    await setup()
+    pty.onData!(draw('codex-0.161-held-idle'))
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(typed()).toEqual(['\x15', '/permissions', '\r', '\r', '\r'])
   })
 })

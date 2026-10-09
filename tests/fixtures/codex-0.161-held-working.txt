@@ -1,0 +1,32 @@
+
+  >_ OpenAI Codex (v0.161.0)
+     ~\AppData\Local\Temp\hive-codex-setup
+
+
+› Reply with the single word OK
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+• Working (0s • esc to interrupt)
+
+› /permissions  choose what Codex is allowed to do                                                                      
+
+› /permissions
+
+  GPT-6.1-Sol default · ~\AppData\Local\Temp\hive-codex-setup · ⠧
+  tab to queue message

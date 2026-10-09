@@ -82,6 +82,11 @@ export interface CommandSpec {
    * idle for a moment, since a busy CLI queues what is typed instead of acting on it (Codex: "tab to queue message").
    */
   busyTitle?: RegExp
+  /**
+   * Whether its screen (rendered, a line per row) shows it busy and holding what was typed (Codex: "tab to queue
+   * message" under its input, #363): `keys` wait while it does, as for busyTitle. The title can say so later.
+   */
+  busyScreen?: (screen: string) => boolean
   /** True once the task has done its job, for a program that stays open afterwards (Codex after its sandbox setup): Hive then closes it. */
   done?: () => boolean
 }
@@ -90,9 +95,10 @@ export interface CommandSpec {
  * Keys typed into a CLI's own interface (a menu, a slash command), with pauses between them. A step is keys as they
  * are, or a pick: it reads the CLI's screen as rendered and returns what to type, null until the screen shows it, for
  * a menu whose order the CLI can change (Codex's /permissions, #396); `what` names what it looks for, for the error
- * when it never shows (main/keySteps.ts).
+ * when it never shows (main/keySteps.ts). A step that submits (Enter) can say how the screen shows it wasn't taken:
+ * `heldOn` is true while the CLI still holds what it submits, unrun (Codex's input still holding the command, #363).
  */
-export type KeyStep = { keys: string; waitMs?: number } | { pick: (screen: string) => string | null; what: string; waitMs?: number }
+export type KeyStep = { keys: string; waitMs?: number; heldOn?: (screen: string) => boolean } | { pick: (screen: string) => string | null; what: string; waitMs?: number }
 export type KeySteps = KeyStep[]
 
 export interface ExternalSession {
@@ -288,6 +294,8 @@ export interface ProviderAdapter {
   modeMenuKeys?(target: PermissionMode): KeySteps
   /** The mode the CLI says it switched to, from its terminal output after a menu switch (null: not said yet). */
   modeFromOutput?(tail: string): PermissionMode | null
+  /** Whether the CLI's screen shows it busy holding what was typed (as CommandSpec.busyScreen): a menu switch waits while it does. */
+  busyScreen?(screen: string): boolean
   /** For providers with a Plan toggle: the key that turns it on or off. */
   readonly planToggleKey?: string
   /** The permission mode shown in the terminal footer, from the terminal's rendered screen (its lines as text). */

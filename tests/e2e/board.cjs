@@ -57,6 +57,17 @@ const check = (name, ok, extra = '') => {
   const card = async (n) => (await cards()).find((c) => c.number === n)
   const tile = (n) => page.locator(`.task-card[data-task="${n}"]`)
   const column = (label) => page.locator('.board-column', { has: page.locator('.board-column-header', { hasText: label }) })
+  /**
+   * Closes a dialog with Escape and makes sure it went (#429): a busy window can miss the key (pressed while the focus is
+   * still moving into the dialog), so it is pressed again while the dialog is still open, a few times at most.
+   */
+  const escapeCloses = async (d) => {
+    for (let i = 0; i < 3; i++) {
+      await page.keyboard.press('Escape')
+      if (await until(async () => (await d.count()) === 0, 3000)) return true
+    }
+    return false
+  }
 
   // The Board view, and a card added there.
   await page.getByRole('button', { name: 'Task Board' }).click()
@@ -64,8 +75,7 @@ const check = (name, ok, extra = '') => {
   const dialog = page.locator('.dialog', { hasText: 'New Card' })
   await page.getByRole('button', { name: 'New Card', exact: true }).click()
   check('a new card’s title takes the keyboard', !!(await until(() => page.evaluate(() => !!document.activeElement?.classList.contains('task-title-input')), 5000)))
-  await page.keyboard.press('Escape')
-  await until(async () => (await dialog.count()) === 0, 5000)
+  check('Escape closes the new card dialog', await escapeCloses(dialog))
   // That focus comes on a short timer, which a busy window runs late (#229): hold the dialog's short timers until the
   // description has the keyboard, then run them just before the text arrives. It still lands in the description.
   await page.evaluate(() => {
@@ -315,8 +325,7 @@ const check = (name, ok, extra = '') => {
   await page.keyboard.press('Enter')
   check('Enter in it adds no line break', (await blockedField.inputValue()) === reason)
   await page.screenshot({ path: path.join(lib.WORK, 'board-long-dialog.png') })
-  await page.keyboard.press('Escape')
-  await until(async () => (await page.locator('.dialog').count()) === 0, 3000)
+  check('Escape closes the card dialog', await escapeCloses(page.locator('.dialog')))
   await inv('settings:update', { appearance: { theme: 'dark' } })
   // A reason near the 1000-character limit, in a small window at 125% (review round 1): its tooltip widens to the window
   // so all of it fits, its last line on screen, in both themes.

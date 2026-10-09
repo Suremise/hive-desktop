@@ -122,6 +122,30 @@ const check = (name, ok, extra = '') => {
     }, projectFile)
   const held = () => lib.until(() => app.evaluate(() => global.__hiveTestGate.entered), 5000)
   const release = () => app.evaluate(() => global.__hiveTestGate.release())
+  // A change queued for the project's lock (#423): withFileLock (fsutil.ts) queues a call behind the one holding a file's
+  // lock by setting the file's key (its path in lower case) in its map of locks, in the same step as the call. While the
+  // user's write holds project.json, a set of that key is a change queued behind it: past all its checks before the lock.
+  // Counted from Map.prototype.set in Hive's main process only while a race waits for it, then put back. Were the lock
+  // kept some other way, no set would come and the check fails, rather than passing without the race.
+  const watchLockQueue = () =>
+    app.evaluate((_, lockKey) => {
+      const set = (global.__hiveTestMapSet ??= Map.prototype.set)
+      global.__hiveTestQueued = 0
+      // eslint-disable-next-line eslint/no-extend-native -- in the test copy only, and put back once the race is queued
+      Map.prototype.set = function (k, v) {
+        if (k === lockKey) global.__hiveTestQueued++
+        return set.call(this, k, v)
+      }
+    }, projectFile.toLowerCase())
+  /** Until a change has queued for the project's lock behind the user's held write (the fake's call starts a hive MCP server first, seconds under load); then stops counting. */
+  const queuedForLock = async () => {
+    const queued = !!(await lib.until(() => app.evaluate(() => global.__hiveTestQueued > 0), 30000))
+    await app.evaluate(() => {
+      // eslint-disable-next-line eslint/no-extend-native -- putting Map's own set back
+      Map.prototype.set = global.__hiveTestMapSet
+    })
+    return queued
+  }
   // Started in the page and left there (nothing returned to wait on: the write is held on purpose).
   const userWrite = (value) =>
     page.evaluate(([p, v]) => {
@@ -133,14 +157,17 @@ const check = (name, ok, extra = '') => {
   await holdNextWrite()
   await userWrite(400000)
   check("the user's write holds the project's lock", !!(await held()))
+  await watchLockQueue()
   const queued = say('hive hive_update_setting {"id":"project.compactSuggestTokens","value":500000,"project":"alpha"}')
-  await lib.sleep(1500) // on purpose: the Assistant's call reaches the lock and waits behind the user's write
+  check("the Assistant's change waits behind the user's write", await queuedForLock())
   await inv('settings:update', { assistant: { changeSettings: false } })
   await release()
   await queued
   check("the user's write is saved", (await page.evaluate(() => window.__userWrite)) === 'saved')
   check('the queued change, its permission withdrawn meanwhile, changed nothing', (await alphaCfg()).compactSuggestTokens === 400000, String((await alphaCfg()).compactSuggestTokens))
-  check('…listed as not done: Change settings was turned off', (await panel.locator('.assistant-action.failed', { hasText: 'Change Project Settings → Sessions → Suggest compacting above in alpha' }).count()) >= 1)
+  // Refused where it waited (under the lock), not by the up-front check a call that arrives after the switch meets.
+  const turnedOff = (await inv('assistant:actions')).filter((a) => !a.ok).at(-1)
+  check('…listed as not done: Change settings was turned off', (await panel.locator('.assistant-action.failed', { hasText: 'Change Project Settings → Sessions → Suggest compacting above in alpha' }).count()) >= 1 && /was turned off before the change was made/.test(turnedOff?.error ?? ''), JSON.stringify(turnedOff))
 
   // The Assistant restarted while its change waits for the lock: the new session doesn't carry out the old one's change.
   await inv('settings:update', { assistant: { changeSettings: true } })
@@ -148,11 +175,12 @@ const check = (name, ok, extra = '') => {
   await userWrite(410000)
   await held()
   const refusedBefore = (await inv('assistant:actions')).filter((a) => !a.ok).length
+  await watchLockQueue()
   // Typed, not said: its turn never ends (the session is stopped under it).
   await inv('pty:write', key, 'hive hive_update_setting {"id":"project.compactSuggestTokens","value":500000,"project":"alpha"}')
   await lib.sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
   await inv('pty:write', key, '\r')
-  await lib.sleep(1500) // on purpose: the Assistant's call reaches the lock and waits behind the user's write
+  check("the old session's change waits behind the user's write", await queuedForLock())
   await inv('session:stop', home, 'assistant')
   await lib.until(async () => !(await live()), 15000)
   await inv('session:start', home, { agentId: 'assistant' })
