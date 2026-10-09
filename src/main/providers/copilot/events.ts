@@ -52,23 +52,30 @@ export function signInRefused(data: unknown): string | null {
   return /please use \/login|sign in to use copilot|not (?:signed|logged) in|\b401\b|bad credentials/i.test(message) ? message : null
 }
 
+/** What eventsDetails keeps between a launch's reads: the model call being read has the user's refusal of a prompt. */
+export interface CopilotDetailsMemo {
+  denied: boolean
+}
+
+export const copilotDetailsMemo = (): CopilotDetailsMemo => ({ denied: false })
+
 /**
  * Session details from appended events: model, effort, the credits used so far and the premium requests (running
  * totals), a refused sign-in, and when the user last interrupted a turn (`interruptedAt`), for which no hook fires: an
  * abort (Esc on a command's dialog, or while it works), or a turn that ends on the user's refusal of a path prompt
  * (Esc on "Path permission needed": permission.completed denied interactively, then assistant.turn_end, and neither
  * an abort nor agentStop; #475). An interrupt the user's next prompt follows in the same events is history: that
- * prompt's hook has already said the agent works again.
+ * prompt's hook has already said the agent works again. `memo` is the launch's own, kept between reads (a refusal and
+ * its turn's end can come in two).
  */
-export function eventsDetails(text: string): LiveDetails {
+export function eventsDetails(text: string, memo: CopilotDetailsMemo = copilotDetailsMemo()): LiveDetails {
   // premiumRequests is Copilot's own (CopilotSessionUsage).
   const out: LiveDetails & { premiumRequests?: number } = {}
-  // denied: this model call had the user's refusal. refusedEnd: when a call that had one ended (its turn_end), until
-  // Copilot carries on with another call or its agentStop, or the user prompts again.
-  let denied = false
+  // refusedEnd: when a model call with the user's refusal ended (its turn_end), until Copilot carries on with another
+  // call or its agentStop, or the user prompts again.
   let refusedEnd: string | null = null
   const prompted = (): void => {
-    denied = false
+    memo.denied = false
     refusedEnd = null
     delete out.interruptedAt
   }
@@ -108,18 +115,19 @@ export function eventsDetails(text: string): LiveDetails {
         if (typeof d.totalPremiumRequests === 'number') out.premiumRequests = d.totalPremiumRequests
         break
       case 'abort':
+        memo.denied = false
         refusedEnd = null
         if (typeof r.timestamp === 'string') out.interruptedAt = r.timestamp
         break
       case 'permission.completed':
-        if (d.result?.kind === 'denied-interactively-by-user') denied = true
+        if (d.result?.kind === 'denied-interactively-by-user') memo.denied = true
         break
       case 'assistant.turn_end':
-        if (denied && typeof r.timestamp === 'string') refusedEnd = r.timestamp
-        denied = false
+        if (memo.denied && typeof r.timestamp === 'string') refusedEnd = r.timestamp
+        memo.denied = false
         break
       case 'assistant.turn_start':
-        denied = false
+        memo.denied = false
         refusedEnd = null
         break
       case 'hook.start':

@@ -129,6 +129,8 @@ interface LiveSession {
   name: string
   /** Bytes of the transcript already read for live details (providers with transcriptDetails). */
   detailsOffset?: number
+  /** What the adapter keeps between those reads (a refusal whose turn's end comes later). */
+  detailsMemo?: Record<string, unknown>
   /** The last interrupt read from the transcript and acted on (LiveDetails.interruptedAt), so each counts once. */
   interruptedAt?: string
   /** When the cost estimate was last worked out (providers that don't report cost). */
@@ -2107,7 +2109,10 @@ class SessionManager {
     if (!l.adapter.transcriptDetails) return
     const from = l.detailsOffset ?? 0
     if (size <= from) {
-      if (size < from) l.detailsOffset = 0
+      if (size < from) {
+        l.detailsOffset = 0
+        l.detailsMemo = undefined
+      }
       return
     }
     // The tail is enough: details only ever need the latest records.
@@ -2120,7 +2125,7 @@ class SessionManager {
       const end = text.lastIndexOf('\n')
       if (end < 0) return
       l.detailsOffset = start + Buffer.byteLength(text.slice(0, end + 1))
-      this.applyDetails(l, l.adapter.transcriptDetails(text.slice(0, end + 1)))
+      this.applyDetails(l, l.adapter.transcriptDetails(text.slice(0, end + 1), (l.detailsMemo ??= {})))
     } finally {
       await fh.close()
     }
@@ -2774,6 +2779,7 @@ class SessionManager {
       l.transcriptPath = transcriptPath ?? existing?.transcriptPath
       l.transcriptMtime = ''
       l.detailsOffset = 0
+      l.detailsMemo = undefined
       st.transcriptBytes = undefined
       this.clearTasks(l)
       l.lastBackupAt = undefined
