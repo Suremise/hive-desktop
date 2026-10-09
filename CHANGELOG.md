@@ -1,5 +1,10 @@
 # Release Notes
 
+## Unreleased
+
+### Fixes
+- **Copy Diagnostics leaves out where Claude Code and Codex were looked for.** When a Claude Code or Codex Hive tried didn't report its version, the log line kept the folder it was in and what it printed instead, so a folder with a space in its name, or a private name in the message, could reach a bug report. Both are now left out, as GitHub Copilot's already were; the line still says a copy didn't report its version.
+
 ## 0.5.1 — 9 October 2026
 
 ### Fixes
