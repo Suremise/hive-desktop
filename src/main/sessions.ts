@@ -53,7 +53,7 @@ import { recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
 import { PTY_COLS, PTY_ROWS, childEnv, killPty, spawnPty, writePty } from './ptyHost'
 import { TerminalScreen } from './terminalScreen'
-import { PickNotFound, typeKeySteps } from './keySteps'
+import { KeysStopped, PickNotFound, typeKeySteps } from './keySteps'
 import { withBinOnPath } from './progressReporters/shims'
 import { hiveSkills, parseSkillFrontmatter, skillFor } from './skills'
 import { GUIDANCE_REVISION, launchParts, launchRecord } from './guidance'
@@ -1420,20 +1420,49 @@ class SessionManager {
       st.modeSwitching = mode
       l.switchTail = ''
       this.emitState(st)
-      try {
-        await typeKeySteps(l.adapter.modeMenuKeys(mode), { write: (keys) => writePty(key, keys), screen: () => l.screen?.text() ?? null })
-      } catch (e) {
-        if (!(e instanceof PickNotFound)) throw e
-        // The menu doesn't show the mode (another CLI version): closed again, nothing chosen, nothing assumed.
-        writePty(key, '\x1b')
+      /** This switch's session is still the one running (not stopped, nor replaced by a restart while it waited). */
+      const same = (): boolean => this.live.get(id) === l
+      /** It is asking the user something (its status can change while the keys wait). */
+      const asking = (): boolean => st.status === 'waiting'
+      /** The switch didn't happen: the badge goes back, and the session (if it is still this one) keeps its mode. */
+      const notSwitched = (message: string): { ok: false; message: string } => {
         l.switchTail = undefined
         st.modeSwitching = undefined
-        this.emitState(st)
-        log.warn(`${userText(this.label(st))}: ${name}: couldn't find ${e.what}`)
-        return { ok: false, message: `Hive couldn't find ${e.what}, so it didn't switch to ${permissionLabel(p, mode)}. Check its terminal, or switch there.` }
+        if (same()) this.emitState(st)
+        return { ok: false, message }
       }
+      try {
+        await typeKeySteps(l.adapter.modeMenuKeys(mode), {
+          write: (keys) => writePty(key, keys),
+          screen: () => l.screen?.text() ?? null,
+          // Asked before every key (#363): safe while this session runs, isn't asking the user anything, and isn't
+          // busy (its status, or its screen holding what was typed); busy, it waits, at most 30 seconds.
+          ready: async () => {
+            for (const t0 = Date.now(); ; await new Promise((r) => setTimeout(r, 200))) {
+              if (!same()) return 'its session ended'
+              if (asking()) return `${name} is asking you something`
+              if (st.status !== 'working' && !l.adapter.busyScreen?.(l.screen?.text() ?? '')) return true
+              if (Date.now() - t0 >= 30_000) return `${name} stayed busy for 30 seconds`
+            }
+          }
+        })
+      } catch (e) {
+        if (e instanceof KeysStopped) {
+          // Nothing more typed, nothing chosen: what went in already may still be in its input.
+          log.warn(`${userText(this.label(st))}: ${name}: stopped switching to ${mode}: ${e.why}`)
+          return notSwitched(`Hive didn't switch to ${permissionLabel(p, mode)}, as ${e.why}. Check its terminal, or switch there.`)
+        }
+        if (!(e instanceof PickNotFound)) throw e
+        // The menu doesn't show the mode (another CLI version): closed again, nothing chosen, nothing assumed. Escape
+        // goes only into this session, and not over a question it asks meanwhile.
+        if (same() && !asking()) writePty(key, '\x1b')
+        log.warn(`${userText(this.label(st))}: ${name}: couldn't find ${e.what}`)
+        return notSwitched(`Hive couldn't find ${e.what}, so it didn't switch to ${permissionLabel(p, mode)}. Check its terminal, or switch there.`)
+      }
+      if (!same()) return notSwitched(`The session ended before Hive could switch it to ${permissionLabel(p, mode)}.`)
       // The CLI records the new settings in its transcript at once: read them back rather than assume.
       const src = await this.liveTranscript(l)
+      if (!same()) return notSwitched(`The session ended before Hive could switch it to ${permissionLabel(p, mode)}.`)
       if (!src || !l.adapter.transcriptDetails) {
         // Nothing to read yet (no message sent): shown as asked; the first turn's settings correct it.
         st.modeSwitching = undefined
@@ -1441,7 +1470,7 @@ class SessionManager {
         this.emitState(st)
         return { ok: true }
       }
-      for (let t = Date.now(); Date.now() - t < 12_000; ) {
+      for (let t = Date.now(); Date.now() - t < 12_000 && same(); ) {
         const s = await stat(src).catch(() => null)
         if (s) await this.readDetails(l, src, s.size)
         if (st.permissionMode === mode) break
@@ -1452,6 +1481,10 @@ class SessionManager {
           if (said === mode) break
         }
         await new Promise((r) => setTimeout(r, 400))
+      }
+      if (!same()) {
+        st.permissionMode = before
+        return notSwitched(`The session ended before ${name} confirmed switching to ${permissionLabel(p, mode)}.`)
       }
       l.switchTail = undefined
       st.modeSwitching = undefined

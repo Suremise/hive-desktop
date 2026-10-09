@@ -10,7 +10,7 @@ import { emit, toast } from './events'
 import { createLogger } from './logger'
 import { childEnv, hasPty, killPty, PTY_COLS, PTY_ROWS, spawnPty, writePty } from './ptyHost'
 import { KeyGate } from './taskKeys'
-import { PickNotFound, typeKeySteps } from './keySteps'
+import { KeysStopped, PickNotFound, typeKeySteps } from './keySteps'
 import { compareTested, noteSelectedCli, testedVersion } from './testedClis'
 
 const log = createLogger('providers')
@@ -178,16 +178,19 @@ class ProviderService {
     return next
   }
 
-  private runTask(id: ProviderId, task: ProviderTask, file: string, args: string[], label: string, typed?: { keys: KeySteps; ready?: RegExp; busyTitle?: RegExp; done?: () => boolean }): string {
+  private runTask(id: ProviderId, task: ProviderTask, file: string, args: string[], label: string, typed?: { keys: KeySteps; ready?: RegExp; busyTitle?: RegExp; busyScreen?: (screen: string) => boolean; done?: () => boolean }): string {
     const key = `task:${id}:${task}`
     if (hasPty(key)) return key
     const s = toSpawnable(file, args)
     let sent = !typed
     let finished = false
     // Typed once its screen shows it ready (typeWhenIdle).
-    // A key picked from the screen (a menu entry, #396) needs the screen after it is ready too.
-    const picks = !!typed?.keys.some((k) => 'pick' in k)
-    const gate = typed?.ready ? new KeyGate({ ready: typed.ready, busyTitle: typed.busyTitle, cols: PTY_COLS, rows: PTY_ROWS, onReady: () => typeWhenIdle(), keepScreen: picks }) : null
+    // A key picked from the screen (a menu entry, #396), or a submission checked against it (#363), needs the screen
+    // after it is ready too.
+    const keepScreen = !!typed?.keys.some((k) => 'pick' in k || ('heldOn' in k && !!k.heldOn))
+    const gate = typed?.ready
+      ? new KeyGate({ ready: typed.ready, busyTitle: typed.busyTitle, busyScreen: typed.busyScreen, cols: PTY_COLS, rows: PTY_ROWS, onReady: () => typeWhenIdle(), keepScreen })
+      : null
     let typeTimer: NodeJS.Timeout | null = null
     // A program that stays open after its job (Codex after its sandbox setup) is closed once the job is done.
     const watch = typed?.done
@@ -198,7 +201,7 @@ class ProviderService {
         }, 1500)
       : null
     // Some tasks are keys typed into the CLI once its interface is ready (Codex's sandbox setup).
-    /** Not busy, and not for half a second (the output changes as it settles). */
+    /** Not busy (its title or its screen), and not for half a second (the output changes as it settles). */
     const settled = (): boolean => !gate || gate.settled(500)
     const type = async (): Promise<void> => {
       if (sent || !typed) return
@@ -207,20 +210,27 @@ class ProviderService {
         await typeKeySteps(typed.keys, {
           write: (keys) => writePty(key, keys),
           screen: () => gate?.text() ?? null,
-          // Each key waits while the program is busy (it can get busy again after showing its prompt): an Enter
-          // typed then would queue the command rather than run it. At most 30 seconds, then it goes in anyway.
+          // Each key waits while the program is busy (it can get busy again after showing its prompt), at most 30
+          // seconds. Still busy then, or closed, nothing more goes in (#363): a key typed into a busy CLI can be held
+          // or queued, and the 30-second start above mustn't type into one either.
           ready: async () => {
-            for (const t0 = Date.now(); !settled() && Date.now() - t0 < 30_000; ) await new Promise((r) => setTimeout(r, 200))
-            return hasPty(key)
+            for (const t0 = Date.now(); !settled() && hasPty(key) && Date.now() - t0 < 30_000; ) await new Promise((r) => setTimeout(r, 200))
+            if (!hasPty(key)) return 'its terminal closed'
+            return settled() ? true : 'it stayed busy for 30 seconds'
           }
         })
       } catch (e) {
-        if (!(e instanceof PickNotFound)) throw e
-        // The CLI doesn't show what the task needs (another version): the terminal stays open for the user to do it.
-        log.warn(`${label}: couldn't find ${e.what}`)
-        toast('warning', `${label}: Hive couldn't find ${e.what}. Do it in the terminal, or update Hive.`)
+        // The CLI doesn't show what the task needs (another version), or wasn't safe to type into: the terminal
+        // stays open for the user to do it.
+        if (e instanceof PickNotFound) {
+          log.warn(`${label}: couldn't find ${e.what}`)
+          toast('warning', `${label}: Hive couldn't find ${e.what}. Do it in the terminal, or update Hive.`)
+        } else if (e instanceof KeysStopped) {
+          log.warn(`${label}: stopped typing: ${e.why}`)
+          if (hasPty(key)) toast('warning', `${label}: Hive stopped typing into it, as ${e.why}. Finish it in the terminal.`)
+        } else throw e
       } finally {
-        if (picks) gate?.dispose()
+        gate?.dispose()
       }
     }
     // Typed once the interface is ready and has been idle for a moment (or, failing that, after 30 seconds).
@@ -277,7 +287,7 @@ class ProviderService {
     }
     if (!adapter.setupCommand) throw new Error(`${name} has no setup task.`)
     const cmd = adapter.setupCommand(info.path)
-    return this.runTask(id, task, cmd.file, cmd.args, `${name} setup`, cmd.keys ? { keys: cmd.keys, ready: cmd.readyPattern, busyTitle: cmd.busyTitle, done: cmd.done } : undefined)
+    return this.runTask(id, task, cmd.file, cmd.args, `${name} setup`, cmd.keys ? { keys: cmd.keys, ready: cmd.readyPattern, busyTitle: cmd.busyTitle, busyScreen: cmd.busyScreen, done: cmd.done } : undefined)
   }
 }
 

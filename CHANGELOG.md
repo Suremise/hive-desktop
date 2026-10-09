@@ -1,5 +1,10 @@
 # Release Notes
 
+## Unreleased
+
+### Fixes
+- **Codex's sandbox setup and permission switches no longer stall on a busy computer.** Hive types `/permissions` into Codex for **Set up** in Agent Setup and when you switch a running Codex agent's preset. If Codex was busy just then, the command could stay in its input, never run: the setup prompt never came up, or the switch was undone after a while. Hive now also waits while Codex's screen shows it is busy holding what was typed ("tab to queue message"), and if Codex still holds the command once it is free, presses Enter again (twice more at most). A command Codex has taken is never sent twice, and if Codex stays busy, asks you something or stops meanwhile, Hive types nothing more and says the switch wasn't made.
+
 ## 0.4.1 — 8 October 2026
 
 ### Task board
