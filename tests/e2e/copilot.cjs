@@ -165,7 +165,10 @@ const check = (name, ok, extra = '') => {
     check('A: resumes the same session id', r?.sessionId === sa.sessionId, r?.sessionId)
     if (await lib.until(async () => /Do you trust the files in this folder/.test(await screen(a.id)), 15000, 300)) await inv('pty:write', key(a.id), '\r')
     check('A: the resumed session is ready', !!(await reach(a.id, ['ready'])), await status(a.id))
-    check('A: …with the earlier conversation on screen', /Hello from the stand-in/.test(await screen(a.id)))
+    // Copilot shows a resumed conversation full screen, scrolled to its end: only the latest exchange is sure to be drawn
+    // (the first prompt shows only in a passing frame while plugins load, if that frame is drawn at all: #467).
+    const resumed = await lib.until(async () => { const s = await screen(a.id); return /shell New-Item -Path made-by-copilot\.txt/.test(s) && /Operation aborted by user/.test(s) }, 20000, 300)
+    check('A: …with the earlier conversation on screen (its latest exchange)', !!resumed, (await screen(a.id)).trim().split('\n').slice(-12).join(' | '))
     await page.screenshot({ path: path.join(lib.WORK, 'copilot-3-resumed.png') })
 
     // What Hive wrote for the launches: in its own data (the hook token is in the plugin's hooks.json), never the project.
