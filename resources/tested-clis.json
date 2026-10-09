@@ -2,16 +2,16 @@
   "codex": {
     "version": "0.161.0",
     "testedAt": "2026-10-09",
-    "record": "02b7f4ed5ebf"
+    "record": "94a3614c719f"
   },
   "claude-code": {
     "version": "2.1.295",
     "testedAt": "2026-10-09",
-    "record": "02b7f4ed5ebf"
+    "record": "94a3614c719f"
   },
   "copilot": {
     "version": "1.0.93",
     "testedAt": "2026-10-09",
-    "record": "02b7f4ed5ebf"
+    "record": "94a3614c719f"
   }
 }
