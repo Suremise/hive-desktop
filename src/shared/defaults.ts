@@ -5,7 +5,6 @@ import { formatDateTime } from './dates'
 import { DEFAULT_PROVIDER, PROVIDERS, defaultProviderSettings, isKnownProvider, providerDescriptor } from './providers'
 import { chosenName, effortName, modelIdName, resolvedModel, runsAsName, type ModelInfo } from './models'
 
-export const APP_NAME = 'Hive'
 export const HIVE_DIR = '.hive'
 
 /** Session ids are UUIDs (Claude Code, Codex); this also accepts other plain ids but never anything that could be a path. */

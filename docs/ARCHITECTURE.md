@@ -194,7 +194,7 @@ Terminals for every project that has had a session stay mounted (hidden) so swit
 
 ## Windows app identity
 
-The installed app uses the app user model ID `com.hive.desktop` (the Start menu and desktop shortcuts carry it, and each window sets it with `setAppDetails`), which gives the taskbar button and notifications the Hive name and icon. Dev and test builds run as `electron.exe` and use `com.hive.desktop.dev`, registered under `HKCU\Software\Classes\AppUserModelId` as "Hive Dev". Sharing one ID made Windows show Electron's name and icon for the installed Hive.
+The installed app uses the app user model ID `com.hive.desktop` (the Start menu and desktop shortcuts carry it, and each window sets it with `setAppDetails`), which gives the taskbar button and notifications the Hive Desktop name and icon. Dev and test builds run as `electron.exe` and use `com.hive.desktop.dev`, registered under `HKCU\Software\Classes\AppUserModelId` as "Hive Desktop Dev". Sharing one ID made Windows show Electron's name and icon for the installed Hive. The displayed name is "Hive Desktop" (`productName`, `shared/appName.ts`; #443), while the folders keep the name Hive had before: the install folder `%LOCALAPPDATA%\Programs\Hive` comes from `executableName` (`Hive.exe`), and main sets the profile folder `%APPDATA%\Hive` itself (`profileFolder()`), since Electron would take `productName` for it. The app ID keeps the installer's uninstall entry, so an update replaces the old install.
 
 ## Packaging and updates
 

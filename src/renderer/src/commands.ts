@@ -2,6 +2,7 @@ import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, agentPageCount, project
 import { PROVIDERS, providerDescriptor } from '@shared/providers'
 import { batchCounts, type BatchCounts } from '@shared/startAll'
 import type { ProviderId, SessionLayout } from '@shared/types'
+import { APP_NAME } from '@shared/appName'
 import { call } from './api'
 import { unarchiveBatch } from './boardBatches'
 import { checkForUpdates, openReleaseNotes } from './components/Updates'
@@ -407,7 +408,7 @@ export const commands: Command[] = [
   { id: 'help.releaseNotes', label: 'Release Notes', category: 'Help', run: () => { set({ docsPage: 'changelog' }); setActivity('docs') } },
   { id: 'help.logs', label: 'Open Logs Folder', category: 'Help', run: () => call('app:openLogs') },
   { id: 'help.diagnostics', label: 'Copy Diagnostics…', category: 'Help', run: () => set({ diagnosticsOpen: true }) },
-  { id: 'help.about', label: 'About Hive', category: 'Help', run: () => set({ aboutOpen: true }) },
+  { id: 'help.about', label: `About ${APP_NAME}`, category: 'Help', run: () => set({ aboutOpen: true }) },
   { id: 'help.checkUpdates', label: 'Check for Updates…', category: 'Help', run: () => checkForUpdates() },
   { id: 'update.show', label: 'Show Hive Update', category: 'Help', when: () => ['available', 'downloading', 'ready'].includes(get().update?.status ?? ''), run: () => set({ updateOpen: true }) },
   { id: 'update.install', label: 'Restart and Update Hive', category: 'Help', when: () => get().update?.status === 'ready', run: () => call('update:install') },

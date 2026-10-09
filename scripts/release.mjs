@@ -31,7 +31,7 @@ if (stale) {
   process.exit(1)
 }
 
-console.log(`Building Hive ${pkg.version} and uploading a draft release…`)
+console.log(`Building Hive Desktop ${pkg.version} and uploading a draft release…`)
 const run = (cmd, args) => {
   const r = spawnSync(cmd, args, { stdio: 'inherit', shell: true, env: { ...process.env, GH_TOKEN: token } })
   if (r.status !== 0) process.exit(r.status ?? 1)
@@ -47,6 +47,6 @@ if (exists && JSON.parse(view.stdout.toString() || '{}').isDraft !== true) {
   console.error(`${tag} is already published. Bump the version in package.json for a new release.`)
   process.exit(1)
 }
-if (!exists) run('gh', ['release', 'create', tag, '--draft', '--title', `"Hive ${pkg.version}"`, '--notes', '""'])
+if (!exists) run('gh', ['release', 'create', tag, '--draft', '--title', `"Hive Desktop ${pkg.version}"`, '--notes', '""'])
 run('npx', ['electron-builder', '--win', '--publish', 'always'])
 console.log(`\nDraft release v${pkg.version} uploaded. Review it at https://github.com/Suremise/hive-desktop/releases and publish it there.`)

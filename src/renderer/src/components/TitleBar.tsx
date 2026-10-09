@@ -9,6 +9,7 @@ import * as actions from '../actions'
 import { useInbox } from '../inbox'
 import { badgeText, windowTitle } from '@shared/taskbar'
 import { PROJECT_MENU } from '@shared/projectTabs'
+import { appName as nameOf } from '@shared/appName'
 import { call } from '../api'
 
 /** The taskbar badge: a red disc with the count, drawn at the screen's scale (Windows shows it at 16 px). */
@@ -119,7 +120,7 @@ export function TitleBar() {
     setOpen(i)
   }
 
-  const appName = useStore((s) => (s.appInfo && !s.appInfo.isPackaged ? 'Hive Dev' : 'Hive'))
+  const appName = useStore((s) => nameOf(!s.appInfo || s.appInfo.isPackaged))
   const pinned = useStore((s) => s.alwaysOnTop)
   const pinKey = commandKeybinding('view.alwaysOnTop')
   const title = [selected ? basename(selected) : null, workspace?.name, appName].filter(Boolean).join(' — ')
