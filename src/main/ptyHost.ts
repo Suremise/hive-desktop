@@ -9,6 +9,8 @@ const MAX_BUFFER = 512 * 1024
 /** A terminal's size until the window sets it. */
 export const PTY_COLS = 120
 export const PTY_ROWS = 32
+/** How long a size refresh holds the terminal one row shorter before giving its size back (refreshPty). */
+const REFRESH_MS = 80
 
 interface PtyEntry {
   proc: IPty
@@ -17,9 +19,24 @@ interface PtyEntry {
   size: number
   /** Asked to stop: until it exits, nothing more is sent to it, nor another kill (killPty). */
   killed?: boolean
+  /** A size refresh is under way (refreshPty). */
+  refresh?: ReturnType<typeof setTimeout>
+  /** The size the window gave it during a refresh, which it ends at. */
+  wanted?: { cols: number; rows: number }
 }
 
 const entries = new Map<string, PtyEntry>()
+/**
+ * The size the window last gave each terminal (its pane's), kept across its processes: a process started in it (a
+ * restart, a mode switch, a fit that came before the process) starts at that size, not at PTY_COLS × PTY_ROWS, and so
+ * draws its first screens at the pane's width rather than redrawing them at a resize (#486).
+ */
+const paneSizes = new Map<string, { cols: number; rows: number }>()
+
+/** The size a process started in this terminal now gets: its pane's when the window has given one. */
+export function startSize(key: string): { cols: number; rows: number } {
+  return paneSizes.get(key) ?? { cols: PTY_COLS, rows: PTY_ROWS }
+}
 
 export interface SpawnOptions {
   file: string
@@ -66,10 +83,11 @@ export function forLog(arg: string): string {
 export function spawnPty(key: string, opts: SpawnOptions): IPty {
   if (entries.has(key)) throw new Error(`A process is already running for ${key}`)
   log.info(`spawn ${userText(key)}: ${opts.file} ${JSON.stringify(argsForLog(opts.args.map(forLog)))}`)
+  const size = startSize(key)
   const proc = pty.spawn(opts.file, opts.args, {
     name: 'xterm-256color',
-    cols: opts.cols ?? PTY_COLS,
-    rows: opts.rows ?? PTY_ROWS,
+    cols: opts.cols ?? size.cols,
+    rows: opts.rows ?? size.rows,
     cwd: opts.cwd,
     env: opts.env,
     useConptyDll: false
@@ -101,15 +119,51 @@ export function writePty(key: string, data: string): void {
 }
 
 export function resizePty(key: string, cols: number, rows: number): void {
+  if (!(cols >= 2 && rows >= 2)) return
+  cols = Math.floor(cols)
+  rows = Math.floor(rows)
+  // Kept with no process too: one started next in this terminal starts at it.
+  paneSizes.set(key, { cols, rows })
   const e = entries.get(key)
+  if (e?.refresh) e.wanted = { cols, rows }
   // An unchanged size isn't passed on: every resize makes a TUI like Claude Code redraw (#247).
-  if (!e || e.killed || cols < 2 || rows < 2 || (e.proc.cols === Math.floor(cols) && e.proc.rows === Math.floor(rows))) return
+  if (!e || e.killed || (e.proc.cols === cols && e.proc.rows === rows)) return
+  setSize(key, e, cols, rows)
+}
+
+function setSize(key: string, e: PtyEntry, cols: number, rows: number): void {
   try {
-    e.proc.resize(Math.floor(cols), Math.floor(rows))
-    e.onResize?.(Math.floor(cols), Math.floor(rows))
+    e.proc.resize(cols, rows)
+    e.onResize?.(cols, rows)
   } catch (err) {
     log.warn(`resize ${userText(key)} failed`, err)
   }
+}
+
+/** A terminal's process's size now, for a view that shows it: drawn at any other size, its output lands in the wrong places. */
+export function ptySize(key: string): { cols: number; rows: number } | null {
+  const e = entries.get(key)
+  return e ? { cols: e.proc.cols, rows: e.proc.rows } : null
+}
+
+/**
+ * Makes a terminal's process redraw its screen at the size it has, as resizing the window by hand does: one row
+ * shorter for a moment, then its size again. For a CLI whose full-screen interface a resize while it started can leave
+ * drawn at the wrong width (capabilities.startupSizeRefresh, #486). A resize meanwhile is the size it ends at.
+ */
+export function refreshPty(key: string): void {
+  const e = entries.get(key)
+  if (!e || e.killed || e.refresh || e.proc.rows < 3) return
+  const { cols, rows } = e.proc
+  log.info(`size refresh ${userText(key)}: ${cols} × ${rows}`)
+  setSize(key, e, cols, rows - 1)
+  e.refresh = setTimeout(() => {
+    e.refresh = undefined
+    if (entries.get(key) !== e || e.killed) return
+    const want = e.wanted ?? { cols, rows }
+    e.wanted = undefined
+    if (e.proc.cols !== want.cols || e.proc.rows !== want.rows) setSize(key, e, want.cols, want.rows)
+  }, REFRESH_MS)
 }
 
 export function ptyBuffer(key: string): string {

@@ -1,5 +1,11 @@
 # Release Notes
 
+## Unreleased
+
+### Fixes
+- **Copilot panes are drawn at the right width from the start.** A GitHub Copilot agent's screen could load garbled (its input box and "Loading" lines drawn at about two thirds of the pane's width, several frames stacked, stray characters at the old edge) until you resized the window, and a mode switch could do the same. Each agent's terminal now starts at its process's size, a restarted agent starts at its pane's size, and Hive has Copilot redraw at its size once it has started and once it is ready, as a resize by hand did. Claude Code and Codex agents get the first two as well.
+- **Copilot's "Manual Approval" in Accept edits is explained.** Copilot's own footer still says Manual Approval in Accept edits, since Hive approves the edits for it; the mode badge's tooltip and the user guide now say so, so it doesn't look as if the mode didn't take.
+
 ## 0.5.0 — 9 October 2026
 
 ### Hive Desktop

@@ -14,7 +14,7 @@ export const COPILOT = 'copilot'
 // Hive's own tools (the hive MCP server) never ask, in any mode: the adapter pre-approves them.
 export const COPILOT_PERMISSION_MODES: ModeOption[] = [
   { value: 'ask', label: 'Ask', description: 'Reads files and runs harmless commands without asking; asks before edits, other commands, other MCP tools and web access.' },
-  { value: 'accept-edits', label: 'Accept edits', description: 'Edits files in its folder without asking (not where the folder’s path has parentheses: Copilot can’t approve them there); still asks before other commands, other MCP tools, web access and changes outside its folder.' },
+  { value: 'accept-edits', label: 'Accept edits', description: 'Edits files in its folder without asking (not where the folder’s path has parentheses: Copilot can’t approve them there); still asks before other commands, other MCP tools, web access and changes outside its folder.', cliNote: 'Copilot’s own footer still says Manual Approval: Hive starts it with edits in its folder approved (an allow rule), which Copilot’s label doesn’t show.' },
   { value: 'plan', label: 'Plan', description: 'Plans the work and asks before changing anything.' },
   { value: 'autopilot', label: 'Autopilot', description: 'Carries on by itself until the task is done (up to 5 continuations), without asking. Use only where unattended changes are acceptable.', danger: true },
   { value: 'allow-all', label: 'Allow all', description: 'Approves every tool, path and web request without asking. Use only in disposable environments.', danger: true }
@@ -161,7 +161,9 @@ export const COPILOT_DESCRIPTOR: ProviderDescriptor = {
     // A PreToolUse "ask" brings up Copilot's own approval dialog, even with --allow-all (checked with 1.0.93).
     lockAsk: true,
     backgroundSessions: false,
-    backgroundWakes: false
+    backgroundWakes: false,
+    // Its interface fills the screen: drawn while its terminal changed size, it can stay at the old width (#486).
+    startupSizeRefresh: true
   },
   reservedKeys: [],
   instructionsFile: 'AGENTS.md',

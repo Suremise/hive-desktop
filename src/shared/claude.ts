@@ -163,7 +163,8 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
     imagePaste: true,
     lockAsk: true,
     backgroundSessions: true,
-    backgroundWakes: true
+    backgroundWakes: true,
+    startupSizeRefresh: false
   },
   reservedKeys: ['MOD+B', 'MOD+K', 'MOD+O', 'MOD+R', 'MOD+T', 'MOD+G'],
   instructionsFile: 'CLAUDE.md',

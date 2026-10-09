@@ -9,7 +9,7 @@ import { config } from './config'
 import { refreshPath } from './freshPath'
 import { emit, toast } from './events'
 import { createLogger } from './logger'
-import { childEnv, hasPty, killPty, PTY_COLS, PTY_ROWS, spawnPty, writePty } from './ptyHost'
+import { childEnv, hasPty, killPty, spawnPty, startSize, writePty } from './ptyHost'
 import { KeyGate } from './taskKeys'
 import { KeysStopped, PickNotFound, typeKeySteps } from './keySteps'
 import { compareTested, noteSelectedCli, testedVersion } from './testedClis'
@@ -194,7 +194,7 @@ class ProviderService {
     // after it is ready too.
     const keepScreen = !!typed?.keys.some((k) => 'pick' in k || ('heldOn' in k && !!k.heldOn))
     const gate = typed?.ready
-      ? new KeyGate({ ready: typed.ready, busyTitle: typed.busyTitle, busyScreen: typed.busyScreen, cols: PTY_COLS, rows: PTY_ROWS, onReady: () => typeWhenIdle(), keepScreen })
+      ? new KeyGate({ ready: typed.ready, busyTitle: typed.busyTitle, busyScreen: typed.busyScreen, ...startSize(key), onReady: () => typeWhenIdle(), keepScreen })
       : null
     let typeTimer: NodeJS.Timeout | null = null
     // A program that stays open after its job (Codex after its sandbox setup) is closed once the job is done.

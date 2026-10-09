@@ -45,7 +45,7 @@ import { checkMoved, finishPending, movePlan, repairMove } from './workspaceMove
 import { missingWorktree, recreateWorktree, unlinkMissingWorktree } from './agentWorktree'
 import { projectAgents as agentsOf } from '../shared/defaults'
 import type { MoveOptions } from '../shared/types'
-import { killPty, ptyBuffer, resizePty, writePty } from './ptyHost'
+import { killPty, ptyBuffer, ptySize, resizePty, writePty } from './ptyHost'
 import { apiInfo, regenerateToken } from './servers'
 import * as projectAgents from './projectAgents'
 import * as templates from './templates'
@@ -625,6 +625,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'pty:resize': (key, cols, rows) => resizePty(key, cols, rows),
     'pty:buffer': (key) => ptyBuffer(key),
+    'pty:size': (key) => ptySize(key),
     'pty:kill': (key) => {
       if (key.startsWith('task:')) killPty(key)
     },

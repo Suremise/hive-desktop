@@ -17,6 +17,8 @@ export interface ModeOption {
   danger?: boolean
   /** The CLI's own automatic reviewer, not the user, answers its permission requests (Codex's Approve for me). */
   reviewed?: boolean
+  /** Where the CLI's own screen names the mode differently, why: shown with Hive's mode badge while a session runs in it. */
+  cliNote?: string
 }
 
 export interface ModelOption {
@@ -70,6 +72,12 @@ export interface ProviderCapabilities {
    * tasks are only counted.
    */
   backgroundWakes: boolean
+  /**
+   * The CLI draws a full-screen interface that a resize while it starts can leave drawn at the wrong width, until the
+   * next resize (Copilot, #486): Hive gives it a size refresh, as resizing the window by hand would, once it has
+   * started (its first status), again once it is ready, and after Hive switches its mode live.
+   */
+  startupSizeRefresh: boolean
 }
 
 /** What the CLI said about a model, for modeCaveat. */
