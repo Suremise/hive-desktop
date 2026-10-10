@@ -3,8 +3,9 @@
 // card's column, blocked reason and review rounds, folding a long lane's finished cards into "✓ n", scrolling past about
 // four, hover text, a click opening the card, and the section folding to its bar; while an agent holds the merge slot, a
 // card in the merge colour on top (holder, branch → main, its running step, time, who waits) with a divider, folding to
-// one line. Screenshots of the idle, lanes and merging states in both themes. Until #483's lanes land, the lanes come
-// from the renderer's stub (window.__hiveTestLanes). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// one line; a short, zoomed window keeps the lanes inside the panel and a run readable. Screenshots of the idle, lanes,
+// merging and short states in both themes. The lanes are #483's, started through the Agent API. Dev build, throwaway
+// profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -117,20 +118,29 @@ const until = (fn, ms = 10000) => lib.until(fn, ms, 150)
   check('idle: "Nothing is running" as before', (await panel.locator('.progress-empty').count()) === 1)
   await shoot('idle')
 
-  // --- Lanes, in #483's shape (the renderer's stub until #483 lands); one of a project not in the workspace.
-  const lane = (id, builder, reviewer, name, cards, state = 'active', project = 'alpha') => ({ id, project, name, builder, reviewer, cards: cards.map((number) => ({ number })), state })
-  const lanes = [
-    lane('l1', { id: b1.id, name: 'B1' }, { id: r1.id, name: 'R1' }, 'lanes and loops', lane1),
-    lane('l2', { id: b3.id, name: 'B3' }, { id: r1.id, name: 'R1' }, 'a long lane', long),
-    lane('l3', { id: r1.id, name: 'R1' }, null, null, short, 'paused'),
-    lane('l4', { id: 'gone', name: 'B5' }, { id: 'gone2', name: 'R5' }, 'merged earlier', [n1, n2], 'ended'),
-    lane('l5', { id: 'gone3', name: 'B6' }, null, 'given up', [n5, n8], 'abandoned'),
-    lane('l6', { id: 'x', name: 'B9' }, null, 'elsewhere', [n1], 'active', 'not-here')
-  ]
-  await page.evaluate((l) => window.__hiveTestLanes(l), lanes)
+  // --- Lanes, started through the Agent API (#483) as the Assistant or a script would, while the panel is open: the
+  // panel follows lanes-changed. B1's, B3's (long), R1's (paused: its current card blocked), an ended one and an
+  // abandoned one (of two agents that never ran).
+  await lib.addAgent(inv, alpha, { name: 'B5' })
+  await lib.addAgent(inv, alpha, { name: 'B6' })
+  await inv('tasks:update', short[0], { blocked: 'Waiting for your answer' })
+  const workspaceToken = JSON.parse(fs.readFileSync(path.join(userData, 'agent-api.json'), 'utf8')).token
+  const startLane = async (builder, reviewer, name, cards) => {
+    const r = await api(workspaceToken, 'POST', '/v1/lanes', { project: 'alpha', builder, reviewer, name, cards })
+    if (r.status !== 200) check(`lane of ${builder} starts`, false, JSON.stringify(r))
+    return r.body?.lane?.id
+  }
+  const l1 = await startLane('B1', 'R1', 'lanes and loops', lane1)
+  const l2 = await startLane('B3', 'R1', 'a long lane', long)
+  const l3 = await startLane('R1', null, null, short)
+  const l4 = await startLane('B5', 'R1', 'merged earlier', [n1, n2])
+  const l5 = await startLane('B6', null, 'given up', [n5, n8])
+  const ended = await api(workspaceToken, 'POST', `/v1/lanes/${l4}/end`, { mergeCommit: 'abc1234' })
+  const dropped = await api(workspaceToken, 'POST', `/v1/lanes/${l5}/end`, { abandoned: true })
+  check('five lanes started, one ended and one abandoned', [l1, l2, l3, l4, l5].every(Boolean) && ended.body?.state === 'ended' && dropped.body?.state === 'abandoned', JSON.stringify([ended, dropped]))
   const section = panel.locator('.progress-lanes')
-  check("the lanes show, a row each (not another project's)", !!(await until(async () => (await section.locator('.progress-lane').count()) === 5)) && (await section.locator('[data-lane="l6"]').count()) === 0)
-  const row1 = section.locator('.progress-lane[data-lane="l1"]')
+  check('the lanes show, a row each, oldest first', !!(await until(async () => (await section.locator('.progress-lane').count()) === 5)) && (await section.locator('.progress-lane').evaluateAll((els) => els.map((e) => e.getAttribute('data-lane')))).join() === [l1, l2, l3, l4, l5].join())
+  const row1 = section.locator(`.progress-lane[data-lane="${l1}"]`)
   const top1 = await row1.locator('.progress-lane-top').innerText()
   check('a lane says its pair, name, current card and finished/total', /B1 \/ R1/.test(top1) && /lanes and loops/.test(top1) && new RegExp(`#${n3}`).test(top1) && /2\/8/.test(top1), top1)
   const segClass = async (n) => (await row1.locator(`.lane-seg[data-card="${n}"]`).getAttribute('class')) ?? ''
@@ -147,9 +157,9 @@ const until = (fn, ms = 10000) => lib.until(fn, ms, 150)
   lane1.forEach((n, i) => (byState[want[n]] = looks[i]))
   check('every state looks different', new Set(Object.values(byState)).size === Object.keys(byState).length, JSON.stringify(byState))
   check('doing is animated, and the others are not', /lane-stripes/.test(byState.doing) && Object.entries(byState).every(([k, v]) => k === 'doing' || !/lane-stripes/.test(v)))
-  const row2 = section.locator('.progress-lane[data-lane="l2"]')
+  const row2 = section.locator(`.progress-lane[data-lane="${l2}"]`)
   check("a long lane folds its finished cards into one '✓ n'", ((await row2.locator('.lane-seg.finished').innerText().catch(() => '')) === '✓ 18') && (await row2.locator('.lane-seg[data-card]').count()) === 4)
-  check('a paused, an ended and an abandoned lane say so', /paused/.test(await section.locator('[data-lane="l3"]').innerText()) && /merged/.test(await section.locator('[data-lane="l4"]').innerText()) && /abandoned/.test(await section.locator('[data-lane="l5"]').innerText()))
+  check('a paused, an ended and an abandoned lane say so', /paused/.test(await section.locator(`[data-lane="${l3}"]`).innerText()) && /merged/.test(await section.locator(`[data-lane="${l4}"]`).innerText()) && /abandoned/.test(await section.locator(`[data-lane="${l5}"]`).innerText()))
   const list = section.locator('.progress-lanes-list')
   check('past about four lanes, the list scrolls', await list.evaluate((el) => el.scrollHeight > el.clientHeight + 4 && el.clientHeight > 150))
   const panelBox = await panel.boundingBox()
@@ -243,9 +253,9 @@ const until = (fn, ms = 10000) => lib.until(fn, ms, 150)
   await api(t3, 'POST', '/v1/projects/alpha/merge-slot/release', { branch: 'main' })
   check('free: the merge card and divider go', !!(await until(async () => (await panel.locator('.progress-merge, .progress-divider').count()) === 0)))
 
-  // --- No lanes: the section goes.
-  await page.evaluate(() => window.__hiveTestLanes([]))
-  check('without lanes, the section is hidden', !!(await until(async () => (await panel.locator('.progress-lanes').count()) === 0)))
+  // --- A card moving on the board moves its segment.
+  await inv('tasks:update', n5, { column: 'doing' })
+  check("a card moved on the board changes its lane's segment", !!(await until(async () => /\bdoing\b/.test((await row1.locator(`.lane-seg[data-card="${n5}"]`).getAttribute('class')) ?? ''))))
 
   await app.close().catch(() => undefined)
   console.log(failed ? `\n${failed} FAILED` : '\nAll passed')
