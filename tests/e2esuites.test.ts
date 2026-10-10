@@ -1781,13 +1781,14 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
     const first = await waitForSlot(dir2, { slots: 1, owner: 101, alive, now })
     const seen: number[] = []
     const second = waitForSlot(dir2, { slots: 1, owner: 102, alive, now, pollMs: 30, onWait: (r: { holders: { pid: number }[] }) => seen.push(r.holders[0].pid) })
-    await new Promise((r) => setTimeout(r, 150))
-    expect(seen.length).toBeGreaterThan(1)
+    // At least two looks while the slot is held, however slow the machine is.
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThan(1), { timeout: 10000 })
     expect(new Set(seen)).toEqual(new Set([101]))
     first.release()
     const got = await second
     expect(got.slot).toBe(0)
-    expect(got.waitedMs).toBeGreaterThan(100)
+    // It waited through those looks and says how long.
+    expect(got.waitedMs).toBeGreaterThan(0)
     got.release()
     expect(readdirSync(dir2).filter((f) => f.endsWith('.json'))).toEqual([])
   })

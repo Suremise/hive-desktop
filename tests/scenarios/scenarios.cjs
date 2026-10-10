@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 30
+const FIXTURES_VERSION = 32
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -166,6 +166,39 @@ const SLOW_TESTS = {
   'package.json': JSON.stringify({ name: 'alpha', private: true, scripts: { test: 'node test.js' } }, null, 2) + '\n',
   'test.js': "// The full suite: about two minutes on CI.\nsetTimeout(() => console.log('3 passing'), 4000)\n"
 }
+/** Code whose effect lands a moment later (#524): a test of it must wait for the line, not for a length of time. */
+const NOTIFY = {
+  'package.json': JSON.stringify({ name: 'alpha', private: true, scripts: { test: 'node --test' } }, null, 2) + '\n',
+  'notify.js': [
+    '// Adds a line to a log file a moment later: the app batches its writes.',
+    "const fs = require('fs')",
+    'module.exports = function note(file, text) {',
+    "  setTimeout(() => fs.appendFileSync(file, text + '\\n'), 30 + Math.random() * 40)",
+    '}',
+    ''
+  ].join('\n')
+}
+/** A test of NOTIFY's that sleeps and then reads the file once (#524): it passes here, and fails on a busier machine. */
+const NOTIFY_TIMED_TEST = [
+  "const test = require('node:test')",
+  "const assert = require('node:assert')",
+  "const fs = require('fs')",
+  "const path = require('path')",
+  "const note = require('./notify')",
+  '',
+  "test('note adds the line to the file', async (t) => {",
+  "  const file = path.join(__dirname, 'notes.log')",
+  "  t.after(() => fs.rmSync(file, { force: true }))",
+  "  note(file, 'hello')",
+  "  await new Promise((r) => setTimeout(r, 100))",
+  "  assert.match(fs.readFileSync(file, 'utf8'), /hello/)",
+  '})',
+  ''
+].join('\n')
+/** The project's test files' sleeps that a check follows with no reason given (`npm run test:waits`'s own finder). */
+const timedWaits = (c, rel) => require('../../scripts/testWaits.mjs').findWaits(c.read(rel) ?? '').filter((w) => !w.commented)
+/** Whether the project's tests pass (`node --test`), with the run context's environment. */
+const testsPass = (c) => require('child_process').spawnSync(process.execPath, ['--test'], { cwd: c.alpha, env: require('../e2e/runContext.cjs').baseEnv(), encoding: 'utf8', timeout: 60000 }).status === 0
 /** The tool calls that ran the test suite. */
 /** A test run through hive-progress with a title of its own (#251), not the command line by default. */
 const titled = (t) => /hive-progress(\.cmd)?\s+--title(\s+|=)\S/.test(t.input)
@@ -211,6 +244,50 @@ module.exports.SCENARIOS = [
       ['never moved to Doing', movedInto(o.cards.b, 'Doing') < 0],
       ['changed no files (a review only reads)', o.gitStatus.trim() === '', o.gitStatus]
     ]
+  },
+  {
+    id: 'test-waits-write',
+    title: 'Work on a card that asks for a test of code that acts a moment later: the test waits for the result, not for a time (#524)',
+    files: NOTIFY,
+    async setup(c) {
+      await c.card('a', { title: 'Test notify.js', description: "Add notify.test.js at the root: a test (node's built-in runner, `npm test`) that note() adds the line to the file. Don't change notify.js." })
+    },
+    prompt: (c) => `Work on card #${c.cards.a}.`,
+    fake: (c) => `skill work-on-card boardmove ${c.cards.a} doing then boardmove ${c.cards.a} review then boardcomment ${c.cards.a}`,
+    expect: (o, c) => {
+      const test = c.read('notify.test.js') ?? ''
+      const timed = timedWaits(c, 'notify.test.js')
+      return [
+        ['read the work-on-card skill', read(o, 'work-on-card'), o.skillsRead.join(',')],
+        ['it ends in Review', o.cards.a?.column === 'review', o.cards.a?.column],
+        ['the test is there, and passes', !!test && testsPass(c), test ? 'node --test failed' : 'no notify.test.js'],
+        ["it doesn't sleep and then check", !!test && timed.length === 0, `${timed.map((w) => `${w.line}: ${w.code}`).join(' | ')} in: ${test.slice(0, 1500)}`],
+        ['it waits for the line (polls the file, or waits on its change)', /\bwhile\s*\(|\bif\s*\(.*\b(?:break|return)\b|until|waitFor|poll|setInterval|watch/.test(test), test.slice(0, 300)],
+        ['notify.js unchanged', c.read('notify.js') === NOTIFY['notify.js']]
+      ]
+    },
+    fakeSkips: ['the test is there, and passes', "it doesn't sleep and then check", 'it waits for the line (polls the file, or waits on its change)']
+  },
+  {
+    id: 'test-waits-review',
+    title: 'Review a card whose test sleeps and then checks: a blocking finding, though the test passes (#524)',
+    files: { ...NOTIFY, 'notify.test.js': NOTIFY_TIMED_TEST },
+    async setup(c) {
+      await c.card('b', { title: 'Test notify.js', description: "Add notify.test.js: a test that note() adds the line to the file. Don't change notify.js.", column: 'review', agent: 'implementer', comments: ['Done: notify.test.js added; npm test passes.'] })
+    },
+    prompt: (c) => `Review card #${c.cards.b}.`,
+    fake: (c) => `skill review-agent-work boardreview ${c.cards.b} start then boardreview ${c.cards.b} failed`,
+    expect: (o, c) => {
+      const verdict = (o.cards.b?.comments ?? []).filter((x) => !/Implementer/.test(x.by)).map((x) => x.text).join('\n')
+      return [
+        ['read the review-agent-work skill', read(o, 'review-agent-work'), o.skillsRead.join(',')],
+        ['failed it', history(o.cards.b).includes('Review failed'), history(o.cards.b).join(' | ')],
+        ['the verdict names the fixed wait', /sleep|setTimeout|100 ?ms|fixed (delay|wait|time)|timing|race|flak|poll/i.test(verdict), verdict.slice(0, 300)],
+        ['the card stays in Review with the implementer', o.cards.b?.column === 'review' && o.cards.b?.agent?.id === c.agents.implementer.id, `${o.cards.b?.column} / ${o.cards.b?.agent?.name}`],
+        ['changed no files (a review only reads)', o.gitStatus.trim() === '', o.gitStatus]
+      ]
+    },
+    fakeSkips: ['the verdict names the fixed wait']
   },
   {
     id: 'review-interrupted',

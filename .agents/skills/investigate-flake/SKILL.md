@@ -22,7 +22,7 @@ A flake is a test whose result depends on timing or on what else is running. Eac
 
 ## 3. Fix with a condition, not a timeout
 
-- Wait for the observable state: `lib.until(fn, ms)` with a check that says what is awaited, not a fixed `sleep()`.
+- Wait for the observable state: `lib.until(fn, ms)` (`vi.waitFor` in a unit test) with a check that says what is awaited, not a fixed `sleep()`. The rules every test follows are in [tests/README.md](../../../tests/README.md); the fixed test must meet them all.
 - Teardown that can hit a lock retries with a cap, and each run uses its own folder.
 - Don't delete from a shell on a computed path, whatever the shell (`rm -rf`, `Remove-Item -Recurse`, or any recursive delete). Use what the repo provides: `lib.probeDir('<what>')` for a new folder, `npm run e2e -- --clear-dir <folder>` to empty one, and `npm run test:clean` to prune what tests leave. The rule and the helpers are in AGENTS.md (no shell deletes on computed paths) and [tests/e2e/README.md](../../../tests/e2e/README.md) (Housekeeping); don't invent a second procedure.
 - A longer timeout is not a fix, and neither is skipping the test. If the only option is a timeout, say so on the card and ask.

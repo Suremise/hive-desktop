@@ -29,7 +29,7 @@ Read the whole change, and the code around it where needed. In order of importan
 1. **Bugs**: wrong logic, missed edge cases (empty, missing, very large, concurrent), broken error handling, leaks.
 2. **Missed requirements**: asked for but not done, or done differently.
 3. **Risk**: security (injection, secrets, unsafe paths, access checks), data loss, breaking formats or APIs, performance traps.
-4. **Tests**: new behaviour without tests, or tests that don't test it.
+4. **Tests**: new behaviour without tests, or tests that don't test it. A new or changed test that sleeps and then checks, reads state once just after an action, depends on another test's leftovers, or raises a timeout with no stated reason is a blocking finding: it fails on a loaded or slower machine. The project's test notes may say more.
 5. **Clarity**: only where it will cause real trouble later.
 
 Run the checks that matter (tests, typecheck, a repro of a suspected bug) without committing or changing files; scratch files (probe scripts, screenshots, test profiles) go in your own scratchpad or temp folder, never in the project or a shared test folder. Note what you ran.

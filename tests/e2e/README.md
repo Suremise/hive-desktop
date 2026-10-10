@@ -376,7 +376,9 @@ Start from an existing suite and use `lib.cjs`:
   for a child that is part of Hive (the hive MCP server, `hive-progress`); never `process.env` (Run context, above);
 - `port(<default>)` for its Agent API port (never a fixed number, so it can run beside others); add it to an area in
   `affected.mjs` and to `suites.mjs` (sorted), with `serial: '<why>'` if it can't run beside others;
-- `until(fn, ms)` to wait for something to happen rather than a fixed `sleep()`, which is slower and flakier;
+- `until(fn, ms)` to wait for what you expect to see, never a fixed `sleep()` and then a check, nor a single read just
+  after an action: the rules every test follows are in [tests/README.md](../README.md) (Tests wait for conditions,
+  never for time), and reviewers check them;
 - `enableProviders()` for the profile, `launch()`; `fakeClaude(userData, home, trusted)` to run the fake Claude Code
   (below) when the suite only needs some session running;
 - `addAgent()` / `soloAgent()`: projects start without agents;

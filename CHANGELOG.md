@@ -10,6 +10,7 @@
 
 ### Lanes and loops
 - **Hive knows the card loops it runs.** When two agents work through cards as builder and reviewer, the loop is kept as a **lane**: its builder and reviewer, its cards in order, its rounds and its wait. The builder registers it as it starts and the reviewer joins it, with nothing for you to set up. Hive follows the board from there: the lane is on the first card not yet passed, **paused** while that card is blocked, and **ended** once its cards are all Done. A lane whose builder or reviewer you remove is **abandoned**. The Assistant can list the lanes and start one when it briefs a pair, and scripts read them through the Agent API (`/v1/lanes`). A lane is only a record: an agent working on a card on its own has none, and a loop works the same without one.
+- **Agents write tests that hold up on any machine.** The bundled work-on-card and review-agent-work skills now say that tests wait for what they expect to see, never for a length of time: no sleeping and then checking, no single read just after an action, no raised timeout as a fix, no test depending on another's leftovers. Reviewers fail a new or changed test that does, since it fails on a loaded or slower machine.
 
 ### Fixes
 - **Open file in the Changes tab works for every worktree.** For an unused worktree outside the workspace (one made with `git worktree add` elsewhere), **Open file** above its diff did nothing but report an error. It now opens that worktree's copy of the file, as it does for agents' worktrees and the project folder.

@@ -107,8 +107,7 @@ const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  $
 
   // Synthetic session: structure.
   await page.locator('.session-row', { hasText: 'Zebra test fix' }).click()
-  await sleep(800)
-  check('user messages', (await page.locator('.tx-user').count()) === 2)
+  check('user messages', !!(await lib.until(async () => (await page.locator('.tx-user').count()) === 2, 10000)))
   check('replies grouped', (await page.locator('.tx-reply').count()) === 3, String(await page.locator('.tx-reply').count()))
   check('tool calls collapsed', (await page.locator('.tx-tool').count()) === 2 && (await page.locator('.tx-tool.open').count()) === 0)
   check('tool summary', (await page.locator('.tx-tool .tx-fold-detail').first().textContent()) === 'Run the login tests')

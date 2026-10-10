@@ -634,7 +634,7 @@ Skills are instructions an agent loads when they're relevant. There are no switc
 
 **Skills that come with Hive.** Hive gives every workspace its own skills for working with Hive:
 
-- for agents: `work-on-card` (carry a card from Doing to Review), `review-agent-work` (review another agent's work without changing it, marking the card), `merge-ready` (get a branch ready to review and merge) and `use-hive-api` (scripts that call Hive's Agent API);
+- for agents: `work-on-card` (carry a card from Doing to Review; tests it writes wait for what they expect to see, never for a length of time, so they pass on a slower or busier machine too), `review-agent-work` (review another agent's work without changing it, marking the card; a new test that sleeps and then checks fails the review), `merge-ready` (get a branch ready to review and merge) and `use-hive-api` (scripts that call Hive's Agent API);
 - for the Hive Assistant: `coordinate-agents` (plan work as cards, brief and start agents, follow them);
 - for both: `handover` (wrap up for a later session), `pick-up` (carry on from a handover, checking it against the current state), `split-work` (plan how several agents can share a task) and `workspace-note` (record a decision or convention in the shared notes).
 
