@@ -1,7 +1,9 @@
 import { fitSegments, frozenSegment, laneCards, laneSummary, segmentsThatFit, type LaneSegment } from '@shared/laneBar'
-import { set, useStore } from '../store'
+import { NO_PROJECTS, set, useStore } from '../store'
 import type { Lane } from '../laneSource'
+import { useNow } from '../usage'
 import { cx } from '../util'
+import { cardStalled } from './Board'
 import { usePanelFold } from './ProgressMerge'
 import { Icon, Tooltip } from './ui'
 
@@ -10,8 +12,9 @@ import { Icon, Tooltip } from './ui'
  * row each, pinned to the bottom and growing upward, running ones first; past six the list scrolls (#512). A row is a
  * header (the pair, the lane, the card being worked, finished/total) and a segmented bar, one segment per card coloured
  * and patterned by where it is. An ended or abandoned lane shows its cards as it left them, muted and still (#512), never
- * the board's now. Hover a segment for the card and its round; a click opens the card. The section folds down to its
- * header bar (remembered per workspace), and isn't there at all without lanes.
+ * the board's now. Hover a segment for the card and its round; a click opens the card. A running lane with a stalled card
+ * (#521: its reviewer watching but not reviewing, its agent not watching) says so in its header. The section folds down
+ * to its header bar (remembered per workspace), and isn't there at all without lanes.
  */
 
 const foldKey = (ws: string): string => `progress-lanes-fold:${ws.toLowerCase()}`
@@ -45,7 +48,19 @@ export function LanesSection({ lanes, width }: { lanes: Lane[]; width: number })
 
 function LaneRow({ lane: l, max }: { lane: Lane; max: number }) {
   const tasks = useStore((s) => s.tasks)
+  const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
+  // Read again each minute: a card waiting in Review becomes stalled with time (#521).
+  useNow(60_000)
   const cards = l.frozen ? l.frozen.map(frozenSegment) : laneCards(l.cards, tasks)
+  let stalled: { n: number; why: string } | null = null
+  for (const n of l.frozen ? [] : l.cards) {
+    const c = tasks.find((t) => t.number === n)
+    const why = c ? cardStalled(projects, c) : null
+    if (why) {
+      stalled = { n, why }
+      break
+    }
+  }
   const { finished, total, current } = laneSummary(cards)
   // A lane that ended without a record of its cards doesn't know how many were finished (#512).
   const unknown = cards.some((c) => c.state === 'unrecorded')
@@ -59,6 +74,11 @@ function LaneRow({ lane: l, max }: { lane: Lane; max: number }) {
         {l.name && <span className="progress-lane-name faint">· {l.name}</span>}
         <div className="grow" />
         {word && <span className={cx('progress-lane-state', l.state)}>{word}</span>}
+        {stalled && (
+          <Tooltip content={`#${stalled.n}: ${stalled.why}`}>
+            <span className="progress-lane-state stalled">stalled</span>
+          </Tooltip>
+        )}
         {current !== null && !l.frozen && <span className="progress-lane-current">#{current}</span>}
         <span className="progress-lane-count faint">
           {unknown ? '–' : finished}/{total}

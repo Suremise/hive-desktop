@@ -1327,8 +1327,9 @@ async function check(store: Store, rec: WatchRecord, cards?: CardReads): Promise
     const prev = rec.current?.[n]
     if (prev?.column !== after.column || prev?.agent !== after.agent) moved = true
     ;(rec.current ??= {})[n] = after
-    // Seen moved into the column as last seen (it was elsewhere, it's there now): also when its history no longer says.
-    const intoAsSeen = !!rec.cond.moveInto && !!rec.cond.column && !!prev && prev.column !== rec.cond.column && after.column === rec.cond.column
+    // Seen moved into the column as last seen (it was elsewhere, it's there now): also when its history no longer says,
+    // and for a watch that waits only to see it there (#521).
+    const intoAsSeen = !!rec.cond.column &&!!prev && prev.column !== rec.cond.column && after.column === rec.cond.column
     const seen = rec.seen?.[n]
     let kinds: WatchChange[] | 'gone'
     if (seen) {

@@ -7810,7 +7810,8 @@ button.progress-run-show:focus-visible {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
-.progress-lane-state.paused {
+.progress-lane-state.paused,
+.progress-lane-state.stalled {
   color: var(--warning);
 }
 .progress-lane-state.abandoned {

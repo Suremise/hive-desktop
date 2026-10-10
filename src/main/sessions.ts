@@ -9,7 +9,7 @@ import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { formatDateTime } from '../shared/dates'
 import { assistantTools } from '../shared/assistantTools'
 import { COMPACTING_MESSAGE, HIVE_DIR, agentPtyKey, assertSessionId, cliRename, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
-import { agentLaunchSettings, defaultProviderPending, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings } from '../shared/providers'
+import { agentLaunchSettings, defaultProviderPending, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings, tasksWillWake } from '../shared/providers'
 import { resolvedModel } from '../shared/models'
 import type {
   AutoCompactSetting,
@@ -1374,7 +1374,7 @@ class SessionManager {
       if (l.compacting !== c) return
       l.compacting = undefined
       // A session that has exited stays stopped.
-      if (this.live.get(id) === l && applyStep(l.state, compactionOver(l.state))) this.emitState(l.state)
+      if (this.live.get(id) === l && applyStep(l.state, compactionOver(l.state, this.idleStatus(l, 'ready')))) this.emitState(l.state)
     }
     const c: Compaction = new Compaction(before, l.adapter.compactFailure, release)
     l.compacting = c
@@ -2413,8 +2413,8 @@ class SessionManager {
       state.status = 'watching'
       state.unseen = false
     } else if (!watch && state.status === 'watching') state.status = 'finished'
-    // Working or watching again: no longer waiting with no watch (#376).
-    if (state.status !== 'ready' && state.status !== 'finished') state.notWatching = undefined
+    // Working or watching again, or a background task of its own will wake it (#521): no longer waiting with no watch (#376).
+    if ((state.status !== 'ready' && state.status !== 'finished') || tasksWillWake(state)) state.notWatching = undefined
     if (this.statusSent.get(state) !== state.status) {
       this.statusSent.set(state, state.status)
       state.statusSince = new Date().toISOString()

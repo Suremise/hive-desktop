@@ -108,6 +108,37 @@ export function notWatchingReason(card: Pick<TaskCard, 'number' | 'column' | 'ar
   return a ? `${a.name} isn't watching #${card.number}: its turn ended with no card watch.` : null
 }
 
+/** How long a card may wait in Review, unreviewed, while an agent watches it, before it shows as stalled (#521). */
+export const REVIEW_WAIT_STALL_MS = 15 * 60_000
+
+/**
+ * When a card last came into Review (moved there, created there or returned for review) and nobody has reviewed it since,
+ * ISO; null if its history doesn't say, or a review started (or ended with its verdict) after it: a failed round waiting
+ * in Review for its builder's fixes is its builder's to move on, not its reviewer's.
+ */
+export function inReviewSince(card: Pick<TaskCard, 'history'>): string | null {
+  const i = card.history.findLastIndex((h) => /^(Moved to (the (top|bottom) of )?Review\b|Created in Review\b|Returned for review\b)/.test(h.what))
+  if (i < 0 || card.history.slice(i + 1).some((h) => /^(Started reviewing|Review (passed|failed))\b/.test(h.what))) return null
+  return card.history[i].at
+}
+
+/**
+ * Why a card waiting in Review is stuck on its reviewer's side (#521): nobody has started reviewing it for
+ * REVIEW_WAIT_STALL_MS, though an agent other than its own is watching it (on 10 Oct three reviewers sat "watching"
+ * cards already in Review for five hours). `watchers`: the agents with a card watch, and its cards. Null otherwise.
+ */
+export function reviewWaitReason(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project' | 'agent' | 'review' | 'blocked' | 'history'>, watchers: { name: string; project: string; agentId: string; cards: number[] }[], now = Date.now()): string | null {
+  if (card.archived || card.column !== 'review' || card.review || card.blocked) return null
+  const since = inReviewSince(card)
+  const ms = since ? now - Date.parse(since) : NaN
+  if (!(ms >= REVIEW_WAIT_STALL_MS)) return null
+  const w = watchers.find((x) => x.project.toLowerCase() === card.project.toLowerCase() && x.agentId !== card.agent && x.cards.includes(card.number))
+  if (!w) return null
+  const min = Math.round(ms / 60_000)
+  const dur = min < 60 ? `${min} min` : `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ''}`
+  return `${w.name} is watching #${card.number} but hasn't started reviewing it: in Review for ${dur}.`
+}
+
 /**
  * When a card was archived (#249): its latest "Archived…" in its history (by the user, after its days in Done, or with
  * its project), else its last change. ISO.

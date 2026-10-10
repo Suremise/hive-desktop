@@ -12,7 +12,7 @@ import { ASSISTANT_AGENT_ID, ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/ass
 import { timeLeft } from '../shared/progress'
 import { ProgressError, admitReport, type ProgressCaller } from './progress'
 import { progress, progressGate } from './progressService'
-import { COLUMN_CHOICES, columnLabel, isTaskColumn, notWatchingReason, reviewStalled, stalledReason } from '../shared/tasks'
+import { COLUMN_CHOICES, columnLabel, isTaskColumn, notWatchingReason, reviewStalled, reviewWaitReason, stalledReason } from '../shared/tasks'
 import type { HandoverAuthor } from '../shared/hiveGuidance'
 import { newestComments, progressLabel, taskRow, withoutHistory, type ProjectRow, type SkillRow, type TaskChange, type TaskReorder, type TaskView } from '../shared/toolReplies'
 import * as assistant from './assistantControl'
@@ -1346,6 +1346,15 @@ function loopAgents(): { name: string; project: string; notWatching?: number[] }
     .map((s) => ({ name: s.agentName ?? s.agentId, project: basename(s.projectPath), notWatching: s.notWatching }))
 }
 
+/** This workspace's agents with a card watch, and its cards, for a card waiting in Review on its reviewer (#521). */
+function cardWatchers(): { name: string; project: string; agentId: string; cards: number[] }[] {
+  const ws = workspace.path?.toLowerCase()
+  return sessions
+    .liveStates()
+    .filter((s) => s.watch?.cards.length && !!ws && workspaceOf(s.projectPath).path?.toLowerCase() === ws)
+    .map((s) => ({ name: s.agentName ?? s.agentId, project: basename(s.projectPath), agentId: s.agentId, cards: s.watch!.cards }))
+}
+
 /**
  * A card with what its agent is doing now (and its name now), for callers deciding what to do next. `agents` keeps
  * each project's agents for a whole list, so a long board reads each project.json once.
@@ -1378,8 +1387,9 @@ async function taskView(c: TaskCard, agents = new Map<string, Promise<ReturnType
     comments: c.comments.map(tasks.withoutId),
     history: c.history.map(tasks.withoutId),
     agent,
-    // A Doing card nobody works on, or a card an agent was looping on and left with no watch (#376).
-    stalled: stalledReason(c, now) ?? notWatchingReason(c, loopAgents())
+    // A Doing card nobody works on, a card an agent was looping on and left with no watch (#376), or one in Review its
+    // watching reviewer hasn't started on (#521).
+    stalled: stalledReason(c, now) ?? notWatchingReason(c, loopAgents()) ?? reviewWaitReason(c, cardWatchers())
   }
   // A review whose reviewer has gone or isn't running (Hive ends those, but one can show while that happens).
   if (c.review && c.project) {
