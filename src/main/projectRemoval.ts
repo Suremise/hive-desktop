@@ -1,4 +1,4 @@
-import { basename, dirname, extname, join, resolve, sep } from 'path'
+import { basename, dirname, extname, join, resolve } from 'path'
 import { copyFile, mkdir, readdir, readFile, rmdir } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { HIVE_DIR, projectAgents } from '../shared/defaults'
@@ -6,7 +6,7 @@ import { projectHandovers } from '../shared/hiveGuidance'
 import type { AgentDef, ProjectRemoval, ProjectRemovalInfo, TaskCard } from '../shared/types'
 import { config } from './config'
 import { suspendWatching } from './files'
-import { readJson, realPath, removePath, writeJsonAtomic } from './fsutil'
+import { containsPlace, readJson, realPath, removePath, samePlace, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { notesTree } from './notes'
 import { sessions } from './sessions'
@@ -30,8 +30,6 @@ const log = createLogger('projects')
  */
 
 const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
-/** Whether `a` is `b` or a folder containing it. */
-const contains = (a: string, b: string): boolean => same(resolve(a), resolve(b)) || resolve(b).toLowerCase().startsWith(resolve(a).toLowerCase().replace(/[\\/]$/, '') + sep)
 
 /** Every project folder name in the workspace, hidden ones too (handover names are matched against them all). */
 async function allNames(ws: WorkspaceService): Promise<string[]> {
@@ -58,10 +56,11 @@ function folderOf(ws: WorkspaceService, projectPath: string): string {
 /**
  * The project's agent worktrees that are safe to remove: folders git lists as worktrees of this project, that are
  * not the project itself, nor contain it or the workspace, nor are another project. project.json can be edited by
- * hand: a path it gives is never removed on its word alone. The rest come back as `refused`, with why.
+ * hand: a path it gives is never removed on its word alone. The rest come back as `refused`, with why. Exported for tests.
  */
-async function checkedWorktrees(ws: WorkspaceService, p: string, agents: AgentDef[]): Promise<{ ok: AgentDef[]; refused: string[] }> {
-  // Real paths: git lists long names, while the agent's path may use a short (8.3) one such as RUNNER~1.
+export async function checkedWorktrees(ws: WorkspaceService, p: string, agents: AgentDef[]): Promise<{ ok: AgentDef[]; refused: string[] }> {
+  // Real paths, for each check: git lists long names, while the agent's path may use a short (8.3) one such as RUNNER~1
+  // or go through a junction (#389, #455).
   const registered = new Set((await wt.listWorktrees(p)).map((w) => realPath(w.path).toLowerCase()))
   const projects = (await allNames(ws)).map((n) => join(ws.path!, n))
   const ok: AgentDef[] = []
@@ -71,9 +70,9 @@ async function checkedWorktrees(ws: WorkspaceService, p: string, agents: AgentDe
     const t = resolve(a.worktree.path)
     const why = !registered.has(realPath(t).toLowerCase())
       ? "git doesn't list it as one of the project's worktrees"
-      : contains(t, p) || contains(t, ws.path!)
+      : containsPlace(t, p) || containsPlace(t, ws.path!)
         ? 'it contains the project or the workspace'
-        : projects.some((x) => same(x, t))
+        : projects.some((x) => samePlace(x, t))
           ? 'it is another project of the workspace'
           : null
     if (why) refused.push(`${a.name}'s worktree ${t} (${why})`)

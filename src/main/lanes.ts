@@ -1,0 +1,338 @@
+import { randomBytes } from 'crypto'
+import { join } from 'path'
+import { projectAgents } from '../shared/defaults'
+import { DEFAULT_LANE_ROUNDS, DEFAULT_LANE_WAIT_MINUTES, allDone, keptLanes, laneView, listedLanes, readLanes, running, type LaneAgent, type LaneChange, type LaneRecord } from '../shared/lanes'
+import type { LaneInfo, TaskCard } from '../shared/types'
+import { onHiveEvent } from './events'
+import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
+import { createLogger, userText } from './logger'
+import { getTask, inScope } from './tasks'
+import { openWorkspaces, type WorkspaceService } from './workspace'
+
+const log = createLogger('lanes')
+
+/**
+ * Lanes (#483): the card loops a workspace runs, kept in its `.hive/lanes.json` beside the board. The builder's card-loop
+ * registers its lane (start), the reviewer's joins it by the builder's name, the Assistant can start one when it briefs
+ * a pair. Hive follows the board for the rest: a lane is paused while its current card is blocked, ends when every card
+ * is Done (or its builder ends it after the merge), and is abandoned when its builder or reviewer is removed.
+ *
+ * Bookkeeping, never a gate: nothing here refuses or holds up work on a card, and a loop with no lane runs as before.
+ * Changes to a workspace's lanes happen under its file's lock, read and written whole (the file is small).
+ */
+
+const fileOf = (ws: WorkspaceService): string => join(ws.hiveDir, 'lanes.json')
+const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
+
+/** A lane change Hive refuses (status: the HTTP status the Agent API answers with). */
+export class LaneError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
+async function read(ws: WorkspaceService): Promise<LaneRecord[]> {
+  return readLanes(await readJson<unknown>(fileOf(ws), null))
+}
+
+async function write(ws: WorkspaceService, lanes: LaneRecord[]): Promise<void> {
+  await writeJsonAtomic(fileOf(ws), { version: 1, lanes: keptLanes(lanes, Date.now()) })
+}
+
+/** Changes a workspace's lanes under its lock: fn changes the list it is given (or throws), and says whether it did. */
+async function mutate<T>(ws: WorkspaceService, fn: (lanes: LaneRecord[]) => T | Promise<T>): Promise<T> {
+  if (!ws.path) throw new LaneError(409, 'No workspace is open')
+  const result = await withFileLock(fileOf(ws), async () => {
+    const lanes = await read(ws)
+    const r = await fn(lanes)
+    await write(ws, lanes)
+    return r
+  })
+  changed(ws)
+  return result
+}
+
+const now = (): string => new Date().toISOString()
+const newId = (): string => `lane-${randomBytes(3).toString('hex')}`
+
+/** Ends a lane: ended when all its cards are merged (or `merged` says so), else abandoned. */
+function close(l: LaneRecord, state: 'ended' | 'abandoned', mergeCommit?: string | null): void {
+  l.state = state
+  l.endedAt = l.updatedAt = now()
+  if (mergeCommit) l.mergeCommit = mergeCommit
+}
+
+/** The lane cards as the board has them now, each read once, as the lane's project sees them. */
+async function cardsOf(ws: WorkspaceService, lanes: readonly LaneRecord[]): Promise<Map<string, Map<number, TaskCard | null>>> {
+  const reads = new Map<number, Promise<TaskCard | null>>()
+  const out = new Map<string, Map<number, TaskCard | null>>()
+  for (const l of lanes) {
+    const m = new Map<number, TaskCard | null>()
+    for (const n of l.cards) {
+      let r = reads.get(n)
+      if (!r) reads.set(n, (r = getTask(n, ws).catch(() => null)))
+      const card = await r
+      m.set(n, card && !card.archived && inScope(card, l.project) ? card : null)
+    }
+    out.set(l.id, m)
+  }
+  return out
+}
+
+/** Each project's agents' names now, by id (a renamed agent shows its new name). */
+async function namesOf(ws: WorkspaceService, lanes: readonly LaneRecord[]): Promise<Map<string, Map<string, string> | null>> {
+  const out = new Map<string, Map<string, string> | null>()
+  for (const l of lanes) {
+    const k = l.project.toLowerCase()
+    if (out.has(k) || !ws.path) continue
+    const cfg = await ws.projectConfig(join(ws.path, l.project)).catch(() => null)
+    out.set(k, cfg ? new Map(projectAgents(cfg).map((a) => [a.id, a.name])) : null)
+  }
+  return out
+}
+
+/** Lanes as they read now. */
+async function views(ws: WorkspaceService, lanes: readonly LaneRecord[]): Promise<LaneInfo[]> {
+  const cards = await cardsOf(ws, lanes)
+  const names = await namesOf(ws, lanes)
+  return lanes.map((l) => laneView(l, cards.get(l.id)!, names.get(l.project.toLowerCase()) ?? undefined))
+}
+
+/** A project agent of the lane's project, by id: its name now. */
+async function agentIn(ws: WorkspaceService, project: string, id: string): Promise<LaneAgent | null> {
+  if (!ws.path) return null
+  const cfg = await ws.projectConfig(join(ws.path, project)).catch(() => null)
+  const a = cfg ? projectAgents(cfg).find((x) => x.id === id) : undefined
+  return a ? { id: a.id, name: a.name } : null
+}
+
+export interface StartLane {
+  project: string
+  /** The builder's and reviewer's agent ids (reviewer null: none yet; undefined: keep a running lane's). */
+  builder: string
+  reviewer?: string | null
+  cards: number[]
+  rounds?: number
+  waitMinutes?: number
+  name?: string | null
+  /** Who starts it, as the board names them. */
+  by: string
+}
+
+/**
+ * Starts a lane for a builder, or updates its running one: one running lane per builder. A running lane that shares a
+ * card with the new list is the same loop (resumed, or changed: a card added, the order changed) and is updated in
+ * place, keeping its reviewer unless one is given. One that shares none ends and a new lane starts: ended when it has
+ * no card left to do (every one Passed, Done or gone: it waits only for its merge), else abandoned.
+ */
+export async function startLane(ws: WorkspaceService, s: StartLane): Promise<LaneChange> {
+  const builder = await agentIn(ws, s.project, s.builder)
+  if (!builder) throw new LaneError(404, 'Unknown agent: the builder must be an agent of the project')
+  const reviewer = s.reviewer ? await agentIn(ws, s.project, s.reviewer) : s.reviewer === undefined ? undefined : null
+  if (s.reviewer && !reviewer) throw new LaneError(404, 'Unknown agent: the reviewer must be an agent of the project')
+  if (reviewer && reviewer.id === builder.id) throw new LaneError(400, "A lane's builder can't be its reviewer")
+  const r = await mutate(ws, async (lanes) => {
+    const was = lanes.find((l) => running(l) && same(l.project, s.project) && l.builder.id === builder.id)
+    const t = now()
+    if (was && was.cards.some((n) => s.cards.includes(n))) {
+      Object.assign(was, {
+        builder,
+        cards: s.cards,
+        ...(reviewer !== undefined ? { reviewer } : {}),
+        ...(s.rounds !== undefined ? { rounds: s.rounds } : {}),
+        ...(s.waitMinutes !== undefined ? { waitMinutes: s.waitMinutes } : {}),
+        ...(s.name !== undefined && s.name !== null ? { name: s.name } : {}),
+        updatedAt: t
+      })
+      return { rec: was, did: 'updated' as const, replaced: null }
+    }
+    let replaced: LaneRecord | null = null
+    if (was) {
+      const v = (await views(ws, [was]))[0]
+      close(was, v.current === null ? 'ended' : 'abandoned')
+      replaced = was
+    }
+    const rec: LaneRecord = {
+      id: newId(),
+      project: s.project,
+      name: s.name ?? null,
+      builder,
+      reviewer: reviewer ?? null,
+      cards: s.cards,
+      rounds: s.rounds ?? DEFAULT_LANE_ROUNDS,
+      waitMinutes: s.waitMinutes ?? DEFAULT_LANE_WAIT_MINUTES,
+      state: 'active',
+      startedBy: s.by,
+      startedAt: t,
+      updatedAt: t,
+      endedAt: null,
+      mergeCommit: null
+    }
+    lanes.push(rec)
+    return { rec, did: 'started' as const, replaced }
+  })
+  const [lane, replaced] = await views(ws, [r.rec, ...(r.replaced ? [r.replaced] : [])])
+  log.info(`Lane ${r.rec.id} ${r.did} for ${userText(builder.name)} in ${userText(s.project)}: ${s.cards.map((n) => `#${n}`).join(', ')}`)
+  return { lane, did: r.did, replaced: replaced ?? null }
+}
+
+/**
+ * A reviewer joins the builder's running lane: with `cards`, only one that shares a card with them (a builder's earlier
+ * lane, its cards passed and waiting for the merge, is another loop). With no such lane yet (the reviewer started
+ * first), one is started from `cards` as the builder's start would (ending that earlier lane), which the builder's own
+ * start then updates.
+ */
+export async function joinLane(ws: WorkspaceService, j: { project: string; builder: string; reviewer: string; cards?: number[]; by: string }): Promise<LaneChange> {
+  const reviewer = await agentIn(ws, j.project, j.reviewer)
+  const builder = await agentIn(ws, j.project, j.builder)
+  if (!reviewer || !builder) throw new LaneError(404, 'Unknown agent: the builder and reviewer must be agents of the project')
+  if (reviewer.id === builder.id) throw new LaneError(400, "A lane's builder can't be its reviewer")
+  const found = await mutate(ws, (lanes) => {
+    const l = lanes.find((x) => running(x) && same(x.project, j.project) && x.builder.id === builder.id)
+    if (!l || (j.cards?.length && !l.cards.some((n) => j.cards!.includes(n)))) return null
+    l.reviewer = reviewer
+    l.updatedAt = now()
+    return l
+  })
+  if (found) {
+    log.info(`${userText(reviewer.name)} joined lane ${found.id}`)
+    return { lane: (await views(ws, [found]))[0], did: 'joined' }
+  }
+  if (!j.cards?.length) throw new LaneError(404, `${builder.name} has no lane running yet: give the cards too, and the lane starts with you as its reviewer`)
+  const r = await startLane(ws, { project: j.project, builder: builder.id, reviewer: reviewer.id, cards: j.cards, by: j.by })
+  return { ...r, did: 'joined', note: `${builder.name} hadn't registered it yet: its own start updates it.` }
+}
+
+/**
+ * Ends a lane (its builder after the merge, the Assistant, the user): ended, with the merge commit if given, unless
+ * `abandoned`. `agent`: a project agent ending it, which must be its builder or reviewer.
+ */
+export async function endLane(ws: WorkspaceService, id: string, o: { abandoned?: boolean; mergeCommit?: string | null; project?: string; agent?: string }): Promise<LaneInfo> {
+  const rec = await mutate(ws, (lanes) => {
+    const l = lanes.find((x) => x.id === id && (!o.project || same(x.project, o.project)))
+    if (!l) throw new LaneError(404, `Unknown lane ${id}`)
+    if (o.agent && l.builder.id !== o.agent && l.reviewer?.id !== o.agent) throw new LaneError(403, "Only a lane's builder or reviewer ends it (or the user, or the Assistant)")
+    if (running(l)) close(l, o.abandoned ? 'abandoned' : 'ended', o.mergeCommit)
+    else if (o.mergeCommit && !l.mergeCommit) l.mergeCommit = o.mergeCommit
+    return l
+  })
+  log.info(`Lane ${id} ${rec.state}`)
+  return (await views(ws, [rec]))[0]
+}
+
+/** The running lane of a project agent (as builder, else as reviewer), or null. */
+export async function laneOf(ws: WorkspaceService, project: string, agentId: string): Promise<LaneInfo | null> {
+  const lanes = (await read(ws)).filter((l) => running(l) && same(l.project, project))
+  const l = lanes.find((x) => x.builder.id === agentId) ?? lanes.find((x) => x.reviewer?.id === agentId)
+  return l ? (await views(ws, [l]))[0] : null
+}
+
+/** A workspace's lanes: those listed (running, or ended lately), or with `all` every one kept; `project` narrows them. */
+export async function listLanes(ws: WorkspaceService, o: { project?: string | null; all?: boolean } = {}): Promise<LaneInfo[]> {
+  if (!ws.path) return []
+  const lanes = (await read(ws)).filter((l) => !o.project || same(l.project, o.project))
+  return views(ws, o.all ? [...lanes].sort((a, b) => a.startedAt.localeCompare(b.startedAt)) : listedLanes(lanes, Date.now()))
+}
+
+/** One lane by id (`project`: only one of that project's). */
+export async function getLane(ws: WorkspaceService, id: string, project?: string | null): Promise<LaneInfo> {
+  const l = (await read(ws)).find((x) => x.id === id && (!project || same(x.project, project)))
+  if (!l) throw new LaneError(404, `Unknown lane ${id}`)
+  return (await views(ws, [l]))[0]
+}
+
+/** An agent was removed from its project: its running lanes, as builder or reviewer, are abandoned. */
+export async function laneAgentRemoved(ws: WorkspaceService, project: string, agentId: string): Promise<void> {
+  if (!ws.path) return
+  const has = (await read(ws)).some((l) => running(l) && same(l.project, project) && (l.builder.id === agentId || l.reviewer?.id === agentId))
+  if (!has) return
+  await mutate(ws, (lanes) => {
+    for (const l of lanes) if (running(l) && same(l.project, project) && (l.builder.id === agentId || l.reviewer?.id === agentId)) close(l, 'abandoned')
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Following the board: each change to a workspace's cards reads its lanes again, ends those whose cards are all Done,
+// abandons those whose agent is gone, and tells the window when what it lists changed.
+// ---------------------------------------------------------------------------
+
+/** What each workspace's window was last told (by its path), so an unchanged list isn't sent again. */
+const told = new Map<string, string>()
+const timers = new Map<string, NodeJS.Timeout>()
+/** A board change and the follow-up are read together: changes landing within this are one look. */
+const SETTLE_MS = 300
+
+/** A workspace's lanes changed: look again soon. */
+function changed(ws: WorkspaceService): void {
+  const k = ws.path?.toLowerCase()
+  if (!k || timers.has(k)) return
+  const t = setTimeout(() => {
+    timers.delete(k)
+    void refresh(ws).catch((e) => log.warn('following the lanes', e))
+  }, SETTLE_MS)
+  t.unref?.()
+  timers.set(k, t)
+}
+
+/** Reads a workspace's lanes against the board, closes the finished ones, and tells its window what changed. */
+export async function refresh(ws: WorkspaceService): Promise<void> {
+  const path = ws.path
+  if (!path) return
+  const lanes = await read(ws)
+  const live = lanes.filter(running)
+  if (live.length) {
+    const vs = await views(ws, live)
+    const names = await namesOf(ws, live)
+    const done = live.filter((l, i) => allDone(vs[i].cards))
+    // An agent no longer in its project (removed while Hive was closed, or by hand): its lane is abandoned.
+    const orphan = live.filter((l) => {
+      const n = names.get(l.project.toLowerCase())
+      return !!n && (!n.has(l.builder.id) || (!!l.reviewer && !n.has(l.reviewer.id)))
+    })
+    if (done.length || orphan.length) {
+      await withFileLock(fileOf(ws), async () => {
+        const kept = await read(ws)
+        for (const l of kept) {
+          if (!running(l)) continue
+          if (done.some((d) => d.id === l.id)) close(l, 'ended')
+          else if (orphan.some((d) => d.id === l.id)) close(l, 'abandoned')
+        }
+        await write(ws, kept)
+      })
+      if (ws.path && same(ws.path, path)) return refresh(ws)
+      return
+    }
+  }
+  if (!ws.path || !same(ws.path, path)) return
+  const listed = await listLanes(ws)
+  const text = JSON.stringify(listed)
+  if (told.get(path.toLowerCase()) === text) return
+  // Nothing listed before and nothing now (a workspace with no lanes): nothing to tell.
+  if (!told.has(path.toLowerCase()) && !listed.length) {
+    told.set(path.toLowerCase(), text)
+    return
+  }
+  told.set(path.toLowerCase(), text)
+  ws.emit({ type: 'lanes-changed', workspacePath: path, lanes: listed })
+}
+
+let started = false
+
+/** Follows the boards of open workspaces for their lanes. Once, at startup. */
+export function startLanes(): void {
+  if (started) return
+  started = true
+  onHiveEvent((e) => {
+    if (e.type !== 'tasks-changed') return
+    const ws = openWorkspaces().find((w) => w.path && same(w.path, e.workspacePath))
+    if (ws) changed(ws)
+  })
+  // An ended lane leaves the list after an hour: looked at again each minute (only workspaces whose window was told some).
+  const tick = setInterval(() => {
+    for (const ws of openWorkspaces()) if (ws.path && told.get(ws.path.toLowerCase()) !== '[]' && told.has(ws.path.toLowerCase())) changed(ws)
+  }, 60_000)
+  tick.unref?.()
+}

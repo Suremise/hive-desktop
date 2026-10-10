@@ -45,15 +45,15 @@ const clip = (s: string, max: number): string => {
 
 /**
  * A batch the Assistant asks for, through the Assistant's change boundary (assistantControl's admit, which assistantChange
- * uses for a single change too): its control level is checked and every card counts against this message's limit before
- * any card changes, all of them or none. Each card is then written only if the guard still passes after its last read,
- * under its own lock: the control level and the session that asked must still allow it (the user may have turned the
+ * uses for a single change too): its control level is checked and the batch counts as one change against this message's
+ * limit, however many cards it has (#488: a bulk move never stops part-way for the limit), before any card changes. Each
+ * card is then written only if the guard still passes after its last read, under its own lock: the control level and the session that asked must still allow it (the user may have turned the
  * level down, or the Assistant been restarted, while the batch waited for a card). A card refused for any reason is left
- * as it was, and every card, changed or refused, is recorded in the activity list on its own. A counted card stays counted
- * when refused, as a refused single change does. Returns each card's outcome, in the order given.
+ * as it was, and every card, changed or refused, is recorded in the activity list on its own. The batch stays counted when
+ * some of its cards are refused, as a refused single change does. Returns each card's outcome, in the order given.
  */
 export async function assistantBatch(ws: string, token: string, numbers: number[], patch: tasks.BatchPatch, actor: tasks.TaskActor): Promise<tasks.BatchItem[]> {
-  const guard = assistant.admit(ws, token, 'agents', `change ${numbers.length} card${numbers.length === 1 ? '' : 's'} on the board`, numbers.length)
+  const guard = assistant.admit(ws, token, 'agents', `change ${numbers.length} card${numbers.length === 1 ? '' : 's'} on the board`)
   const items = await tasks.updateTasks(numbers, patch, actor, { commit: guard })
   for (const i of items) {
     if (i.card) assistant.record(ws, `#${i.number} ${clip(i.card.title, 60)}: ${i.said.join(', ') || 'no change'}`)

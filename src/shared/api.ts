@@ -47,6 +47,7 @@ import type {
   McpServerInfo,
   MergeResult,
   MergeSlotInfo,
+  LaneInfo,
   ModelPrice,
   MemorySource,
   NoteFile,
@@ -444,6 +445,10 @@ export interface HiveRequests {
   'mergeSlots:list': () => MergeSlotInfo[]
   /** The user releases the hold they confirmed (its id) of a project's merge slot; refused if the slot changed hands since. Returns who held it. */
   'mergeSlots:release': (projectPath: string, branch: string, holdId: string) => string
+  /** This window's workspace's lanes (#483): running ones and those ended lately, oldest first. */
+  'lanes:list': () => LaneInfo[]
+  /** The user ends a lane (abandoned: unmerged); returns it as it is now. */
+  'lanes:end': (laneId: string, abandoned?: boolean) => LaneInfo
   /** This window's workspace's progress runs, newest first. */
   'progress:list': () => ProgressRun[]
   /** Moves a finished or stale run to Recent. */

@@ -238,7 +238,7 @@ The changes below are the Assistant's only: other callers get `403`.
 
 Changing the task board (`POST /v1/tasks`, `PATCH /v1/tasks/{n}`, comments) is open to other callers too; for the Assistant it needs Control agents and counts as a change.
 
-With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. A batch of cards counts each of its cards. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees, archive or delete cards, or remove projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/deactivate` needs Control agents.
+With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. A batch of cards is one change, however many cards it has. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees, archive or delete cards, or remove projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/deactivate` needs Control agents.
 
 ### Settings
 
@@ -341,7 +341,7 @@ Placing a card with `position` or `before` adds a line to its history when it mo
 
 Each card is changed as `PATCH` would change it: under its own lock, authorised against the card as it is then, with its own history line. A card that can't be changed is refused and left as it was, and the other cards still change: an unknown card, or another project's (both answered as missing), an archived one, one in Doing with another agent, one an agent may not put On Hold. So a batch is not all or nothing: each card is. `position` applies to each card in turn, so the last listed ends at the top; to set an order, use `POST /v1/tasks/reorder`.
 
-For the Assistant, every card counts against its 30 changes for the message, refused ones too. If the cards don't all fit, none is changed and the answer is `429` with `fits`: how many would fit. Each card is listed in the Assistant's panel on its own. Each card is checked again just before it is saved, after its last read and under its lock: if the control level was turned down, or the Assistant's session replaced, while the batch was working on it, that card and the rest after it are refused and nothing of theirs is saved.
+For the Assistant, the batch counts as one of its 30 changes for the message, however many cards it has. Once those are used, the batch changes none of its cards and the answer is `429` with `fits`: 0. Each card is listed in the Assistant's panel on its own. Each card is checked again just before it is saved, after its last read and under its lock: if the control level was turned down, or the Assistant's session replaced, while the batch was working on it, that card and the rest after it are refused and nothing of theirs is saved.
 
 ```json
 { "numbers": [14, 9, 12], "column": "todo", "reply": "short" }
@@ -379,6 +379,32 @@ One merge at a time into a project's branch, so the branch can't move while an a
 `POST /v1/projects/{name}/merge-slot/release` — `{ "branch": "main" }`: `{ released: true, next }` (who has it now), `{ left: true }` (it was waiting, and has left the line) or `{ none: true, holder }`.
 
 A slot is released when its agent's session ends. Hive's Merge dialog takes the slot for the length of the user's merge, and waits while an agent holds or waits for it.
+
+### Lanes
+
+A **lane** is Hive's record of a card loop: a builder and a reviewer taking a project's cards in order (the **card-loop** skill registers it). It is bookkeeping, never a gate: nothing waits on a lane, and a loop works the same without one. A project agent starts its own lane, as its builder, joins its builder's lane, as its reviewer, and sees its own project's lanes; the Hive Assistant (Control agents) and scripts start lanes for any builder and see them all.
+
+A lane is `{ id, project, name, builder: { id, name }, reviewer, cards, current, state, pausedOn, rounds, waitMinutes, startedBy, startedAt, updatedAt, endedAt, mergeCommit }`:
+- `cards` are in the lane's order, each `{ number, title, column, blocked, round, reviewing }`: `column` is `gone` for a card archived, deleted or moved to another project, and `round` is 1 plus the reviews it has failed.
+- `current` is the first card not in Passed or Done.
+- `state` is one of:
+  - `active`;
+  - `paused` while the current card is blocked (`pausedOn`), back to `active` when it isn't;
+  - `ended` once every card is in Done, or when the builder ends it after its merge;
+  - `abandoned` when its builder or reviewer is removed from the project, or it is ended unmerged.
+- An agent that is stopped keeps its lane: quitting Hive and restarts stop agents too.
+- A builder has one running lane: starting a lane that shares a card with its running one updates that lane (a card added, the order changed, a reviewer given), and one sharing none ends it (`ended` when it has no card left to do, every one Passed, Done or gone, else `abandoned`).
+- Ended lanes are listed until their builder starts another, or for an hour, and kept for a day.
+
+`GET /v1/lanes` — the lanes running or recently ended, oldest first (`?project=` narrows them; `?all=true` gives every lane kept). `GET /v1/lanes/{id}` — one lane.
+
+`POST /v1/lanes` — `{ "cards": [483, 481], "reviewer": "R1", "rounds": 10, "waitMinutes": 360, "name": "lanes and loops" }` starts a lane, or updates the builder's running one. The calling agent is its builder; the Assistant and scripts add `project` and `builder` (a name or id). A `reviewer` Hive doesn't know leaves the lane without one (the reply's `note` says so) rather than refusing. Rounds and the wait default to 5 and 120 minutes. Replies `{ lane, did: "started" | "updated", replaced }`: `replaced` is the builder's earlier lane, if starting this one ended it.
+
+`POST /v1/lanes/join` — `{ "builder": "B1", "cards": [483, 481] }`: the calling agent joins the builder's running lane as its reviewer (a script adds `project` and `reviewer`); with `cards`, only a running lane that shares one (a builder's earlier lane, its cards passed and waiting for the merge, is another loop). With no such lane yet, one is started from `cards` as the builder's start would, and the builder's own start then updates it. Replies `{ lane, did: "joined" }`.
+
+`POST /v1/lanes/{id}/end` — `{ "mergeCommit": "a1b2c3d" }` ends it, or `{ "abandoned": true }`. Only its builder or reviewer ends it among agents.
+
+The event stream sends `lanes-changed` (`{ workspacePath }`: read the lanes again) when a lane changes, or one of its cards does.
 
 ### Skills and MCP
 
@@ -463,7 +489,7 @@ event: session-status
 data: {"type":"session-status","state":{"projectPath":"D:\\work\\api","sessionId":"6f1c…","status":"finished",…}}
 ```
 
-Event types: `session-status`, `session-exit`, `workspace-changed`, `notes-changed`, `skills-changed`, `tasks-changed` (`{ workspacePath }`: read the board again). Events cover every open workspace, so the Hive Assistant's token is refused here (403); it follows agents with `hive_wait_for_agents`. A project agent's own token gets `session-status` and `session-exit` for its own project's sessions only (another project's carry their session names, which can name their cards); the other events carry no more than a path and come to it as to anyone. A client that stops reading (more than 1 MB of events waiting) is disconnected.
+Event types: `session-status`, `session-exit`, `workspace-changed`, `notes-changed`, `skills-changed`, `tasks-changed` (`{ workspacePath }`: read the board again), `lanes-changed` (`{ workspacePath }`: read the lanes again). Events cover every open workspace, so the Hive Assistant's token is refused here (403); it follows agents with `hive_wait_for_agents`. A project agent's own token gets `session-status` and `session-exit` for its own project's sessions only (another project's carry their session names, which can name their cards); the other events carry no more than a path and come to it as to anyone. A client that stops reading (more than 1 MB of events waiting) is disconnected.
 
 ```bash
 curl -N -H "Authorization: Bearer $HIVE_API_TOKEN" "$HIVE_API_URL/v1/events"
@@ -496,6 +522,7 @@ When **Provide Hive tools to sessions** is on (the default), Hive adds an MCP se
 | `hive_wait_for_tasks` | `POST /v1/tasks/wait` (`wake: true` for a card watch, `cancel: true` to end it), a line per change |
 | `hive_wait_for_agents` | `POST /v1/agents/wait` (50 seconds by default, it calls again to keep waiting; `wake: true` for an agent watch, a line; `cancel: true` to end it) |
 | `hive_merge_slot` | `GET /v1/projects/{name}/merge-slot`, `POST …/merge-slot/claim` or `…/release` (the session's project), a line (project agents only) |
+| `hive_lane` | `GET /v1/lanes`, `POST /v1/lanes` (`start`), `POST /v1/lanes/join` or `POST /v1/lanes/{id}/end`, a line per lane (an agent: its own project's, as the builder or reviewer) |
 
 Tools default to the session's own project, so an agent can simply say *"create a handover"*. The board tools send the agent's id and project, so a card's history and comments name the agent.
 
@@ -518,7 +545,7 @@ The Hive Assistant's `hive` server always runs (even with this setting or the Ag
 | `hive_read_setting` | `GET /v1/settings/{id}`, as text | any |
 | `hive_update_setting` | `PATCH /v1/settings/{id}`, old → new | Change settings on (any level) |
 
-It also has the board tools above; Claude Code runs `hive_create_task`, `hive_update_task`, `hive_update_tasks` and `hive_reorder_tasks` without asking from Control agents up. Claude Code runs these without asking (they are Hive's own, and limited by the control level); Codex gets a 15-minute tool timeout for them, since waiting and asking the user can take minutes.
+It also has the board tools above; Claude Code runs `hive_create_task`, `hive_update_task`, `hive_update_tasks`, `hive_reorder_tasks` and `hive_lane` without asking from Control agents up. Claude Code runs these without asking (they are Hive's own, and limited by the control level); Codex gets a 15-minute tool timeout for them, since waiting and asking the user can take minutes.
 
 A handover belongs to a project when its file name is `handovers/<date>-<project>-<title>.md`, as `hive_create_handover` writes it. When another project's name begins the same way (`hive` and `hive-website`), the `**Project:**` line at the top of the handover decides.
 

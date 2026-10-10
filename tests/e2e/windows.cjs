@@ -1,7 +1,8 @@
 // Several windows, like VS Code: each shows its own workspace. New Window, a workspace already open in
 // another window is brought forward instead, events stay in their window, the Agent API names workspaces,
 // windows are reopened at start, and closing a window, switching its workspace or closing the workspace stops
-// that workspace's agents (after asking). The agents run the fake Claude Code (fake-claude/, #194).
+// that workspace's agents (after asking). A workspace by another name (a junction) is the same one (#455). The agents
+// run the fake Claude Code (fake-claude/, #194).
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -11,6 +12,8 @@ const { _electron } = require('playwright-core')
 const userData = path.join(lib.WORK, 'windows-profile')
 const wsA = path.join(lib.WORK, 'windows-ws-a')
 const wsB = path.join(lib.WORK, 'windows-ws-b')
+/** Workspace A by another name: a junction to it (#455). */
+const aliasA = path.join(lib.WORK, 'windows-ws-a-alias')
 const claudeHome = path.join(lib.WORK, 'windows-claude-home')
 const PORT = Number(lib.port(47893))
 const sleep = lib.sleep
@@ -51,6 +54,12 @@ async function waitFor(fn, ms = 15000) {
 }
 
 ;(async () => {
+  // The alias first, as a link (rmdir never follows a junction into its folder).
+  try {
+    fs.rmdirSync(aliasA)
+  } catch {
+    // Not there yet.
+  }
   for (const d of [userData, wsA, wsB]) fs.rmSync(d, { recursive: true, force: true })
   for (const [ws, names] of [[wsA, ['shared', 'alpha']], [wsB, ['shared', 'beta']]]) for (const n of names) fs.mkdirSync(path.join(ws, n), { recursive: true })
   lib.fakeClaude(userData, claudeHome, [wsA, wsB].flatMap((ws) => ['shared', 'alpha', 'beta'].map((n) => path.join(ws, n))))
@@ -80,6 +89,11 @@ async function waitFor(fn, ms = 15000) {
   // Opening A in window 2 brings window 1 forward and leaves window 2 as it is.
   const again = await inv2('workspace:open', wsA)
   check('a workspace open elsewhere: that window comes forward, this one keeps its own', again?.path === wsB && (await inv2('workspace:get'))?.path === wsB)
+  // By another name too (#455): window 1 shows it, so it comes forward, rather than the folder opening a second time.
+  fs.symlinkSync(wsA, aliasA, 'junction')
+  const byAlias = await inv2('workspace:open', aliasA).catch((e) => ({ error: e.message }))
+  check('…also by another name for its folder (a junction)', byAlias?.path === wsB && (await inv2('workspace:get'))?.path === wsB && (await inv1('workspace:get'))?.path === wsA, JSON.stringify(byAlias))
+  await p2.screenshot({ path: path.join(lib.WORK, 'windows-alias-elsewhere.png') }).catch(() => undefined)
 
   // A change in one window's workspace shows there only.
   await inv1('project:create', 'gamma')
@@ -149,6 +163,14 @@ async function waitFor(fn, ms = 15000) {
   await invA('session:start', alpha, { agentId: agentA.id })
   await lib.acceptClaudeTrust(invA, alpha, agentA.id)
   check('an agent runs in window A', !!(await waitFor(async () => (await invA('session:live')).length === 1)))
+  // Its own workspace by another name isn't a switch (#455): no question, its agent runs on, and it keeps the name it has.
+  const same = invA('workspace:open', aliasA)
+  const asked = await waitFor(async () => (await pa.getByText('Switch workspace?').count()) > 0, 4000)
+  await pa.screenshot({ path: path.join(lib.WORK, 'windows-alias-same.png') }).catch(() => undefined)
+  if (asked) await pa.locator('.dialog .btn', { hasText: 'Cancel' }).click()
+  const reopened = await same
+  check('opening its own workspace by another name asks nothing', !asked)
+  check('…keeps its name and its agent running', reopened?.path === wsA && (await invA('workspace:get'))?.path === wsA && (await invA('session:live')).length === 1, JSON.stringify({ path: reopened?.path, live: (await invA('session:live')).length }))
   let pending = invA('workspace:open', wsB)
   check('switching workspace asks first ("Switch workspace?")', !!(await waitFor(async () => (await pa.getByText('Switch workspace?').count()) > 0, 8000)))
   await pa.screenshot({ path: path.join(lib.WORK, 'windows-switch.png') }).catch(() => undefined)
