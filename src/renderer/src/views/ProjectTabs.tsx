@@ -13,6 +13,7 @@ import { PROVIDERS, contextLines, defaultProviderLabel, isProviderEnabled, modeO
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { effortText, runsAsName } from '@shared/models'
 import { PROJECT_SETTINGS_SECTIONS, settingEntry } from '@shared/settingsCatalog'
+import { LANE_MAX_ROUNDS, LOOP_WAIT_MAX_HOURS, loopDefaults } from '@shared/lanes'
 import { NumberField } from '../components/NumberField'
 import { StorageView } from '../components/Storage'
 import { TaskStrip } from '../components/Board'
@@ -1369,6 +1370,8 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     set({ projectSettingsJump: null })
   }, [jump, project.path])
   const cfg = project.config
+  // The workspace's card-loop rounds and wait (Settings → Workspace), which this project inherits (#412).
+  const workspaceLoops = loopDefaults({ loops: useStore((s) => s.workspace?.config.loops) })
   if (!settings) return null
   const update = async (patch: Partial<ProjectConfig>): Promise<void> => {
     await actions.attempt('Could not save project settings', () => call('project:updateConfig', project.path, patch))
@@ -1537,6 +1540,20 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       render: () => <Switch checked={cfg.loopWakes} label="Wake reviewers and builders" onChange={(v) => void update({ loopWakes: v })} />
     },
     {
+      section: 'loops',
+      key: 'loopRounds',
+      ...rowText('project.loopRounds'),
+      modified: cfg.loopRounds !== null,
+      render: () => <NumberField value={cfg.loopRounds} min={1} max={LANE_MAX_ROUNDS} step={1} label="Rounds" inherit={`Inherit (${workspaceLoops.rounds})`} onCommit={(v) => update({ loopRounds: v })} />
+    },
+    {
+      section: 'loops',
+      key: 'loopWaitHours',
+      ...rowText('project.loopWaitHours'),
+      modified: cfg.loopWaitHours !== null,
+      render: () => <NumberField value={cfg.loopWaitHours} min={1} max={LOOP_WAIT_MAX_HOURS} step={1} label="Wait (hours)" inherit={`Inherit (${workspaceLoops.waitHours} h)`} onCommit={(v) => update({ loopWaitHours: v })} />
+    },
+    {
       section: 'storage',
       key: 'storage',
       ...rowText('project.storage'),
@@ -1608,8 +1625,8 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
         <button
           className="btn subtle"
           onClick={async () => {
-            if (await confirm({ title: 'Reset project settings?', message: 'The default provider, each provider’s model, effort, permission mode, context and extra arguments, the chime, the compact threshold, the transcript size warning, file locks and worktree setup go back to Inherit, and loop wakes back on. Agents and skill and MCP opt-outs are kept.', confirmLabel: 'Reset' }))
-              void update({ defaultProvider: 'inherit', providers: {}, chime: 'inherit', compactSuggestTokens: null, transcriptWarnMB: null, fileLocks: 'inherit', worktreeCopy: null, worktreeSetup: '', loopWakes: true })
+            if (await confirm({ title: 'Reset project settings?', message: 'The default provider, each provider’s model, effort, permission mode, context and extra arguments, the chime, the compact threshold, the transcript size warning, file locks, worktree setup and the card-loop rounds and wait go back to Inherit, and loop wakes back on. Agents and skill and MCP opt-outs are kept.', confirmLabel: 'Reset' }))
+              void update({ defaultProvider: 'inherit', providers: {}, chime: 'inherit', compactSuggestTokens: null, transcriptWarnMB: null, fileLocks: 'inherit', worktreeCopy: null, worktreeSetup: '', loopWakes: true, loopRounds: null, loopWaitHours: null })
           }}
         >
           <Icon name="discard" /> Reset to defaults

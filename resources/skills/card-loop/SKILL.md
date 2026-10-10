@@ -14,16 +14,20 @@ Two agents take the same cards in turn: the **builder** does each card and sends
 From the user's request:
 - **role**: `builder` or `reviewer`;
 - **cards**: the numbers, in the order given (one at a time, never ahead);
-- **rounds**: how many rounds a card gets before you ask the user (default 5; "rounds: 10"). A round is one build and its review (below);
-- **wait**: how long with no change before you tell the user (default 2 hours; "wait: 4h");
+- **rounds**: how many rounds a card gets before you ask the user ("rounds: 10"). A round is one build and its review (below);
+- **wait**: how long with no change before you tell the user ("wait: 4h");
+
+Rounds or wait the request doesn't give are the project's settings (Card loops: 10 rounds and 6 hours unless the user changed them): the lane's reply below says them.
 
 Ask if the role or the cards aren't clear.
 
 ## The lane
 
 Hive keeps a record of the loop, its **lane**, and shows it to the user. Register it as you start, with `hive_lane`:
-- builder: `action: "start"`, the cards in order, `reviewer` (its name), `rounds`, `waitMinutes`;
+- builder: `action: "start"`, the cards in order, `reviewer` (its name), and `rounds` and `waitMinutes` only if the request gave them;
 - reviewer: `action: "join"`, `builder` (its name) and the cards.
+
+Its reply gives the lane's rounds and wait: use them where your request gave none. Without a lane, 10 rounds and 6 hours.
 
 Hive follows the board from there and ends the lane when its cards are Done. If the cards change mid-loop (one added, the order changed), the builder starts it again with the new list. If the user calls the loop off, end the lane with `action: "end"`, `abandoned: true`; stopping to ask the user leaves it as it is. The lane is only a record: if the tool is missing or a call fails, carry on with the loop.
 

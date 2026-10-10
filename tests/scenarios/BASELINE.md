@@ -36,6 +36,22 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Card-loop rounds and wait as settings: fakes, Codex (its default model), fixtures v34, 10 October 2026
+
+#412 (Darren's decision: Rounds 10, Wait 6h, set per workspace, a project can override, a prompt's own values win): a
+lane started without rounds or a wait takes the project's, else the workspace's settings. card-loop gives `hive_lane
+start` only the values its request named and uses the lane's from the reply; coordinate-agents briefs a lane with rounds
+and a wait only when the user gave them. Fixtures v34 add **card-loop-lane-defaults** (the workspace's settings 7 and
+3 h, a prompt naming neither: the lane has 7 and 180 minutes, and the verdict watch waits 180) and
+**card-loop-lane-override** (the same settings, a prompt with "Rounds: 3. Wait: 1h.": 3 and 60).
+- **Fakes** (baselines `hb1-412-before`, the v34 fixtures on the code and skills before #412, and `hb1-412-after`;
+  results `2026-10-10T07-30-17-fake` and `2026-10-10T07-49-28-fake`): before, the two new scenarios can't set the
+  workspace's settings (no `workspace:setLoops` yet); the other 63 pass. After, all 67 pass. Performance → Compare:
+  comparable, 65 **No change**, the two new ones incomplete (no before sample).
+- **Codex: 6 of 6 pass** (`2026-10-10T08-08-30-codex`, $0.41): card-loop-lane-defaults (7 rounds, a 180-minute wait),
+  card-loop-lane-override (3 and 60), card-loop-lane, card-loop-lane-join, card-loop-rounds and assistant-new-lane.
+- **Claude Code**: not run: its test home isn't signed in.
+
 ## Hive wakes a loop's reviewer and builder: fakes, Codex (its default model), fixtures v33, 10 October 2026
 
 #405 (Darren's decision: on by default for cards with a reviewer, with a per-project opt-out): Hive wakes a card's

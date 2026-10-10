@@ -7,7 +7,8 @@
  * Rows that hold no value (a button, a status, a list) are kept here for their text and left out of the tools.
  * Pure data and helpers: no React (the views add the custom controls by id), no Node.
  */
-import type { AppSettings, ProjectConfig, ProviderId } from './types'
+import type { AppSettings, ProjectConfig, ProviderId, WorkspaceConfig } from './types'
+import { LANE_MAX_ROUNDS, LOOP_ROUNDS, LOOP_WAIT_HOURS, LOOP_WAIT_MAX_HOURS, loopDefaults } from './lanes'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS, FILE_LOCK_MODES } from './defaults'
 import { PRICES_CHECKED } from './prices'
 import { AUTO_PROVIDER, PROVIDERS, dangerModes, defaultProviderSettings, labelList, permissionLabel, projectProviderConfig, providerDescriptor, providerSettings, type ProviderDescriptor } from './providers'
@@ -97,7 +98,7 @@ export const SETTINGS_SECTIONS: { id: SettingsSection; label: string; desc: stri
   { id: 'notifications', label: 'Notifications', desc: 'Chimes and desktop notifications when agents finish or need you.' },
   { id: 'sessions', label: 'Sessions', desc: 'Transcript backups, cache estimates and session behaviour.' },
   { id: 'assistant', label: 'Assistant', desc: "The Hive Assistant's defaults: the side panel's overseer of each workspace (Ctrl+Alt+I). Each workspace can change them in the panel's Assistant Settings." },
-  { id: 'workspace', label: 'Workspace', desc: "The open workspace's projects that Hive leaves out (hidden, or removed from Hive with their handovers and cards packed into the folder), and how much Hive keeps for each project." },
+  { id: 'workspace', label: 'Workspace', desc: "The open workspace's card loops, its projects that Hive leaves out (hidden, or removed from Hive with their handovers and cards packed into the folder), and how much Hive keeps for each project." },
   { id: 'board', label: 'Board', desc: "The task board's colours and housekeeping, the same in every workspace." },
   { id: 'agents', label: 'Agents & Worktrees', desc: 'Defaults for projects running several agents: file locks, new worktrees and merging (projects can override them), and how long background tasks count.' },
   { id: 'keybindings', label: 'Keyboard Shortcuts', desc: 'Change, remove or add shortcuts for any command. Projects can set their own for project and session commands (Project Settings → Keyboard Shortcuts).' },
@@ -181,6 +182,28 @@ const APP_ROWS: Row[] = [
   { section: 'sessions', key: 'resetPerformance', title: 'Reset performance metrics', desc: "Clear this workspace's recorded performance metrics.", tip: 'Starts the history again from now. Session usage and transcripts are not affected.', type: 'custom' },
   { section: 'sessions', key: 'confirmStop', title: 'Confirm before stopping', desc: 'Ask before stopping a running session.', tip: 'Stopped sessions can always be resumed.', type: 'boolean' },
   // Workspace
+  {
+    section: 'workspace',
+    key: 'loopRounds',
+    title: 'Card loop rounds',
+    desc: "How many rounds a card gets in a card loop (a build and its review each) before its agents stop and ask you, when you don't say. Projects can set their own.",
+    tip: 'Saying "rounds: 5" when you start a loop still wins. Agents read this when they register the loop (its lane), so a change applies to loops started afterwards.',
+    type: 'number',
+    min: 1,
+    max: LANE_MAX_ROUNDS,
+    step: 1
+  },
+  {
+    section: 'workspace',
+    key: 'loopWaitHours',
+    title: 'Card loop wait',
+    desc: "How many hours an agent in a card loop waits with no change before it tells you, when you don't say. Projects can set their own.",
+    tip: 'Saying "wait: 2h" when you start a loop still wins. Up to a day. Agents read this when they register the loop (its lane), so a change applies to loops started afterwards.',
+    type: 'number',
+    min: 1,
+    max: LOOP_WAIT_MAX_HOURS,
+    step: 1
+  },
   {
     section: 'workspace',
     key: 'hiddenProjects',
@@ -440,6 +463,8 @@ const PROJECT_ROWS: Row[] = [
     tip: "A card's reviewer is the reviewer of a lane with the card, else the agent that last reviewed it: cards nobody reviews never wake anyone. An agent is only woken while it is idle, never by its own change, and not when its own card watch already tells it.",
     type: 'boolean'
   },
+  { section: 'loops', key: 'loopRounds', title: 'Rounds', desc: "How many rounds a card gets in this project's card loops before its agents stop and ask you, when you don't say. Empty inherits Settings → Workspace → Card loop rounds.", tip: 'Saying "rounds: 5" when you start a loop still wins.', type: 'number', min: 1, max: LANE_MAX_ROUNDS, step: 1 },
+  { section: 'loops', key: 'loopWaitHours', title: 'Wait (hours)', desc: "How many hours an agent in this project's card loops waits with no change before it tells you, when you don't say. Empty inherits Settings → Workspace → Card loop wait.", tip: 'Saying "wait: 2h" when you start a loop still wins. Up to a day.', type: 'number', min: 1, max: LOOP_WAIT_MAX_HOURS, step: 1 },
   { section: 'storage', key: 'storage', title: 'What Hive keeps', desc: 'Measured in the background; Refresh measures again. The coding agents’ own transcripts (in ~/.claude and ~/.codex) aren’t counted, and Clean Up… never touches them.', type: 'custom', wide: true },
   { section: 'keys', key: 'keybindings', title: 'Shortcuts', desc: 'Change one to give this project its own; Reset returns it to the global shortcut. Stored in the project’s .hive folder, which is not committed.', type: 'custom', wide: true },
   { section: 'agents', key: 'agents', title: 'Agents', desc: "Up to 12 agents can work on the project at once, each in the project folder or its own worktree. Agents without their own settings use this project's.", type: 'custom', wide: true },
@@ -587,6 +612,10 @@ const DOCS: Record<string, string> = {
 }
 const DOCS_BY_ID: Record<string, string> = {
   'project.loopWakes': 'Card loops',
+  'project.loopRounds': 'Card loops',
+  'project.loopWaitHours': 'Card loops',
+  'workspace.loopRounds': 'Card loops',
+  'workspace.loopWaitHours': 'Card loops',
   'general.progressPanel': 'Progress panel',
   'general.progressCommands': 'Progress panel',
   'general.keepAwake': 'Sleep and shutdown',
@@ -649,8 +678,10 @@ export function settingEntry(id: string): SettingEntry | undefined {
 // ---------------------------------------------------------------------------
 
 /** A setting's value now: in Hive's settings, or in a project's config ('inherit' or null for one that inherits). */
-export function settingValue(e: SettingEntry, settings: AppSettings, project?: ProjectConfig | null): unknown {
+export function settingValue(e: SettingEntry, settings: AppSettings, project?: ProjectConfig | null, ws?: Pick<WorkspaceConfig, 'loops'> | null): unknown {
   if (e.action) return undefined
+  // A workspace's own (workspace.json): its card loops' rounds and wait (#412).
+  if (e.scope === 'workspace') return loopDefaults(ws)[e.key === 'loopRounds' ? 'rounds' : 'waitHours']
   if (e.scope === 'project') {
     if (!project) return undefined
     if (e.provider) return (projectProviderConfig(project, e.provider) as unknown as Record<string, unknown>)[e.key] ?? 'inherit'
@@ -669,6 +700,7 @@ export function settingValue(e: SettingEntry, settings: AppSettings, project?: P
 /** A setting's default: Hive's, or for a project's, Inherit. */
 export function settingDefault(e: SettingEntry): unknown {
   if (e.action) return undefined
+  if (e.scope === 'workspace') return e.key === 'loopRounds' ? LOOP_ROUNDS : LOOP_WAIT_HOURS
   if (e.scope === 'project') return e.provider ? 'inherit' : (DEFAULT_PROJECT_CONFIG as unknown as Record<string, unknown>)[e.key]
   if (e.assistantProvider) return ''
   if (e.id === 'providers.defaultProvider') return DEFAULT_SETTINGS.defaultProvider
@@ -820,12 +852,13 @@ export function effortTakes(e: SettingEntry, levels: { value: string }[]): strin
 export function settingPatch(
   e: SettingEntry,
   value: unknown
-): { settings: Record<string, unknown> } | { project: (cfg: ProjectConfig) => Partial<ProjectConfig> } | { prices: { provider: ProviderId; value: Record<string, unknown> } } | { fallback: { provider: ProviderId; kind: 'models' | 'efforts'; list: unknown[] | null } } {
+): { settings: Record<string, unknown> } | { project: (cfg: ProjectConfig) => Partial<ProjectConfig> } | { workspace: { rounds?: number; waitHours?: number } } | { prices: { provider: ProviderId; value: Record<string, unknown> } } | { fallback: { provider: ProviderId; kind: 'models' | 'efforts'; list: unknown[] | null } } {
   if (e.scope === 'project') {
     const provider = e.provider
     if (provider) return { project: (cfg) => ({ providers: { ...cfg.providers, [provider]: { ...projectProviderConfig(cfg, provider), [e.key]: value } } }) }
     return { project: () => ({ [e.key]: value }) as Partial<ProjectConfig> }
   }
+  if (e.scope === 'workspace') return { workspace: { [e.key === 'loopRounds' ? 'rounds' : 'waitHours']: value as number } }
   if (e.assistantProvider) return { settings: { assistant: { providers: { [e.assistantProvider]: { [fieldKey(e)]: value } } } } }
   if (e.id === 'providers.defaultProvider') return { settings: { defaultProvider: value } }
   if (e.provider && e.key === 'prices') return { prices: { provider: e.provider, value: value as Record<string, unknown> } }

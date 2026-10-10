@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 33
+const FIXTURES_VERSION = 34
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -1007,6 +1007,36 @@ module.exports.SCENARIOS = [
       ]
     }
   },
+  ...[
+    // #412: the workspace's Card loop rounds and wait are 7 and 3 h; a loop started without saying takes them, one that
+    // says its own (3, 1 h) keeps those.
+    { id: 'card-loop-lane-defaults', said: '', rounds: 7, wait: 180, title: "A card loop builder told no rounds or wait (#412): its lane takes the workspace's settings, and it waits that long" },
+    { id: 'card-loop-lane-override', said: ' Rounds: 3. Wait: 1h.', rounds: 3, wait: 60, title: "A card loop builder told its rounds and wait (#412): they win over the workspace's settings" }
+  ].map((v) => ({
+    id: v.id,
+    title: v.title,
+    files: { 'greet.js': "module.exports = (name) => 'Hello, ' + name\n" },
+    async setup(c) {
+      await c.inv('workspace:setLoops', { rounds: 7, waitHours: 3 })
+      await c.card('a', { title: 'Greeting says Hi', description: 'greet.js returns "Hi, <name>" instead of "Hello, <name>".', agent: 'coder' })
+      await c.card('b', { title: 'Greeting trims the name', description: 'greet.js trims spaces around the name.', agent: 'coder' })
+    },
+    prompt: (c) => `Work through cards #${c.cards.a} then #${c.cards.b} as their builder; Implementer reviews them.${v.said}`,
+    fake: (c) =>
+      `skill card-loop then hive hive_lane ${JSON.stringify({ action: 'start', cards: [c.cards.a, c.cards.b], reviewer: 'Implementer', ...(v.said ? { rounds: v.rounds, waitMinutes: v.wait } : {}) })} then boardmove ${c.cards.a} doing then hive hive_wait_for_tasks ${JSON.stringify({ cards: [c.cards.a], changes: ['verdict', 'column'], column: 'passed', wake: true, limitMinutes: v.wait })} then boardmove ${c.cards.a} review then boardcomment ${c.cards.a}`,
+    expect: (o, c) => {
+      const file = require('path').join(c.ws, '.hive', 'lanes.json')
+      const lanes = require('fs').existsSync(file) ? JSON.parse(require('fs').readFileSync(file, 'utf8')) : []
+      const lane = (Array.isArray(lanes) ? lanes : (lanes.lanes ?? [])).find((l) => l.cards?.includes(c.cards.a))
+      const waits = ran(o, 'hive_wait_for_tasks').map((x) => argsOf(x)).filter((a) => a.cards?.includes(c.cards.a))
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        [`its lane has ${v.rounds} rounds and a ${v.wait}-minute wait`, lane?.rounds === v.rounds && lane?.waitMinutes === v.wait, JSON.stringify(lane ? { rounds: lane.rounds, waitMinutes: lane.waitMinutes } : null)],
+        [`it waits for the verdict with that wait (limitMinutes ${v.wait})`, waits.some((a) => a.limitMinutes === v.wait), JSON.stringify(waits)],
+        ['ended its turn with a live watch for the verdict', o.status === 'watching', o.status]
+      ]
+    }
+  })),
   {
     id: 'card-loop-lane-join',
     title: "A card loop reviewer joins its builder's lane (#483) by the builder's name, then waits for the first card",
