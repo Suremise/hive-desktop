@@ -5,7 +5,7 @@ import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
 import { cardChange, carriedOver, changesBetween, changesSince, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
 import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, readSavedAgentMark, replyFirstLine, type AgentEvent, type AgentMark, type AgentNow, type AgentWatchCondition, type WatchedAgent } from '../shared/agentWatch'
-import type { LiveSessionState, TaskCard, TaskWatchInfo } from '../shared/types'
+import type { LiveSessionState, TaskCard, TaskColumn, TaskWatchInfo } from '../shared/types'
 import { config } from './config'
 import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
@@ -1017,6 +1017,54 @@ async function withdraw(store: Store, rec: WatchRecord, current: () => boolean):
 const waking = new Set<string>()
 const settling = new Set<string>()
 const idle = (st: LiveSessionState | null): boolean => !!st && (st.status === 'watching' || st.status === 'ready' || st.status === 'finished')
+
+/**
+ * Whether an agent's own card watch tells it of this change to card n (#405: Hive's loop wakes leave it to the watch),
+ * the card being in `column` now: a watch on the card that counts a move into Review (`review`); one that counts a
+ * verdict, or a move into the card's column now (`verdict`: a passing one that moved it to Passed; a failed one leaves
+ * it in Review, which a watch for Passed doesn't count); or one that has fired and tells the card. Its watches not
+ * loaded yet: false.
+ */
+export function watchCovers(projectPath: string, agentId: string, n: number, kind: 'review' | 'verdict', column: TaskColumn): boolean {
+  const store = storeFor(projectPath)
+  const rec = store && recordOf(store, projectPath, agentId)
+  if (!rec || rec.agents || !rec.cond.cards.includes(n)) return false
+  if (rec.fired) return rec.fired.cards.includes(n)
+  const into = (c: TaskColumn): boolean => rec.cond.changes.includes('column') && (!rec.cond.column || rec.cond.column === c)
+  if (kind === 'verdict') return rec.cond.changes.includes('verdict') || (column !== 'review' && into(column))
+  return into('review')
+}
+
+/**
+ * Types a line of Hive's that isn't a watch's (#405: a loop wake) into an agent, as a wake is typed: only while it is
+ * idle, nobody types there, no earlier line is waiting there and no watch of its own has a line to type (that goes
+ * first); one wake at a time per agent; checked to be taken (#376). `wanted` is asked again before every piece and
+ * before Enter. Whether it was typed (false: try again later).
+ */
+export async function typeLine(projectPath: string, agentId: string, line: string, wanted: () => boolean): Promise<boolean> {
+  const key = agentKey(projectPath, agentId)
+  const busy = (): boolean => !idle(sessions.liveFor(projectPath, agentId)) || sessions.userMayBeTyping(projectPath, agentId)
+  if (waking.has(key) || busy() || sessions.lineWaiting(projectPath, agentId) || !wanted()) return false
+  const store = storeFor(projectPath)
+  if (store?.list.some((x) => x.fired && same(x.projectPath, projectPath) && x.agentId === agentId)) return false
+  waking.add(key)
+  try {
+    const before = sessions.promptsTaken(projectPath, agentId)
+    await sessions.sendPrompt(projectPath, agentId, line, () => {
+      if (!wanted()) throw new Error('It is no longer wanted.')
+      if (!idle(sessions.liveFor(projectPath, agentId))) throw new Error('The agent got busy.')
+      if (sessions.userMayBeTyping(projectPath, agentId)) throw new Error('The user is typing there.')
+    })
+    log.info(`Woke ${userText(agentId)}: ${userText(line.slice(0, 80))}`)
+    if (before) void confirmTaken(projectPath, agentId, before, line).catch((e) => log.warn('checking a wake was taken', e))
+    return true
+  } catch (e) {
+    log.info(`Wake for ${userText(agentId)} put off: ${(e as Error).message}`)
+    return false
+  } finally {
+    waking.delete(key)
+  }
+}
 
 /**
  * Types a fired watch's line into its agent, if it is idle and the user isn't typing there; otherwise later (its next

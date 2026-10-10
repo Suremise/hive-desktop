@@ -46,6 +46,8 @@ If a wake isn't possible (the tool says so), wait in the call instead: `hive_wai
 
 **Never end a turn in a loop without a watch**, unless the loop is over or you're asking the user. Woken with nothing to do yet (a reviewer whose card isn't back in Review), start the same watch again.
 
+Hive also wakes a loop's agents itself (unless the project turned it off): the reviewer when a card arrives in Review, the builder on a verdict ("[Hive] #12 (B1's card) is in Review. You review this card in its loop…"). Act on it as on your watch's wake. Watches are still how you wait: where yours tells you of the change, Hive's own wake isn't typed.
+
 **Another agent's card** (one your card depends on): its wake names whose card it is ("[Hive] #12 (Claude's card) is in Passed…"). It tells you that card changed, not yours: read it, then carry on with your card, or watch again. **Passed means it passed review, not that it's merged**; Done means merged. When your card needs another one merged, check it is in Done or main has it (e.g. `git merge-base --is-ancestor <its commit> main`), or ask the user, before going on.
 
 **A card that left your watch** ("[Hive] #12 was reassigned to …" or "… is reviewed by …", "your watch on it ended"): it isn't yours to wait for any more. Drop it from your list and carry on with your next card, without asking.

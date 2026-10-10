@@ -715,6 +715,8 @@ export interface ProjectConfig {
   worktreeCopy: string | null
   /** Command run in a new worktree before its agent's first session, e.g. "npm install". */
   worktreeSetup: string
+  /** Hive wakes a card loop's reviewer when a card arrives in Review, and its builder on a verdict (#405). */
+  loopWakes: boolean
 }
 
 export interface ProjectProviderConfig {

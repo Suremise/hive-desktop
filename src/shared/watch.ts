@@ -366,8 +366,21 @@ const columnWord = (c: TaskColumn | 'gone'): string => (c === 'gone' ? 'gone' : 
  */
 export function wakeLine(change: CardChange, more = 0): string {
   const others = more ? ` (and ${more} more watched card${more === 1 ? '' : 's'} changed)` : ''
+  return lineOf(change, `${others}. Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).`)
+}
+
+/**
+ * The line of Hive's loop wake (#405), typed with no card watch of the agent's: a card arrived in Review for its
+ * reviewer (`review`), or its review's verdict for its builder (`verdict`). Worded as a card watch's line, so the
+ * card-loop skill reads it the same way.
+ */
+export function loopWakeLine(change: CardChange, kind: 'review' | 'verdict'): string {
+  const who = kind === 'review' ? "You review this card in its loop: carry on with it" : 'This is your card in its loop: carry on'
+  return lineOf(change, `. ${who} (hive_read_task with latestComment for the comment in full).`)
+}
+
+function lineOf(change: CardChange, tail: string): string {
   const head = `[Hive] #${change.number}${whereNow(change)}`
-  const tail = `${others}. Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).`
   if (!change.comment) return head + tail
   // The card, its state and what to do always fit (names are short); the comment's first line gives way, cut with "…".
   const by = shortName(change.comment.by)

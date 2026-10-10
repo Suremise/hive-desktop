@@ -145,7 +145,8 @@ export const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   layout: 'auto',
   fileLocks: 'inherit',
   worktreeCopy: null,
-  worktreeSetup: ''
+  worktreeSetup: '',
+  loopWakes: true
 }
 
 /** The transcript viewer loads this many items at a time (the latest first, earlier ones as you scroll up). */

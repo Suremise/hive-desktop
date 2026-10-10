@@ -53,6 +53,7 @@ The checks are positive and negative:
   its first card's review; a reviewer joins its builder's lane by name, starting none of its own (#483).
   A reviewer whose card its builder blocks while it waits (to ask the user) keeps watching it rather than moving on, and
   reviews it when Hive wakes it once the card is unblocked and back in Review (#481).
+  A reviewer woken by Hive's own loop wake, with no watch of its own, reviews the card and waits for the next (#405).
 - **With `work-on-card` deleted**, the board rules still hold, and **an edited skill** is the one followed.
 - **The Assistant**:
   - at Look and advise, changes nothing;

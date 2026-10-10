@@ -1270,9 +1270,9 @@ function SettingRow({ title, desc, tip, children, modified }: { title: string; d
   )
 }
 
-type ProjectSection = 'agents' | 'sessions' | 'storage' | 'keys' | 'advanced' | `provider:${string}`
+type ProjectSection = 'agents' | 'sessions' | 'loops' | 'storage' | 'keys' | 'advanced' | `provider:${string}`
 
-const PROJECT_SECTION_ICONS: Record<string, string> = { agents: 'organization', sessions: 'history', storage: 'database', keys: 'keyboard', advanced: 'tools' }
+const PROJECT_SECTION_ICONS: Record<string, string> = { agents: 'organization', sessions: 'history', loops: 'sync', storage: 'database', keys: 'keyboard', advanced: 'tools' }
 
 const PROJECT_SECTIONS: { id: ProjectSection; label: string; icon: string; desc: string; provider?: ProviderId }[] = PROJECT_SETTINGS_SECTIONS.map((s) => ({ ...s, id: s.id as ProjectSection, icon: PROJECT_SECTION_ICONS[s.id] ?? 'blank' }))
 
@@ -1530,6 +1530,13 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
       )
     },
     {
+      section: 'loops',
+      key: 'loopWakes',
+      ...rowText('project.loopWakes'),
+      modified: !cfg.loopWakes,
+      render: () => <Switch checked={cfg.loopWakes} label="Wake reviewers and builders" onChange={(v) => void update({ loopWakes: v })} />
+    },
+    {
       section: 'storage',
       key: 'storage',
       ...rowText('project.storage'),
@@ -1601,8 +1608,8 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
         <button
           className="btn subtle"
           onClick={async () => {
-            if (await confirm({ title: 'Reset project settings?', message: 'The default provider, each provider’s model, effort, permission mode, context and extra arguments, the chime, the compact threshold, the transcript size warning, file locks and worktree setup go back to Inherit. Agents and skill and MCP opt-outs are kept.', confirmLabel: 'Reset' }))
-              void update({ defaultProvider: 'inherit', providers: {}, chime: 'inherit', compactSuggestTokens: null, transcriptWarnMB: null, fileLocks: 'inherit', worktreeCopy: null, worktreeSetup: '' })
+            if (await confirm({ title: 'Reset project settings?', message: 'The default provider, each provider’s model, effort, permission mode, context and extra arguments, the chime, the compact threshold, the transcript size warning, file locks and worktree setup go back to Inherit, and loop wakes back on. Agents and skill and MCP opt-outs are kept.', confirmLabel: 'Reset' }))
+              void update({ defaultProvider: 'inherit', providers: {}, chime: 'inherit', compactSuggestTokens: null, transcriptWarnMB: null, fileLocks: 'inherit', worktreeCopy: null, worktreeSetup: '', loopWakes: true })
           }}
         >
           <Icon name="discard" /> Reset to defaults

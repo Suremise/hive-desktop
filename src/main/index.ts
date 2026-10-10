@@ -1,4 +1,5 @@
 import { initWatches, onWatchedCardsMoved, watchKeepsQuitWaiting } from './watches'
+import { initLoopWakes } from './loopWakes'
 import { initLoopCheck } from './loopCheck'
 import { initDecisionWakes } from './decisionWakes'
 import { initAssistantModes } from './assistantMode'
@@ -698,6 +699,7 @@ app.whenReady().then(async () => {
   }
   // The hive MCP server's instructions, for providers that don't show MCP instructions to the model (Codex).
   initWatches()
+  initLoopWakes()
   initLoopCheck()
   initDecisionWakes()
   initAssistantModes()

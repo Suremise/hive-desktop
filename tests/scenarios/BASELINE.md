@@ -36,6 +36,21 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Hive wakes a loop's reviewer and builder: fakes, Codex (its default model), fixtures v33, 10 October 2026
+
+#405 (Darren's decision: on by default for cards with a reviewer, with a per-project opt-out): Hive wakes a card's
+reviewer when it arrives in Review and its builder on a verdict, with no card watch of theirs (`main/loopWakes.ts`).
+card-loop gains a paragraph: Hive may wake the agent itself, act on that line as on a watch's, and watches are still how
+it waits. Fixtures v33 add **card-loop-loop-wake** (a reviewer with no watch given Hive's loop-wake line reviews the card
+and waits for the next).
+- **Fakes** (baselines `hb1-405-before`, the v33 fixtures on the code and skill before #405, and `hb1-405-after`;
+  results `2026-10-10T05-47-46-fake` and `2026-10-10T06-06-47-fake`): every check passes both times; Performance →
+  Compare: comparable, all 65 **No change**.
+- **Codex: 5 of 5 pass** (`2026-10-10T06-25-12-codex`, $0.35): card-loop-loop-wake reviewed the card and ended watching
+  the next; card-loop-blocked, card-loop-return, card-loop-recurring-review and card-loop-rounds pass with the new
+  paragraph too.
+- **Claude Code**: not run: its test home isn't signed in (as for #481).
+
 ## A blocked card stays in its loop: fakes, Codex (its default model), fixtures v32, 10 October 2026
 
 #481 (Darren's decision: a blocked card stays in its lane, paused; the reviewer never drops it): a card that becomes

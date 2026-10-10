@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 32
+const FIXTURES_VERSION = 33
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -1325,6 +1325,28 @@ module.exports.SCENARIOS = [
     },
     // Only the fake Claude Code answers a wake (its wake script); the fake Codex can't.
     fakeSkips: (provider) => (provider === 'fake' ? [] : ["reviewed the card after its return, with nobody prompting it (Hive's wake)", 'gave it a verdict'])
+  },
+  {
+    id: 'card-loop-loop-wake',
+    title: "A reviewer in a card loop woken by Hive's own loop wake, with no watch of its own (#405): reviews the card, then waits for the next",
+    role: 'agent',
+    files: { 'sync.js': SYNC_JS },
+    async setup(c) {
+      await c.card('a', { title: 'Retry the sync', description: 'sync.js: try the sync up to three times, 1 s apart, before giving up.', agent: 'implementer', column: 'review', comments: ['Done: retries added, 1 s apart. Ready for review.'] })
+      await c.card('b', { title: 'Show sync progress', description: 'Show a progress bar while syncing.', agent: 'implementer' })
+    },
+    prompt: (c) =>
+      `You are the reviewer in a card loop (the card-loop skill): cards #${c.cards.a}, then #${c.cards.b}; rounds 3; wait 1h; your builder is Implementer. You had no card watch when Hive typed this line: [Hive] #${c.cards.a} (Implementer's card) is in Review. You review this card in its loop: carry on with it (hive_read_task with latestComment for the comment in full).`,
+    fake: (c) => `skill card-loop then boardreview ${c.cards.a} start then boardreview ${c.cards.a} passed passed then hive hive_wait_for_tasks {"cards":[${c.cards.b}],"column":"review","wake":true}`,
+    expect: (o, c) => {
+      const h = history(o.cards.a)
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        [`reviewed #${c.cards.a}: started a review and gave a verdict`, h.includes('Started reviewing') && h.some((x) => /^Review (passed|failed)$/.test(x)), h.join(' | ')],
+        ["didn't ask the user (no hive_notify)", called(o, 'hive_notify').length === 0, o.hiveCalls.map((x) => x.tool).join(',')],
+        ['ended its turn with a live watch', o.status === 'watching', o.status]
+      ]
+    }
   },
   {
     id: 'assistant-plan',

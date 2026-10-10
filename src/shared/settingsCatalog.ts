@@ -395,6 +395,7 @@ export const PROJECT_SETTINGS_SECTIONS: { id: string; label: string; desc: strin
   { id: 'agents', label: 'Agents & Worktrees', desc: 'The project’s agents and their providers, file locks between them, and how new worktrees are set up.' },
   ...PROVIDERS.map((p) => ({ id: `provider:${p.id}`, label: p.name, provider: p.id, desc: `Model, effort and permissions for this project’s ${p.name} agents. Agents can override these for themselves.` })),
   { id: 'sessions', label: 'Sessions', desc: 'Compacting and notifications for this project.' },
+  { id: 'loops', label: 'Card loops', desc: 'How Hive helps agents that work through cards as builder and reviewer in this project.' },
   { id: 'storage', label: 'Storage', desc: 'What Hive keeps for this project: transcript backups, archived sessions, images and the agents’ worktrees. Clean Up… moves old backups and images to the Recycle Bin.' },
   { id: 'keys', label: 'Keyboard Shortcuts', desc: 'Shortcuts for project and session commands while this project is selected, over the global ones.' },
   { id: 'advanced', label: 'Advanced', desc: 'Where the settings are stored, and resetting them.' }
@@ -431,6 +432,14 @@ const PROJECT_ROWS: Row[] = [
   { section: 'sessions', key: 'compactSuggestTokens', title: 'Suggest compacting above', desc: 'Context size (tokens) at which Compact is highlighted for this project. Empty inherits Settings → Sessions → Suggest compacting above.', tip: 'Only changes when the Compact button turns orange; compacting is always available once the agent has finished.', type: 'number', min: 1000, max: 2000000, step: 10000, off: 'Never' },
   { section: 'sessions', key: 'transcriptWarnMB', title: 'Warn when a transcript is over', desc: "Size, in MB, at which a running conversation's transcript is flagged for this project. Empty inherits Settings → Sessions → Warn when a transcript is over.", tip: 'A long conversation slows down the CLI and Hive; handing the work over to a new conversation makes it short again.', type: 'number', min: 1, max: 2000, step: 10, off: 'Never' },
   { section: 'sessions', key: 'chime', title: 'Completion chime', desc: 'Play a sound when an agent in this project finishes or needs input.', tip: 'Inherit follows Settings → Notifications.', type: 'select', options: ON_OFF },
+  {
+    section: 'loops',
+    key: 'loopWakes',
+    title: 'Wake reviewers and builders',
+    desc: "When a card with a reviewer arrives in Review, Hive wakes the reviewer; when the review gives its verdict, Hive wakes the card's builder. Off: only the agents' own card watches wake them.",
+    tip: "A card's reviewer is the reviewer of a lane with the card, else the agent that last reviewed it: cards nobody reviews never wake anyone. An agent is only woken while it is idle, never by its own change, and not when its own card watch already tells it.",
+    type: 'boolean'
+  },
   { section: 'storage', key: 'storage', title: 'What Hive keeps', desc: 'Measured in the background; Refresh measures again. The coding agents’ own transcripts (in ~/.claude and ~/.codex) aren’t counted, and Clean Up… never touches them.', type: 'custom', wide: true },
   { section: 'keys', key: 'keybindings', title: 'Shortcuts', desc: 'Change one to give this project its own; Reset returns it to the global shortcut. Stored in the project’s .hive folder, which is not committed.', type: 'custom', wide: true },
   { section: 'agents', key: 'agents', title: 'Agents', desc: "Up to 12 agents can work on the project at once, each in the project folder or its own worktree. Agents without their own settings use this project's.", type: 'custom', wide: true },
@@ -577,6 +586,7 @@ const DOCS: Record<string, string> = {
   advanced: 'Troubleshooting'
 }
 const DOCS_BY_ID: Record<string, string> = {
+  'project.loopWakes': 'Card loops',
   'general.progressPanel': 'Progress panel',
   'general.progressCommands': 'Progress panel',
   'general.keepAwake': 'Sleep and shutdown',
@@ -612,7 +622,7 @@ function entry(row: Row, id: string, scope: SettingScope, docs: string): Setting
     ...(value ? { value } : {}),
     ...(sensitive && !action ? { sensitive: true, readOnly: `${sensitive[1]}: only the user can change it, in ${settingPathOf(row, scope)}.` } : readOnly ? { readOnly: `${readOnly[1]}: the user changes them in ${settingPathOf(row, scope)}.` } : {}),
     ...(restart ? { restart } : {}),
-    ...(scope === 'project' && !action && row.key !== 'worktreeSetup' ? { inherits: true } : {})
+    ...(scope === 'project' && !action && row.key !== 'worktreeSetup' && row.key !== 'loopWakes' ? { inherits: true } : {})
   }
 }
 
