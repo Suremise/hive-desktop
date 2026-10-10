@@ -3954,6 +3954,25 @@ body.pane-resizing .monaco-editor {
   font-size: 11px;
   color: var(--accent-ink);
 }
+/* Processes a stopped agent left running (#507): a click ends or keeps them. */
+.agent-leftovers {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--warning);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.agent-leftovers:hover {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+}
 /* A worktree agent's unmerged commits on its tab. */
 .agent-unmerged {
   display: inline-flex;

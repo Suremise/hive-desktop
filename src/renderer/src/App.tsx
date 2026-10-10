@@ -23,7 +23,7 @@ import { startupReplay } from './startupReplay'
 import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
 import { ProgressPanel } from './components/Progress'
 import { AssistantMain } from './components/AssistantView'
-import { agentOnScreen, applyLiveState, assistantOnLeft, assistantWasOpen, clearStartFailure, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, pushToast, set, useProviderWarnings, useStore } from './store'
+import { agentOnScreen, applyLeftovers, applyLiveState, assistantOnLeft, assistantWasOpen, clearStartFailure, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, pushToast, set, useProviderWarnings, useStore } from './store'
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
 import { TemplatesView } from './components/Templates'
 import { ProjectView } from './views/ProjectView'
@@ -79,6 +79,7 @@ function handleEvent(e: HiveEvent): void {
       // Another workspace in this window: its Assistant panel shows as that workspace left it, and its board.
       const other = ws?.path !== get().workspace?.path
       if (other) set({ assistantOpen: assistantWasOpen(ws?.path), tasks: [], boardProject: null, taskOpen: null, taskStartFor: null, taskDoing: null })
+      if (other) void loadLeftovers()
       // Drop warnings about projects that belong to a workspace that is no longer open.
       set((s) => ({ workspace: ws, toasts: s.toasts.filter((t) => !t.id.startsWith('mcp-') || !!ws?.projects.some((p) => t.id === `mcp-${p.path}`)) }))
       if (ws && (!sel || !ws.projects.some((p) => p.path === sel))) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
@@ -121,6 +122,16 @@ function handleEvent(e: HiveEvent): void {
           actions: shown ? [{ label: 'Show', command: 'agent.show', args: [path, e.agentId] }] : undefined,
           timestamp: failure.at
         })
+      break
+    }
+    case 'agent-leftovers': {
+      const path = findProject(get(), e.leftovers.projectPath)?.path ?? e.leftovers.projectPath
+      applyLeftovers({ ...e.leftovers, projectPath: path })
+      // Nothing left (ended, kept, or ended by themselves): the offers to end them go too.
+      if (!e.leftovers.processes.length && !e.leftovers.more) {
+        const offer = (a: { command: string; args?: unknown[] }): boolean => a.command === 'session.settleLeftovers' && String(a.args?.[0]).toLowerCase() === e.leftovers.projectPath.toLowerCase() && a.args?.[1] === e.leftovers.agentId
+        set((s) => ({ toasts: s.toasts.filter((t) => !t.actions?.some(offer)) }))
+      }
       break
     }
     case 'usage-changed': {
@@ -241,6 +252,13 @@ function handleEvent(e: HiveEvent): void {
 
 let tasksTimer: number | undefined
 /** Reads the board again shortly (one change can come as several events: Hive's own and the folder watcher's). */
+/** What this window's agents left running (#507), replacing what the store had (another workspace's). */
+async function loadLeftovers(): Promise<void> {
+  const all = await call('session:leftovers').catch(() => [])
+  set({ leftovers: {} })
+  for (const l of all) applyLeftovers({ ...l, projectPath: findProject(get(), l.projectPath)?.path ?? l.projectPath })
+}
+
 function scheduleTasksLoad(): void {
   window.clearTimeout(tasksTimer)
   tasksTimer = window.setTimeout(() => void loadTasks(), 120)
@@ -286,6 +304,7 @@ export function App() {
       }).catch(() => undefined)
       if (ws) set({ selectedProject: (ws.projects.find((p) => p.active) ?? ws.projects[0])?.path ?? null })
       for (const l of live) applyLiveState(l)
+      void loadLeftovers()
       void loadTasks()
       void call('git:tool').then((g) => {
         if (early.active()) set((st) => ({ gitTool: st.gitTool ?? g }))

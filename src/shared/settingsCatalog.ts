@@ -224,6 +224,7 @@ const APP_ROWS: Row[] = [
   { section: 'board', key: 'columnColors', title: 'Colour columns', desc: "Give each column's heading its colour and tint its cards with it.", tip: 'A card takes the colour of the column it is in. Blocked, stalled and finished cards keep their red, amber and green edge, and their text, over the tint.', type: 'boolean' },
   { section: 'board', key: 'colors', title: 'Column colours', desc: 'Pick the colour of each column.', tip: 'The tint on cards is a light mix of the colour with the theme, so it works in light and dark themes. Reset puts back the default.', type: 'custom' },
   { section: 'agents', key: 'backgroundTaskMinutes', title: 'Count background tasks for up to', desc: 'Minutes an agent waits on a background task it started (such as a test run) before Hive counts it as finished anyway.', tip: "An agent that ends its turn while a task it started is still running shows as waiting on background tasks, not finished: Claude Code carries on by itself when the task ends. Hive can't tell a test run from something that never ends, such as a dev server, so it stops counting a task after this long (a Monitor also when it expires). Codex isn't told when its background terminals end, so they are only counted and shown. 10 to 480 minutes.", type: 'number', min: 10, max: 480, step: 5 },
+  { section: 'agents', key: 'leftoverProcesses', title: 'Processes left running', desc: 'What Hive does with processes an agent started that are still running when it stops, such as a preview server or a tail -f.', tip: "Hive follows every process an agent's session starts, however it was started. Ask: a notification lists them and offers to end them; the agent's pane header shows them until they end or you decide. End them: Hive ends them as the agent stops. Hive never ends a process the agent didn't start, and asks about the ones still running when you quit.", type: 'select', options: [{ value: 'ask', label: 'Ask' }, { value: 'end', label: 'End them' }] },
   // Assistant
   { section: 'assistant', key: 'provider', title: 'Provider', desc: 'The coding agent the Assistant runs, unless a workspace chooses another.', tip: 'The Assistant is independent of your project agents: a Codex Assistant can look after Claude Code agents, and the other way round.', type: 'custom' },
   {
@@ -552,6 +553,7 @@ const HELPS: Record<string, string> = {
   'board.archiveDoneDays': 'The Done column has grown long with finished cards.',
   'agents.fileLocks': 'Several agents work in the same project folder and edit the same files.',
   'agents.worktreeCopy': "New worktrees miss git-ignored files such as .env, so agents' builds or tests fail there.",
+  'agents.leftoverProcesses': "A folder can't be renamed or deleted (in use), or a port is taken, after its agents have stopped: processes they started are still running.",
   'agents.backgroundTaskMinutes': "Agents' background tasks (long test runs) count as finished too soon, or a dev server keeps an agent waiting long after its work is done.",
   'project.compactSuggestTokens': "One project's conversations run much longer than others'.",
   'project.transcriptWarnMB': "One project's conversations grow much bigger than others'.",
@@ -586,7 +588,8 @@ const DOCS_BY_ID: Record<string, string> = {
   'sessions.transcriptWarnMB': 'Long conversations',
   'sessions.backupTranscripts': 'Archiving and backups',
   'sessions.recordPerformance': 'Performance metrics',
-  'agents.backgroundTaskMinutes': 'Sessions'
+  'agents.backgroundTaskMinutes': 'Sessions',
+  'agents.leftoverProcesses': 'Processes agents leave running'
 }
 
 function settingPathOf(row: Row, scope: SettingScope): string {
