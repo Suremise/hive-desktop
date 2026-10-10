@@ -1,7 +1,7 @@
 import { BrowserWindow, ClipboardItem, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { spawn } from 'child_process'
 import { existsSync } from 'original-fs'
-import { basename, dirname, isAbsolute, join } from 'path'
+import { basename, dirname, isAbsolute, join, resolve } from 'path'
 import { readFile } from 'original-fs/promises'
 import type { HiveChannel, HiveRequests } from '../shared/api'
 import * as updater from './updater'
@@ -786,6 +786,14 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     // An unused worktree too (#400): read only, as the Changes tab opens it.
     'git:status': (root, base) => gitStatus(workspace.assertChangesRoot(root), base),
     'git:diff': (root, f, base) => gitDiff(workspace.assertChangesRoot(root), f, base),
+    // The file of the diff shown (#495): in the folder the Changes tab shows, which may be an unused worktree outside the
+    // workspace that file IPC (guardFile) doesn't reach; inside it by its real location too, so a link can't lead out.
+    'changes:openFile': (root, f) => {
+      const dir = workspace.assertChangesRoot(root)
+      const file = resolve(dir, f)
+      if (file === dir || !insideReal(file, [dir]) || insideArchive(file)) throw new Error(`${f} isn't a file of ${dir}.`)
+      void shell.openPath(file)
+    },
     'git:tool': (recheck) => (recheck ? checkGit() : gitTool()),
 
     'provider:info': () => providerService.all(),

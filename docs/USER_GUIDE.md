@@ -283,7 +283,7 @@ The sidebar keeps one status dot per project, showing the most urgent agent (nee
 
 If git can't read the changes, the **Changes** tab says why, with **Retry**. The same goes for every list and search: if one can't be read, Hive says so with **Retry** rather than showing nothing, and if a refresh fails the last results stay, with a note saying when they're from. They are always the same project's (or workspace's): switching to another project never shows the last one's.
 
-**Reviewing and merging a worktree agent's work.** In the **Changes** and **Files** tabs, the selector at the top switches between the project folder and each agent's worktree. For a worktree, Changes lists everything the agent changed since its branch started (its commits and uncommitted edits). When it is done, choose **Merge** (pane header, agent menu or Changes tab):
+**Reviewing and merging a worktree agent's work.** In the **Changes** and **Files** tabs, the selector at the top switches between the project folder and each agent's worktree. For a worktree, Changes lists everything the agent changed since its branch started (its commits and uncommitted edits). **Open file**, above a diff, opens that folder's copy of the file: the worktree's, not the project's. When it is done, choose **Merge** (pane header, agent menu or Changes tab):
 
 - Uncommitted changes are committed on the agent's branch first, with the message you enter.
 - The branch is merged into the branch checked out in the project folder: **Merge** (the default; keeps the agent's commits and their messages, plus a merge commit) or **Squash** (one commit, with the message you enter). Change the default in **Settings → Agents & Worktrees → Default merge style**.
