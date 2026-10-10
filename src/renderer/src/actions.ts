@@ -7,9 +7,11 @@ import { agentsToResume, resumeAll, stalledOnSignIn } from '@shared/resumeAll'
 import { batchLine, eachAgent, removeLine, sessionsToArchive, type BatchResult } from '@shared/startAll'
 import type { OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, ToastAction } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
-import { oldWorktreesNotice, templateLoadDetail } from '@shared/templateLoad'
+import { oldWorktreesNotice, templateLoadDetail, templateLoadView } from '@shared/templateLoad'
 import { formatTokens, type SessionAction } from './util'
 import { statusText } from './components/ui'
+import { createElement } from 'react'
+import { TemplatePlan } from './components/TemplatePlan'
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
 
 /** Runs an async action and shows a toast if it fails. */
@@ -774,8 +776,11 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
   const ok = await confirm({
     title: `Load "${plan.name}"?`,
     message: plan.remove.length ? `It replaces every agent of ${p?.name ?? 'this project'}.` : `It adds its agents to ${p?.name ?? 'this project'}.`,
-    // Who goes and who comes: each new agent's settings, and its new worktree's branch and folder in this project (#268).
+    // Who goes and who comes: each new agent's settings, and its new worktree's branch and folder in this project (#268),
+    // as a table (#511).
     detail: p ? templateLoadDetail(plan, p.config, get().settings, (id) => get().providers[id]) : undefined,
+    content: p ? createElement(TemplatePlan, { view: templateLoadView(plan, p.config, get().settings, (id) => get().providers[id]) }) : undefined,
+    wide: true,
     scrollDetail: true,
     confirmLabel: 'Load template',
     busyLabel: 'Loading…',

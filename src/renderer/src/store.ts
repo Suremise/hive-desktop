@@ -1,6 +1,6 @@
 import { DEFAULT_PERF_FILTERS, type PerfFilters } from '@shared/metricsView'
 import { create } from 'zustand'
-import { useMemo } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import type { Period } from '@shared/usageTotals'
 import type { StartFailure } from '@shared/startFailure'
 import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
@@ -87,6 +87,9 @@ export interface ConfirmRequest {
   detail?: string
   /** A long detail scrolls in its own box, the dialog's buttons staying in view (a template's agents, #268). */
   scrollDetail?: boolean
+  /** Shown in the detail's place, rendered (a template's plan as a table, #511), in a wider dialog with `wide`. */
+  content?: ReactNode
+  wide?: boolean
   confirmLabel?: string
   cancelLabel?: string
   danger?: boolean

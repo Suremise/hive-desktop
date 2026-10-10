@@ -1870,6 +1870,59 @@ p.hint {
   overflow-wrap: anywhere;
   padding-right: 4px;
 }
+/* A confirm's rendered detail (the Load template dialog's plan as a table, #511): text wraps as text, not as lines. */
+.dialog-body .detail.rich {
+  white-space: normal;
+  overflow-wrap: normal;
+  color: var(--fg);
+}
+.template-plan h4 {
+  margin: 8px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+.template-plan-removed {
+  margin: 0 0 4px;
+  padding-left: 18px;
+}
+.template-plan-table td {
+  padding: 4px 8px;
+  vertical-align: top;
+}
+.template-plan-table th {
+  padding: 4px 8px;
+}
+.template-plan-table td:first-child {
+  white-space: nowrap;
+}
+.template-plan-name {
+  font-weight: 600;
+  color: var(--fg-strong);
+  margin-right: 6px;
+}
+.template-plan-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.template-plan-provider .provider-icon {
+  width: 12px;
+  height: 12px;
+}
+.template-plan-default {
+  font-size: 11px;
+}
+.template-plan-place {
+  cursor: default;
+}
+.template-plan-note {
+  margin: 8px 0 0;
+  color: var(--fg-muted);
+}
 /* A confirm's list (the folders an antivirus change covers, #347): one item per line, a long path wrapping inside itself. */
 .dialog-body .dialog-list {
   display: flex;

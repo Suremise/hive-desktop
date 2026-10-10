@@ -108,7 +108,7 @@ const check = (name, ok, extra = '') => {
   await dialog.getByRole('button', { name: 'Continue' }).click()
   const confirmLoad = page.locator('.dialog', { hasText: 'Load "Team"?' })
   await confirmLoad.waitFor({ timeout: 5000 })
-  check("…then loading's confirmation, for the chosen project", /Removed:\s*• Old/.test(await confirmLoad.innerText()))
+  check("…then loading's confirmation, for the chosen project", (await confirmLoad.locator('.template-plan-removed li').evaluateAll((l) => l.map((x) => x.dataset.agent))).join() === 'Old')
   await confirmLoad.getByRole('button', { name: 'Load template' }).click()
   check('Load into Project… replaces that project\'s agents and layout', !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer"]', 10000)) && projectCfg(beta).layout === 'columns2')
 
