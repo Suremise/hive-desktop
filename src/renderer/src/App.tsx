@@ -200,6 +200,9 @@ function handleEvent(e: HiveEvent): void {
     case 'merge-slots-changed':
       if (e.workspacePath.toLowerCase() === get().workspace?.path.toLowerCase()) set({ mergeSlots: e.slots })
       break
+    case 'lanes-changed':
+      if (e.workspacePath.toLowerCase() === get().workspace?.path.toLowerCase()) set({ lanes: e.lanes })
+      break
     case 'assistant-questions': {
       const before = get().assistantQuestions
       set({ assistantQuestions: e.questions })

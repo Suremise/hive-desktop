@@ -294,7 +294,7 @@ If git can't read the changes, the **Changes** tab says why, with **Retry**. The
 **Working with one agent for a while.** With **Merge** and the worktree kept, an agent can do a task and merge it, then the next task and merge again, or several tasks and one merge. When the project folder's branch moves on (another agent's work was merged), ask the agent to merge it into its branch before its next task, so it works on current code.
 
 **One merge at a time: the merge slot.** When several agents finish close together, each merging main into its branch, checking it and merging, one agent's merge can land while another is still checking, and that one has to merge and check again. So agents take turns: an agent claims the project's **merge slot** for the branch it merges into, merges main in, runs its checks, merges, and releases it. The others wait in order, and their status reads *Waiting for the merge slot (B4 is merging #305)*. While an agent holds the slot, nothing else merges into that branch through Hive, so its checks run once. Agents do this by themselves when they merge (the **merge-ready** skill).
-- **Who holds it and who waits** shows in the project's **Overview** and at the top of the **Progress panel**, and on each agent's status.
+- **Who holds it and who waits** shows in the project's **Overview**, on each agent's status, and as a card at the top of the **Progress panel** with the branch going in and the step its checks are on (see [Merges and lanes](#merges-and-lanes)).
 - **It is never stuck.** The slot is released when its agent's session ends, and a hold lasts 60 minutes (longer while the agent keeps reporting progress, or when it claims again). A hold that runs out goes to the next in line, and Hive tells you, since that merge may not have finished. **Release** beside a holder (in the Overview or the Progress panel) frees it yourself, after a question; if the slot changed hands while you answered, nothing is released and Hive says so. If Hive closed while an agent held the slot, it tells you when the workspace opens again, so you can check the project folder for a merge left half done.
 - **Your own merges** take the slot too: while an agent holds it or waits for it, the **Merge** dialog says who is merging and waits until the slot is free. Merges made outside Hive (in a terminal) aren't controlled; agents still check that main hasn't moved before they merge.
 
@@ -477,6 +477,24 @@ Long runs, such as test suites and builds, can report their progress to Hive, an
 - **The Assistant** can see an agent's progress too, so you can ask it how long until an agent's tests finish.
 
 Runs come from what agents run: a tool or script reports through the Agent API (`/v1/progress`, see the Agent API reference), as the agent that started it. **Settings → General → Progress panel** turns it all off; agents can still report, and Hive ignores it.
+
+#### Merges and lanes
+
+When agents work in pairs, a builder and a reviewer taking cards in turn (the **card-loop** skill), the Progress panel shows how they are getting on, around the runs:
+
+- **At the top, the merge going on.** While an agent is merging (it holds a project's merge slot), a card in the merge colour, teal, says who is merging which cards (*B1 is merging #484*), which branch goes where (`hive/b1 → main`), the step its checks are on (the agent's running progress, such as *Full test set · 113 of 146*), how long it has had the slot and has left, and who is waiting. **Release** frees a holder that is stuck, after a question. The chevron folds the card to one line; each workspace remembers it. The card goes when the merge is done, and a line under it parts it from the runs.
+- **At the bottom, the lanes.** Each lane is a row: the pair (*B1 / R1*), what the lane is about, the card it is on and how many of its cards are finished (*2/8*), then a bar with a segment for each card, in the order they are worked. Each segment shows where its card is, by colour **and** pattern, so it reads without colour too:
+  - **To do:** an empty segment.
+  - **Doing:** blue stripes, moving.
+  - **In review:** an amber outline.
+  - **Passed** (reviewed, waiting to be merged): green, with a light edge.
+  - **Done** (merged): a dimmer green.
+  - **Blocked**, or **On Hold** waiting for you: red cross-hatching.
+  - **A failed review** underlines the segment in red until the card goes back for its next round.
+
+  Hover a segment for the card, where it is and its round (*#405 Built-in loop wakes · Review, round 2*); click it to open the card. When a lane has more cards than fit, its finished ones fold into one **✓ n** segment at the start. A paused lane (a card waiting for you), a merged one and an abandoned one (an agent of it removed) say so. The lanes sit at the bottom of the panel and grow upward; past four they scroll, and sooner when the window is short, so the runs keep their room. Click **Lanes** to fold them down to that bar (each workspace remembers it). The project filter applies to lanes too.
+
+With no lanes and no merge going on, the panel is just the runs, as before.
 
 #### Show progress for any command
 

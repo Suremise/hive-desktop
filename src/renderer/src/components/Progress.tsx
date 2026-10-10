@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ALL_PROJECTS, RECENT_RUNS, RUN_STATE_WORDS, SHOW_ALL, activeFilter, agentChoices, filterChoices, filterRuns, fractionDone, inStrip, isListed, isOpenRun, isRecent, runDetails, runDetailsText, shortDuration, stripRuns, timeLeft, unseenTrouble } from '@shared/progress'
-import type { ProgressRun } from '@shared/types'
+import type { MergeSlotInfo, ProgressRun } from '@shared/types'
 import { attempt, selectProject } from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
@@ -10,14 +10,18 @@ import { cx, formatKeybinding } from '../util'
 import { AssistantMark } from './AssistantMark'
 import { ProviderIcon } from './ProviderIcon'
 import { PaneResizer, usePaneSize } from './Resizer'
-import { MergeSlotList, useMergeSlots } from './MergeSlots'
+import { useMergeSlots } from './MergeSlots'
+import { LanesSection } from './ProgressLanes'
+import { MergeCards } from './ProgressMerge'
+import { useLanes } from '../laneSource'
 import { ShowAllList } from './ShowAllList'
 import { Icon, IconButton, Tooltip } from './ui'
 
 /**
  * The Progress panel: long runs agents report (tests, builds), each with its agent, how far along and the time left.
  * On the right, beside the Assistant's panel; folded, a strip with a small bar per run. It never opens by itself.
- * A run listed there, or under Recent, opens its details; its agent's name shows that agent.
+ * A run listed there, or under Recent, opens its details; its agent's name shows that agent. Above the runs, a card per
+ * merge going on (ProgressMerge); pinned to the bottom, the lanes working through cards (ProgressLanes, #484).
  */
 
 const NO_RUNS: ProgressRun[] = []
@@ -75,6 +79,7 @@ export function ProgressPanel() {
   const open = useProgressOpen()
   const runs = useProgressRuns()
   const slots = useMergeSlots()
+  const lanes = useLanes()
   const chosen = useProgressFilter()
   const workspace = useStore((s) => s.workspace)
   const focused = useStore((s) => s.windowFocused)
@@ -101,6 +106,18 @@ export function ProgressPanel() {
   const filterName = filter === SHOW_ALL ? null : `${choices.find((c) => c.value === filter.project)?.label ?? ''}${filter.agent ? ` · ${shown[0]?.agentName ?? ''}` : ''}`
   if (!open) return <ProgressRail runs={shown.filter((r) => inStrip(r, now))} filtered={filterName ? { name: filterName, all: runs.filter((r) => inStrip(r, now)).length } : null} />
   const listed = shown.filter((r) => isListed(r, now))
+  // The merges going on in every project: a slot its holder has taken (a turn not claimed yet isn't a merge, nor a line
+  // alone); the lanes of the project (and agent) the runs are filtered to.
+  const merging = slots.filter((s) => s.holder?.taken)
+  const shownLanes = filter.project === ALL_PROJECTS ? lanes : lanes.filter((l) => l.project.toLowerCase() === filter.project && (!filter.agent || l.builder.agentId === filter.agent || l.reviewer?.agentId === filter.agent))
+  // The holder's current step: its newest run still going, in its project.
+  const stepOf = (s: MergeSlotInfo): string | null => {
+    const h = s.holder
+    const r = h?.agentId ? runs.find((x) => isOpenRun(x) && x.agentId === h.agentId && x.projectPath?.toLowerCase() === s.project.toLowerCase()) : undefined
+    if (!r) return null
+    const step = stepLine(r)
+    return step ? `${r.title} · ${step}` : r.title
+  }
   // Recent: the newest few, and Show all for the rest Hive keeps (#352).
   const recent = shown.filter((r) => isRecent(r, now))
   const agents = filter.project !== ALL_PROJECTS ? agentChoices(runs, filter.project) : []
@@ -151,14 +168,10 @@ export function ProgressPanel() {
           )}
         </div>
       )}
+      <MergeCards slots={merging} projectName={nameOf} showProject={(workspace?.projects.length ?? 0) > 1} stepOf={stepOf} now={now} />
+      {merging.length > 0 && <div className="progress-divider" role="separator" />}
       <div className="progress-body">
-        {slots.length > 0 && (
-          <>
-            <div className="progress-section">Merge slots</div>
-            <MergeSlotList slots={slots} projectName={nameOf} showProject />
-          </>
-        )}
-        {listed.length === 0 && !slots.length && (
+        {listed.length === 0 && !merging.length && (
           <div className="pane-empty progress-empty">
             Nothing is running. When an agent runs tests or a build with progress reporting, it shows here with how far along it is and the time left.
           </div>
@@ -181,6 +194,7 @@ export function ProgressPanel() {
           </>
         )}
       </div>
+      <LanesSection lanes={shownLanes} width={width} />
     </div>
   )
 }

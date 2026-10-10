@@ -20,6 +20,7 @@ import type {
   AssistantQuestion,
   ProgressRun,
   MergeSlotInfo,
+  LaneInfo,
   AgentInstallInfo,
   ProviderId,
   AppInfo,
@@ -198,6 +199,8 @@ interface State {
   progressRuns: ProgressRun[]
   /** This window's workspace's merge slots (#350): those held or waited for. */
   mergeSlots: MergeSlotInfo[]
+  /** This window's workspace's lanes (#483), for the Progress panel (#484): running ones and those ended lately. */
+  lanes: LaneInfo[]
   /** A pane (an agent's, or the Assistant's panel) briefly highlighted because something asked to show it: its pty key. */
   paneFlash: { key: string; at: number } | null
   /** Assistant Settings is open. */
@@ -375,6 +378,7 @@ export const useStore = create<State>(() => ({
   assistantOpen: false,
   progressRuns: [],
   mergeSlots: [],
+  lanes: [],
   paneFlash: null,
   assistantSettingsOpen: false,
   assistantActions: [],

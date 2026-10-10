@@ -33,7 +33,8 @@ export function projectSlots(slots: MergeSlotInfo[], projectPath: string): Merge
   return slots.filter((s) => s.project.toLowerCase() === projectPath.toLowerCase())
 }
 
-async function release(s: MergeSlotInfo, projectName: string): Promise<void> {
+/** Releases a stuck holder, after asking. */
+export async function releaseSlot(s: MergeSlotInfo, projectName: string): Promise<void> {
   const h = s.holder
   if (!h) return
   const ok = await confirm({
@@ -68,7 +69,7 @@ export function MergeSlotList({ slots, projectName, showProject }: { slots: Merg
             </div>
             {h && (
               <Tooltip content={`Release the merge slot ${h.kind === 'agent' ? `${h.name} holds` : 'your merge holds'}, if it is stuck`}>
-                <button type="button" className="btn small subtle" onClick={() => void release(s, projectName(s.project))}>
+                <button type="button" className="btn small subtle" onClick={() => void releaseSlot(s, projectName(s.project))}>
                   Release
                 </button>
               </Tooltip>

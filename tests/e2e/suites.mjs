@@ -107,6 +107,7 @@ export const SUITES = [
   { name: 'pin' },
   { name: 'plan', needs: ['claude'], claudeHome: 'own' },
   { name: 'progress', serial: 'window focus' },
+  { name: 'progresslanes' },
   { name: 'progressreport' },
   { name: 'providers' },
   { name: 'quit' },

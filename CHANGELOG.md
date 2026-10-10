@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Progress panel
+- **Merges and lanes at a glance.** While an agent merges, a teal card at the top of the Progress panel says who is merging which cards, the branch going in (`hive/b1 → main`), the step its checks are on, how long so far and left, and who is waiting; it folds to one line. When builders and reviewers work through cards in lanes, the bottom of the panel shows each lane as a row: the pair, the card it is on, how many are finished, and a bar with a segment per card, coloured and patterned by where the card is (to do, doing, in review, passed, done, blocked or waiting for you, a failed review). Hover a segment for the card and its round; click it to open the card. Long lanes fold their finished cards into one "✓ n" segment, and the lanes fold down to their header. With no merge and no lanes, the panel is as before.
+
 ### Providers
 - **GitHub Copilot's Allow all needs no opt-in; Autopilot still does.** **Allow all** (approves every tool, path and web request without asking, in the agent's folder and outside it) is now offered like any other mode, with no red warning, so Copilot has a mode for working with few interruptions. **Autopilot** stays behind the opt-in, now **Settings → GitHub Copilot → Enable the Autopilot option**; if you had ticked it, Autopilot stays available. Checked with Copilot 1.0.93: once a turn has run in Autopilot, Copilot approves everything for the rest of the session, even after you switch out of it, and Hive's mode badge then shows Allow all. Autopilot's description and the user guide now say so.
 
