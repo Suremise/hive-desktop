@@ -265,25 +265,42 @@ export function isDefaultProviderValue(v: unknown): v is ProviderId {
 
 /**
  * Whether a provider's CLI was found, as this process last heard: main's providerService and the window's store each
- * set it when they start (setInstalledCheck), so every caller resolves Automatic the same way. None found until then.
+ * set it when they start (setInstalledCheck), so every caller resolves Automatic the same way. null while Hive is still
+ * looking for it (at start, until its detection has answered).
  */
-let installedCheck: (id: ProviderId) => boolean = () => false
+let installedCheck: (id: ProviderId) => boolean | null = () => null
 
-export function setInstalledCheck(fn: (id: ProviderId) => boolean): void {
+export function setInstalledCheck(fn: (id: ProviderId) => boolean | null): void {
   installedCheck = fn
 }
 
-/** Automatic's provider: the first turned on and installed, else the first turned on, else Claude Code. */
+/**
+ * Automatic's provider: the first turned on and installed, else the first turned on, else Claude Code. Never from
+ * partial detection (#506): until every turned-on provider has answered (autoProviderPending), this is only a guess for
+ * display, the first turned-on provider not known to be missing (never Codex because it answered before Claude Code).
+ * What commits to it (a launch, a new agent) waits for detection, and is refused if Hive is still looking.
+ */
 export function autoProvider(settings: Pick<AppSettings, 'providers'> | null | undefined): ProviderId {
   const on = enabledProviders(settings)
-  return (on.find((p) => installedCheck(p.id)) ?? on[0])?.id ?? DEFAULT_PROVIDER
+  return (on.find((p) => installedCheck(p.id) !== false) ?? on[0])?.id ?? DEFAULT_PROVIDER
+}
+
+/** Whether Automatic's pick still waits on detection: a turned-on provider hasn't answered yet (found or missing). */
+export function autoProviderPending(settings: Pick<AppSettings, 'providers'> | null | undefined): boolean {
+  return enabledProviders(settings).some((p) => installedCheck(p.id) === null)
+}
+
+/** Whether a project's new agents' provider still waits on detection: its default is Automatic, and that is pending. */
+export function defaultProviderPending(cfg: Pick<ProjectConfig, 'defaultProvider'> | null | undefined, settings: Pick<AppSettings, 'defaultProvider' | 'providers'> | null | undefined): boolean {
+  return !chosenDefaultProvider(cfg, settings) && autoProviderPending(settings)
 }
 
 /** Settings' default provider in words: a provider's name, or "Automatic (Codex)" (what it picks now, when any is on). */
 export function defaultProviderLabel(settings: Pick<AppSettings, 'defaultProvider' | 'providers'> | null | undefined): string {
   const v = settings?.defaultProvider
   if (v && v !== AUTO_PROVIDER) return providerName(v)
-  return enabledProviders(settings).length ? `Automatic (${providerName(autoProvider(settings))})` : 'Automatic'
+  if (!enabledProviders(settings).length) return 'Automatic'
+  return autoProviderPending(settings) ? 'Automatic (checking…)' : `Automatic (${providerName(autoProvider(settings))})`
 }
 
 /** The default the user chose for a project's new agents (its own, else Settings'), or null when it is Automatic. */

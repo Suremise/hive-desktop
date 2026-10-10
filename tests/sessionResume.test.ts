@@ -26,14 +26,15 @@ describe('resumeBlock', () => {
     expect(resumeBlock(s, { ...ok, providerInstalled: false })).toMatch(/Codex isn't installed.*Agent Setup/)
   })
   it('no agent can run it: a worktree no agent uses, or no room for another agent', () => {
-    expect(resumeBlock({ ...s, cwd: 'D:\\p\\.worktrees\\x' }, { ...ok, runners: [], canAddAgent: false })).toMatch(/worktree no Codex agent uses any more/)
+    expect(resumeBlock({ ...s, cwd: 'D:\\p\\.worktrees\\x' }, { ...ok, runners: [], canAddAgent: false })).toMatch(/worktree no agent uses any more/)
     expect(resumeBlock(s, { ...ok, runners: [], canAddAgent: false })).toMatch(/no room for another agent/)
     // In the project folder, Resume adds an agent for it.
     expect(resumeBlock(s, { ...ok, runners: [], canAddAgent: true })).toBeNull()
   })
-  it("the Assistant's conversation from another provider than it runs now", () => {
-    expect(resumeBlock(s, { ...ok, assistantProvider: 'claude-code' })).toMatch(/Assistant now runs Claude Code/)
-    expect(resumeBlock(s, { ...ok, assistantProvider: 'codex' })).toBeNull()
+  it("the Assistant resumes a conversation in the provider it ran in, whatever it runs now (#506)", () => {
+    expect(resumeBlock(s, { ...ok, runners: [], canAddAgent: false, assistant: true })).toBeNull()
+    // Its provider must still be on and installed.
+    expect(resumeBlock(s, { ...ok, assistant: true, providerInstalled: false })).toMatch(/Codex isn't installed/)
   })
 })
 
