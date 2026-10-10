@@ -90,10 +90,18 @@ lane (`logs/` below), so `.active` there shows every run still going. Suites kee
 repository, so its `CLAUDE.md` (which imports `AGENTS.md`) never applies to their Claude Code sessions: Claude Code
 would ask each session whether to allow the import. `update` keeps its download cache per lane too (`%LOCALAPPDATA%\hive-test-updater-<k>`, through
 `HIVE_UPDATE_CACHE`). The Codex test home stays shared: it holds the one sign-in, and copies of it would share a
-refresh token. Codex runs any number of sessions in one home. What the suites change there, the trusted folders in its
+refresh token. Real Codex suites take a machine-wide lock on that home's real path for their whole suite (#478):
+two runners starting sandbox commands through the PowerShell alias together could leave one launch refused with
+`CreateProcessAsUserW failed: 5`. The second runner prints who holds the home and waits in the Progress panel;
+it starts when the first releases it. A dead or stale holder is recovered. The real Codex scenario provider takes
+the same lock for its run; fake Codex trials use their own homes and do not wait for it. Different test homes have
+different locks, and a junction or another spelling of one home has the same lock. Codex runs any number of sessions
+inside the suite that holds the lock. What the suites change there, the trusted folders in its
 `config.toml`, goes through `lib.trustForCodex`, under a lock beside the file (`config.toml.lock`, broken after 30 s
 as a crash's), so two runners trusting their lanes' folders at once never lose one. A suite that runs out of time (10 minutes) is stopped with everything it started, so its test
 Hive doesn't keep holding the lane's port.
+The home lock fixes overlapping launches. A separate failure where every alias launch is refused during another
+runner's full test run is tracked in #499; the diagnostics record it and keep its FAIL verdict.
 
 **Run context.** Tests assume nothing about the machine they run on or the shell they were started from: everything
 a run uses of its own comes from one place, `runContext.cjs` (with `lanes.mjs` for ports and folders and `build.mjs`
@@ -263,6 +271,8 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
   codeword only those give), not the system prompt Claude Code recorded: after Restart in This Mode… and after a switch
   while it was stopped. `node tests/e2e/assistantresume.cjs --snapshot-on` is its negative control (the recorded
   prompt asked for: the old codeword comes back).
+  The probe waits for the mode notice's finished turn, then matches the codeword reply to the question's new
+  transcript item (#473); an acknowledgement of the notice cannot stand in for that answer.
 - **Codex** for the `codex*` suites, signed in to the **test home** `%LOCALAPPDATA%\hive-test\codex` (never your
   own `~/.codex`). Sign in once:
   ```powershell
@@ -270,6 +280,12 @@ Agent API; `HIVE_PROGRESS_CHECK_DEV=1 node tests/e2e/packaged-progress.cjs` chec
   ```
   The suites add their folders to that home's trusted projects and use its non-admin Windows sandbox. They send a
   few short prompts to a small model. Without a sign-in they are skipped.
+  A `codex-background` failure records `codex-sandbox-diagnostics.json` and prints its evidence in the suite log:
+  bounded sandbox-log entries for the prompt's time window (timestamps there are local), the terminal tail, and
+  real suites active in other runners at turn start and failure. `running-suites.json` in each run's logs supplies
+  those peer snapshots; a missing or partial snapshot is reported as unavailable. A sandbox START with no result
+  is evidence to investigate, not proof of a collision or a reason to skip. Compare the selected CLI version, shell
+  path and launch environment with an unchanged solo pass before testing concurrent runs.
 
 ## Where they work
 

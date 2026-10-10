@@ -74,15 +74,41 @@ const persona = ({ name, word: w }) =>
   }
   // None until its first message is in.
   const items = async (id) => (await inv('transcript:read', home, id).catch(() => null))?.items ?? []
-  const said = async (id) => (await items(id)).filter((i) => i.kind === 'assistant').map((i) => i.text)
   const told = async (id, m) => (await items(id)).filter((i) => i.kind === 'user' && i.text.includes(`[Hive] Mode: ${m.name} (chosen by the user)`)).length
-  /** Asks for the codeword and returns the reply's text once the turn has ended. */
+  const turnEnded = (state, user) => state?.status === 'finished' && Date.parse(state.statusSince) >= Date.parse(user?.timestamp)
+  /** A recorded notice can precede its UserPromptSubmit hook: idle alone may still be the previous turn (#398/#473). */
+  const noticeEnded = async (id, m) => {
+    const ended = await lib.until(async () => {
+      const notice = (await items(id)).findLast((i) => i.kind === 'user' && i.text.includes(`[Hive] Mode: ${m.name} (chosen by the user)`))
+      return notice && turnEnded(await live(), notice)
+    }, 90000, 500)
+    const state = await live()
+    check('…the mode notice’s own turn ends before the question', !!ended, JSON.stringify({ status: state?.status, since: state?.statusSince }))
+    return !!ended
+  }
+  /** Match the question's user item, then its reply and Stop status, never a mode notice's acknowledgement. */
   const ask = async (id) => {
-    const before = (await said(id)).length
-    const sent = await lib.sendPrompt(inv, key, 'What is your codeword? Reply with the codeword only.', { submitted: async () => (await live())?.status === 'working' || (await said(id)).length > before })
-    check('…the question is sent', sent > 0)
-    await lib.until(async () => (await said(id)).length > before && ['ready', 'finished'].includes((await live())?.status), 90000, 500)
-    return (await said(id)).slice(before).join(' ')
+    const before = (await items(id)).length
+    const prompt = 'What is your codeword? Reply with the codeword only.'
+    let question
+    const sent = await lib.sendPrompt(inv, key, prompt, { submitted: async () => {
+      question = (await items(id)).find((i) => i.id >= before && i.kind === 'user' && i.text.trim() === prompt)
+      return !!question
+    } })
+    check('…the question is sent and recorded', sent > 0 && !!question)
+    if (!question) return ''
+    let reply = ''
+    const ended = await lib.until(async () => {
+      const history = await items(id)
+      const nextUser = history.find((i) => i.id > question.id && i.kind === 'user')
+      const answers = history.filter((i) => i.id > question.id && (!nextUser || i.id < nextUser.id) && i.kind === 'assistant')
+      if (!answers.length || !turnEnded(await live(), question)) return false
+      reply = answers.map((i) => i.text).join(' ')
+      return true
+    }, 90000, 500)
+    const state = await live()
+    check('…the question’s own turn ends with its reply', !!ended, `question ${question.id}; ${JSON.stringify({ status: state?.status, since: state?.statusSince })}`)
+    return reply
   }
   const answers = (reply, m) => reply.includes(m.word) && Object.values(modes).every((o) => o === m || !reply.includes(o.word))
   // The mode menu in the Assistant panel's header.
@@ -112,7 +138,7 @@ const persona = ({ name, word: w }) =>
   await menu(modes.bravo.name)
   await lib.cliStep('switched to Bravo while it runs, then restarted in that mode', { session: key }, async () => {
     check('switching tells it Bravo in its conversation', !!(await lib.until(async () => (await told(session, modes.bravo)) === 1, 60000, 500)))
-    await idle()
+    if (!(await noticeEnded(session, modes.bravo))) return
     await menu('Restart in This Mode')
     const dialog = page.locator('.dialog', { hasText: `Restart in ${modes.bravo.name} mode?` })
     check('Restart in This Mode… asks first', !!(await lib.until(async () => (await dialog.count()) === 1, 5000)))
@@ -133,7 +159,7 @@ const persona = ({ name, word: w }) =>
   await lib.cliStep('resumed after a switch while stopped', { session: key }, async () => {
     check('Claude Code resumes the conversation', !!(await idle()) && (await live())?.sessionId === session, (await live())?.sessionId)
     check('…and Hive tells it Charlie once it is idle', !!(await lib.until(async () => (await told(session, modes.charlie)) === 1, 60000, 500)))
-    await idle()
+    if (!(await noticeEnded(session, modes.charlie))) return
     const reply = await ask(session)
     if (control) check(`with the recorded prompt asked for, it doesn't know Charlie's codeword (${modes.charlie.word})`, !reply.includes(modes.charlie.word), reply)
     else check(`it answers with Charlie's codeword (${modes.charlie.word})`, answers(reply, modes.charlie), reply)
