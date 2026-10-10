@@ -1828,6 +1828,56 @@ export type HiveEvent =
   | { type: 'progress-changed'; workspacePath: string; runs: ProgressRun[] }
   /** A workspace's merge slots changed (those held or waited for). */
   | { type: 'merge-slots-changed'; workspacePath: string; slots: MergeSlotInfo[] }
+  /** A workspace's lanes changed, or one of their cards did (the lanes it lists, as lanes:list gives them). */
+  | { type: 'lanes-changed'; workspacePath: string; lanes: LaneInfo[] }
+
+/**
+ * A lane (#483): a builder and a reviewer taking a project's cards in order (the card-loop skill), as Hive keeps it.
+ * Bookkeeping, never a gate: a loop runs the same without one. `paused` while its current card is blocked; `ended` when
+ * every card is Done or its builder ends it after the merge; `abandoned` when its builder or reviewer is removed, or it
+ * is ended unmerged. Times are ISO.
+ */
+export type LaneState = 'active' | 'paused' | 'ended' | 'abandoned'
+
+/** A lane's card as the board has it now. */
+export interface LaneCard {
+  number: number
+  /** '' when gone. */
+  title: string
+  /** gone: archived, deleted or moved to another project. */
+  column: TaskColumn | 'gone'
+  blocked: string | null
+  /** The round it is in, or took: 1 + the reviews it has failed. */
+  round: number
+  /** A review is under way now. */
+  reviewing: boolean
+}
+
+export interface LaneInfo {
+  id: string
+  /** The project's folder name. */
+  project: string
+  name: string | null
+  builder: { id: string; name: string }
+  reviewer: { id: string; name: string } | null
+  /** In the lane's order. */
+  cards: LaneCard[]
+  /** The first card not in Passed or Done (null: none left). */
+  current: number | null
+  state: LaneState
+  /** Paused: the blocked card. */
+  pausedOn: number | null
+  /** Failed reviews a card gets before the user is asked. */
+  rounds: number
+  /** No change this long and the user is told. */
+  waitMinutes: number
+  /** Who started it, as the board names them ("B1 (hive)", "Assistant", "You"). */
+  startedBy: string
+  startedAt: string
+  updatedAt: string
+  endedAt: string | null
+  mergeCommit: string | null
+}
 
 /** Who reported a progress run: a project agent (by its token), the Hive Assistant, or a script with the workspace token. */
 export type ProgressSource = 'agent' | 'assistant' | 'api'

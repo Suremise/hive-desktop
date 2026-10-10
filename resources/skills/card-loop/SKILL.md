@@ -19,6 +19,14 @@ From the user's request:
 
 Ask if the role or the cards aren't clear.
 
+## The lane
+
+Hive keeps a record of the loop, its **lane**, and shows it to the user. Register it as you start, with `hive_lane`:
+- builder: `action: "start"`, the cards in order, `reviewer` (its name), `rounds`, `waitMinutes`;
+- reviewer: `action: "join"`, `builder` (its name) and the cards.
+
+Hive follows the board from there and ends the lane when its cards are Done. If the cards change mid-loop (one added, the order changed), the builder starts it again with the new list. If the user calls the loop off, end the lane with `action: "end"`, `abandoned: true`; stopping to ask the user leaves it as it is. The lane is only a record: if the tool is missing or a call fails, carry on with the loop.
+
 ## Waiting
 
 Wait with `hive_wait_for_tasks`, `wake: true`:

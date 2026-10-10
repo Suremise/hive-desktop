@@ -107,6 +107,8 @@ export const AREAS = [
   { paths: ['src/main/progressReporters/'], suites: ['progressreport', 'packaged-progress'] },
   { paths: ['src/main/projectAgents.ts'], suites: ['agents', 'agents-ui', 'reorder', 'pages', 'unmerged', 'removeall', 'mergeslot'] },
   { paths: ['src/main/mergeSlots.ts', 'src/main/mergeSlotHost.ts', 'src/shared/mergeSlot.ts', 'src/renderer/src/components/MergeSlots.tsx'], suites: ['mergeslot', 'replysize'] },
+  // Lanes (#483): the card loop registers its lane; replysize measures hive_lane.
+  { paths: ['src/main/lanes.ts', 'src/shared/lanes.ts'], suites: ['cardloop', 'replysize'] },
   { paths: ['src/main/projectRemoval.ts', 'src/renderer/src/components/ProjectRemoval.tsx'], suites: ['board', 'storage'] },
   // Hive's one way to the Recycle Bin (a test copy's trash folder, #414): the suites that delete something.
   { paths: ['src/main/trash.ts'], suites: ['board', 'files', 'storage', 'sessiontree', 'templateshare', 'unusedwt', 'skills', 'transcript', 'unsaved', 'assistantimages'] },

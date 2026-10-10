@@ -32,6 +32,8 @@ import { createLogger } from './logger'
 import { listMcp } from './mcp'
 import { assertInShared, createHandover, NoteConflict, notesTree, readNote, writeNote } from './notes'
 import { mergeSlots } from './mergeSlotHost'
+import * as lanes from './lanes'
+import { laneCards, laneName, laneNumber } from '../shared/lanes'
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, MergeSlotError, slotBranch, slotCards, type SlotAgent } from './mergeSlots'
 import { writePty } from './ptyHost'
 import { sessions } from './sessions'
@@ -1119,6 +1121,132 @@ route('POST', '/v1/projects/:name/merge-slot/release', async ({ params, body }) 
   })
 )
 
+// Lanes (#483): the card loops a workspace runs. A project agent starts its own lane (as builder), joins its builder's
+// (as reviewer) and sees its project's; the Assistant and scripts start them for any builder and see them all.
+// Bookkeeping, never a gate: nothing else waits on a lane.
+
+const laneCall = async <T>(fn: () => Promise<T> | T): Promise<T> => {
+  try {
+    return await fn()
+  } catch (e) {
+    throw e instanceof lanes.LaneError ? new HttpError(e.status, e.message) : e
+  }
+}
+
+/** The project a lane call is about: a project agent's own (another named is refused), else the one named. */
+function laneProject(v: unknown): string {
+  const a = agentCaller()
+  if (a) {
+    if (v !== undefined && v !== null && v !== '') ownProjectOnly(projectByName(String(v)), 'A lane')
+    return a.projectPath
+  }
+  if (typeof v !== 'string' || !v) throw new HttpError(400, 'project is required')
+  return projectByName(v)
+}
+
+/** A lane's numbers and texts from a request body (undefined: not given). */
+function laneArgs(body: any): { cards?: number[]; rounds?: number; waitMinutes?: number; name?: string | null } {
+  const out: { cards?: number[]; rounds?: number; waitMinutes?: number; name?: string | null } = {}
+  if (body?.cards !== undefined) {
+    const c = laneCards(body.cards)
+    if (typeof c === 'string') throw new HttpError(400, c)
+    out.cards = c
+  }
+  for (const k of ['rounds', 'waitMinutes'] as const) {
+    if (body?.[k] === undefined) continue
+    const v = laneNumber(body[k], k, 0)
+    if (typeof v === 'string') throw new HttpError(400, v)
+    out[k] = v
+  }
+  if (body?.name !== undefined) out.name = laneName(body.name)
+  return out
+}
+
+/** Who a lane change is by, as the board names them. */
+async function laneBy(): Promise<string> {
+  return tasks.actorName(await taskActor())
+}
+
+route('GET', '/v1/lanes', async ({ query }) =>
+  laneCall(async () => {
+    const ws = requireWorkspace()
+    const a = agentCaller()
+    const project = a ? basename(a.projectPath) : query.get('project') ? basename(projectByName(query.get('project')!)) : null
+    return lanes.listLanes(ws, { project, all: query.get('all') === 'true' })
+  })
+)
+
+route('GET', '/v1/lanes/:id', async ({ params }) =>
+  laneCall(async () => {
+    const a = agentCaller()
+    return lanes.getLane(requireWorkspace(), decodeURIComponent(params[0]), a ? basename(a.projectPath) : null)
+  })
+)
+
+route('POST', '/v1/lanes', async ({ body }) =>
+  laneCall(async () => {
+    const ws = requireWorkspace()
+    const p = laneProject(body?.project)
+    const args = laneArgs(body)
+    if (!args.cards) throw new HttpError(400, 'cards must be the card numbers, in order (at least one)')
+    const a = agentCaller()
+    // A project agent registers its own lane: it is the builder.
+    const builder = a ? (body?.builder !== undefined && body.builder !== '' && (await agentParam(p, body.builder)) !== a.agentId ? null : a.agentId) : await agentParam(p, body?.builder)
+    if (!builder) throw new HttpError(403, "An agent starts its own lane, as its builder: a reviewer joins its builder's lane (join)")
+    // A reviewer Hive doesn't know isn't a reason to refuse: the lane starts without one, and its reviewer can join it.
+    let reviewer: string | null | undefined
+    let note: string | undefined
+    if (body?.reviewer === null || body?.reviewer === '') reviewer = null
+    else if (body?.reviewer !== undefined) {
+      reviewer = await agentParam(p, body.reviewer).catch(() => null)
+      if (!reviewer) note = `No agent "${String(body.reviewer)}" in ${basename(p)}: the lane has no reviewer until one joins it.`
+    }
+    const start = async () => {
+      const r = await lanes.startLane(ws, { project: basename(p), builder, reviewer, cards: args.cards!, rounds: args.rounds, waitMinutes: args.waitMinutes, name: args.name, by: await laneBy() })
+      return note ? { ...r, note } : r
+    }
+    if (!assistantCaller()) return start()
+    return assistantChange('agents', `start a lane in ${basename(p)}`, async () => {
+      const r = await start()
+      return { done: `Lane ${r.lane.id} ${r.did} in ${basename(p)}: ${r.lane.builder.name} / ${r.lane.reviewer?.name ?? 'no reviewer'}, ${r.lane.cards.map((c) => `#${c.number}`).join(', ')}`, result: r }
+    })
+  })
+)
+
+route('POST', '/v1/lanes/join', async ({ body }) =>
+  laneCall(async () => {
+    const ws = requireWorkspace()
+    const p = laneProject(body?.project)
+    const args = laneArgs(body)
+    const a = agentCaller()
+    const reviewer = a ? a.agentId : await agentParam(p, body?.reviewer)
+    if (typeof body?.builder !== 'string' || !body.builder) throw new HttpError(400, "builder is required: the name of the lane's builder")
+    const builder = await agentParam(p, body.builder)
+    const joined = async () => lanes.joinLane(ws, { project: basename(p), builder, reviewer, cards: args.cards, by: await laneBy() })
+    if (!assistantCaller()) return joined()
+    return assistantChange('agents', `join a lane in ${basename(p)}`, async () => {
+      const r = await joined()
+      return { done: `${r.lane.reviewer?.name ?? 'A reviewer'} joined lane ${r.lane.id} in ${basename(p)}`, result: r }
+    })
+  })
+)
+
+route('POST', '/v1/lanes/:id/end', async ({ params, body }) =>
+  laneCall(async () => {
+    const ws = requireWorkspace()
+    const id = decodeURIComponent(params[0])
+    const a = agentCaller()
+    const commit = body?.mergeCommit
+    if (commit !== undefined && commit !== null && (typeof commit !== 'string' || !/^[0-9a-zA-Z._/-]{4,64}$/.test(commit))) throw new HttpError(400, 'mergeCommit must be a commit (its hash)')
+    const end = () => lanes.endLane(ws, id, { abandoned: body?.abandoned === true, mergeCommit: commit ?? null, ...(a ? { project: basename(a.projectPath), agent: a.agentId } : {}) })
+    if (!assistantCaller()) return end()
+    return assistantChange('agents', `end lane ${id}`, async () => {
+      const l = await end()
+      return { done: `Lane ${l.id} in ${l.project}: ${l.state}`, result: l }
+    })
+  })
+)
+
 route('GET', '/v1/shared', async () => inWorkspace(requireWorkspace(), () => notesTree()))
 
 route('GET', '/v1/shared/file', async ({ query }) => {
@@ -1942,9 +2070,10 @@ function statusFor(e: Error): number {
 
 function broadcast(event: HiveEvent): void {
   if (!sseClients.size) return
-  const allowed: HiveEvent['type'][] = ['session-status', 'session-exit', 'workspace-changed', 'notes-changed', 'skills-changed', 'tasks-changed']
+  const allowed: HiveEvent['type'][] = ['session-status', 'session-exit', 'workspace-changed', 'notes-changed', 'skills-changed', 'tasks-changed', 'lanes-changed']
   if (!allowed.includes(event.type)) return
-  const payload = event.type === 'workspace-changed' ? { type: event.type, workspace: event.workspace?.path ?? null } : event
+  // A lanes change names the workspace only: its lanes (card titles) are read with GET /v1/lanes, a project agent's own.
+  const payload = event.type === 'workspace-changed' ? { type: event.type, workspace: event.workspace?.path ?? null } : event.type === 'lanes-changed' ? { type: event.type, workspacePath: event.workspacePath } : event
   const line = `event: ${event.type}\ndata: ${JSON.stringify(payload)}\n\n`
   // A project agent hears about its own project's sessions only: another project's (their names, what they are
   // doing) can tell it about that project's cards. The other events carry no more than a path.

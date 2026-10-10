@@ -29,6 +29,7 @@ import { keepAwakeCount } from './power'
 import { progress } from './progressService'
 import { mergeSlots, recoverMergeSlots, workspaceSlots } from './mergeSlotHost'
 import { slotBranch } from './mergeSlots'
+import { endLane, listLanes } from './lanes'
 import { badgeDescription } from '../shared/taskbar'
 import * as files from './files'
 import * as mcp from './mcp'
@@ -726,6 +727,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'mergeSlots:release': (p, branch, holdId) => {
       if (typeof holdId !== 'string' || !holdId) throw new Error('Which hold to release is required')
       return mergeSlots.releaseByUser(workspace.assertProject(p), slotBranch(branch), holdId)
+    },
+    'lanes:list': () => (workspace.path ? listLanes(currentWorkspace()) : []),
+    'lanes:end': (id, abandoned) => {
+      if (typeof id !== 'string' || !id) throw new Error('Which lane to end is required')
+      return endLane(currentWorkspace(), id, { abandoned: abandoned === true })
     },
     'progress:list': async () => {
       const ws = workspace.path

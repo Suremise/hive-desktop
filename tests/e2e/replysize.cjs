@@ -201,6 +201,14 @@ const prose = (seed, n) => {
   const batched = measure('hive_update_tasks (3 cards)', tool('hive_update_tasks', { numbers: [todo[20], todo[21], todo[22]], labels: ['perf'] }), 400)
   const batchLines = batched.split('\n')
   check('a batch confirms each card and its change', batchLines[0] === '3 cards changed:' && batchLines.length === 4 && batchLines.slice(1).every((l) => /^#\d+ .+: Labels: perf\. Now in Todo \(\d+\w+ of \d+\)(, [^,]+)?\.$/.test(l)), batched)
+  // Lanes (#483): a start, a join (a lane made for a builder that hasn't registered yet), the listing and an end.
+  const laneStarted = measure('hive_lane (start)', tool('hive_lane', { action: 'start', cards: [todo[0], todo[1], todo[2]], reviewer: 'Tester', rounds: 10, waitMinutes: 360, name: 'measured lane' }), 400)
+  check('a lane start: its pair, state, cards and id', /^Lane started: Coder \/ Tester \(alpha\) measured lane: active, on #\d+; .+; rounds 10, wait 6 h\. lane-[0-9a-f]+$/.test(laneStarted), laneStarted)
+  const laneId = laneStarted.match(/lane-[0-9a-f]+$/)?.[0]
+  measure('hive_lane (join)', tool('hive_lane', { action: 'join', builder: 'Tester', cards: [todo[3]] }), 400)
+  const laneList = measure('hive_lane (list)', tool('hive_lane', { action: 'list' }), 600)
+  check('lanes listed a line each', laneList.split('\n').length === 2 && laneList.includes(laneId), laneList)
+  check('a lane ended', measure('hive_lane (end)', tool('hive_lane', { action: 'end', lane: laneId, abandoned: true }), 400).startsWith('Lane abandoned: '), texts['hive_lane (end)'])
   const skillList = measure('hive_list_skills', tool('hive_list_skills', {}), 4000)
   check('skills: a line each, who they are for, no folders', /^work-on-card \(Hive, for agents\): /m.test(skillList) && !skillList.includes(ws), skillList.slice(0, 300))
   // Who each listing is about: an agent's lists what its project's agents get (not the Assistant's skills); the
