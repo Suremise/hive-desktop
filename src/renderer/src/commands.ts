@@ -234,6 +234,17 @@ export const commands: Command[] = [
     }
   },
   {
+    id: 'session.settleLeftovers',
+    label: 'End or Keep the Processes an Agent Left Running',
+    category: 'Session',
+    // Only from the notification and the pane header, which pass the agent and what to do.
+    internal: true,
+    run: (projectPath?: unknown, agentId?: unknown, how?: unknown) => {
+      if (typeof projectPath === 'string' && typeof agentId === 'string' && (how === 'end' || how === 'keep'))
+        void actions.attempt(how === 'end' ? 'Could not end the processes' : 'Could not keep the processes', () => call('session:settleLeftovers', projectPath, agentId, how))
+    }
+  },
+  {
     id: 'session.stopBackgroundAndResume',
     label: 'Stop a Background Session and Resume It',
     category: 'Session',

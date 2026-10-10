@@ -14,6 +14,10 @@
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
 //   transcript. "context N": the reply's request reports N input tokens, so the session's context is about N. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
 //   "shell: <command line>" runs a command in cmd with the session's environment (fake-shell.jsonl records it).
+//   "linger N" leaves N processes running after it ends, as an agent's preview server or tail -f does (#507): each a
+//   detached, hidden node started by a short-lived detached one that has exited by then (linger.cjs; their pids in
+//   fake-linger.jsonl in its home; each ends by itself after two minutes, in case). With fake-linger-at-start.txt (N) in
+//   its home, it leaves N the moment it starts, before anything else.
 //   "boardmove N COLUMN" moves card N as hive_update_task does (the hive tools' API, token and agent, from
 //   --mcp-config) and records the answer in fake-calls.jsonl; "boardreview N ACTION [COLUMN]" reviews it the same way
 //   (review: start, passed or failed; a column with the verdict), and "boardcomment N" comments on it. All are written to the transcript as the hive tool
@@ -318,6 +322,8 @@ async function runPrompt(text) {
   }
   const background = /\bbackground\s+(\d+)/i.exec(text)
   if (background) await startBackgroundTask(Number(background[1]))
+  const linger = /\blinger\s+(\d+)/i.exec(text)
+  if (linger) leaveRunning(Number(linger[1]))
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
   await sleep(secs * 1000)
   const mode = /\bwhatmode\b/i.test(text) ? ` (system prompt mode: ${/^# Your mode: (.+)$/m.exec(prompt)?.[1]?.trim() ?? 'none'})` : ''
@@ -537,7 +543,15 @@ process.stdin.on('data', (data) => {
   }
 })
 
+/** "linger N": N processes left running after it ends (linger.cjs), started through one that exits at once. */
+function leaveRunning(n) {
+  for (let i = 0; i < n; i++) spawn(process.execPath, [path.join(__dirname, 'linger.cjs'), 'starter', path.join(home, 'fake-linger.jsonl'), process.env.HIVE_AGENT || 'agent'], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+}
+
 async function main() {
+  // fake-linger-at-start.txt (N) in its home: N lingering processes the moment it starts, before anything else (#507).
+  const atStart = path.join(home, 'fake-linger-at-start.txt')
+  if (fs.existsSync(atStart)) leaveRunning(Number(fs.readFileSync(atStart, 'utf8')) || 1)
   out('Claude Code (fake, for Hive tests)\r\n')
   const trustFile = path.join(home, 'fake-trusted.json')
   const trusted = fs.existsSync(trustFile) ? JSON.parse(fs.readFileSync(trustFile, 'utf8')) : []

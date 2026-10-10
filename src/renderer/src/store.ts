@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { useMemo, type ReactNode } from 'react'
 import type { Period } from '@shared/usageTotals'
 import type { StartFailure } from '@shared/startFailure'
+import type { AgentLeftovers } from '@shared/agentProcesses'
 import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
 import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectLayout, projectPerPage } from '@shared/defaults'
 import { agentProvider, providersInUse, providerWarnings, setInstalledCheck } from '@shared/providers'
@@ -163,6 +164,8 @@ interface State {
   branchStatus: Record<string, AgentBranchStatus | null>
   /** Agents whose CLI exited before its session started, by projectKey: why, until the next launch or ✕. */
   startFailures: Record<string, StartFailure>
+  /** What agents' stopped launches left running, by projectKey (#507): until ended, kept, or they end. */
+  leftovers: Record<string, AgentLeftovers>
   /** What the tips know (saved in the profile), the tip in the card, and whether Help → Tips… is open. */
   tips: TipsState
   tipShown: string | null
@@ -365,6 +368,7 @@ export const useStore = create<State>(() => ({
   planUsage: {},
   branchStatus: {},
   startFailures: {},
+  leftovers: {},
   tips: EMPTY_TIPS_STATE,
   tipShown: null,
   tipsOpen: false,
@@ -505,6 +509,15 @@ export interface AgentRef {
 }
 
 /** Terminal key of an agent's session. */
+/** Sets what an agent left running (none: removes it). */
+export function applyLeftovers(l: AgentLeftovers): void {
+  const key = projectKey(l.projectPath, l.agentId)
+  set((s) => {
+    const { [key]: _old, ...rest } = s.leftovers
+    return { leftovers: l.processes.length || l.more ? { ...rest, [key]: l } : rest }
+  })
+}
+
 /** Forgets an agent's failed start (✕, or a new launch). */
 export function clearStartFailure(path: string, agentId: string): void {
   const key = projectKey(path, agentId)

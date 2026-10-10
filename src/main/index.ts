@@ -2,7 +2,7 @@ import { initWatches, onWatchedCardsMoved, watchKeepsQuitWaiting } from './watch
 import { initLoopCheck } from './loopCheck'
 import { initDecisionWakes } from './decisionWakes'
 import { initAssistantModes } from './assistantMode'
-import { app, BrowserWindow, Menu, nativeTheme, Notification, protocol, screen, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'child_process'
 import { appendFileSync, createReadStream, existsSync } from 'original-fs'
 import { basename, join, resolve, sep } from 'path'
@@ -33,6 +33,8 @@ import { setTitleBarColors, trackTitleBar } from './titleBar'
 import { startBranchWatch } from './branchWatch'
 import { createLogger, userText, logsDir } from './logger'
 import { killAll } from './ptyHost'
+import { allLeftovers, closeProcessTracking, leftoversSettled, settleAllLeftovers } from './agentProcesses'
+import { leftoversSummary, processCount } from '../shared/agentProcesses'
 import { installShims } from './progressReporters/shims'
 import { insideArchive, onCorruptFile } from './fsutil'
 import { apiEnv, assistantApiUrl, startApiServer, startHookServer } from './servers'
@@ -531,12 +533,44 @@ async function quitNow(tellUser: boolean): Promise<void> {
     })
   }
   await sessions.stopAllAndWait(3000)
+  await quitLeftovers()
   await sessions.flushUsageCache()
   await progress.saveNow().catch(() => undefined)
   await flushMetrics().catch(() => undefined)
   await config.flush()
   if (installOnQuit) installNow()
   else app.quit()
+}
+
+/**
+ * Hive quitting: what agents left running (#507), the sessions just stopped included, is ended as Settings → Agents
+ * says, or after asking in a window still shown; otherwise (a quit with no window shown, or to install an update) it
+ * keeps running. Test copies ask only with HIVE_TEST_ASK_LEFTOVERS=1.
+ */
+async function quitLeftovers(): Promise<void> {
+  await Promise.race([leftoversSettled(), new Promise((r) => setTimeout(r, 5000))])
+  const left = allLeftovers()
+  if (left.length) {
+    let end = config.settings.agents.leftoverProcesses === 'end'
+    // A quiet test copy asks only when its suite says so: a native dialog no suite answers would hold its quit.
+    const shown = !testQuiet() || process.env.HIVE_TEST_ASK_LEFTOVERS === '1' ? hiveWindows().find((e) => e.win.isVisible()) : undefined
+    if (!end && shown && !installOnQuit) {
+      const n = left.reduce((sum, l) => sum + l.processes.length + l.more, 0)
+      const { response } = await dialog.showMessageBox(shown.win, {
+        type: 'question',
+        title: 'Quit Hive',
+        message: `Agents left ${processCount(n)} running`,
+        detail: `${left.map((l) => `${basename(l.projectPath)} · ${l.agentName}: ${leftoversSummary(l)}`).join('\n')}\n\nThe agents started ${n === 1 ? 'it' : 'them'}, and ${n === 1 ? 'it' : 'they'} may hold project folders or ports. End ${n === 1 ? 'it' : 'them'} as Hive quits, or leave ${n === 1 ? 'it' : 'them'} running?`,
+        buttons: ['End Them', 'Leave Running'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true
+      })
+      end = response === 0
+    }
+    await settleAllLeftovers(end ? 'end' : 'keep')
+  }
+  closeProcessTracking()
 }
 
 /** Archives Done cards past Settings → Board's days in every open workspace (also on open: ipc.ts). */
@@ -844,6 +878,7 @@ app.on('before-quit', (e) => {
 
 app.on('will-quit', () => {
   killAll()
+  closeProcessTracking()
   unwatchAll()
   destroyTray()
 })
